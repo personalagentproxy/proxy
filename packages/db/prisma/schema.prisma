@@ -92,6 +92,7 @@ model Organization {
   members     OrgMember[]
   connections Connection[]
   agents      Agent[]
+  audit       AuditEntry[]
 }
 
 model OrgMember {
@@ -185,8 +186,9 @@ model Agent {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  grants AgentGrant[]
+  org      Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  grants   AgentGrant[]
+  sessions AgentSession[]
 
   @@index([orgId])
 }
@@ -208,4 +210,52 @@ model AgentGrant {
 
   @@unique([agentId, connectionId, collectionId])
   @@index([connectionId])
+}
+
+// A signed-in agent. The agent's cookie holds a random token; only its hash is stored.
+model AgentSession {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  agentId   String
+  expires   DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+}
+
+enum AuditAction {
+  list
+  view
+  create
+  update
+  delete
+}
+
+enum AuditOutcome {
+  allowed
+  denied
+}
+
+// One request an agent made, allowed or denied. Plain ids rather than relations, so the entry
+// stays when the agent or the connection is gone.
+model AuditEntry {
+  id           String       @id @default(cuid())
+  orgId        String
+  agentId      String
+  connectionId String
+  collectionId String
+  action       AuditAction
+  // The record's title at the time, for actions on one record.
+  recordTitle  String?
+  outcome      AuditOutcome
+
+  createdAt DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt])
 }

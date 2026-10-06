@@ -7,13 +7,30 @@ export const sessionCookieNames = {
 	insecure: 'proxy.session-token',
 } as const;
 
-export function getSessionTokenFromHeader(cookieHeader: string | undefined): string | null {
+// The agent side's, apart from the human's, so one browser can be signed in as both.
+export const agentSessionCookieNames = {
+	secure: '__Secure-proxy.agent-session',
+	insecure: 'proxy.agent-session',
+} as const;
+
+function readCookie(
+	cookieHeader: string | undefined,
+	names: {secure: string; insecure: string},
+): string | null {
 	if (!cookieHeader) {
 		return null;
 	}
 
 	const cookies = parseCookieHeader(cookieHeader);
-	return cookies.get(sessionCookieNames.secure) || cookies.get(sessionCookieNames.insecure) || null;
+	return cookies.get(names.secure) || cookies.get(names.insecure) || null;
+}
+
+export function getSessionTokenFromHeader(cookieHeader: string | undefined): string | null {
+	return readCookie(cookieHeader, sessionCookieNames);
+}
+
+export function getAgentSessionTokenFromHeader(cookieHeader: string | undefined): string | null {
+	return readCookie(cookieHeader, agentSessionCookieNames);
 }
 
 export function parseCookieHeader(header: string): Map<string, string> {

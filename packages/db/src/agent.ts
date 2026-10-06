@@ -64,14 +64,24 @@ export function isUsernameConflict(error: ApiError): boolean {
 	return Array.isArray(target) && target.includes('username');
 }
 
-/** `Ok(false)` means no such agent in the organization. */
+/**
+ * `Ok(false)` means no such agent in the organization. A new password or a revocation also signs
+ * the agent out everywhere.
+ */
 export async function updateAgent(
 	orgId: string,
 	agentId: string,
 	data: {passwordHash?: string; revokedAt?: Date | null},
 ): Promise<Result<boolean, ApiError>> {
-	return (await wrapDb(() => db.agent.updateMany({where: {id: agentId, orgId}, data}))).map(
-		({count}) => count > 0,
+	const signsOut = data.passwordHash !== undefined || Boolean(data.revokedAt);
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const {count} = await tx.agent.updateMany({where: {id: agentId, orgId}, data});
+			if (count > 0 && signsOut) {
+				await tx.agentSession.deleteMany({where: {agentId}});
+			}
+			return count > 0;
+		}),
 	);
 }
 
@@ -110,4 +120,54 @@ export async function setAgentGrant(data: {
 			}),
 		)
 	).map(() => undefined);
+}
+
+/** `Ok(null)` means no agent has the username. Revoked agents are returned; the caller refuses them. */
+export async function getAgentForSignIn(
+	username: string,
+): Promise<Result<{id: string; passwordHash: string; revokedAt: Date | null} | null, ApiError>> {
+	return wrapDb(() =>
+		db.agent.findUnique({
+			where: {username},
+			select: {id: true, passwordHash: true, revokedAt: true},
+		}),
+	);
+}
+
+export async function createAgentSession(data: {
+	tokenHash: string;
+	agentId: string;
+	expires: Date;
+}): Promise<Result<void, ApiError>> {
+	return (await wrapDb(() => db.agentSession.create({data}))).map(() => undefined);
+}
+
+export type SignedInAgent = {agentId: string; orgId: string; name: string};
+
+/** `Ok(null)` means no live session: unknown, expired, or the agent has been revoked. */
+export async function getSignedInAgent(
+	tokenHash: string,
+): Promise<Result<SignedInAgent | null, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentSession.findUnique({
+				where: {tokenHash},
+				select: {
+					expires: true,
+					agent: {select: {id: true, orgId: true, name: true, revokedAt: true}},
+				},
+			}),
+		)
+	).map((session) => {
+		if (!session || session.expires <= new Date() || session.agent.revokedAt !== null) {
+			return null;
+		}
+		return {agentId: session.agent.id, orgId: session.agent.orgId, name: session.agent.name};
+	});
+}
+
+export async function deleteAgentSession(tokenHash: string): Promise<Result<void, ApiError>> {
+	return (await wrapDb(() => db.agentSession.deleteMany({where: {tokenHash}}))).map(
+		() => undefined,
+	);
 }

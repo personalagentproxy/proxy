@@ -27,7 +27,7 @@ export function sessionCookieName(): string {
 
 // Dev: app and api are both on localhost, where a host-only cookie reaches every port, so no
 // Domain. When they are sibling subdomains, SESSION_COOKIE_DOMAIN must be the shared parent.
-function sessionCookieOptions(): CookieOptions {
+export function sessionCookieOptions(): CookieOptions {
 	return {
 		httpOnly: true,
 		sameSite: 'lax',

@@ -1,5 +1,15 @@
 import express from 'express';
 
+import {handleListActivityRoute} from '../activity/route';
+import {handleAgentLoginRoute, handleAgentLogoutRoute} from '../agent-auth/session';
+import {
+	handleAgentCreateRecordRoute,
+	handleAgentDeleteRecordRoute,
+	handleAgentGetRecordRoute,
+	handleAgentListRecordsRoute,
+	handleAgentMeRoute,
+	handleAgentUpdateRecordRoute,
+} from '../agent-side/route';
 import {
 	handleCreateAgentRoute,
 	handleDeleteAgentRoute,
@@ -19,6 +29,7 @@ import {handleMeRoute} from '../me/route';
 import {handleCreateRecordRoute, handleDeleteRecordRoute, handleGetRecordRoute, handleListRecordsRoute, handleUpdateRecordRoute} from '../records/route';
 import {apiCorsMiddleware} from './middleware/api-cors';
 import {requireBrowserOrigin} from './middleware/require-browser-origin';
+import {withAgentAuthResult} from './middleware/require-agent';
 import {withAuthResult} from './middleware/require-auth';
 import {wrapAsyncRoute} from './middleware/wrap-async-route';
 
@@ -73,6 +84,26 @@ export function createApiRouter(): express.Router {
 	router.post('/api/agents/:agentId/password', withAuthResult('Reset agent password route', handleResetAgentPasswordRoute));
 	router.put('/api/agents/:agentId/revoked', withAuthResult('Set agent revoked route', handleSetAgentRevokedRoute));
 	router.put('/api/agents/:agentId/grants/:connectionId/:collectionId', withAuthResult('Set agent grant route', handleSetAgentGrantRoute));
+
+	router.use('/api/activity', apiCorsMiddleware, requireBrowserOrigin);
+	router.options('/api/activity', handle204);
+	router.get('/api/activity', withAuthResult('List activity route', handleListActivityRoute));
+
+	// The agent side: its own sign-in and cookie, and every request checked against the agent's
+	// access and logged.
+	router.options('/agent-auth/login', apiCorsMiddleware, handle204);
+	router.post('/agent-auth/login', apiCorsMiddleware, requireBrowserOrigin, wrapAsyncRoute('Agent login route', handleAgentLoginRoute));
+	router.options('/agent-auth/logout', apiCorsMiddleware, handle204);
+	router.post('/agent-auth/logout', apiCorsMiddleware, requireBrowserOrigin, wrapAsyncRoute('Agent logout route', handleAgentLogoutRoute));
+	router.use('/api/agent', apiCorsMiddleware, requireBrowserOrigin);
+	router.options('/api/agent*', handle204);
+	router.get('/api/agent/me', withAgentAuthResult('Agent me route', handleAgentMeRoute));
+	const agentRecords = '/api/agent/connections/:connectionId/collections/:collectionId/records';
+	router.get(agentRecords, withAgentAuthResult('Agent list records route', handleAgentListRecordsRoute));
+	router.post(agentRecords, withAgentAuthResult('Agent create record route', handleAgentCreateRecordRoute));
+	router.get(`${agentRecords}/:recordId`, withAgentAuthResult('Agent get record route', handleAgentGetRecordRoute));
+	router.put(`${agentRecords}/:recordId`, withAgentAuthResult('Agent update record route', handleAgentUpdateRecordRoute));
+	router.delete(`${agentRecords}/:recordId`, withAgentAuthResult('Agent delete record route', handleAgentDeleteRecordRoute));
 
 	router.use((_req, res) => {
 		res.status(404).json({error: 'not_found'});
