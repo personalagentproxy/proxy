@@ -13,7 +13,7 @@ export type ConnectionRow = {
 	defaults: Array<{collectionId: string; access: Access}>;
 };
 
-// Never the credential: only `getConnectionCredential` reads it.
+// Never the credential: only `getConnectionWithCredential` reads it.
 const connectionSelect = {
 	id: true,
 	integrationId: true,
@@ -39,6 +39,19 @@ export async function getConnection(
 ): Promise<Result<ConnectionRow | null, ApiError>> {
 	return wrapDb(() =>
 		db.connection.findFirst({where: {id: connectionId, orgId}, select: connectionSelect}),
+	);
+}
+
+/** The connection with its encrypted credential, for the code that talks to the provider. */
+export async function getConnectionWithCredential(
+	orgId: string,
+	connectionId: string,
+): Promise<Result<(ConnectionRow & {credential: string | null}) | null, ApiError>> {
+	return wrapDb(() =>
+		db.connection.findFirst({
+			where: {id: connectionId, orgId},
+			select: {...connectionSelect, credential: true},
+		}),
 	);
 }
 

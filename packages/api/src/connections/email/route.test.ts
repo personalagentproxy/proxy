@@ -16,9 +16,9 @@ const checkMailbox = mock();
 
 mock.module('./mail-check', () => ({checkMailbox}));
 
-const encryptCredential = mock((plaintext: string): Result<string, ApiError> => Ok(`encrypted:${plaintext}`));
+const encryptSecret = mock((plaintext: string): Result<string, ApiError> => Ok(`encrypted:${plaintext}`));
 
-mock.module('../../utils/credential-crypto', () => ({encryptCredential}));
+mock.module('../../utils/secret-crypto', () => ({encryptSecret}));
 
 const createdRow = {
 	id: 'conn-1',
@@ -108,7 +108,7 @@ describe('handleConnectEmailRoute', () => {
 	});
 
 	test('saves nothing without an encryption key', async () => {
-		encryptCredential.mockReturnValueOnce(Err(ApiErr.internalError(new Error('ENCRYPTION_KEY is not set'))));
+		encryptSecret.mockReturnValueOnce(Err(ApiErr.internalError(new Error('ENCRYPTION_KEY is not set'))));
 
 		const {handleConnectEmailRoute} = await import('./route');
 		const result = await handleConnectEmailRoute(makeRequest({provider: 'gmail', email: 'alex@gmail.com', password: 'secret'}));

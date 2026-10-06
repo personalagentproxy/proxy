@@ -34,9 +34,9 @@ const envSchema = z.object({
 	// sign-in; the /auth/email routes then fail gracefully.
 	AUTH_SECRET: z.string().min(1).optional(),
 
-	// Encrypts connection credentials, such as app passwords, before they are stored: 32
-	// random bytes, base64 (`openssl rand -base64 32`). Optional so the api boots without it;
-	// connecting then fails. Changing it makes every stored credential unreadable.
+	// Encrypts what Proxy stores for agents (app passwords, Information records): 32 random bytes,
+	// base64 (`openssl rand -base64 32`). Optional so the api boots without it; connecting and
+	// Information then fail. Changing it makes everything stored with it unreadable.
 	ENCRYPTION_KEY: z
 		.string()
 		.refine((value) => Buffer.from(value, 'base64').length === 32, 'ENCRYPTION_KEY must be 32 bytes, base64')

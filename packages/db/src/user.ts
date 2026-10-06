@@ -32,8 +32,8 @@ export async function getUserByEmail(email: string): Promise<Result<CreatedUser 
 }
 
 /**
- * Creates the user together with their personal organization and membership, in one
- * transaction, so no user exists without one. Retries when a parallel sign-up took the slug.
+ * Creates the user together with their personal organization, membership and the organization's
+ * Information connection, in one transaction, so no user exists without them. Retries when a parallel sign-up took the slug.
  */
 async function createUserWithPersonalOrg(data: {
 	email: string;
@@ -51,6 +51,7 @@ async function createUserWithPersonalOrg(data: {
 				const slug = await pickAvailableSlugDatabase(tx, base);
 				const org = await tx.organization.create({data: {name, slug}});
 				await tx.orgMember.create({data: {orgId: org.id, userId: user.id}});
+				await tx.connection.create({data: {orgId: org.id, integrationId: 'info', account: name}});
 				return user;
 			}),
 		);

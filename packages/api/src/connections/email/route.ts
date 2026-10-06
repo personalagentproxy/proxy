@@ -6,7 +6,7 @@ import {createConnection, listConnections} from '@proxy/db/connection';
 import {EMAIL_PROVIDERS, type EmailProvider, type MailServers} from '@proxy/integrations';
 
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
-import {encryptCredential} from '../../utils/credential-crypto';
+import {encryptSecret} from '../../utils/secret-crypto';
 import {requireUserOrgId} from '../../utils/user-org';
 import {toConnectionResponse, type ConnectionResponse} from '../connection-response';
 import type {EmailCredential} from './credential';
@@ -66,7 +66,7 @@ export function handleConnectEmailRoute(request: AuthenticatedRequest): Promise<
 		}
 
 		const credential: EmailCredential = {...$(serversFor(provider, body)), username: body.email, password: passwordFor(provider, body.password)};
-		const encrypted = $(encryptCredential(JSON.stringify(credential)));
+		const encrypted = $(encryptSecret(JSON.stringify(credential)));
 		$(await checkMailbox(credential));
 
 		const row = $(await createConnection({orgId, integrationId: 'email', account: body.email, credential: encrypted}));

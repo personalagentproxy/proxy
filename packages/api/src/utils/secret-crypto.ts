@@ -17,7 +17,7 @@ function encryptionKey(): Result<Buffer, ApiError> {
 	return Ok(Buffer.from(env.ENCRYPTION_KEY, 'base64'));
 }
 
-export function encryptCredential(plaintext: string): Result<string, ApiError> {
+export function encryptSecret(plaintext: string): Result<string, ApiError> {
 	return encryptionKey().map((key) => {
 		const iv = randomBytes(12);
 		const cipher = createCipheriv(ALGORITHM, key, iv);
@@ -28,10 +28,10 @@ export function encryptCredential(plaintext: string): Result<string, ApiError> {
 }
 
 /** Fails when the value was stored under another key or has been tampered with. */
-export function decryptCredential(stored: string): Result<string, ApiError> {
+export function decryptSecret(stored: string): Result<string, ApiError> {
 	const [version, iv, tag, ciphertext] = stored.split('.');
 	if (version !== VERSION || !iv || !tag || ciphertext === undefined) {
-		return Err(ApiErr.internalError(new Error('Unreadable credential')));
+		return Err(ApiErr.internalError(new Error('Unreadable secret')));
 	}
 
 	return encryptionKey().andThen((key) =>

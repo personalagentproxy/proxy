@@ -7,6 +7,7 @@ import {handleSignOutRoute} from '../auth/signout';
 import {handleConnectEmailRoute} from '../connections/email/route';
 import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleSetConnectionDefaultRoute} from '../connections/route';
 import {handleMeRoute} from '../me/route';
+import {handleCreateRecordRoute, handleDeleteRecordRoute, handleGetRecordRoute, handleListRecordsRoute, handleUpdateRecordRoute} from '../records/route';
 import {apiCorsMiddleware} from './middleware/api-cors';
 import {requireBrowserOrigin} from './middleware/require-browser-origin';
 import {withAuthResult} from './middleware/require-auth';
@@ -47,6 +48,12 @@ export function createApiRouter(): express.Router {
 	router.get('/api/connections/:connectionId', withAuthResult('Get connection route', handleGetConnectionRoute));
 	router.delete('/api/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
 	router.put('/api/connections/:connectionId/defaults/:collectionId', withAuthResult('Set connection default route', handleSetConnectionDefaultRoute));
+	const records = '/api/connections/:connectionId/collections/:collectionId/records';
+	router.get(records, withAuthResult('List records route', handleListRecordsRoute));
+	router.post(records, withAuthResult('Create record route', handleCreateRecordRoute));
+	router.get(`${records}/:recordId`, withAuthResult('Get record route', handleGetRecordRoute));
+	router.put(`${records}/:recordId`, withAuthResult('Update record route', handleUpdateRecordRoute));
+	router.delete(`${records}/:recordId`, withAuthResult('Delete record route', handleDeleteRecordRoute));
 
 	router.use((_req, res) => {
 		res.status(404).json({error: 'not_found'});

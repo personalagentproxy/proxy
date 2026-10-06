@@ -26,11 +26,16 @@ export function handleGetConnectionRoute(request: AuthenticatedRequest): Promise
 	});
 }
 
-/** Agents lose the connection at once. Disconnecting doesn't revoke anything at the provider yet. */
+/** Agents lose the connection at once. Information is built in and can't be disconnected. */
 export function handleDeleteConnectionRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		const orgId = $(await requireUserOrgId(request));
 		const connectionId = request.params.connectionId ?? '';
+		const row = $(requirePresent($(await getConnection(orgId, connectionId)), ApiErr.notFound('connection', connectionId)));
+		if (findIntegration(row.integrationId)?.builtIn) {
+			return $(Err(ApiErr.forbidden()));
+		}
+
 		const deleted = $(await deleteConnection(orgId, connectionId));
 		if (!deleted) {
 			return $(Err(ApiErr.notFound('connection', connectionId)));

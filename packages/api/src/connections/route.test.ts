@@ -96,8 +96,18 @@ describe('handleDeleteConnectionRoute', () => {
 		expect(result.isOk()).toBe(true);
 	});
 
+	test('Information is built in and stays', async () => {
+		getConnection.mockResolvedValue(Ok({...emailRow, integrationId: 'info'}));
+
+		const {handleDeleteConnectionRoute} = await import('./route');
+		const result = await handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-1'}));
+
+		expect(result.unwrapErr().kind).toBe('forbidden');
+		expect(deleteConnection).not.toHaveBeenCalled();
+	});
+
 	test('an unknown connection is not found', async () => {
-		deleteConnection.mockResolvedValue(Ok(false));
+		getConnection.mockResolvedValue(Ok(null));
 
 		const {handleDeleteConnectionRoute} = await import('./route');
 		const result = await handleDeleteConnectionRoute(makeRequest({connectionId: 'other'}));
