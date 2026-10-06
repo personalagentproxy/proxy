@@ -6,7 +6,13 @@ import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {Button} from '@/components/ui/button';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {useAuditOnce} from '@/hooks/use-audit';
-import {AGENT_ACCESS_LABELS, displayValue, recordsOf, recordTitle} from '@/lib/access';
+import {
+	AGENT_ACCESS_LABELS,
+	connectionLabel,
+	displayValue,
+	recordsOf,
+	recordTitle,
+} from '@/lib/access';
 
 // A collection's records, with New when the agent may write.
 export function AgentCollectionPage() {
@@ -27,7 +33,7 @@ export function AgentCollectionPage() {
 		return <AgentMissing />;
 	}
 
-	const {connection, integration, collection, access} = target;
+	const {connection, collection, access} = target;
 	if (access === 'none') {
 		return <AgentDenied>This login has no access to {collection.name}.</AgentDenied>;
 	}
@@ -39,7 +45,11 @@ export function AgentCollectionPage() {
 	return (
 		<AgentShell>
 			<Crumbs
-				items={[{label: 'Home', to: '/agent'}, {label: integration.name}, {label: collection.name}]}
+				items={[
+					{label: 'Home', to: '/agent'},
+					{label: connectionLabel(state, connection)},
+					{label: collection.name},
+				]}
 			/>
 			<div className="mb-4 flex items-center justify-between gap-4 md:px-3">
 				<AgentHeading detail={AGENT_ACCESS_LABELS[access]}>{collection.name}</AgentHeading>

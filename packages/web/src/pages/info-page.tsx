@@ -8,9 +8,10 @@ import {Section} from '@/components/section';
 import {Button} from '@/components/ui/button';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@/components/ui/dialog';
 import {displayValue, recordsOf, recordTitle} from '@/lib/access';
-import {findIntegration, INFO_INTEGRATION_ID} from '@/lib/integrations';
+import {INFO_INTEGRATION_ID, type Collection} from '@proxy/integrations';
+import {findIntegration} from '@/lib/integrations';
 import {INFO_CONNECTION_ID} from '@/lib/mock-data';
-import type {Collection, DataRecord} from '@/lib/types';
+import type {DataRecord} from '@/lib/types';
 
 // Which record the dialog is open on: a new one in a collection, or one being edited.
 type Editing = {collection: Collection; record: DataRecord | null};

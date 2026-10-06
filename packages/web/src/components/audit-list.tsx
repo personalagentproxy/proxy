@@ -1,6 +1,6 @@
 import {useStore} from '@/components/mock-store';
 import {EmptyRows, RowHeader, RowList} from '@/components/row-list';
-import {describeEntry, locate} from '@/lib/access';
+import {connectionLabel, describeEntry, locate} from '@/lib/access';
 import {formatDateTime} from '@/lib/format';
 import type {AuditEntry} from '@/lib/types';
 import {cn} from '@/lib/utils';
@@ -47,7 +47,7 @@ export function AuditList({entries, showAgent = true, showConnection = true}: Pr
 						</span>
 						{showConnection && (
 							<span className={CELLS.connection}>
-								{located?.integration.name ?? 'Disconnected'}
+								{located ? connectionLabel(state, located.connection) : 'Disconnected'}
 							</span>
 						)}
 					</li>

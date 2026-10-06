@@ -89,7 +89,8 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  members OrgMember[]
+  members     OrgMember[]
+  connections Connection[]
 }
 
 model OrgMember {
@@ -105,4 +106,46 @@ model OrgMember {
 
   @@index([orgId])
   @@index([userId])
+}
+
+enum Access {
+  none
+  read
+  write
+}
+
+// A connected account of an integration from the catalog (`@proxy/integrations`), such as a
+// mailbox or a Google account. An organization can connect the same integration more than once.
+model Connection {
+  id            String   @id @default(cuid())
+  orgId         String
+  integrationId String
+  // The account as the provider names it, such as an email address.
+  account       String
+  // Encrypted with ENCRYPTION_KEY: an app password with its server settings.
+  credential    String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  org      Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  defaults ConnectionDefault[]
+
+  @@index([orgId])
+}
+
+// What an agent without a setting of its own can do in one of the connection's collections. No
+// row is no access.
+model ConnectionDefault {
+  id           String @id @default(cuid())
+  connectionId String
+  collectionId String
+  access       Access
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, collectionId])
 }

@@ -1,9 +1,15 @@
 import {createContext, use, useMemo, useState, type ReactNode} from 'react';
 import {Err, Ok, type Result} from 'ts-results-es';
 import {generatePassword, generateUsername, newId} from '@/lib/credentials';
-import {findIntegration} from '@/lib/integrations';
-import {grantKey, initialState, sampleRecords, type MockState} from '@/lib/mock-data';
-import type {Access, AgentLogin, AuditEntry} from '@/lib/types';
+import type {Access} from '@proxy/integrations';
+import {
+	grantKey,
+	initialState,
+	SAMPLE_ACCOUNTS,
+	sampleRecords,
+	type MockState,
+} from '@/lib/mock-data';
+import type {AgentLogin, AuditEntry} from '@/lib/types';
 
 // Which agent is signed in on the agent side. Kept in the tab's session storage so a reload keeps
 // it signed in, while everything else starts over from the fixtures. The human side's session
@@ -80,7 +86,6 @@ export function MockStoreProvider({children}: {children: ReactNode}) {
 			},
 			signOutAgent: () => setSession({...session, agentId: null}),
 			connect: (integrationId) => {
-				const integration = findIntegration(integrationId);
 				const id = newId();
 				setState((current) => ({
 					...current,
@@ -89,7 +94,7 @@ export function MockStoreProvider({children}: {children: ReactNode}) {
 						{
 							id,
 							integrationId,
-							account: integration?.sampleAccount ?? integrationId,
+							account: SAMPLE_ACCOUNTS[integrationId] ?? integrationId,
 							connectedAt: new Date().toISOString(),
 						},
 					],

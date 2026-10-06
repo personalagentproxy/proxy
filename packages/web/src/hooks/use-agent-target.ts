@@ -1,7 +1,7 @@
 import {useParams} from 'react-router';
 import {useStore} from '@/components/mock-store';
 import {accessFor, locate, type Located} from '@/lib/access';
-import type {Access} from '@/lib/types';
+import type {Access} from '@proxy/integrations';
 
 // The connection and collection an agent page's URL points at, with the signed-in agent's
 // access to them; null when the URL names no such collection.

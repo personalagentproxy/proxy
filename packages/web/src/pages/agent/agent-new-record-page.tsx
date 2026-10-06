@@ -4,14 +4,14 @@ import {useStore} from '@/components/mock-store';
 import {RecordForm} from '@/components/record-form';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {useAuditOnce} from '@/hooks/use-audit';
-import {withSystemValues} from '@/lib/access';
+import {connectionLabel, withSystemValues} from '@/lib/access';
 import {AgentDenied, AgentMissing} from '@/pages/agent/agent-collection-page';
 
 // A new record in a collection the agent may write to. Reaching the form without that access is
 // logged as a denied create.
 export function AgentNewRecordPage() {
 	const navigate = useNavigate();
-	const {saveRecord, log} = useStore();
+	const {state, saveRecord, log} = useStore();
 	const target = useAgentTarget();
 	useAuditOnce(
 		target && target.access !== 'write'
@@ -29,7 +29,7 @@ export function AgentNewRecordPage() {
 		return <AgentMissing />;
 	}
 
-	const {connection, integration, collection, access} = target;
+	const {connection, collection, access} = target;
 	if (access !== 'write') {
 		return <AgentDenied>This login cannot create {collection.name.toLowerCase()}.</AgentDenied>;
 	}
@@ -41,7 +41,7 @@ export function AgentNewRecordPage() {
 			<Crumbs
 				items={[
 					{label: 'Home', to: '/agent'},
-					{label: integration.name},
+					{label: connectionLabel(state, connection)},
 					{label: collection.name, to: listPath},
 					{label: 'New'},
 				]}

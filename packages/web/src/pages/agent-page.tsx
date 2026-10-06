@@ -18,9 +18,10 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@/components/ui/select';
-import {ACCESS_LABELS, ACCESS_LEVELS, accessFor, integrationOf} from '@/lib/access';
+import {ACCESS_LEVELS, isAccess} from '@proxy/integrations';
+import {ACCESS_LABELS, accessFor, integrationOf} from '@/lib/access';
 import {formatDate} from '@/lib/format';
-import type {Access, AgentLogin} from '@/lib/types';
+import type {AgentLogin} from '@/lib/types';
 
 const RECENT = 10;
 
@@ -195,10 +196,6 @@ function CredentialLine({label, value, mono = false, muted = false, children}: L
 }
 
 const LEVEL_ITEMS = ACCESS_LEVELS.map((level) => ({value: level, label: ACCESS_LABELS[level]}));
-
-function isAccess(value: string): value is Access {
-	return ACCESS_LEVELS.some((level) => level === value);
-}
 
 // One select per collection of every connection, Information first. A change applies at once.
 function AccessGrid({agent}: {agent: AgentLogin}) {

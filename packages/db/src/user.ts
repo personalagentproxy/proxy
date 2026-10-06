@@ -100,9 +100,9 @@ export async function createUser(data: {
 }
 
 /**
- * Deletes the user and their organization; the cascades take their accounts, sessions and
- * membership. Organizations have one member for now, so every organization the user belongs to
- * is theirs alone.
+ * Deletes the user and their organization; the cascades take their accounts, sessions,
+ * membership and the organization's connections. Organizations have one member for now, so every
+ * organization the user belongs to is theirs alone.
  */
 export async function deleteUser(userId: string): Promise<Result<void, ApiError>> {
 	return wrapDb(() =>

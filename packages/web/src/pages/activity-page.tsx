@@ -9,7 +9,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@/components/ui/select';
-import {integrationOf} from '@/lib/access';
+import {connectionLabel} from '@/lib/access';
 
 const ALL = 'all';
 
@@ -46,7 +46,7 @@ export function ActivityPage() {
 		{value: ALL, label: 'All connections'},
 		...state.connections.map((candidate) => ({
 			value: candidate.id,
-			label: integrationOf(candidate).name,
+			label: connectionLabel(state, candidate),
 		})),
 	];
 

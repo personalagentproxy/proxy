@@ -1,5 +1,5 @@
+import {INFO_INTEGRATION_ID} from '@proxy/integrations';
 import {newId} from '@/lib/credentials';
-import {INFO_INTEGRATION_ID} from '@/lib/integrations';
 import type {AgentLogin, AuditEntry, Connection, DataRecord} from '@/lib/types';
 
 export type MockState = {
@@ -26,11 +26,12 @@ function localDateTime(offset: number): string {
 	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function localDate(offset: number): string {
-	return localDateTime(offset).slice(0, 10);
-}
-
 type Samples = Record<string, Record<string, string>[]>;
+
+// The account a mock connection is made with, standing in for the provider's sign-in.
+export const SAMPLE_ACCOUNTS: Record<string, string> = {
+	email: 'alex.weber@gmail.com',
+};
 
 // What each provider would hand back once connected; a new connection starts with these.
 export const SAMPLE_RECORDS: Record<string, Samples> = {
@@ -72,7 +73,7 @@ export const SAMPLE_RECORDS: Record<string, Samples> = {
 			},
 		],
 	},
-	google: {
+	email: {
 		emails: [
 			{
 				from: 'billing@hetzner.com',
@@ -110,98 +111,6 @@ export const SAMPLE_RECORDS: Record<string, Samples> = {
 				body: '3pm works for me.',
 			},
 		],
-		events: [
-			{
-				title: 'Northwind sync',
-				start: localDateTime(2 * DAY),
-				end: localDateTime(2 * DAY + HOUR),
-				location: 'Google Meet',
-				attendees: 'lena@northwind.dev',
-				notes: '',
-			},
-			{
-				title: 'Train to Munich',
-				start: localDateTime(5 * DAY),
-				end: localDateTime(5 * DAY + 4 * HOUR),
-				location: 'Berlin Hbf',
-				attendees: '',
-				notes: 'ICE 1007, car 7, seat 52',
-			},
-		],
-		contacts: [
-			{
-				name: 'Lena Vogel',
-				email: 'lena@northwind.dev',
-				phone: '+49 151 2345 6789',
-				company: 'Northwind',
-			},
-			{name: 'Max Bauer', email: 'max.bauer@gmail.com', phone: '+49 170 9876 5432', company: ''},
-		],
-		files: [
-			{
-				name: 'Taxes 2025',
-				kind: 'Folder',
-				folder: 'My Drive',
-				modifiedAt: localDateTime(-10 * DAY),
-			},
-			{
-				name: 'Lease agreement.pdf',
-				kind: 'PDF',
-				folder: 'Home',
-				modifiedAt: localDateTime(-40 * DAY),
-			},
-		],
-		docs: [
-			{
-				title: 'Trip plan: Munich',
-				body: 'Day 1: arrive 12:41, check in.\nDay 2: meetings.\nDay 3: back.',
-			},
-		],
-		sheets: [
-			{
-				title: 'Monthly budget',
-				cells: 'Category,Budget,Spent\nGroceries,400,312\nTransport,120,86',
-			},
-		],
-	},
-	notion: {
-		pages: [
-			{
-				title: 'Reading list',
-				parent: 'Personal',
-				body: 'The Pragmatic Programmer\nDesigning Data-Intensive Applications',
-			},
-			{
-				title: 'Proxy ideas',
-				parent: 'Projects',
-				body: 'Approvals before an agent acts.\nSpending limits per agent.',
-			},
-		],
-		entries: [
-			{name: 'Renew passport', database: 'Tasks', status: 'Not started', due: localDate(14 * DAY)},
-			{name: 'Book dentist', database: 'Tasks', status: 'Done', due: localDate(-3 * DAY)},
-		],
-	},
-	linear: {
-		issues: [
-			{
-				title: 'Agent sign-in page',
-				status: 'In Progress',
-				priority: 'High',
-				assignee: 'Alex',
-				description: 'Username and password, nothing else.',
-			},
-			{
-				title: 'Audit log filters',
-				status: 'Todo',
-				priority: 'Medium',
-				assignee: '',
-				description: 'Filter by agent and connection.',
-			},
-		],
-		projects: [
-			{name: 'Mock UI', status: 'In progress', lead: 'Alex', targetDate: localDate(10 * DAY)},
-		],
 	},
 };
 
@@ -222,7 +131,6 @@ export function grantKey(connectionId: string, collectionId: string): string {
 	return `${connectionId}/${collectionId}`;
 }
 
-// Google and Notion are connected, Linear is left for the Add connection page to show.
 export function initialState(): MockState {
 	const connections: Connection[] = [
 		{
@@ -232,16 +140,10 @@ export function initialState(): MockState {
 			connectedAt: ago(30 * DAY),
 		},
 		{
-			id: 'google',
-			integrationId: 'google',
+			id: 'email',
+			integrationId: 'email',
 			account: 'alex.weber@gmail.com',
 			connectedAt: ago(21 * DAY),
-		},
-		{
-			id: 'notion',
-			integrationId: 'notion',
-			account: "Alex's workspace",
-			connectedAt: ago(12 * DAY),
 		},
 	];
 	const records = connections.flatMap((connection) =>
@@ -257,11 +159,8 @@ export function initialState(): MockState {
 			lastActiveAt: ago(20 * MINUTE),
 			revokedAt: null,
 			grants: {
-				[grantKey('google', 'emails')]: 'write',
-				[grantKey('google', 'drafts')]: 'write',
-				[grantKey('google', 'events')]: 'read',
-				[grantKey('google', 'contacts')]: 'read',
-				[grantKey('notion', 'pages')]: 'read',
+				[grantKey('email', 'emails')]: 'read',
+				[grantKey('email', 'drafts')]: 'write',
 			},
 		},
 		{
@@ -276,7 +175,7 @@ export function initialState(): MockState {
 				[grantKey(INFO_CONNECTION_ID, 'addresses')]: 'read',
 				[grantKey(INFO_CONNECTION_ID, 'cards')]: 'read',
 				[grantKey(INFO_CONNECTION_ID, 'notes')]: 'read',
-				[grantKey('google', 'emails')]: 'read',
+				[grantKey('email', 'emails')]: 'read',
 			},
 		},
 		{
@@ -287,10 +186,7 @@ export function initialState(): MockState {
 			createdAt: ago(28 * DAY),
 			lastActiveAt: ago(11 * DAY),
 			revokedAt: ago(10 * DAY),
-			grants: {
-				[grantKey('notion', 'pages')]: 'write',
-				[grantKey('google', 'docs')]: 'read',
-			},
+			grants: {},
 		},
 	];
 
@@ -314,20 +210,13 @@ export function initialState(): MockState {
 	});
 
 	const audit: AuditEntry[] = [
-		entry(20 * MINUTE, 'inbox', 'google', 'drafts', 'create', 'Re: Thursday sync moved?'),
-		entry(21 * MINUTE, 'inbox', 'google', 'events', 'list'),
-		entry(22 * MINUTE, 'inbox', 'google', 'emails', 'view', 'Thursday sync moved?'),
-		entry(23 * MINUTE, 'inbox', 'google', 'emails', 'list'),
+		entry(20 * MINUTE, 'inbox', 'email', 'drafts', 'create', 'Re: Thursday sync moved?'),
+		entry(22 * MINUTE, 'inbox', 'email', 'emails', 'view', 'Thursday sync moved?'),
+		entry(23 * MINUTE, 'inbox', 'email', 'emails', 'list'),
 		entry(3 * HOUR, 'shopping', INFO_CONNECTION_ID, 'cards', 'view', 'Personal Visa'),
 		entry(3 * HOUR + 2 * MINUTE, 'shopping', INFO_CONNECTION_ID, 'addresses', 'view', 'Home'),
 		entry(3 * HOUR + 3 * MINUTE, 'shopping', INFO_CONNECTION_ID, 'addresses', 'list'),
-		entry(3 * HOUR + 4 * MINUTE, 'shopping', 'google', 'contacts', 'list', null, 'denied'),
-		entry(DAY, 'inbox', 'google', 'emails', 'update', 'Booking confirmation: Berlin → Munich'),
-		entry(DAY + 5 * MINUTE, 'inbox', 'google', 'emails', 'list'),
-		entry(2 * DAY, 'inbox', 'notion', 'pages', 'view', 'Reading list'),
-		entry(2 * DAY + MINUTE, 'inbox', 'notion', 'pages', 'list'),
-		entry(11 * DAY, 'research', 'notion', 'pages', 'update', 'Proxy ideas'),
-		entry(11 * DAY + 10 * MINUTE, 'research', 'google', 'docs', 'list'),
+		entry(DAY + 5 * MINUTE, 'inbox', 'email', 'emails', 'list'),
 	];
 
 	return {connections, records, agents, audit};

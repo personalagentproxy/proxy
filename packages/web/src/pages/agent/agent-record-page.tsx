@@ -6,7 +6,7 @@ import {RecordFields, RecordForm} from '@/components/record-form';
 import {Button} from '@/components/ui/button';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {useAuditOnce} from '@/hooks/use-audit';
-import {recordTitle} from '@/lib/access';
+import {connectionLabel, recordTitle} from '@/lib/access';
 import {AgentDenied, AgentMissing} from '@/pages/agent/agent-collection-page';
 
 // One record, with Edit and Delete when the agent may write. Editing happens in place.
@@ -35,7 +35,7 @@ export function AgentRecordPage() {
 		return <AgentMissing />;
 	}
 
-	const {connection, integration, collection, access} = target;
+	const {connection, collection, access} = target;
 	if (access === 'none') {
 		return <AgentDenied>This login has no access to {collection.name}.</AgentDenied>;
 	}
@@ -53,7 +53,7 @@ export function AgentRecordPage() {
 			<Crumbs
 				items={[
 					{label: 'Home', to: '/agent'},
-					{label: integration.name},
+					{label: connectionLabel(state, connection)},
 					{label: collection.name, to: listPath},
 					{label: title},
 				]}

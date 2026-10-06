@@ -1,16 +1,8 @@
 import {formatDate, formatDateTime} from '@/lib/format';
-import {findCollection, findIntegration} from '@/lib/integrations';
+import {findCollection, type Access, type Collection, type FieldType} from '@proxy/integrations';
+import {findIntegration, type Integration} from '@/lib/integrations';
 import {grantKey, type MockState} from '@/lib/mock-data';
-import type {
-	Access,
-	AgentLogin,
-	AuditEntry,
-	Collection,
-	Connection,
-	DataRecord,
-	FieldType,
-	Integration,
-} from '@/lib/types';
+import type {AgentLogin, AuditEntry, Connection, DataRecord} from '@/lib/types';
 
 export const ACCESS_LABELS: Record<Access, string> = {
 	none: 'No access',
@@ -25,8 +17,6 @@ export const AGENT_ACCESS_LABELS: Record<Access, string> = {
 	write: 'Read and write',
 };
 
-export const ACCESS_LEVELS: Access[] = ['none', 'read', 'write'];
-
 export function accessFor(agent: AgentLogin, connectionId: string, collectionId: string): Access {
 	return agent.grants[grantKey(connectionId, collectionId)] ?? 'none';
 }
@@ -38,6 +28,18 @@ export function integrationOf(connection: Connection): Integration {
 		throw new Error(`Unknown integration ${connection.integrationId}`);
 	}
 	return integration;
+}
+
+// The integration's name, and the account too once the integration is connected more than once.
+export function connectionLabel(state: MockState, connection: Connection): string {
+	const {name} = integrationOf(connection);
+	const siblings = state.connections.filter(
+		(candidate) => candidate.integrationId === connection.integrationId,
+	);
+	if (siblings.length < 2) {
+		return name;
+	}
+	return `${name} (${connection.account})`;
 }
 
 export type Located = {connection: Connection; integration: Integration; collection: Collection};

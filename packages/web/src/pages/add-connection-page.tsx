@@ -7,10 +7,11 @@ import {Button} from '@/components/ui/button';
 import {INTEGRATIONS} from '@/lib/integrations';
 
 // The catalog. Connect stands in for the provider's own sign-in: the mock connects the sample
-// account at once, with the provider's sample records.
+// account at once, with the provider's sample records. An integration can be connected again,
+// such as a second Google account.
 export function AddConnectionPage() {
 	const navigate = useNavigate();
-	const {state, connect} = useStore();
+	const {connect} = useStore();
 	const available = INTEGRATIONS.filter((integration) => !integration.builtIn);
 
 	return (
@@ -23,42 +24,27 @@ export function AddConnectionPage() {
 			}
 		>
 			<RowList>
-				{available.map((integration) => {
-					const existing = state.connections.find(
-						(connection) => connection.integrationId === integration.id,
-					);
-					return (
-						<li
-							key={integration.id}
-							className="flex min-h-14 items-center gap-3 px-4 py-2 text-sm md:px-3"
+				{available.map((integration) => (
+					<li
+						key={integration.id}
+						className="flex min-h-14 items-center gap-3 px-4 py-2 text-sm md:px-3"
+					>
+						<integration.icon className="size-4 shrink-0 text-muted-foreground" />
+						<div className="grid min-w-0 flex-1">
+							<span className="truncate">{integration.name}</span>
+							<span className="truncate text-xs text-muted-foreground">
+								{integration.description}
+							</span>
+						</div>
+						<Button
+							size="sm"
+							variant="outline"
+							onClick={() => navigate(`/connections/${connect(integration.id)}`)}
 						>
-							<integration.icon className="size-4 shrink-0 text-muted-foreground" />
-							<div className="grid min-w-0 flex-1">
-								<span className="truncate">{integration.name}</span>
-								<span className="truncate text-xs text-muted-foreground">
-									{integration.description}
-								</span>
-							</div>
-							{existing ? (
-								<Button
-									size="sm"
-									variant="ghost"
-									onClick={() => navigate(`/connections/${existing.id}`)}
-								>
-									Connected
-								</Button>
-							) : (
-								<Button
-									size="sm"
-									variant="outline"
-									onClick={() => navigate(`/connections/${connect(integration.id)}`)}
-								>
-									Connect
-								</Button>
-							)}
-						</li>
-					);
-				})}
+							Connect
+						</Button>
+					</li>
+				))}
 			</RowList>
 		</AppShell>
 	);

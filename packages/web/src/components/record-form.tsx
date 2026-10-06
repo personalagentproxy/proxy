@@ -1,6 +1,6 @@
 import {useId, useState, type ReactNode} from 'react';
+import type {Field} from '@proxy/integrations';
 import {displayValue} from '@/lib/access';
-import type {Field} from '@/lib/types';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';

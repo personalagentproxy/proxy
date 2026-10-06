@@ -4,6 +4,8 @@ import {handleDevLoginRoute} from '../auth/dev-login';
 import {handleEmailSignInRoute, handleEmailVerifyRoute} from '../auth/email';
 import {handleGoogleCallbackRoute, handleGoogleStartRoute} from '../auth/google';
 import {handleSignOutRoute} from '../auth/signout';
+import {handleConnectEmailRoute} from '../connections/email/route';
+import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleSetConnectionDefaultRoute} from '../connections/route';
 import {handleMeRoute} from '../me/route';
 import {apiCorsMiddleware} from './middleware/api-cors';
 import {requireBrowserOrigin} from './middleware/require-browser-origin';
@@ -37,6 +39,14 @@ export function createApiRouter(): express.Router {
 	router.use('/api/me', apiCorsMiddleware, requireBrowserOrigin);
 	router.options('/api/me', handle204);
 	router.get('/api/me', withAuthResult('Me route', handleMeRoute));
+
+	router.use('/api/connections', apiCorsMiddleware, requireBrowserOrigin);
+	router.options('/api/connections*', handle204);
+	router.get('/api/connections', withAuthResult('List connections route', handleListConnectionsRoute));
+	router.post('/api/connections/email', withAuthResult('Connect email route', handleConnectEmailRoute));
+	router.get('/api/connections/:connectionId', withAuthResult('Get connection route', handleGetConnectionRoute));
+	router.delete('/api/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
+	router.put('/api/connections/:connectionId/defaults/:collectionId', withAuthResult('Set connection default route', handleSetConnectionDefaultRoute));
 
 	router.use((_req, res) => {
 		res.status(404).json({error: 'not_found'});
