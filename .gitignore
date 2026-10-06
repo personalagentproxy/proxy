@@ -1,0 +1,16 @@
+# dependencies
+node_modules
+
+# misc
+.DS_Store
+
+# env files
+.env*
+
+# ai agent config (skills symlinked by bun run setup)
+/.claude/skills
+/.codex/skills
+
+
+# build output
+dist
