@@ -59,10 +59,11 @@ describe('parseSchema', () => {
 		expect(parseSchema(schema, {id: 'a'}).unwrap()).toEqual({id: 'a'});
 	});
 
-	it('returns the zod error when the value does not match', () => {
+	it('returns a parse_error when the value does not match', () => {
 		const error = parseSchema(schema, {id: 1}).unwrapErr();
 
-		expect(error.issues[0]?.path).toEqual(['id']);
+		expect(error.kind).toBe('parse_error');
+		expect(error.statusCode).toBe(400);
 	});
 });
 
