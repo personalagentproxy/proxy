@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+		<title>Proxy</title>
+		<style>
+			/* The page's own colors until the stylesheet arrives, so the first paint is not white.
+			   Same values as --background in src/index.css. */
+			html {
+				background: oklch(1 0 0);
+				color-scheme: light;
+			}
+			html.dark {
+				background: oklch(0.145 0 0);
+				color-scheme: dark;
+			}
+		</style>
+		<script>
+			// Follows the system theme before the first paint so the page never flashes the other one.
+			if (matchMedia('(prefers-color-scheme: dark)').matches) {
+				document.documentElement.classList.add('dark');
+			}
+		</script>
+	</head>
+	<body>
+		<div id="root"></div>
+		<script type="module" src="/src/main.tsx"></script>
+	</body>
+</html>

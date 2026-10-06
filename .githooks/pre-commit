@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+# Format staged files with prettier and re-stage them.
+
+staged=$(mktemp)
+trap 'rm -f "$staged"' EXIT
+
+git diff --cached --name-only --diff-filter=ACMR -z >"$staged"
+[ ! -s "$staged" ] && exit 0
+
+xargs -0 bunx prettier --write --ignore-unknown <"$staged" >/dev/null
+xargs -0 git add <"$staged"

@@ -1,0 +1,7 @@
+{
+	"scripts": {
+		"setup": "node scripts/setup-workspace.mjs",
+		"archive": "rm -rf node_modules\nrm -f .env"
+	},
+	"runScriptMode": "concurrent"
+}
