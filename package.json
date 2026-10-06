@@ -6,7 +6,8 @@
 	],
 	"scripts": {
 		"setup": "node scripts/setup-ai.mjs",
-		"dev": "bun run --filter './packages/*' dev",
+		"postinstall": "bun run --cwd packages/db db:generate",
+		"dev": "node scripts/dev.mjs",
 		"build": "bun run --cwd packages/web build",
 		"typecheck": "bun run --filter './packages/*' typecheck",
 		"lint": "bun run --cwd packages/web lint",

@@ -1,0 +1,31 @@
+{
+	"name": "@proxy/db",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./auth": "./src/auth.ts",
+		"./organization": "./src/organization.ts",
+		"./user": "./src/user.ts"
+	},
+	"scripts": {
+		"test": "bun test",
+		"typecheck": "tsc --noEmit",
+		"db:dev": "bun --env-file=../../.env scripts/dev-db.ts",
+		"db:generate": "prisma generate",
+		"db:migrate:diff": "bun --env-file=../../.env prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --script",
+		"db:migrate:deploy": "bun --env-file=../../.env prisma migrate deploy"
+	},
+	"dependencies": {
+		"@prisma/client": "^6.19.3",
+		"@proxy/utils": "workspace:*",
+		"ts-results-es": "^7.1.0"
+	},
+	"devDependencies": {
+		"@prisma/dev": "0.25.2",
+		"@types/bun": "latest",
+		"prisma": "^6.19.3",
+		"typescript": "~6.0.2"
+	}
+}

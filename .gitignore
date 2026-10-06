@@ -6,6 +6,7 @@ node_modules
 
 # env files
 .env*
+!.env.example
 
 # ai agent config (skills symlinked by bun run setup)
 /.claude/skills
