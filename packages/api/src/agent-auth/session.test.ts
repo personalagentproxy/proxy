@@ -8,6 +8,8 @@ const getSignedInAgent = mock();
 
 mock.module('@proxy/db/agent', () => ({getAgentForSignIn, createAgentSession, deleteAgentSession, getSignedInAgent}));
 
+mock.module('../utils/env', () => ({env: {NODE_ENV: 'development'}}));
+
 mock.module('../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
 	serializeError: mock(() => ({})),
