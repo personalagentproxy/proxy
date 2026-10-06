@@ -91,6 +91,7 @@ model Organization {
 
   members     OrgMember[]
   connections Connection[]
+  agents      Agent[]
 }
 
 model OrgMember {
@@ -133,6 +134,7 @@ model Connection {
   org         Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
   defaults    ConnectionDefault[]
   infoRecords InfoRecord[]
+  agentGrants AgentGrant[]
 
   @@index([orgId])
 }
@@ -167,4 +169,43 @@ model InfoRecord {
   connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
 
   @@index([connectionId, collectionId])
+}
+
+// A login handed to an AI agent. The password is shown once, when it is made or reset; only its
+// hash is kept.
+model Agent {
+  id           String    @id @default(cuid())
+  orgId        String
+  name         String
+  username     String    @unique
+  passwordHash String
+  lastActiveAt DateTime?
+  revokedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  grants AgentGrant[]
+
+  @@index([orgId])
+}
+
+// An agent's own setting for one collection of a connection, where it differs from the
+// connection's default. No row means the agent follows the default.
+model AgentGrant {
+  id           String @id @default(cuid())
+  agentId      String
+  connectionId String
+  collectionId String
+  access       Access
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  agent      Agent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, connectionId, collectionId])
+  @@index([connectionId])
 }

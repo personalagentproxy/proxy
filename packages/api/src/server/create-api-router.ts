@@ -1,5 +1,14 @@
 import express from 'express';
 
+import {
+	handleCreateAgentRoute,
+	handleDeleteAgentRoute,
+	handleGetAgentRoute,
+	handleListAgentsRoute,
+	handleResetAgentPasswordRoute,
+	handleSetAgentGrantRoute,
+	handleSetAgentRevokedRoute,
+} from '../agents/route';
 import {handleDevLoginRoute} from '../auth/dev-login';
 import {handleEmailSignInRoute, handleEmailVerifyRoute} from '../auth/email';
 import {handleGoogleCallbackRoute, handleGoogleStartRoute} from '../auth/google';
@@ -54,6 +63,16 @@ export function createApiRouter(): express.Router {
 	router.get(`${records}/:recordId`, withAuthResult('Get record route', handleGetRecordRoute));
 	router.put(`${records}/:recordId`, withAuthResult('Update record route', handleUpdateRecordRoute));
 	router.delete(`${records}/:recordId`, withAuthResult('Delete record route', handleDeleteRecordRoute));
+
+	router.use('/api/agents', apiCorsMiddleware, requireBrowserOrigin);
+	router.options('/api/agents*', handle204);
+	router.get('/api/agents', withAuthResult('List agents route', handleListAgentsRoute));
+	router.post('/api/agents', withAuthResult('Create agent route', handleCreateAgentRoute));
+	router.get('/api/agents/:agentId', withAuthResult('Get agent route', handleGetAgentRoute));
+	router.delete('/api/agents/:agentId', withAuthResult('Delete agent route', handleDeleteAgentRoute));
+	router.post('/api/agents/:agentId/password', withAuthResult('Reset agent password route', handleResetAgentPasswordRoute));
+	router.put('/api/agents/:agentId/revoked', withAuthResult('Set agent revoked route', handleSetAgentRevokedRoute));
+	router.put('/api/agents/:agentId/grants/:connectionId/:collectionId', withAuthResult('Set agent grant route', handleSetAgentGrantRoute));
 
 	router.use((_req, res) => {
 		res.status(404).json({error: 'not_found'});
