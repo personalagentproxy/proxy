@@ -7,8 +7,9 @@ import {
 	SquareTerminalIcon,
 	type LucideIcon,
 } from 'lucide-react';
-import {Link, useLocation, useNavigate} from 'react-router';
-import {useStore} from '@/components/mock-store';
+import {Link, useLocation, useRouteLoaderData} from 'react-router';
+import {signOut} from '@/client/auth-client';
+import type {Me} from '@/client/me-client';
 import {
 	Sidebar,
 	SidebarContent,
@@ -33,8 +34,7 @@ const DESTINATIONS: Destination[] = [
 // it; a sheet from the left on phones, opened from the header and closed again on every pick.
 export function AppSidebar() {
 	const {pathname} = useLocation();
-	const navigate = useNavigate();
-	const {signOutHuman} = useStore();
+	const me = useRouteLoaderData<Me>('human');
 	const {setOpenMobile} = useSidebar();
 
 	return (
@@ -68,11 +68,8 @@ export function AppSidebar() {
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton
-							tooltip="Sign out"
-							onClick={() => {
-								signOutHuman();
-								navigate('/login');
-							}}
+							tooltip={me ? `Sign out ${me.user.email}` : 'Sign out'}
+							onClick={() => void signOut()}
 						>
 							<LogOutIcon />
 							<span>Sign out</span>

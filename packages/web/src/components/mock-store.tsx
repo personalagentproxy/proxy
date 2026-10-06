@@ -5,27 +5,25 @@ import {findIntegration} from '@/lib/integrations';
 import {grantKey, initialState, sampleRecords, type MockState} from '@/lib/mock-data';
 import type {Access, AgentLogin, AuditEntry} from '@/lib/types';
 
-// Who is signed in on each side. Kept in the tab's session storage so a reload keeps you signed
-// in, while everything else starts over from the fixtures.
-type Session = {human: boolean; agentId: string | null};
+// Which agent is signed in on the agent side. Kept in the tab's session storage so a reload keeps
+// it signed in, while everything else starts over from the fixtures. The human side's session
+// lives in the api.
+type Session = {agentId: string | null};
 
 const SESSION_KEY = 'proxy:session';
 
 function readSession(): Session {
 	const stored = sessionStorage.getItem(SESSION_KEY);
 	if (!stored) {
-		return {human: false, agentId: null};
+		return {agentId: null};
 	}
 	return JSON.parse(stored) as Session;
 }
 
 type Store = {
 	state: MockState;
-	session: Session;
 	// The agent signed in on the agent side, if its login still exists and is not revoked.
 	agent: AgentLogin | null;
-	signInHuman: () => void;
-	signOutHuman: () => void;
 	signInAgent: (username: string, password: string) => Result<AgentLogin, string>;
 	signOutAgent: () => void;
 	connect: (integrationId: string) => string;
@@ -66,10 +64,7 @@ export function MockStoreProvider({children}: {children: ReactNode}) {
 
 		return {
 			state,
-			session,
 			agent: signedIn && signedIn.revokedAt === null ? signedIn : null,
-			signInHuman: () => setSession({...session, human: true}),
-			signOutHuman: () => setSession({...session, human: false}),
 			signInAgent: (username, password) => {
 				const agent = state.agents.find((candidate) => candidate.username === username.trim());
 				if (!agent || agent.password !== password) {
