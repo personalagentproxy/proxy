@@ -1,59 +1,42 @@
 import {useState} from 'react';
-import {useNavigate, useParams} from 'react-router';
+import {useLoaderData, useNavigate} from 'react-router';
+import {deleteAgentRecord, updateAgentRecord} from '@/client/agent-client';
 import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
-import {useStore} from '@/components/mock-store';
 import {RecordFields, RecordForm} from '@/components/record-form';
 import {Button} from '@/components/ui/button';
 import {useAgentTarget} from '@/hooks/use-agent-target';
-import {useAuditOnce} from '@/hooks/use-audit';
-import {connectionLabel, recordTitle} from '@/lib/access';
+import {recordTitle} from '@/lib/access';
+import {agentErrorMessage} from '@/lib/agent-errors';
+import type {agentRecordLoader} from '@/agent-loaders';
 import {AgentDenied, AgentMissing} from '@/pages/agent/agent-collection-page';
 
-// One record, with Edit and Delete when the agent may write. Editing happens in place.
+// One record, with Edit and Delete when the agent may write. Editing happens in place; a saved
+// record can come back under a new address, as an email draft does.
 export function AgentRecordPage() {
-	const {recordId = ''} = useParams();
+	const outcome = useLoaderData<typeof agentRecordLoader>();
 	const navigate = useNavigate();
-	const {state, saveRecord, deleteRecord, log} = useStore();
 	const target = useAgentTarget();
 	const [editing, setEditing] = useState(false);
-	const record = state.records.find((candidate) => candidate.id === recordId);
-	const found =
-		target !== null && record !== undefined && record.collectionId === target.collection.id;
-	useAuditOnce(
-		found
-			? {
-					connectionId: target.connection.id,
-					collectionId: target.collection.id,
-					action: 'view',
-					recordTitle: target.access === 'none' ? null : recordTitle(target.collection, record),
-					outcome: target.access === 'none' ? 'denied' : 'allowed',
-				}
-			: null,
-	);
+	const [error, setError] = useState<string | null>(null);
+	if (outcome.kind === 'denied') {
+		return <AgentDenied>This login has no access to this collection.</AgentDenied>;
+	}
 
-	if (!target || !record || !found) {
+	if (outcome.kind === 'missing' || !target) {
 		return <AgentMissing />;
 	}
 
-	const {connection, collection, access} = target;
-	if (access === 'none') {
-		return <AgentDenied>This login has no access to {collection.name}.</AgentDenied>;
-	}
-
+	const {connection, integration, collection} = target;
+	const {access, record} = outcome.value;
 	const title = recordTitle(collection, record);
 	const listPath = `/agent/${connection.id}/${collection.id}`;
-	const request = {
-		connectionId: connection.id,
-		collectionId: collection.id,
-		outcome: 'allowed' as const,
-	};
 
 	return (
 		<AgentShell>
 			<Crumbs
 				items={[
 					{label: 'Home', to: '/agent'},
-					{label: connectionLabel(state, connection)},
+					{label: integration.name},
 					{label: collection.name, to: listPath},
 					{label: title},
 				]}
@@ -68,9 +51,12 @@ export function AgentRecordPage() {
 						<Button
 							size="sm"
 							variant="destructive"
-							onClick={() => {
-								deleteRecord(record.id);
-								log({...request, action: 'delete', recordTitle: title});
+							onClick={async () => {
+								const result = await deleteAgentRecord(connection.id, collection.id, record.id);
+								if (result.isErr()) {
+									setError(agentErrorMessage(result.error));
+									return;
+								}
 								navigate(listPath);
 							}}
 						>
@@ -79,21 +65,28 @@ export function AgentRecordPage() {
 					</div>
 				)}
 			</div>
-			<div className="md:px-3">
+			<div className="flex flex-col gap-3 md:px-3">
+				{error && <p className="text-sm text-destructive">{error}</p>}
 				{editing ? (
 					<RecordForm
 						fields={collection.fields}
 						initial={record.values}
 						submitLabel="Save"
 						onCancel={() => setEditing(false)}
-						onSubmit={(values) => {
-							saveRecord(connection.id, collection.id, values, record.id);
-							log({
-								...request,
-								action: 'update',
-								recordTitle: values[collection.titleField] ?? title,
-							});
+						onSubmit={async (values) => {
+							const result = await updateAgentRecord(
+								connection.id,
+								collection.id,
+								record.id,
+								values,
+							);
+							if (result.isErr()) {
+								setError(agentErrorMessage(result.error));
+								return;
+							}
+							setError(null);
 							setEditing(false);
+							navigate(`${listPath}/${result.value.id}`, {replace: true});
 						}}
 					/>
 				) : (

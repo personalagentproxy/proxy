@@ -1,13 +1,14 @@
 import {Fragment, type ReactNode} from 'react';
 import {Link, useNavigate} from 'react-router';
-import {useStore} from '@/components/mock-store';
+import {signOutAgent} from '@/client/agent-client';
 import {Button} from '@/components/ui/button';
+import {useAgentMe} from '@/hooks/use-agent-target';
 
 // The agent side's frame. Built for a model driving a browser: no sidebar, no icon-only controls
 // and nothing that only shows on hover, so every action is a labeled link or button on the page.
 export function AgentShell({children}: {children: ReactNode}) {
 	const navigate = useNavigate();
-	const {agent, signOutAgent} = useStore();
+	const agent = useAgentMe()?.agent;
 
 	return (
 		<div className="flex min-h-dvh w-full flex-col bg-background text-foreground">
@@ -25,8 +26,8 @@ export function AgentShell({children}: {children: ReactNode}) {
 					<Button
 						size="sm"
 						variant="outline"
-						onClick={() => {
-							signOutAgent();
+						onClick={async () => {
+							await signOutAgent();
 							navigate('/agent/login');
 						}}
 					>

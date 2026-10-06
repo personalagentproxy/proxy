@@ -1,10 +1,19 @@
 import {Navigate, createBrowserRouter, redirect} from 'react-router';
+import {agentCollectionLoader, agentRecordLoader, agentSideLoader} from '@/agent-loaders';
 import {getMe} from '@/client/me-client';
 import {AgentSide} from '@/components/agent-side';
 import {HumanSide} from '@/components/human-side';
 import {RouteError} from '@/components/route-error';
 import {sanitizeCallbackUrl} from '@/lib/callback-url';
 import {unwrapLoaderResult} from '@/lib/loader-utils';
+import {
+	activityLoader,
+	agentLoader,
+	agentsLoader,
+	connectionLoader,
+	connectionsLoader,
+	infoLoader,
+} from '@/loaders';
 import {ActivityPage} from '@/pages/activity-page';
 import {AddConnectionPage} from '@/pages/add-connection-page';
 import {AgentPage} from '@/pages/agent-page';
@@ -48,22 +57,33 @@ export const router = createBrowserRouter([
 		errorElement: <RouteError />,
 		children: [
 			{path: '/', element: <Navigate to="/connections" replace />},
-			{path: '/connections', element: <ConnectionsPage />},
+			{path: '/connections', loader: connectionsLoader, element: <ConnectionsPage />},
 			{path: '/connections/new', element: <AddConnectionPage />},
-			{path: '/connections/:id', element: <ConnectionPage />},
-			{path: '/info', element: <InfoPage />},
-			{path: '/agents', element: <AgentsPage />},
-			{path: '/agents/:id', element: <AgentPage />},
-			{path: '/activity', element: <ActivityPage />},
+			{path: '/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
+			{path: '/info', loader: infoLoader, element: <InfoPage />},
+			{path: '/agents', loader: agentsLoader, element: <AgentsPage />},
+			{path: '/agents/:id', loader: agentLoader, element: <AgentPage />},
+			{path: '/activity', loader: activityLoader, element: <ActivityPage />},
 		],
 	},
 	{
+		id: 'agent',
+		loader: agentSideLoader,
 		element: <AgentSide />,
+		errorElement: <RouteError />,
 		children: [
 			{path: '/agent', element: <AgentHomePage />},
-			{path: '/agent/:connectionId/:collectionId', element: <AgentCollectionPage />},
+			{
+				path: '/agent/:connectionId/:collectionId',
+				loader: agentCollectionLoader,
+				element: <AgentCollectionPage />,
+			},
 			{path: '/agent/:connectionId/:collectionId/new', element: <AgentNewRecordPage />},
-			{path: '/agent/:connectionId/:collectionId/:recordId', element: <AgentRecordPage />},
+			{
+				path: '/agent/:connectionId/:collectionId/:recordId',
+				loader: agentRecordLoader,
+				element: <AgentRecordPage />,
+			},
 		],
 	},
 	{path: '*', element: <Navigate to="/" replace />},

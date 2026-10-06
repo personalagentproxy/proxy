@@ -1,8 +1,8 @@
 import {BotIcon, PlusIcon} from 'lucide-react';
 import {useState} from 'react';
-import {useNavigate} from 'react-router';
+import {useLoaderData, useNavigate} from 'react-router';
+import {createAgent} from '@/client/agents-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
-import {useStore} from '@/components/mock-store';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
 import {Button} from '@/components/ui/button';
 import {
@@ -16,7 +16,9 @@ import {
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {formatAgo} from '@/lib/format';
+import {describeFetchError} from '@/lib/loader-utils';
 import {cn} from '@/lib/utils';
+import type {agentsLoader} from '@/loaders';
 
 // Widths and visibility shared by the header and every row, so the columns line up.
 const CELLS = {
@@ -26,9 +28,9 @@ const CELLS = {
 
 // Every agent login, newest first. A revoked one stays listed, muted, until it is deleted.
 export function AgentsPage() {
-	const {state} = useStore();
+	const {agents} = useLoaderData<typeof agentsLoader>();
 	const [creating, setCreating] = useState(false);
-	const active = state.agents.filter((agent) => agent.revokedAt === null).length;
+	const active = agents.filter((agent) => agent.revokedAt === null).length;
 
 	return (
 		<AppShell
@@ -50,8 +52,8 @@ export function AgentsPage() {
 					</RowHeader>
 				}
 			>
-				{state.agents.length === 0 && <EmptyRows>No agents yet.</EmptyRows>}
-				{state.agents.map((agent) => {
+				{agents.length === 0 && <EmptyRows>No agents yet.</EmptyRows>}
+				{agents.map((agent) => {
 					const revoked = agent.revokedAt !== null;
 					return (
 						<Row
@@ -81,14 +83,16 @@ export function AgentsPage() {
 	);
 }
 
-// Names the login; the username and password are made for it, and the agent's page shows the
-// password the one time it can be seen.
+// Names the login; the api makes its username and password, and the agent's page shows the
+// password the one time it is sent.
 function NewAgentDialog({open, onClose}: {open: boolean; onClose: () => void}) {
 	const navigate = useNavigate();
-	const {createAgent} = useStore();
 	const [name, setName] = useState('');
+	const [error, setError] = useState<string | null>(null);
+	const [pending, setPending] = useState(false);
 	const close = () => {
 		setName('');
+		setError(null);
 		onClose();
 	};
 
@@ -105,17 +109,26 @@ function NewAgentDialog({open, onClose}: {open: boolean; onClose: () => void}) {
 			<DialogContent>
 				<form
 					className="grid gap-4"
-					onSubmit={(event) => {
+					onSubmit={async (event) => {
 						event.preventDefault();
-						const id = createAgent(name);
+						setPending(true);
+						const result = await createAgent(name);
+						setPending(false);
+						if (result.isErr()) {
+							setError(describeFetchError(result.error));
+							return;
+						}
 						close();
-						navigate(`/agents/${id}`, {state: {reveal: true}});
+						navigate(`/agents/${result.value.agent.id}`, {
+							state: {password: result.value.password},
+						});
 					}}
 				>
 					<DialogHeader>
 						<DialogTitle>New agent</DialogTitle>
 						<DialogDescription>
-							A login for one agent. It starts with no access; you choose what it can reach next.
+							A login for one agent. It starts with each connection's default access; you can change
+							it next.
 						</DialogDescription>
 					</DialogHeader>
 					<div className="grid gap-2">
@@ -128,11 +141,12 @@ function NewAgentDialog({open, onClose}: {open: boolean; onClose: () => void}) {
 							onChange={(event) => setName(event.target.value)}
 						/>
 					</div>
+					{error && <p className="text-sm text-destructive">{error}</p>}
 					<DialogFooter>
 						<Button type="button" variant="outline" onClick={close}>
 							Cancel
 						</Button>
-						<Button type="submit" disabled={name.trim().length === 0}>
+						<Button type="submit" disabled={name.trim().length === 0 || pending}>
 							Create
 						</Button>
 					</DialogFooter>

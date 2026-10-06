@@ -2,10 +2,6 @@ import type {Access, Collection} from './types';
 
 export const ACCESS_LEVELS: Access[] = ['none', 'read', 'write'];
 
-export function isAccess(value: string): value is Access {
-	return ACCESS_LEVELS.some((level) => level === value);
-}
-
 export function minAccess(a: Access, b: Access): Access {
 	return ACCESS_LEVELS.indexOf(a) < ACCESS_LEVELS.indexOf(b) ? a : b;
 }

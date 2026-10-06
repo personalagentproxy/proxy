@@ -1,33 +1,42 @@
+import {providerAccess} from '@proxy/integrations';
 import {UnplugIcon} from 'lucide-react';
 import {useState} from 'react';
-import {Link, useNavigate, useParams} from 'react-router';
+import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
+import {deleteConnection, setConnectionDefault} from '@/client/connections-client';
+import {AccessSelect} from '@/components/access-select';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
-import {useStore} from '@/components/mock-store';
 import {NotFound} from '@/components/not-found';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
-import {ACCESS_LABELS, accessFor, agentsWithAccess, integrationOf, recordsOf} from '@/lib/access';
+import {
+	ACCESS_LABELS,
+	accessFor,
+	agentsWithAccess,
+	defaultAccess,
+	integrationOf,
+} from '@/lib/access';
 import {formatDate} from '@/lib/format';
+import {describeFetchError} from '@/lib/loader-utils';
+import type {connectionLoader} from '@/loaders';
 
 const RECENT = 10;
 
 export function ConnectionPage() {
-	const {id = ''} = useParams();
+	const {connection, connections, agents, entries} = useLoaderData<typeof connectionLoader>();
 	const navigate = useNavigate();
-	const {state, disconnect} = useStore();
+	const revalidator = useRevalidator();
 	const [disconnecting, setDisconnecting] = useState(false);
-	const connection = state.connections.find((candidate) => candidate.id === id);
-	if (!connection) {
+	const [error, setError] = useState<string | null>(null);
+	const integration = connection && integrationOf(connection);
+	if (!connection || !integration) {
 		return <NotFound what="connection" back="/connections" backLabel="Back to connections" />;
 	}
 
-	const integration = integrationOf(connection);
-	const agents = agentsWithAccess(state, connection.id);
-	const activity = state.audit.filter((entry) => entry.connectionId === connection.id);
+	const withAccess = agentsWithAccess(agents, connection);
 
 	return (
 		<AppShell
@@ -38,32 +47,45 @@ export function ConnectionPage() {
 				</>
 			}
 			actions={
-				<IconButton label="Disconnect" onClick={() => setDisconnecting(true)}>
-					<UnplugIcon />
-				</IconButton>
+				!integration.builtIn && (
+					<IconButton label="Disconnect" onClick={() => setDisconnecting(true)}>
+						<UnplugIcon />
+					</IconButton>
+				)
 			}
 		>
 			<div className="flex flex-col gap-8">
-				<Section title="What it shares" detail={`connected ${formatDate(connection.connectedAt)}`}>
+				<Section title="Default access" detail={`connected ${formatDate(connection.connectedAt)}`}>
+					<p className="mb-2 text-sm text-muted-foreground md:px-3">
+						What every agent gets here, unless its own page says otherwise.
+					</p>
 					<RowList>
 						{integration.collections.map((collection) => (
 							<li key={collection.id} className="flex h-10 items-center gap-3 px-4 text-sm md:px-3">
 								<span className="min-w-0 flex-1 truncate">{collection.name}</span>
-								<span className="text-muted-foreground tabular-nums">
-									{recordsOf(state, connection.id, collection.id).length}
-								</span>
+								<AccessSelect
+									label={`${collection.name} default access`}
+									value={defaultAccess(connection, collection.id)}
+									provider={providerAccess(collection)}
+									onChange={async (next) => {
+										const result = await setConnectionDefault(
+											connection.id,
+											collection.id,
+											next ?? 'none',
+										);
+										setError(result.isErr() ? describeFetchError(result.error) : null);
+										await revalidator.revalidate();
+									}}
+								/>
 							</li>
 						))}
 					</RowList>
+					{error && <p className="mt-2 text-sm text-destructive md:px-3">{error}</p>}
 				</Section>
 				<Section title="Agents with access">
 					<RowList>
-						{agents.length === 0 && (
-							<EmptyRows>
-								No agent can reach this connection. Give access from an agent's page.
-							</EmptyRows>
-						)}
-						{agents.map((agent) => (
+						{withAccess.length === 0 && <EmptyRows>No agent can reach this connection.</EmptyRows>}
+						{withAccess.map((agent) => (
 							<Row
 								key={agent.id}
 								to={`/agents/${agent.id}`}
@@ -71,12 +93,10 @@ export function ConnectionPage() {
 								cells={
 									<span className="hidden min-w-0 shrink truncate text-right text-muted-foreground md:block">
 										{integration.collections
-											.filter(
-												(collection) => accessFor(agent, connection.id, collection.id) !== 'none',
-											)
+											.filter((collection) => accessFor(agent, connection, collection) !== 'none')
 											.map(
 												(collection) =>
-													`${collection.name}: ${ACCESS_LABELS[accessFor(agent, connection.id, collection.id)]}`,
+													`${collection.name}: ${ACCESS_LABELS[accessFor(agent, connection, collection)]}`,
 											)
 											.join(', ')}
 									</span>
@@ -88,7 +108,7 @@ export function ConnectionPage() {
 				<Section
 					title="Recent activity"
 					action={
-						activity.length > RECENT && (
+						entries.length > RECENT && (
 							<Link
 								to={`/activity?connection=${connection.id}`}
 								className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
@@ -98,7 +118,12 @@ export function ConnectionPage() {
 						)
 					}
 				>
-					<AuditList entries={activity.slice(0, RECENT)} showConnection={false} />
+					<AuditList
+						entries={entries.slice(0, RECENT)}
+						agents={agents}
+						connections={connections}
+						showConnection={false}
+					/>
 				</Section>
 			</div>
 			<ConfirmDialog
@@ -108,8 +133,12 @@ export function ConnectionPage() {
 				confirmLabel="Disconnect"
 				destructive
 				onClose={() => setDisconnecting(false)}
-				onConfirm={() => {
-					disconnect(connection.id);
+				onConfirm={async () => {
+					const result = await deleteConnection(connection.id);
+					if (result.isErr()) {
+						setError(describeFetchError(result.error));
+						return;
+					}
 					navigate('/connections');
 				}}
 			/>

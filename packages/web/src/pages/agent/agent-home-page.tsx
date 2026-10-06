@@ -1,14 +1,15 @@
+import {findCollection} from '@proxy/integrations';
 import {AgentHeading, AgentShell} from '@/components/agent-shell';
-import {useStore} from '@/components/mock-store';
 import {Row, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
-import {AGENT_ACCESS_LABELS, reachable} from '@/lib/access';
+import {useAgentMe} from '@/hooks/use-agent-target';
+import {AGENT_ACCESS_LABELS} from '@/lib/access';
+import {findIntegration} from '@/lib/integrations';
 
 // Everything this login can reach, connection by connection. Collections without access are
 // left out, so the agent never sees a door it cannot open.
 export function AgentHomePage() {
-	const {state, agent} = useStore();
-	const connections = agent ? reachable(state, agent) : [];
+	const connections = useAgentMe()?.connections ?? [];
 
 	return (
 		<AgentShell>
@@ -21,24 +22,30 @@ export function AgentHomePage() {
 						This login has no access yet. Ask the person who made it to give it some.
 					</p>
 				)}
-				{connections.map(({connection, integration, collections}) => (
-					<Section key={connection.id} title={integration.name} detail={connection.account}>
-						<RowList>
-							{collections.map(({collection, access}) => (
-								<Row
-									key={collection.id}
-									to={`/agent/${connection.id}/${collection.id}`}
-									title={collection.name}
-									cells={
-										<span className="shrink-0 text-muted-foreground">
-											{AGENT_ACCESS_LABELS[access]}
-										</span>
-									}
-								/>
-							))}
-						</RowList>
-					</Section>
-				))}
+				{connections.map((connection) => {
+					const integration = findIntegration(connection.integrationId);
+					if (!integration) {
+						return null;
+					}
+					return (
+						<Section key={connection.id} title={integration.name} detail={connection.account}>
+							<RowList>
+								{connection.collections.map(({id, access}) => (
+									<Row
+										key={id}
+										to={`/agent/${connection.id}/${id}`}
+										title={findCollection(integration, id)?.name ?? id}
+										cells={
+											<span className="shrink-0 text-muted-foreground">
+												{AGENT_ACCESS_LABELS[access]}
+											</span>
+										}
+									/>
+								))}
+							</RowList>
+						</Section>
+					);
+				})}
 			</div>
 		</AgentShell>
 	);

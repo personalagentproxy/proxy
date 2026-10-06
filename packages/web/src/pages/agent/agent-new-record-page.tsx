@@ -1,39 +1,23 @@
+import {useState} from 'react';
 import {useNavigate} from 'react-router';
+import {createAgentRecord} from '@/client/agent-client';
 import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
-import {useStore} from '@/components/mock-store';
 import {RecordForm} from '@/components/record-form';
 import {useAgentTarget} from '@/hooks/use-agent-target';
-import {useAuditOnce} from '@/hooks/use-audit';
-import {connectionLabel, withSystemValues} from '@/lib/access';
-import {AgentDenied, AgentMissing} from '@/pages/agent/agent-collection-page';
+import {agentErrorMessage} from '@/lib/agent-errors';
+import {AgentDenied} from '@/pages/agent/agent-collection-page';
 
-// A new record in a collection the agent may write to. Reaching the form without that access is
-// logged as a denied create.
+// A new record in a collection the agent may write to. Without that access the form isn't
+// offered; the api would refuse the create and log it as denied.
 export function AgentNewRecordPage() {
 	const navigate = useNavigate();
-	const {state, saveRecord, log} = useStore();
 	const target = useAgentTarget();
-	useAuditOnce(
-		target && target.access !== 'write'
-			? {
-					connectionId: target.connection.id,
-					collectionId: target.collection.id,
-					action: 'create',
-					recordTitle: null,
-					outcome: 'denied',
-				}
-			: null,
-	);
-
-	if (!target) {
-		return <AgentMissing />;
+	const [error, setError] = useState<string | null>(null);
+	if (!target || target.access !== 'write') {
+		return <AgentDenied>This login cannot create records here.</AgentDenied>;
 	}
 
-	const {connection, collection, access} = target;
-	if (access !== 'write') {
-		return <AgentDenied>This login cannot create {collection.name.toLowerCase()}.</AgentDenied>;
-	}
-
+	const {connection, integration, collection} = target;
 	const listPath = `/agent/${connection.id}/${collection.id}`;
 
 	return (
@@ -41,7 +25,7 @@ export function AgentNewRecordPage() {
 			<Crumbs
 				items={[
 					{label: 'Home', to: '/agent'},
-					{label: connectionLabel(state, connection)},
+					{label: integration.name},
 					{label: collection.name, to: listPath},
 					{label: 'New'},
 				]}
@@ -49,25 +33,19 @@ export function AgentNewRecordPage() {
 			<div className="mb-6 md:px-3">
 				<AgentHeading>New {collection.singular}</AgentHeading>
 			</div>
-			<div className="md:px-3">
+			<div className="flex flex-col gap-3 md:px-3">
+				{error && <p className="text-sm text-destructive">{error}</p>}
 				<RecordForm
 					fields={collection.fields}
 					submitLabel={`Create ${collection.singular}`}
 					onCancel={() => navigate(listPath)}
-					onSubmit={(values) => {
-						const id = saveRecord(
-							connection.id,
-							collection.id,
-							withSystemValues(collection, connection, values),
-						);
-						log({
-							connectionId: connection.id,
-							collectionId: collection.id,
-							action: 'create',
-							recordTitle: values[collection.titleField] ?? null,
-							outcome: 'allowed',
-						});
-						navigate(`${listPath}/${id}`, {replace: true});
+					onSubmit={async (values) => {
+						const result = await createAgentRecord(connection.id, collection.id, values);
+						if (result.isErr()) {
+							setError(agentErrorMessage(result.error));
+							return;
+						}
+						navigate(`${listPath}/${result.value.id}`, {replace: true});
 					}}
 				/>
 			</div>

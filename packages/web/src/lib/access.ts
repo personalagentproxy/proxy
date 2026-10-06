@@ -1,7 +1,13 @@
+import {
+	effectiveAccess,
+	findCollection,
+	providerAccess,
+	type Access,
+	type Collection,
+	type FieldType,
+} from '@proxy/integrations';
 import {formatDate, formatDateTime} from '@/lib/format';
-import {findCollection, type Access, type Collection, type FieldType} from '@proxy/integrations';
 import {findIntegration, type Integration} from '@/lib/integrations';
-import {grantKey, type MockState} from '@/lib/mock-data';
 import type {AgentLogin, AuditEntry, Connection, DataRecord} from '@/lib/types';
 
 export const ACCESS_LABELS: Record<Access, string> = {
@@ -17,23 +23,15 @@ export const AGENT_ACCESS_LABELS: Record<Access, string> = {
 	write: 'Read and write',
 };
 
-export function accessFor(agent: AgentLogin, connectionId: string, collectionId: string): Access {
-	return agent.grants[grantKey(connectionId, collectionId)] ?? 'none';
-}
-
-// The connection's integration; every connection is made from one in the catalog.
-export function integrationOf(connection: Connection): Integration {
-	const integration = findIntegration(connection.integrationId);
-	if (!integration) {
-		throw new Error(`Unknown integration ${connection.integrationId}`);
-	}
-	return integration;
+// The connection's integration, or null for one the catalog no longer has.
+export function integrationOf(connection: {integrationId: string}): Integration | null {
+	return findIntegration(connection.integrationId) ?? null;
 }
 
 // The integration's name, and the account too once the integration is connected more than once.
-export function connectionLabel(state: MockState, connection: Connection): string {
-	const {name} = integrationOf(connection);
-	const siblings = state.connections.filter(
+export function connectionLabel(connections: Connection[], connection: Connection): string {
+	const name = integrationOf(connection)?.name ?? connection.integrationId;
+	const siblings = connections.filter(
 		(candidate) => candidate.integrationId === connection.integrationId,
 	);
 	if (siblings.length < 2) {
@@ -42,36 +40,62 @@ export function connectionLabel(state: MockState, connection: Connection): strin
 	return `${name} (${connection.account})`;
 }
 
-export type Located = {connection: Connection; integration: Integration; collection: Collection};
-
-// A connection and one of its collections from the ids in a URL or an audit entry.
-export function locate(
-	state: MockState,
-	connectionId: string,
-	collectionId: string,
-): Located | null {
-	const connection = state.connections.find((candidate) => candidate.id === connectionId);
-	if (!connection) {
-		return null;
-	}
-
-	const integration = integrationOf(connection);
-	const collection = findCollection(integration, collectionId);
-	if (!collection) {
-		return null;
-	}
-
-	return {connection, integration, collection};
+// What an agent without a setting of its own gets in a collection.
+export function defaultAccess(connection: Connection, collectionId: string): Access {
+	return (
+		connection.collections.find((candidate) => candidate.id === collectionId)?.connectionDefault ??
+		'none'
+	);
 }
 
-export function recordsOf(
-	state: MockState,
+// The agent's own setting for a collection, or null where it follows the default.
+export function ownAccess(
+	agent: AgentLogin,
 	connectionId: string,
 	collectionId: string,
-): DataRecord[] {
-	return state.records.filter(
-		(record) => record.connectionId === connectionId && record.collectionId === collectionId,
+): Access | null {
+	const grant = agent.grants.find(
+		(candidate) =>
+			candidate.connectionId === connectionId && candidate.collectionId === collectionId,
 	);
+	return grant?.access ?? null;
+}
+
+// What the agent can do in the collection: its own setting, else the default, capped by the provider.
+export function accessFor(
+	agent: AgentLogin,
+	connection: Connection,
+	collection: Collection,
+): Access {
+	return effectiveAccess({
+		provider: providerAccess(collection),
+		connectionDefault: defaultAccess(connection, collection.id),
+		agent: ownAccess(agent, connection.id, collection.id),
+	});
+}
+
+// The agents, revoked ones left out, that can reach anything in the connection.
+export function agentsWithAccess(agents: AgentLogin[], connection: Connection): AgentLogin[] {
+	const collections = integrationOf(connection)?.collections ?? [];
+	return agents.filter(
+		(agent) =>
+			agent.revokedAt === null &&
+			collections.some((collection) => accessFor(agent, connection, collection) !== 'none'),
+	);
+}
+
+// The connection and collection an audit entry is about, while both still exist.
+export function locateEntry(
+	connections: Connection[],
+	entry: AuditEntry,
+): {connection: Connection; collection: Collection} | null {
+	const connection = connections.find((candidate) => candidate.id === entry.connectionId);
+	const integration = connection && integrationOf(connection);
+	const collection = integration && findCollection(integration, entry.collectionId);
+	if (!connection || !collection) {
+		return null;
+	}
+	return {connection, collection};
 }
 
 export function recordTitle(collection: Collection, record: DataRecord): string {
@@ -80,38 +104,6 @@ export function recordTitle(collection: Collection, record: DataRecord): string 
 		return `Untitled ${collection.singular}`;
 	}
 	return title;
-}
-
-// The connections an agent can reach anything in, each with the collections it can reach.
-export function reachable(
-	state: MockState,
-	agent: AgentLogin,
-): Array<{
-	connection: Connection;
-	integration: Integration;
-	collections: Array<{collection: Collection; access: Access}>;
-}> {
-	return state.connections
-		.map((connection) => {
-			const integration = integrationOf(connection);
-			const collections = integration.collections
-				.map((collection) => ({collection, access: accessFor(agent, connection.id, collection.id)}))
-				.filter(({access}) => access !== 'none');
-			return {connection, integration, collections};
-		})
-		.filter(({collections}) => collections.length > 0);
-}
-
-// How many agents can reach anything in the connection, revoked ones left out.
-export function agentsWithAccess(state: MockState, connectionId: string): AgentLogin[] {
-	const prefix = `${connectionId}/`;
-	return state.agents.filter(
-		(agent) =>
-			agent.revokedAt === null &&
-			Object.entries(agent.grants).some(
-				([key, access]) => key.startsWith(prefix) && access !== 'none',
-			),
-	);
 }
 
 const ACTION_VERBS: Record<AuditEntry['action'], string> = {
@@ -136,27 +128,6 @@ export function describeEntry(entry: AuditEntry, collection: Collection | undefi
 
 	const title = entry.recordTitle ? ` “${entry.recordTitle}”` : '';
 	return `${ACTION_VERBS[entry.action]} ${singular}${title}`;
-}
-
-// What the provider fills in on a new record: the connected account as its sender, now as when
-// it arrived or changed.
-export function withSystemValues(
-	collection: Collection,
-	connection: Connection,
-	values: Record<string, string>,
-): Record<string, string> {
-	const now = new Date();
-	now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-	const filled = {...values};
-	for (const field of collection.fields.filter((candidate) => candidate.system)) {
-		if (field.type === 'email') {
-			filled[field.key] = connection.account;
-		}
-		if (field.type === 'datetime') {
-			filled[field.key] = now.toISOString().slice(0, 16);
-		}
-	}
-	return filled;
 }
 
 // What a row shows for a field: secrets down to their last four characters.

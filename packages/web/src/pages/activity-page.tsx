@@ -1,7 +1,6 @@
-import {useSearchParams} from 'react-router';
+import {useLoaderData, useSearchParams} from 'react-router';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
-import {useStore} from '@/components/mock-store';
 import {
 	Select,
 	SelectContent,
@@ -10,23 +9,24 @@ import {
 	SelectValue,
 } from '@/components/ui/select';
 import {connectionLabel} from '@/lib/access';
+import type {activityLoader} from '@/loaders';
 
 const ALL = 'all';
 
 type Option = {value: string; label: string};
 
 // Every request an agent made, newest first, narrowed by agent and connection. The filters live
-// in the URL, so the agent and connection pages can link straight to their part of the log.
+// in the URL, so the agent and connection pages can link straight to their part of the log, and
+// the api applies them.
 export function ActivityPage() {
-	const {state} = useStore();
+	const {
+		entries,
+		agents: allAgents,
+		connections: allConnections,
+	} = useLoaderData<typeof activityLoader>();
 	const [params, setParams] = useSearchParams();
 	const agent = params.get('agent') ?? ALL;
 	const connection = params.get('connection') ?? ALL;
-	const entries = state.audit.filter(
-		(entry) =>
-			(agent === ALL || entry.agentId === agent) &&
-			(connection === ALL || entry.connectionId === connection),
-	);
 	const filter = (key: string, value: string) => {
 		const next = new URLSearchParams(params);
 		if (value === ALL) {
@@ -40,13 +40,13 @@ export function ActivityPage() {
 
 	const agents: Option[] = [
 		{value: ALL, label: 'All agents'},
-		...state.agents.map((candidate) => ({value: candidate.id, label: candidate.name})),
+		...allAgents.map((candidate) => ({value: candidate.id, label: candidate.name})),
 	];
 	const connections: Option[] = [
 		{value: ALL, label: 'All connections'},
-		...state.connections.map((candidate) => ({
+		...allConnections.map((candidate) => ({
 			value: candidate.id,
-			label: connectionLabel(state, candidate),
+			label: connectionLabel(allConnections, candidate),
 		})),
 	];
 
@@ -66,7 +66,7 @@ export function ActivityPage() {
 					onChange={(value) => filter('connection', value)}
 				/>
 			</div>
-			<AuditList entries={entries} />
+			<AuditList entries={entries} agents={allAgents} connections={allConnections} />
 		</AppShell>
 	);
 }
