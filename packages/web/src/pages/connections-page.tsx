@@ -1,10 +1,10 @@
 import {PlusIcon} from 'lucide-react';
-import {Link} from 'react-router';
+import {Link, useLoaderData} from 'react-router';
 import {AppShell, PageTitle} from '@/components/app-shell';
-import {useStore} from '@/components/mock-store';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
 import {Button} from '@/components/ui/button';
 import {agentsWithAccess, integrationOf} from '@/lib/access';
+import type {connectionsLoader} from '@/loaders';
 
 // Widths and visibility shared by the header and every row, so the columns line up.
 const CELLS = {
@@ -14,8 +14,8 @@ const CELLS = {
 
 // The services connected to Proxy. Information is kept on a page of its own.
 export function ConnectionsPage() {
-	const {state} = useStore();
-	const connections = state.connections.filter((connection) => !integrationOf(connection).builtIn);
+	const {connections: all, agents} = useLoaderData<typeof connectionsLoader>();
+	const connections = all.filter((connection) => !integrationOf(connection)?.builtIn);
 
 	return (
 		<AppShell
@@ -40,17 +40,18 @@ export function ConnectionsPage() {
 				{connections.length === 0 && <EmptyRows>Nothing connected yet.</EmptyRows>}
 				{connections.map((connection) => {
 					const integration = integrationOf(connection);
+					const Icon = integration?.icon;
 					return (
 						<Row
 							key={connection.id}
 							to={`/connections/${connection.id}`}
-							icon={<integration.icon className="size-4 shrink-0 text-muted-foreground" />}
-							title={integration.name}
+							icon={Icon && <Icon className="size-4 shrink-0 text-muted-foreground" />}
+							title={integration?.name ?? connection.integrationId}
 							cells={
 								<>
 									<span className={CELLS.account}>{connection.account}</span>
 									<span className={CELLS.agents}>
-										{agentsWithAccess(state, connection.id).length}
+										{agentsWithAccess(agents, connection).length}
 									</span>
 								</>
 							}

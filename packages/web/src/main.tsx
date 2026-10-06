@@ -2,7 +2,6 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import {RouterProvider} from 'react-router';
 import './index.css';
-import {MockStoreProvider} from '@/components/mock-store';
 import {TooltipProvider} from '@/components/ui/tooltip';
 import {router} from '@/router';
 
@@ -14,10 +13,8 @@ if (!root) {
 
 createRoot(root).render(
 	<StrictMode>
-		<MockStoreProvider>
-			<TooltipProvider>
-				<RouterProvider router={router} />
-			</TooltipProvider>
-		</MockStoreProvider>
+		<TooltipProvider>
+			<RouterProvider router={router} />
+		</TooltipProvider>
 	</StrictMode>,
 );

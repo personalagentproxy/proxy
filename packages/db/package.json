@@ -5,7 +5,11 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
+		"./agent": "./src/agent.ts",
+		"./audit": "./src/audit.ts",
 		"./auth": "./src/auth.ts",
+		"./connection": "./src/connection.ts",
+		"./info": "./src/info.ts",
 		"./organization": "./src/organization.ts",
 		"./user": "./src/user.ts"
 	},

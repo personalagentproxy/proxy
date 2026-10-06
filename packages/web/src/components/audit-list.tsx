@@ -1,8 +1,7 @@
-import {useStore} from '@/components/mock-store';
 import {EmptyRows, RowHeader, RowList} from '@/components/row-list';
-import {describeEntry, locate} from '@/lib/access';
+import {connectionLabel, describeEntry, locateEntry} from '@/lib/access';
 import {formatDateTime} from '@/lib/format';
-import type {AuditEntry} from '@/lib/types';
+import type {AgentLogin, AuditEntry, Connection} from '@/lib/types';
 import {cn} from '@/lib/utils';
 
 const CELLS = {
@@ -13,15 +12,22 @@ const CELLS = {
 
 type Props = {
 	entries: AuditEntry[];
+	// To name each entry's agent and connection, while they still exist.
+	agents: AgentLogin[];
+	connections: Connection[];
 	// Left out where the page is about one agent or one connection already.
 	showAgent?: boolean;
 	showConnection?: boolean;
 };
 
 // The audit log's lines: when, which agent, what it did, and where. Denied requests read in red.
-export function AuditList({entries, showAgent = true, showConnection = true}: Props) {
-	const {state} = useStore();
-
+export function AuditList({
+	entries,
+	agents,
+	connections,
+	showAgent = true,
+	showConnection = true,
+}: Props) {
 	return (
 		<RowList
 			header={
@@ -35,8 +41,8 @@ export function AuditList({entries, showAgent = true, showConnection = true}: Pr
 		>
 			{entries.length === 0 && <EmptyRows>No activity yet.</EmptyRows>}
 			{entries.map((entry) => {
-				const agent = state.agents.find((candidate) => candidate.id === entry.agentId);
-				const located = locate(state, entry.connectionId, entry.collectionId);
+				const agent = agents.find((candidate) => candidate.id === entry.agentId);
+				const located = locateEntry(connections, entry);
 				const denied = entry.outcome === 'denied';
 				return (
 					<li key={entry.id} className="flex h-10 items-center gap-3 px-4 text-sm md:px-3">
@@ -47,7 +53,7 @@ export function AuditList({entries, showAgent = true, showConnection = true}: Pr
 						</span>
 						{showConnection && (
 							<span className={CELLS.connection}>
-								{located?.integration.name ?? 'Disconnected'}
+								{located ? connectionLabel(connections, located.connection) : 'Disconnected'}
 							</span>
 						)}
 					</li>

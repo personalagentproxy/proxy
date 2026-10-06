@@ -1,38 +1,26 @@
 import type {ReactNode} from 'react';
-import {Link} from 'react-router';
+import {Link, useLoaderData} from 'react-router';
 import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
-import {useStore} from '@/components/mock-store';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {Button} from '@/components/ui/button';
 import {useAgentTarget} from '@/hooks/use-agent-target';
-import {useAuditOnce} from '@/hooks/use-audit';
-import {AGENT_ACCESS_LABELS, displayValue, recordsOf, recordTitle} from '@/lib/access';
+import {AGENT_ACCESS_LABELS, displayValue, recordTitle} from '@/lib/access';
+import type {agentCollectionLoader} from '@/agent-loaders';
 
 // A collection's records, with New when the agent may write.
 export function AgentCollectionPage() {
-	const {state} = useStore();
+	const outcome = useLoaderData<typeof agentCollectionLoader>();
 	const target = useAgentTarget();
-	const allowed = target !== null && target.access !== 'none';
-	useAuditOnce(
-		target && {
-			connectionId: target.connection.id,
-			collectionId: target.collection.id,
-			action: 'list',
-			recordTitle: null,
-			outcome: allowed ? 'allowed' : 'denied',
-		},
-	);
+	if (outcome.kind === 'denied') {
+		return <AgentDenied>This login has no access to this collection.</AgentDenied>;
+	}
 
-	if (!target) {
+	if (outcome.kind === 'missing' || !target) {
 		return <AgentMissing />;
 	}
 
-	const {connection, integration, collection, access} = target;
-	if (access === 'none') {
-		return <AgentDenied>This login has no access to {collection.name}.</AgentDenied>;
-	}
-
-	const records = recordsOf(state, connection.id, collection.id);
+	const {connection, integration, collection} = target;
+	const {access, records} = outcome.value;
 	const summary = collection.fields.find((field) => field.key === collection.summaryField);
 	const base = `/agent/${connection.id}/${collection.id}`;
 
@@ -79,7 +67,8 @@ export function AgentMissing() {
 	);
 }
 
-// What an agent sees when it asks for something it was not given. The request is logged as denied.
+// What an agent sees when it asks for something it was not given. The api logged the request as
+// denied.
 export function AgentDenied({children}: {children: ReactNode}) {
 	return (
 		<AgentShell>

@@ -1,8 +1,10 @@
 import {Prisma} from '@prisma/client';
 
-import type {ApiError} from '@proxy/utils';
+import type {Result} from 'ts-results-es';
 
-import type {db} from '.';
+import {type ApiError, wrapDb} from '@proxy/utils';
+
+import {db} from '.';
 
 /**
  * Normalizes a string into the `[a-z0-9-]+` slug shape (max 48 chars, no leading or trailing
@@ -77,4 +79,16 @@ export function isSlugUniqueConflict(error: ApiError): boolean {
 
 	const target = cause.meta?.target;
 	return Array.isArray(target) && target.includes('slug');
+}
+
+/**
+ * The organization a user works in. Every user has exactly one, made at sign-up; `Ok(null)` means
+ * the user is gone.
+ */
+export async function getUserOrgId(userId: string): Promise<Result<string | null, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.orgMember.findFirst({where: {userId}, select: {orgId: true}, orderBy: {createdAt: 'asc'}}),
+		)
+	).map((member) => member?.orgId ?? null);
 }

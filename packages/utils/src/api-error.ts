@@ -9,7 +9,11 @@ export type ApiError =
 	| {kind: 'db_error'; statusCode: 500; cause: unknown}
 	| {kind: 'parse_error'; statusCode: 400; message: string}
 	| {kind: 'validation_error'; statusCode: 400; message: string}
-	| {kind: 'mail_error'; statusCode: 500; message: string; cause: unknown};
+	| {kind: 'mail_error'; statusCode: 500; message: string; cause: unknown}
+	// A provider turned the credential down, such as a wrong app password.
+	| {kind: 'credentials_rejected'; statusCode: 422}
+	// A provider couldn't be reached or answered with something other than a verdict.
+	| {kind: 'provider_unreachable'; statusCode: 502; cause: unknown};
 
 export const ApiErr = {
 	notFound: (resource: string, id?: string): ApiError => ({
@@ -33,6 +37,12 @@ export const ApiErr = {
 		kind: 'mail_error',
 		statusCode: 500,
 		message,
+		cause,
+	}),
+	credentialsRejected: (): ApiError => ({kind: 'credentials_rejected', statusCode: 422}),
+	providerUnreachable: (cause: unknown): ApiError => ({
+		kind: 'provider_unreachable',
+		statusCode: 502,
 		cause,
 	}),
 };

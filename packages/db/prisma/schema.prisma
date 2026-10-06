@@ -89,7 +89,10 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  members OrgMember[]
+  members     OrgMember[]
+  connections Connection[]
+  agents      Agent[]
+  audit       AuditEntry[]
 }
 
 model OrgMember {
@@ -105,4 +108,154 @@ model OrgMember {
 
   @@index([orgId])
   @@index([userId])
+}
+
+enum Access {
+  none
+  read
+  write
+}
+
+// A connected account of an integration from the catalog (`@proxy/integrations`), such as a
+// mailbox. An organization can connect the same integration more than once. Every organization
+// also has one built-in Information connection, made with it, whose records live in Proxy.
+model Connection {
+  id            String  @id @default(cuid())
+  orgId         String
+  integrationId String
+  // The account as the provider names it, such as an email address; the organization's name for
+  // Information.
+  account       String
+  // Encrypted with ENCRYPTION_KEY: an app password with its server settings. None for Information.
+  credential    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  org         Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  defaults    ConnectionDefault[]
+  infoRecords InfoRecord[]
+  agentGrants AgentGrant[]
+
+  @@index([orgId])
+}
+
+// What an agent without a setting of its own can do in one of the connection's collections. No
+// row is no access.
+model ConnectionDefault {
+  id           String @id @default(cuid())
+  connectionId String
+  collectionId String
+  access       Access
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, collectionId])
+}
+
+// A record of the built-in Information connection, such as an address or a payment card.
+model InfoRecord {
+  id           String @id @default(cuid())
+  connectionId String
+  collectionId String
+  // The field values as JSON, encrypted with ENCRYPTION_KEY.
+  values       String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId, collectionId])
+}
+
+// A login handed to an AI agent. The password is shown once, when it is made or reset; only its
+// hash is kept.
+model Agent {
+  id           String    @id @default(cuid())
+  orgId        String
+  name         String
+  username     String    @unique
+  passwordHash String
+  lastActiveAt DateTime?
+  revokedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  org      Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  grants   AgentGrant[]
+  sessions AgentSession[]
+
+  @@index([orgId])
+}
+
+// An agent's own setting for one collection of a connection, where it differs from the
+// connection's default. No row means the agent follows the default.
+model AgentGrant {
+  id           String @id @default(cuid())
+  agentId      String
+  connectionId String
+  collectionId String
+  access       Access
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  agent      Agent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, connectionId, collectionId])
+  @@index([connectionId])
+}
+
+// A signed-in agent. The agent's cookie holds a random token; only its hash is stored.
+model AgentSession {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  agentId   String
+  expires   DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+}
+
+enum AuditAction {
+  list
+  view
+  create
+  update
+  delete
+}
+
+enum AuditOutcome {
+  allowed
+  denied
+}
+
+// One request an agent made, allowed or denied. Plain ids rather than relations, so the entry
+// stays when the agent or the connection is gone.
+model AuditEntry {
+  id           String       @id @default(cuid())
+  orgId        String
+  agentId      String
+  connectionId String
+  collectionId String
+  action       AuditAction
+  // The record's title at the time, for actions on one record.
+  recordTitle  String?
+  outcome      AuditOutcome
+
+  createdAt DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt])
 }

@@ -1,14 +1,24 @@
+import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
 import {Link, useNavigate} from 'react-router';
-import {useStore} from '@/components/mock-store';
+import {signInAgent} from '@/client/agent-client';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 
+function signInErrorMessage(error: FetchError): string {
+	if (error.kind === 'http' && error.status === 401) {
+		return 'Wrong username or password.';
+	}
+	if (error.kind === 'http' && error.status === 403) {
+		return 'This login has been revoked.';
+	}
+	return 'Something went wrong. Try again.';
+}
+
 // Where an agent signs in with the username and password a human made for it.
 export function AgentLoginPage() {
 	const navigate = useNavigate();
-	const {signInAgent} = useStore();
 	const [username, setUsername] = useState('');
 	const [password, setPassword] = useState('');
 	const [error, setError] = useState<string | null>(null);
@@ -17,11 +27,11 @@ export function AgentLoginPage() {
 		<div className="flex min-h-dvh w-full items-center justify-center bg-background text-foreground">
 			<form
 				className="grid w-72 gap-4"
-				onSubmit={(event) => {
+				onSubmit={async (event) => {
 					event.preventDefault();
-					const result = signInAgent(username, password);
+					const result = await signInAgent(username, password);
 					if (result.isErr()) {
-						setError(result.error);
+						setError(signInErrorMessage(result.error));
 						return;
 					}
 					navigate('/agent', {replace: true});

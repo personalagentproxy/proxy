@@ -1,0 +1,69 @@
+import {beforeEach, describe, expect, mock, test} from 'bun:test';
+import {Ok} from 'ts-results-es';
+
+import {findCollection, findIntegration, type Collection} from '@proxy/integrations';
+
+mock.module('../utils/env', () => ({env: {ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64')}}));
+
+const listInfoRecords = mock();
+const getInfoRecord = mock();
+const createInfoRecord = mock();
+const updateInfoRecord = mock();
+const deleteInfoRecord = mock();
+
+mock.module('@proxy/db/info', () => ({listInfoRecords, getInfoRecord, createInfoRecord, updateInfoRecord, deleteInfoRecord}));
+
+function notes(): Collection {
+	const integration = findIntegration('info');
+	const found = integration && findCollection(integration, 'notes');
+	if (!found) {
+		throw new Error('No notes collection');
+	}
+	return found;
+}
+
+const target = {
+	connection: {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), defaults: [], credential: null},
+	collection: notes(),
+};
+
+const updatedAt = new Date('2026-10-01T00:00:00Z');
+
+beforeEach(() => {
+	mock.clearAllMocks();
+	createInfoRecord.mockImplementation((_collection: unknown, values: string) => Promise.resolve(Ok({id: 'rec-1', values, updatedAt})));
+});
+
+describe('infoConnector', () => {
+	test('stores the values encrypted and reads them back', async () => {
+		const {infoConnector} = await import('./info-connector');
+		const created = await infoConnector.create(target, {title: 'Sizes', body: 'Shoes: EU 43'});
+
+		const [collection, stored] = createInfoRecord.mock.calls[0] ?? [];
+		expect(collection).toEqual({connectionId: 'info-1', collectionId: 'notes'});
+		expect(String(stored)).not.toContain('Shoes');
+		expect(created.unwrap()).toEqual({id: 'rec-1', values: {title: 'Sizes', body: 'Shoes: EU 43'}, updatedAt: '2026-10-01T00:00:00.000Z'});
+
+		listInfoRecords.mockResolvedValue(Ok([{id: 'rec-1', values: stored, updatedAt}]));
+		const listed = await infoConnector.list(target);
+		expect(listed.unwrap()[0]?.values).toEqual({title: 'Sizes', body: 'Shoes: EU 43'});
+	});
+
+	test('a missing record is not found', async () => {
+		getInfoRecord.mockResolvedValue(Ok(null));
+
+		const {infoConnector} = await import('./info-connector');
+		const result = await infoConnector.get(target, 'other');
+
+		expect(result.unwrapErr().kind).toBe('not_found');
+	});
+
+	test('an unreadable record is an internal error', async () => {
+		getInfoRecord.mockResolvedValue(Ok({id: 'rec-1', values: 'v1.not.encrypted.here', updatedAt}));
+
+		const {infoConnector} = await import('./info-connector');
+		const result = await infoConnector.get(target, 'rec-1');
+
+		expect(result.unwrapErr().kind).toBe('internal_error');
+	});
+});

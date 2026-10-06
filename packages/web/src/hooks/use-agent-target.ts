@@ -1,17 +1,32 @@
-import {useParams} from 'react-router';
-import {useStore} from '@/components/mock-store';
-import {accessFor, locate, type Located} from '@/lib/access';
-import type {Access} from '@/lib/types';
+import {findCollection, type Access, type Collection} from '@proxy/integrations';
+import {useParams, useRouteLoaderData} from 'react-router';
+import type {AgentMe} from '@/client/agent-client';
+import {findIntegration, type Integration} from '@/lib/integrations';
 
-// The connection and collection an agent page's URL points at, with the signed-in agent's
-// access to them; null when the URL names no such collection.
-export function useAgentTarget(): (Located & {access: Access}) | null {
+export type AgentTarget = {
+	connection: AgentMe['connections'][number];
+	integration: Integration;
+	collection: Collection;
+	access: Access;
+};
+
+// The signed-in agent and what it can reach, from the agent side's loader.
+export function useAgentMe(): AgentMe | null {
+	return useRouteLoaderData<AgentMe>('agent') ?? null;
+}
+
+// The connection and collection an agent page's URL points at, among those the agent can reach;
+// null for anything else, which the api then refuses or doesn't find.
+export function useAgentTarget(): AgentTarget | null {
 	const {connectionId = '', collectionId = ''} = useParams();
-	const {state, agent} = useStore();
-	const located = locate(state, connectionId, collectionId);
-	if (!agent || !located) {
+	const me = useAgentMe();
+	const connection = me?.connections.find((candidate) => candidate.id === connectionId);
+	const integration = connection && findIntegration(connection.integrationId);
+	const collection = integration && findCollection(integration, collectionId);
+	const access = connection?.collections.find((candidate) => candidate.id === collectionId)?.access;
+	if (!connection || !integration || !collection || !access) {
 		return null;
 	}
 
-	return {...located, access: accessFor(agent, connectionId, collectionId)};
+	return {connection, integration, collection, access};
 }
