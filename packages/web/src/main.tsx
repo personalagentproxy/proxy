@@ -1,9 +1,10 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
-import {BrowserRouter} from 'react-router';
+import {RouterProvider} from 'react-router';
 import './index.css';
-import {App} from './app.tsx';
 import {MockStoreProvider} from '@/components/mock-store';
+import {TooltipProvider} from '@/components/ui/tooltip';
+import {router} from '@/router';
 
 const root = document.getElementById('root');
 
@@ -13,10 +14,10 @@ if (!root) {
 
 createRoot(root).render(
 	<StrictMode>
-		<BrowserRouter>
-			<MockStoreProvider>
-				<App />
-			</MockStoreProvider>
-		</BrowserRouter>
+		<MockStoreProvider>
+			<TooltipProvider>
+				<RouterProvider router={router} />
+			</TooltipProvider>
+		</MockStoreProvider>
 	</StrictMode>,
 );
