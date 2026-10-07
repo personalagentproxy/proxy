@@ -1,0 +1,126 @@
+---
+title: Email
+description: Connect a mailbox with an app password, and what to do when the provider will not make one.
+---
+
+Personal Agent Proxy connects a mailbox over IMAP and SMTP and signs in to it with an app
+password: a password your mail provider makes for one app, apart from the one you sign in with.
+Revoking it in your mail account disconnects Personal Agent Proxy and nothing else.
+
+<Steps>
+
+### Make an app password
+
+Follow your provider's steps below. Most show the password once, so keep the page open until it
+is in Personal Agent Proxy.
+
+### Connect the mailbox
+
+In Personal Agent Proxy, open **Connections**, then **Add connection**, and **Connect** on Email.
+Pick the provider, then enter the mailbox's address and the app password. The spaces some
+providers show in it can stay.
+
+### Give agents access
+
+Personal Agent Proxy signs in to the mailbox before saving it, so a wrong password shows straight
+away. A new mailbox gives agents nothing: on the connection's page, turn on the actions every agent
+gets by default, such as Read, Write drafts and Send, or set them for one agent on the agent's page.
+
+</Steps>
+
+## Gmail
+
+<Steps>
+
+### Turn on 2-Step Verification
+
+Google only makes app passwords for accounts with
+[2-Step Verification](https://myaccount.google.com/signinoptions/twosv) on.
+
+### Create the app password
+
+Open [App passwords](https://myaccount.google.com/apppasswords), enter a name such as Personal
+Agent Proxy, and **Create**. Google shows a 16-letter password once.
+
+</Steps>
+
+If you are signed in to more than one Google account, check the account in the top right corner
+of the page before creating it.
+
+<Callout type="warning">
+  Changing your Google password revokes every app password, which disconnects Personal Agent
+  Proxy. Make a new one and connect the mailbox again.
+</Callout>
+
+### "The setting you are looking for is not available for your account"
+
+Google shows this on the App passwords page when the account cannot make one:
+
+- **2-Step Verification is off.** Turn it on, then open the page again.
+- **2-Step Verification uses only security keys.** Add another way to verify, such as an
+  authenticator app or your phone.
+- **Advanced Protection is on.** Accounts in Google's Advanced Protection Program cannot use app
+  passwords.
+- **It is a work or school account.** Your Google Workspace admin decides; see below.
+
+### Google Workspace
+
+For a work or school account, these are set by the admin in the
+[Google Admin console](https://admin.google.com):
+
+- Under **Security → Authentication → 2-Step Verification**, people need to be allowed to turn
+  on 2-Step Verification, and its methods cannot be limited to security keys only.
+- Under **Apps → Google Workspace → Gmail → End User Access**, IMAP access needs to be on.
+
+If your admin does not allow app passwords, Personal Agent Proxy cannot connect the mailbox yet.
+
+## iCloud
+
+<Steps>
+
+### Turn on two-factor authentication
+
+Apple only makes app-specific passwords for Apple Accounts with two-factor authentication, and
+iCloud Mail needs to be turned on in iCloud settings on one of your devices.
+
+### Create the app password
+
+Sign in at [account.apple.com](https://account.apple.com/account/manage), open **Sign-In and
+Security**, then **App-Specific Passwords**, and add one named Personal Agent Proxy.
+
+</Steps>
+
+Connect with your iCloud Mail address, such as `name@icloud.com`. Changing your Apple Account
+password revokes app-specific passwords, which disconnects Personal Agent Proxy.
+
+## Fastmail
+
+In Fastmail, open **Settings → Privacy & Security** and create a **New app password**. Give it
+access to mail over IMAP and SMTP.
+
+## Yahoo
+
+In your Yahoo account, open **Account security** and **Generate app password**. Name it Personal
+Agent Proxy and copy the password it shows.
+
+## Other providers
+
+Choose **Other** to connect any other mailbox, and enter its servers as well:
+
+- **IMAP server**: TLS on port 993.
+- **SMTP server**: TLS on port 465, or STARTTLS on 587.
+
+Your provider's help pages list its servers. Use an app password if the provider makes them, and
+your mailbox's password if it does not. For Other, the password is used exactly as typed,
+spaces included.
+
+## When it does not connect
+
+**"The mailbox turned the password down."** Check that the address is the mailbox the password
+was made for. Make a new app password if you are not sure the old one was copied whole.
+
+**"The mail server could not be reached."** With Other, check the servers and the SMTP port. On
+your own server, see [Troubleshooting](/self-hosting/troubleshooting#a-mailbox-does-not-connect).
+
+**"This mailbox is already connected."** The address is connected already. Find it under
+**Connections**.

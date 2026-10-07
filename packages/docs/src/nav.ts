@@ -3,6 +3,7 @@
 // the build fails on a file missing from here, or an entry here without a file.
 export const NAV: {title: string; pages: string[]}[] = [
 	{title: 'Overview', pages: ['']},
+	{title: 'Connections', pages: ['connections/email']},
 	{
 		title: 'Self-hosting',
 		pages: [
