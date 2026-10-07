@@ -1,19 +1,16 @@
 import {UnplugIcon} from 'lucide-react';
 import {useState} from 'react';
 import {Link, useNavigate, useParams} from 'react-router';
-import {AgentFavicon} from '@/components/agent-favicon';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
-import {IntegrationLogo} from '@/components/integration-logo';
 import {useStore} from '@/components/mock-store';
 import {NotFound} from '@/components/not-found';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {ACCESS_LABELS, accessFor, agentsWithAccess, integrationOf, recordsOf} from '@/lib/access';
-import {agentProvider} from '@/lib/agent-providers';
 import {formatDate} from '@/lib/format';
 
 const RECENT = 10;
@@ -37,12 +34,7 @@ export function ConnectionPage() {
 			title={
 				<>
 					<BackButton to="/connections" label="Back to connections" />
-					<PageTitle detail={connection.account}>
-						<span className="flex items-center gap-2">
-							<IntegrationLogo integration={integration} />
-							{integration.name}
-						</span>
-					</PageTitle>
+					<PageTitle detail={connection.account}>{integration.name}</PageTitle>
 				</>
 			}
 			actions={
@@ -71,30 +63,26 @@ export function ConnectionPage() {
 								No agent can reach this connection. Give access from an agent's page.
 							</EmptyRows>
 						)}
-						{agents.map((agent) => {
-							const provider = agentProvider(agent.providerId);
-							return (
-								<Row
-									key={agent.id}
-									to={`/agents/${agent.id}`}
-									icon={<AgentFavicon provider={provider} />}
-									title={provider.name}
-									cells={
-										<span className="hidden min-w-0 shrink truncate text-right text-muted-foreground md:block">
-											{integration.collections
-												.filter(
-													(collection) => accessFor(agent, connection.id, collection.id) !== 'none',
-												)
-												.map(
-													(collection) =>
-														`${collection.name}: ${ACCESS_LABELS[accessFor(agent, connection.id, collection.id)]}`,
-												)
-												.join(', ')}
-										</span>
-									}
-								/>
-							);
-						})}
+						{agents.map((agent) => (
+							<Row
+								key={agent.id}
+								to={`/agents/${agent.id}`}
+								title={agent.name}
+								cells={
+									<span className="hidden min-w-0 shrink truncate text-right text-muted-foreground md:block">
+										{integration.collections
+											.filter(
+												(collection) => accessFor(agent, connection.id, collection.id) !== 'none',
+											)
+											.map(
+												(collection) =>
+													`${collection.name}: ${ACCESS_LABELS[accessFor(agent, connection.id, collection.id)]}`,
+											)
+											.join(', ')}
+									</span>
+								}
+							/>
+						))}
 					</RowList>
 				</Section>
 				<Section

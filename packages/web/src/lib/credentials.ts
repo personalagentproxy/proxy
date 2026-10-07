@@ -10,8 +10,8 @@ export function newId(): string {
 	return crypto.randomUUID().slice(0, 8);
 }
 
-// "Grok Bot" → "grok-bot-k7q2": the provider keeps logins recognizable and the suffix
-// prevents collisions with credentials created before a provider was deleted and added again.
+// "Shopping agent" → "shopping-agent-k7q2": the name keeps logins told apart in the audit log,
+// the suffix keeps two agents of the same name apart.
 export function generateUsername(name: string): string {
 	const slug = name
 		.toLowerCase()

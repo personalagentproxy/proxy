@@ -9,7 +9,6 @@ const google: Integration = {
 	id: 'google',
 	name: 'Google Workspace',
 	description: 'Gmail, Calendar, Contacts, Drive, Docs and Sheets',
-	logoUrl: '/integrations/google.png',
 	icon: LayoutGridIcon,
 	sampleAccount: 'alex.weber@gmail.com',
 	collections: [
@@ -107,7 +106,6 @@ const notion: Integration = {
 	id: 'notion',
 	name: 'Notion',
 	description: 'Pages and database entries',
-	logoUrl: '/integrations/notion.ico',
 	icon: NotebookTextIcon,
 	sampleAccount: "Alex's workspace",
 	collections: [
@@ -148,7 +146,6 @@ const linear: Integration = {
 	id: 'linear',
 	name: 'Linear',
 	description: 'Issues and projects',
-	logoUrl: '/integrations/linear.ico',
 	icon: SquareKanbanIcon,
 	sampleAccount: 'Northwind',
 	collections: [
