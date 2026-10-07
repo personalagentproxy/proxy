@@ -32,10 +32,13 @@ export function AgentHomePage() {
 						<Section
 							key={connection.id}
 							title={
-								<span className="flex items-center gap-2">
-									<IntegrationLogo integration={integration} />
+								<>
+									<IntegrationLogo
+										integration={integration}
+										className="mr-2 inline-flex align-middle"
+									/>
 									{integration.name}
-								</span>
+								</>
 							}
 							detail={connection.account}
 						>
