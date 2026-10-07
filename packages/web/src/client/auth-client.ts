@@ -2,10 +2,12 @@ import {httpRequest} from '@proxy/utils';
 import {z} from 'zod';
 import {env} from '@/lib/env';
 
-// `POST /auth/email` answers 200 `{ok: true}`, or 4xx/5xx `{error}` with a code the login page
-// maps to copy. Any status is accepted so the error body survives.
+// `POST /auth/email` answers 200 `{ok: true}`, with `logged` when the api wrote the link to its
+// log for lack of a way to send email, or 4xx/5xx `{error}` with a code the login page maps to
+// copy. Any status is accepted so the error body survives.
 const magicLinkResponseSchema = z.object({
 	ok: z.boolean().optional(),
+	logged: z.boolean().optional(),
 	error: z.string().optional(),
 });
 
@@ -23,6 +25,15 @@ export function requestMagicLink(email: string, callbackUrl?: string) {
 		},
 		{schema: magicLinkResponseSchema, allowStatus: () => true},
 	);
+}
+
+const signInMethodsSchema = z.object({google: z.boolean()});
+
+export type SignInMethods = z.infer<typeof signInMethodsSchema>;
+
+/** The sign-in methods the api has set up besides the magic link, which always is. */
+export function getSignInMethods() {
+	return httpRequest(`${env.apiUrl}/auth/methods`, {method: 'GET'}, {schema: signInMethodsSchema});
 }
 
 /** The full-page navigation that starts Google sign-in; the api redirects back when done. */

@@ -1,0 +1,89 @@
+---
+title: Sign-in
+description: Sign-in links by email, Google, and who can create an account.
+---
+
+People sign in with a link sent to their email, or with Google. Each account gets its own
+organization, so people on the same Proxy never see each other's connections, agents or activity.
+Agents sign in apart from people, with the logins you make for them; nothing here changes theirs.
+
+## Who can create an account
+
+Anyone who can open your Proxy can create an account, unless `ALLOWED_SIGNUP_EMAILS` says who
+can. List addresses, and `@domains` for everyone at a domain:
+
+```sh
+ALLOWED_SIGNUP_EMAILS="you@example.com,@example.org"
+```
+
+People who already have an account can always sign in, even once they are no longer on the list.
+Someone the list leaves out is not sent a link, and sees "This address cannot create an account
+here."
+
+## Sign-in links
+
+Sign-in links work without any setup: until Proxy can send email, it writes each link to its log,
+and the sign-in page says so. That is enough when you are the only one signing in:
+
+```sh
+docker compose logs proxy | grep "Magic Link"
+```
+
+To email the links, Proxy uses [Resend](https://resend.com):
+
+<Steps>
+
+### Verify your domain
+
+In Resend, add the domain the emails come from, and add the DNS records it shows you.
+
+### Create an API key
+
+One with sending access is enough.
+
+### Set the variables
+
+```sh
+RESEND_KEY="re_…"
+EMAIL_FROM="Proxy <login@example.com>"
+```
+
+`EMAIL_FROM` has to be on the domain you verified.
+
+</Steps>
+
+A link works once, for 24 hours.
+
+## Google
+
+<Steps>
+
+### Create an OAuth client
+
+In the [Google Cloud console](https://console.cloud.google.com/apis/credentials), create an OAuth
+client ID of the type **Web application**.
+
+### Add the redirect URI
+
+Under **Authorized redirect URIs**, add your Proxy's address followed by
+`/auth/google/callback`:
+
+```text
+https://proxy.example.com/auth/google/callback
+```
+
+### Set the variables
+
+```sh
+GOOGLE_CLIENT_ID="…apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET="…"
+```
+
+</Steps>
+
+The sign-in page shows **Continue with Google** once both are set.
+
+<Callout>
+  An address that first signed in with a link keeps signing in with links: Google sign-in for it
+  says "This email already has an account."
+</Callout>

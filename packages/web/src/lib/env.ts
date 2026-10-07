@@ -1,7 +1,9 @@
 import {z} from 'zod';
 
 const envSchema = z.object({
-	VITE_PROXY_API_URL: z.url(),
+	// Unset when the api serves the web app itself (the Docker image): calls go to the page's own
+	// origin.
+	VITE_PROXY_API_URL: z.url().optional(),
 });
 
 const parsed = envSchema.parse({
@@ -10,6 +12,6 @@ const parsed = envSchema.parse({
 
 /** Validated client env, from the root `.env` through Vite's `import.meta.env`. */
 export const env = {
-	apiUrl: parsed.VITE_PROXY_API_URL.replace(/\/$/, ''),
+	apiUrl: (parsed.VITE_PROXY_API_URL ?? '').replace(/\/$/, ''),
 	isDev: import.meta.env.DEV,
 } as const;

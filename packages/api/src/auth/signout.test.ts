@@ -19,6 +19,7 @@ mock.module('../observability/log', () => ({
 mock.module('../utils/env', () => ({
 	env: {
 		NODE_ENV: 'production',
+		PROXY_API_PUBLIC_URL: 'https://api.example.com',
 		SESSION_COOKIE_DOMAIN: '.example.com',
 	},
 }));

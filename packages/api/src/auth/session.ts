@@ -13,8 +13,21 @@ import {env} from '../utils/env';
 
 export const sessionMaxAgeSeconds = 30 * 24 * 60 * 60;
 
+// Secure wherever the api is served over HTTPS. Browsers drop secure cookies on plain HTTP, as
+// when trying Proxy out on localhost.
 export function useSecureCookies(): boolean {
-	return env.NODE_ENV === 'production';
+	return env.PROXY_API_PUBLIC_URL?.startsWith('https://') ?? false;
+}
+
+/** Whether `email` may create an account: anyone, unless ALLOWED_SIGNUP_EMAILS says who. */
+export function canSignUp(email: string): boolean {
+	const allowed = env.ALLOWED_SIGNUP_EMAILS;
+	if (!allowed) {
+		return true;
+	}
+
+	const address = email.toLowerCase();
+	return allowed.some((entry) => (entry.startsWith('@') ? address.endsWith(entry) : address === entry));
 }
 
 export function sessionCookieName(): string {
@@ -25,7 +38,7 @@ export function sessionCookieName(): string {
 	return sessionCookieNames.insecure;
 }
 
-// Dev: app and api are both on localhost, where a host-only cookie reaches every port, so no
+// One origin, or app and api both on localhost, where a host-only cookie reaches every port: no
 // Domain. When they are sibling subdomains, SESSION_COOKIE_DOMAIN must be the shared parent.
 export function sessionCookieOptions(): CookieOptions {
 	return {

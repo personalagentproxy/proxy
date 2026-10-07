@@ -5,7 +5,7 @@ import {type ApiError, ApiErr} from '@proxy/utils';
 
 import {env} from '../utils/env';
 
-// Lazy so the api can boot without RESEND_KEY — dev logs the magic link instead (see ./email.ts).
+// Lazy so the api can boot without RESEND_KEY, which logs the magic link instead (see ./email.ts).
 let resendClient: Resend | null = null;
 
 function getResend(): Resend {

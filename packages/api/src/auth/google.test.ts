@@ -38,8 +38,10 @@ const mockEnv: {
 	GOOGLE_CLIENT_ID: string | undefined;
 	GOOGLE_CLIENT_SECRET: string;
 	PROXY_API_PUBLIC_URL: string;
+	ALLOWED_SIGNUP_EMAILS: string[] | undefined;
 } = {
 	NODE_ENV: 'production',
+	ALLOWED_SIGNUP_EMAILS: undefined,
 	APP_URL: 'https://app.example.com',
 	SESSION_COOKIE_DOMAIN: '.example.com',
 	GOOGLE_CLIENT_ID: 'google-client-id',
@@ -136,6 +138,7 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	mockEnv.APP_URL = 'https://app.example.com';
 	mockEnv.GOOGLE_CLIENT_ID = 'google-client-id';
+	mockEnv.ALLOWED_SIGNUP_EMAILS = undefined;
 	mockTokenExchangeSuccess();
 	getAccountByProvider.mockResolvedValue(Ok(null));
 	getUserByEmail.mockResolvedValue(Ok(null));
@@ -144,6 +147,21 @@ beforeEach(() => {
 	createOAuthAccount.mockResolvedValue(Ok(undefined));
 	deleteUser.mockResolvedValue(Ok(undefined));
 	createSession.mockResolvedValue(Ok(undefined));
+});
+
+describe('handleSignInMethodsRoute', () => {
+	test('offers Google only when it is set up', async () => {
+		const {handleSignInMethodsRoute} = await importRoutes();
+
+		const configured = makeRes();
+		handleSignInMethodsRoute({} as never, configured as never);
+		expect(configured.json).toHaveBeenCalledWith({google: true});
+
+		mockEnv.GOOGLE_CLIENT_ID = undefined;
+		const unconfigured = makeRes();
+		handleSignInMethodsRoute({} as never, unconfigured as never);
+		expect(unconfigured.json).toHaveBeenCalledWith({google: false});
+	});
 });
 
 describe('handleGoogleStartRoute', () => {
@@ -269,6 +287,19 @@ describe('handleGoogleCallbackRoute', () => {
 		expect(body.get('grant_type')).toBe('authorization_code');
 		expect(body.get('code')).toBe('auth-code-1');
 		expect(body.get('code_verifier')).toBeTruthy();
+	});
+
+	test('a new user ALLOWED_SIGNUP_EMAILS leaves out → SignupNotAllowed, no user, no session', async () => {
+		mockEnv.ALLOWED_SIGNUP_EMAILS = ['someone-else@example.com'];
+
+		const {handleGoogleCallbackRoute} = await importRoutes();
+		const flow = await startFlow();
+		const res = makeRes();
+		await handleGoogleCallbackRoute(makeCallbackRequest(flow) as never, res as never);
+
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/login?error=SignupNotAllowed');
+		expect(createUserFromOAuthProfile).not.toHaveBeenCalled();
+		expect(createSession).not.toHaveBeenCalled();
 	});
 
 	test('a profile without name or picture signs up with nulls', async () => {

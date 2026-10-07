@@ -4,6 +4,7 @@ import type {ComponentProps} from 'react';
 import {cn} from '@proxy/ui/lib/utils';
 import {Callout} from '@/components/callout';
 import {CodeBlock} from '@/components/code-block';
+import {EnvTable} from '@/components/env-table';
 import {Steps} from '@/components/steps';
 
 // A heading that links to itself, so a section can be shared. rehype-slug gives it its id.
@@ -54,5 +55,6 @@ export const mdxComponents: MDXComponents = {
 	th: (props) => <th className="border-b px-3 py-2 font-medium first:pl-0" {...props} />,
 	td: (props) => <td className="border-b px-3 py-2 align-top first:pl-0" {...props} />,
 	Callout,
+	EnvTable,
 	Steps,
 };

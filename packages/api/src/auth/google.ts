@@ -10,7 +10,7 @@ import {formatFetchError, httpRequest, parseCookieHeader} from '@proxy/utils';
 
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
-import {establishSessionAndRedirect, queryParam, redirectToLoginError, sanitizeCallbackUrl, timingSafeEqualString, useSecureCookies} from './session';
+import {canSignUp, establishSessionAndRedirect, queryParam, redirectToLoginError, sanitizeCallbackUrl, timingSafeEqualString, useSecureCookies} from './session';
 
 /**
  * Google sign-in, an OAuth authorization-code flow with PKCE. A Google identity is an Account
@@ -60,6 +60,11 @@ function getOAuthConfig(): OAuthConfig | null {
 		appUrl: env.APP_URL,
 		redirectUri: `${env.PROXY_API_PUBLIC_URL}/auth/google/callback`,
 	};
+}
+
+/** `GET /auth/methods` — the sign-in methods beside the magic link, so the login page offers only those set up. */
+export function handleSignInMethodsRoute(_req: Request, res: Response): void {
+	res.json({google: getOAuthConfig() !== null});
 }
 
 const statePayloadSchema = z.object({
@@ -303,6 +308,11 @@ export async function handleGoogleCallbackRoute(req: Request, res: Response): Pr
 
 	if (existingByEmailResult.value) {
 		redirectToLoginError(res, config.appUrl, 'OAuthAccountNotLinked');
+		return;
+	}
+
+	if (!canSignUp(profile.email)) {
+		redirectToLoginError(res, config.appUrl, 'SignupNotAllowed');
 		return;
 	}
 

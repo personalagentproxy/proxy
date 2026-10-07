@@ -21,7 +21,7 @@ import {
 } from '../agents/route';
 import {handleDevLoginRoute} from '../auth/dev-login';
 import {handleEmailSignInRoute, handleEmailVerifyRoute} from '../auth/email';
-import {handleGoogleCallbackRoute, handleGoogleStartRoute} from '../auth/google';
+import {handleGoogleCallbackRoute, handleGoogleStartRoute, handleSignInMethodsRoute} from '../auth/google';
 import {handleSignOutRoute} from '../auth/signout';
 import {handleConnectEmailRoute} from '../connections/email/route';
 import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleSetConnectionDefaultRoute} from '../connections/route';
@@ -47,6 +47,7 @@ export function createApiRouter(): express.Router {
 	// are top-level navigations (302 redirects, CORS does not apply); the magic-link send,
 	// sign-out and dev login are fetches from the app origin, so they take CORS plus the
 	// `requireBrowserOrigin` CSRF guard.
+	router.get('/auth/methods', apiCorsMiddleware, handleSignInMethodsRoute);
 	router.get('/auth/google', wrapAsyncRoute('Google OAuth start route', handleGoogleStartRoute));
 	router.get('/auth/google/callback', wrapAsyncRoute('Google OAuth callback route', handleGoogleCallbackRoute));
 	router.options('/auth/email', apiCorsMiddleware, handle204);
@@ -104,10 +105,6 @@ export function createApiRouter(): express.Router {
 	router.get(`${agentRecords}/:recordId`, withAgentAuthResult('Agent get record route', handleAgentGetRecordRoute));
 	router.put(`${agentRecords}/:recordId`, withAgentAuthResult('Agent update record route', handleAgentUpdateRecordRoute));
 	router.delete(`${agentRecords}/:recordId`, withAgentAuthResult('Agent delete record route', handleAgentDeleteRecordRoute));
-
-	router.use((_req, res) => {
-		res.status(404).json({error: 'not_found'});
-	});
 
 	return router;
 }

@@ -8,7 +8,7 @@ import {createUserFromEmail, getUserByEmail, setUserEmailVerified} from '@proxy/
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
 import {sendMagicLink} from './mail';
-import {establishSessionAndRedirect, queryParam, redirectToLoginError, sanitizeCallbackUrl} from './session';
+import {canSignUp, establishSessionAndRedirect, queryParam, redirectToLoginError, sanitizeCallbackUrl} from './session';
 
 /**
  * Magic-link sign-in. The emailed link carries a random token; the database stores only its hash
@@ -92,6 +92,21 @@ export async function handleEmailSignInRoute(req: Request, res: Response): Promi
 		return;
 	}
 
+	// Only someone who could finish signing in gets a link, so Proxy does not email anyone else.
+	if (!canSignUp(email)) {
+		const existingResult = await getUserByEmail(email);
+		if (existingResult.isErr()) {
+			log.error('Email sign-in user lookup failed', serializeError(existingResult.error));
+			res.status(500).json({error: 'EmailSignin'});
+			return;
+		}
+
+		if (!existingResult.value) {
+			res.status(403).json({error: 'SignupNotAllowed'});
+			return;
+		}
+	}
+
 	const callbackUrl = sanitizeCallbackUrl(typeof body?.callbackUrl === 'string' ? body.callbackUrl : undefined) ?? '/';
 	const token = randomBytes(32).toString('hex');
 	const expires = new Date(Date.now() + verificationTokenMaxAgeSeconds * 1000);
@@ -108,9 +123,10 @@ export async function handleEmailSignInRoute(req: Request, res: Response): Promi
 
 	const url = `${config.verifyUrl}?${new URLSearchParams({token, email, callbackUrl}).toString()}`;
 
-	if (env.NODE_ENV === 'development') {
+	// Without a way to send email, whoever runs Proxy can read the link from its log.
+	if (env.NODE_ENV === 'development' || !env.RESEND_KEY) {
 		log.info(`[Magic Link] ${email}: ${url}`);
-		res.json({ok: true});
+		res.json({ok: true, logged: true});
 		return;
 	}
 
@@ -193,6 +209,11 @@ export async function handleEmailVerifyRoute(req: Request, res: Response): Promi
 		}
 
 		await establishSessionAndRedirect(res, {appUrl: config.appUrl, callbackUrl, userId: updatedResult.value.id});
+		return;
+	}
+
+	if (!canSignUp(email)) {
+		redirectToLoginError(res, config.appUrl, 'SignupNotAllowed');
 		return;
 	}
 

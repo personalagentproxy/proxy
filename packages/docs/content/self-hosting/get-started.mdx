@@ -1,95 +1,113 @@
 ---
 title: Get started
-description: Run your own Proxy with a Postgres database, the api, and the web app.
+description: Run Proxy on one server with Docker Compose, with Postgres and HTTPS in the same file.
 ---
 
-## Before you start
-
-You need:
-
-- [Bun](https://bun.sh) on the machine that runs the api.
-- A Postgres database the api can reach.
-- Two hostnames under one domain, such as `proxy.example.com` for the web app and
-  `api.proxy.example.com` for the api. They have to share a parent domain, since the session
-  cookie only travels between the two when they are the same site.
-
-## Set it up
+The compose file runs three containers: Proxy, Postgres, and Caddy in front of them for HTTPS.
+Only Caddy is reachable from outside, on ports 80 and 443.
 
 <Steps>
 
-### Get the code
+### Get the compose file
 
 ```sh
-git clone https://github.com/personalagentproxy/proxy.git
-cd proxy
-bun install
+mkdir proxy && cd proxy
+curl -O https://raw.githubusercontent.com/personalagentproxy/proxy/main/docker-compose.yml
 ```
 
 ### Generate the secrets
 
-`AUTH_SECRET` hashes magic-link tokens, and `ENCRYPTION_KEY` encrypts the app passwords and
-Information records stored in the database.
+They go in a `.env` file next to the compose file, which Docker Compose reads on its own.
 
 ```sh
-openssl rand -hex 32     # AUTH_SECRET
-openssl rand -base64 32  # ENCRYPTION_KEY
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
+echo "AUTH_SECRET=$(openssl rand -hex 32)" >> .env
+echo "ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
 ```
 
 <Callout type="warning">
-  Back up `ENCRYPTION_KEY` somewhere safe. Changing or losing it makes everything stored with it
-  unreadable, and there is no way to recover it.
+  Back up `ENCRYPTION_KEY` somewhere apart from the server. It encrypts the app passwords and
+  Information records in the database, so changing or losing it makes them unreadable, backups
+  included.
 </Callout>
 
-### Configure the api
-
-Copy `.env.example` to `.env` in the repository's root and fill it in:
+### Start Proxy
 
 ```sh
-NODE_ENV="production"
-DATABASE_URL="postgres://user:password@host:5432/proxy"
-APP_URL="https://proxy.example.com"
-PROXY_API_PUBLIC_URL="https://api.proxy.example.com"
-SESSION_COOKIE_DOMAIN=".proxy.example.com"
-AUTH_SECRET="…"
-ENCRYPTION_KEY="…"
+docker compose up -d
 ```
 
-<Callout type="warning">
-  Set `NODE_ENV` to `production`. Without it the api runs as in development: its cookies are not
-  marked secure, and it serves the route behind the login page's Create dev user button, which
-  signs anyone in.
-</Callout>
+Open [http://localhost](http://localhost) on the same machine. To try Proxy on your own
+computer, you can stop here and [sign in](#sign-in).
 
-### Run the migrations
+### Give it a domain
+
+Point an `A` record for your domain at the server, and make sure ports 80 and 443 are open to
+it. Then tell Proxy its address, and who can create an account, before anyone else can reach it:
 
 ```sh
-bun run --cwd packages/db db:migrate:deploy
+echo "PROXY_URL=https://proxy.example.com" >> .env
+echo "ALLOWED_SIGNUP_EMAILS=you@example.com" >> .env
+docker compose up -d
 ```
 
-Run this again after every update, before starting the new api.
-
-### Start the api
-
-```sh
-bun run --cwd packages/api start
-```
-
-It listens on port 4000, or on `PORT` if set. Put it behind a reverse proxy that terminates TLS
-at `https://api.proxy.example.com`.
-
-### Deploy the web app
-
-Import the repository into Vercel with `packages/web` as the root directory, and set
-`VITE_PROXY_API_URL` to the api's public URL. It is read at build time, so redeploy after
-changing it.
+Caddy gets a certificate for the domain from Let's Encrypt on its first request, and renews it.
 
 </Steps>
 
 ## Sign in
 
-Open the web app and sign in. Two ways are available, each turned on by its own variables:
+Enter your email on the sign-in page. Until Proxy can send email, it writes the sign-in link to
+its log instead:
 
-- **Google**: set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, and register
-  `https://api.proxy.example.com/auth/google/callback` as a redirect URI.
-- **Magic link**: set `RESEND_KEY` and `EMAIL_FROM` to send the emails through
-  [Resend](https://resend.com).
+```sh
+docker compose logs proxy | grep "Magic Link"
+```
+
+Open the link to sign in. [Sign-in](/self-hosting/sign-in) sets up sending the links by email,
+and signing in with Google.
+
+## Settings
+
+The compose file reads these from `.env`:
+
+| Variable                                                               | Required / default | Description                                                                                                        |
+| ---------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `POSTGRES_PASSWORD`                                                    | Required           | The database's password, set when the database is first created. Changing it later needs a change in Postgres too. |
+| `AUTH_SECRET`                                                          | Required           | Hashes sign-in tokens.                                                                                             |
+| `ENCRYPTION_KEY`                                                       | Required           | Encrypts credentials and Information records. Never change it.                                                     |
+| `PROXY_URL`                                                            | `http://localhost` | Where Proxy is opened. An `https://` address gets a certificate.                                                   |
+| `PROXY_VERSION`                                                        | `main`             | The image tag to run. See [upgrades](/self-hosting/upgrades-and-backups#versions).                                 |
+| `ALLOWED_SIGNUP_EMAILS`                                                | Optional           | Who can create an account.                                                                                         |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `RESEND_KEY`, `EMAIL_FROM` | Optional           | [Sign-in](/self-hosting/sign-in) with Google, and sign-in links by email.                                          |
+
+Every other setting is in [Environment variables](/self-hosting/environment); add one under the
+`proxy` service's `environment` in the compose file.
+
+## Without Docker Compose
+
+The image runs anywhere containers do, with any Postgres. Give it the
+[required variables](/self-hosting/environment) and put HTTPS in front of port 4000:
+
+```sh
+docker run -d -p 4000:4000 \
+  -e DATABASE_URL="postgres://user:password@host:5432/proxy" \
+  -e APP_URL="https://proxy.example.com" \
+  -e AUTH_SECRET="…" \
+  -e ENCRYPTION_KEY="…" \
+  ghcr.io/personalagentproxy/proxy:main
+```
+
+It applies the database migrations before it starts. To run them as their own step instead, set
+`SKIP_MIGRATIONS=true` on the server, and run the image with the command `true`, which migrates
+and exits:
+
+```sh
+docker run --rm -e DATABASE_URL="…" ghcr.io/personalagentproxy/proxy:main true
+```
+
+<Callout>
+  Docker Compose on one server has no failover, and keeps the database on that server's disk.
+  [Back it up](/self-hosting/upgrades-and-backups#backups), or run the image on its own against a
+  managed Postgres, as above.
+</Callout>
