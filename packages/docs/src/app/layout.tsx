@@ -7,7 +7,7 @@ import {loadNav} from '@/lib/docs';
 import './globals.css';
 
 export const metadata: Metadata = {
-	title: {template: '%s · Proxy docs', default: 'Proxy docs'},
+	title: {template: '%s · Personal Agent Proxy docs', default: 'Personal Agent Proxy docs'},
 };
 
 // Follows the system theme before the first paint so the page never flashes the other one, like

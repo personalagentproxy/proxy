@@ -26,7 +26,7 @@ function toRecord(row: InfoRecordRow): Result<DataRecord, ApiError> {
 	});
 }
 
-/** Information lives in Proxy: each record's values are stored as encrypted JSON. */
+/** Information lives in Personal Agent Proxy: each record's values are stored as encrypted JSON. */
 export const infoConnector: Connector = {
 	// Few enough to search in memory, after decrypting, and to list on one page.
 	list: (target, query) =>

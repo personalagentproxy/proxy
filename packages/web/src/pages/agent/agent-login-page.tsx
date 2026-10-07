@@ -38,7 +38,7 @@ export function AgentLoginPage() {
 				}}
 			>
 				<h1 className="text-lg font-semibold">
-					Proxy <span className="font-normal text-muted-foreground">for agents</span>
+					Personal Agent Proxy <span className="font-normal text-muted-foreground">for agents</span>
 				</h1>
 				<div className="grid gap-2">
 					<Label htmlFor="username">Username</Label>

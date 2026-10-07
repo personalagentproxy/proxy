@@ -3,7 +3,7 @@ import type {Collection, Integration} from './types';
 export const INFO_INTEGRATION_ID = 'info';
 
 // Any mailbox over IMAP and SMTP, signed in with an app password. The password can't be limited,
-// so access is only ever narrowed in Proxy.
+// so access is only ever narrowed in Personal Agent Proxy.
 const email: Integration = {
 	id: 'email',
 	name: 'Email',
@@ -59,7 +59,7 @@ const email: Integration = {
 const info: Integration = {
 	id: INFO_INTEGRATION_ID,
 	name: 'Information',
-	description: 'Details you keep in Proxy for agents to use',
+	description: 'Details you keep in Personal Agent Proxy for agents to use',
 	builtIn: true,
 	collections: [
 		{

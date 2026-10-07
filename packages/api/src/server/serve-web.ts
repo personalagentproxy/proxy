@@ -19,7 +19,7 @@ function setSecurityHeaders(res: express.Response): void {
 }
 
 /**
- * Serves the web app's build from `dir`, so one server is the whole of Proxy on one origin: the
+ * Serves the web app's build from `dir`, so one server is the whole of Personal Agent Proxy on one origin: the
  * files as they are, and `index.html` for every other path.
  */
 export function serveWeb(dir: string): express.Router {

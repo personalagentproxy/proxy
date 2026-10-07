@@ -22,7 +22,7 @@ let base: string;
 
 beforeAll(async () => {
 	mkdirSync(join(dir, 'assets'));
-	writeFileSync(join(dir, 'index.html'), '<!doctype html><title>Proxy</title>');
+	writeFileSync(join(dir, 'index.html'), '<!doctype html><title>Personal Agent Proxy</title>');
 	writeFileSync(join(dir, 'favicon.svg'), '<svg/>');
 	writeFileSync(join(dir, 'assets', 'index-abc.js'), 'console.log(1)');
 	base = await start(dir);
@@ -44,7 +44,7 @@ describe('the web app on the api origin', () => {
 			expect(res.headers.get('x-content-type-options')).toBe('nosniff');
 			expect(res.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin');
 			expect(res.headers.get('x-frame-options')).toBe('SAMEORIGIN');
-			expect(await res.text()).toContain('<title>Proxy</title>');
+			expect(await res.text()).toContain('<title>Personal Agent Proxy</title>');
 		}
 	});
 
