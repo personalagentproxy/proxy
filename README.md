@@ -29,4 +29,4 @@ their full private context or silently expanding what an agent may do.
   </tr>
 </table>
 
-<img src="docs/assets/agent-dashboard.png" width="500" alt="Personal Agent Proxy agents dashboard">
+<img src="docs/assets/agent-dashboard.png" alt="Personal Agent Proxy agents dashboard">
