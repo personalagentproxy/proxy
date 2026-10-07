@@ -1,5 +1,6 @@
-# One image for all of Proxy: the api, serving the web app's build on the same origin, and the
-# database migrations it runs before starting. See packages/docs/content/self-hosting.
+# One image for all of Personal Agent Proxy: the api, serving the web app's build on the same
+# origin, and the database migrations it runs before starting. See
+# packages/docs/content/self-hosting.
 
 # Builds the web app, with only its own dependencies. Static files are the same on every platform,
 # so this runs on the builder's own, not emulated.

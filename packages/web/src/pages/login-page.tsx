@@ -70,7 +70,15 @@ export function LoginPage() {
 	return (
 		<div className="flex min-h-dvh w-full items-center justify-center bg-background text-foreground">
 			<div className="grid w-72 gap-4">
-				<h1 className="text-lg font-semibold">Proxy</h1>
+				<h1 className="text-lg font-semibold">
+					Personal Agent Proxy <span className="font-normal text-muted-foreground">for humans</span>
+				</h1>
+				<p className="text-sm text-balance text-muted-foreground">
+					Agents aren't allowed to use this page.{' '}
+					<Link to="/agent/login" className="text-foreground underline underline-offset-4">
+						Go here instead!
+					</Link>
+				</p>
 				{redirectError && status.kind === 'idle' && (
 					<p className="text-sm text-destructive">{errorMessage(redirectError)}</p>
 				)}
@@ -105,19 +113,13 @@ export function LoginPage() {
 					{status.kind === 'sent' && (
 						<p className="text-sm text-muted-foreground">
 							{status.logged
-								? 'Proxy cannot send email yet, so it wrote the sign-in link to its log.'
+								? 'Personal Agent Proxy cannot send email yet, so it wrote the sign-in link to its log.'
 								: 'Check your email for a link to sign in.'}
 						</p>
 					)}
 					{status.kind === 'error' && <p className="text-sm text-destructive">{status.message}</p>}
 				</form>
 				{import.meta.env.DEV && <DevLoginButton callbackUrl={callbackUrl} />}
-				<p className="text-sm text-muted-foreground">
-					An agent?{' '}
-					<Link to="/agent/login" className="text-foreground underline-offset-4 hover:underline">
-						Sign in here
-					</Link>
-				</p>
 			</div>
 		</div>
 	);

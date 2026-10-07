@@ -17,7 +17,7 @@ export function AgentShell({children}: {children: ReactNode}) {
 		<div className="flex min-h-dvh w-full flex-col bg-background text-foreground">
 			<header className="sticky top-0 z-20 flex h-12 items-center justify-between gap-4 border-b bg-background px-4">
 				<Link to="/agent" className="shrink-0 text-sm font-medium whitespace-nowrap">
-					Proxy <span className="font-normal text-muted-foreground">for agents</span>
+					Personal Agent Proxy <span className="font-normal text-muted-foreground">for agents</span>
 				</Link>
 				<div className="flex min-w-0 items-center gap-3">
 					{/* Desktop only: a phone's header has room for the brand and the button, not the name too. */}

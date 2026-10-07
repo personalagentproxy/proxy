@@ -4,13 +4,14 @@ description: Sign-in links by email, Google, and who can create an account.
 ---
 
 People sign in with a link sent to their email, or with Google. Each account gets its own
-organization, so people on the same Proxy never see each other's connections, agents or activity.
-Agents sign in apart from people, with the logins you make for them; nothing here changes theirs.
+organization, so people on the same Personal Agent Proxy never see each other's connections, agents
+or activity. Agents sign in apart from people, with the logins you make for them; nothing here
+changes theirs.
 
 ## Who can create an account
 
-Anyone who can open your Proxy can create an account, unless `ALLOWED_SIGNUP_EMAILS` says who
-can. List addresses, and domains for everyone at a domain:
+Anyone who can open your Personal Agent Proxy can create an account, unless `ALLOWED_SIGNUP_EMAILS`
+says who can. List addresses, and domains for everyone at a domain:
 
 ```sh
 ALLOWED_SIGNUP_EMAILS="you@example.com,example.org"
@@ -22,14 +23,14 @@ here."
 
 ## Sign-in links
 
-Sign-in links work without any setup: until Proxy can send email, it writes each link to its log,
-and the sign-in page says so. That is enough when you are the only one signing in:
+Sign-in links work without any setup: until Personal Agent Proxy can send email, it writes each link
+to its log, and the sign-in page says so. That is enough when you are the only one signing in:
 
 ```sh
 docker compose logs proxy | grep "Magic Link"
 ```
 
-To email the links, Proxy uses [Resend](https://resend.com):
+To email the links, Personal Agent Proxy uses [Resend](https://resend.com):
 
 <Steps>
 
@@ -45,7 +46,7 @@ One with sending access is enough.
 
 ```sh
 RESEND_KEY="re_…"
-EMAIL_FROM="Proxy <login@example.com>"
+EMAIL_FROM="Personal Agent Proxy <login@example.com>"
 ```
 
 `EMAIL_FROM` has to be on the domain you verified.
@@ -65,7 +66,7 @@ client ID of the type **Web application**.
 
 ### Add the redirect URI
 
-Under **Authorized redirect URIs**, add your Proxy's address followed by
+Under **Authorized redirect URIs**, add your Personal Agent Proxy's address followed by
 `/auth/google/callback`:
 
 ```text

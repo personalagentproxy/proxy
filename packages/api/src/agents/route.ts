@@ -45,7 +45,7 @@ function requireProvider(providerId: string): Result<AgentProvider, ApiError> {
 	return requirePresent(findAgentProvider(providerId), ApiErr.internalError(new Error(`Missing agent provider ${providerId}`)));
 }
 
-/** The only time the password is sent; Proxy keeps its hash. A new agent follows every default. */
+/** The only time the password is sent; Personal Agent Proxy keeps its hash. A new agent follows every default. */
 export function handleCreateAgentRoute(request: AuthenticatedRequest): Promise<Result<{agent: AgentResponse; password: string}, ApiError>> {
 	return Do(async ($) => {
 		const {providerId} = $(parseSchema(createAgentBodySchema, request.body));

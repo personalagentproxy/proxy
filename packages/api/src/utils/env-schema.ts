@@ -3,13 +3,13 @@ import {z} from 'zod';
 /**
  * Every environment variable the api reads. Kept apart from `env.ts`, which parses
  * `process.env` on import, so the docs can build their reference table from it: each variable's
- * `group` and `description` are written for someone hosting Proxy.
+ * `group` and `description` are written for someone hosting Personal Agent Proxy.
  */
 
 export type EnvDoc = {
 	group: 'Core' | 'Sign-in' | 'Deployment';
 	description: string;
-	// Proxy does not work without it, though the api still starts so its errors can say why.
+	// Personal Agent Proxy does not work without it, though the api still starts so its errors can say why.
 	required?: true;
 };
 
@@ -41,7 +41,8 @@ export const envSchema = z.object({
 	APP_URL: documented(originSchema.optional(), {
 		group: 'Core',
 		required: true,
-		description: 'Where people open Proxy, such as `https://proxy.example.com`. Sign-in links and Google sign-in return here, and it is the only origin the api accepts browser requests from.',
+		description:
+			'Where people open Personal Agent Proxy, such as `https://proxy.example.com`. Sign-in links and Google sign-in return here, and it is the only origin the api accepts browser requests from.',
 	}),
 	AUTH_SECRET: documented(z.string().min(1).optional(), {
 		group: 'Core',
@@ -57,14 +58,14 @@ export const envSchema = z.object({
 			group: 'Core',
 			required: true,
 			description:
-				'Encrypts the app passwords and Information records Proxy stores: 32 random bytes, base64 (`openssl rand -base64 32`). Back it up: changing or losing it makes everything stored with it unreadable.',
+				'Encrypts the app passwords and Information records Personal Agent Proxy stores: 32 random bytes, base64 (`openssl rand -base64 32`). Back it up: changing or losing it makes everything stored with it unreadable.',
 		},
 	),
 
 	ALLOWED_SIGNUP_EMAILS: documented(listSchema.optional(), {
 		group: 'Sign-in',
 		description:
-			'Who can create an account: comma-separated addresses and domains, such as `me@example.com,example.org` (`@example.org` works too). People who already have an account can always sign in. Unset, anyone who can reach Proxy can sign up.',
+			'Who can create an account: comma-separated addresses and domains, such as `me@example.com,example.org` (`@example.org` works too). People who already have an account can always sign in. Unset, anyone who can reach Personal Agent Proxy can sign up.',
 	}),
 	GOOGLE_CLIENT_ID: documented(z.string().min(1).optional(), {
 		group: 'Sign-in',
@@ -80,7 +81,7 @@ export const envSchema = z.object({
 	}),
 	EMAIL_FROM: documented(z.string().min(1).optional(), {
 		group: 'Sign-in',
-		description: 'The sender of magic-link emails, such as `Proxy <login@example.com>`, on a domain verified with Resend.',
+		description: 'The sender of magic-link emails, such as `Personal Agent Proxy <login@example.com>`, on a domain verified with Resend.',
 	}),
 
 	NODE_ENV: documented(z.enum(['development', 'test', 'production']).default('production'), {

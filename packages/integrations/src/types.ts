@@ -37,6 +37,7 @@ export type Integration = {
 	name: string;
 	description: string;
 	collections: Collection[];
-	// Information lives in Proxy itself: it is always there and never connected or disconnected.
+	// Information lives in Personal Agent Proxy itself: it is always there and never connected or
+	// disconnected.
 	builtIn?: boolean;
 };

@@ -158,8 +158,8 @@ function ConnectEmailDialog({open, onClose}: {open: boolean; onClose: () => void
 					<DialogHeader>
 						<DialogTitle>Connect a mailbox</DialogTitle>
 						<DialogDescription>
-							Proxy signs in with an app password, made for Proxy alone in your mail account.
-							Revoking it there disconnects Proxy.
+							Personal Agent Proxy signs in with an app password, made for Personal Agent Proxy
+							alone in your mail account. Revoking it there disconnects Personal Agent Proxy.
 						</DialogDescription>
 					</DialogHeader>
 					<div className="grid gap-2">

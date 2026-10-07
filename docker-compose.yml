@@ -1,5 +1,5 @@
-# Proxy on one machine: Postgres, Proxy itself, and Caddy in front of it for HTTPS.
-# The guide: packages/docs/content/self-hosting/get-started.mdx
+# Personal Agent Proxy on one machine: Postgres, Personal Agent Proxy itself, and Caddy in front of
+# it for HTTPS. The guide: packages/docs/content/self-hosting/get-started.mdx
 #
 # 1. Put the secrets marked CHANGEME in a .env file next to this one:
 #      echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
@@ -8,8 +8,8 @@
 # 2. docker compose up -d, then open http://localhost.
 # 3. On a server, add PROXY_URL=https://your.domain to .env; Caddy gets its certificate.
 #
-# Only Caddy is reachable from outside, on ports 80 and 443. Postgres and Proxy are on the
-# compose network alone.
+# Only Caddy is reachable from outside, on ports 80 and 443. Postgres and Personal Agent Proxy are
+# on the compose network alone.
 
 name: proxy
 

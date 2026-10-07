@@ -13,7 +13,7 @@ const CELLS = {
 	agents: 'w-20 shrink-0 text-right text-muted-foreground tabular-nums',
 };
 
-// The services connected to Proxy. Information is kept on a page of its own.
+// The services connected to Personal Agent Proxy. Information is kept on a page of its own.
 export function ConnectionsPage() {
 	const {connections: all, agents} = useLoaderData<typeof connectionsLoader>();
 	const connections = all.filter((connection) => !integrationOf(connection)?.builtIn);

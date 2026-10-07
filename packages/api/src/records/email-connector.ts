@@ -244,7 +244,7 @@ async function appendDraft(target: RecordTarget, session: Session, values: Recor
 
 /**
  * Sends the email over SMTP and files a copy in Sent. Gmail files every email sent through it on
- * its own; anywhere else Proxy saves the copy, as a mail client does. Once the server has taken
+ * its own; anywhere else Personal Agent Proxy saves the copy, as a mail client does. Once the server has taken
  * the email it is gone, so nothing after that reports the send as failed: a copy that can't be
  * filed or found yet still answers with what was sent.
  */

@@ -1,10 +1,10 @@
 ---
 title: Get started
-description: Run Proxy on one server with Docker Compose, with Postgres and HTTPS in the same file.
+description: Run Personal Agent Proxy on one server with Docker Compose, with Postgres and HTTPS in the same file.
 ---
 
-The compose file runs three containers: Proxy, Postgres, and Caddy in front of them for HTTPS.
-Only Caddy is reachable from outside, on ports 80 and 443.
+The compose file runs three containers: Personal Agent Proxy, Postgres, and Caddy in front of them
+for HTTPS. Only Caddy is reachable from outside, on ports 80 and 443.
 
 <Steps>
 
@@ -31,19 +31,20 @@ echo "ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
   included.
 </Callout>
 
-### Start Proxy
+### Start Personal Agent Proxy
 
 ```sh
 docker compose up -d
 ```
 
-Open [http://localhost](http://localhost) on the same machine. To try Proxy on your own
-computer, you can stop here and [sign in](#sign-in).
+Open [http://localhost](http://localhost) on the same machine. To try Personal Agent Proxy on your
+own computer, you can stop here and [sign in](#sign-in).
 
 ### Give it a domain
 
-Point an `A` record for your domain at the server, and make sure ports 80 and 443 are open to
-it. Then tell Proxy its address, and who can create an account, before anyone else can reach it:
+Point an `A` record for your domain at the server, and make sure ports 80 and 443 are open to it.
+Then tell Personal Agent Proxy its address, and who can create an account, before anyone else can
+reach it:
 
 ```sh
 echo "PROXY_URL=https://proxy.example.com" >> .env
@@ -57,8 +58,8 @@ Caddy gets a certificate for the domain from Let's Encrypt on its first request,
 
 ## Sign in
 
-Enter your email on the sign-in page. Until Proxy can send email, it writes the sign-in link to
-its log instead:
+Enter your email on the sign-in page. Until Personal Agent Proxy can send email, it writes the
+sign-in link to its log instead:
 
 ```sh
 docker compose logs proxy | grep "Magic Link"
@@ -76,7 +77,7 @@ The compose file reads these from `.env`:
 | `POSTGRES_PASSWORD`                                                    | Required           | The database's password, set when the database is first created. Changing it later needs a change in Postgres too. |
 | `AUTH_SECRET`                                                          | Required           | Hashes sign-in tokens.                                                                                             |
 | `ENCRYPTION_KEY`                                                       | Required           | Encrypts credentials and Information records. Never change it.                                                     |
-| `PROXY_URL`                                                            | `http://localhost` | Where Proxy is opened. An `https://` address gets a certificate.                                                   |
+| `PROXY_URL`                                                            | `http://localhost` | Where Personal Agent Proxy is opened. An `https://` address gets a certificate.                                    |
 | `PROXY_VERSION`                                                        | `main`             | The image tag to run. See [upgrades](/self-hosting/upgrades-and-backups#versions).                                 |
 | `ALLOWED_SIGNUP_EMAILS`                                                | Optional           | Who can create an account.                                                                                         |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `RESEND_KEY`, `EMAIL_FROM` | Optional           | [Sign-in](/self-hosting/sign-in) with Google, and sign-in links by email.                                          |
