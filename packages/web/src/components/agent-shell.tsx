@@ -22,7 +22,7 @@ export function AgentShell({children}: {children: ReactNode}) {
 					{/* Desktop only: a phone's header has room for the brand and the button, not the name too. */}
 					{agent && (
 						<span className="hidden min-w-0 items-center gap-2 text-sm text-muted-foreground md:flex">
-							{provider && <AgentFavicon provider={provider} className="size-4" />}
+							{provider && <AgentFavicon provider={provider} />}
 							<span className="truncate">Signed in as {provider?.name}</span>
 						</span>
 					)}

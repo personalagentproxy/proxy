@@ -67,7 +67,7 @@ function AgentDetail({id}: {id: string}) {
 						}
 					>
 						<span className="flex items-center gap-2">
-							<AgentFavicon provider={provider} className="size-4" />
+							<AgentFavicon provider={provider} />
 							{provider.name}
 						</span>
 					</PageTitle>

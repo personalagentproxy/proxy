@@ -48,7 +48,7 @@ export function AuditList({entries, showAgent = true, showConnection = true}: Pr
 						{showAgent && (
 							<span className={CELLS.agent}>
 								<span className="flex items-center gap-2">
-									{provider && <AgentFavicon provider={provider} className="size-4" />}
+									{provider && <AgentFavicon provider={provider} />}
 									<span className="truncate">{provider?.name ?? 'Deleted agent'}</span>
 								</span>
 							</span>
@@ -59,9 +59,7 @@ export function AuditList({entries, showAgent = true, showConnection = true}: Pr
 						{showConnection && (
 							<span className={CELLS.connection}>
 								<span className="flex items-center justify-end gap-2">
-									{located && (
-										<IntegrationLogo integration={located.integration} className="size-4" />
-									)}
+									{located && <IntegrationLogo integration={located.integration} />}
 									<span className="truncate">{located?.integration.name ?? 'Disconnected'}</span>
 								</span>
 							</span>

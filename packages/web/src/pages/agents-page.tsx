@@ -56,7 +56,7 @@ export function AgentsPage() {
 			<RowList
 				header={
 					<RowHeader>
-						<span className="size-4 shrink-0" />
+						<span className="size-5 shrink-0" />
 						<span className="min-w-0 flex-1">Agent</span>
 						<span className={CELLS.company}>Company</span>
 						<span className={CELLS.username}>Username</span>
@@ -72,7 +72,7 @@ export function AgentsPage() {
 						<Row
 							key={agent.id}
 							to={`/agents/${agent.id}`}
-							icon={<AgentFavicon provider={provider} className="size-4" />}
+							icon={<AgentFavicon provider={provider} />}
 							title={
 								<span className={cn(revoked && 'text-muted-foreground')}>
 									{provider.name}

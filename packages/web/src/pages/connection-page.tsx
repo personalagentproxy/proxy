@@ -77,7 +77,7 @@ export function ConnectionPage() {
 								<Row
 									key={agent.id}
 									to={`/agents/${agent.id}`}
-									icon={<AgentFavicon provider={provider} className="size-4" />}
+									icon={<AgentFavicon provider={provider} />}
 									title={provider.name}
 									cells={
 										<span className="hidden min-w-0 shrink truncate text-right text-muted-foreground md:block">
