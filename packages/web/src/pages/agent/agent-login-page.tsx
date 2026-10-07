@@ -13,9 +13,6 @@ function signInErrorMessage(error: FetchError): string {
 	if (error.kind === 'http' && error.status === 403) {
 		return 'This login has been revoked.';
 	}
-	if (error.kind === 'http' && error.status === 429) {
-		return 'Too many attempts. Wait a few minutes, then try again.';
-	}
 	return 'Something went wrong. Try again.';
 }
 

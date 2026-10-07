@@ -13,8 +13,7 @@ export type ApiError =
 	// A provider turned the credential down, such as a wrong app password.
 	| {kind: 'credentials_rejected'; statusCode: 422}
 	// A provider couldn't be reached or answered with something other than a verdict.
-	| {kind: 'provider_unreachable'; statusCode: 502; cause: unknown}
-	| {kind: 'rate_limited'; statusCode: 429};
+	| {kind: 'provider_unreachable'; statusCode: 502; cause: unknown};
 
 export const ApiErr = {
 	notFound: (resource: string, id?: string): ApiError => ({
@@ -41,7 +40,6 @@ export const ApiErr = {
 		cause,
 	}),
 	credentialsRejected: (): ApiError => ({kind: 'credentials_rejected', statusCode: 422}),
-	rateLimited: (): ApiError => ({kind: 'rate_limited', statusCode: 429}),
 	providerUnreachable: (cause: unknown): ApiError => ({
 		kind: 'provider_unreachable',
 		statusCode: 502,

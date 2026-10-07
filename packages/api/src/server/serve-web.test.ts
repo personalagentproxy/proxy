@@ -43,6 +43,9 @@ describe('serveWeb', () => {
 			const res = await fetch(`${base}${path}`);
 			expect(res.status).toBe(200);
 			expect(res.headers.get('cache-control')).toBe('no-cache');
+			expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+			expect(res.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin');
+			expect(res.headers.get('x-frame-options')).toBe('SAMEORIGIN');
 			expect(await res.text()).toContain('<title>Proxy</title>');
 		}
 	});
@@ -53,6 +56,7 @@ describe('serveWeb', () => {
 		const asset = await fetch(`${base}/assets/index-abc.js`);
 		expect(asset.status).toBe(200);
 		expect(asset.headers.get('cache-control')).toContain('immutable');
+		expect(asset.headers.get('x-frame-options')).toBe('SAMEORIGIN');
 	});
 
 	test('a missing asset is a 404, not the page', async () => {
@@ -67,5 +71,17 @@ describe('serveWeb', () => {
 			expect(res.status).toBe(404);
 			expect(await res.json()).toEqual({error: 'not_found'});
 		}
+	});
+});
+
+describe('serveWeb without a build', () => {
+	test('a page is a 404 rather than a hanging request', async () => {
+		const app = express();
+		app.use(serveWeb(join(dir, 'no-build-here')));
+		const missing = app.listen(0);
+		const res = await fetch(`http://localhost:${(missing.address() as AddressInfo).port}/connections`);
+		missing.close();
+
+		expect(res.status).toBe(404);
 	});
 });
