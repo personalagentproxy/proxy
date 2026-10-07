@@ -83,7 +83,7 @@ export function AgentsPage() {
 							cells={
 								<>
 									<span className={CELLS.company}>
-										{findAgentProvider(agent.providerId)?.company ?? 'Legacy'}
+										{findAgentProvider(agent.providerId)?.company ?? agent.providerId}
 									</span>
 									<span className={CELLS.username}>{agent.username}</span>
 									<span className={CELLS.active}>

@@ -2,7 +2,7 @@ import type {AgentRow} from '@proxy/db/agent';
 
 export type AgentResponse = {
 	id: string;
-	providerId: string | null;
+	providerId: string;
 	name: string;
 	username: string;
 	createdAt: string;

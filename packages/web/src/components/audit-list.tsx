@@ -52,7 +52,7 @@ export function AuditList({
 						{showAgent && (
 							<span className={CELLS.agent}>
 								<span className="flex items-center gap-2">
-									<AgentLogo providerId={agent?.providerId ?? null} />
+									{agent && <AgentLogo providerId={agent.providerId} />}
 									<span className="truncate">{agent?.name ?? 'Deleted agent'}</span>
 								</span>
 							</span>

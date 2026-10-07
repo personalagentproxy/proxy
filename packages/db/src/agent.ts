@@ -7,7 +7,7 @@ import {db} from '.';
 
 export type AgentRow = {
 	id: string;
-	providerId: string | null;
+	providerId: string;
 	name: string;
 	username: string;
 	createdAt: Date;
@@ -160,7 +160,7 @@ export async function createAgentSession(data: {
 export type SignedInAgent = {
 	agentId: string;
 	orgId: string;
-	providerId: string | null;
+	providerId: string;
 	name: string;
 };
 

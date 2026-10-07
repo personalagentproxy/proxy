@@ -84,7 +84,7 @@ function AgentDetail({id}: {id: string}) {
 	}
 
 	const revoked = agent.revokedAt !== null;
-	const company = findAgentProvider(agent.providerId)?.company ?? 'Legacy';
+	const company = findAgentProvider(agent.providerId)?.company ?? agent.providerId;
 	const apply = async <T,>(change: Promise<Result<T, FetchError>>): Promise<T | null> => {
 		const result = await change;
 		if (result.isErr()) {

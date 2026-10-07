@@ -42,7 +42,7 @@ function requireSignedInAgent(request: AgentRequest): Promise<Result<AgentRow, A
 }
 
 /** Who the agent is and what it can do with each connection; connections it can't use are left out. */
-export function handleAgentMeRoute(request: AgentRequest): Promise<Result<{agent: {id: string; providerId: string | null; name: string}; connections: AgentConnectionResponse[]}, ApiError>> {
+export function handleAgentMeRoute(request: AgentRequest): Promise<Result<{agent: {id: string; providerId: string; name: string}; connections: AgentConnectionResponse[]}, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireSignedInAgent(request));
 		const connections = $(await listConnections(request.agent.orgId))

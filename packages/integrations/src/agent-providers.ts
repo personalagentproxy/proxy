@@ -26,7 +26,6 @@ export const AGENT_PROVIDERS: AgentProvider[] = [
 	{id: 'dot', name: 'Dot', company: 'OpenAI', faviconUrl: '/agent-providers/dot.png'},
 ];
 
-// Null for a login made before each was for one agent.
-export function findAgentProvider(id: string | null): AgentProvider | undefined {
+export function findAgentProvider(id: string): AgentProvider | undefined {
 	return AGENT_PROVIDERS.find((provider) => provider.id === id);
 }

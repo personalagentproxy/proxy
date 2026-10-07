@@ -230,9 +230,9 @@ function grant(connection: Connection, actions: Record<string, boolean>): Grant[
 const AGENT_PASSWORD = 'demo-password';
 const passwordHash = await Bun.password.hash(AGENT_PASSWORD);
 
-// Logins without a provider are from before each was for one agent; the app shows them as Legacy.
+// One login per provider, as the app allows.
 async function makeAgent(data: {
-	providerId?: AgentProviderId;
+	providerId: AgentProviderId;
 	name: string;
 	username: string;
 	daysAgo: number;
@@ -242,7 +242,7 @@ async function makeAgent(data: {
 	const agent = await db.agent.create({
 		data: {
 			orgId: org.id,
-			providerId: data.providerId ?? null,
+			providerId: data.providerId,
 			name: data.name,
 			username: data.username,
 			passwordHash,
@@ -285,13 +285,13 @@ const agents = [
 			grant(receipts, {read: true, archive: true}),
 		],
 	}),
-	// Nothing of its own: follows every default.
+	// Sends status emails from the work address without reading the mailbox.
 	await makeAgent({
 		providerId: 'grok-bot',
 		name: 'Grok Bot',
-		username: 'grok-bot-p4tn',
+		username: 'grok-bot-h6fa',
 		daysAgo: 20,
-		grants: [],
+		grants: [grant(work, {read: false, send: true})],
 	}),
 	// Cleans up inboxes, Trash included, but writes nothing.
 	await makeAgent({
@@ -304,31 +304,6 @@ const agents = [
 			grant(work, {mark: true, flag: true, archive: true}),
 			grant(info, {readAddresses: false, readNotes: false}),
 		],
-	}),
-	await makeAgent({
-		name: 'Travel planner',
-		username: 'travel-planner-r2jc',
-		daysAgo: 9,
-		grants: [
-			grant(info, {writeNotes: true, readCards: true}),
-			grant(personal, {archive: false}),
-			grant(work, {read: false}),
-		],
-	}),
-	// Sends status emails from the work address without reading the mailbox.
-	await makeAgent({
-		name: 'Status notifier',
-		username: 'status-notifier-h6fa',
-		daysAgo: 6,
-		grants: [grant(work, {read: false, send: true})],
-	}),
-	// Revoked: its settings stay, but it can't sign in.
-	await makeAgent({
-		name: 'Old scraper',
-		username: 'old-scraper-z5vb',
-		daysAgo: 33,
-		revokedDaysAgo: 12,
-		grants: [grant(personal, {write: false}), grant(info, {readAddresses: false})],
 	}),
 ];
 

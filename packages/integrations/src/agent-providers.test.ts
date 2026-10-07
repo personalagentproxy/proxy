@@ -20,6 +20,5 @@ describe('agent providers', () => {
 	test('finds a provider by id', () => {
 		expect(findAgentProvider('dot')?.name).toBe('Dot');
 		expect(findAgentProvider('other')).toBeUndefined();
-		expect(findAgentProvider(null)).toBeUndefined();
 	});
 });

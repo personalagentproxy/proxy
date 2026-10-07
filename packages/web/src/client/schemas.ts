@@ -13,7 +13,7 @@ export const connectionSchema = z.object({
 
 export const agentSchema = z.object({
 	id: z.string(),
-	providerId: z.string().nullable(),
+	providerId: z.string(),
 	name: z.string(),
 	username: z.string(),
 	createdAt: z.string(),
