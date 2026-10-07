@@ -7,6 +7,32 @@ Personal Agent Proxy connects a mailbox over IMAP and SMTP and signs in to it wi
 password: a password your mail provider makes for one app, apart from the one you sign in with.
 Revoking it in your mail account disconnects Personal Agent Proxy and nothing else.
 
+Emails stay with the provider. Personal Agent Proxy fetches them live when an agent accesses the
+mailbox instead of copying the mailbox into its database.
+
+## What agents can do
+
+Email has one collection containing the inbox, drafts and sent mail. You can allow each action
+separately:
+
+- **Read** lists and opens email, drafts and sent mail. It also allows search: Gmail accepts
+  Gmail's search syntax, while other providers match words in the sender, recipients, subject and
+  message text.
+- **Mark read or unread**, **Flag**, **Archive** and **Move to Trash** act on messages in the
+  inbox. These actions require Read.
+- **Write drafts** creates, edits and deletes drafts, and requires Read. Received messages are
+  never edited or permanently deleted.
+- **Send** sends a new email or a saved draft. Send does not require Read, so an agent can send
+  without being able to inspect the mailbox.
+
+Moving a message to Trash leaves it restorable at the provider. On Gmail, Archive moves it to All
+Mail; other providers use the folder they mark as Archive.
+
+<Callout>
+  A new mailbox gives agents no access. Choose the connection defaults after connecting it, then
+  override individual actions for any agent that needs different access.
+</Callout>
+
 <Steps>
 
 ### Make an app password

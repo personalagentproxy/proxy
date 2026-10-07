@@ -1,0 +1,67 @@
+---
+title: Granola
+description: Connect Granola meeting notes and transcripts for agents to read.
+---
+
+The Granola integration lets agents read meeting notes and transcripts from a Granola account.
+Personal Agent Proxy signs in to Granola and fetches meetings live through Granola's MCP service;
+it does not copy the meetings into its database.
+
+## Connect Granola
+
+<Steps>
+
+### Start the connection
+
+In Personal Agent Proxy, open **Connections**, then **Add connection**, and choose **Sign in with
+Granola**.
+
+### Sign in and approve access
+
+Complete Granola's sign-in. Granola sends the browser back to Personal Agent Proxy, which opens the
+new connection. If that account is already connected, signing in again refreshes its connection
+instead of making a duplicate.
+
+### Review the defaults
+
+A new Granola connection enables Read notes and Read transcripts by default. Turn either action
+off on the connection page if every agent should not receive it, or override the action for one
+agent on that agent's page.
+
+</Steps>
+
+Personal Agent Proxy stores the Granola connection tokens encrypted. It refreshes them when they
+are about to expire. If you revoke Personal Agent Proxy in Granola, you must sign in with Granola
+again to reconnect it.
+
+## What agents can read
+
+Granola is read-only in Personal Agent Proxy. Its two actions are independent:
+
+- **Read notes** lists meetings and opens their title, date, attendees, link, summary and your
+  private notes.
+- **Read transcripts** lists the same meetings and opens the transcript word for word.
+
+Notes and transcripts use the same Granola meeting ID, but appear as separate collections so you
+can grant access to one without the other. Nothing an agent does through this integration changes
+the meeting in Granola.
+
+## Lists and availability
+
+Meetings are shown newest first in 30-day windows. If one window has no meetings, Personal Agent
+Proxy skips back to the next window that does. Granola does not provide search through this
+connection.
+
+The notes and transcripts available depend on the Granola account and plan. A meeting without a
+transcript still appears in the list, but its transcript is empty.
+
+<Callout>
+  Transcripts can contain a word-for-word record of a conversation and are treated as a higher-risk
+  action than notes. Grant Read transcripts only to agents that need it.
+</Callout>
+
+## When sign-in does not finish
+
+Return to **Connections → Add connection** and try **Sign in with Granola** again. The temporary
+sign-in handshake lasts 15 minutes and is cleared after Granola sends the browser back, whether the
+connection succeeds or fails.
