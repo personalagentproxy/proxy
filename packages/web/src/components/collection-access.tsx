@@ -1,27 +1,14 @@
-import {
-	effectiveActions,
-	presetsOf,
-	sameActions,
-	type Collection,
-	type OwnSettings,
-	type Preset,
-} from '@proxy/integrations';
+import type {Collection, OwnSettings} from '@proxy/integrations';
 import {ChevronRightIcon} from 'lucide-react';
 import {useId} from 'react';
 import {Button} from '@/components/ui/button';
 import {Checkbox} from '@/components/ui/checkbox';
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from '@/components/ui/select';
-import {presetLabel} from '@/lib/access';
+import {summarizeActions} from '@/lib/access';
 import {cn} from '@/lib/utils';
 
-const FOLLOW_DEFAULT = 'default';
-const CUSTOM = 'custom';
+// A collection with this many actions or fewer shows its checkboxes on the page, one with a single
+// action on its own row; one with more folds them under a summary.
+const INLINE_ACTIONS = 2;
 
 type Props = {
 	collection: Collection;
@@ -31,7 +18,7 @@ type Props = {
 	own?: OwnSettings;
 	// On a connection's page: how many agents have a setting of their own, by action.
 	differing?: Partial<Record<string, number>>;
-	// The actions listed when open, narrowed by a filter; every action when left out.
+	// The actions listed, narrowed by a filter; every action when left out.
 	shown?: string[];
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -39,10 +26,11 @@ type Props = {
 	onChange: (actions: Record<string, boolean | null>) => void;
 };
 
-// One collection's access, the way an editor shows its settings: a preset select on the row, and
-// each action on its own line beneath it once opened. On an agent's page every action starts on
-// the connection's default, and one the agent has its own setting for is marked with a bar and a
-// Reset, so what differs from the default stands out.
+// One collection's access, the way an editor shows its settings: a checkbox per action, each the
+// only control for its setting. A collection with a few actions shows them on the page; one with
+// more folds them under a line saying what they add up to, such as Read & triage. On an agent's
+// page every action starts on the connection's default; one the agent has its own setting for is
+// marked with a bar and a Reset, and the collection's row resets all of them at once.
 export function CollectionAccess({
 	collection,
 	defaults,
@@ -62,7 +50,9 @@ export function CollectionAccess({
 	const on = ids.filter(isOn);
 	const effective = on.includes('read') ? on : [];
 	const changed = ids.some(isOwn);
-	const presets = presetsOf(collection);
+	const inline = collection.actions.length <= INLINE_ACTIONS;
+	const expanded = inline || open;
+	const summary = summarizeActions(collection, effective);
 
 	// On an agent's page, an action that matches the default follows it rather than being stored.
 	const setting = (id: string, next: boolean): boolean | null => {
@@ -71,83 +61,105 @@ export function CollectionAccess({
 		}
 		return next;
 	};
-	const applyPreset = (chosen: Preset) =>
-		onChange(Object.fromEntries(ids.map((id) => [id, setting(id, chosen.actions.includes(id))])));
+	const name = (
+		<>
+			<span className="truncate">{collection.name}</span>
+			{changed && (
+				<span className="shrink-0 text-xs text-primary" title="Differs from the default">
+					Changed
+				</span>
+			)}
+		</>
+	);
 
-	const shownValue = selectValue(presets, effective, Boolean(own) && !changed);
-	const items = [
-		...(own
-			? [
-					{
-						value: FOLLOW_DEFAULT,
-						label: `Default (${presetLabel(collection, effectiveActions(collection, defaults))})`,
-					},
-				]
-			: []),
-		...presets.map((candidate, index) => ({value: String(index), label: candidate.label})),
-		...(shownValue === CUSTOM ? [{value: CUSTOM, label: 'Custom'}] : []),
-	];
+	const meta = (id: string) => {
+		const others = differing?.[id] ?? 0;
+		return (
+			<span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+				{own && `Default: ${isDefault(id) ? 'on' : 'off'}`}
+				{others > 0 && `Changed for ${others} ${others === 1 ? 'agent' : 'agents'}`}
+				{isOwn(id) && (
+					<Button size="xs" variant="ghost" onClick={() => onChange({[id]: null})}>
+						Reset
+					</Button>
+				)}
+			</span>
+		);
+	};
+
+	// A collection with one action, such as Sent's Read, is that action: its checkbox sits on the
+	// collection's row.
+	const [only] = collection.actions;
+	if (collection.actions.length === 1 && only) {
+		const inputId = `${idPrefix}-${only.id}`;
+		return (
+			<li className="flex h-10 items-center gap-2 px-4 text-sm md:px-3">
+				<Checkbox
+					id={inputId}
+					checked={isOn(only.id)}
+					onCheckedChange={(next) => onChange({[only.id]: setting(only.id, next)})}
+				/>
+				<label htmlFor={inputId} className="flex min-w-0 flex-1 items-center gap-2">
+					{name}
+					<span className="hidden min-w-0 truncate text-xs text-muted-foreground md:inline">
+						{only.label}: {only.description.toLowerCase()}
+					</span>
+				</label>
+				{meta(only.id)}
+			</li>
+		);
+	}
 
 	return (
 		<li>
 			<div className="flex h-10 items-center gap-3 px-4 text-sm md:px-3">
-				<button
-					type="button"
-					aria-expanded={open}
-					onClick={() => onOpenChange(!open)}
-					className="flex min-w-0 flex-1 items-center gap-2 text-left"
-				>
-					<ChevronRightIcon
-						className={cn(
-							'size-4 shrink-0 text-muted-foreground transition-transform',
-							open && 'rotate-90',
-						)}
-					/>
-					<span className="truncate">{collection.name}</span>
-					{changed && (
-						<span className="shrink-0 text-xs text-primary" title="Differs from the default">
-							Changed
-						</span>
-					)}
-				</button>
-				<Select
-					value={shownValue}
-					items={items}
-					onValueChange={(next) => {
-						if (next === FOLLOW_DEFAULT) {
-							onChange(Object.fromEntries(ids.map((id) => [id, null])));
-							return;
-						}
-						const chosen = presets[Number(next)];
-						if (chosen) {
-							applyPreset(chosen);
-						}
-					}}
-				>
-					<SelectTrigger
-						size="sm"
-						aria-label={`${collection.name} access`}
-						className={cn('w-48', effective.length === 0 && 'text-muted-foreground')}
+				{inline ? (
+					<div className="flex min-w-0 flex-1 items-center gap-2">
+						<span className="size-4 shrink-0" />
+						{name}
+					</div>
+				) : (
+					<button
+						type="button"
+						aria-expanded={open}
+						onClick={() => onOpenChange(!open)}
+						className="flex min-w-0 flex-1 items-center gap-2 text-left"
 					>
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent align="end" alignItemWithTrigger={false}>
-						{items.map((item) => (
-							<SelectItem key={item.value} value={item.value} disabled={item.value === CUSTOM}>
-								{item.label}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
+						<ChevronRightIcon
+							className={cn(
+								'size-4 shrink-0 text-muted-foreground transition-transform',
+								open && 'rotate-90',
+							)}
+						/>
+						{name}
+						<span
+							className={cn(
+								'ml-auto min-w-0 truncate pl-3 text-muted-foreground',
+								effective.length === 0 && 'text-muted-foreground/70',
+							)}
+						>
+							{own && !changed ? `Default: ${summary}` : summary}
+						</span>
+					</button>
+				)}
+				{changed && (
+					<Button
+						size="xs"
+						variant="ghost"
+						className="text-muted-foreground"
+						onClick={() => onChange(Object.fromEntries(ids.map((id) => [id, null])))}
+					>
+						Reset all
+					</Button>
+				)}
 			</div>
-			{open && (
+			{expanded && (
 				<ul className="mb-2 ml-6 md:ml-5">
 					{collection.actions
 						.filter((action) => !shown || shown.includes(action.id))
 						.map((action) => {
 							const checked = isOn(action.id);
 							const blocked = checked && action.id !== 'read' && !on.includes('read');
-							const others = differing?.[action.id] ?? 0;
 							const inputId = `${idPrefix}-${action.id}`;
 							return (
 								<li
@@ -175,19 +187,7 @@ export function CollectionAccess({
 											{blocked && ' · Off while Read is off'}
 										</span>
 									</label>
-									<span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-										{own && `Default: ${isDefault(action.id) ? 'on' : 'off'}`}
-										{others > 0 && `Changed for ${others} ${others === 1 ? 'agent' : 'agents'}`}
-										{isOwn(action.id) && (
-											<Button
-												size="xs"
-												variant="ghost"
-												onClick={() => onChange({[action.id]: null})}
-											>
-												Reset
-											</Button>
-										)}
-									</span>
+									{meta(action.id)}
 								</li>
 							);
 						})}
@@ -195,18 +195,4 @@ export function CollectionAccess({
 			)}
 		</li>
 	);
-}
-
-// What the select shows: Default while an agent has nothing of its own, else the preset the
-// actions match, else Custom.
-function selectValue(presets: Preset[], effective: string[], followsDefault: boolean): string {
-	if (followsDefault) {
-		return FOLLOW_DEFAULT;
-	}
-
-	const index = presets.findIndex((candidate) => sameActions(candidate.actions, effective));
-	if (index === -1) {
-		return CUSTOM;
-	}
-	return String(index);
 }

@@ -25,7 +25,7 @@ export function effectiveActions(
 	return chosen;
 }
 
-export function sameActions(a: string[], b: string[]): boolean {
+function sameActions(a: string[], b: string[]): boolean {
 	return a.length === b.length && a.every((id) => b.includes(id));
 }
 

@@ -22,8 +22,8 @@ export type Action = {
 	risk: 'low' | 'medium' | 'high';
 };
 
-// A named set of actions offered in one select, such as Read & triage. Presets are never stored:
-// the select shows whichever one the actions match, else Custom.
+// A named set of actions, such as Read & triage: what a folded collection's actions add up to.
+// Never stored; actions that match no preset are Custom.
 export type Preset = {label: string; actions: string[]};
 
 // Something done to one record beyond reading and editing it, such as archiving an email. Several

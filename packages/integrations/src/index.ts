@@ -1,4 +1,4 @@
-export {effectiveActions, matchingPreset, presetsOf, requiredAction, sameActions} from './access';
+export {effectiveActions, matchingPreset, requiredAction} from './access';
 export type {OwnSettings} from './access';
 export {findCollection, findIntegration, INFO_INTEGRATION_ID, INTEGRATIONS} from './catalog';
 export {EMAIL_PROVIDERS} from './email-providers';

@@ -59,9 +59,13 @@ export function actionsFor(
 	);
 }
 
-// "Read & triage", or Custom for actions no preset matches.
-export function presetLabel(collection: Collection, actions: string[]): string {
-	return matchingPreset(collection, actions)?.label ?? 'Custom';
+// What the actions add up to: a preset's name, such as Read & triage, else the actions by name.
+export function summarizeActions(collection: Collection, actions: string[]): string {
+	const preset = matchingPreset(collection, actions);
+	if (preset) {
+		return preset.label;
+	}
+	return `Custom: ${describeActions(collection, actions)}`;
 }
 
 // "Read, Write drafts": what an agent can do, as the agent side tells it.

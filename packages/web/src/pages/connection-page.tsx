@@ -17,7 +17,7 @@ import {
 	defaultActions,
 	integrationOf,
 	ownSettings,
-	presetLabel,
+	summarizeActions,
 } from '@/lib/access';
 import {formatDate} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
@@ -111,7 +111,7 @@ export function ConnectionPage() {
 											.filter(({actions}) => actions.length > 0)
 											.map(
 												({collection, actions}) =>
-													`${collection.name}: ${presetLabel(collection, actions)}`,
+													`${collection.name}: ${summarizeActions(collection, actions)}`,
 											)
 											.join(', ')}
 									</span>
