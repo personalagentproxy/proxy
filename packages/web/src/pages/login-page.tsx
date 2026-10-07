@@ -22,6 +22,7 @@ const errorMessages: Record<string, string> = {
 	EmailSignin: 'Could not send the sign-in email. Please try again.',
 	Verification: 'This sign-in link is invalid or has expired. Please request a new one.',
 	SignupNotAllowed: 'This address cannot create an account here.',
+	EmailNotVerified: 'Google has not verified this email address, so it cannot create an account.',
 };
 
 function errorMessage(code: string | undefined): string {

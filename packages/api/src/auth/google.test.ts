@@ -71,7 +71,7 @@ function makeRes() {
 	return res;
 }
 
-function makeIdToken(payload: Record<string, string>): string {
+function makeIdToken(payload: Record<string, string | boolean>): string {
 	const encode = (value: object) => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
 	return `${encode({alg: 'RS256'})}.${encode(payload)}.signature`;
 }
@@ -79,6 +79,7 @@ function makeIdToken(payload: Record<string, string>): string {
 const googleProfile = {
 	sub: 'google-sub-1',
 	email: 'user@example.com',
+	email_verified: true,
 	name: 'Test User',
 	picture: 'https://example.com/avatar.png',
 };
@@ -284,6 +285,19 @@ describe('handleGoogleCallbackRoute', () => {
 		expect(body.get('code_verifier')).toBeTruthy();
 	});
 
+	test('a new user whose email Google has not verified → EmailNotVerified, no user, no session', async () => {
+		mockTokenExchangeSuccess(makeIdToken({...googleProfile, email_verified: false}));
+
+		const {handleGoogleCallbackRoute} = await importRoutes();
+		const flow = await startFlow();
+		const res = makeRes();
+		await handleGoogleCallbackRoute(makeCallbackRequest(flow) as never, res as never);
+
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/login?error=EmailNotVerified');
+		expect(createUserFromOAuthProfile).not.toHaveBeenCalled();
+		expect(createSession).not.toHaveBeenCalled();
+	});
+
 	test('a new user ALLOWED_SIGNUP_EMAILS leaves out → SignupNotAllowed, no user, no session', async () => {
 		mockEnv.ALLOWED_SIGNUP_EMAILS = ['someone-else@example.com'];
 
@@ -298,7 +312,7 @@ describe('handleGoogleCallbackRoute', () => {
 	});
 
 	test('a profile without name or picture signs up with nulls', async () => {
-		mockTokenExchangeSuccess(makeIdToken({sub: googleProfile.sub, email: googleProfile.email}));
+		mockTokenExchangeSuccess(makeIdToken({sub: googleProfile.sub, email: googleProfile.email, email_verified: true}));
 
 		const {handleGoogleCallbackRoute} = await importRoutes();
 		const flow = await startFlow();

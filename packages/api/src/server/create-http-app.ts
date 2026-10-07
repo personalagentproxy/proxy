@@ -11,9 +11,10 @@ import {serveWeb} from './serve-web';
 
 // The web app's build sits at a fixed place beside this package, packages/web/dist, in the repo
 // and in the image alike. In development there is none: Vite serves the app and proxies the api.
-const webDist = resolve(dirname(fileURLToPath(import.meta.url)), '../../../web/dist');
+const defaultWebDist = resolve(dirname(fileURLToPath(import.meta.url)), '../../../web/dist');
 
-export function createHttpApp() {
+// `webDist` is only ever another directory in tests.
+export function createHttpApp({webDist = defaultWebDist}: {webDist?: string} = {}) {
 	const app = express();
 
 	// Behind a TLS-terminating proxy, trust X-Forwarded-* so `req.secure` and `req.hostname`
@@ -26,10 +27,13 @@ export function createHttpApp() {
 
 	app.use(createApiRouter());
 
-	if (existsSync(join(webDist, 'index.html'))) {
+	const hasWebBuild = existsSync(join(webDist, 'index.html'));
+	if (hasWebBuild) {
 		app.use(serveWeb(webDist));
-	} else if (env.NODE_ENV === 'production') {
-		// Said once at boot, since every page would otherwise just be a 404.
+	}
+
+	// Said once at boot, since every page would otherwise just be a 404.
+	if (!hasWebBuild && env.NODE_ENV === 'production') {
 		log.warn('No web app build at packages/web/dist, so only the api is served. Build it with `bun run --cwd packages/web build`.');
 	}
 

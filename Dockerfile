@@ -1,13 +1,12 @@
 # One image for all of Proxy: the api, serving the web app's build on the same origin, and the
 # database migrations it runs before starting. See packages/docs/content/self-hosting.
 
-# Builds the web app, with every dependency. VITE_PROXY_API_URL is left unset, so it calls the
-# api on its own origin. Static files are the same on every platform, so this runs on the
-# builder's own, not emulated.
+# Builds the web app, with only its own dependencies. Static files are the same on every platform,
+# so this runs on the builder's own, not emulated.
 FROM --platform=$BUILDPLATFORM oven/bun:1-slim AS build
 WORKDIR /app
 COPY . .
-RUN bun install --frozen-lockfile
+RUN bun install --frozen-lockfile --filter web
 RUN bun run --cwd packages/web build
 
 # Only the api's production dependencies, which include the Prisma CLI for the migrations. Every

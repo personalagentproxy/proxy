@@ -199,6 +199,8 @@ function exchangeCodeForTokens(config: OAuthConfig, code: string, codeVerifier: 
 const googleProfileSchema = z.object({
 	sub: z.string().min(1),
 	email: z.string().min(1),
+	// Whether Google confirmed the address belongs to the account. Absent counts as not.
+	email_verified: z.boolean().optional(),
 	name: z.string().optional(),
 	picture: z.string().optional(),
 });
@@ -307,6 +309,13 @@ export async function handleGoogleCallbackRoute(req: Request, res: Response): Pr
 
 	if (existingByEmailResult.value) {
 		redirectToLoginError(res, config.appUrl, 'OAuthAccountNotLinked');
+		return;
+	}
+
+	// A new account takes its address from Google, so only one Google has confirmed: otherwise
+	// anyone could claim an address, and get past ALLOWED_SIGNUP_EMAILS with it.
+	if (profile.email_verified !== true) {
+		redirectToLoginError(res, config.appUrl, 'EmailNotVerified');
 		return;
 	}
 

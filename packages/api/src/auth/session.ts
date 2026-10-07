@@ -19,6 +19,17 @@ export function useSecureCookies(): boolean {
 	return env.APP_URL?.startsWith('https://') ?? false;
 }
 
+// An entry is an address, or a domain with or without its `@`: `me@example.com`, `@example.org`
+// or `example.org`.
+function matchesEntry(address: string, entry: string): boolean {
+	if (entry.includes('@') && !entry.startsWith('@')) {
+		return address === entry;
+	}
+
+	const domain = entry.startsWith('@') ? entry : `@${entry}`;
+	return address.endsWith(domain);
+}
+
 /** Whether `email` may create an account: anyone, unless ALLOWED_SIGNUP_EMAILS says who. */
 export function canSignUp(email: string): boolean {
 	const allowed = env.ALLOWED_SIGNUP_EMAILS;
@@ -27,7 +38,7 @@ export function canSignUp(email: string): boolean {
 	}
 
 	const address = email.toLowerCase();
-	return allowed.some((entry) => (entry.startsWith('@') ? address.endsWith(entry) : address === entry));
+	return allowed.some((entry) => matchesEntry(address, entry));
 }
 
 export function sessionCookieName(): string {

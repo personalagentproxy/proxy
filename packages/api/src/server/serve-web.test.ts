@@ -1,43 +1,41 @@
-import {afterAll, beforeAll, describe, expect, test} from 'bun:test';
+import {afterAll, beforeAll, describe, expect, mock, test} from 'bun:test';
 import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import type {Server} from 'node:http';
 import type {AddressInfo} from 'node:net';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
-import express from 'express';
-
-import {serveWeb} from './serve-web';
+mock.module('../utils/env', () => ({env: {NODE_ENV: 'test', APP_URL: 'http://localhost'}}));
 
 const dir = mkdtempSync(join(tmpdir(), 'proxy-web-'));
-let server: Server;
+const servers: Server[] = [];
+
+// The whole app, as index.ts serves it, with `webDist` as its web app's build.
+async function start(webDist: string): Promise<string> {
+	const {createHttpApp} = await import('./create-http-app');
+	const server = createHttpApp({webDist}).listen(0);
+	servers.push(server);
+	return `http://localhost:${(server.address() as AddressInfo).port}`;
+}
+
 let base: string;
 
-beforeAll(() => {
+beforeAll(async () => {
 	mkdirSync(join(dir, 'assets'));
 	writeFileSync(join(dir, 'index.html'), '<!doctype html><title>Proxy</title>');
 	writeFileSync(join(dir, 'favicon.svg'), '<svg/>');
 	writeFileSync(join(dir, 'assets', 'index-abc.js'), 'console.log(1)');
-
-	// Laid out like createHttpApp: an api route, the web app, then the api's 404.
-	const app = express();
-	app.get('/api/me', (_req, res) => {
-		res.json({me: true});
-	});
-	app.use(serveWeb(dir));
-	app.use((_req, res) => {
-		res.status(404).json({error: 'not_found'});
-	});
-	server = app.listen(0);
-	base = `http://localhost:${(server.address() as AddressInfo).port}`;
+	base = await start(dir);
 });
 
 afterAll(() => {
-	server.close();
+	for (const server of servers) {
+		server.close();
+	}
 	rmSync(dir, {recursive: true});
 });
 
-describe('serveWeb', () => {
+describe('the web app on the api origin', () => {
 	test("serves the app's page for its routes, revalidated on every load", async () => {
 		for (const path of ['/', '/connections', '/agent/info/addresses']) {
 			const res = await fetch(`${base}${path}`);
@@ -63,10 +61,11 @@ describe('serveWeb', () => {
 		expect((await fetch(`${base}/assets/gone.js`)).status).toBe(404);
 	});
 
-	test("leaves the api's paths to the api", async () => {
-		expect(await (await fetch(`${base}/api/me`)).json()).toEqual({me: true});
+	test("leaves the api's paths to the api, with or without a trailing slash", async () => {
+		expect(await (await fetch(`${base}/health`)).json()).toEqual({ok: true});
+		expect(await (await fetch(`${base}/auth/methods`)).json()).toEqual({google: false});
 
-		for (const path of ['/api/nope', '/auth/nope', '/agent-auth/nope']) {
+		for (const path of ['/api', '/api/nope', '/auth', '/auth/nope', '/agent-auth', '/agent-auth/nope']) {
 			const res = await fetch(`${base}${path}`);
 			expect(res.status).toBe(404);
 			expect(await res.json()).toEqual({error: 'not_found'});
@@ -74,14 +73,12 @@ describe('serveWeb', () => {
 	});
 });
 
-describe('serveWeb without a build', () => {
-	test('a page is a 404 rather than a hanging request', async () => {
-		const app = express();
-		app.use(serveWeb(join(dir, 'no-build-here')));
-		const missing = app.listen(0);
-		const res = await fetch(`http://localhost:${(missing.address() as AddressInfo).port}/connections`);
-		missing.close();
+describe('without a web app build', () => {
+	test('only the api is served', async () => {
+		const apiOnly = await start(join(dir, 'no-build-here'));
+		const res = await fetch(`${apiOnly}/connections`);
 
 		expect(res.status).toBe(404);
+		expect(await res.json()).toEqual({error: 'not_found'});
 	});
 });

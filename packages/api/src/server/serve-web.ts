@@ -2,8 +2,13 @@ import {join, resolve} from 'node:path';
 
 import express from 'express';
 
-// The api's own paths. Every other GET is a page of the web app, which routes in the browser.
-const apiPrefixes = ['/api/', '/auth/', '/agent-auth/'];
+// The api's own paths, and everything under them. Every other GET is a page of the web app,
+// which routes in the browser.
+const apiPaths = ['/api', '/auth', '/agent-auth'];
+
+function isApiPath(path: string): boolean {
+	return apiPaths.some((apiPath) => path === apiPath || path.startsWith(`${apiPath}/`));
+}
 
 // On everything the web app is served with: no guessing a file's type from its contents, no full
 // URLs sent to other sites, and no framing by them.
@@ -27,7 +32,7 @@ export function serveWeb(dir: string): express.Router {
 	router.use(express.static(root, {index: false, setHeaders: setSecurityHeaders}));
 
 	router.get('*', (req, res, next) => {
-		if (apiPrefixes.some((prefix) => req.path.startsWith(prefix))) {
+		if (isApiPath(req.path)) {
 			next();
 			return;
 		}

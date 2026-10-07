@@ -64,7 +64,7 @@ export const envSchema = z.object({
 	ALLOWED_SIGNUP_EMAILS: documented(listSchema.optional(), {
 		group: 'Sign-in',
 		description:
-			'Who can create an account: comma-separated addresses and `@domains`, such as `me@example.com,@example.org`. People who already have an account can always sign in. Unset, anyone who can reach Proxy can sign up.',
+			'Who can create an account: comma-separated addresses and domains, such as `me@example.com,example.org` (`@example.org` works too). People who already have an account can always sign in. Unset, anyone who can reach Proxy can sign up.',
 	}),
 	GOOGLE_CLIENT_ID: documented(z.string().min(1).optional(), {
 		group: 'Sign-in',

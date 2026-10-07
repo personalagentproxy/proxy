@@ -216,21 +216,26 @@ describe('handleEmailSignInRoute', () => {
 		expect(sendMagicLink).not.toHaveBeenCalled();
 	});
 
-	test('ALLOWED_SIGNUP_EMAILS lets in its addresses, its @domains, and anyone with an account', async () => {
-		mockEnv.ALLOWED_SIGNUP_EMAILS = ['me@example.com', '@example.org'];
+	test('ALLOWED_SIGNUP_EMAILS lets in its addresses, its domains with or without the @, and anyone with an account', async () => {
+		mockEnv.ALLOWED_SIGNUP_EMAILS = ['me@example.com', '@example.org', 'example.net'];
 		const {handleEmailSignInRoute} = await importRoutes();
 
-		for (const email of ['me@example.com', 'someone@example.org']) {
+		for (const email of ['me@example.com', 'someone@example.org', 'someone@example.net']) {
 			const res = makeRes();
 			await handleEmailSignInRoute({body: {email}} as never, res as never);
 			expect(res.json).toHaveBeenCalledWith({ok: true});
 		}
 
+		// A domain is the whole domain, not a suffix of another one.
+		const lookalike = makeRes();
+		await handleEmailSignInRoute({body: {email: 'someone@notexample.net'}} as never, lookalike as never);
+		expect(lookalike.json).toHaveBeenCalledWith({error: 'SignupNotAllowed'});
+
 		getUserByEmail.mockResolvedValue(Ok({id: 'user-1', email: 'old@example.com', name: null}));
 		const res = makeRes();
 		await handleEmailSignInRoute({body: {email: 'old@example.com'}} as never, res as never);
 		expect(res.json).toHaveBeenCalledWith({ok: true});
-		expect(sendMagicLink).toHaveBeenCalledTimes(3);
+		expect(sendMagicLink).toHaveBeenCalledTimes(4);
 	});
 
 	test('mail failure → EmailSignin error', async () => {
