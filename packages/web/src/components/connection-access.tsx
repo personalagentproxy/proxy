@@ -1,5 +1,5 @@
 import type {Action, OwnSettings} from '@proxy/integrations';
-import {Undo2Icon} from 'lucide-react';
+import {CheckCheckIcon, Undo2Icon} from 'lucide-react';
 import {useId} from 'react';
 import {RowList} from '@/components/row-list';
 import {IconButton} from '@/components/icon-button';
@@ -16,12 +16,22 @@ type Props = {
 	differing?: Partial<Record<string, number>>;
 	// Actions turned on or off; null returns an agent's action to the default.
 	onChange: (actions: Record<string, boolean | null>) => void;
+	// On an agent's page: makes the agent's own setting for an action the connection's default.
+	onMakeDefault?: (actionId: string, allowed: boolean) => void;
 };
 
 // A connection's access, the way an editor shows its settings: one checkbox per action, the only
 // control for it. On an agent's page every action starts on the connection's default; one the
-// agent has its own setting for is marked with a bar, the default it differs from and a reset icon.
-export function ConnectionAccess({actions, defaults, own, differing, onChange}: Props) {
+// agent has its own setting for is marked with a bar, a button that makes it the default for
+// every agent, and one that resets it to the default.
+export function ConnectionAccess({
+	actions,
+	defaults,
+	own,
+	differing,
+	onChange,
+	onMakeDefault,
+}: Props) {
 	// A connection's actions show on more than one page section, so the ids need their own prefix.
 	const idPrefix = useId();
 	const isDefault = (id: string) => defaults.includes(id);
@@ -68,8 +78,15 @@ export function ConnectionAccess({actions, defaults, own, differing, onChange}: 
 							</span>
 						</label>
 						<span className="flex shrink-0 items-center gap-2 text-muted-foreground">
-							{isOwn(action.id) && `Default: ${isDefault(action.id) ? 'on' : 'off'}`}
 							{others > 0 && `Changed for ${others} ${others === 1 ? 'agent' : 'agents'}`}
+							{isOwn(action.id) && onMakeDefault && (
+								<IconButton
+									label="Make this the default for every agent"
+									onClick={() => onMakeDefault(action.id, checked)}
+								>
+									<CheckCheckIcon />
+								</IconButton>
+							)}
 							{isOwn(action.id) && (
 								<IconButton label="Reset to default" onClick={() => onChange({[action.id]: null})}>
 									<Undo2Icon />

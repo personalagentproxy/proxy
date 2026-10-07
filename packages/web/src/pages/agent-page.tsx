@@ -23,6 +23,7 @@ import {
 	setAgentGrants,
 	setAgentRevoked,
 } from '@/client/agents-client';
+import {setConnectionDefaults} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
@@ -35,14 +36,7 @@ import {EmptyRows, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {Checkbox} from '@/components/ui/checkbox';
 import {Input} from '@/components/ui/input';
-import {
-	actionsFor,
-	connectionLabel,
-	defaultActions,
-	describeActions,
-	integrationOf,
-	ownSettings,
-} from '@/lib/access';
+import {connectionLabel, defaultActions, integrationOf, ownSettings} from '@/lib/access';
 import {cn} from '@/lib/utils';
 import {formatDate} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
@@ -149,6 +143,9 @@ function AgentDetail({id}: {id: string}) {
 						connections={connections}
 						onChange={(connectionId, actions) =>
 							void apply(setAgentGrants(agent.id, connectionId, actions))
+						}
+						onMakeDefault={(connectionId, actionId, allowed) =>
+							void apply(makeDefault(agent.id, connectionId, actionId, allowed))
 						}
 					/>
 				</Section>
@@ -264,6 +261,21 @@ function CredentialLine({label, value, mono = false, muted = false, children}: L
 	);
 }
 
+// Makes an agent's own setting the connection's default, for every agent without one of its own,
+// and drops it, since it now matches the default.
+async function makeDefault(
+	agentId: string,
+	connectionId: string,
+	actionId: string,
+	allowed: boolean,
+): Promise<Result<void, FetchError>> {
+	const defaults = await setConnectionDefaults(connectionId, {[actionId]: allowed});
+	if (defaults.isErr()) {
+		return defaults.map(() => undefined);
+	}
+	return (await setAgentGrants(agentId, connectionId, {[actionId]: null})).map(() => undefined);
+}
+
 // "3 changed": how many actions the agent has a setting of its own for.
 function changedDetail(agent: AgentLogin): string | undefined {
 	if (agent.grants.length === 0) {
@@ -276,13 +288,14 @@ type GridProps = {
 	agent: AgentLogin;
 	connections: Connection[];
 	onChange: (connectionId: string, actions: Record<string, boolean | null>) => void;
+	onMakeDefault: (connectionId: string, actionId: string, allowed: boolean) => void;
 };
 
 // Every connection, Information first, with a checkbox per action. Each starts folded to a line
-// saying what the agent can do there. A filter narrows them to the connections and actions it
+// saying whether the agent follows its default or has changed something. A filter narrows them to the connections and actions it
 // names, and Changed only keeps the actions the agent has a setting of its own for; either opens
 // everything it keeps.
-function AccessGrid({agent, connections, onChange}: GridProps) {
+function AccessGrid({agent, connections, onChange, onMakeDefault}: GridProps) {
 	const [query, setQuery] = useState('');
 	const [changedOnly, setChangedOnly] = useState(false);
 	const [opened, setOpened] = useState<Set<string>>(() => new Set());
@@ -348,7 +361,6 @@ function AccessGrid({agent, connections, onChange}: GridProps) {
 			<div className="flex flex-col">
 				{groups.map(({connection, integration, label, own, actions}) => {
 					const open = filtering || opened.has(connection.id);
-					const can = actionsFor(agent, connection);
 					return (
 						<div key={connection.id} className={cn('flex flex-col', open && 'mb-2')}>
 							<button
@@ -364,23 +376,10 @@ function AccessGrid({agent, connections, onChange}: GridProps) {
 									)}
 								/>
 								<integration.icon className="size-4 shrink-0 text-muted-foreground" />
-								<span className="shrink-0">{label}</span>
-								{Object.keys(own).length > 0 && (
-									<span className="shrink-0 text-primary" title="Differs from the default">
-										Changed
-									</span>
-								)}
-								{!open && (
-									// Muted while it follows the default, so the connections that differ stand out.
-									<span
-										className={cn(
-											'ml-auto min-w-0 truncate pl-3',
-											Object.keys(own).length === 0 && 'text-muted-foreground',
-										)}
-									>
-										{can.length > 0 ? describeActions(integration, can) : 'No access'}
-									</span>
-								)}
+								<span className="min-w-0 truncate">{label}</span>
+								<span className="ml-auto shrink-0 pl-3 text-muted-foreground">
+									{Object.keys(own).length > 0 ? 'Changed' : 'Default'}
+								</span>
 							</button>
 							{open && (
 								<ConnectionAccess
@@ -388,6 +387,9 @@ function AccessGrid({agent, connections, onChange}: GridProps) {
 									defaults={defaultActions(connection)}
 									own={own}
 									onChange={(changes) => onChange(connection.id, changes)}
+									onMakeDefault={(actionId, allowed) =>
+										onMakeDefault(connection.id, actionId, allowed)
+									}
 								/>
 							)}
 						</div>
