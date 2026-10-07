@@ -7,6 +7,7 @@ import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
+import {IntegrationLogo} from '@/components/integration-logo';
 import {useStore} from '@/components/mock-store';
 import {NotFound} from '@/components/not-found';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
@@ -36,7 +37,12 @@ export function ConnectionPage() {
 			title={
 				<>
 					<BackButton to="/connections" label="Back to connections" />
-					<PageTitle detail={connection.account}>{integration.name}</PageTitle>
+					<PageTitle detail={connection.account}>
+						<span className="flex items-center gap-2">
+							<IntegrationLogo integration={integration} />
+							{integration.name}
+						</span>
+					</PageTitle>
 				</>
 			}
 			actions={

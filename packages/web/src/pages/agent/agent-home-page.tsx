@@ -1,4 +1,5 @@
 import {AgentHeading, AgentShell} from '@/components/agent-shell';
+import {IntegrationLogo} from '@/components/integration-logo';
 import {useStore} from '@/components/mock-store';
 import {Row, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
@@ -22,7 +23,16 @@ export function AgentHomePage() {
 					</p>
 				)}
 				{connections.map(({connection, integration, collections}) => (
-					<Section key={connection.id} title={integration.name} detail={connection.account}>
+					<Section
+						key={connection.id}
+						title={
+							<span className="flex items-center gap-2">
+								<IntegrationLogo integration={integration} />
+								{integration.name}
+							</span>
+						}
+						detail={connection.account}
+					>
 						<RowList>
 							{collections.map(({collection, access}) => (
 								<Row

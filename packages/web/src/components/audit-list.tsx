@@ -1,4 +1,5 @@
 import {AgentFavicon} from '@/components/agent-favicon';
+import {IntegrationLogo} from '@/components/integration-logo';
 import {useStore} from '@/components/mock-store';
 import {EmptyRows, RowHeader, RowList} from '@/components/row-list';
 import {describeEntry, locate} from '@/lib/access';
@@ -57,7 +58,12 @@ export function AuditList({entries, showAgent = true, showConnection = true}: Pr
 						</span>
 						{showConnection && (
 							<span className={CELLS.connection}>
-								{located?.integration.name ?? 'Disconnected'}
+								<span className="flex items-center justify-end gap-2">
+									{located && (
+										<IntegrationLogo integration={located.integration} className="size-4" />
+									)}
+									<span className="truncate">{located?.integration.name ?? 'Disconnected'}</span>
+								</span>
 							</span>
 						)}
 					</li>

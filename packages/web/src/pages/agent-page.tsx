@@ -6,6 +6,7 @@ import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
 import {ConfirmDialog} from '@/components/confirm-dialog';
+import {IntegrationLogo} from '@/components/integration-logo';
 import {CopyButton} from '@/components/copy-button';
 import {IconButton} from '@/components/icon-button';
 import {useStore} from '@/components/mock-store';
@@ -217,7 +218,7 @@ function AccessGrid({agent}: {agent: AgentLogin}) {
 				return (
 					<div key={connection.id} className="flex flex-col gap-1">
 						<div className="flex items-center gap-2 text-sm md:px-3">
-							<integration.icon className="size-4 shrink-0 text-muted-foreground" />
+							<IntegrationLogo integration={integration} />
 							<span className="font-medium">{integration.name}</span>
 							<span className="truncate text-muted-foreground">{connection.account}</span>
 						</div>

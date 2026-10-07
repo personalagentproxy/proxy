@@ -28,6 +28,7 @@ export type Integration = {
 	id: string;
 	name: string;
 	description: string;
+	logoUrl: string;
 	icon: LucideIcon;
 	collections: Collection[];
 	// The account a mock connection is made with, standing in for the provider's sign-in.
