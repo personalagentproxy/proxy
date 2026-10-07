@@ -29,6 +29,7 @@ function integration(id: string): Integration {
 }
 
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dot'};
+const caller = {agent: signedIn, via: 'mcp' as const};
 
 const infoConnection = {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), defaults: [{actionId: 'readAddresses'}], credential: null};
 const emailConnection = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), defaults: [{actionId: 'read'}], credential: 'v1.x.y.z'};
@@ -100,7 +101,7 @@ describe('listAgentTools', () => {
 describe('runAgentTool', () => {
 	test('a read the agent may make is logged with the record title', async () => {
 		const {runAgentTool} = await import('./tools');
-		const result = await runAgentTool(signedIn, 'info-1', 'cards_get', {id: 'rec-1'});
+		const result = await runAgentTool(caller, 'info-1', 'cards_get', {id: 'rec-1'});
 
 		expect(result.unwrap()).toEqual({record: card});
 		expect(connector.get.mock.calls[0]?.[1]).toBe('rec-1');
@@ -113,12 +114,13 @@ describe('runAgentTool', () => {
 			recordTitle: 'Personal Visa',
 			query: null,
 			outcome: 'allowed',
+			via: 'mcp',
 		});
 	});
 
 	test('a tool without its action is refused and logged as denied, its search too', async () => {
 		const {runAgentTool} = await import('./tools');
-		const result = await runAgentTool(signedIn, 'info-1', 'notes_list', {search: ' sizes '});
+		const result = await runAgentTool(caller, 'info-1', 'notes_list', {search: ' sizes '});
 
 		expect(result.unwrapErr().kind).toBe('forbidden');
 		expect(connector.list).not.toHaveBeenCalled();
@@ -130,7 +132,7 @@ describe('runAgentTool', () => {
 		getAgent.mockResolvedValue(Ok(triage));
 
 		const {runAgentTool} = await import('./tools');
-		await runAgentTool(signedIn, 'mail-1', 'emails_list', {search: 'invoice', folder: 'Inbox', page: 'next'});
+		await runAgentTool(caller, 'mail-1', 'emails_list', {search: 'invoice', folder: 'Inbox', page: 'next'});
 
 		expect(connector.list.mock.calls[0]?.[1]).toEqual({search: 'invoice', page: 'next', filter: 'Inbox'});
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'list', query: 'invoice', outcome: 'allowed'});
@@ -141,10 +143,10 @@ describe('runAgentTool', () => {
 		getAgent.mockResolvedValue(Ok(triage));
 
 		const {runAgentTool} = await import('./tools');
-		const unknown = await runAgentTool(signedIn, 'mail-1', 'emails_list', {filter: 'Inbox'});
-		const outsideEnum = await runAgentTool(signedIn, 'mail-1', 'emails_list', {folder: 'Spam'});
-		const missingId = await runAgentTool(signedIn, 'mail-1', 'emails_get', {});
-		const notText = await runAgentTool(signedIn, 'mail-1', 'emails_get', {id: 7});
+		const unknown = await runAgentTool(caller, 'mail-1', 'emails_list', {filter: 'Inbox'});
+		const outsideEnum = await runAgentTool(caller, 'mail-1', 'emails_list', {folder: 'Spam'});
+		const missingId = await runAgentTool(caller, 'mail-1', 'emails_get', {});
+		const notText = await runAgentTool(caller, 'mail-1', 'emails_get', {id: 7});
 
 		for (const result of [unknown, outsideEnum, missingId, notText]) {
 			expect(result.unwrapErr().kind).toBe('validation_error');
@@ -153,11 +155,23 @@ describe('runAgentTool', () => {
 		expect(connector.get).not.toHaveBeenCalled();
 	});
 
+	test('limited to tools that read, or to those that change something, any other is refused unlogged', async () => {
+		const {runAgentTool} = await import('./tools');
+		const readingAWrite = await runAgentTool(caller, 'info-1', 'cards_create', {label: 'New'}, {readOnly: true});
+		const runningARead = await runAgentTool(caller, 'info-1', 'cards_list', {}, {readOnly: false});
+
+		expect(readingAWrite.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'cards_create changes something: use run for it'});
+		expect(runningARead.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'cards_list only reads: use read for it'});
+		expect(connector.create).not.toHaveBeenCalled();
+		expect(connector.list).not.toHaveBeenCalled();
+		expect(logAgentRequest).not.toHaveBeenCalled();
+	});
+
 	test('a connection outside the organization or a tool the integration lacks is not found and not logged', async () => {
 		const {runAgentTool} = await import('./tools');
-		const tool = await runAgentTool(signedIn, 'info-1', 'cards_send', {});
+		const tool = await runAgentTool(caller, 'info-1', 'cards_send', {});
 		loadConnection.mockResolvedValue(Err(ApiErr.notFound('connection', 'elsewhere')));
-		const connection = await runAgentTool(signedIn, 'elsewhere', 'cards_list', {});
+		const connection = await runAgentTool(caller, 'elsewhere', 'cards_list', {});
 
 		expect(tool.unwrapErr().kind).toBe('not_found');
 		expect(connection.unwrapErr().kind).toBe('not_found');
@@ -171,7 +185,7 @@ describe('runAgentTool', () => {
 		connector.update.mockResolvedValue(Ok({...draft, values: {...draft.values, subject: 'Re: Q4 planning'}}));
 
 		const {runAgentTool} = await import('./tools');
-		const result = await runAgentTool(signedIn, 'mail-1', 'emails_update', {id: draft.id, subject: 'Re: Q4 planning'});
+		const result = await runAgentTool(caller, 'mail-1', 'emails_update', {id: draft.id, subject: 'Re: Q4 planning'});
 
 		expect(result.isOk()).toBe(true);
 		expect(connector.update.mock.calls[0]?.slice(1)).toEqual([draft.id, {to: 'sam@example.com', subject: 'Re: Q4 planning', body: 'Draft body'}]);
@@ -184,7 +198,7 @@ describe('runAgentTool', () => {
 		connector.get.mockResolvedValue(Ok(draft));
 
 		const {runAgentTool} = await import('./tools');
-		const result = await runAgentTool(signedIn, 'mail-1', 'emails_update', {id: draft.id, folder: 'Inbox'});
+		const result = await runAgentTool(caller, 'mail-1', 'emails_update', {id: draft.id, folder: 'Inbox'});
 
 		expect(result.unwrapErr().kind).toBe('validation_error');
 		expect(connector.update).not.toHaveBeenCalled();
@@ -196,7 +210,7 @@ describe('runAgentTool', () => {
 		connector.get.mockResolvedValue(Ok(inboxEmail));
 
 		const {runAgentTool} = await import('./tools');
-		const result = await runAgentTool(signedIn, 'mail-1', 'emails_update', {id: inboxEmail.id, subject: 'Hi'});
+		const result = await runAgentTool(caller, 'mail-1', 'emails_update', {id: inboxEmail.id, subject: 'Hi'});
 
 		expect(result.unwrapErr().kind).toBe('validation_error');
 		expect(connector.update).not.toHaveBeenCalled();
@@ -209,8 +223,8 @@ describe('runAgentTool', () => {
 		archive.mockResolvedValue(Ok(null));
 
 		const {runAgentTool} = await import('./tools');
-		const archived = await runAgentTool(signedIn, 'mail-1', 'emails_archive', {id: inboxEmail.id});
-		const sendInbox = await runAgentTool(signedIn, 'mail-1', 'emails_send', {id: inboxEmail.id});
+		const archived = await runAgentTool(caller, 'mail-1', 'emails_archive', {id: inboxEmail.id});
+		const sendInbox = await runAgentTool(caller, 'mail-1', 'emails_send', {id: inboxEmail.id});
 
 		expect(archived.unwrap()).toEqual({record: null});
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'archive', recordTitle: 'Invoice #20931', outcome: 'allowed'});
@@ -225,7 +239,7 @@ describe('runAgentTool', () => {
 		const values = {to: 'sam@example.com', subject: 'Friday', body: 'See you then.'};
 
 		const {runAgentTool} = await import('./tools');
-		const result = await runAgentTool(signedIn, 'mail-1', 'emails_send_new', values);
+		const result = await runAgentTool(caller, 'mail-1', 'emails_send_new', values);
 
 		expect(result.unwrap()).toEqual({record: null});
 		expect(sendNew.mock.calls[0]?.[1]).toEqual(values);
@@ -239,12 +253,12 @@ describe('runAgentTool', () => {
 		archive.mockResolvedValue(Err(ApiErr.notFound('folder', 'Archive')));
 
 		const {runAgentTool} = await import('./tools');
-		const failed = await runAgentTool(signedIn, 'mail-1', 'emails_archive', {id: inboxEmail.id});
+		const failed = await runAgentTool(caller, 'mail-1', 'emails_archive', {id: inboxEmail.id});
 		expect(failed.unwrapErr().kind).toBe('not_found');
 		expect(logAgentRequest).not.toHaveBeenCalled();
 
 		logAgentRequest.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
-		const unlogged = await runAgentTool(signedIn, 'mail-1', 'emails_list', {});
+		const unlogged = await runAgentTool(caller, 'mail-1', 'emails_list', {});
 		expect(unlogged.unwrapErr().kind).toBe('db_error');
 	});
 });

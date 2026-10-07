@@ -1,4 +1,4 @@
-import type {AuditOutcome} from '@prisma/client';
+import type {AuditOutcome, AuditVia} from '@prisma/client';
 import type {Result} from 'ts-results-es';
 
 import {type ApiError, wrapDb} from '@proxy/utils';
@@ -15,6 +15,7 @@ export type AuditEntryRow = {
 	recordTitle: string | null;
 	query: string | null;
 	outcome: AuditOutcome;
+	via: AuditVia;
 	createdAt: Date;
 };
 
@@ -28,6 +29,7 @@ export async function logAgentRequest(data: {
 	recordTitle: string | null;
 	query: string | null;
 	outcome: AuditOutcome;
+	via: AuditVia;
 }): Promise<Result<void, ApiError>> {
 	return wrapDb(async () => {
 		await db.$transaction([
@@ -57,6 +59,7 @@ export async function listAuditEntries(
 				recordTitle: true,
 				query: true,
 				outcome: true,
+				via: true,
 				createdAt: true,
 			},
 		}),

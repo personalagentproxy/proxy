@@ -4,6 +4,7 @@
 export const NAV: {title: string; pages: string[]}[] = [
 	{title: 'Overview', pages: ['']},
 	{title: 'Connections', pages: ['connections/email']},
+	{title: 'Agents', pages: ['agents/mcp']},
 	{
 		title: 'Self-hosting',
 		pages: [

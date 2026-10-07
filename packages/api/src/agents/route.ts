@@ -2,17 +2,16 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
-import {createAgent, deleteAgent, getAgent, isProviderConflict, isUsernameConflict, listAgents, setAgentGrants, updateAgent} from '@proxy/db/agent';
+import {deleteAgent, getAgent, listAgents, setAgentGrants, updateAgent} from '@proxy/db/agent';
 import {getConnection} from '@proxy/db/connection';
-import {findAgentProvider} from '@proxy/integrations';
+import {deleteOAuthGrant, listAgentOAuthGrants} from '@proxy/db/oauth';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {parseActionChanges, requireIntegration} from '../utils/connection-actions';
 import {requireUserOrgId} from '../utils/user-org';
 import {toAgentResponse, type AgentResponse} from './agent-response';
-import {generatePassword, generateUsername} from './credentials';
-
-const MAX_USERNAME_ATTEMPTS = 5;
+import {createAgentLogin} from './create-agent-login';
+import {generatePassword} from './credentials';
 
 function agentIdOf(request: AuthenticatedRequest): string {
 	return request.params.agentId ?? '';
@@ -45,24 +44,9 @@ const createAgentBodySchema = z.object({providerId: z.string()});
 export function handleCreateAgentRoute(request: AuthenticatedRequest): Promise<Result<{agent: AgentResponse; password: string}, ApiError>> {
 	return Do(async ($) => {
 		const {providerId} = $(parseSchema(createAgentBodySchema, request.body));
-		const provider = $(requirePresent(findAgentProvider(providerId), ApiErr.parseError(`Unknown agent ${providerId}`)));
 		const orgId = $(await requireUserOrgId(request));
-		const password = generatePassword();
-		const passwordHash = await Bun.password.hash(password);
-
-		for (let attempt = 0; attempt < MAX_USERNAME_ATTEMPTS; attempt++) {
-			const created = await createAgent({orgId, providerId: provider.id, name: provider.name, username: generateUsername(provider.name), passwordHash});
-			if (created.isOk()) {
-				return {agent: toAgentResponse(created.value), password};
-			}
-			if (isProviderConflict(created.error)) {
-				return $(Err(ApiErr.conflict(`${provider.name} already has an agent login`)));
-			}
-			if (!isUsernameConflict(created.error)) {
-				return $(created);
-			}
-		}
-		return $(Err(ApiErr.internalError(new Error('Username retries exhausted'))));
+		const {agent, password} = $(await createAgentLogin(orgId, providerId));
+		return {agent: toAgentResponse(agent), password};
 	});
 }
 
@@ -121,5 +105,28 @@ export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promis
 
 		$(await setAgentGrants({agentId, connectionId, actions}));
 		return $(await requireAgent(orgId, agentId));
+	});
+}
+
+export type McpClientResponse = {id: string; name: string; connectedAt: string};
+
+/** The MCP clients signed in as the agent, such as Claude, newest first. */
+export function handleListMcpClientsRoute(request: AuthenticatedRequest): Promise<Result<{clients: McpClientResponse[]}, ApiError>> {
+	return Do(async ($) => {
+		const orgId = $(await requireUserOrgId(request));
+		const grants = $(await listAgentOAuthGrants(orgId, agentIdOf(request)));
+		return {clients: grants.map((grant) => ({id: grant.id, name: grant.clientName, connectedAt: grant.createdAt.toISOString()}))};
+	});
+}
+
+/** Signs one MCP client out of the agent; it has to be connected again. */
+export function handleDisconnectMcpClientRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const orgId = $(await requireUserOrgId(request));
+		const grantId = request.params.grantId ?? '';
+		const deleted = $(await deleteOAuthGrant(orgId, agentIdOf(request), grantId));
+		if (!deleted) {
+			return $(Err(ApiErr.notFound('MCP client', grantId)));
+		}
 	});
 }

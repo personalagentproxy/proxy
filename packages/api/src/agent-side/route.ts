@@ -26,6 +26,6 @@ const runToolBodySchema = z.object({params: z.unknown().optional()});
 export function handleAgentRunToolRoute(request: AgentRequest): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
 		const {params} = $(parseSchema(runToolBodySchema, request.body ?? {}));
-		return $(await runAgentTool(request.agent, request.params.connectionId ?? '', request.params.toolName ?? '', params));
+		return $(await runAgentTool({agent: request.agent, via: 'web'}, request.params.connectionId ?? '', request.params.toolName ?? '', params));
 	});
 }

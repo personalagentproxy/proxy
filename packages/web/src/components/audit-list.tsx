@@ -21,7 +21,8 @@ type Props = {
 	showConnection?: boolean;
 };
 
-// The audit log's lines: when, which agent, what it did, and where. Denied requests read in red.
+// The audit log's lines: when, which agent, what it did, and where. Denied requests read in red;
+// those that came in over MCP say so.
 export function AuditList({
 	entries,
 	agents,
@@ -59,6 +60,7 @@ export function AuditList({
 						)}
 						<span className={cn('min-w-0 flex-1 truncate', denied && 'text-destructive')}>
 							{describeEntry(entry, located?.collection)}
+							{entry.via === 'mcp' && <span className="text-muted-foreground"> · over MCP</span>}
 						</span>
 						{showConnection && (
 							<span className={CELLS.connection}>

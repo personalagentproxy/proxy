@@ -77,7 +77,7 @@ function isUniqueConflict(error: ApiError, field: string): boolean {
 
 /**
  * `Ok(false)` means no such agent in the organization. A new password or a revocation also signs
- * the agent out everywhere.
+ * the agent out everywhere; a revocation signs out its MCP clients too.
  */
 export async function updateAgent(
 	orgId: string,
@@ -90,6 +90,10 @@ export async function updateAgent(
 			const {count} = await tx.agent.updateMany({where: {id: agentId, orgId}, data});
 			if (count > 0 && signsOut) {
 				await tx.agentSession.deleteMany({where: {agentId}});
+			}
+			if (count > 0 && data.revokedAt) {
+				await tx.oAuthGrant.deleteMany({where: {agentId}});
+				await tx.oAuthCode.deleteMany({where: {agentId}});
 			}
 			return count > 0;
 		}),

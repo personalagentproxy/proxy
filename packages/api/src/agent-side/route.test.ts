@@ -25,14 +25,14 @@ describe('handleAgentRunToolRoute', () => {
 		const result = await handleAgentRunToolRoute(makeRequest({connectionId: 'mail-1', toolName: 'emails_archive'}, {params: {id: 'inbox-7-12'}}));
 
 		expect(result.unwrap()).toEqual({record: null});
-		expect(runAgentTool).toHaveBeenCalledWith(signedIn, 'mail-1', 'emails_archive', {id: 'inbox-7-12'});
+		expect(runAgentTool).toHaveBeenCalledWith({agent: signedIn, via: 'web'}, 'mail-1', 'emails_archive', {id: 'inbox-7-12'});
 	});
 
 	test('a body without params runs the tool with none', async () => {
 		const {handleAgentRunToolRoute} = await import('./route');
 		await handleAgentRunToolRoute(makeRequest({connectionId: 'mail-1', toolName: 'emails_list'}));
 
-		expect(runAgentTool).toHaveBeenCalledWith(signedIn, 'mail-1', 'emails_list', undefined);
+		expect(runAgentTool).toHaveBeenCalledWith({agent: signedIn, via: 'web'}, 'mail-1', 'emails_list', undefined);
 	});
 
 	test('a body that is not an object is refused', async () => {

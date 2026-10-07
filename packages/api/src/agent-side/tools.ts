@@ -73,7 +73,10 @@ export function listAgentTools(signedIn: SignedInAgent, connectionId: string): P
 	});
 }
 
-type ToolRun = {signedIn: SignedInAgent; target: RecordTarget; connector: Connector; tool: Tool};
+// Who runs a tool and which way it came in: the web app's agent pages, or the MCP server.
+export type AgentCaller = {agent: SignedInAgent; via: 'web' | 'mcp'};
+
+type ToolRun = {caller: AgentCaller; target: RecordTarget; connector: Connector; tool: Tool};
 
 function recordTitle(collection: Collection, values: RecordValues): string | null {
 	return values[collection.titleField]?.trim() || null;
@@ -82,14 +85,15 @@ function recordTitle(collection: Collection, values: RecordValues): string | nul
 // `query` is what a list searched for.
 function log(run: ToolRun, outcome: 'allowed' | 'denied', title: string | null, query: string | null = null): Promise<Result<void, ApiError>> {
 	return logAgentRequest({
-		orgId: run.signedIn.orgId,
-		agentId: run.signedIn.agentId,
+		orgId: run.caller.agent.orgId,
+		agentId: run.caller.agent.agentId,
 		connectionId: run.target.connection.id,
 		collectionId: run.target.collection.id,
 		action: run.tool.operation,
 		recordTitle: title,
 		query,
 		outcome,
+		via: run.caller.via,
 	});
 }
 
@@ -97,14 +101,19 @@ function log(run: ToolRun, outcome: 'allowed' | 'denied', title: string | null, 
  * Runs one of the connection's tools with `params`, as its input schema describes them. A
  * connection outside the organization, or a tool its integration doesn't have, is not found and
  * not logged; a tool whose action the agent doesn't have is refused and logged as denied.
+ * `readOnly` limits the run to tools that only read, or only to those that change something, as
+ * the MCP server's `read` and `run` do; any other is refused, unlogged.
  */
-export function runAgentTool(signedIn: SignedInAgent, connectionId: string, toolName: string, params: unknown): Promise<Result<ToolResult, ApiError>> {
+export function runAgentTool(caller: AgentCaller, connectionId: string, toolName: string, params: unknown, options: {readOnly?: boolean} = {}): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
-		const agent = $(await requireAgent(signedIn));
-		const {connection, integration, connector} = $(await loadConnection(signedIn.orgId, connectionId));
+		const agent = $(await requireAgent(caller.agent));
+		const {connection, integration, connector} = $(await loadConnection(caller.agent.orgId, connectionId));
 		const tool = $(requirePresent(findTool(integration, toolName), ApiErr.notFound('tool', toolName)));
 		const collection = $(requirePresent(findCollection(integration, tool.collectionId), ApiErr.notFound('tool', toolName)));
-		const run: ToolRun = {signedIn, target: {connection, collection}, connector, tool};
+		const run: ToolRun = {caller, target: {connection, collection}, connector, tool};
+		if (options.readOnly !== undefined && options.readOnly !== tool.readOnly) {
+			return $(Err(ApiErr.validationError(tool.readOnly ? `${tool.name} only reads: use read for it` : `${tool.name} changes something: use run for it`)));
+		}
 
 		// A list's search is logged, a refused one's too, so its params are read first.
 		const listParams = tool.kind === 'list' ? $(parseToolParams(tool, params)) : null;

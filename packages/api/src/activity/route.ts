@@ -20,6 +20,8 @@ export type AuditEntryResponse = {
 	recordTitle: string | null;
 	query: string | null;
 	outcome: 'allowed' | 'denied';
+	// The web app's agent pages, or the MCP server.
+	via: 'web' | 'mcp';
 };
 
 const querySchema = z.object({agentId: z.string().min(1).optional(), connectionId: z.string().min(1).optional()});

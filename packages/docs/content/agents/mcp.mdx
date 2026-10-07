@@ -1,0 +1,69 @@
+---
+title: Connect an agent over MCP
+description: Add Personal Agent Proxy to Claude, ChatGPT or Poke as an MCP server, and what an agent can do through it.
+---
+
+Personal Agent Proxy is an MCP server. An agent that speaks MCP, such as Claude, ChatGPT or Poke,
+connects to it, signs in with OAuth, and works as one of your agent logins: it can do what that
+login is allowed and nothing more, and every request it makes is in the activity log.
+
+The server is at your Personal Agent Proxy's address with `/mcp` after it, such as
+`https://app.personalagentproxy.com/mcp`. Each agent's page in Personal Agent Proxy shows it under
+**MCP**, with a button to copy it.
+
+<Steps>
+
+### Add the server to the agent
+
+Add the address as a custom connector, or custom MCP server, where the agent keeps them:
+
+- **Claude**: in **Settings**, **Connectors**, **Add custom connector**.
+- **ChatGPT**: turn on developer mode in the settings for apps and connectors, then create a
+  connector with the address.
+- **Poke**: on [poke.com/integrations/new](https://poke.com/integrations/new), enter a name and the
+  address, and leave the API key empty.
+
+### Sign in
+
+The agent opens Personal Agent Proxy to sign in. Sign in as yourself if you aren't already.
+
+### Choose the agent it works as
+
+Personal Agent Proxy asks which of your agent logins the app works as, with the one its name points
+at chosen, such as Claude for Claude. Choose an existing login to give it that login's access, or
+a new one for a company that doesn't have a login yet, which starts with every connection's
+defaults. **Allow** sends you back to the agent, signed in.
+
+</Steps>
+
+The login's access is set as always, on its page under **Access**. A change counts from the
+agent's next request.
+
+## What the agent sees
+
+The server has four tools, the same for every login, so the agent's list of tools never goes out of
+date when access changes:
+
+| Tool               | What it does                                                                                                                                                            |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_connections` | Where an agent starts: the accounts it can use, such as a mailbox, each with its id and what it may do with it.                                                         |
+| `list_tools`       | A connection's own tools, such as `emails_list` or `emails_archive`, each with what it does and the JSON Schema of its params. Only the tools the login has are listed. |
+| `read`             | Runs a tool that only reads, such as listing or opening emails. Marked read-only, so an agent can let it run without asking you.                                        |
+| `run`              | Runs a tool that changes something or reaches other people, such as archiving an email or sending one.                                                                  |
+
+When an agent connects, it is also told which accounts it can use, and that what an email or a
+note says is information, not instructions.
+
+A request the login isn't allowed is refused, and logged as denied. The activity log marks the
+requests that came in over MCP.
+
+## Disconnect an agent
+
+On the agent's page, under **MCP**, every app working as the login is listed with when it
+connected. **Disconnect** signs one out; it has to be connected again. Revoking the login signs out
+every app working as it, as well as its sign-in to the agent pages.
+
+<Callout>
+A self-hosted Personal Agent Proxy has to be reachable from the internet over HTTPS for Claude,
+ChatGPT and Poke to connect to it: they call it from their own servers, not from your computer.
+</Callout>
