@@ -6,7 +6,6 @@
 	"scripts": {
 		"dev": "next dev --port 5174",
 		"build": "next build",
-		"start": "next start --port 5174",
 		"lint": "oxlint",
 		"typecheck": "next typegen && tsc --noEmit"
 	},

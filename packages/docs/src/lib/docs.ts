@@ -40,8 +40,9 @@ export type DocPage = {
 	headings: Heading[];
 };
 
+// With a trailing slash, as the export writes each page as `<path>/index.html`.
 export function hrefFor(slug: string): string {
-	return `/${slug}`;
+	return slug === '' ? '/' : `/${slug}/`;
 }
 
 // The slug of every .mdx file, mapped to its path: `self-hosting/get-started.mdx` is
