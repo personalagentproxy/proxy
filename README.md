@@ -1,4 +1,18 @@
-# Personal Agent Proxy
+<h1><img src="docs/assets/personal-agent-proxy-banner.png" alt="Personal Agent Proxy"></h1>
+
+<p align="center">
+  <a href="https://docs.personalagentproxy.com">Docs</a>
+  ·
+  <a href="https://personalagentproxy.com">Website</a>
+  ·
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/personalagentproxy/proxy/stargazers"><img src="https://img.shields.io/github/stars/personalagentproxy/proxy" alt="GitHub stars"></a>
+  <a href="https://github.com/personalagentproxy/proxy/commits/main"><img src="https://img.shields.io/github/last-commit/personalagentproxy/proxy" alt="Last commit"></a>
+  <a href="https://github.com/personalagentproxy/proxy/graphs/commit-activity"><img src="https://img.shields.io/github/commit-activity/m/personalagentproxy/proxy" alt="Commit activity"></a>
+</p>
 
 Personal Agent Proxy explores how people can use multiple agents without giving every provider
 their full private context or silently expanding what an agent may do.
