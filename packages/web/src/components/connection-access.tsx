@@ -1,5 +1,5 @@
 import type {Action, OwnSettings} from '@proxy/integrations';
-import {RotateCcwIcon} from 'lucide-react';
+import {Undo2Icon} from 'lucide-react';
 import {useId} from 'react';
 import {RowList} from '@/components/row-list';
 import {IconButton} from '@/components/icon-button';
@@ -74,7 +74,7 @@ export function ConnectionAccess({actions, defaults, own, differing, onChange}: 
 							{others > 0 && `Changed for ${others} ${others === 1 ? 'agent' : 'agents'}`}
 							{isOwn(action.id) && (
 								<IconButton label="Reset to default" onClick={() => onChange({[action.id]: null})}>
-									<RotateCcwIcon />
+									<Undo2Icon />
 								</IconButton>
 							)}
 						</span>
