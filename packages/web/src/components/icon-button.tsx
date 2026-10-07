@@ -1,7 +1,7 @@
 import type {ReactNode} from 'react';
 import {Link} from 'react-router';
-import {Button} from '@/components/ui/button';
-import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {Button} from '@proxy/ui/components/button';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 
 type Props = {
 	label: string;

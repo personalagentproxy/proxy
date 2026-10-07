@@ -5,7 +5,7 @@
 	"tsx": true,
 	"tailwind": {
 		"config": "",
-		"css": "src/index.css",
+		"css": "../ui/src/styles.css",
 		"baseColor": "neutral",
 		"cssVariables": true,
 		"prefix": ""
@@ -14,8 +14,8 @@
 	"rtl": false,
 	"aliases": {
 		"components": "@/components",
-		"utils": "@/lib/utils",
-		"ui": "@/components/ui",
+		"utils": "@proxy/ui/lib/utils",
+		"ui": "@proxy/ui/components",
 		"lib": "@/lib",
 		"hooks": "@/hooks"
 	},

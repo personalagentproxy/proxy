@@ -2,7 +2,7 @@ import {PlusIcon} from 'lucide-react';
 import {Link, useLoaderData} from 'react-router';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
-import {Button} from '@/components/ui/button';
+import {Button} from '@proxy/ui/components/button';
 import {agentsWithAccess, integrationOf} from '@/lib/access';
 import type {connectionsLoader} from '@/loaders';
 

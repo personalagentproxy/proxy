@@ -19,7 +19,7 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 	useSidebar,
-} from '@/components/ui/sidebar';
+} from '@proxy/ui/components/sidebar';
 
 type Destination = {to: string; label: string; icon: LucideIcon};
 

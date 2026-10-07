@@ -1,0 +1,39 @@
+@import '@proxy/ui/styles.css';
+
+/* Shiki writes both themes' colors as variables; the theme class picks one. */
+.shiki span {
+	color: var(--shiki-light);
+}
+.dark .shiki span {
+	color: var(--shiki-dark);
+}
+
+/* A code block's `code` takes the `pre`'s look, not inline code's. */
+pre code {
+	all: unset;
+}
+
+/* <Steps>: each h3 is a numbered step, its number on the line down the left. */
+.steps {
+	counter-reset: step;
+}
+.steps > h3 {
+	position: relative;
+	counter-increment: step;
+}
+.steps > h3::before {
+	content: counter(step);
+	position: absolute;
+	left: calc(-1.75rem - 0.875rem - 0.5px);
+	display: flex;
+	width: 1.75rem;
+	height: 1.75rem;
+	align-items: center;
+	justify-content: center;
+	border-radius: 9999px;
+	border: 1px solid var(--border);
+	background: var(--background);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	margin-top: -0.125rem;
+}

@@ -5,9 +5,9 @@ import {
 	SelectItem,
 	SelectTrigger,
 	SelectValue,
-} from '@/components/ui/select';
+} from '@proxy/ui/components/select';
 import {ACCESS_LABELS} from '@/lib/access';
-import {cn} from '@/lib/utils';
+import {cn} from '@proxy/ui/lib/utils';
 
 const FOLLOW_DEFAULT = 'default';
 

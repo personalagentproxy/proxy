@@ -2,9 +2,9 @@ import {useState, type FormEvent} from 'react';
 import {Link, useSearchParams} from 'react-router';
 import {devLogin, googleSignInUrl, requestMagicLink} from '@/client/auth-client';
 import {GoogleIcon} from '@/components/google-icon';
-import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
+import {Button} from '@proxy/ui/components/button';
+import {Input} from '@proxy/ui/components/input';
+import {Label} from '@proxy/ui/components/label';
 import {sanitizeCallbackUrl} from '@/lib/callback-url';
 import {env} from '@/lib/env';
 

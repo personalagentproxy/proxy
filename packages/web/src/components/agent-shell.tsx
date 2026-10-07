@@ -1,7 +1,7 @@
 import {Fragment, type ReactNode} from 'react';
 import {Link, useNavigate} from 'react-router';
 import {signOutAgent} from '@/client/agent-client';
-import {Button} from '@/components/ui/button';
+import {Button} from '@proxy/ui/components/button';
 import {useAgentMe} from '@/hooks/use-agent-target';
 
 // The agent side's frame. Built for a model driving a browser: no sidebar, no icon-only controls

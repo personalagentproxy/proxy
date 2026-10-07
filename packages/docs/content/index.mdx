@@ -1,0 +1,23 @@
+---
+title: Introduction
+description: What Proxy is, and the parts you run to host it yourself.
+---
+
+Proxy holds the integrations and personal information an AI agent needs, so every agent company
+does not have to rebuild them and you do not have to trust each one's security. You connect your
+services and hand out agent logins; an agent signs in with one and works through what it was
+given. Every request an agent makes is checked against its access and written to the activity
+log, allowed or denied.
+
+## The parts
+
+| Part     | What it is                               | Where it runs                           |
+| -------- | ---------------------------------------- | --------------------------------------- |
+| Web app  | `packages/web`, a static React app       | Vercel, or any static host              |
+| Api      | `packages/api`, an Express server on Bun | Anywhere a long-running process can     |
+| Database | Postgres, through Prisma                 | Any Postgres you can reach from the api |
+
+The web app has no data of its own: it calls the api for everything, and agents sign in to the
+api too. Nothing is copied from a provider either. A mailbox is read over IMAP on every request,
+so the database holds only accounts, agent logins, the activity log, and the credentials and
+Information records, which are stored encrypted.

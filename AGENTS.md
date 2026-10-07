@@ -3,16 +3,18 @@
 ## Commands
 
 - `bun run setup` - Link AI skills into `.claude/skills` and `.codex/skills`, and configure git hooks (`.githooks/pre-commit` formats staged files with prettier)
-- `bun run dev` - Start the local database, then the api (http://localhost:4000) and the web app (http://localhost:5173). Copy `.env.example` to `.env` first
+- `bun run dev` - Start the local database, then the api (http://localhost:4000), the web app (http://localhost:5173) and the docs (http://localhost:5174). Copy `.env.example` to `.env` first
 - `bun run --cwd packages/db db:migrate:diff` - With the database running, print the SQL from the database to `schema.prisma`; save it as `packages/db/prisma/migrations/<name>/migration.sql`. `bun run dev` applies pending migrations on start
 - `bun run typecheck` - Typecheck all packages
 - `bun run test` - Run every package's tests (`bun test`; the api's with `--isolate`, since its tests mock modules per file)
-- `bun run lint` - Lint the web app with oxlint
-- `bun run build` - Production build of the web app
+- `bun run lint` - Lint the web app and the docs with oxlint
+- `bun run build` - Production builds of the web app and the docs
 
 ## Layout
 
-- `packages/web` - Vite + React + Tailwind + stock shadcn UI (`base-nova` style on Base UI, `components.json`). Add components with `bunx --bun shadcn add <name>` from `packages/web`. The only local change to the shadcn files is one size step up on controls (buttons, inputs, selects, input groups) so they match common app sizing; re-apply it if a component is re-added.
+- `packages/ui` - `@proxy/ui`, the styling the web app and the docs share: the Tailwind theme (`src/styles.css`, imported by each app's own stylesheet) and stock shadcn UI (`base-nova` style on Base UI) in `src/components`, imported as `@proxy/ui/components/<name>`. Add components with `bunx --bun shadcn add <name>` from `packages/web` or `packages/docs`, which puts them here. The only local change to the shadcn files is one size step up on controls (buttons, inputs, selects, input groups) so they match common app sizing; re-apply it if a component is re-added.
+- `packages/web` - Vite + React + Tailwind, styled with `@proxy/ui`.
+- `packages/docs` - The docs, a Next app on Vercel styled with `@proxy/ui`. Pages are MDX in `content/` (the path is the URL, a folder's `index.mdx` is the folder) with a `title` and `description` in their frontmatter, listed in order in `src/nav.ts`, the sidebar. `src/lib/docs.ts` compiles them at build time (GFM, heading ids, Shiki), and `src/components/mdx-components.tsx` styles each element and gives pages `<Callout>` and `<Steps>` without an import. Every page is prerendered; a page missing from `src/nav.ts`, or bad frontmatter, fails the build.
 - `packages/utils` - `@proxy/utils`, the Result helpers shared by every package: `Do`, `requirePresent` and `parseSchema` (`src/parse.ts`), and `httpRequest`, the fetch wrapper that returns a `FetchError` union instead of throwing (`src/fetch.ts`). Also `ApiError`/`ApiErr` and `wrapDb` (`src/api-error.ts`), the error every server-side function returns, and the session cookie's name and parsing (`src/session-cookie.ts`)
 - `packages/integrations` - `@proxy/integrations`, the catalog the api and the web app share: each integration's collections and fields (`src/catalog.ts`), the email providers' servers (`src/email-providers.ts`), and access (`src/access.ts`): an agent's own setting, else the connection's default, capped by what the provider allows (received emails are read-only). The web app adds the icons (`src/lib/integrations.ts`)
 - `packages/db` - `@proxy/db`: Prisma 6 on Postgres. `src/index.ts` is the client; each module (`auth.ts`, `user.ts`, `organization.ts`, `connection.ts`, `info.ts`, `agent.ts`, `audit.ts`) exports functions returning `Result<T, ApiError>` through `wrapDb`. `relationMode = "prisma"`: no foreign keys in the database, so Prisma runs the cascades and every relation column has its own index. Locally the database is Prisma's embedded Postgres (PGlite, `scripts/dev-db.ts`), which needs `connection_limit=1&pgbouncer=true` in `DATABASE_URL`

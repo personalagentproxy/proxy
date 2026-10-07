@@ -2,7 +2,7 @@ import type {ReactNode} from 'react';
 import {Link, useLoaderData} from 'react-router';
 import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
-import {Button} from '@/components/ui/button';
+import {Button} from '@proxy/ui/components/button';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {AGENT_ACCESS_LABELS, displayValue, recordTitle} from '@/lib/access';
 import type {agentCollectionLoader} from '@/agent-loaders';

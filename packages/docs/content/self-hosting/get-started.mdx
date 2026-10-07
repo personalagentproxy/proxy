@@ -1,0 +1,95 @@
+---
+title: Get started
+description: Run your own Proxy with a Postgres database, the api, and the web app.
+---
+
+## Before you start
+
+You need:
+
+- [Bun](https://bun.sh) on the machine that runs the api.
+- A Postgres database the api can reach.
+- Two hostnames under one domain, such as `proxy.example.com` for the web app and
+  `api.proxy.example.com` for the api. They have to share a parent domain, since the session
+  cookie only travels between the two when they are the same site.
+
+## Set it up
+
+<Steps>
+
+### Get the code
+
+```sh
+git clone https://github.com/personalagentproxy/proxy.git
+cd proxy
+bun install
+```
+
+### Generate the secrets
+
+`AUTH_SECRET` hashes magic-link tokens, and `ENCRYPTION_KEY` encrypts the app passwords and
+Information records stored in the database.
+
+```sh
+openssl rand -hex 32     # AUTH_SECRET
+openssl rand -base64 32  # ENCRYPTION_KEY
+```
+
+<Callout type="warning">
+  Back up `ENCRYPTION_KEY` somewhere safe. Changing or losing it makes everything stored with it
+  unreadable, and there is no way to recover it.
+</Callout>
+
+### Configure the api
+
+Copy `.env.example` to `.env` in the repository's root and fill it in:
+
+```sh
+NODE_ENV="production"
+DATABASE_URL="postgres://user:password@host:5432/proxy"
+APP_URL="https://proxy.example.com"
+PROXY_API_PUBLIC_URL="https://api.proxy.example.com"
+SESSION_COOKIE_DOMAIN=".proxy.example.com"
+AUTH_SECRET="…"
+ENCRYPTION_KEY="…"
+```
+
+<Callout type="warning">
+  Set `NODE_ENV` to `production`. Without it the api runs as in development: its cookies are not
+  marked secure, and it serves the route behind the login page's Create dev user button, which
+  signs anyone in.
+</Callout>
+
+### Run the migrations
+
+```sh
+bun run --cwd packages/db db:migrate:deploy
+```
+
+Run this again after every update, before starting the new api.
+
+### Start the api
+
+```sh
+bun run --cwd packages/api start
+```
+
+It listens on port 4000, or on `PORT` if set. Put it behind a reverse proxy that terminates TLS
+at `https://api.proxy.example.com`.
+
+### Deploy the web app
+
+Import the repository into Vercel with `packages/web` as the root directory, and set
+`VITE_PROXY_API_URL` to the api's public URL. It is read at build time, so redeploy after
+changing it.
+
+</Steps>
+
+## Sign in
+
+Open the web app and sign in. Two ways are available, each turned on by its own variables:
+
+- **Google**: set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, and register
+  `https://api.proxy.example.com/auth/google/callback` as a redirect URI.
+- **Magic link**: set `RESEND_KEY` and `EMAIL_FROM` to send the emails through
+  [Resend](https://resend.com).
