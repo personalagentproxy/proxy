@@ -163,8 +163,8 @@ function NewAgentDialog({
 							next.
 						</DialogDescription>
 					</DialogHeader>
-					<fieldset className="grid gap-2">
-						<legend className="text-sm font-medium">Agent</legend>
+					<fieldset>
+						<legend className="mb-2 text-sm leading-none font-medium">Agent</legend>
 						<div className="grid gap-2 sm:grid-cols-2">
 							{providers.map((provider, index) => (
 								<button
