@@ -4,6 +4,7 @@ import {RouterProvider} from 'react-router';
 import './index.css';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {router} from '@/router';
+import {ThemeProvider} from '@/components/theme-provider';
 
 const root = document.getElementById('root');
 
@@ -13,8 +14,10 @@ if (!root) {
 
 createRoot(root).render(
 	<StrictMode>
-		<TooltipProvider>
-			<RouterProvider router={router} />
-		</TooltipProvider>
+		<ThemeProvider>
+			<TooltipProvider>
+				<RouterProvider router={router} />
+			</TooltipProvider>
+		</ThemeProvider>
 	</StrictMode>,
 );
