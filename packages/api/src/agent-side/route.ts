@@ -7,7 +7,8 @@ import {logAgentRequest} from '@proxy/db/audit';
 import {listConnections, type ConnectionRow} from '@proxy/db/connection';
 import {effectiveAccess, findIntegration, minAccess, providerAccess, type Access, type Collection} from '@proxy/integrations';
 
-import type {Connector, DataRecord, RecordTarget} from '../records/connector';
+import type {Connector, DataRecord, RecordPage, RecordTarget} from '../records/connector';
+import {parseListQuery} from '../records/list-query';
 import {parseRecordValues} from '../records/record-values';
 import {loadRecordTarget} from '../records/target';
 import type {AgentRequest} from '../server/middleware/require-agent';
@@ -60,15 +61,18 @@ function recordTitle(collection: Collection, record: DataRecord): string | null 
 	return record.values[collection.titleField]?.trim() || null;
 }
 
-function log(request: AgentRequest, target: RecordTarget, action: AuditAction, outcome: 'allowed' | 'denied', recordTitle: string | null): Promise<Result<void, ApiError>> {
+type LoggedRequest = {action: AuditAction; outcome: 'allowed' | 'denied'; recordTitle?: string | null; query?: string | null};
+
+function log(request: AgentRequest, target: RecordTarget, entry: LoggedRequest): Promise<Result<void, ApiError>> {
 	return logAgentRequest({
 		orgId: request.agent.orgId,
 		agentId: request.agent.agentId,
 		connectionId: target.connection.id,
 		collectionId: target.collection.id,
-		action,
-		recordTitle,
-		outcome,
+		action: entry.action,
+		recordTitle: entry.recordTitle ?? null,
+		query: entry.query ?? null,
+		outcome: entry.outcome,
 	});
 }
 
@@ -77,13 +81,13 @@ function log(request: AgentRequest, target: RecordTarget, action: AuditAction, o
  * organization is not found and not logged; one the agent can't reach is refused and logged as
  * denied.
  */
-function authorize(request: AgentRequest, action: AuditAction): Promise<Result<AgentTarget, ApiError>> {
+function authorize(request: AgentRequest, action: AuditAction, query: string | null = null): Promise<Result<AgentTarget, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireSignedInAgent(request));
 		const target = $(await loadRecordTarget(request.agent.orgId, request.params.connectionId ?? '', request.params.collectionId ?? ''));
 		const access = accessOf(agent, target.connection, target.collection);
 		if (minAccess(access, NEEDS[action]) !== NEEDS[action]) {
-			$(await log(request, target, action, 'denied', null));
+			$(await log(request, target, {action, outcome: 'denied', query}));
 			return $(Err(ApiErr.forbidden()));
 		}
 		return {...target, access};
@@ -93,12 +97,14 @@ function authorize(request: AgentRequest, action: AuditAction): Promise<Result<A
 // Every allowed request is logged before its result goes back; a request that can't be logged
 // fails rather than go unrecorded.
 
-export function handleAgentListRecordsRoute(request: AgentRequest): Promise<Result<{access: Access; records: DataRecord[]}, ApiError>> {
+/** A page of the collection's records, matching `?search=` when there is one. */
+export function handleAgentListRecordsRoute(request: AgentRequest): Promise<Result<RecordPage & {access: Access}, ApiError>> {
 	return Do(async ($) => {
-		const target = $(await authorize(request, 'list'));
-		const records = $(await target.connector.list(target));
-		$(await log(request, target, 'list', 'allowed', null));
-		return {access: target.access, records};
+		const query = $(parseListQuery(request.query));
+		const target = $(await authorize(request, 'list', query.search));
+		const page = $(await target.connector.list(target, query));
+		$(await log(request, target, {action: 'list', outcome: 'allowed', query: query.search}));
+		return {access: target.access, ...page};
 	});
 }
 
@@ -106,7 +112,7 @@ export function handleAgentGetRecordRoute(request: AgentRequest): Promise<Result
 	return Do(async ($) => {
 		const target = $(await authorize(request, 'view'));
 		const record = $(await target.connector.get(target, request.params.recordId ?? ''));
-		$(await log(request, target, 'view', 'allowed', recordTitle(target.collection, record)));
+		$(await log(request, target, {action: 'view', outcome: 'allowed', recordTitle: recordTitle(target.collection, record)}));
 		return {access: target.access, record};
 	});
 }
@@ -118,7 +124,7 @@ export function handleAgentCreateRecordRoute(request: AgentRequest): Promise<Res
 		const target = $(await authorize(request, 'create'));
 		const {values} = $(parseSchema(writeBodySchema, request.body));
 		const record = $(await target.connector.create(target, $(parseRecordValues(target.collection, values))));
-		$(await log(request, target, 'create', 'allowed', recordTitle(target.collection, record)));
+		$(await log(request, target, {action: 'create', outcome: 'allowed', recordTitle: recordTitle(target.collection, record)}));
 		return record;
 	});
 }
@@ -128,7 +134,7 @@ export function handleAgentUpdateRecordRoute(request: AgentRequest): Promise<Res
 		const target = $(await authorize(request, 'update'));
 		const {values} = $(parseSchema(writeBodySchema, request.body));
 		const record = $(await target.connector.update(target, request.params.recordId ?? '', $(parseRecordValues(target.collection, values))));
-		$(await log(request, target, 'update', 'allowed', recordTitle(target.collection, record)));
+		$(await log(request, target, {action: 'update', outcome: 'allowed', recordTitle: recordTitle(target.collection, record)}));
 		return record;
 	});
 }
@@ -139,6 +145,6 @@ export function handleAgentDeleteRecordRoute(request: AgentRequest): Promise<Res
 		const recordId = request.params.recordId ?? '';
 		const record = $(await target.connector.get(target, recordId));
 		$(await target.connector.remove(target, recordId));
-		$(await log(request, target, 'delete', 'allowed', recordTitle(target.collection, record)));
+		$(await log(request, target, {action: 'delete', outcome: 'allowed', recordTitle: recordTitle(target.collection, record)}));
 	});
 }

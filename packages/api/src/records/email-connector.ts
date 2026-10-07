@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 
-import {ImapFlow, type FetchMessageObject, type MailboxObject, type MessageAddressObject} from 'imapflow';
+import {ImapFlow, type FetchMessageObject, type MailboxObject, type MessageAddressObject, type SearchObject} from 'imapflow';
 import {simpleParser} from 'mailparser';
 import MailComposer from 'nodemailer/lib/mail-composer';
 import {Err, Ok, Result} from 'ts-results-es';
@@ -12,18 +12,18 @@ import type {EmailCredential} from '../connections/email/credential';
 import {imapClientOptions, imapError} from '../connections/email/mail-check';
 import {log, serializeError} from '../observability/log';
 import {decryptSecret} from '../utils/secret-crypto';
-import type {Connector, DataRecord, RecordTarget, RecordValues} from './connector';
+import type {Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
 
 /**
- * A mailbox over IMAP, signed in fresh for every request. Emails are the inbox's latest messages,
- * drafts the messages in the mailbox's Drafts folder. A record's id is the folder's UIDVALIDITY and
+ * A mailbox over IMAP, signed in fresh for every request. Emails are the inbox's messages, drafts
+ * the messages in the mailbox's Drafts folder, each listed newest first, a page at a time. A record's id is the folder's UIDVALIDITY and
  * the message's UID, so an id from before the server renumbered the folder finds nothing.
  *
  * IMAP messages can't be changed, so updating a draft saves a new one and deletes the old: the
  * draft gets a new id.
  */
 
-const LATEST = 50;
+const PAGE_SIZE = 50;
 
 const credentialSchema = z.object({
 	imapHost: z.string(),
@@ -125,14 +125,57 @@ function updatedAt(message: FetchMessageObject): string {
 	return message.internalDate ? new Date(message.internalDate).toISOString() : new Date(0).toISOString();
 }
 
-async function listMessages(target: RecordTarget, {client, mailbox}: Session): Promise<Result<DataRecord[], ApiError>> {
-	if (mailbox.exists === 0) {
-		return Ok([]);
-	}
+function toSummary(target: RecordTarget, mailbox: MailboxObject, message: FetchMessageObject): DataRecord {
+	return {id: recordId(mailbox, message.uid), values: summaryValues(target.collection.id, message), updatedAt: updatedAt(message)};
+}
 
-	const range = `${Math.max(1, mailbox.exists - LATEST + 1)}:*`;
-	const messages = await client.fetchAll(range, {uid: true, envelope: true, internalDate: true});
-	return Ok(messages.sort((a, b) => b.uid - a.uid).map((message) => ({id: recordId(mailbox, message.uid), values: summaryValues(target.collection.id, message), updatedAt: updatedAt(message)})));
+// Gmail takes its own search syntax over IMAP (from:, has:attachment, newer_than:7d); any other
+// server searches the headers and text for the words.
+function searchCriteria(client: ImapFlow, search: string | null): SearchObject {
+	if (!search) {
+		return {all: true};
+	}
+	if (client.capabilities.has('X-GM-EXT-1')) {
+		return {gmraw: search};
+	}
+	return {text: search};
+}
+
+/**
+ * A page of the folder, newest first. The next page's token is the id of the oldest message on
+ * this one, so paging goes on from there even as new mail arrives.
+ */
+async function listMessages(target: RecordTarget, {client, mailbox}: Session, query: ListQuery): Promise<Result<RecordPage, ApiError>> {
+	return Do(async ($) => {
+		const before = query.page ? $(uidOf(mailbox, query.page)) : null;
+		const nextPage = (records: DataRecord[], more: boolean) => (more ? (records.at(-1)?.id ?? null) : null);
+
+		// The common case, the newest messages: read by position, without a search.
+		if (!query.search && before === null) {
+			if (mailbox.exists === 0) {
+				return {records: [], nextPage: null};
+			}
+			const range = `${Math.max(1, mailbox.exists - PAGE_SIZE + 1)}:*`;
+			const messages = await client.fetchAll(range, {uid: true, envelope: true, internalDate: true});
+			const records = messages.sort((a, b) => b.uid - a.uid).map((message) => toSummary(target, mailbox, message));
+			return {records, nextPage: nextPage(records, mailbox.exists > PAGE_SIZE)};
+		}
+
+		if (before !== null && before <= 1) {
+			return {records: [], nextPage: null};
+		}
+
+		const criteria = {...searchCriteria(client, query.search), ...(before === null ? {} : {uid: `1:${before - 1}`})};
+		const found = ((await client.search(criteria, {uid: true})) || []).sort((a, b) => b - a);
+		const uids = found.slice(0, PAGE_SIZE);
+		if (uids.length === 0) {
+			return {records: [], nextPage: null};
+		}
+
+		const messages = await client.fetchAll(uids.join(','), {uid: true, envelope: true, internalDate: true}, {uid: true});
+		const records = messages.sort((a, b) => b.uid - a.uid).map((message) => toSummary(target, mailbox, message));
+		return {records, nextPage: nextPage(records, found.length > PAGE_SIZE)};
+	});
 }
 
 async function getMessage(target: RecordTarget, {client, mailbox}: Session, id: string): Promise<Result<DataRecord, ApiError>> {
@@ -179,7 +222,7 @@ async function deleteMessage({client, mailbox}: Session, id: string): Promise<Re
 }
 
 export const emailConnector: Connector = {
-	list: (target) => withFolder(target, (session) => listMessages(target, session)),
+	list: (target, query) => withFolder(target, (session) => listMessages(target, session, query)),
 	get: (target, recordId) => withFolder(target, (session) => getMessage(target, session, recordId)),
 	create: (target, values) => withFolder(target, (session) => appendDraft(target, session, values)),
 	update: (target, recordId, values) =>

@@ -28,10 +28,14 @@ function toRecord(row: InfoRecordRow): Result<DataRecord, ApiError> {
 
 /** Information lives in Proxy: each record's values are stored as encrypted JSON. */
 export const infoConnector: Connector = {
-	list: (target) =>
+	// Few enough to search in memory, after decrypting, and to list on one page.
+	list: (target, query) =>
 		Do(async ($) => {
 			const rows = $(await listInfoRecords(infoCollection(target)));
-			return rows.map((row) => $(toRecord(row)));
+			const records = rows.map((row) => $(toRecord(row)));
+			const search = query.search?.toLowerCase();
+			const matching = search ? records.filter((record) => Object.values(record.values).some((value) => value.toLowerCase().includes(search))) : records;
+			return {records: matching, nextPage: null};
 		}),
 	get: (target, recordId) =>
 		Do(async ($) => {

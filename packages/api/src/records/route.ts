@@ -6,7 +6,8 @@ import {providerAccess} from '@proxy/integrations';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireUserOrgId} from '../utils/user-org';
-import type {Connector, DataRecord, RecordTarget} from './connector';
+import type {Connector, DataRecord, RecordPage, RecordTarget} from './connector';
+import {parseListQuery} from './list-query';
 import {parseRecordValues} from './record-values';
 import {loadRecordTarget} from './target';
 
@@ -22,10 +23,11 @@ function targetFor(request: AuthenticatedRequest): Promise<Result<RecordTarget &
 
 const writeBodySchema = z.object({values: z.unknown()});
 
-export function handleListRecordsRoute(request: AuthenticatedRequest): Promise<Result<{records: DataRecord[]}, ApiError>> {
+export function handleListRecordsRoute(request: AuthenticatedRequest): Promise<Result<RecordPage, ApiError>> {
 	return Do(async ($) => {
+		const query = $(parseListQuery(request.query));
 		const target = $(await targetFor(request));
-		return {records: $(await target.connector.list(target))};
+		return $(await target.connector.list(target, query));
 	});
 }
 

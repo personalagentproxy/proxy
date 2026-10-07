@@ -114,12 +114,17 @@ const ACTION_VERBS: Record<AuditEntry['action'], string> = {
 	delete: 'Deleted',
 };
 
-// "Viewed email “Thursday sync moved?”", "Listed Payment cards", "Tried to list Contacts".
+// "Viewed email “Thursday sync moved?”", "Listed Payment cards", "Searched Emails for “invoice”",
+// "Tried to list Contacts".
 export function describeEntry(entry: AuditEntry, collection: Collection | undefined): string {
 	const name = collection?.name ?? entry.collectionId;
 	const singular = collection?.singular ?? 'record';
 	if (entry.outcome === 'denied') {
 		return `Tried to ${entry.action} ${entry.action === 'list' ? name : singular}`;
+	}
+
+	if (entry.action === 'list' && entry.query) {
+		return `Searched ${name} for “${entry.query}”`;
 	}
 
 	if (entry.action === 'list') {

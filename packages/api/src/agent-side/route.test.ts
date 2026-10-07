@@ -39,8 +39,8 @@ const connector = {list: mock(), get: mock(), create: mock(), update: mock(), re
 
 const card = {id: 'rec-1', values: {label: 'Personal Visa', number: '4242'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 
-function makeRequest(params: Record<string, string> = {}, body: unknown = undefined) {
-	return {agent: {agentId: 'agent-1', orgId: 'org-1', name: 'Shopping agent'}, params, body} as never;
+function makeRequest(params: Record<string, string> = {}, body: unknown = undefined, query: Record<string, string> = {}) {
+	return {agent: {agentId: 'agent-1', orgId: 'org-1', name: 'Shopping agent'}, params, body, query} as never;
 }
 
 function useTarget(connection: typeof infoConnection | typeof emailConnection, collectionId: string) {
@@ -52,7 +52,7 @@ beforeEach(() => {
 	getAgent.mockResolvedValue(Ok(agent));
 	logAgentRequest.mockResolvedValue(Ok(undefined));
 	listConnections.mockResolvedValue(Ok([infoConnection, emailConnection]));
-	connector.list.mockResolvedValue(Ok([card]));
+	connector.list.mockResolvedValue(Ok({records: [card], nextPage: null}));
 	connector.get.mockResolvedValue(Ok(card));
 });
 
@@ -94,8 +94,20 @@ describe('agent record routes', () => {
 			collectionId: 'cards',
 			action: 'view',
 			recordTitle: 'Personal Visa',
+			query: null,
 			outcome: 'allowed',
 		});
+	});
+
+	test('a search is passed on and logged with what was searched for', async () => {
+		useTarget(infoConnection, 'cards');
+
+		const {handleAgentListRecordsRoute} = await import('./route');
+		const result = await handleAgentListRecordsRoute(makeRequest({connectionId: 'info-1', collectionId: 'cards'}, undefined, {search: ' visa ', page: 'rec-9'}));
+
+		expect(connector.list.mock.calls[0]?.[1]).toEqual({search: 'visa', page: 'rec-9'});
+		expect(result.unwrap()).toEqual({access: 'read', records: [card], nextPage: null});
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'list', query: 'visa', outcome: 'allowed'});
 	});
 
 	test('a collection without access is refused and logged as denied', async () => {
