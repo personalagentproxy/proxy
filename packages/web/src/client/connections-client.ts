@@ -1,4 +1,4 @@
-import type {Access, EmailProvider, MailServers} from '@proxy/integrations';
+import type {EmailProvider, MailServers} from '@proxy/integrations';
 import {z} from 'zod';
 import {connectionSchema} from '@/client/schemas';
 import {apiRequest, apiSend} from '@/client/request';
@@ -15,13 +15,11 @@ export function deleteConnection(connectionId: string) {
 	return apiSend('DELETE', `/api/connections/${connectionId}`);
 }
 
-export function setConnectionDefault(connectionId: string, collectionId: string, access: Access) {
-	return apiRequest(
-		'PUT',
-		`/api/connections/${connectionId}/defaults/${collectionId}`,
-		connectionSchema,
-		{access},
-	);
+/** Turns default actions of a connection on or off; actions left out stay as they are. */
+export function setConnectionDefaults(connectionId: string, actions: Record<string, boolean>) {
+	return apiRequest('PUT', `/api/connections/${connectionId}/defaults`, connectionSchema, {
+		actions,
+	});
 }
 
 export type ConnectEmailInput = {

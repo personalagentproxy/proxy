@@ -3,6 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {ImapFlow, type FetchMessageObject, type MailboxObject, type MessageAddressObject, type SearchObject} from 'imapflow';
 import {simpleParser} from 'mailparser';
 import MailComposer from 'nodemailer/lib/mail-composer';
+import type Mail from 'nodemailer/lib/mailer';
 import {Err, Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
@@ -12,15 +13,18 @@ import type {EmailCredential} from '../connections/email/credential';
 import {imapClientOptions, imapError, smtpError, smtpTransport} from '../connections/email/mail-check';
 import {log, serializeError} from '../observability/log';
 import {decryptSecret} from '../utils/secret-crypto';
-import type {Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
+import type {CommandRunner, Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
 
 /**
- * A mailbox over IMAP, signed in fresh for every request. Emails are the inbox's messages, drafts
- * the messages in the mailbox's Drafts folder, each listed newest first, a page at a time. A record's id is the folder's UIDVALIDITY and
- * the message's UID, so an id from before the server renumbered the folder finds nothing.
+ * A mailbox over IMAP, signed in fresh for every request. Its one list is the inbox and the
+ * folders the server marks as Drafts and Sent, newest first, each email saying which it is in,
+ * 50 to a page, narrowed to one folder or a search when asked. A record's id is the folder, the
+ * folder's UIDVALIDITY and the message's UID, so an id from before the server renumbered the
+ * folder finds nothing.
  *
  * IMAP messages can't be changed, so updating a draft saves a new one and deletes the old: the
- * draft gets a new id. Creating in Sent sends the email.
+ * draft gets a new id. Received emails are only flagged or moved: archived, or moved to Trash.
+ * Email goes out over SMTP, from a draft or straight from values typed in.
  */
 
 const PAGE_SIZE = 50;
@@ -42,25 +46,46 @@ function readCredential(target: RecordTarget): Result<EmailCredential, ApiError>
 	});
 }
 
-type Session = {client: ImapFlow; mailbox: MailboxObject; credential: EmailCredential};
+type SpecialUse = '\\Drafts' | '\\Sent' | '\\Trash' | '\\Archive' | '\\All';
 
-// The folder a collection reads: the inbox, or whichever folder the server marks as Drafts or Sent.
-async function folderOf(client: ImapFlow, collectionId: string): Promise<Result<string, ApiError>> {
-	if (collectionId === 'emails') {
-		return Ok('INBOX');
-	}
+// The folders the list is made of; `label` is the record's folder field.
+type Folder = {key: 'inbox' | 'drafts' | 'sent'; label: 'Inbox' | 'Draft' | 'Sent'};
 
-	const specialUse = collectionId === 'sent' ? '\\Sent' : '\\Drafts';
+const INBOX: Folder = {key: 'inbox', label: 'Inbox'};
+const DRAFTS: Folder = {key: 'drafts', label: 'Draft'};
+const SENT: Folder = {key: 'sent', label: 'Sent'};
+const FOLDERS = [INBOX, DRAFTS, SENT];
+
+type Session = {client: ImapFlow; mailbox: MailboxObject; credential: EmailCredential; folder: Folder};
+
+// The folder the server marks for the first of `uses` it has, such as Trash. Gmail has no Archive
+// but All Mail, where an email moved out of the inbox goes.
+async function specialFolder(client: ImapFlow, uses: SpecialUse[], name: string): Promise<Result<string, ApiError>> {
 	const folders = await Result.wrapAsync(() => client.list());
 	if (folders.isErr()) {
 		return Err(ApiErr.providerUnreachable(folders.error));
 	}
-	const folder = folders.value.find((candidate) => candidate.specialUse === specialUse);
-	return requirePresent(folder?.path, ApiErr.notFound('folder', specialUse));
+	for (const use of uses) {
+		const folder = folders.value.find((candidate) => candidate.specialUse === use);
+		if (folder) {
+			return Ok(folder.path);
+		}
+	}
+	return Err(ApiErr.notFound('folder', name));
 }
 
-/** Signs in, opens the collection's folder, runs `work`, and always signs out again. */
-async function withFolder<T>(target: RecordTarget, work: (session: Session) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
+async function pathOf(client: ImapFlow, folder: Folder): Promise<Result<string, ApiError>> {
+	if (folder === DRAFTS) {
+		return specialFolder(client, ['\\Drafts'], 'Drafts');
+	}
+	if (folder === SENT) {
+		return specialFolder(client, ['\\Sent'], 'Sent');
+	}
+	return Ok('INBOX');
+}
+
+/** Signs in, runs `work`, and always signs out again. */
+async function withClient<T>(target: RecordTarget, work: (client: ImapFlow, credential: EmailCredential) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
 	const credential = readCredential(target);
 	if (credential.isErr()) {
 		return credential;
@@ -74,53 +99,51 @@ async function withFolder<T>(target: RecordTarget, work: (session: Session) => P
 		return Err(imapError(connected.error));
 	}
 
-	const outcome = await Do<T, ApiError>(async ($) => {
-		const path = $(await folderOf(client, target.collection.id));
-		const lock = $((await Result.wrapAsync(() => client.getMailboxLock(path))).mapErr((cause) => ApiErr.providerUnreachable(cause)));
-		const mailbox = client.mailbox;
-		const result: Result<Result<T, ApiError>, unknown> = mailbox ? await Result.wrapAsync(() => work({client, mailbox, credential: credential.value})) : Err(new Error('No folder open'));
-		lock.release();
-		return $($(result.mapErr((cause) => ApiErr.providerUnreachable(cause))));
-	});
-
+	const outcome = (await Result.wrapAsync(() => work(client, credential.value))).mapErr((cause) => ApiErr.providerUnreachable(cause)).andThen((result) => result);
 	await Result.wrapAsync(() => client.logout());
 	return outcome;
 }
 
-function recordId(mailbox: MailboxObject, uid: number): string {
-	return `${mailbox.uidValidity}-${uid}`;
+/** Opens a folder for `work` on a signed-in client, and releases it after. */
+async function inFolder<T>(client: ImapFlow, credential: EmailCredential, folder: Folder, work: (session: Session) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
+	return Do(async ($) => {
+		const path = $(await pathOf(client, folder));
+		const lock = $((await Result.wrapAsync(() => client.getMailboxLock(path))).mapErr((cause) => ApiErr.providerUnreachable(cause)));
+		const mailbox = client.mailbox;
+		const result: Result<Result<T, ApiError>, unknown> = mailbox ? await Result.wrapAsync(() => work({client, mailbox, credential, folder})) : Err(new Error('No folder open'));
+		lock.release();
+		return $($(result.mapErr((cause) => ApiErr.providerUnreachable(cause))));
+	});
 }
 
-// A sent email Gmail hasn't filed yet has no UID to point at, so its id names its Message-ID.
-const MESSAGE_ID_PREFIX = 'msg-';
-
-function messageIdRecordId(messageId: string): string {
-	return `${MESSAGE_ID_PREFIX}${Buffer.from(messageId).toString('base64url')}`;
+function withFolder<T>(target: RecordTarget, folder: Folder, work: (session: Session) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
+	return withClient(target, (client, credential) => inFolder(client, credential, folder, work));
 }
 
-async function findByMessageId(client: ImapFlow, messageId: string): Promise<number | undefined> {
-	return ((await client.search({header: {'message-id': messageId}}, {uid: true})) || [])[0];
+function recordId(session: Session, uid: number): string {
+	return `${session.folder.key}-${session.mailbox.uidValidity}-${uid}`;
 }
 
-/** The UID a record id points at in the open folder, by UID or by Message-ID. */
-async function resolveUid({client, mailbox}: Session, id: string): Promise<Result<number, ApiError>> {
-	if (!id.startsWith(MESSAGE_ID_PREFIX)) {
-		return uidOf(mailbox, id);
-	}
-
-	const messageId = Buffer.from(id.slice(MESSAGE_ID_PREFIX.length), 'base64url').toString();
-	return requirePresent(await findByMessageId(client, messageId), ApiErr.notFound('record', id));
+// The folder an id names, before anything is opened.
+function folderOf(id: string): Result<Folder, ApiError> {
+	const folder = FOLDERS.find((candidate) => id.startsWith(`${candidate.key}-`));
+	return requirePresent(folder, ApiErr.notFound('record', id));
 }
 
-function uidOf(mailbox: MailboxObject, id: string): Result<number, ApiError> {
-	const [uidValidity, uid] = id.split('-');
-	if (uidValidity !== String(mailbox.uidValidity) || !uid || !/^\d+$/.test(uid)) {
+function uidOf(session: Session, id: string): Result<number, ApiError> {
+	const [key, uidValidity, uid] = id.split('-');
+	if (key !== session.folder.key || uidValidity !== String(session.mailbox.uidValidity) || !uid || !/^\d+$/.test(uid)) {
 		return Err(ApiErr.notFound('record', id));
 	}
 	return Ok(Number(uid));
 }
 
-// Received emails keep the sender's name; a draft's recipients are bare addresses, as they are typed.
+/** Opens the folder a record's id names for `work`. */
+function withRecord<T>(target: RecordTarget, id: string, work: (session: Session) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
+	return Do(async ($) => $(await withFolder(target, $(folderOf(id)), work)));
+}
+
+// Received emails keep the sender's name; a draft's addresses are bare, as they are typed.
 function formatAddresses(addresses: MessageAddressObject[] | undefined, withNames: boolean): string {
 	return (addresses ?? [])
 		.map(({name, address}) => {
@@ -133,27 +156,41 @@ function formatAddresses(addresses: MessageAddressObject[] | undefined, withName
 		.join(', ');
 }
 
-function summaryValues(collectionId: string, message: FetchMessageObject): RecordValues {
-	const envelope = message.envelope;
-	if (collectionId === 'drafts') {
-		return {to: formatAddresses(envelope?.to, false), subject: envelope?.subject ?? ''};
+// "Unread, Flagged", for an email in the inbox.
+function status(folder: Folder, flags: Set<string> | undefined): string {
+	if (folder !== INBOX) {
+		return '';
 	}
-
-	if (collectionId === 'sent') {
-		const sentAt = envelope?.date ? new Date(envelope.date).toISOString() : '';
-		return {to: formatAddresses(envelope?.to, false), subject: envelope?.subject ?? '', sentAt};
+	const seen = flags?.has('\\Seen') ? 'Read' : 'Unread';
+	if (flags?.has('\\Flagged')) {
+		return `${seen}, Flagged`;
 	}
-
-	const receivedAt = message.internalDate ? new Date(message.internalDate).toISOString() : '';
-	return {from: formatAddresses(envelope?.from, true), to: formatAddresses(envelope?.to, true), subject: envelope?.subject ?? '', receivedAt};
+	return seen;
 }
 
 function updatedAt(message: FetchMessageObject): string {
 	return message.internalDate ? new Date(message.internalDate).toISOString() : new Date(0).toISOString();
 }
 
-function toSummary(target: RecordTarget, mailbox: MailboxObject, message: FetchMessageObject): DataRecord {
-	return {id: recordId(mailbox, message.uid), values: summaryValues(target.collection.id, message), updatedAt: updatedAt(message)};
+function summaryValues(folder: Folder, message: FetchMessageObject): RecordValues {
+	const envelope = message.envelope;
+	const withNames = folder !== DRAFTS;
+	return {
+		folder: folder.label,
+		from: formatAddresses(envelope?.from, withNames),
+		to: formatAddresses(envelope?.to, withNames),
+		subject: envelope?.subject ?? '',
+		date: message.internalDate ? updatedAt(message) : '',
+		status: status(folder, message.flags),
+	};
+}
+
+function toRecord(session: Session, message: FetchMessageObject): DataRecord {
+	return {id: recordId(session, message.uid), values: summaryValues(session.folder, message), updatedAt: updatedAt(message)};
+}
+
+function isGmail(client: ImapFlow): boolean {
+	return client.capabilities.has('X-GM-EXT-1');
 }
 
 // Gmail takes its own search syntax over IMAP (from:, has:attachment, newer_than:7d); any other
@@ -162,54 +199,136 @@ function searchCriteria(client: ImapFlow, search: string | null): SearchObject {
 	if (!search) {
 		return {all: true};
 	}
-	if (client.capabilities.has('X-GM-EXT-1')) {
+	if (isGmail(client)) {
 		return {gmraw: search};
 	}
 	return {text: search};
 }
 
-/**
- * A page of the folder, newest first. The next page's token is the id of the oldest message on
- * this one, so paging goes on from there even as new mail arrives.
- */
-async function listMessages(target: RecordTarget, {client, mailbox}: Session, query: ListQuery): Promise<Result<RecordPage, ApiError>> {
-	return Do(async ($) => {
-		const before = query.page ? $(uidOf(mailbox, query.page)) : null;
-		const nextPage = (records: DataRecord[], more: boolean) => (more ? (records.at(-1)?.id ?? null) : null);
+/** A folder's newest messages below the UID `before`, matching the search, and whether it has more. */
+async function folderPage(session: Session, search: string | null, before: number | null): Promise<{messages: FetchMessageObject[]; more: boolean}> {
+	const {client, mailbox} = session;
+	const fields = {uid: true, envelope: true, internalDate: true, flags: true};
 
-		// The common case, the newest messages: read by position, without a search.
-		if (!query.search && before === null) {
-			if (mailbox.exists === 0) {
-				return {records: [], nextPage: null};
-			}
-			const range = `${Math.max(1, mailbox.exists - PAGE_SIZE + 1)}:*`;
-			const messages = await client.fetchAll(range, {uid: true, envelope: true, internalDate: true});
-			const records = messages.sort((a, b) => b.uid - a.uid).map((message) => toSummary(target, mailbox, message));
-			return {records, nextPage: nextPage(records, mailbox.exists > PAGE_SIZE)};
+	// The common case, the newest messages: read by position, without a search.
+	if (!search && before === null) {
+		if (mailbox.exists === 0) {
+			return {messages: [], more: false};
 		}
+		const range = `${Math.max(1, mailbox.exists - PAGE_SIZE + 1)}:*`;
+		return {messages: await client.fetchAll(range, fields), more: mailbox.exists > PAGE_SIZE};
+	}
 
-		if (before !== null && before <= 1) {
-			return {records: [], nextPage: null};
-		}
-
-		const criteria = {...searchCriteria(client, query.search), ...(before === null ? {} : {uid: `1:${before - 1}`})};
-		const found = ((await client.search(criteria, {uid: true})) || []).sort((a, b) => b - a);
-		const uids = found.slice(0, PAGE_SIZE);
-		if (uids.length === 0) {
-			return {records: [], nextPage: null};
-		}
-
-		const messages = await client.fetchAll(uids.join(','), {uid: true, envelope: true, internalDate: true}, {uid: true});
-		const records = messages.sort((a, b) => b.uid - a.uid).map((message) => toSummary(target, mailbox, message));
-		return {records, nextPage: nextPage(records, found.length > PAGE_SIZE)};
-	});
+	if (before !== null && before <= 1) {
+		return {messages: [], more: false};
+	}
+	const criteria = {...searchCriteria(client, search), ...(before === null ? {} : {uid: `1:${before - 1}`})};
+	const found = ((await client.search(criteria, {uid: true})) || []).sort((a, b) => b - a);
+	const uids = found.slice(0, PAGE_SIZE);
+	if (uids.length === 0) {
+		return {messages: [], more: false};
+	}
+	return {messages: await client.fetchAll(uids.join(','), fields, {uid: true}), more: found.length > PAGE_SIZE};
 }
 
-async function getMessage(target: RecordTarget, session: Session, id: string): Promise<Result<DataRecord, ApiError>> {
+// Where each folder goes on, in a page token: the folder, its UIDVALIDITY, and the UID listing
+// continues below, as `inbox-7-120,sent-7-33`. A folder left out has nothing more to list.
+type Cursor = {folder: Folder; uidValidity: string; before: number};
+
+function parseCursors(token: string): Result<Cursor[], ApiError> {
+	const cursors: Cursor[] = [];
+	for (const part of token.split(',')) {
+		const [key, uidValidity, before] = part.split('-');
+		const folder = FOLDERS.find((candidate) => candidate.key === key);
+		if (!folder || !uidValidity || !before || !/^\d+$/.test(before)) {
+			return Err(ApiErr.validationError('Not a page of this list'));
+		}
+		cursors.push({folder, uidValidity, before: Number(before)});
+	}
+	return Ok(cursors);
+}
+
+type FolderPage = {folder: Folder; uidValidity: string; uidNext: number; before: number | null; records: Array<DataRecord & {uid: number}>; more: boolean};
+
+/**
+ * The folders' records newest first, up to a page, taking each folder's in UID order so that
+ * where it stops is a cursor; and how many it took of each.
+ */
+function mergeNewest(pages: FolderPage[]): {shown: DataRecord[]; taken: number[]} {
+	const taken = pages.map(() => 0);
+	const shown: DataRecord[] = [];
+	while (shown.length < PAGE_SIZE) {
+		const heads = pages.map((page, index) => page.records[taken[index] ?? 0]);
+		const next = heads.reduce((best, head, index) => {
+			const current = heads[best];
+			if (!head || (current && current.updatedAt >= head.updatedAt)) {
+				return best;
+			}
+			return index;
+		}, 0);
+		const record = heads[next];
+		if (!record) {
+			break;
+		}
+		shown.push({id: record.id, values: record.values, updatedAt: record.updatedAt});
+		taken[next] = (taken[next] ?? 0) + 1;
+	}
+	return {shown, taken};
+}
+
+/**
+ * A page of the list, newest first. Each folder in it gives up to a page of its newest messages
+ * past its cursor; they are merged by date, each folder's in UID order so none is skipped, and cut
+ * to a page. A folder goes on from its oldest message shown, or from where it was if none showed.
+ * A server without a Drafts or Sent folder lists the rest.
+ */
+function listPage(target: RecordTarget, query: ListQuery): Promise<Result<RecordPage, ApiError>> {
+	return withClient(target, (client, credential) =>
+		Do(async ($) => {
+			const scope = FOLDERS.filter((folder) => !query.filter || folder.label === query.filter);
+			const cursors = query.page ? $(parseCursors(query.page)) : null;
+			const pages: FolderPage[] = [];
+			for (const folder of scope) {
+				const cursor = cursors?.find((candidate) => candidate.folder === folder);
+				if (cursors && !cursor) {
+					continue;
+				}
+				const listed = await inFolder<FolderPage>(client, credential, folder, (session) =>
+					Do(async ($$) => {
+						const uidValidity = String(session.mailbox.uidValidity);
+						if (cursor && cursor.uidValidity !== uidValidity) {
+							return $$(Err(ApiErr.validationError('The mailbox changed; list it again from the start')));
+						}
+						const before = cursor?.before ?? null;
+						const {messages, more} = await folderPage(session, query.search, before);
+						const records = messages.sort((a, b) => b.uid - a.uid).map((message) => ({...toRecord(session, message), uid: message.uid}));
+						return {folder, uidValidity, uidNext: session.mailbox.uidNext, before, records, more};
+					}),
+				);
+				if (listed.isErr() && listed.error.kind === 'not_found' && listed.error.resource === 'folder') {
+					continue;
+				}
+				pages.push($(listed));
+			}
+
+			const {shown, taken} = mergeNewest(pages);
+			const tokens = pages.flatMap((page, index) => {
+				const used = taken[index] ?? 0;
+				if (used === page.records.length && !page.more) {
+					return [];
+				}
+				const oldestShown = page.records[used - 1]?.uid;
+				return [`${page.folder.key}-${page.uidValidity}-${oldestShown ?? page.before ?? page.uidNext}`];
+			});
+			return {records: shown, nextPage: tokens.length > 0 ? tokens.join(',') : null};
+		}),
+	);
+}
+
+async function getMessage(session: Session, id: string): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
-		const {client} = session;
-		const uid = $(await resolveUid(session, id));
-		const message = await client.fetchOne(String(uid), {uid: true, envelope: true, internalDate: true, source: true}, {uid: true});
+		const uid = $(uidOf(session, id));
+		const message = await session.client.fetchOne(String(uid), {uid: true, envelope: true, internalDate: true, flags: true, source: true}, {uid: true});
 		if (!message || !message.source) {
 			return $(Err(ApiErr.notFound('record', id)));
 		}
@@ -217,90 +336,155 @@ async function getMessage(target: RecordTarget, session: Session, id: string): P
 		const source = message.source;
 		const parsed = $((await Result.wrapAsync(() => simpleParser(source))).mapErr((cause) => ApiErr.providerUnreachable(cause)));
 		const body = (parsed.text ?? '').trim();
-		return {id, values: {...summaryValues(target.collection.id, message), body}, updatedAt: updatedAt(message)};
+		return {id, values: {...summaryValues(session.folder, message), body}, updatedAt: updatedAt(message)};
 	});
 }
 
-/** An email from the connected address, built from the typed-in values. */
-function compose(credential: EmailCredential, values: RecordValues, messageId: string): Promise<Buffer> {
-	return new MailComposer({from: credential.username, to: values.to, subject: values.subject, text: values.body, messageId}).compile().build();
-}
-
-/** Saves a draft from the typed-in values and reads it back. */
-async function appendDraft(target: RecordTarget, session: Session, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
+/** Saves a draft from the typed-in values, from the connected address, and reads it back. */
+async function appendDraft(session: Session, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
 		const {client, mailbox, credential} = session;
 		const messageId = `<${randomUUID()}@proxy>`;
-		const appended = await client.append(mailbox.path, await compose(credential, values, messageId), ['\\Draft', '\\Seen']);
+		const raw = await new MailComposer({from: credential.username, to: values.to, subject: values.subject, text: values.body, messageId}).compile().build();
+		const appended = await client.append(mailbox.path, raw, ['\\Draft', '\\Seen']);
 
 		// Servers without UIDPLUS don't say which UID the draft got; its Message-ID finds it.
-		const uid = appended && appended.uid ? appended.uid : await findByMessageId(client, messageId);
+		const uid = appended && appended.uid ? appended.uid : ((await client.search({header: {'message-id': messageId}}, {uid: true})) || [])[0];
 		if (uid === undefined) {
 			return $(Err(ApiErr.providerUnreachable(new Error('The saved draft could not be found'))));
 		}
-		return $(await getMessage(target, session, recordId(mailbox, uid)));
+		return $(await getMessage(session, recordId(session, uid)));
 	});
 }
 
-/**
- * Sends the email over SMTP and files a copy in Sent. Gmail files every email sent through it on
- * its own; anywhere else Personal Agent Proxy saves the copy, as a mail client does. Once the server has taken
- * the email it is gone, so nothing after that reports the send as failed: a copy that can't be
- * filed or found yet still answers with what was sent.
- */
-async function sendEmail(target: RecordTarget, session: Session, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
+/** The UID of the message the id names in the open folder, once the server confirms it is there. */
+async function requireMessage(session: Session, id: string): Promise<Result<number, ApiError>> {
 	return Do(async ($) => {
-		const {client, mailbox, credential} = session;
-		if (!values.to?.trim()) {
-			return $(Err(ApiErr.validationError('An email needs a recipient')));
+		const uid = $(uidOf(session, id));
+		if (!(await session.client.fetchOne(String(uid), {uid: true}, {uid: true}))) {
+			return $(Err(ApiErr.notFound('record', id)));
 		}
-
-		const messageId = `<${randomUUID()}@proxy>`;
-		const raw = await compose(credential, values, messageId);
-		const transport = smtpTransport(credential);
-		const sent = await Result.wrapAsync(() => transport.sendMail({envelope: {from: credential.username, to: values.to}, raw}));
-		transport.close();
-		$(sent.mapErr(smtpError));
-
-		const gmail = client.capabilities.has('X-GM-EXT-1');
-		const filed = gmail ? undefined : await Result.wrapAsync(() => client.append(mailbox.path, raw, ['\\Seen']));
-		const uid = filed?.isOk() && filed.value && filed.value.uid ? filed.value.uid : await findByMessageId(client, messageId);
-		const id = uid === undefined ? messageIdRecordId(messageId) : recordId(mailbox, uid);
-		const found = uid === undefined ? null : await getMessage(target, session, id);
-		if (found?.isOk()) {
-			return found.value;
-		}
-		return {id, values: {...values, sentAt: new Date().toISOString()}, updatedAt: new Date().toISOString()};
+		return uid;
 	});
 }
 
 async function deleteMessage(session: Session, id: string): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		const {client} = session;
-		const uid = $(await resolveUid(session, id));
-		const found = await client.fetchOne(String(uid), {uid: true}, {uid: true});
-		if (!found) {
-			return $(Err(ApiErr.notFound('record', id)));
+		const uid = $(await requireMessage(session, id));
+		await session.client.messageDelete(String(uid), {uid: true});
+	});
+}
+
+// Only drafts can be edited or deleted; the routes check too.
+function requireDraft(id: string): Result<Folder, ApiError> {
+	return folderOf(id).andThen((folder) => (folder === DRAFTS ? Ok(folder) : Err(ApiErr.validationError('Only drafts can be edited or deleted'))));
+}
+
+// Marks or unmarks an email, such as read or flagged, and reads it back.
+function setFlag(flag: '\\Seen' | '\\Flagged', on: boolean): CommandRunner {
+	return (target, id) =>
+		withRecord(target, id, (session) =>
+			Do(async ($) => {
+				const uid = String($(await requireMessage(session, id)));
+				if (on) {
+					await session.client.messageFlagsAdd(uid, [flag], {uid: true});
+				}
+				if (!on) {
+					await session.client.messageFlagsRemove(uid, [flag], {uid: true});
+				}
+				return $(await getMessage(session, id));
+			}),
+		);
+}
+
+// Moves an email to the folder the server marks for one of `uses`; it leaves the list.
+function moveTo(uses: SpecialUse[], name: string): CommandRunner {
+	return (target, id) =>
+		withRecord(target, id, (session) =>
+			Do(async ($) => {
+				const uid = $(await requireMessage(session, id));
+				const path = $(await specialFolder(session.client, uses, name));
+				await session.client.messageMove(String(uid), path, {uid: true});
+				return null;
+			}),
+		);
+}
+
+/**
+ * Sends an email from the connected address, then files a copy in Sent (Gmail does that itself).
+ * Once the email is out, a copy left unfiled is only logged: a failure then would invite the agent
+ * to send it twice.
+ */
+async function deliver(client: ImapFlow, credential: EmailCredential, values: RecordValues): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const to = values.to?.trim() ?? '';
+		if (to === '') {
+			return $(Err(ApiErr.validationError('The email has no recipient')));
 		}
-		await client.messageDelete(String(uid), {uid: true});
+
+		const message: Mail.Options = {from: credential.username, to, subject: values.subject ?? '', text: values.body ?? '', messageId: `<${randomUUID()}@proxy>`};
+		const transport = smtpTransport(credential);
+		const sent = await Result.wrapAsync(() => transport.sendMail(message));
+		transport.close();
+		$(sent.mapErr(smtpError));
+
+		if (isGmail(client)) {
+			return;
+		}
+		const filed = await Do<void, ApiError>(async ($$) => {
+			const path = $$(await specialFolder(client, ['\\Sent'], 'Sent'));
+			const raw = await new MailComposer(message).compile().build();
+			$$((await Result.wrapAsync(() => client.append(path, raw, ['\\Seen']))).mapErr((cause) => ApiErr.providerUnreachable(cause)));
+		});
+		if (filed.isErr()) {
+			log.warn('sent email not filed in Sent', serializeError(filed.error));
+		}
+	});
+}
+
+// Sends a draft and deletes it; a draft left behind once sent is only logged, as in `deliver`.
+async function sendDraft(session: Session, id: string): Promise<Result<null, ApiError>> {
+	return Do(async ($) => {
+		const uid = $(uidOf(session, id));
+		const draft = $(await getMessage(session, id));
+		$(await deliver(session.client, session.credential, draft.values));
+
+		const removed = await Result.wrapAsync(() => session.client.messageDelete(String(uid), {uid: true}));
+		if (removed.isErr()) {
+			log.warn('sent draft not deleted', serializeError(removed.error));
+		}
+		return null;
 	});
 }
 
 export const emailConnector: Connector = {
-	list: (target, query) => withFolder(target, (session) => listMessages(target, session, query)),
-	get: (target, recordId) => withFolder(target, (session) => getMessage(target, session, recordId)),
-	create: (target, values) => withFolder(target, (session) => (target.collection.id === 'sent' ? sendEmail(target, session, values) : appendDraft(target, session, values))),
-	update: (target, recordId, values) =>
-		withFolder(target, (session) =>
-			Do(async ($) => {
-				const uid = $(await resolveUid(session, recordId));
-				if (!(await session.client.fetchOne(String(uid), {uid: true}, {uid: true}))) {
-					return $(Err(ApiErr.notFound('record', recordId)));
-				}
-				const draft = $(await appendDraft(target, session, values));
-				$(await deleteMessage(session, recordId));
-				return draft;
-			}),
+	list: listPage,
+	get: (target, id) => withRecord(target, id, (session) => getMessage(session, id)),
+	create: (target, values) => withFolder(target, DRAFTS, (session) => appendDraft(session, values)),
+	update: (target, id, values) =>
+		Do(async ($) =>
+			$(
+				await withFolder(target, $(requireDraft(id)), (session) =>
+					Do(async ($$) => {
+						$$(await requireMessage(session, id));
+						const draft = $$(await appendDraft(session, values));
+						$$(await deleteMessage(session, id));
+						return draft;
+					}),
+				),
+			),
 		),
-	remove: (target, recordId) => withFolder(target, (session) => deleteMessage(session, recordId)),
+	remove: (target, id) => Do(async ($) => $(await withFolder(target, $(requireDraft(id)), (session) => deleteMessage(session, id)))),
+	commands: {
+		markRead: setFlag('\\Seen', true),
+		markUnread: setFlag('\\Seen', false),
+		flag: setFlag('\\Flagged', true),
+		unflag: setFlag('\\Flagged', false),
+		archive: moveTo(['\\Archive', '\\All'], 'Archive'),
+		trash: moveTo(['\\Trash'], 'Trash'),
+		send: (target, id) => withRecord(target, id, (session) => sendDraft(session, id)),
+	},
+	newCommands: {
+		sendNew: (target, values) => withClient(target, async (client, credential) => (await deliver(client, credential, values)).map(() => null)),
+	},
 };

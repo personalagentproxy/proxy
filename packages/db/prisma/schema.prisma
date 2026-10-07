@@ -110,12 +110,6 @@ model OrgMember {
   @@index([userId])
 }
 
-enum Access {
-  none
-  read
-  write
-}
-
 // A connected account of an integration from the catalog (`@proxy/integrations`), such as a
 // mailbox. An organization can connect the same integration more than once. Every organization
 // also has one built-in Information connection, made with it, whose records live in
@@ -141,20 +135,19 @@ model Connection {
   @@index([orgId])
 }
 
-// What an agent without a setting of its own can do in one of the connection's collections. No
-// row is no access.
+// An action of the connection that agents get by default, such as `read` or `archive` on a
+// mailbox. The actions are the catalog's (`@proxy/integrations`); no row is off.
 model ConnectionDefault {
   id           String @id @default(cuid())
   connectionId String
-  collectionId String
-  access       Access
+  actionId     String
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
   connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
 
-  @@unique([connectionId, collectionId])
+  @@unique([connectionId, actionId])
 }
 
 // A record of the built-in Information connection, such as an address or a payment card.
@@ -197,14 +190,14 @@ model Agent {
   @@index([orgId])
 }
 
-// An agent's own setting for one collection of a connection, where it differs from the
+// An agent's own setting for one action of a connection, on or off, where it differs from the
 // connection's default. No row means the agent follows the default.
 model AgentGrant {
-  id           String @id @default(cuid())
+  id           String  @id @default(cuid())
   agentId      String
   connectionId String
-  collectionId String
-  access       Access
+  actionId     String
+  allowed      Boolean
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -212,7 +205,7 @@ model AgentGrant {
   agent      Agent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
   connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
 
-  @@unique([agentId, connectionId, collectionId])
+  @@unique([agentId, connectionId, actionId])
   @@index([connectionId])
 }
 
@@ -231,14 +224,6 @@ model AgentSession {
   @@index([agentId])
 }
 
-enum AuditAction {
-  list
-  view
-  create
-  update
-  delete
-}
-
 enum AuditOutcome {
   allowed
   denied
@@ -252,7 +237,8 @@ model AuditEntry {
   agentId      String
   connectionId String
   collectionId String
-  action       AuditAction
+  // list, view, create, update or delete, or one of the collection's commands, such as `send`.
+  action       String
   // The record's title at the time, for actions on one record.
   recordTitle  String?
   // What a list searched for.

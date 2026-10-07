@@ -43,6 +43,7 @@
       },
       "devDependencies": {
         "@prisma/dev": "0.25.2",
+        "@proxy/integrations": "workspace:*",
         "@types/bun": "latest",
         "typescript": "~6.0.2",
       },

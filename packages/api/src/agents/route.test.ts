@@ -8,11 +8,11 @@ const getAgent = mock();
 const createAgent = mock();
 const updateAgent = mock();
 const deleteAgent = mock();
-const setAgentGrant = mock();
+const setAgentGrants = mock();
 const isUsernameConflict = mock(() => false);
 const isProviderConflict = mock(() => false);
 
-mock.module('@proxy/db/agent', () => ({listAgents, getAgent, createAgent, updateAgent, deleteAgent, setAgentGrant, isUsernameConflict, isProviderConflict}));
+mock.module('@proxy/db/agent', () => ({listAgents, getAgent, createAgent, updateAgent, deleteAgent, setAgentGrants, isUsernameConflict, isProviderConflict}));
 
 const getConnection = mock();
 
@@ -43,7 +43,7 @@ beforeEach(() => {
 	getAgent.mockResolvedValue(Ok(agentRow));
 	createAgent.mockResolvedValue(Ok(agentRow));
 	updateAgent.mockResolvedValue(Ok(true));
-	setAgentGrant.mockResolvedValue(Ok(undefined));
+	setAgentGrants.mockResolvedValue(Ok(undefined));
 	getConnection.mockResolvedValue(Ok({id: 'conn-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), defaults: []}));
 	isUsernameConflict.mockReturnValue(false);
 	isProviderConflict.mockReturnValue(false);
@@ -128,39 +128,32 @@ describe('handleSetAgentRevokedRoute', () => {
 	});
 });
 
-describe('handleSetAgentGrantRoute', () => {
-	const params = {agentId: 'agent-1', connectionId: 'conn-1', collectionId: 'drafts'};
+describe('handleSetAgentGrantsRoute', () => {
+	const params = {agentId: 'agent-1', connectionId: 'conn-1'};
 
-	test("sets the agent's own access", async () => {
-		const {handleSetAgentGrantRoute} = await import('./route');
-		const result = await handleSetAgentGrantRoute(makeRequest(params, {access: 'write'}));
+	test("sets the agent's own settings, null returning an action to the default", async () => {
+		const {handleSetAgentGrantsRoute} = await import('./route');
+		const result = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {read: true, send: null}}));
 
-		expect(setAgentGrant).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', collectionId: 'drafts', access: 'write'});
+		expect(setAgentGrants).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', actions: {read: true, send: null}});
 		expect(result.isOk()).toBe(true);
 	});
 
-	test('null returns the agent to the default', async () => {
-		const {handleSetAgentGrantRoute} = await import('./route');
-		await handleSetAgentGrantRoute(makeRequest(params, {access: null}));
+	test('refuses an action the integration does not have', async () => {
+		const {handleSetAgentGrantsRoute} = await import('./route');
+		const result = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {writeNotes: true}}));
 
-		expect(setAgentGrant).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', collectionId: 'drafts', access: null});
-	});
-
-	test('refuses access above what the provider allows', async () => {
-		const {handleSetAgentGrantRoute} = await import('./route');
-		const result = await handleSetAgentGrantRoute(makeRequest({...params, collectionId: 'emails'}, {access: 'write'}));
-
-		expect(result.unwrapErr().kind).toBe('conflict');
-		expect(setAgentGrant).not.toHaveBeenCalled();
+		expect(result.unwrapErr().kind).toBe('validation_error');
+		expect(setAgentGrants).not.toHaveBeenCalled();
 	});
 
 	test('refuses a connection outside the organization', async () => {
 		getConnection.mockResolvedValue(Ok(null));
 
-		const {handleSetAgentGrantRoute} = await import('./route');
-		const result = await handleSetAgentGrantRoute(makeRequest(params, {access: 'read'}));
+		const {handleSetAgentGrantsRoute} = await import('./route');
+		const result = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {read: true}}));
 
 		expect(result.unwrapErr().kind).toBe('not_found');
-		expect(setAgentGrant).not.toHaveBeenCalled();
+		expect(setAgentGrants).not.toHaveBeenCalled();
 	});
 });
