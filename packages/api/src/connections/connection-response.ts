@@ -1,14 +1,14 @@
 import type {ConnectionRow} from '@proxy/db/connection';
-import {findIntegration, providerAccess, type Access} from '@proxy/integrations';
+import {findIntegration} from '@proxy/integrations';
 
 export type ConnectionResponse = {
 	id: string;
 	integrationId: string;
 	account: string;
 	connectedAt: string;
-	// Two of the three access layers, per collection: what the provider allows and what an agent
-	// without a setting of its own gets. The third lives on each agent.
-	collections: Array<{id: string; provider: Access; connectionDefault: Access}>;
+	// Per collection, the actions an agent without a setting of its own gets. The catalog says
+	// which actions there are; an agent's own settings live on the agent.
+	collections: Array<{id: string; defaults: string[]}>;
 };
 
 export function toConnectionResponse(row: ConnectionRow): ConnectionResponse {
@@ -20,8 +20,9 @@ export function toConnectionResponse(row: ConnectionRow): ConnectionResponse {
 		connectedAt: row.createdAt.toISOString(),
 		collections: collections.map((collection) => ({
 			id: collection.id,
-			provider: providerAccess(collection),
-			connectionDefault: row.defaults.find((stored) => stored.collectionId === collection.id)?.access ?? 'none',
+			defaults: collection.actions
+				.map((action) => action.id)
+				.filter((actionId) => row.defaults.some((stored) => stored.collectionId === collection.id && stored.actionId === actionId)),
 		})),
 	};
 }

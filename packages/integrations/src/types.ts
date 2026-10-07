@@ -10,7 +10,34 @@ export type Field = {
 	system?: boolean;
 };
 
-export type Access = 'none' | 'read' | 'write';
+// One thing an agent can be allowed to do in a collection, set on its own: Read, Write drafts,
+// Send. Every collection has `read`, and every other action needs it, since an agent can't act on
+// a record it can't find.
+export type Action = {
+	id: string;
+	label: string;
+	description: string;
+	// How much harm a mistake does, for the person setting it: high is what can't be undone, or
+	// reaches other people.
+	risk: 'low' | 'medium' | 'high';
+};
+
+// A named set of actions offered in one select, such as Read & triage. Presets are never stored:
+// the select shows whichever one the actions match, else Custom.
+export type Preset = {label: string; actions: string[]};
+
+// Something done to one record beyond reading and editing it, such as archiving an email. Several
+// commands can share an action: Mark as read and Mark as unread both need `mark`.
+export type Command = {
+	id: string;
+	// The button: "Mark as read".
+	label: string;
+	action: string;
+	// The activity log's line, `{}` standing for the record: "Marked {} as read", and what a refused
+	// one tried: "mark {} as read".
+	done: string;
+	tried: string;
+};
 
 export type Collection = {
 	id: string;
@@ -21,8 +48,14 @@ export type Collection = {
 	// The field a row shows as its title, and the one it shows beside it.
 	titleField: string;
 	summaryField?: string;
-	// Records the provider fills in, which can be read but never changed, such as received emails.
-	readOnly?: boolean;
+	// Everything that can be allowed here, in the order it is shown; the first is always `read`.
+	actions: Action[];
+	// The presets between No access and everything, such as Read & triage.
+	presets?: Preset[];
+	// The action creating, editing and deleting a record each needs. One left out isn't offered,
+	// as received emails can't be created or edited.
+	writes: {create?: string; update?: string; delete?: string};
+	commands?: Command[];
 };
 
 export type IntegrationId = 'info' | 'email';

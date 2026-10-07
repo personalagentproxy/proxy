@@ -4,10 +4,10 @@ import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {Button} from '@/components/ui/button';
 import {useAgentTarget} from '@/hooks/use-agent-target';
-import {AGENT_ACCESS_LABELS, displayValue, recordTitle} from '@/lib/access';
+import {allows, describeActions, displayValue, recordTitle} from '@/lib/access';
 import type {agentCollectionLoader} from '@/agent-loaders';
 
-// A collection's records, with New when the agent may write.
+// A collection's records, with New when the agent may create one.
 export function AgentCollectionPage() {
 	const outcome = useLoaderData<typeof agentCollectionLoader>();
 	const target = useAgentTarget();
@@ -20,7 +20,7 @@ export function AgentCollectionPage() {
 	}
 
 	const {connection, integration, collection} = target;
-	const {access, records} = outcome.value;
+	const {actions, records} = outcome.value;
 	const summary = collection.fields.find((field) => field.key === collection.summaryField);
 	const base = `/agent/${connection.id}/${collection.id}`;
 
@@ -30,8 +30,8 @@ export function AgentCollectionPage() {
 				items={[{label: 'Home', to: '/agent'}, {label: integration.name}, {label: collection.name}]}
 			/>
 			<div className="mb-4 flex items-center justify-between gap-4 md:px-3">
-				<AgentHeading detail={AGENT_ACCESS_LABELS[access]}>{collection.name}</AgentHeading>
-				{access === 'write' && (
+				<AgentHeading detail={describeActions(collection, actions)}>{collection.name}</AgentHeading>
+				{allows(collection, actions, 'create') && (
 					<Button size="sm" nativeButton={false} render={<Link to={`${base}/new`} />}>
 						New {collection.singular}
 					</Button>

@@ -4,16 +4,17 @@ import {createAgentRecord} from '@/client/agent-client';
 import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
 import {RecordForm} from '@/components/record-form';
 import {useAgentTarget} from '@/hooks/use-agent-target';
+import {allows} from '@/lib/access';
 import {agentErrorMessage} from '@/lib/agent-errors';
 import {AgentDenied} from '@/pages/agent/agent-collection-page';
 
-// A new record in a collection the agent may write to. Without that access the form isn't
+// A new record in a collection the agent may create records in. Without that access the form isn't
 // offered; the api would refuse the create and log it as denied.
 export function AgentNewRecordPage() {
 	const navigate = useNavigate();
 	const target = useAgentTarget();
 	const [error, setError] = useState<string | null>(null);
-	if (!target || target.access !== 'write') {
+	if (!target || !allows(target.collection, target.actions, 'create')) {
 		return <AgentDenied>This login cannot create records here.</AgentDenied>;
 	}
 

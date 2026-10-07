@@ -1,4 +1,4 @@
-import {Prisma, type Access} from '@prisma/client';
+import {Prisma} from '@prisma/client';
 import type {Result} from 'ts-results-es';
 
 import {type ApiError, wrapDb} from '@proxy/utils';
@@ -12,7 +12,7 @@ export type AgentRow = {
 	createdAt: Date;
 	lastActiveAt: Date | null;
 	revokedAt: Date | null;
-	grants: Array<{connectionId: string; collectionId: string; access: Access}>;
+	grants: Array<{connectionId: string; collectionId: string; actionId: string; allowed: boolean}>;
 };
 
 // Never the password hash: only signing in reads it.
@@ -23,7 +23,7 @@ const agentSelect = {
 	createdAt: true,
 	lastActiveAt: true,
 	revokedAt: true,
-	grants: {select: {connectionId: true, collectionId: true, access: true}},
+	grants: {select: {connectionId: true, collectionId: true, actionId: true, allowed: true}},
 } as const;
 
 export async function listAgents(orgId: string): Promise<Result<AgentRow[], ApiError>> {
@@ -96,30 +96,42 @@ export async function deleteAgent(
 }
 
 /**
- * Sets the agent's own access to a collection, or with `null` drops it so the agent follows the
- * connection's default again. The caller has checked that both belong to the organization.
+ * Sets the agent's own settings for actions of a collection: on, off, or with `null` dropped so the
+ * agent follows the connection's default again. Actions left out stay as they are. The caller has
+ * checked that the agent and the connection belong to the organization.
  */
-export async function setAgentGrant(data: {
+export async function setAgentGrants(data: {
 	agentId: string;
 	connectionId: string;
 	collectionId: string;
-	access: Access | null;
+	actions: Record<string, boolean | null>;
 }): Promise<Result<void, ApiError>> {
-	const {agentId, connectionId, collectionId, access} = data;
-	const key = {agentId, connectionId, collectionId};
-	if (access === null) {
-		return (await wrapDb(() => db.agentGrant.deleteMany({where: key}))).map(() => undefined);
-	}
-
-	return (
-		await wrapDb(() =>
-			db.agentGrant.upsert({
-				where: {agentId_connectionId_collectionId: key},
-				create: {...key, access},
-				update: {access},
+	const {agentId, connectionId, collectionId, actions} = data;
+	const cleared = Object.keys(actions).filter((actionId) => actions[actionId] === null);
+	const set = Object.entries(actions).flatMap(([actionId, allowed]) =>
+		allowed === null ? [] : [{actionId, allowed}],
+	);
+	return wrapDb(async () => {
+		await db.$transaction([
+			db.agentGrant.deleteMany({
+				where: {agentId, connectionId, collectionId, actionId: {in: cleared}},
 			}),
-		)
-	).map(() => undefined);
+			...set.map(({actionId, allowed}) =>
+				db.agentGrant.upsert({
+					where: {
+						agentId_connectionId_collectionId_actionId: {
+							agentId,
+							connectionId,
+							collectionId,
+							actionId,
+						},
+					},
+					create: {agentId, connectionId, collectionId, actionId, allowed},
+					update: {allowed},
+				}),
+			),
+		]);
+	});
 }
 
 /** `Ok(null)` means no agent has the username. Revoked agents are returned; the caller refuses them. */

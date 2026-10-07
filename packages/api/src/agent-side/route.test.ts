@@ -30,10 +30,17 @@ function collection(integrationId: string, collectionId: string): Collection {
 	return found;
 }
 
-const infoConnection = {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), defaults: [{collectionId: 'addresses', access: 'read'}], credential: null};
-const emailConnection = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), defaults: [{collectionId: 'emails', access: 'write'}], credential: 'v1.x.y.z'};
+const infoConnection = {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), defaults: [{collectionId: 'addresses', actionId: 'read'}], credential: null};
+const emailConnection = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), defaults: [{collectionId: 'emails', actionId: 'read'}], credential: 'v1.x.y.z'};
 
-const agent = {id: 'agent-1', name: 'Shopping agent', grants: [{connectionId: 'info-1', collectionId: 'cards', access: 'read'}]};
+const agent = {
+	id: 'agent-1',
+	name: 'Shopping agent',
+	grants: [
+		{connectionId: 'info-1', collectionId: 'cards', actionId: 'read', allowed: true},
+		{connectionId: 'mail-1', collectionId: 'emails', actionId: 'read', allowed: false},
+	],
+};
 
 const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock()};
 
@@ -57,7 +64,7 @@ beforeEach(() => {
 });
 
 describe('handleAgentMeRoute', () => {
-	test('lists what the agent can reach: its own settings, else the defaults, capped by the provider', async () => {
+	test('lists what the agent can do: its own settings, else the defaults, leaving out what it cannot read', async () => {
 		const {handleAgentMeRoute} = await import('./route');
 		const result = await handleAgentMeRoute(makeRequest());
 
@@ -69,11 +76,10 @@ describe('handleAgentMeRoute', () => {
 					integrationId: 'info',
 					account: "Alex's Workspace",
 					collections: [
-						{id: 'addresses', access: 'read'},
-						{id: 'cards', access: 'read'},
+						{id: 'addresses', actions: ['read']},
+						{id: 'cards', actions: ['read']},
 					],
 				},
-				{id: 'mail-1', integrationId: 'email', account: 'alex@example.com', collections: [{id: 'emails', access: 'read'}]},
 			],
 		});
 	});
@@ -86,7 +92,7 @@ describe('agent record routes', () => {
 		const {handleAgentGetRecordRoute} = await import('./route');
 		const result = await handleAgentGetRecordRoute(makeRequest({connectionId: 'info-1', collectionId: 'cards', recordId: 'rec-1'}));
 
-		expect(result.unwrap()).toEqual({access: 'read', record: card});
+		expect(result.unwrap()).toEqual({actions: ['read'], record: card});
 		expect(logAgentRequest).toHaveBeenCalledWith({
 			orgId: 'org-1',
 			agentId: 'agent-1',
@@ -119,14 +125,16 @@ describe('agent record routes', () => {
 		expect(connector.create).not.toHaveBeenCalled();
 	});
 
-	test('a default above what the provider allows is capped', async () => {
+	test('what the collection does not offer is refused and logged', async () => {
 		useTarget(emailConnection, 'emails');
+		getAgent.mockResolvedValue(Ok({...agent, grants: []}));
 
-		const {handleAgentDeleteRecordRoute} = await import('./route');
-		const result = await handleAgentDeleteRecordRoute(makeRequest({connectionId: 'mail-1', collectionId: 'emails', recordId: 'rec-1'}));
+		const {handleAgentUpdateRecordRoute} = await import('./route');
+		const result = await handleAgentUpdateRecordRoute(makeRequest({connectionId: 'mail-1', collectionId: 'emails', recordId: 'rec-1'}, {values: {subject: 'Hi'}}));
 
 		expect(result.unwrapErr().kind).toBe('forbidden');
-		expect(connector.remove).not.toHaveBeenCalled();
+		expect(connector.update).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'emails', action: 'update', outcome: 'denied'});
 	});
 
 	test('a read that cannot be logged is not returned', async () => {

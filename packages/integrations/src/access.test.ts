@@ -1,7 +1,7 @@
 import {describe, expect, test} from 'bun:test';
 
-import {effectiveAccess, minAccess, providerAccess} from './access';
-import {findCollection, findIntegration} from './catalog';
+import {effectiveActions, matchingPreset, presetsOf, requiredAction} from './access';
+import {findCollection, findIntegration, INTEGRATIONS} from './catalog';
 import type {Collection} from './types';
 
 function collection(integrationId: string, collectionId: string): Collection {
@@ -13,43 +13,66 @@ function collection(integrationId: string, collectionId: string): Collection {
 	return found;
 }
 
-describe('providerAccess', () => {
-	test('received emails can only be read', () => {
-		expect(providerAccess(collection('email', 'emails'))).toBe('read');
+const drafts = collection('email', 'drafts');
+
+test('every collection starts with read, and its writes and commands name its own actions', () => {
+	for (const integration of INTEGRATIONS) {
+		for (const each of integration.collections) {
+			const ids = each.actions.map((action) => action.id);
+			expect(ids[0]).toBe('read');
+			const needed = [
+				...Object.values(each.writes),
+				...(each.commands ?? []).map((command) => command.action),
+				...(each.presets ?? []).flatMap((preset) => preset.actions),
+			];
+			expect(needed.filter((id) => !ids.includes(id))).toEqual([]);
+		}
+	}
+});
+
+describe('effectiveActions', () => {
+	test('an agent without its own settings follows the default', () => {
+		expect(effectiveActions(drafts, ['read', 'write'])).toEqual(['read', 'write']);
 	});
 
-	test('drafts can be written', () => {
-		expect(providerAccess(collection('email', 'drafts'))).toBe('write');
+	test("an agent's own setting wins over the default, one action at a time", () => {
+		expect(effectiveActions(drafts, ['read', 'write'], {write: false})).toEqual(['read']);
+		expect(effectiveActions(drafts, ['read'], {write: true})).toEqual(['read', 'write']);
+	});
+
+	test('nothing counts without read', () => {
+		expect(effectiveActions(drafts, ['read', 'write'], {read: false})).toEqual([]);
+		expect(effectiveActions(drafts, ['write'])).toEqual([]);
+	});
+
+	test('an action the catalog no longer has is dropped', () => {
+		expect(effectiveActions(drafts, ['read', 'gone'])).toEqual(['read']);
 	});
 });
 
-describe('effectiveAccess', () => {
-	test('an agent without its own setting follows the default', () => {
-		expect(effectiveAccess({provider: 'write', connectionDefault: 'read', agent: null})).toBe(
-			'read',
-		);
+describe('presets', () => {
+	test('one per set of actions, from No access to everything', () => {
+		expect(presetsOf(collection('info', 'cards')).map((preset) => preset.label)).toEqual([
+			'No access',
+			'Read',
+			'Read & write',
+		]);
 	});
 
-	test("an agent's own setting wins over the default", () => {
-		expect(effectiveAccess({provider: 'write', connectionDefault: 'read', agent: 'none'})).toBe(
-			'none',
-		);
-		expect(effectiveAccess({provider: 'write', connectionDefault: 'none', agent: 'write'})).toBe(
-			'write',
-		);
-	});
-
-	test('the provider caps both', () => {
-		expect(effectiveAccess({provider: 'read', connectionDefault: 'write', agent: null})).toBe(
-			'read',
-		);
-		expect(effectiveAccess({provider: 'read', connectionDefault: 'read', agent: 'write'})).toBe(
-			'read',
-		);
+	test('actions that match no preset are Custom', () => {
+		expect(matchingPreset(drafts, ['read', 'write'])?.label).toBe('Read & write');
+		expect(matchingPreset(drafts, ['write'])).toBeNull();
 	});
 });
 
-test('minAccess', () => {
-	expect(minAccess('write', 'read')).toBe('read');
-	expect(minAccess('none', 'write')).toBe('none');
+describe('requiredAction', () => {
+	test("reading needs read, writing the collection's own action", () => {
+		expect(requiredAction(drafts, 'list')).toBe('read');
+		expect(requiredAction(drafts, 'update')).toBe('write');
+	});
+
+	test('what a collection does not offer needs an action nobody has', () => {
+		expect(requiredAction(collection('email', 'emails'), 'create')).toBeNull();
+		expect(requiredAction(drafts, 'nonsense')).toBeNull();
+	});
 });

@@ -15,7 +15,8 @@ export type AuditEntryResponse = {
 	agentId: string;
 	connectionId: string;
 	collectionId: string;
-	action: 'list' | 'view' | 'create' | 'update' | 'delete';
+	// list, view, create, update or delete, or a command of the collection, such as `send`.
+	action: string;
 	recordTitle: string | null;
 	outcome: 'allowed' | 'denied';
 };

@@ -1,4 +1,4 @@
-import type {AuditAction, AuditOutcome} from '@prisma/client';
+import type {AuditOutcome} from '@prisma/client';
 import type {Result} from 'ts-results-es';
 
 import {type ApiError, wrapDb} from '@proxy/utils';
@@ -10,7 +10,8 @@ export type AuditEntryRow = {
 	agentId: string;
 	connectionId: string;
 	collectionId: string;
-	action: AuditAction;
+	// list, view, create, update or delete, or a command of the collection, such as `send`.
+	action: string;
 	recordTitle: string | null;
 	outcome: AuditOutcome;
 	createdAt: Date;
@@ -22,7 +23,7 @@ export async function logAgentRequest(data: {
 	agentId: string;
 	connectionId: string;
 	collectionId: string;
-	action: AuditAction;
+	action: string;
 	recordTitle: string | null;
 	outcome: AuditOutcome;
 }): Promise<Result<void, ApiError>> {

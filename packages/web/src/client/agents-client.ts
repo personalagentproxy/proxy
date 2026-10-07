@@ -1,4 +1,3 @@
-import type {Access} from '@proxy/integrations';
 import {z} from 'zod';
 import {agentSchema, auditEntrySchema} from '@/client/schemas';
 import {apiRequest, apiSend} from '@/client/request';
@@ -30,18 +29,18 @@ export function deleteAgent(agentId: string) {
 	return apiSend('DELETE', `/api/agents/${agentId}`);
 }
 
-/** `null` returns the agent to the connection's default. */
-export function setAgentGrant(
+/** Sets the agent's own settings per action; `null` returns an action to the connection's default. */
+export function setAgentGrants(
 	agentId: string,
 	connectionId: string,
 	collectionId: string,
-	access: Access | null,
+	actions: Record<string, boolean | null>,
 ) {
 	return apiRequest(
 		'PUT',
 		`/api/agents/${agentId}/grants/${connectionId}/${collectionId}`,
 		agentSchema,
-		{access},
+		{actions},
 	);
 }
 

@@ -1,6 +1,22 @@
-import type {Collection, Integration} from './types';
+import type {Action, Collection, Integration} from './types';
 
 export const INFO_INTEGRATION_ID = 'info';
+
+function read(description: string): Action {
+	return {id: 'read', label: 'Read', description, risk: 'low'};
+}
+
+// Information's collections: read, and create, edit and delete as one.
+function infoActions(plural: string): Pick<Collection, 'actions' | 'presets' | 'writes'> {
+	return {
+		actions: [
+			read(`List and open ${plural}`),
+			{id: 'write', label: 'Write', description: `Add, edit and delete ${plural}`, risk: 'medium'},
+		],
+		presets: [{label: 'Read & write', actions: ['read', 'write']}],
+		writes: {create: 'write', update: 'write', delete: 'write'},
+	};
+}
 
 // Any mailbox over IMAP and SMTP, signed in with an app password. The password can't be limited,
 // so access is only ever narrowed in Proxy.
@@ -15,7 +31,8 @@ const email: Integration = {
 			singular: 'email',
 			titleField: 'subject',
 			summaryField: 'from',
-			readOnly: true,
+			actions: [read('List, search and open emails in the inbox')],
+			writes: {},
 			fields: [
 				{key: 'from', label: 'From', type: 'email', system: true},
 				{key: 'to', label: 'To', type: 'email'},
@@ -30,6 +47,12 @@ const email: Integration = {
 			singular: 'draft',
 			titleField: 'subject',
 			summaryField: 'to',
+			actions: [
+				read('List and open drafts'),
+				{id: 'write', label: 'Write drafts', description: 'Create, edit and delete drafts', risk: 'medium'},
+			],
+			presets: [{label: 'Read & write', actions: ['read', 'write']}],
+			writes: {create: 'write', update: 'write', delete: 'write'},
 			fields: [
 				{key: 'to', label: 'To', type: 'email'},
 				{key: 'subject', label: 'Subject', type: 'text'},
@@ -51,6 +74,7 @@ const info: Integration = {
 			singular: 'address',
 			titleField: 'label',
 			summaryField: 'city',
+			...infoActions('addresses'),
 			fields: [
 				{key: 'label', label: 'Label', type: 'text'},
 				{key: 'name', label: 'Name', type: 'text'},
@@ -66,6 +90,7 @@ const info: Integration = {
 			singular: 'payment card',
 			titleField: 'label',
 			summaryField: 'number',
+			...infoActions('payment cards'),
 			fields: [
 				{key: 'label', label: 'Label', type: 'text'},
 				{key: 'cardholder', label: 'Cardholder', type: 'text'},
@@ -78,6 +103,7 @@ const info: Integration = {
 			name: 'Notes',
 			singular: 'note',
 			titleField: 'title',
+			...infoActions('notes'),
 			fields: [
 				{key: 'title', label: 'Title', type: 'text'},
 				{key: 'body', label: 'Body', type: 'longtext'},

@@ -5,28 +5,27 @@ import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/uti
 import {getAgent, type AgentRow} from '@proxy/db/agent';
 import {logAgentRequest} from '@proxy/db/audit';
 import {listConnections, type ConnectionRow} from '@proxy/db/connection';
-import {effectiveAccess, findIntegration, minAccess, providerAccess, type Access, type Collection} from '@proxy/integrations';
+import {effectiveActions, findIntegration, requiredAction, type Collection, type Operation, type OwnSettings} from '@proxy/integrations';
 
 import type {Connector, DataRecord, RecordTarget} from '../records/connector';
 import {parseRecordValues} from '../records/record-values';
 import {loadRecordTarget} from '../records/target';
 import type {AgentRequest} from '../server/middleware/require-agent';
 
-type AuditAction = 'list' | 'view' | 'create' | 'update' | 'delete';
-
-const NEEDS: Record<AuditAction, Access> = {list: 'read', view: 'read', create: 'write', update: 'write', delete: 'write'};
-
 export type AgentConnectionResponse = {
 	id: string;
 	integrationId: string;
 	account: string;
-	collections: Array<{id: string; access: Access}>;
+	// The actions the agent can take in each collection it can read.
+	collections: Array<{id: string; actions: string[]}>;
 };
 
-function accessOf(agent: AgentRow, connection: ConnectionRow, collection: Collection): Access {
-	const own = agent.grants.find((grant) => grant.connectionId === connection.id && grant.collectionId === collection.id);
-	const fallback = connection.defaults.find((stored) => stored.collectionId === collection.id);
-	return effectiveAccess({provider: providerAccess(collection), connectionDefault: fallback?.access ?? 'none', agent: own?.access ?? null});
+function actionsOf(agent: AgentRow, connection: ConnectionRow, collection: Collection): string[] {
+	const defaults = connection.defaults.filter((stored) => stored.collectionId === collection.id).map((stored) => stored.actionId);
+	const own: OwnSettings = Object.fromEntries(
+		agent.grants.filter((grant) => grant.connectionId === connection.id && grant.collectionId === collection.id).map((grant) => [grant.actionId, grant.allowed]),
+	);
+	return effectiveActions(collection, defaults, own);
 }
 
 function requireSignedInAgent(request: AgentRequest): Promise<Result<AgentRow, ApiError>> {
@@ -46,21 +45,21 @@ export function handleAgentMeRoute(request: AgentRequest): Promise<Result<{agent
 				integrationId: connection.integrationId,
 				account: connection.account,
 				collections: (findIntegration(connection.integrationId)?.collections ?? [])
-					.map((collection) => ({id: collection.id, access: accessOf(agent, connection, collection)}))
-					.filter(({access}) => access !== 'none'),
+					.map((collection) => ({id: collection.id, actions: actionsOf(agent, connection, collection)}))
+					.filter(({actions}) => actions.length > 0),
 			}))
 			.filter(({collections}) => collections.length > 0);
 		return {agent: {id: agent.id, name: agent.name}, connections};
 	});
 }
 
-type AgentTarget = RecordTarget & {connector: Connector; access: Access};
+type AgentTarget = RecordTarget & {connector: Connector; actions: string[]};
 
 function recordTitle(collection: Collection, record: DataRecord): string | null {
 	return record.values[collection.titleField]?.trim() || null;
 }
 
-function log(request: AgentRequest, target: RecordTarget, action: AuditAction, outcome: 'allowed' | 'denied', recordTitle: string | null): Promise<Result<void, ApiError>> {
+function log(request: AgentRequest, target: RecordTarget, action: Operation, outcome: 'allowed' | 'denied', recordTitle: string | null): Promise<Result<void, ApiError>> {
 	return logAgentRequest({
 		orgId: request.agent.orgId,
 		agentId: request.agent.agentId,
@@ -74,40 +73,41 @@ function log(request: AgentRequest, target: RecordTarget, action: AuditAction, o
 
 /**
  * The collection the URL names, if the agent may do `action` in it. A collection outside the
- * organization is not found and not logged; one the agent can't reach is refused and logged as
- * denied.
+ * organization is not found and not logged; an action the agent doesn't have, or the collection
+ * doesn't offer, is refused and logged as denied.
  */
-function authorize(request: AgentRequest, action: AuditAction): Promise<Result<AgentTarget, ApiError>> {
+function authorize(request: AgentRequest, action: Operation): Promise<Result<AgentTarget, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireSignedInAgent(request));
 		const target = $(await loadRecordTarget(request.agent.orgId, request.params.connectionId ?? '', request.params.collectionId ?? ''));
-		const access = accessOf(agent, target.connection, target.collection);
-		if (minAccess(access, NEEDS[action]) !== NEEDS[action]) {
+		const actions = actionsOf(agent, target.connection, target.collection);
+		const needed = requiredAction(target.collection, action);
+		if (needed === null || !actions.includes(needed)) {
 			$(await log(request, target, action, 'denied', null));
 			return $(Err(ApiErr.forbidden()));
 		}
-		return {...target, access};
+		return {...target, actions};
 	});
 }
 
 // Every allowed request is logged before its result goes back; a request that can't be logged
 // fails rather than go unrecorded.
 
-export function handleAgentListRecordsRoute(request: AgentRequest): Promise<Result<{access: Access; records: DataRecord[]}, ApiError>> {
+export function handleAgentListRecordsRoute(request: AgentRequest): Promise<Result<{actions: string[]; records: DataRecord[]}, ApiError>> {
 	return Do(async ($) => {
 		const target = $(await authorize(request, 'list'));
 		const records = $(await target.connector.list(target));
 		$(await log(request, target, 'list', 'allowed', null));
-		return {access: target.access, records};
+		return {actions: target.actions, records};
 	});
 }
 
-export function handleAgentGetRecordRoute(request: AgentRequest): Promise<Result<{access: Access; record: DataRecord}, ApiError>> {
+export function handleAgentGetRecordRoute(request: AgentRequest): Promise<Result<{actions: string[]; record: DataRecord}, ApiError>> {
 	return Do(async ($) => {
 		const target = $(await authorize(request, 'view'));
 		const record = $(await target.connector.get(target, request.params.recordId ?? ''));
 		$(await log(request, target, 'view', 'allowed', recordTitle(target.collection, record)));
-		return {access: target.access, record};
+		return {actions: target.actions, record};
 	});
 }
 

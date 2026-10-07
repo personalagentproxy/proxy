@@ -3,15 +3,13 @@
 // deletes the demo user and their organization first, then seeds them again.
 import {createCipheriv, createHash, randomBytes} from 'node:crypto';
 
-import type {Access, AuditAction} from '@prisma/client';
-
 import {
-	effectiveAccess,
+	effectiveActions,
 	EMAIL_PROVIDERS,
-	findCollection,
 	findIntegration,
 	INFO_INTEGRATION_ID,
-	providerAccess,
+	requiredAction,
+	type Collection,
 	type EmailProvider,
 } from '@proxy/integrations';
 
@@ -97,8 +95,8 @@ async function connect(data: {
 	account: string;
 	credential: string | null;
 	daysAgo: number;
-	// A collection left out has no default row: no access.
-	defaults: Record<string, Access>;
+	// The actions agents get by default, by collection; a collection left out gets none.
+	defaults: Record<string, string[]>;
 }): Promise<Connection> {
 	const connection = await db.connection.create({
 		data: {
@@ -109,10 +107,12 @@ async function connect(data: {
 			createdAt: daysAgo(data.daysAgo),
 		},
 	});
-	for (const [collectionId, access] of Object.entries(data.defaults)) {
-		await db.connectionDefault.create({
-			data: {connectionId: connection.id, collectionId, access},
-		});
+	for (const [collectionId, actionIds] of Object.entries(data.defaults)) {
+		for (const actionId of actionIds) {
+			await db.connectionDefault.create({
+				data: {connectionId: connection.id, collectionId, actionId},
+			});
+		}
 	}
 	return connection;
 }
@@ -127,7 +127,7 @@ function mailboxCredential(providerId: EmailProvider['id'], username: string): s
 async function connectMailbox(
 	providerId: EmailProvider['id'],
 	account: string,
-	data: {daysAgo: number; defaults: Record<string, Access>},
+	data: {daysAgo: number; defaults: Record<string, string[]>},
 ): Promise<Connection> {
 	const credential = mailboxCredential(providerId, account);
 	return connect({integrationId: 'email', account, credential, ...data});
@@ -138,15 +138,15 @@ const info = await connect({
 	account: ORG_NAME,
 	credential: null,
 	daysAgo: 40,
-	defaults: {addresses: 'read', cards: 'none', notes: 'read'},
+	defaults: {addresses: ['read'], notes: ['read']},
 });
 const personal = await connectMailbox('gmail', 'demo.user@gmail.com', {
 	daysAgo: 38,
-	defaults: {emails: 'read', drafts: 'write'},
+	defaults: {emails: ['read'], drafts: ['read', 'write']},
 });
 const work = await connectMailbox('fastmail', 'demo@acme-corp.com', {
 	daysAgo: 30,
-	defaults: {emails: 'read', drafts: 'read'},
+	defaults: {emails: ['read'], drafts: ['read']},
 });
 // No defaults: closed to every agent without a setting of its own.
 const receipts = await connectMailbox('icloud', 'demo.receipts@icloud.com', {
@@ -155,7 +155,7 @@ const receipts = await connectMailbox('icloud', 'demo.receipts@icloud.com', {
 });
 const newsletters = await connectMailbox('yahoo', 'demo.news@yahoo.com', {
 	daysAgo: 3,
-	defaults: {emails: 'read', drafts: 'none'},
+	defaults: {emails: ['read']},
 });
 
 const connections: [Connection, ...Connection[]] = [info, personal, work, receipts, newsletters];
@@ -217,10 +217,20 @@ for (const [collectionId, records] of Object.entries(INFO_RECORDS)) {
 
 // ---- Agents and their own settings ----------------------------------------------------------
 
-type Grant = {connectionId: string; collectionId: string; access: Access};
+type Grant = {connectionId: string; collectionId: string; actionId: string; allowed: boolean};
 
-function grant(connection: Connection, collectionId: string, access: Access): Grant {
-	return {connectionId: connection.id, collectionId, access};
+// The agent's own settings for some actions of a collection, on or off.
+function grant(
+	connection: Connection,
+	collectionId: string,
+	actions: Record<string, boolean>,
+): Grant[] {
+	return Object.entries(actions).map(([actionId, allowed]) => ({
+		connectionId: connection.id,
+		collectionId,
+		actionId,
+		allowed,
+	}));
 }
 
 // Every demo agent signs in with this password at /agent/login.
@@ -232,7 +242,7 @@ async function makeAgent(data: {
 	username: string;
 	daysAgo: number;
 	revokedDaysAgo?: number;
-	grants: Grant[];
+	grants: Grant[][];
 }) {
 	const agent = await db.agent.create({
 		data: {
@@ -244,10 +254,11 @@ async function makeAgent(data: {
 			revokedAt: data.revokedDaysAgo === undefined ? null : daysAgo(data.revokedDaysAgo),
 		},
 	});
-	for (const stored of data.grants) {
+	const grants = data.grants.flat();
+	for (const stored of grants) {
 		await db.agentGrant.create({data: {agentId: agent.id, ...stored}});
 	}
-	return {...agent, grants: data.grants};
+	return {...agent, grants};
 }
 
 const agents = [
@@ -257,12 +268,12 @@ const agents = [
 		username: 'personal-assistant-k7q2',
 		daysAgo: 35,
 		grants: [
-			grant(info, 'addresses', 'write'),
-			grant(info, 'cards', 'read'),
-			grant(info, 'notes', 'write'),
-			grant(work, 'drafts', 'write'),
-			grant(receipts, 'emails', 'read'),
-			grant(newsletters, 'emails', 'none'),
+			grant(info, 'addresses', {write: true}),
+			grant(info, 'cards', {read: true}),
+			grant(info, 'notes', {write: true}),
+			grant(work, 'drafts', {write: true}),
+			grant(receipts, 'emails', {read: true}),
+			grant(newsletters, 'emails', {read: false}),
 		],
 	}),
 	// Reads the cards no agent gets by default; kept out of the work mailbox.
@@ -271,24 +282,23 @@ const agents = [
 		username: 'shopping-agent-m3x9',
 		daysAgo: 28,
 		grants: [
-			grant(info, 'cards', 'read'),
-			grant(personal, 'drafts', 'none'),
-			grant(work, 'emails', 'none'),
-			grant(receipts, 'emails', 'read'),
+			grant(info, 'cards', {read: true}),
+			grant(personal, 'drafts', {write: false}),
+			grant(work, 'emails', {read: false}),
+			grant(receipts, 'emails', {read: true}),
 		],
 	}),
 	// Nothing of its own: follows every default.
 	await makeAgent({name: 'Research bot', username: 'research-bot-p4tn', daysAgo: 20, grants: []}),
-	// Set to write on received emails, which the provider caps at read.
 	await makeAgent({
 		name: 'Inbox triage',
 		username: 'inbox-triage-w8hd',
 		daysAgo: 14,
 		grants: [
-			grant(personal, 'emails', 'write'),
-			grant(work, 'drafts', 'write'),
-			grant(info, 'addresses', 'none'),
-			grant(info, 'notes', 'none'),
+			grant(personal, 'drafts', {read: false}),
+			grant(work, 'drafts', {write: true}),
+			grant(info, 'addresses', {read: false}),
+			grant(info, 'notes', {read: false}),
 		],
 	}),
 	await makeAgent({
@@ -296,10 +306,10 @@ const agents = [
 		username: 'travel-planner-r2jc',
 		daysAgo: 9,
 		grants: [
-			grant(info, 'notes', 'write'),
-			grant(info, 'cards', 'read'),
-			grant(work, 'emails', 'none'),
-			grant(work, 'drafts', 'none'),
+			grant(info, 'notes', {write: true}),
+			grant(info, 'cards', {read: true}),
+			grant(work, 'emails', {read: false}),
+			grant(work, 'drafts', {read: false}),
 		],
 	}),
 	// Revoked: its settings stay, but it can't sign in.
@@ -308,26 +318,28 @@ const agents = [
 		username: 'old-scraper-z5vb',
 		daysAgo: 33,
 		revokedDaysAgo: 12,
-		grants: [grant(personal, 'drafts', 'none'), grant(info, 'addresses', 'none')],
+		grants: [grant(personal, 'drafts', {write: false}), grant(info, 'addresses', {read: false})],
 	}),
 ];
 
 // ---- Activity -------------------------------------------------------------------------------
 
-const defaults = await db.connectionDefault.findMany({
+const connectionDefaults = await db.connectionDefault.findMany({
 	where: {connectionId: {in: connections.map((connection) => connection.id)}},
 });
 
-const ACTIONS: [AuditAction, ...AuditAction[]] = [
-	'list',
-	'list',
-	'view',
-	'view',
-	'view',
-	'create',
-	'update',
-	'delete',
-];
+// What agents ask a collection for: mostly reading, then whatever else it offers.
+function requestsOf(collection: Collection): [string, ...string[]] {
+	return [
+		'list',
+		'list',
+		'view',
+		'view',
+		'view',
+		...Object.keys(collection.writes),
+		...(collection.commands ?? []).map((command) => command.id),
+	];
+}
 
 // Titles for the mailboxes' records; Information's come from the records seeded above.
 const EMAIL_TITLES: Record<string, [string, ...string[]]> = {
@@ -357,44 +369,36 @@ function recordTitle(connection: Connection, collectionId: string): string {
 	return titles[Math.floor(random() * titles.length)] ?? 'Untitled';
 }
 
-type Request = {connection: Connection; collectionId: string; action: AuditAction};
+type Request = {connection: Connection; collection: Collection; action: string};
 
 function randomRequest(): Request | null {
 	const connection = pick(connections);
 	const collections = findIntegration(connection.integrationId)?.collections ?? [];
-	const collectionId = collections[Math.floor(random() * collections.length)]?.id;
-	if (!collectionId) {
+	const collection = collections[Math.floor(random() * collections.length)];
+	if (!collection) {
 		return null;
 	}
 
-	return {connection, collectionId, action: pick(ACTIONS)};
+	return {connection, collection, action: pick(requestsOf(collection))};
 }
 
 // Allowed or denied by the agent's real access, the way the api decides.
 function isAllowed(agent: (typeof agents)[number], request: Request): boolean {
-	const {connection, collectionId, action} = request;
-	const integration = findIntegration(connection.integrationId);
-	const collection = integration ? findCollection(integration, collectionId) : undefined;
-	if (!collection) {
-		return false;
-	}
-
-	const own = agent.grants.find(
-		(stored) => stored.connectionId === connection.id && stored.collectionId === collectionId,
+	const {connection, collection, action} = request;
+	const defaults = connectionDefaults
+		.filter(
+			(stored) => stored.connectionId === connection.id && stored.collectionId === collection.id,
+		)
+		.map((stored) => stored.actionId);
+	const own = Object.fromEntries(
+		agent.grants
+			.filter(
+				(stored) => stored.connectionId === connection.id && stored.collectionId === collection.id,
+			)
+			.map((stored) => [stored.actionId, stored.allowed]),
 	);
-	const connectionDefault = defaults.find(
-		(stored) => stored.connectionId === connection.id && stored.collectionId === collectionId,
-	);
-	const access = effectiveAccess({
-		provider: providerAccess(collection),
-		connectionDefault: connectionDefault?.access ?? 'none',
-		agent: own?.access ?? null,
-	});
-	if (action === 'list' || action === 'view') {
-		return access !== 'none';
-	}
-
-	return access === 'write';
+	const needed = requiredAction(collection, action);
+	return needed !== null && effectiveActions(collection, defaults, own).includes(needed);
 }
 
 let entryCount = 0;
@@ -413,14 +417,15 @@ for (const agent of agents) {
 		const createdAt = start + random() * (end - start);
 		lastActiveAt = Math.max(lastActiveAt, createdAt);
 		const onOneRecord = request.action !== 'list' && request.action !== 'create';
+		const collectionId = request.collection.id;
 		await db.auditEntry.create({
 			data: {
 				orgId: org.id,
 				agentId: agent.id,
 				connectionId: request.connection.id,
-				collectionId: request.collectionId,
+				collectionId,
 				action: request.action,
-				recordTitle: onOneRecord ? recordTitle(request.connection, request.collectionId) : null,
+				recordTitle: onOneRecord ? recordTitle(request.connection, collectionId) : null,
 				outcome: isAllowed(agent, request) ? 'allowed' : 'denied',
 				createdAt: new Date(createdAt),
 			},

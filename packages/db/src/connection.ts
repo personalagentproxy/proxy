@@ -1,4 +1,3 @@
-import type {Access} from '@prisma/client';
 import type {Result} from 'ts-results-es';
 
 import {type ApiError, wrapDb} from '@proxy/utils';
@@ -10,7 +9,8 @@ export type ConnectionRow = {
 	integrationId: string;
 	account: string;
 	createdAt: Date;
-	defaults: Array<{collectionId: string; access: Access}>;
+	// The actions agents get by default, one per row.
+	defaults: Array<{collectionId: string; actionId: string}>;
 };
 
 // Never the credential: only `getConnectionWithCredential` reads it.
@@ -19,7 +19,7 @@ const connectionSelect = {
 	integrationId: true,
 	account: true,
 	createdAt: true,
-	defaults: {select: {collectionId: true, access: true}},
+	defaults: {select: {collectionId: true, actionId: true}},
 } as const;
 
 export async function listConnections(orgId: string): Promise<Result<ConnectionRow[], ApiError>> {
@@ -75,20 +75,28 @@ export async function deleteConnection(
 	);
 }
 
-/** The caller has checked that the connection belongs to the organization. */
-export async function setConnectionDefault(data: {
+/**
+ * Turns default actions of a collection on or off; actions left out stay as they are. The caller
+ * has checked that the connection belongs to the organization and the actions to the collection.
+ */
+export async function setConnectionDefaults(data: {
 	connectionId: string;
 	collectionId: string;
-	access: Access;
+	actions: Record<string, boolean>;
 }): Promise<Result<void, ApiError>> {
-	const {connectionId, collectionId, access} = data;
-	return (
-		await wrapDb(() =>
-			db.connectionDefault.upsert({
-				where: {connectionId_collectionId: {connectionId, collectionId}},
-				create: data,
-				update: {access},
-			}),
-		)
-	).map(() => undefined);
+	const {connectionId, collectionId, actions} = data;
+	const on = Object.keys(actions).filter((actionId) => actions[actionId]);
+	const off = Object.keys(actions).filter((actionId) => !actions[actionId]);
+	return wrapDb(async () => {
+		await db.$transaction([
+			db.connectionDefault.deleteMany({where: {connectionId, collectionId, actionId: {in: off}}}),
+			...on.map((actionId) =>
+				db.connectionDefault.upsert({
+					where: {connectionId_collectionId_actionId: {connectionId, collectionId, actionId}},
+					create: {connectionId, collectionId, actionId},
+					update: {},
+				}),
+			),
+		]);
+	});
 }

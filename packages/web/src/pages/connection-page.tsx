@@ -1,26 +1,27 @@
-import {providerAccess} from '@proxy/integrations';
 import {UnplugIcon} from 'lucide-react';
 import {useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
-import {deleteConnection, setConnectionDefault} from '@/client/connections-client';
-import {AccessSelect} from '@/components/access-select';
+import {deleteConnection, setConnectionDefaults} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
+import {CollectionAccess} from '@/components/collection-access';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
 import {NotFound} from '@/components/not-found';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {
-	ACCESS_LABELS,
-	accessFor,
+	actionsFor,
 	agentsWithAccess,
-	defaultAccess,
+	defaultActions,
 	integrationOf,
+	ownSettings,
+	presetLabel,
 } from '@/lib/access';
 import {formatDate} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
+import type {AgentLogin} from '@/lib/types';
 import type {connectionLoader} from '@/loaders';
 
 const RECENT = 10;
@@ -31,6 +32,7 @@ export function ConnectionPage() {
 	const revalidator = useRevalidator();
 	const [disconnecting, setDisconnecting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [opened, setOpened] = useState<Set<string>>(() => new Set());
 	const integration = connection && integrationOf(connection);
 	if (!connection || !integration) {
 		return <NotFound what="connection" back="/connections" backLabel="Back to connections" />;
@@ -61,23 +63,32 @@ export function ConnectionPage() {
 					</p>
 					<RowList>
 						{integration.collections.map((collection) => (
-							<li key={collection.id} className="flex h-10 items-center gap-3 px-4 text-sm md:px-3">
-								<span className="min-w-0 flex-1 truncate">{collection.name}</span>
-								<AccessSelect
-									label={`${collection.name} default access`}
-									value={defaultAccess(connection, collection.id)}
-									provider={providerAccess(collection)}
-									onChange={async (next) => {
-										const result = await setConnectionDefault(
-											connection.id,
-											collection.id,
-											next ?? 'none',
-										);
-										setError(result.isErr() ? describeFetchError(result.error) : null);
-										await revalidator.revalidate();
-									}}
-								/>
-							</li>
+							<CollectionAccess
+								key={collection.id}
+								collection={collection}
+								defaults={defaultActions(connection, collection.id)}
+								differing={differingAgents(agents, connection.id, collection.id)}
+								open={opened.has(collection.id)}
+								onOpenChange={(open) => {
+									const next = new Set(opened);
+									if (open) {
+										next.add(collection.id);
+									}
+									if (!open) {
+										next.delete(collection.id);
+									}
+									setOpened(next);
+								}}
+								onChange={async (actions) => {
+									const result = await setConnectionDefaults(
+										connection.id,
+										collection.id,
+										onOrOff(actions),
+									);
+									setError(result.isErr() ? describeFetchError(result.error) : null);
+									await revalidator.revalidate();
+								}}
+							/>
 						))}
 					</RowList>
 					{error && <p className="mt-2 text-sm text-destructive md:px-3">{error}</p>}
@@ -93,10 +104,14 @@ export function ConnectionPage() {
 								cells={
 									<span className="hidden min-w-0 shrink truncate text-right text-muted-foreground md:block">
 										{integration.collections
-											.filter((collection) => accessFor(agent, connection, collection) !== 'none')
+											.map((collection) => ({
+												collection,
+												actions: actionsFor(agent, connection, collection),
+											}))
+											.filter(({actions}) => actions.length > 0)
 											.map(
-												(collection) =>
-													`${collection.name}: ${ACCESS_LABELS[accessFor(agent, connection, collection)]}`,
+												({collection, actions}) =>
+													`${collection.name}: ${presetLabel(collection, actions)}`,
 											)
 											.join(', ')}
 									</span>
@@ -143,5 +158,30 @@ export function ConnectionPage() {
 				}}
 			/>
 		</AppShell>
+	);
+}
+
+// How many agents, revoked ones left out, have a setting of their own for each action.
+function differingAgents(
+	agents: AgentLogin[],
+	connectionId: string,
+	collectionId: string,
+): Partial<Record<string, number>> {
+	const counts: Partial<Record<string, number>> = {};
+	for (const agent of agents) {
+		if (agent.revokedAt !== null) {
+			continue;
+		}
+		for (const actionId of Object.keys(ownSettings(agent, connectionId, collectionId))) {
+			counts[actionId] = (counts[actionId] ?? 0) + 1;
+		}
+	}
+	return counts;
+}
+
+// A default is on or off; nothing on this page returns one to anything else.
+function onOrOff(actions: Record<string, boolean | null>): Record<string, boolean> {
+	return Object.fromEntries(
+		Object.entries(actions).flatMap(([id, allowed]) => (allowed === null ? [] : [[id, allowed]])),
 	);
 }

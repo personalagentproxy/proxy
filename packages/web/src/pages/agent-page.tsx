@@ -1,6 +1,5 @@
-import {providerAccess, type Access} from '@proxy/integrations';
 import type {FetchError} from '@proxy/utils';
-import {BanIcon, KeyRoundIcon, RotateCcwIcon, Trash2Icon} from 'lucide-react';
+import {BanIcon, KeyRoundIcon, RotateCcwIcon, SearchIcon, Trash2Icon} from 'lucide-react';
 import {useEffect, useState, type ReactNode} from 'react';
 import {
 	Link,
@@ -14,20 +13,22 @@ import type {Result} from 'ts-results-es';
 import {
 	deleteAgent,
 	resetAgentPassword,
-	setAgentGrant,
+	setAgentGrants,
 	setAgentRevoked,
 } from '@/client/agents-client';
-import {AccessSelect} from '@/components/access-select';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
 import {ConfirmDialog} from '@/components/confirm-dialog';
+import {CollectionAccess} from '@/components/collection-access';
 import {CopyButton} from '@/components/copy-button';
 import {IconButton} from '@/components/icon-button';
 import {NotFound} from '@/components/not-found';
-import {RowList} from '@/components/row-list';
+import {EmptyRows, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
-import {connectionLabel, defaultAccess, integrationOf, ownAccess} from '@/lib/access';
+import {Checkbox} from '@/components/ui/checkbox';
+import {Input} from '@/components/ui/input';
+import {connectionLabel, defaultActions, integrationOf, ownSettings} from '@/lib/access';
 import {formatDate} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin, Connection} from '@/lib/types';
@@ -127,12 +128,12 @@ function AgentDetail({id}: {id: string}) {
 				<Section title="Sign-in" detail={revoked ? 'revoked, the agent cannot sign in' : undefined}>
 					<Credentials agent={agent} password={password} />
 				</Section>
-				<Section title="Access">
+				<Section title="Access" detail={changedDetail(agent)}>
 					<AccessGrid
 						agent={agent}
 						connections={connections}
-						onChange={(connectionId, collectionId, access) =>
-							void apply(setAgentGrant(agent.id, connectionId, collectionId, access))
+						onChange={(connectionId, collectionId, actions) =>
+							void apply(setAgentGrants(agent.id, connectionId, collectionId, actions))
 						}
 					/>
 				</Section>
@@ -248,54 +249,132 @@ function CredentialLine({label, value, mono = false, muted = false, children}: L
 	);
 }
 
+// "3 changed": how many actions the agent has a setting of its own for.
+function changedDetail(agent: AgentLogin): string | undefined {
+	if (agent.grants.length === 0) {
+		return undefined;
+	}
+	return `${agent.grants.length} changed`;
+}
+
 type GridProps = {
 	agent: AgentLogin;
 	connections: Connection[];
-	onChange: (connectionId: string, collectionId: string, access: Access | null) => void;
+	onChange: (
+		connectionId: string,
+		collectionId: string,
+		actions: Record<string, boolean | null>,
+	) => void;
 };
 
-// One select per collection of every connection, Information first. Each starts on the
-// connection's default; a setting of the agent's own is marked, and Default returns it there.
+// Every collection of every connection, Information first, each with its actions beneath it once
+// opened. A filter narrows them to the connections, collections and actions it names; Changed only
+// keeps the actions the agent has a setting of its own for. Either opens what it finds.
 function AccessGrid({agent, connections, onChange}: GridProps) {
+	const [query, setQuery] = useState('');
+	const [changedOnly, setChangedOnly] = useState(false);
+	const [opened, setOpened] = useState<Set<string>>(() => new Set());
+	const filtering = query.trim() !== '' || changedOnly;
+	const matches = (text: string) => text.toLowerCase().includes(query.trim().toLowerCase());
+	const groups = connections.flatMap((connection) => {
+		const integration = integrationOf(connection);
+		if (!integration) {
+			return [];
+		}
+
+		const label = connectionLabel(connections, connection);
+		const collections = integration.collections.flatMap((collection) => {
+			const own = ownSettings(agent, connection.id, collection.id);
+			const named = [label, connection.account, collection.name];
+			const shown = collection.actions
+				.filter((action) => !changedOnly || own[action.id] !== undefined)
+				.filter(
+					(action) => named.some(matches) || matches(action.label) || matches(action.description),
+				)
+				.map((action) => action.id);
+			if (filtering && shown.length === 0) {
+				return [];
+			}
+			return [{collection, own, shown}];
+		});
+		if (collections.length === 0) {
+			return [];
+		}
+		return [{connection, integration, label, collections}];
+	});
+	const toggle = (key: string, open: boolean) => {
+		const next = new Set(opened);
+		if (open) {
+			next.add(key);
+		}
+		if (!open) {
+			next.delete(key);
+		}
+		setOpened(next);
+	};
+
 	return (
 		<div className="flex flex-col gap-6">
-			{connections.map((connection) => {
-				const integration = integrationOf(connection);
-				if (!integration) {
-					return null;
-				}
-				return (
-					<div key={connection.id} className="flex flex-col gap-1">
-						<div className="flex items-center gap-2 text-sm md:px-3">
-							<integration.icon className="size-4 shrink-0 text-muted-foreground" />
-							<Link
-								to={`/connections/${connection.id}`}
-								className="font-medium underline-offset-4 hover:underline"
-							>
-								{connectionLabel(connections, connection)}
-							</Link>
+			<div className="flex items-center gap-4 md:px-3">
+				<div className="relative max-w-xs flex-1">
+					<SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+					<Input
+						type="search"
+						aria-label="Filter access"
+						placeholder="Filter actions"
+						className="h-8 pl-8"
+						value={query}
+						onChange={(event) => setQuery(event.target.value)}
+					/>
+				</div>
+				<label className="flex items-center gap-2 text-sm">
+					<Checkbox checked={changedOnly} onCheckedChange={setChangedOnly} />
+					Changed only
+				</label>
+			</div>
+			{groups.length === 0 && (
+				<RowList>
+					<EmptyRows>
+						{changedOnly && query.trim() === ''
+							? 'This agent follows every default.'
+							: 'Nothing matches the filter.'}
+					</EmptyRows>
+				</RowList>
+			)}
+			{groups.map(({connection, integration, label, collections}) => (
+				<div key={connection.id} className="flex flex-col gap-1">
+					<div className="flex items-center gap-2 text-sm md:px-3">
+						<integration.icon className="size-4 shrink-0 text-muted-foreground" />
+						<Link
+							to={`/connections/${connection.id}`}
+							className="font-medium underline-offset-4 hover:underline"
+						>
+							{label}
+						</Link>
+						{/* The account, unless the label names it already or it is Information's. */}
+						{!integration.builtIn && !label.includes(connection.account) && (
 							<span className="truncate text-muted-foreground">{connection.account}</span>
-						</div>
-						<RowList>
-							{integration.collections.map((collection) => (
-								<li
-									key={collection.id}
-									className="flex h-10 items-center gap-3 px-4 text-sm md:px-3"
-								>
-									<span className="min-w-0 flex-1 truncate">{collection.name}</span>
-									<AccessSelect
-										label={`${collection.name} access`}
-										value={ownAccess(agent, connection.id, collection.id)}
-										provider={providerAccess(collection)}
-										connectionDefault={defaultAccess(connection, collection.id)}
-										onChange={(next) => onChange(connection.id, collection.id, next)}
-									/>
-								</li>
-							))}
-						</RowList>
+						)}
 					</div>
-				);
-			})}
+					<RowList>
+						{collections.map(({collection, own, shown}) => {
+							const key = `${connection.id}/${collection.id}`;
+							return (
+								<CollectionAccess
+									key={key}
+									collection={collection}
+									defaults={defaultActions(connection, collection.id)}
+									own={own}
+									shown={filtering ? shown : undefined}
+									open={filtering || opened.has(key)}
+									onOpenChange={(open) => toggle(key, open)}
+									onChange={(actions) => onChange(connection.id, collection.id, actions)}
+								/>
+							);
+						})}
+					</RowList>
+				</div>
+			))}
 		</div>
 	);
 }

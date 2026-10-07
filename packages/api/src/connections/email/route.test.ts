@@ -56,8 +56,8 @@ describe('handleConnectEmailRoute', () => {
 		const connection = result.unwrap();
 		expect(connection.id).toBe('conn-1');
 		expect(connection.collections).toEqual([
-			{id: 'emails', provider: 'read', connectionDefault: 'none'},
-			{id: 'drafts', provider: 'write', connectionDefault: 'none'},
+			{id: 'emails', defaults: []},
+			{id: 'drafts', defaults: []},
 		]);
 	});
 

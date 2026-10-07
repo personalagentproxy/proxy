@@ -3,7 +3,7 @@ import {AgentHeading, AgentShell} from '@/components/agent-shell';
 import {Row, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {useAgentMe} from '@/hooks/use-agent-target';
-import {AGENT_ACCESS_LABELS} from '@/lib/access';
+import {describeActions} from '@/lib/access';
 import {findIntegration} from '@/lib/integrations';
 
 // Everything this login can reach, connection by connection. Collections without access are
@@ -30,18 +30,24 @@ export function AgentHomePage() {
 					return (
 						<Section key={connection.id} title={integration.name} detail={connection.account}>
 							<RowList>
-								{connection.collections.map(({id, access}) => (
-									<Row
-										key={id}
-										to={`/agent/${connection.id}/${id}`}
-										title={findCollection(integration, id)?.name ?? id}
-										cells={
-											<span className="shrink-0 text-muted-foreground">
-												{AGENT_ACCESS_LABELS[access]}
-											</span>
-										}
-									/>
-								))}
+								{connection.collections.map(({id, actions}) => {
+									const collection = findCollection(integration, id);
+									if (!collection) {
+										return null;
+									}
+									return (
+										<Row
+											key={id}
+											to={`/agent/${connection.id}/${id}`}
+											title={collection.name}
+											cells={
+												<span className="max-w-[60%] shrink-0 truncate text-muted-foreground">
+													{describeActions(collection, actions)}
+												</span>
+											}
+										/>
+									);
+								})}
 							</RowList>
 						</Section>
 					);

@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {accessSchema, dataRecordSchema} from '@/client/schemas';
+import {dataRecordSchema} from '@/client/schemas';
 import {apiRequest, apiSend} from '@/client/request';
 
 // The agent side: its own sign-in and cookie. Every records call is checked against the agent's
@@ -12,7 +12,8 @@ const agentMeSchema = z.object({
 			id: z.string(),
 			integrationId: z.string(),
 			account: z.string(),
-			collections: z.array(z.object({id: z.string(), access: accessSchema})),
+			// The actions the agent can take in each collection it can read.
+			collections: z.array(z.object({id: z.string(), actions: z.array(z.string())})),
 		}),
 	),
 });
@@ -44,7 +45,7 @@ export function listAgentRecords(connectionId: string, collectionId: string) {
 	return apiRequest(
 		'GET',
 		recordsPath(connectionId, collectionId),
-		z.object({access: accessSchema, records: z.array(dataRecordSchema)}),
+		z.object({actions: z.array(z.string()), records: z.array(dataRecordSchema)}),
 	);
 }
 
@@ -52,7 +53,7 @@ export function getAgentRecord(connectionId: string, collectionId: string, recor
 	return apiRequest(
 		'GET',
 		`${recordsPath(connectionId, collectionId)}/${recordId}`,
-		z.object({access: accessSchema, record: dataRecordSchema}),
+		z.object({actions: z.array(z.string()), record: dataRecordSchema}),
 	);
 }
 
