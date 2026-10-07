@@ -21,6 +21,8 @@ export type Action = {
 	risk: 'low' | 'medium' | 'high';
 	// The action this one only counts with, such as Read for Archive.
 	requires?: string;
+	// Reaches people beyond the account, as sending email does.
+	reachesOthers?: true;
 };
 
 // The records a write or a command applies to, by a field's value: drafts, or emails in the inbox.

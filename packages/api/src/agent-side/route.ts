@@ -2,58 +2,33 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
-import {getAgent, type AgentRow} from '@proxy/db/agent';
 import {logAgentRequest} from '@proxy/db/audit';
-import {listConnections, type ConnectionRow} from '@proxy/db/connection';
-import {applies, effectiveActions, findIntegration, requiredAction, type Collection, type Condition, type OwnSettings} from '@proxy/integrations';
+import {applies, requiredAction, type Collection, type Condition, type Tool} from '@proxy/integrations';
 
 import type {Connector, DataRecord, RecordPage, RecordTarget} from '../records/connector';
 import {parseListQuery, requireListQuery} from '../records/list-query';
 import {parseRecordValues} from '../records/record-values';
 import {loadRecordTarget} from '../records/target';
 import type {AgentRequest} from '../server/middleware/require-agent';
-
-export type AgentConnectionResponse = {
-	id: string;
-	integrationId: string;
-	account: string;
-	// The actions the agent can take with the connection.
-	actions: string[];
-};
-
-function actionsOf(agent: AgentRow, connection: ConnectionRow): string[] {
-	const integration = findIntegration(connection.integrationId);
-	if (!integration) {
-		return [];
-	}
-	const own: OwnSettings = Object.fromEntries(agent.grants.filter((grant) => grant.connectionId === connection.id).map((grant) => [grant.actionId, grant.allowed]));
-	return effectiveActions(
-		integration,
-		connection.defaults.map((stored) => stored.actionId),
-		own,
-	);
-}
-
-function requireSignedInAgent(request: AgentRequest): Promise<Result<AgentRow, ApiError>> {
-	return Do(async ($) => {
-		const agent = $(await getAgent(request.agent.orgId, request.agent.agentId));
-		return $(requirePresent(agent, ApiErr.unauthenticated()));
-	});
-}
+import {actionsOf, listAgentConnections, listAgentTools, requireAgent, runAgentTool, type AgentConnection, type ToolResult} from './tools';
 
 /** Who the agent is and what it can do with each connection; connections it can't use are left out. */
-export function handleAgentMeRoute(request: AgentRequest): Promise<Result<{agent: {id: string; providerId: string; name: string}; connections: AgentConnectionResponse[]}, ApiError>> {
+export function handleAgentMeRoute(request: AgentRequest): Promise<Result<{agent: {id: string; providerId: string; name: string}; connections: AgentConnection[]}, ApiError>> {
+	return listAgentConnections(request.agent);
+}
+
+/** `GET /api/agent/connections/:connectionId/tools`: the tools the agent has with the connection. */
+export function handleAgentListToolsRoute(request: AgentRequest): Promise<Result<{tools: Tool[]}, ApiError>> {
+	return Do(async ($) => ({tools: $(await listAgentTools(request.agent, request.params.connectionId ?? ''))}));
+}
+
+const runToolBodySchema = z.object({params: z.unknown().optional()});
+
+/** `POST /api/agent/connections/:connectionId/tools/:toolName` with `{params}`. */
+export function handleAgentRunToolRoute(request: AgentRequest): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
-		const agent = $(await requireSignedInAgent(request));
-		const connections = $(await listConnections(request.agent.orgId))
-			.map((connection) => ({
-				id: connection.id,
-				integrationId: connection.integrationId,
-				account: connection.account,
-				actions: actionsOf(agent, connection),
-			}))
-			.filter(({actions}) => actions.length > 0);
-		return {agent: {id: agent.id, providerId: agent.providerId, name: agent.name}, connections};
+		const {params} = $(parseSchema(runToolBodySchema, request.body ?? {}));
+		return $(await runAgentTool(request.agent, request.params.connectionId ?? '', request.params.toolName ?? '', params));
 	});
 }
 
@@ -87,7 +62,7 @@ const OPERATIONS = ['list', 'view', 'create', 'update', 'delete'];
  */
 function authorize(request: AgentRequest, action: string, query: string | null = null): Promise<Result<AgentTarget, ApiError>> {
 	return Do(async ($) => {
-		const agent = $(await requireSignedInAgent(request));
+		const agent = $(await requireAgent(request.agent));
 		const target = $(await loadRecordTarget(request.agent.orgId, request.params.connectionId ?? '', request.params.collectionId ?? ''));
 		const actions = actionsOf(agent, target.connection);
 		const needed = requiredAction(target.collection, action);

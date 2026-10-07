@@ -19,7 +19,7 @@ mock.module('@proxy/db/connection', () => ({listConnections}));
 
 const loadRecordTarget = mock();
 
-mock.module('../records/target', () => ({loadRecordTarget}));
+mock.module('../records/target', () => ({loadRecordTarget, loadConnection: mock()}));
 
 function collection(integrationId: string, collectionId: string): Collection {
 	const integration = findIntegration(integrationId);

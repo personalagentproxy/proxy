@@ -7,9 +7,11 @@ import {
 	handleAgentDeleteRecordRoute,
 	handleAgentGetRecordRoute,
 	handleAgentListRecordsRoute,
+	handleAgentListToolsRoute,
 	handleAgentMeRoute,
 	handleAgentRunCommandRoute,
 	handleAgentRunNewCommandRoute,
+	handleAgentRunToolRoute,
 	handleAgentUpdateRecordRoute,
 } from '../agent-side/route';
 import {
@@ -88,6 +90,8 @@ export function createApiRouter(): express.Router {
 	router.post('/agent-auth/logout', requireBrowserOrigin, wrapAsyncRoute('Agent logout route', handleAgentLogoutRoute));
 	router.use('/api/agent', requireBrowserOrigin);
 	router.get('/api/agent/me', withAgentAuthResult('Agent me route', handleAgentMeRoute));
+	router.get('/api/agent/connections/:connectionId/tools', withAgentAuthResult('Agent list tools route', handleAgentListToolsRoute));
+	router.post('/api/agent/connections/:connectionId/tools/:toolName', withAgentAuthResult('Agent run tool route', handleAgentRunToolRoute));
 	const agentRecords = '/api/agent/connections/:connectionId/collections/:collectionId/records';
 	router.get(agentRecords, withAgentAuthResult('Agent list records route', handleAgentListRecordsRoute));
 	router.post(agentRecords, withAgentAuthResult('Agent create record route', handleAgentCreateRecordRoute));
