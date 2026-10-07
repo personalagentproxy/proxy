@@ -371,7 +371,13 @@ function AccessGrid({agent, connections, onChange}: GridProps) {
 									</span>
 								)}
 								{!open && (
-									<span className="ml-auto min-w-0 truncate pl-3 text-muted-foreground">
+									// Muted while it follows the default, so the connections that differ stand out.
+									<span
+										className={cn(
+											'ml-auto min-w-0 truncate pl-3',
+											Object.keys(own).length === 0 && 'text-muted-foreground',
+										)}
+									>
 										{can.length > 0 ? describeActions(integration, can) : 'No access'}
 									</span>
 								)}

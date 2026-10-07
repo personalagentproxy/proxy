@@ -1,7 +1,8 @@
 import type {Action, OwnSettings} from '@proxy/integrations';
+import {RotateCcwIcon} from 'lucide-react';
 import {useId} from 'react';
 import {RowList} from '@/components/row-list';
-import {Button} from '@/components/ui/button';
+import {IconButton} from '@/components/icon-button';
 import {Checkbox} from '@/components/ui/checkbox';
 import {cn} from '@/lib/utils';
 
@@ -19,7 +20,7 @@ type Props = {
 
 // A connection's access, the way an editor shows its settings: one checkbox per action, the only
 // control for it. On an agent's page every action starts on the connection's default; one the
-// agent has its own setting for is marked with a bar and a Reset.
+// agent has its own setting for is marked with a bar and a reset icon.
 export function ConnectionAccess({actions, defaults, own, differing, onChange}: Props) {
 	// A connection's actions show on more than one page section, so the ids need their own prefix.
 	const idPrefix = useId();
@@ -72,9 +73,9 @@ export function ConnectionAccess({actions, defaults, own, differing, onChange}: 
 							{own && `Default: ${isDefault(action.id) ? 'on' : 'off'}`}
 							{others > 0 && `Changed for ${others} ${others === 1 ? 'agent' : 'agents'}`}
 							{isOwn(action.id) && (
-								<Button size="xs" variant="ghost" onClick={() => onChange({[action.id]: null})}>
-									Reset
-								</Button>
+								<IconButton label="Reset to default" onClick={() => onChange({[action.id]: null})}>
+									<RotateCcwIcon />
+								</IconButton>
 							)}
 						</span>
 					</li>
