@@ -59,6 +59,15 @@ describe('presets', () => {
 		]);
 	});
 
+	test("a collection's own presets sit between Read and Full access", () => {
+		expect(presetsOf(collection('email', 'emails')).map((preset) => preset.label)).toEqual([
+			'No access',
+			'Read',
+			'Read & triage',
+			'Full access',
+		]);
+	});
+
 	test('actions that match no preset are Custom', () => {
 		expect(matchingPreset(drafts, ['read', 'write'])?.label).toBe('Read & write');
 		expect(matchingPreset(drafts, ['write'])).toBeNull();
@@ -69,6 +78,13 @@ describe('requiredAction', () => {
 	test("reading needs read, writing the collection's own action", () => {
 		expect(requiredAction(drafts, 'list')).toBe('read');
 		expect(requiredAction(drafts, 'update')).toBe('write');
+	});
+
+	test('a command needs its action, several commands sharing one', () => {
+		const emails = collection('email', 'emails');
+		expect(requiredAction(emails, 'markRead')).toBe('mark');
+		expect(requiredAction(emails, 'markUnread')).toBe('mark');
+		expect(requiredAction(drafts, 'send')).toBe('send');
 	});
 
 	test('what a collection does not offer needs an action nobody has', () => {

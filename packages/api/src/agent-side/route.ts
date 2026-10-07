@@ -5,7 +5,7 @@ import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/uti
 import {getAgent, type AgentRow} from '@proxy/db/agent';
 import {logAgentRequest} from '@proxy/db/audit';
 import {listConnections, type ConnectionRow} from '@proxy/db/connection';
-import {effectiveActions, findIntegration, requiredAction, type Collection, type Operation, type OwnSettings} from '@proxy/integrations';
+import {effectiveActions, findIntegration, requiredAction, type Collection, type OwnSettings} from '@proxy/integrations';
 
 import type {Connector, DataRecord, RecordTarget} from '../records/connector';
 import {parseRecordValues} from '../records/record-values';
@@ -59,7 +59,8 @@ function recordTitle(collection: Collection, record: DataRecord): string | null 
 	return record.values[collection.titleField]?.trim() || null;
 }
 
-function log(request: AgentRequest, target: RecordTarget, action: Operation, outcome: 'allowed' | 'denied', recordTitle: string | null): Promise<Result<void, ApiError>> {
+// `action` is list, view, create, update or delete, or a command of the collection.
+function log(request: AgentRequest, target: RecordTarget, action: string, outcome: 'allowed' | 'denied', recordTitle: string | null): Promise<Result<void, ApiError>> {
 	return logAgentRequest({
 		orgId: request.agent.orgId,
 		agentId: request.agent.agentId,
@@ -71,17 +72,22 @@ function log(request: AgentRequest, target: RecordTarget, action: Operation, out
 	});
 }
 
+const OPERATIONS = ['list', 'view', 'create', 'update', 'delete'];
+
 /**
  * The collection the URL names, if the agent may do `action` in it. A collection outside the
- * organization is not found and not logged; an action the agent doesn't have, or the collection
- * doesn't offer, is refused and logged as denied.
+ * organization, or a command it doesn't have, is not found and not logged; an action the agent
+ * doesn't have, or a write the collection doesn't offer, is refused and logged as denied.
  */
-function authorize(request: AgentRequest, action: Operation): Promise<Result<AgentTarget, ApiError>> {
+function authorize(request: AgentRequest, action: string): Promise<Result<AgentTarget, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireSignedInAgent(request));
 		const target = $(await loadRecordTarget(request.agent.orgId, request.params.connectionId ?? '', request.params.collectionId ?? ''));
 		const actions = actionsOf(agent, target.connection, target.collection);
 		const needed = requiredAction(target.collection, action);
+		if (needed === null && !OPERATIONS.includes(action)) {
+			return $(Err(ApiErr.notFound('command', action)));
+		}
 		if (needed === null || !actions.includes(needed)) {
 			$(await log(request, target, action, 'denied', null));
 			return $(Err(ApiErr.forbidden()));
@@ -140,5 +146,24 @@ export function handleAgentDeleteRecordRoute(request: AgentRequest): Promise<Res
 		const record = $(await target.connector.get(target, recordId));
 		$(await target.connector.remove(target, recordId));
 		$(await log(request, target, 'delete', 'allowed', recordTitle(target.collection, record)));
+	});
+}
+
+/**
+ * Runs one of the collection's commands on a record, such as archiving an email or sending a
+ * draft: the record as it is after, or null once it has left the collection. A command the
+ * collection doesn't have is not found and not logged.
+ */
+export function handleAgentRunCommandRoute(request: AgentRequest): Promise<Result<{record: DataRecord | null}, ApiError>> {
+	return Do(async ($) => {
+		const commandId = request.params.commandId ?? '';
+		const target = $(await authorize(request, commandId));
+		const run = $(requirePresent(target.connector.commands?.[commandId], ApiErr.notFound('command', commandId)));
+
+		const recordId = request.params.recordId ?? '';
+		const before = $(await target.connector.get(target, recordId));
+		const record = $(await run(target, recordId));
+		$(await log(request, target, commandId, 'allowed', recordTitle(target.collection, before)));
+		return {record};
 	});
 }

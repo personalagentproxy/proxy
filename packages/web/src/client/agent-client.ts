@@ -82,3 +82,17 @@ export function updateAgentRecord(
 export function deleteAgentRecord(connectionId: string, collectionId: string, recordId: string) {
 	return apiSend('DELETE', `${recordsPath(connectionId, collectionId)}/${recordId}`);
 }
+
+/** Runs a command such as Archive or Send: the record after, or null once it left the collection. */
+export function runAgentCommand(
+	connectionId: string,
+	collectionId: string,
+	recordId: string,
+	commandId: string,
+) {
+	return apiRequest(
+		'POST',
+		`${recordsPath(connectionId, collectionId)}/${recordId}/commands/${commandId}`,
+		z.object({record: dataRecordSchema.nullable()}),
+	);
+}

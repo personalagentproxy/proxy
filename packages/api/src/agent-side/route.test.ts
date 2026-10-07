@@ -42,7 +42,19 @@ const agent = {
 	],
 };
 
-const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock()};
+const triage = {
+	...agent,
+	grants: [
+		{connectionId: 'mail-1', collectionId: 'emails', actionId: 'read', allowed: true},
+		{connectionId: 'mail-1', collectionId: 'emails', actionId: 'archive', allowed: true},
+	],
+};
+
+const email = {id: 'mail-rec-1', values: {subject: 'Invoice #20931'}, updatedAt: '2026-10-01T00:00:00.000Z'};
+
+const archive = mock();
+
+const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive}};
 
 const card = {id: 'rec-1', values: {label: 'Personal Visa', number: '4242'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 
@@ -145,5 +157,56 @@ describe('agent record routes', () => {
 		const result = await handleAgentListRecordsRoute(makeRequest({connectionId: 'info-1', collectionId: 'cards'}));
 
 		expect(result.unwrapErr().kind).toBe('db_error');
+	});
+});
+
+describe('handleAgentRunCommandRoute', () => {
+	const params = {connectionId: 'mail-1', collectionId: 'emails', recordId: 'mail-rec-1'};
+
+	beforeEach(() => {
+		useTarget(emailConnection, 'emails');
+		getAgent.mockResolvedValue(Ok(triage));
+		connector.get.mockResolvedValue(Ok(email));
+		archive.mockResolvedValue(Ok(null));
+	});
+
+	test('runs a command the agent has the action for, and logs it with the record title', async () => {
+		const {handleAgentRunCommandRoute} = await import('./route');
+		const result = await handleAgentRunCommandRoute(makeRequest({...params, commandId: 'archive'}));
+
+		expect(result.unwrap()).toEqual({record: null});
+		expect(archive).toHaveBeenCalledTimes(1);
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'archive', recordTitle: 'Invoice #20931', outcome: 'allowed'});
+	});
+
+	test('a command without its action is refused and logged as denied', async () => {
+		getAgent.mockResolvedValue(Ok({...triage, grants: triage.grants.slice(0, 1)}));
+
+		const {handleAgentRunCommandRoute} = await import('./route');
+		const result = await handleAgentRunCommandRoute(makeRequest({...params, commandId: 'archive'}));
+
+		expect(result.unwrapErr().kind).toBe('forbidden');
+		expect(archive).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'archive', outcome: 'denied'});
+	});
+
+	test('a command the collection does not have is not found and not logged', async () => {
+		const {handleAgentRunCommandRoute} = await import('./route');
+		const sendEmail = await handleAgentRunCommandRoute(makeRequest({...params, commandId: 'send'}));
+		const nonsense = await handleAgentRunCommandRoute(makeRequest({...params, commandId: 'nonsense'}));
+
+		expect(sendEmail.unwrapErr().kind).toBe('not_found');
+		expect(nonsense.unwrapErr().kind).toBe('not_found');
+		expect(logAgentRequest).not.toHaveBeenCalled();
+	});
+
+	test('a failed command is not logged as allowed', async () => {
+		archive.mockResolvedValue(Err(ApiErr.notFound('folder', 'Archive')));
+
+		const {handleAgentRunCommandRoute} = await import('./route');
+		const result = await handleAgentRunCommandRoute(makeRequest({...params, commandId: 'archive'}));
+
+		expect(result.unwrapErr().kind).toBe('not_found');
+		expect(logAgentRequest).not.toHaveBeenCalled();
 	});
 });

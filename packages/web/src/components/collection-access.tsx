@@ -7,6 +7,7 @@ import {
 	type Preset,
 } from '@proxy/integrations';
 import {ChevronRightIcon} from 'lucide-react';
+import {useId} from 'react';
 import {Button} from '@/components/ui/button';
 import {Checkbox} from '@/components/ui/checkbox';
 import {
@@ -52,6 +53,8 @@ export function CollectionAccess({
 	onOpenChange,
 	onChange,
 }: Props) {
+	// The same collection shows once per connection, so its checkboxes need ids of their own.
+	const idPrefix = useId();
 	const ids = collection.actions.map((action) => action.id);
 	const isDefault = (id: string) => defaults.includes(id);
 	const isOn = (id: string) => (own ? (own[id] ?? isDefault(id)) : isDefault(id));
@@ -145,7 +148,7 @@ export function CollectionAccess({
 							const checked = isOn(action.id);
 							const blocked = checked && action.id !== 'read' && !on.includes('read');
 							const others = differing?.[action.id] ?? 0;
-							const inputId = `${collection.id}-${action.id}`;
+							const inputId = `${idPrefix}-${action.id}`;
 							return (
 								<li
 									key={action.id}

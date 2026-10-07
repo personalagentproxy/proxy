@@ -142,7 +142,12 @@ const info = await connect({
 });
 const personal = await connectMailbox('gmail', 'demo.user@gmail.com', {
 	daysAgo: 38,
-	defaults: {emails: ['read'], drafts: ['read', 'write']},
+	// Read & triage on the inbox, drafts written but never sent, Sent readable.
+	defaults: {
+		emails: ['read', 'mark', 'flag', 'archive'],
+		drafts: ['read', 'write'],
+		sent: ['read'],
+	},
 });
 const work = await connectMailbox('fastmail', 'demo@acme-corp.com', {
 	daysAgo: 30,
@@ -155,7 +160,8 @@ const receipts = await connectMailbox('icloud', 'demo.receipts@icloud.com', {
 });
 const newsletters = await connectMailbox('yahoo', 'demo.news@yahoo.com', {
 	daysAgo: 3,
-	defaults: {emails: ['read']},
+	// Custom: read and mark, nothing else.
+	defaults: {emails: ['read', 'mark']},
 });
 
 const connections: [Connection, ...Connection[]] = [info, personal, work, receipts, newsletters];
@@ -262,7 +268,7 @@ async function makeAgent(data: {
 }
 
 const agents = [
-	// A setting of its own on every connection.
+	// A setting of its own on every connection, sending included.
 	await makeAgent({
 		name: 'Personal assistant',
 		username: 'personal-assistant-k7q2',
@@ -271,12 +277,13 @@ const agents = [
 			grant(info, 'addresses', {write: true}),
 			grant(info, 'cards', {read: true}),
 			grant(info, 'notes', {write: true}),
-			grant(work, 'drafts', {write: true}),
+			grant(personal, 'drafts', {send: true}),
+			grant(work, 'drafts', {write: true, send: true}),
 			grant(receipts, 'emails', {read: true}),
 			grant(newsletters, 'emails', {read: false}),
 		],
 	}),
-	// Reads the cards no agent gets by default; kept out of the work mailbox.
+	// Reads the cards no agent gets by default and files receipts; kept out of the work mailbox.
 	await makeAgent({
 		name: 'Shopping agent',
 		username: 'shopping-agent-m3x9',
@@ -285,18 +292,20 @@ const agents = [
 			grant(info, 'cards', {read: true}),
 			grant(personal, 'drafts', {write: false}),
 			grant(work, 'emails', {read: false}),
-			grant(receipts, 'emails', {read: true}),
+			grant(receipts, 'emails', {read: true, archive: true}),
 		],
 	}),
 	// Nothing of its own: follows every default.
 	await makeAgent({name: 'Research bot', username: 'research-bot-p4tn', daysAgo: 20, grants: []}),
+	// Cleans up inboxes, Trash included, but writes nothing.
 	await makeAgent({
 		name: 'Inbox triage',
 		username: 'inbox-triage-w8hd',
 		daysAgo: 14,
 		grants: [
+			grant(personal, 'emails', {trash: true}),
 			grant(personal, 'drafts', {read: false}),
-			grant(work, 'drafts', {write: true}),
+			grant(work, 'emails', {mark: true, flag: true, archive: true}),
 			grant(info, 'addresses', {read: false}),
 			grant(info, 'notes', {read: false}),
 		],
@@ -308,6 +317,7 @@ const agents = [
 		grants: [
 			grant(info, 'notes', {write: true}),
 			grant(info, 'cards', {read: true}),
+			grant(personal, 'emails', {archive: false}),
 			grant(work, 'emails', {read: false}),
 			grant(work, 'drafts', {read: false}),
 		],
@@ -351,6 +361,7 @@ const EMAIL_TITLES: Record<string, [string, ...string[]]> = {
 		'Re: dinner on Friday?',
 		'Weekly digest',
 	],
+	sent: ['Re: dinner on Friday?', 'Booking request for 12 Oct', 'Re: Q3 planning — agenda'],
 	drafts: [
 		'Re: Q3 planning — agenda',
 		'Return request for order 112-883',

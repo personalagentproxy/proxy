@@ -20,9 +20,7 @@ export function toConnectionResponse(row: ConnectionRow): ConnectionResponse {
 		connectedAt: row.createdAt.toISOString(),
 		collections: collections.map((collection) => ({
 			id: collection.id,
-			defaults: collection.actions
-				.map((action) => action.id)
-				.filter((actionId) => row.defaults.some((stored) => stored.collectionId === collection.id && stored.actionId === actionId)),
+			defaults: collection.actions.map((action) => action.id).filter((actionId) => row.defaults.some((stored) => stored.collectionId === collection.id && stored.actionId === actionId)),
 		})),
 	};
 }

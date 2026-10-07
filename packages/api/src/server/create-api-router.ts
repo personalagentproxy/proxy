@@ -8,6 +8,7 @@ import {
 	handleAgentGetRecordRoute,
 	handleAgentListRecordsRoute,
 	handleAgentMeRoute,
+	handleAgentRunCommandRoute,
 	handleAgentUpdateRecordRoute,
 } from '../agent-side/route';
 import {
@@ -104,6 +105,7 @@ export function createApiRouter(): express.Router {
 	router.get(`${agentRecords}/:recordId`, withAgentAuthResult('Agent get record route', handleAgentGetRecordRoute));
 	router.put(`${agentRecords}/:recordId`, withAgentAuthResult('Agent update record route', handleAgentUpdateRecordRoute));
 	router.delete(`${agentRecords}/:recordId`, withAgentAuthResult('Agent delete record route', handleAgentDeleteRecordRoute));
+	router.post(`${agentRecords}/:recordId/commands/:commandId`, withAgentAuthResult('Agent run command route', handleAgentRunCommandRoute));
 
 	router.use((_req, res) => {
 		res.status(404).json({error: 'not_found'});

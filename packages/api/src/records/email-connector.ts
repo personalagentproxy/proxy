@@ -3,24 +3,27 @@ import {randomUUID} from 'node:crypto';
 import {ImapFlow, type FetchMessageObject, type MailboxObject, type MessageAddressObject} from 'imapflow';
 import {simpleParser} from 'mailparser';
 import MailComposer from 'nodemailer/lib/mail-composer';
+import type Mail from 'nodemailer/lib/mailer';
 import {Err, Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 
 import type {EmailCredential} from '../connections/email/credential';
-import {imapClientOptions, imapError} from '../connections/email/mail-check';
+import {imapClientOptions, imapError, smtpError, smtpTransport} from '../connections/email/mail-check';
 import {log, serializeError} from '../observability/log';
 import {decryptSecret} from '../utils/secret-crypto';
-import type {Connector, DataRecord, RecordTarget, RecordValues} from './connector';
+import type {CommandRunner, Connector, DataRecord, RecordTarget, RecordValues} from './connector';
 
 /**
  * A mailbox over IMAP, signed in fresh for every request. Emails are the inbox's latest messages,
- * drafts the messages in the mailbox's Drafts folder. A record's id is the folder's UIDVALIDITY and
- * the message's UID, so an id from before the server renumbered the folder finds nothing.
+ * drafts and sent the messages in the folders the server marks as Drafts and Sent. A record's id is
+ * the folder's UIDVALIDITY and the message's UID, so an id from before the server renumbered the
+ * folder finds nothing.
  *
  * IMAP messages can't be changed, so updating a draft saves a new one and deletes the old: the
- * draft gets a new id.
+ * draft gets a new id. Received emails are only flagged or moved: archived, or moved to Trash. A
+ * draft is sent over SMTP.
  */
 
 const LATEST = 50;
@@ -44,18 +47,36 @@ function readCredential(target: RecordTarget): Result<EmailCredential, ApiError>
 
 type Session = {client: ImapFlow; mailbox: MailboxObject; credential: EmailCredential};
 
-// The folder a collection reads: the inbox, or whichever folder the server marks as Drafts.
-async function folderOf(client: ImapFlow, collectionId: string): Promise<Result<string, ApiError>> {
-	if (collectionId === 'emails') {
-		return Ok('INBOX');
-	}
+type SpecialUse = '\\Drafts' | '\\Sent' | '\\Trash' | '\\Archive' | '\\All';
 
+// The folder the server marks for the first of `uses` it has, such as Trash. Gmail has no Archive
+// but All Mail, where an email moved out of the inbox goes.
+async function specialFolder(client: ImapFlow, uses: SpecialUse[], name: string): Promise<Result<string, ApiError>> {
 	const folders = await Result.wrapAsync(() => client.list());
 	if (folders.isErr()) {
 		return Err(ApiErr.providerUnreachable(folders.error));
 	}
-	const drafts = folders.value.find((folder) => folder.specialUse === '\\Drafts');
-	return requirePresent(drafts?.path, ApiErr.notFound('folder', 'Drafts'));
+	for (const use of uses) {
+		const folder = folders.value.find((candidate) => candidate.specialUse === use);
+		if (folder) {
+			return Ok(folder.path);
+		}
+	}
+	return Err(ApiErr.notFound('folder', name));
+}
+
+// The folder a collection reads: the inbox, or the one the server marks as Drafts or Sent.
+async function folderOf(client: ImapFlow, collectionId: string): Promise<Result<string, ApiError>> {
+	if (collectionId === 'emails') {
+		return Ok('INBOX');
+	}
+	if (collectionId === 'drafts') {
+		return specialFolder(client, ['\\Drafts'], 'Drafts');
+	}
+	if (collectionId === 'sent') {
+		return specialFolder(client, ['\\Sent'], 'Sent');
+	}
+	return Err(ApiErr.notFound('collection', collectionId));
 }
 
 /** Signs in, opens the collection's folder, runs `work`, and always signs out again. */
@@ -111,14 +132,27 @@ function formatAddresses(addresses: MessageAddressObject[] | undefined, withName
 		.join(', ');
 }
 
+// "Unread, Flagged".
+function status(flags: Set<string> | undefined): string {
+	const seen = flags?.has('\\Seen') ? 'Read' : 'Unread';
+	if (flags?.has('\\Flagged')) {
+		return `${seen}, Flagged`;
+	}
+	return seen;
+}
+
 function summaryValues(collectionId: string, message: FetchMessageObject): RecordValues {
 	const envelope = message.envelope;
 	if (collectionId === 'drafts') {
 		return {to: formatAddresses(envelope?.to, false), subject: envelope?.subject ?? ''};
 	}
 
-	const receivedAt = message.internalDate ? new Date(message.internalDate).toISOString() : '';
-	return {from: formatAddresses(envelope?.from, true), to: formatAddresses(envelope?.to, true), subject: envelope?.subject ?? '', receivedAt};
+	const at = message.internalDate ? new Date(message.internalDate).toISOString() : '';
+	if (collectionId === 'sent') {
+		return {to: formatAddresses(envelope?.to, true), subject: envelope?.subject ?? '', sentAt: at};
+	}
+
+	return {from: formatAddresses(envelope?.from, true), to: formatAddresses(envelope?.to, true), subject: envelope?.subject ?? '', receivedAt: at, status: status(message.flags)};
 }
 
 function updatedAt(message: FetchMessageObject): string {
@@ -131,14 +165,14 @@ async function listMessages(target: RecordTarget, {client, mailbox}: Session): P
 	}
 
 	const range = `${Math.max(1, mailbox.exists - LATEST + 1)}:*`;
-	const messages = await client.fetchAll(range, {uid: true, envelope: true, internalDate: true});
+	const messages = await client.fetchAll(range, {uid: true, envelope: true, internalDate: true, flags: true});
 	return Ok(messages.sort((a, b) => b.uid - a.uid).map((message) => ({id: recordId(mailbox, message.uid), values: summaryValues(target.collection.id, message), updatedAt: updatedAt(message)})));
 }
 
 async function getMessage(target: RecordTarget, {client, mailbox}: Session, id: string): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
 		const uid = $(uidOf(mailbox, id));
-		const message = await client.fetchOne(String(uid), {uid: true, envelope: true, internalDate: true, source: true}, {uid: true});
+		const message = await client.fetchOne(String(uid), {uid: true, envelope: true, internalDate: true, flags: true, source: true}, {uid: true});
 		if (!message || !message.source) {
 			return $(Err(ApiErr.notFound('record', id)));
 		}
@@ -167,14 +201,96 @@ async function appendDraft(target: RecordTarget, session: Session, values: Recor
 	});
 }
 
-async function deleteMessage({client, mailbox}: Session, id: string): Promise<Result<void, ApiError>> {
+/** The UID of the message the id names in the open folder, once the server confirms it is there. */
+async function requireMessage({client, mailbox}: Session, id: string): Promise<Result<number, ApiError>> {
 	return Do(async ($) => {
 		const uid = $(uidOf(mailbox, id));
-		const found = await client.fetchOne(String(uid), {uid: true}, {uid: true});
-		if (!found) {
+		if (!(await client.fetchOne(String(uid), {uid: true}, {uid: true}))) {
 			return $(Err(ApiErr.notFound('record', id)));
 		}
-		await client.messageDelete(String(uid), {uid: true});
+		return uid;
+	});
+}
+
+async function deleteMessage(session: Session, id: string): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const uid = $(await requireMessage(session, id));
+		await session.client.messageDelete(String(uid), {uid: true});
+	});
+}
+
+// Marks or unmarks an email, such as read or flagged, and reads it back.
+function setFlag(flag: '\\Seen' | '\\Flagged', on: boolean): CommandRunner {
+	return (target, recordId) =>
+		withFolder(target, (session) =>
+			Do(async ($) => {
+				const uid = String($(await requireMessage(session, recordId)));
+				if (on) {
+					await session.client.messageFlagsAdd(uid, [flag], {uid: true});
+				}
+				if (!on) {
+					await session.client.messageFlagsRemove(uid, [flag], {uid: true});
+				}
+				return $(await getMessage(target, session, recordId));
+			}),
+		);
+}
+
+// Moves an email to the folder the server marks for one of `uses`; it leaves the collection.
+function moveTo(uses: SpecialUse[], name: string): CommandRunner {
+	return (target, recordId) =>
+		withFolder(target, (session) =>
+			Do(async ($) => {
+				const uid = $(await requireMessage(session, recordId));
+				const path = $(await specialFolder(session.client, uses, name));
+				await session.client.messageMove(String(uid), path, {uid: true});
+				return null;
+			}),
+		);
+}
+
+// Files a copy of an email Proxy sent in the Sent folder.
+async function fileInSent(client: ImapFlow, message: Mail.Options): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const path = $(await specialFolder(client, ['\\Sent'], 'Sent'));
+		const raw = await new MailComposer(message).compile().build();
+		$((await Result.wrapAsync(() => client.append(path, raw, ['\\Seen']))).mapErr((cause) => ApiErr.providerUnreachable(cause)));
+	});
+}
+
+/**
+ * Sends the draft from the connected address, then files a copy in Sent (Gmail does that itself)
+ * and deletes the draft. Once the email is out, a copy or a draft left behind is only logged: a
+ * failure then would invite the agent to send it twice.
+ */
+async function sendDraft(target: RecordTarget, session: Session, recordId: string): Promise<Result<null, ApiError>> {
+	return Do(async ($) => {
+		const {client, credential} = session;
+		const uid = $(uidOf(session.mailbox, recordId));
+		const draft = $(await getMessage(target, session, recordId));
+		const to = draft.values.to?.trim() ?? '';
+		if (to === '') {
+			return $(Err(ApiErr.validationError('The draft has no recipient')));
+		}
+
+		const message: Mail.Options = {from: credential.username, to, subject: draft.values.subject ?? '', text: draft.values.body ?? '', messageId: `<${randomUUID()}@proxy>`};
+		const transport = smtpTransport(credential);
+		const sent = await Result.wrapAsync(() => transport.sendMail(message));
+		transport.close();
+		$(sent.mapErr(smtpError));
+
+		if (credential.smtpHost !== 'smtp.gmail.com') {
+			const filed = await fileInSent(client, message);
+			if (filed.isErr()) {
+				log.warn('sent email not filed in Sent', serializeError(filed.error));
+			}
+		}
+
+		const removed = await Result.wrapAsync(() => client.messageDelete(String(uid), {uid: true}));
+		if (removed.isErr()) {
+			log.warn('sent draft not deleted', serializeError(removed.error));
+		}
+		return null;
 	});
 }
 
@@ -185,14 +301,20 @@ export const emailConnector: Connector = {
 	update: (target, recordId, values) =>
 		withFolder(target, (session) =>
 			Do(async ($) => {
-				const uid = $(uidOf(session.mailbox, recordId));
-				if (!(await session.client.fetchOne(String(uid), {uid: true}, {uid: true}))) {
-					return $(Err(ApiErr.notFound('record', recordId)));
-				}
+				$(await requireMessage(session, recordId));
 				const draft = $(await appendDraft(target, session, values));
 				$(await deleteMessage(session, recordId));
 				return draft;
 			}),
 		),
 	remove: (target, recordId) => withFolder(target, (session) => deleteMessage(session, recordId)),
+	commands: {
+		markRead: setFlag('\\Seen', true),
+		markUnread: setFlag('\\Seen', false),
+		flag: setFlag('\\Flagged', true),
+		unflag: setFlag('\\Flagged', false),
+		archive: moveTo(['\\Archive', '\\All'], 'Archive'),
+		trash: moveTo(['\\Trash'], 'Trash'),
+		send: (target, recordId) => withFolder(target, (session) => sendDraft(target, session, recordId)),
+	},
 };

@@ -6,7 +6,13 @@ export function agentErrorMessage(error: FetchError): string {
 		return 'This login is not allowed to do that.';
 	}
 	if (error.kind === 'http' && error.status === 400) {
-		return 'Some of the values are not accepted. Check the fields and try again.';
+		return 'Some of the values are not accepted, or one is missing, such as a draft’s recipient. Check the fields and try again.';
+	}
+	if (error.kind === 'http' && error.status === 404) {
+		return 'It is not there anymore, or the mailbox has no folder for it.';
+	}
+	if (error.kind === 'http' && error.status === 422) {
+		return 'The provider turned the sign-in down. Ask the person who made this login to reconnect it.';
 	}
 	if (error.kind === 'http' && error.status === 502) {
 		return 'The provider could not be reached. Try again in a moment.';

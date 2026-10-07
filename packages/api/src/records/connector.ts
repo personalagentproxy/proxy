@@ -15,8 +15,14 @@ export type RecordTarget = {
 };
 
 /**
+ * A command run on one record, such as archiving an email: the record as it is now, or null once it
+ * has left the collection, as an archived email leaves the inbox.
+ */
+export type CommandRunner = (target: RecordTarget, recordId: string) => Promise<Result<DataRecord | null, ApiError>>;
+
+/**
  * How records of an integration are read and written. Callers have checked access and that the
- * collection can be written; a connector reports a missing record as not_found.
+ * collection offers the write or command; a connector reports a missing record as not_found.
  */
 export type Connector = {
 	list: (target: RecordTarget) => Promise<Result<DataRecord[], ApiError>>;
@@ -24,4 +30,6 @@ export type Connector = {
 	create: (target: RecordTarget, values: RecordValues) => Promise<Result<DataRecord, ApiError>>;
 	update: (target: RecordTarget, recordId: string, values: RecordValues) => Promise<Result<DataRecord, ApiError>>;
 	remove: (target: RecordTarget, recordId: string) => Promise<Result<void, ApiError>>;
+	// By the catalog's command id.
+	commands?: Partial<Record<string, CommandRunner>>;
 };

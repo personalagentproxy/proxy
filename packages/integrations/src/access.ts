@@ -48,8 +48,6 @@ export function matchingPreset(collection: Collection, actions: string[]): Prese
 	return presetsOf(collection).find((preset) => sameActions(preset.actions, actions)) ?? null;
 }
 
-export type Operation = 'list' | 'view' | 'create' | 'update' | 'delete';
-
 /**
  * The action a request needs: `read` to list or view, the collection's own for a write or a
  * command. Null when the collection doesn't offer it at all.

@@ -1,5 +1,5 @@
 import type {ReactNode} from 'react';
-import {Link, useLoaderData} from 'react-router';
+import {Link, useLoaderData, useLocation} from 'react-router';
 import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {Button} from '@/components/ui/button';
@@ -7,9 +7,18 @@ import {useAgentTarget} from '@/hooks/use-agent-target';
 import {allows, describeActions, displayValue, recordTitle} from '@/lib/access';
 import type {agentCollectionLoader} from '@/agent-loaders';
 
+// What a record page hands over when its record left the collection: "Sent draft “Re: Q3”".
+function noticeFromState(state: unknown): string | null {
+	if (typeof state !== 'object' || state === null || !('notice' in state)) {
+		return null;
+	}
+	return typeof state.notice === 'string' ? state.notice : null;
+}
+
 // A collection's records, with New when the agent may create one.
 export function AgentCollectionPage() {
 	const outcome = useLoaderData<typeof agentCollectionLoader>();
+	const notice = noticeFromState(useLocation().state);
 	const target = useAgentTarget();
 	if (outcome.kind === 'denied') {
 		return <AgentDenied>This login has no access to this collection.</AgentDenied>;
@@ -37,6 +46,7 @@ export function AgentCollectionPage() {
 					</Button>
 				)}
 			</div>
+			{notice && <p className="mb-4 text-sm md:px-3">{notice}.</p>}
 			<RowList>
 				{records.length === 0 && <EmptyRows>No {collection.name.toLowerCase()}.</EmptyRows>}
 				{records.map((record) => (
