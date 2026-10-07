@@ -54,7 +54,7 @@ export function Row({to, onClick, icon, title, cells}: RowProps) {
 // The column labels above the rows, laid out by the caller with the rows' own cell classes.
 export function RowHeader({children}: {children: ReactNode}) {
 	return (
-		<div className="flex h-8 items-center gap-3 px-4 text-xs text-muted-foreground md:px-3">
+		<div className="flex h-8 items-center gap-3 px-4 text-sm text-muted-foreground md:px-3">
 			{children}
 		</div>
 	);

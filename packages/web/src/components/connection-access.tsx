@@ -60,16 +60,14 @@ export function ConnectionAccess({actions, defaults, own, differing, onChange}: 
 						<label htmlFor={inputId} className="flex min-w-0 flex-1 flex-col gap-0.5">
 							<span className="flex items-center gap-2">
 								{action.label}
-								{action.risk === 'high' && (
-									<span className="text-xs text-destructive">High risk</span>
-								)}
+								{action.risk === 'high' && <span className="text-destructive">High risk</span>}
 							</span>
-							<span className="text-xs text-muted-foreground">
+							<span className="text-muted-foreground">
 								{action.description}
 								{blocked && required && ` · Off while ${required.label} is off`}
 							</span>
 						</label>
-						<span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+						<span className="flex shrink-0 items-center gap-2 text-muted-foreground">
 							{isOwn(action.id) && `Default: ${isDefault(action.id) ? 'on' : 'off'}`}
 							{others > 0 && `Changed for ${others} ${others === 1 ? 'agent' : 'agents'}`}
 							{isOwn(action.id) && (

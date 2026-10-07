@@ -50,7 +50,7 @@ export function AddConnectionPage() {
 						<integration.icon className="size-4 shrink-0 text-muted-foreground" />
 						<div className="grid min-w-0 flex-1">
 							<span className="truncate">{integration.name}</span>
-							<span className="truncate text-xs text-muted-foreground">
+							<span className="truncate text-sm text-muted-foreground">
 								{integration.description}
 							</span>
 						</div>
@@ -204,7 +204,7 @@ function ConnectEmailDialog({open, onClose}: {open: boolean; onClose: () => void
 							onChange={(event) => setPassword(event.target.value)}
 						/>
 						{provider?.appPasswordUrl && (
-							<p className="text-xs text-muted-foreground">
+							<p className="text-sm text-muted-foreground">
 								<a
 									href={provider.appPasswordUrl}
 									target="_blank"

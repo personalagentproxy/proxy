@@ -255,7 +255,7 @@ function CredentialLine({label, value, mono = false, muted = false, children}: L
 		<div className="flex min-h-8 items-center gap-3 text-sm">
 			<span className="w-24 shrink-0 text-muted-foreground">{label}</span>
 			<span
-				className={`min-w-0 flex-1 truncate ${mono ? 'font-mono text-xs' : ''} ${muted ? 'text-muted-foreground' : ''}`}
+				className={`min-w-0 flex-1 truncate ${mono ? 'font-mono' : ''} ${muted ? 'text-muted-foreground' : ''}`}
 			>
 				{value}
 			</span>
@@ -364,9 +364,9 @@ function AccessGrid({agent, connections, onChange}: GridProps) {
 									)}
 								/>
 								<integration.icon className="size-4 shrink-0 text-muted-foreground" />
-								<span className="shrink-0 font-medium">{label}</span>
+								<span className="shrink-0">{label}</span>
 								{Object.keys(own).length > 0 && (
-									<span className="shrink-0 text-xs text-primary" title="Differs from the default">
+									<span className="shrink-0 text-primary" title="Differs from the default">
 										Changed
 									</span>
 								)}

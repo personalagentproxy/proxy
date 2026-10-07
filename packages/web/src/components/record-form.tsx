@@ -134,7 +134,7 @@ export function RecordFields({fields, values}: {fields: Field[]; values: Record<
 		<dl className="grid gap-4">
 			{filled.map((field) => (
 				<div key={field.key} className="grid gap-1">
-					<dt className="text-xs text-muted-foreground">{field.label}</dt>
+					<dt className="text-sm text-muted-foreground">{field.label}</dt>
 					<dd className="text-sm whitespace-pre-wrap">
 						{field.type === 'secret'
 							? values[field.key]

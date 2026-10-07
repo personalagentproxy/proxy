@@ -37,7 +37,7 @@ export function PageTitle({children, detail}: {children: ReactNode; detail?: Rea
 		<>
 			<span className="truncate text-sm font-medium">{children}</span>
 			{detail !== undefined && (
-				<span className="hidden truncate text-xs text-muted-foreground tabular-nums md:inline">
+				<span className="hidden truncate text-sm text-muted-foreground tabular-nums md:inline">
 					{detail}
 				</span>
 			)}
