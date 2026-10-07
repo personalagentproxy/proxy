@@ -151,15 +151,15 @@ function AgentDetail({id}: {id: string}) {
 				</Section>
 				<Section
 					title="Recent activity"
-					action={
-						entries.length > RECENT && (
+					detail={
+						entries.length > RECENT ? (
 							<Link
 								to={`/activity?agent=${agent.id}`}
-								className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+								className="underline-offset-4 hover:text-foreground hover:underline"
 							>
-								All activity
+								Go to all activity
 							</Link>
-						)
+						) : undefined
 					}
 				>
 					<AuditList
