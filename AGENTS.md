@@ -4,6 +4,7 @@
 
 - `bun run setup` - Link AI skills into `.claude/skills` and `.codex/skills`, and configure git hooks (`.githooks/pre-commit` formats staged files with prettier)
 - `bun run dev` - Start the local database, then the api (http://localhost:4000), the web app (http://localhost:5173, which proxies `/api/`, `/auth/` and `/agent-auth/` to the api, so the browser sees one origin as in production), the docs (http://localhost:5174) and the website (http://localhost:5175). Copy `.env.example` to `.env` first
+- `bun run website` - Start only the website (http://localhost:5175), without the database, the api or the other apps
 - `bun run seed` - With `bun run dev` up, fill the local database with a demo workspace (connections, agents with settings of their own, activity) and print a sign-in link for `demo@proxy.local`. Re-running replaces it
 - `bun run --cwd packages/db db:migrate:diff` - With the database running, print the SQL from the database to `schema.prisma`; save it as `packages/db/prisma/migrations/<name>/migration.sql`. `bun run dev` applies pending migrations on start
 - `bun run typecheck` - Typecheck all packages

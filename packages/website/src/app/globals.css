@@ -1,1 +1,23 @@
 @import '@proxy/ui/styles.css';
+
+/* Rises in from below, blurred: each element sets its own `animation-delay`, and `backwards` keeps
+   it hidden until then. Not `both`, which keeps every word on a layer of its own once it is in, so
+   each is rounded to a pixel by itself and the spaces between words come out uneven. Words are
+   inline-block so the transform applies. */
+@keyframes rise-in {
+	from {
+		opacity: 0;
+		transform: translateY(0.35em);
+		filter: blur(4px);
+	}
+}
+
+.rise-in {
+	animation: rise-in 350ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.rise-in {
+		animation: none;
+	}
+}
