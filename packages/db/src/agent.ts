@@ -1,4 +1,4 @@
-import {Prisma, type Access} from '@prisma/client';
+import {Prisma} from '@prisma/client';
 import type {Result} from 'ts-results-es';
 
 import {type ApiError, wrapDb} from '@proxy/utils';
@@ -7,23 +7,25 @@ import {db} from '.';
 
 export type AgentRow = {
 	id: string;
+	providerId: string;
 	name: string;
 	username: string;
 	createdAt: Date;
 	lastActiveAt: Date | null;
 	revokedAt: Date | null;
-	grants: Array<{connectionId: string; collectionId: string; access: Access}>;
+	grants: Array<{connectionId: string; actionId: string; allowed: boolean}>;
 };
 
 // Never the password hash: only signing in reads it.
 const agentSelect = {
 	id: true,
+	providerId: true,
 	name: true,
 	username: true,
 	createdAt: true,
 	lastActiveAt: true,
 	revokedAt: true,
-	grants: {select: {connectionId: true, collectionId: true, access: true}},
+	grants: {select: {connectionId: true, actionId: true, allowed: true}},
 } as const;
 
 export async function listAgents(orgId: string): Promise<Result<AgentRow[], ApiError>> {
@@ -43,6 +45,7 @@ export async function getAgent(
 /** Fails with a `db_error` that `isUsernameConflict` recognizes when the username is taken. */
 export async function createAgent(data: {
 	orgId: string;
+	providerId: string;
 	name: string;
 	username: string;
 	passwordHash: string;
@@ -51,6 +54,14 @@ export async function createAgent(data: {
 }
 
 export function isUsernameConflict(error: ApiError): boolean {
+	return isUniqueConflict(error, 'username');
+}
+
+export function isProviderConflict(error: ApiError): boolean {
+	return isUniqueConflict(error, 'orgId') && isUniqueConflict(error, 'providerId');
+}
+
+function isUniqueConflict(error: ApiError, field: string): boolean {
 	if (error.kind !== 'db_error') {
 		return false;
 	}
@@ -61,7 +72,7 @@ export function isUsernameConflict(error: ApiError): boolean {
 	}
 
 	const target = cause.meta?.target;
-	return Array.isArray(target) && target.includes('username');
+	return Array.isArray(target) && target.includes(field);
 }
 
 /**
@@ -96,30 +107,34 @@ export async function deleteAgent(
 }
 
 /**
- * Sets the agent's own access to a collection, or with `null` drops it so the agent follows the
- * connection's default again. The caller has checked that both belong to the organization.
+ * Sets the agent's own settings for actions of a connection: on, off, or with `null` dropped so the
+ * agent follows the connection's default again. Actions left out stay as they are. The caller has
+ * checked that the agent and the connection belong to the organization.
  */
-export async function setAgentGrant(data: {
+export async function setAgentGrants(data: {
 	agentId: string;
 	connectionId: string;
-	collectionId: string;
-	access: Access | null;
+	actions: Record<string, boolean | null>;
 }): Promise<Result<void, ApiError>> {
-	const {agentId, connectionId, collectionId, access} = data;
-	const key = {agentId, connectionId, collectionId};
-	if (access === null) {
-		return (await wrapDb(() => db.agentGrant.deleteMany({where: key}))).map(() => undefined);
-	}
-
-	return (
-		await wrapDb(() =>
-			db.agentGrant.upsert({
-				where: {agentId_connectionId_collectionId: key},
-				create: {...key, access},
-				update: {access},
+	const {agentId, connectionId, actions} = data;
+	const cleared = Object.keys(actions).filter((actionId) => actions[actionId] === null);
+	const set = Object.entries(actions).flatMap(([actionId, allowed]) =>
+		allowed === null ? [] : [{actionId, allowed}],
+	);
+	return wrapDb(async () => {
+		await db.$transaction([
+			db.agentGrant.deleteMany({
+				where: {agentId, connectionId, actionId: {in: cleared}},
 			}),
-		)
-	).map(() => undefined);
+			...set.map(({actionId, allowed}) =>
+				db.agentGrant.upsert({
+					where: {agentId_connectionId_actionId: {agentId, connectionId, actionId}},
+					create: {agentId, connectionId, actionId, allowed},
+					update: {allowed},
+				}),
+			),
+		]);
+	});
 }
 
 /** `Ok(null)` means no agent has the username. Revoked agents are returned; the caller refuses them. */
@@ -142,7 +157,12 @@ export async function createAgentSession(data: {
 	return (await wrapDb(() => db.agentSession.create({data}))).map(() => undefined);
 }
 
-export type SignedInAgent = {agentId: string; orgId: string; name: string};
+export type SignedInAgent = {
+	agentId: string;
+	orgId: string;
+	providerId: string;
+	name: string;
+};
 
 /** `Ok(null)` means no live session: unknown, expired, or the agent has been revoked. */
 export async function getSignedInAgent(
@@ -154,7 +174,9 @@ export async function getSignedInAgent(
 				where: {tokenHash},
 				select: {
 					expires: true,
-					agent: {select: {id: true, orgId: true, name: true, revokedAt: true}},
+					agent: {
+						select: {id: true, orgId: true, providerId: true, name: true, revokedAt: true},
+					},
 				},
 			}),
 		)
@@ -162,7 +184,12 @@ export async function getSignedInAgent(
 		if (!session || session.expires <= new Date() || session.agent.revokedAt !== null) {
 			return null;
 		}
-		return {agentId: session.agent.id, orgId: session.agent.orgId, name: session.agent.name};
+		return {
+			agentId: session.agent.id,
+			orgId: session.agent.orgId,
+			providerId: session.agent.providerId,
+			name: session.agent.name,
+		};
 	});
 }
 

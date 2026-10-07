@@ -55,11 +55,7 @@ describe('handleConnectEmailRoute', () => {
 		});
 		const connection = result.unwrap();
 		expect(connection.id).toBe('conn-1');
-		expect(connection.collections).toEqual([
-			{id: 'emails', provider: 'read', connectionDefault: 'none'},
-			{id: 'drafts', provider: 'write', connectionDefault: 'none'},
-			{id: 'sent', provider: 'write', connectionDefault: 'none'},
-		]);
+		expect(connection.defaults).toEqual([]);
 	});
 
 	test('takes typed-in servers for another provider, and its password as typed', async () => {

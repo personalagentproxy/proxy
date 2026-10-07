@@ -1,30 +1,26 @@
-import {ACCESS_LEVELS} from '@proxy/integrations';
 import {z} from 'zod';
 
 // The api's response shapes, shared by the human side's and the agent side's clients.
-
-export const accessSchema = z.enum(ACCESS_LEVELS);
 
 export const connectionSchema = z.object({
 	id: z.string(),
 	integrationId: z.string(),
 	account: z.string(),
 	connectedAt: z.string(),
-	collections: z.array(
-		z.object({id: z.string(), provider: accessSchema, connectionDefault: accessSchema}),
-	),
+	// The actions agents get by default.
+	defaults: z.array(z.string()),
 });
 
 export const agentSchema = z.object({
 	id: z.string(),
+	providerId: z.string(),
 	name: z.string(),
 	username: z.string(),
 	createdAt: z.string(),
 	lastActiveAt: z.string().nullable(),
 	revokedAt: z.string().nullable(),
-	grants: z.array(
-		z.object({connectionId: z.string(), collectionId: z.string(), access: accessSchema}),
-	),
+	// The agent's own settings, one per action; every other action follows the default.
+	grants: z.array(z.object({connectionId: z.string(), actionId: z.string(), allowed: z.boolean()})),
 });
 
 export const dataRecordSchema = z.object({
@@ -39,7 +35,7 @@ export const auditEntrySchema = z.object({
 	agentId: z.string(),
 	connectionId: z.string(),
 	collectionId: z.string(),
-	action: z.enum(['list', 'view', 'create', 'update', 'delete']),
+	action: z.string(),
 	recordTitle: z.string().nullable(),
 	query: z.string().nullable(),
 	outcome: z.enum(['allowed', 'denied']),

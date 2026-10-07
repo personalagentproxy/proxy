@@ -8,6 +8,8 @@ import {
 	handleAgentGetRecordRoute,
 	handleAgentListRecordsRoute,
 	handleAgentMeRoute,
+	handleAgentRunCommandRoute,
+	handleAgentRunNewCommandRoute,
 	handleAgentUpdateRecordRoute,
 } from '../agent-side/route';
 import {
@@ -16,7 +18,7 @@ import {
 	handleGetAgentRoute,
 	handleListAgentsRoute,
 	handleResetAgentPasswordRoute,
-	handleSetAgentGrantRoute,
+	handleSetAgentGrantsRoute,
 	handleSetAgentRevokedRoute,
 } from '../agents/route';
 import {handleDevLoginRoute} from '../auth/dev-login';
@@ -24,7 +26,7 @@ import {handleEmailSignInRoute, handleEmailVerifyRoute} from '../auth/email';
 import {handleGoogleCallbackRoute, handleGoogleStartRoute, handleSignInMethodsRoute} from '../auth/google';
 import {handleSignOutRoute} from '../auth/signout';
 import {handleConnectEmailRoute} from '../connections/email/route';
-import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleSetConnectionDefaultRoute} from '../connections/route';
+import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleSetConnectionDefaultsRoute} from '../connections/route';
 import {handleMeRoute} from '../me/route';
 import {handleCreateRecordRoute, handleDeleteRecordRoute, handleGetRecordRoute, handleListRecordsRoute, handleUpdateRecordRoute} from '../records/route';
 import {requireBrowserOrigin} from './middleware/require-browser-origin';
@@ -57,7 +59,7 @@ export function createApiRouter(): express.Router {
 	router.post('/api/connections/email', withAuthResult('Connect email route', handleConnectEmailRoute));
 	router.get('/api/connections/:connectionId', withAuthResult('Get connection route', handleGetConnectionRoute));
 	router.delete('/api/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
-	router.put('/api/connections/:connectionId/defaults/:collectionId', withAuthResult('Set connection default route', handleSetConnectionDefaultRoute));
+	router.put('/api/connections/:connectionId/defaults', withAuthResult('Set connection defaults route', handleSetConnectionDefaultsRoute));
 	const records = '/api/connections/:connectionId/collections/:collectionId/records';
 	router.get(records, withAuthResult('List records route', handleListRecordsRoute));
 	router.post(records, withAuthResult('Create record route', handleCreateRecordRoute));
@@ -72,7 +74,7 @@ export function createApiRouter(): express.Router {
 	router.delete('/api/agents/:agentId', withAuthResult('Delete agent route', handleDeleteAgentRoute));
 	router.post('/api/agents/:agentId/password', withAuthResult('Reset agent password route', handleResetAgentPasswordRoute));
 	router.put('/api/agents/:agentId/revoked', withAuthResult('Set agent revoked route', handleSetAgentRevokedRoute));
-	router.put('/api/agents/:agentId/grants/:connectionId/:collectionId', withAuthResult('Set agent grant route', handleSetAgentGrantRoute));
+	router.put('/api/agents/:agentId/grants/:connectionId', withAuthResult('Set agent grants route', handleSetAgentGrantsRoute));
 
 	router.use('/api/activity', requireBrowserOrigin);
 	router.get('/api/activity', withAuthResult('List activity route', handleListActivityRoute));
@@ -89,6 +91,8 @@ export function createApiRouter(): express.Router {
 	router.get(`${agentRecords}/:recordId`, withAgentAuthResult('Agent get record route', handleAgentGetRecordRoute));
 	router.put(`${agentRecords}/:recordId`, withAgentAuthResult('Agent update record route', handleAgentUpdateRecordRoute));
 	router.delete(`${agentRecords}/:recordId`, withAgentAuthResult('Agent delete record route', handleAgentDeleteRecordRoute));
+	router.post(`${agentRecords}/:recordId/commands/:commandId`, withAgentAuthResult('Agent run command route', handleAgentRunCommandRoute));
+	router.post('/api/agent/connections/:connectionId/collections/:collectionId/commands/:commandId', withAgentAuthResult('Agent run new command route', handleAgentRunNewCommandRoute));
 
 	return router;
 }

@@ -8,9 +8,10 @@
 		"setup": "node scripts/setup-ai.mjs",
 		"postinstall": "bun run --cwd packages/db db:generate",
 		"dev": "node scripts/dev.mjs",
-		"build": "bun run --cwd packages/web build && bun run --cwd packages/docs build",
+		"seed": "bun run --cwd packages/db db:seed",
+		"build": "bun run --cwd packages/web build && bun run --cwd packages/docs build && bun run --cwd packages/website build",
 		"typecheck": "bun run --filter './packages/*' typecheck",
-		"lint": "bun run --cwd packages/web lint && bun run --cwd packages/docs lint",
+		"lint": "bun run --cwd packages/web lint && bun run --cwd packages/docs lint && bun run --cwd packages/website lint",
 		"test": "bun run --filter './packages/*' test"
 	},
 	"devDependencies": {

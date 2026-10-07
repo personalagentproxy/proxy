@@ -2,11 +2,12 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
-import {createAgent, deleteAgent, getAgent, isUsernameConflict, listAgents, setAgentGrant, updateAgent} from '@proxy/db/agent';
+import {createAgent, deleteAgent, getAgent, isProviderConflict, isUsernameConflict, listAgents, setAgentGrants, updateAgent} from '@proxy/db/agent';
 import {getConnection} from '@proxy/db/connection';
-import {ACCESS_LEVELS, findCollection, findIntegration, minAccess, providerAccess} from '@proxy/integrations';
+import {findAgentProvider} from '@proxy/integrations';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
+import {parseActionChanges, requireIntegration} from '../utils/connection-actions';
 import {requireUserOrgId} from '../utils/user-org';
 import {toAgentResponse, type AgentResponse} from './agent-response';
 import {generatePassword, generateUsername} from './credentials';
@@ -38,20 +39,24 @@ export function handleGetAgentRoute(request: AuthenticatedRequest): Promise<Resu
 	});
 }
 
-const createAgentBodySchema = z.object({name: z.string().trim().min(1).max(80)});
+const createAgentBodySchema = z.object({providerId: z.string()});
 
-/** The only time the password is sent; Proxy keeps its hash. A new agent follows every default. */
+/** The only time the password is sent; Personal Agent Proxy keeps its hash. A new agent follows every default. */
 export function handleCreateAgentRoute(request: AuthenticatedRequest): Promise<Result<{agent: AgentResponse; password: string}, ApiError>> {
 	return Do(async ($) => {
-		const {name} = $(parseSchema(createAgentBodySchema, request.body));
+		const {providerId} = $(parseSchema(createAgentBodySchema, request.body));
+		const provider = $(requirePresent(findAgentProvider(providerId), ApiErr.parseError(`Unknown agent ${providerId}`)));
 		const orgId = $(await requireUserOrgId(request));
 		const password = generatePassword();
 		const passwordHash = await Bun.password.hash(password);
 
 		for (let attempt = 0; attempt < MAX_USERNAME_ATTEMPTS; attempt++) {
-			const created = await createAgent({orgId, name, username: generateUsername(name), passwordHash});
+			const created = await createAgent({orgId, providerId: provider.id, name: provider.name, username: generateUsername(provider.name), passwordHash});
 			if (created.isOk()) {
 				return {agent: toAgentResponse(created.value), password};
+			}
+			if (isProviderConflict(created.error)) {
+				return $(Err(ApiErr.conflict(`${provider.name} already has an agent login`)));
 			}
 			if (!isUsernameConflict(created.error)) {
 				return $(created);
@@ -99,33 +104,22 @@ export function handleDeleteAgentRoute(request: AuthenticatedRequest): Promise<R
 	});
 }
 
-const setGrantBodySchema = z.object({access: z.enum(ACCESS_LEVELS).nullable()});
-
 /**
- * Sets the agent's own access to a collection, or with `null` returns it to the connection's
- * default. Access above what the provider allows is refused with a conflict, as for defaults.
+ * Sets the agent's own settings for actions of a connection, such as `{actions: {send: false}}`;
+ * `null` returns an action to the connection's default. An action the integration doesn't have is
+ * refused.
  */
-export function handleSetAgentGrantRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
+export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
 	return Do(async ($) => {
-		const {access} = $(parseSchema(setGrantBodySchema, request.body));
 		const orgId = $(await requireUserOrgId(request));
 		const agentId = agentIdOf(request);
 		const connectionId = request.params.connectionId ?? '';
-		const collectionId = request.params.collectionId ?? '';
 		$(await requireAgent(orgId, agentId));
 		const connection = $(requirePresent($(await getConnection(orgId, connectionId)), ApiErr.notFound('connection', connectionId)));
+		const integration = $(requireIntegration(connection.integrationId));
+		const actions = $(parseActionChanges(integration, z.boolean().nullable(), request.body));
 
-		const integration = findIntegration(connection.integrationId);
-		const collection = integration && findCollection(integration, collectionId);
-		if (!collection) {
-			return $(Err(ApiErr.notFound('collection', collectionId)));
-		}
-
-		if (access !== null && minAccess(access, providerAccess(collection)) !== access) {
-			return $(Err(ApiErr.conflict('The provider does not allow this access')));
-		}
-
-		$(await setAgentGrant({agentId, connectionId, collectionId, access}));
+		$(await setAgentGrants({agentId, connectionId, actions}));
 		return $(await requireAgent(orgId, agentId));
 	});
 }

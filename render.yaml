@@ -1,6 +1,6 @@
-# Hosted Proxy on Render: the app, its database, and the docs. In the dashboard: New → Blueprint,
-# pointed at this repository. The variables marked `sync: false` are asked for once, when the
-# Blueprint is first applied, and kept in the dashboard after that.
+# Hosted Personal Agent Proxy on Render: the app, its database, the docs, and the website. In the
+# dashboard: New → Blueprint, pointed at this repository. The variables marked `sync: false` are
+# asked for once, when the Blueprint is first applied, and kept in the dashboard after that.
 #
 # The web app has no service of its own: the `proxy` service is the api serving the web app's
 # build on the same origin, so there is one domain and nothing else to configure.
@@ -13,9 +13,9 @@ services:
     dockerContext: ./
     region: oregon
     plan: 0.5c-512mb
-    # Two, so a deploy or a failed instance never takes Proxy down. The api keeps nothing in
-    # memory between requests, and two instances starting at once migrate safely: Prisma takes a
-    # lock on the database first.
+    # Two, so a deploy or a failed instance never takes Personal Agent Proxy down. The api keeps
+    # nothing in memory between requests, and two instances starting at once migrate safely: Prisma
+    # takes a lock on the database first.
     numInstances: 2
     healthCheckPath: /health
     domains:
@@ -88,6 +88,29 @@ services:
         value: public, max-age=31536000, immutable
     envVars:
       # The version the repo is developed and the image built with.
+      - key: BUN_VERSION
+        value: 1.4.2
+
+  # The website, exported as plain files like the docs (packages/website/next.config.ts).
+  - type: web
+    name: proxy-website
+    runtime: static
+    buildCommand: bun install --frozen-lockfile --filter website && bun run --cwd packages/website build
+    staticPublishPath: ./packages/website/out
+    domains:
+      - personalagentproxy.com
+    renderSubdomainPolicy: disabled
+    buildFilter:
+      paths:
+        - package.json
+        - bun.lock
+        - packages/website/**
+        - packages/ui/**
+    headers:
+      - path: /_next/static/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+    envVars:
       - key: BUN_VERSION
         value: 1.4.2
 

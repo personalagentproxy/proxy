@@ -92,7 +92,7 @@ export async function handleEmailSignInRoute(req: Request, res: Response): Promi
 		return;
 	}
 
-	// Only someone who could finish signing in gets a link, so Proxy does not email anyone else.
+	// Only someone who could finish signing in gets a link, so Personal Agent Proxy does not email anyone else.
 	if (!canSignUp(email)) {
 		const existingResult = await getUserByEmail(email);
 		if (existingResult.isErr()) {
@@ -123,7 +123,7 @@ export async function handleEmailSignInRoute(req: Request, res: Response): Promi
 
 	const url = `${config.verifyUrl}?${new URLSearchParams({token, email, callbackUrl}).toString()}`;
 
-	// Without a way to send email, whoever runs Proxy can read the link from its log.
+	// Without a way to send email, whoever runs Personal Agent Proxy can read the link from its log.
 	if (env.NODE_ENV === 'development' || !env.RESEND_KEY) {
 		log.info(`[Magic Link] ${email}: ${url}`);
 		res.json({ok: true, logged: true});

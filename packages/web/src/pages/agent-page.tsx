@@ -1,6 +1,13 @@
-import type {Access} from '@proxy/integrations';
+import {findAgentProvider} from '@proxy/integrations';
 import type {FetchError} from '@proxy/utils';
-import {BanIcon, KeyRoundIcon, RotateCcwIcon, Trash2Icon} from 'lucide-react';
+import {
+	BanIcon,
+	ChevronRightIcon,
+	KeyRoundIcon,
+	RotateCcwIcon,
+	SearchIcon,
+	Trash2Icon,
+} from 'lucide-react';
 import {useEffect, useState, type ReactNode} from 'react';
 import {
 	Link,
@@ -14,20 +21,25 @@ import type {Result} from 'ts-results-es';
 import {
 	deleteAgent,
 	resetAgentPassword,
-	setAgentGrant,
+	setAgentGrants,
 	setAgentRevoked,
 } from '@/client/agents-client';
-import {AccessSelect} from '@/components/access-select';
+import {setConnectionDefaults} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
+import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
 import {BackButton} from '@/components/back-button';
 import {ConfirmDialog} from '@/components/confirm-dialog';
+import {ConnectionAccess} from '@/components/connection-access';
 import {CopyButton} from '@/components/copy-button';
 import {IconButton} from '@/components/icon-button';
 import {NotFound} from '@/components/not-found';
-import {RowList} from '@/components/row-list';
+import {EmptyRows, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
-import {connectionLabel, defaultAccess, integrationOf, ownAccess} from '@/lib/access';
+import {Checkbox} from '@proxy/ui/components/checkbox';
+import {Input} from '@proxy/ui/components/input';
+import {connectionLabel, defaultActions, integrationOf, ownSettings} from '@/lib/access';
+import {cn} from '@proxy/ui/lib/utils';
 import {formatDate} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin, Connection} from '@/lib/types';
@@ -72,6 +84,7 @@ function AgentDetail({id}: {id: string}) {
 	}
 
 	const revoked = agent.revokedAt !== null;
+	const company = findAgentProvider(agent.providerId)?.company ?? agent.providerId;
 	const apply = async <T,>(change: Promise<Result<T, FetchError>>): Promise<T | null> => {
 		const result = await change;
 		if (result.isErr()) {
@@ -91,11 +104,14 @@ function AgentDetail({id}: {id: string}) {
 					<PageTitle
 						detail={
 							revoked
-								? `revoked ${formatDate(agent.revokedAt ?? '')}`
-								: `added ${formatDate(agent.createdAt)}`
+								? `${company} · revoked ${formatDate(agent.revokedAt ?? '')}`
+								: `${company} · added ${formatDate(agent.createdAt)}`
 						}
 					>
-						{agent.name}
+						<span className="flex items-center gap-2">
+							<AgentLogo providerId={agent.providerId} />
+							{agent.name}
+						</span>
 					</PageTitle>
 				</>
 			}
@@ -127,26 +143,29 @@ function AgentDetail({id}: {id: string}) {
 				<Section title="Sign-in" detail={revoked ? 'revoked, the agent cannot sign in' : undefined}>
 					<Credentials agent={agent} password={password} />
 				</Section>
-				<Section title="Access">
+				<Section title="Access" detail={changedDetail(agent)}>
 					<AccessGrid
 						agent={agent}
 						connections={connections}
-						onChange={(connectionId, collectionId, access) =>
-							void apply(setAgentGrant(agent.id, connectionId, collectionId, access))
+						onChange={(connectionId, actions) =>
+							void apply(setAgentGrants(agent.id, connectionId, actions))
+						}
+						onMakeDefault={(connectionId, actionId, allowed) =>
+							void apply(makeDefault(agent.id, connectionId, actionId, allowed))
 						}
 					/>
 				</Section>
 				<Section
 					title="Recent activity"
-					action={
-						entries.length > RECENT && (
+					detail={
+						entries.length > RECENT ? (
 							<Link
 								to={`/activity?agent=${agent.id}`}
-								className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+								className="underline-offset-4 hover:text-foreground hover:underline"
 							>
-								All activity
+								Go to all activity
 							</Link>
-						)
+						) : undefined
 					}
 				>
 					<AuditList
@@ -239,7 +258,7 @@ function CredentialLine({label, value, mono = false, muted = false, children}: L
 		<div className="flex min-h-8 items-center gap-3 text-sm">
 			<span className="w-24 shrink-0 text-muted-foreground">{label}</span>
 			<span
-				className={`min-w-0 flex-1 truncate ${mono ? 'font-mono text-xs' : ''} ${muted ? 'text-muted-foreground' : ''}`}
+				className={`min-w-0 flex-1 truncate ${mono ? 'font-mono' : ''} ${muted ? 'text-muted-foreground' : ''}`}
 			>
 				{value}
 			</span>
@@ -248,53 +267,141 @@ function CredentialLine({label, value, mono = false, muted = false, children}: L
 	);
 }
 
+// Makes an agent's own setting the connection's default, for every agent without one of its own,
+// and drops it, since it now matches the default.
+async function makeDefault(
+	agentId: string,
+	connectionId: string,
+	actionId: string,
+	allowed: boolean,
+): Promise<Result<void, FetchError>> {
+	const defaults = await setConnectionDefaults(connectionId, {[actionId]: allowed});
+	if (defaults.isErr()) {
+		return defaults.map(() => undefined);
+	}
+	return (await setAgentGrants(agentId, connectionId, {[actionId]: null})).map(() => undefined);
+}
+
+// "3 changed": how many actions the agent has a setting of its own for.
+function changedDetail(agent: AgentLogin): string | undefined {
+	if (agent.grants.length === 0) {
+		return undefined;
+	}
+	return `${agent.grants.length} changed`;
+}
+
 type GridProps = {
 	agent: AgentLogin;
 	connections: Connection[];
-	onChange: (connectionId: string, collectionId: string, access: Access | null) => void;
+	onChange: (connectionId: string, actions: Record<string, boolean | null>) => void;
+	onMakeDefault: (connectionId: string, actionId: string, allowed: boolean) => void;
 };
 
-// One select per collection of every connection, Information first. Each starts on the
-// connection's default; a setting of the agent's own is marked, and Default returns it there.
-function AccessGrid({agent, connections, onChange}: GridProps) {
+// Every connection, Information first, with a checkbox per action. Each starts folded to a line
+// saying whether the agent follows its default or has changed something. A filter narrows them to the connections and actions it
+// names, and Changed only keeps the actions the agent has a setting of its own for; either opens
+// everything it keeps.
+function AccessGrid({agent, connections, onChange, onMakeDefault}: GridProps) {
+	const [query, setQuery] = useState('');
+	const [changedOnly, setChangedOnly] = useState(false);
+	const [opened, setOpened] = useState<Set<string>>(() => new Set());
+	const filtering = query.trim() !== '' || changedOnly;
+	const toggle = (connectionId: string) => {
+		const next = new Set(opened);
+		if (next.has(connectionId)) {
+			next.delete(connectionId);
+			setOpened(next);
+			return;
+		}
+		next.add(connectionId);
+		setOpened(next);
+	};
+	const matches = (text: string) => text.toLowerCase().includes(query.trim().toLowerCase());
+	const groups = connections.flatMap((connection) => {
+		const integration = integrationOf(connection);
+		if (!integration) {
+			return [];
+		}
+
+		const label = connectionLabel(connections, connection);
+		const own = ownSettings(agent, connection.id);
+		const named = [label, connection.account].some(matches);
+		const actions = integration.actions
+			.filter((action) => !changedOnly || own[action.id] !== undefined)
+			.filter((action) => named || matches(action.label) || matches(action.description));
+		if (actions.length === 0) {
+			return [];
+		}
+		return [{connection, integration, label, own, actions}];
+	});
+
 	return (
 		<div className="flex flex-col gap-6">
-			{connections.map((connection) => {
-				const integration = integrationOf(connection);
-				if (!integration) {
-					return null;
-				}
-				return (
-					<div key={connection.id} className="flex flex-col gap-1">
-						<div className="flex items-center gap-2 text-sm md:px-3">
-							<integration.icon className="size-4 shrink-0 text-muted-foreground" />
-							<Link
-								to={`/connections/${connection.id}`}
-								className="font-medium underline-offset-4 hover:underline"
+			<div className="flex items-center gap-4 md:px-3">
+				<div className="relative max-w-xs flex-1">
+					<SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+					<Input
+						type="search"
+						aria-label="Filter access"
+						placeholder="Filter actions"
+						className="h-8 pl-8"
+						value={query}
+						onChange={(event) => setQuery(event.target.value)}
+					/>
+				</div>
+				<label className="flex items-center gap-2 text-sm">
+					<Checkbox checked={changedOnly} onCheckedChange={setChangedOnly} />
+					Changed only
+				</label>
+			</div>
+			{groups.length === 0 && (
+				<RowList>
+					<EmptyRows>
+						{changedOnly && query.trim() === ''
+							? 'This agent follows every default.'
+							: 'Nothing matches the filter.'}
+					</EmptyRows>
+				</RowList>
+			)}
+			{/* One row per connection, as tall as the activity list's rows and as close together. */}
+			<div className="flex flex-col">
+				{groups.map(({connection, integration, label, own, actions}) => {
+					const open = filtering || opened.has(connection.id);
+					return (
+						<div key={connection.id} className={cn('flex flex-col', open && 'mb-2')}>
+							<button
+								type="button"
+								aria-expanded={open}
+								onClick={() => toggle(connection.id)}
+								className="-mx-4 flex h-10 items-center gap-2 px-4 text-left text-sm hover:bg-muted/50 md:mx-0 md:px-3"
 							>
-								{connectionLabel(connections, connection)}
-							</Link>
-							<span className="truncate text-muted-foreground">{connection.account}</span>
+								<ChevronRightIcon
+									className={cn(
+										'size-4 shrink-0 text-muted-foreground transition-transform',
+										open && 'rotate-90',
+									)}
+								/>
+								<IntegrationLogo integration={integration} />
+								<span className="min-w-0 truncate">{label}</span>
+								<span className="ml-auto shrink-0 pl-3 text-muted-foreground">
+									{Object.keys(own).length > 0 ? 'Changed' : 'Default'}
+								</span>
+							</button>
+							{open && (
+								<ConnectionAccess
+									actions={actions}
+									defaults={defaultActions(connection)}
+									own={own}
+									onChange={(changes) => onChange(connection.id, changes)}
+									onMakeDefault={(actionId, allowed) =>
+										onMakeDefault(connection.id, actionId, allowed)
+									}
+								/>
+							)}
 						</div>
-						<RowList>
-							{integration.collections.map((collection) => (
-								<li
-									key={collection.id}
-									className="flex h-10 items-center gap-3 px-4 text-sm md:px-3"
-								>
-									<span className="min-w-0 flex-1 truncate">{collection.name}</span>
-									<AccessSelect
-										value={ownAccess(agent, connection.id, collection.id)}
-										collection={collection}
-										connectionDefault={defaultAccess(connection, collection.id)}
-										onChange={(next) => onChange(connection.id, collection.id, next)}
-									/>
-								</li>
-							))}
-						</RowList>
-					</div>
-				);
-			})}
+					);
+				})}
+			</div>
 		</div>
 	);
 }

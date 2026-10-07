@@ -1,28 +1,29 @@
 ---
 title: Overview
-description: How a self-hosted Proxy fits together, and the ways to run it.
+description: How a self-hosted Personal Agent Proxy fits together, and the ways to run it.
 ---
 
-Proxy is one server and a Postgres database. The server is the api, and it also serves the web
-app, so all of Proxy is on one address, such as `https://proxy.example.com`.
+Personal Agent Proxy is one server and a Postgres database. The server is the api, and it also
+serves the web app, so all of Personal Agent Proxy is on one address, such as
+`https://proxy.example.com`.
 
 ## What runs
 
-| Part     | What it does                                                                                                                                 |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Proxy    | The `ghcr.io/personalagentproxy/proxy` image: the api and the web app on port 4000. It applies the database migrations every time it starts. |
-| Postgres | Accounts, agent logins, the activity log, and connections' credentials and Information records, which are stored encrypted.                  |
-| Caddy    | HTTPS in front of Proxy, with certificates from Let's Encrypt. Any reverse proxy that terminates TLS works in its place.                     |
+| Part                 | What it does                                                                                                                                 |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Personal Agent Proxy | The `ghcr.io/personalagentproxy/proxy` image: the api and the web app on port 4000. It applies the database migrations every time it starts. |
+| Postgres             | Accounts, agent logins, the activity log, and connections' credentials and Information records, which are stored encrypted.                  |
+| Caddy                | HTTPS in front of Personal Agent Proxy, with certificates from Let's Encrypt. Any reverse proxy that terminates TLS works in its place.      |
 
-Proxy keeps no copies of what it reaches for agents. A mailbox is read over IMAP on every request,
-so the database stays small, and the server needs to reach your mail servers: IMAP on port 993
-and SMTP on 465 or 587.
+Personal Agent Proxy keeps no copies of what it reaches for agents. A mailbox is read over IMAP on
+every request, so the database stays small, and the server needs to reach your mail servers: IMAP on
+port 993 and SMTP on 465 or 587.
 
 ## Ways to run it
 
 | Option                                                                   | For                                                                              | You look after                                                         |
 | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| [Docker Compose](/self-hosting/get-started)                              | One server, or trying Proxy on your own computer                                 | The server, [backups and upgrades](/self-hosting/upgrades-and-backups) |
+| [Docker Compose](/self-hosting/get-started)                              | One server, or trying Personal Agent Proxy on your own computer                  | The server, [backups and upgrades](/self-hosting/upgrades-and-backups) |
 | [The image on its own](/self-hosting/get-started#without-docker-compose) | A container platform, such as Render, Fly or Kubernetes, with a managed Postgres | HTTPS in front of it, and the database                                 |
 
 ## What you need

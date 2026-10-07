@@ -28,7 +28,7 @@ export async function sendMagicLink({email, url}: SendMagicLinkParams): Promise<
 		getResend().emails.send({
 			from,
 			to: email,
-			subject: 'Sign in to Proxy',
+			subject: 'Sign in to Personal Agent Proxy',
 			html: `
 <!DOCTYPE html>
 <html>
@@ -38,7 +38,7 @@ export async function sendMagicLink({email, url}: SendMagicLinkParams): Promise<
 </head>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px;">
   <p>
-    Click the button below to sign in to Proxy:
+    Click the button below to sign in to Personal Agent Proxy:
   </p>
   <p>
     <a href="${url}" style="display: inline-block; background: #18181b; color: white; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Sign in</a>

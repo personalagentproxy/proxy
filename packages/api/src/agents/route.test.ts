@@ -8,10 +8,11 @@ const getAgent = mock();
 const createAgent = mock();
 const updateAgent = mock();
 const deleteAgent = mock();
-const setAgentGrant = mock();
+const setAgentGrants = mock();
 const isUsernameConflict = mock(() => false);
+const isProviderConflict = mock(() => false);
 
-mock.module('@proxy/db/agent', () => ({listAgents, getAgent, createAgent, updateAgent, deleteAgent, setAgentGrant, isUsernameConflict}));
+mock.module('@proxy/db/agent', () => ({listAgents, getAgent, createAgent, updateAgent, deleteAgent, setAgentGrants, isUsernameConflict, isProviderConflict}));
 
 const getConnection = mock();
 
@@ -23,8 +24,9 @@ mock.module('../utils/user-org', () => ({requireUserOrgId}));
 
 const agentRow = {
 	id: 'agent-1',
-	name: 'Inbox assistant',
-	username: 'inbox-assistant-k7q2',
+	providerId: 'dot',
+	name: 'Dot',
+	username: 'dot-k7q2',
 	createdAt: new Date('2026-10-01T00:00:00Z'),
 	lastActiveAt: null,
 	revokedAt: null,
@@ -41,23 +43,25 @@ beforeEach(() => {
 	getAgent.mockResolvedValue(Ok(agentRow));
 	createAgent.mockResolvedValue(Ok(agentRow));
 	updateAgent.mockResolvedValue(Ok(true));
-	setAgentGrant.mockResolvedValue(Ok(undefined));
+	setAgentGrants.mockResolvedValue(Ok(undefined));
 	getConnection.mockResolvedValue(Ok({id: 'conn-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), defaults: []}));
 	isUsernameConflict.mockReturnValue(false);
+	isProviderConflict.mockReturnValue(false);
 });
 
 describe('handleCreateAgentRoute', () => {
 	test('sends the password once and stores only its hash', async () => {
 		const {handleCreateAgentRoute} = await import('./route');
-		const result = await handleCreateAgentRoute(makeRequest({}, {name: ' Inbox assistant '}));
+		const result = await handleCreateAgentRoute(makeRequest({}, {providerId: 'dot'}));
 
 		const {password, agent} = result.unwrap();
 		expect(password).toMatch(/^[\w]{5}-[\w]{5}-[\w]{5}-[\w]{5}$/);
 		expect(agent.id).toBe('agent-1');
 
 		const data = createAgent.mock.calls[0]?.[0];
-		expect(data.name).toBe('Inbox assistant');
-		expect(data.username).toMatch(/^inbox-assistant-[a-z0-9]{4}$/);
+		expect(data.providerId).toBe('dot');
+		expect(data.name).toBe('Dot');
+		expect(data.username).toMatch(/^dot-[a-z0-9]{4}$/);
 		expect(data.passwordHash).not.toContain(password);
 		expect(await Bun.password.verify(password, data.passwordHash)).toBe(true);
 	});
@@ -68,17 +72,28 @@ describe('handleCreateAgentRoute', () => {
 		isUsernameConflict.mockReturnValueOnce(true);
 
 		const {handleCreateAgentRoute} = await import('./route');
-		const result = await handleCreateAgentRoute(makeRequest({}, {name: 'Inbox assistant'}));
+		const result = await handleCreateAgentRoute(makeRequest({}, {providerId: 'dot'}));
 
 		expect(result.isOk()).toBe(true);
 		expect(createAgent).toHaveBeenCalledTimes(2);
 	});
 
-	test('needs a name', async () => {
+	test('needs a known provider', async () => {
 		const {handleCreateAgentRoute} = await import('./route');
-		const result = await handleCreateAgentRoute(makeRequest({}, {name: '  '}));
+		const result = await handleCreateAgentRoute(makeRequest({}, {providerId: 'other'}));
 
 		expect(result.unwrapErr().kind).toBe('parse_error');
+	});
+
+	test('refuses a second login for the same provider', async () => {
+		createAgent.mockResolvedValue(Err(ApiErr.dbError(new Error('P2002'))));
+		isProviderConflict.mockReturnValue(true);
+
+		const {handleCreateAgentRoute} = await import('./route');
+		const result = await handleCreateAgentRoute(makeRequest({}, {providerId: 'dot'}));
+
+		expect(result.unwrapErr().kind).toBe('conflict');
+		expect(createAgent).toHaveBeenCalledTimes(1);
 	});
 });
 
@@ -113,39 +128,32 @@ describe('handleSetAgentRevokedRoute', () => {
 	});
 });
 
-describe('handleSetAgentGrantRoute', () => {
-	const params = {agentId: 'agent-1', connectionId: 'conn-1', collectionId: 'drafts'};
+describe('handleSetAgentGrantsRoute', () => {
+	const params = {agentId: 'agent-1', connectionId: 'conn-1'};
 
-	test("sets the agent's own access", async () => {
-		const {handleSetAgentGrantRoute} = await import('./route');
-		const result = await handleSetAgentGrantRoute(makeRequest(params, {access: 'write'}));
+	test("sets the agent's own settings, null returning an action to the default", async () => {
+		const {handleSetAgentGrantsRoute} = await import('./route');
+		const result = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {read: true, send: null}}));
 
-		expect(setAgentGrant).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', collectionId: 'drafts', access: 'write'});
+		expect(setAgentGrants).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', actions: {read: true, send: null}});
 		expect(result.isOk()).toBe(true);
 	});
 
-	test('null returns the agent to the default', async () => {
-		const {handleSetAgentGrantRoute} = await import('./route');
-		await handleSetAgentGrantRoute(makeRequest(params, {access: null}));
+	test('refuses an action the integration does not have', async () => {
+		const {handleSetAgentGrantsRoute} = await import('./route');
+		const result = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {writeNotes: true}}));
 
-		expect(setAgentGrant).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', collectionId: 'drafts', access: null});
-	});
-
-	test('refuses access above what the provider allows', async () => {
-		const {handleSetAgentGrantRoute} = await import('./route');
-		const result = await handleSetAgentGrantRoute(makeRequest({...params, collectionId: 'emails'}, {access: 'write'}));
-
-		expect(result.unwrapErr().kind).toBe('conflict');
-		expect(setAgentGrant).not.toHaveBeenCalled();
+		expect(result.unwrapErr().kind).toBe('validation_error');
+		expect(setAgentGrants).not.toHaveBeenCalled();
 	});
 
 	test('refuses a connection outside the organization', async () => {
 		getConnection.mockResolvedValue(Ok(null));
 
-		const {handleSetAgentGrantRoute} = await import('./route');
-		const result = await handleSetAgentGrantRoute(makeRequest(params, {access: 'read'}));
+		const {handleSetAgentGrantsRoute} = await import('./route');
+		const result = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {read: true}}));
 
 		expect(result.unwrapErr().kind).toBe('not_found');
-		expect(setAgentGrant).not.toHaveBeenCalled();
+		expect(setAgentGrants).not.toHaveBeenCalled();
 	});
 });

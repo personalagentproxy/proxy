@@ -1,18 +1,19 @@
 import {z} from 'zod';
-import {accessSchema, dataRecordSchema} from '@/client/schemas';
+import {dataRecordSchema} from '@/client/schemas';
 import {apiRequest, apiSend} from '@/client/request';
 
 // The agent side: its own sign-in and cookie. Every records call is checked against the agent's
 // access and logged by the api, a refused one (403) too.
 
 const agentMeSchema = z.object({
-	agent: z.object({id: z.string(), name: z.string()}),
+	agent: z.object({id: z.string(), providerId: z.string(), name: z.string()}),
 	connections: z.array(
 		z.object({
 			id: z.string(),
 			integrationId: z.string(),
 			account: z.string(),
-			collections: z.array(z.object({id: z.string(), access: accessSchema})),
+			// The actions the agent can take with the connection.
+			actions: z.array(z.string()),
 		}),
 	),
 });
@@ -40,23 +41,19 @@ function recordsPath(connectionId: string, collectionId: string): string {
 	return `/api/agent/connections/${connectionId}/collections/${collectionId}/records`;
 }
 
-export type ListQuery = {search: string | null; page: string | null};
+export type ListQuery = {search: string | null; page: string | null; filter: string | null};
 
-/** A page of records, newest first; `nextPage` asks for the older ones after it. */
+/** A page of records, newest first, and the token of the next, older page if there is one. */
 export function listAgentRecords(connectionId: string, collectionId: string, query: ListQuery) {
-	const params = new URLSearchParams();
-	if (query.search) {
-		params.set('search', query.search);
-	}
-	if (query.page) {
-		params.set('page', query.page);
-	}
+	const params = new URLSearchParams(
+		Object.entries(query).filter((entry): entry is [string, string] => entry[1] !== null),
+	);
 	const suffix = params.size > 0 ? `?${params}` : '';
 	return apiRequest(
 		'GET',
 		`${recordsPath(connectionId, collectionId)}${suffix}`,
 		z.object({
-			access: accessSchema,
+			actions: z.array(z.string()),
 			records: z.array(dataRecordSchema),
 			nextPage: z.string().nullable(),
 		}),
@@ -67,7 +64,7 @@ export function getAgentRecord(connectionId: string, collectionId: string, recor
 	return apiRequest(
 		'GET',
 		`${recordsPath(connectionId, collectionId)}/${recordId}`,
-		z.object({access: accessSchema, record: dataRecordSchema}),
+		z.object({actions: z.array(z.string()), record: dataRecordSchema}),
 	);
 }
 
@@ -95,4 +92,33 @@ export function updateAgentRecord(
 
 export function deleteAgentRecord(connectionId: string, collectionId: string, recordId: string) {
 	return apiSend('DELETE', `${recordsPath(connectionId, collectionId)}/${recordId}`);
+}
+
+/** Runs a command such as Archive or Send: the record after, or null once it left the collection. */
+export function runAgentCommand(
+	connectionId: string,
+	collectionId: string,
+	recordId: string,
+	commandId: string,
+) {
+	return apiRequest(
+		'POST',
+		`${recordsPath(connectionId, collectionId)}/${recordId}/commands/${commandId}`,
+		z.object({record: dataRecordSchema.nullable()}),
+	);
+}
+
+/** Runs a command on values typed in, such as Send for a new email. */
+export function runAgentNewCommand(
+	connectionId: string,
+	collectionId: string,
+	commandId: string,
+	values: Record<string, string>,
+) {
+	return apiRequest(
+		'POST',
+		`/api/agent/connections/${connectionId}/collections/${collectionId}/commands/${commandId}`,
+		z.object({record: dataRecordSchema.nullable()}),
+		{values},
+	);
 }

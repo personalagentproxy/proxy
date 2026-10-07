@@ -5,6 +5,7 @@ import {useNavigate} from 'react-router';
 import {connectEmail} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {BackButton} from '@/components/back-button';
+import {IntegrationLogo} from '@/components/brand-logo';
 import {RowList} from '@/components/row-list';
 import {Button} from '@proxy/ui/components/button';
 import {
@@ -47,10 +48,10 @@ export function AddConnectionPage() {
 						key={integration.id}
 						className="flex min-h-14 items-center gap-3 px-4 py-2 text-sm md:px-3"
 					>
-						<integration.icon className="size-4 shrink-0 text-muted-foreground" />
+						<IntegrationLogo integration={integration} className="size-7" />
 						<div className="grid min-w-0 flex-1">
 							<span className="truncate">{integration.name}</span>
-							<span className="truncate text-xs text-muted-foreground">
+							<span className="truncate text-sm text-muted-foreground">
 								{integration.description}
 							</span>
 						</div>
@@ -157,8 +158,8 @@ function ConnectEmailDialog({open, onClose}: {open: boolean; onClose: () => void
 					<DialogHeader>
 						<DialogTitle>Connect a mailbox</DialogTitle>
 						<DialogDescription>
-							Proxy signs in with an app password, made for Proxy alone in your mail account.
-							Revoking it there disconnects Proxy.
+							Personal Agent Proxy signs in with an app password, made for Personal Agent Proxy
+							alone in your mail account. Revoking it there disconnects Personal Agent Proxy.
 						</DialogDescription>
 					</DialogHeader>
 					<div className="grid gap-2">
@@ -204,7 +205,7 @@ function ConnectEmailDialog({open, onClose}: {open: boolean; onClose: () => void
 							onChange={(event) => setPassword(event.target.value)}
 						/>
 						{provider?.appPasswordUrl && (
-							<p className="text-xs text-muted-foreground">
+							<p className="text-sm text-muted-foreground">
 								<a
 									href={provider.appPasswordUrl}
 									target="_blank"

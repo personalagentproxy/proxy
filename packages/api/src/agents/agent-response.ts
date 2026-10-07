@@ -1,20 +1,22 @@
 import type {AgentRow} from '@proxy/db/agent';
-import type {Access} from '@proxy/integrations';
 
 export type AgentResponse = {
 	id: string;
+	providerId: string;
 	name: string;
 	username: string;
 	createdAt: string;
 	lastActiveAt: string | null;
 	revokedAt: string | null;
-	// Only where the agent differs from the connection's default.
-	grants: Array<{connectionId: string; collectionId: string; access: Access}>;
+	// One per action where the agent has a setting of its own; every other action follows the
+	// connection's default.
+	grants: Array<{connectionId: string; actionId: string; allowed: boolean}>;
 };
 
 export function toAgentResponse(row: AgentRow): AgentResponse {
 	return {
 		id: row.id,
+		providerId: row.providerId,
 		name: row.name,
 		username: row.username,
 		createdAt: row.createdAt.toISOString(),

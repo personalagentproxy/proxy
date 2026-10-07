@@ -9,7 +9,7 @@ Start with the logs. With Docker Compose:
 docker compose logs -f proxy
 ```
 
-## Proxy does not start
+## Personal Agent Proxy does not start
 
 **Applying the database migrations failed.** The log says what Postgres answered. Most often the
 database is not reachable at `DATABASE_URL`, or the password in it has characters that need
@@ -29,12 +29,12 @@ docker compose logs caddy
 
 ## Signing in does not work
 
-**Nothing happens, or the api answers `forbidden_origin`.** Open Proxy at exactly its
+**Nothing happens, or the api answers `forbidden_origin`.** Open Personal Agent Proxy at exactly its
 `PROXY_URL` (`APP_URL` without Docker Compose). The api only takes requests from that address,
 so `http://127.0.0.1` is refused when it is `http://localhost`.
 
-**No email arrives.** Without `RESEND_KEY`, Proxy writes the link to its log instead; see
-[Sign-in](/self-hosting/sign-in#sign-in-links). With it, Resend's dashboard shows whether the
+**No email arrives.** Without `RESEND_KEY`, Personal Agent Proxy writes the link to its log instead;
+see [Sign-in](/self-hosting/sign-in#sign-in-links). With it, Resend's dashboard shows whether the
 email was sent.
 
 **"This address cannot create an account here."** `ALLOWED_SIGNUP_EMAILS` leaves the address
@@ -45,8 +45,9 @@ signing in that way.
 
 ## A mailbox does not connect
 
-Proxy signs in to the mail servers when you connect a mailbox, so the server needs to reach them:
-IMAP on port 993 and SMTP on 465 or 587. Some hosts block outgoing mail ports until you ask.
+Personal Agent Proxy signs in to the mail servers when you connect a mailbox, so the server needs to
+reach them: IMAP on port 993 and SMTP on 465 or 587. Some hosts block outgoing mail ports until you
+ask.
 
 If the mailbox turns the password down, or the provider will not make an app password, see
 [Email](/connections/email).
