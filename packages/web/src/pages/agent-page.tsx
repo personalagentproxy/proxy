@@ -20,7 +20,7 @@ import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
 import {ConfirmDialog} from '@/components/confirm-dialog';
-import {CollectionAccess} from '@/components/collection-access';
+import {ConnectionAccess} from '@/components/connection-access';
 import {CopyButton} from '@/components/copy-button';
 import {IconButton} from '@/components/icon-button';
 import {NotFound} from '@/components/not-found';
@@ -132,8 +132,8 @@ function AgentDetail({id}: {id: string}) {
 					<AccessGrid
 						agent={agent}
 						connections={connections}
-						onChange={(connectionId, collectionId, actions) =>
-							void apply(setAgentGrants(agent.id, connectionId, collectionId, actions))
+						onChange={(connectionId, actions) =>
+							void apply(setAgentGrants(agent.id, connectionId, actions))
 						}
 					/>
 				</Section>
@@ -260,21 +260,15 @@ function changedDetail(agent: AgentLogin): string | undefined {
 type GridProps = {
 	agent: AgentLogin;
 	connections: Connection[];
-	onChange: (
-		connectionId: string,
-		collectionId: string,
-		actions: Record<string, boolean | null>,
-	) => void;
+	onChange: (connectionId: string, actions: Record<string, boolean | null>) => void;
 };
 
-// Every collection of every connection, Information first, each with its actions beneath it once
-// opened. A filter narrows them to the connections, collections and actions it names; Changed only
-// keeps the actions the agent has a setting of its own for. Either opens what it finds.
+// Every connection, Information first, with a checkbox per action. A filter narrows them to the
+// connections and actions it names; Changed only keeps the actions the agent has a setting of its
+// own for.
 function AccessGrid({agent, connections, onChange}: GridProps) {
 	const [query, setQuery] = useState('');
 	const [changedOnly, setChangedOnly] = useState(false);
-	const [opened, setOpened] = useState<Set<string>>(() => new Set());
-	const filtering = query.trim() !== '' || changedOnly;
 	const matches = (text: string) => text.toLowerCase().includes(query.trim().toLowerCase());
 	const groups = connections.flatMap((connection) => {
 		const integration = integrationOf(connection);
@@ -283,35 +277,16 @@ function AccessGrid({agent, connections, onChange}: GridProps) {
 		}
 
 		const label = connectionLabel(connections, connection);
-		const collections = integration.collections.flatMap((collection) => {
-			const own = ownSettings(agent, connection.id, collection.id);
-			const named = [label, connection.account, collection.name];
-			const shown = collection.actions
-				.filter((action) => !changedOnly || own[action.id] !== undefined)
-				.filter(
-					(action) => named.some(matches) || matches(action.label) || matches(action.description),
-				)
-				.map((action) => action.id);
-			if (filtering && shown.length === 0) {
-				return [];
-			}
-			return [{collection, own, shown}];
-		});
-		if (collections.length === 0) {
+		const own = ownSettings(agent, connection.id);
+		const named = [label, connection.account].some(matches);
+		const actions = integration.actions
+			.filter((action) => !changedOnly || own[action.id] !== undefined)
+			.filter((action) => named || matches(action.label) || matches(action.description));
+		if (actions.length === 0) {
 			return [];
 		}
-		return [{connection, integration, label, collections}];
+		return [{connection, integration, label, own, actions}];
 	});
-	const toggle = (key: string, open: boolean) => {
-		const next = new Set(opened);
-		if (open) {
-			next.add(key);
-		}
-		if (!open) {
-			next.delete(key);
-		}
-		setOpened(next);
-	};
 
 	return (
 		<div className="flex flex-col gap-6">
@@ -341,7 +316,7 @@ function AccessGrid({agent, connections, onChange}: GridProps) {
 					</EmptyRows>
 				</RowList>
 			)}
-			{groups.map(({connection, integration, label, collections}) => (
+			{groups.map(({connection, integration, label, own, actions}) => (
 				<div key={connection.id} className="flex flex-col gap-1">
 					<div className="flex items-center gap-2 text-sm md:px-3">
 						<integration.icon className="size-4 shrink-0 text-muted-foreground" />
@@ -356,23 +331,12 @@ function AccessGrid({agent, connections, onChange}: GridProps) {
 							<span className="truncate text-muted-foreground">{connection.account}</span>
 						)}
 					</div>
-					<RowList>
-						{collections.map(({collection, own, shown}) => {
-							const key = `${connection.id}/${collection.id}`;
-							return (
-								<CollectionAccess
-									key={key}
-									collection={collection}
-									defaults={defaultActions(connection, collection.id)}
-									own={own}
-									shown={filtering ? shown : undefined}
-									open={filtering || opened.has(key)}
-									onOpenChange={(open) => toggle(key, open)}
-									onChange={(actions) => onChange(connection.id, collection.id, actions)}
-								/>
-							);
-						})}
-					</RowList>
+					<ConnectionAccess
+						actions={actions}
+						defaults={defaultActions(connection)}
+						own={own}
+						onChange={(changes) => onChange(connection.id, changes)}
+					/>
 				</div>
 			))}
 		</div>

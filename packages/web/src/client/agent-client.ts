@@ -12,8 +12,8 @@ const agentMeSchema = z.object({
 			id: z.string(),
 			integrationId: z.string(),
 			account: z.string(),
-			// The actions the agent can take in each collection it can read.
-			collections: z.array(z.object({id: z.string(), actions: z.array(z.string())})),
+			// The actions the agent can take with the connection.
+			actions: z.array(z.string()),
 		}),
 	),
 });
@@ -94,5 +94,20 @@ export function runAgentCommand(
 		'POST',
 		`${recordsPath(connectionId, collectionId)}/${recordId}/commands/${commandId}`,
 		z.object({record: dataRecordSchema.nullable()}),
+	);
+}
+
+/** Runs a command on values typed in, such as Send for a new email. */
+export function runAgentNewCommand(
+	connectionId: string,
+	collectionId: string,
+	commandId: string,
+	values: Record<string, string>,
+) {
+	return apiRequest(
+		'POST',
+		`/api/agent/connections/${connectionId}/collections/${collectionId}/commands/${commandId}`,
+		z.object({record: dataRecordSchema.nullable()}),
+		{values},
 	);
 }

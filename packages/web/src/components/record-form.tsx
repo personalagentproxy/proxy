@@ -21,6 +21,8 @@ type FormProps = {
 	onCancel?: () => void;
 	// Extra actions at the start of the button row, such as Delete.
 	extra?: ReactNode;
+	// A second way to submit beside the main one, such as Save as draft beside Send.
+	alternative?: {label: string; onSubmit: (values: Record<string, string>) => void};
 };
 
 const INPUT_TYPES: Partial<Record<Field['type'], string>> = {
@@ -38,6 +40,7 @@ export function RecordForm({
 	onSubmit,
 	onCancel,
 	extra,
+	alternative,
 }: FormProps) {
 	const id = useId();
 	const [values, setValues] = useState(initial);
@@ -70,6 +73,11 @@ export function RecordForm({
 				{onCancel && (
 					<Button type="button" variant="outline" onClick={onCancel}>
 						Cancel
+					</Button>
+				)}
+				{alternative && (
+					<Button type="button" variant="outline" onClick={() => alternative.onSubmit(values)}>
+						{alternative.label}
 					</Button>
 				)}
 				<Button type="submit">{submitLabel}</Button>

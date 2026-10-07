@@ -24,7 +24,7 @@ const emailRow = {
 	integrationId: 'email',
 	account: 'alex@example.com',
 	createdAt: new Date('2026-10-01T00:00:00Z'),
-	defaults: [{collectionId: 'emails', actionId: 'read'}],
+	defaults: [{actionId: 'read'}],
 };
 
 function makeRequest(params: Record<string, string> = {}, body: unknown = undefined) {
@@ -45,18 +45,14 @@ beforeEach(() => {
 });
 
 describe('handleListConnectionsRoute', () => {
-	test("lists the organization's connections with each collection's default actions", async () => {
+	test("lists the organization's connections with their default actions", async () => {
 		const {handleListConnectionsRoute} = await import('./route');
 		const result = await handleListConnectionsRoute(makeRequest());
 
 		expect(listConnections).toHaveBeenCalledWith('org-1');
 		const [connection] = result.unwrap().connections;
 		expect(connection).toMatchObject({id: 'conn-1', integrationId: 'email', account: 'alex@example.com', connectedAt: '2026-10-01T00:00:00.000Z'});
-		expect(connection?.collections).toEqual([
-			{id: 'emails', defaults: ['read']},
-			{id: 'drafts', defaults: []},
-			{id: 'sent', defaults: []},
-		]);
+		expect(connection?.defaults).toEqual(['read']);
 	});
 
 	test('a user without an organization is signed out', async () => {
@@ -120,30 +116,23 @@ describe('handleDeleteConnectionRoute', () => {
 describe('handleSetConnectionDefaultsRoute', () => {
 	test('turns default actions on and off', async () => {
 		const {handleSetConnectionDefaultsRoute} = await import('./route');
-		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1', collectionId: 'drafts'}, {actions: {read: true, write: false}}));
+		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {read: true, send: false}}));
 
-		expect(setConnectionDefaults).toHaveBeenCalledWith({connectionId: 'conn-1', collectionId: 'drafts', actions: {read: true, write: false}});
+		expect(setConnectionDefaults).toHaveBeenCalledWith({connectionId: 'conn-1', actions: {read: true, send: false}});
 		expect(result.isOk()).toBe(true);
 	});
 
-	test('refuses an action the collection does not have', async () => {
+	test('refuses an action the integration does not have', async () => {
 		const {handleSetConnectionDefaultsRoute} = await import('./route');
-		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1', collectionId: 'drafts'}, {actions: {admin: true}}));
+		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {readCards: true}}));
 
 		expect(result.unwrapErr().kind).toBe('validation_error');
 		expect(setConnectionDefaults).not.toHaveBeenCalled();
 	});
 
-	test('refuses a collection the integration does not have', async () => {
-		const {handleSetConnectionDefaultsRoute} = await import('./route');
-		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1', collectionId: 'events'}, {actions: {read: true}}));
-
-		expect(result.unwrapErr().kind).toBe('not_found');
-	});
-
 	test('refuses a setting that is not on or off', async () => {
 		const {handleSetConnectionDefaultsRoute} = await import('./route');
-		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1', collectionId: 'drafts'}, {actions: {read: null}}));
+		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {read: null}}));
 
 		expect(result.unwrapErr().kind).toBe('parse_error');
 	});
@@ -152,7 +141,7 @@ describe('handleSetConnectionDefaultsRoute', () => {
 		setConnectionDefaults.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
 
 		const {handleSetConnectionDefaultsRoute} = await import('./route');
-		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1', collectionId: 'drafts'}, {actions: {read: true}}));
+		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {read: true}}));
 
 		expect(result.unwrapErr().kind).toBe('db_error');
 	});

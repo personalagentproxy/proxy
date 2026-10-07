@@ -134,12 +134,11 @@ model Connection {
   @@index([orgId])
 }
 
-// An action of one of the connection's collections that agents get by default, such as `read`
-// on emails. The actions are the catalog's (`@proxy/integrations`); no row is off.
+// An action of the connection that agents get by default, such as `read` or `archive` on a
+// mailbox. The actions are the catalog's (`@proxy/integrations`); no row is off.
 model ConnectionDefault {
   id           String @id @default(cuid())
   connectionId String
-  collectionId String
   actionId     String
 
   createdAt DateTime @default(now())
@@ -147,7 +146,7 @@ model ConnectionDefault {
 
   connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
 
-  @@unique([connectionId, collectionId, actionId])
+  @@unique([connectionId, actionId])
 }
 
 // A record of the built-in Information connection, such as an address or a payment card.
@@ -187,13 +186,12 @@ model Agent {
   @@index([orgId])
 }
 
-// An agent's own setting for one action of a connection's collection, on or off, where it differs
-// from the connection's default. No row means the agent follows the default.
+// An agent's own setting for one action of a connection, on or off, where it differs from the
+// connection's default. No row means the agent follows the default.
 model AgentGrant {
   id           String  @id @default(cuid())
   agentId      String
   connectionId String
-  collectionId String
   actionId     String
   allowed      Boolean
 
@@ -203,7 +201,7 @@ model AgentGrant {
   agent      Agent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
   connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
 
-  @@unique([agentId, connectionId, collectionId, actionId])
+  @@unique([agentId, connectionId, actionId])
   @@index([connectionId])
 }
 

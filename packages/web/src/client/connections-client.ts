@@ -15,18 +15,11 @@ export function deleteConnection(connectionId: string) {
 	return apiSend('DELETE', `/api/connections/${connectionId}`);
 }
 
-/** Turns default actions of a collection on or off; actions left out stay as they are. */
-export function setConnectionDefaults(
-	connectionId: string,
-	collectionId: string,
-	actions: Record<string, boolean>,
-) {
-	return apiRequest(
-		'PUT',
-		`/api/connections/${connectionId}/defaults/${collectionId}`,
-		connectionSchema,
-		{actions},
-	);
+/** Turns default actions of a connection on or off; actions left out stay as they are. */
+export function setConnectionDefaults(connectionId: string, actions: Record<string, boolean>) {
+	return apiRequest('PUT', `/api/connections/${connectionId}/defaults`, connectionSchema, {
+		actions,
+	});
 }
 
 export type ConnectEmailInput = {

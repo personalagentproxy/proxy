@@ -5,7 +5,7 @@ import {deleteConnection, setConnectionDefaults} from '@/client/connections-clie
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
-import {CollectionAccess} from '@/components/collection-access';
+import {ConnectionAccess} from '@/components/connection-access';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
 import {NotFound} from '@/components/not-found';
@@ -17,7 +17,7 @@ import {
 	defaultActions,
 	integrationOf,
 	ownSettings,
-	summarizeActions,
+	describeActions,
 } from '@/lib/access';
 import {formatDate} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
@@ -32,7 +32,6 @@ export function ConnectionPage() {
 	const revalidator = useRevalidator();
 	const [disconnecting, setDisconnecting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [opened, setOpened] = useState<Set<string>>(() => new Set());
 	const integration = connection && integrationOf(connection);
 	if (!connection || !integration) {
 		return <NotFound what="connection" back="/connections" backLabel="Back to connections" />;
@@ -61,36 +60,16 @@ export function ConnectionPage() {
 					<p className="mb-2 text-sm text-muted-foreground md:px-3">
 						What every agent gets here, unless its own page says otherwise.
 					</p>
-					<RowList>
-						{integration.collections.map((collection) => (
-							<CollectionAccess
-								key={collection.id}
-								collection={collection}
-								defaults={defaultActions(connection, collection.id)}
-								differing={differingAgents(agents, connection.id, collection.id)}
-								open={opened.has(collection.id)}
-								onOpenChange={(open) => {
-									const next = new Set(opened);
-									if (open) {
-										next.add(collection.id);
-									}
-									if (!open) {
-										next.delete(collection.id);
-									}
-									setOpened(next);
-								}}
-								onChange={async (actions) => {
-									const result = await setConnectionDefaults(
-										connection.id,
-										collection.id,
-										onOrOff(actions),
-									);
-									setError(result.isErr() ? describeFetchError(result.error) : null);
-									await revalidator.revalidate();
-								}}
-							/>
-						))}
-					</RowList>
+					<ConnectionAccess
+						actions={integration.actions}
+						defaults={defaultActions(connection)}
+						differing={differingAgents(agents, connection.id)}
+						onChange={async (actions) => {
+							const result = await setConnectionDefaults(connection.id, onOrOff(actions));
+							setError(result.isErr() ? describeFetchError(result.error) : null);
+							await revalidator.revalidate();
+						}}
+					/>
 					{error && <p className="mt-2 text-sm text-destructive md:px-3">{error}</p>}
 				</Section>
 				<Section title="Agents with access">
@@ -103,17 +82,7 @@ export function ConnectionPage() {
 								title={agent.name}
 								cells={
 									<span className="hidden min-w-0 shrink truncate text-right text-muted-foreground md:block">
-										{integration.collections
-											.map((collection) => ({
-												collection,
-												actions: actionsFor(agent, connection, collection),
-											}))
-											.filter(({actions}) => actions.length > 0)
-											.map(
-												({collection, actions}) =>
-													`${collection.name}: ${summarizeActions(collection, actions)}`,
-											)
-											.join(', ')}
+										{describeActions(integration, actionsFor(agent, connection))}
 									</span>
 								}
 							/>
@@ -165,14 +134,13 @@ export function ConnectionPage() {
 function differingAgents(
 	agents: AgentLogin[],
 	connectionId: string,
-	collectionId: string,
 ): Partial<Record<string, number>> {
 	const counts: Partial<Record<string, number>> = {};
 	for (const agent of agents) {
 		if (agent.revokedAt !== null) {
 			continue;
 		}
-		for (const actionId of Object.keys(ownSettings(agent, connectionId, collectionId))) {
+		for (const actionId of Object.keys(ownSettings(agent, connectionId))) {
 			counts[actionId] = (counts[actionId] ?? 0) + 1;
 		}
 	}

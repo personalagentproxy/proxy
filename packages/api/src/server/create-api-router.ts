@@ -9,6 +9,7 @@ import {
 	handleAgentListRecordsRoute,
 	handleAgentMeRoute,
 	handleAgentRunCommandRoute,
+	handleAgentRunNewCommandRoute,
 	handleAgentUpdateRecordRoute,
 } from '../agent-side/route';
 import {
@@ -68,7 +69,7 @@ export function createApiRouter(): express.Router {
 	router.post('/api/connections/email', withAuthResult('Connect email route', handleConnectEmailRoute));
 	router.get('/api/connections/:connectionId', withAuthResult('Get connection route', handleGetConnectionRoute));
 	router.delete('/api/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
-	router.put('/api/connections/:connectionId/defaults/:collectionId', withAuthResult('Set connection defaults route', handleSetConnectionDefaultsRoute));
+	router.put('/api/connections/:connectionId/defaults', withAuthResult('Set connection defaults route', handleSetConnectionDefaultsRoute));
 	const records = '/api/connections/:connectionId/collections/:collectionId/records';
 	router.get(records, withAuthResult('List records route', handleListRecordsRoute));
 	router.post(records, withAuthResult('Create record route', handleCreateRecordRoute));
@@ -84,7 +85,7 @@ export function createApiRouter(): express.Router {
 	router.delete('/api/agents/:agentId', withAuthResult('Delete agent route', handleDeleteAgentRoute));
 	router.post('/api/agents/:agentId/password', withAuthResult('Reset agent password route', handleResetAgentPasswordRoute));
 	router.put('/api/agents/:agentId/revoked', withAuthResult('Set agent revoked route', handleSetAgentRevokedRoute));
-	router.put('/api/agents/:agentId/grants/:connectionId/:collectionId', withAuthResult('Set agent grants route', handleSetAgentGrantsRoute));
+	router.put('/api/agents/:agentId/grants/:connectionId', withAuthResult('Set agent grants route', handleSetAgentGrantsRoute));
 
 	router.use('/api/activity', apiCorsMiddleware, requireBrowserOrigin);
 	router.options('/api/activity', handle204);
@@ -106,6 +107,7 @@ export function createApiRouter(): express.Router {
 	router.put(`${agentRecords}/:recordId`, withAgentAuthResult('Agent update record route', handleAgentUpdateRecordRoute));
 	router.delete(`${agentRecords}/:recordId`, withAgentAuthResult('Agent delete record route', handleAgentDeleteRecordRoute));
 	router.post(`${agentRecords}/:recordId/commands/:commandId`, withAgentAuthResult('Agent run command route', handleAgentRunCommandRoute));
+	router.post('/api/agent/connections/:connectionId/collections/:collectionId/commands/:commandId', withAgentAuthResult('Agent run new command route', handleAgentRunNewCommandRoute));
 
 	router.use((_req, res) => {
 		res.status(404).json({error: 'not_found'});

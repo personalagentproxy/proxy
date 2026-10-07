@@ -95,8 +95,8 @@ async function connect(data: {
 	account: string;
 	credential: string | null;
 	daysAgo: number;
-	// The actions agents get by default, by collection; a collection left out gets none.
-	defaults: Record<string, string[]>;
+	// The actions agents get by default.
+	defaults: string[];
 }): Promise<Connection> {
 	const connection = await db.connection.create({
 		data: {
@@ -107,18 +107,14 @@ async function connect(data: {
 			createdAt: daysAgo(data.daysAgo),
 		},
 	});
-	for (const [collectionId, actionIds] of Object.entries(data.defaults)) {
-		for (const actionId of actionIds) {
-			await db.connectionDefault.create({
-				data: {connectionId: connection.id, collectionId, actionId},
-			});
-		}
+	for (const actionId of data.defaults) {
+		await db.connectionDefault.create({data: {connectionId: connection.id, actionId}});
 	}
 	return connection;
 }
 
 // A provider's real servers with a made-up app password: the access pages work, opening the
-// mailbox's emails or drafts fails to sign in.
+// mailbox's email fails to sign in.
 function mailboxCredential(providerId: EmailProvider['id'], username: string): string {
 	const servers = EMAIL_PROVIDERS.find((provider) => provider.id === providerId)?.servers;
 	return encrypt(JSON.stringify({...servers, username, password: 'abcd-efgh-ijkl-mnop'}));
@@ -127,7 +123,7 @@ function mailboxCredential(providerId: EmailProvider['id'], username: string): s
 async function connectMailbox(
 	providerId: EmailProvider['id'],
 	account: string,
-	data: {daysAgo: number; defaults: Record<string, string[]>},
+	data: {daysAgo: number; defaults: string[]},
 ): Promise<Connection> {
 	const credential = mailboxCredential(providerId, account);
 	return connect({integrationId: 'email', account, credential, ...data});
@@ -138,30 +134,25 @@ const info = await connect({
 	account: ORG_NAME,
 	credential: null,
 	daysAgo: 40,
-	defaults: {addresses: ['read'], notes: ['read']},
+	defaults: ['readAddresses', 'readNotes'],
 });
 const personal = await connectMailbox('gmail', 'demo.user@gmail.com', {
 	daysAgo: 38,
-	// Read & triage on the inbox, drafts written but never sent, Sent readable.
-	defaults: {
-		emails: ['read', 'mark', 'flag', 'archive'],
-		drafts: ['read', 'write'],
-		sent: ['read'],
-	},
+	// Triage and drafts, but nothing goes out.
+	defaults: ['read', 'mark', 'flag', 'archive', 'write'],
 });
 const work = await connectMailbox('fastmail', 'demo@acme-corp.com', {
 	daysAgo: 30,
-	defaults: {emails: ['read'], drafts: ['read']},
+	defaults: ['read'],
 });
 // No defaults: closed to every agent without a setting of its own.
 const receipts = await connectMailbox('icloud', 'demo.receipts@icloud.com', {
 	daysAgo: 21,
-	defaults: {},
+	defaults: [],
 });
 const newsletters = await connectMailbox('yahoo', 'demo.news@yahoo.com', {
 	daysAgo: 3,
-	// Custom: read and mark, nothing else.
-	defaults: {emails: ['read', 'mark']},
+	defaults: ['read', 'mark'],
 });
 
 const connections: [Connection, ...Connection[]] = [info, personal, work, receipts, newsletters];
@@ -223,17 +214,12 @@ for (const [collectionId, records] of Object.entries(INFO_RECORDS)) {
 
 // ---- Agents and their own settings ----------------------------------------------------------
 
-type Grant = {connectionId: string; collectionId: string; actionId: string; allowed: boolean};
+type Grant = {connectionId: string; actionId: string; allowed: boolean};
 
-// The agent's own settings for some actions of a collection, on or off.
-function grant(
-	connection: Connection,
-	collectionId: string,
-	actions: Record<string, boolean>,
-): Grant[] {
+// The agent's own settings for some actions of a connection, on or off.
+function grant(connection: Connection, actions: Record<string, boolean>): Grant[] {
 	return Object.entries(actions).map(([actionId, allowed]) => ({
 		connectionId: connection.id,
-		collectionId,
 		actionId,
 		allowed,
 	}));
@@ -274,13 +260,11 @@ const agents = [
 		username: 'personal-assistant-k7q2',
 		daysAgo: 35,
 		grants: [
-			grant(info, 'addresses', {write: true}),
-			grant(info, 'cards', {read: true}),
-			grant(info, 'notes', {write: true}),
-			grant(personal, 'drafts', {send: true}),
-			grant(work, 'drafts', {write: true, send: true}),
-			grant(receipts, 'emails', {read: true}),
-			grant(newsletters, 'emails', {read: false}),
+			grant(info, {writeAddresses: true, readCards: true, writeNotes: true}),
+			grant(personal, {send: true}),
+			grant(work, {write: true, send: true}),
+			grant(receipts, {read: true}),
+			grant(newsletters, {read: false}),
 		],
 	}),
 	// Reads the cards no agent gets by default and files receipts; kept out of the work mailbox.
@@ -289,10 +273,10 @@ const agents = [
 		username: 'shopping-agent-m3x9',
 		daysAgo: 28,
 		grants: [
-			grant(info, 'cards', {read: true}),
-			grant(personal, 'drafts', {write: false}),
-			grant(work, 'emails', {read: false}),
-			grant(receipts, 'emails', {read: true, archive: true}),
+			grant(info, {readCards: true}),
+			grant(personal, {write: false}),
+			grant(work, {read: false}),
+			grant(receipts, {read: true, archive: true}),
 		],
 	}),
 	// Nothing of its own: follows every default.
@@ -303,11 +287,9 @@ const agents = [
 		username: 'inbox-triage-w8hd',
 		daysAgo: 14,
 		grants: [
-			grant(personal, 'emails', {trash: true}),
-			grant(personal, 'drafts', {read: false}),
-			grant(work, 'emails', {mark: true, flag: true, archive: true}),
-			grant(info, 'addresses', {read: false}),
-			grant(info, 'notes', {read: false}),
+			grant(personal, {trash: true, write: false}),
+			grant(work, {mark: true, flag: true, archive: true}),
+			grant(info, {readAddresses: false, readNotes: false}),
 		],
 	}),
 	await makeAgent({
@@ -315,12 +297,17 @@ const agents = [
 		username: 'travel-planner-r2jc',
 		daysAgo: 9,
 		grants: [
-			grant(info, 'notes', {write: true}),
-			grant(info, 'cards', {read: true}),
-			grant(personal, 'emails', {archive: false}),
-			grant(work, 'emails', {read: false}),
-			grant(work, 'drafts', {read: false}),
+			grant(info, {writeNotes: true, readCards: true}),
+			grant(personal, {archive: false}),
+			grant(work, {read: false}),
 		],
+	}),
+	// Sends status emails from the work address without reading the mailbox.
+	await makeAgent({
+		name: 'Status notifier',
+		username: 'status-notifier-h6fa',
+		daysAgo: 6,
+		grants: [grant(work, {read: false, send: true})],
 	}),
 	// Revoked: its settings stay, but it can't sign in.
 	await makeAgent({
@@ -328,7 +315,7 @@ const agents = [
 		username: 'old-scraper-z5vb',
 		daysAgo: 33,
 		revokedDaysAgo: 12,
-		grants: [grant(personal, 'drafts', {write: false}), grant(info, 'addresses', {read: false})],
+		grants: [grant(personal, {write: false}), grant(info, {readAddresses: false})],
 	}),
 ];
 
@@ -351,29 +338,22 @@ function requestsOf(collection: Collection): [string, ...string[]] {
 	];
 }
 
-// Titles for the mailboxes' records; Information's come from the records seeded above.
-const EMAIL_TITLES: Record<string, [string, ...string[]]> = {
-	emails: [
-		'Your order has shipped',
-		'Q3 planning — agenda',
-		'Flight confirmation LH 401',
-		'Invoice #20931',
-		'Re: dinner on Friday?',
-		'Weekly digest',
-	],
-	sent: ['Re: dinner on Friday?', 'Booking request for 12 Oct', 'Re: Q3 planning — agenda'],
-	drafts: [
-		'Re: Q3 planning — agenda',
-		'Return request for order 112-883',
-		'Thanks for the intro!',
-		'Out of office next week',
-	],
-};
+// Titles for the mailboxes' emails; Information's come from the records seeded above.
+const EMAIL_TITLES: [string, ...string[]] = [
+	'Your order has shipped',
+	'Q3 planning — agenda',
+	'Flight confirmation LH 401',
+	'Invoice #20931',
+	'Re: dinner on Friday?',
+	'Weekly digest',
+	'Booking request for 12 Oct',
+	'Return request for order 112-883',
+	'Thanks for the intro!',
+];
 
 function recordTitle(connection: Connection, collectionId: string): string {
-	const emailTitles = EMAIL_TITLES[collectionId];
-	if (connection.integrationId === 'email' && emailTitles) {
-		return pick(emailTitles);
+	if (connection.integrationId === 'email') {
+		return pick(EMAIL_TITLES);
 	}
 
 	const titles = (INFO_RECORDS[collectionId] ?? []).map((values) => values.label ?? values.title);
@@ -396,20 +376,21 @@ function randomRequest(): Request | null {
 // Allowed or denied by the agent's real access, the way the api decides.
 function isAllowed(agent: (typeof agents)[number], request: Request): boolean {
 	const {connection, collection, action} = request;
+	const integration = findIntegration(connection.integrationId);
 	const defaults = connectionDefaults
-		.filter(
-			(stored) => stored.connectionId === connection.id && stored.collectionId === collection.id,
-		)
+		.filter((stored) => stored.connectionId === connection.id)
 		.map((stored) => stored.actionId);
 	const own = Object.fromEntries(
 		agent.grants
-			.filter(
-				(stored) => stored.connectionId === connection.id && stored.collectionId === collection.id,
-			)
+			.filter((stored) => stored.connectionId === connection.id)
 			.map((stored) => [stored.actionId, stored.allowed]),
 	);
 	const needed = requiredAction(collection, action);
-	return needed !== null && effectiveActions(collection, defaults, own).includes(needed);
+	return (
+		integration !== undefined &&
+		needed !== null &&
+		effectiveActions(integration, defaults, own).includes(needed)
+	);
 }
 
 let entryCount = 0;

@@ -57,12 +57,13 @@ describe('records routes', () => {
 		expect(result.unwrap()).toEqual(record);
 	});
 
-	test('refuse writing a read-only collection', async () => {
-		useCollection('email', 'emails');
+	test("refuse writes the collection doesn't offer", async () => {
+		const readOnly = {...collection('info', 'notes'), writes: {}};
+		loadRecordTarget.mockResolvedValue(Ok({connection: {id: 'conn-1'}, collection: readOnly, connector}));
 
 		const {handleCreateRecordRoute, handleDeleteRecordRoute} = await import('./route');
-		const created = await handleCreateRecordRoute(makeRequest({connectionId: 'conn-1', collectionId: 'emails'}, {values: {}}));
-		const deleted = await handleDeleteRecordRoute(makeRequest({connectionId: 'conn-1', collectionId: 'emails', recordId: 'rec-1'}));
+		const created = await handleCreateRecordRoute(makeRequest({connectionId: 'conn-1', collectionId: 'notes'}, {values: {}}));
+		const deleted = await handleDeleteRecordRoute(makeRequest({connectionId: 'conn-1', collectionId: 'notes', recordId: 'rec-1'}));
 
 		expect(created.unwrapErr().kind).toBe('forbidden');
 		expect(deleted.unwrapErr().kind).toBe('forbidden');

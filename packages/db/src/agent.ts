@@ -12,7 +12,7 @@ export type AgentRow = {
 	createdAt: Date;
 	lastActiveAt: Date | null;
 	revokedAt: Date | null;
-	grants: Array<{connectionId: string; collectionId: string; actionId: string; allowed: boolean}>;
+	grants: Array<{connectionId: string; actionId: string; allowed: boolean}>;
 };
 
 // Never the password hash: only signing in reads it.
@@ -23,7 +23,7 @@ const agentSelect = {
 	createdAt: true,
 	lastActiveAt: true,
 	revokedAt: true,
-	grants: {select: {connectionId: true, collectionId: true, actionId: true, allowed: true}},
+	grants: {select: {connectionId: true, actionId: true, allowed: true}},
 } as const;
 
 export async function listAgents(orgId: string): Promise<Result<AgentRow[], ApiError>> {
@@ -96,17 +96,16 @@ export async function deleteAgent(
 }
 
 /**
- * Sets the agent's own settings for actions of a collection: on, off, or with `null` dropped so the
+ * Sets the agent's own settings for actions of a connection: on, off, or with `null` dropped so the
  * agent follows the connection's default again. Actions left out stay as they are. The caller has
  * checked that the agent and the connection belong to the organization.
  */
 export async function setAgentGrants(data: {
 	agentId: string;
 	connectionId: string;
-	collectionId: string;
 	actions: Record<string, boolean | null>;
 }): Promise<Result<void, ApiError>> {
-	const {agentId, connectionId, collectionId, actions} = data;
+	const {agentId, connectionId, actions} = data;
 	const cleared = Object.keys(actions).filter((actionId) => actions[actionId] === null);
 	const set = Object.entries(actions).flatMap(([actionId, allowed]) =>
 		allowed === null ? [] : [{actionId, allowed}],
@@ -114,19 +113,12 @@ export async function setAgentGrants(data: {
 	return wrapDb(async () => {
 		await db.$transaction([
 			db.agentGrant.deleteMany({
-				where: {agentId, connectionId, collectionId, actionId: {in: cleared}},
+				where: {agentId, connectionId, actionId: {in: cleared}},
 			}),
 			...set.map(({actionId, allowed}) =>
 				db.agentGrant.upsert({
-					where: {
-						agentId_connectionId_collectionId_actionId: {
-							agentId,
-							connectionId,
-							collectionId,
-							actionId,
-						},
-					},
-					create: {agentId, connectionId, collectionId, actionId, allowed},
+					where: {agentId_connectionId_actionId: {agentId, connectionId, actionId}},
+					create: {agentId, connectionId, actionId, allowed},
 					update: {allowed},
 				}),
 			),

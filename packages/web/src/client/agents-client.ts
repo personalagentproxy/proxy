@@ -33,15 +33,11 @@ export function deleteAgent(agentId: string) {
 export function setAgentGrants(
 	agentId: string,
 	connectionId: string,
-	collectionId: string,
 	actions: Record<string, boolean | null>,
 ) {
-	return apiRequest(
-		'PUT',
-		`/api/agents/${agentId}/grants/${connectionId}/${collectionId}`,
-		agentSchema,
-		{actions},
-	);
+	return apiRequest('PUT', `/api/agents/${agentId}/grants/${connectionId}`, agentSchema, {
+		actions,
+	});
 }
 
 export function listActivity(filter: {agentId?: string; connectionId?: string}) {

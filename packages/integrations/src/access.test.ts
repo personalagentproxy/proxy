@@ -1,94 +1,85 @@
 import {describe, expect, test} from 'bun:test';
 
-import {effectiveActions, matchingPreset, presetsOf, requiredAction} from './access';
+import {applies, effectiveActions, requiredAction} from './access';
 import {findCollection, findIntegration, INTEGRATIONS} from './catalog';
-import type {Collection} from './types';
+import type {Collection, Integration} from './types';
+
+function integration(id: string): Integration {
+	const found = findIntegration(id);
+	if (!found) {
+		throw new Error(`No integration ${id}`);
+	}
+	return found;
+}
 
 function collection(integrationId: string, collectionId: string): Collection {
-	const integration = findIntegration(integrationId);
-	const found = integration && findCollection(integration, collectionId);
+	const found = findCollection(integration(integrationId), collectionId);
 	if (!found) {
 		throw new Error(`No collection ${integrationId}/${collectionId}`);
 	}
 	return found;
 }
 
-const drafts = collection('email', 'drafts');
+const email = integration('email');
+const emails = collection('email', 'emails');
 
-test('every collection starts with read, and its writes and commands name its own actions', () => {
-	for (const integration of INTEGRATIONS) {
-		for (const each of integration.collections) {
-			const ids = each.actions.map((action) => action.id);
-			expect(ids[0]).toBe('read');
-			const needed = [
-				...Object.values(each.writes),
-				...(each.commands ?? []).map((command) => command.action),
-				...(each.presets ?? []).flatMap((preset) => preset.actions),
-			];
-			expect(needed.filter((id) => !ids.includes(id))).toEqual([]);
-		}
+test("every read, write, command and requirement names one of the integration's actions", () => {
+	for (const each of INTEGRATIONS) {
+		const ids = each.actions.map((action) => action.id);
+		const named = [
+			...each.actions.flatMap((action) => (action.requires ? [action.requires] : [])),
+			...each.collections.flatMap((one) => [
+				one.read,
+				...Object.values(one.writes),
+				...(one.commands ?? []).map((command) => command.action),
+			]),
+		];
+		expect(named.filter((id) => !ids.includes(id))).toEqual([]);
 	}
 });
 
 describe('effectiveActions', () => {
 	test('an agent without its own settings follows the default', () => {
-		expect(effectiveActions(drafts, ['read', 'write'])).toEqual(['read', 'write']);
+		expect(effectiveActions(email, ['read', 'archive'])).toEqual(['read', 'archive']);
 	});
 
 	test("an agent's own setting wins over the default, one action at a time", () => {
-		expect(effectiveActions(drafts, ['read', 'write'], {write: false})).toEqual(['read']);
-		expect(effectiveActions(drafts, ['read'], {write: true})).toEqual(['read', 'write']);
+		expect(effectiveActions(email, ['read', 'archive'], {archive: false})).toEqual(['read']);
+		expect(effectiveActions(email, ['read'], {send: true})).toEqual(['read', 'send']);
 	});
 
-	test('nothing counts without read', () => {
-		expect(effectiveActions(drafts, ['read', 'write'], {read: false})).toEqual([]);
-		expect(effectiveActions(drafts, ['write'])).toEqual([]);
+	test('an action counts only with the one it requires', () => {
+		expect(effectiveActions(email, ['read', 'archive'], {read: false})).toEqual([]);
+		expect(effectiveActions(integration('info'), ['writeCards', 'readNotes'])).toEqual([
+			'readNotes',
+		]);
+	});
+
+	test('sending needs nothing else', () => {
+		expect(effectiveActions(email, ['send'])).toEqual(['send']);
 	});
 
 	test('an action the catalog no longer has is dropped', () => {
-		expect(effectiveActions(drafts, ['read', 'gone'])).toEqual(['read']);
-	});
-});
-
-describe('presets', () => {
-	test('one per set of actions, from No access to everything', () => {
-		expect(presetsOf(collection('info', 'cards')).map((preset) => preset.label)).toEqual([
-			'No access',
-			'Read',
-			'Read & write',
-		]);
-	});
-
-	test("a collection's own presets sit between Read and Full access", () => {
-		expect(presetsOf(collection('email', 'emails')).map((preset) => preset.label)).toEqual([
-			'No access',
-			'Read',
-			'Read & triage',
-			'Full access',
-		]);
-	});
-
-	test('actions that match no preset are Custom', () => {
-		expect(matchingPreset(drafts, ['read', 'write'])?.label).toBe('Read & write');
-		expect(matchingPreset(drafts, ['write'])).toBeNull();
+		expect(effectiveActions(email, ['read', 'gone'])).toEqual(['read']);
 	});
 });
 
 describe('requiredAction', () => {
-	test("reading needs read, writing the collection's own action", () => {
-		expect(requiredAction(drafts, 'list')).toBe('read');
-		expect(requiredAction(drafts, 'update')).toBe('write');
-	});
-
-	test('a command needs its action, several commands sharing one', () => {
-		const emails = collection('email', 'emails');
-		expect(requiredAction(emails, 'markRead')).toBe('mark');
+	test("reading needs the collection's read, writing and commands their own action", () => {
+		expect(requiredAction(collection('info', 'cards'), 'list')).toBe('readCards');
+		expect(requiredAction(collection('info', 'cards'), 'update')).toBe('writeCards');
 		expect(requiredAction(emails, 'markUnread')).toBe('mark');
-		expect(requiredAction(drafts, 'send')).toBe('send');
+		expect(requiredAction(emails, 'sendNew')).toBe('send');
 	});
 
 	test('what a collection does not offer needs an action nobody has', () => {
-		expect(requiredAction(collection('email', 'emails'), 'create')).toBeNull();
-		expect(requiredAction(drafts, 'nonsense')).toBeNull();
+		expect(requiredAction(emails, 'nonsense')).toBeNull();
 	});
+});
+
+test('a condition picks records out by a field', () => {
+	const inbox = {field: 'folder', values: ['Inbox']};
+	expect(applies(inbox, {folder: 'Inbox'})).toBe(true);
+	expect(applies(inbox, {folder: 'Draft'})).toBe(false);
+	expect(applies(undefined, {})).toBe(true);
 });

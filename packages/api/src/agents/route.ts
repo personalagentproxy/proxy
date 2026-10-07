@@ -6,7 +6,7 @@ import {createAgent, deleteAgent, getAgent, isUsernameConflict, listAgents, setA
 import {getConnection} from '@proxy/db/connection';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {parseActionChanges, requireCollection} from '../utils/collection-actions';
+import {parseActionChanges, requireIntegration} from '../utils/connection-actions';
 import {requireUserOrgId} from '../utils/user-org';
 import {toAgentResponse, type AgentResponse} from './agent-response';
 import {generatePassword, generateUsername} from './credentials';
@@ -100,8 +100,8 @@ export function handleDeleteAgentRoute(request: AuthenticatedRequest): Promise<R
 }
 
 /**
- * Sets the agent's own settings for actions of a collection, such as `{actions: {send: false}}`;
- * `null` returns an action to the connection's default. An action the collection doesn't have is
+ * Sets the agent's own settings for actions of a connection, such as `{actions: {send: false}}`;
+ * `null` returns an action to the connection's default. An action the integration doesn't have is
  * refused.
  */
 export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
@@ -109,13 +109,12 @@ export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promis
 		const orgId = $(await requireUserOrgId(request));
 		const agentId = agentIdOf(request);
 		const connectionId = request.params.connectionId ?? '';
-		const collectionId = request.params.collectionId ?? '';
 		$(await requireAgent(orgId, agentId));
 		const connection = $(requirePresent($(await getConnection(orgId, connectionId)), ApiErr.notFound('connection', connectionId)));
-		const collection = $(requireCollection(connection.integrationId, collectionId));
-		const actions = $(parseActionChanges(collection, z.boolean().nullable(), request.body));
+		const integration = $(requireIntegration(connection.integrationId));
+		const actions = $(parseActionChanges(integration, z.boolean().nullable(), request.body));
 
-		$(await setAgentGrants({agentId, connectionId, collectionId, actions}));
+		$(await setAgentGrants({agentId, connectionId, actions}));
 		return $(await requireAgent(orgId, agentId));
 	});
 }

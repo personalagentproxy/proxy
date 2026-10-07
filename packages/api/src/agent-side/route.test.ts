@@ -30,31 +30,35 @@ function collection(integrationId: string, collectionId: string): Collection {
 	return found;
 }
 
-const infoConnection = {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), defaults: [{collectionId: 'addresses', actionId: 'read'}], credential: null};
-const emailConnection = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), defaults: [{collectionId: 'emails', actionId: 'read'}], credential: 'v1.x.y.z'};
+const infoConnection = {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), defaults: [{actionId: 'readAddresses'}], credential: null};
+const emailConnection = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), defaults: [{actionId: 'read'}], credential: 'v1.x.y.z'};
 
 const agent = {
 	id: 'agent-1',
 	name: 'Shopping agent',
 	grants: [
-		{connectionId: 'info-1', collectionId: 'cards', actionId: 'read', allowed: true},
-		{connectionId: 'mail-1', collectionId: 'emails', actionId: 'read', allowed: false},
+		{connectionId: 'info-1', actionId: 'readCards', allowed: true},
+		{connectionId: 'mail-1', actionId: 'read', allowed: false},
 	],
 };
 
+// Reads the mailbox by default, archives and sends of its own.
 const triage = {
 	...agent,
 	grants: [
-		{connectionId: 'mail-1', collectionId: 'emails', actionId: 'read', allowed: true},
-		{connectionId: 'mail-1', collectionId: 'emails', actionId: 'archive', allowed: true},
+		{connectionId: 'mail-1', actionId: 'archive', allowed: true},
+		{connectionId: 'mail-1', actionId: 'send', allowed: true},
 	],
 };
 
-const email = {id: 'mail-rec-1', values: {subject: 'Invoice #20931'}, updatedAt: '2026-10-01T00:00:00.000Z'};
+const inboxEmail = {id: 'inbox-7-12', values: {folder: 'Inbox', subject: 'Invoice #20931'}, updatedAt: '2026-10-01T00:00:00.000Z'};
+const draft = {id: 'drafts-7-3', values: {folder: 'Draft', subject: 'Re: Q3 planning'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 
 const archive = mock();
+const send = mock();
+const sendNew = mock();
 
-const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive}};
+const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send}, newCommands: {sendNew}};
 
 const card = {id: 'rec-1', values: {label: 'Personal Visa', number: '4242'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 
@@ -76,23 +80,13 @@ beforeEach(() => {
 });
 
 describe('handleAgentMeRoute', () => {
-	test('lists what the agent can do: its own settings, else the defaults, leaving out what it cannot read', async () => {
+	test('lists what the agent can do with each connection, leaving out those it can do nothing with', async () => {
 		const {handleAgentMeRoute} = await import('./route');
 		const result = await handleAgentMeRoute(makeRequest());
 
 		expect(result.unwrap()).toEqual({
 			agent: {id: 'agent-1', name: 'Shopping agent'},
-			connections: [
-				{
-					id: 'info-1',
-					integrationId: 'info',
-					account: "Alex's Workspace",
-					collections: [
-						{id: 'addresses', actions: ['read']},
-						{id: 'cards', actions: ['read']},
-					],
-				},
-			],
+			connections: [{id: 'info-1', integrationId: 'info', account: "Alex's Workspace", actions: ['readAddresses', 'readCards']}],
 		});
 	});
 });
@@ -104,7 +98,7 @@ describe('agent record routes', () => {
 		const {handleAgentGetRecordRoute} = await import('./route');
 		const result = await handleAgentGetRecordRoute(makeRequest({connectionId: 'info-1', collectionId: 'cards', recordId: 'rec-1'}));
 
-		expect(result.unwrap()).toEqual({actions: ['read'], record: card});
+		expect(result.unwrap()).toEqual({actions: ['readAddresses', 'readCards'], record: card});
 		expect(logAgentRequest).toHaveBeenCalledWith({
 			orgId: 'org-1',
 			agentId: 'agent-1',
@@ -137,16 +131,16 @@ describe('agent record routes', () => {
 		expect(connector.create).not.toHaveBeenCalled();
 	});
 
-	test('what the collection does not offer is refused and logged', async () => {
+	test('only drafts can be edited, even with Write drafts', async () => {
 		useTarget(emailConnection, 'emails');
-		getAgent.mockResolvedValue(Ok({...agent, grants: []}));
+		getAgent.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'mail-1', actionId: 'write', allowed: true}]}));
+		connector.get.mockResolvedValue(Ok(inboxEmail));
 
 		const {handleAgentUpdateRecordRoute} = await import('./route');
-		const result = await handleAgentUpdateRecordRoute(makeRequest({connectionId: 'mail-1', collectionId: 'emails', recordId: 'rec-1'}, {values: {subject: 'Hi'}}));
+		const result = await handleAgentUpdateRecordRoute(makeRequest({connectionId: 'mail-1', collectionId: 'emails', recordId: inboxEmail.id}, {values: {subject: 'Hi'}}));
 
-		expect(result.unwrapErr().kind).toBe('forbidden');
+		expect(result.unwrapErr().kind).toBe('validation_error');
 		expect(connector.update).not.toHaveBeenCalled();
-		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'emails', action: 'update', outcome: 'denied'});
 	});
 
 	test('a read that cannot be logged is not returned', async () => {
@@ -161,13 +155,14 @@ describe('agent record routes', () => {
 });
 
 describe('handleAgentRunCommandRoute', () => {
-	const params = {connectionId: 'mail-1', collectionId: 'emails', recordId: 'mail-rec-1'};
+	const params = {connectionId: 'mail-1', collectionId: 'emails', recordId: inboxEmail.id};
 
 	beforeEach(() => {
 		useTarget(emailConnection, 'emails');
 		getAgent.mockResolvedValue(Ok(triage));
-		connector.get.mockResolvedValue(Ok(email));
+		connector.get.mockResolvedValue(Ok(inboxEmail));
 		archive.mockResolvedValue(Ok(null));
+		send.mockResolvedValue(Ok(null));
 	});
 
 	test('runs a command the agent has the action for, and logs it with the record title', async () => {
@@ -180,7 +175,7 @@ describe('handleAgentRunCommandRoute', () => {
 	});
 
 	test('a command without its action is refused and logged as denied', async () => {
-		getAgent.mockResolvedValue(Ok({...triage, grants: triage.grants.slice(0, 1)}));
+		getAgent.mockResolvedValue(Ok({...triage, grants: []}));
 
 		const {handleAgentRunCommandRoute} = await import('./route');
 		const result = await handleAgentRunCommandRoute(makeRequest({...params, commandId: 'archive'}));
@@ -190,13 +185,25 @@ describe('handleAgentRunCommandRoute', () => {
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'archive', outcome: 'denied'});
 	});
 
+	test('a command on a record it does not apply to is refused, not run', async () => {
+		const {handleAgentRunCommandRoute} = await import('./route');
+		const sendInboxEmail = await handleAgentRunCommandRoute(makeRequest({...params, commandId: 'send'}));
+		connector.get.mockResolvedValue(Ok(draft));
+		const archiveDraft = await handleAgentRunCommandRoute(makeRequest({...params, recordId: draft.id, commandId: 'archive'}));
+
+		expect(sendInboxEmail.unwrapErr().kind).toBe('validation_error');
+		expect(archiveDraft.unwrapErr().kind).toBe('validation_error');
+		expect(send).not.toHaveBeenCalled();
+		expect(archive).not.toHaveBeenCalled();
+	});
+
 	test('a command the collection does not have is not found and not logged', async () => {
 		const {handleAgentRunCommandRoute} = await import('./route');
-		const sendEmail = await handleAgentRunCommandRoute(makeRequest({...params, commandId: 'send'}));
 		const nonsense = await handleAgentRunCommandRoute(makeRequest({...params, commandId: 'nonsense'}));
+		const newOnly = await handleAgentRunCommandRoute(makeRequest({...params, commandId: 'sendNew'}));
 
-		expect(sendEmail.unwrapErr().kind).toBe('not_found');
 		expect(nonsense.unwrapErr().kind).toBe('not_found');
+		expect(newOnly.unwrapErr().kind).toBe('not_found');
 		expect(logAgentRequest).not.toHaveBeenCalled();
 	});
 
@@ -208,5 +215,34 @@ describe('handleAgentRunCommandRoute', () => {
 
 		expect(result.unwrapErr().kind).toBe('not_found');
 		expect(logAgentRequest).not.toHaveBeenCalled();
+	});
+});
+
+describe('handleAgentRunNewCommandRoute', () => {
+	const params = {connectionId: 'mail-1', collectionId: 'emails', commandId: 'sendNew'};
+	const body = {values: {to: 'sam@example.com', subject: 'Friday', body: 'See you then.'}};
+
+	beforeEach(() => {
+		useTarget(emailConnection, 'emails');
+		sendNew.mockResolvedValue(Ok(null));
+	});
+
+	test('sends a new email with Send alone, and logs its subject', async () => {
+		getAgent.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'mail-1', actionId: 'send', allowed: true}]}));
+
+		const {handleAgentRunNewCommandRoute} = await import('./route');
+		const result = await handleAgentRunNewCommandRoute(makeRequest(params, body));
+
+		expect(result.unwrap()).toEqual({record: null});
+		expect(sendNew.mock.calls[0]?.[1]).toEqual(body.values);
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'sendNew', recordTitle: 'Friday', outcome: 'allowed'});
+	});
+
+	test('is refused without Send', async () => {
+		const {handleAgentRunNewCommandRoute} = await import('./route');
+		const result = await handleAgentRunNewCommandRoute(makeRequest(params, body));
+
+		expect(result.unwrapErr().kind).toBe('forbidden');
+		expect(sendNew).not.toHaveBeenCalled();
 	});
 });

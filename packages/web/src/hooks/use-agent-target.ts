@@ -7,8 +7,10 @@ export type AgentTarget = {
 	connection: AgentMe['connections'][number];
 	integration: Integration;
 	collection: Collection;
-	// The actions the agent can take in the collection.
+	// The actions the agent can take with the connection.
 	actions: string[];
+	// What the breadcrumbs call the connection: the mailbox's address, or Information.
+	place: string;
 };
 
 // The signed-in agent and what it can reach, from the agent side's loader.
@@ -24,12 +26,10 @@ export function useAgentTarget(): AgentTarget | null {
 	const connection = me?.connections.find((candidate) => candidate.id === connectionId);
 	const integration = connection && findIntegration(connection.integrationId);
 	const collection = integration && findCollection(integration, collectionId);
-	const actions = connection?.collections.find(
-		(candidate) => candidate.id === collectionId,
-	)?.actions;
-	if (!connection || !integration || !collection || !actions) {
+	if (!connection || !integration || !collection) {
 		return null;
 	}
 
-	return {connection, integration, collection, actions};
+	const place = integration.builtIn ? integration.name : connection.account;
+	return {connection, integration, collection, actions: connection.actions, place};
 }

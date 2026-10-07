@@ -10,7 +10,7 @@ export type ConnectionRow = {
 	account: string;
 	createdAt: Date;
 	// The actions agents get by default, one per row.
-	defaults: Array<{collectionId: string; actionId: string}>;
+	defaults: Array<{actionId: string}>;
 };
 
 // Never the credential: only `getConnectionWithCredential` reads it.
@@ -19,7 +19,7 @@ const connectionSelect = {
 	integrationId: true,
 	account: true,
 	createdAt: true,
-	defaults: {select: {collectionId: true, actionId: true}},
+	defaults: {select: {actionId: true}},
 } as const;
 
 export async function listConnections(orgId: string): Promise<Result<ConnectionRow[], ApiError>> {
@@ -76,24 +76,23 @@ export async function deleteConnection(
 }
 
 /**
- * Turns default actions of a collection on or off; actions left out stay as they are. The caller
- * has checked that the connection belongs to the organization and the actions to the collection.
+ * Turns default actions of a connection on or off; actions left out stay as they are. The caller
+ * has checked that the connection belongs to the organization and the actions to its integration.
  */
 export async function setConnectionDefaults(data: {
 	connectionId: string;
-	collectionId: string;
 	actions: Record<string, boolean>;
 }): Promise<Result<void, ApiError>> {
-	const {connectionId, collectionId, actions} = data;
+	const {connectionId, actions} = data;
 	const on = Object.keys(actions).filter((actionId) => actions[actionId]);
 	const off = Object.keys(actions).filter((actionId) => !actions[actionId]);
 	return wrapDb(async () => {
 		await db.$transaction([
-			db.connectionDefault.deleteMany({where: {connectionId, collectionId, actionId: {in: off}}}),
+			db.connectionDefault.deleteMany({where: {connectionId, actionId: {in: off}}}),
 			...on.map((actionId) =>
 				db.connectionDefault.upsert({
-					where: {connectionId_collectionId_actionId: {connectionId, collectionId, actionId}},
-					create: {connectionId, collectionId, actionId},
+					where: {connectionId_actionId: {connectionId, actionId}},
+					create: {connectionId, actionId},
 					update: {},
 				}),
 			),

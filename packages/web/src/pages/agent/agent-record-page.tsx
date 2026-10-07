@@ -1,4 +1,4 @@
-import type {Command} from '@proxy/integrations';
+import {applies, type Command} from '@proxy/integrations';
 import {useState} from 'react';
 import {useLoaderData, useNavigate, useRevalidator} from 'react-router';
 import {deleteAgentRecord, runAgentCommand, updateAgentRecord} from '@/client/agent-client';
@@ -31,12 +31,17 @@ export function AgentRecordPage() {
 		return <AgentMissing />;
 	}
 
-	const {connection, integration, collection} = target;
+	const {connection, collection, place} = target;
 	const {actions, record} = outcome.value;
-	const canEdit = allows(collection, actions, 'update');
-	const canDelete = allows(collection, actions, 'delete');
-	const commands = (collection.commands ?? []).filter((command) =>
-		allows(collection, actions, command.id),
+	// What the agent may do, and what applies to this record: only a draft is sent or edited.
+	const editable = applies(collection.editable, record.values);
+	const canEdit = editable && allows(collection, actions, 'update');
+	const canDelete = editable && allows(collection, actions, 'delete');
+	const commands = (collection.commands ?? []).filter(
+		(command) =>
+			command.on === 'record' &&
+			applies(command.where, record.values) &&
+			allows(collection, actions, command.id),
 	);
 	const title = recordTitle(collection, record);
 	const listPath = `/agent/${connection.id}/${collection.id}`;
@@ -62,7 +67,7 @@ export function AgentRecordPage() {
 			<Crumbs
 				items={[
 					{label: 'Home', to: '/agent'},
-					{label: integration.name},
+					{label: place},
 					{label: collection.name, to: listPath},
 					{label: title},
 				]}

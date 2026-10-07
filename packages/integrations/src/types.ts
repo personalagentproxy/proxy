@@ -10,9 +10,8 @@ export type Field = {
 	system?: boolean;
 };
 
-// One thing an agent can be allowed to do in a collection, set on its own: Read, Write drafts,
-// Send. Every collection has `read`, and every other action needs it, since an agent can't act on
-// a record it can't find.
+// One thing an agent can be allowed to do with a connection, set on its own: Read, Archive, Send.
+// An action that works on records an agent has to find first names the action that finds them.
 export type Action = {
 	id: string;
 	label: string;
@@ -20,19 +19,24 @@ export type Action = {
 	// How much harm a mistake does, for the person setting it: high is what can't be undone, or
 	// reaches other people.
 	risk: 'low' | 'medium' | 'high';
+	// The action this one only counts with, such as Read for Archive.
+	requires?: string;
 };
 
-// A named set of actions, such as Read & triage: what a folded collection's actions add up to.
-// Never stored; actions that match no preset are Custom.
-export type Preset = {label: string; actions: string[]};
+// The records a write or a command applies to, by a field's value: drafts, or emails in the inbox.
+export type Condition = {field: string; values: string[]};
 
-// Something done to one record beyond reading and editing it, such as archiving an email. Several
-// commands can share an action: Mark as read and Mark as unread both need `mark`.
+// Something done beyond reading and editing, such as archiving an email. `record` commands work
+// on one record; `new` ones on values typed in, as sending a new email does. Several commands can
+// share an action: Mark as read and Mark as unread both need `mark`.
 export type Command = {
 	id: string;
+	on: 'record' | 'new';
 	// The button: "Mark as read".
 	label: string;
 	action: string;
+	// The records it applies to, when not every one.
+	where?: Condition;
 	// The activity log's line, `{}` standing for the record: "Marked {} as read", and what a refused
 	// one tried: "mark {} as read".
 	done: string;
@@ -48,13 +52,16 @@ export type Collection = {
 	// The field a row shows as its title, and the one it shows beside it.
 	titleField: string;
 	summaryField?: string;
-	// Everything that can be allowed here, in the order it is shown; the first is always `read`.
-	actions: Action[];
-	// The presets between No access and everything, such as Read & triage.
-	presets?: Preset[];
-	// The action creating, editing and deleting a record each needs. One left out isn't offered,
-	// as received emails can't be created or edited.
+	// A select field the list can be narrowed by, such as an email's folder.
+	filterField?: string;
+	// The integration's action listing and opening records needs.
+	read: string;
+	// The button creating a record, when not Create and the singular: Save as draft.
+	createLabel?: string;
+	// The action creating, editing and deleting a record each needs. One left out isn't offered.
 	writes: {create?: string; update?: string; delete?: string};
+	// The records editing and deleting apply to, when not every one: only drafts can be edited.
+	editable?: Condition;
 	commands?: Command[];
 };
 
@@ -64,6 +71,8 @@ export type Integration = {
 	id: IntegrationId;
 	name: string;
 	description: string;
+	// Everything an agent can be allowed with a connection of it, in the order it is shown.
+	actions: Action[];
 	collections: Collection[];
 	// Information lives in Proxy itself: it is always there and never connected or disconnected.
 	builtIn?: boolean;

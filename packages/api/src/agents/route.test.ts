@@ -114,19 +114,19 @@ describe('handleSetAgentRevokedRoute', () => {
 });
 
 describe('handleSetAgentGrantsRoute', () => {
-	const params = {agentId: 'agent-1', connectionId: 'conn-1', collectionId: 'drafts'};
+	const params = {agentId: 'agent-1', connectionId: 'conn-1'};
 
 	test("sets the agent's own settings, null returning an action to the default", async () => {
 		const {handleSetAgentGrantsRoute} = await import('./route');
-		const result = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {read: true, write: null}}));
+		const result = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {read: true, send: null}}));
 
-		expect(setAgentGrants).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', collectionId: 'drafts', actions: {read: true, write: null}});
+		expect(setAgentGrants).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', actions: {read: true, send: null}});
 		expect(result.isOk()).toBe(true);
 	});
 
-	test('refuses an action the collection does not have', async () => {
+	test('refuses an action the integration does not have', async () => {
 		const {handleSetAgentGrantsRoute} = await import('./route');
-		const result = await handleSetAgentGrantsRoute(makeRequest({...params, collectionId: 'emails'}, {actions: {write: true}}));
+		const result = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {writeNotes: true}}));
 
 		expect(result.unwrapErr().kind).toBe('validation_error');
 		expect(setAgentGrants).not.toHaveBeenCalled();

@@ -7,8 +7,8 @@ export const connectionSchema = z.object({
 	integrationId: z.string(),
 	account: z.string(),
 	connectedAt: z.string(),
-	// Per collection, the actions agents get by default.
-	collections: z.array(z.object({id: z.string(), defaults: z.array(z.string())})),
+	// The actions agents get by default.
+	defaults: z.array(z.string()),
 });
 
 export const agentSchema = z.object({
@@ -19,14 +19,7 @@ export const agentSchema = z.object({
 	lastActiveAt: z.string().nullable(),
 	revokedAt: z.string().nullable(),
 	// The agent's own settings, one per action; every other action follows the default.
-	grants: z.array(
-		z.object({
-			connectionId: z.string(),
-			collectionId: z.string(),
-			actionId: z.string(),
-			allowed: z.boolean(),
-		}),
-	),
+	grants: z.array(z.object({connectionId: z.string(), actionId: z.string(), allowed: z.boolean()})),
 });
 
 export const dataRecordSchema = z.object({

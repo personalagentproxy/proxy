@@ -6,7 +6,7 @@ import {deleteConnection, getConnection, listConnections, setConnectionDefaults}
 import {findIntegration} from '@proxy/integrations';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {parseActionChanges, requireCollection} from '../utils/collection-actions';
+import {parseActionChanges, requireIntegration} from '../utils/connection-actions';
 import {requireUserOrgId} from '../utils/user-org';
 import {toConnectionResponse, type ConnectionResponse} from './connection-response';
 
@@ -45,19 +45,18 @@ export function handleDeleteConnectionRoute(request: AuthenticatedRequest): Prom
 }
 
 /**
- * Turns actions on or off for every agent without a setting of its own in a collection, such as
- * `{actions: {read: true, send: false}}`. An action the collection doesn't have is refused.
+ * Turns actions on or off for every agent without a setting of its own, such as
+ * `{actions: {read: true, send: false}}`. An action the integration doesn't have is refused.
  */
 export function handleSetConnectionDefaultsRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
 	return Do(async ($) => {
 		const orgId = $(await requireUserOrgId(request));
 		const connectionId = request.params.connectionId ?? '';
-		const collectionId = request.params.collectionId ?? '';
 		const row = $(requirePresent($(await getConnection(orgId, connectionId)), ApiErr.notFound('connection', connectionId)));
-		const collection = $(requireCollection(row.integrationId, collectionId));
-		const actions = $(parseActionChanges(collection, z.boolean(), request.body));
+		const integration = $(requireIntegration(row.integrationId));
+		const actions = $(parseActionChanges(integration, z.boolean(), request.body));
 
-		$(await setConnectionDefaults({connectionId, collectionId, actions}));
+		$(await setConnectionDefaults({connectionId, actions}));
 		const updated = $(await getConnection(orgId, connectionId));
 		return toConnectionResponse($(requirePresent(updated, ApiErr.notFound('connection', connectionId))));
 	});

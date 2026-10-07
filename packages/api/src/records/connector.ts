@@ -20,6 +20,9 @@ export type RecordTarget = {
  */
 export type CommandRunner = (target: RecordTarget, recordId: string) => Promise<Result<DataRecord | null, ApiError>>;
 
+/** A command on values typed in, such as sending a new email: the record it made, or null. */
+export type NewCommandRunner = (target: RecordTarget, values: RecordValues) => Promise<Result<DataRecord | null, ApiError>>;
+
 /**
  * How records of an integration are read and written. Callers have checked access and that the
  * collection offers the write or command; a connector reports a missing record as not_found.
@@ -30,6 +33,7 @@ export type Connector = {
 	create: (target: RecordTarget, values: RecordValues) => Promise<Result<DataRecord, ApiError>>;
 	update: (target: RecordTarget, recordId: string, values: RecordValues) => Promise<Result<DataRecord, ApiError>>;
 	remove: (target: RecordTarget, recordId: string) => Promise<Result<void, ApiError>>;
-	// By the catalog's command id.
+	// By the catalog's command id: the record commands, and those on values typed in.
 	commands?: Partial<Record<string, CommandRunner>>;
+	newCommands?: Partial<Record<string, NewCommandRunner>>;
 };

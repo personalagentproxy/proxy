@@ -6,21 +6,18 @@ export type ConnectionResponse = {
 	integrationId: string;
 	account: string;
 	connectedAt: string;
-	// Per collection, the actions an agent without a setting of its own gets. The catalog says
-	// which actions there are; an agent's own settings live on the agent.
-	collections: Array<{id: string; defaults: string[]}>;
+	// The actions an agent without a setting of its own gets, in the catalog's order. An agent's own
+	// settings live on the agent.
+	defaults: string[];
 };
 
 export function toConnectionResponse(row: ConnectionRow): ConnectionResponse {
-	const collections = findIntegration(row.integrationId)?.collections ?? [];
+	const actions = findIntegration(row.integrationId)?.actions ?? [];
 	return {
 		id: row.id,
 		integrationId: row.integrationId,
 		account: row.account,
 		connectedAt: row.createdAt.toISOString(),
-		collections: collections.map((collection) => ({
-			id: collection.id,
-			defaults: collection.actions.map((action) => action.id).filter((actionId) => row.defaults.some((stored) => stored.collectionId === collection.id && stored.actionId === actionId)),
-		})),
+		defaults: actions.map((action) => action.id).filter((id) => row.defaults.some((stored) => stored.actionId === id)),
 	};
 }

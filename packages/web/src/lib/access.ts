@@ -1,9 +1,10 @@
 import {
 	effectiveActions,
 	findCollection,
-	matchingPreset,
 	requiredAction,
+	type Action,
 	type Collection,
+	type Command,
 	type FieldType,
 	type OwnSettings,
 } from '@proxy/integrations';
@@ -28,67 +29,63 @@ export function connectionLabel(connections: Connection[], connection: Connectio
 	return `${name} (${connection.account})`;
 }
 
-// The actions an agent without settings of its own gets in a collection.
-export function defaultActions(connection: Connection, collectionId: string): string[] {
-	return connection.collections.find((candidate) => candidate.id === collectionId)?.defaults ?? [];
+// The actions an agent without settings of its own gets.
+export function defaultActions(connection: Connection): string[] {
+	return connection.defaults;
 }
 
-// The agent's own settings for a collection, by action; the ones left out follow the default.
-export function ownSettings(
-	agent: AgentLogin,
-	connectionId: string,
-	collectionId: string,
-): OwnSettings {
+// The agent's own settings for a connection, by action; the ones left out follow the default.
+export function ownSettings(agent: AgentLogin, connectionId: string): OwnSettings {
 	return Object.fromEntries(
 		agent.grants
-			.filter((grant) => grant.connectionId === connectionId && grant.collectionId === collectionId)
+			.filter((grant) => grant.connectionId === connectionId)
 			.map((grant) => [grant.actionId, grant.allowed]),
 	);
 }
 
-// What the agent can do in the collection: its own settings, else the defaults, nothing without Read.
-export function actionsFor(
-	agent: AgentLogin,
-	connection: Connection,
-	collection: Collection,
-): string[] {
+// What the agent can do with the connection: its own settings, else the defaults.
+export function actionsFor(agent: AgentLogin, connection: Connection): string[] {
+	const integration = integrationOf(connection);
+	if (!integration) {
+		return [];
+	}
 	return effectiveActions(
-		collection,
-		defaultActions(connection, collection.id),
-		ownSettings(agent, connection.id, collection.id),
+		integration,
+		defaultActions(connection),
+		ownSettings(agent, connection.id),
 	);
 }
 
-// What the actions add up to: a preset's name, such as Read & triage, else the actions by name.
-export function summarizeActions(collection: Collection, actions: string[]): string {
-	const preset = matchingPreset(collection, actions);
-	if (preset) {
-		return preset.label;
-	}
-	return `Custom: ${describeActions(collection, actions)}`;
-}
-
-// "Read, Write drafts": what an agent can do, as the agent side tells it.
-export function describeActions(collection: Collection, actions: string[]): string {
-	return collection.actions
+// "Read, Archive, Send": what the actions are called, in the catalog's order.
+export function describeActions(integration: {actions: Action[]}, actions: string[]): string {
+	return integration.actions
 		.filter((action) => actions.includes(action.id))
 		.map((action) => action.label)
 		.join(', ');
 }
 
-// Whether the actions allow a request: a write, or one of the collection's commands.
+// Whether the actions allow a request: reading, a write, or one of the collection's commands.
 export function allows(collection: Collection, actions: string[], request: string): boolean {
 	const needed = requiredAction(collection, request);
 	return needed !== null && actions.includes(needed);
 }
 
-// The agents, revoked ones left out, that can reach anything in the connection.
+// The commands on values typed in that the actions allow, such as Send for a new email.
+export function newCommands(collection: Collection, actions: string[]): Command[] {
+	return (collection.commands ?? []).filter(
+		(command) => command.on === 'new' && allows(collection, actions, command.id),
+	);
+}
+
+// Whether the agent can start a new record here: create one, or run a command such as Send.
+export function canStartNew(collection: Collection, actions: string[]): boolean {
+	return allows(collection, actions, 'create') || newCommands(collection, actions).length > 0;
+}
+
+// The agents, revoked ones left out, that can do anything with the connection.
 export function agentsWithAccess(agents: AgentLogin[], connection: Connection): AgentLogin[] {
-	const collections = integrationOf(connection)?.collections ?? [];
 	return agents.filter(
-		(agent) =>
-			agent.revokedAt === null &&
-			collections.some((collection) => actionsFor(agent, connection, collection).length > 0),
+		(agent) => agent.revokedAt === null && actionsFor(agent, connection).length > 0,
 	);
 }
 
