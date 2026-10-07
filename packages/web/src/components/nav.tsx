@@ -10,6 +10,7 @@ import {
 import {Link, useLocation, useRouteLoaderData} from 'react-router';
 import {signOut} from '@/client/auth-client';
 import type {Me} from '@/client/me-client';
+import {ThemeMenu} from '@/components/theme-menu';
 import {
 	Sidebar,
 	SidebarContent,
@@ -74,6 +75,9 @@ export function AppSidebar() {
 							<LogOutIcon />
 							<span>Sign out</span>
 						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<ThemeMenu />
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarFooter>

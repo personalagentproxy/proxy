@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme-storage-key="proxy-ui-theme">
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -17,10 +17,16 @@
 			}
 		</style>
 		<script>
-			// Follows the system theme before the first paint so the page never flashes the other one.
-			if (matchMedia('(prefers-color-scheme: dark)').matches) {
-				document.documentElement.classList.add('dark');
+			// Applies the saved theme before the first paint so the page never flashes the other one.
+			let savedTheme = null;
+			try {
+				savedTheme = localStorage.getItem(document.documentElement.dataset.themeStorageKey);
+			} catch {
+				// Storage can be unavailable in privacy-restricted browser contexts.
 			}
+			const systemIsDark = matchMedia('(prefers-color-scheme: dark)').matches;
+			const isDark = savedTheme === 'dark' || (savedTheme !== 'light' && systemIsDark);
+			document.documentElement.classList.add(isDark ? 'dark' : 'light');
 		</script>
 	</head>
 	<body>
