@@ -18,6 +18,11 @@ services:
     # lock on the database first.
     numInstances: 2
     healthCheckPath: /health
+    domains:
+      - app.personalagentproxy.com
+    # Only the custom domain: on the onrender.com address sign-in would not work, as APP_URL and the
+    # CSRF check name app.personalagentproxy.com.
+    renderSubdomainPolicy: disabled
     # Deploys main once CI passes.
     autoDeployTrigger: checksPass
     # Only what goes into the image: the docs and their content deploy on their own.
@@ -65,6 +70,9 @@ services:
     runtime: static
     buildCommand: bun install --frozen-lockfile --filter docs && bun run --cwd packages/docs build
     staticPublishPath: ./packages/docs/out
+    domains:
+      - docs.personalagentproxy.com
+    renderSubdomainPolicy: disabled
     buildFilter:
       paths:
         - package.json
