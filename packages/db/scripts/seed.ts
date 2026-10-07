@@ -172,6 +172,22 @@ const meetings = await connect({
 	defaults: ['readNotes', 'readTranscripts'],
 });
 
+// Made-up tokens, like Granola's: opening a page fails.
+const wiki = await connect({
+	integrationId: 'notion',
+	account: 'demo@acme-corp.com · Acme',
+	credential: encrypt(
+		JSON.stringify({
+			clientId: 'demo-client',
+			accessToken: 'demo-access-token',
+			refreshToken: null,
+			expiresAt: null,
+		}),
+	),
+	daysAgo: 5,
+	defaults: ['read'],
+});
+
 const connections: [Connection, ...Connection[]] = [
 	info,
 	personal,
@@ -179,6 +195,7 @@ const connections: [Connection, ...Connection[]] = [
 	receipts,
 	newsletters,
 	meetings,
+	wiki,
 ];
 
 // ---- Information records --------------------------------------------------------------------
@@ -327,6 +344,7 @@ const agents = [
 			grant(work, {mark: true, flag: true, archive: true}),
 			grant(info, {readAddresses: false, readNotes: false}),
 			grant(meetings, {readTranscripts: false}),
+			grant(wiki, {read: false}),
 		],
 	}),
 ];
@@ -372,6 +390,15 @@ const MEETING_TITLES: [string, ...string[]] = [
 	'Customer call — Northwind',
 ];
 
+// Titles for Notion's pages.
+const PAGE_TITLES: [string, ...string[]] = [
+	'Roadmap 2027',
+	'Onboarding checklist',
+	'Hiring plan',
+	'Acme GmbH',
+	'Team offsite notes',
+];
+
 // What agents search for.
 const SEARCHES: [string, ...string[]] = [
 	'invoice',
@@ -389,6 +416,10 @@ function recordTitle(connection: Connection, collectionId: string): string {
 
 	if (connection.integrationId === 'granola') {
 		return pick(MEETING_TITLES);
+	}
+
+	if (connection.integrationId === 'notion') {
+		return pick(PAGE_TITLES);
 	}
 
 	const titles = (INFO_RECORDS[collectionId] ?? []).map((values) => values.label ?? values.title);

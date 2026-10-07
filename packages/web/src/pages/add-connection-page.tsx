@@ -1,4 +1,4 @@
-import {EMAIL_PROVIDERS, type EmailProvider} from '@proxy/integrations';
+import {EMAIL_PROVIDERS, type EmailProvider, type IntegrationId} from '@proxy/integrations';
 import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
 import {useNavigate, useSearchParams} from 'react-router';
@@ -27,15 +27,17 @@ import {
 } from '@proxy/ui/components/select';
 import {INTEGRATIONS} from '@/lib/integrations';
 
-// Where Granola's sign-in starts: the api sends the browser on to Granola, and back to the new
-// connection, or here with `?error=granola` when it didn't finish.
-const GRANOLA_START = '/api/connections/granola/start';
+// The integrations connected by signing in to them. Their sign-in starts at
+// `/api/connections/<id>/start`: the api sends the browser on to the service, and back to the new
+// connection, or here with `?error=<id>` when it didn't finish.
+const SIGN_IN: IntegrationId[] = ['granola', 'notion'];
 
-// The catalog. Each integration can be connected again, for another mailbox or Granola account.
+// The catalog. Each integration can be connected again, for another mailbox or account.
 export function AddConnectionPage() {
 	const [connecting, setConnecting] = useState(false);
 	const [params] = useSearchParams();
 	const available = INTEGRATIONS.filter((integration) => !integration.builtIn);
+	const failed = available.find((integration) => integration.id === params.get('error'));
 
 	return (
 		<AppShell
@@ -46,9 +48,9 @@ export function AddConnectionPage() {
 				</>
 			}
 		>
-			{params.get('error') === 'granola' && (
+			{failed && (
 				<p className="mb-4 text-sm text-destructive md:px-3">
-					Signing in to Granola didn’t finish. Try again.
+					Signing in to {failed.name} didn’t finish. Try again.
 				</p>
 			)}
 			<RowList>
@@ -64,14 +66,14 @@ export function AddConnectionPage() {
 								{integration.description}
 							</span>
 						</div>
-						{integration.id === 'granola' ? (
+						{SIGN_IN.includes(integration.id) ? (
 							<Button
 								size="sm"
 								variant="outline"
 								nativeButton={false}
-								render={<a href={GRANOLA_START} />}
+								render={<a href={`/api/connections/${integration.id}/start`} />}
 							>
-								Sign in with Granola
+								Sign in with {integration.name}
 							</Button>
 						) : (
 							<Button size="sm" variant="outline" onClick={() => setConnecting(true)}>

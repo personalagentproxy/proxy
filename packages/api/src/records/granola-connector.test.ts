@@ -7,8 +7,8 @@ import {findCollection, findIntegration, type Collection} from '@proxy/integrati
 type Call = {name: string; args: Record<string, unknown>};
 const tools = {calls: [] as Call[], answer: (_call: Call): string => ''};
 
-mock.module('../connections/granola/granola-session', () => ({
-	callGranolaToolFor: async (_connection: unknown, name: string, args: Record<string, unknown>) => {
+mock.module('../connections/mcp/mcp-session', () => ({
+	callMcpToolFor: async (_server: unknown, _connection: unknown, name: string, args: Record<string, unknown>) => {
 		tools.calls.push({name, args});
 		return Ok(tools.answer({name, args}));
 	},
