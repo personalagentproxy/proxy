@@ -12,7 +12,7 @@ const HEADLINE =
 
 const PARAGRAPHS = [
 	'Every new agent asks you to connect your email, your calendar and your notes again, and to trust one more company with all of them. Personal Agent Proxy turns that around. You connect your services once, here, and give each agent a login of its own. It signs in and works with what you allowed it: reading your inbox, writing a draft, sending an email. When you move to another agent, your connections come with you, like an adapter.',
-	"The connections are yours, not the agent's. Nothing is copied from your services, and every request an agent makes is checked against what you allowed and written to a log, allowed or denied. Personal Agent Proxy is open source, a reference implementation of the Personal Agent Protocol, and designed to be self-hosted: one container and a Postgres database on your own server.",
+	"The connections are yours, not the agent's. Nothing is copied from your services, and every request an agent makes is checked against what you allowed and written to a log, allowed or denied. Personal Agent Proxy is open source and designed to be self-hosted: one container and a Postgres database on your own server.",
 ];
 
 // The words of the headline and the paragraphs are one run, top to bottom; a block's first word
