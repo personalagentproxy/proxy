@@ -22,7 +22,7 @@ services:
     autoDeployTrigger: checksPass
     # Only what goes into the image: the docs and their content deploy on their own.
     buildFilter:
-      include:
+      paths:
         - Dockerfile
         - docker-entrypoint.sh
         - package.json
@@ -66,7 +66,7 @@ services:
     buildCommand: bun install --frozen-lockfile --filter docs && bun run --cwd packages/docs build
     staticPublishPath: ./packages/docs/out
     buildFilter:
-      include:
+      paths:
         - package.json
         - bun.lock
         - packages/docs/**
