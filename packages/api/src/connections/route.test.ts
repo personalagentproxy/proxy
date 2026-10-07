@@ -55,6 +55,7 @@ describe('handleListConnectionsRoute', () => {
 		expect(connection?.collections).toEqual([
 			{id: 'emails', provider: 'read', connectionDefault: 'read'},
 			{id: 'drafts', provider: 'write', connectionDefault: 'none'},
+			{id: 'sent', provider: 'write', connectionDefault: 'none'},
 		]);
 	});
 

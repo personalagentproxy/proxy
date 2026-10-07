@@ -251,6 +251,8 @@ model AuditEntry {
   action       AuditAction
   // The record's title at the time, for actions on one record.
   recordTitle  String?
+  // What a list searched for.
+  query        String?
   outcome      AuditOutcome
 
   createdAt DateTime @default(now())

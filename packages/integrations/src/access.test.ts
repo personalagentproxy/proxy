@@ -1,6 +1,6 @@
 import {describe, expect, test} from 'bun:test';
 
-import {effectiveAccess, minAccess, providerAccess} from './access';
+import {allowsWrite, effectiveAccess, minAccess, providerAccess} from './access';
 import {findCollection, findIntegration} from './catalog';
 import type {Collection} from './types';
 
@@ -20,6 +20,20 @@ describe('providerAccess', () => {
 
 	test('drafts can be written', () => {
 		expect(providerAccess(collection('email', 'drafts'))).toBe('write');
+	});
+});
+
+describe('allowsWrite', () => {
+	test('a collection without a list takes every change', () => {
+		expect(allowsWrite(collection('email', 'drafts'), 'delete')).toBe(true);
+	});
+
+	test('a sent email can be sent, never changed', () => {
+		const sent = collection('email', 'sent');
+		expect(providerAccess(sent)).toBe('write');
+		expect(allowsWrite(sent, 'create')).toBe(true);
+		expect(allowsWrite(sent, 'update')).toBe(false);
+		expect(allowsWrite(sent, 'delete')).toBe(false);
 	});
 });
 

@@ -25,7 +25,7 @@ const connector = {list: mock(), get: mock(), create: mock(), update: mock(), re
 const record = {id: 'rec-1', values: {title: 'Sizes', body: ''}, updatedAt: '2026-10-01T00:00:00.000Z'};
 
 function makeRequest(params: Record<string, string>, body: unknown = undefined) {
-	return {user: {userId: 'user-1', email: 'alex@example.com'}, params, body} as never;
+	return {user: {userId: 'user-1', email: 'alex@example.com'}, params, body, query: {}} as never;
 }
 
 function useCollection(integrationId: string, collectionId: string) {
@@ -36,7 +36,7 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	requireUserOrgId.mockResolvedValue(Ok('org-1'));
 	useCollection('info', 'notes');
-	connector.list.mockResolvedValue(Ok([record]));
+	connector.list.mockResolvedValue(Ok({records: [record], nextPage: null}));
 	connector.create.mockResolvedValue(Ok(record));
 });
 
@@ -46,7 +46,8 @@ describe('records routes', () => {
 		const result = await handleListRecordsRoute(makeRequest({connectionId: 'conn-1', collectionId: 'notes'}));
 
 		expect(loadRecordTarget).toHaveBeenCalledWith('org-1', 'conn-1', 'notes');
-		expect(result.unwrap()).toEqual({records: [record]});
+		expect(connector.list.mock.calls[0]?.[1]).toEqual({search: null, page: null});
+		expect(result.unwrap()).toEqual({records: [record], nextPage: null});
 	});
 
 	test('create with the parsed values', async () => {

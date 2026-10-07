@@ -37,8 +37,13 @@ export async function agentSideLoader() {
 
 type Params = {connectionId?: string; collectionId?: string; recordId?: string};
 
-export async function agentCollectionLoader({params}: {params: Params}) {
-	return toOutcome(await listAgentRecords(params.connectionId ?? '', params.collectionId ?? ''));
+// `?search=` and `?page=` in the address go to the api as they are.
+export async function agentCollectionLoader({params, request}: {params: Params; request: Request}) {
+	const url = new URL(request.url).searchParams;
+	const query = {search: url.get('search'), page: url.get('page')};
+	return toOutcome(
+		await listAgentRecords(params.connectionId ?? '', params.collectionId ?? '', query),
+	);
 }
 
 export async function agentRecordLoader({params}: {params: Params}) {

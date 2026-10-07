@@ -40,11 +40,26 @@ function recordsPath(connectionId: string, collectionId: string): string {
 	return `/api/agent/connections/${connectionId}/collections/${collectionId}/records`;
 }
 
-export function listAgentRecords(connectionId: string, collectionId: string) {
+export type ListQuery = {search: string | null; page: string | null};
+
+/** A page of records, newest first; `nextPage` asks for the older ones after it. */
+export function listAgentRecords(connectionId: string, collectionId: string, query: ListQuery) {
+	const params = new URLSearchParams();
+	if (query.search) {
+		params.set('search', query.search);
+	}
+	if (query.page) {
+		params.set('page', query.page);
+	}
+	const suffix = params.size > 0 ? `?${params}` : '';
 	return apiRequest(
 		'GET',
-		recordsPath(connectionId, collectionId),
-		z.object({access: accessSchema, records: z.array(dataRecordSchema)}),
+		`${recordsPath(connectionId, collectionId)}${suffix}`,
+		z.object({
+			access: accessSchema,
+			records: z.array(dataRecordSchema),
+			nextPage: z.string().nullable(),
+		}),
 	);
 }
 

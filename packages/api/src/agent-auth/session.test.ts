@@ -48,7 +48,7 @@ describe('handleAgentLoginRoute', () => {
 	test('signs in with the right password and stores only the token hash', async () => {
 		const {handleAgentLoginRoute} = await import('./session');
 		const response = makeResponse();
-		await handleAgentLoginRoute({body: {username: 'shopping-agent-m3xd', password: 'right-password'}} as never, response as never);
+		await handleAgentLoginRoute({body: {username: 'shopping-agent-m3xd', password: 'right-password'}, ip: '10.0.0.1'} as never, response as never);
 
 		expect(response.statusCode).toBe(200);
 		const [cookie] = response.cookies;
@@ -62,7 +62,7 @@ describe('handleAgentLoginRoute', () => {
 	test('a wrong password is unauthenticated', async () => {
 		const {handleAgentLoginRoute} = await import('./session');
 		const response = makeResponse();
-		await handleAgentLoginRoute({body: {username: 'shopping-agent-m3xd', password: 'wrong'}} as never, response as never);
+		await handleAgentLoginRoute({body: {username: 'shopping-agent-m3xd', password: 'wrong'}, ip: '10.0.0.2'} as never, response as never);
 
 		expect(response.statusCode).toBe(401);
 		expect(createAgentSession).not.toHaveBeenCalled();
@@ -73,7 +73,7 @@ describe('handleAgentLoginRoute', () => {
 
 		const {handleAgentLoginRoute} = await import('./session');
 		const response = makeResponse();
-		await handleAgentLoginRoute({body: {username: 'nobody', password: 'right-password'}} as never, response as never);
+		await handleAgentLoginRoute({body: {username: 'nobody', password: 'right-password'}, ip: '10.0.0.3'} as never, response as never);
 
 		expect(response.statusCode).toBe(401);
 	});
@@ -83,10 +83,37 @@ describe('handleAgentLoginRoute', () => {
 
 		const {handleAgentLoginRoute} = await import('./session');
 		const response = makeResponse();
-		await handleAgentLoginRoute({body: {username: 'shopping-agent-m3xd', password: 'right-password'}} as never, response as never);
+		await handleAgentLoginRoute({body: {username: 'shopping-agent-m3xd', password: 'right-password'}, ip: '10.0.0.1'} as never, response as never);
 
 		expect(response.statusCode).toBe(403);
 		expect(createAgentSession).not.toHaveBeenCalled();
+	});
+});
+
+describe('sign-in limits', () => {
+	test('a username is locked for a while after too many wrong passwords', async () => {
+		const {handleAgentLoginRoute} = await import('./session');
+		const statuses: number[] = [];
+		for (let attempt = 0; attempt < 21; attempt++) {
+			const response = makeResponse();
+			await handleAgentLoginRoute({body: {username: 'guessed-at', password: 'wrong'}, ip: `10.1.0.${attempt}`} as never, response as never);
+			statuses.push(response.statusCode);
+		}
+
+		expect(statuses.slice(0, 20).every((status) => status === 401)).toBe(true);
+		expect(statuses[20]).toBe(429);
+	});
+
+	test('an address is held back after too many attempts', async () => {
+		const {handleAgentLoginRoute} = await import('./session');
+		let last = 0;
+		for (let attempt = 0; attempt < 21; attempt++) {
+			const response = makeResponse();
+			await handleAgentLoginRoute({body: {username: `agent-${attempt}`, password: 'wrong'}, ip: '10.2.0.1'} as never, response as never);
+			last = response.statusCode;
+		}
+
+		expect(last).toBe(429);
 	});
 });
 

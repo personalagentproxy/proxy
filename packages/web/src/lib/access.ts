@@ -10,18 +10,27 @@ import {formatDate, formatDateTime} from '@/lib/format';
 import {findIntegration, type Integration} from '@/lib/integrations';
 import type {AgentLogin, AuditEntry, Connection, DataRecord} from '@/lib/types';
 
-export const ACCESS_LABELS: Record<Access, string> = {
-	none: 'No access',
-	read: 'Read',
-	write: 'Read & write',
-};
+// An access level as the human side names it. Writing where it means sending reads as sending.
+export function accessLabel(collection: Collection, level: Access): string {
+	if (level === 'none') {
+		return 'No access';
+	}
+	if (level === 'read') {
+		return 'Read';
+	}
+	return `Read & ${collection.createVerb?.present.toLowerCase() ?? 'write'}`;
+}
 
 // The same levels as the agent reads them about itself.
-export const AGENT_ACCESS_LABELS: Record<Access, string> = {
-	none: 'No access',
-	read: 'Read only',
-	write: 'Read and write',
-};
+export function agentAccessLabel(collection: Collection, level: Access): string {
+	if (level === 'none') {
+		return 'No access';
+	}
+	if (level === 'read') {
+		return 'Read only';
+	}
+	return `Read and ${collection.createVerb?.present.toLowerCase() ?? 'write'}`;
+}
 
 // The connection's integration, or null for one the catalog no longer has.
 export function integrationOf(connection: {integrationId: string}): Integration | null {
@@ -114,12 +123,18 @@ const ACTION_VERBS: Record<AuditEntry['action'], string> = {
 	delete: 'Deleted',
 };
 
-// "Viewed email “Thursday sync moved?”", "Listed Payment cards", "Tried to list Contacts".
+// "Viewed email “Thursday sync moved?”", "Listed Payment cards", "Searched Emails for “invoice”",
+// "Sent email “Thursday at 3pm”", "Tried to list Contacts".
 export function describeEntry(entry: AuditEntry, collection: Collection | undefined): string {
 	const name = collection?.name ?? entry.collectionId;
 	const singular = collection?.singular ?? 'record';
+	const verb = entry.action === 'create' && collection?.createVerb ? collection.createVerb : null;
 	if (entry.outcome === 'denied') {
-		return `Tried to ${entry.action} ${entry.action === 'list' ? name : singular}`;
+		return `Tried to ${verb?.present.toLowerCase() ?? entry.action} ${entry.action === 'list' ? name : singular}`;
+	}
+
+	if (entry.action === 'list' && entry.query) {
+		return `Searched ${name} for “${entry.query}”`;
 	}
 
 	if (entry.action === 'list') {
@@ -127,7 +142,7 @@ export function describeEntry(entry: AuditEntry, collection: Collection | undefi
 	}
 
 	const title = entry.recordTitle ? ` “${entry.recordTitle}”` : '';
-	return `${ACTION_VERBS[entry.action]} ${singular}${title}`;
+	return `${verb?.past ?? ACTION_VERBS[entry.action]} ${singular}${title}`;
 }
 
 // What a row shows for a field: secrets down to their last four characters.

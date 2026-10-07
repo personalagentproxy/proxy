@@ -12,6 +12,7 @@ export type AuditEntryRow = {
 	collectionId: string;
 	action: AuditAction;
 	recordTitle: string | null;
+	query: string | null;
 	outcome: AuditOutcome;
 	createdAt: Date;
 };
@@ -24,6 +25,7 @@ export async function logAgentRequest(data: {
 	collectionId: string;
 	action: AuditAction;
 	recordTitle: string | null;
+	query: string | null;
 	outcome: AuditOutcome;
 }): Promise<Result<void, ApiError>> {
 	return wrapDb(async () => {
@@ -52,6 +54,7 @@ export async function listAuditEntries(
 				collectionId: true,
 				action: true,
 				recordTitle: true,
+				query: true,
 				outcome: true,
 				createdAt: true,
 			},
