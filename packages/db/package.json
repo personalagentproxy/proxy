@@ -24,12 +24,12 @@
 	"dependencies": {
 		"@prisma/client": "^6.19.3",
 		"@proxy/utils": "workspace:*",
+		"prisma": "^6.19.3",
 		"ts-results-es": "^7.1.0"
 	},
 	"devDependencies": {
 		"@prisma/dev": "0.25.2",
 		"@types/bun": "latest",
-		"prisma": "^6.19.3",
 		"typescript": "~6.0.2"
 	}
 }

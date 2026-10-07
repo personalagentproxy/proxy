@@ -1,0 +1,51 @@
+---
+title: Upgrades and backups
+description: Moving to a new version of Proxy, and keeping a copy of its database.
+---
+
+## Versions
+
+The image is published to `ghcr.io/personalagentproxy/proxy` with these tags:
+
+| Tag                           | What it is                                                              |
+| ----------------------------- | ----------------------------------------------------------------------- |
+| `main`                        | The latest commit on the main branch. The compose file's default.       |
+| `sha-<commit>`                | One commit, which never changes.                                        |
+| `1.2.3`, `1.2`, `1`, `latest` | A release, and the newest release in its line, once there are releases. |
+
+Set `PROXY_VERSION` in `.env` to run a tag other than `main`, such as `sha-c613dc6`, to choose
+when you move to a new version.
+
+## Upgrade
+
+[Back up the database](#backups) first, then pull the new image and restart:
+
+```sh
+docker compose pull
+docker compose up -d
+```
+
+Proxy applies any new database migrations as it starts, before it accepts requests. If one
+fails, Proxy does not start, and its log says why.
+
+## Backups
+
+Everything Proxy keeps is in Postgres. With Docker Compose, copy it out with `pg_dump`:
+
+```sh
+docker compose exec -T postgres pg_dump -U proxy proxy > proxy-$(date +%F).sql
+```
+
+<Callout type="warning">
+  A backup is only readable with the `ENCRYPTION_KEY` it was made with: connections' credentials
+  and Information records are encrypted with it. Keep a copy of the key apart from the backups.
+</Callout>
+
+To restore, load the backup into a new, empty database before Proxy starts on it. With Docker
+Compose, on a new server or after `docker compose down --volumes`, which deletes the old database:
+
+```sh
+docker compose up -d postgres
+docker compose exec -T postgres psql -U proxy proxy < proxy-2026-10-07.sql
+docker compose up -d
+```

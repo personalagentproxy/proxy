@@ -1,5 +1,5 @@
 import type {ReactNode} from 'react';
-import {Button} from '@/components/ui/button';
+import {Button} from '@proxy/ui/components/button';
 import {
 	Dialog,
 	DialogContent,
@@ -7,7 +7,7 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from '@/components/ui/dialog';
+} from '@proxy/ui/components/dialog';
 
 type Props = {
 	open: boolean;

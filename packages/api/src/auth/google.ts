@@ -10,7 +10,7 @@ import {formatFetchError, httpRequest, parseCookieHeader} from '@proxy/utils';
 
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
-import {establishSessionAndRedirect, queryParam, redirectToLoginError, sanitizeCallbackUrl, timingSafeEqualString, useSecureCookies} from './session';
+import {canSignUp, establishSessionAndRedirect, queryParam, redirectToLoginError, sanitizeCallbackUrl, timingSafeEqualString, useSecureCookies} from './session';
 
 /**
  * Google sign-in, an OAuth authorization-code flow with PKCE. A Google identity is an Account
@@ -18,8 +18,7 @@ import {establishSessionAndRedirect, queryParam, redirectToLoginError, sanitizeC
  * belongs to a user who signed up another way gets `OAuthAccountNotLinked` rather than being
  * attached silently.
  *
- * Both endpoints are top-level browser navigations (302 redirects), not fetch calls — CORS does
- * not apply and no CORS middleware is mounted.
+ * Both endpoints are top-level browser navigations (302 redirects), not fetch calls.
  */
 
 const googleAuthorizationUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -41,7 +40,7 @@ type OAuthConfig = {
 	clientSecret: string;
 	/** The app origin (where the user lands after sign-in). */
 	appUrl: string;
-	/** This api's callback URL — must be registered on the Google OAuth client. */
+	/** The callback URL, on the app's origin — must be registered on the Google OAuth client. */
 	redirectUri: string;
 };
 
@@ -50,7 +49,7 @@ function getOAuthConfig(): OAuthConfig | null {
 		return null;
 	}
 
-	if (!env.APP_URL || !env.PROXY_API_PUBLIC_URL) {
+	if (!env.APP_URL) {
 		return null;
 	}
 
@@ -58,8 +57,13 @@ function getOAuthConfig(): OAuthConfig | null {
 		clientId: env.GOOGLE_CLIENT_ID,
 		clientSecret: env.GOOGLE_CLIENT_SECRET,
 		appUrl: env.APP_URL,
-		redirectUri: `${env.PROXY_API_PUBLIC_URL}/auth/google/callback`,
+		redirectUri: `${env.APP_URL}/auth/google/callback`,
 	};
+}
+
+/** `GET /auth/methods` — the sign-in methods beside the magic link, so the login page offers only those set up. */
+export function handleSignInMethodsRoute(_req: Request, res: Response): void {
+	res.json({google: getOAuthConfig() !== null});
 }
 
 const statePayloadSchema = z.object({
@@ -195,6 +199,8 @@ function exchangeCodeForTokens(config: OAuthConfig, code: string, codeVerifier: 
 const googleProfileSchema = z.object({
 	sub: z.string().min(1),
 	email: z.string().min(1),
+	// Whether Google confirmed the address belongs to the account. Absent counts as not.
+	email_verified: z.boolean().optional(),
 	name: z.string().optional(),
 	picture: z.string().optional(),
 });
@@ -303,6 +309,18 @@ export async function handleGoogleCallbackRoute(req: Request, res: Response): Pr
 
 	if (existingByEmailResult.value) {
 		redirectToLoginError(res, config.appUrl, 'OAuthAccountNotLinked');
+		return;
+	}
+
+	// A new account takes its address from Google, so only one Google has confirmed: otherwise
+	// anyone could claim an address, and get past ALLOWED_SIGNUP_EMAILS with it.
+	if (profile.email_verified !== true) {
+		redirectToLoginError(res, config.appUrl, 'EmailNotVerified');
+		return;
+	}
+
+	if (!canSignUp(profile.email)) {
+		redirectToLoginError(res, config.appUrl, 'SignupNotAllowed');
 		return;
 	}
 

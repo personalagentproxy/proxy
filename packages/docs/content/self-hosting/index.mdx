@@ -1,0 +1,33 @@
+---
+title: Overview
+description: How a self-hosted Proxy fits together, and the ways to run it.
+---
+
+Proxy is one server and a Postgres database. The server is the api, and it also serves the web
+app, so all of Proxy is on one address, such as `https://proxy.example.com`.
+
+## What runs
+
+| Part     | What it does                                                                                                                                 |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Proxy    | The `ghcr.io/personalagentproxy/proxy` image: the api and the web app on port 4000. It applies the database migrations every time it starts. |
+| Postgres | Accounts, agent logins, the activity log, and connections' credentials and Information records, which are stored encrypted.                  |
+| Caddy    | HTTPS in front of Proxy, with certificates from Let's Encrypt. Any reverse proxy that terminates TLS works in its place.                     |
+
+Proxy keeps no copies of what it reaches for agents. A mailbox is read over IMAP on every request,
+so the database stays small, and the server needs to reach your mail servers: IMAP on port 993
+and SMTP on 465 or 587.
+
+## Ways to run it
+
+| Option                                                                   | For                                                                              | You look after                                                         |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| [Docker Compose](/self-hosting/get-started)                              | One server, or trying Proxy on your own computer                                 | The server, [backups and upgrades](/self-hosting/upgrades-and-backups) |
+| [The image on its own](/self-hosting/get-started#without-docker-compose) | A container platform, such as Render, Fly or Kubernetes, with a managed Postgres | HTTPS in front of it, and the database                                 |
+
+## What you need
+
+- A server with Docker and Docker Compose. A small one is enough for personal use.
+- A domain name for it, so Caddy can get a certificate.
+- Optionally, a Google OAuth client and a [Resend](https://resend.com) account, for
+  [signing in](/self-hosting/sign-in) with Google and receiving sign-in links by email.

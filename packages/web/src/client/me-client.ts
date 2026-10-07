@@ -1,6 +1,5 @@
 import {httpRequest, type FetchError} from '@proxy/utils';
 import {z} from 'zod';
-import {env} from '@/lib/env';
 
 const meSchema = z.object({
 	user: z.object({
@@ -25,9 +24,5 @@ export function isNotFoundError(error: FetchError): boolean {
 
 /** Who is signed in (`GET /api/me`). A 401 means "redirect to /login". */
 export function getMe() {
-	return httpRequest(
-		`${env.apiUrl}/api/me`,
-		{method: 'GET', credentials: 'include'},
-		{schema: meSchema},
-	);
+	return httpRequest('/api/me', {method: 'GET'}, {schema: meSchema});
 }

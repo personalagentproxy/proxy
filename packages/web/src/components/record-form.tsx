@@ -1,17 +1,17 @@
 import {useId, useState, type ReactNode} from 'react';
 import type {Field} from '@proxy/integrations';
 import {displayValue} from '@/lib/access';
-import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
+import {Button} from '@proxy/ui/components/button';
+import {Input} from '@proxy/ui/components/input';
+import {Label} from '@proxy/ui/components/label';
 import {
 	Select,
 	SelectContent,
 	SelectItem,
 	SelectTrigger,
 	SelectValue,
-} from '@/components/ui/select';
-import {Textarea} from '@/components/ui/textarea';
+} from '@proxy/ui/components/select';
+import {Textarea} from '@proxy/ui/components/textarea';
 
 type FormProps = {
 	fields: Field[];

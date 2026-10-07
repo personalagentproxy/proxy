@@ -4,15 +4,14 @@ import {getAllowedOrigin} from './allowed-origin';
 
 const allowedOrigin = getAllowedOrigin();
 
-// Requests that can't change state need no CSRF guard: GET and HEAD are safe, and OPTIONS is the
-// CORS preflight, which has to succeed for the browser to send the real request.
+// Requests that can't change state need no CSRF guard.
 const safeMethods = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /**
  * CSRF guard for the cookie-authenticated routes. The `SameSite=Lax` session cookie still rides
- * along on cross-site top-level navigations, and CORS only stops another site from reading a
- * response, not from sending the request. So a state-changing request must carry the app's
- * exact Origin; browsers always send one on cross-origin fetches and form posts.
+ * along on cross-site top-level navigations, and nothing stops another site from sending a
+ * request. So a state-changing request must carry the app's exact Origin, which browsers send
+ * with every write, the web app's own included.
  */
 export function requireBrowserOrigin(req: Request, res: Response, next: NextFunction): void {
 	if (safeMethods.has(req.method)) {
@@ -20,8 +19,8 @@ export function requireBrowserOrigin(req: Request, res: Response, next: NextFunc
 		return;
 	}
 
-	// Without a configured app origin there is nothing to enforce, but then the credentialed CORS
-	// middleware can't let a cross-origin browser send cookies either.
+	// Without a configured app origin there is nothing to compare against; sign-in does not work
+	// then either.
 	if (!allowedOrigin) {
 		next();
 		return;

@@ -1,5 +1,6 @@
 import {Navigate, createBrowserRouter, redirect} from 'react-router';
 import {agentCollectionLoader, agentRecordLoader, agentSideLoader} from '@/agent-loaders';
+import {getSignInMethods, type SignInMethods} from '@/client/auth-client';
 import {getMe} from '@/client/me-client';
 import {AgentSide} from '@/components/agent-side';
 import {HumanSide} from '@/components/human-side';
@@ -34,11 +35,11 @@ async function humanLoader() {
 }
 
 // A signed-in user has no business on the login page; anything else, an api outage included,
-// shows the form.
-async function loginLoader({request}: {request: Request}) {
-	const result = await getMe();
-	if (result.isErr()) {
-		return null;
+// shows the form, with Google unless the api says it is not set up.
+async function loginLoader({request}: {request: Request}): Promise<SignInMethods> {
+	const [me, methods] = await Promise.all([getMe(), getSignInMethods()]);
+	if (me.isErr()) {
+		return methods.unwrapOr({google: true});
 	}
 
 	const callbackUrl = sanitizeCallbackUrl(new URL(request.url).searchParams.get('callbackUrl'));

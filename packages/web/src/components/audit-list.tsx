@@ -2,7 +2,7 @@ import {EmptyRows, RowHeader, RowList} from '@/components/row-list';
 import {connectionLabel, describeEntry, locateEntry} from '@/lib/access';
 import {formatDateTime} from '@/lib/format';
 import type {AgentLogin, AuditEntry, Connection} from '@/lib/types';
-import {cn} from '@/lib/utils';
+import {cn} from '@proxy/ui/lib/utils';
 
 const CELLS = {
 	at: 'w-28 shrink-0 text-muted-foreground tabular-nums',

@@ -11,7 +11,6 @@ import {agentSessionCookieNames, ApiErr, type ApiError, Do, getAgentSessionToken
 import {sessionCookieOptions, useSecureCookies} from '../auth/session';
 import {log, serializeError} from '../observability/log';
 import {sendApiError} from '../server/response';
-import {createRateLimiter} from '../utils/rate-limit';
 
 /**
  * Agent sign-in: a username and the password shown once when the login was made. A session is a
@@ -20,12 +19,6 @@ import {createRateLimiter} from '../utils/rate-limit';
  */
 
 const agentSessionMaxAgeSeconds = 7 * 24 * 60 * 60;
-
-// Checking a password is slow on purpose, so sign-in attempts are capped: per address, so one
-// client can't keep the api busy, and per username, so one login isn't guessed at. Passwords are
-// long enough that the cap is about load more than guessing.
-const attemptsPerAddress = createRateLimiter({limit: 20, windowMs: 5 * 60 * 1000});
-const failuresPerUsername = createRateLimiter({limit: 20, windowMs: 15 * 60 * 1000});
 
 // Checked against when the username is unknown, so a wrong username takes as long as a wrong
 // password and doesn't give away which usernames exist.
@@ -44,22 +37,13 @@ function agentSessionCookieName(): string {
 
 const loginBodySchema = z.object({username: z.string().trim().min(1), password: z.string().min(1)});
 
-/**
- * Wrong username or password is a 401; the right password of a revoked login is a 403; too many
- * attempts a 429.
- */
-async function signIn(body: unknown, address: string): Promise<Result<{agentId: string; token: string; expires: Date}, ApiError>> {
+/** Wrong username or password is a 401; the right password of a revoked login is a 403. */
+async function signIn(body: unknown): Promise<Result<{agentId: string; token: string; expires: Date}, ApiError>> {
 	return Do(async ($) => {
 		const {username, password} = $(parseSchema(loginBodySchema, body));
-		if (!attemptsPerAddress.allows(address) || !failuresPerUsername.allows(username)) {
-			return $(Err(ApiErr.rateLimited()));
-		}
-		attemptsPerAddress.record(address);
-
 		const agent = $(await getAgentForSignIn(username));
 		const matches = await Bun.password.verify(password, agent?.passwordHash ?? (await unknownUsernameHash));
 		if (!agent || !matches) {
-			failuresPerUsername.record(username);
 			return $(Err(ApiErr.unauthenticated()));
 		}
 
@@ -76,7 +60,7 @@ async function signIn(body: unknown, address: string): Promise<Result<{agentId: 
 
 /** `POST /agent-auth/login` */
 export async function handleAgentLoginRoute(req: Request, res: Response): Promise<void> {
-	const result = await signIn(req.body, req.ip ?? 'unknown');
+	const result = await signIn(req.body);
 	if (result.isErr()) {
 		sendApiError(res, result.error);
 		return;

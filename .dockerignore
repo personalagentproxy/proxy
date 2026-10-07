@@ -1,0 +1,9 @@
+# Only what `docker build` needs: the sources, without anything installed, built or secret.
+**/node_modules
+**/dist
+**/.next
+.env*
+.git
+.context
+.claude
+.codex

@@ -1,5 +1,5 @@
 import {Outlet} from 'react-router';
-import {SidebarProvider} from '@/components/ui/sidebar';
+import {SidebarProvider} from '@proxy/ui/components/sidebar';
 
 // The sidebar remembers whether it was expanded in the cookie its provider writes.
 function sidebarExpanded(): boolean {

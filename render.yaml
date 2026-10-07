@@ -1,0 +1,94 @@
+# Hosted Proxy on Render: the app, its database, and the docs. In the dashboard: New → Blueprint,
+# pointed at this repository. The variables marked `sync: false` are asked for once, when the
+# Blueprint is first applied, and kept in the dashboard after that.
+#
+# The web app has no service of its own: the `proxy` service is the api serving the web app's
+# build on the same origin, so there is one domain and nothing else to configure.
+
+services:
+  - type: web
+    name: proxy
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: ./
+    region: oregon
+    plan: 0.5c-512mb
+    # Two, so a deploy or a failed instance never takes Proxy down. The api keeps nothing in
+    # memory between requests, and two instances starting at once migrate safely: Prisma takes a
+    # lock on the database first.
+    numInstances: 2
+    healthCheckPath: /health
+    # Deploys main once CI passes.
+    autoDeployTrigger: checksPass
+    # Only what goes into the image: the docs and their content deploy on their own.
+    buildFilter:
+      include:
+        - Dockerfile
+        - docker-entrypoint.sh
+        - package.json
+        - bun.lock
+        - packages/api/**
+        - packages/db/**
+        - packages/integrations/**
+        - packages/ui/**
+        - packages/utils/**
+        - packages/web/**
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: proxy-db
+          property: connectionString
+      # The address people open, such as https://proxy.example.com, once the custom domain is set.
+      - key: APP_URL
+        sync: false
+      # Hashes sign-in links; a new one only ends the links already sent.
+      - key: AUTH_SECRET
+        generateValue: true
+      # The key the existing data was encrypted with, never a new one: a different key makes every
+      # stored credential and Information record unreadable. `openssl rand -base64 32` only for a
+      # fresh database.
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: RESEND_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+
+  # The docs, exported as plain files (packages/docs/next.config.ts). Render serves out/404.html
+  # for a missing path.
+  - type: web
+    name: proxy-docs
+    runtime: static
+    buildCommand: bun install --frozen-lockfile --filter docs && bun run --cwd packages/docs build
+    staticPublishPath: ./packages/docs/out
+    buildFilter:
+      include:
+        - package.json
+        - bun.lock
+        - packages/docs/**
+        - packages/ui/**
+        # The environment variables page is built from the api's schema.
+        - packages/api/src/utils/env-schema.ts
+    headers:
+      # Named by their content, so they never change under a name.
+      - path: /_next/static/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+    envVars:
+      # The version the repo is developed and the image built with.
+      - key: BUN_VERSION
+        value: 1.4.2
+
+databases:
+  - name: proxy-db
+    plan: 0.5c-1g
+    region: oregon
+    postgresMajorVersion: '17'
+    databaseName: proxy
+    user: proxy
+    # Only Render services in the account reach it; nothing from the internet.
+    ipAllowList: []
