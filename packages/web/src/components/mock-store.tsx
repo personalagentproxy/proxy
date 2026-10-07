@@ -1,6 +1,8 @@
-import {createContext, use, useMemo, useState, type ReactNode} from 'react';
+import {createContext, use, useMemo, useRef, useState, type ReactNode} from 'react';
 import {Err, Ok, type Result} from 'ts-results-es';
 import {generatePassword, generateUsername, newId} from '@/lib/credentials';
+import {agentProvider, type AgentProviderId} from '@/lib/agent-providers';
+import {addAgent} from '@/lib/agents';
 import {findIntegration} from '@/lib/integrations';
 import {grantKey, initialState, sampleRecords, type MockState} from '@/lib/mock-data';
 import type {Access, AgentLogin, AuditEntry} from '@/lib/types';
@@ -30,7 +32,7 @@ type Store = {
 	signOutAgent: () => void;
 	connect: (integrationId: string) => string;
 	disconnect: (connectionId: string) => void;
-	createAgent: (name: string) => string;
+	createAgent: (providerId: AgentProviderId) => {id: string; created: boolean};
 	resetPassword: (agentId: string) => void;
 	setRevoked: (agentId: string, revoked: boolean) => void;
 	deleteAgent: (agentId: string) => void;
@@ -50,6 +52,7 @@ const StoreContext = createContext<Store | null>(null);
 export function MockStoreProvider({children}: {children: ReactNode}) {
 	const [state, setState] = useState(initialState);
 	const [session, setSessionState] = useState(readSession);
+	const agentsRef = useRef(state.agents);
 
 	const store = useMemo<Store>(() => {
 		const setSession = (next: Session) => {
@@ -117,20 +120,32 @@ export function MockStoreProvider({children}: {children: ReactNode}) {
 					})),
 				}));
 			},
-			createAgent: (name) => {
-				const id = newId();
-				const agent: AgentLogin = {
-					id,
-					name: name.trim(),
-					username: generateUsername(name),
+			createAgent: (providerId) => {
+				const provider = agentProvider(providerId);
+				const added = addAgent(agentsRef.current, providerId, (nextProviderId) => ({
+					id: newId(),
+					providerId: nextProviderId,
+					username: generateUsername(provider.name),
 					password: generatePassword(),
 					createdAt: new Date().toISOString(),
 					lastActiveAt: null,
 					revokedAt: null,
 					grants: {},
-				};
-				setState((current) => ({...current, agents: [agent, ...current.agents]}));
-				return id;
+				}));
+				agentsRef.current = added.agents;
+				if (!added.created) {
+					return {id: added.agent.id, created: false};
+				}
+
+				setState((current) => {
+					const applied = addAgent(current.agents, providerId, () => added.agent);
+					if (!applied.created) {
+						return current;
+					}
+
+					return {...current, agents: applied.agents};
+				});
+				return {id: added.agent.id, created: true};
 			},
 			resetPassword: (agentId) =>
 				updateAgent(agentId, (agent) => ({...agent, password: generatePassword()})),
@@ -139,11 +154,13 @@ export function MockStoreProvider({children}: {children: ReactNode}) {
 					...agent,
 					revokedAt: revoked ? new Date().toISOString() : null,
 				})),
-			deleteAgent: (agentId) =>
+			deleteAgent: (agentId) => {
+				agentsRef.current = agentsRef.current.filter((agent) => agent.id !== agentId);
 				setState((current) => ({
 					...current,
 					agents: current.agents.filter((agent) => agent.id !== agentId),
-				})),
+				}));
+			},
 			setAccess: (agentId, connectionId, collectionId, access) =>
 				updateAgent(agentId, (agent) => ({
 					...agent,

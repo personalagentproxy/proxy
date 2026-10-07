@@ -249,9 +249,9 @@ export function initialState(): MockState {
 	);
 	const agents: AgentLogin[] = [
 		{
-			id: 'inbox',
-			name: 'Inbox assistant',
-			username: 'inbox-assistant-k7q2',
+			id: 'grok-bot',
+			providerId: 'grok-bot',
+			username: 'grok-bot-k7q2',
 			password: 'sTx4r-9kPqa-HbN2w-Ue7cZ',
 			createdAt: ago(14 * DAY),
 			lastActiveAt: ago(20 * MINUTE),
@@ -265,9 +265,9 @@ export function initialState(): MockState {
 			},
 		},
 		{
-			id: 'shopping',
-			name: 'Shopping agent',
-			username: 'shopping-agent-m3xd',
+			id: 'muse',
+			providerId: 'muse',
+			username: 'muse-m3xd',
 			password: 'Lm8vQ-r2TzK-a9WcE-pY4nB',
 			createdAt: ago(6 * DAY),
 			lastActiveAt: ago(3 * HOUR),
@@ -280,16 +280,30 @@ export function initialState(): MockState {
 			},
 		},
 		{
-			id: 'research',
-			name: 'Research agent',
-			username: 'research-agent-w5hj',
+			id: 'instinct',
+			providerId: 'instinct',
+			username: 'instinct-w5hj',
 			password: 'Gq3Nd-x7RbM-k2VfT-zP9sA',
 			createdAt: ago(28 * DAY),
 			lastActiveAt: ago(11 * DAY),
-			revokedAt: ago(10 * DAY),
+			revokedAt: null,
 			grants: {
 				[grantKey('notion', 'pages')]: 'write',
 				[grantKey('google', 'docs')]: 'read',
+			},
+		},
+		{
+			id: 'dot',
+			providerId: 'dot',
+			username: 'dot-n8rz',
+			password: 'Vj6Hs-b8QmC-w4RxK-nT2pD',
+			createdAt: ago(2 * DAY),
+			lastActiveAt: ago(40 * MINUTE),
+			revokedAt: null,
+			grants: {
+				[grantKey('google', 'events')]: 'write',
+				[grantKey('google', 'contacts')]: 'read',
+				[grantKey('notion', 'pages')]: 'read',
 			},
 		},
 	];
@@ -314,20 +328,22 @@ export function initialState(): MockState {
 	});
 
 	const audit: AuditEntry[] = [
-		entry(20 * MINUTE, 'inbox', 'google', 'drafts', 'create', 'Re: Thursday sync moved?'),
-		entry(21 * MINUTE, 'inbox', 'google', 'events', 'list'),
-		entry(22 * MINUTE, 'inbox', 'google', 'emails', 'view', 'Thursday sync moved?'),
-		entry(23 * MINUTE, 'inbox', 'google', 'emails', 'list'),
-		entry(3 * HOUR, 'shopping', INFO_CONNECTION_ID, 'cards', 'view', 'Personal Visa'),
-		entry(3 * HOUR + 2 * MINUTE, 'shopping', INFO_CONNECTION_ID, 'addresses', 'view', 'Home'),
-		entry(3 * HOUR + 3 * MINUTE, 'shopping', INFO_CONNECTION_ID, 'addresses', 'list'),
-		entry(3 * HOUR + 4 * MINUTE, 'shopping', 'google', 'contacts', 'list', null, 'denied'),
-		entry(DAY, 'inbox', 'google', 'emails', 'update', 'Booking confirmation: Berlin → Munich'),
-		entry(DAY + 5 * MINUTE, 'inbox', 'google', 'emails', 'list'),
-		entry(2 * DAY, 'inbox', 'notion', 'pages', 'view', 'Reading list'),
-		entry(2 * DAY + MINUTE, 'inbox', 'notion', 'pages', 'list'),
-		entry(11 * DAY, 'research', 'notion', 'pages', 'update', 'Proxy ideas'),
-		entry(11 * DAY + 10 * MINUTE, 'research', 'google', 'docs', 'list'),
+		entry(20 * MINUTE, 'grok-bot', 'google', 'drafts', 'create', 'Re: Thursday sync moved?'),
+		entry(21 * MINUTE, 'grok-bot', 'google', 'events', 'list'),
+		entry(22 * MINUTE, 'grok-bot', 'google', 'emails', 'view', 'Thursday sync moved?'),
+		entry(23 * MINUTE, 'grok-bot', 'google', 'emails', 'list'),
+		entry(40 * MINUTE, 'dot', 'google', 'events', 'create', 'Product review'),
+		entry(41 * MINUTE, 'dot', 'google', 'contacts', 'list'),
+		entry(3 * HOUR, 'muse', INFO_CONNECTION_ID, 'cards', 'view', 'Personal Visa'),
+		entry(3 * HOUR + 2 * MINUTE, 'muse', INFO_CONNECTION_ID, 'addresses', 'view', 'Home'),
+		entry(3 * HOUR + 3 * MINUTE, 'muse', INFO_CONNECTION_ID, 'addresses', 'list'),
+		entry(3 * HOUR + 4 * MINUTE, 'muse', 'google', 'contacts', 'list', null, 'denied'),
+		entry(DAY, 'grok-bot', 'google', 'emails', 'update', 'Booking confirmation: Berlin → Munich'),
+		entry(DAY + 5 * MINUTE, 'grok-bot', 'google', 'emails', 'list'),
+		entry(2 * DAY, 'grok-bot', 'notion', 'pages', 'view', 'Reading list'),
+		entry(2 * DAY + MINUTE, 'grok-bot', 'notion', 'pages', 'list'),
+		entry(11 * DAY, 'instinct', 'notion', 'pages', 'update', 'Proxy ideas'),
+		entry(11 * DAY + 10 * MINUTE, 'instinct', 'google', 'docs', 'list'),
 	];
 
 	return {connections, records, agents, audit};

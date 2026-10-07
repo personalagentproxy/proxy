@@ -1,6 +1,7 @@
 import {BanIcon, KeyRoundIcon, RotateCcwIcon, Trash2Icon} from 'lucide-react';
 import {useState, type ReactNode} from 'react';
 import {Link, useLocation, useNavigate, useParams} from 'react-router';
+import {AgentFavicon} from '@/components/agent-favicon';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
@@ -19,6 +20,7 @@ import {
 	SelectValue,
 } from '@/components/ui/select';
 import {ACCESS_LABELS, ACCESS_LEVELS, accessFor, integrationOf} from '@/lib/access';
+import {agentProvider} from '@/lib/agent-providers';
 import {formatDate} from '@/lib/format';
 import type {Access, AgentLogin} from '@/lib/types';
 
@@ -48,6 +50,7 @@ function AgentDetail({id}: {id: string}) {
 	}
 
 	const revoked = agent.revokedAt !== null;
+	const provider = agentProvider(agent.providerId);
 	const activity = state.audit.filter((entry) => entry.agentId === agent.id);
 
 	return (
@@ -58,11 +61,14 @@ function AgentDetail({id}: {id: string}) {
 					<PageTitle
 						detail={
 							revoked
-								? `revoked ${formatDate(agent.revokedAt ?? '')}`
-								: `added ${formatDate(agent.createdAt)}`
+								? `${provider.company} · revoked ${formatDate(agent.revokedAt ?? '')}`
+								: `${provider.company} · added ${formatDate(agent.createdAt)}`
 						}
 					>
-						{agent.name}
+						<span className="flex items-center gap-2">
+							<AgentFavicon provider={provider} className="size-4" />
+							{provider.name}
+						</span>
 					</PageTitle>
 				</>
 			}
@@ -122,7 +128,7 @@ function AgentDetail({id}: {id: string}) {
 			/>
 			<ConfirmDialog
 				open={confirming === 'revoke'}
-				title={`Revoke ${agent.name}?`}
+				title={`Revoke ${provider.name}?`}
 				description="The agent is signed out and cannot sign in again. Its access stays as it is, so restoring the login brings it back unchanged."
 				confirmLabel="Revoke"
 				destructive
@@ -131,7 +137,7 @@ function AgentDetail({id}: {id: string}) {
 			/>
 			<ConfirmDialog
 				open={confirming === 'delete'}
-				title={`Delete ${agent.name}?`}
+				title={`Delete ${provider.name}?`}
 				description="The login and its access are gone for good. Its lines in the activity log stay."
 				confirmLabel="Delete"
 				destructive

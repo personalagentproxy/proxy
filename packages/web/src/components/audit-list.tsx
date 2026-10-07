@@ -1,6 +1,8 @@
+import {AgentFavicon} from '@/components/agent-favicon';
 import {useStore} from '@/components/mock-store';
 import {EmptyRows, RowHeader, RowList} from '@/components/row-list';
 import {describeEntry, locate} from '@/lib/access';
+import {agentProvider} from '@/lib/agent-providers';
 import {formatDateTime} from '@/lib/format';
 import type {AuditEntry} from '@/lib/types';
 import {cn} from '@/lib/utils';
@@ -36,12 +38,20 @@ export function AuditList({entries, showAgent = true, showConnection = true}: Pr
 			{entries.length === 0 && <EmptyRows>No activity yet.</EmptyRows>}
 			{entries.map((entry) => {
 				const agent = state.agents.find((candidate) => candidate.id === entry.agentId);
+				const provider = agent ? agentProvider(agent.providerId) : null;
 				const located = locate(state, entry.connectionId, entry.collectionId);
 				const denied = entry.outcome === 'denied';
 				return (
 					<li key={entry.id} className="flex h-10 items-center gap-3 px-4 text-sm md:px-3">
 						<span className={CELLS.at}>{formatDateTime(entry.at)}</span>
-						{showAgent && <span className={CELLS.agent}>{agent?.name ?? 'Deleted agent'}</span>}
+						{showAgent && (
+							<span className={CELLS.agent}>
+								<span className="flex items-center gap-2">
+									{provider && <AgentFavicon provider={provider} className="size-4" />}
+									<span className="truncate">{provider?.name ?? 'Deleted agent'}</span>
+								</span>
+							</span>
+						)}
 						<span className={cn('min-w-0 flex-1 truncate', denied && 'text-destructive')}>
 							{describeEntry(entry, located?.collection)}
 						</span>

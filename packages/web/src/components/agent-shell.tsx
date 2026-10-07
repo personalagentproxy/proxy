@@ -1,13 +1,16 @@
 import {Fragment, type ReactNode} from 'react';
 import {Link, useNavigate} from 'react-router';
+import {AgentFavicon} from '@/components/agent-favicon';
 import {useStore} from '@/components/mock-store';
 import {Button} from '@/components/ui/button';
+import {agentProvider} from '@/lib/agent-providers';
 
 // The agent side's frame. Built for a model driving a browser: no sidebar, no icon-only controls
 // and nothing that only shows on hover, so every action is a labeled link or button on the page.
 export function AgentShell({children}: {children: ReactNode}) {
 	const navigate = useNavigate();
 	const {agent, signOutAgent} = useStore();
+	const provider = agent ? agentProvider(agent.providerId) : null;
 
 	return (
 		<div className="flex min-h-dvh w-full flex-col bg-background text-foreground">
@@ -18,8 +21,9 @@ export function AgentShell({children}: {children: ReactNode}) {
 				<div className="flex min-w-0 items-center gap-3">
 					{/* Desktop only: a phone's header has room for the brand and the button, not the name too. */}
 					{agent && (
-						<span className="hidden truncate text-sm text-muted-foreground md:inline">
-							Signed in as {agent.name}
+						<span className="hidden min-w-0 items-center gap-2 text-sm text-muted-foreground md:flex">
+							{provider && <AgentFavicon provider={provider} className="size-4" />}
+							<span className="truncate">Signed in as {provider?.name}</span>
 						</span>
 					)}
 					<Button
