@@ -17,7 +17,7 @@ their full private context or silently expanding what an agent may do.
     </td>
     <td align="center" width="20%">
       <img src="docs/assets/agents/meta.svg" width="48" height="48" alt="Meta logo"><br>
-      <strong>Meta</strong>
+      <strong>Muse</strong>
     </td>
     <td align="center" width="20%">
       <img src="docs/assets/agents/instinct.png" width="18" height="48" alt="Instinct logo"><br>
