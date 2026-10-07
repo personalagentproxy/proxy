@@ -6,7 +6,7 @@ import {apiRequest, apiSend} from '@/client/request';
 // access and logged by the api, a refused one (403) too.
 
 const agentMeSchema = z.object({
-	agent: z.object({id: z.string(), name: z.string()}),
+	agent: z.object({id: z.string(), providerId: z.string(), name: z.string()}),
 	connections: z.array(
 		z.object({
 			id: z.string(),

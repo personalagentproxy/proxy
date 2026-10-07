@@ -1,3 +1,4 @@
+import {findAgentProvider} from '@proxy/integrations';
 import type {FetchError} from '@proxy/utils';
 import {
 	BanIcon,
@@ -26,6 +27,7 @@ import {
 import {setConnectionDefaults} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
+import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
 import {BackButton} from '@/components/back-button';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {ConnectionAccess} from '@/components/connection-access';
@@ -82,6 +84,7 @@ function AgentDetail({id}: {id: string}) {
 	}
 
 	const revoked = agent.revokedAt !== null;
+	const company = findAgentProvider(agent.providerId)?.company ?? agent.providerId;
 	const apply = async <T,>(change: Promise<Result<T, FetchError>>): Promise<T | null> => {
 		const result = await change;
 		if (result.isErr()) {
@@ -101,11 +104,14 @@ function AgentDetail({id}: {id: string}) {
 					<PageTitle
 						detail={
 							revoked
-								? `revoked ${formatDate(agent.revokedAt ?? '')}`
-								: `added ${formatDate(agent.createdAt)}`
+								? `${company} · revoked ${formatDate(agent.revokedAt ?? '')}`
+								: `${company} · added ${formatDate(agent.createdAt)}`
 						}
 					>
-						{agent.name}
+						<span className="flex items-center gap-2">
+							<AgentLogo providerId={agent.providerId} />
+							{agent.name}
+						</span>
 					</PageTitle>
 				</>
 			}
@@ -375,7 +381,7 @@ function AccessGrid({agent, connections, onChange, onMakeDefault}: GridProps) {
 										open && 'rotate-90',
 									)}
 								/>
-								<integration.icon className="size-4 shrink-0 text-muted-foreground" />
+								<IntegrationLogo integration={integration} />
 								<span className="min-w-0 truncate">{label}</span>
 								<span className="ml-auto shrink-0 pl-3 text-muted-foreground">
 									{Object.keys(own).length > 0 ? 'Changed' : 'Default'}

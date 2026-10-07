@@ -171,6 +171,8 @@ model InfoRecord {
 model Agent {
   id           String    @id @default(cuid())
   orgId        String
+  // One of the catalog's AGENT_PROVIDERS; an organization has one login per provider.
+  providerId   String
   name         String
   username     String    @unique
   passwordHash String
@@ -184,6 +186,7 @@ model Agent {
   grants   AgentGrant[]
   sessions AgentSession[]
 
+  @@unique([orgId, providerId])
   @@index([orgId])
 }
 

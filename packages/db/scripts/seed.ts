@@ -9,6 +9,7 @@ import {
 	findIntegration,
 	INFO_INTEGRATION_ID,
 	requiredAction,
+	type AgentProviderId,
 	type Collection,
 	type EmailProvider,
 } from '@proxy/integrations';
@@ -229,7 +230,9 @@ function grant(connection: Connection, actions: Record<string, boolean>): Grant[
 const AGENT_PASSWORD = 'demo-password';
 const passwordHash = await Bun.password.hash(AGENT_PASSWORD);
 
+// One login per provider, as the app allows.
 async function makeAgent(data: {
+	providerId: AgentProviderId;
 	name: string;
 	username: string;
 	daysAgo: number;
@@ -239,6 +242,7 @@ async function makeAgent(data: {
 	const agent = await db.agent.create({
 		data: {
 			orgId: org.id,
+			providerId: data.providerId,
 			name: data.name,
 			username: data.username,
 			passwordHash,
@@ -256,8 +260,9 @@ async function makeAgent(data: {
 const agents = [
 	// A setting of its own on every connection, sending included.
 	await makeAgent({
-		name: 'Personal assistant',
-		username: 'personal-assistant-k7q2',
+		providerId: 'dot',
+		name: 'Dot',
+		username: 'dot-k7q2',
 		daysAgo: 35,
 		grants: [
 			grant(info, {writeAddresses: true, readCards: true, writeNotes: true}),
@@ -269,8 +274,9 @@ const agents = [
 	}),
 	// Reads the cards no agent gets by default and files receipts; kept out of the work mailbox.
 	await makeAgent({
-		name: 'Shopping agent',
-		username: 'shopping-agent-m3x9',
+		providerId: 'instinct',
+		name: 'Instinct',
+		username: 'instinct-m3x9',
 		daysAgo: 28,
 		grants: [
 			grant(info, {readCards: true}),
@@ -279,43 +285,25 @@ const agents = [
 			grant(receipts, {read: true, archive: true}),
 		],
 	}),
-	// Nothing of its own: follows every default.
-	await makeAgent({name: 'Research bot', username: 'research-bot-p4tn', daysAgo: 20, grants: []}),
+	// Sends status emails from the work address without reading the mailbox.
+	await makeAgent({
+		providerId: 'grok-bot',
+		name: 'Grok Bot',
+		username: 'grok-bot-h6fa',
+		daysAgo: 20,
+		grants: [grant(work, {read: false, send: true})],
+	}),
 	// Cleans up inboxes, Trash included, but writes nothing.
 	await makeAgent({
-		name: 'Inbox triage',
-		username: 'inbox-triage-w8hd',
+		providerId: 'muse',
+		name: 'Muse',
+		username: 'muse-w8hd',
 		daysAgo: 14,
 		grants: [
 			grant(personal, {trash: true, write: false}),
 			grant(work, {mark: true, flag: true, archive: true}),
 			grant(info, {readAddresses: false, readNotes: false}),
 		],
-	}),
-	await makeAgent({
-		name: 'Travel planner',
-		username: 'travel-planner-r2jc',
-		daysAgo: 9,
-		grants: [
-			grant(info, {writeNotes: true, readCards: true}),
-			grant(personal, {archive: false}),
-			grant(work, {read: false}),
-		],
-	}),
-	// Sends status emails from the work address without reading the mailbox.
-	await makeAgent({
-		name: 'Status notifier',
-		username: 'status-notifier-h6fa',
-		daysAgo: 6,
-		grants: [grant(work, {read: false, send: true})],
-	}),
-	// Revoked: its settings stay, but it can't sign in.
-	await makeAgent({
-		name: 'Old scraper',
-		username: 'old-scraper-z5vb',
-		daysAgo: 33,
-		revokedDaysAgo: 12,
-		grants: [grant(personal, {write: false}), grant(info, {readAddresses: false})],
 	}),
 ];
 

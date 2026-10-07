@@ -1,6 +1,7 @@
 import {PlusIcon} from 'lucide-react';
 import {Link, useLoaderData} from 'react-router';
 import {AppShell, PageTitle} from '@/components/app-shell';
+import {IntegrationLogo} from '@/components/brand-logo';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
 import {Button} from '@proxy/ui/components/button';
 import {agentsWithAccess, integrationOf} from '@/lib/access';
@@ -30,7 +31,7 @@ export function ConnectionsPage() {
 			<RowList
 				header={
 					<RowHeader>
-						<span className="size-4 shrink-0" />
+						<span className="size-5 shrink-0" />
 						<span className="min-w-0 flex-1">Service</span>
 						<span className={CELLS.account}>Account</span>
 						<span className={CELLS.agents}>Agents</span>
@@ -40,12 +41,11 @@ export function ConnectionsPage() {
 				{connections.length === 0 && <EmptyRows>Nothing connected yet.</EmptyRows>}
 				{connections.map((connection) => {
 					const integration = integrationOf(connection);
-					const Icon = integration?.icon;
 					return (
 						<Row
 							key={connection.id}
 							to={`/connections/${connection.id}`}
-							icon={Icon && <Icon className="size-4 shrink-0 text-muted-foreground" />}
+							icon={integration && <IntegrationLogo integration={integration} />}
 							title={integration?.name ?? connection.integrationId}
 							cells={
 								<>

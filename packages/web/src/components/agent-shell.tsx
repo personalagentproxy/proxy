@@ -1,6 +1,7 @@
 import {Fragment, type ReactNode} from 'react';
 import {Link, useNavigate} from 'react-router';
 import {signOutAgent} from '@/client/agent-client';
+import {AgentLogo} from '@/components/brand-logo';
 import {Button} from '@proxy/ui/components/button';
 import {useAgentMe} from '@/hooks/use-agent-target';
 
@@ -19,8 +20,9 @@ export function AgentShell({children}: {children: ReactNode}) {
 				<div className="flex min-w-0 items-center gap-3">
 					{/* Desktop only: a phone's header has room for the brand and the button, not the name too. */}
 					{agent && (
-						<span className="hidden truncate text-sm text-muted-foreground md:inline">
-							Signed in as {agent.name}
+						<span className="hidden min-w-0 items-center gap-2 text-sm text-muted-foreground md:flex">
+							<AgentLogo providerId={agent.providerId} />
+							<span className="truncate">Signed in as {agent.name}</span>
 						</span>
 					)}
 					<Button

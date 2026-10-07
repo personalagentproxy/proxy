@@ -8,6 +8,7 @@ import {BackButton} from '@/components/back-button';
 import {ConnectionAccess} from '@/components/connection-access';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
+import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
 import {NotFound} from '@/components/not-found';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
@@ -44,7 +45,12 @@ export function ConnectionPage() {
 			title={
 				<>
 					<BackButton to="/connections" label="Back to connections" />
-					<PageTitle detail={connection.account}>{integration.name}</PageTitle>
+					<PageTitle detail={connection.account}>
+						<span className="flex items-center gap-2">
+							<IntegrationLogo integration={integration} />
+							{integration.name}
+						</span>
+					</PageTitle>
 				</>
 			}
 			actions={
@@ -79,6 +85,7 @@ export function ConnectionPage() {
 							<Row
 								key={agent.id}
 								to={`/agents/${agent.id}`}
+								icon={<AgentLogo providerId={agent.providerId} />}
 								title={agent.name}
 								cells={
 									<span className="hidden min-w-0 shrink truncate text-right text-muted-foreground md:block">

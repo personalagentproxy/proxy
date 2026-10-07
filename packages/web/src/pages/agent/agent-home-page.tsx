@@ -1,5 +1,6 @@
 import {useLocation} from 'react-router';
 import {AgentHeading, AgentShell} from '@/components/agent-shell';
+import {IntegrationLogo} from '@/components/brand-logo';
 import {Row, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {useAgentMe} from '@/hooks/use-agent-target';
@@ -37,7 +38,19 @@ export function AgentHomePage() {
 							canStartNew(collection, connection.actions),
 					);
 					return (
-						<Section key={connection.id} title={integration.name} detail={connection.account}>
+						<Section
+							key={connection.id}
+							title={
+								<>
+									<IntegrationLogo
+										integration={integration}
+										className="mr-2 inline-flex align-middle"
+									/>
+									{integration.name}
+								</>
+							}
+							detail={connection.account}
+						>
 							<p className="text-sm text-muted-foreground md:px-3">
 								You can: {describeActions(integration, connection.actions)}.
 							</p>

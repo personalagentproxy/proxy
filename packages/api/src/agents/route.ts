@@ -2,8 +2,9 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
-import {createAgent, deleteAgent, getAgent, isUsernameConflict, listAgents, setAgentGrants, updateAgent} from '@proxy/db/agent';
+import {createAgent, deleteAgent, getAgent, isProviderConflict, isUsernameConflict, listAgents, setAgentGrants, updateAgent} from '@proxy/db/agent';
 import {getConnection} from '@proxy/db/connection';
+import {findAgentProvider} from '@proxy/integrations';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {parseActionChanges, requireIntegration} from '../utils/connection-actions';
@@ -38,20 +39,24 @@ export function handleGetAgentRoute(request: AuthenticatedRequest): Promise<Resu
 	});
 }
 
-const createAgentBodySchema = z.object({name: z.string().trim().min(1).max(80)});
+const createAgentBodySchema = z.object({providerId: z.string()});
 
 /** The only time the password is sent; Personal Agent Proxy keeps its hash. A new agent follows every default. */
 export function handleCreateAgentRoute(request: AuthenticatedRequest): Promise<Result<{agent: AgentResponse; password: string}, ApiError>> {
 	return Do(async ($) => {
-		const {name} = $(parseSchema(createAgentBodySchema, request.body));
+		const {providerId} = $(parseSchema(createAgentBodySchema, request.body));
+		const provider = $(requirePresent(findAgentProvider(providerId), ApiErr.parseError(`Unknown agent ${providerId}`)));
 		const orgId = $(await requireUserOrgId(request));
 		const password = generatePassword();
 		const passwordHash = await Bun.password.hash(password);
 
 		for (let attempt = 0; attempt < MAX_USERNAME_ATTEMPTS; attempt++) {
-			const created = await createAgent({orgId, name, username: generateUsername(name), passwordHash});
+			const created = await createAgent({orgId, providerId: provider.id, name: provider.name, username: generateUsername(provider.name), passwordHash});
 			if (created.isOk()) {
 				return {agent: toAgentResponse(created.value), password};
+			}
+			if (isProviderConflict(created.error)) {
+				return $(Err(ApiErr.conflict(`${provider.name} already has an agent login`)));
 			}
 			if (!isUsernameConflict(created.error)) {
 				return $(created);
