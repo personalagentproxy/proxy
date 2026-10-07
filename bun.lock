@@ -156,6 +156,7 @@
       "name": "website",
       "version": "0.0.0",
       "dependencies": {
+        "@proxy/ui": "workspace:*",
         "next": "^16.4.0",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",

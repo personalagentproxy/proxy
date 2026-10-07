@@ -7,10 +7,19 @@ export const metadata: Metadata = {
 	description: 'Personal Agent Proxy',
 };
 
+// Follows the system theme before the first paint so the page never flashes the other one, like
+// the docs and the web app's index.html.
+const THEME_SCRIPT = `if (matchMedia('(prefers-color-scheme: dark)').matches) {
+	document.documentElement.classList.add('dark');
+}`;
+
 export default function RootLayout({children}: {children: ReactNode}) {
 	return (
-		<html lang="en" className="h-full antialiased">
-			<body className="min-h-full">{children}</body>
+		<html lang="en" suppressHydrationWarning>
+			<head>
+				<script dangerouslySetInnerHTML={{__html: THEME_SCRIPT}} />
+			</head>
+			<body>{children}</body>
 		</html>
 	);
 }

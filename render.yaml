@@ -105,6 +105,7 @@ services:
         - package.json
         - bun.lock
         - packages/website/**
+        - packages/ui/**
     headers:
       - path: /_next/static/*
         name: Cache-Control
