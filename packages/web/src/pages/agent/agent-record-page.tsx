@@ -1,7 +1,7 @@
-import {applies, type Command} from '@proxy/integrations';
+import {applies, toolName, type Command} from '@proxy/integrations';
 import {useState} from 'react';
 import {useLoaderData, useNavigate, useRevalidator} from 'react-router';
-import {deleteAgentRecord, runAgentCommand, updateAgentRecord} from '@/client/agent-client';
+import {runAgentRecordTool} from '@/client/agent-client';
 import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
 import {RecordFields, RecordForm} from '@/components/record-form';
 import {Button} from '@proxy/ui/components/button';
@@ -31,8 +31,8 @@ export function AgentRecordPage() {
 		return <AgentMissing />;
 	}
 
-	const {connection, collection, place} = target;
-	const {actions, record} = outcome.value;
+	const {connection, collection, place, actions} = target;
+	const record = outcome.value;
 	// What the agent may do, and what applies to this record: only a draft is sent or edited.
 	const editable = applies(collection.editable, record.values);
 	const canEdit = editable && allows(collection, actions, 'update');
@@ -47,7 +47,9 @@ export function AgentRecordPage() {
 	const listPath = `/agent/${connection.id}/${collection.id}`;
 	const run = async (command: Command) => {
 		setRunning(command.id);
-		const result = await runAgentCommand(connection.id, collection.id, record.id, command.id);
+		const result = await runAgentRecordTool(connection.id, toolName(collection.id, command.id), {
+			id: record.id,
+		});
 		setRunning(null);
 		if (result.isErr()) {
 			setError(agentErrorMessage(result.error));
@@ -98,7 +100,11 @@ export function AgentRecordPage() {
 							size="sm"
 							variant="destructive"
 							onClick={async () => {
-								const result = await deleteAgentRecord(connection.id, collection.id, record.id);
+								const result = await runAgentRecordTool(
+									connection.id,
+									toolName(collection.id, 'delete'),
+									{id: record.id},
+								);
 								if (result.isErr()) {
 									setError(agentErrorMessage(result.error));
 									return;
@@ -120,11 +126,10 @@ export function AgentRecordPage() {
 						submitLabel="Save"
 						onCancel={() => setEditing(false)}
 						onSubmit={async (values) => {
-							const result = await updateAgentRecord(
+							const result = await runAgentRecordTool(
 								connection.id,
-								collection.id,
-								record.id,
-								values,
+								toolName(collection.id, 'update'),
+								{...values, id: record.id},
 							);
 							if (result.isErr()) {
 								setError(agentErrorMessage(result.error));
@@ -132,7 +137,7 @@ export function AgentRecordPage() {
 							}
 							setError(null);
 							setEditing(false);
-							navigate(`${listPath}/${result.value.id}`, {replace: true});
+							navigate(`${listPath}/${result.value.record?.id ?? record.id}`, {replace: true});
 						}}
 					/>
 				) : (

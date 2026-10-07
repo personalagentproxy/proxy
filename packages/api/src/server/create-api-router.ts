@@ -2,18 +2,7 @@ import express from 'express';
 
 import {handleListActivityRoute} from '../activity/route';
 import {handleAgentLoginRoute, handleAgentLogoutRoute} from '../agent-auth/session';
-import {
-	handleAgentCreateRecordRoute,
-	handleAgentDeleteRecordRoute,
-	handleAgentGetRecordRoute,
-	handleAgentListRecordsRoute,
-	handleAgentListToolsRoute,
-	handleAgentMeRoute,
-	handleAgentRunCommandRoute,
-	handleAgentRunNewCommandRoute,
-	handleAgentRunToolRoute,
-	handleAgentUpdateRecordRoute,
-} from '../agent-side/route';
+import {handleAgentListToolsRoute, handleAgentMeRoute, handleAgentRunToolRoute} from '../agent-side/route';
 import {
 	handleCreateAgentRoute,
 	handleDeleteAgentRoute,
@@ -92,14 +81,6 @@ export function createApiRouter(): express.Router {
 	router.get('/api/agent/me', withAgentAuthResult('Agent me route', handleAgentMeRoute));
 	router.get('/api/agent/connections/:connectionId/tools', withAgentAuthResult('Agent list tools route', handleAgentListToolsRoute));
 	router.post('/api/agent/connections/:connectionId/tools/:toolName', withAgentAuthResult('Agent run tool route', handleAgentRunToolRoute));
-	const agentRecords = '/api/agent/connections/:connectionId/collections/:collectionId/records';
-	router.get(agentRecords, withAgentAuthResult('Agent list records route', handleAgentListRecordsRoute));
-	router.post(agentRecords, withAgentAuthResult('Agent create record route', handleAgentCreateRecordRoute));
-	router.get(`${agentRecords}/:recordId`, withAgentAuthResult('Agent get record route', handleAgentGetRecordRoute));
-	router.put(`${agentRecords}/:recordId`, withAgentAuthResult('Agent update record route', handleAgentUpdateRecordRoute));
-	router.delete(`${agentRecords}/:recordId`, withAgentAuthResult('Agent delete record route', handleAgentDeleteRecordRoute));
-	router.post(`${agentRecords}/:recordId/commands/:commandId`, withAgentAuthResult('Agent run command route', handleAgentRunCommandRoute));
-	router.post('/api/agent/connections/:connectionId/collections/:collectionId/commands/:commandId', withAgentAuthResult('Agent run new command route', handleAgentRunNewCommandRoute));
 
 	return router;
 }

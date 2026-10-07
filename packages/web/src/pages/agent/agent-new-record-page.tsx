@@ -1,7 +1,7 @@
-import type {Command} from '@proxy/integrations';
+import {toolName, type Command} from '@proxy/integrations';
 import {useState} from 'react';
 import {useNavigate} from 'react-router';
-import {createAgentRecord, runAgentNewCommand} from '@/client/agent-client';
+import {runAgentRecordTool} from '@/client/agent-client';
 import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
 import {RecordForm} from '@/components/record-form';
 import {useAgentTarget} from '@/hooks/use-agent-target';
@@ -26,15 +26,25 @@ export function AgentNewRecordPage() {
 	const listPath = `/agent/${connection.id}/${collection.id}`;
 	const createLabel = collection.createLabel ?? `Create ${collection.singular}`;
 	const create = async (values: Record<string, string>) => {
-		const result = await createAgentRecord(connection.id, collection.id, values);
+		const result = await runAgentRecordTool(
+			connection.id,
+			toolName(collection.id, 'create'),
+			values,
+		);
 		if (result.isErr()) {
 			setError(agentErrorMessage(result.error));
 			return;
 		}
-		navigate(`${listPath}/${result.value.id}`, {replace: true});
+		navigate(result.value.record ? `${listPath}/${result.value.record.id}` : listPath, {
+			replace: true,
+		});
 	};
 	const run = async (chosen: Command, values: Record<string, string>) => {
-		const result = await runAgentNewCommand(connection.id, collection.id, chosen.id, values);
+		const result = await runAgentRecordTool(
+			connection.id,
+			toolName(collection.id, chosen.id),
+			values,
+		);
 		if (result.isErr()) {
 			setError(agentErrorMessage(result.error));
 			return;
