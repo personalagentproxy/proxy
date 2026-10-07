@@ -156,7 +156,30 @@ const newsletters = await connectMailbox('yahoo', 'demo.news@yahoo.com', {
 	defaults: ['read', 'mark'],
 });
 
-const connections: [Connection, ...Connection[]] = [info, personal, work, receipts, newsletters];
+// Made-up tokens, like the mailboxes' passwords: opening a note fails.
+const meetings = await connect({
+	integrationId: 'granola',
+	account: 'demo@acme-corp.com',
+	credential: encrypt(
+		JSON.stringify({
+			clientId: 'demo-client',
+			accessToken: 'demo-access-token',
+			refreshToken: null,
+			expiresAt: null,
+		}),
+	),
+	daysAgo: 10,
+	defaults: ['readNotes', 'readTranscripts'],
+});
+
+const connections: [Connection, ...Connection[]] = [
+	info,
+	personal,
+	work,
+	receipts,
+	newsletters,
+	meetings,
+];
 
 // ---- Information records --------------------------------------------------------------------
 
@@ -303,6 +326,7 @@ const agents = [
 			grant(personal, {trash: true, write: false}),
 			grant(work, {mark: true, flag: true, archive: true}),
 			grant(info, {readAddresses: false, readNotes: false}),
+			grant(meetings, {readTranscripts: false}),
 		],
 	}),
 ];
@@ -339,6 +363,15 @@ const EMAIL_TITLES: [string, ...string[]] = [
 	'Thanks for the intro!',
 ];
 
+// Titles for Granola's meetings.
+const MEETING_TITLES: [string, ...string[]] = [
+	'Q3 planning',
+	'Weekly sync',
+	'Design review: onboarding',
+	'1:1 with Sam',
+	'Customer call — Northwind',
+];
+
 // What agents search for.
 const SEARCHES: [string, ...string[]] = [
 	'invoice',
@@ -352,6 +385,10 @@ const SEARCHES: [string, ...string[]] = [
 function recordTitle(connection: Connection, collectionId: string): string {
 	if (connection.integrationId === 'email') {
 		return pick(EMAIL_TITLES);
+	}
+
+	if (connection.integrationId === 'granola') {
+		return pick(MEETING_TITLES);
 	}
 
 	const titles = (INFO_RECORDS[collectionId] ?? []).map((values) => values.label ?? values.title);
@@ -408,8 +445,9 @@ for (const agent of agents) {
 		lastActiveAt = Math.max(lastActiveAt, createdAt);
 		const onOneRecord = request.action !== 'list' && request.action !== 'create';
 		const collectionId = request.collection.id;
-		// A third of the lists are searches.
-		const searched = request.action === 'list' && random() < 0.33;
+		// A third of the lists are searches, where the collection can be searched.
+		const searched =
+			request.action === 'list' && request.collection.searchHint !== undefined && random() < 0.33;
 		await db.auditEntry.create({
 			data: {
 				orgId: org.id,

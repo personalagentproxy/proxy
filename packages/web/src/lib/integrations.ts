@@ -1,4 +1,4 @@
-import {IdCardIcon, MailIcon, type LucideIcon} from 'lucide-react';
+import {IdCardIcon, MailIcon, NotebookPenIcon, type LucideIcon} from 'lucide-react';
 import {
 	INTEGRATIONS as CATALOG,
 	type Integration as CatalogIntegration,
@@ -10,6 +10,7 @@ export type Integration = CatalogIntegration & {icon: LucideIcon};
 const ICONS: Record<IntegrationId, LucideIcon> = {
 	info: IdCardIcon,
 	email: MailIcon,
+	granola: NotebookPenIcon,
 };
 
 export const INTEGRATIONS: Integration[] = CATALOG.map((integration) => ({

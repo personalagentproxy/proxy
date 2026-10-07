@@ -55,14 +55,42 @@ export async function getConnectionWithCredential(
 	);
 }
 
-/** `credential` is already encrypted; this package never sees it in the clear. */
+/**
+ * `credential` is already encrypted; this package never sees it in the clear. `defaults` are the
+ * actions agents get from the start, none when left out.
+ */
 export async function createConnection(data: {
 	orgId: string;
 	integrationId: string;
 	account: string;
 	credential: string;
+	defaults?: string[];
 }): Promise<Result<ConnectionRow, ApiError>> {
-	return wrapDb(() => db.connection.create({data, select: connectionSelect}));
+	const {defaults = [], ...connection} = data;
+	return wrapDb(() =>
+		db.connection.create({
+			data: {...connection, defaults: {create: defaults.map((actionId) => ({actionId}))}},
+			select: connectionSelect,
+		}),
+	);
+}
+
+/**
+ * Replaces a connection's encrypted credential, as when Granola hands out new tokens. With
+ * `previous`, only while the credential is still that one, so two servers refreshing at once
+ * don't overwrite each other: `Ok(false)` when it had already changed.
+ */
+export async function updateConnectionCredential(data: {
+	connectionId: string;
+	credential: string;
+	previous?: string;
+}): Promise<Result<boolean, ApiError>> {
+	const {connectionId, credential, previous} = data;
+	const where =
+		previous === undefined ? {id: connectionId} : {id: connectionId, credential: previous};
+	return (await wrapDb(() => db.connection.updateMany({where, data: {credential}}))).map(
+		({count}) => count > 0,
+	);
 }
 
 /** `Ok(false)` means no such connection in the organization. Its defaults go with it. */

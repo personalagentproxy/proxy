@@ -7,7 +7,7 @@ import {requiredAction} from '@proxy/integrations';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireUserOrgId} from '../utils/user-org';
 import type {Connector, DataRecord, RecordPage, RecordTarget} from './connector';
-import {parseListQuery, requireFilter} from './list-query';
+import {parseListQuery, requireListQuery} from './list-query';
 import {parseRecordValues} from './record-values';
 import {loadRecordTarget} from './target';
 
@@ -28,7 +28,7 @@ export function handleListRecordsRoute(request: AuthenticatedRequest): Promise<R
 	return Do(async ($) => {
 		const query = $(parseListQuery(request.query));
 		const target = $(await targetFor(request));
-		$(requireFilter(target.collection, query.filter));
+		$(requireListQuery(target.collection, query));
 		return $(await target.connector.list(target, query));
 	});
 }

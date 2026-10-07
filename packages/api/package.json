@@ -18,6 +18,7 @@
 		"@proxy/utils": "workspace:*",
 		"dotenv": "^16.6.1",
 		"express": "^4.21.2",
+		"fast-xml-parser": "^5.11.2",
 		"imapflow": "^2.2.6",
 		"mailparser": "^3.9.36",
 		"nodemailer": "^10.0.15",
