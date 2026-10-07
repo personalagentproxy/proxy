@@ -10,6 +10,7 @@ import {
 	SelectValue,
 } from '@/components/ui/select';
 import {integrationOf} from '@/lib/access';
+import {agentProvider} from '@/lib/agent-providers';
 
 const ALL = 'all';
 
@@ -40,7 +41,10 @@ export function ActivityPage() {
 
 	const agents: Option[] = [
 		{value: ALL, label: 'All agents'},
-		...state.agents.map((candidate) => ({value: candidate.id, label: candidate.name})),
+		...state.agents.map((candidate) => ({
+			value: candidate.id,
+			label: agentProvider(candidate.providerId).name,
+		})),
 	];
 	const connections: Option[] = [
 		{value: ALL, label: 'All connections'},

@@ -1,4 +1,5 @@
 import type {LucideIcon} from 'lucide-react';
+import type {AgentProviderId} from '@/lib/agent-providers';
 
 // `secret` reads like text but is masked to its last four characters wherever a row summarizes it.
 export type FieldType = 'text' | 'longtext' | 'email' | 'datetime' | 'date' | 'select' | 'secret';
@@ -27,6 +28,7 @@ export type Integration = {
 	id: string;
 	name: string;
 	description: string;
+	logoUrl?: string;
 	icon: LucideIcon;
 	collections: Collection[];
 	// The account a mock connection is made with, standing in for the provider's sign-in.
@@ -54,7 +56,7 @@ export type Access = 'none' | 'read' | 'write';
 
 export type AgentLogin = {
 	id: string;
-	name: string;
+	providerId: AgentProviderId;
 	username: string;
 	password: string;
 	createdAt: string;

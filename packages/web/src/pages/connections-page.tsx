@@ -1,6 +1,7 @@
 import {PlusIcon} from 'lucide-react';
 import {Link} from 'react-router';
 import {AppShell, PageTitle} from '@/components/app-shell';
+import {IntegrationLogo} from '@/components/integration-logo';
 import {useStore} from '@/components/mock-store';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
 import {Button} from '@/components/ui/button';
@@ -30,7 +31,7 @@ export function ConnectionsPage() {
 			<RowList
 				header={
 					<RowHeader>
-						<span className="size-4 shrink-0" />
+						<span className="size-5 shrink-0" />
 						<span className="min-w-0 flex-1">Service</span>
 						<span className={CELLS.account}>Account</span>
 						<span className={CELLS.agents}>Agents</span>
@@ -44,7 +45,7 @@ export function ConnectionsPage() {
 						<Row
 							key={connection.id}
 							to={`/connections/${connection.id}`}
-							icon={<integration.icon className="size-4 shrink-0 text-muted-foreground" />}
+							icon={<IntegrationLogo integration={integration} />}
 							title={integration.name}
 							cells={
 								<>
