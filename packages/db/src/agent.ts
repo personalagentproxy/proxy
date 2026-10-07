@@ -7,6 +7,7 @@ import {db} from '.';
 
 export type AgentRow = {
 	id: string;
+	providerId: string | null;
 	name: string;
 	username: string;
 	createdAt: Date;
@@ -18,6 +19,7 @@ export type AgentRow = {
 // Never the password hash: only signing in reads it.
 const agentSelect = {
 	id: true,
+	providerId: true,
 	name: true,
 	username: true,
 	createdAt: true,
@@ -43,6 +45,7 @@ export async function getAgent(
 /** Fails with a `db_error` that `isUsernameConflict` recognizes when the username is taken. */
 export async function createAgent(data: {
 	orgId: string;
+	providerId: string;
 	name: string;
 	username: string;
 	passwordHash: string;
@@ -51,6 +54,14 @@ export async function createAgent(data: {
 }
 
 export function isUsernameConflict(error: ApiError): boolean {
+	return isUniqueConflict(error, 'username');
+}
+
+export function isProviderConflict(error: ApiError): boolean {
+	return isUniqueConflict(error, 'orgId') && isUniqueConflict(error, 'providerId');
+}
+
+function isUniqueConflict(error: ApiError, field: string): boolean {
 	if (error.kind !== 'db_error') {
 		return false;
 	}
@@ -61,7 +72,7 @@ export function isUsernameConflict(error: ApiError): boolean {
 	}
 
 	const target = cause.meta?.target;
-	return Array.isArray(target) && target.includes('username');
+	return Array.isArray(target) && target.includes(field);
 }
 
 /**
@@ -142,7 +153,12 @@ export async function createAgentSession(data: {
 	return (await wrapDb(() => db.agentSession.create({data}))).map(() => undefined);
 }
 
-export type SignedInAgent = {agentId: string; orgId: string; name: string};
+export type SignedInAgent = {
+	agentId: string;
+	orgId: string;
+	providerId: string | null;
+	name: string;
+};
 
 /** `Ok(null)` means no live session: unknown, expired, or the agent has been revoked. */
 export async function getSignedInAgent(
@@ -154,7 +170,9 @@ export async function getSignedInAgent(
 				where: {tokenHash},
 				select: {
 					expires: true,
-					agent: {select: {id: true, orgId: true, name: true, revokedAt: true}},
+					agent: {
+						select: {id: true, orgId: true, providerId: true, name: true, revokedAt: true},
+					},
 				},
 			}),
 		)
@@ -162,7 +180,12 @@ export async function getSignedInAgent(
 		if (!session || session.expires <= new Date() || session.agent.revokedAt !== null) {
 			return null;
 		}
-		return {agentId: session.agent.id, orgId: session.agent.orgId, name: session.agent.name};
+		return {
+			agentId: session.agent.id,
+			orgId: session.agent.orgId,
+			providerId: session.agent.providerId,
+			name: session.agent.name,
+		};
 	});
 }
 

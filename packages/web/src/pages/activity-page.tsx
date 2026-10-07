@@ -9,6 +9,7 @@ import {
 	SelectValue,
 } from '@proxy/ui/components/select';
 import {connectionLabel} from '@/lib/access';
+import {findAgentProvider} from '@proxy/agent-providers';
 import type {activityLoader} from '@/loaders';
 
 const ALL = 'all';
@@ -40,7 +41,12 @@ export function ActivityPage() {
 
 	const agents: Option[] = [
 		{value: ALL, label: 'All agents'},
-		...allAgents.map((candidate) => ({value: candidate.id, label: candidate.name})),
+		...allAgents.map((candidate) => ({
+			value: candidate.id,
+			label:
+				(candidate.providerId ? findAgentProvider(candidate.providerId)?.name : undefined) ??
+				candidate.name,
+		})),
 	];
 	const connections: Option[] = [
 		{value: ALL, label: 'All connections'},

@@ -1,6 +1,8 @@
 import {Fragment, type ReactNode} from 'react';
 import {Link, useNavigate} from 'react-router';
+import {findAgentProvider} from '@proxy/agent-providers';
 import {signOutAgent} from '@/client/agent-client';
+import {AgentFavicon} from '@/components/agent-favicon';
 import {Button} from '@proxy/ui/components/button';
 import {useAgentMe} from '@/hooks/use-agent-target';
 
@@ -9,6 +11,7 @@ import {useAgentMe} from '@/hooks/use-agent-target';
 export function AgentShell({children}: {children: ReactNode}) {
 	const navigate = useNavigate();
 	const agent = useAgentMe()?.agent;
+	const provider = agent?.providerId ? findAgentProvider(agent.providerId) : undefined;
 
 	return (
 		<div className="flex min-h-dvh w-full flex-col bg-background text-foreground">
@@ -19,8 +22,9 @@ export function AgentShell({children}: {children: ReactNode}) {
 				<div className="flex min-w-0 items-center gap-3">
 					{/* Desktop only: a phone's header has room for the brand and the button, not the name too. */}
 					{agent && (
-						<span className="hidden truncate text-sm text-muted-foreground md:inline">
-							Signed in as {agent.name}
+						<span className="hidden min-w-0 items-center gap-2 text-sm text-muted-foreground md:flex">
+							<AgentFavicon provider={provider} />
+							<span className="truncate">Signed in as {provider?.name ?? agent.name}</span>
 						</span>
 					)}
 					<Button

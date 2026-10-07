@@ -1,5 +1,6 @@
 import {findCollection} from '@proxy/integrations';
 import {AgentHeading, AgentShell} from '@/components/agent-shell';
+import {IntegrationLogo} from '@/components/integration-logo';
 import {Row, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {useAgentMe} from '@/hooks/use-agent-target';
@@ -28,7 +29,16 @@ export function AgentHomePage() {
 						return null;
 					}
 					return (
-						<Section key={connection.id} title={integration.name} detail={connection.account}>
+						<Section
+							key={connection.id}
+							title={
+								<span className="flex items-center gap-2">
+									<IntegrationLogo integration={integration} />
+									{integration.name}
+								</span>
+							}
+							detail={connection.account}
+						>
 							<RowList>
 								{connection.collections.map(({id, access}) => {
 									const collection = findCollection(integration, id);

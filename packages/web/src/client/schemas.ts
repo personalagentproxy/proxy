@@ -1,3 +1,4 @@
+import {AGENT_PROVIDER_IDS} from '@proxy/agent-providers';
 import {ACCESS_LEVELS} from '@proxy/integrations';
 import {z} from 'zod';
 
@@ -17,6 +18,7 @@ export const connectionSchema = z.object({
 
 export const agentSchema = z.object({
 	id: z.string(),
+	providerId: z.enum(AGENT_PROVIDER_IDS).nullable(),
 	name: z.string(),
 	username: z.string(),
 	createdAt: z.string(),

@@ -1,4 +1,5 @@
 import type {Access} from '@proxy/integrations';
+import type {AgentProviderId} from '@proxy/agent-providers';
 import {z} from 'zod';
 import {agentSchema, auditEntrySchema} from '@/client/schemas';
 import {apiRequest, apiSend} from '@/client/request';
@@ -12,9 +13,9 @@ export function getAgent(agentId: string) {
 }
 
 /** The only time the password is sent; the api keeps its hash. */
-export function createAgent(name: string) {
+export function createAgent(providerId: AgentProviderId) {
 	return apiRequest('POST', '/api/agents', z.object({agent: agentSchema, password: z.string()}), {
-		name,
+		providerId,
 	});
 }
 

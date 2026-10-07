@@ -33,14 +33,24 @@ function collection(integrationId: string, collectionId: string): Collection {
 const infoConnection = {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), defaults: [{collectionId: 'addresses', access: 'read'}], credential: null};
 const emailConnection = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), defaults: [{collectionId: 'emails', access: 'write'}], credential: 'v1.x.y.z'};
 
-const agent = {id: 'agent-1', name: 'Shopping agent', grants: [{connectionId: 'info-1', collectionId: 'cards', access: 'read'}]};
+const agent = {
+	id: 'agent-1',
+	providerId: 'dot',
+	name: 'Dot',
+	grants: [{connectionId: 'info-1', collectionId: 'cards', access: 'read'}],
+};
 
 const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock()};
 
 const card = {id: 'rec-1', values: {label: 'Personal Visa', number: '4242'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 
 function makeRequest(params: Record<string, string> = {}, body: unknown = undefined, query: Record<string, string> = {}) {
-	return {agent: {agentId: 'agent-1', orgId: 'org-1', name: 'Shopping agent'}, params, body, query} as never;
+	return {
+		agent: {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dot'},
+		params,
+		body,
+		query,
+	} as never;
 }
 
 function useTarget(connection: typeof infoConnection | typeof emailConnection, collectionId: string) {
@@ -62,7 +72,7 @@ describe('handleAgentMeRoute', () => {
 		const result = await handleAgentMeRoute(makeRequest());
 
 		expect(result.unwrap()).toEqual({
-			agent: {id: 'agent-1', name: 'Shopping agent'},
+			agent: {id: 'agent-1', providerId: 'dot', name: 'Dot'},
 			connections: [
 				{
 					id: 'info-1',

@@ -3,6 +3,7 @@ import type {Access} from '@proxy/integrations';
 
 export type AgentResponse = {
 	id: string;
+	providerId: string | null;
 	name: string;
 	username: string;
 	createdAt: string;
@@ -15,6 +16,7 @@ export type AgentResponse = {
 export function toAgentResponse(row: AgentRow): AgentResponse {
 	return {
 		id: row.id,
+		providerId: row.providerId,
 		name: row.name,
 		username: row.username,
 		createdAt: row.createdAt.toISOString(),

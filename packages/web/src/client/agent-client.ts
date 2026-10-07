@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {AGENT_PROVIDER_IDS} from '@proxy/agent-providers';
 import {accessSchema, dataRecordSchema} from '@/client/schemas';
 import {apiRequest, apiSend} from '@/client/request';
 
@@ -6,7 +7,11 @@ import {apiRequest, apiSend} from '@/client/request';
 // access and logged by the api, a refused one (403) too.
 
 const agentMeSchema = z.object({
-	agent: z.object({id: z.string(), name: z.string()}),
+	agent: z.object({
+		id: z.string(),
+		providerId: z.enum(AGENT_PROVIDER_IDS).nullable(),
+		name: z.string(),
+	}),
 	connections: z.array(
 		z.object({
 			id: z.string(),

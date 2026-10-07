@@ -11,6 +11,7 @@
 		"preview": "vite preview"
 	},
 	"dependencies": {
+		"@proxy/agent-providers": "workspace:*",
 		"@proxy/integrations": "workspace:*",
 		"@proxy/ui": "workspace:*",
 		"@proxy/utils": "workspace:*",

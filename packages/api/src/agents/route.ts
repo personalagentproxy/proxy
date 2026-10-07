@@ -1,8 +1,9 @@
 import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
+import {AGENT_PROVIDER_IDS, findAgentProvider, type AgentProvider} from '@proxy/agent-providers';
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
-import {createAgent, deleteAgent, getAgent, isUsernameConflict, listAgents, setAgentGrant, updateAgent} from '@proxy/db/agent';
+import {createAgent, deleteAgent, getAgent, isProviderConflict, isUsernameConflict, listAgents, setAgentGrant, updateAgent} from '@proxy/db/agent';
 import {getConnection} from '@proxy/db/connection';
 import {ACCESS_LEVELS, findCollection, findIntegration, minAccess, providerAccess} from '@proxy/integrations';
 
@@ -38,20 +39,34 @@ export function handleGetAgentRoute(request: AuthenticatedRequest): Promise<Resu
 	});
 }
 
-const createAgentBodySchema = z.object({name: z.string().trim().min(1).max(80)});
+const createAgentBodySchema = z.object({providerId: z.enum(AGENT_PROVIDER_IDS)});
+
+function requireProvider(providerId: string): Result<AgentProvider, ApiError> {
+	return requirePresent(findAgentProvider(providerId), ApiErr.internalError(new Error(`Missing agent provider ${providerId}`)));
+}
 
 /** The only time the password is sent; Proxy keeps its hash. A new agent follows every default. */
 export function handleCreateAgentRoute(request: AuthenticatedRequest): Promise<Result<{agent: AgentResponse; password: string}, ApiError>> {
 	return Do(async ($) => {
-		const {name} = $(parseSchema(createAgentBodySchema, request.body));
+		const {providerId} = $(parseSchema(createAgentBodySchema, request.body));
+		const provider = $(requireProvider(providerId));
 		const orgId = $(await requireUserOrgId(request));
 		const password = generatePassword();
 		const passwordHash = await Bun.password.hash(password);
 
 		for (let attempt = 0; attempt < MAX_USERNAME_ATTEMPTS; attempt++) {
-			const created = await createAgent({orgId, name, username: generateUsername(name), passwordHash});
+			const created = await createAgent({
+				orgId,
+				providerId,
+				name: provider.name,
+				username: generateUsername(provider.name),
+				passwordHash,
+			});
 			if (created.isOk()) {
 				return {agent: toAgentResponse(created.value), password};
+			}
+			if (isProviderConflict(created.error)) {
+				return $(Err(ApiErr.conflict(`${provider.name} already has an agent login`)));
 			}
 			if (!isUsernameConflict(created.error)) {
 				return $(created);

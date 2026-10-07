@@ -177,6 +177,8 @@ model InfoRecord {
 model Agent {
   id           String    @id @default(cuid())
   orgId        String
+  // Null only for logins created before agents were modeled by provider.
+  providerId   String?
   name         String
   username     String    @unique
   passwordHash String
@@ -190,6 +192,7 @@ model Agent {
   grants   AgentGrant[]
   sessions AgentSession[]
 
+  @@unique([orgId, providerId])
   @@index([orgId])
 }
 

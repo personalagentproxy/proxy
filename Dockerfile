@@ -16,6 +16,7 @@ WORKDIR /app
 # Prisma's engines need OpenSSL.
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 COPY package.json bun.lock ./
+COPY packages/agent-providers/package.json packages/agent-providers/
 COPY packages/api/package.json packages/api/
 COPY packages/db/package.json packages/db/
 COPY packages/db/prisma packages/db/prisma
@@ -30,6 +31,7 @@ RUN bun --bun packages/db/node_modules/.bin/prisma generate --schema packages/db
 
 COPY packages/api/src packages/api/src
 COPY packages/api/tsconfig.json packages/api/
+COPY packages/agent-providers/src packages/agent-providers/src
 COPY packages/db/src packages/db/src
 COPY packages/integrations/src packages/integrations/src
 COPY packages/utils/src packages/utils/src
