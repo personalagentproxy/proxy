@@ -17,11 +17,17 @@ export function parseListQuery(query: unknown): Result<ListQuery, ApiError> {
 	return parseSchema(listQuerySchema, query).map(({search, page, filter}) => ({search: search || null, page: page ?? null, filter: filter ?? null}));
 }
 
-/** A filter must be one of the values of the collection's filter field, such as an email's folder. */
-export function requireFilter(collection: Collection, filter: string | null): Result<void, ApiError> {
+/**
+ * A filter must be one of the values of the collection's filter field, such as an email's folder,
+ * and a search needs a collection that can be searched.
+ */
+export function requireListQuery(collection: Collection, query: ListQuery): Result<void, ApiError> {
+	if (query.search !== null && !collection.searchHint) {
+		return Err(ApiErr.validationError(`${collection.name} can't be searched`));
+	}
 	const field = collection.fields.find((candidate) => candidate.key === collection.filterField);
-	if (filter === null || field?.options?.includes(filter)) {
+	if (query.filter === null || field?.options?.includes(query.filter)) {
 		return Ok(undefined);
 	}
-	return Err(ApiErr.validationError(`${collection.name} can't be narrowed to ${filter}`));
+	return Err(ApiErr.validationError(`${collection.name} can't be narrowed to ${query.filter}`));
 }

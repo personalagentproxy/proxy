@@ -26,12 +26,13 @@ import {handleEmailSignInRoute, handleEmailVerifyRoute} from '../auth/email';
 import {handleGoogleCallbackRoute, handleGoogleStartRoute, handleSignInMethodsRoute} from '../auth/google';
 import {handleSignOutRoute} from '../auth/signout';
 import {handleConnectEmailRoute} from '../connections/email/route';
+import {handleGranolaCallbackRoute, handleStartGranolaRoute} from '../connections/granola/route';
 import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleSetConnectionDefaultsRoute} from '../connections/route';
 import {handleMeRoute} from '../me/route';
 import {handleCreateRecordRoute, handleDeleteRecordRoute, handleGetRecordRoute, handleListRecordsRoute, handleUpdateRecordRoute} from '../records/route';
 import {requireBrowserOrigin} from './middleware/require-browser-origin';
 import {withAgentAuthResult} from './middleware/require-agent';
-import {withAuthResult} from './middleware/require-auth';
+import {withAuth, withAuthResult} from './middleware/require-auth';
 import {wrapAsyncRoute} from './middleware/wrap-async-route';
 
 export function createApiRouter(): express.Router {
@@ -57,6 +58,8 @@ export function createApiRouter(): express.Router {
 	router.use('/api/connections', requireBrowserOrigin);
 	router.get('/api/connections', withAuthResult('List connections route', handleListConnectionsRoute));
 	router.post('/api/connections/email', withAuthResult('Connect email route', handleConnectEmailRoute));
+	router.get('/api/connections/granola/start', withAuth('Start Granola sign-in route', handleStartGranolaRoute));
+	router.get('/api/connections/granola/callback', withAuth('Granola sign-in callback route', handleGranolaCallbackRoute));
 	router.get('/api/connections/:connectionId', withAuthResult('Get connection route', handleGetConnectionRoute));
 	router.delete('/api/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
 	router.put('/api/connections/:connectionId/defaults', withAuthResult('Set connection defaults route', handleSetConnectionDefaultsRoute));

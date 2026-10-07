@@ -169,6 +169,69 @@ const email: Integration = {
 	],
 };
 
+// Granola's meeting notes, read through its MCP server after signing in to Granola. Granola only
+// lets them be read, and its sign-in can't be limited to notes or transcripts, so access is
+// narrowed in Personal Agent Proxy: the notes (the summary Granola writes and the owner's own
+// notes) and the transcripts, word for word, are each a collection of the same meetings with an
+// action of its own. Granola's free plan has no transcripts and only the last 30 days of notes.
+// There is no search.
+const granola: Integration = {
+	id: 'granola',
+	name: 'Granola',
+	description: 'Meeting notes and transcripts',
+	actions: [
+		{
+			id: 'readNotes',
+			label: 'Read notes',
+			description: 'List and open meeting notes: attendees, the summary and your own notes',
+			risk: 'low',
+		},
+		{
+			id: 'readTranscripts',
+			label: 'Read transcripts',
+			description: 'List and open meetings word for word, with who said what',
+			risk: 'medium',
+		},
+	],
+	collections: [
+		{
+			id: 'notes',
+			name: 'Notes',
+			singular: 'note',
+			titleField: 'title',
+			summaryField: 'date',
+			read: 'readNotes',
+			writes: {},
+			fields: [
+				{key: 'title', label: 'Title', type: 'text', system: true},
+				// As Granola writes it, in the account's time zone: "Sep 22, 2026 11:00 AM PDT".
+				{key: 'date', label: 'Date', type: 'text', system: true},
+				// As Granola writes them: "Alex (note creator) from Acme <alex@acme.com>, Sam <sam@example.com>".
+				{key: 'attendees', label: 'Attendees', type: 'text', system: true},
+				// The note in Granola's web app.
+				{key: 'link', label: 'Link', type: 'text', system: true},
+				{key: 'summary', label: 'Summary', type: 'longtext', system: true},
+				{key: 'privateNotes', label: 'Private notes', type: 'longtext', system: true},
+			],
+		},
+		{
+			id: 'transcripts',
+			name: 'Transcripts',
+			singular: 'transcript',
+			titleField: 'title',
+			summaryField: 'date',
+			read: 'readTranscripts',
+			writes: {},
+			fields: [
+				{key: 'title', label: 'Title', type: 'text', system: true},
+				{key: 'date', label: 'Date', type: 'text', system: true},
+				// Granola's own lines, by where the audio came from: "Microphone: …", "System audio: …".
+				{key: 'transcript', label: 'Transcript', type: 'longtext', system: true},
+			],
+		},
+	],
+};
+
 // Information's actions for one of its collections, such as `readCards` and `writeCards`: reading
 // it, and adding, editing and deleting as one.
 function infoActions(collectionId: string, plural: string): Action[] {
@@ -255,7 +318,7 @@ const info: Integration = {
 	],
 };
 
-export const INTEGRATIONS: Integration[] = [info, email];
+export const INTEGRATIONS: Integration[] = [info, email, granola];
 
 export function findIntegration(id: string): Integration | undefined {
 	return INTEGRATIONS.find((integration) => integration.id === id);

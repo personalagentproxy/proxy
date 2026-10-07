@@ -54,8 +54,9 @@ export type Collection = {
 	summaryField?: string;
 	// A select field the list can be narrowed by, such as an email's folder.
 	filterField?: string;
-	// What the search takes, told to the agent beside the search box.
-	searchHint: string;
+	// What the search takes, told to the agent beside the search box. A collection without one
+	// can't be searched, as Granola's notes can't.
+	searchHint?: string;
 	// The integration's action listing and opening records needs.
 	read: string;
 	// The button creating a record, when not Create and the singular: Save as draft.
@@ -67,7 +68,7 @@ export type Collection = {
 	commands?: Command[];
 };
 
-export type IntegrationId = 'info' | 'email';
+export type IntegrationId = 'info' | 'email' | 'granola';
 
 export type Integration = {
 	id: IntegrationId;

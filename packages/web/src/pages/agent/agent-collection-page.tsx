@@ -16,11 +16,11 @@ export function noticeFromState(state: unknown): string | null {
 	return typeof state.notice === 'string' ? state.notice : null;
 }
 
-// A collection's records, a page at a time, newest first, with a search, and with New when the
-// agent may start one. A collection with a filter field, such as an email's folder, can be narrowed
-// to one of its values, and each row says which it has. The search, the filter and the page are in
-// the address, so every page can be linked to. An agent that can only add here, as one that may
-// send but not read email, gets New alone.
+// A collection's records, a page at a time, newest first, with a search where the collection has
+// one, and with New when the agent may start one. A collection with a filter field, such as an
+// email's folder, can be narrowed to one of its values, and each row says which it has. The search,
+// the filter and the page are in the address, so every page can be linked to. An agent that can
+// only add here, as one that may send but not read email, gets New alone.
 export function AgentCollectionPage() {
 	const outcome = useLoaderData<typeof agentCollectionLoader>();
 	const notice = noticeFromState(useLocation().state);
@@ -85,29 +85,33 @@ export function AgentCollectionPage() {
 	return (
 		<AgentShell>
 			{header}
-			<Form method="get" className="mb-1 flex gap-2 md:px-3">
-				{chosen && <input type="hidden" name="filter" value={chosen} />}
-				<Input
-					name="search"
-					aria-label={`Search ${collection.name.toLowerCase()}`}
-					placeholder={`Search ${collection.name.toLowerCase()}`}
-					defaultValue={search}
-					key={search}
-				/>
-				<Button type="submit" variant="outline">
-					Search
-				</Button>
-				{search && (
-					<Button
-						variant="ghost"
-						nativeButton={false}
-						render={<Link to={chosen ? `${base}?filter=${chosen}` : base} />}
-					>
-						Clear search
-					</Button>
-				)}
-			</Form>
-			<p className="mb-4 text-sm text-muted-foreground md:px-3">{collection.searchHint}</p>
+			{collection.searchHint && (
+				<>
+					<Form method="get" className="mb-1 flex gap-2 md:px-3">
+						{chosen && <input type="hidden" name="filter" value={chosen} />}
+						<Input
+							name="search"
+							aria-label={`Search ${collection.name.toLowerCase()}`}
+							placeholder={`Search ${collection.name.toLowerCase()}`}
+							defaultValue={search}
+							key={search}
+						/>
+						<Button type="submit" variant="outline">
+							Search
+						</Button>
+						{search && (
+							<Button
+								variant="ghost"
+								nativeButton={false}
+								render={<Link to={chosen ? `${base}?filter=${chosen}` : base} />}
+							>
+								Clear search
+							</Button>
+						)}
+					</Form>
+					<p className="mb-4 text-sm text-muted-foreground md:px-3">{collection.searchHint}</p>
+				</>
+			)}
 			{filter && (
 				<nav aria-label={`${filter.label} filter`} className="mb-3 flex gap-1 md:px-3">
 					{[null, ...(filter.options ?? [])].map((option) => (

@@ -1,7 +1,7 @@
 import {EMAIL_PROVIDERS, type EmailProvider} from '@proxy/integrations';
 import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
-import {useNavigate} from 'react-router';
+import {useNavigate, useSearchParams} from 'react-router';
 import {connectEmail} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {BackButton} from '@/components/back-button';
@@ -27,10 +27,14 @@ import {
 } from '@proxy/ui/components/select';
 import {INTEGRATIONS} from '@/lib/integrations';
 
-// The catalog. Email is the only integration for now; it can be connected again for another
-// mailbox.
+// Where Granola's sign-in starts: the api sends the browser on to Granola, and back to the new
+// connection, or here with `?error=granola` when it didn't finish.
+const GRANOLA_START = '/api/connections/granola/start';
+
+// The catalog. Each integration can be connected again, for another mailbox or Granola account.
 export function AddConnectionPage() {
 	const [connecting, setConnecting] = useState(false);
+	const [params] = useSearchParams();
 	const available = INTEGRATIONS.filter((integration) => !integration.builtIn);
 
 	return (
@@ -42,6 +46,11 @@ export function AddConnectionPage() {
 				</>
 			}
 		>
+			{params.get('error') === 'granola' && (
+				<p className="mb-4 text-sm text-destructive md:px-3">
+					Signing in to Granola didn’t finish. Try again.
+				</p>
+			)}
 			<RowList>
 				{available.map((integration) => (
 					<li
@@ -55,9 +64,20 @@ export function AddConnectionPage() {
 								{integration.description}
 							</span>
 						</div>
-						<Button size="sm" variant="outline" onClick={() => setConnecting(true)}>
-							Connect
-						</Button>
+						{integration.id === 'granola' ? (
+							<Button
+								size="sm"
+								variant="outline"
+								nativeButton={false}
+								render={<a href={GRANOLA_START} />}
+							>
+								Sign in with Granola
+							</Button>
+						) : (
+							<Button size="sm" variant="outline" onClick={() => setConnecting(true)}>
+								Connect
+							</Button>
+						)}
 					</li>
 				))}
 			</RowList>

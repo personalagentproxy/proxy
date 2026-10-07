@@ -8,7 +8,7 @@ import {listConnections, type ConnectionRow} from '@proxy/db/connection';
 import {applies, effectiveActions, findIntegration, requiredAction, type Collection, type Condition, type OwnSettings} from '@proxy/integrations';
 
 import type {Connector, DataRecord, RecordPage, RecordTarget} from '../records/connector';
-import {parseListQuery, requireFilter} from '../records/list-query';
+import {parseListQuery, requireListQuery} from '../records/list-query';
 import {parseRecordValues} from '../records/record-values';
 import {loadRecordTarget} from '../records/target';
 import type {AgentRequest} from '../server/middleware/require-agent';
@@ -110,7 +110,7 @@ export function handleAgentListRecordsRoute(request: AgentRequest): Promise<Resu
 	return Do(async ($) => {
 		const query = $(parseListQuery(request.query));
 		const target = $(await authorize(request, 'list', query.search));
-		$(requireFilter(target.collection, query.filter));
+		$(requireListQuery(target.collection, query));
 		const page = $(await target.connector.list(target, query));
 		$(await log(request, target, 'list', 'allowed', null, query.search));
 		return {actions: target.actions, ...page};
