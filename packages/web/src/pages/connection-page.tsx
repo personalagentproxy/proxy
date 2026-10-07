@@ -1,4 +1,3 @@
-import {providerAccess} from '@proxy/integrations';
 import {UnplugIcon} from 'lucide-react';
 import {useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
@@ -12,13 +11,7 @@ import {IconButton} from '@/components/icon-button';
 import {NotFound} from '@/components/not-found';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
-import {
-	ACCESS_LABELS,
-	accessFor,
-	agentsWithAccess,
-	defaultAccess,
-	integrationOf,
-} from '@/lib/access';
+import {accessFor, accessLabel, agentsWithAccess, defaultAccess, integrationOf} from '@/lib/access';
 import {formatDate} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {connectionLoader} from '@/loaders';
@@ -64,9 +57,8 @@ export function ConnectionPage() {
 							<li key={collection.id} className="flex h-10 items-center gap-3 px-4 text-sm md:px-3">
 								<span className="min-w-0 flex-1 truncate">{collection.name}</span>
 								<AccessSelect
-									label={`${collection.name} default access`}
 									value={defaultAccess(connection, collection.id)}
-									provider={providerAccess(collection)}
+									collection={collection}
 									onChange={async (next) => {
 										const result = await setConnectionDefault(
 											connection.id,
@@ -96,7 +88,7 @@ export function ConnectionPage() {
 											.filter((collection) => accessFor(agent, connection, collection) !== 'none')
 											.map(
 												(collection) =>
-													`${collection.name}: ${ACCESS_LABELS[accessFor(agent, connection, collection)]}`,
+													`${collection.name}: ${accessLabel(collection, accessFor(agent, connection, collection))}`,
 											)
 											.join(', ')}
 									</span>

@@ -17,6 +17,7 @@ export type AuditEntryResponse = {
 	collectionId: string;
 	action: 'list' | 'view' | 'create' | 'update' | 'delete';
 	recordTitle: string | null;
+	query: string | null;
 	outcome: 'allowed' | 'denied';
 };
 

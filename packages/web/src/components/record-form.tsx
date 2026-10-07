@@ -104,10 +104,12 @@ function FieldInput({id, field, value, onChange}: InputProps) {
 		);
 	}
 
+	// An email field takes several addresses, comma-separated, such as a draft's recipients.
 	return (
 		<Input
 			id={id}
 			type={INPUT_TYPES[field.type] ?? 'text'}
+			multiple={field.type === 'email'}
 			autoComplete="off"
 			value={value}
 			onChange={(event) => onChange(event.target.value)}

@@ -1,3 +1,4 @@
+import {allowsWrite} from '@proxy/integrations';
 import {useState} from 'react';
 import {useLoaderData, useNavigate} from 'react-router';
 import {deleteAgentRecord, updateAgentRecord} from '@/client/agent-client';
@@ -45,23 +46,27 @@ export function AgentRecordPage() {
 				<AgentHeading>{editing ? `Edit ${collection.singular}` : title}</AgentHeading>
 				{access === 'write' && !editing && (
 					<div className="flex shrink-0 gap-2">
-						<Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-							Edit
-						</Button>
-						<Button
-							size="sm"
-							variant="destructive"
-							onClick={async () => {
-								const result = await deleteAgentRecord(connection.id, collection.id, record.id);
-								if (result.isErr()) {
-									setError(agentErrorMessage(result.error));
-									return;
-								}
-								navigate(listPath);
-							}}
-						>
-							Delete
-						</Button>
+						{allowsWrite(collection, 'update') && (
+							<Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+								Edit
+							</Button>
+						)}
+						{allowsWrite(collection, 'delete') && (
+							<Button
+								size="sm"
+								variant="destructive"
+								onClick={async () => {
+									const result = await deleteAgentRecord(connection.id, collection.id, record.id);
+									if (result.isErr()) {
+										setError(agentErrorMessage(result.error));
+										return;
+									}
+									navigate(listPath);
+								}}
+							>
+								Delete
+							</Button>
+						)}
 					</div>
 				)}
 			</div>

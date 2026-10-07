@@ -1,6 +1,6 @@
 import {ImapFlow, type ImapFlowOptions} from 'imapflow';
 import nodemailer from 'nodemailer';
-import {Err, Ok, Result} from 'ts-results-es';
+import {Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
 
@@ -50,8 +50,9 @@ async function checkImap(credential: EmailCredential): Promise<Result<void, ApiE
 	return result.mapErr(imapError);
 }
 
-async function checkSmtp(credential: EmailCredential): Promise<Result<void, ApiError>> {
-	const transport = nodemailer.createTransport({
+/** How Proxy signs in to a mailbox's SMTP server: TLS on 465, or STARTTLS required on 587. */
+export function smtpTransport(credential: EmailCredential) {
+	return nodemailer.createTransport({
 		host: credential.smtpHost,
 		port: credential.smtpPort,
 		secure: credential.smtpPort === 465,
@@ -61,17 +62,24 @@ async function checkSmtp(credential: EmailCredential): Promise<Result<void, ApiE
 		greetingTimeout: TIMEOUT_MS,
 		socketTimeout: TIMEOUT_MS,
 	});
+}
 
+/** A failed SMTP call: the password turned down, recipients refused, or the server out of reach. */
+export function smtpError(error: unknown): ApiError {
+	if (isSmtpAuthFailure(error)) {
+		return ApiErr.credentialsRejected();
+	}
+	if (error instanceof Error && 'code' in error && error.code === 'EENVELOPE') {
+		return ApiErr.validationError('The mail server refused the recipients');
+	}
+	return ApiErr.providerUnreachable(error);
+}
+
+async function checkSmtp(credential: EmailCredential): Promise<Result<void, ApiError>> {
+	const transport = smtpTransport(credential);
 	const result = await Result.wrapAsync(() => transport.verify());
 	transport.close();
-	if (result.isOk()) {
-		return Ok(undefined);
-	}
-
-	if (isSmtpAuthFailure(result.error)) {
-		return Err(ApiErr.credentialsRejected());
-	}
-	return Err(ApiErr.providerUnreachable(result.error));
+	return result.map(() => undefined).mapErr(smtpError);
 }
 
 /** Signs in to the mailbox's IMAP and SMTP servers, so a connection is only saved once both work. */

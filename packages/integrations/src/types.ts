@@ -12,6 +12,8 @@ export type Field = {
 
 export type Access = 'none' | 'read' | 'write';
 
+export type WriteAction = 'create' | 'update' | 'delete';
+
 export type Collection = {
 	id: string;
 	name: string;
@@ -21,8 +23,11 @@ export type Collection = {
 	// The field a row shows as its title, and the one it shows beside it.
 	titleField: string;
 	summaryField?: string;
-	// Records the provider fills in, which can be read but never changed, such as received emails.
-	readOnly?: boolean;
+	// The changes the provider takes, when not every one: none for received emails, only create
+	// for sent ones.
+	writeActions?: WriteAction[];
+	// How creating a record reads where it isn't "Create": Send for an email.
+	createVerb?: {present: string; past: string};
 };
 
 export type IntegrationId = 'info' | 'email';

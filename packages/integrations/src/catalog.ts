@@ -7,7 +7,7 @@ export const INFO_INTEGRATION_ID = 'info';
 const email: Integration = {
 	id: 'email',
 	name: 'Email',
-	description: 'Emails and drafts from Gmail, iCloud, Fastmail or any IMAP mailbox',
+	description: 'Emails, drafts and sending, from Gmail, iCloud, Fastmail or any IMAP mailbox',
 	collections: [
 		{
 			id: 'emails',
@@ -15,7 +15,7 @@ const email: Integration = {
 			singular: 'email',
 			titleField: 'subject',
 			summaryField: 'from',
-			readOnly: true,
+			writeActions: [],
 			fields: [
 				{key: 'from', label: 'From', type: 'email', system: true},
 				{key: 'to', label: 'To', type: 'email'},
@@ -33,6 +33,23 @@ const email: Integration = {
 			fields: [
 				{key: 'to', label: 'To', type: 'email'},
 				{key: 'subject', label: 'Subject', type: 'text'},
+				{key: 'body', label: 'Body', type: 'longtext'},
+			],
+		},
+		// Writing here sends an email, so sending is given on its own, apart from drafts. What was
+		// sent can be read, never changed.
+		{
+			id: 'sent',
+			name: 'Sent emails',
+			singular: 'email',
+			titleField: 'subject',
+			summaryField: 'to',
+			writeActions: ['create'],
+			createVerb: {present: 'Send', past: 'Sent'},
+			fields: [
+				{key: 'to', label: 'To', type: 'email'},
+				{key: 'subject', label: 'Subject', type: 'text'},
+				{key: 'sentAt', label: 'Sent', type: 'datetime', system: true},
 				{key: 'body', label: 'Body', type: 'longtext'},
 			],
 		},

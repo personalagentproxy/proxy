@@ -39,8 +39,8 @@ const connector = {list: mock(), get: mock(), create: mock(), update: mock(), re
 
 const card = {id: 'rec-1', values: {label: 'Personal Visa', number: '4242'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 
-function makeRequest(params: Record<string, string> = {}, body: unknown = undefined) {
-	return {agent: {agentId: 'agent-1', orgId: 'org-1', name: 'Shopping agent'}, params, body} as never;
+function makeRequest(params: Record<string, string> = {}, body: unknown = undefined, query: Record<string, string> = {}) {
+	return {agent: {agentId: 'agent-1', orgId: 'org-1', name: 'Shopping agent'}, params, body, query} as never;
 }
 
 function useTarget(connection: typeof infoConnection | typeof emailConnection, collectionId: string) {
@@ -52,7 +52,7 @@ beforeEach(() => {
 	getAgent.mockResolvedValue(Ok(agent));
 	logAgentRequest.mockResolvedValue(Ok(undefined));
 	listConnections.mockResolvedValue(Ok([infoConnection, emailConnection]));
-	connector.list.mockResolvedValue(Ok([card]));
+	connector.list.mockResolvedValue(Ok({records: [card], nextPage: null}));
 	connector.get.mockResolvedValue(Ok(card));
 });
 
@@ -94,8 +94,20 @@ describe('agent record routes', () => {
 			collectionId: 'cards',
 			action: 'view',
 			recordTitle: 'Personal Visa',
+			query: null,
 			outcome: 'allowed',
 		});
+	});
+
+	test('a search is passed on and logged with what was searched for', async () => {
+		useTarget(infoConnection, 'cards');
+
+		const {handleAgentListRecordsRoute} = await import('./route');
+		const result = await handleAgentListRecordsRoute(makeRequest({connectionId: 'info-1', collectionId: 'cards'}, undefined, {search: ' visa ', page: 'rec-9'}));
+
+		expect(connector.list.mock.calls[0]?.[1]).toEqual({search: 'visa', page: 'rec-9'});
+		expect(result.unwrap()).toEqual({access: 'read', records: [card], nextPage: null});
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'list', query: 'visa', outcome: 'allowed'});
 	});
 
 	test('a collection without access is refused and logged as denied', async () => {
@@ -117,6 +129,20 @@ describe('agent record routes', () => {
 
 		expect(result.unwrapErr().kind).toBe('forbidden');
 		expect(connector.create).not.toHaveBeenCalled();
+	});
+
+	test('a sent email can be sent with write access, never edited', async () => {
+		useTarget({...emailConnection, defaults: [{collectionId: 'sent', access: 'write'}]}, 'sent');
+		connector.create.mockResolvedValue(Ok({id: 'sent-1', values: {to: 'lena@example.com', subject: 'Thursday', body: ''}, updatedAt: '2026-10-01T00:00:00.000Z'}));
+
+		const {handleAgentCreateRecordRoute, handleAgentUpdateRecordRoute} = await import('./route');
+		const sent = await handleAgentCreateRecordRoute(makeRequest({connectionId: 'mail-1', collectionId: 'sent'}, {values: {to: 'lena@example.com', subject: 'Thursday'}}));
+		const edited = await handleAgentUpdateRecordRoute(makeRequest({connectionId: 'mail-1', collectionId: 'sent', recordId: 'sent-1'}, {values: {to: 'max@example.com'}}));
+
+		expect(sent.isOk()).toBe(true);
+		expect(edited.unwrapErr().kind).toBe('forbidden');
+		expect(connector.update).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[1]?.[0]).toMatchObject({collectionId: 'sent', action: 'update', outcome: 'denied'});
 	});
 
 	test('a default above what the provider allows is capped', async () => {

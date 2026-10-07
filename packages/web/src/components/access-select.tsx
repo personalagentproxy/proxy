@@ -1,4 +1,10 @@
-import {ACCESS_LEVELS, minAccess, type Access} from '@proxy/integrations';
+import {
+	ACCESS_LEVELS,
+	minAccess,
+	providerAccess,
+	type Access,
+	type Collection,
+} from '@proxy/integrations';
 import {
 	Select,
 	SelectContent,
@@ -6,17 +12,15 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@proxy/ui/components/select';
-import {ACCESS_LABELS} from '@/lib/access';
+import {accessLabel} from '@/lib/access';
 import {cn} from '@proxy/ui/lib/utils';
 
 const FOLLOW_DEFAULT = 'default';
 
 type Props = {
-	label: string;
+	collection: Collection;
 	// The stored setting; null follows the default, when there is one to follow.
 	value: Access | null;
-	// What the provider allows: higher levels aren't offered.
-	provider: Access;
 	// The connection's default, for an agent's select: offered as its first choice.
 	connectionDefault?: Access;
 	onChange: (next: Access | null) => void;
@@ -24,7 +28,9 @@ type Props = {
 
 // One collection's access level. On an agent's page the first choice follows the connection's
 // default, and a setting of the agent's own is marked so it stands out from the defaults.
-export function AccessSelect({label, value, provider, connectionDefault, onChange}: Props) {
+export function AccessSelect({collection, value, connectionDefault, onChange}: Props) {
+	// Levels above what the provider allows aren't offered.
+	const provider = providerAccess(collection);
 	const levels = ACCESS_LEVELS.filter((level) => minAccess(level, provider) === level);
 	const followsDefault = connectionDefault !== undefined && value === null;
 	const items = [
@@ -33,10 +39,10 @@ export function AccessSelect({label, value, provider, connectionDefault, onChang
 			: [
 					{
 						value: FOLLOW_DEFAULT,
-						label: `Default (${ACCESS_LABELS[minAccess(connectionDefault, provider)]})`,
+						label: `Default (${accessLabel(collection, minAccess(connectionDefault, provider))})`,
 					},
 				]),
-		...levels.map((level) => ({value: level, label: ACCESS_LABELS[level]})),
+		...levels.map((level) => ({value: level, label: accessLabel(collection, level)})),
 	];
 	const shown = followsDefault ? FOLLOW_DEFAULT : (value ?? 'none');
 	const effective = followsDefault
@@ -66,7 +72,7 @@ export function AccessSelect({label, value, provider, connectionDefault, onChang
 			>
 				<SelectTrigger
 					size="sm"
-					aria-label={label}
+					aria-label={`${collection.name} access`}
 					className={cn('w-52', effective === 'none' && 'text-muted-foreground')}
 				>
 					<SelectValue />
