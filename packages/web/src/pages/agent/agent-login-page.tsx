@@ -40,6 +40,9 @@ export function AgentLoginPage() {
 				<h1 className="text-lg font-semibold">
 					Personal Agent Proxy <span className="font-normal text-muted-foreground">for agents</span>
 				</h1>
+				<p className="text-sm text-balance text-muted-foreground">
+					If a human didn't provide a login, ask them first.
+				</p>
 				<div className="grid gap-2">
 					<Label htmlFor="username">Username</Label>
 					<Input
