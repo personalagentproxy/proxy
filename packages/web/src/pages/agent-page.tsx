@@ -1,5 +1,12 @@
 import type {FetchError} from '@proxy/utils';
-import {BanIcon, KeyRoundIcon, RotateCcwIcon, SearchIcon, Trash2Icon} from 'lucide-react';
+import {
+	BanIcon,
+	ChevronRightIcon,
+	KeyRoundIcon,
+	RotateCcwIcon,
+	SearchIcon,
+	Trash2Icon,
+} from 'lucide-react';
 import {useEffect, useState, type ReactNode} from 'react';
 import {
 	Link,
@@ -28,7 +35,15 @@ import {EmptyRows, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {Checkbox} from '@/components/ui/checkbox';
 import {Input} from '@/components/ui/input';
-import {connectionLabel, defaultActions, integrationOf, ownSettings} from '@/lib/access';
+import {
+	actionsFor,
+	connectionLabel,
+	defaultActions,
+	describeActions,
+	integrationOf,
+	ownSettings,
+} from '@/lib/access';
+import {cn} from '@/lib/utils';
 import {formatDate} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin, Connection} from '@/lib/types';
@@ -263,12 +278,32 @@ type GridProps = {
 	onChange: (connectionId: string, actions: Record<string, boolean | null>) => void;
 };
 
-// Every connection, Information first, with a checkbox per action. A filter narrows them to the
-// connections and actions it names; Changed only keeps the actions the agent has a setting of its
-// own for.
+// Every connection, Information first, with a checkbox per action. Mailboxes start folded to a
+// line saying what the agent can do there; Information starts open. A filter narrows them to the
+// connections and actions it names, and Changed only keeps the actions the agent has a setting of
+// its own for; either opens everything it keeps.
 function AccessGrid({agent, connections, onChange}: GridProps) {
 	const [query, setQuery] = useState('');
 	const [changedOnly, setChangedOnly] = useState(false);
+	const [opened, setOpened] = useState<Set<string>>(
+		() =>
+			new Set(
+				connections
+					.filter((connection) => integrationOf(connection)?.builtIn)
+					.map((connection) => connection.id),
+			),
+	);
+	const filtering = query.trim() !== '' || changedOnly;
+	const toggle = (connectionId: string) => {
+		const next = new Set(opened);
+		if (next.has(connectionId)) {
+			next.delete(connectionId);
+			setOpened(next);
+			return;
+		}
+		next.add(connectionId);
+		setOpened(next);
+	};
 	const matches = (text: string) => text.toLowerCase().includes(query.trim().toLowerCase());
 	const groups = connections.flatMap((connection) => {
 		const integration = integrationOf(connection);
@@ -316,29 +351,47 @@ function AccessGrid({agent, connections, onChange}: GridProps) {
 					</EmptyRows>
 				</RowList>
 			)}
-			{groups.map(({connection, integration, label, own, actions}) => (
-				<div key={connection.id} className="flex flex-col gap-1">
-					<div className="flex items-center gap-2 text-sm md:px-3">
-						<integration.icon className="size-4 shrink-0 text-muted-foreground" />
-						<Link
-							to={`/connections/${connection.id}`}
-							className="font-medium underline-offset-4 hover:underline"
+			{groups.map(({connection, integration, label, own, actions}) => {
+				const open = filtering || opened.has(connection.id);
+				const can = actionsFor(agent, connection);
+				return (
+					<div key={connection.id} className="flex flex-col gap-1">
+						<button
+							type="button"
+							aria-expanded={open}
+							onClick={() => toggle(connection.id)}
+							className="flex h-8 items-center gap-2 text-left text-sm md:px-3"
 						>
-							{label}
-						</Link>
-						{/* The account, unless the label names it already or it is Information's. */}
-						{!integration.builtIn && !label.includes(connection.account) && (
-							<span className="truncate text-muted-foreground">{connection.account}</span>
+							<ChevronRightIcon
+								className={cn(
+									'size-4 shrink-0 text-muted-foreground transition-transform',
+									open && 'rotate-90',
+								)}
+							/>
+							<integration.icon className="size-4 shrink-0 text-muted-foreground" />
+							<span className="shrink-0 font-medium">{label}</span>
+							{Object.keys(own).length > 0 && (
+								<span className="shrink-0 text-xs text-primary" title="Differs from the default">
+									Changed
+								</span>
+							)}
+							{!open && (
+								<span className="ml-auto min-w-0 truncate pl-3 text-muted-foreground">
+									{can.length > 0 ? describeActions(integration, can) : 'No access'}
+								</span>
+							)}
+						</button>
+						{open && (
+							<ConnectionAccess
+								actions={actions}
+								defaults={defaultActions(connection)}
+								own={own}
+								onChange={(changes) => onChange(connection.id, changes)}
+							/>
 						)}
 					</div>
-					<ConnectionAccess
-						actions={actions}
-						defaults={defaultActions(connection)}
-						own={own}
-						onChange={(changes) => onChange(connection.id, changes)}
-					/>
-				</div>
-			))}
+				);
+			})}
 		</div>
 	);
 }
