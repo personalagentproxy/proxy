@@ -344,47 +344,50 @@ function AccessGrid({agent, connections, onChange}: GridProps) {
 					</EmptyRows>
 				</RowList>
 			)}
-			{groups.map(({connection, integration, label, own, actions}) => {
-				const open = filtering || opened.has(connection.id);
-				const can = actionsFor(agent, connection);
-				return (
-					<div key={connection.id} className="flex flex-col gap-1">
-						<button
-							type="button"
-							aria-expanded={open}
-							onClick={() => toggle(connection.id)}
-							className="flex h-8 items-center gap-2 text-left text-sm md:px-3"
-						>
-							<ChevronRightIcon
-								className={cn(
-									'size-4 shrink-0 text-muted-foreground transition-transform',
-									open && 'rotate-90',
+			{/* One row per connection, as tall as the activity list's rows and as close together. */}
+			<div className="flex flex-col">
+				{groups.map(({connection, integration, label, own, actions}) => {
+					const open = filtering || opened.has(connection.id);
+					const can = actionsFor(agent, connection);
+					return (
+						<div key={connection.id} className={cn('flex flex-col', open && 'mb-2')}>
+							<button
+								type="button"
+								aria-expanded={open}
+								onClick={() => toggle(connection.id)}
+								className="-mx-4 flex h-10 items-center gap-2 px-4 text-left text-sm hover:bg-muted/50 md:mx-0 md:px-3"
+							>
+								<ChevronRightIcon
+									className={cn(
+										'size-4 shrink-0 text-muted-foreground transition-transform',
+										open && 'rotate-90',
+									)}
+								/>
+								<integration.icon className="size-4 shrink-0 text-muted-foreground" />
+								<span className="shrink-0 font-medium">{label}</span>
+								{Object.keys(own).length > 0 && (
+									<span className="shrink-0 text-xs text-primary" title="Differs from the default">
+										Changed
+									</span>
 								)}
-							/>
-							<integration.icon className="size-4 shrink-0 text-muted-foreground" />
-							<span className="shrink-0 font-medium">{label}</span>
-							{Object.keys(own).length > 0 && (
-								<span className="shrink-0 text-xs text-primary" title="Differs from the default">
-									Changed
-								</span>
+								{!open && (
+									<span className="ml-auto min-w-0 truncate pl-3 text-muted-foreground">
+										{can.length > 0 ? describeActions(integration, can) : 'No access'}
+									</span>
+								)}
+							</button>
+							{open && (
+								<ConnectionAccess
+									actions={actions}
+									defaults={defaultActions(connection)}
+									own={own}
+									onChange={(changes) => onChange(connection.id, changes)}
+								/>
 							)}
-							{!open && (
-								<span className="ml-auto min-w-0 truncate pl-3 text-muted-foreground">
-									{can.length > 0 ? describeActions(integration, can) : 'No access'}
-								</span>
-							)}
-						</button>
-						{open && (
-							<ConnectionAccess
-								actions={actions}
-								defaults={defaultActions(connection)}
-								own={own}
-								onChange={(changes) => onChange(connection.id, changes)}
-							/>
-						)}
-					</div>
-				);
-			})}
+						</div>
+					);
+				})}
+			</div>
 		</div>
 	);
 }
