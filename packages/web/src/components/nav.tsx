@@ -60,6 +60,9 @@ export function AppSidebar() {
 			</SidebarContent>
 			<SidebarFooter>
 				<SidebarMenu>
+					<SidebarMenuItem>
+						<ThemeMenu />
+					</SidebarMenuItem>
 					{/* The mock runs both sides in one tab, so the agent's door is a link away. */}
 					<SidebarMenuItem>
 						<SidebarMenuButton tooltip="Agent sign-in" render={<Link to="/agent/login" />}>
@@ -75,9 +78,6 @@ export function AppSidebar() {
 							<LogOutIcon />
 							<span>Sign out</span>
 						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<ThemeMenu />
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarFooter>
