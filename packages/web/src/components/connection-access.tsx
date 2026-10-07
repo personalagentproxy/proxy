@@ -3,6 +3,7 @@ import {CheckCheckIcon, Undo2Icon} from 'lucide-react';
 import {useId} from 'react';
 import {RowList} from '@/components/row-list';
 import {IconButton} from '@/components/icon-button';
+import {Badge} from '@proxy/ui/components/badge';
 import {Checkbox} from '@proxy/ui/components/checkbox';
 import {cn} from '@proxy/ui/lib/utils';
 
@@ -70,7 +71,11 @@ export function ConnectionAccess({
 						<label htmlFor={inputId} className="flex min-w-0 flex-1 flex-col gap-0.5">
 							<span className="flex items-center gap-2">
 								{action.label}
-								{action.risk === 'high' && <span className="text-destructive">High risk</span>}
+								{action.risk === 'high' && (
+									<Badge variant="destructive" className="font-normal">
+										High risk
+									</Badge>
+								)}
 							</span>
 							<span className="text-muted-foreground">
 								{action.description}
