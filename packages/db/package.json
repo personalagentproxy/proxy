@@ -17,6 +17,7 @@
 		"test": "bun test",
 		"typecheck": "tsc --noEmit",
 		"db:dev": "bun --env-file=../../.env scripts/dev-db.ts",
+		"db:seed": "bun --env-file=../../.env scripts/seed.ts",
 		"db:generate": "prisma generate",
 		"db:migrate:diff": "bun --env-file=../../.env prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --script",
 		"db:migrate:deploy": "bun --env-file=../../.env prisma migrate deploy"
@@ -28,6 +29,7 @@
 	},
 	"devDependencies": {
 		"@prisma/dev": "0.25.2",
+		"@proxy/integrations": "workspace:*",
 		"@types/bun": "latest",
 		"prisma": "^6.19.3",
 		"typescript": "~6.0.2"
