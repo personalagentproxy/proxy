@@ -25,7 +25,7 @@ export function DocsSidebar({sections}: {sections: NavSection[]}) {
 		<Sidebar>
 			<SidebarHeader className="h-12 justify-center border-b px-4">
 				<Link href="/" className="text-sm font-medium" onClick={() => setOpenMobile(false)}>
-					Proxy docs
+					Personal Agent Proxy docs
 				</Link>
 			</SidebarHeader>
 			<SidebarContent>

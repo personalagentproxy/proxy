@@ -40,7 +40,7 @@ export function handleGetAgentRoute(request: AuthenticatedRequest): Promise<Resu
 
 const createAgentBodySchema = z.object({name: z.string().trim().min(1).max(80)});
 
-/** The only time the password is sent; Proxy keeps its hash. A new agent follows every default. */
+/** The only time the password is sent; Personal Agent Proxy keeps its hash. A new agent follows every default. */
 export function handleCreateAgentRoute(request: AuthenticatedRequest): Promise<Result<{agent: AgentResponse; password: string}, ApiError>> {
 	return Do(async ($) => {
 		const {name} = $(parseSchema(createAgentBodySchema, request.body));

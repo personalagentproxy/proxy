@@ -70,7 +70,7 @@ export function LoginPage() {
 	return (
 		<div className="flex min-h-dvh w-full items-center justify-center bg-background text-foreground">
 			<div className="grid w-72 gap-4">
-				<h1 className="text-lg font-semibold">Proxy</h1>
+				<h1 className="text-lg font-semibold">Personal Agent Proxy</h1>
 				{redirectError && status.kind === 'idle' && (
 					<p className="text-sm text-destructive">{errorMessage(redirectError)}</p>
 				)}
@@ -105,7 +105,7 @@ export function LoginPage() {
 					{status.kind === 'sent' && (
 						<p className="text-sm text-muted-foreground">
 							{status.logged
-								? 'Proxy cannot send email yet, so it wrote the sign-in link to its log.'
+								? 'Personal Agent Proxy cannot send email yet, so it wrote the sign-in link to its log.'
 								: 'Check your email for a link to sign in.'}
 						</p>
 					)}

@@ -20,7 +20,8 @@ import type {infoLoader} from '@/loaders';
 // Which record the dialog is open on: a new one in a collection, or one being edited.
 type Editing = {collection: Collection; record: DataRecord | null};
 
-// What you keep in Proxy for agents to use, grouped by collection; a row opens it for editing.
+// What you keep in Personal Agent Proxy for agents to use, grouped by collection; a row opens it
+// for editing.
 export function InfoPage() {
 	const {connectionId, records} = useLoaderData<typeof infoLoader>();
 	const revalidator = useRevalidator();

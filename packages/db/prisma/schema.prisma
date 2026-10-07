@@ -118,7 +118,8 @@ enum Access {
 
 // A connected account of an integration from the catalog (`@proxy/integrations`), such as a
 // mailbox. An organization can connect the same integration more than once. Every organization
-// also has one built-in Information connection, made with it, whose records live in Proxy.
+// also has one built-in Information connection, made with it, whose records live in
+// Personal Agent Proxy.
 model Connection {
   id            String  @id @default(cuid())
   orgId         String

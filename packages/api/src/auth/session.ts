@@ -13,8 +13,8 @@ import {env} from '../utils/env';
 
 export const sessionMaxAgeSeconds = 30 * 24 * 60 * 60;
 
-// Secure wherever Proxy is served over HTTPS. Browsers drop secure cookies on plain HTTP, as
-// when trying Proxy out on localhost.
+// Secure wherever Personal Agent Proxy is served over HTTPS. Browsers drop secure cookies on plain HTTP, as
+// when trying Personal Agent Proxy out on localhost.
 export function useSecureCookies(): boolean {
 	return env.APP_URL?.startsWith('https://') ?? false;
 }
