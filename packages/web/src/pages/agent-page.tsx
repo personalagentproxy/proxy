@@ -278,21 +278,14 @@ type GridProps = {
 	onChange: (connectionId: string, actions: Record<string, boolean | null>) => void;
 };
 
-// Every connection, Information first, with a checkbox per action. Mailboxes start folded to a
-// line saying what the agent can do there; Information starts open. A filter narrows them to the
-// connections and actions it names, and Changed only keeps the actions the agent has a setting of
-// its own for; either opens everything it keeps.
+// Every connection, Information first, with a checkbox per action. Each starts folded to a line
+// saying what the agent can do there. A filter narrows them to the connections and actions it
+// names, and Changed only keeps the actions the agent has a setting of its own for; either opens
+// everything it keeps.
 function AccessGrid({agent, connections, onChange}: GridProps) {
 	const [query, setQuery] = useState('');
 	const [changedOnly, setChangedOnly] = useState(false);
-	const [opened, setOpened] = useState<Set<string>>(
-		() =>
-			new Set(
-				connections
-					.filter((connection) => integrationOf(connection)?.builtIn)
-					.map((connection) => connection.id),
-			),
-	);
+	const [opened, setOpened] = useState<Set<string>>(() => new Set());
 	const filtering = query.trim() !== '' || changedOnly;
 	const toggle = (connectionId: string) => {
 		const next = new Set(opened);
