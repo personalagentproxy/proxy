@@ -131,6 +131,20 @@ describe('agent record routes', () => {
 		expect(connector.create).not.toHaveBeenCalled();
 	});
 
+	test('a sent email can be sent with write access, never edited', async () => {
+		useTarget({...emailConnection, defaults: [{collectionId: 'sent', access: 'write'}]}, 'sent');
+		connector.create.mockResolvedValue(Ok({id: 'sent-1', values: {to: 'lena@example.com', subject: 'Thursday', body: ''}, updatedAt: '2026-10-01T00:00:00.000Z'}));
+
+		const {handleAgentCreateRecordRoute, handleAgentUpdateRecordRoute} = await import('./route');
+		const sent = await handleAgentCreateRecordRoute(makeRequest({connectionId: 'mail-1', collectionId: 'sent'}, {values: {to: 'lena@example.com', subject: 'Thursday'}}));
+		const edited = await handleAgentUpdateRecordRoute(makeRequest({connectionId: 'mail-1', collectionId: 'sent', recordId: 'sent-1'}, {values: {to: 'max@example.com'}}));
+
+		expect(sent.isOk()).toBe(true);
+		expect(edited.unwrapErr().kind).toBe('forbidden');
+		expect(connector.update).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[1]?.[0]).toMatchObject({collectionId: 'sent', action: 'update', outcome: 'denied'});
+	});
+
 	test('a default above what the provider allows is capped', async () => {
 		useTarget(emailConnection, 'emails');
 

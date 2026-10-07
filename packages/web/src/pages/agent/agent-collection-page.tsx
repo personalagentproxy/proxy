@@ -1,3 +1,4 @@
+import {allowsWrite} from '@proxy/integrations';
 import type {ReactNode} from 'react';
 import {Form, Link, useLoaderData, useSearchParams} from 'react-router';
 import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
@@ -5,7 +6,7 @@ import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {useAgentTarget} from '@/hooks/use-agent-target';
-import {AGENT_ACCESS_LABELS, displayValue, recordTitle} from '@/lib/access';
+import {agentAccessLabel, displayValue, recordTitle} from '@/lib/access';
 import type {agentCollectionLoader} from '@/agent-loaders';
 
 // A collection's records, a page at a time, newest first, with a search and with New when the
@@ -37,10 +38,10 @@ export function AgentCollectionPage() {
 				items={[{label: 'Home', to: '/agent'}, {label: integration.name}, {label: collection.name}]}
 			/>
 			<div className="mb-4 flex items-center justify-between gap-4 md:px-3">
-				<AgentHeading detail={AGENT_ACCESS_LABELS[access]}>{collection.name}</AgentHeading>
-				{access === 'write' && (
+				<AgentHeading detail={agentAccessLabel(collection, access)}>{collection.name}</AgentHeading>
+				{access === 'write' && allowsWrite(collection, 'create') && (
 					<Button size="sm" nativeButton={false} render={<Link to={`${base}/new`} />}>
-						New {collection.singular}
+						{collection.createVerb?.present ?? 'New'} {collection.singular}
 					</Button>
 				)}
 			</div>

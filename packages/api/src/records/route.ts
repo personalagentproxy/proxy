@@ -2,7 +2,7 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
-import {providerAccess} from '@proxy/integrations';
+import {allowsWrite} from '@proxy/integrations';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireUserOrgId} from '../utils/user-org';
@@ -41,7 +41,7 @@ export function handleGetRecordRoute(request: AuthenticatedRequest): Promise<Res
 export function handleCreateRecordRoute(request: AuthenticatedRequest): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
 		const target = $(await targetFor(request));
-		if (providerAccess(target.collection) !== 'write') {
+		if (!allowsWrite(target.collection, 'create')) {
 			return $(Err(ApiErr.forbidden()));
 		}
 
@@ -53,7 +53,7 @@ export function handleCreateRecordRoute(request: AuthenticatedRequest): Promise<
 export function handleUpdateRecordRoute(request: AuthenticatedRequest): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
 		const target = $(await targetFor(request));
-		if (providerAccess(target.collection) !== 'write') {
+		if (!allowsWrite(target.collection, 'update')) {
 			return $(Err(ApiErr.forbidden()));
 		}
 
@@ -65,7 +65,7 @@ export function handleUpdateRecordRoute(request: AuthenticatedRequest): Promise<
 export function handleDeleteRecordRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		const target = $(await targetFor(request));
-		if (providerAccess(target.collection) !== 'write') {
+		if (!allowsWrite(target.collection, 'delete')) {
 			return $(Err(ApiErr.forbidden()));
 		}
 

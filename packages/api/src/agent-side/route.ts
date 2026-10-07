@@ -5,7 +5,7 @@ import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/uti
 import {getAgent, type AgentRow} from '@proxy/db/agent';
 import {logAgentRequest} from '@proxy/db/audit';
 import {listConnections, type ConnectionRow} from '@proxy/db/connection';
-import {effectiveAccess, findIntegration, minAccess, providerAccess, type Access, type Collection} from '@proxy/integrations';
+import {allowsWrite, effectiveAccess, findIntegration, minAccess, providerAccess, type Access, type Collection} from '@proxy/integrations';
 
 import type {Connector, DataRecord, RecordPage, RecordTarget} from '../records/connector';
 import {parseListQuery} from '../records/list-query';
@@ -78,15 +78,16 @@ function log(request: AgentRequest, target: RecordTarget, entry: LoggedRequest):
 
 /**
  * The collection the URL names, if the agent may do `action` in it. A collection outside the
- * organization is not found and not logged; one the agent can't reach is refused and logged as
- * denied.
+ * organization is not found and not logged; one the agent can't reach, or a change the provider
+ * doesn't take (editing a sent email), is refused and logged as denied.
  */
 function authorize(request: AgentRequest, action: AuditAction, query: string | null = null): Promise<Result<AgentTarget, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireSignedInAgent(request));
 		const target = $(await loadRecordTarget(request.agent.orgId, request.params.connectionId ?? '', request.params.collectionId ?? ''));
 		const access = accessOf(agent, target.connection, target.collection);
-		if (minAccess(access, NEEDS[action]) !== NEEDS[action]) {
+		const takesChange = action === 'list' || action === 'view' || allowsWrite(target.collection, action);
+		if (minAccess(access, NEEDS[action]) !== NEEDS[action] || !takesChange) {
 			$(await log(request, target, {action, outcome: 'denied', query}));
 			return $(Err(ApiErr.forbidden()));
 		}

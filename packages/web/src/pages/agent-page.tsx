@@ -1,4 +1,4 @@
-import {providerAccess, type Access} from '@proxy/integrations';
+import type {Access} from '@proxy/integrations';
 import type {FetchError} from '@proxy/utils';
 import {BanIcon, KeyRoundIcon, RotateCcwIcon, Trash2Icon} from 'lucide-react';
 import {useEffect, useState, type ReactNode} from 'react';
@@ -284,9 +284,8 @@ function AccessGrid({agent, connections, onChange}: GridProps) {
 								>
 									<span className="min-w-0 flex-1 truncate">{collection.name}</span>
 									<AccessSelect
-										label={`${collection.name} access`}
 										value={ownAccess(agent, connection.id, collection.id)}
-										provider={providerAccess(collection)}
+										collection={collection}
 										connectionDefault={defaultAccess(connection, collection.id)}
 										onChange={(next) => onChange(connection.id, collection.id, next)}
 									/>

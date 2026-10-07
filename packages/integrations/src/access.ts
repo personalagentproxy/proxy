@@ -1,4 +1,4 @@
-import type {Access, Collection} from './types';
+import type {Access, Collection, WriteAction} from './types';
 
 export const ACCESS_LEVELS: Access[] = ['none', 'read', 'write'];
 
@@ -8,10 +8,15 @@ export function minAccess(a: Access, b: Access): Access {
 
 // What the provider allows in a collection. Received emails can only be read.
 export function providerAccess(collection: Collection): Access {
-	if (collection.readOnly) {
+	if (collection.writeActions?.length === 0) {
 		return 'read';
 	}
 	return 'write';
+}
+
+// Whether the provider takes this change in the collection; a sent email can't be edited.
+export function allowsWrite(collection: Collection, action: WriteAction): boolean {
+	return collection.writeActions?.includes(action) ?? true;
 }
 
 // Access is set in three layers: what the provider allows, the connection's default, and an

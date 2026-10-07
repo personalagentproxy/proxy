@@ -9,7 +9,7 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 
 import type {EmailCredential} from '../connections/email/credential';
-import {imapClientOptions, imapError} from '../connections/email/mail-check';
+import {imapClientOptions, imapError, smtpError, smtpTransport} from '../connections/email/mail-check';
 import {log, serializeError} from '../observability/log';
 import {decryptSecret} from '../utils/secret-crypto';
 import type {Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
@@ -20,7 +20,7 @@ import type {Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordV
  * the message's UID, so an id from before the server renumbered the folder finds nothing.
  *
  * IMAP messages can't be changed, so updating a draft saves a new one and deletes the old: the
- * draft gets a new id.
+ * draft gets a new id. Creating in Sent sends the email.
  */
 
 const PAGE_SIZE = 50;
@@ -44,18 +44,19 @@ function readCredential(target: RecordTarget): Result<EmailCredential, ApiError>
 
 type Session = {client: ImapFlow; mailbox: MailboxObject; credential: EmailCredential};
 
-// The folder a collection reads: the inbox, or whichever folder the server marks as Drafts.
+// The folder a collection reads: the inbox, or whichever folder the server marks as Drafts or Sent.
 async function folderOf(client: ImapFlow, collectionId: string): Promise<Result<string, ApiError>> {
 	if (collectionId === 'emails') {
 		return Ok('INBOX');
 	}
 
+	const specialUse = collectionId === 'sent' ? '\\Sent' : '\\Drafts';
 	const folders = await Result.wrapAsync(() => client.list());
 	if (folders.isErr()) {
 		return Err(ApiErr.providerUnreachable(folders.error));
 	}
-	const drafts = folders.value.find((folder) => folder.specialUse === '\\Drafts');
-	return requirePresent(drafts?.path, ApiErr.notFound('folder', 'Drafts'));
+	const folder = folders.value.find((candidate) => candidate.specialUse === specialUse);
+	return requirePresent(folder?.path, ApiErr.notFound('folder', specialUse));
 }
 
 /** Signs in, opens the collection's folder, runs `work`, and always signs out again. */
@@ -90,6 +91,27 @@ function recordId(mailbox: MailboxObject, uid: number): string {
 	return `${mailbox.uidValidity}-${uid}`;
 }
 
+// A sent email Gmail hasn't filed yet has no UID to point at, so its id names its Message-ID.
+const MESSAGE_ID_PREFIX = 'msg-';
+
+function messageIdRecordId(messageId: string): string {
+	return `${MESSAGE_ID_PREFIX}${Buffer.from(messageId).toString('base64url')}`;
+}
+
+async function findByMessageId(client: ImapFlow, messageId: string): Promise<number | undefined> {
+	return ((await client.search({header: {'message-id': messageId}}, {uid: true})) || [])[0];
+}
+
+/** The UID a record id points at in the open folder, by UID or by Message-ID. */
+async function resolveUid({client, mailbox}: Session, id: string): Promise<Result<number, ApiError>> {
+	if (!id.startsWith(MESSAGE_ID_PREFIX)) {
+		return uidOf(mailbox, id);
+	}
+
+	const messageId = Buffer.from(id.slice(MESSAGE_ID_PREFIX.length), 'base64url').toString();
+	return requirePresent(await findByMessageId(client, messageId), ApiErr.notFound('record', id));
+}
+
 function uidOf(mailbox: MailboxObject, id: string): Result<number, ApiError> {
 	const [uidValidity, uid] = id.split('-');
 	if (uidValidity !== String(mailbox.uidValidity) || !uid || !/^\d+$/.test(uid)) {
@@ -115,6 +137,11 @@ function summaryValues(collectionId: string, message: FetchMessageObject): Recor
 	const envelope = message.envelope;
 	if (collectionId === 'drafts') {
 		return {to: formatAddresses(envelope?.to, false), subject: envelope?.subject ?? ''};
+	}
+
+	if (collectionId === 'sent') {
+		const sentAt = envelope?.date ? new Date(envelope.date).toISOString() : '';
+		return {to: formatAddresses(envelope?.to, false), subject: envelope?.subject ?? '', sentAt};
 	}
 
 	const receivedAt = message.internalDate ? new Date(message.internalDate).toISOString() : '';
@@ -178,9 +205,10 @@ async function listMessages(target: RecordTarget, {client, mailbox}: Session, qu
 	});
 }
 
-async function getMessage(target: RecordTarget, {client, mailbox}: Session, id: string): Promise<Result<DataRecord, ApiError>> {
+async function getMessage(target: RecordTarget, session: Session, id: string): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
-		const uid = $(uidOf(mailbox, id));
+		const {client} = session;
+		const uid = $(await resolveUid(session, id));
 		const message = await client.fetchOne(String(uid), {uid: true, envelope: true, internalDate: true, source: true}, {uid: true});
 		if (!message || !message.source) {
 			return $(Err(ApiErr.notFound('record', id)));
@@ -193,16 +221,20 @@ async function getMessage(target: RecordTarget, {client, mailbox}: Session, id: 
 	});
 }
 
-/** Saves a draft from the typed-in values, from the connected address, and reads it back. */
+/** An email from the connected address, built from the typed-in values. */
+function compose(credential: EmailCredential, values: RecordValues, messageId: string): Promise<Buffer> {
+	return new MailComposer({from: credential.username, to: values.to, subject: values.subject, text: values.body, messageId}).compile().build();
+}
+
+/** Saves a draft from the typed-in values and reads it back. */
 async function appendDraft(target: RecordTarget, session: Session, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
 		const {client, mailbox, credential} = session;
 		const messageId = `<${randomUUID()}@proxy>`;
-		const raw = await new MailComposer({from: credential.username, to: values.to, subject: values.subject, text: values.body, messageId}).compile().build();
-		const appended = await client.append(mailbox.path, raw, ['\\Draft', '\\Seen']);
+		const appended = await client.append(mailbox.path, await compose(credential, values, messageId), ['\\Draft', '\\Seen']);
 
 		// Servers without UIDPLUS don't say which UID the draft got; its Message-ID finds it.
-		const uid = appended && appended.uid ? appended.uid : ((await client.search({header: {'message-id': messageId}}, {uid: true})) || [])[0];
+		const uid = appended && appended.uid ? appended.uid : await findByMessageId(client, messageId);
 		if (uid === undefined) {
 			return $(Err(ApiErr.providerUnreachable(new Error('The saved draft could not be found'))));
 		}
@@ -210,9 +242,42 @@ async function appendDraft(target: RecordTarget, session: Session, values: Recor
 	});
 }
 
-async function deleteMessage({client, mailbox}: Session, id: string): Promise<Result<void, ApiError>> {
+/**
+ * Sends the email over SMTP and files a copy in Sent. Gmail files every email sent through it on
+ * its own; anywhere else Proxy saves the copy, as a mail client does. Once the server has taken
+ * the email it is gone, so nothing after that reports the send as failed: a copy that can't be
+ * filed or found yet still answers with what was sent.
+ */
+async function sendEmail(target: RecordTarget, session: Session, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
-		const uid = $(uidOf(mailbox, id));
+		const {client, mailbox, credential} = session;
+		if (!values.to?.trim()) {
+			return $(Err(ApiErr.validationError('An email needs a recipient')));
+		}
+
+		const messageId = `<${randomUUID()}@proxy>`;
+		const raw = await compose(credential, values, messageId);
+		const transport = smtpTransport(credential);
+		const sent = await Result.wrapAsync(() => transport.sendMail({envelope: {from: credential.username, to: values.to}, raw}));
+		transport.close();
+		$(sent.mapErr(smtpError));
+
+		const gmail = client.capabilities.has('X-GM-EXT-1');
+		const filed = gmail ? undefined : await Result.wrapAsync(() => client.append(mailbox.path, raw, ['\\Seen']));
+		const uid = filed?.isOk() && filed.value && filed.value.uid ? filed.value.uid : await findByMessageId(client, messageId);
+		const id = uid === undefined ? messageIdRecordId(messageId) : recordId(mailbox, uid);
+		const found = uid === undefined ? null : await getMessage(target, session, id);
+		if (found?.isOk()) {
+			return found.value;
+		}
+		return {id, values: {...values, sentAt: new Date().toISOString()}, updatedAt: new Date().toISOString()};
+	});
+}
+
+async function deleteMessage(session: Session, id: string): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const {client} = session;
+		const uid = $(await resolveUid(session, id));
 		const found = await client.fetchOne(String(uid), {uid: true}, {uid: true});
 		if (!found) {
 			return $(Err(ApiErr.notFound('record', id)));
@@ -224,11 +289,11 @@ async function deleteMessage({client, mailbox}: Session, id: string): Promise<Re
 export const emailConnector: Connector = {
 	list: (target, query) => withFolder(target, (session) => listMessages(target, session, query)),
 	get: (target, recordId) => withFolder(target, (session) => getMessage(target, session, recordId)),
-	create: (target, values) => withFolder(target, (session) => appendDraft(target, session, values)),
+	create: (target, values) => withFolder(target, (session) => (target.collection.id === 'sent' ? sendEmail(target, session, values) : appendDraft(target, session, values))),
 	update: (target, recordId, values) =>
 		withFolder(target, (session) =>
 			Do(async ($) => {
-				const uid = $(uidOf(session.mailbox, recordId));
+				const uid = $(await resolveUid(session, recordId));
 				if (!(await session.client.fetchOne(String(uid), {uid: true}, {uid: true}))) {
 					return $(Err(ApiErr.notFound('record', recordId)));
 				}
