@@ -20,7 +20,7 @@ type Props = {
 
 // A connection's access, the way an editor shows its settings: one checkbox per action, the only
 // control for it. On an agent's page every action starts on the connection's default; one the
-// agent has its own setting for is marked with a bar and a reset icon.
+// agent has its own setting for is marked with a bar, the default it differs from and a reset icon.
 export function ConnectionAccess({actions, defaults, own, differing, onChange}: Props) {
 	// A connection's actions show on more than one page section, so the ids need their own prefix.
 	const idPrefix = useId();
@@ -70,7 +70,7 @@ export function ConnectionAccess({actions, defaults, own, differing, onChange}: 
 							</span>
 						</label>
 						<span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-							{own && `Default: ${isDefault(action.id) ? 'on' : 'off'}`}
+							{isOwn(action.id) && `Default: ${isDefault(action.id) ? 'on' : 'off'}`}
 							{others > 0 && `Changed for ${others} ${others === 1 ? 'agent' : 'agents'}`}
 							{isOwn(action.id) && (
 								<IconButton label="Reset to default" onClick={() => onChange({[action.id]: null})}>
