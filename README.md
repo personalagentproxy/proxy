@@ -19,7 +19,7 @@ their full private context or silently expanding what an agent may do.
 
 ## Designed to work across
 
-<table>
+<table align="center">
   <tr>
     <td align="center" width="20%">
       <img src="docs/assets/agents/openai.svg" width="48" height="48" alt="OpenAI logo"><br>
