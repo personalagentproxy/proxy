@@ -62,8 +62,8 @@ const connector = {list: mock(), get: mock(), create: mock(), update: mock(), re
 
 const card = {id: 'rec-1', values: {label: 'Personal Visa', number: '4242'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 
-function makeRequest(params: Record<string, string> = {}, body: unknown = undefined) {
-	return {agent: {agentId: 'agent-1', orgId: 'org-1', name: 'Shopping agent'}, params, body} as never;
+function makeRequest(params: Record<string, string> = {}, body: unknown = undefined, query: Record<string, string> = {}) {
+	return {agent: {agentId: 'agent-1', orgId: 'org-1', name: 'Shopping agent'}, params, body, query} as never;
 }
 
 function useTarget(connection: typeof infoConnection | typeof emailConnection, collectionId: string) {
@@ -75,7 +75,7 @@ beforeEach(() => {
 	getAgent.mockResolvedValue(Ok(agent));
 	logAgentRequest.mockResolvedValue(Ok(undefined));
 	listConnections.mockResolvedValue(Ok([infoConnection, emailConnection]));
-	connector.list.mockResolvedValue(Ok([card]));
+	connector.list.mockResolvedValue(Ok({records: [card], nextPage: null}));
 	connector.get.mockResolvedValue(Ok(card));
 });
 
@@ -106,6 +106,7 @@ describe('agent record routes', () => {
 			collectionId: 'cards',
 			action: 'view',
 			recordTitle: 'Personal Visa',
+			query: null,
 			outcome: 'allowed',
 		});
 	});
@@ -141,6 +142,30 @@ describe('agent record routes', () => {
 
 		expect(result.unwrapErr().kind).toBe('validation_error');
 		expect(connector.update).not.toHaveBeenCalled();
+	});
+
+	test('a search is logged, a refused one too', async () => {
+		useTarget(infoConnection, 'cards');
+		const {handleAgentListRecordsRoute} = await import('./route');
+		await handleAgentListRecordsRoute(makeRequest({connectionId: 'info-1', collectionId: 'cards'}, undefined, {search: 'visa'}));
+		useTarget(infoConnection, 'notes');
+		await handleAgentListRecordsRoute(makeRequest({connectionId: 'info-1', collectionId: 'notes'}, undefined, {search: 'sizes'}));
+
+		expect(connector.list.mock.calls[0]?.[1]).toEqual({search: 'visa', page: null, filter: null});
+		expect(logAgentRequest.mock.calls.map(([entry]) => [entry.query, entry.outcome])).toEqual([
+			['visa', 'allowed'],
+			['sizes', 'denied'],
+		]);
+	});
+
+	test('a filter the collection has no such value for is refused', async () => {
+		useTarget(emailConnection, 'emails');
+		getAgent.mockResolvedValue(Ok(triage));
+		const {handleAgentListRecordsRoute} = await import('./route');
+		const result = await handleAgentListRecordsRoute(makeRequest({connectionId: 'mail-1', collectionId: 'emails'}, undefined, {filter: 'Spam'}));
+
+		expect(result.unwrapErr().kind).toBe('validation_error');
+		expect(connector.list).not.toHaveBeenCalled();
 	});
 
 	test('a read that cannot be logged is not returned', async () => {

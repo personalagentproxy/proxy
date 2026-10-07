@@ -3,8 +3,8 @@ import {CheckCheckIcon, Undo2Icon} from 'lucide-react';
 import {useId} from 'react';
 import {RowList} from '@/components/row-list';
 import {IconButton} from '@/components/icon-button';
-import {Checkbox} from '@/components/ui/checkbox';
-import {cn} from '@/lib/utils';
+import {Checkbox} from '@proxy/ui/components/checkbox';
+import {cn} from '@proxy/ui/lib/utils';
 
 type Props = {
 	actions: Action[];

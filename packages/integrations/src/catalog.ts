@@ -5,10 +5,10 @@ const INBOX: Condition = {field: 'folder', values: ['Inbox']};
 export const INFO_INTEGRATION_ID = 'info';
 
 // Any mailbox over IMAP and SMTP, signed in with an app password. The password can't be limited,
-// so access is only ever narrowed in Proxy. The inbox, drafts and sent mail are one list, each
-// email saying which folder it is in. Received emails are never edited or deleted for good: they
-// are marked, flagged, archived or moved to Trash. Sending needs nothing else, so an agent can send
-// without reading the mailbox.
+// so access is only ever narrowed in Personal Agent Proxy. The inbox, drafts and sent mail are one
+// list, each email saying which folder it is in. Received emails are never edited or deleted for
+// good: they are marked, flagged, archived or moved to Trash. Sending needs nothing else, so an
+// agent can send without reading the mailbox.
 const email: Integration = {
 	id: 'email',
 	name: 'Email',
@@ -70,6 +70,8 @@ const email: Integration = {
 			titleField: 'subject',
 			summaryField: 'from',
 			filterField: 'folder',
+			searchHint:
+				'On Gmail, Gmail’s own search syntax works, such as from:sam has:attachment newer_than:7d. Other mailboxes match the words in the sender, recipients, subject and text.',
 			read: 'read',
 			createLabel: 'Save as draft',
 			writes: {create: 'write', update: 'write', delete: 'write'},
@@ -188,16 +190,20 @@ function infoActions(collectionId: string, plural: string): Action[] {
 	];
 }
 
-function infoAccess(collectionId: string): Pick<Collection, 'read' | 'writes'> {
+function infoAccess(collectionId: string): Pick<Collection, 'read' | 'writes' | 'searchHint'> {
 	const name = collectionId.charAt(0).toUpperCase() + collectionId.slice(1);
 	const write = `write${name}`;
-	return {read: `read${name}`, writes: {create: write, update: write, delete: write}};
+	return {
+		read: `read${name}`,
+		writes: {create: write, update: write, delete: write},
+		searchHint: 'Matches the words in any field, in any case.',
+	};
 }
 
 const info: Integration = {
 	id: INFO_INTEGRATION_ID,
 	name: 'Information',
-	description: 'Details you keep in Proxy for agents to use',
+	description: 'Details you keep in Personal Agent Proxy for agents to use',
 	builtIn: true,
 	actions: [
 		...infoActions('addresses', 'addresses'),

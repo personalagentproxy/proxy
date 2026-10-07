@@ -1,7 +1,7 @@
 import {CheckIcon, CopyIcon} from 'lucide-react';
 import {useState} from 'react';
-import {Button} from '@/components/ui/button';
-import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {Button} from '@proxy/ui/components/button';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 
 // Copies `value` and shows a check for a moment, so it is clear the copy happened.
 export function CopyButton({value, label}: {value: string; label: string}) {

@@ -39,12 +39,18 @@ mock.module('../observability/log', () => ({
 }));
 
 // Mutable so tests can flip values; the routes read env per request.
-const mockEnv: {NODE_ENV: string; APP_URL: string | undefined; AUTH_SECRET: string | undefined; SESSION_COOKIE_DOMAIN: string; PROXY_API_PUBLIC_URL: string} = {
+const mockEnv: {
+	NODE_ENV: string;
+	APP_URL: string | undefined;
+	AUTH_SECRET: string | undefined;
+	RESEND_KEY: string | undefined;
+	ALLOWED_SIGNUP_EMAILS: string[] | undefined;
+} = {
 	NODE_ENV: 'production',
+	RESEND_KEY: 're_test',
+	ALLOWED_SIGNUP_EMAILS: undefined,
 	APP_URL: 'https://app.example.com',
 	AUTH_SECRET: 'test-secret',
-	SESSION_COOKIE_DOMAIN: '.example.com',
-	PROXY_API_PUBLIC_URL: 'https://api.example.com',
 };
 
 mock.module('../utils/env', () => ({env: mockEnv}));
@@ -105,6 +111,8 @@ beforeEach(() => {
 	mockEnv.NODE_ENV = 'production';
 	mockEnv.APP_URL = 'https://app.example.com';
 	mockEnv.AUTH_SECRET = 'test-secret';
+	mockEnv.RESEND_KEY = 're_test';
+	mockEnv.ALLOWED_SIGNUP_EMAILS = undefined;
 	createVerificationToken.mockResolvedValue(Ok(undefined));
 	useVerificationToken.mockResolvedValue(Ok(null));
 	sendMagicLink.mockResolvedValue(Ok(undefined));
@@ -115,12 +123,12 @@ beforeEach(() => {
 });
 
 describe('handleEmailSignInRoute', () => {
-	test('stores a hashed token row (24h expiry) and mails a verify URL pointing at the api', async () => {
+	test('stores a hashed token row (24h expiry) and mails a verify URL on the app origin', async () => {
 		const before = Date.now();
 		const {res, url, query} = await sendFlow();
 
 		// The mailed link targets the api's verify endpoint with the raw token.
-		expect(url.origin + url.pathname).toBe('https://api.example.com/auth/email/verify');
+		expect(url.origin + url.pathname).toBe('https://app.example.com/auth/email/verify');
 		expect(query.email).toBe('user@example.com');
 		expect(query.callbackUrl).toBe('/projects/abc');
 		expect(query.token).toMatch(/^[0-9a-f]{64}$/);
@@ -179,8 +187,55 @@ describe('handleEmailSignInRoute', () => {
 		expect(createVerificationToken).toHaveBeenCalledTimes(1);
 		const logged = logInfo.mock.calls[0]?.[0] as string;
 		expect(logged).toContain('[Magic Link] user@example.com:');
-		expect(logged).toContain('https://api.example.com/auth/email/verify?');
+		expect(logged).toContain('https://app.example.com/auth/email/verify?');
+		expect(res.json).toHaveBeenCalledWith({ok: true, logged: true});
+	});
+
+	test('without RESEND_KEY logs the link instead of sending', async () => {
+		mockEnv.RESEND_KEY = undefined;
+
+		const {handleEmailSignInRoute} = await importRoutes();
+		const res = makeRes();
+		await handleEmailSignInRoute({body: {email: 'user@example.com'}} as never, res as never);
+
+		expect(sendMagicLink).not.toHaveBeenCalled();
+		expect(logInfo.mock.calls[0]?.[0] as string).toContain('[Magic Link] user@example.com:');
+		expect(res.json).toHaveBeenCalledWith({ok: true, logged: true});
+	});
+
+	test('an address ALLOWED_SIGNUP_EMAILS leaves out, without an account → SignupNotAllowed, nothing stored or sent', async () => {
+		mockEnv.ALLOWED_SIGNUP_EMAILS = ['me@example.com', '@example.org'];
+
+		const {handleEmailSignInRoute} = await importRoutes();
+		const res = makeRes();
+		await handleEmailSignInRoute({body: {email: 'stranger@example.com'}} as never, res as never);
+
+		expect(res.status).toHaveBeenCalledWith(403);
+		expect(res.json).toHaveBeenCalledWith({error: 'SignupNotAllowed'});
+		expect(createVerificationToken).not.toHaveBeenCalled();
+		expect(sendMagicLink).not.toHaveBeenCalled();
+	});
+
+	test('ALLOWED_SIGNUP_EMAILS lets in its addresses, its domains with or without the @, and anyone with an account', async () => {
+		mockEnv.ALLOWED_SIGNUP_EMAILS = ['me@example.com', '@example.org', 'example.net'];
+		const {handleEmailSignInRoute} = await importRoutes();
+
+		for (const email of ['me@example.com', 'someone@example.org', 'someone@example.net']) {
+			const res = makeRes();
+			await handleEmailSignInRoute({body: {email}} as never, res as never);
+			expect(res.json).toHaveBeenCalledWith({ok: true});
+		}
+
+		// A domain is the whole domain, not a suffix of another one.
+		const lookalike = makeRes();
+		await handleEmailSignInRoute({body: {email: 'someone@notexample.net'}} as never, lookalike as never);
+		expect(lookalike.json).toHaveBeenCalledWith({error: 'SignupNotAllowed'});
+
+		getUserByEmail.mockResolvedValue(Ok({id: 'user-1', email: 'old@example.com', name: null}));
+		const res = makeRes();
+		await handleEmailSignInRoute({body: {email: 'old@example.com'}} as never, res as never);
 		expect(res.json).toHaveBeenCalledWith({ok: true});
+		expect(sendMagicLink).toHaveBeenCalledTimes(4);
 	});
 
 	test('mail failure → EmailSignin error', async () => {
@@ -257,7 +312,6 @@ describe('handleEmailVerifyRoute', () => {
 			sameSite: 'lax',
 			path: '/',
 			secure: true,
-			domain: '.example.com',
 		});
 
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/projects/abc');
@@ -276,6 +330,20 @@ describe('handleEmailVerifyRoute', () => {
 		expect(createSession).toHaveBeenCalledTimes(1);
 		expect((createSession.mock.calls[0]?.[0] as {userId: string}).userId).toBe('user-new');
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/projects/abc');
+	});
+
+	test('a link for an address ALLOWED_SIGNUP_EMAILS no longer lists → SignupNotAllowed, no user', async () => {
+		const {query} = await sendFlow();
+		useVerificationToken.mockResolvedValue(Ok(storedRow()));
+		mockEnv.ALLOWED_SIGNUP_EMAILS = ['me@example.com'];
+
+		const {handleEmailVerifyRoute} = await importRoutes();
+		const res = makeRes();
+		await handleEmailVerifyRoute(makeVerifyRequest(query) as never, res as never);
+
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/login?error=SignupNotAllowed');
+		expect(createUserFromEmail).not.toHaveBeenCalled();
+		expect(createSession).not.toHaveBeenCalled();
 	});
 
 	test('user creation failure → Callback error, no session', async () => {

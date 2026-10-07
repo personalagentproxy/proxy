@@ -2,7 +2,7 @@ import {PlusIcon} from 'lucide-react';
 import {Link, useLoaderData} from 'react-router';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
-import {Button} from '@/components/ui/button';
+import {Button} from '@proxy/ui/components/button';
 import {agentsWithAccess, integrationOf} from '@/lib/access';
 import type {connectionsLoader} from '@/loaders';
 
@@ -12,7 +12,7 @@ const CELLS = {
 	agents: 'w-20 shrink-0 text-right text-muted-foreground tabular-nums',
 };
 
-// The services connected to Proxy. Information is kept on a page of its own.
+// The services connected to Personal Agent Proxy. Information is kept on a page of its own.
 export function ConnectionsPage() {
 	const {connections: all, agents} = useLoaderData<typeof connectionsLoader>();
 	const connections = all.filter((connection) => !integrationOf(connection)?.builtIn);

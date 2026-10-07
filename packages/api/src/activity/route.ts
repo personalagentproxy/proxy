@@ -18,6 +18,7 @@ export type AuditEntryResponse = {
 	// list, view, create, update or delete, or a command of the collection, such as `send`.
 	action: string;
 	recordTitle: string | null;
+	query: string | null;
 	outcome: 'allowed' | 'denied';
 };
 

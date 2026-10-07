@@ -36,5 +36,6 @@ export const auditEntrySchema = z.object({
 	collectionId: z.string(),
 	action: z.string(),
 	recordTitle: z.string().nullable(),
+	query: z.string().nullable(),
 	outcome: z.enum(['allowed', 'denied']),
 });

@@ -2,9 +2,9 @@ import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
 import {Link, useNavigate} from 'react-router';
 import {signInAgent} from '@/client/agent-client';
-import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
+import {Button} from '@proxy/ui/components/button';
+import {Input} from '@proxy/ui/components/input';
+import {Label} from '@proxy/ui/components/label';
 
 function signInErrorMessage(error: FetchError): string {
 	if (error.kind === 'http' && error.status === 401) {
@@ -38,7 +38,7 @@ export function AgentLoginPage() {
 				}}
 			>
 				<h1 className="text-lg font-semibold">
-					Proxy <span className="font-normal text-muted-foreground">for agents</span>
+					Personal Agent Proxy <span className="font-normal text-muted-foreground">for agents</span>
 				</h1>
 				<div className="grid gap-2">
 					<Label htmlFor="username">Username</Label>

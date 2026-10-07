@@ -7,7 +7,7 @@ import {
 	SelectItem,
 	SelectTrigger,
 	SelectValue,
-} from '@/components/ui/select';
+} from '@proxy/ui/components/select';
 import {connectionLabel} from '@/lib/access';
 import type {activityLoader} from '@/loaders';
 

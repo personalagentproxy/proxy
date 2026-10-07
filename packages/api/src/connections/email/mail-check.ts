@@ -18,7 +18,7 @@ function isSmtpAuthFailure(error: unknown): boolean {
 	return error instanceof Error && 'code' in error && error.code === 'EAUTH';
 }
 
-/** How Proxy signs in to a mailbox's IMAP server: TLS on 993, giving up after ten seconds. */
+/** How Personal Agent Proxy signs in to a mailbox's IMAP server: TLS on 993, giving up after ten seconds. */
 export function imapClientOptions(credential: EmailCredential): ImapFlowOptions {
 	return {
 		host: credential.imapHost,
@@ -50,7 +50,7 @@ async function checkImap(credential: EmailCredential): Promise<Result<void, ApiE
 	return result.mapErr(imapError);
 }
 
-/** How Proxy signs in to a mailbox's SMTP server: TLS on 465, STARTTLS on 587, ten seconds. */
+/** How Personal Agent Proxy signs in to a mailbox's SMTP server: TLS on 465, or STARTTLS required on 587. */
 export function smtpTransport(credential: EmailCredential) {
 	return nodemailer.createTransport({
 		host: credential.smtpHost,
@@ -64,10 +64,13 @@ export function smtpTransport(credential: EmailCredential) {
 	});
 }
 
-/** A failed SMTP sign-in or send: the password turned down, or the server out of reach. */
+/** A failed SMTP call: the password turned down, recipients refused, or the server out of reach. */
 export function smtpError(error: unknown): ApiError {
 	if (isSmtpAuthFailure(error)) {
 		return ApiErr.credentialsRejected();
+	}
+	if (error instanceof Error && 'code' in error && error.code === 'EENVELOPE') {
+		return ApiErr.validationError('The mail server refused the recipients');
 	}
 	return ApiErr.providerUnreachable(error);
 }

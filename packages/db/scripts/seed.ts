@@ -351,6 +351,16 @@ const EMAIL_TITLES: [string, ...string[]] = [
 	'Thanks for the intro!',
 ];
 
+// What agents search for.
+const SEARCHES: [string, ...string[]] = [
+	'invoice',
+	'flight',
+	'from:sam',
+	'Q3 planning',
+	'Home',
+	'order',
+];
+
 function recordTitle(connection: Connection, collectionId: string): string {
 	if (connection.integrationId === 'email') {
 		return pick(EMAIL_TITLES);
@@ -410,6 +420,8 @@ for (const agent of agents) {
 		lastActiveAt = Math.max(lastActiveAt, createdAt);
 		const onOneRecord = request.action !== 'list' && request.action !== 'create';
 		const collectionId = request.collection.id;
+		// A third of the lists are searches.
+		const searched = request.action === 'list' && random() < 0.33;
 		await db.auditEntry.create({
 			data: {
 				orgId: org.id,
@@ -418,6 +430,7 @@ for (const agent of agents) {
 				collectionId,
 				action: request.action,
 				recordTitle: onOneRecord ? recordTitle(request.connection, collectionId) : null,
+				query: searched ? pick(SEARCHES) : null,
 				outcome: isAllowed(agent, request) ? 'allowed' : 'denied',
 				createdAt: new Date(createdAt),
 			},

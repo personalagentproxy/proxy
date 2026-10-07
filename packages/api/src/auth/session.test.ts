@@ -19,7 +19,6 @@ mock.module('../observability/log', () => ({
 mock.module('../utils/env', () => ({
 	env: {
 		NODE_ENV: 'development',
-		SESSION_COOKIE_DOMAIN: undefined,
 	},
 }));
 

@@ -54,6 +54,8 @@ export type Collection = {
 	summaryField?: string;
 	// A select field the list can be narrowed by, such as an email's folder.
 	filterField?: string;
+	// What the search takes, told to the agent beside the search box.
+	searchHint: string;
 	// The integration's action listing and opening records needs.
 	read: string;
 	// The button creating a record, when not Create and the singular: Save as draft.
@@ -74,6 +76,7 @@ export type Integration = {
 	// Everything an agent can be allowed with a connection of it, in the order it is shown.
 	actions: Action[];
 	collections: Collection[];
-	// Information lives in Proxy itself: it is always there and never connected or disconnected.
+	// Information lives in Personal Agent Proxy itself: it is always there and never connected or
+	// disconnected.
 	builtIn?: boolean;
 };

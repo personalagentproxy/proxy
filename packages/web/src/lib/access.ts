@@ -119,14 +119,18 @@ const ACTION_VERBS: Partial<Record<string, string>> = {
 	delete: 'Deleted',
 };
 
-// "Viewed email “Thursday sync moved?”", "Listed Payment cards", "Tried to list Contacts", and a
-// command's own words: "Sent draft “Re: Q3”", "Tried to send draft".
+// "Viewed email “Thursday sync moved?”", "Listed Payment cards", "Searched Email for “invoice”",
+// "Tried to list Contacts", and a command's own words: "Sent email “Re: Q3”", "Tried to send email".
 export function describeEntry(entry: AuditEntry, collection: Collection | undefined): string {
 	const name = collection?.name ?? entry.collectionId;
 	const singular = collection?.singular ?? 'record';
 	const denied = entry.outcome === 'denied';
 	if (entry.action === 'list') {
-		return denied ? `Tried to list ${name}` : `Listed ${name}`;
+		const what = entry.query ? `search ${name} for “${entry.query}”` : `list ${name}`;
+		if (denied) {
+			return `Tried to ${what}`;
+		}
+		return entry.query ? `Searched ${name} for “${entry.query}”` : `Listed ${name}`;
 	}
 
 	const record = entry.recordTitle ? `${singular} “${entry.recordTitle}”` : singular;

@@ -34,17 +34,15 @@ mock.module('../observability/log', () => ({
 const mockEnv: {
 	NODE_ENV: string;
 	APP_URL: string | undefined;
-	SESSION_COOKIE_DOMAIN: string;
 	GOOGLE_CLIENT_ID: string | undefined;
 	GOOGLE_CLIENT_SECRET: string;
-	PROXY_API_PUBLIC_URL: string;
+	ALLOWED_SIGNUP_EMAILS: string[] | undefined;
 } = {
 	NODE_ENV: 'production',
+	ALLOWED_SIGNUP_EMAILS: undefined,
 	APP_URL: 'https://app.example.com',
-	SESSION_COOKIE_DOMAIN: '.example.com',
 	GOOGLE_CLIENT_ID: 'google-client-id',
 	GOOGLE_CLIENT_SECRET: 'google-client-secret',
-	PROXY_API_PUBLIC_URL: 'https://api.example.com',
 };
 
 mock.module('../utils/env', () => ({env: mockEnv}));
@@ -73,7 +71,7 @@ function makeRes() {
 	return res;
 }
 
-function makeIdToken(payload: Record<string, string>): string {
+function makeIdToken(payload: Record<string, string | boolean>): string {
 	const encode = (value: object) => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
 	return `${encode({alg: 'RS256'})}.${encode(payload)}.signature`;
 }
@@ -81,6 +79,7 @@ function makeIdToken(payload: Record<string, string>): string {
 const googleProfile = {
 	sub: 'google-sub-1',
 	email: 'user@example.com',
+	email_verified: true,
 	name: 'Test User',
 	picture: 'https://example.com/avatar.png',
 };
@@ -136,6 +135,7 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	mockEnv.APP_URL = 'https://app.example.com';
 	mockEnv.GOOGLE_CLIENT_ID = 'google-client-id';
+	mockEnv.ALLOWED_SIGNUP_EMAILS = undefined;
 	mockTokenExchangeSuccess();
 	getAccountByProvider.mockResolvedValue(Ok(null));
 	getUserByEmail.mockResolvedValue(Ok(null));
@@ -146,13 +146,28 @@ beforeEach(() => {
 	createSession.mockResolvedValue(Ok(undefined));
 });
 
+describe('handleSignInMethodsRoute', () => {
+	test('offers Google only when it is set up', async () => {
+		const {handleSignInMethodsRoute} = await importRoutes();
+
+		const configured = makeRes();
+		handleSignInMethodsRoute({} as never, configured as never);
+		expect(configured.json).toHaveBeenCalledWith({google: true});
+
+		mockEnv.GOOGLE_CLIENT_ID = undefined;
+		const unconfigured = makeRes();
+		handleSignInMethodsRoute({} as never, unconfigured as never);
+		expect(unconfigured.json).toHaveBeenCalledWith({google: false});
+	});
+});
+
 describe('handleGoogleStartRoute', () => {
 	test('redirects to Google with PKCE and stores state in a short-lived httpOnly cookie', async () => {
 		const {authorizationUrl, stateCookie} = await startFlow();
 
 		expect(authorizationUrl.origin + authorizationUrl.pathname).toBe('https://accounts.google.com/o/oauth2/v2/auth');
 		expect(authorizationUrl.searchParams.get('client_id')).toBe('google-client-id');
-		expect(authorizationUrl.searchParams.get('redirect_uri')).toBe('https://api.example.com/auth/google/callback');
+		expect(authorizationUrl.searchParams.get('redirect_uri')).toBe('https://app.example.com/auth/google/callback');
 		expect(authorizationUrl.searchParams.get('response_type')).toBe('code');
 		expect(authorizationUrl.searchParams.get('scope')).toBe('openid email profile');
 		expect(authorizationUrl.searchParams.get('code_challenge_method')).toBe('S256');
@@ -228,7 +243,6 @@ describe('handleGoogleCallbackRoute', () => {
 			sameSite: 'lax',
 			path: '/',
 			secure: true,
-			domain: '.example.com',
 		});
 
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/projects/abc');
@@ -271,8 +285,34 @@ describe('handleGoogleCallbackRoute', () => {
 		expect(body.get('code_verifier')).toBeTruthy();
 	});
 
+	test('a new user whose email Google has not verified → EmailNotVerified, no user, no session', async () => {
+		mockTokenExchangeSuccess(makeIdToken({...googleProfile, email_verified: false}));
+
+		const {handleGoogleCallbackRoute} = await importRoutes();
+		const flow = await startFlow();
+		const res = makeRes();
+		await handleGoogleCallbackRoute(makeCallbackRequest(flow) as never, res as never);
+
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/login?error=EmailNotVerified');
+		expect(createUserFromOAuthProfile).not.toHaveBeenCalled();
+		expect(createSession).not.toHaveBeenCalled();
+	});
+
+	test('a new user ALLOWED_SIGNUP_EMAILS leaves out → SignupNotAllowed, no user, no session', async () => {
+		mockEnv.ALLOWED_SIGNUP_EMAILS = ['someone-else@example.com'];
+
+		const {handleGoogleCallbackRoute} = await importRoutes();
+		const flow = await startFlow();
+		const res = makeRes();
+		await handleGoogleCallbackRoute(makeCallbackRequest(flow) as never, res as never);
+
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/login?error=SignupNotAllowed');
+		expect(createUserFromOAuthProfile).not.toHaveBeenCalled();
+		expect(createSession).not.toHaveBeenCalled();
+	});
+
 	test('a profile without name or picture signs up with nulls', async () => {
-		mockTokenExchangeSuccess(makeIdToken({sub: googleProfile.sub, email: googleProfile.email}));
+		mockTokenExchangeSuccess(makeIdToken({sub: googleProfile.sub, email: googleProfile.email, email_verified: true}));
 
 		const {handleGoogleCallbackRoute} = await importRoutes();
 		const flow = await startFlow();

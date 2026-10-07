@@ -4,20 +4,33 @@ import {Ok} from 'ts-results-es';
 import {ApiErr} from '@proxy/utils';
 import {findCollection, findIntegration, type Collection} from '@proxy/integrations';
 
-// A mailbox in memory: the folders the server marks, and the messages of the one that is open.
+// A mailbox in memory: the folders the server marks, each folder's messages by UID, and the one
+// message the record tests open.
 type Folder = {path: string; specialUse?: string};
+type Stored = {uid: number; date: string; subject: string};
+type Criteria = {all?: boolean; uid?: string; text?: string; gmraw?: string};
 
 const UID_VALIDITY = 7n;
 
 const imap = {
 	folders: [] as Folder[],
+	boxes: {} as Record<string, Stored[]>,
+	gmail: false,
 	opened: '',
+	searches: [] as Criteria[],
 	calls: [] as Array<[string, ...unknown[]]>,
 	message: null as null | {uid: number; flags: Set<string>; source: Buffer},
 };
 
+function box(path: string): Stored[] {
+	return imap.boxes[path] ?? [];
+}
+
 class FakeImapFlow {
-	mailbox: {path: string; uidValidity: bigint; exists: number} | false = false;
+	mailbox: {path: string; uidValidity: bigint; exists: number; uidNext: number} | false = false;
+	get capabilities() {
+		return new Set(imap.gmail ? ['X-GM-EXT-1'] : []);
+	}
 	on() {}
 	close() {}
 	async connect() {}
@@ -27,14 +40,26 @@ class FakeImapFlow {
 	}
 	async getMailboxLock(path: string) {
 		imap.opened = path;
-		this.mailbox = {path, uidValidity: UID_VALIDITY, exists: 1};
+		const uids = box(path).map((message) => message.uid);
+		this.mailbox = {path, uidValidity: UID_VALIDITY, exists: uids.length, uidNext: Math.max(0, ...uids) + 1};
 		return {release: () => {}};
 	}
-	// One email in each folder, a day apart: the inbox's oldest, the draft's newest.
-	async fetchAll() {
-		const dates: Record<string, string> = {INBOX: '2026-10-01T09:00:00Z', 'Sent Items': '2026-10-02T09:00:00Z', Drafts: '2026-10-03T09:00:00Z'};
+	// Matches the subject for a search, as a server would the headers and text.
+	async search(criteria: Criteria) {
+		imap.searches.push(criteria);
+		const words = criteria.gmraw ?? criteria.text;
+		const below = criteria.uid ? Number(criteria.uid.split(':')[1]) : Infinity;
 		const path = this.mailbox ? this.mailbox.path : '';
-		return [{uid: 1, flags: new Set(), internalDate: new Date(dates[path] ?? 0), envelope: {subject: `In ${path}`, from: [], to: []}}];
+		return box(path)
+			.filter((message) => message.uid <= below && (!words || message.subject.includes(words)))
+			.map((message) => message.uid);
+	}
+	// By position (`41:*`), or by UID with `{uid: true}` (`12,9,3`).
+	async fetchAll(range: string, _fields: object, options?: {uid?: boolean}) {
+		const path = this.mailbox ? this.mailbox.path : '';
+		const stored = [...box(path)].sort((a, b) => a.uid - b.uid);
+		const picked = options?.uid ? stored.filter((message) => range.split(',').includes(String(message.uid))) : stored.slice(Number(range.split(':')[0]) - 1);
+		return picked.map((message) => ({uid: message.uid, flags: new Set(), internalDate: new Date(message.date), envelope: {subject: message.subject, from: [], to: []}}));
 	}
 	async fetchOne(uid: string) {
 		if (!imap.message || String(imap.message.uid) !== uid) {
@@ -85,10 +110,7 @@ mock.module('../connections/email/mail-check', () => ({
 
 const credential = {imapHost: 'imap.fastmail.com', smtpHost: 'smtp.fastmail.com', smtpPort: 465, username: 'alex@example.com', password: 'secret'};
 
-// The stored credential, as decrypted; a test sets another SMTP server.
-let smtpHost = credential.smtpHost;
-
-mock.module('../utils/secret-crypto', () => ({decryptSecret: () => Ok(JSON.stringify({...credential, smtpHost}))}));
+mock.module('../utils/secret-crypto', () => ({decryptSecret: () => Ok(JSON.stringify(credential))}));
 
 function emails(): Collection {
 	const integration = findIntegration('email');
@@ -117,18 +139,33 @@ beforeEach(() => {
 		{path: 'Trash', specialUse: '\\Trash'},
 		{path: 'Archive', specialUse: '\\Archive'},
 	];
+	// One email in each folder, a day apart: the inbox's oldest, the draft's newest.
+	imap.boxes = {
+		INBOX: [{uid: 1, date: '2026-10-01T09:00:00Z', subject: 'In INBOX'}],
+		'Sent Items': [{uid: 1, date: '2026-10-02T09:00:00Z', subject: 'In Sent Items'}],
+		Drafts: [{uid: 1, date: '2026-10-03T09:00:00Z', subject: 'In Drafts'}],
+	};
+	imap.gmail = false;
+	imap.searches = [];
 	imap.calls = [];
 	imap.message = {uid: 12, flags: new Set(), source};
 	sendMail.mockReset();
 	sendMail.mockResolvedValue({messageId: '<sent@proxy>'});
-	smtpHost = credential.smtpHost;
 });
+
+const EVERYTHING = {search: null, page: null, filter: null};
+
+// `count` emails, an hour apart from `start`, the newest with the highest UID.
+function fill(count: number, start: string, subject = 'Note'): Stored[] {
+	return Array.from({length: count}, (_, index) => ({uid: index + 1, date: new Date(Date.parse(start) + index * 3_600_000).toISOString(), subject: `${subject} ${index + 1}`}));
+}
 
 describe('emails', () => {
 	test('one list of the inbox, drafts and sent mail, newest first, each saying where it is', async () => {
 		const {emailConnector} = await import('./email-connector');
-		const records = (await emailConnector.list(target)).unwrap();
+		const {records, nextPage} = (await emailConnector.list(target, EVERYTHING)).unwrap();
 
+		expect(nextPage).toBeNull();
 		expect(records.map((record) => [record.id, record.values.folder])).toEqual([
 			[`drafts-${UID_VALIDITY}-1`, 'Draft'],
 			[`sent-${UID_VALIDITY}-1`, 'Sent'],
@@ -140,9 +177,48 @@ describe('emails', () => {
 		imap.folders = imap.folders.filter((folder) => folder.specialUse !== '\\Sent');
 
 		const {emailConnector} = await import('./email-connector');
-		const records = (await emailConnector.list(target)).unwrap();
+		const {records} = (await emailConnector.list(target, EVERYTHING)).unwrap();
 
 		expect(records.map((record) => record.values.folder)).toEqual(['Draft', 'Inbox']);
+	});
+
+	test('pages through every folder newest first, each email once', async () => {
+		imap.boxes = {INBOX: fill(60, '2026-10-01T00:00:00Z'), Drafts: fill(3, '2026-10-02T10:30:00Z'), 'Sent Items': fill(10, '2026-10-01T20:30:00Z')};
+
+		const {emailConnector} = await import('./email-connector');
+		const first = (await emailConnector.list(target, EVERYTHING)).unwrap();
+		const second = (await emailConnector.list(target, {...EVERYTHING, page: first.nextPage})).unwrap();
+
+		expect(first.records).toHaveLength(50);
+		expect(second.nextPage).toBeNull();
+		const all = [...first.records, ...second.records];
+		expect(new Set(all.map((record) => record.id)).size).toBe(73);
+		const dates = all.map((record) => record.updatedAt);
+		expect(dates).toEqual([...dates].sort().reverse());
+	});
+
+	test('a folder narrows the list to it', async () => {
+		const {emailConnector} = await import('./email-connector');
+		const {records} = (await emailConnector.list(target, {...EVERYTHING, filter: 'Draft'})).unwrap();
+
+		expect(records.map((record) => record.values.folder)).toEqual(['Draft']);
+	});
+
+	test("searches with Gmail's own syntax on Gmail, and the words elsewhere", async () => {
+		const {emailConnector} = await import('./email-connector');
+		await emailConnector.list(target, {...EVERYTHING, search: 'from:sam'});
+		imap.gmail = true;
+		await emailConnector.list(target, {...EVERYTHING, search: 'from:sam'});
+
+		expect(imap.searches.slice(0, 3)).toEqual([{text: 'from:sam'}, {text: 'from:sam'}, {text: 'from:sam'}]);
+		expect(imap.searches.slice(3)).toEqual([{gmraw: 'from:sam'}, {gmraw: 'from:sam'}, {gmraw: 'from:sam'}]);
+	});
+
+	test('a page token from somewhere else is refused', async () => {
+		const {emailConnector} = await import('./email-connector');
+		const result = await emailConnector.list(target, {...EVERYTHING, page: 'nonsense'});
+
+		expect(result.unwrapErr().kind).toBe('validation_error');
 	});
 
 	test('an email in the inbox has a status from its flags', async () => {
@@ -215,7 +291,7 @@ describe('sending a draft', () => {
 	});
 
 	test('Gmail files what it sends itself', async () => {
-		smtpHost = 'smtp.gmail.com';
+		imap.gmail = true;
 
 		const {emailConnector} = await import('./email-connector');
 		await emailConnector.commands?.send?.(target, DRAFT);

@@ -1,7 +1,7 @@
 import type {ReactNode} from 'react';
 import {AppSidebar} from '@/components/nav';
-import {SidebarTrigger} from '@/components/ui/sidebar';
-import {useDesktop} from '@/hooks/use-media-query';
+import {SidebarTrigger} from '@proxy/ui/components/sidebar';
+import {useDesktop} from '@proxy/ui/hooks/use-media-query';
 
 type Props = {
 	children: ReactNode;

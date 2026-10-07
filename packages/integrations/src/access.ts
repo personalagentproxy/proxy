@@ -2,7 +2,7 @@ import type {Collection, Condition, Integration} from './types';
 
 // Access is set per action of a connection, in two layers: the connection's default, and an
 // agent's own setting where it differs from the default. What can be set at all is what the
-// catalog lists, which is what Proxy can do with the provider.
+// catalog lists, which is what Personal Agent Proxy can do with the provider.
 
 // An agent's own settings for a connection, by action; an action left out follows the default.
 export type OwnSettings = Partial<Record<string, boolean>>;

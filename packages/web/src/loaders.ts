@@ -31,7 +31,7 @@ export async function connectionLoader({params}: {params: {id?: string}}) {
 	};
 }
 
-// Information is the one built-in connection; its records are kept in Proxy.
+// Information is the one built-in connection; its records are kept in Personal Agent Proxy.
 export async function infoLoader() {
 	const {connections} = unwrapLoaderResult(await listConnections());
 	const connection = connections.find(

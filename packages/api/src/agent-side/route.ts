@@ -7,7 +7,8 @@ import {logAgentRequest} from '@proxy/db/audit';
 import {listConnections, type ConnectionRow} from '@proxy/db/connection';
 import {applies, effectiveActions, findIntegration, requiredAction, type Collection, type Condition, type OwnSettings} from '@proxy/integrations';
 
-import type {Connector, DataRecord, RecordTarget} from '../records/connector';
+import type {Connector, DataRecord, RecordPage, RecordTarget} from '../records/connector';
+import {parseListQuery, requireFilter} from '../records/list-query';
 import {parseRecordValues} from '../records/record-values';
 import {loadRecordTarget} from '../records/target';
 import type {AgentRequest} from '../server/middleware/require-agent';
@@ -63,7 +64,8 @@ function recordTitle(collection: Collection, record: DataRecord): string | null 
 }
 
 // `action` is list, view, create, update or delete, or a command of the collection.
-function log(request: AgentRequest, target: RecordTarget, action: string, outcome: 'allowed' | 'denied', recordTitle: string | null): Promise<Result<void, ApiError>> {
+// `query` is what a list searched for.
+function log(request: AgentRequest, target: RecordTarget, action: string, outcome: 'allowed' | 'denied', recordTitle: string | null, query: string | null = null): Promise<Result<void, ApiError>> {
 	return logAgentRequest({
 		orgId: request.agent.orgId,
 		agentId: request.agent.agentId,
@@ -71,6 +73,7 @@ function log(request: AgentRequest, target: RecordTarget, action: string, outcom
 		collectionId: target.collection.id,
 		action,
 		recordTitle,
+		query,
 		outcome,
 	});
 }
@@ -82,7 +85,7 @@ const OPERATIONS = ['list', 'view', 'create', 'update', 'delete'];
  * organization, or a command it doesn't have, is not found and not logged; an action the agent
  * doesn't have, or a write the collection doesn't offer, is refused and logged as denied.
  */
-function authorize(request: AgentRequest, action: string): Promise<Result<AgentTarget, ApiError>> {
+function authorize(request: AgentRequest, action: string, query: string | null = null): Promise<Result<AgentTarget, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireSignedInAgent(request));
 		const target = $(await loadRecordTarget(request.agent.orgId, request.params.connectionId ?? '', request.params.collectionId ?? ''));
@@ -92,7 +95,7 @@ function authorize(request: AgentRequest, action: string): Promise<Result<AgentT
 			return $(Err(ApiErr.notFound('command', action)));
 		}
 		if (needed === null || !actions.includes(needed)) {
-			$(await log(request, target, action, 'denied', null));
+			$(await log(request, target, action, 'denied', null, query));
 			return $(Err(ApiErr.forbidden()));
 		}
 		return {...target, actions};
@@ -102,12 +105,15 @@ function authorize(request: AgentRequest, action: string): Promise<Result<AgentT
 // Every allowed request is logged before its result goes back; a request that can't be logged
 // fails rather than go unrecorded.
 
-export function handleAgentListRecordsRoute(request: AgentRequest): Promise<Result<{actions: string[]; records: DataRecord[]}, ApiError>> {
+/** A page of the collection's records, matching `?search=` and `?filter=` when given; the search is logged. */
+export function handleAgentListRecordsRoute(request: AgentRequest): Promise<Result<RecordPage & {actions: string[]}, ApiError>> {
 	return Do(async ($) => {
-		const target = $(await authorize(request, 'list'));
-		const records = $(await target.connector.list(target));
-		$(await log(request, target, 'list', 'allowed', null));
-		return {actions: target.actions, records};
+		const query = $(parseListQuery(request.query));
+		const target = $(await authorize(request, 'list', query.search));
+		$(requireFilter(target.collection, query.filter));
+		const page = $(await target.connector.list(target, query));
+		$(await log(request, target, 'list', 'allowed', null, query.search));
+		return {actions: target.actions, ...page};
 	});
 }
 

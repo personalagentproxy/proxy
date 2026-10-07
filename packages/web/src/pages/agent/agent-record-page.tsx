@@ -4,7 +4,7 @@ import {useLoaderData, useNavigate, useRevalidator} from 'react-router';
 import {deleteAgentRecord, runAgentCommand, updateAgentRecord} from '@/client/agent-client';
 import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
 import {RecordFields, RecordForm} from '@/components/record-form';
-import {Button} from '@/components/ui/button';
+import {Button} from '@proxy/ui/components/button';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {allows, recordTitle} from '@/lib/access';
 import {agentErrorMessage} from '@/lib/agent-errors';

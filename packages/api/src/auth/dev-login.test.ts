@@ -21,9 +21,8 @@ mock.module('../observability/log', () => ({
 }));
 
 // Mutable so a test can flip NODE_ENV; the route reads it per request.
-const mockEnv: {NODE_ENV: string; SESSION_COOKIE_DOMAIN: string | undefined} = {
+const mockEnv: {NODE_ENV: string} = {
 	NODE_ENV: 'development',
-	SESSION_COOKIE_DOMAIN: undefined,
 };
 
 mock.module('../utils/env', () => ({env: mockEnv}));
@@ -80,7 +79,7 @@ describe('handleDevLoginRoute', () => {
 		expect(sessionArgs.userId).toBe(devUser.id);
 		expect(sessionArgs.sessionToken).toMatch(/^[0-9a-f]{64}$/);
 
-		// Dev naming: not secure, host-only (no domain when SESSION_COOKIE_DOMAIN is unset).
+		// Dev naming: not secure, host-only.
 		const sessionCookie = res.cookies.find((cookie) => cookie.name === 'proxy.session-token');
 		expect(sessionCookie?.value).toBe(sessionArgs.sessionToken);
 		expect(sessionCookie?.options).toMatchObject({

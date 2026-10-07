@@ -1,0 +1,42 @@
+{
+	"name": "docs",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"scripts": {
+		"dev": "next dev --port 5174",
+		"build": "next build",
+		"lint": "oxlint",
+		"typecheck": "next typegen && tsc --noEmit"
+	},
+	"dependencies": {
+		"@mdx-js/mdx": "^3.1.1",
+		"@proxy/api": "workspace:*",
+		"@proxy/ui": "workspace:*",
+		"@proxy/utils": "workspace:*",
+		"@shikijs/rehype": "^4.5.0",
+		"hast-util-to-string": "^3.0.1",
+		"lucide-react": "^1.43.0",
+		"next": "^16.4.0",
+		"react": "^19.2.8",
+		"react-dom": "^19.2.8",
+		"rehype-slug": "^6.0.0",
+		"remark-gfm": "^4.0.1",
+		"ts-results-es": "^7.1.0",
+		"unist-util-visit": "^5.1.0",
+		"vfile": "^6.0.3",
+		"vfile-matter": "^5.0.1",
+		"zod": "^4.5.4"
+	},
+	"devDependencies": {
+		"@tailwindcss/postcss": "^4.3.3",
+		"@types/hast": "^3.0.4",
+		"@types/mdx": "^2.0.13",
+		"@types/node": "^24.13.3",
+		"@types/react": "^19.2.18",
+		"@types/react-dom": "^19.2.4",
+		"oxlint": "^1.79.0",
+		"tailwindcss": "^4.3.3",
+		"typescript": "~6.0.2"
+	}
+}

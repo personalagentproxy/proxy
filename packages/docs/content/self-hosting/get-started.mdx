@@ -1,0 +1,108 @@
+---
+title: Get started
+description: Run Personal Agent Proxy on one server with Docker Compose, with Postgres and HTTPS in the same file.
+---
+
+The compose file runs three containers: Personal Agent Proxy, Postgres, and Caddy in front of them
+for HTTPS. Only Caddy is reachable from outside, on ports 80 and 443.
+
+<Steps>
+
+### Get the compose file
+
+```sh
+mkdir proxy && cd proxy
+curl -O https://raw.githubusercontent.com/personalagentproxy/proxy/main/docker-compose.yml
+```
+
+### Generate the secrets
+
+They go in a `.env` file next to the compose file, which Docker Compose reads on its own.
+
+```sh
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
+echo "AUTH_SECRET=$(openssl rand -hex 32)" >> .env
+echo "ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
+```
+
+<Callout type="warning">
+  Back up `ENCRYPTION_KEY` somewhere apart from the server. It encrypts the app passwords and
+  Information records in the database, so changing or losing it makes them unreadable, backups
+  included.
+</Callout>
+
+### Start Personal Agent Proxy
+
+```sh
+docker compose up -d
+```
+
+Open [http://localhost](http://localhost) on the same machine. To try Personal Agent Proxy on your
+own computer, you can stop here and [sign in](#sign-in).
+
+### Give it a domain
+
+Point an `A` record for your domain at the server, and make sure ports 80 and 443 are open to it.
+Then tell Personal Agent Proxy its address, and who can create an account, before anyone else can
+reach it:
+
+```sh
+echo "PROXY_URL=https://proxy.example.com" >> .env
+echo "ALLOWED_SIGNUP_EMAILS=you@example.com" >> .env
+docker compose up -d
+```
+
+Caddy gets a certificate for the domain from Let's Encrypt on its first request, and renews it.
+
+</Steps>
+
+## Sign in
+
+Enter your email on the sign-in page. Until Personal Agent Proxy can send email, it writes the
+sign-in link to its log instead:
+
+```sh
+docker compose logs proxy | grep "Magic Link"
+```
+
+Open the link to sign in. [Sign-in](/self-hosting/sign-in) sets up sending the links by email,
+and signing in with Google.
+
+## Settings
+
+The compose file reads these from `.env`:
+
+| Variable                                                               | Required / default | Description                                                                                                        |
+| ---------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `POSTGRES_PASSWORD`                                                    | Required           | The database's password, set when the database is first created. Changing it later needs a change in Postgres too. |
+| `AUTH_SECRET`                                                          | Required           | Hashes sign-in tokens.                                                                                             |
+| `ENCRYPTION_KEY`                                                       | Required           | Encrypts credentials and Information records. Never change it.                                                     |
+| `PROXY_URL`                                                            | `http://localhost` | Where Personal Agent Proxy is opened. An `https://` address gets a certificate.                                    |
+| `PROXY_VERSION`                                                        | `main`             | The image tag to run. See [upgrades](/self-hosting/upgrades-and-backups#versions).                                 |
+| `ALLOWED_SIGNUP_EMAILS`                                                | Optional           | Who can create an account.                                                                                         |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `RESEND_KEY`, `EMAIL_FROM` | Optional           | [Sign-in](/self-hosting/sign-in) with Google, and sign-in links by email.                                          |
+
+Every other setting is in [Environment variables](/self-hosting/environment); add one under the
+`proxy` service's `environment` in the compose file.
+
+## Without Docker Compose
+
+The image runs anywhere containers do, with any Postgres. Give it the
+[required variables](/self-hosting/environment) and put HTTPS in front of port 4000:
+
+```sh
+docker run -d -p 4000:4000 \
+  -e DATABASE_URL="postgres://user:password@host:5432/proxy" \
+  -e APP_URL="https://proxy.example.com" \
+  -e AUTH_SECRET="…" \
+  -e ENCRYPTION_KEY="…" \
+  ghcr.io/personalagentproxy/proxy:main
+```
+
+It applies the database migrations every time it starts, before it serves anything.
+
+<Callout>
+  Docker Compose on one server has no failover, and keeps the database on that server's disk.
+  [Back it up](/self-hosting/upgrades-and-backups#backups), or run the image on its own against a
+  managed Postgres, as above.
+</Callout>

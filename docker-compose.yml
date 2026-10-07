@@ -1,0 +1,88 @@
+# Personal Agent Proxy on one machine: Postgres, Personal Agent Proxy itself, and Caddy in front of
+# it for HTTPS. The guide: packages/docs/content/self-hosting/get-started.mdx
+#
+# 1. Put the secrets marked CHANGEME in a .env file next to this one:
+#      echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
+#      echo "AUTH_SECRET=$(openssl rand -hex 32)" >> .env
+#      echo "ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
+# 2. docker compose up -d, then open http://localhost.
+# 3. On a server, add PROXY_URL=https://your.domain to .env; Caddy gets its certificate.
+#
+# Only Caddy is reachable from outside, on ports 80 and 443. Postgres and Personal Agent Proxy are
+# on the compose network alone.
+
+name: proxy
+
+# Docker keeps every log line by default; this caps each container at 30 MB.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+
+services:
+  proxy:
+    image: ghcr.io/personalagentproxy/proxy:${PROXY_VERSION:-main}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_URL: ${PROXY_URL:-http://localhost}
+      DATABASE_URL: postgres://proxy:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/proxy
+      AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET in .env (openssl rand -hex 32)} # CHANGEME
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in .env (openssl rand -base64 32)} # CHANGEME
+      ALLOWED_SIGNUP_EMAILS: ${ALLOWED_SIGNUP_EMAILS:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      RESEND_KEY: ${RESEND_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+    logging: *logging
+
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: proxy
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env} # CHANGEME
+      POSTGRES_DB: proxy
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U proxy -d proxy']
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    logging: *logging
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      proxy:
+        condition: service_healthy
+    ports:
+      - 80:80
+      - 443:443
+      - 443:443/udp
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    logging: *logging
+
+configs:
+  # An https:// address gets a certificate from Let's Encrypt, renewed by Caddy; http:// is served
+  # as it is.
+  caddyfile:
+    content: |
+      ${PROXY_URL:-http://localhost} {
+        reverse_proxy proxy:4000
+      }
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

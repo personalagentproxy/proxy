@@ -6,7 +6,7 @@ import {connectEmail} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {BackButton} from '@/components/back-button';
 import {RowList} from '@/components/row-list';
-import {Button} from '@/components/ui/button';
+import {Button} from '@proxy/ui/components/button';
 import {
 	Dialog,
 	DialogContent,
@@ -14,16 +14,16 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from '@/components/ui/dialog';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
+} from '@proxy/ui/components/dialog';
+import {Input} from '@proxy/ui/components/input';
+import {Label} from '@proxy/ui/components/label';
 import {
 	Select,
 	SelectContent,
 	SelectItem,
 	SelectTrigger,
 	SelectValue,
-} from '@/components/ui/select';
+} from '@proxy/ui/components/select';
 import {INTEGRATIONS} from '@/lib/integrations';
 
 // The catalog. Email is the only integration for now; it can be connected again for another
@@ -157,8 +157,8 @@ function ConnectEmailDialog({open, onClose}: {open: boolean; onClose: () => void
 					<DialogHeader>
 						<DialogTitle>Connect a mailbox</DialogTitle>
 						<DialogDescription>
-							Proxy signs in with an app password, made for Proxy alone in your mail account.
-							Revoking it there disconnects Proxy.
+							Personal Agent Proxy signs in with an app password, made for Personal Agent Proxy
+							alone in your mail account. Revoking it there disconnects Personal Agent Proxy.
 						</DialogDescription>
 					</DialogHeader>
 					<div className="grid gap-2">

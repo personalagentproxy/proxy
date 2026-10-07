@@ -1,12 +1,16 @@
 import {useState, type FormEvent} from 'react';
-import {Link, useSearchParams} from 'react-router';
-import {devLogin, googleSignInUrl, requestMagicLink} from '@/client/auth-client';
+import {Link, useLoaderData, useSearchParams} from 'react-router';
+import {
+	devLogin,
+	googleSignInUrl,
+	requestMagicLink,
+	type SignInMethods,
+} from '@/client/auth-client';
 import {GoogleIcon} from '@/components/google-icon';
-import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
+import {Button} from '@proxy/ui/components/button';
+import {Input} from '@proxy/ui/components/input';
+import {Label} from '@proxy/ui/components/label';
 import {sanitizeCallbackUrl} from '@/lib/callback-url';
-import {env} from '@/lib/env';
 
 // The api's sign-in errors, from the `error` param of a redirect or the magic-link response.
 const errorMessages: Record<string, string> = {
@@ -17,6 +21,8 @@ const errorMessages: Record<string, string> = {
 	OAuthAccountNotLinked: 'This email already has an account. Sign in with a magic link instead.',
 	EmailSignin: 'Could not send the sign-in email. Please try again.',
 	Verification: 'This sign-in link is invalid or has expired. Please request a new one.',
+	SignupNotAllowed: 'This address cannot create an account here.',
+	EmailNotVerified: 'Google has not verified this email address, so it cannot create an account.',
 };
 
 function errorMessage(code: string | undefined): string {
@@ -24,11 +30,15 @@ function errorMessage(code: string | undefined): string {
 }
 
 type Status =
-	{kind: 'idle'} | {kind: 'sending'} | {kind: 'sent'} | {kind: 'error'; message: string};
+	| {kind: 'idle'}
+	| {kind: 'sending'}
+	| {kind: 'sent'; logged: boolean}
+	| {kind: 'error'; message: string};
 
 // The human side's sign-in: Google, or a magic link to the email address. Both come back with a
 // session cookie and land on `callbackUrl`, the page the user was sent here from.
 export function LoginPage() {
+	const methods = useLoaderData<SignInMethods>();
 	const [searchParams] = useSearchParams();
 	const redirectError = searchParams.get('error');
 	const callbackUrl = sanitizeCallbackUrl(searchParams.get('callbackUrl'));
@@ -54,26 +64,30 @@ export function LoginPage() {
 			return;
 		}
 
-		setStatus({kind: 'sent'});
+		setStatus({kind: 'sent', logged: result.value.logged === true});
 	}
 
 	return (
 		<div className="flex min-h-dvh w-full items-center justify-center bg-background text-foreground">
 			<div className="grid w-72 gap-4">
-				<h1 className="text-lg font-semibold">Proxy</h1>
+				<h1 className="text-lg font-semibold">Personal Agent Proxy</h1>
 				{redirectError && status.kind === 'idle' && (
 					<p className="text-sm text-destructive">{errorMessage(redirectError)}</p>
 				)}
-				<Button
-					variant="outline"
-					onClick={() => {
-						window.location.href = googleSignInUrl(callbackUrl);
-					}}
-				>
-					<GoogleIcon />
-					Continue with Google
-				</Button>
-				<p className="text-center text-sm text-muted-foreground">or</p>
+				{methods.google && (
+					<>
+						<Button
+							variant="outline"
+							onClick={() => {
+								window.location.href = googleSignInUrl(callbackUrl);
+							}}
+						>
+							<GoogleIcon />
+							Continue with Google
+						</Button>
+						<p className="text-center text-sm text-muted-foreground">or</p>
+					</>
+				)}
 				<form className="grid gap-4" onSubmit={(event) => void onSubmit(event)}>
 					<div className="grid gap-2">
 						<Label htmlFor="email">Email</Label>
@@ -89,11 +103,15 @@ export function LoginPage() {
 						Send sign-in link
 					</Button>
 					{status.kind === 'sent' && (
-						<p className="text-sm text-muted-foreground">Check your email for a link to sign in.</p>
+						<p className="text-sm text-muted-foreground">
+							{status.logged
+								? 'Personal Agent Proxy cannot send email yet, so it wrote the sign-in link to its log.'
+								: 'Check your email for a link to sign in.'}
+						</p>
 					)}
 					{status.kind === 'error' && <p className="text-sm text-destructive">{status.message}</p>}
 				</form>
-				{env.isDev && <DevLoginButton callbackUrl={callbackUrl} />}
+				{import.meta.env.DEV && <DevLoginButton callbackUrl={callbackUrl} />}
 				<p className="text-sm text-muted-foreground">
 					An agent?{' '}
 					<Link to="/agent/login" className="text-foreground underline-offset-4 hover:underline">

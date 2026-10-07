@@ -9,8 +9,8 @@ import {AppShell, PageTitle} from '@/components/app-shell';
 import {RecordForm} from '@/components/record-form';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
-import {Button} from '@/components/ui/button';
-import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@/components/ui/dialog';
+import {Button} from '@proxy/ui/components/button';
+import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@proxy/ui/components/dialog';
 import {displayValue, recordTitle} from '@/lib/access';
 import {findIntegration} from '@/lib/integrations';
 import {describeFetchError} from '@/lib/loader-utils';
@@ -20,7 +20,8 @@ import type {infoLoader} from '@/loaders';
 // Which record the dialog is open on: a new one in a collection, or one being edited.
 type Editing = {collection: Collection; record: DataRecord | null};
 
-// What you keep in Proxy for agents to use, grouped by collection; a row opens it for editing.
+// What you keep in Personal Agent Proxy for agents to use, grouped by collection; a row opens it
+// for editing.
 export function InfoPage() {
 	const {connectionId, records} = useLoaderData<typeof infoLoader>();
 	const revalidator = useRevalidator();

@@ -4,7 +4,7 @@ import {useLoaderData, useNavigate} from 'react-router';
 import {createAgent} from '@/client/agents-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
-import {Button} from '@/components/ui/button';
+import {Button} from '@proxy/ui/components/button';
 import {
 	Dialog,
 	DialogContent,
@@ -12,12 +12,12 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from '@/components/ui/dialog';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
+} from '@proxy/ui/components/dialog';
+import {Input} from '@proxy/ui/components/input';
+import {Label} from '@proxy/ui/components/label';
 import {formatAgo} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
-import {cn} from '@/lib/utils';
+import {cn} from '@proxy/ui/lib/utils';
 import type {agentsLoader} from '@/loaders';
 
 // Widths and visibility shared by the header and every row, so the columns line up.

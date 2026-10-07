@@ -41,11 +41,22 @@ function recordsPath(connectionId: string, collectionId: string): string {
 	return `/api/agent/connections/${connectionId}/collections/${collectionId}/records`;
 }
 
-export function listAgentRecords(connectionId: string, collectionId: string) {
+export type ListQuery = {search: string | null; page: string | null; filter: string | null};
+
+/** A page of records, newest first, and the token of the next, older page if there is one. */
+export function listAgentRecords(connectionId: string, collectionId: string, query: ListQuery) {
+	const params = new URLSearchParams(
+		Object.entries(query).filter((entry): entry is [string, string] => entry[1] !== null),
+	);
+	const suffix = params.size > 0 ? `?${params}` : '';
 	return apiRequest(
 		'GET',
-		recordsPath(connectionId, collectionId),
-		z.object({actions: z.array(z.string()), records: z.array(dataRecordSchema)}),
+		`${recordsPath(connectionId, collectionId)}${suffix}`,
+		z.object({
+			actions: z.array(z.string()),
+			records: z.array(dataRecordSchema),
+			nextPage: z.string().nullable(),
+		}),
 	);
 }
 

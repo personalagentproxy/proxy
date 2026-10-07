@@ -12,7 +12,7 @@ export function listRecords(connectionId: string, collectionId: string) {
 	return apiRequest(
 		'GET',
 		recordsPath(connectionId, collectionId),
-		z.object({records: z.array(dataRecordSchema)}),
+		z.object({records: z.array(dataRecordSchema), nextPage: z.string().nullable()}),
 	);
 }
 

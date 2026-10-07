@@ -1,0 +1,50 @@
+---
+title: Troubleshooting
+description: What to check when something does not work.
+---
+
+Start with the logs. With Docker Compose:
+
+```sh
+docker compose logs -f proxy
+```
+
+## Personal Agent Proxy does not start
+
+**Applying the database migrations failed.** The log says what Postgres answered. Most often the
+database is not reachable at `DATABASE_URL`, or the password in it has characters that need
+percent-encoding: `@` is `%40`, `:` is `%3A`, `/` is `%2F` and `#` is `%23`.
+
+**`required variable … is missing a value`.** Docker Compose did not find a secret in `.env`. See
+[Get started](/self-hosting/get-started#generate-the-secrets).
+
+## The page does not load over HTTPS
+
+Caddy gets the certificate the first time the domain is opened, which needs the domain's DNS to
+point at the server and ports 80 and 443 to be open to it. Its log says what failed:
+
+```sh
+docker compose logs caddy
+```
+
+## Signing in does not work
+
+**Nothing happens, or the api answers `forbidden_origin`.** Open Personal Agent Proxy at exactly its
+`PROXY_URL` (`APP_URL` without Docker Compose). The api only takes requests from that address,
+so `http://127.0.0.1` is refused when it is `http://localhost`.
+
+**No email arrives.** Without `RESEND_KEY`, Personal Agent Proxy writes the link to its log instead;
+see [Sign-in](/self-hosting/sign-in#sign-in-links). With it, Resend's dashboard shows whether the
+email was sent.
+
+**"This address cannot create an account here."** `ALLOWED_SIGNUP_EMAILS` leaves the address
+out.
+
+**"This email already has an account."** The address signed in with a link before, and keeps
+signing in that way.
+
+## A mailbox does not connect
+
+Personal Agent Proxy signs in to the mail servers when you connect a mailbox, so the server needs to
+reach them: IMAP on port 993 and SMTP on 465 or 587. Some hosts block outgoing mail ports until you
+ask.

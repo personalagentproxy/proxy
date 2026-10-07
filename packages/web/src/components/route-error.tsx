@@ -1,5 +1,5 @@
 import {isRouteErrorResponse, useRouteError} from 'react-router';
-import {Button} from '@/components/ui/button';
+import {Button} from '@proxy/ui/components/button';
 
 // What a page shows when its data could not be loaded, such as when the api is down.
 export function RouteError() {

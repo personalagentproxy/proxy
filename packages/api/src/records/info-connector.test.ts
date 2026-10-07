@@ -45,8 +45,26 @@ describe('infoConnector', () => {
 		expect(created.unwrap()).toEqual({id: 'rec-1', values: {title: 'Sizes', body: 'Shoes: EU 43'}, updatedAt: '2026-10-01T00:00:00.000Z'});
 
 		listInfoRecords.mockResolvedValue(Ok([{id: 'rec-1', values: stored, updatedAt}]));
-		const listed = await infoConnector.list(target);
-		expect(listed.unwrap()[0]?.values).toEqual({title: 'Sizes', body: 'Shoes: EU 43'});
+		const listed = await infoConnector.list(target, {search: null, page: null, filter: null});
+		expect(listed.unwrap().records[0]?.values).toEqual({title: 'Sizes', body: 'Shoes: EU 43'});
+		expect(listed.unwrap().nextPage).toBeNull();
+	});
+
+	test('searches every value, ignoring case', async () => {
+		const {infoConnector} = await import('./info-connector');
+		const sizes = (await infoConnector.create(target, {title: 'Sizes', body: 'Shoes: EU 43'})).unwrap();
+		const diet = (await infoConnector.create(target, {title: 'Diet', body: 'Vegetarian'})).unwrap();
+		const [, sizesStored] = createInfoRecord.mock.calls[0] ?? [];
+		const [, dietStored] = createInfoRecord.mock.calls[1] ?? [];
+		listInfoRecords.mockResolvedValue(
+			Ok([
+				{...sizes, values: sizesStored, updatedAt},
+				{...diet, values: dietStored, updatedAt},
+			]),
+		);
+
+		const found = await infoConnector.list(target, {search: 'shoes', page: null, filter: null});
+		expect(found.unwrap().records.map((record) => record.values.title)).toEqual(['Sizes']);
 	});
 
 	test('a missing record is not found', async () => {
