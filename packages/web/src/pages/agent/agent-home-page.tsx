@@ -1,6 +1,6 @@
 import {findCollection} from '@proxy/integrations';
 import {AgentHeading, AgentShell} from '@/components/agent-shell';
-import {IntegrationLogo} from '@/components/integration-logo';
+import {IntegrationLogo} from '@/components/brand-logo';
 import {Row, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {useAgentMe} from '@/hooks/use-agent-target';

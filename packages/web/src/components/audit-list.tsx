@@ -1,7 +1,5 @@
 import {EmptyRows, RowHeader, RowList} from '@/components/row-list';
-import {findAgentProvider} from '@proxy/agent-providers';
-import {AgentFavicon} from '@/components/agent-favicon';
-import {IntegrationLogo} from '@/components/integration-logo';
+import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
 import {connectionLabel, describeEntry, integrationOf, locateEntry} from '@/lib/access';
 import {formatDateTime} from '@/lib/format';
 import type {AgentLogin, AuditEntry, Connection} from '@/lib/types';
@@ -45,7 +43,6 @@ export function AuditList({
 			{entries.length === 0 && <EmptyRows>No activity yet.</EmptyRows>}
 			{entries.map((entry) => {
 				const agent = agents.find((candidate) => candidate.id === entry.agentId);
-				const provider = agent?.providerId ? findAgentProvider(agent.providerId) : undefined;
 				const located = locateEntry(connections, entry);
 				const integration = located ? integrationOf(located.connection) : null;
 				const denied = entry.outcome === 'denied';
@@ -55,10 +52,8 @@ export function AuditList({
 						{showAgent && (
 							<span className={CELLS.agent}>
 								<span className="flex items-center gap-2">
-									<AgentFavicon provider={provider} />
-									<span className="truncate">
-										{provider?.name ?? agent?.name ?? 'Deleted agent'}
-									</span>
+									<AgentLogo providerId={agent?.providerId ?? null} />
+									<span className="truncate">{agent?.name ?? 'Deleted agent'}</span>
 								</span>
 							</span>
 						)}

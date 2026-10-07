@@ -6,9 +6,9 @@ import {
 	findAgentProvider,
 	type AgentProvider,
 	type AgentProviderId,
-} from '@proxy/agent-providers';
+} from '@proxy/integrations';
 import {createAgent} from '@/client/agents-client';
-import {AgentFavicon} from '@/components/agent-favicon';
+import {AgentLogo} from '@/components/brand-logo';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
 import {Button} from '@proxy/ui/components/button';
@@ -68,22 +68,23 @@ export function AgentsPage() {
 			>
 				{agents.length === 0 && <EmptyRows>No agents yet.</EmptyRows>}
 				{agents.map((agent) => {
-					const provider = agent.providerId ? findAgentProvider(agent.providerId) : undefined;
 					const revoked = agent.revokedAt !== null;
 					return (
 						<Row
 							key={agent.id}
 							to={`/agents/${agent.id}`}
-							icon={<AgentFavicon provider={provider} />}
+							icon={<AgentLogo providerId={agent.providerId} />}
 							title={
 								<span className={cn(revoked && 'text-muted-foreground')}>
-									{provider?.name ?? agent.name}
+									{agent.name}
 									{revoked && ' · Revoked'}
 								</span>
 							}
 							cells={
 								<>
-									<span className={CELLS.company}>{provider?.company ?? 'Legacy'}</span>
+									<span className={CELLS.company}>
+										{findAgentProvider(agent.providerId)?.company ?? 'Legacy'}
+									</span>
 									<span className={CELLS.username}>{agent.username}</span>
 									<span className={CELLS.active}>
 										{agent.lastActiveAt ? formatAgo(agent.lastActiveAt) : 'Never'}
@@ -177,7 +178,7 @@ function NewAgentDialog({
 									)}
 									onClick={() => setProviderId(provider.id)}
 								>
-									<AgentFavicon provider={provider} />
+									<AgentLogo providerId={provider.id} />
 									<span className="min-w-0">
 										<span className="block truncate text-sm font-medium">{provider.name}</span>
 										<span className="block truncate text-xs text-muted-foreground">

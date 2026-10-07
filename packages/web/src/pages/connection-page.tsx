@@ -1,16 +1,14 @@
 import {UnplugIcon} from 'lucide-react';
 import {useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
-import {findAgentProvider} from '@proxy/agent-providers';
 import {deleteConnection, setConnectionDefault} from '@/client/connections-client';
 import {AccessSelect} from '@/components/access-select';
-import {AgentFavicon} from '@/components/agent-favicon';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
-import {IntegrationLogo} from '@/components/integration-logo';
+import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
 import {NotFound} from '@/components/not-found';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
@@ -85,28 +83,25 @@ export function ConnectionPage() {
 				<Section title="Agents with access">
 					<RowList>
 						{withAccess.length === 0 && <EmptyRows>No agent can reach this connection.</EmptyRows>}
-						{withAccess.map((agent) => {
-							const provider = agent.providerId ? findAgentProvider(agent.providerId) : undefined;
-							return (
-								<Row
-									key={agent.id}
-									to={`/agents/${agent.id}`}
-									icon={<AgentFavicon provider={provider} />}
-									title={provider?.name ?? agent.name}
-									cells={
-										<span className="hidden min-w-0 shrink truncate text-right text-muted-foreground md:block">
-											{integration.collections
-												.filter((collection) => accessFor(agent, connection, collection) !== 'none')
-												.map(
-													(collection) =>
-														`${collection.name}: ${accessLabel(collection, accessFor(agent, connection, collection))}`,
-												)
-												.join(', ')}
-										</span>
-									}
-								/>
-							);
-						})}
+						{withAccess.map((agent) => (
+							<Row
+								key={agent.id}
+								to={`/agents/${agent.id}`}
+								icon={<AgentLogo providerId={agent.providerId} />}
+								title={agent.name}
+								cells={
+									<span className="hidden min-w-0 shrink truncate text-right text-muted-foreground md:block">
+										{integration.collections
+											.filter((collection) => accessFor(agent, connection, collection) !== 'none')
+											.map(
+												(collection) =>
+													`${collection.name}: ${accessLabel(collection, accessFor(agent, connection, collection))}`,
+											)
+											.join(', ')}
+									</span>
+								}
+							/>
+						))}
 					</RowList>
 				</Section>
 				<Section

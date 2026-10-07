@@ -13,7 +13,6 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@proxy/agent-providers": "workspace:*",
 		"@proxy/db": "workspace:*",
 		"@proxy/integrations": "workspace:*",
 		"@proxy/utils": "workspace:*",

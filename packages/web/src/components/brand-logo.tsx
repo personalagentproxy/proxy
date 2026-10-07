@@ -1,19 +1,19 @@
-import {useState, type ReactNode} from 'react';
-
+import {findAgentProvider} from '@proxy/integrations';
 import {cn} from '@proxy/ui/lib/utils';
+import {BotIcon, type LucideIcon} from 'lucide-react';
+import type {Integration} from '@/lib/integrations';
 
-type Props = {
+// Logos sit on a white tile in both themes, so dark marks stay legible. They're decorative: the
+// text beside one always names it.
+function LogoTile({
+	src,
+	icon: Icon,
+	className,
+}: {
 	src?: string;
-	fallback: ReactNode;
+	icon: LucideIcon;
 	className?: string;
-	imageClassName?: string;
-};
-
-// Brand marks share one neutral tile so transparent and dark-only logos stay legible on every
-// surface. The local image is decorative because the adjacent text always names the brand.
-export function BrandLogo({src, fallback, className, imageClassName}: Props) {
-	const [failed, setFailed] = useState(false);
-
+}) {
 	return (
 		<span
 			aria-hidden
@@ -22,16 +22,26 @@ export function BrandLogo({src, fallback, className, imageClassName}: Props) {
 				className,
 			)}
 		>
-			{!src || failed ? (
-				fallback
+			{src ? (
+				<img src={src} alt="" className="size-full object-contain p-[2px]" />
 			) : (
-				<img
-					src={src}
-					alt=""
-					className={cn('size-full object-contain p-[2px]', imageClassName)}
-					onError={() => setFailed(true)}
-				/>
+				<Icon className="size-[60%] text-neutral-500" />
 			)}
 		</span>
 	);
+}
+
+// A login made before each was for one agent has no provider, and shows a generic bot.
+export function AgentLogo({providerId}: {providerId: string | null}) {
+	return <LogoTile src={findAgentProvider(providerId)?.faviconUrl} icon={BotIcon} />;
+}
+
+export function IntegrationLogo({
+	integration,
+	className,
+}: {
+	integration: Integration;
+	className?: string;
+}) {
+	return <LogoTile icon={integration.icon} className={className} />;
 }

@@ -12,16 +12,7 @@ const setAgentGrant = mock();
 const isUsernameConflict = mock(() => false);
 const isProviderConflict = mock(() => false);
 
-mock.module('@proxy/db/agent', () => ({
-	listAgents,
-	getAgent,
-	createAgent,
-	updateAgent,
-	deleteAgent,
-	setAgentGrant,
-	isUsernameConflict,
-	isProviderConflict,
-}));
+mock.module('@proxy/db/agent', () => ({listAgents, getAgent, createAgent, updateAgent, deleteAgent, setAgentGrant, isUsernameConflict, isProviderConflict}));
 
 const getConnection = mock();
 

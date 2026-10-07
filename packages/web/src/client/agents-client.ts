@@ -1,5 +1,4 @@
-import type {Access} from '@proxy/integrations';
-import type {AgentProviderId} from '@proxy/agent-providers';
+import type {Access, AgentProviderId} from '@proxy/integrations';
 import {z} from 'zod';
 import {agentSchema, auditEntrySchema} from '@/client/schemas';
 import {apiRequest, apiSend} from '@/client/request';

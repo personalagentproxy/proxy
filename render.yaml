@@ -32,7 +32,6 @@ services:
         - docker-entrypoint.sh
         - package.json
         - bun.lock
-        - packages/agent-providers/**
         - packages/api/**
         - packages/db/**
         - packages/integrations/**

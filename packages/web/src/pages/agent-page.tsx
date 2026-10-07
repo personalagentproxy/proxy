@@ -1,5 +1,4 @@
-import type {Access} from '@proxy/integrations';
-import {findAgentProvider} from '@proxy/agent-providers';
+import {findAgentProvider, type Access} from '@proxy/integrations';
 import type {FetchError} from '@proxy/utils';
 import {BanIcon, KeyRoundIcon, RotateCcwIcon, Trash2Icon} from 'lucide-react';
 import {useEffect, useState, type ReactNode} from 'react';
@@ -19,14 +18,13 @@ import {
 	setAgentRevoked,
 } from '@/client/agents-client';
 import {AccessSelect} from '@/components/access-select';
-import {AgentFavicon} from '@/components/agent-favicon';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {CopyButton} from '@/components/copy-button';
 import {IconButton} from '@/components/icon-button';
-import {IntegrationLogo} from '@/components/integration-logo';
+import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
 import {NotFound} from '@/components/not-found';
 import {RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
@@ -75,7 +73,7 @@ function AgentDetail({id}: {id: string}) {
 	}
 
 	const revoked = agent.revokedAt !== null;
-	const provider = agent.providerId ? findAgentProvider(agent.providerId) : undefined;
+	const company = findAgentProvider(agent.providerId)?.company ?? 'Legacy';
 	const apply = async <T,>(change: Promise<Result<T, FetchError>>): Promise<T | null> => {
 		const result = await change;
 		if (result.isErr()) {
@@ -95,13 +93,13 @@ function AgentDetail({id}: {id: string}) {
 					<PageTitle
 						detail={
 							revoked
-								? `${provider?.company ?? 'Legacy'} · revoked ${formatDate(agent.revokedAt ?? '')}`
-								: `${provider?.company ?? 'Legacy'} · added ${formatDate(agent.createdAt)}`
+								? `${company} · revoked ${formatDate(agent.revokedAt ?? '')}`
+								: `${company} · added ${formatDate(agent.createdAt)}`
 						}
 					>
 						<span className="flex items-center gap-2">
-							<AgentFavicon provider={provider} />
-							{provider?.name ?? agent.name}
+							<AgentLogo providerId={agent.providerId} />
+							{agent.name}
 						</span>
 					</PageTitle>
 				</>

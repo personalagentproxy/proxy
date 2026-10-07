@@ -1,11 +1,10 @@
 import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {AGENT_PROVIDER_IDS, findAgentProvider, type AgentProvider} from '@proxy/agent-providers';
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {createAgent, deleteAgent, getAgent, isProviderConflict, isUsernameConflict, listAgents, setAgentGrant, updateAgent} from '@proxy/db/agent';
 import {getConnection} from '@proxy/db/connection';
-import {ACCESS_LEVELS, findCollection, findIntegration, minAccess, providerAccess} from '@proxy/integrations';
+import {ACCESS_LEVELS, findAgentProvider, findCollection, findIntegration, minAccess, providerAccess} from '@proxy/integrations';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireUserOrgId} from '../utils/user-org';
@@ -39,29 +38,19 @@ export function handleGetAgentRoute(request: AuthenticatedRequest): Promise<Resu
 	});
 }
 
-const createAgentBodySchema = z.object({providerId: z.enum(AGENT_PROVIDER_IDS)});
-
-function requireProvider(providerId: string): Result<AgentProvider, ApiError> {
-	return requirePresent(findAgentProvider(providerId), ApiErr.internalError(new Error(`Missing agent provider ${providerId}`)));
-}
+const createAgentBodySchema = z.object({providerId: z.string()});
 
 /** The only time the password is sent; Personal Agent Proxy keeps its hash. A new agent follows every default. */
 export function handleCreateAgentRoute(request: AuthenticatedRequest): Promise<Result<{agent: AgentResponse; password: string}, ApiError>> {
 	return Do(async ($) => {
 		const {providerId} = $(parseSchema(createAgentBodySchema, request.body));
-		const provider = $(requireProvider(providerId));
+		const provider = $(requirePresent(findAgentProvider(providerId), ApiErr.parseError(`Unknown agent ${providerId}`)));
 		const orgId = $(await requireUserOrgId(request));
 		const password = generatePassword();
 		const passwordHash = await Bun.password.hash(password);
 
 		for (let attempt = 0; attempt < MAX_USERNAME_ATTEMPTS; attempt++) {
-			const created = await createAgent({
-				orgId,
-				providerId,
-				name: provider.name,
-				username: generateUsername(provider.name),
-				passwordHash,
-			});
+			const created = await createAgent({orgId, providerId: provider.id, name: provider.name, username: generateUsername(provider.name), passwordHash});
 			if (created.isOk()) {
 				return {agent: toAgentResponse(created.value), password};
 			}

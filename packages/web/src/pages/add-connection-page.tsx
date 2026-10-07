@@ -5,7 +5,7 @@ import {useNavigate} from 'react-router';
 import {connectEmail} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {BackButton} from '@/components/back-button';
-import {IntegrationLogo} from '@/components/integration-logo';
+import {IntegrationLogo} from '@/components/brand-logo';
 import {RowList} from '@/components/row-list';
 import {Button} from '@proxy/ui/components/button';
 import {

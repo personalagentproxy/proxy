@@ -1,3 +1,5 @@
+export {AGENT_PROVIDERS, findAgentProvider} from './agent-providers';
+export type {AgentProvider, AgentProviderId} from './agent-providers';
 export {ACCESS_LEVELS, allowsWrite, effectiveAccess, minAccess, providerAccess} from './access';
 export {findCollection, findIntegration, INFO_INTEGRATION_ID, INTEGRATIONS} from './catalog';
 export {EMAIL_PROVIDERS} from './email-providers';
