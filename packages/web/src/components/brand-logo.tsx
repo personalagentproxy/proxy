@@ -17,7 +17,7 @@ export function BrandLogo({src, fallback, className, imageClassName}: Props) {
 		<span
 			aria-hidden
 			className={cn(
-				'flex size-5 shrink-0 items-center justify-center overflow-hidden border bg-white shadow-xs',
+				'flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-white shadow-xs',
 				className,
 			)}
 		>
