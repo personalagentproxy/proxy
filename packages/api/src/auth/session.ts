@@ -13,10 +13,10 @@ import {env} from '../utils/env';
 
 export const sessionMaxAgeSeconds = 30 * 24 * 60 * 60;
 
-// Secure wherever the api is served over HTTPS. Browsers drop secure cookies on plain HTTP, as
+// Secure wherever Proxy is served over HTTPS. Browsers drop secure cookies on plain HTTP, as
 // when trying Proxy out on localhost.
 export function useSecureCookies(): boolean {
-	return env.PROXY_API_PUBLIC_URL?.startsWith('https://') ?? false;
+	return env.APP_URL?.startsWith('https://') ?? false;
 }
 
 /** Whether `email` may create an account: anyone, unless ALLOWED_SIGNUP_EMAILS says who. */
@@ -38,15 +38,13 @@ export function sessionCookieName(): string {
 	return sessionCookieNames.insecure;
 }
 
-// One origin, or app and api both on localhost, where a host-only cookie reaches every port: no
-// Domain. When they are sibling subdomains, SESSION_COOKIE_DOMAIN must be the shared parent.
+// Host-only: the web app and the api are one origin, in development through Vite's proxy.
 export function sessionCookieOptions(): CookieOptions {
 	return {
 		httpOnly: true,
 		sameSite: 'lax',
 		path: '/',
 		secure: useSecureCookies(),
-		...(env.SESSION_COOKIE_DOMAIN ? {domain: env.SESSION_COOKIE_DOMAIN} : {}),
 	};
 }
 

@@ -25,9 +25,4 @@ export const env = envSchema.parse({
 	ALLOWED_SIGNUP_EMAILS: read('ALLOWED_SIGNUP_EMAILS'),
 	NODE_ENV: read('NODE_ENV'),
 	PORT: read('PORT'),
-	WEB_DIR: read('WEB_DIR'),
-	// In development the root .env names the api's origin once, as VITE_PROXY_API_URL. When the
-	// api serves the web app, both are the one origin.
-	PROXY_API_PUBLIC_URL: read('PROXY_API_PUBLIC_URL') ?? read('VITE_PROXY_API_URL') ?? read('APP_URL'),
-	SESSION_COOKIE_DOMAIN: read('SESSION_COOKIE_DOMAIN'),
 });

@@ -18,8 +18,7 @@ import {canSignUp, establishSessionAndRedirect, queryParam, redirectToLoginError
  * belongs to a user who signed up another way gets `OAuthAccountNotLinked` rather than being
  * attached silently.
  *
- * Both endpoints are top-level browser navigations (302 redirects), not fetch calls — CORS does
- * not apply and no CORS middleware is mounted.
+ * Both endpoints are top-level browser navigations (302 redirects), not fetch calls.
  */
 
 const googleAuthorizationUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -41,7 +40,7 @@ type OAuthConfig = {
 	clientSecret: string;
 	/** The app origin (where the user lands after sign-in). */
 	appUrl: string;
-	/** This api's callback URL — must be registered on the Google OAuth client. */
+	/** The callback URL, on the app's origin — must be registered on the Google OAuth client. */
 	redirectUri: string;
 };
 
@@ -50,7 +49,7 @@ function getOAuthConfig(): OAuthConfig | null {
 		return null;
 	}
 
-	if (!env.APP_URL || !env.PROXY_API_PUBLIC_URL) {
+	if (!env.APP_URL) {
 		return null;
 	}
 
@@ -58,7 +57,7 @@ function getOAuthConfig(): OAuthConfig | null {
 		clientId: env.GOOGLE_CLIENT_ID,
 		clientSecret: env.GOOGLE_CLIENT_SECRET,
 		appUrl: env.APP_URL,
-		redirectUri: `${env.PROXY_API_PUBLIC_URL}/auth/google/callback`,
+		redirectUri: `${env.APP_URL}/auth/google/callback`,
 	};
 }
 

@@ -41,7 +41,7 @@ export const envSchema = z.object({
 	APP_URL: documented(originSchema.optional(), {
 		group: 'Core',
 		required: true,
-		description: 'Where people open Proxy, such as `https://proxy.example.com`. Sign-in returns here, and it is the only origin the api accepts browser requests from.',
+		description: 'Where people open Proxy, such as `https://proxy.example.com`. Sign-in links and Google sign-in return here, and it is the only origin the api accepts browser requests from.',
 	}),
 	AUTH_SECRET: documented(z.string().min(1).optional(), {
 		group: 'Core',
@@ -68,7 +68,7 @@ export const envSchema = z.object({
 	}),
 	GOOGLE_CLIENT_ID: documented(z.string().min(1).optional(), {
 		group: 'Sign-in',
-		description: 'Turns on Google sign-in, with `GOOGLE_CLIENT_SECRET`. Register `<api URL>/auth/google/callback` as the redirect URI.',
+		description: 'Turns on Google sign-in, with `GOOGLE_CLIENT_SECRET`. Register `<APP_URL>/auth/google/callback` as the redirect URI.',
 	}),
 	GOOGLE_CLIENT_SECRET: documented(z.string().min(1).optional(), {
 		group: 'Sign-in',
@@ -90,17 +90,5 @@ export const envSchema = z.object({
 	PORT: documented(z.string().regex(/^\d+$/, 'PORT must be a positive integer').default('4000'), {
 		group: 'Deployment',
 		description: 'The port the api listens on.',
-	}),
-	WEB_DIR: documented(z.string().min(1).optional(), {
-		group: 'Deployment',
-		description: "Serves the web app's build from this directory on the api's own origin, so Proxy runs as one server. The Docker image sets it.",
-	}),
-	PROXY_API_PUBLIC_URL: documented(originSchema.optional(), {
-		group: 'Deployment',
-		description: "The api's public URL, when the web app is hosted apart from it. Defaults to `APP_URL`.",
-	}),
-	SESSION_COOKIE_DOMAIN: documented(z.string().optional(), {
-		group: 'Deployment',
-		description: 'When the web app and the api are sibling subdomains, their shared parent, such as `.example.com`, so the session cookie reaches both.',
 	}),
 });

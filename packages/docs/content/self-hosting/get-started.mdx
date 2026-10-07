@@ -98,13 +98,7 @@ docker run -d -p 4000:4000 \
   ghcr.io/personalagentproxy/proxy:main
 ```
 
-It applies the database migrations before it starts. To run them as their own step instead, set
-`SKIP_MIGRATIONS=true` on the server, and run the image with the command `true`, which migrates
-and exits:
-
-```sh
-docker run --rm -e DATABASE_URL="…" ghcr.io/personalagentproxy/proxy:main true
-```
+It applies the database migrations every time it starts, before it serves anything.
 
 <Callout>
   Docker Compose on one server has no failover, and keeps the database on that server's disk.

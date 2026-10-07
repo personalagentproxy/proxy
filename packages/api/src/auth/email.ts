@@ -15,8 +15,8 @@ import {canSignUp, establishSessionAndRedirect, queryParam, redirectToLoginError
  * with AUTH_SECRET, valid for 24 hours and deleted as it is read, so a link works once. The first
  * verify creates the user; every later one signs them in.
  *
- * `POST /auth/email` is a fetch from the app origin (CORS'd, no auth middleware);
- * `GET /auth/email/verify` is a top-level navigation (302 redirects, CORS does not apply).
+ * `POST /auth/email` is a fetch from the web app (no auth middleware);
+ * `GET /auth/email/verify` is a top-level navigation (302 redirects).
  */
 
 const verificationTokenMaxAgeSeconds = 24 * 60 * 60;
@@ -25,19 +25,19 @@ type EmailAuthConfig = {
 	secret: string;
 	/** The app origin (where the user lands after sign-in). */
 	appUrl: string;
-	/** This api's verify endpoint — the URL the emailed link points at. */
+	/** The verify endpoint, on the app's origin — the URL the emailed link points at. */
 	verifyUrl: string;
 };
 
 function getEmailAuthConfig(): EmailAuthConfig | null {
-	if (!env.AUTH_SECRET || !env.APP_URL || !env.PROXY_API_PUBLIC_URL) {
+	if (!env.AUTH_SECRET || !env.APP_URL) {
 		return null;
 	}
 
 	return {
 		secret: env.AUTH_SECRET,
 		appUrl: env.APP_URL,
-		verifyUrl: `${env.PROXY_API_PUBLIC_URL}/auth/email/verify`,
+		verifyUrl: `${env.APP_URL}/auth/email/verify`,
 	};
 }
 

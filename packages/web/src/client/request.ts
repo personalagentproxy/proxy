@@ -1,6 +1,5 @@
 import {httpRequest} from '@proxy/utils';
 import type {z} from 'zod';
-import {env} from '@/lib/env';
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
@@ -12,10 +11,9 @@ export function apiRequest<S extends z.ZodType>(
 	body?: unknown,
 ) {
 	return httpRequest(
-		`${env.apiUrl}${path}`,
+		path,
 		{
 			method,
-			credentials: 'include',
 			...(body === undefined
 				? {}
 				: {headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}),
@@ -26,9 +24,8 @@ export function apiRequest<S extends z.ZodType>(
 
 /** The same for calls that answer 204 No Content. */
 export function apiSend(method: Method, path: string, body?: unknown) {
-	return httpRequest(`${env.apiUrl}${path}`, {
+	return httpRequest(path, {
 		method,
-		credentials: 'include',
 		...(body === undefined
 			? {}
 			: {headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}),

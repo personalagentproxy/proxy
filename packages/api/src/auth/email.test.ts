@@ -43,8 +43,6 @@ const mockEnv: {
 	NODE_ENV: string;
 	APP_URL: string | undefined;
 	AUTH_SECRET: string | undefined;
-	SESSION_COOKIE_DOMAIN: string;
-	PROXY_API_PUBLIC_URL: string;
 	RESEND_KEY: string | undefined;
 	ALLOWED_SIGNUP_EMAILS: string[] | undefined;
 } = {
@@ -53,8 +51,6 @@ const mockEnv: {
 	ALLOWED_SIGNUP_EMAILS: undefined,
 	APP_URL: 'https://app.example.com',
 	AUTH_SECRET: 'test-secret',
-	SESSION_COOKIE_DOMAIN: '.example.com',
-	PROXY_API_PUBLIC_URL: 'https://api.example.com',
 };
 
 mock.module('../utils/env', () => ({env: mockEnv}));
@@ -127,12 +123,12 @@ beforeEach(() => {
 });
 
 describe('handleEmailSignInRoute', () => {
-	test('stores a hashed token row (24h expiry) and mails a verify URL pointing at the api', async () => {
+	test('stores a hashed token row (24h expiry) and mails a verify URL on the app origin', async () => {
 		const before = Date.now();
 		const {res, url, query} = await sendFlow();
 
 		// The mailed link targets the api's verify endpoint with the raw token.
-		expect(url.origin + url.pathname).toBe('https://api.example.com/auth/email/verify');
+		expect(url.origin + url.pathname).toBe('https://app.example.com/auth/email/verify');
 		expect(query.email).toBe('user@example.com');
 		expect(query.callbackUrl).toBe('/projects/abc');
 		expect(query.token).toMatch(/^[0-9a-f]{64}$/);
@@ -191,7 +187,7 @@ describe('handleEmailSignInRoute', () => {
 		expect(createVerificationToken).toHaveBeenCalledTimes(1);
 		const logged = logInfo.mock.calls[0]?.[0] as string;
 		expect(logged).toContain('[Magic Link] user@example.com:');
-		expect(logged).toContain('https://api.example.com/auth/email/verify?');
+		expect(logged).toContain('https://app.example.com/auth/email/verify?');
 		expect(res.json).toHaveBeenCalledWith({ok: true, logged: true});
 	});
 
@@ -311,7 +307,6 @@ describe('handleEmailVerifyRoute', () => {
 			sameSite: 'lax',
 			path: '/',
 			secure: true,
-			domain: '.example.com',
 		});
 
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/projects/abc');

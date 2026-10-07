@@ -11,7 +11,6 @@ export const NAV: {title: string; pages: string[]}[] = [
 			'self-hosting/sign-in',
 			'self-hosting/upgrades-and-backups',
 			'self-hosting/environment',
-			'self-hosting/separate-web-app',
 			'self-hosting/troubleshooting',
 		],
 	},

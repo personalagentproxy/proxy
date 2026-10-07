@@ -19,8 +19,7 @@ mock.module('../observability/log', () => ({
 mock.module('../utils/env', () => ({
 	env: {
 		NODE_ENV: 'production',
-		PROXY_API_PUBLIC_URL: 'https://api.example.com',
-		SESSION_COOKIE_DOMAIN: '.example.com',
+		APP_URL: 'https://app.example.com',
 	},
 }));
 
@@ -65,7 +64,6 @@ describe('handleSignOutRoute', () => {
 					sameSite: 'lax',
 					path: '/',
 					secure: true,
-					domain: '.example.com',
 				},
 			},
 		]);

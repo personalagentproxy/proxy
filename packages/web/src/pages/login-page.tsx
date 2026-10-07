@@ -11,7 +11,6 @@ import {Button} from '@proxy/ui/components/button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {sanitizeCallbackUrl} from '@/lib/callback-url';
-import {env} from '@/lib/env';
 
 // The api's sign-in errors, from the `error` param of a redirect or the magic-link response.
 const errorMessages: Record<string, string> = {
@@ -111,7 +110,7 @@ export function LoginPage() {
 					)}
 					{status.kind === 'error' && <p className="text-sm text-destructive">{status.message}</p>}
 				</form>
-				{env.isDev && <DevLoginButton callbackUrl={callbackUrl} />}
+				{import.meta.env.DEV && <DevLoginButton callbackUrl={callbackUrl} />}
 				<p className="text-sm text-muted-foreground">
 					An agent?{' '}
 					<Link to="/agent/login" className="text-foreground underline-offset-4 hover:underline">

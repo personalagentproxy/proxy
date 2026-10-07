@@ -3,8 +3,7 @@
 # Blueprint is first applied, and kept in the dashboard after that.
 #
 # The web app has no service of its own: the `proxy` service is the api serving the web app's
-# build on the same origin (the Dockerfile sets WEB_DIR), so there is one domain, no CORS and no
-# cookie domain to configure.
+# build on the same origin, so there is one domain and nothing else to configure.
 
 services:
   - type: web

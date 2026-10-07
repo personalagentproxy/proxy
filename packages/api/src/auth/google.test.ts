@@ -34,19 +34,15 @@ mock.module('../observability/log', () => ({
 const mockEnv: {
 	NODE_ENV: string;
 	APP_URL: string | undefined;
-	SESSION_COOKIE_DOMAIN: string;
 	GOOGLE_CLIENT_ID: string | undefined;
 	GOOGLE_CLIENT_SECRET: string;
-	PROXY_API_PUBLIC_URL: string;
 	ALLOWED_SIGNUP_EMAILS: string[] | undefined;
 } = {
 	NODE_ENV: 'production',
 	ALLOWED_SIGNUP_EMAILS: undefined,
 	APP_URL: 'https://app.example.com',
-	SESSION_COOKIE_DOMAIN: '.example.com',
 	GOOGLE_CLIENT_ID: 'google-client-id',
 	GOOGLE_CLIENT_SECRET: 'google-client-secret',
-	PROXY_API_PUBLIC_URL: 'https://api.example.com',
 };
 
 mock.module('../utils/env', () => ({env: mockEnv}));
@@ -170,7 +166,7 @@ describe('handleGoogleStartRoute', () => {
 
 		expect(authorizationUrl.origin + authorizationUrl.pathname).toBe('https://accounts.google.com/o/oauth2/v2/auth');
 		expect(authorizationUrl.searchParams.get('client_id')).toBe('google-client-id');
-		expect(authorizationUrl.searchParams.get('redirect_uri')).toBe('https://api.example.com/auth/google/callback');
+		expect(authorizationUrl.searchParams.get('redirect_uri')).toBe('https://app.example.com/auth/google/callback');
 		expect(authorizationUrl.searchParams.get('response_type')).toBe('code');
 		expect(authorizationUrl.searchParams.get('scope')).toBe('openid email profile');
 		expect(authorizationUrl.searchParams.get('code_challenge_method')).toBe('S256');
@@ -246,7 +242,6 @@ describe('handleGoogleCallbackRoute', () => {
 			sameSite: 'lax',
 			path: '/',
 			secure: true,
-			domain: '.example.com',
 		});
 
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/projects/abc');

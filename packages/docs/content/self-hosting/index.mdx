@@ -20,10 +20,10 @@ and SMTP on 465 or 587.
 
 ## Ways to run it
 
-| Option                                                    | For                                                          | You look after                                                         |
-| --------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| [Docker Compose](/self-hosting/get-started)               | One server, or trying Proxy on your own computer             | The server, [backups and upgrades](/self-hosting/upgrades-and-backups) |
-| [Web app on its own host](/self-hosting/separate-web-app) | Serving the web app from Vercel or a CDN, apart from the api | Two deployments, on sibling subdomains                                 |
+| Option                                                                   | For                                                                              | You look after                                                         |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| [Docker Compose](/self-hosting/get-started)                              | One server, or trying Proxy on your own computer                                 | The server, [backups and upgrades](/self-hosting/upgrades-and-backups) |
+| [The image on its own](/self-hosting/get-started#without-docker-compose) | A container platform, such as Render, Fly or Kubernetes, with a managed Postgres | HTTPS in front of it, and the database                                 |
 
 ## What you need
 

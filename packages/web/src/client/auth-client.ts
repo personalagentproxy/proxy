@@ -1,6 +1,5 @@
 import {httpRequest} from '@proxy/utils';
 import {z} from 'zod';
-import {env} from '@/lib/env';
 
 // `POST /auth/email` answers 200 `{ok: true}`, with `logged` when the api wrote the link to its
 // log for lack of a way to send email, or 4xx/5xx `{error}` with a code the login page maps to
@@ -17,7 +16,7 @@ const magicLinkResponseSchema = z.object({
  */
 export function requestMagicLink(email: string, callbackUrl?: string) {
 	return httpRequest(
-		`${env.apiUrl}/auth/email`,
+		'/auth/email',
 		{
 			method: 'POST',
 			headers: {'Content-Type': 'application/json'},
@@ -33,13 +32,13 @@ export type SignInMethods = z.infer<typeof signInMethodsSchema>;
 
 /** The sign-in methods the api has set up besides the magic link, which always is. */
 export function getSignInMethods() {
-	return httpRequest(`${env.apiUrl}/auth/methods`, {method: 'GET'}, {schema: signInMethodsSchema});
+	return httpRequest('/auth/methods', {method: 'GET'}, {schema: signInMethodsSchema});
 }
 
 /** The full-page navigation that starts Google sign-in; the api redirects back when done. */
 export function googleSignInUrl(callbackUrl?: string): string {
 	const query = callbackUrl ? `?callbackUrl=${encodeURIComponent(callbackUrl)}` : '';
-	return `${env.apiUrl}/auth/google${query}`;
+	return `/auth/google${query}`;
 }
 
 /**
@@ -48,9 +47,8 @@ export function googleSignInUrl(callbackUrl?: string): string {
  * them signed in where they were.
  */
 export async function signOut(): Promise<void> {
-	const result = await httpRequest(`${env.apiUrl}/auth/signout`, {
+	const result = await httpRequest('/auth/signout', {
 		method: 'POST',
-		credentials: 'include',
 	});
 	if (result.isErr()) {
 		console.warn('Sign-out request failed', result.error.kind);
@@ -61,8 +59,7 @@ export async function signOut(): Promise<void> {
 
 /** Dev only: creates a throwaway user and signs in as them. The api 404s outside development. */
 export function devLogin() {
-	return httpRequest(`${env.apiUrl}/auth/dev/login`, {
+	return httpRequest('/auth/dev/login', {
 		method: 'POST',
-		credentials: 'include',
 	});
 }

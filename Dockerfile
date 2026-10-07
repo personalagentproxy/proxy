@@ -39,7 +39,6 @@ COPY docker-entrypoint.sh ./
 
 ENV NODE_ENV=production
 ENV PORT=4000
-ENV WEB_DIR=/app/packages/web/dist
 EXPOSE 4000
 USER bun
 
