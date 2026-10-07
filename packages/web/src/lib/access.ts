@@ -1,36 +1,16 @@
 import {
-	effectiveAccess,
+	effectiveActions,
 	findCollection,
-	providerAccess,
-	type Access,
+	requiredAction,
+	type Action,
 	type Collection,
+	type Command,
 	type FieldType,
+	type OwnSettings,
 } from '@proxy/integrations';
 import {formatDate, formatDateTime} from '@/lib/format';
 import {findIntegration, type Integration} from '@/lib/integrations';
 import type {AgentLogin, AuditEntry, Connection, DataRecord} from '@/lib/types';
-
-// An access level as the human side names it. Writing where it means sending reads as sending.
-export function accessLabel(collection: Collection, level: Access): string {
-	if (level === 'none') {
-		return 'No access';
-	}
-	if (level === 'read') {
-		return 'Read';
-	}
-	return `Read & ${collection.createVerb?.present.toLowerCase() ?? 'write'}`;
-}
-
-// The same levels as the agent reads them about itself.
-export function agentAccessLabel(collection: Collection, level: Access): string {
-	if (level === 'none') {
-		return 'No access';
-	}
-	if (level === 'read') {
-		return 'Read only';
-	}
-	return `Read and ${collection.createVerb?.present.toLowerCase() ?? 'write'}`;
-}
 
 // The connection's integration, or null for one the catalog no longer has.
 export function integrationOf(connection: {integrationId: string}): Integration | null {
@@ -49,47 +29,63 @@ export function connectionLabel(connections: Connection[], connection: Connectio
 	return `${name} (${connection.account})`;
 }
 
-// What an agent without a setting of its own gets in a collection.
-export function defaultAccess(connection: Connection, collectionId: string): Access {
-	return (
-		connection.collections.find((candidate) => candidate.id === collectionId)?.connectionDefault ??
-		'none'
+// The actions an agent without settings of its own gets.
+export function defaultActions(connection: Connection): string[] {
+	return connection.defaults;
+}
+
+// The agent's own settings for a connection, by action; the ones left out follow the default.
+export function ownSettings(agent: AgentLogin, connectionId: string): OwnSettings {
+	return Object.fromEntries(
+		agent.grants
+			.filter((grant) => grant.connectionId === connectionId)
+			.map((grant) => [grant.actionId, grant.allowed]),
 	);
 }
 
-// The agent's own setting for a collection, or null where it follows the default.
-export function ownAccess(
-	agent: AgentLogin,
-	connectionId: string,
-	collectionId: string,
-): Access | null {
-	const grant = agent.grants.find(
-		(candidate) =>
-			candidate.connectionId === connectionId && candidate.collectionId === collectionId,
+// What the agent can do with the connection: its own settings, else the defaults.
+export function actionsFor(agent: AgentLogin, connection: Connection): string[] {
+	const integration = integrationOf(connection);
+	if (!integration) {
+		return [];
+	}
+	return effectiveActions(
+		integration,
+		defaultActions(connection),
+		ownSettings(agent, connection.id),
 	);
-	return grant?.access ?? null;
 }
 
-// What the agent can do in the collection: its own setting, else the default, capped by the provider.
-export function accessFor(
-	agent: AgentLogin,
-	connection: Connection,
-	collection: Collection,
-): Access {
-	return effectiveAccess({
-		provider: providerAccess(collection),
-		connectionDefault: defaultAccess(connection, collection.id),
-		agent: ownAccess(agent, connection.id, collection.id),
-	});
+// "Read, Archive, Send": what the actions are called, in the catalog's order.
+export function describeActions(integration: {actions: Action[]}, actions: string[]): string {
+	return integration.actions
+		.filter((action) => actions.includes(action.id))
+		.map((action) => action.label)
+		.join(', ');
 }
 
-// The agents, revoked ones left out, that can reach anything in the connection.
+// Whether the actions allow a request: reading, a write, or one of the collection's commands.
+export function allows(collection: Collection, actions: string[], request: string): boolean {
+	const needed = requiredAction(collection, request);
+	return needed !== null && actions.includes(needed);
+}
+
+// The commands on values typed in that the actions allow, such as Send for a new email.
+export function newCommands(collection: Collection, actions: string[]): Command[] {
+	return (collection.commands ?? []).filter(
+		(command) => command.on === 'new' && allows(collection, actions, command.id),
+	);
+}
+
+// Whether the agent can start a new record here: create one, or run a command such as Send.
+export function canStartNew(collection: Collection, actions: string[]): boolean {
+	return allows(collection, actions, 'create') || newCommands(collection, actions).length > 0;
+}
+
+// The agents, revoked ones left out, that can do anything with the connection.
 export function agentsWithAccess(agents: AgentLogin[], connection: Connection): AgentLogin[] {
-	const collections = integrationOf(connection)?.collections ?? [];
 	return agents.filter(
-		(agent) =>
-			agent.revokedAt === null &&
-			collections.some((collection) => accessFor(agent, connection, collection) !== 'none'),
+		(agent) => agent.revokedAt === null && actionsFor(agent, connection).length > 0,
 	);
 }
 
@@ -115,7 +111,7 @@ export function recordTitle(collection: Collection, record: DataRecord): string 
 	return title;
 }
 
-const ACTION_VERBS: Record<AuditEntry['action'], string> = {
+const ACTION_VERBS: Partial<Record<string, string>> = {
 	list: 'Listed',
 	view: 'Viewed',
 	create: 'Created',
@@ -123,26 +119,32 @@ const ACTION_VERBS: Record<AuditEntry['action'], string> = {
 	delete: 'Deleted',
 };
 
-// "Viewed email “Thursday sync moved?”", "Listed Payment cards", "Searched Emails for “invoice”",
-// "Sent email “Thursday at 3pm”", "Tried to list Contacts".
+// "Viewed email “Thursday sync moved?”", "Listed Payment cards", "Searched Email for “invoice”",
+// "Tried to list Contacts", and a command's own words: "Sent email “Re: Q3”", "Tried to send email".
 export function describeEntry(entry: AuditEntry, collection: Collection | undefined): string {
 	const name = collection?.name ?? entry.collectionId;
 	const singular = collection?.singular ?? 'record';
-	const verb = entry.action === 'create' && collection?.createVerb ? collection.createVerb : null;
-	if (entry.outcome === 'denied') {
-		return `Tried to ${verb?.present.toLowerCase() ?? entry.action} ${entry.action === 'list' ? name : singular}`;
-	}
-
-	if (entry.action === 'list' && entry.query) {
-		return `Searched ${name} for “${entry.query}”`;
-	}
-
+	const denied = entry.outcome === 'denied';
 	if (entry.action === 'list') {
-		return `${ACTION_VERBS.list} ${name}`;
+		const what = entry.query ? `search ${name} for “${entry.query}”` : `list ${name}`;
+		if (denied) {
+			return `Tried to ${what}`;
+		}
+		return entry.query ? `Searched ${name} for “${entry.query}”` : `Listed ${name}`;
 	}
 
-	const title = entry.recordTitle ? ` “${entry.recordTitle}”` : '';
-	return `${verb?.past ?? ACTION_VERBS[entry.action]} ${singular}${title}`;
+	const record = entry.recordTitle ? `${singular} “${entry.recordTitle}”` : singular;
+	const command = collection?.commands?.find((candidate) => candidate.id === entry.action);
+	if (command) {
+		return denied
+			? `Tried to ${command.tried.replace('{}', singular)}`
+			: command.done.replace('{}', record);
+	}
+
+	if (denied) {
+		return `Tried to ${entry.action} ${singular}`;
+	}
+	return `${ACTION_VERBS[entry.action] ?? entry.action} ${record}`;
 }
 
 // What a row shows for a field: secrets down to their last four characters.

@@ -45,7 +45,7 @@ describe('infoConnector', () => {
 		expect(created.unwrap()).toEqual({id: 'rec-1', values: {title: 'Sizes', body: 'Shoes: EU 43'}, updatedAt: '2026-10-01T00:00:00.000Z'});
 
 		listInfoRecords.mockResolvedValue(Ok([{id: 'rec-1', values: stored, updatedAt}]));
-		const listed = await infoConnector.list(target, {search: null, page: null});
+		const listed = await infoConnector.list(target, {search: null, page: null, filter: null});
 		expect(listed.unwrap().records[0]?.values).toEqual({title: 'Sizes', body: 'Shoes: EU 43'});
 		expect(listed.unwrap().nextPage).toBeNull();
 	});
@@ -63,7 +63,7 @@ describe('infoConnector', () => {
 			]),
 		);
 
-		const found = await infoConnector.list(target, {search: 'shoes', page: null});
+		const found = await infoConnector.list(target, {search: 'shoes', page: null, filter: null});
 		expect(found.unwrap().records.map((record) => record.values.title)).toEqual(['Sizes']);
 	});
 

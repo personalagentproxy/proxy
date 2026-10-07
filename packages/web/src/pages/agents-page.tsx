@@ -22,7 +22,7 @@ import type {agentsLoader} from '@/loaders';
 
 // Widths and visibility shared by the header and every row, so the columns line up.
 const CELLS = {
-	username: 'hidden w-52 shrink-0 truncate font-mono text-xs text-muted-foreground md:block',
+	username: 'hidden w-52 shrink-0 truncate font-mono text-muted-foreground md:block',
 	active: 'w-24 shrink-0 text-right text-muted-foreground tabular-nums',
 };
 

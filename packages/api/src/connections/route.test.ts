@@ -6,13 +6,13 @@ import {ApiErr} from '@proxy/utils';
 const listConnections = mock();
 const getConnection = mock();
 const deleteConnection = mock();
-const setConnectionDefault = mock();
+const setConnectionDefaults = mock();
 
 mock.module('@proxy/db/connection', () => ({
 	listConnections,
 	getConnection,
 	deleteConnection,
-	setConnectionDefault,
+	setConnectionDefaults,
 }));
 
 const getUserOrgId = mock();
@@ -24,7 +24,7 @@ const emailRow = {
 	integrationId: 'email',
 	account: 'alex@example.com',
 	createdAt: new Date('2026-10-01T00:00:00Z'),
-	defaults: [{collectionId: 'emails', access: 'read'}],
+	defaults: [{actionId: 'read'}],
 };
 
 function makeRequest(params: Record<string, string> = {}, body: unknown = undefined) {
@@ -41,22 +41,18 @@ beforeEach(() => {
 	listConnections.mockResolvedValue(Ok([emailRow]));
 	getConnection.mockResolvedValue(Ok(emailRow));
 	deleteConnection.mockResolvedValue(Ok(true));
-	setConnectionDefault.mockResolvedValue(Ok(undefined));
+	setConnectionDefaults.mockResolvedValue(Ok(undefined));
 });
 
 describe('handleListConnectionsRoute', () => {
-	test("lists the organization's connections with the provider's access and the defaults", async () => {
+	test("lists the organization's connections with their default actions", async () => {
 		const {handleListConnectionsRoute} = await import('./route');
 		const result = await handleListConnectionsRoute(makeRequest());
 
 		expect(listConnections).toHaveBeenCalledWith('org-1');
 		const [connection] = result.unwrap().connections;
 		expect(connection).toMatchObject({id: 'conn-1', integrationId: 'email', account: 'alex@example.com', connectedAt: '2026-10-01T00:00:00.000Z'});
-		expect(connection?.collections).toEqual([
-			{id: 'emails', provider: 'read', connectionDefault: 'read'},
-			{id: 'drafts', provider: 'write', connectionDefault: 'none'},
-			{id: 'sent', provider: 'write', connectionDefault: 'none'},
-		]);
+		expect(connection?.defaults).toEqual(['read']);
 	});
 
 	test('a user without an organization is signed out', async () => {
@@ -117,42 +113,35 @@ describe('handleDeleteConnectionRoute', () => {
 	});
 });
 
-describe('handleSetConnectionDefaultRoute', () => {
-	test('stores a default the provider allows', async () => {
-		const {handleSetConnectionDefaultRoute} = await import('./route');
-		const result = await handleSetConnectionDefaultRoute(makeRequest({connectionId: 'conn-1', collectionId: 'drafts'}, {access: 'write'}));
+describe('handleSetConnectionDefaultsRoute', () => {
+	test('turns default actions on and off', async () => {
+		const {handleSetConnectionDefaultsRoute} = await import('./route');
+		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {read: true, send: false}}));
 
-		expect(setConnectionDefault).toHaveBeenCalledWith({connectionId: 'conn-1', collectionId: 'drafts', access: 'write'});
+		expect(setConnectionDefaults).toHaveBeenCalledWith({connectionId: 'conn-1', actions: {read: true, send: false}});
 		expect(result.isOk()).toBe(true);
 	});
 
-	test('refuses a default above what the provider allows', async () => {
-		const {handleSetConnectionDefaultRoute} = await import('./route');
-		const result = await handleSetConnectionDefaultRoute(makeRequest({connectionId: 'conn-1', collectionId: 'emails'}, {access: 'write'}));
+	test('refuses an action the integration does not have', async () => {
+		const {handleSetConnectionDefaultsRoute} = await import('./route');
+		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {readCards: true}}));
 
-		expect(result.unwrapErr().kind).toBe('conflict');
-		expect(setConnectionDefault).not.toHaveBeenCalled();
+		expect(result.unwrapErr().kind).toBe('validation_error');
+		expect(setConnectionDefaults).not.toHaveBeenCalled();
 	});
 
-	test('refuses a collection the integration does not have', async () => {
-		const {handleSetConnectionDefaultRoute} = await import('./route');
-		const result = await handleSetConnectionDefaultRoute(makeRequest({connectionId: 'conn-1', collectionId: 'events'}, {access: 'read'}));
-
-		expect(result.unwrapErr().kind).toBe('not_found');
-	});
-
-	test('refuses an unknown access level', async () => {
-		const {handleSetConnectionDefaultRoute} = await import('./route');
-		const result = await handleSetConnectionDefaultRoute(makeRequest({connectionId: 'conn-1', collectionId: 'drafts'}, {access: 'admin'}));
+	test('refuses a setting that is not on or off', async () => {
+		const {handleSetConnectionDefaultsRoute} = await import('./route');
+		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {read: null}}));
 
 		expect(result.unwrapErr().kind).toBe('parse_error');
 	});
 
 	test('propagates db errors', async () => {
-		setConnectionDefault.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
+		setConnectionDefaults.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
 
-		const {handleSetConnectionDefaultRoute} = await import('./route');
-		const result = await handleSetConnectionDefaultRoute(makeRequest({connectionId: 'conn-1', collectionId: 'drafts'}, {access: 'read'}));
+		const {handleSetConnectionDefaultsRoute} = await import('./route');
+		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {read: true}}));
 
 		expect(result.unwrapErr().kind).toBe('db_error');
 	});

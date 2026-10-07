@@ -44,9 +44,6 @@ export function fetchErrorToResponse(error: FetchError): never {
 
 /** What a failed change tells the person who made it. */
 export function describeFetchError(error: FetchError): string {
-	if (error.kind === 'http' && error.status === 409) {
-		return 'The provider does not allow that.';
-	}
 	if (error.kind === 'http' && error.status === 401) {
 		return 'You have been signed out. Reload the page to sign in again.';
 	}

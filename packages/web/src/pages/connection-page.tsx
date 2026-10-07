@@ -1,19 +1,27 @@
 import {UnplugIcon} from 'lucide-react';
 import {useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
-import {deleteConnection, setConnectionDefault} from '@/client/connections-client';
-import {AccessSelect} from '@/components/access-select';
+import {deleteConnection, setConnectionDefaults} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
+import {ConnectionAccess} from '@/components/connection-access';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
 import {NotFound} from '@/components/not-found';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
-import {accessFor, accessLabel, agentsWithAccess, defaultAccess, integrationOf} from '@/lib/access';
+import {
+	actionsFor,
+	agentsWithAccess,
+	defaultActions,
+	integrationOf,
+	ownSettings,
+	describeActions,
+} from '@/lib/access';
 import {formatDate} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
+import type {AgentLogin} from '@/lib/types';
 import type {connectionLoader} from '@/loaders';
 
 const RECENT = 10;
@@ -52,26 +60,16 @@ export function ConnectionPage() {
 					<p className="mb-2 text-sm text-muted-foreground md:px-3">
 						What every agent gets here, unless its own page says otherwise.
 					</p>
-					<RowList>
-						{integration.collections.map((collection) => (
-							<li key={collection.id} className="flex h-10 items-center gap-3 px-4 text-sm md:px-3">
-								<span className="min-w-0 flex-1 truncate">{collection.name}</span>
-								<AccessSelect
-									value={defaultAccess(connection, collection.id)}
-									collection={collection}
-									onChange={async (next) => {
-										const result = await setConnectionDefault(
-											connection.id,
-											collection.id,
-											next ?? 'none',
-										);
-										setError(result.isErr() ? describeFetchError(result.error) : null);
-										await revalidator.revalidate();
-									}}
-								/>
-							</li>
-						))}
-					</RowList>
+					<ConnectionAccess
+						actions={integration.actions}
+						defaults={defaultActions(connection)}
+						differing={differingAgents(agents, connection.id)}
+						onChange={async (actions) => {
+							const result = await setConnectionDefaults(connection.id, onOrOff(actions));
+							setError(result.isErr() ? describeFetchError(result.error) : null);
+							await revalidator.revalidate();
+						}}
+					/>
 					{error && <p className="mt-2 text-sm text-destructive md:px-3">{error}</p>}
 				</Section>
 				<Section title="Agents with access">
@@ -84,13 +82,7 @@ export function ConnectionPage() {
 								title={agent.name}
 								cells={
 									<span className="hidden min-w-0 shrink truncate text-right text-muted-foreground md:block">
-										{integration.collections
-											.filter((collection) => accessFor(agent, connection, collection) !== 'none')
-											.map(
-												(collection) =>
-													`${collection.name}: ${accessLabel(collection, accessFor(agent, connection, collection))}`,
-											)
-											.join(', ')}
+										{describeActions(integration, actionsFor(agent, connection))}
 									</span>
 								}
 							/>
@@ -99,15 +91,15 @@ export function ConnectionPage() {
 				</Section>
 				<Section
 					title="Recent activity"
-					action={
-						entries.length > RECENT && (
+					detail={
+						entries.length > RECENT ? (
 							<Link
 								to={`/activity?connection=${connection.id}`}
-								className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+								className="underline-offset-4 hover:text-foreground hover:underline"
 							>
-								All activity
+								Go to all activity
 							</Link>
-						)
+						) : undefined
 					}
 				>
 					<AuditList
@@ -135,5 +127,29 @@ export function ConnectionPage() {
 				}}
 			/>
 		</AppShell>
+	);
+}
+
+// How many agents, revoked ones left out, have a setting of their own for each action.
+function differingAgents(
+	agents: AgentLogin[],
+	connectionId: string,
+): Partial<Record<string, number>> {
+	const counts: Partial<Record<string, number>> = {};
+	for (const agent of agents) {
+		if (agent.revokedAt !== null) {
+			continue;
+		}
+		for (const actionId of Object.keys(ownSettings(agent, connectionId))) {
+			counts[actionId] = (counts[actionId] ?? 0) + 1;
+		}
+	}
+	return counts;
+}
+
+// A default is on or off; nothing on this page returns one to anything else.
+function onOrOff(actions: Record<string, boolean | null>): Record<string, boolean> {
+	return Object.fromEntries(
+		Object.entries(actions).flatMap(([id, allowed]) => (allowed === null ? [] : [[id, allowed]])),
 	);
 }
