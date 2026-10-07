@@ -2,7 +2,7 @@ import {useState, type ReactNode} from 'react';
 import {cn} from '@/lib/utils';
 
 type Props = {
-	src: string;
+	src?: string;
 	fallback: ReactNode;
 	className?: string;
 	imageClassName?: string;
@@ -21,7 +21,7 @@ export function BrandLogo({src, fallback, className, imageClassName}: Props) {
 				className,
 			)}
 		>
-			{failed ? (
+			{!src || failed ? (
 				fallback
 			) : (
 				<img

@@ -201,7 +201,6 @@ const info: Integration = {
 	id: INFO_INTEGRATION_ID,
 	name: 'Information',
 	description: 'Details you keep in Proxy for agents to use',
-	logoUrl: '/integrations/information.svg',
 	icon: IdCardIcon,
 	sampleAccount: 'Stored in Proxy',
 	builtIn: true,
