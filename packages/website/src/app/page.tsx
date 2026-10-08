@@ -1,4 +1,5 @@
 import {Button} from '@proxy/ui/components/button';
+import {LogoDock} from '@/components/logo-dock';
 import {RiseInWords, riseInDelay} from '@/components/rise-in-words';
 
 // The app is its own origin: Vite's in development, app.personalagentproxy.com once built.
@@ -21,7 +22,7 @@ const wordCount = (texts: string[]) =>
 	texts.reduce((words, text) => words + text.split(' ').length, 0);
 const LINKS_WORD = wordCount([HEADLINE, ...PARAGRAPHS]);
 
-// One column: a sentence saying what it is, the manifesto, the app's two sign-in pages, and a
+// One column: the dock of logos, a sentence saying what it is, the manifesto, the app's two sign-in pages, and a
 // footer that sits at the bottom when the page is shorter than the window. Clipped so the footer
 // rising in from below the window doesn't flash a scrollbar.
 export default function Home() {
@@ -29,6 +30,7 @@ export default function Home() {
 		<main className="flex min-h-dvh w-full justify-center overflow-clip bg-background px-6 text-foreground">
 			<div className="flex w-full max-w-xl flex-col">
 				<div className="grid gap-8 pt-24">
+					<LogoDock className="rise-in mb-4" />
 					<h1 className="text-2xl font-medium text-balance">
 						<RiseInWords text={HEADLINE} firstWord={0} />
 					</h1>
