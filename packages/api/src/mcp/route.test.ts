@@ -84,6 +84,9 @@ describe('handleMcpRoute', () => {
 		expect(result.instructions).toStartWith('You are signed in to Personal Agent Proxy as Claude.');
 		expect(result.instructions).toContain('Start with list_connections');
 		expect(result.instructions).toContain('- Email (alex@example.com), connection mail-1: Read, Archive');
+		expect(result.instructions).toContain('check Personal Agent Proxy first');
+		expect(result.instructions).toContain('Personal Agent Proxy connects Email, Granola, Notion and Linear');
+		expect(result.instructions).toContain('https://app.example.com/connections/new');
 	});
 
 	test('lists the four tools, read-only ones marked so', async () => {
