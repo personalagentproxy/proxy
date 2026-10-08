@@ -1,6 +1,5 @@
 import {Button} from '@proxy/ui/components/button';
 import {LogoDock} from '@/components/logo-dock';
-import {LogoDockTuner} from '@/components/logo-dock-tuner';
 import {RiseInWords, riseInDelay} from '@/components/rise-in-words';
 
 // The app is its own origin: Vite's in development, app.personalagentproxy.com once built.
@@ -32,7 +31,6 @@ export default function Home() {
 			<div className="flex w-full max-w-xl flex-col">
 				<div className="grid gap-8 pt-24">
 					<LogoDock className="rise-in mb-4" />
-					{process.env.NODE_ENV === 'development' && <LogoDockTuner />}
 					<h1 className="text-2xl font-medium text-balance">
 						<RiseInWords text={HEADLINE} firstWord={0} />
 					</h1>

@@ -23,23 +23,37 @@ their full private context or silently expanding what an agent may do.
 
 <table align="center">
   <tr>
-    <td align="center" width="20%">
-      <img src="docs/assets/agents/dots.svg" width="48" height="48" alt="OpenAI Dots logo"><br>
+    <td align="center" width="25%">
+      <img src="docs/assets/agents/dot.png" width="48" height="48" alt="Dots logo"><br>
       <strong>Dots</strong>
     </td>
-    <td align="center" width="20%">
-      <img src="docs/assets/agents/grok-bot.webp" width="48" height="48" alt="Grok Bot logo"><br>
+    <td align="center" width="25%">
+      <img src="docs/assets/agents/grok-bot.png" width="48" height="48" alt="Grok Bot logo"><br>
       <strong>Grok Bot</strong>
     </td>
-    <td align="center" width="20%">
-      <img src="docs/assets/agents/muse.svg" width="48" height="48" alt="Muse logo"><br>
+    <td align="center" width="25%">
+      <img src="docs/assets/agents/muse.png" width="48" height="48" alt="Muse logo"><br>
       <strong>Muse</strong>
     </td>
-    <td align="center" width="20%">
-      <img src="docs/assets/agents/instinct.png" width="18" height="48" alt="Instinct logo"><br>
+    <td align="center" width="25%">
+      <img src="docs/assets/agents/instinct.png" width="48" height="48" alt="Instinct logo"><br>
       <strong>Instinct</strong>
     </td>
-    <td>
+  </tr>
+  <tr>
+    <td align="center" width="25%">
+      <img src="docs/assets/agents/poke.png" width="48" height="48" alt="Poke logo"><br>
+      <strong>Poke</strong>
+    </td>
+    <td align="center" width="25%">
+      <img src="docs/assets/agents/claude.png" width="48" height="48" alt="Claude logo"><br>
+      <strong>Claude</strong>
+    </td>
+    <td align="center" width="25%">
+      <img src="docs/assets/agents/chatgpt.png" width="48" height="48" alt="ChatGPT logo"><br>
+      <strong>ChatGPT</strong>
+    </td>
+    <td align="center" width="25%">
       <strong>And More</strong>
     </td>
   </tr>
