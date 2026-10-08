@@ -113,7 +113,7 @@ export function LoginPage() {
 					{status.kind === 'sent' && (
 						<p className="text-sm text-muted-foreground">
 							{status.logged
-								? 'Personal Agent Proxy cannot send email yet, so it wrote the sign-in link to its log.'
+								? 'Sending email is not set up yet, so the sign-in link was written to the server log.'
 								: 'Check your email for a link to sign in.'}
 						</p>
 					)}
