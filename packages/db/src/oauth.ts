@@ -86,10 +86,41 @@ export type OAuthTokens = {
 	refreshExpires: Date;
 };
 
+/** Signs a client in as an agent, and marks the client used, so it is never deleted as stale. */
 export async function createOAuthGrant(
 	data: OAuthTokens & {clientId: string; agentId: string},
 ): Promise<Result<void, ApiError>> {
-	return (await wrapDb(() => db.oAuthGrant.create({data}))).map(() => undefined);
+	return wrapDb(async () => {
+		await db.$transaction([
+			db.oAuthGrant.create({data}),
+			db.oAuthClient.updateMany({
+				where: {id: data.clientId, usedAt: null},
+				data: {usedAt: new Date()},
+			}),
+		]);
+	});
+}
+
+/**
+ * Deletes the clients registered before `before` that never finished a sign-in, with any codes
+ * they were given: registrations nobody used, such as a script's. Returns how many went.
+ */
+export async function deleteStaleOAuthClients(before: Date): Promise<Result<number, ApiError>> {
+	return wrapDb(async () => {
+		const stale = await db.oAuthClient.findMany({
+			where: {usedAt: null, createdAt: {lt: before}},
+			select: {id: true},
+		});
+		const ids = stale.map((client) => client.id);
+		if (ids.length === 0) {
+			return 0;
+		}
+		const [, deleted] = await db.$transaction([
+			db.oAuthCode.deleteMany({where: {clientId: {in: ids}}}),
+			db.oAuthClient.deleteMany({where: {id: {in: ids}, usedAt: null}}),
+		]);
+		return deleted.count;
+	});
 }
 
 /** `Ok(null)` means no live token: unknown, expired, or the agent has been revoked. */

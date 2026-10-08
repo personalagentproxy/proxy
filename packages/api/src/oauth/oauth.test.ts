@@ -7,13 +7,14 @@ import {ApiErr, type ApiError} from '@proxy/utils';
 
 const getOAuthClient = mock();
 const createOAuthClient = mock();
+const deleteStaleOAuthClients = mock();
 const createOAuthCode = mock();
 const takeOAuthCode = mock();
 const createOAuthGrant = mock();
 const getOAuthGrantByRefreshToken = mock();
 const rotateOAuthGrant = mock();
 
-mock.module('@proxy/db/oauth', () => ({getOAuthClient, createOAuthClient, createOAuthCode, takeOAuthCode, createOAuthGrant, getOAuthGrantByRefreshToken, rotateOAuthGrant}));
+mock.module('@proxy/db/oauth', () => ({getOAuthClient, createOAuthClient, deleteStaleOAuthClients, createOAuthCode, takeOAuthCode, createOAuthGrant, getOAuthGrantByRefreshToken, rotateOAuthGrant}));
 
 const getAgent = mock();
 
@@ -81,6 +82,7 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	getOAuthClient.mockResolvedValue(Ok(publicClient));
 	createOAuthClient.mockImplementation(async (data: unknown) => Ok(data));
+	deleteStaleOAuthClients.mockResolvedValue(Ok(0));
 	createOAuthCode.mockResolvedValue(Ok(undefined));
 	createOAuthGrant.mockResolvedValue(Ok(undefined));
 	rotateOAuthGrant.mockResolvedValue(Ok(true));
@@ -112,6 +114,24 @@ describe('handleRegisterClientRoute', () => {
 		expect(res.body).toMatchObject({client_name: 'Claude', redirect_uris: [REDIRECT], token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token']});
 		expect(res.body).not.toHaveProperty('client_secret');
 		expect(createOAuthClient.mock.calls[0]?.[0]).toMatchObject({name: 'Claude', secretHash: null});
+	});
+
+	test('first deletes the clients that registered over a day ago and never finished a sign-in', async () => {
+		const {handleRegisterClientRoute} = await import('./register');
+		await handleRegisterClientRoute({body: {redirect_uris: [REDIRECT]}} as never, makeRes() as never);
+		const before = deleteStaleOAuthClients.mock.calls[0]?.[0] as Date;
+
+		expect(Math.abs(Date.now() - 24 * 60 * 60 * 1000 - before.getTime())).toBeLessThan(5000);
+		expect(deleteStaleOAuthClients.mock.invocationCallOrder[0]).toBeLessThan(createOAuthClient.mock.invocationCallOrder[0] ?? 0);
+	});
+
+	test('registers even when the cleanup fails', async () => {
+		deleteStaleOAuthClients.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
+		const {handleRegisterClientRoute} = await import('./register');
+		const res = makeRes();
+		await handleRegisterClientRoute({body: {redirect_uris: [REDIRECT]}} as never, res as never);
+
+		expect(res.statusCode).toBe(201);
 	});
 
 	test('gives a client that asks for one a secret, keeping only its hash', async () => {

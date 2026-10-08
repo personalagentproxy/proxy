@@ -263,20 +263,25 @@ model AuditEntry {
 
 // An MCP client that registered itself to sign agents in, such as Claude or ChatGPT (OAuth
 // Dynamic Client Registration). Anyone can register one; it gets nothing until a person signs in
-// and lets it work as one of their agents.
+// and lets it work as one of their agents. One that hasn't finished a sign-in a day after
+// registering is deleted by the next registration.
 model OAuthClient {
   // The client_id it signs in with.
-  id           String   @id
+  id           String    @id
   name         String
   redirectUris String[]
   // Only for a client that signs in with a secret; others have PKCE alone.
   secretHash   String?
+  // When it first traded a code for tokens; kept for good once set.
+  usedAt       DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
   codes  OAuthCode[]
   grants OAuthGrant[]
+
+  @@index([createdAt])
 }
 
 // A code a client exchanges once for tokens, within minutes, with its PKCE verifier. Only its

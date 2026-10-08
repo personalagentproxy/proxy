@@ -5,7 +5,7 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {Do} from '@proxy/utils';
-import {createOAuthClient} from '@proxy/db/oauth';
+import {createOAuthClient, deleteStaleOAuthClients} from '@proxy/db/oauth';
 
 import {log, serializeError} from '../observability/log';
 import {hashToken, isAllowedRedirectUri, randomToken} from './oauth-config';
@@ -14,8 +14,12 @@ import {sendOAuthError, type OAuthError} from './oauth-error';
 /**
  * Dynamic Client Registration (RFC 7591): an MCP client such as Claude or ChatGPT registers itself
  * before its first sign-in. Registering gives it nothing: a person still signs in and chooses
- * which of their agents it works as.
+ * which of their agents it works as. Anyone can register, so each registration first deletes the
+ * clients that registered over a day ago and never finished a sign-in: the table grows only by
+ * registering, and whoever registers clears what nobody used.
  */
+
+const STALE_CLIENT_MS = 24 * 60 * 60 * 1000;
 
 const AUTH_METHODS = ['none', 'client_secret_post', 'client_secret_basic'] as const;
 
@@ -62,6 +66,12 @@ function register(body: unknown): Promise<Result<Registered, OAuthError>> {
 		}
 		if ((metadata.response_types ?? ['code']).some((type) => type !== 'code')) {
 			return $(Err(invalid('Only the code response type is supported')));
+		}
+
+		// A cleanup that fails doesn't stop the registration; the next one tries again.
+		const cleaned = await deleteStaleOAuthClients(new Date(Date.now() - STALE_CLIENT_MS));
+		if (cleaned.isErr()) {
+			log.warn('Deleting stale OAuth clients failed', serializeError(cleaned.error));
 		}
 
 		const method = metadata.token_endpoint_auth_method ?? 'none';
