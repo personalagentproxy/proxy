@@ -68,3 +68,7 @@ their full private context or silently expanding what an agent may do.
 </table>
 
 <img src="docs/assets/agent-dashboard.png" alt="Personal Agent Proxy agents dashboard">
+
+<img src="docs/assets/connections-dashboard.png" alt="Personal Agent Proxy connections dashboard">
+
+<img src="docs/assets/connection-permissions.png" alt="Personal Agent Proxy connection permissions">
