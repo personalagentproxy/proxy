@@ -4,70 +4,34 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, httpRequest, parseSchema} from '@proxy/utils';
 
-import {GRANOLA_MCP_URL} from './granola-oauth';
+import {mcpAuthError, type McpServer} from '../mcp/mcp-oauth';
 
 /**
- * Granola's MCP server, called one tool at a time. The server keeps no session, so each call is a
- * single JSON-RPC `tools/call` with the access token, answered as JSON or as a one-event stream.
- * The tools answer in text made for models: a sentence telling the model to treat what follows as
- * data, then meetings as XML (`<meetings_data><meeting id title date url>…`) or a transcript as
- * JSON.
+ * Granola's MCP server and what its tools answer. The tools answer in text made for models: a
+ * sentence telling the model to treat what follows as data, then meetings as XML
+ * (`<meetings_data><meeting id title date url>…`) or a transcript as JSON.
  */
 
-const TIMEOUT_MS = 30_000;
+const AUTH_BASE = 'https://mcp-auth.granola.ai';
 
-const toolResponseSchema = z.object({
-	result: z
-		.object({
-			content: z.array(z.object({type: z.string(), text: z.string().optional()})),
-			isError: z.boolean().optional(),
-		})
-		.optional(),
-	error: z.object({message: z.string()}).optional(),
-});
+export const GRANOLA: McpServer = {
+	name: 'Granola',
+	url: 'https://mcp.granola.ai/mcp',
+	registerUrl: `${AUTH_BASE}/oauth2/register`,
+	authorizeUrl: `${AUTH_BASE}/oauth2/authorize`,
+	tokenUrl: `${AUTH_BASE}/oauth2/token`,
+	scope: 'openid profile email offline_access',
+};
 
-// The last `data:` line of an event stream, or the body as it is when it is plain JSON.
-function jsonRpcBody(body: string): string {
-	const events = body
-		.split('\n')
-		.filter((line) => line.startsWith('data:'))
-		.map((line) => line.slice('data:'.length).trim());
-	return events.at(-1) ?? body;
-}
+const userInfoSchema = z.object({sub: z.string(), email: z.string().optional(), name: z.string().optional()});
 
-/**
- * Calls one of Granola's tools, its answer's text. A token Granola turns down is
- * `credentials_rejected`, so the caller can refresh it; a tool failing, such as on Granola's rate
- * limit, is Granola out of reach.
- */
-export function callGranolaTool(accessToken: string, name: string, args: Record<string, unknown>): Promise<Result<string, ApiError>> {
-	return Do(async ($) => {
-		const response = await httpRequest(
-			GRANOLA_MCP_URL,
-			{
-				method: 'POST',
-				headers: {authorization: `Bearer ${accessToken}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream'},
-				body: JSON.stringify({jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name, arguments: args}}),
-			},
-			{parse: 'text', timeoutMs: TIMEOUT_MS},
-		);
-		if (response.isErr() && response.error.kind === 'http' && (response.error.status === 401 || response.error.status === 403)) {
-			return $(Err(ApiErr.credentialsRejected()));
-		}
-
-		const body = $(response.mapErr((error) => ApiErr.providerUnreachable(error)));
-		const json = $(Result.wrap((): unknown => JSON.parse(jsonRpcBody(body))).mapErr((cause) => ApiErr.providerUnreachable(cause)));
-		const message = $(parseSchema(toolResponseSchema, json).mapErr((error) => ApiErr.providerUnreachable(error)));
-		if (message.error || !message.result) {
-			return $(Err(ApiErr.providerUnreachable(new Error(`Granola's ${name} failed: ${message.error?.message ?? 'no result'}`))));
-		}
-
-		const text = message.result.content.map((block) => block.text ?? '').join('\n');
-		if (message.result.isError) {
-			return $(Err(ApiErr.providerUnreachable(new Error(`Granola's ${name} failed: ${text}`))));
-		}
-		return text;
-	});
+/** The Granola account a token belongs to: its email, else its name, else Granola's id for it. */
+export async function getGranolaAccount(accessToken: string): Promise<Result<string, ApiError>> {
+	const info = await httpRequest(`${AUTH_BASE}/oauth2/userinfo`, {headers: {authorization: `Bearer ${accessToken}`}}, {schema: userInfoSchema, timeoutMs: 15_000});
+	if (info.isErr()) {
+		return Err(mcpAuthError(info.error));
+	}
+	return Ok(info.value.email?.toLowerCase() ?? info.value.name ?? info.value.sub);
 }
 
 export type GranolaMeeting = {

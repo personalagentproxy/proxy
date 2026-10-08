@@ -7,7 +7,7 @@ import {requiredAction} from '@proxy/integrations';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireUserOrgId} from '../utils/user-org';
 import type {Connector, DataRecord, RecordPage, RecordTarget} from './connector';
-import {parseListQuery, requireListQuery} from './list-query';
+import {parseListQuery, requireListQuery, requireParent} from './list-query';
 import {parseRecordValues} from './record-values';
 import {loadRecordTarget} from './target';
 
@@ -22,6 +22,9 @@ function targetFor(request: AuthenticatedRequest): Promise<Result<RecordTarget &
 }
 
 const writeBodySchema = z.object({values: z.unknown()});
+
+// A new record, and in a nested collection the record it goes inside.
+const createBodySchema = z.object({values: z.unknown(), parent: z.string().min(1).optional()});
 
 /** A page of the collection's records, matching `?search=` and `?filter=` when given. */
 export function handleListRecordsRoute(request: AuthenticatedRequest): Promise<Result<RecordPage, ApiError>> {
@@ -47,8 +50,9 @@ export function handleCreateRecordRoute(request: AuthenticatedRequest): Promise<
 			return $(Err(ApiErr.forbidden()));
 		}
 
-		const {values} = $(parseSchema(writeBodySchema, request.body));
-		return $(await target.connector.create(target, $(parseRecordValues(target.collection, values))));
+		const {values, parent = null} = $(parseSchema(createBodySchema, request.body));
+		$(requireParent(target.collection, parent));
+		return $(await target.connector.create(target, $(parseRecordValues(target.collection, values)), parent));
 	});
 }
 

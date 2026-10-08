@@ -46,7 +46,7 @@ describe('records routes', () => {
 		const result = await handleListRecordsRoute(makeRequest({connectionId: 'conn-1', collectionId: 'notes'}));
 
 		expect(loadRecordTarget).toHaveBeenCalledWith('org-1', 'conn-1', 'notes');
-		expect(connector.list.mock.calls[0]?.[1]).toEqual({search: null, page: null, filter: null});
+		expect(connector.list.mock.calls[0]?.[1]).toEqual({search: null, page: null, filter: null, parent: null});
 		expect(result.unwrap()).toEqual({records: [record], nextPage: null});
 	});
 

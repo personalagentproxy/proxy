@@ -27,6 +27,8 @@ export const dataRecordSchema = z.object({
 	id: z.string(),
 	values: z.record(z.string(), z.string()),
 	updatedAt: z.string(),
+	// In a nested collection, whether it holds records of its own to list.
+	hasChildren: z.boolean().optional(),
 });
 
 export const auditEntrySchema = z.object({

@@ -152,9 +152,9 @@ function execute(run: ToolRun, params: Record<string, string>): Promise<Result<T
 	return newCommand(run, params);
 }
 
-// The params a write sets, without the record's id.
+// The params a write sets, without the record's id or the one a new record goes in.
 function fieldsOf(params: Record<string, string>): Record<string, string> {
-	return Object.fromEntries(Object.entries(params).filter(([key]) => key !== 'id'));
+	return Object.fromEntries(Object.entries(params).filter(([key]) => key !== 'id' && key !== 'parent'));
 }
 
 // A write or a command on a record it doesn't apply to, such as sending an email that isn't a
@@ -166,12 +166,13 @@ function requireApplies(condition: Condition | undefined, record: DataRecord): R
 	return Err(ApiErr.validationError(`Only for ${condition?.values.join(' or ')}`));
 }
 
+// A list opened inside a record, in a nested collection, is logged with that record's title.
 function list(run: ToolRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
 		const {filterField} = run.target.collection;
-		const query = {search: searchOf(params), page: params.page ?? null, filter: filterField ? (params[filterField] ?? null) : null};
+		const query = {search: searchOf(params), page: params.page ?? null, filter: filterField ? (params[filterField] ?? null) : null, parent: params.parent ?? null};
 		const page = $(await run.connector.list(run.target, query));
-		$(await log(run, 'allowed', null, query.search));
+		$(await log(run, 'allowed', page.trail?.at(-1)?.title ?? null, query.search));
 		return page;
 	});
 }
@@ -186,7 +187,7 @@ function get(run: ToolRun, recordId: string): Promise<Result<ToolResult, ApiErro
 
 function create(run: ToolRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
-		const record = $(await run.connector.create(run.target, $(parseRecordValues(run.target.collection, params))));
+		const record = $(await run.connector.create(run.target, $(parseRecordValues(run.target.collection, fieldsOf(params))), params.parent ?? null));
 		$(await log(run, 'allowed', recordTitle(run.target.collection, record.values)));
 		return {record};
 	});

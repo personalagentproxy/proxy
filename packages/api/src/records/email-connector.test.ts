@@ -153,7 +153,7 @@ beforeEach(() => {
 	sendMail.mockResolvedValue({messageId: '<sent@proxy>'});
 });
 
-const EVERYTHING = {search: null, page: null, filter: null};
+const EVERYTHING = {search: null, page: null, filter: null, parent: null};
 
 // `count` emails, an hour apart from `start`, the newest with the highest UID.
 function fill(count: number, start: string, subject = 'Note'): Stored[] {
@@ -199,7 +199,7 @@ describe('emails', () => {
 
 	test('a folder narrows the list to it', async () => {
 		const {emailConnector} = await import('./email-connector');
-		const {records} = (await emailConnector.list(target, {...EVERYTHING, filter: 'Draft'})).unwrap();
+		const {records} = (await emailConnector.list(target, {...EVERYTHING, filter: 'Draft', parent: null})).unwrap();
 
 		expect(records.map((record) => record.values.folder)).toEqual(['Draft']);
 	});

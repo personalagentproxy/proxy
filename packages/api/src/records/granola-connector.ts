@@ -2,8 +2,8 @@ import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
-import {parseGranolaMeetings, parseGranolaTranscript, type GranolaMeeting} from '../connections/granola/granola-mcp';
-import {callGranolaToolFor} from '../connections/granola/granola-session';
+import {GRANOLA, parseGranolaMeetings, parseGranolaTranscript, type GranolaMeeting} from '../connections/granola/granola-mcp';
+import {callMcpToolFor} from '../connections/mcp/mcp-session';
 import type {Connector, DataRecord, RecordTarget, RecordValues} from './connector';
 
 /**
@@ -45,7 +45,7 @@ function daysBefore(day: string, days: number): string {
 
 function listMeetings(target: RecordTarget, start: string, end: string): Promise<Result<GranolaMeeting[], ApiError>> {
 	return Do(async ($) => {
-		const text = $(await callGranolaToolFor(target.connection, 'list_meetings', {time_range: 'custom', custom_start: start, custom_end: end}));
+		const text = $(await callMcpToolFor(GRANOLA, target.connection, 'list_meetings', {time_range: 'custom', custom_start: start, custom_end: end}));
 		return $(parseGranolaMeetings(text));
 	});
 }
@@ -89,7 +89,7 @@ function getMeeting(target: RecordTarget, meetingId: string): Promise<Result<Gra
 		if (!MEETING_ID.test(meetingId)) {
 			return $(Err(ApiErr.notFound('record', meetingId)));
 		}
-		const text = $(await callGranolaToolFor(target.connection, 'get_meetings', {meeting_ids: [meetingId]}));
+		const text = $(await callMcpToolFor(GRANOLA, target.connection, 'get_meetings', {meeting_ids: [meetingId]}));
 		const meeting = $(parseGranolaMeetings(text)).find((candidate) => candidate.id === meetingId);
 		if (!meeting) {
 			return $(Err(ApiErr.notFound('record', meetingId)));
@@ -112,7 +112,7 @@ export const granolaConnector: Connector = {
 		Do(async ($) => {
 			const meeting = $(await getMeeting(target, recordId));
 			if (target.collection.id === 'transcripts') {
-				const text = $(await callGranolaToolFor(target.connection, 'get_meeting_transcript', {meeting_id: recordId}));
+				const text = $(await callMcpToolFor(GRANOLA, target.connection, 'get_meeting_transcript', {meeting_id: recordId}));
 				return toRecord(meeting, {...summaryValues(meeting), transcript: $(parseGranolaTranscript(text))});
 			}
 			return toRecord(meeting, {...summaryValues(meeting), attendees: meeting.participants, link: meeting.url, summary: meeting.summary, privateNotes: meeting.privateNotes});

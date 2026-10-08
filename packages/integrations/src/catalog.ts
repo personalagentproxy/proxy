@@ -233,6 +233,76 @@ const granola: Integration = {
 	],
 };
 
+// A Notion account's pages, through Notion's MCP server, as the person who signed in: every page
+// they can see in the workspace they chose, as a tree. Pages hold pages and databases, databases
+// their rows, or their saved views when they have several, and views the rows they show. A row is
+// a page, its properties written out beside its content. New pages are private to the person
+// until they move them, unless made inside a page or database; edits reach whoever the page is
+// shared with. Pages aren't deleted.
+const notion: Integration = {
+	id: 'notion',
+	name: 'Notion',
+	description: 'Pages and database rows in a workspace',
+	actions: [
+		{
+			id: 'read',
+			label: 'Read pages',
+			description: 'List, search and open pages and databases, and the rows in them',
+			risk: 'low',
+		},
+		{
+			id: 'create',
+			label: 'Create pages',
+			description: 'Add pages inside pages and rows to databases, or private pages of your own',
+			risk: 'medium',
+		},
+		{
+			id: 'edit',
+			label: 'Edit pages',
+			description:
+				'Change the title, properties and content of pages, as whoever they are shared with sees them',
+			risk: 'high',
+			requires: 'read',
+		},
+	],
+	collections: [
+		{
+			id: 'pages',
+			name: 'Pages',
+			singular: 'page',
+			titleField: 'title',
+			summaryField: 'path',
+			searchHint:
+				'Notion’s own search: words in titles and content, or what a page is about. Inside a page or database, only what is in it.',
+			nested: true,
+			read: 'read',
+			writes: {create: 'create', update: 'edit'},
+			// Databases and their views aren't written to; their rows are pages.
+			editable: {field: 'kind', values: ['Page']},
+			fields: [
+				{key: 'title', label: 'Title', type: 'text'},
+				{
+					key: 'kind',
+					label: 'Kind',
+					type: 'select',
+					options: ['Page', 'Database', 'View'],
+					system: true,
+				},
+				// Where the page is: "Outreach / Companies".
+				{key: 'path', label: 'In', type: 'text', system: true},
+				// The page in Notion.
+				{key: 'link', label: 'Link', type: 'text', system: true},
+				{key: 'edited', label: 'Last edited', type: 'datetime', system: true},
+				// A database row's properties, one "Name: value" a line, a value going on over the lines
+				// after it until the next property. Only properties written differently are changed.
+				{key: 'properties', label: 'Properties', type: 'longtext'},
+				// Notion-flavored Markdown, child pages and databases as <page> and <database> tags.
+				{key: 'content', label: 'Content', type: 'longtext'},
+			],
+		},
+	],
+};
+
 // Information's actions for one of its collections, such as `readCards` and `writeCards`: reading
 // it, and adding, editing and deleting as one.
 function infoActions(collectionId: string, plural: string): Action[] {
@@ -319,7 +389,7 @@ const info: Integration = {
 	],
 };
 
-export const INTEGRATIONS: Integration[] = [info, email, granola];
+export const INTEGRATIONS: Integration[] = [info, email, granola, notion];
 
 export function findIntegration(id: string): Integration | undefined {
 	return INTEGRATIONS.find((integration) => integration.id === id);

@@ -109,8 +109,23 @@ export function toolName(collectionId: string, operation: string): string {
 	return `${snakeCase(collectionId)}_${suffix}`;
 }
 
+// In a nested collection, the record a list is opened in, or a new record goes in.
+function parentProperty(collection: Collection, what: string): Record<string, JsonSchemaProperty> {
+	if (!collection.nested) {
+		return {};
+	}
+	return {
+		parent: {
+			type: 'string',
+			description: `The id of a ${collection.singular} ${what}; left out, the top`,
+		},
+	};
+}
+
 function listSchema(collection: Collection): JsonSchemaObject {
-	const properties: Record<string, JsonSchemaProperty> = {};
+	const properties: Record<string, JsonSchemaProperty> = {
+		...parentProperty(collection, 'to list what is inside it'),
+	};
 	if (collection.searchHint) {
 		properties.search = {type: 'string', description: collection.searchHint};
 	}
@@ -131,7 +146,10 @@ function listSchema(collection: Collection): JsonSchemaObject {
 
 function listDescription(collection: Collection): string {
 	const search = collection.searchHint ? ' Can be searched.' : '';
-	return `List ${collection.name.toLowerCase()}, newest first, a page at a time, with each record’s id for ${toolName(collection.id, 'view')}.${search}`;
+	const nested = collection.nested
+		? ` ${collection.name} hold others: one with hasChildren lists what is inside it as parent, and the list says where it is in trail.`
+		: '';
+	return `List ${collection.name.toLowerCase()}, newest first, a page at a time, with each record’s id for ${toolName(collection.id, 'view')}.${search}${nested}`;
 }
 
 function collectionTools(integration: Integration, collection: Collection): Tool[] {
@@ -178,7 +196,10 @@ function collectionTools(integration: Integration, collection: Collection): Tool
 			? make('create', 'create', {
 					title: createLabel,
 					description: `${createLabel}: a new ${collection.singular} from the fields given; any left out are empty.`,
-					inputSchema: objectSchema(valueProperties(collection)),
+					inputSchema: objectSchema({
+						...parentProperty(collection, 'to make it inside'),
+						...valueProperties(collection),
+					}),
 				})
 			: []),
 		...(writes.update
