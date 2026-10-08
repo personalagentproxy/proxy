@@ -3,6 +3,12 @@ title: Get started
 description: Run Personal Agent Proxy on one server with Docker Compose, with Postgres and HTTPS in the same file.
 ---
 
+<Callout>
+  Run Personal Agent Proxy on a server reachable from the internet, such as a VPS, with a domain
+  pointed at it. Agents reach it from wherever they run, and most, such as Claude, ChatGPT and
+  Poke, run on their own servers, so they can only use it once it has a public HTTPS address.
+</Callout>
+
 The compose file runs three containers: Personal Agent Proxy, Postgres, and Caddy in front of them
 for HTTPS. Only Caddy is reachable from outside, on ports 80 and 443.
 
@@ -38,7 +44,8 @@ docker compose up -d
 ```
 
 Open [http://localhost](http://localhost) on the same machine. To try Personal Agent Proxy on your
-own computer, you can stop here and [sign in](#sign-in).
+own computer, you can stop here and [sign in](#sign-in), but only agents running on the same
+machine can reach it until it has a domain.
 
 ### Give it a domain
 
@@ -58,8 +65,8 @@ Caddy gets a certificate for the domain from Let's Encrypt on its first request,
 
 ## Sign in
 
-Enter your email on the sign-in page. Until Personal Agent Proxy can send email, it writes the
-sign-in link to its log instead:
+Enter your email on the sign-in page. Until sending email is set up, Personal Agent Proxy writes
+the sign-in link to its log instead:
 
 ```sh
 docker compose logs proxy | grep "Magic Link"
