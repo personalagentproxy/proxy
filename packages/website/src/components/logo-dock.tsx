@@ -9,11 +9,12 @@ type Logo = {
 	lit?: boolean;
 };
 
-// The agents a login can be made for (AGENT_PROVIDERS in @proxy/integrations).
+// The agents a login can be made for (AGENT_PROVIDERS in @proxy/integrations), and Claude.
 const AGENTS: Logo[] = [
 	{name: 'Dot', src: '/logos/dot.svg', tile: 'bg-white p-[22%]'},
-	{name: 'Grok Bot', src: '/logos/grok-bot.png', tile: '', lit: true},
+	{name: 'Claude', src: '/logos/claude.png', tile: ''},
 	{name: 'Muse', src: '/logos/muse.png', tile: '', lit: true},
+	{name: 'Grok Bot', src: '/logos/grok-bot.png', tile: '', lit: true},
 	{name: 'Instinct', src: '/logos/instinct.png', tile: 'bg-[#F4F1EC] p-[10%]'},
 ];
 
