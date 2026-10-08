@@ -163,6 +163,16 @@ describe('runAgentTool', () => {
 		expect(connector.get).not.toHaveBeenCalled();
 	});
 
+	test('a select left unchosen, as a form sends it, is left out', async () => {
+		useConnection(emailConnection);
+		getAgent.mockResolvedValue(Ok(triage));
+
+		const {runAgentTool} = await import('./tools');
+		await runAgentTool(caller, 'mail-1', 'emails_list', {folder: ''});
+
+		expect(connector.list.mock.calls[0]?.[1]).toMatchObject({filter: null});
+	});
+
 	test('limited to tools that read, or to those that change something, any other is refused unlogged', async () => {
 		const {runAgentTool} = await import('./tools');
 		const readingAWrite = await runAgentTool(caller, 'info-1', 'cards_create', {label: 'New'}, {readOnly: true});

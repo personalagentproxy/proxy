@@ -2,7 +2,14 @@ export {AGENT_PROVIDERS, findAgentProvider, suggestAgentProvider} from './agent-
 export type {AgentProvider, AgentProviderId} from './agent-providers';
 export {applies, effectiveActions, requiredAction} from './access';
 export type {OwnSettings} from './access';
-export {findCollection, findIntegration, INFO_INTEGRATION_ID, INTEGRATIONS} from './catalog';
+export {
+	findCollection,
+	findIntegration,
+	INFO_INTEGRATION_ID,
+	INTEGRATIONS,
+	LINEAR_PRIORITIES,
+	LINEAR_STATUS_TYPES,
+} from './catalog';
 export {allowedTools, findTool, integrationTools, toolName} from './tools';
 export type {JsonSchemaObject, JsonSchemaProperty, Tool, ToolKind} from './tools';
 export {EMAIL_PROVIDERS} from './email-providers';

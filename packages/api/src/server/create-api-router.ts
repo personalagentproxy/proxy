@@ -20,6 +20,7 @@ import {handleGoogleCallbackRoute, handleGoogleStartRoute, handleSignInMethodsRo
 import {handleSignOutRoute} from '../auth/signout';
 import {handleConnectEmailRoute} from '../connections/email/route';
 import {handleGranolaCallbackRoute, handleStartGranolaRoute} from '../connections/granola/route';
+import {handleLinearCallbackRoute, handleStartLinearRoute} from '../connections/linear/route';
 import {handleNotionCallbackRoute, handleStartNotionRoute} from '../connections/notion/route';
 import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleSetConnectionDefaultsRoute} from '../connections/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
@@ -62,6 +63,8 @@ export function createApiRouter(): express.Router {
 	router.get('/api/connections/granola/callback', withAuth('Granola sign-in callback route', handleGranolaCallbackRoute));
 	router.get('/api/connections/notion/start', withAuth('Start Notion sign-in route', handleStartNotionRoute));
 	router.get('/api/connections/notion/callback', withAuth('Notion sign-in callback route', handleNotionCallbackRoute));
+	router.get('/api/connections/linear/start', withAuth('Start Linear sign-in route', handleStartLinearRoute));
+	router.get('/api/connections/linear/callback', withAuth('Linear sign-in callback route', handleLinearCallbackRoute));
 	router.get('/api/connections/:connectionId', withAuthResult('Get connection route', handleGetConnectionRoute));
 	router.delete('/api/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
 	router.put('/api/connections/:connectionId/defaults', withAuthResult('Set connection defaults route', handleSetConnectionDefaultsRoute));

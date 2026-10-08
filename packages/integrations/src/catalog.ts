@@ -303,6 +303,94 @@ const notion: Integration = {
 	],
 };
 
+// The kinds of status every Linear team's own statuses are one of, as the list is narrowed by.
+export const LINEAR_STATUS_TYPES = [
+	'Triage',
+	'Backlog',
+	'Unstarted',
+	'Started',
+	'Completed',
+	'Canceled',
+	'Duplicate',
+];
+
+// Linear's priorities, from its numbers 0 to 4.
+export const LINEAR_PRIORITIES = ['No priority', 'Urgent', 'High', 'Medium', 'Low'];
+
+// A Linear workspace's issues, through Linear's MCP server, as the person who signed in: what an
+// agent writes shows as theirs. A sign-in is for one workspace and can't be limited, so access is
+// narrowed in Personal Agent Proxy. Teams, statuses, people, projects and labels are written by
+// name, as Linear shows them, and an issue's comments are read with it. Linear's MCP server has no
+// tool that archives or deletes an issue, so issues aren't deleted.
+const linear: Integration = {
+	id: 'linear',
+	name: 'Linear',
+	description: 'Issues in a workspace',
+	actions: [
+		{
+			id: 'read',
+			label: 'Read issues',
+			description: 'List, search and open issues, with their comments',
+			risk: 'low',
+		},
+		{
+			id: 'create',
+			label: 'Create issues',
+			description: 'Add issues to a team, assigned to anyone in the workspace',
+			risk: 'medium',
+		},
+		{
+			id: 'edit',
+			label: 'Edit issues',
+			description: 'Change the title, description, status, assignee and other fields of issues',
+			risk: 'medium',
+			requires: 'read',
+		},
+	],
+	collections: [
+		{
+			id: 'issues',
+			name: 'Issues',
+			singular: 'issue',
+			titleField: 'title',
+			summaryField: 'status',
+			filterField: 'statusType',
+			searchHint: 'Words in an issue’s title or description.',
+			read: 'read',
+			writes: {create: 'create', update: 'edit'},
+			fields: [
+				{key: 'title', label: 'Title', type: 'text'},
+				// The team's name or key, "Engineering" or "ENG"; moving an issue to another gives it a new id.
+				{key: 'team', label: 'Team', type: 'text'},
+				// One of the team's statuses, "In Progress", or a type of them, "started".
+				{key: 'status', label: 'Status', type: 'text'},
+				{
+					key: 'statusType',
+					label: 'Status type',
+					type: 'select',
+					options: LINEAR_STATUS_TYPES,
+					system: true,
+				},
+				{key: 'priority', label: 'Priority', type: 'select', options: LINEAR_PRIORITIES},
+				// Someone in the workspace by name or email, or "me" for whoever signed in.
+				{key: 'assignee', label: 'Assignee', type: 'text'},
+				{key: 'project', label: 'Project', type: 'text'},
+				// Comma-separated names, "Bug, Frontend"; written, they replace every label.
+				{key: 'labels', label: 'Labels', type: 'text'},
+				{key: 'dueDate', label: 'Due date', type: 'date'},
+				{key: 'createdBy', label: 'Created by', type: 'text', system: true},
+				// The issue in Linear.
+				{key: 'link', label: 'Link', type: 'text', system: true},
+				{key: 'updated', label: 'Updated', type: 'datetime', system: true},
+				// Markdown.
+				{key: 'description', label: 'Description', type: 'longtext'},
+				// Oldest first, each its author and time, then what they wrote.
+				{key: 'comments', label: 'Comments', type: 'longtext', system: true},
+			],
+		},
+	],
+};
+
 // Information's actions for one of its collections, such as `readCards` and `writeCards`: reading
 // it, and adding, editing and deleting as one.
 function infoActions(collectionId: string, plural: string): Action[] {
@@ -389,7 +477,7 @@ const info: Integration = {
 	],
 };
 
-export const INTEGRATIONS: Integration[] = [info, email, granola, notion];
+export const INTEGRATIONS: Integration[] = [info, email, granola, notion, linear];
 
 export function findIntegration(id: string): Integration | undefined {
 	return INTEGRATIONS.find((integration) => integration.id === id);
