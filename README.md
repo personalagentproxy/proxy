@@ -6,6 +6,8 @@
   <a href="https://personalagentproxy.com">Website</a>
   ·
   <a href="CONTRIBUTING.md">Contributing</a>
+  ·
+  <a href="LICENSE">License</a>
 </p>
 
 <p align="center">
