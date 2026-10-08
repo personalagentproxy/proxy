@@ -7,7 +7,7 @@
 - `bun run docs` - Start only the docs (http://localhost:5174), without the database, the api or the other apps
 - `bun run website` - Start only the website (http://localhost:5175), without the database, the api or the other apps
 - `bun run seed` - With `bun run dev` up, fill the local database with a demo workspace (connections, agents with settings of their own, activity) and print a sign-in link for `demo@proxy.local`. Re-running replaces it
-- `bun run --cwd packages/db db:migrate:diff` - With the database running, print the SQL from the database to `schema.prisma`; save it as `packages/db/prisma/migrations/<name>/migration.sql`. `bun run dev` applies pending migrations on start
+- `bun run --cwd packages/db db:migrate:diff` - With the database running, print the SQL from the database to `schema.prisma`; save it as `packages/db/prisma/migrations/<name>/migration.sql`, the name `v` and the next three-digit number, such as `v011_add_x`: Prisma applies migrations in the order their names sort as text, so `10_x` would run before `9_mcp_oauth` (a test refuses any other name). `bun run dev` applies pending migrations on start
 - `bun run typecheck` - Typecheck all packages
 - `bun run test` - Run every package's tests (`bun test`; the api's with `--isolate`, since its tests mock modules per file)
 - `bun run lint` - Lint the web app, the docs and the website with oxlint

@@ -1,5 +1,6 @@
 // Regenerate the client: bun run --cwd packages/db db:generate
-// New migration: bun run --cwd packages/db db:migrate:diff, saved as prisma/migrations/<name>/migration.sql
+// New migration: bun run --cwd packages/db db:migrate:diff, saved as prisma/migrations/<name>/migration.sql,
+// the name `v` and the next three-digit number, such as v011_add_x (src/migrations.test.ts says why)
 // Apply migrations: bun run --cwd packages/db db:migrate:deploy
 
 generator client {

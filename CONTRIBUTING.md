@@ -57,7 +57,7 @@ With the local database running, update `packages/db/prisma/schema.prisma`, then
 bun run --cwd packages/db db:migrate:diff
 ```
 
-Save the output as `packages/db/prisma/migrations/<name>/migration.sql`. Pending migrations run when `bun run dev` starts.
+Save the output as `packages/db/prisma/migrations/<name>/migration.sql`, named `v` and the next three-digit number, such as `v011_add_x`. Prisma applies migrations in the order their names sort as text, so a name like `11_add_x` would run before older ones; a test refuses it. Pending migrations run when `bun run dev` starts.
 
 ## Open a pull request
 
