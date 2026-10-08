@@ -18,13 +18,13 @@ import {handleDevLoginRoute} from '../auth/dev-login';
 import {handleEmailSignInRoute, handleEmailVerifyRoute} from '../auth/email';
 import {handleGoogleCallbackRoute, handleGoogleStartRoute, handleSignInMethodsRoute} from '../auth/google';
 import {handleSignOutRoute} from '../auth/signout';
-import {handleConnectEmailRoute} from '../connections/email/route';
+import {handleConnectEmailRoute, handleTestEmailRoute} from '../connections/email/route';
 import {handleGranolaCallbackRoute, handleStartGranolaRoute} from '../connections/granola/route';
 import {handleLinearCallbackRoute, handleStartLinearRoute} from '../connections/linear/route';
 import {handleNotionCallbackRoute, handleStartNotionRoute} from '../connections/notion/route';
 import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleSetConnectionDefaultsRoute} from '../connections/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
-import {handleMeRoute} from '../me/route';
+import {handleFinishOnboardingRoute, handleMeRoute} from '../me/route';
 import {handleAuthorizeRoute, handleConsentRoute, handleGetAuthorizationRequestRoute} from '../oauth/authorize';
 import {handleAuthorizationServerMetadataRoute, handleProtectedResourceMetadataRoute} from '../oauth/metadata';
 import {handleRegisterClientRoute} from '../oauth/register';
@@ -55,10 +55,12 @@ export function createApiRouter(): express.Router {
 
 	router.use('/api/me', requireBrowserOrigin);
 	router.get('/api/me', withAuthResult('Me route', handleMeRoute));
+	router.post('/api/me/onboarded', withAuthResult('Finish onboarding route', handleFinishOnboardingRoute));
 
 	router.use('/api/connections', requireBrowserOrigin);
 	router.get('/api/connections', withAuthResult('List connections route', handleListConnectionsRoute));
 	router.post('/api/connections/email', withAuthResult('Connect email route', handleConnectEmailRoute));
+	router.post('/api/connections/email/test', withAuthResult('Test email route', handleTestEmailRoute));
 	router.get('/api/connections/granola/start', withAuth('Start Granola sign-in route', handleStartGranolaRoute));
 	router.get('/api/connections/granola/callback', withAuth('Granola sign-in callback route', handleGranolaCallbackRoute));
 	router.get('/api/connections/notion/start', withAuth('Start Notion sign-in route', handleStartNotionRoute));

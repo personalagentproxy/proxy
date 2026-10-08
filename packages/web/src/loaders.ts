@@ -1,10 +1,12 @@
 import {getAgent, listActivity, listAgents, listMcpClients} from '@/client/agents-client';
 import {getConnection, listConnections} from '@/client/connections-client';
+import {getMe} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {listRecords} from '@/client/records-client';
 import {INFO_INTEGRATION_ID} from '@proxy/integrations';
 import {findIntegration} from '@/lib/integrations';
 import {unwrapLoaderResult, unwrapOrNull} from '@/lib/loader-utils';
+import {redirect} from 'react-router';
 
 // The human side's pages, each loaded from the api on arrival and again after every change.
 
@@ -14,6 +16,11 @@ export async function connectionsLoader() {
 		connections: unwrapLoaderResult(connections).connections,
 		agents: unwrapLoaderResult(agents).agents,
 	};
+}
+
+// The catalog, with how many accounts of each integration are connected.
+export async function addConnectionLoader() {
+	return {connections: unwrapLoaderResult(await listConnections()).connections};
 }
 
 export async function connectionLoader({params}: {params: {id?: string}}) {
@@ -112,3 +119,22 @@ export async function connectAgentLoader({request}: {request: Request}) {
 }
 
 export type ConnectAgentData = Awaited<ReturnType<typeof connectAgentLoader>>;
+
+// The welcome flow, shown until the organization finishes or skips it: what the person has
+// connected so far, so each step can say what is done. Once finished, the app itself.
+export async function welcomeLoader() {
+	const [me, agents, connections] = await Promise.all([getMe(), listAgents(), listConnections()]);
+	if (unwrapLoaderResult(me).onboarded) {
+		throw redirect('/connections');
+	}
+	return {
+		agents: unwrapLoaderResult(agents).agents,
+		connections: unwrapLoaderResult(connections).connections,
+	};
+}
+
+// The welcome flow's page for one connection just made: its permissions, to confirm.
+export async function welcomeConnectionLoader({params}: {params: {id?: string}}) {
+	const [data, connection] = await Promise.all([welcomeLoader(), getConnection(params.id ?? '')]);
+	return {...data, connection: unwrapOrNull(connection)};
+}

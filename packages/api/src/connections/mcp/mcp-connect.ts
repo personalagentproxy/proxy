@@ -22,12 +22,15 @@ import {exchangeMcpCode, makePkce, mcpAuthorizeUrl, registerMcpClient, type McpS
  * Personal Agent Proxy with the server and sends the browser to its sign-in, keeping the handshake
  * in a short-lived encrypted cookie; the callback trades the code for tokens and makes the
  * connection, or gives an existing one of the same account its new tokens. Either ends on the
- * connection's page, or back on the catalog with `?error=<integration>`.
+ * connection's page, or back on the catalog with `?error=<integration>`; started from the welcome
+ * flow (`?returnTo=welcome`), they end on its page for the connection, or its catalog, instead.
  */
 
 const stateCookieMaxAgeMs = 15 * 60 * 1000;
 
-const statePayloadSchema = z.object({state: z.string(), verifier: z.string(), clientId: z.string(), userId: z.string()});
+const returnToSchema = z.enum(['welcome']);
+
+const statePayloadSchema = z.object({state: z.string(), verifier: z.string(), clientId: z.string(), userId: z.string(), returnTo: returnToSchema.optional()});
 
 type StatePayload = z.infer<typeof statePayloadSchema>;
 
@@ -65,16 +68,23 @@ export function mcpConnectRoutes(args: {
 		});
 	}
 
-	function redirectToConnectError(res: Response, appUrl: string, error: ApiError): void {
+	// Where the sign-in ends: the catalog, or the welcome flow's connections step it started from.
+	function catalogUrl(appUrl: string, returnTo: StatePayload['returnTo']): string {
+		if (returnTo === 'welcome') {
+			return `${appUrl}/welcome/connections`;
+		}
+		return `${appUrl}/connections/new`;
+	}
+
+	function redirectToConnectError(res: Response, appUrl: string, returnTo: StatePayload['returnTo'], error: ApiError): void {
 		log.warn(`Connecting ${server.name} failed`, {kind: error.kind, ...('message' in error ? {message: error.message} : {}), ...('cause' in error ? serializeError(error.cause) : {})});
-		res.redirect(`${appUrl}/connections/new?error=${integrationId}`);
+		res.redirect(`${catalogUrl(appUrl, returnTo)}?error=${integrationId}`);
 	}
 
 	// The handshake the cookie holds, checked against the server's answer, then the connection made
 	// or given its new tokens.
-	function finishConnect(request: AuthenticatedRequest, appUrl: string): Promise<Result<string, ApiError>> {
+	function finishConnect(request: AuthenticatedRequest, appUrl: string, payload: StatePayload): Promise<Result<string, ApiError>> {
 		return Do(async ($) => {
-			const payload = $(readStateCookie(request));
 			const state = queryParam(request, 'state') ?? '';
 			if (!timingSafeEqualString(state, payload.state) || payload.userId !== request.user.userId) {
 				return $(Err(ApiErr.validationError(`${server.name} sign-in state does not match`)));
@@ -109,15 +119,16 @@ export function mcpConnectRoutes(args: {
 			return;
 		}
 
+		const returnTo = returnToSchema.safeParse(queryParam(request, 'returnTo')).data;
 		const started = await Do<{cookie: string; url: string}, ApiError>(async ($) => {
 			const clientId = $(await registerMcpClient(server, redirectUri(appUrl)));
 			const state = randomBytes(16).toString('hex');
 			const {verifier, challenge} = makePkce();
-			const cookie = $(encryptSecret(JSON.stringify({state, verifier, clientId, userId: request.user.userId} satisfies StatePayload)));
+			const cookie = $(encryptSecret(JSON.stringify({state, verifier, clientId, userId: request.user.userId, ...(returnTo ? {returnTo} : {})} satisfies StatePayload)));
 			return {cookie, url: mcpAuthorizeUrl(server, {clientId, redirectUri: redirectUri(appUrl), state, challenge})};
 		});
 		if (started.isErr()) {
-			redirectToConnectError(res, appUrl, started.error);
+			redirectToConnectError(res, appUrl, returnTo, started.error);
 			return;
 		}
 
@@ -125,7 +136,10 @@ export function mcpConnectRoutes(args: {
 		res.redirect(started.value.url);
 	}
 
-	/** `GET /api/connections/<integration>/callback` — where the sign-in comes back to; lands on the connection, saying it was added. */
+	/**
+	 * `GET /api/connections/<integration>/callback` — where the sign-in comes back to; lands on the
+	 * connection, saying it was added, or on the welcome flow's page for it when it started there.
+	 */
 	async function handleCallback(request: AuthenticatedRequest, res: Response): Promise<void> {
 		const appUrl = env.APP_URL;
 		if (!appUrl) {
@@ -135,9 +149,15 @@ export function mcpConnectRoutes(args: {
 
 		// The handshake is single-use: cleared however the callback ends.
 		res.clearCookie(stateCookieName, stateCookieOptions());
-		const connectionId = await finishConnect(request, appUrl);
+		const payload = readStateCookie(request);
+		const returnTo = payload.isOk() ? payload.value.returnTo : undefined;
+		const connectionId = payload.isErr() ? Err(payload.error) : await finishConnect(request, appUrl, payload.value);
 		if (connectionId.isErr()) {
-			redirectToConnectError(res, appUrl, connectionId.error);
+			redirectToConnectError(res, appUrl, returnTo, connectionId.error);
+			return;
+		}
+		if (returnTo === 'welcome') {
+			res.redirect(`${appUrl}/welcome/connections/${connectionId.value}`);
 			return;
 		}
 		res.redirect(`${appUrl}/connections/${connectionId.value}?added`);

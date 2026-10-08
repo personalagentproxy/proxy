@@ -56,6 +56,14 @@ export function actionsFor(agent: AgentLogin, connection: Connection): string[] 
 	);
 }
 
+// The changes a defaults editor sends, as the api takes them: a connection's default is on or
+// off, never "back to default", so nulls are dropped.
+export function defaultsOnOrOff(actions: Record<string, boolean | null>): Record<string, boolean> {
+	return Object.fromEntries(
+		Object.entries(actions).flatMap(([id, allowed]) => (allowed === null ? [] : [[id, allowed]])),
+	);
+}
+
 // "Read, Archive, Send": what the actions are called, in the catalog's order.
 export function describeActions(integration: {actions: Action[]}, actions: string[]): string {
 	return integration.actions

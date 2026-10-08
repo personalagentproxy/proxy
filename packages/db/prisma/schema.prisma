@@ -92,6 +92,8 @@ model Organization {
   id   String @id @default(cuid())
   name String
   slug String @unique
+  // When the welcome flow was finished or skipped; until then the web app shows it instead of the app.
+  onboardedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

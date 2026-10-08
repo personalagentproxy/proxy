@@ -7,26 +7,39 @@ type Props = {
 	label: string;
 	children: ReactNode;
 	disabled?: boolean;
-} & ({onClick: () => void; to?: never} | {to: string; onClick?: never});
+} & (
+	| {onClick: () => void; to?: never; href?: never}
+	| {to: string; onClick?: never; href?: never}
+	// A full navigation, such as to an api route that sends the browser on to a sign-in.
+	| {href: string; onClick?: never; to?: never}
+);
 
 // A header's icon action: a ghost icon button with its label in a tooltip.
-export function IconButton({label, children, disabled = false, onClick, to}: Props) {
+export function IconButton({label, children, disabled = false, onClick, to, href}: Props) {
 	const button =
-		to === undefined ? (
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				aria-label={label}
-				disabled={disabled}
-				onClick={onClick}
-			/>
-		) : (
+		to !== undefined ? (
 			<Button
 				variant="ghost"
 				size="icon-sm"
 				aria-label={label}
 				nativeButton={false}
 				render={<Link to={to} />}
+			/>
+		) : href !== undefined ? (
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				aria-label={label}
+				nativeButton={false}
+				render={<a href={href} />}
+			/>
+		) : (
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				aria-label={label}
+				disabled={disabled}
+				onClick={onClick}
 			/>
 		);
 

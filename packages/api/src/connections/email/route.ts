@@ -1,7 +1,7 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {createConnection, listConnections} from '@proxy/db/connection';
 import {EMAIL_PROVIDERS, type EmailProvider, type MailServers} from '@proxy/integrations';
 
@@ -46,6 +46,30 @@ function passwordFor(provider: EmailProvider, password: string): string {
 	return password.replace(/\s/g, '');
 }
 
+// The credential a request describes: the provider's servers or the typed-in ones, and the
+// password as the server takes it.
+function credentialFor(body: unknown): Result<{email: string; credential: EmailCredential}, ApiError> {
+	return Do<{email: string; credential: EmailCredential}, ApiError>(($) => {
+		const parsed = $(parseSchema(connectEmailBodySchema, body));
+		const provider = $(
+			requirePresent(
+				EMAIL_PROVIDERS.find((candidate) => candidate.id === parsed.provider),
+				ApiErr.validationError('Unknown provider'),
+			),
+		);
+		const servers = $(serversFor(provider, parsed));
+		return {email: parsed.email, credential: {...servers, username: parsed.email, password: passwordFor(provider, parsed.password)}};
+	});
+}
+
+/** Signs in to the mailbox over IMAP and SMTP and saves nothing: the Test connection button. */
+export function handleTestEmailRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const {credential} = $(credentialFor(request.body));
+		$(await checkMailbox(credential));
+	});
+}
+
 /**
  * Connects a mailbox with an app password. Signs in over IMAP and SMTP first, so a wrong password
  * or server is reported now rather than on an agent's first request. A new connection gives agents
@@ -53,23 +77,18 @@ function passwordFor(provider: EmailProvider, password: string): string {
  */
 export function handleConnectEmailRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
 	return Do(async ($) => {
-		const body = $(parseSchema(connectEmailBodySchema, request.body));
-		const provider = EMAIL_PROVIDERS.find((candidate) => candidate.id === body.provider);
-		if (!provider) {
-			return $(Err(ApiErr.validationError('Unknown provider')));
-		}
+		const {email, credential} = $(credentialFor(request.body));
 
 		const orgId = $(await requireUserOrgId(request));
 		const existing = $(await listConnections(orgId));
-		if (existing.some((connection) => connection.integrationId === 'email' && connection.account === body.email)) {
+		if (existing.some((connection) => connection.integrationId === 'email' && connection.account === email)) {
 			return $(Err(ApiErr.conflict('This mailbox is already connected')));
 		}
 
-		const credential: EmailCredential = {...$(serversFor(provider, body)), username: body.email, password: passwordFor(provider, body.password)};
 		const encrypted = $(encryptSecret(JSON.stringify(credential)));
 		$(await checkMailbox(credential));
 
-		const row = $(await createConnection({orgId, integrationId: 'email', account: body.email, credential: encrypted}));
+		const row = $(await createConnection({orgId, integrationId: 'email', account: email, credential: encrypted}));
 		return toConnectionResponse(row);
 	});
 }

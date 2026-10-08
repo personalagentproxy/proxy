@@ -8,6 +8,7 @@ import {
 	type AgentProviderId,
 } from '@proxy/integrations';
 import {createAgent} from '@/client/agents-client';
+import {AgentProviderTile} from '@/components/agent-provider-tile';
 import {AgentLogo} from '@/components/brand-logo';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
@@ -167,25 +168,13 @@ function NewAgentDialog({
 						<legend className="mb-2 text-sm leading-none font-medium">Agent</legend>
 						<div className="grid gap-2 sm:grid-cols-2">
 							{providers.map((provider, index) => (
-								<button
+								<AgentProviderTile
 									key={provider.id}
-									type="button"
+									provider={provider}
+									chosen={providerId === provider.id}
 									autoFocus={index === 0}
-									aria-pressed={providerId === provider.id}
-									className={cn(
-										'flex items-center gap-3 rounded-lg border p-3 text-left hover:bg-muted/50',
-										providerId === provider.id && 'border-foreground bg-muted/50',
-									)}
-									onClick={() => setProviderId(provider.id)}
-								>
-									<AgentLogo providerId={provider.id} />
-									<span className="min-w-0">
-										<span className="block truncate text-sm font-medium">{provider.name}</span>
-										<span className="block truncate text-xs text-muted-foreground">
-											{provider.company}
-										</span>
-									</span>
-								</button>
+									onChoose={() => setProviderId(provider.id)}
+								/>
 							))}
 						</div>
 					</fieldset>
