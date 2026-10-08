@@ -62,6 +62,12 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
+      # Runtime values for the hosted deployment. The official self-hosting image receives its
+      # defaults separately from the GitHub image workflow.
+      - key: TELEMETRY_ENDPOINT
+        sync: false
+      - key: TELEMETRY_API_KEY
+        sync: false
 
   # The docs, exported as plain files (packages/docs/next.config.ts). Render serves out/404.html
   # for a missing path.

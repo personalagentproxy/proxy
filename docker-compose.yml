@@ -37,6 +37,9 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       RESEND_KEY: ${RESEND_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      # The official image has the maintainer-run collector configured. This explicit setting keeps
+      # the opt-out in .env while leaving the image's endpoint and token intact.
+      TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
     logging: *logging
 
   postgres:

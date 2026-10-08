@@ -14,6 +14,16 @@ RUN bun run --cwd packages/web build
 # workspace's package.json is copied so the lockfile still matches.
 FROM oven/bun:1-slim AS runtime
 WORKDIR /app
+
+# Official images receive these from the image workflow. Custom builds leave telemetry dormant
+# unless they pass their own endpoint and project token. APP_VERSION falls back to package.json.
+ARG APP_VERSION=""
+ARG TELEMETRY_ENDPOINT=""
+ARG TELEMETRY_API_KEY=""
+ENV APP_VERSION=$APP_VERSION
+ENV TELEMETRY_ENDPOINT=$TELEMETRY_ENDPOINT
+ENV TELEMETRY_API_KEY=$TELEMETRY_API_KEY
+
 # Prisma's engines need OpenSSL.
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 COPY package.json bun.lock ./

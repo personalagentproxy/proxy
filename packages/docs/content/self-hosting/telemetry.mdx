@@ -1,0 +1,79 @@
+---
+title: Telemetry
+description: The anonymous daily installation heartbeat, its contents, and how to turn it off.
+---
+
+Official Personal Agent Proxy images send one anonymous heartbeat per installation per day directly
+to the project maintainers' PostHog Cloud project. It starts about one minute after the server boots
+and skips the heartbeat when the last successful one was less than 23 hours ago. It needs no
+separate collector service or database beyond the Postgres the application already uses.
+
+The official image contains the collector endpoint and its write-only PostHog project token. Builds
+from source and custom images are dormant when `TELEMETRY_ENDPOINT` or `TELEMETRY_API_KEY` is empty.
+In dormant mode, Personal Agent Proxy does not create an instance id or make a telemetry request.
+
+## What is sent
+
+The three installation values sent are:
+
+- the instance id: a random UUIDv4 generated on the first configured production boot, sent as
+  PostHog's `distinct_id`
+- `version`: the official image version, or the release version from the root `package.json` for a
+  custom build, sent as an event property
+- `timestamp`: the heartbeat time in ISO 8601 UTC
+
+PostHog's event envelope also carries the fixed event name `instance heartbeat`, the write-only
+project token, and controls that disable person-profile creation and GeoIP enrichment. No analytics
+SDK is installed.
+
+The instance id is stored in Postgres under the `telemetry_instance_id` key in `InstanceMeta`. It is
+random and stays stable across server restarts. It is never derived from a hostname, IP address,
+email address, user, or hardware. The time of the last successful heartbeat is stored beside it
+under `telemetry_last_sent_at`. A Postgres lock ensures multiple application processes still send
+only one installation heartbeat.
+
+Personal Agent Proxy never adds user content, email addresses, names, user or integration tokens,
+URLs, hostnames, IP addresses, integration names, or hardware details to the event. The PostHog
+project must also have **IP data capture disabled** under **Settings → Project → General**, so
+PostHog discards the network address of the server making the request.
+
+Telemetry does not run outside production or in CI. A failed heartbeat is discarded after five
+seconds and cannot block server startup or requests.
+
+## How to turn telemetry off
+
+Set `TELEMETRY_ENABLED=false` in `.env`, then restart Personal Agent Proxy:
+
+```dotenv
+TELEMETRY_ENABLED=false
+```
+
+The repository's `docker-compose.yml` passes that setting to the server, so apply it with:
+
+```sh
+docker compose up -d
+```
+
+If you maintain your own Compose file, add the setting directly to the service and restart it:
+
+```yaml
+services:
+  proxy:
+    environment:
+      TELEMETRY_ENABLED: 'false'
+```
+
+When telemetry is off, nothing is sent and an installation that has never enabled it does not get
+an instance id.
+
+To use your own collector with the repository's Compose file, add its values directly under the
+`proxy` service's `environment` block. Declaring them there overrides the defaults in the official
+image:
+
+```yaml
+services:
+  proxy:
+    environment:
+      TELEMETRY_ENDPOINT: 'https://us.i.posthog.com/i/v0/e/'
+      TELEMETRY_API_KEY: 'phc_your_project_token'
+```

@@ -68,7 +68,10 @@ export function setDbLogger(logger: DbLogger | undefined): void {
 }
 
 // Runs a query and turns a throw into a `db_error`, or passes an `ApiError` thrown inside through.
-export async function wrapDb<T>(op: () => Promise<T>): Promise<Result<T, ApiError>> {
+export async function wrapDb<T>(
+	op: () => Promise<T>,
+	options: {logFailure?: boolean} = {},
+): Promise<Result<T, ApiError>> {
 	const start = performance.now();
 	const result = await Result.wrapAsync(op);
 	if (result.isOk()) {
@@ -76,9 +79,11 @@ export async function wrapDb<T>(op: () => Promise<T>): Promise<Result<T, ApiErro
 	}
 
 	const apiError = isApiError(result.error) ? result.error : ApiErr.dbError(result.error);
-	dbLogger?.warn('db query failed', {
-		durationMs: Math.round(performance.now() - start),
-		errorKind: apiError.kind,
-	});
+	if (options.logFailure !== false) {
+		dbLogger?.warn('db query failed', {
+			durationMs: Math.round(performance.now() - start),
+			errorKind: apiError.kind,
+		});
+	}
 	return Err(apiError);
 }

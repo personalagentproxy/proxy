@@ -6,6 +6,7 @@ import {connectDb, disconnectDb} from '@proxy/db';
 
 import {log, serializeError} from './observability/log';
 import {createHttpApp} from './server/create-http-app';
+import {startTelemetry} from './telemetry';
 import {env} from './utils/env';
 
 let isShuttingDown = false;
@@ -21,6 +22,7 @@ async function startApiServer(): Promise<void> {
 		log.error('Failed to connect Prisma to Postgres', serializeError(connectDbResult.error));
 		process.exit(1);
 	}
+	startTelemetry();
 
 	const shutdown = async (signal: string): Promise<void> => {
 		if (isShuttingDown) {
