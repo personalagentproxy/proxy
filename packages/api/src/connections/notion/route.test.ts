@@ -111,7 +111,7 @@ describe('handleNotionCallbackRoute', () => {
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'notion', account: 'alex@example.com · Acme', defaults: ['read']});
 		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toMatchObject({clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1'});
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1?added');
 	});
 
 	test('a sign-in turned down at Notion goes back to the catalog', async () => {

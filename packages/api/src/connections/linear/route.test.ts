@@ -124,7 +124,7 @@ describe('handleLinearCallbackRoute', () => {
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'linear', account: 'alex@example.com · Acme', defaults: ['read']});
 		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toMatchObject({clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1'});
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1?added');
 	});
 
 	test('signing in to the same workspace again gives its connection the new tokens', async () => {
@@ -134,7 +134,7 @@ describe('handleLinearCallbackRoute', () => {
 
 		expect(createConnection).not.toHaveBeenCalled();
 		expect(updateConnectionCredential.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0'});
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-0');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-0?added');
 	});
 
 	test('a sign-in turned down at Linear goes back to the catalog', async () => {

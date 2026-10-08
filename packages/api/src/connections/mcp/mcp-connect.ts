@@ -125,7 +125,7 @@ export function mcpConnectRoutes(args: {
 		res.redirect(started.value.url);
 	}
 
-	/** `GET /api/connections/<integration>/callback` — where the sign-in comes back to; lands on the connection. */
+	/** `GET /api/connections/<integration>/callback` — where the sign-in comes back to; lands on the connection, saying it was added. */
 	async function handleCallback(request: AuthenticatedRequest, res: Response): Promise<void> {
 		const appUrl = env.APP_URL;
 		if (!appUrl) {
@@ -140,7 +140,7 @@ export function mcpConnectRoutes(args: {
 			redirectToConnectError(res, appUrl, connectionId.error);
 			return;
 		}
-		res.redirect(`${appUrl}/connections/${connectionId.value}`);
+		res.redirect(`${appUrl}/connections/${connectionId.value}?added`);
 	}
 
 	return {handleStart, handleCallback};

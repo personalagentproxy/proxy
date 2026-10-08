@@ -120,7 +120,7 @@ describe('handleGranolaCallbackRoute', () => {
 		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'granola', account: 'alex@example.com', defaults: ['readNotes', 'readTranscripts']});
 		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toMatchObject({clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1'});
 		expect(res.clearCookie).toHaveBeenCalled();
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1?added');
 	});
 
 	test('signing in to an account already connected gives that connection the new tokens', async () => {
@@ -130,7 +130,7 @@ describe('handleGranolaCallbackRoute', () => {
 
 		expect(createConnection).not.toHaveBeenCalled();
 		expect(updateConnectionCredential.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-old'});
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-old');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-old?added');
 	});
 
 	test('a state that does not match, or another user, connects nothing', async () => {

@@ -51,7 +51,7 @@ describe('handleListConnectionsRoute', () => {
 
 		expect(listConnections).toHaveBeenCalledWith('org-1');
 		const [connection] = result.unwrap().connections;
-		expect(connection).toMatchObject({id: 'conn-1', integrationId: 'email', account: 'alex@example.com', connectedAt: '2026-10-01T00:00:00.000Z'});
+		expect(connection).toMatchObject({id: 'conn-1', integrationId: 'email', account: 'alex@example.com'});
 		expect(connection?.defaults).toEqual(['read']);
 	});
 

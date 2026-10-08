@@ -1,6 +1,6 @@
-import {UnplugIcon} from 'lucide-react';
+import {CircleCheckIcon, UnplugIcon} from 'lucide-react';
 import {useState} from 'react';
-import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
+import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
 import {deleteConnection, setConnectionDefaults} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
@@ -20,7 +20,6 @@ import {
 	ownSettings,
 	describeActions,
 } from '@/lib/access';
-import {formatDate} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin} from '@/lib/types';
 import type {connectionLoader} from '@/loaders';
@@ -31,6 +30,9 @@ export function ConnectionPage() {
 	const {connection, connections, agents, entries} = useLoaderData<typeof connectionLoader>();
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
+	// Set by whatever made the connection: the email dialog, or the api back from a service's sign-in.
+	const [searchParams] = useSearchParams();
+	const added = searchParams.has('added');
 	const [disconnecting, setDisconnecting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const integration = connection && integrationOf(connection);
@@ -62,10 +64,13 @@ export function ConnectionPage() {
 			}
 		>
 			<div className="flex flex-col gap-8">
-				<Section title="Default access" detail={`connected ${formatDate(connection.connectedAt)}`}>
-					<p className="mb-2 text-sm text-muted-foreground md:px-3">
-						What every agent gets here, unless its own page says otherwise.
+				{added && (
+					<p className="flex items-center gap-2 rounded-lg bg-green-500/10 px-3 py-2 text-sm text-green-700 dark:text-green-400">
+						<CircleCheckIcon className="size-4 shrink-0" />
+						Connection added successfully
 					</p>
+				)}
+				<Section title="Permissions">
 					<ConnectionAccess
 						actions={integration.actions}
 						defaults={defaultActions(connection)}
