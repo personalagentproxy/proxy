@@ -6,7 +6,6 @@ export const connectionSchema = z.object({
 	id: z.string(),
 	integrationId: z.string(),
 	account: z.string(),
-	connectedAt: z.string(),
 	// The actions agents get by default.
 	defaults: z.array(z.string()),
 });

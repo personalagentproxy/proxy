@@ -174,7 +174,7 @@ function ConnectEmailDialog({open, onClose}: {open: boolean; onClose: () => void
 							return;
 						}
 						close();
-						navigate(`/connections/${result.value.id}`);
+						navigate(`/connections/${result.value.id}?added`);
 					}}
 				>
 					<DialogHeader>
