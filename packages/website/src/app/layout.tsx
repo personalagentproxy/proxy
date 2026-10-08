@@ -1,5 +1,6 @@
 import type {Metadata} from 'next';
 import type {ReactNode} from 'react';
+import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -7,11 +8,18 @@ export const metadata: Metadata = {
 	description: 'Personal Agent Proxy',
 };
 
-// Follows the system theme before the first paint so the page never flashes the other one, like
-// the docs and the web app's index.html.
-const THEME_SCRIPT = `if (matchMedia('(prefers-color-scheme: dark)').matches) {
-	document.documentElement.classList.add('dark');
-}`;
+// Applies the saved theme, else the system's, before the first paint so the page never flashes the
+// other one, like the web app's index.html. The key is the web app's, though the two origins keep
+// separate storage.
+const THEME_SCRIPT = `let savedTheme = null;
+try {
+	savedTheme = localStorage.getItem('proxy-ui-theme');
+} catch {
+	// Storage can be unavailable in privacy-restricted browser contexts.
+}
+const systemIsDark = matchMedia('(prefers-color-scheme: dark)').matches;
+const isDark = savedTheme === 'dark' || (savedTheme !== 'light' && systemIsDark);
+document.documentElement.classList.add(isDark ? 'dark' : 'light');`;
 
 export default function RootLayout({children}: {children: ReactNode}) {
 	return (
@@ -19,7 +27,9 @@ export default function RootLayout({children}: {children: ReactNode}) {
 			<head>
 				<script dangerouslySetInnerHTML={{__html: THEME_SCRIPT}} />
 			</head>
-			<body>{children}</body>
+			<body>
+				<ThemeProvider>{children}</ThemeProvider>
+			</body>
 		</html>
 	);
 }

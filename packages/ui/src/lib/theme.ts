@@ -20,6 +20,7 @@ export function parseTheme(value: string | null): Theme | null {
 	return null;
 }
 
+// Null where there is no window (server rendering) or storage is blocked.
 export function browserStorage(): Storage | null {
 	const result = Result.wrap(() => window.localStorage);
 

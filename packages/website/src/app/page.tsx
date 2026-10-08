@@ -1,6 +1,7 @@
 import {Button} from '@proxy/ui/components/button';
 import {LogoDock} from '@/components/logo-dock';
 import {RiseInWords, riseInDelay} from '@/components/rise-in-words';
+import {ThemeToggle} from '@/components/theme-toggle';
 
 // The app is its own origin: Vite's in development, app.personalagentproxy.com once built.
 const APP_URL =
@@ -62,7 +63,8 @@ export default function Home() {
 					style={{animationDelay: riseInDelay(LINKS_WORD)}}
 				>
 					<div>© 2026 Varis Labs, Inc.</div>
-					<div className="flex gap-4">
+					<div className="flex items-center gap-4">
+						<ThemeToggle />
 						<a
 							className="hover:text-foreground"
 							href="https://docs.personalagentproxy.com"
