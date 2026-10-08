@@ -133,3 +133,28 @@ describe('nested collections', () => {
 		expect(findTool(email, 'emails_create')?.inputSchema.properties.parent).toBeUndefined();
 	});
 });
+
+describe('linear', () => {
+	const linear = integration('linear');
+
+	test('lists, opens, creates and edits issues, but never deletes them', () => {
+		expect(integrationTools(linear).map((tool) => tool.name)).toEqual([
+			'issues_list',
+			'issues_get',
+			'issues_create',
+			'issues_update',
+		]);
+	});
+
+	test('a list is searched and narrowed by the type of status', () => {
+		const list = findTool(linear, 'issues_list');
+
+		expect(Object.keys(list?.inputSchema.properties ?? {})).toEqual([
+			'search',
+			'statusType',
+			'page',
+		]);
+		expect(list?.inputSchema.properties.statusType?.enum).toContain('Started');
+		expect(findTool(linear, 'issues_create')?.inputSchema.properties.statusType).toBeUndefined();
+	});
+});

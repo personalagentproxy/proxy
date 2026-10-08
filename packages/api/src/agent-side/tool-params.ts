@@ -11,7 +11,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 /**
  * A tool's params, checked against its input schema: an object of text, nothing it doesn't take,
- * an enum's values only, and every required one there. Left out entirely, a tool gets none. The
+ * an enum's values only, or none chosen, and every required one there. Left out entirely, a tool gets none. The
  * messages say what to change, for a model reading them.
  */
 export function parseToolParams(tool: Tool, params: unknown): Result<Record<string, string>, ApiError> {
@@ -29,7 +29,8 @@ export function parseToolParams(tool: Tool, params: unknown): Result<Record<stri
 			const takes = known.length > 0 ? `; it takes ${known.join(', ')}` : '; it takes none';
 			return Err(ApiErr.validationError(`${tool.name} takes no ${key}${takes}`));
 		}
-		if (value === null || value === undefined) {
+		// A select left unchosen, as a form sends it, is left out like one not given.
+		if (value === null || value === undefined || (property.enum && value === '')) {
 			continue;
 		}
 		if (typeof value !== 'string') {

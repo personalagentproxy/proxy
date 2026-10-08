@@ -192,7 +192,7 @@ export function AgentCollectionPage() {
 									</span>
 								)}
 								{filter && !chosen && (
-									<span className="w-12 shrink-0 text-right text-muted-foreground">
+									<span className="w-20 shrink-0 text-right text-muted-foreground">
 										{record.values[filter.key]}
 									</span>
 								)}

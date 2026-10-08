@@ -188,6 +188,22 @@ const wiki = await connect({
 	defaults: ['read'],
 });
 
+// Made-up tokens, like Notion's: opening an issue fails.
+const tracker = await connect({
+	integrationId: 'linear',
+	account: 'demo@acme-corp.com · Acme',
+	credential: encrypt(
+		JSON.stringify({
+			clientId: 'demo-client',
+			accessToken: 'demo-access-token',
+			refreshToken: null,
+			expiresAt: null,
+		}),
+	),
+	daysAgo: 2,
+	defaults: ['read', 'create'],
+});
+
 const connections: [Connection, ...Connection[]] = [
 	info,
 	personal,
@@ -196,6 +212,7 @@ const connections: [Connection, ...Connection[]] = [
 	newsletters,
 	meetings,
 	wiki,
+	tracker,
 ];
 
 // ---- Information records --------------------------------------------------------------------
@@ -345,6 +362,7 @@ const agents = [
 			grant(info, {readAddresses: false, readNotes: false}),
 			grant(meetings, {readTranscripts: false}),
 			grant(wiki, {read: false}),
+			grant(tracker, {create: false}),
 		],
 	}),
 ];
@@ -399,6 +417,15 @@ const PAGE_TITLES: [string, ...string[]] = [
 	'Team offsite notes',
 ];
 
+// Titles for Linear's issues.
+const ISSUE_TITLES: [string, ...string[]] = [
+	'Fix the login page on Safari',
+	'Onboarding emails go out twice',
+	'Add CSV export to reports',
+	'Dark mode for the settings page',
+	'Slow search on large workspaces',
+];
+
 // What agents search for.
 const SEARCHES: [string, ...string[]] = [
 	'invoice',
@@ -420,6 +447,10 @@ function recordTitle(connection: Connection, collectionId: string): string {
 
 	if (connection.integrationId === 'notion') {
 		return pick(PAGE_TITLES);
+	}
+
+	if (connection.integrationId === 'linear') {
+		return pick(ISSUE_TITLES);
 	}
 
 	const titles = (INFO_RECORDS[collectionId] ?? []).map((values) => values.label ?? values.title);

@@ -30,7 +30,7 @@ import {INTEGRATIONS} from '@/lib/integrations';
 // The integrations connected by signing in to them. Their sign-in starts at
 // `/api/connections/<id>/start`: the api sends the browser on to the service, and back to the new
 // connection, or here with `?error=<id>` when it didn't finish.
-const SIGN_IN: IntegrationId[] = ['granola', 'notion'];
+const SIGN_IN: IntegrationId[] = ['granola', 'notion', 'linear'];
 
 // The catalog. Each integration can be connected again, for another mailbox or account.
 export function AddConnectionPage() {
