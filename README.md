@@ -29,7 +29,7 @@ their full private context or silently expanding what an agent may do.
     </td>
     <td align="center" width="25%">
       <img src="docs/assets/agents/grok-bot.png" width="48" height="48" alt="Grok Bot logo"><br>
-      <strong>Grok Bot</strong>
+      <strong>Grok&nbsp;Bot</strong>
     </td>
     <td align="center" width="25%">
       <img src="docs/assets/agents/muse.png" width="48" height="48" alt="Muse logo"><br>
@@ -54,7 +54,7 @@ their full private context or silently expanding what an agent may do.
       <strong>ChatGPT</strong>
     </td>
     <td align="center" width="25%">
-      <strong>And More</strong>
+      <strong>And&nbsp;More</strong>
     </td>
   </tr>
 </table>
