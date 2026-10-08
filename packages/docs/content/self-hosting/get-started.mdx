@@ -99,8 +99,6 @@ docker run -d -p 4000:4000 \
   ghcr.io/personalagentproxy/proxy:main
 ```
 
-It applies the database migrations every time it starts, before it serves anything.
-
 <Callout>
   Docker Compose on one server has no failover, and keeps the database on that server's disk.
   [Back it up](/self-hosting/upgrades-and-backups#backups), or run the image on its own against a

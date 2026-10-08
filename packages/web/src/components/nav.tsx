@@ -10,6 +10,7 @@ import {
 import {Link, useLocation, useRouteLoaderData} from 'react-router';
 import {signOut} from '@/client/auth-client';
 import type {Me} from '@/client/me-client';
+import {ThemeMenu} from '@/components/theme-menu';
 import {
 	Sidebar,
 	SidebarContent,
@@ -59,6 +60,9 @@ export function AppSidebar() {
 			</SidebarContent>
 			<SidebarFooter>
 				<SidebarMenu>
+					<SidebarMenuItem>
+						<ThemeMenu />
+					</SidebarMenuItem>
 					{/* The mock runs both sides in one tab, so the agent's door is a link away. */}
 					<SidebarMenuItem>
 						<SidebarMenuButton tooltip="Agent sign-in" render={<Link to="/agent/login" />}>
