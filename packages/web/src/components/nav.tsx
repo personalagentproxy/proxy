@@ -4,7 +4,6 @@ import {
 	LogOutIcon,
 	PlugIcon,
 	ScrollTextIcon,
-	SquareTerminalIcon,
 	type LucideIcon,
 } from 'lucide-react';
 import {Link, useLocation, useRouteLoaderData} from 'react-router';
@@ -62,13 +61,6 @@ export function AppSidebar() {
 				<SidebarMenu>
 					<SidebarMenuItem>
 						<ThemeMenu />
-					</SidebarMenuItem>
-					{/* The mock runs both sides in one tab, so the agent's door is a link away. */}
-					<SidebarMenuItem>
-						<SidebarMenuButton tooltip="Agent sign-in" render={<Link to="/agent/login" />}>
-							<SquareTerminalIcon />
-							<span>Agent sign-in</span>
-						</SidebarMenuButton>
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton
