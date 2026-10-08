@@ -115,3 +115,32 @@ describe('handleConnectEmailRoute', () => {
 		expect(createConnection).not.toHaveBeenCalled();
 	});
 });
+
+describe('handleTestEmailRoute', () => {
+	test('signs in to the mailbox and saves nothing', async () => {
+		const {handleTestEmailRoute} = await import('./route');
+		const result = await handleTestEmailRoute(makeRequest({provider: 'gmail', email: ' Alex@Gmail.com ', password: 'abcd efgh ijkl mnop'}));
+
+		expect(result.isOk()).toBe(true);
+		expect(checkMailbox).toHaveBeenCalledWith({imapHost: 'imap.gmail.com', smtpHost: 'smtp.gmail.com', smtpPort: 465, username: 'alex@gmail.com', password: 'abcdefghijklmnop'});
+		expect(createConnection).not.toHaveBeenCalled();
+		expect(encryptSecret).not.toHaveBeenCalled();
+	});
+
+	test("reports the mailbox's refusal", async () => {
+		checkMailbox.mockResolvedValue(Err(ApiErr.credentialsRejected()));
+
+		const {handleTestEmailRoute} = await import('./route');
+		const result = await handleTestEmailRoute(makeRequest({provider: 'gmail', email: 'alex@gmail.com', password: 'wrong'}));
+
+		expect(result.unwrapErr().kind).toBe('credentials_rejected');
+	});
+
+	test('another provider needs its servers', async () => {
+		const {handleTestEmailRoute} = await import('./route');
+		const result = await handleTestEmailRoute(makeRequest({provider: 'other', email: 'alex@example.com', password: 'secret'}));
+
+		expect(result.isErr()).toBe(true);
+		expect(checkMailbox).not.toHaveBeenCalled();
+	});
+});

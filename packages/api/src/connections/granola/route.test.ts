@@ -63,10 +63,10 @@ function makeRes() {
 const user = {userId: 'user-1', email: 'alex@example.com'};
 
 // The start route for a real state cookie and Granola sign-in address.
-async function start() {
+async function start(query: Record<string, string> = {}) {
 	const {handleStartGranolaRoute} = await import('./route');
 	const res = makeRes();
-	await handleStartGranolaRoute({user, query: {}, headers: {}} as never, res as never);
+	await handleStartGranolaRoute({user, query, headers: {}} as never, res as never);
 	const cookie = res.cookies.find((candidate) => candidate.name === 'proxy.granola-state');
 	const authorizeUrl = new URL(res.redirect.mock.calls[0]?.[0] as string);
 	return {res, cookie, authorizeUrl, state: authorizeUrl.searchParams.get('state') ?? ''};
@@ -150,5 +150,23 @@ describe('handleGranolaCallbackRoute', () => {
 
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/new?error=granola');
 		expect(createConnection).not.toHaveBeenCalled();
+	});
+
+	test('a sign-in started from the welcome flow ends on its page for the connection, or back on its catalog', async () => {
+		const done = await start({returnTo: 'welcome'});
+		const finished = await callback({cookie: done.cookie?.value ?? '', query: {state: done.state, code: 'code-1'}});
+		expect(createConnection).toHaveBeenCalledTimes(1);
+		expect(finished.redirect).toHaveBeenCalledWith('https://app.example.com/welcome/connections/conn-1');
+
+		const turnedDown = await start({returnTo: 'welcome'});
+		const failed = await callback({cookie: turnedDown.cookie?.value ?? '', query: {state: turnedDown.state, error: 'access_denied'}});
+		expect(failed.redirect).toHaveBeenCalledWith('https://app.example.com/welcome/connections?error=granola');
+	});
+
+	test('an unknown returnTo is ignored', async () => {
+		const {cookie, state} = await start({returnTo: 'https://evil.example.com'});
+		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
+
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1?added');
 	});
 });

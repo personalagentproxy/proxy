@@ -16,6 +16,7 @@ import {
 	actionsFor,
 	agentsWithAccess,
 	defaultActions,
+	defaultsOnOrOff,
 	integrationOf,
 	ownSettings,
 	describeActions,
@@ -76,7 +77,7 @@ export function ConnectionPage() {
 						defaults={defaultActions(connection)}
 						differing={differingAgents(agents, connection.id)}
 						onChange={async (actions) => {
-							const result = await setConnectionDefaults(connection.id, onOrOff(actions));
+							const result = await setConnectionDefaults(connection.id, defaultsOnOrOff(actions));
 							setError(result.isErr() ? describeFetchError(result.error) : null);
 							await revalidator.revalidate();
 						}}
@@ -169,11 +170,4 @@ function differingAgents(
 		}
 	}
 	return counts;
-}
-
-// A default is on or off; nothing on this page returns one to anything else.
-function onOrOff(actions: Record<string, boolean | null>): Record<string, boolean> {
-	return Object.fromEntries(
-		Object.entries(actions).flatMap(([id, allowed]) => (allowed === null ? [] : [[id, allowed]])),
-	);
 }

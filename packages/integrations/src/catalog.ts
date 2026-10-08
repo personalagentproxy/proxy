@@ -42,17 +42,17 @@ const email: Integration = {
 			requires: 'read',
 		},
 		{
-			id: 'trash',
-			label: 'Move to Trash',
-			description: 'Move emails to Trash, where they can be restored from',
-			risk: 'high',
-			requires: 'read',
-		},
-		{
 			id: 'write',
 			label: 'Write drafts',
 			description: 'Create, edit and delete drafts',
 			risk: 'medium',
+			requires: 'read',
+		},
+		{
+			id: 'trash',
+			label: 'Move to Trash',
+			description: 'Move emails to Trash, where they can be restored from',
+			risk: 'high',
 			requires: 'read',
 		},
 		{

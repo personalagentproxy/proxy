@@ -1,5 +1,6 @@
 import {httpRequest, type FetchError} from '@proxy/utils';
 import {z} from 'zod';
+import {apiSend} from '@/client/request';
 
 const meSchema = z.object({
 	user: z.object({
@@ -8,6 +9,8 @@ const meSchema = z.object({
 		name: z.string().nullable(),
 		image: z.string().nullable(),
 	}),
+	// False until the welcome flow is finished or skipped; the human side shows it until then.
+	onboarded: z.boolean(),
 });
 
 export type Me = z.infer<typeof meSchema>;
@@ -25,4 +28,9 @@ export function isNotFoundError(error: FetchError): boolean {
 /** Who is signed in (`GET /api/me`). A 401 means "redirect to /login". */
 export function getMe() {
 	return httpRequest('/api/me', {method: 'GET'}, {schema: meSchema});
+}
+
+/** The welcome flow is done, or skipped: the human side opens on the app from now on. */
+export function finishOnboarding() {
+	return apiSend('POST', '/api/me/onboarded');
 }

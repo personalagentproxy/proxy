@@ -33,3 +33,8 @@ export type ConnectEmailInput = {
 export function connectEmail(input: ConnectEmailInput) {
 	return apiRequest('POST', '/api/connections/email', connectionSchema, input);
 }
+
+/** Signs in to the mailbox and saves nothing: the Test connection button. Answers 204, or the same errors as connecting. */
+export function testEmail(input: ConnectEmailInput) {
+	return apiSend('POST', '/api/connections/email/test', input);
+}

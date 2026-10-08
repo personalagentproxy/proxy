@@ -28,3 +28,12 @@ export const INTEGRATIONS: Integration[] = CATALOG.map((integration) => ({
 export function findIntegration(id: string): Integration | undefined {
 	return INTEGRATIONS.find((integration) => integration.id === id);
 }
+
+/** What the catalog says when a sign-in came back with `?error=<integration>`. */
+export function signInFailedMessage(integrationId: string | null): string | null {
+	const failed = findIntegration(integrationId ?? '');
+	if (!failed) {
+		return null;
+	}
+	return `Signing in to ${failed.name} didn’t finish. Try again.`;
+}

@@ -92,3 +92,32 @@ export async function getUserOrgId(userId: string): Promise<Result<string | null
 		)
 	).map((member) => member?.orgId ?? null);
 }
+
+export type UserOrganization = {id: string; onboardedAt: Date | null};
+
+/** The user's organization with whether it has been through the welcome flow; `Ok(null)` means the user is gone. */
+export async function getUserOrganization(
+	userId: string,
+): Promise<Result<UserOrganization | null, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.orgMember.findFirst({
+				where: {userId},
+				select: {org: {select: {id: true, onboardedAt: true}}},
+				orderBy: {createdAt: 'asc'},
+			}),
+		)
+	).map((member) => member?.org ?? null);
+}
+
+/** Marks the welcome flow done, once: a second finish keeps the first time. */
+export async function markOrganizationOnboarded(orgId: string): Promise<Result<void, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.organization.updateMany({
+				where: {id: orgId, onboardedAt: null},
+				data: {onboardedAt: new Date()},
+			}),
+		)
+	).map(() => undefined);
+}

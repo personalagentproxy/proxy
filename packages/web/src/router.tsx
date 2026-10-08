@@ -9,15 +9,19 @@ import {sanitizeCallbackUrl} from '@/lib/callback-url';
 import {unwrapLoaderResult} from '@/lib/loader-utils';
 import {
 	activityLoader,
+	addConnectionLoader,
 	agentLoader,
 	agentsLoader,
 	connectAgentLoader,
 	connectionLoader,
 	connectionsLoader,
 	infoLoader,
+	welcomeConnectionLoader,
+	welcomeLoader,
 } from '@/loaders';
 import {ActivityPage} from '@/pages/activity-page';
 import {AddConnectionPage} from '@/pages/add-connection-page';
+import {AddEmailPage} from '@/pages/add-email-page';
 import {AgentPage} from '@/pages/agent-page';
 import {AgentsPage} from '@/pages/agents-page';
 import {AgentCollectionPage} from '@/pages/agent/agent-collection-page';
@@ -30,10 +34,16 @@ import {ConnectionPage} from '@/pages/connection-page';
 import {ConnectionsPage} from '@/pages/connections-page';
 import {InfoPage} from '@/pages/info-page';
 import {LoginPage} from '@/pages/login-page';
+import {WelcomeConnectionPage, WelcomePage} from '@/pages/welcome-page';
 
-// The human side's guard: no session sends the user to /login, and back here after.
+// The human side's guard: no session sends the user to /login, and back here after. An
+// organization that has not been through the welcome flow goes there first.
 async function humanLoader() {
-	return unwrapLoaderResult(await getMe());
+	const me = unwrapLoaderResult(await getMe());
+	if (!me.onboarded) {
+		throw redirect('/welcome');
+	}
+	return me;
 }
 
 // A signed-in user has no business on the login page; anything else, an api outage included,
@@ -58,6 +68,32 @@ export const router = createBrowserRouter([
 		element: <ConnectAgentPage />,
 		errorElement: <RouteError />,
 	},
+	// The welcome flow: the person's agent, then their connections, before the app itself. A
+	// connection made in it gets a page of its own, for its permissions.
+	{
+		path: '/welcome',
+		loader: welcomeLoader,
+		element: <WelcomePage step="agent" />,
+		errorElement: <RouteError />,
+	},
+	{
+		path: '/welcome/connections',
+		loader: welcomeLoader,
+		element: <WelcomePage step="connections" />,
+		errorElement: <RouteError />,
+	},
+	{
+		path: '/welcome/connections/email',
+		loader: welcomeLoader,
+		element: <WelcomePage step="email" />,
+		errorElement: <RouteError />,
+	},
+	{
+		path: '/welcome/connections/:id',
+		loader: welcomeConnectionLoader,
+		element: <WelcomeConnectionPage />,
+		errorElement: <RouteError />,
+	},
 	{
 		id: 'human',
 		loader: humanLoader,
@@ -68,7 +104,8 @@ export const router = createBrowserRouter([
 		children: [
 			{path: '/', element: <Navigate to="/connections" replace />},
 			{path: '/connections', loader: connectionsLoader, element: <ConnectionsPage />},
-			{path: '/connections/new', element: <AddConnectionPage />},
+			{path: '/connections/new', loader: addConnectionLoader, element: <AddConnectionPage />},
+			{path: '/connections/new/email', element: <AddEmailPage />},
 			{path: '/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
 			{path: '/info', loader: infoLoader, element: <InfoPage />},
 			{path: '/agents', loader: agentsLoader, element: <AgentsPage />},
