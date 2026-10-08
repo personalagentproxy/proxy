@@ -5,8 +5,14 @@ import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library
 import {SidebarProvider} from '@proxy/ui/components/sidebar';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {ThemeMenu} from '@/components/theme-menu';
-import {ThemeProvider} from '@/components/theme-provider';
-import {storeTheme, storedTheme, THEME_STORAGE_KEY, useTheme, type Theme} from '@/components/theme';
+import {ThemeProvider} from '@proxy/ui/components/theme-provider';
+import {
+	storeTheme,
+	storedTheme,
+	THEME_STORAGE_KEY,
+	useTheme,
+	type Theme,
+} from '@proxy/ui/lib/theme';
 import {testWindow} from '@/test-dom';
 
 function ThemeProbe({nextTheme}: {nextTheme?: Theme}) {

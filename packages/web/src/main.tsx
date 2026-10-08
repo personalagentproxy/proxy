@@ -4,7 +4,7 @@ import {RouterProvider} from 'react-router';
 import './index.css';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {router} from '@/router';
-import {ThemeProvider} from '@/components/theme-provider';
+import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 
 const root = document.getElementById('root');
 

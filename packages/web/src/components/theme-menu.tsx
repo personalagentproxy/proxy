@@ -1,5 +1,5 @@
 import {MonitorIcon, MoonIcon, SunIcon, type LucideIcon} from 'lucide-react';
-import {useTheme, type Theme} from '@/components/theme';
+import {useTheme, type Theme} from '@proxy/ui/lib/theme';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
