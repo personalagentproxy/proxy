@@ -25,20 +25,6 @@ describe('wrapDb', () => {
 		);
 	});
 
-	it('can keep a non-critical query failure out of warning logs', async () => {
-		const warn = mock();
-		setDbLogger({warn});
-
-		const error = (
-			await wrapDb(async () => Promise.reject(new Error('telemetry database unavailable')), {
-				logFailure: false,
-			})
-		).unwrapErr();
-
-		expect(error.kind).toBe('db_error');
-		expect(warn).not.toHaveBeenCalled();
-	});
-
 	it('passes a thrown ApiError through', async () => {
 		const error = (await wrapDb(async () => Promise.reject(ApiErr.forbidden()))).unwrapErr();
 

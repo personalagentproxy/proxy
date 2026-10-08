@@ -63,6 +63,4 @@ their full private context or silently expanding what an agent may do.
 
 ## Telemetry
 
-Official production images send one anonymous daily heartbeat containing only a random instance id, the release version, and a timestamp. No user content or identifying account data is included.
-
-Set `TELEMETRY_ENABLED=false` to opt out; see the [telemetry documentation](https://docs.personalagentproxy.com/self-hosting/telemetry/) for details.
+Personal Agent Proxy sends one anonymous heartbeat a day: a random id, the version and the time. Set `TELEMETRY_ENABLED=false` to turn it off; see [Telemetry](https://docs.personalagentproxy.com/self-hosting/telemetry/).

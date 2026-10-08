@@ -15,15 +15,6 @@ RUN bun run --cwd packages/web build
 FROM oven/bun:1-slim AS runtime
 WORKDIR /app
 
-# Official images receive these from the image workflow. Custom builds leave telemetry dormant
-# unless they pass their own endpoint and project token. APP_VERSION falls back to package.json.
-ARG APP_VERSION=""
-ARG TELEMETRY_ENDPOINT=""
-ARG TELEMETRY_API_KEY=""
-ENV APP_VERSION=$APP_VERSION
-ENV TELEMETRY_ENDPOINT=$TELEMETRY_ENDPOINT
-ENV TELEMETRY_API_KEY=$TELEMETRY_API_KEY
-
 # Prisma's engines need OpenSSL.
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 COPY package.json bun.lock ./
@@ -49,6 +40,10 @@ COPY docker-entrypoint.sh ./
 
 ENV NODE_ENV=production
 ENV PORT=4000
+# The version telemetry reports, which the image workflow passes in. Last, so a new one leaves the
+# layers above cached.
+ARG APP_VERSION=""
+ENV APP_VERSION=$APP_VERSION
 EXPOSE 4000
 USER bun
 

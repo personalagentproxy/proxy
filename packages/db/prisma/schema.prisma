@@ -15,13 +15,10 @@ datasource db {
   relationMode = "prisma"
 }
 
-// Small installation-wide values that need to survive server restarts. Telemetry uses only a
-// random identifier and the time its last heartbeat succeeded.
+// Values for the whole installation, such as telemetry's random instance id.
 model InstanceMeta {
   key   String @id
   value String
-
-  updatedAt DateTime @default(now()) @updatedAt
 }
 
 model User {

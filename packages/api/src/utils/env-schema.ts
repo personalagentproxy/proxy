@@ -7,7 +7,7 @@ import {z} from 'zod';
  */
 
 export type EnvDoc = {
-	group: 'Core' | 'Sign-in' | 'Telemetry' | 'Deployment';
+	group: 'Core' | 'Sign-in' | 'Deployment';
 	description: string;
 	// Personal Agent Proxy does not work without it, though the api still starts so its errors can say why.
 	required?: true;
@@ -84,29 +84,6 @@ export const envSchema = z.object({
 		description: 'The sender of magic-link emails, such as `Personal Agent Proxy <login@example.com>`, on a domain verified with Resend.',
 	}),
 
-	TELEMETRY_ENABLED: documented(
-		z
-			.enum(['true', 'false', '1', '0'])
-			.transform((value) => value === 'true' || value === '1')
-			.default(true),
-		{
-			group: 'Telemetry',
-			description: 'Sends one anonymous installation heartbeat per day. Set to `false` or `0` to disable it before an instance id is created.',
-		},
-	),
-	TELEMETRY_ENDPOINT: documented(z.url().optional().default(''), {
-		group: 'Telemetry',
-		description: 'The PostHog event capture endpoint, such as `https://us.i.posthog.com/i/v0/e/`. An empty value leaves telemetry dormant.',
-	}),
-	TELEMETRY_API_KEY: documented(z.string().default(''), {
-		group: 'Telemetry',
-		description: 'The write-only PostHog project token (`phc_…`). An empty value leaves telemetry dormant.',
-	}),
-	APP_VERSION: documented(z.string().default(''), {
-		group: 'Telemetry',
-		description: 'The release or image version attached to telemetry. Official images set it automatically; an empty value uses the root package version.',
-	}),
-
 	NODE_ENV: documented(z.enum(['development', 'test', 'production']).default('production'), {
 		group: 'Deployment',
 		description: '`development` turns on the dev-only sign-in and logs magic links instead of sending them. Only `bun run dev` sets it.',
@@ -115,8 +92,18 @@ export const envSchema = z.object({
 		group: 'Deployment',
 		description: 'The port the api listens on.',
 	}),
-	CI: documented(z.string().optional(), {
+	TELEMETRY_ENABLED: documented(
+		z
+			.enum(['true', 'false', '1', '0'])
+			.transform((value) => value === 'true' || value === '1')
+			.default(true),
+		{
+			group: 'Deployment',
+			description: 'Sends one anonymous heartbeat a day: a random id, the version and the time. `false` turns it off.',
+		},
+	),
+	APP_VERSION: documented(z.string().default('unknown'), {
 		group: 'Deployment',
-		description: 'When set, disables the telemetry heartbeat so CI runs never represent an installation.',
+		description: 'The version telemetry reports. The official image sets it.',
 	}),
 });
