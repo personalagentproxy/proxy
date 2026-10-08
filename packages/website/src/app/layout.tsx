@@ -6,6 +6,20 @@ import './globals.css';
 export const metadata: Metadata = {
 	title: 'Personal Agent Proxy',
 	description: 'Personal Agent Proxy',
+	icons: {
+		icon: [
+			{
+				url: '/logos/personal-agent-proxy.svg',
+				type: 'image/svg+xml',
+				media: '(prefers-color-scheme: light)',
+			},
+			{
+				url: '/logos/personal-agent-proxy-dark.svg',
+				type: 'image/svg+xml',
+				media: '(prefers-color-scheme: dark)',
+			},
+		],
+	},
 };
 
 // Applies the saved theme, else the system's, before the first paint so the page never flashes the
