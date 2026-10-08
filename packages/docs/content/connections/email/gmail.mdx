@@ -1,0 +1,50 @@
+---
+title: Gmail
+description: Make an app password for a Gmail or Google Workspace mailbox.
+---
+
+<Steps>
+
+### Turn on 2-Step Verification
+
+Google only makes app passwords for accounts with
+[2-Step Verification](https://myaccount.google.com/signinoptions/twosv) on.
+
+### Create the app password
+
+Open [App passwords](https://myaccount.google.com/apppasswords), check the account in the top
+right corner, enter a name such as Personal Agent Proxy, and **Create**. Google shows the password
+once.
+
+### Connect the mailbox
+
+[Connect it](/connections/email#connect-the-mailbox) with **Gmail or Google Workspace**.
+
+</Steps>
+
+<Callout type="warning">
+  Changing your Google password revokes every app password, which disconnects Personal Agent
+  Proxy. Make a new one and connect the mailbox again.
+</Callout>
+
+## "The setting you are looking for is not available for your account"
+
+Google shows this on the App passwords page when the account cannot make one:
+
+- **2-Step Verification is off.** Turn it on, then open the page again.
+- **2-Step Verification uses only security keys.** Add another way to verify, such as an
+  authenticator app or your phone.
+- **Advanced Protection is on.** Accounts in Google's Advanced Protection Program cannot use app
+  passwords.
+- **It is a work or school account.** Your Google Workspace admin decides; see below.
+
+## Google Workspace
+
+For a work or school account, the admin sets these in the
+[Google Admin console](https://admin.google.com):
+
+- Under **Security → Authentication → 2-Step Verification**, people need to be allowed to turn
+  on 2-Step Verification, and its methods cannot be limited to security keys only.
+- Under **Apps → Google Workspace → Gmail → End User Access**, IMAP access needs to be on.
+
+If your admin does not allow app passwords, the mailbox cannot be connected yet.

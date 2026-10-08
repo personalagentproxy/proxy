@@ -1,56 +1,25 @@
 ---
 title: Information
-description: Store addresses, payment cards and notes for agents to use with controlled access.
+description: Store addresses, payment cards and notes for agents to use.
 ---
 
-Information is the built-in integration for details you want agents to use without connecting an
-outside service. It is created with the workspace, appears on its own Information page, and cannot
-be disconnected.
+Information is built in: details you want agents to use without connecting an outside service. It
+has three collections:
 
-## What you can store
-
-Information has three collections:
-
-- **Addresses** contain a label, name, street, postal code, city and country.
-- **Payment cards** contain a label, cardholder, card number and expiry date.
-- **Notes** contain a title and free-form text.
-
-Agents with Read access can search a collection by any value in it, without matching
-capitalization exactly.
-
-## Add information
+- **Addresses**: a label, name, street, postal code, city and country.
+- **Payment cards**: a label, cardholder, card number and expiry date.
+- **Notes**: a title and free-form text.
 
 <Steps>
 
-### Open Information
-
-Sign in to Personal Agent Proxy and choose **Information** in the sidebar.
-
 ### Add a record
 
-Choose **Add** beside Addresses, Payment cards or Notes. Enter the details and save them. Select an
-existing row to edit or delete it.
+Open **Information** in the sidebar and choose **Add** beside Addresses, Payment cards or Notes.
 
 ### Give agents access
 
-Each collection has separate Read and Edit actions. Turn them on as connection defaults for every
-agent, or change them for one agent on that agent's page. Edit access also requires Read access.
+Each collection has its own Read and Edit actions, so an agent can get your addresses without your
+payment cards. Set them on the agent's page, which can also make a setting the default for every
+agent. Edit also requires Read.
 
 </Steps>
-
-Personal Agent Proxy writes successful operations and access denials to the activity log.
-
-## Where the information lives
-
-Information records live in Personal Agent Proxy's Postgres database. Their values are encrypted
-with `ENCRYPTION_KEY` before they are stored; payment card numbers use the same encryption as the
-other values.
-
-<Callout type="warning">
-  Keep a backup of `ENCRYPTION_KEY`. Losing or changing it makes the stored Information records
-  unreadable. See [Upgrades and backups](/self-hosting/upgrades-and-backups) and
-  [Environment variables](/self-hosting/environment).
-</Callout>
-
-Information can contain sensitive personal and payment details. Give each agent only the
-collections and actions it needs.

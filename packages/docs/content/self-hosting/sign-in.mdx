@@ -3,10 +3,8 @@ title: Sign-in
 description: Sign-in links by email, Google, and who can create an account.
 ---
 
-People sign in with a link sent to their email, or with Google. Each account gets its own
-organization, so people on the same Personal Agent Proxy never see each other's connections, agents
-or activity. Agents sign in apart from people, with the logins you make for them; nothing here
-changes theirs.
+People sign in with a link sent to their email, or with Google. People on the same Personal Agent
+Proxy never see each other's connections, agents or activity.
 
 ## Who can create an account
 
@@ -18,13 +16,11 @@ ALLOWED_SIGNUP_EMAILS="you@example.com,example.org"
 ```
 
 People who already have an account can always sign in, even once they are no longer on the list.
-Someone the list leaves out is not sent a link, and sees "This address cannot create an account
-here."
 
 ## Sign-in links
 
 Sign-in links work without any setup: until Personal Agent Proxy can send email, it writes each link
-to its log, and the sign-in page says so. That is enough when you are the only one signing in:
+to its log. That is enough when you are the only one signing in:
 
 ```sh
 docker compose logs proxy | grep "Magic Link"
