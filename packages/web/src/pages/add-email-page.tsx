@@ -19,8 +19,8 @@ export function AddEmailPage() {
 		>
 			<div className="grid gap-4">
 				<p className="text-sm text-muted-foreground">
-					Personal Agent Proxy signs in with an app password, made for Personal Agent Proxy alone in
-					your mail account. Revoking it there disconnects Personal Agent Proxy.
+					Sign in with an app password made for this connection alone in your mail account. Revoking
+					it there disconnects the mailbox.
 				</p>
 				<ConnectEmailForm
 					onConnected={(connection) => navigate(`/connections/${connection.id}?added`)}

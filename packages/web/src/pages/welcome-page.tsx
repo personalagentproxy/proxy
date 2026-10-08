@@ -547,8 +547,8 @@ function EmailStep({onContinue}: {onContinue: (connection: Connection) => void})
 	return (
 		<>
 			<Heading title="Connect a mailbox">
-				Personal Agent Proxy signs in with an app password, made for Personal Agent Proxy alone in
-				your mail account. Revoking it there disconnects Personal Agent Proxy.
+				Sign in with an app password made for this connection alone in your mail account. Revoking
+				it there disconnects the mailbox.
 			</Heading>
 			<ConnectEmailForm
 				cancel={
