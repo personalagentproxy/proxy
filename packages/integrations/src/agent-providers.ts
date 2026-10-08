@@ -18,7 +18,7 @@ export const AGENT_PROVIDERS: AgentProvider[] = [
 		company: 'SpaceXAI',
 		faviconUrl: '/agent-providers/grok-bot.png',
 	},
-	{id: 'muse', name: 'Muse', company: 'Meta', faviconUrl: '/agent-providers/muse.svg'},
+	{id: 'muse', name: 'Muse', company: 'Meta', faviconUrl: '/agent-providers/muse.png'},
 	{
 		id: 'instinct',
 		name: 'Instinct',
@@ -36,7 +36,7 @@ export const AGENT_PROVIDERS: AgentProvider[] = [
 		id: 'poke',
 		name: 'Poke',
 		company: 'The Interaction Company',
-		faviconUrl: '/agent-providers/poke.jpg',
+		faviconUrl: '/agent-providers/poke.png',
 	},
 	{id: 'claude', name: 'Claude', company: 'Anthropic', faviconUrl: '/agent-providers/claude.png'},
 	{id: 'chatgpt', name: 'ChatGPT', company: 'OpenAI', faviconUrl: '/agent-providers/chatgpt.png'},

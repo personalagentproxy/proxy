@@ -17,6 +17,19 @@ describe('agent providers', () => {
 		}
 	});
 
+	test('each uses the logo shown in the README', async () => {
+		for (const provider of AGENT_PROVIDERS) {
+			const productLogo = await Bun.file(
+				new URL(`../../web/public${provider.faviconUrl}`, import.meta.url),
+			).bytes();
+			const readmeLogo = await Bun.file(
+				new URL(`../../../docs/assets/agents/${provider.id}.png`, import.meta.url),
+			).bytes();
+
+			expect(productLogo).toEqual(readmeLogo);
+		}
+	});
+
 	test('finds a provider by id', () => {
 		expect(findAgentProvider('dot')?.name).toBe('Dots');
 		expect(findAgentProvider('other')).toBeUndefined();
