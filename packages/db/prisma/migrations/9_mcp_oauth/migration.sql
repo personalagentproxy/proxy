@@ -12,6 +12,7 @@ CREATE TABLE "OAuthClient" (
     "name" TEXT NOT NULL,
     "redirectUris" TEXT[],
     "secretHash" TEXT,
+    "usedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -46,6 +47,9 @@ CREATE TABLE "OAuthGrant" (
 
     CONSTRAINT "OAuthGrant_pkey" PRIMARY KEY ("id")
 );
+
+-- CreateIndex
+CREATE INDEX "OAuthClient_createdAt_idx" ON "OAuthClient"("createdAt");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "OAuthCode_codeHash_key" ON "OAuthCode"("codeHash");
