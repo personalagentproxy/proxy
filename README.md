@@ -19,6 +19,14 @@
 Personal Agent Proxy defines how people can use multiple personal agents without giving every provider
 their full private context or silently expanding what an agent may do.
 
+<h3 align="center">
+  <a href="https://docs.personalagentproxy.com/self-hosting/">Self-host Personal Agent Proxy →</a>
+</h3>
+
+<h3 align="center">
+  <a href="https://app.personalagentproxy.com">Or use our hosted instance →</a>
+</h3>
+
 ## Designed to work across
 
 <table align="center">
