@@ -7,6 +7,8 @@ type Logo = {
 	tile: string;
 	// An app icon with its own lighting, which `.logo-tile`'s would double.
 	lit?: boolean;
+	// The mark for the dark theme, where there is one.
+	darkSrc?: string;
 };
 
 // The agents a login can be made for (AGENT_PROVIDERS in @proxy/integrations), ordered so the
@@ -45,7 +47,20 @@ const TILE = 'size-14 shrink-0 overflow-hidden rounded-[22%] sm:size-16';
 function LogoTile({logo}: {logo: Logo}) {
 	return (
 		<div className={cn(TILE, 'logo-tile', logo.lit && 'logo-tile-lit', logo.tile)}>
-			<img src={logo.src} alt={logo.name} draggable={false} className="size-full object-contain" />
+			<img
+				src={logo.src}
+				alt={logo.name}
+				draggable={false}
+				className={cn('size-full object-contain', logo.darkSrc && 'dark:hidden')}
+			/>
+			{logo.darkSrc && (
+				<img
+					src={logo.darkSrc}
+					alt={logo.name}
+					draggable={false}
+					className="hidden size-full object-contain dark:block"
+				/>
+			)}
 			{!logo.lit && (
 				<span aria-hidden className="logo-tile-rim">
 					<span />
@@ -105,7 +120,9 @@ export function LogoDock({className}: {className?: string}) {
 				logo={{
 					name: 'Personal Agent Proxy',
 					src: '/logos/personal-agent-proxy.svg',
-					tile: '',
+					darkSrc: '/logos/personal-agent-proxy-dark.svg',
+					// Padding in pixels: a percentage would be of the dock, this tile's containing block.
+					tile: 'bg-white p-2 sm:p-2.5 dark:bg-black',
 				}}
 			/>
 			<LogoMarquee logos={SERVICES} delayMs={-LOGO_MS / 2} reverse={false} />
