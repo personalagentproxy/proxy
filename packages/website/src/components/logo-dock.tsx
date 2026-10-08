@@ -13,7 +13,7 @@ type Logo = {
 const AGENTS: Logo[] = [
 	{name: 'Dot', src: '/logos/dot.svg', tile: 'bg-white p-[22%]'},
 	{name: 'Grok Bot', src: '/logos/grok-bot.png', tile: '', lit: true},
-	{name: 'Muse', src: '/logos/muse.svg', tile: 'bg-white p-[20%]'},
+	{name: 'Muse', src: '/logos/muse.png', tile: '', lit: true},
 	{name: 'Instinct', src: '/logos/instinct.png', tile: 'bg-[#F4F1EC] p-[10%]'},
 ];
 
