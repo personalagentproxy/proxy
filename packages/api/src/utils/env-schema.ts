@@ -92,4 +92,18 @@ export const envSchema = z.object({
 		group: 'Deployment',
 		description: 'The port the api listens on.',
 	}),
+	TELEMETRY_ENABLED: documented(
+		z
+			.enum(['true', 'false', '1', '0'])
+			.transform((value) => value === 'true' || value === '1')
+			.default(true),
+		{
+			group: 'Deployment',
+			description: 'Sends one anonymous heartbeat a day: a random id, the version and the time. `false` turns it off.',
+		},
+	),
+	APP_VERSION: documented(z.string().default('unknown'), {
+		group: 'Deployment',
+		description: 'The version telemetry reports. The official image sets it.',
+	}),
 });

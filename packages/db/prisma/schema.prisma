@@ -15,6 +15,12 @@ datasource db {
   relationMode = "prisma"
 }
 
+// Values for the whole installation, such as telemetry's random instance id.
+model InstanceMeta {
+  key   String @id
+  value String
+}
+
 model User {
   id            String    @id @default(cuid())
   name          String?

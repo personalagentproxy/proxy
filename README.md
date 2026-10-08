@@ -60,3 +60,7 @@ their full private context or silently expanding what an agent may do.
 </table>
 
 <img src="docs/assets/agent-dashboard.png" alt="Personal Agent Proxy agents dashboard">
+
+## Telemetry
+
+Personal Agent Proxy sends one anonymous heartbeat a day: a random id, the version and the time. Set `TELEMETRY_ENABLED=false` to turn it off; see [Telemetry](https://docs.personalagentproxy.com/self-hosting/telemetry/).

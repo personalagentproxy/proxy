@@ -1,0 +1,25 @@
+---
+title: Telemetry
+description: What Personal Agent Proxy sends once a day, and how to turn it off.
+---
+
+Personal Agent Proxy sends one anonymous heartbeat a day, so the maintainers know how many
+installations there are and which versions they run. It holds three things:
+
+- a random id, made for the installation the first time it sends and kept in its database
+- the version of Personal Agent Proxy
+- the time
+
+Nothing else: no users, email addresses, connections, agents or anything in them, and not the
+server's address or hostname.
+
+## Turn it off
+
+Set `TELEMETRY_ENABLED=false` in `.env`, then restart:
+
+```sh
+docker compose up -d
+```
+
+Without the repository's compose file, set it in the container's environment. Turned off before the
+first heartbeat, an installation never gets an id.

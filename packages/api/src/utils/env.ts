@@ -25,4 +25,6 @@ export const env = envSchema.parse({
 	ALLOWED_SIGNUP_EMAILS: read('ALLOWED_SIGNUP_EMAILS'),
 	NODE_ENV: read('NODE_ENV'),
 	PORT: read('PORT'),
+	TELEMETRY_ENABLED: read('TELEMETRY_ENABLED'),
+	APP_VERSION: read('APP_VERSION'),
 });

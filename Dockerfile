@@ -14,6 +14,7 @@ RUN bun run --cwd packages/web build
 # workspace's package.json is copied so the lockfile still matches.
 FROM oven/bun:1-slim AS runtime
 WORKDIR /app
+
 # Prisma's engines need OpenSSL.
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 COPY package.json bun.lock ./
@@ -39,6 +40,10 @@ COPY docker-entrypoint.sh ./
 
 ENV NODE_ENV=production
 ENV PORT=4000
+# The version telemetry reports, which the image workflow passes in. Last, so a new one leaves the
+# layers above cached.
+ARG APP_VERSION=""
+ENV APP_VERSION=$APP_VERSION
 EXPOSE 4000
 USER bun
 

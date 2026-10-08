@@ -32,6 +32,7 @@ export const NAV: {title: string; pages: NavEntry[]}[] = [
 			'self-hosting/get-started',
 			'self-hosting/sign-in',
 			'self-hosting/upgrades-and-backups',
+			'self-hosting/telemetry',
 			'self-hosting/environment',
 			'self-hosting/troubleshooting',
 		],
