@@ -1,0 +1,53 @@
+{
+  "shape": "hyperboloid",
+  "throat": 0.79,
+  "mouth": 1.2,
+  "length": 3,
+  "power": 2,
+  "lip": 0,
+  "rings": 64,
+  "segments": 96,
+  "flat": false,
+  "render": "solid",
+  "gridRingEvery": 4,
+  "gridMeridians": 24,
+  "unlit": false,
+  "color": "#4c4c4c",
+  "innerColor": "#000000",
+  "sameInner": false,
+  "metalness": 0,
+  "roughness": 1,
+  "clearcoat": 0,
+  "iridescence": 0,
+  "transmission": 0,
+  "opacity": 1,
+  "rotX": 16,
+  "rotY": 65,
+  "rotZ": 80,
+  "spinAxis": "none",
+  "spinSpeed": 0.5,
+  "key": {
+    "azimuth": 40,
+    "elevation": 45,
+    "intensity": 3,
+    "color": "#ffffff"
+  },
+  "fill": {
+    "azimuth": -60,
+    "elevation": 10,
+    "intensity": 0.8,
+    "color": "#dbe6ff"
+  },
+  "rim": {
+    "azimuth": 160,
+    "elevation": 30,
+    "intensity": 2,
+    "color": "#ffffff"
+  },
+  "ambient": 0,
+  "studio": false,
+  "studioIntensity": 1,
+  "background": "#ffffff",
+  "transparent": false,
+  "fov": 35
+}
