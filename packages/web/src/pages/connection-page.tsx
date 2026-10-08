@@ -1,4 +1,4 @@
-import {CircleCheckIcon, UnplugIcon} from 'lucide-react';
+import {CircleCheckIcon, RefreshCwIcon, UnplugIcon} from 'lucide-react';
 import {useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
 import {deleteConnection, setConnectionDefaults} from '@/client/connections-client';
@@ -103,6 +103,18 @@ export function ConnectionPage() {
 				</Section>
 				<Section
 					title="Recent activity"
+					titleAction={
+						<IconButton
+							label={revalidator.state === 'loading' ? 'Refreshing activity' : 'Refresh activity'}
+							size="xs"
+							disabled={revalidator.state === 'loading'}
+							onClick={() => void revalidator.revalidate()}
+						>
+							<RefreshCwIcon
+								className={revalidator.state === 'loading' ? 'motion-safe:animate-spin' : undefined}
+							/>
+						</IconButton>
+					}
 					detail={
 						entries.length > RECENT ? (
 							<Link
