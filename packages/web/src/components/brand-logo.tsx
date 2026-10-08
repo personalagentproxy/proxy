@@ -37,9 +37,24 @@ export function IntegrationLogo({
 	integration: Integration;
 	className?: string;
 }) {
+	if ('src' in integration.logo) {
+		return (
+			<LogoTile className={className}>
+				<img
+					src={integration.logo.src}
+					alt=""
+					className={cn(
+						'size-full',
+						integration.logo.fill ? 'object-cover' : 'object-contain p-[2px]',
+					)}
+				/>
+			</LogoTile>
+		);
+	}
+
 	return (
 		<LogoTile className={className}>
-			<integration.icon className="size-[60%] text-neutral-500" />
+			<integration.logo className="size-[60%] text-neutral-500" />
 		</LogoTile>
 	);
 }

@@ -1,30 +1,28 @@
-import {
-	FileTextIcon,
-	IdCardIcon,
-	ListTodoIcon,
-	MailIcon,
-	NotebookPenIcon,
-	type LucideIcon,
-} from 'lucide-react';
+import {IdCardIcon, MailIcon, type LucideIcon} from 'lucide-react';
 import {
 	INTEGRATIONS as CATALOG,
 	type Integration as CatalogIntegration,
 	type IntegrationId,
 } from '@proxy/integrations';
 
-export type Integration = CatalogIntegration & {icon: LucideIcon};
+// A brand's own logo where it has one (in `public/integrations/`), else an icon: Information is
+// ours, and Email is any mailbox. A logo that is already a square tile, as Granola's and Linear's
+// are, fills the tile edge to edge.
+type IntegrationLogoImage = {src: string; fill?: boolean};
 
-const ICONS: Record<IntegrationId, LucideIcon> = {
+export type Integration = CatalogIntegration & {logo: LucideIcon | IntegrationLogoImage};
+
+const LOGOS: Record<IntegrationId, LucideIcon | IntegrationLogoImage> = {
 	info: IdCardIcon,
 	email: MailIcon,
-	granola: NotebookPenIcon,
-	notion: FileTextIcon,
-	linear: ListTodoIcon,
+	granola: {src: '/integrations/granola.png', fill: true},
+	notion: {src: '/integrations/notion.svg'},
+	linear: {src: '/integrations/linear.svg', fill: true},
 };
 
 export const INTEGRATIONS: Integration[] = CATALOG.map((integration) => ({
 	...integration,
-	icon: ICONS[integration.id],
+	logo: LOGOS[integration.id],
 }));
 
 export function findIntegration(id: string): Integration | undefined {
