@@ -16,7 +16,7 @@
   <a href="https://github.com/personalagentproxy/proxy/graphs/commit-activity"><img src="https://img.shields.io/github/commit-activity/m/personalagentproxy/proxy" alt="Commit activity"></a>
 </p>
 
-Personal Agent Proxy explores how people can use multiple agents without giving every provider
+Personal Agent Proxy defines how people can use multiple personal agents without giving every provider
 their full private context or silently expanding what an agent may do.
 
 ## Designed to work across
