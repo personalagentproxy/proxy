@@ -61,10 +61,20 @@ export default function Home() {
 				>
 					<div>© 2026 Varis Labs, Inc.</div>
 					<div className="flex gap-4">
-						<a className="hover:text-foreground" href="https://docs.personalagentproxy.com">
+						<a
+							className="hover:text-foreground"
+							href="https://docs.personalagentproxy.com"
+							target="_blank"
+							rel="noopener noreferrer"
+						>
 							Docs
 						</a>
-						<a className="hover:text-foreground" href="https://github.com/personalagentproxy/proxy">
+						<a
+							className="hover:text-foreground"
+							href="https://github.com/personalagentproxy/proxy"
+							target="_blank"
+							rel="noopener noreferrer"
+						>
 							GitHub
 						</a>
 					</div>
