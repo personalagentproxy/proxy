@@ -7,7 +7,7 @@ const listAgentConnections = mock();
 
 mock.module('./tools', () => ({runAgentTool, listAgentTools, listAgentConnections}));
 
-const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dot'};
+const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dots'};
 
 function makeRequest(params: Record<string, string>, body: unknown = undefined) {
 	return {agent: signedIn, params, body, query: {}} as never;

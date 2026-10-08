@@ -25,8 +25,8 @@ mock.module('../utils/user-org', () => ({requireUserOrgId}));
 const agentRow = {
 	id: 'agent-1',
 	providerId: 'dot',
-	name: 'Dot',
-	username: 'dot-k7q2',
+	name: 'Dots',
+	username: 'dots-k7q2',
 	createdAt: new Date('2026-10-01T00:00:00Z'),
 	lastActiveAt: null,
 	revokedAt: null,
@@ -60,8 +60,8 @@ describe('handleCreateAgentRoute', () => {
 
 		const data = createAgent.mock.calls[0]?.[0];
 		expect(data.providerId).toBe('dot');
-		expect(data.name).toBe('Dot');
-		expect(data.username).toMatch(/^dot-[a-z0-9]{4}$/);
+		expect(data.name).toBe('Dots');
+		expect(data.username).toMatch(/^dots-[a-z0-9]{4}$/);
 		expect(data.passwordHash).not.toContain(password);
 		expect(await Bun.password.verify(password, data.passwordHash)).toBe(true);
 	});

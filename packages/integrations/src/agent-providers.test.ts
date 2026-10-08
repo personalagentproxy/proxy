@@ -18,13 +18,14 @@ describe('agent providers', () => {
 	});
 
 	test('finds a provider by id', () => {
-		expect(findAgentProvider('dot')?.name).toBe('Dot');
+		expect(findAgentProvider('dot')?.name).toBe('Dots');
 		expect(findAgentProvider('other')).toBeUndefined();
 	});
 
 	test("suggests the provider an MCP client's name points at", () => {
 		expect(suggestAgentProvider('Claude')?.id).toBe('claude');
 		expect(suggestAgentProvider('ChatGPT Connector')?.id).toBe('chatgpt');
+		expect(suggestAgentProvider('Dot')?.id).toBe('dot');
 		expect(suggestAgentProvider('Poke MCP client')?.id).toBe('poke');
 		expect(suggestAgentProvider('MCP Inspector')).toBeUndefined();
 	});

@@ -92,7 +92,7 @@ describe('handleAgentLoginRoute', () => {
 
 describe('authenticateAgentRequest', () => {
 	test('looks the session up by the hash of the cookie', async () => {
-		getSignedInAgent.mockResolvedValue(Ok({agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dot'}));
+		getSignedInAgent.mockResolvedValue(Ok({agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dots'}));
 
 		const {authenticateAgentRequest} = await import('./session');
 		const result = await authenticateAgentRequest({cookie: 'proxy.agent-session=abc'});

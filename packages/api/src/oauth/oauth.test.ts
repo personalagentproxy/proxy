@@ -87,7 +87,7 @@ beforeEach(() => {
 	createOAuthGrant.mockResolvedValue(Ok(undefined));
 	rotateOAuthGrant.mockResolvedValue(Ok(true));
 	getUserOrgId.mockResolvedValue(Ok('org-1'));
-	getAgent.mockResolvedValue(Ok({id: 'agent-1', name: 'Dot', revokedAt: null}));
+	getAgent.mockResolvedValue(Ok({id: 'agent-1', name: 'Dots', revokedAt: null}));
 });
 
 describe('isAllowedRedirectUri', () => {
@@ -244,7 +244,7 @@ describe('handleConsentRoute', () => {
 	});
 
 	test('a revoked agent, an expired request or a forged one is refused', async () => {
-		getAgent.mockResolvedValue(Ok({id: 'agent-1', name: 'Dot', revokedAt: new Date()}));
+		getAgent.mockResolvedValue(Ok({id: 'agent-1', name: 'Dots', revokedAt: new Date()}));
 		const revoked = await consent({request: sealed(), allow: true, agentId: 'agent-1'});
 		const expired = await consent({request: sealed({expiresAt: Date.now() - 1}), allow: true, agentId: 'agent-1'});
 		const forged = await consent({request: 'not-sealed', allow: true, agentId: 'agent-1'});
