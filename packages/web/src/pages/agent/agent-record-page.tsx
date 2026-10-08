@@ -1,6 +1,6 @@
 import {applies, toolName, type Command} from '@proxy/integrations';
 import {useState} from 'react';
-import {useLoaderData, useNavigate, useRevalidator} from 'react-router';
+import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
 import {runAgentRecordTool} from '@/client/agent-client';
 import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
 import {RecordFields, RecordForm} from '@/components/record-form';
@@ -8,11 +8,13 @@ import {Button} from '@proxy/ui/components/button';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {allows, recordTitle} from '@/lib/access';
 import {agentErrorMessage} from '@/lib/agent-errors';
+import {inside} from '@/lib/agent-paths';
 import type {agentRecordLoader} from '@/agent-loaders';
 import {AgentDenied, AgentMissing} from '@/pages/agent/agent-collection-page';
 
 // One record, with a button for everything the agent may do to it: the collection's commands, such
-// as Archive or Send, then Edit and Delete. Editing happens in place; a saved record can come back
+// as Archive or Send, then Edit and Delete, and in a nested collection a way into the records it
+// holds. Editing happens in place; a saved record can come back
 // under a new address, as an email draft does. A record that leaves the collection, as a sent draft
 // does, returns to the list, which says what happened.
 export function AgentRecordPage() {
@@ -77,8 +79,18 @@ export function AgentRecordPage() {
 			<div className="mb-4 md:px-3">
 				<AgentHeading>{editing ? `Edit ${collection.singular}` : title}</AgentHeading>
 			</div>
-			{(commands.length > 0 || canEdit || canDelete) && !editing && (
+			{(commands.length > 0 || canEdit || canDelete || record.hasChildren) && !editing && (
 				<div className="mb-6 flex flex-wrap gap-2 md:px-3">
+					{record.hasChildren && (
+						<Button
+							size="sm"
+							variant="outline"
+							nativeButton={false}
+							render={<Link to={`${listPath}${inside(record.id)}`} />}
+						>
+							See what’s inside
+						</Button>
+					)}
 					{commands.map((command) => (
 						<Button
 							key={command.id}

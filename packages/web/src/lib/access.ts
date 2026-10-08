@@ -120,17 +120,19 @@ const ACTION_VERBS: Partial<Record<string, string>> = {
 };
 
 // "Viewed email “Thursday sync moved?”", "Listed Payment cards", "Searched Email for “invoice”",
-// "Tried to list Contacts", and a command's own words: "Sent email “Re: Q3”", "Tried to send email".
+// "Listed Pages in “Companies”", "Tried to list Contacts", and a command's own words: "Sent email
+// “Re: Q3”", "Tried to send email". A list's record title is the record it was opened in.
 export function describeEntry(entry: AuditEntry, collection: Collection | undefined): string {
 	const name = collection?.name ?? entry.collectionId;
 	const singular = collection?.singular ?? 'record';
 	const denied = entry.outcome === 'denied';
 	if (entry.action === 'list') {
-		const what = entry.query ? `search ${name} for “${entry.query}”` : `list ${name}`;
+		const where = entry.recordTitle ? `${name} in “${entry.recordTitle}”` : name;
+		const what = entry.query ? `search ${where} for “${entry.query}”` : `list ${where}`;
 		if (denied) {
 			return `Tried to ${what}`;
 		}
-		return entry.query ? `Searched ${name} for “${entry.query}”` : `Listed ${name}`;
+		return entry.query ? `Searched ${where} for “${entry.query}”` : `Listed ${where}`;
 	}
 
 	const record = entry.recordTitle ? `${singular} “${entry.recordTitle}”` : singular;

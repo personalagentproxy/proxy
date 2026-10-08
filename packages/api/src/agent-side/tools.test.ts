@@ -33,6 +33,14 @@ const caller = {agent: signedIn, via: 'mcp' as const};
 
 const infoConnection = {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), defaults: [{actionId: 'readAddresses'}], credential: null};
 const emailConnection = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), defaults: [{actionId: 'read'}], credential: 'v1.x.y.z'};
+const notionConnection = {
+	id: 'notion-1',
+	integrationId: 'notion',
+	account: 'alex@example.com · Acme',
+	createdAt: new Date(),
+	defaults: [{actionId: 'read'}, {actionId: 'create'}],
+	credential: 'v1.x.y.z',
+};
 
 // Reads cards of its own, and doesn't read the mailbox.
 const agent = {
@@ -60,7 +68,7 @@ const send = mock();
 const sendNew = mock();
 const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send}, newCommands: {sendNew}};
 
-function useConnection(connection: typeof infoConnection | typeof emailConnection) {
+function useConnection(connection: typeof infoConnection | typeof emailConnection | typeof notionConnection) {
 	loadConnection.mockResolvedValue(Ok({connection, integration: integration(connection.integrationId), connector}));
 }
 
@@ -134,7 +142,7 @@ describe('runAgentTool', () => {
 		const {runAgentTool} = await import('./tools');
 		await runAgentTool(caller, 'mail-1', 'emails_list', {search: 'invoice', folder: 'Inbox', page: 'next'});
 
-		expect(connector.list.mock.calls[0]?.[1]).toEqual({search: 'invoice', page: 'next', filter: 'Inbox'});
+		expect(connector.list.mock.calls[0]?.[1]).toEqual({search: 'invoice', page: 'next', filter: 'Inbox', parent: null});
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'list', query: 'invoice', outcome: 'allowed'});
 	});
 
@@ -260,5 +268,51 @@ describe('runAgentTool', () => {
 		logAgentRequest.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
 		const unlogged = await runAgentTool(caller, 'mail-1', 'emails_list', {});
 		expect(unlogged.unwrapErr().kind).toBe('db_error');
+	});
+});
+
+describe('nested collections', () => {
+	test('a list opened inside a record is logged with where it was opened', async () => {
+		useConnection(notionConnection);
+		connector.list.mockResolvedValue(
+			Ok({
+				records: [],
+				nextPage: null,
+				trail: [
+					{id: 'page-1', title: 'Outreach'},
+					{id: 'db-1', title: 'Companies'},
+				],
+			}),
+		);
+		const {runAgentTool} = await import('./tools');
+		const result = (await runAgentTool(caller, 'notion-1', 'pages_list', {parent: 'db-1'})).unwrap();
+
+		expect('trail' in result && result.trail?.at(-1)).toEqual({id: 'db-1', title: 'Companies'});
+		expect(connector.list.mock.calls[0]?.[1]).toEqual({search: null, page: null, filter: null, parent: 'db-1'});
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'list', recordTitle: 'Companies', outcome: 'allowed'});
+	});
+
+	test('a record made inside another goes to the connector with it, apart from its values', async () => {
+		useConnection(notionConnection);
+		connector.create.mockResolvedValue(Ok({id: 'page-2', values: {title: 'Globex'}, updatedAt: ''}));
+		const {runAgentTool} = await import('./tools');
+		await runAgentTool(caller, 'notion-1', 'pages_create', {parent: 'db-1', title: 'Globex'});
+
+		expect(connector.create.mock.calls[0]?.[1]).toEqual({title: 'Globex', properties: '', content: ''});
+		expect(connector.create.mock.calls[0]?.[2]).toBe('db-1');
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'create', recordTitle: 'Globex', outcome: 'allowed'});
+	});
+
+	test('a collection that is not nested takes no parent', async () => {
+		useConnection(emailConnection);
+		getAgent.mockResolvedValue(Ok(triage));
+		const {runAgentTool} = await import('./tools');
+		const listed = await runAgentTool(caller, 'mail-1', 'emails_list', {parent: 'inbox-1'});
+		const created = await runAgentTool(caller, 'mail-1', 'emails_create', {parent: 'inbox-1', subject: 'Hi'});
+
+		expect(listed.unwrapErr().kind).toBe('validation_error');
+		expect(created.unwrapErr().kind).toBe('validation_error');
+		expect(connector.list).not.toHaveBeenCalled();
+		expect(connector.create).not.toHaveBeenCalled();
 	});
 });

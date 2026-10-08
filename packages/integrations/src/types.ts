@@ -59,6 +59,9 @@ export type Collection = {
 	// What the search takes, told to the agent beside the search box. A collection without one
 	// can't be searched, as Granola's notes can't.
 	searchHint?: string;
+	// Records hold others of the collection, as a Notion page holds its subpages or a folder its
+	// files: a list opens at one of them with `?parent=`, and a record made there goes in it.
+	nested?: boolean;
 	// The integration's action listing and opening records needs.
 	read: string;
 	// The button creating a record, when not Create and the singular: Save as draft.

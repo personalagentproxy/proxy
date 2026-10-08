@@ -109,3 +109,27 @@ test('toolName turns the operation into the suffix', () => {
 	expect(toolName('emails', 'view')).toBe('emails_get');
 	expect(toolName('emails', 'markUnread')).toBe('emails_mark_unread');
 });
+
+describe('nested collections', () => {
+	const notion = integration('notion');
+
+	test('a list takes the record to list inside, and a new record the one it goes in', () => {
+		const list = findTool(notion, 'pages_list');
+		const create = findTool(notion, 'pages_create');
+
+		expect(Object.keys(list?.inputSchema.properties ?? {})).toEqual(['parent', 'search', 'page']);
+		expect(list?.description).toContain('hasChildren');
+		expect(Object.keys(create?.inputSchema.properties ?? {})).toEqual([
+			'parent',
+			'title',
+			'properties',
+			'content',
+		]);
+		expect(findTool(notion, 'pages_update')?.inputSchema.properties.parent).toBeUndefined();
+	});
+
+	test('a collection that is not nested takes no parent', () => {
+		expect(findTool(email, 'emails_list')?.inputSchema.properties.parent).toBeUndefined();
+		expect(findTool(email, 'emails_create')?.inputSchema.properties.parent).toBeUndefined();
+	});
+});

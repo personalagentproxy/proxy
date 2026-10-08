@@ -43,7 +43,10 @@ function toolPath(connectionId: string, tool: string): string {
 	return `/api/agent/connections/${connectionId}/tools/${tool}`;
 }
 
-/** Runs a list tool: a page of records, newest first, and the token of the next, older page. */
+/**
+ * Runs a list tool: a page of records, newest first, and the token of the next, older page. A list
+ * opened inside a record says where it is: that record last, those above it before it.
+ */
 export function runAgentListTool(
 	connectionId: string,
 	tool: string,
@@ -52,7 +55,11 @@ export function runAgentListTool(
 	return apiRequest(
 		'POST',
 		toolPath(connectionId, tool),
-		z.object({records: z.array(dataRecordSchema), nextPage: z.string().nullable()}),
+		z.object({
+			records: z.array(dataRecordSchema),
+			nextPage: z.string().nullable(),
+			trail: z.array(z.object({id: z.string(), title: z.string()})).optional(),
+		}),
 		{params},
 	);
 }
