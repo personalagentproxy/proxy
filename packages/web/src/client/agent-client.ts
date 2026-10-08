@@ -37,88 +37,41 @@ export function getAgentMe() {
 	return apiRequest('GET', '/api/agent/me', agentMeSchema);
 }
 
-function recordsPath(connectionId: string, collectionId: string): string {
-	return `/api/agent/connections/${connectionId}/collections/${collectionId}/records`;
+// Everything an agent does with a connection is one of its tools, generated from the catalog
+// (`toolName` in @proxy/integrations): the page asks for a list or a record and gets one back.
+function toolPath(connectionId: string, tool: string): string {
+	return `/api/agent/connections/${connectionId}/tools/${tool}`;
 }
 
-export type ListQuery = {search: string | null; page: string | null; filter: string | null};
-
-/** A page of records, newest first, and the token of the next, older page if there is one. */
-export function listAgentRecords(connectionId: string, collectionId: string, query: ListQuery) {
-	const params = new URLSearchParams(
-		Object.entries(query).filter((entry): entry is [string, string] => entry[1] !== null),
-	);
-	const suffix = params.size > 0 ? `?${params}` : '';
-	return apiRequest(
-		'GET',
-		`${recordsPath(connectionId, collectionId)}${suffix}`,
-		z.object({
-			actions: z.array(z.string()),
-			records: z.array(dataRecordSchema),
-			nextPage: z.string().nullable(),
-		}),
-	);
-}
-
-export function getAgentRecord(connectionId: string, collectionId: string, recordId: string) {
-	return apiRequest(
-		'GET',
-		`${recordsPath(connectionId, collectionId)}/${recordId}`,
-		z.object({actions: z.array(z.string()), record: dataRecordSchema}),
-	);
-}
-
-export function createAgentRecord(
+/** Runs a list tool: a page of records, newest first, and the token of the next, older page. */
+export function runAgentListTool(
 	connectionId: string,
-	collectionId: string,
-	values: Record<string, string>,
-) {
-	return apiRequest('POST', recordsPath(connectionId, collectionId), dataRecordSchema, {values});
-}
-
-export function updateAgentRecord(
-	connectionId: string,
-	collectionId: string,
-	recordId: string,
-	values: Record<string, string>,
-) {
-	return apiRequest(
-		'PUT',
-		`${recordsPath(connectionId, collectionId)}/${recordId}`,
-		dataRecordSchema,
-		{values},
-	);
-}
-
-export function deleteAgentRecord(connectionId: string, collectionId: string, recordId: string) {
-	return apiSend('DELETE', `${recordsPath(connectionId, collectionId)}/${recordId}`);
-}
-
-/** Runs a command such as Archive or Send: the record after, or null once it left the collection. */
-export function runAgentCommand(
-	connectionId: string,
-	collectionId: string,
-	recordId: string,
-	commandId: string,
+	tool: string,
+	params: Record<string, string>,
 ) {
 	return apiRequest(
 		'POST',
-		`${recordsPath(connectionId, collectionId)}/${recordId}/commands/${commandId}`,
-		z.object({record: dataRecordSchema.nullable()}),
+		toolPath(connectionId, tool),
+		z.object({records: z.array(dataRecordSchema), nextPage: z.string().nullable()}),
+		{params},
 	);
 }
 
-/** Runs a command on values typed in, such as Send for a new email. */
-export function runAgentNewCommand(
+/**
+ * Runs any other tool, such as opening a record, saving a draft or Archive: the record after, or
+ * null once it has left the collection.
+ */
+export function runAgentRecordTool(
 	connectionId: string,
-	collectionId: string,
-	commandId: string,
-	values: Record<string, string>,
+	tool: string,
+	params: Record<string, string>,
 ) {
 	return apiRequest(
 		'POST',
-		`/api/agent/connections/${connectionId}/collections/${collectionId}/commands/${commandId}`,
+		toolPath(connectionId, tool),
 		z.object({record: dataRecordSchema.nullable()}),
-		{values},
+		{
+			params,
+		},
 	);
 }

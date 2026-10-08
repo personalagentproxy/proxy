@@ -15,7 +15,7 @@ import {VFile} from 'vfile';
 import {matter} from 'vfile-matter';
 import {z} from 'zod';
 import {Do} from '@proxy/utils';
-import {NAV} from '@/nav';
+import {NAV, type NavEntry} from '@/nav';
 
 const CONTENT_DIR = path.join(process.cwd(), 'content');
 
@@ -28,7 +28,10 @@ const frontmatterSchema = z.strictObject({
 export type Frontmatter = z.infer<typeof frontmatterSchema>;
 
 export type NavPage = {slug: string; href: string; title: string};
-export type NavSection = {title: string; pages: NavPage[]};
+// A sidebar row, with the pages nested under it and whether they are always folded out.
+export type NavItem = NavPage & {pages: NavPage[]; open: boolean};
+// `pages` is every page in the section in order, nested ones included.
+export type NavSection = {title: string; items: NavItem[]; pages: NavPage[]};
 export type Nav = {sections: NavSection[]; pages: NavPage[]};
 
 export type Heading = {id: string; text: string; depth: 2 | 3};
@@ -88,30 +91,56 @@ async function readPage(
 	return Ok({vfile, frontmatter: frontmatter.data});
 }
 
+function withNested(entry: NavEntry): {page: string; pages: string[]; open: boolean} {
+	if (typeof entry === 'string') {
+		return {page: entry, pages: [], open: false};
+	}
+	return {...entry, open: entry.open ?? false};
+}
+
 // NAV with each page's title, checked against the files in content/.
 export const loadNav = cache(async (): Promise<Result<Nav, Error>> => {
 	return Do(async ($) => {
 		const files = $(await listFiles());
-		const listed = NAV.flatMap((section) => section.pages);
+		const listed = NAV.flatMap((section) =>
+			section.pages.flatMap((entry) => {
+				const {page, pages} = withNested(entry);
+				return [page, ...pages];
+			}),
+		);
 
 		const unlisted = [...files.keys()].filter((slug) => !listed.includes(slug));
 		if (unlisted.length > 0) {
 			return $(Err(new Error(`Pages missing from src/nav.ts: ${unlisted.join(', ')}`)));
 		}
 
+		const loadNavPage = async (slug: string): Promise<Result<NavPage, Error>> => {
+			const file = files.get(slug);
+			if (!file) {
+				return Err(new Error(`src/nav.ts lists "${slug}", which has no file in content/`));
+			}
+
+			const read = await readPage(file);
+			return read.map(({frontmatter}) => ({slug, href: hrefFor(slug), title: frontmatter.title}));
+		};
+
 		const sections: NavSection[] = [];
 		for (const section of NAV) {
-			const pages: NavPage[] = [];
-			for (const slug of section.pages) {
-				const file = files.get(slug);
-				if (!file) {
-					return $(Err(new Error(`src/nav.ts lists "${slug}", which has no file in content/`)));
+			const items: NavItem[] = [];
+			for (const entry of section.pages) {
+				const {page: slug, pages: nested, open} = withNested(entry);
+				const page = $(await loadNavPage(slug));
+				const pages: NavPage[] = [];
+				for (const nestedSlug of nested) {
+					pages.push($(await loadNavPage(nestedSlug)));
 				}
-
-				const {frontmatter} = $(await readPage(file));
-				pages.push({slug, href: hrefFor(slug), title: frontmatter.title});
+				items.push({...page, pages, open});
 			}
-			sections.push({title: section.title, pages});
+			sections.push({
+				title: section.title,
+				items,
+				pages: items.flatMap((item) => [item, ...item.pages]),
+			});
 		}
 
 		return {sections, pages: sections.flatMap((section) => section.pages)};

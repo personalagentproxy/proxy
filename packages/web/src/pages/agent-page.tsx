@@ -7,6 +7,7 @@ import {
 	RotateCcwIcon,
 	SearchIcon,
 	Trash2Icon,
+	UnplugIcon,
 } from 'lucide-react';
 import {useEffect, useState, type ReactNode} from 'react';
 import {
@@ -20,9 +21,11 @@ import {
 import type {Result} from 'ts-results-es';
 import {
 	deleteAgent,
+	disconnectMcpClient,
 	resetAgentPassword,
 	setAgentGrants,
 	setAgentRevoked,
+	type McpClient,
 } from '@/client/agents-client';
 import {setConnectionDefaults} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
@@ -65,7 +68,7 @@ function passwordFromState(state: unknown): string | null {
 }
 
 function AgentDetail({id}: {id: string}) {
-	const {agent, connections, agents, entries} = useLoaderData<typeof agentLoader>();
+	const {agent, connections, agents, entries, mcpClients} = useLoaderData<typeof agentLoader>();
 	const location = useLocation();
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
@@ -142,6 +145,12 @@ function AgentDetail({id}: {id: string}) {
 				{error && <p className="text-sm text-destructive md:px-3">{error}</p>}
 				<Section title="Sign-in" detail={revoked ? 'revoked, the agent cannot sign in' : undefined}>
 					<Credentials agent={agent} password={password} />
+				</Section>
+				<Section title="MCP">
+					<McpClients
+						clients={mcpClients}
+						onDisconnect={(clientId) => void apply(disconnectMcpClient(agent.id, clientId))}
+					/>
 				</Section>
 				<Section title="Access" detail={changedDetail(agent)}>
 					<AccessGrid
@@ -241,6 +250,47 @@ function Credentials({agent, password}: {agent: AgentLogin; password: string | n
 					Copy the password now: it is not shown again once you leave this page.
 				</p>
 			)}
+		</div>
+	);
+}
+
+// The MCP server's address, for a custom connector in Claude, ChatGPT or Poke, and the clients
+// that signed in as this agent there. Signing in to one brings the person to a page that asks
+// which agent it works as.
+function McpClients({
+	clients,
+	onDisconnect,
+}: {
+	clients: McpClient[];
+	onDisconnect: (clientId: string) => void;
+}) {
+	const serverUrl = `${window.location.origin}/mcp`;
+
+	return (
+		<div className="flex flex-col gap-3">
+			<div className="flex flex-col gap-3 rounded-xl border bg-card p-4 md:mx-3">
+				<CredentialLine label="Server" value={serverUrl} mono>
+					<CopyButton value={serverUrl} label="Copy MCP server" />
+				</CredentialLine>
+				<p className="text-sm text-muted-foreground">
+					Add it as a custom connector in Claude, ChatGPT or Poke. Signing in there asks which agent
+					it works as.
+				</p>
+			</div>
+			<RowList>
+				{clients.length === 0 && <EmptyRows>No MCP client works as this agent yet.</EmptyRows>}
+				{clients.map((client) => (
+					<li key={client.id} className="flex h-10 items-center gap-3 px-4 text-sm md:px-3">
+						<span className="min-w-0 flex-1 truncate">{client.name}</span>
+						<span className="shrink-0 text-muted-foreground">
+							connected {formatDate(client.connectedAt)}
+						</span>
+						<IconButton label={`Disconnect ${client.name}`} onClick={() => onDisconnect(client.id)}>
+							<UnplugIcon />
+						</IconButton>
+					</li>
+				))}
+			</RowList>
 		</div>
 	);
 }

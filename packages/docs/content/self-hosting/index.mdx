@@ -3,8 +3,7 @@ title: Overview
 description: How a self-hosted Personal Agent Proxy fits together, and the ways to run it.
 ---
 
-Personal Agent Proxy is one server and a Postgres database. The server is the api, and it also
-serves the web app, so all of Personal Agent Proxy is on one address, such as
+Personal Agent Proxy is one server and a Postgres database, on one address such as
 `https://proxy.example.com`.
 
 ## What runs
@@ -15,9 +14,8 @@ serves the web app, so all of Personal Agent Proxy is on one address, such as
 | Postgres             | Accounts, agent logins, the activity log, and connections' credentials and Information records, which are stored encrypted.                  |
 | Caddy                | HTTPS in front of Personal Agent Proxy, with certificates from Let's Encrypt. Any reverse proxy that terminates TLS works in its place.      |
 
-Personal Agent Proxy keeps no copies of what it reaches for agents. A mailbox is read over IMAP on
-every request, so the database stays small, and the server needs to reach your mail servers: IMAP on
-port 993 and SMTP on 465 or 587.
+The server needs to reach the services you connect: for email, IMAP on port 993 and SMTP on 465
+or 587.
 
 ## Ways to run it
 

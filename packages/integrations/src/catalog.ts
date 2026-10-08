@@ -60,6 +60,7 @@ const email: Integration = {
 			label: 'Send',
 			description: 'Send email from this address, new or from a draft',
 			risk: 'high',
+			reachesOthers: true,
 		},
 	],
 	collections: [

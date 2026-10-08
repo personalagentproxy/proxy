@@ -45,28 +45,31 @@ export function RecordForm({
 	const id = useId();
 	const [values, setValues] = useState(initial);
 	const set = (key: string, value: string) => setValues((current) => ({...current, [key]: value}));
+	const typedIn = fields.filter((field) => !field.system);
+	// Only what the form shows goes out: the fields a provider sets, such as an email's folder,
+	// are never sent back.
+	const submitted = () =>
+		Object.fromEntries(typedIn.map((field) => [field.key, values[field.key] ?? '']));
 
 	return (
 		<form
 			className="grid gap-4"
 			onSubmit={(event) => {
 				event.preventDefault();
-				onSubmit(values);
+				onSubmit(submitted());
 			}}
 		>
-			{fields
-				.filter((field) => !field.system)
-				.map((field) => (
-					<div key={field.key} className="grid gap-2">
-						<Label htmlFor={`${id}-${field.key}`}>{field.label}</Label>
-						<FieldInput
-							id={`${id}-${field.key}`}
-							field={field}
-							value={values[field.key] ?? ''}
-							onChange={(value) => set(field.key, value)}
-						/>
-					</div>
-				))}
+			{typedIn.map((field) => (
+				<div key={field.key} className="grid gap-2">
+					<Label htmlFor={`${id}-${field.key}`}>{field.label}</Label>
+					<FieldInput
+						id={`${id}-${field.key}`}
+						field={field}
+						value={values[field.key] ?? ''}
+						onChange={(value) => set(field.key, value)}
+					/>
+				</div>
+			))}
 			<div className="flex items-center gap-2">
 				{extra}
 				<span className="flex-1" />
@@ -76,7 +79,7 @@ export function RecordForm({
 					</Button>
 				)}
 				{alternative && (
-					<Button type="button" variant="outline" onClick={() => alternative.onSubmit(values)}>
+					<Button type="button" variant="outline" onClick={() => alternative.onSubmit(submitted())}>
 						{alternative.label}
 					</Button>
 				)}
