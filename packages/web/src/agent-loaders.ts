@@ -1,7 +1,9 @@
 import type {FetchError} from '@proxy/utils';
 import {redirect} from 'react-router';
 import type {Result} from 'ts-results-es';
-import {getAgentMe, getAgentRecord, listAgentRecords} from '@/client/agent-client';
+import {toolName} from '@proxy/integrations';
+import {getAgentMe, runAgentListTool, runAgentRecordTool} from '@/client/agent-client';
+import type {DataRecord} from '@/lib/types';
 import {isNotFoundError, isUnauthenticatedError} from '@/client/me-client';
 import {fetchErrorToResponse} from '@/lib/loader-utils';
 
@@ -37,21 +39,32 @@ export async function agentSideLoader() {
 
 type Params = {connectionId?: string; collectionId?: string; recordId?: string};
 
-// `?search=`, `?filter=` and `?page=` in the address go to the api as they are.
+// The address's query is the list tool's params as they are: `?search=`, `?page=` and the
+// collection's filter field, such as `?folder=Draft`. The api refuses any it doesn't take.
 export async function agentCollectionLoader({params, request}: {params: Params; request: Request}) {
-	const url = new URL(request.url).searchParams;
-	const query = {search: url.get('search'), page: url.get('page'), filter: url.get('filter')};
+	const query = Object.fromEntries(new URL(request.url).searchParams);
 	return toOutcome(
-		await listAgentRecords(params.connectionId ?? '', params.collectionId ?? '', query),
+		await runAgentListTool(
+			params.connectionId ?? '',
+			toolName(params.collectionId ?? '', 'list'),
+			query,
+		),
 	);
 }
 
-export async function agentRecordLoader({params}: {params: Params}) {
-	return toOutcome(
-		await getAgentRecord(
-			params.connectionId ?? '',
-			params.collectionId ?? '',
-			params.recordId ?? '',
-		),
+export async function agentRecordLoader({params}: {params: Params}): Promise<Outcome<DataRecord>> {
+	const result = await runAgentRecordTool(
+		params.connectionId ?? '',
+		toolName(params.collectionId ?? '', 'view'),
+		{id: params.recordId ?? ''},
 	);
+	const outcome = toOutcome(result);
+	if (outcome.kind !== 'ok') {
+		return outcome;
+	}
+	const {record} = outcome.value;
+	if (!record) {
+		return {kind: 'missing'};
+	}
+	return {kind: 'ok', value: record};
 }

@@ -64,17 +64,18 @@ export function AgentCollectionPage() {
 	const summary = collection.fields.find((field) => field.key === collection.summaryField);
 	const filter = collection.fields.find((field) => field.key === collection.filterField);
 	const search = params.get('search') ?? '';
-	const chosen = params.get('filter');
+	// The filter is in the address under its field's key, as the list tool takes it: `?folder=Draft`.
+	const chosen = filter ? params.get(filter.key) : null;
 	const {records, nextPage} = outcome.value;
 	// A list's address: the search and the filter as they are, on the first page unless given one.
-	const listLink = (changes: {filter?: string | null; page?: string}) => {
+	const listLink = (changes: {search?: null; filter?: string | null; page?: string}) => {
 		const next = new URLSearchParams();
 		const value = changes.filter === undefined ? chosen : changes.filter;
-		if (search) {
+		if (search && changes.search !== null) {
 			next.set('search', search);
 		}
-		if (value) {
-			next.set('filter', value);
+		if (filter && value) {
+			next.set(filter.key, value);
 		}
 		if (changes.page) {
 			next.set('page', changes.page);
@@ -88,7 +89,7 @@ export function AgentCollectionPage() {
 			{collection.searchHint && (
 				<>
 					<Form method="get" className="mb-1 flex gap-2 md:px-3">
-						{chosen && <input type="hidden" name="filter" value={chosen} />}
+						{filter && chosen && <input type="hidden" name={filter.key} value={chosen} />}
 						<Input
 							name="search"
 							aria-label={`Search ${collection.name.toLowerCase()}`}
@@ -103,7 +104,7 @@ export function AgentCollectionPage() {
 							<Button
 								variant="ghost"
 								nativeButton={false}
-								render={<Link to={chosen ? `${base}?filter=${chosen}` : base} />}
+								render={<Link to={listLink({search: null})} />}
 							>
 								Clear search
 							</Button>

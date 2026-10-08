@@ -11,6 +11,7 @@ import {
 	activityLoader,
 	agentLoader,
 	agentsLoader,
+	connectAgentLoader,
 	connectionLoader,
 	connectionsLoader,
 	infoLoader,
@@ -24,6 +25,7 @@ import {AgentHomePage} from '@/pages/agent/agent-home-page';
 import {AgentLoginPage} from '@/pages/agent/agent-login-page';
 import {AgentNewRecordPage} from '@/pages/agent/agent-new-record-page';
 import {AgentRecordPage} from '@/pages/agent/agent-record-page';
+import {ConnectAgentPage} from '@/pages/connect-agent-page';
 import {ConnectionPage} from '@/pages/connection-page';
 import {ConnectionsPage} from '@/pages/connections-page';
 import {InfoPage} from '@/pages/info-page';
@@ -49,6 +51,13 @@ async function loginLoader({request}: {request: Request}): Promise<SignInMethods
 export const router = createBrowserRouter([
 	{path: '/login', loader: loginLoader, element: <LoginPage />},
 	{path: '/agent/login', element: <AgentLoginPage />},
+	// An MCP client, such as Claude, signing in as one of the person's agents.
+	{
+		path: '/connect-agent',
+		loader: connectAgentLoader,
+		element: <ConnectAgentPage />,
+		errorElement: <RouteError />,
+	},
 	{
 		id: 'human',
 		loader: humanLoader,

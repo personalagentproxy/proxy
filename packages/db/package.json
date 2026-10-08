@@ -10,6 +10,7 @@
 		"./auth": "./src/auth.ts",
 		"./connection": "./src/connection.ts",
 		"./info": "./src/info.ts",
+		"./oauth": "./src/oauth.ts",
 		"./organization": "./src/organization.ts",
 		"./user": "./src/user.ts"
 	},

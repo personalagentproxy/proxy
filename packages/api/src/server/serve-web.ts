@@ -4,7 +4,7 @@ import express from 'express';
 
 // The api's own paths, and everything under them. Every other GET is a page of the web app,
 // which routes in the browser.
-const apiPaths = ['/api', '/auth', '/agent-auth'];
+const apiPaths = ['/api', '/auth', '/agent-auth', '/mcp', '/oauth', '/.well-known'];
 
 function isApiPath(path: string): boolean {
 	return apiPaths.some((apiPath) => path === apiPath || path.startsWith(`${apiPath}/`));

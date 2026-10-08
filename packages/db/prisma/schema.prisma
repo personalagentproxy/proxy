@@ -182,9 +182,11 @@ model Agent {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  org      Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  grants   AgentGrant[]
-  sessions AgentSession[]
+  org         Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  grants      AgentGrant[]
+  sessions    AgentSession[]
+  oauthCodes  OAuthCode[]
+  oauthGrants OAuthGrant[]
 
   @@unique([orgId, providerId])
   @@index([orgId])
@@ -229,6 +231,12 @@ enum AuditOutcome {
   denied
 }
 
+// How an agent came in: the web app's agent pages, or the MCP server.
+enum AuditVia {
+  web
+  mcp
+}
+
 // One request an agent made, allowed or denied. Plain ids rather than relations, so the entry
 // stays when the agent or the connection is gone.
 model AuditEntry {
@@ -244,10 +252,75 @@ model AuditEntry {
   // What a list searched for.
   query        String?
   outcome      AuditOutcome
+  via          AuditVia     @default(web)
 
   createdAt DateTime @default(now())
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId, createdAt])
+}
+
+// An MCP client that registered itself to sign agents in, such as Claude or ChatGPT (OAuth
+// Dynamic Client Registration). Anyone can register one; it gets nothing until a person signs in
+// and lets it work as one of their agents. One that hasn't finished a sign-in a day after
+// registering is deleted by the next registration.
+model OAuthClient {
+  // The client_id it signs in with.
+  id           String    @id
+  name         String
+  redirectUris String[]
+  // Only for a client that signs in with a secret; others have PKCE alone.
+  secretHash   String?
+  // When it first traded a code for tokens; kept for good once set.
+  usedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  codes  OAuthCode[]
+  grants OAuthGrant[]
+
+  @@index([createdAt])
+}
+
+// A code a client exchanges once for tokens, within minutes, with its PKCE verifier. Only its
+// SHA-256 is kept.
+model OAuthCode {
+  id            String   @id @default(cuid())
+  codeHash      String   @unique
+  clientId      String
+  agentId       String
+  redirectUri   String
+  codeChallenge String
+  expires       DateTime
+
+  createdAt DateTime @default(now())
+
+  client OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  agent  Agent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([agentId])
+}
+
+// A client signed in as an agent: its access token and refresh token, by their SHA-256.
+// Refreshing replaces both. Disconnecting it, or revoking or deleting the agent, ends it.
+model OAuthGrant {
+  id               String   @id @default(cuid())
+  clientId         String
+  agentId          String
+  accessTokenHash  String   @unique
+  accessExpires    DateTime
+  refreshTokenHash String   @unique
+  refreshExpires   DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  client OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  agent  Agent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([agentId])
 }

@@ -41,6 +41,23 @@ export function setAgentGrants(
 	});
 }
 
+const mcpClientSchema = z.object({id: z.string(), name: z.string(), connectedAt: z.string()});
+
+export type McpClient = z.infer<typeof mcpClientSchema>;
+
+/** The MCP clients, such as Claude, signed in as the agent. */
+export function listMcpClients(agentId: string) {
+	return apiRequest(
+		'GET',
+		`/api/agents/${agentId}/mcp-clients`,
+		z.object({clients: z.array(mcpClientSchema)}),
+	);
+}
+
+export function disconnectMcpClient(agentId: string, clientId: string) {
+	return apiSend('DELETE', `/api/agents/${agentId}/mcp-clients/${clientId}`);
+}
+
 export function listActivity(filter: {agentId?: string; connectionId?: string}) {
 	const query = new URLSearchParams(
 		Object.entries(filter).filter((entry): entry is [string, string] => entry[1] !== undefined),

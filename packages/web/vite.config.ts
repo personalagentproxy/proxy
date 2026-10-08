@@ -18,7 +18,15 @@ export default defineConfig(({mode}) => {
 		// The api's paths go to the api, so in development the browser sees one origin, as it does
 		// in production, where the api serves the built app itself.
 		server: {
-			proxy: {'/api/': api, '/auth/': api, '/agent-auth/': api},
+			proxy: {
+				'/api/': api,
+				'/auth/': api,
+				'/agent-auth/': api,
+				// The MCP server and signing in to it with OAuth.
+				'^/mcp$': api,
+				'/oauth/': api,
+				'/.well-known/': api,
+			},
 		},
 	};
 });
