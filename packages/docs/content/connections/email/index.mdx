@@ -1,0 +1,50 @@
+---
+title: Email
+description: Connect a mailbox over IMAP and SMTP with an app password.
+---
+
+Personal Agent Proxy connects a mailbox with an app password: a password your mail provider makes
+for one app, apart from the one you sign in with. Revoking it in your mail account disconnects
+Personal Agent Proxy and nothing else. Emails stay with the provider; nothing is copied.
+
+## What agents can do
+
+Agents see the inbox, drafts and sent mail as one list. You can allow each action separately:
+
+- **Read** lists, opens and searches email.
+- **Mark read or unread**, **Flag**, **Archive** and **Move to Trash** act on messages in the
+  inbox, and require Read. Trash can still be restored at the provider.
+- **Write drafts** creates, edits and deletes drafts, and requires Read. Received messages are
+  never edited or deleted for good.
+- **Send** sends a new email or a saved draft. It does not require Read, so an agent can send
+  without seeing the mailbox.
+
+## Connect a mailbox
+
+<Steps>
+
+### Make an app password
+
+Follow the steps for your provider: [Gmail](/connections/email/gmail),
+[iCloud](/connections/email/icloud), [Fastmail](/connections/email/fastmail),
+[Yahoo](/connections/email/yahoo) or [any other](/connections/email/other).
+
+### Connect the mailbox
+
+Open **Connections**, then **Add connection**, and **Connect** on Email. Pick the provider, then
+enter the mailbox's address and the app password.
+
+### Give agents access
+
+A new mailbox gives agents no access. On the connection's page, turn on the actions every agent
+gets by default, or set them for one agent on the agent's page.
+
+</Steps>
+
+## When it does not connect
+
+**"The mailbox turned the password down."** Check that the address is the mailbox the password
+was made for, or make a new app password.
+
+**"The mail server could not be reached."** With Other, check the servers and the SMTP port. On
+your own server, see [Troubleshooting](/self-hosting/troubleshooting#a-mailbox-does-not-connect).
