@@ -28,7 +28,7 @@ function integration(id: string): Integration {
 	return found;
 }
 
-const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dot'};
+const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dots'};
 const caller = {agent: signedIn, via: 'mcp' as const};
 
 const infoConnection = {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), defaults: [{actionId: 'readAddresses'}], credential: null};
@@ -38,7 +38,7 @@ const emailConnection = {id: 'mail-1', integrationId: 'email', account: 'alex@ex
 const agent = {
 	id: 'agent-1',
 	providerId: 'dot',
-	name: 'Dot',
+	name: 'Dots',
 	grants: [
 		{connectionId: 'info-1', actionId: 'readCards', allowed: true},
 		{connectionId: 'mail-1', actionId: 'read', allowed: false},
@@ -80,7 +80,7 @@ describe('listAgentConnections', () => {
 		const result = await listAgentConnections(signedIn);
 
 		expect(result.unwrap()).toEqual({
-			agent: {id: 'agent-1', providerId: 'dot', name: 'Dot'},
+			agent: {id: 'agent-1', providerId: 'dot', name: 'Dots'},
 			connections: [{id: 'info-1', integrationId: 'info', account: "Alex's Workspace", actions: ['readAddresses', 'readCards']}],
 		});
 	});

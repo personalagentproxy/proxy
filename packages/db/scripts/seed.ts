@@ -284,8 +284,8 @@ const agents = [
 	// A setting of its own on every connection, sending included.
 	await makeAgent({
 		providerId: 'dot',
-		name: 'Dot',
-		username: 'dot-k7q2',
+		name: 'Dots',
+		username: 'dots-k7q2',
 		daysAgo: 35,
 		grants: [
 			grant(info, {writeAddresses: true, readCards: true, writeNotes: true}),

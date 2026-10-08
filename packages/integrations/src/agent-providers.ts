@@ -4,6 +4,7 @@ export type AgentProviderId =
 export type AgentProvider = {
 	id: AgentProviderId;
 	name: string;
+	aliases?: string[];
 	company: string;
 	/** Bundled with the web app, under `packages/web/public`. */
 	faviconUrl: string;
@@ -24,7 +25,13 @@ export const AGENT_PROVIDERS: AgentProvider[] = [
 		company: 'Instinct',
 		faviconUrl: '/agent-providers/instinct.png',
 	},
-	{id: 'dot', name: 'Dot', company: 'OpenAI', faviconUrl: '/agent-providers/dot.png'},
+	{
+		id: 'dot',
+		name: 'Dots',
+		aliases: ['Dot'],
+		company: 'OpenAI',
+		faviconUrl: '/agent-providers/dot.png',
+	},
 	{
 		id: 'poke',
 		name: 'Poke',
@@ -45,5 +52,9 @@ export function findAgentProvider(id: string): AgentProvider | undefined {
  */
 export function suggestAgentProvider(clientName: string): AgentProvider | undefined {
 	const name = clientName.toLowerCase();
-	return AGENT_PROVIDERS.find((provider) => name.includes(provider.name.toLowerCase()));
+	return AGENT_PROVIDERS.find(
+		(provider) =>
+			name.includes(provider.name.toLowerCase()) ||
+			provider.aliases?.some((alias) => name.includes(alias.toLowerCase())),
+	);
 }

@@ -17,7 +17,7 @@ const AGENTS: Logo[] = [
 	{name: 'Grok Bot', src: '/logos/grok-bot.png', tile: '', lit: true},
 	{name: 'Muse', src: '/logos/muse.png', tile: '', lit: true},
 	{name: 'Poke', src: '/logos/poke.jpg', tile: '', lit: true},
-	{name: 'Dot', src: '/logos/dot.svg', tile: 'bg-[#1B1E25] p-[24%]'},
+	{name: 'Dots', src: '/logos/dot.svg', tile: 'bg-[#1B1E25] p-[24%]'},
 	{name: 'Instinct', src: '/logos/instinct.png', tile: 'bg-[#F4F1EC] p-[10%]'},
 ];
 
