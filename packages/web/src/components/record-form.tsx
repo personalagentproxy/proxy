@@ -18,6 +18,8 @@ type FormProps = {
 	initial?: Record<string, string>;
 	submitLabel: string;
 	onSubmit: (values: Record<string, string>) => void;
+	// Prevent creating a record until at least one visible field contains more than whitespace.
+	requireNonEmpty?: boolean;
 	onCancel?: () => void;
 	// Extra actions at the start of the button row, such as Delete.
 	extra?: ReactNode;
@@ -38,6 +40,7 @@ export function RecordForm({
 	initial = {},
 	submitLabel,
 	onSubmit,
+	requireNonEmpty = false,
 	onCancel,
 	extra,
 	alternative,
@@ -46,6 +49,7 @@ export function RecordForm({
 	const [values, setValues] = useState(initial);
 	const set = (key: string, value: string) => setValues((current) => ({...current, [key]: value}));
 	const typedIn = fields.filter((field) => !field.system);
+	const empty = typedIn.every((field) => (values[field.key] ?? '').trim().length === 0);
 	// Only what the form shows goes out: the fields a provider sets, such as an email's folder,
 	// are never sent back.
 	const submitted = () =>
@@ -56,6 +60,9 @@ export function RecordForm({
 			className="grid gap-4"
 			onSubmit={(event) => {
 				event.preventDefault();
+				if (requireNonEmpty && empty) {
+					return;
+				}
 				onSubmit(submitted());
 			}}
 		>
@@ -83,7 +90,9 @@ export function RecordForm({
 						{alternative.label}
 					</Button>
 				)}
-				<Button type="submit">{submitLabel}</Button>
+				<Button type="submit" disabled={requireNonEmpty && empty}>
+					{submitLabel}
+				</Button>
 			</div>
 		</form>
 	);
