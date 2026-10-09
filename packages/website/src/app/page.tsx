@@ -59,10 +59,9 @@ export default function Home() {
 					</div>
 				</div>
 				<footer
-					className="rise-in mt-auto flex justify-between gap-4 pt-24 pb-8 text-sm text-muted-foreground"
+					className="rise-in mt-auto flex justify-end gap-4 pt-24 pb-8 text-sm text-muted-foreground"
 					style={{animationDelay: riseInDelay(LINKS_WORD)}}
 				>
-					<div>© 2026 Varis Labs, Inc.</div>
 					<div className="flex items-center gap-4">
 						<ThemeToggle />
 						<a
