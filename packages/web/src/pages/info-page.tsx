@@ -103,6 +103,7 @@ export function InfoPage() {
 							fields={editing.collection.fields}
 							initial={editing.record?.values}
 							submitLabel="Save"
+							requireNonEmpty={editing.record === null}
 							onCancel={() => open(null)}
 							onSubmit={(values) => {
 								const {collection, record} = editing;
