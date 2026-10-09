@@ -1,0 +1,43 @@
+---
+title: Notion
+description: Connect a Notion workspace for agents to read, create and edit pages.
+---
+
+Agents work with the pages and databases the person who connects Notion can reach in the workspace
+they choose. Pages stay in Notion; nothing is copied.
+
+## Connect Notion
+
+<Steps>
+
+### Sign in with Notion
+
+Open **Connections**, then **Add connection**, and **Sign in with Notion**. Choose a workspace and
+approve access. Connecting another workspace makes another connection.
+
+### Review the defaults
+
+A new Notion connection gives every agent Read pages. Create pages and Edit pages are off by
+default. Turn them on for every agent on the connection's page, or only for one agent on the
+agent's page.
+
+</Steps>
+
+## What agents can do
+
+Notion appears as a tree of pages, databases, saved database views and rows. Agents can:
+
+- **Read pages** lists, searches and opens pages and databases, including database rows.
+- **Create pages** adds a private page at the top of the workspace, a page inside another page or a
+  row inside a database.
+- **Edit pages** changes a page's title, properties and content. It requires Read pages.
+
+Databases and saved views themselves cannot be edited. Personal Agent Proxy never deletes Notion
+pages because Notion's MCP server does not provide a tool for it.
+
+<Callout>
+
+A Notion connection lasts at most 180 days, even while its tokens are refreshed. Sign in again
+after Notion expires it.
+
+</Callout>
