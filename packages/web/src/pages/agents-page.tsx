@@ -1,28 +1,11 @@
 import {PlusIcon} from 'lucide-react';
-import {useState} from 'react';
-import {useLoaderData, useNavigate} from 'react-router';
-import {
-	AGENT_PROVIDERS,
-	findAgentProvider,
-	type AgentProvider,
-	type AgentProviderId,
-} from '@proxy/integrations';
-import {createAgent} from '@/client/agents-client';
-import {AgentProviderTile} from '@/components/agent-provider-tile';
+import {Link, useLoaderData} from 'react-router';
+import {AGENT_PROVIDERS, findAgentProvider} from '@proxy/integrations';
 import {AgentLogo} from '@/components/brand-logo';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
 import {Button} from '@proxy/ui/components/button';
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from '@proxy/ui/components/dialog';
 import {formatAgo} from '@/lib/format';
-import {describeFetchError} from '@/lib/loader-utils';
 import {cn} from '@proxy/ui/lib/utils';
 import type {agentsLoader} from '@/loaders';
 
@@ -36,7 +19,6 @@ const CELLS = {
 // Every agent login, newest first. A revoked one stays listed, muted, until it is deleted.
 export function AgentsPage() {
 	const {agents} = useLoaderData<typeof agentsLoader>();
-	const [creating, setCreating] = useState(false);
 	const active = agents.filter((agent) => agent.revokedAt === null).length;
 	const availableProviders = AGENT_PROVIDERS.filter(
 		(provider) => !agents.some((agent) => agent.providerId === provider.id),
@@ -46,14 +28,17 @@ export function AgentsPage() {
 		<AppShell
 			title={<PageTitle detail={`${active} active`}>Agents</PageTitle>}
 			actions={
-				<Button
-					size="sm"
-					disabled={availableProviders.length === 0}
-					onClick={() => setCreating(true)}
-				>
-					<PlusIcon data-icon="inline-start" />
-					{availableProviders.length === 0 ? 'All agents added' : 'New agent'}
-				</Button>
+				availableProviders.length === 0 ? (
+					<Button size="sm" disabled>
+						<PlusIcon data-icon="inline-start" />
+						All agents added
+					</Button>
+				) : (
+					<Button size="sm" nativeButton={false} render={<Link to="/agents/new" />}>
+						<PlusIcon data-icon="inline-start" />
+						New agent
+					</Button>
+				)
 			}
 		>
 			<RowList
@@ -96,99 +81,6 @@ export function AgentsPage() {
 					);
 				})}
 			</RowList>
-			<NewAgentDialog
-				open={creating}
-				providers={availableProviders}
-				onClose={() => setCreating(false)}
-			/>
 		</AppShell>
-	);
-}
-
-// A company gets one login. The generated password is shown once on the new agent's page.
-function NewAgentDialog({
-	open,
-	providers,
-	onClose,
-}: {
-	open: boolean;
-	providers: AgentProvider[];
-	onClose: () => void;
-}) {
-	const navigate = useNavigate();
-	const [providerId, setProviderId] = useState<AgentProviderId | null>(null);
-	const [error, setError] = useState<string | null>(null);
-	const [pending, setPending] = useState(false);
-	const close = () => {
-		setProviderId(null);
-		setError(null);
-		onClose();
-	};
-
-	return (
-		<Dialog
-			open={open}
-			onOpenChange={(next) => {
-				if (next) {
-					return;
-				}
-				close();
-			}}
-		>
-			<DialogContent>
-				<form
-					className="grid gap-4"
-					onSubmit={async (event) => {
-						event.preventDefault();
-						if (providerId === null) {
-							return;
-						}
-
-						setPending(true);
-						const result = await createAgent(providerId);
-						setPending(false);
-						if (result.isErr()) {
-							setError(describeFetchError(result.error));
-							return;
-						}
-						close();
-						navigate(`/agents/${result.value.agent.id}`, {
-							state: {password: result.value.password},
-						});
-					}}
-				>
-					<DialogHeader>
-						<DialogTitle>New agent</DialogTitle>
-						<DialogDescription>
-							Choose an agent. It starts with each connection's default access; you can change it
-							next.
-						</DialogDescription>
-					</DialogHeader>
-					<fieldset>
-						<legend className="mb-2 text-sm leading-none font-medium">Agent</legend>
-						<div className="grid gap-2 sm:grid-cols-2">
-							{providers.map((provider, index) => (
-								<AgentProviderTile
-									key={provider.id}
-									provider={provider}
-									chosen={providerId === provider.id}
-									autoFocus={index === 0}
-									onChoose={() => setProviderId(provider.id)}
-								/>
-							))}
-						</div>
-					</fieldset>
-					{error && <p className="text-sm text-destructive">{error}</p>}
-					<DialogFooter>
-						<Button type="button" variant="outline" onClick={close}>
-							Cancel
-						</Button>
-						<Button type="submit" disabled={providerId === null || pending}>
-							Create
-						</Button>
-					</DialogFooter>
-				</form>
-			</DialogContent>
-		</Dialog>
 	);
 }

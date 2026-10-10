@@ -11,6 +11,7 @@ import {
 	activityLoader,
 	addConnectionLoader,
 	agentLoader,
+	agentSetupLoader,
 	agentsLoader,
 	connectAgentLoader,
 	connectionLoader,
@@ -23,6 +24,7 @@ import {ActivityPage} from '@/pages/activity-page';
 import {AddConnectionPage} from '@/pages/add-connection-page';
 import {AddEmailPage} from '@/pages/add-email-page';
 import {AgentPage} from '@/pages/agent-page';
+import {AgentSetupPage} from '@/pages/agent-setup-page';
 import {AgentsPage} from '@/pages/agents-page';
 import {AgentCollectionPage} from '@/pages/agent/agent-collection-page';
 import {AgentHomePage} from '@/pages/agent/agent-home-page';
@@ -34,6 +36,7 @@ import {ConnectionPage} from '@/pages/connection-page';
 import {ConnectionsPage} from '@/pages/connections-page';
 import {InfoPage} from '@/pages/info-page';
 import {LoginPage} from '@/pages/login-page';
+import {NewAgentPage} from '@/pages/new-agent-page';
 import {WelcomeConnectionPage, WelcomePage} from '@/pages/welcome-page';
 
 // The human side's guard: no session sends the user to /login, and back here after. An
@@ -109,7 +112,9 @@ export const router = createBrowserRouter([
 			{path: '/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
 			{path: '/info', loader: infoLoader, element: <InfoPage />},
 			{path: '/agents', loader: agentsLoader, element: <AgentsPage />},
+			{path: '/agents/new', loader: agentsLoader, element: <NewAgentPage />},
 			{path: '/agents/:id', loader: agentLoader, element: <AgentPage />},
+			{path: '/agents/:id/setup', loader: agentSetupLoader, element: <AgentSetupPage />},
 			{path: '/activity', loader: activityLoader, element: <ActivityPage />},
 		],
 	},
