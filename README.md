@@ -72,3 +72,9 @@ their full private context or silently expanding what an agent may do.
 <img src="docs/assets/connections-dashboard.png" alt="Personal Agent Proxy connections dashboard">
 
 <img src="docs/assets/connection-permissions.png" alt="Personal Agent Proxy connection permissions">
+
+<p align="center">
+  <a href="https://x.com/hkonsti_"><img src="https://img.shields.io/badge/%40hkonsti__-000000?logo=x&logoColor=white" alt="@hkonsti_ on X"></a>
+  &nbsp;
+  <a href="https://x.com/arnestrickmann"><img src="https://img.shields.io/badge/%40arnestrickmann-000000?logo=x&logoColor=white" alt="Arne Strickmann on X"></a>
+</p>
