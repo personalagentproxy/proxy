@@ -24,6 +24,11 @@ export type AgentProvider = {
 	 * in development at `http://localhost`. Every other agent needs a public https address.
 	 */
 	local: boolean;
+	/**
+	 * A `login` agent that won't take a password typed in chat, and keeps it in a vault of its own
+	 * instead: asked for one, it sends a link to a page the person fills the login in on.
+	 */
+	vault?: boolean;
 	/** Bundled with the web app, under `packages/web/public`. */
 	faviconUrl: string;
 };
@@ -52,6 +57,7 @@ export const AGENT_PROVIDERS: AgentProvider[] = [
 		company: 'Instinct',
 		connects: 'login',
 		local: false,
+		vault: true,
 		faviconUrl: '/agent-providers/instinct.png',
 	},
 	{

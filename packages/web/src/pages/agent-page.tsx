@@ -9,20 +9,12 @@ import {
 	Trash2Icon,
 	UnplugIcon,
 } from 'lucide-react';
-import {useEffect, useState, type ReactNode} from 'react';
-import {
-	Link,
-	useLoaderData,
-	useLocation,
-	useNavigate,
-	useParams,
-	useRevalidator,
-} from 'react-router';
+import {useState} from 'react';
+import {Link, useLoaderData, useNavigate, useParams, useRevalidator} from 'react-router';
 import type {Result} from 'ts-results-es';
 import {
 	deleteAgent,
 	disconnectMcpClient,
-	resetAgentPassword,
 	setAgentGrants,
 	setAgentRevoked,
 	type McpClient,
@@ -34,7 +26,6 @@ import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
 import {BackButton} from '@/components/back-button';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {ConnectionAccess} from '@/components/connection-access';
-import {CopyButton} from '@/components/copy-button';
 import {IconButton} from '@/components/icon-button';
 import {NotFound} from '@/components/not-found';
 import {EmptyRows, RowList} from '@/components/row-list';
@@ -50,53 +41,36 @@ import type {agentLoader} from '@/loaders';
 
 const RECENT = 10;
 
-type Confirming = 'reset' | 'revoke' | 'delete' | null;
+type Confirming = 'revoke' | 'delete' | null;
 
-// One agent login: what it signs in with, what it can reach, and what it did. Keyed by the
-// agent, so a password shown for one is never carried over to the next.
+// One agent login: what it can reach, and what it did. Handing it its login is setup's
+// (`/agents/:id/setup`), done once. Keyed by the agent, so the access filter and what is folded
+// out start over for each.
 export function AgentPage() {
 	const {id = ''} = useParams();
 	return <AgentDetail key={id} id={id} />;
 }
 
-// The password New agent hands over in the navigation's state, read once.
-function passwordFromState(state: unknown): string | null {
-	if (typeof state !== 'object' || state === null || !('password' in state)) {
-		return null;
-	}
-	return typeof state.password === 'string' ? state.password : null;
-}
-
 function AgentDetail({id}: {id: string}) {
 	const {agent, connections, agents, entries, mcpClients} = useLoaderData<typeof agentLoader>();
-	const location = useLocation();
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
-	// The password shows once: arriving from New agent, or right after a reset. It is kept only in
-	// this page's memory, and cleared from the history entry so a reload doesn't show it again.
-	const [password, setPassword] = useState(() => passwordFromState(location.state));
 	const [confirming, setConfirming] = useState<Confirming>(null);
 	const [error, setError] = useState<string | null>(null);
-	useEffect(() => {
-		if (passwordFromState(location.state) !== null) {
-			navigate(location.pathname, {replace: true, state: null});
-		}
-	}, [location, navigate]);
 	if (!agent || agent.id !== id) {
 		return <NotFound what="agent" back="/agents" backLabel="Back to agents" />;
 	}
 
 	const revoked = agent.revokedAt !== null;
 	const company = findAgentProvider(agent.providerId)?.company ?? agent.providerId;
-	const apply = async <T,>(change: Promise<Result<T, FetchError>>): Promise<T | null> => {
+	const apply = async <T,>(change: Promise<Result<T, FetchError>>) => {
 		const result = await change;
 		if (result.isErr()) {
 			setError(describeFetchError(result.error));
-			return null;
+			return;
 		}
 		setError(null);
 		await revalidator.revalidate();
-		return result.value;
 	};
 
 	return (
@@ -120,9 +94,11 @@ function AgentDetail({id}: {id: string}) {
 			}
 			actions={
 				<>
-					<IconButton label="Reset password" onClick={() => setConfirming('reset')}>
-						<KeyRoundIcon />
-					</IconButton>
+					{!revoked && (
+						<IconButton label="Set up again" to={`/agents/${agent.id}/setup`}>
+							<KeyRoundIcon />
+						</IconButton>
+					)}
 					{revoked ? (
 						<IconButton
 							label="Restore login"
@@ -143,15 +119,14 @@ function AgentDetail({id}: {id: string}) {
 		>
 			<div className="flex flex-col gap-8">
 				{error && <p className="text-sm text-destructive md:px-3">{error}</p>}
-				<Section title="Sign-in" detail={revoked ? 'revoked, the agent cannot sign in' : undefined}>
-					<Credentials agent={agent} password={password} />
-				</Section>
-				<Section title="MCP">
-					<McpClients
-						clients={mcpClients}
-						onDisconnect={(clientId) => void apply(disconnectMcpClient(agent.id, clientId))}
-					/>
-				</Section>
+				{mcpClients.length > 0 && (
+					<Section title="MCP">
+						<McpClients
+							clients={mcpClients}
+							onDisconnect={(clientId) => void apply(disconnectMcpClient(agent.id, clientId))}
+						/>
+					</Section>
+				)}
 				<Section title="Access" detail={changedDetail(agent)}>
 					<AccessGrid
 						agent={agent}
@@ -186,19 +161,6 @@ function AgentDetail({id}: {id: string}) {
 				</Section>
 			</div>
 			<ConfirmDialog
-				open={confirming === 'reset'}
-				title="Reset the password?"
-				description="The current password stops working at once. The new one is shown once, so have it ready to hand to the agent."
-				confirmLabel="Reset password"
-				onClose={() => setConfirming(null)}
-				onConfirm={async () => {
-					const reset = await apply(resetAgentPassword(agent.id));
-					if (reset) {
-						setPassword(reset.password);
-					}
-				}}
-			/>
-			<ConfirmDialog
 				open={confirming === 'revoke'}
 				title={`Revoke ${agent.name}?`}
 				description="The agent is signed out and cannot sign in again. Its access stays as it is, so restoring the login brings it back unchanged."
@@ -227,36 +189,7 @@ function AgentDetail({id}: {id: string}) {
 	);
 }
 
-function Credentials({agent, password}: {agent: AgentLogin; password: string | null}) {
-	const signInUrl = `${window.location.origin}/agent/login`;
-
-	return (
-		<div className="flex flex-col gap-3 rounded-xl border bg-card p-4 md:mx-3">
-			<CredentialLine label="Sign-in page" value={signInUrl}>
-				<CopyButton value={signInUrl} label="Copy sign-in page" />
-			</CredentialLine>
-			<CredentialLine label="Username" value={agent.username} mono>
-				<CopyButton value={agent.username} label="Copy username" />
-			</CredentialLine>
-			{password ? (
-				<CredentialLine label="Password" value={password} mono>
-					<CopyButton value={password} label="Copy password" />
-				</CredentialLine>
-			) : (
-				<CredentialLine label="Password" value="Hidden. Reset it to get a new one." muted />
-			)}
-			{password && (
-				<p className="text-sm text-muted-foreground">
-					Copy the password now: it is not shown again once you leave this page.
-				</p>
-			)}
-		</div>
-	);
-}
-
-// The MCP server's address, for a custom connector in Claude, ChatGPT or Poke, and the clients
-// that signed in as this agent there. Signing in to one brings the person to a page that asks
-// which agent it works as.
+// The MCP clients, such as Claude, that signed in as this agent, each to be signed out on its own.
 function McpClients({
 	clients,
 	onDisconnect,
@@ -264,56 +197,20 @@ function McpClients({
 	clients: McpClient[];
 	onDisconnect: (clientId: string) => void;
 }) {
-	const serverUrl = `${window.location.origin}/mcp`;
-
 	return (
-		<div className="flex flex-col gap-3">
-			<div className="flex flex-col gap-3 rounded-xl border bg-card p-4 md:mx-3">
-				<CredentialLine label="Server" value={serverUrl} mono>
-					<CopyButton value={serverUrl} label="Copy MCP server" />
-				</CredentialLine>
-				<p className="text-sm text-muted-foreground">
-					Add it as a custom connector in Claude, ChatGPT or Poke. Signing in there asks which agent
-					it works as.
-				</p>
-			</div>
-			<RowList>
-				{clients.length === 0 && <EmptyRows>No MCP client works as this agent yet.</EmptyRows>}
-				{clients.map((client) => (
-					<li key={client.id} className="flex h-10 items-center gap-3 px-4 text-sm md:px-3">
-						<span className="min-w-0 flex-1 truncate">{client.name}</span>
-						<span className="shrink-0 text-muted-foreground">
-							connected {formatDate(client.connectedAt)}
-						</span>
-						<IconButton label={`Disconnect ${client.name}`} onClick={() => onDisconnect(client.id)}>
-							<UnplugIcon />
-						</IconButton>
-					</li>
-				))}
-			</RowList>
-		</div>
-	);
-}
-
-type LineProps = {
-	label: string;
-	value: string;
-	mono?: boolean;
-	muted?: boolean;
-	children?: ReactNode;
-};
-
-function CredentialLine({label, value, mono = false, muted = false, children}: LineProps) {
-	return (
-		<div className="flex min-h-8 items-center gap-3 text-sm">
-			<span className="w-24 shrink-0 text-muted-foreground">{label}</span>
-			<span
-				className={`min-w-0 flex-1 truncate ${mono ? 'font-mono' : ''} ${muted ? 'text-muted-foreground' : ''}`}
-			>
-				{value}
-			</span>
-			{children}
-		</div>
+		<RowList>
+			{clients.map((client) => (
+				<li key={client.id} className="flex h-10 items-center gap-3 px-4 text-sm md:px-3">
+					<span className="min-w-0 flex-1 truncate">{client.name}</span>
+					<span className="shrink-0 text-muted-foreground">
+						connected {formatDate(client.connectedAt)}
+					</span>
+					<IconButton label={`Disconnect ${client.name}`} onClick={() => onDisconnect(client.id)}>
+						<UnplugIcon />
+					</IconButton>
+				</li>
+			))}
+		</RowList>
 	);
 }
 
