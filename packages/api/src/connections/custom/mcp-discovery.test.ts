@@ -1,8 +1,23 @@
 import {afterAll, beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
 
-const env = {NODE_ENV: 'production', APP_URL: 'https://app.example.com'};
+const env = {NODE_ENV: 'production', APP_URL: 'https://app.example.com', ALLOW_PRIVATE_HOSTS: false};
 
 mock.module('../../utils/env', () => ({env}));
+
+// What the hosts resolve to: the example servers on the internet, localhost on this machine.
+const ADDRESSES: Record<string, string> = {'mcp.example.com': '93.184.216.34', 'auth.example.com': '93.184.216.35', localhost: '127.0.0.1'};
+
+mock.module('node:dns/promises', () => ({
+	default: {
+		lookup: async (host: string) => {
+			const address = ADDRESSES[host];
+			if (!address) {
+				throw new Error(`ENOTFOUND ${host}`);
+			}
+			return [{address, family: 4}];
+		},
+	},
+}));
 
 // The server and its authorization server: each request, and what each address answers.
 const servers = {requests: [] as Array<{url: string; method: string; headers: Headers; body: string}>, answers: new Map<string, () => Response>()};
@@ -20,7 +35,7 @@ afterAll(() => {
 beforeEach(() => {
 	servers.requests = [];
 	servers.answers = new Map();
-	env.NODE_ENV = 'production';
+	env.ALLOW_PRIVATE_HOSTS = false;
 });
 
 const MCP_URL = 'https://mcp.example.com/mcp';
@@ -47,21 +62,29 @@ function openServer(): void {
 }
 
 describe('parseMcpServerUrl', () => {
-	test('takes an https address, keeping its query and dropping its fragment', async () => {
+	test('takes an https address on the internet, keeping its query and dropping its fragment', async () => {
 		const {parseMcpServerUrl} = await import('./mcp-discovery');
-		expect(parseMcpServerUrl(' https://mcp.example.com/mcp?key=1#x ').unwrap().toString()).toBe('https://mcp.example.com/mcp?key=1');
+		expect((await parseMcpServerUrl(' https://mcp.example.com/mcp?key=1#x ')).unwrap().toString()).toBe('https://mcp.example.com/mcp?key=1');
 	});
 
-	test('refuses http, except to this machine while developing, and sign-in details in the address', async () => {
+	test('refuses what is not an address, sign-in details in it, and http to a server on the internet', async () => {
 		const {parseMcpServerUrl} = await import('./mcp-discovery');
-		expect(parseMcpServerUrl('http://mcp.example.com/mcp').unwrapErr().kind).toBe('validation_error');
-		expect(parseMcpServerUrl('http://localhost:3000/mcp').unwrapErr().kind).toBe('validation_error');
-		expect(parseMcpServerUrl('not a url').unwrapErr().kind).toBe('validation_error');
-		expect(parseMcpServerUrl('https://user:pass@mcp.example.com/mcp').unwrapErr().kind).toBe('validation_error');
+		expect((await parseMcpServerUrl('not a url')).unwrapErr().kind).toBe('validation_error');
+		expect((await parseMcpServerUrl('ftp://mcp.example.com/mcp')).unwrapErr().kind).toBe('validation_error');
+		expect((await parseMcpServerUrl('https://user:pass@mcp.example.com/mcp')).unwrapErr().kind).toBe('validation_error');
+		expect((await parseMcpServerUrl('http://mcp.example.com/mcp')).unwrapErr().kind).toBe('validation_error');
+		expect((await parseMcpServerUrl('https://nowhere.example.com/mcp')).unwrapErr().kind).toBe('validation_error');
+	});
 
-		env.NODE_ENV = 'development';
-		expect(parseMcpServerUrl('http://localhost:3000/mcp').unwrap().toString()).toBe('http://localhost:3000/mcp');
-		expect(parseMcpServerUrl('http://mcp.example.com/mcp').unwrapErr().kind).toBe('validation_error');
+	test('refuses a private address, as a database host is refused, unless ALLOW_PRIVATE_HOSTS says so, and then takes http to it', async () => {
+		const {parseMcpServerUrl} = await import('./mcp-discovery');
+		expect((await parseMcpServerUrl('https://10.0.0.7/mcp')).unwrapErr().kind).toBe('validation_error');
+		expect((await parseMcpServerUrl('http://localhost:3000/mcp')).unwrapErr().kind).toBe('validation_error');
+
+		env.ALLOW_PRIVATE_HOSTS = true;
+		expect((await parseMcpServerUrl('http://localhost:3000/mcp')).unwrap().toString()).toBe('http://localhost:3000/mcp');
+		expect((await parseMcpServerUrl('http://[::1]:3000/mcp')).unwrap().toString()).toBe('http://[::1]:3000/mcp');
+		expect((await parseMcpServerUrl('http://mcp.example.com/mcp')).unwrapErr().kind).toBe('validation_error');
 	});
 });
 

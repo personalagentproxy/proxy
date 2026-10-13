@@ -1,10 +1,10 @@
-import {Err, Ok, Result} from 'ts-results-es';
+import {Err, Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, httpRequest} from '@proxy/utils';
 import type {McpTool} from '@proxy/integrations';
 
-import {env} from '../../utils/env';
+import {isPrivateAddress, resolveHost} from '../../utils/host-check';
 import {listMcpTools} from '../mcp/mcp-client';
 import type {McpServer} from '../mcp/mcp-oauth';
 import {customEndpoint} from './custom-mcp';
@@ -18,26 +18,37 @@ import {customEndpoint} from './custom-mcp';
 
 const TIMEOUT_MS = 15_000;
 
-const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+// An IPv6 address in an address is written in brackets, which the lookup doesn't take.
+function hostOf(url: URL): string {
+	return url.hostname.replace(/^\[(.*)\]$/, '$1');
+}
 
 /**
- * A server's address as typed in: `https`, or `http` to this machine while developing, since the
- * api calls whatever is typed here. A query string stays with it; sign-in details in it don't.
+ * A server's address as typed in, its host checked as a database's is (`host-check.ts`): nothing
+ * it resolves to may be private unless `ALLOW_PRIVATE_HOSTS` says so, since the api calls whatever
+ * is typed here, and it is `https`, or `http` only to a private address, where a token isn't sent
+ * over the internet in the clear. Sign-in details in the address are refused; a query string
+ * stays with it.
  */
-export function parseMcpServerUrl(raw: string): Result<URL, ApiError> {
-	if (!URL.canParse(raw.trim())) {
-		return Err(ApiErr.validationError('Enter the server’s address, such as https://mcp.example.com/mcp'));
-	}
-	const url = new URL(raw.trim());
-	const local = LOCAL_HOSTS.has(url.hostname) && env.NODE_ENV === 'development';
-	if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) {
-		return Err(ApiErr.validationError('The address has to start with https://'));
-	}
-	if (url.username || url.password) {
-		return Err(ApiErr.validationError('Leave sign-in details out of the address'));
-	}
-	url.hash = '';
-	return Ok(url);
+export function parseMcpServerUrl(raw: string): Promise<Result<URL, ApiError>> {
+	return Do(async ($) => {
+		if (!URL.canParse(raw.trim())) {
+			return $(Err(ApiErr.validationError('Enter the server’s address, such as https://mcp.example.com/mcp')));
+		}
+		const url = new URL(raw.trim());
+		if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+			return $(Err(ApiErr.validationError('The address has to start with https://')));
+		}
+		if (url.username || url.password) {
+			return $(Err(ApiErr.validationError('Leave sign-in details out of the address')));
+		}
+		const address = $(await resolveHost(hostOf(url)));
+		if (url.protocol === 'http:' && !isPrivateAddress(address)) {
+			return $(Err(ApiErr.validationError('The address has to start with https://, unless the server is on a private address')));
+		}
+		url.hash = '';
+		return url;
+	});
 }
 
 const protectedResourceSchema = z.object({authorization_servers: z.array(z.string()).optional(), scopes_supported: z.array(z.string()).optional()});
@@ -97,7 +108,7 @@ function wellKnownUrls(base: URL, name: string): string[] {
 // The first of the addresses that answers with what `schema` reads, if any.
 async function firstMetadata<T>(urls: string[], schema: z.ZodType<T>): Promise<T | null> {
 	for (const url of urls) {
-		const checked = parseMcpServerUrl(url);
+		const checked = await parseMcpServerUrl(url);
 		if (checked.isErr()) {
 			continue;
 		}
@@ -129,7 +140,11 @@ async function findAuthorizationServer(url: URL): Promise<{issuer: URL; scopes: 
 export function discoverMcpServer(url: URL): Promise<Result<McpServer, ApiError>> {
 	return Do(async ($) => {
 		const {issuer, scopes} = await findAuthorizationServer(url);
-		$(parseMcpServerUrl(issuer.toString()).mapErr(() => ApiErr.validationError(`The server’s authorization server has to be reached over https (${issuer.origin})`)));
+		$(
+			(await parseMcpServerUrl(issuer.toString())).mapErr((error) =>
+				ApiErr.validationError(`The server’s authorization server (${issuer.origin}) can’t be used: ${'message' in error ? error.message : error.kind}`),
+			),
+		);
 		const issuerPath = issuer.pathname.replace(/\/$/, '');
 		const metadata = await firstMetadata(
 			[...wellKnownUrls(issuer, 'oauth-authorization-server'), ...wellKnownUrls(issuer, 'openid-configuration'), `${issuer.origin}${issuerPath}/.well-known/openid-configuration`],

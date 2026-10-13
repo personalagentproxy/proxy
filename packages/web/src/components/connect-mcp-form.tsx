@@ -85,8 +85,8 @@ export function ConnectMcpForm({
 					onChange={(event) => setUrl(event.target.value)}
 				/>
 				<p className="text-sm text-muted-foreground">
-					The server's MCP address, over https. A server that asks you to sign in opens its sign-in
-					page.
+					The server's MCP address, reachable from the internet over https. A server that asks you
+					to sign in opens its sign-in page.
 				</p>
 			</div>
 			<div className="grid gap-2">

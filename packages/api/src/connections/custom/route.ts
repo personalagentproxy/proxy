@@ -49,7 +49,7 @@ function saveConnection(request: AuthenticatedRequest, args: {url: URL; credenti
 export function handleConnectCustomMcpRoute(request: AuthenticatedRequest): Promise<Result<ConnectCustomMcpResponse, ApiError>> {
 	return Do(async ($) => {
 		const body = $(parseSchema(connectBodySchema, request.body));
-		const url = $(parseMcpServerUrl(body.url));
+		const url = $(await parseMcpServerUrl(body.url));
 		const token = body.token || null;
 		const probe = $(await probeMcpServer(url, token));
 		if (probe.kind === 'signIn') {
@@ -67,7 +67,7 @@ export const {handleStart: handleStartCustomMcpRoute, handleCallback: handleCust
 	server: {
 		name: 'MCP server',
 		resolve: async (request) => {
-			const url = parseMcpServerUrl(queryParam(request, 'url') ?? '');
+			const url = await parseMcpServerUrl(queryParam(request, 'url') ?? '');
 			if (url.isErr()) {
 				return Err(url.error);
 			}

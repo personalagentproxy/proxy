@@ -114,7 +114,7 @@ export const envSchema = z.object({
 		{
 			group: 'Deployment',
 			description:
-				"Lets database connections reach private and local addresses, such as `192.168.1.5`, `10.0.0.7` or `localhost`. They are refused otherwise, so a connection can't be pointed at something else on the server's own network. Set it to `true` when self-hosting beside your database.",
+				"Lets database and custom MCP server connections reach private and local addresses, such as `192.168.1.5`, `10.0.0.7` or `localhost`. They are refused otherwise, so a connection can't be pointed at something else on the server's own network. Set it to `true` when self-hosting beside your database or server.",
 		},
 	),
 });

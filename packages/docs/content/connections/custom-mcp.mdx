@@ -14,7 +14,12 @@ against that access and written to the activity log, as with the built-in integr
 ### Enter the address
 
 Open **Connections**, then **Add connection**, and the plus beside **Custom MCP server**. Enter the
-server's MCP address, such as `https://mcp.example.com/mcp`. The address has to use `https`.
+server's MCP address, such as `https://mcp.example.com/mcp`.
+
+The server has to be reachable from the internet, over `https`. Hosted Personal Agent Proxy refuses
+servers on private addresses, such as `10.0.0.7` or `localhost`; a server on one needs Personal
+Agent Proxy [self-hosted](/self-hosting) beside it, with `ALLOW_PRIVATE_HOSTS` set, and may then be
+reached over `http`.
 
 ### Sign in, if the server asks
 
@@ -56,5 +61,3 @@ which authorization server its tokens come from, Personal Agent Proxy registers 
 client, and you approve access on the authorization server's own page. Tokens are refreshed as they
 run out. A server whose authorization server does not let clients register themselves cannot be
 connected this way; use an access token instead, where the server offers one.
-
-When developing on your own machine, a server at `http://localhost` can be connected too.

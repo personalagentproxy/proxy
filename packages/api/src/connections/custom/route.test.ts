@@ -20,7 +20,10 @@ mock.module('../../observability/log', () => ({
 	serializeError: mock(() => ({})),
 }));
 
-mock.module('../../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com'}}));
+mock.module('../../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com', ALLOW_PRIVATE_HOSTS: false}}));
+
+// The example server is on the internet.
+mock.module('node:dns/promises', () => ({default: {lookup: async () => [{address: '93.184.216.34', family: 4}]}}));
 
 // Readable stand-ins for encryption, so a test can see what was stored.
 mock.module('../../utils/secret-crypto', () => ({
