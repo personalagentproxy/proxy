@@ -1,0 +1,35 @@
+{
+	"name": "map",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"scripts": {
+		"start": "vite --port 5176",
+		"crawl": "bun scripts/crawl.ts",
+		"lint": "oxlint",
+		"test": "bun test",
+		"typecheck": "tsc -b"
+	},
+	"dependencies": {
+		"@dagrejs/dagre": "^3.1.1",
+		"@proxy/ui": "workspace:*",
+		"@tailwindcss/vite": "^4.3.3",
+		"@xyflow/react": "^12.12.0",
+		"react": "^19.2.8",
+		"react-dom": "^19.2.8",
+		"react-router": "^8.3.1",
+		"tailwindcss": "^4.3.3",
+		"ts-results-es": "^7.1.0",
+		"zod": "^4.5.4"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.4.2",
+		"@types/react": "^19.2.18",
+		"@types/react-dom": "^19.2.4",
+		"@vitejs/plugin-react": "^6.1.0",
+		"oxlint": "^1.79.0",
+		"playwright-core": "^1.64.0",
+		"typescript": "~6.0.2",
+		"vite": "^8.2.2"
+	}
+}

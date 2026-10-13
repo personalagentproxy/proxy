@@ -15,3 +15,6 @@ node_modules
 
 # build output
 dist
+
+# the screen map the crawl writes
+/packages/map/generated
