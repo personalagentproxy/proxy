@@ -1,7 +1,7 @@
 import {findAgentProvider, type AgentProvider, type AgentProviderId} from '@proxy/integrations';
 import {CheckIcon, LoaderCircleIcon} from 'lucide-react';
 import {useEffect, useState, type ReactNode} from 'react';
-import {useRevalidator} from 'react-router';
+import {useRevalidator, useSearchParams} from 'react-router';
 import {createAgent, resetAgentPassword} from '@/client/agents-client';
 import {AgentProviderTile} from '@/components/agent-provider-tile';
 import {CopyButton} from '@/components/copy-button';
@@ -27,6 +27,8 @@ type Login = {username: string; password: string};
 // there when it is chosen. The welcome flow, New agent and setting an agent up again all go
 // through here. An agent that has a login already is shown as it is, so arriving here after
 // signing in from Claude says Claude is connected. With `fixed`, it is that agent's alone.
+// The agent chosen is in the address (`?agent=claude`), so the browser's back button returns to
+// the choice.
 export function AgentSetup({
 	agents,
 	providers,
@@ -42,13 +44,15 @@ export function AgentSetup({
 }) {
 	const live = agents.filter((agent) => agent.revokedAt === null);
 	const {revalidate} = useRevalidator();
-	// The agent already set up, so arriving back here after signing in from Claude shows Claude.
-	const [chosenId, setChosenId] = useState<AgentProviderId | null>(
+	const [params, setParams] = useSearchParams();
+	// The agent already set up, so arriving back here after signing in from Claude shows Claude,
+	// until another is chosen.
+	const [arrival, setArrival] = useState<AgentProviderId | null>(
 		() =>
-			fixed ??
 			providers.find((provider) => live.some((agent) => agent.providerId === provider.id))?.id ??
 			null,
 	);
+	const chosenId = fixed ?? findAgentProvider(params.get('agent') ?? '')?.id ?? arrival;
 	const [login, setLogin] = useState<Login | null>(null);
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -57,7 +61,11 @@ export function AgentSetup({
 		live.find((agent) => agent.providerId === provider.id) ?? null;
 
 	const choose = async (provider: AgentProvider) => {
-		setChosenId(provider.id);
+		setArrival(null);
+		setParams((current) => {
+			current.set('agent', provider.id);
+			return current;
+		});
 		setLogin(null);
 		setError(null);
 		if (provider.connects !== 'login' || existingFor(provider) !== null) {
@@ -72,6 +80,17 @@ export function AgentSetup({
 		}
 		setLogin({username: result.value.agent.username, password: result.value.password});
 		void revalidate();
+	};
+
+	const chooseAnother = () => {
+		setArrival(null);
+		if (!params.has('agent')) {
+			return;
+		}
+		setParams((current) => {
+			current.delete('agent');
+			return current;
+		});
 	};
 
 	const reset = async (agent: AgentLogin) => {
@@ -128,7 +147,7 @@ export function AgentSetup({
 	const actions = (
 		<div className={cn('flex gap-2', fixed ? 'justify-end' : 'justify-between')}>
 			{!fixed && (
-				<Button variant="outline" disabled={pending} onClick={() => setChosenId(null)}>
+				<Button variant="outline" disabled={pending} onClick={chooseAnother}>
 					Choose another agent
 				</Button>
 			)}
