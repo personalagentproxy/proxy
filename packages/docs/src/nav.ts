@@ -29,7 +29,7 @@ export const NAV: {title: string; pages: NavEntry[]}[] = [
 			'connections/custom-integrations',
 		],
 	},
-	{title: 'Agents', pages: ['agents/mcp']},
+	{title: 'Agents', pages: ['agents/mcp', 'agents/cli']},
 	{
 		title: 'Self-hosting',
 		pages: [
