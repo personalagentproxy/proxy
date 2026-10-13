@@ -19,6 +19,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 COPY package.json bun.lock ./
 COPY packages/api/package.json packages/api/
+COPY packages/cli/package.json packages/cli/
 COPY packages/db/package.json packages/db/
 COPY packages/db/prisma packages/db/prisma
 COPY packages/docs/package.json packages/docs/

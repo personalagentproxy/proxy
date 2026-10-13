@@ -9,8 +9,8 @@ mock.module('./tools', () => ({runAgentTool, listAgentTools, listAgentConnection
 
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dots'};
 
-function makeRequest(params: Record<string, string>, body: unknown = undefined) {
-	return {agent: signedIn, params, body, query: {}} as never;
+function makeRequest(params: Record<string, string>, body: unknown = undefined, headers: Record<string, string> = {}) {
+	return {agent: signedIn, params, body, query: {}, headers} as never;
 }
 
 beforeEach(() => {
@@ -33,6 +33,17 @@ describe('handleAgentRunToolRoute', () => {
 		await handleAgentRunToolRoute(makeRequest({connectionId: 'mail-1', toolName: 'emails_list'}));
 
 		expect(runAgentTool).toHaveBeenCalledWith({agent: signedIn, via: 'web'}, 'mail-1', 'emails_list', undefined);
+	});
+
+	test('a run from the proxy command line is marked as one, for the activity log alone', async () => {
+		const {handleAgentRunToolRoute} = await import('./route');
+		await handleAgentRunToolRoute(makeRequest({connectionId: 'tt-1', toolName: 'tasks_list'}, {params: {}}, {'x-proxy-client': 'cli'}));
+		await handleAgentRunToolRoute(makeRequest({connectionId: 'tt-1', toolName: 'tasks_list'}, {params: {}}, {'x-proxy-client': 'mcp'}));
+
+		expect(runAgentTool.mock.calls.map((call) => call[0])).toEqual([
+			{agent: signedIn, via: 'cli'},
+			{agent: signedIn, via: 'web'},
+		]);
 	});
 
 	test('a body that is not an object is refused', async () => {

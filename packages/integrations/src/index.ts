@@ -9,6 +9,7 @@ export {
 	INTEGRATIONS,
 	LINEAR_PRIORITIES,
 	LINEAR_STATUS_TYPES,
+	TICKTICK_PRIORITIES,
 } from './catalog';
 export {allowedTools, findTool, integrationTools, toolName} from './tools';
 export type {JsonSchemaObject, JsonSchemaProperty, Tool, ToolKind} from './tools';

@@ -1,0 +1,24 @@
+{
+	"name": "@proxy/cli",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"bin": {
+		"proxy": "./src/index.ts"
+	},
+	"scripts": {
+		"start": "bun src/index.ts",
+		"test": "bun test",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@proxy/integrations": "workspace:*",
+		"@proxy/utils": "workspace:*",
+		"ts-results-es": "^7.1.0",
+		"zod": "^4.5.4"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"typescript": "~6.0.2"
+	}
+}

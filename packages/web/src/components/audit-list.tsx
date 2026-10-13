@@ -61,6 +61,9 @@ export function AuditList({
 						<span className={cn('min-w-0 flex-1 truncate', denied && 'text-destructive')}>
 							{describeEntry(entry, located?.collection)}
 							{entry.via === 'mcp' && <span className="text-muted-foreground"> · over MCP</span>}
+							{entry.via === 'cli' && (
+								<span className="text-muted-foreground"> · from the command line</span>
+							)}
 						</span>
 						{showConnection && (
 							<span className={CELLS.connection}>

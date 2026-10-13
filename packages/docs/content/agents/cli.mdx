@@ -1,0 +1,67 @@
+---
+title: Use the proxy command line
+description: Sign an agent with a terminal in to Personal Agent Proxy with the proxy command, and run its tools from scripts.
+---
+
+`proxy` is a command line for agents that work in a terminal, such as Claude Code or Hermes Agent.
+It signs in with an agent login, like the agent pages do, and runs the same tools as the MCP
+server: every run is checked against what the login is allowed as it is now, and is in the activity
+log, marked as from the command line. The agent never holds a provider's credentials, only its own
+session.
+
+<Steps>
+
+### Install it
+
+`proxy` runs on [Bun](https://bun.sh) from a checkout of Personal Agent Proxy. From the checkout,
+`bun run proxy <command>` runs it; an alias makes it `proxy`:
+
+```sh
+alias proxy="bun $PWD/packages/cli/src/index.ts"
+```
+
+### Sign in
+
+Make an agent login on **Agents**, then **New agent**, and sign in with its username at the address
+Personal Agent Proxy is opened at, its `APP_URL`. The password is asked for without showing it, or
+read from standard input:
+
+```sh
+proxy login --url https://proxy.example.com --username claude-code-x1
+printf '%s' "$PASSWORD" | proxy login --url https://proxy.example.com --username claude-code-x1 --password-stdin
+```
+
+The password only goes over HTTPS, or plain HTTP to the same machine, as `http://localhost:5173`
+is in development. The session is kept in `~/.config/proxy/session.json` (or under
+`$XDG_CONFIG_HOME`), readable only by you, and lasts a week. `proxy logout` ends it.
+
+</Steps>
+
+## Commands
+
+- `proxy connections` lists the connections the login can use, each with its id and what the login
+  may do with it.
+- `proxy tools <connectionId>` lists the tools the login has with a connection, whether each reads
+  or changes something, and its params, the required ones starred.
+- `proxy run <connectionId> <tool> --params '<json>'` runs a tool. A list prints one record a line,
+  its id first, and the page after it as a param to add; a record prints a field a line.
+- `proxy help` prints how to use it.
+
+Every command takes `--json` for the server's answer as JSON, to hand to `jq`. A refusal ends the
+command with exit code 1 and the server's reason, such as a param a tool doesn't take or an action
+the login isn't allowed; a command used wrongly ends with exit code 2.
+
+```sh
+proxy run <connectionId> tasks_list --params '{"parent":"project:inbox"}'
+proxy run <connectionId> tasks_create --params '{"parent":"project:inbox","title":"Call the bank"}'
+proxy run <connectionId> tasks_list --params '{"parent":"project:inbox"}' --json | jq -r '.records[].id'
+```
+
+## How it signs in
+
+`proxy` uses the agent pages' own routes: `/agent-auth/login` for a session cookie, then
+`/api/agent/*` with it. Writes carry the server's own address as their `Origin`, the same check
+the agent pages pass, so the server's protection against requests from other sites stays on.
+Redirects aren't followed, so the session only ever goes to the address signed in to. Each request
+says it comes from the command line, which the activity log shows; it changes nothing about what
+the login may do.

@@ -73,8 +73,9 @@ export function listAgentTools(signedIn: SignedInAgent, connectionId: string): P
 	});
 }
 
-// Who runs a tool and which way it came in: the web app's agent pages, or the MCP server.
-export type AgentCaller = {agent: SignedInAgent; via: 'web' | 'mcp'};
+// Who runs a tool and which way it came in: the web app's agent pages, the MCP server, or the
+// `proxy` command line.
+export type AgentCaller = {agent: SignedInAgent; via: 'web' | 'mcp' | 'cli'};
 
 type ToolRun = {caller: AgentCaller; target: RecordTarget; connector: Connector; tool: Tool};
 

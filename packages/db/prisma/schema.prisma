@@ -240,10 +240,12 @@ enum AuditOutcome {
   denied
 }
 
-// How an agent came in: the web app's agent pages, or the MCP server.
+// How an agent came in: the web app's agent pages, the MCP server, or the `proxy` command line,
+// which says so in a header. Only a record of where a request came from: access is the same.
 enum AuditVia {
   web
   mcp
+  cli
 }
 
 // One request an agent made, allowed or denied. Plain ids rather than relations, so the entry

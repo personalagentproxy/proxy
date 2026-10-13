@@ -23,12 +23,13 @@ export const NAV: {title: string; pages: NavEntry[]}[] = [
 			'connections/granola',
 			'connections/notion',
 			'connections/linear',
+			'connections/ticktick',
 			'connections/postgres',
 			'connections/mysql',
 			'connections/custom-integrations',
 		],
 	},
-	{title: 'Agents', pages: ['agents/mcp']},
+	{title: 'Agents', pages: ['agents/mcp', 'agents/cli']},
 	{
 		title: 'Self-hosting',
 		pages: [

@@ -7,20 +7,21 @@ import {AgentSetup} from '@/components/agent-setup';
 import type {DatabaseDialect} from '@/client/connections-client';
 import {ConnectDatabaseForm} from '@/components/connect-database-form';
 import {ConnectEmailForm} from '@/components/connect-email-form';
+import {ConnectTickTickForm} from '@/components/connect-ticktick-form';
 import {ConnectionAccess} from '@/components/connection-access';
 import {IntegrationCatalog} from '@/components/integration-catalog';
 import {StepHeading} from '@/components/step-heading';
 import {SuccessLine} from '@/components/success-line';
 import {Button} from '@proxy/ui/components/button';
 import {defaultActions, defaultsOnOrOff, integrationOf} from '@/lib/access';
-import {describeDatabase, signInFailedMessage} from '@/lib/integrations';
+import {describeDatabase, signInFailedMessage, TICKTICK_INTRO} from '@/lib/integrations';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin, Connection} from '@/lib/types';
 import type {welcomeConnectionLoader, welcomeLoader} from '@/loaders';
 
-// Step one is the agent; the rest are step two: the catalog, the mailbox and database forms, and
-// (on its own page, `WelcomeConnectionPage`) a new connection's permissions.
-type Step = 'agent' | 'connections' | 'email' | DatabaseDialect;
+// Step one is the agent; the rest are step two: the catalog, the mailbox, TickTick and database
+// forms, and (on its own page, `WelcomeConnectionPage`) a new connection's permissions.
+type Step = 'agent' | 'connections' | 'email' | 'ticktick' | DatabaseDialect;
 
 // The welcome flow, before the app: step one connects the person's agent, in the way that agent
 // takes (an MCP client adds the server and signs in; another is handed a login), step two their
@@ -64,6 +65,11 @@ export function WelcomePage({step}: {step: Step}) {
 			)}
 			{step === 'email' && (
 				<EmailStep onContinue={(connection) => navigate(`/welcome/connections/${connection.id}`)} />
+			)}
+			{step === 'ticktick' && (
+				<TickTickStep
+					onContinue={(connection) => navigate(`/welcome/connections/${connection.id}`)}
+				/>
 			)}
 			{(step === 'postgres' || step === 'mysql') && (
 				<DatabaseStep
@@ -133,8 +139,9 @@ function Frame({step, children}: {step: 1 | 2; children: ReactNode}) {
 	);
 }
 
-// The catalog: a plus per integration, and how many accounts of it are connected. A mailbox or a
-// database goes to its form; a sign-in starts at the api and comes back to the connection's page here.
+// The catalog: a plus per integration, and how many accounts of it are connected. A mailbox,
+// TickTick or a database goes to its form; a sign-in starts at the api and comes back to the
+// connection's page here.
 function ConnectionsStep({
 	agentName,
 	connections,
@@ -185,6 +192,29 @@ function EmailStep({onContinue}: {onContinue: (connection: Connection) => void})
 				it there disconnects the mailbox.
 			</StepHeading>
 			<ConnectEmailForm
+				cancel={
+					<Button
+						variant="outline"
+						nativeButton={false}
+						render={<Link to="/welcome/connections" />}
+					>
+						Back
+					</Button>
+				}
+				continueLabel="Continue"
+				onConnected={onContinue}
+			/>
+		</>
+	);
+}
+
+// The TickTick form. Test connection signs in without saving; Continue makes the connection and
+// goes on to its permissions.
+function TickTickStep({onContinue}: {onContinue: (connection: Connection) => void}) {
+	return (
+		<>
+			<StepHeading title="Connect TickTick">{TICKTICK_INTRO}</StepHeading>
+			<ConnectTickTickForm
 				cancel={
 					<Button
 						variant="outline"

@@ -41,5 +41,5 @@ export const auditEntrySchema = z.object({
 	query: z.string().nullable(),
 	outcome: z.enum(['allowed', 'denied']),
 	// The web app's agent pages, or the MCP server.
-	via: z.enum(['web', 'mcp']),
+	via: z.enum(['web', 'mcp', 'cli']),
 });

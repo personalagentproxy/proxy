@@ -6,8 +6,8 @@ import {
 } from '@proxy/integrations';
 
 // A brand's own logo where it has one (in `public/integrations/`), else an icon: Information is
-// ours, and Email is any mailbox. A logo that is already a square tile, as Granola's and Linear's
-// are, fills the tile edge to edge.
+// ours, and Email is any mailbox. A logo that is already a square tile, as Granola's, Linear's and
+// TickTick's are, fills the tile edge to edge.
 type IntegrationLogoImage = {src: string; fill?: boolean};
 
 export type Integration = CatalogIntegration & {logo: LucideIcon | IntegrationLogoImage};
@@ -18,6 +18,7 @@ const LOGOS: Record<IntegrationId, LucideIcon | IntegrationLogoImage> = {
 	granola: {src: '/integrations/granola.png', fill: true},
 	notion: {src: '/integrations/notion.svg'},
 	linear: {src: '/integrations/linear.svg', fill: true},
+	ticktick: {src: '/integrations/ticktick.svg', fill: true},
 	postgres: {src: '/integrations/postgresql.svg'},
 	mysql: {src: '/integrations/mysql.svg'},
 };
@@ -49,3 +50,7 @@ export function describeDatabase(dialect: 'postgres' | 'mysql'): {title: string;
 			'Sign in with a database user made for this connection alone. The database has to be reachable from the internet; one on a private address needs Personal Agent Proxy self-hosted beside it.',
 	};
 }
+
+/** What the TickTick form says before it: where the token is, and that revoking it disconnects. */
+export const TICKTICK_INTRO =
+	'Sign in with a personal API token from TickTick’s settings. Making a new token there replaces this one and disconnects the account.';

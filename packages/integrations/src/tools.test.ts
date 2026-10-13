@@ -191,3 +191,53 @@ describe('postgres and mysql', () => {
 		expect(findTool(postgres, 'tables_update')?.where).toEqual({field: 'kind', values: ['Row']});
 	});
 });
+
+describe('ticktick', () => {
+	const ticktick = integration('ticktick');
+
+	test('lists hold tasks, which are added, edited and completed but never deleted', () => {
+		expect(integrationTools(ticktick).map((tool) => tool.name)).toEqual([
+			'tasks_list',
+			'tasks_get',
+			'tasks_create',
+			'tasks_update',
+			'tasks_complete',
+		]);
+		const create = findTool(ticktick, 'tasks_create');
+		expect(Object.keys(create?.inputSchema.properties ?? {})).toEqual([
+			'parent',
+			'title',
+			'priority',
+			'content',
+		]);
+		expect(create?.inputSchema.properties.priority?.enum).toEqual([
+			'None',
+			'Low',
+			'Medium',
+			'High',
+		]);
+	});
+
+	test('an edit sets the title, notes and priority of a task, never its status', () => {
+		const update = findTool(ticktick, 'tasks_update');
+		expect(update?.where).toEqual({field: 'kind', values: ['Task']});
+		expect(Object.keys(update?.inputSchema.properties ?? {})).toEqual([
+			'id',
+			'title',
+			'priority',
+			'content',
+		]);
+	});
+
+	test('completing is a command of its own, on open tasks, with an action of its own', () => {
+		expect(findTool(ticktick, 'tasks_complete')).toMatchObject({
+			kind: 'command',
+			action: 'complete',
+			readOnly: false,
+			where: {field: 'status', values: ['Open']},
+		});
+		expect(allowedTools(ticktick, ['read', 'edit']).map((tool) => tool.name)).not.toContain(
+			'tasks_complete',
+		);
+	});
+});
