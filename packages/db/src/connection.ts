@@ -122,10 +122,10 @@ export async function updateConnectionTools(data: {
 	});
 }
 
-/** Renames a connection, as when the same server is connected again under a new name. */
+/** Renames a connection; null is no name of its own, so it shows as its integration again. */
 export async function updateConnectionName(data: {
 	connectionId: string;
-	name: string;
+	name: string | null;
 }): Promise<Result<void, ApiError>> {
 	const {connectionId, name} = data;
 	return wrapDb(async () => {

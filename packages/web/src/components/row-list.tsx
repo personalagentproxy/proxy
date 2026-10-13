@@ -1,5 +1,10 @@
 import type {ReactNode} from 'react';
 import {Link} from 'react-router';
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuTrigger,
+} from '@proxy/ui/components/context-menu';
 
 // The compact list every page shares: one line per row, the whole row a link or a button.
 // Callers pass their own trailing cells, with widths and phone/desktop visibility set by class,
@@ -18,12 +23,14 @@ type RowProps = {
 	title: ReactNode;
 	// Cells after the title, right-aligned in the order given.
 	cells?: ReactNode;
+	// The row's context menu, opened with a right click or a long press: its items.
+	menu?: ReactNode;
 } & ({to: string; onClick?: never} | {onClick: () => void; to?: never});
 
 const ROW =
 	'flex h-10 w-full items-center gap-3 px-4 text-left text-sm hover:bg-muted/50 active:bg-muted/50 md:px-3';
 
-export function Row({to, onClick, icon, title, cells}: RowProps) {
+export function Row({to, onClick, icon, title, cells, menu}: RowProps) {
 	const content = (
 		<>
 			{icon}
@@ -31,23 +38,26 @@ export function Row({to, onClick, icon, title, cells}: RowProps) {
 			{cells}
 		</>
 	);
-
-	if (to !== undefined) {
-		return (
-			<li>
-				<Link to={to} className={ROW}>
-					{content}
-				</Link>
-			</li>
-		);
-	}
-
-	return (
-		<li>
+	const control =
+		to !== undefined ? (
+			<Link to={to} className={ROW}>
+				{content}
+			</Link>
+		) : (
 			<button type="button" onClick={onClick} className={ROW}>
 				{content}
 			</button>
-		</li>
+		);
+
+	if (!menu) {
+		return <li>{control}</li>;
+	}
+
+	return (
+		<ContextMenu>
+			<ContextMenuTrigger render={<li />}>{control}</ContextMenuTrigger>
+			<ContextMenuContent>{menu}</ContextMenuContent>
+		</ContextMenu>
 	);
 }
 

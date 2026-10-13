@@ -15,6 +15,11 @@ export function deleteConnection(connectionId: string) {
 	return apiSend('DELETE', `/api/connections/${connectionId}`);
 }
 
+/** Renames a connection; an empty name is none of its own, so it shows as its integration again. */
+export function renameConnection(connectionId: string, name: string) {
+	return apiRequest('PUT', `/api/connections/${connectionId}/name`, connectionSchema, {name});
+}
+
 /** Turns default actions of a connection on or off; actions left out stay as they are. */
 export function setConnectionDefaults(connectionId: string, actions: Record<string, boolean>) {
 	return apiRequest('PUT', `/api/connections/${connectionId}/defaults`, connectionSchema, {

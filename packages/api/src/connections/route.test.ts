@@ -7,12 +7,14 @@ const listConnections = mock();
 const getConnection = mock();
 const deleteConnection = mock();
 const setConnectionDefaults = mock();
+const updateConnectionName = mock();
 
 mock.module('@proxy/db/connection', () => ({
 	listConnections,
 	getConnection,
 	deleteConnection,
 	setConnectionDefaults,
+	updateConnectionName,
 }));
 
 const getUserOrgId = mock();
@@ -83,6 +85,31 @@ describe('handleGetConnectionRoute', () => {
 		const result = await handleGetConnectionRoute(makeRequest({connectionId: 'other'}));
 
 		expect(result.unwrapErr().kind).toBe('not_found');
+	});
+});
+
+describe('handleRenameConnectionRoute', () => {
+	test('renames the connection, an empty name being none of its own', async () => {
+		updateConnectionName.mockResolvedValue(Ok(undefined));
+		const {handleRenameConnectionRoute} = await import('./route');
+		const renamed = (await handleRenameConnectionRoute(makeRequest({connectionId: 'conn-1'}, {name: ' Work mail '}))).unwrap();
+		expect(updateConnectionName).toHaveBeenCalledWith({connectionId: 'conn-1', name: 'Work mail'});
+		expect(renamed.name).toBe('Work mail');
+
+		const cleared = (await handleRenameConnectionRoute(makeRequest({connectionId: 'conn-1'}, {name: ''}))).unwrap();
+		expect(updateConnectionName).toHaveBeenLastCalledWith({connectionId: 'conn-1', name: null});
+		expect(cleared.name).toBeNull();
+	});
+
+	test('a custom MCP server needs a name, and Information keeps its own', async () => {
+		updateConnectionName.mockResolvedValue(Ok(undefined));
+		getConnection.mockResolvedValue(Ok({...emailRow, integrationId: 'mcp', tools: '[]', name: 'Docs'}));
+		const {handleRenameConnectionRoute} = await import('./route');
+		expect((await handleRenameConnectionRoute(makeRequest({connectionId: 'conn-1'}, {name: ' '}))).unwrapErr().kind).toBe('validation_error');
+
+		getConnection.mockResolvedValue(Ok({...emailRow, integrationId: 'info'}));
+		expect((await handleRenameConnectionRoute(makeRequest({connectionId: 'conn-1'}, {name: 'Mine'}))).unwrapErr().kind).toBe('forbidden');
+		expect(updateConnectionName).not.toHaveBeenCalled();
 	});
 });
 
