@@ -63,12 +63,28 @@ const card = {id: 'rec-1', values: {label: 'Personal Visa', number: '4242'}, upd
 const inboxEmail = {id: 'inbox-7-12', values: {folder: 'Inbox', subject: 'Invoice #20931'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 const draft = {id: 'drafts-7-3', values: {folder: 'Draft', from: 'alex@example.com', to: 'sam@example.com', subject: 'Re: Q3 planning', body: 'Draft body'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 
+// Reads and edits tasks by default; completing them is off.
+const ticktickConnection = {
+	id: 'ticktick-1',
+	integrationId: 'ticktick',
+	account: 'alex@example.com',
+	createdAt: new Date(),
+	defaults: [{actionId: 'read'}, {actionId: 'edit'}],
+	credential: 'v1.x.y.z',
+};
+const openTask = {
+	id: 'task:64f0a1b2c3d4e5f6a7b8c901:64f0a1b2c3d4e5f6a7b8c9a1',
+	values: {title: 'Buy milk', kind: 'Task', status: 'Open', priority: 'Medium', content: ''},
+	updatedAt: '2026-10-13T18:39:42.531Z',
+};
+
 const archive = mock();
 const send = mock();
 const sendNew = mock();
-const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send}, newCommands: {sendNew}};
+const complete = mock();
+const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send, complete}, newCommands: {sendNew}};
 
-function useConnection(connection: typeof infoConnection | typeof emailConnection | typeof notionConnection) {
+function useConnection(connection: typeof infoConnection | typeof emailConnection | typeof notionConnection | typeof ticktickConnection) {
 	loadConnection.mockResolvedValue(Ok({connection, integration: integration(connection.integrationId), connector}));
 }
 
@@ -324,5 +340,42 @@ describe('nested collections', () => {
 		expect(created.unwrapErr().kind).toBe('validation_error');
 		expect(connector.list).not.toHaveBeenCalled();
 		expect(connector.create).not.toHaveBeenCalled();
+	});
+
+	test('editing a TickTick task never completes it: that takes Complete tasks, refused and logged until it is given', async () => {
+		useConnection(ticktickConnection);
+		connector.get.mockResolvedValue(Ok(openTask));
+		connector.update.mockResolvedValue(Ok(openTask));
+		complete.mockResolvedValue(Ok(null));
+		const {runAgentTool} = await import('./tools');
+
+		const viaEdit = await runAgentTool(caller, 'ticktick-1', 'tasks_update', {id: openTask.id, status: 'Completed'});
+		expect(viaEdit.unwrapErr()).toMatchObject({kind: 'validation_error', message: expect.stringContaining('takes no status')});
+		expect(connector.update).not.toHaveBeenCalled();
+
+		const denied = await runAgentTool(caller, 'ticktick-1', 'tasks_complete', {id: openTask.id});
+		expect(denied.unwrapErr().kind).toBe('forbidden');
+		expect(complete).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({connectionId: 'ticktick-1', collectionId: 'tasks', action: 'complete', outcome: 'denied'});
+
+		getAgent.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'ticktick-1', actionId: 'complete', allowed: true}]}));
+		const allowed = await runAgentTool(caller, 'ticktick-1', 'tasks_complete', {id: openTask.id});
+		expect(allowed.unwrap()).toEqual({record: null});
+		expect(complete.mock.calls[0]?.[1]).toBe(openTask.id);
+		expect(logAgentRequest.mock.calls[1]?.[0]).toMatchObject({action: 'complete', recordTitle: 'Buy milk', outcome: 'allowed'});
+	});
+
+	test('a completed TickTick task is not completed again, and a list is not edited', async () => {
+		useConnection(ticktickConnection);
+		getAgent.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'ticktick-1', actionId: 'complete', allowed: true}]}));
+		const {runAgentTool} = await import('./tools');
+
+		connector.get.mockResolvedValue(Ok({...openTask, values: {...openTask.values, status: 'Completed'}}));
+		expect((await runAgentTool(caller, 'ticktick-1', 'tasks_complete', {id: openTask.id})).unwrapErr().kind).toBe('validation_error');
+
+		connector.get.mockResolvedValue(Ok({id: 'project:64f0a1b2c3d4e5f6a7b8c901', values: {title: 'Errands', kind: 'List'}, updatedAt: '', hasChildren: true}));
+		expect((await runAgentTool(caller, 'ticktick-1', 'tasks_update', {id: 'project:64f0a1b2c3d4e5f6a7b8c901', title: 'Chores'})).unwrapErr().kind).toBe('validation_error');
+		expect(complete).not.toHaveBeenCalled();
+		expect(connector.update).not.toHaveBeenCalled();
 	});
 });

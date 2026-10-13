@@ -26,6 +26,9 @@ export function agentErrorMessage(error: FetchError): string {
 	if (error.kind === 'http' && error.status === 422) {
 		return 'The provider turned the sign-in down. Ask the person who made this login to reconnect it.';
 	}
+	if (error.kind === 'http' && error.status === 429) {
+		return apiMessage(error.body) ?? 'The provider is busy. Try again in a minute.';
+	}
 	if (error.kind === 'http' && error.status === 502) {
 		return 'The provider could not be reached. Try again in a moment.';
 	}

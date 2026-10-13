@@ -59,3 +59,15 @@ export function connectDatabase(dialect: DatabaseDialect, input: ConnectDatabase
 export function testDatabase(dialect: DatabaseDialect, input: ConnectDatabaseInput) {
 	return apiSend('POST', `/api/connections/${dialect}/test`, input);
 }
+
+export type ConnectTickTickInput = {account: string; token: string};
+
+/** Signs in to TickTick with the token first: 422 is a token TickTick turned down, 502 TickTick out of reach. */
+export function connectTickTick(input: ConnectTickTickInput) {
+	return apiRequest('POST', '/api/connections/ticktick', connectionSchema, input);
+}
+
+/** Signs in to TickTick and saves nothing: the Test connection button. Answers 204, or the same errors as connecting. */
+export function testTickTick(input: ConnectTickTickInput) {
+	return apiSend('POST', '/api/connections/ticktick/test', input);
+}

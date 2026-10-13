@@ -7,6 +7,7 @@ import {infoConnector} from './info-connector';
 import {linearConnector} from './linear-connector';
 import {notionConnector} from './notion-connector';
 import {sqlConnector} from './sql-connector';
+import {ticktickConnector} from './ticktick-connector';
 
 const CONNECTORS: Record<IntegrationId, Connector> = {
 	info: infoConnector,
@@ -14,6 +15,7 @@ const CONNECTORS: Record<IntegrationId, Connector> = {
 	granola: granolaConnector,
 	notion: notionConnector,
 	linear: linearConnector,
+	ticktick: ticktickConnector,
 	postgres: sqlConnector('postgres'),
 	mysql: sqlConnector('mysql'),
 };
