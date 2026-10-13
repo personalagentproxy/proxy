@@ -10,7 +10,8 @@ import {ApiErr, type ApiError, type FetchError, httpRequest} from '@proxy/utils'
  * the server's own authorization server, a client registered on the spot (Dynamic Client
  * Registration) with no secret, and refresh tokens for staying connected. Each connection keeps
  * the client it was made with, since refreshing needs it. Nothing has to be set up beforehand, so
- * a self-hosted Personal Agent Proxy connects the same way.
+ * a self-hosted Personal Agent Proxy connects the same way. No request follows a redirect, since a
+ * custom server's endpoints are wherever its metadata said.
  */
 
 /** An MCP server, as far as calling its tools goes. */
@@ -90,6 +91,7 @@ export async function registerMcpClient(server: McpServer, redirectUri: string):
 		{
 			method: 'POST',
 			headers: {'content-type': 'application/json'},
+			redirect: 'error',
 			body: JSON.stringify({
 				client_name: 'Personal Agent Proxy',
 				redirect_uris: [redirectUri],
@@ -132,6 +134,7 @@ async function requestTokens(server: McpServer, clientId: string, params: Record
 		{
 			method: 'POST',
 			headers: {'content-type': 'application/x-www-form-urlencoded'},
+			redirect: 'error',
 			body: new URLSearchParams({...params, client_id: clientId, resource: server.url}).toString(),
 		},
 		{schema: tokensSchema, timeoutMs: TIMEOUT_MS},

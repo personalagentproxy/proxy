@@ -14,10 +14,10 @@ const SERVER: McpServer = {
 	scope: 'default',
 };
 
-const server = {requests: [] as Array<{url: string; headers: Headers; body: string; method?: string}>, answer: (): Response => Response.json({})};
+const server = {requests: [] as Array<{url: string; headers: Headers; body: string; method?: string; redirect?: RequestRedirect}>, answer: (): Response => Response.json({})};
 
 const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request, init?: RequestInit) => {
-	server.requests.push({url: String(input), headers: new Headers(init?.headers), body: typeof init?.body === 'string' ? init.body : ''});
+	server.requests.push({url: String(input), headers: new Headers(init?.headers), body: typeof init?.body === 'string' ? init.body : '', redirect: init?.redirect});
 	return server.answer();
 }) as typeof fetch);
 
@@ -38,6 +38,7 @@ describe('callMcpTool', () => {
 		expect(server.requests[0]?.url).toBe('https://mcp.example.com/mcp');
 		expect(server.requests[0]?.headers.get('authorization')).toBe('Bearer access-1');
 		expect(server.requests[0]?.headers.has('mcp-session-id')).toBe(false);
+		expect(server.requests[0]?.redirect).toBe('error');
 		expect(JSON.parse(server.requests[0]?.body ?? '{}')).toEqual({jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name: 'list_meetings', arguments: {time_range: 'last_30_days'}}});
 	});
 
@@ -76,7 +77,7 @@ describe('a server with a handshake', () => {
 	function statefulServer(answer: (message: {id?: number; method?: string; params?: Record<string, unknown>}) => Response): void {
 		fetchSpy.mockImplementation((async (input: string | URL | Request, init?: RequestInit) => {
 			const body = typeof init?.body === 'string' ? init.body : '';
-			server.requests.push({url: String(input), headers: new Headers(init?.headers), body, method: init?.method ?? 'GET'} as (typeof server.requests)[number]);
+			server.requests.push({url: String(input), headers: new Headers(init?.headers), body, method: init?.method ?? 'GET', redirect: init?.redirect});
 			if (init?.method === 'DELETE') {
 				return new Response(null, {status: 200});
 			}
@@ -105,6 +106,7 @@ describe('a server with a handshake', () => {
 		expect(server.requests[2]?.headers.get('mcp-session-id')).toBe('session-1');
 		expect(server.requests[2]?.headers.get('mcp-protocol-version')).toBe('2025-03-26');
 		expect(server.requests[3]?.headers.get('mcp-session-id')).toBe('session-1');
+		expect(server.requests.map((request) => request.redirect)).toEqual(['error', 'error', 'error', 'error']);
 	});
 
 	test('lists every page of tools, leaving out what does not read as one', async () => {

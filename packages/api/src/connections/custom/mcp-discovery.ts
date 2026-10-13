@@ -85,6 +85,7 @@ async function resourceMetadataUrl(url: URL): Promise<string | null> {
 			method: 'POST',
 			headers: {'content-type': 'application/json', accept: 'application/json, text/event-stream'},
 			body: JSON.stringify({jsonrpc: '2.0', id: 1, method: 'initialize', params: {protocolVersion: '2025-06-18', capabilities: {}, clientInfo: {name: 'personal-agent-proxy', version: '1.0.0'}}}),
+			redirect: 'error',
 		},
 		{parse: 'response', allowStatus: () => true, timeoutMs: TIMEOUT_MS},
 	);
@@ -105,14 +106,16 @@ function wellKnownUrls(base: URL, name: string): string[] {
 	return [`${base.origin}/.well-known/${name}${path}`, `${base.origin}/.well-known/${name}`];
 }
 
-// The first of the addresses that answers with what `schema` reads, if any.
+// The first of the addresses that answers with what `schema` reads, if any. Each is checked as the
+// server's own address is, and none is followed to a redirect, since either could lead somewhere
+// on the api's own network.
 async function firstMetadata<T>(urls: string[], schema: z.ZodType<T>): Promise<T | null> {
 	for (const url of urls) {
 		const checked = await parseMcpServerUrl(url);
 		if (checked.isErr()) {
 			continue;
 		}
-		const found = await httpRequest(url, {headers: {accept: 'application/json'}}, {schema, timeoutMs: TIMEOUT_MS});
+		const found = await httpRequest(url, {headers: {accept: 'application/json'}, redirect: 'error'}, {schema, timeoutMs: TIMEOUT_MS});
 		if (found.isOk()) {
 			return found.value;
 		}

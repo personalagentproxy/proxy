@@ -20,11 +20,11 @@ mock.module('node:dns/promises', () => ({
 }));
 
 // The server and its authorization server: each request, and what each address answers.
-const servers = {requests: [] as Array<{url: string; method: string; headers: Headers; body: string}>, answers: new Map<string, () => Response>()};
+const servers = {requests: [] as Array<{url: string; method: string; headers: Headers; body: string; redirect?: RequestRedirect}>, answers: new Map<string, () => Response>()};
 
 const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request, init?: RequestInit) => {
 	const url = String(input);
-	servers.requests.push({url, method: init?.method ?? 'GET', headers: new Headers(init?.headers), body: typeof init?.body === 'string' ? init.body : ''});
+	servers.requests.push({url, method: init?.method ?? 'GET', headers: new Headers(init?.headers), body: typeof init?.body === 'string' ? init.body : '', redirect: init?.redirect});
 	return servers.answers.get(url)?.() ?? new Response('Not found', {status: 404});
 }) as typeof fetch);
 
@@ -130,6 +130,7 @@ describe('discoverMcpServer', () => {
 		);
 
 		const server = (await discoverMcpServer(new URL(MCP_URL))).unwrap();
+		expect(servers.requests.every((request) => request.redirect === 'error')).toBe(true);
 		expect(server).toMatchObject({
 			name: 'mcp.example.com',
 			url: MCP_URL,
