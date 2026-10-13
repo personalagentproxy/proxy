@@ -20,21 +20,11 @@ function connectErrorMessage(error: FetchError): string {
 	return 'Something went wrong. Try again.';
 }
 
-// Where a sign-in the server asks for starts: the api registers with the server and sends the
-// browser to its sign-in page, which comes back to the new connection, or to the welcome flow's
-// page for it.
-function signInUrl(url: string, returnTo: 'welcome' | undefined): string {
-	const query = new URLSearchParams({url});
-	if (returnTo) {
-		query.set('returnTo', returnTo);
-	}
-	return `/api/connections/mcp/start?${query}`;
-}
-
 // The custom MCP server form: the server's address, and a token where the server takes one
 // instead of a sign-in. Connecting asks the server for its tools: a server that answers is
-// connected at once, and one that asks for a sign-in opens its sign-in page. `cancel` sits beside
-// the button.
+// connected at once, and for one that asks for a sign-in the api begins it and answers the
+// server's sign-in page, which the browser goes to; it comes back to the new connection, or to the
+// welcome flow's page for it. `cancel` sits beside the button.
 export function ConnectMcpForm({
 	cancel,
 	returnTo,
@@ -60,6 +50,7 @@ export function ConnectMcpForm({
 				const result = await connectMcp({
 					url: url.trim(),
 					...(token.trim() ? {token: token.trim()} : {}),
+					...(returnTo ? {returnTo} : {}),
 				});
 				if (result.isErr()) {
 					setPending(null);
@@ -68,7 +59,7 @@ export function ConnectMcpForm({
 				}
 				if (result.value.kind === 'signIn') {
 					setPending('signingIn');
-					window.location.assign(signInUrl(url.trim(), returnTo));
+					window.location.assign(result.value.url);
 					return;
 				}
 				onConnected(result.value.connection);

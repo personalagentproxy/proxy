@@ -1,19 +1,19 @@
 import {Err, Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, httpRequest, parseSchema} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import {mcpToolSchema, type McpTool} from '@proxy/integrations';
 
+import {checkedRequest} from '../../utils/checked-request';
 import type {McpEndpoint} from './mcp-oauth';
 
 /**
- * An MCP server, called one tool at a time over Streamable HTTP. No request follows a redirect: a
- * server has no reason to redirect a JSON-RPC message, and one that did could point the api at
- * something on its own network. Granola's, Notion's and Linear's
- * servers keep no session, so each call is a single JSON-RPC `tools/call` with the access token,
- * answered as JSON or as a one-event stream. A server that may keep one, as any custom server may
- * (`handshake`), is initialized first, as the spec asks, the call sent with the session it answers
- * with, and the session ended after.
+ * An MCP server, called one tool at a time over Streamable HTTP, every request through
+ * `checkedRequest`, since a custom server is wherever its address says. Granola's, Notion's and
+ * Linear's servers keep no session, so each call is a single JSON-RPC `tools/call` with the access
+ * token, answered as JSON or as a one-event stream. A server that may keep one, as any custom
+ * server may (`handshake`), is initialized first, as the spec asks, the call sent with the session
+ * it answers with, and the session ended after.
  */
 
 const TIMEOUT_MS = 30_000;
@@ -79,7 +79,7 @@ function post(server: McpEndpoint, accessToken: string | null, session: McpSessi
 		if (session?.sessionId) {
 			headers['mcp-session-id'] = session.sessionId;
 		}
-		const response = await httpRequest(server.url, {method: 'POST', headers, body: JSON.stringify({jsonrpc: '2.0', ...message}), redirect: 'error'}, {parse: 'response', timeoutMs: TIMEOUT_MS});
+		const response = await checkedRequest(server.url, {method: 'POST', headers, body: JSON.stringify({jsonrpc: '2.0', ...message})}, {parse: 'response', timeoutMs: TIMEOUT_MS});
 		if (response.isErr() && response.error.kind === 'http' && (response.error.status === 401 || response.error.status === 403)) {
 			return $(Err(ApiErr.credentialsRejected()));
 		}
@@ -131,7 +131,7 @@ async function closeSession(server: McpEndpoint, accessToken: string | null, ses
 	if (accessToken !== null) {
 		headers.authorization = `Bearer ${accessToken}`;
 	}
-	await httpRequest(server.url, {method: 'DELETE', headers, redirect: 'error'}, {timeoutMs: TIMEOUT_MS});
+	await checkedRequest(server.url, {method: 'DELETE', headers}, {timeoutMs: TIMEOUT_MS});
 }
 
 // Runs `use` in a session of the server's, opened and closed around it where the server keeps one.

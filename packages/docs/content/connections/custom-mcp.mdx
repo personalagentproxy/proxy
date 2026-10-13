@@ -17,9 +17,10 @@ Open **Connections**, then **Add connection**, and the plus beside **Custom MCP 
 server's MCP address, such as `https://mcp.example.com/mcp`.
 
 The server has to be reachable from the internet, over `https`. Hosted Personal Agent Proxy refuses
-servers on private addresses, such as `10.0.0.7` or `localhost`; a server on one needs Personal
-Agent Proxy [self-hosted](/self-hosting) beside it, with `ALLOW_PRIVATE_HOSTS` set, and may then be
-reached over `http`.
+servers on private addresses, such as `10.0.0.7` or `localhost`, and holds the server's
+authorization server to the same rule; a server on a private address needs Personal Agent Proxy
+[self-hosted](/self-hosting) beside it, with `ALLOW_PRIVATE_HOSTS` set, and may then be reached over
+`http`.
 
 ### Sign in, if the server asks
 
@@ -51,7 +52,9 @@ The activity log shows each run by the tool's name, with the params the agent ga
 
 <Callout>
 A server's tools can change. The connection's page has a button that asks the server for its tools
-again and keeps the new list. A tool that appears later is off until you turn it on.
+again and keeps the new list. A tool that appears later is off until you turn it on, and the
+settings for a tool the server no longer lists are dropped, so they can't carry over to a different
+tool the server later lists by that name.
 </Callout>
 
 ## How the sign-in works

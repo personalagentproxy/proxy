@@ -1,6 +1,11 @@
-import {afterAll, beforeEach, describe, expect, spyOn, test} from 'bun:test';
+import {afterAll, beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
 
 import {ApiErr} from '@proxy/utils';
+
+mock.module('../../utils/env', () => ({env: {NODE_ENV: 'production', ALLOW_PRIVATE_HOSTS: false}}));
+
+// The server is on the internet.
+mock.module('node:dns/promises', () => ({default: {lookup: async () => [{address: '93.184.216.34', family: 4}]}}));
 
 import {callMcpTool, listMcpTools} from './mcp-client';
 import type {McpServer} from './mcp-oauth';

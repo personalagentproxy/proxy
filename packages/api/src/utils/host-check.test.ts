@@ -88,3 +88,19 @@ describe('resolveHost', () => {
 		expect((await resolveHost('empty.example.com')).unwrapErr()).toMatchObject({kind: 'validation_error'});
 	});
 });
+
+describe('checkUrl', () => {
+	test('takes https to a public host, and http only to a private one, where ALLOW_PRIVATE_HOSTS allows it', async () => {
+		const {checkUrl} = await import('./host-check');
+		lookup.mockResolvedValue([{address: '203.0.113.5', family: 4}]);
+		expect((await checkUrl(new URL('https://mcp.example.com/mcp'))).unwrap().toString()).toBe('https://mcp.example.com/mcp');
+		expect((await checkUrl(new URL('http://mcp.example.com/mcp'))).unwrapErr().kind).toBe('validation_error');
+		expect((await checkUrl(new URL('ftp://mcp.example.com/mcp'))).unwrapErr().kind).toBe('validation_error');
+		expect((await checkUrl(new URL('http://10.0.0.7/mcp'))).unwrapErr().kind).toBe('validation_error');
+
+		env.ALLOW_PRIVATE_HOSTS = true;
+		expect((await checkUrl(new URL('http://10.0.0.7/mcp'))).unwrap().toString()).toBe('http://10.0.0.7/mcp');
+		expect((await checkUrl(new URL('http://[::1]:3000/mcp'))).unwrap().toString()).toBe('http://[::1]:3000/mcp');
+		expect((await checkUrl(new URL('http://mcp.example.com/mcp'))).unwrapErr().kind).toBe('validation_error');
+	});
+});

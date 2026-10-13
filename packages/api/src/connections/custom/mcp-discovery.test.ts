@@ -142,7 +142,7 @@ describe('discoverMcpServer', () => {
 		});
 	});
 
-	test('falls back to the well-known paths, then to the server itself with the usual endpoints', async () => {
+	test('falls back to the well-known paths, then to the server itself with the usual endpoints, asking only for the scopes the server names', async () => {
 		const {discoverMcpServer} = await import('./mcp-discovery');
 		servers.answers.set(MCP_URL, () => new Response('Unauthorized', {status: 401}));
 		servers.answers.set('https://mcp.example.com/.well-known/oauth-protected-resource', () => Response.json({authorization_servers: ['https://mcp.example.com']}));
@@ -154,7 +154,8 @@ describe('discoverMcpServer', () => {
 				scopes_supported: ['openid'],
 			}),
 		);
-		expect((await discoverMcpServer(new URL(MCP_URL))).unwrap()).toMatchObject({registerUrl: 'https://mcp.example.com/register', scope: 'openid'});
+		expect((await discoverMcpServer(new URL(MCP_URL))).unwrap()).toMatchObject({registerUrl: 'https://mcp.example.com/register', scope: ''});
+		expect(servers.requests.filter((request) => request.url.endsWith('/.well-known/openid-configuration'))).toHaveLength(1);
 
 		servers.answers = new Map([[MCP_URL, () => new Response('Unauthorized', {status: 401})]]);
 		expect((await discoverMcpServer(new URL(MCP_URL))).unwrap()).toMatchObject({
@@ -177,5 +178,17 @@ describe('discoverMcpServer', () => {
 
 		servers.answers.set('https://mcp.example.com/.well-known/oauth-protected-resource', () => Response.json({authorization_servers: ['http://auth.example.com']}));
 		expect((await discoverMcpServer(new URL(MCP_URL))).unwrapErr().kind).toBe('validation_error');
+	});
+
+	test('metadata on a private address is never asked for, however the server points at it', async () => {
+		const {discoverMcpServer} = await import('./mcp-discovery');
+		servers.answers.set(MCP_URL, () => new Response('Unauthorized', {status: 401, headers: {'www-authenticate': 'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource"'}}));
+		servers.answers.set('https://mcp.example.com/.well-known/oauth-protected-resource', () => Response.json({authorization_servers: ['https://auth.example.com']}));
+		servers.answers.set('https://auth.example.com/.well-known/oauth-authorization-server', () =>
+			Response.json({authorization_endpoint: 'https://auth.example.com/authorize', token_endpoint: 'http://10.0.0.5/token', registration_endpoint: 'https://auth.example.com/register'}),
+		);
+
+		(await discoverMcpServer(new URL(MCP_URL))).unwrap();
+		expect(servers.requests.some((request) => request.url.startsWith('http://localhost'))).toBe(false);
 	});
 });

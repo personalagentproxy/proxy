@@ -80,34 +80,40 @@ export async function createConnection(data: {
 }
 
 /**
- * Replaces a connection's encrypted credential, as when Granola hands out new tokens, and with
- * `tools` a custom MCP server's tools too. With `previous`, only while the credential is still
- * that one, so two servers refreshing at once don't overwrite each other: `Ok(false)` when it had
- * already changed.
+ * Replaces a connection's encrypted credential, as when Granola hands out new tokens. With
+ * `previous`, only while the credential is still that one, so two servers refreshing at once
+ * don't overwrite each other: `Ok(false)` when it had already changed.
  */
 export async function updateConnectionCredential(data: {
 	connectionId: string;
 	credential: string;
 	previous?: string;
-	tools?: string;
 }): Promise<Result<boolean, ApiError>> {
-	const {connectionId, credential, previous, tools} = data;
+	const {connectionId, credential, previous} = data;
 	const where =
 		previous === undefined ? {id: connectionId} : {id: connectionId, credential: previous};
-	const changes = tools === undefined ? {credential} : {credential, tools};
-	return (await wrapDb(() => db.connection.updateMany({where, data: changes}))).map(
+	return (await wrapDb(() => db.connection.updateMany({where, data: {credential}}))).map(
 		({count}) => count > 0,
 	);
 }
 
-/** Replaces a custom MCP server's tools, as JSON, once the server is asked for them again. */
+/**
+ * Replaces a custom MCP server's tools, as JSON, once the server lists them again, and drops the
+ * defaults and agents' settings for actions no longer among `actions`, the tools' names: a setting
+ * kept for a tool the server no longer lists would apply to whatever it later lists by that name.
+ */
 export async function updateConnectionTools(data: {
 	connectionId: string;
 	tools: string;
+	actions: string[];
 }): Promise<Result<void, ApiError>> {
-	const {connectionId, tools} = data;
+	const {connectionId, tools, actions} = data;
 	return wrapDb(async () => {
-		await db.connection.update({where: {id: connectionId}, data: {tools}});
+		await db.$transaction([
+			db.connection.update({where: {id: connectionId}, data: {tools}}),
+			db.connectionDefault.deleteMany({where: {connectionId, actionId: {notIn: actions}}}),
+			db.agentGrant.deleteMany({where: {connectionId, actionId: {notIn: actions}}}),
+		]);
 	});
 }
 

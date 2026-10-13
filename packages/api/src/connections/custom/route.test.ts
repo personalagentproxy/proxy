@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, mock, test} from 'bun:test';
+import {afterAll, beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
@@ -8,6 +8,18 @@ const createConnection = mock();
 const updateConnectionCredential = mock();
 const getConnectionWithCredential = mock();
 const updateConnectionTools = mock();
+
+// The authorization server, taking the registration a sign-in begins with.
+const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request) => {
+	if (String(input) === 'https://mcp.example.com/register') {
+		return Response.json({client_id: 'client-1'}, {status: 201});
+	}
+	return new Response('Not found', {status: 404});
+}) as typeof fetch);
+
+afterAll(() => {
+	fetchSpy.mockRestore();
+});
 
 mock.module('@proxy/db/connection', () => ({listConnections, createConnection, updateConnectionCredential, getConnectionWithCredential, updateConnectionTools}));
 
@@ -51,6 +63,34 @@ function makeRequest(body: unknown, params: Record<string, string> = {}) {
 	return {user: {userId: 'user-1', email: 'alex@example.com'}, params, body, query: {}, headers: {}} as never;
 }
 
+// What the connect route answered, and the cookies it set.
+function makeRes() {
+	const res = {
+		cookies: [] as Array<{name: string; options: Record<string, unknown>}>,
+		sent: undefined as unknown,
+		statusCode: 200,
+		cookie: mock((name: string, _value: string, options: Record<string, unknown>) => {
+			res.cookies.push({name, options});
+		}),
+		status: mock((code: number) => {
+			res.statusCode = code;
+			return res;
+		}),
+		json: mock((body: unknown) => {
+			res.sent = body;
+			return res;
+		}),
+	};
+	return res;
+}
+
+async function connect(body: unknown) {
+	const {handleConnectCustomMcpRoute} = await import('./route');
+	const res = makeRes();
+	await handleConnectCustomMcpRoute(makeRequest(body), res as never);
+	return res;
+}
+
 beforeEach(() => {
 	mock.clearAllMocks();
 	getUserOrgId.mockResolvedValue(Ok('org-1'));
@@ -76,8 +116,7 @@ beforeEach(() => {
 
 describe('handleConnectCustomMcpRoute', () => {
 	test('connects a server that answers without a sign-in, its tools kept and the ones that only read on by default', async () => {
-		const {handleConnectCustomMcpRoute} = await import('./route');
-		const result = (await handleConnectCustomMcpRoute(makeRequest({url: 'https://mcp.example.com/mcp'}))).unwrap();
+		const res = await connect({url: 'https://mcp.example.com/mcp'});
 
 		expect(probeMcpServer).toHaveBeenCalledWith(new URL('https://mcp.example.com/mcp'), null);
 		expect(createConnection).toHaveBeenCalledWith({
@@ -88,12 +127,11 @@ describe('handleConnectCustomMcpRoute', () => {
 			defaults: ['search_docs'],
 			tools: JSON.stringify([search, publish]),
 		});
-		expect(result).toEqual({kind: 'connected', connection: {id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', defaults: ['search_docs'], tools: [search, publish]}});
+		expect(res.sent).toEqual({kind: 'connected', connection: {id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', defaults: ['search_docs'], tools: [search, publish]}});
 	});
 
 	test('a token typed in is sent to the server and kept with the connection', async () => {
-		const {handleConnectCustomMcpRoute} = await import('./route');
-		(await handleConnectCustomMcpRoute(makeRequest({url: 'https://mcp.example.com/mcp?v=2', token: ' secret '}))).unwrap();
+		await connect({url: 'https://mcp.example.com/mcp?v=2', token: ' secret '});
 
 		expect(probeMcpServer).toHaveBeenCalledWith(new URL('https://mcp.example.com/mcp?v=2'), 'secret');
 		expect(createConnection.mock.calls[0]?.[0]).toMatchObject({
@@ -102,33 +140,40 @@ describe('handleConnectCustomMcpRoute', () => {
 		});
 	});
 
-	test('connecting the same address again replaces its credential and tools', async () => {
+	test('connecting the same address again replaces its credential and tools, the settings for tools no longer listed dropped', async () => {
 		listConnections.mockResolvedValue(Ok([row]));
-		const {handleConnectCustomMcpRoute} = await import('./route');
-		const result = (await handleConnectCustomMcpRoute(makeRequest({url: 'https://mcp.example.com/mcp/'}))).unwrap();
+		const res = await connect({url: 'https://mcp.example.com/mcp/'});
 
 		expect(createConnection).not.toHaveBeenCalled();
-		expect(updateConnectionCredential).toHaveBeenCalledWith({
-			connectionId: 'mcp-1',
-			credential: `enc:${JSON.stringify({auth: 'none', url: 'https://mcp.example.com/mcp/'})}`,
-			tools: JSON.stringify([search, publish]),
-		});
-		expect(result).toMatchObject({kind: 'connected', connection: {id: 'mcp-1', tools: [search, publish]}});
+		expect(updateConnectionCredential).toHaveBeenCalledWith({connectionId: 'mcp-1', credential: `enc:${JSON.stringify({auth: 'none', url: 'https://mcp.example.com/mcp/'})}`});
+		expect(updateConnectionTools).toHaveBeenCalledWith({connectionId: 'mcp-1', tools: JSON.stringify([search, publish]), actions: ['search_docs', 'publish_doc']});
+		expect(res.sent).toMatchObject({kind: 'connected', connection: {id: 'mcp-1', tools: [search, publish]}});
 	});
 
-	test('a server that asks for a sign-in gets one, once its authorization server is found', async () => {
+	test('a server that asks for a sign-in has it begun here, once its authorization server is found: the handshake in a cookie, its sign-in page answered', async () => {
 		probeMcpServer.mockResolvedValue(Ok({kind: 'signIn'}));
-		const {handleConnectCustomMcpRoute} = await import('./route');
-		expect((await handleConnectCustomMcpRoute(makeRequest({url: 'https://mcp.example.com/mcp'}))).unwrap()).toEqual({kind: 'signIn'});
+		const res = await connect({url: 'https://mcp.example.com/mcp', returnTo: 'welcome'});
+
 		expect(createConnection).not.toHaveBeenCalled();
+		expect(res.cookies[0]).toMatchObject({name: 'proxy.mcp-state', options: {httpOnly: true, sameSite: 'lax', path: '/api/connections/mcp'}});
+		const sent = res.sent as {kind: string; url: string};
+		expect(sent.kind).toBe('signIn');
+		const authorizeUrl = new URL(sent.url);
+		expect(authorizeUrl.origin + authorizeUrl.pathname).toBe('https://mcp.example.com/authorize');
+		expect(authorizeUrl.searchParams.get('client_id')).toBe('client-1');
+		expect(authorizeUrl.searchParams.get('redirect_uri')).toBe('https://app.example.com/api/connections/mcp/callback');
+		expect(authorizeUrl.searchParams.get('resource')).toBe('https://mcp.example.com/mcp');
 
 		discoverMcpServer.mockResolvedValue(Err(ApiErr.validationError('No registration')));
-		expect((await handleConnectCustomMcpRoute(makeRequest({url: 'https://mcp.example.com/mcp'}))).unwrapErr().kind).toBe('validation_error');
+		const refused = await connect({url: 'https://mcp.example.com/mcp'});
+		expect(refused.statusCode).toBe(400);
+		expect(refused.sent).toMatchObject({error: 'validation_error', message: 'No registration'});
 	});
 
 	test('refuses an address that is not https, before asking anything', async () => {
-		const {handleConnectCustomMcpRoute} = await import('./route');
-		expect((await handleConnectCustomMcpRoute(makeRequest({url: 'http://mcp.example.com/mcp'}))).unwrapErr().kind).toBe('validation_error');
+		const res = await connect({url: 'http://mcp.example.com/mcp'});
+		expect(res.statusCode).toBe(400);
+		expect(res.sent).toMatchObject({error: 'validation_error'});
 		expect(probeMcpServer).not.toHaveBeenCalled();
 	});
 });
@@ -140,7 +185,7 @@ describe('handleRefreshCustomMcpToolsRoute', () => {
 		const {handleRefreshCustomMcpToolsRoute} = await import('./route');
 		const result = (await handleRefreshCustomMcpToolsRoute(makeRequest(undefined, {connectionId: 'mcp-1'}))).unwrap();
 
-		expect(updateConnectionTools).toHaveBeenCalledWith({connectionId: 'mcp-1', tools: JSON.stringify([search, publish])});
+		expect(updateConnectionTools).toHaveBeenCalledWith({connectionId: 'mcp-1', tools: JSON.stringify([search, publish]), actions: ['search_docs', 'publish_doc']});
 		expect(result.tools).toEqual([search, publish]);
 		expect(result.defaults).toEqual(['search_docs']);
 	});

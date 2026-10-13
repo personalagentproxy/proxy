@@ -2,7 +2,7 @@ import dns from 'node:dns/promises';
 import {BlockList, isIP} from 'node:net';
 import {Err, Ok, Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError} from '@proxy/utils';
+import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
 import {env} from './env';
 
@@ -81,4 +81,28 @@ export async function resolveHost(host: string): Promise<Result<string, ApiError
 		return Err(ApiErr.validationError(`${host} ${which} a private address, which Personal Agent Proxy doesn’t connect to. Self-hosting beside it, set ALLOW_PRIVATE_HOSTS=true`));
 	}
 	return Ok(first);
+}
+
+// An IPv6 address in an address is written in brackets, which the lookup doesn't take.
+function hostOf(url: URL): string {
+	return url.hostname.replace(/^\[(.*)\]$/, '$1');
+}
+
+/**
+ * An address the api may call, typed in or named by a server: its host resolves as `resolveHost`
+ * allows, and it is `https`, or `http` only to a private address, where a token isn't sent over
+ * the internet in the clear. Checked before every request to such an address, not once when it
+ * is typed in, since a name can change what it resolves to.
+ */
+export function checkUrl(url: URL): Promise<Result<URL, ApiError>> {
+	return Do(async ($) => {
+		if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+			return $(Err(ApiErr.validationError(`${url.toString()} has to start with https://`)));
+		}
+		const address = $(await resolveHost(hostOf(url)));
+		if (url.protocol === 'http:' && !isPrivateAddress(address)) {
+			return $(Err(ApiErr.validationError(`${url.host} has to be reached over https://, unless it is on a private address`)));
+		}
+		return url;
+	});
 }

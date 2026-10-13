@@ -1,10 +1,11 @@
 import {Err, Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, httpRequest} from '@proxy/utils';
+import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import type {McpTool} from '@proxy/integrations';
 
-import {isPrivateAddress, resolveHost} from '../../utils/host-check';
+import {checkedRequest} from '../../utils/checked-request';
+import {checkUrl} from '../../utils/host-check';
 import {listMcpTools} from '../mcp/mcp-client';
 import type {McpServer} from '../mcp/mcp-oauth';
 import {customEndpoint} from './custom-mcp';
@@ -13,22 +14,16 @@ import {customEndpoint} from './custom-mcp';
  * Finding out how a custom MCP server is signed in to, as the MCP spec lays it out: the server
  * says, in its protected resource metadata, which authorization server its tokens come from, and
  * that server's metadata names its endpoints. A server that answers without a token needs no
- * sign-in at all.
+ * sign-in at all. Every request here goes through `checkedRequest`, as every later one to the
+ * server does.
  */
 
 const TIMEOUT_MS = 15_000;
 
-// An IPv6 address in an address is written in brackets, which the lookup doesn't take.
-function hostOf(url: URL): string {
-	return url.hostname.replace(/^\[(.*)\]$/, '$1');
-}
-
 /**
- * A server's address as typed in, its host checked as a database's is (`host-check.ts`): nothing
- * it resolves to may be private unless `ALLOW_PRIVATE_HOSTS` says so, since the api calls whatever
- * is typed here, and it is `https`, or `http` only to a private address, where a token isn't sent
- * over the internet in the clear. Sign-in details in the address are refused; a query string
- * stays with it.
+ * A server's address as typed in: `https`, or `http` only to a private address, on a host the api
+ * may call (`checkUrl`), so the form hears about a private address at once, though every request
+ * checks the host again. Sign-in details in the address are refused; a query string stays with it.
  */
 export function parseMcpServerUrl(raw: string): Promise<Result<URL, ApiError>> {
 	return Do(async ($) => {
@@ -36,18 +31,11 @@ export function parseMcpServerUrl(raw: string): Promise<Result<URL, ApiError>> {
 			return $(Err(ApiErr.validationError('Enter the server’s address, such as https://mcp.example.com/mcp')));
 		}
 		const url = new URL(raw.trim());
-		if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-			return $(Err(ApiErr.validationError('The address has to start with https://')));
-		}
 		if (url.username || url.password) {
 			return $(Err(ApiErr.validationError('Leave sign-in details out of the address')));
 		}
-		const address = $(await resolveHost(hostOf(url)));
-		if (url.protocol === 'http:' && !isPrivateAddress(address)) {
-			return $(Err(ApiErr.validationError('The address has to start with https://, unless the server is on a private address')));
-		}
 		url.hash = '';
-		return url;
+		return $(await checkUrl(url));
 	});
 }
 
@@ -57,7 +45,6 @@ const authorizationServerSchema = z.object({
 	authorization_endpoint: z.string(),
 	token_endpoint: z.string(),
 	registration_endpoint: z.string().optional(),
-	scopes_supported: z.array(z.string()).optional(),
 });
 
 /** What a probe found: the server's tools, reachable as it was asked, or that it asks for a sign-in. */
@@ -79,13 +66,12 @@ export function probeMcpServer(url: URL, token: string | null): Promise<Result<P
 
 // The `resource_metadata` a server's 401 points at, when it points at one (RFC 9728).
 async function resourceMetadataUrl(url: URL): Promise<string | null> {
-	const response = await httpRequest(
-		url,
+	const response = await checkedRequest(
+		url.toString(),
 		{
 			method: 'POST',
 			headers: {'content-type': 'application/json', accept: 'application/json, text/event-stream'},
 			body: JSON.stringify({jsonrpc: '2.0', id: 1, method: 'initialize', params: {protocolVersion: '2025-06-18', capabilities: {}, clientInfo: {name: 'personal-agent-proxy', version: '1.0.0'}}}),
-			redirect: 'error',
 		},
 		{parse: 'response', allowStatus: () => true, timeoutMs: TIMEOUT_MS},
 	);
@@ -106,16 +92,10 @@ function wellKnownUrls(base: URL, name: string): string[] {
 	return [`${base.origin}/.well-known/${name}${path}`, `${base.origin}/.well-known/${name}`];
 }
 
-// The first of the addresses that answers with what `schema` reads, if any. Each is checked as the
-// server's own address is, and none is followed to a redirect, since either could lead somewhere
-// on the api's own network.
+// The first of the addresses that answers with what `schema` reads, if any, each asked once.
 async function firstMetadata<T>(urls: string[], schema: z.ZodType<T>): Promise<T | null> {
-	for (const url of urls) {
-		const checked = await parseMcpServerUrl(url);
-		if (checked.isErr()) {
-			continue;
-		}
-		const found = await httpRequest(url, {headers: {accept: 'application/json'}, redirect: 'error'}, {schema, timeoutMs: TIMEOUT_MS});
+	for (const url of new Set(urls)) {
+		const found = await checkedRequest(url, {headers: {accept: 'application/json'}}, {schema, timeoutMs: TIMEOUT_MS});
 		if (found.isOk()) {
 			return found.value;
 		}
@@ -123,8 +103,8 @@ async function firstMetadata<T>(urls: string[], schema: z.ZodType<T>): Promise<T
 	return null;
 }
 
-// The authorization server a resource's metadata names, and the scopes it lists; the server's own
-// origin where it has no metadata, as older servers have none.
+// The authorization server a resource's metadata names, and the scopes it asks for; the server's
+// own origin where it has no metadata, as older servers have none.
 async function findAuthorizationServer(url: URL): Promise<{issuer: URL; scopes: string[]}> {
 	const pointed = await resourceMetadataUrl(url);
 	const metadata = await firstMetadata([...(pointed ? [pointed] : []), ...wellKnownUrls(url, 'oauth-protected-resource')], protectedResourceSchema);
@@ -138,33 +118,28 @@ async function findAuthorizationServer(url: URL): Promise<{issuer: URL; scopes: 
 /**
  * The server and its authorization server, from its address, for signing in: its endpoints as the
  * authorization server's metadata names them, or the usual ones under the issuer where it has
- * none. An authorization server that doesn't let apps register themselves can't be signed in to.
+ * none, and the scopes the server's own metadata asks for, none otherwise. An authorization server
+ * that doesn't let apps register themselves can't be signed in to.
  */
 export function discoverMcpServer(url: URL): Promise<Result<McpServer, ApiError>> {
 	return Do(async ($) => {
 		const {issuer, scopes} = await findAuthorizationServer(url);
-		$(
-			(await parseMcpServerUrl(issuer.toString())).mapErr((error) =>
-				ApiErr.validationError(`The server’s authorization server (${issuer.origin}) can’t be used: ${'message' in error ? error.message : error.kind}`),
-			),
-		);
-		const issuerPath = issuer.pathname.replace(/\/$/, '');
+		$((await checkUrl(issuer)).mapErr((error) => ApiErr.validationError(`The server’s authorization server (${issuer.origin}) can’t be used: ${'message' in error ? error.message : error.kind}`)));
+		const base = `${issuer.origin}${issuer.pathname.replace(/\/$/, '')}`;
 		const metadata = await firstMetadata(
-			[...wellKnownUrls(issuer, 'oauth-authorization-server'), ...wellKnownUrls(issuer, 'openid-configuration'), `${issuer.origin}${issuerPath}/.well-known/openid-configuration`],
+			[...wellKnownUrls(issuer, 'oauth-authorization-server'), ...wellKnownUrls(issuer, 'openid-configuration'), `${base}/.well-known/openid-configuration`],
 			authorizationServerSchema,
 		);
-		const base = `${issuer.origin}${issuerPath}`;
 		const registerUrl = metadata ? metadata.registration_endpoint : `${base}/register`;
 		if (!registerUrl) {
 			return $(Err(ApiErr.validationError('This server’s sign-in doesn’t let apps register themselves, so Personal Agent Proxy can’t sign in to it')));
 		}
-		const scope = (scopes.length > 0 ? scopes : (metadata?.scopes_supported ?? [])).join(' ');
 		return {
 			...customEndpoint(url.toString()),
 			registerUrl,
 			authorizeUrl: metadata?.authorization_endpoint ?? `${base}/authorize`,
 			tokenUrl: metadata?.token_endpoint ?? `${base}/token`,
-			scope,
+			scope: scopes.join(' '),
 		};
 	});
 }

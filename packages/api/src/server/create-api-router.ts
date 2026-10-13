@@ -18,7 +18,7 @@ import {handleDevLoginRoute} from '../auth/dev-login';
 import {handleEmailSignInRoute, handleEmailVerifyRoute} from '../auth/email';
 import {handleGoogleCallbackRoute, handleGoogleStartRoute, handleSignInMethodsRoute} from '../auth/google';
 import {handleSignOutRoute} from '../auth/signout';
-import {handleConnectCustomMcpRoute, handleCustomMcpCallbackRoute, handleRefreshCustomMcpToolsRoute, handleStartCustomMcpRoute} from '../connections/custom/route';
+import {handleConnectCustomMcpRoute, handleCustomMcpCallbackRoute, handleRefreshCustomMcpToolsRoute} from '../connections/custom/route';
 import {handleConnectEmailRoute, handleTestEmailRoute} from '../connections/email/route';
 import {handleGranolaCallbackRoute, handleStartGranolaRoute} from '../connections/granola/route';
 import {handleLinearCallbackRoute, handleStartLinearRoute} from '../connections/linear/route';
@@ -74,8 +74,7 @@ export function createApiRouter(): express.Router {
 	router.post('/api/connections/postgres/test', withAuthResult('Test Postgres route', handleTestPostgresRoute));
 	router.post('/api/connections/mysql', withAuthResult('Connect MySQL route', handleConnectMysqlRoute));
 	router.post('/api/connections/mysql/test', withAuthResult('Test MySQL route', handleTestMysqlRoute));
-	router.post('/api/connections/mcp', withAuthResult('Connect custom MCP server route', handleConnectCustomMcpRoute));
-	router.get('/api/connections/mcp/start', withAuth('Start custom MCP server sign-in route', handleStartCustomMcpRoute));
+	router.post('/api/connections/mcp', withAuth('Connect custom MCP server route', handleConnectCustomMcpRoute));
 	router.get('/api/connections/mcp/callback', withAuth('Custom MCP server sign-in callback route', handleCustomMcpCallbackRoute));
 	router.get('/api/connections/:connectionId', withAuthResult('Get connection route', handleGetConnectionRoute));
 	router.delete('/api/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));

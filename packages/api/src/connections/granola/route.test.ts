@@ -9,7 +9,7 @@ const listConnections = mock();
 const createConnection = mock();
 const updateConnectionCredential = mock();
 
-mock.module('@proxy/db/connection', () => ({listConnections, createConnection, updateConnectionCredential}));
+mock.module('@proxy/db/connection', () => ({listConnections, createConnection, updateConnectionCredential, updateConnectionTools: mock()}));
 
 const getUserOrgId = mock();
 
@@ -21,6 +21,9 @@ mock.module('../../observability/log', () => ({
 }));
 
 mock.module('../../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com'}}));
+
+// The servers are on the internet.
+mock.module('node:dns/promises', () => ({default: {lookup: async () => [{address: '93.184.216.34', family: 4}]}}));
 
 // Readable stand-ins for encryption, so a test can see what was stored.
 mock.module('../../utils/secret-crypto', () => ({
