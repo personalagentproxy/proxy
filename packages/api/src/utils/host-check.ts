@@ -4,8 +4,6 @@ import {Err, Ok, Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
-import {env} from './env';
-
 // The addresses that are never on the public internet: loopback, the private networks, link-local
 // (the cloud metadata address among them), carrier-grade NAT, and the unspecified, benchmark,
 // multicast and reserved ranges, with their IPv6 counterparts. An IPv4 address written as IPv6
@@ -48,6 +46,14 @@ export function isPrivateAddress(address: string): boolean {
 	return PRIVATE.check(address, family === 4 ? 'ipv4' : 'ipv6');
 }
 
+// Read when a host is checked rather than when this module loads: the MCP client checks every
+// address, and the modules that only parse a server's answers import it without needing the
+// environment, as their tests do.
+async function allowsPrivateHosts(): Promise<boolean> {
+	const {env} = await import('./env');
+	return env.ALLOW_PRIVATE_HOSTS;
+}
+
 async function lookup(host: string): Promise<Result<string[], ApiError>> {
 	if (isIP(host) !== 0) {
 		return Ok([host]);
@@ -75,7 +81,7 @@ export async function resolveHost(host: string): Promise<Result<string, ApiError
 	if (first === undefined) {
 		return Err(ApiErr.validationError(`${host} couldn’t be found`));
 	}
-	const blocked = env.ALLOW_PRIVATE_HOSTS ? undefined : addresses.value.find(isPrivateAddress);
+	const blocked = (await allowsPrivateHosts()) ? undefined : addresses.value.find(isPrivateAddress);
 	if (blocked !== undefined) {
 		const which = blocked === host ? 'is' : `resolves to ${blocked},`;
 		return Err(ApiErr.validationError(`${host} ${which} a private address, which Personal Agent Proxy doesn’t connect to. Self-hosting beside it, set ALLOW_PRIVATE_HOSTS=true`));
