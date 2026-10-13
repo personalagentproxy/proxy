@@ -3,11 +3,12 @@ import {useState} from 'react';
 import {useLocation, useNavigate, useSearchParams} from 'react-router';
 import {runAgentRecordTool} from '@/client/agent-client';
 import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
-import {RecordForm} from '@/components/record-form';
+import {RecordFields, RecordForm} from '@/components/record-form';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {allows, newCommands} from '@/lib/access';
 import {agentErrorMessage} from '@/lib/agent-errors';
 import {inside} from '@/lib/agent-paths';
+import type {DataRecord} from '@/lib/types';
 import {AgentDenied} from '@/pages/agent/agent-collection-page';
 
 // The title of the record a new one goes inside, as the list it was started from hands it over.
@@ -21,13 +22,15 @@ function parentTitleFromState(state: unknown): string | null {
 // A new record, saved or run through a command such as Send, whichever the agent may do: Send and
 // Save as draft side by side when it may do both. Without either the form isn't offered; the api
 // would refuse and log it as denied. In a nested collection it goes inside `?parent=` when given,
-// such as a page inside the one the agent was looking at.
+// such as a page inside the one the agent was looking at. A command that answers something, as
+// running a query answers its rows, shows it under the form, where the next one can be written.
 export function AgentNewRecordPage() {
 	const navigate = useNavigate();
 	const [params] = useSearchParams();
 	const parentTitle = parentTitleFromState(useLocation().state);
 	const target = useAgentTarget();
 	const [error, setError] = useState<string | null>(null);
+	const [answer, setAnswer] = useState<DataRecord | null>(null);
 	const canCreate = target !== null && allows(target.collection, target.actions, 'create');
 	const [command] = target ? newCommands(target.collection, target.actions) : [];
 	if (!target || (!canCreate && !command)) {
@@ -61,6 +64,11 @@ export function AgentNewRecordPage() {
 		);
 		if (result.isErr()) {
 			setError(agentErrorMessage(result.error));
+			return;
+		}
+		if (result.value.record) {
+			setError(null);
+			setAnswer(result.value.record);
 			return;
 		}
 		const title = values[collection.titleField]?.trim() || `untitled ${collection.singular}`;
@@ -101,6 +109,12 @@ export function AgentNewRecordPage() {
 							: undefined
 					}
 				/>
+				{answer && (
+					<RecordFields
+						fields={collection.fields.filter((field) => field.system)}
+						values={answer.values}
+					/>
+				)}
 			</div>
 		</AgentShell>
 	);

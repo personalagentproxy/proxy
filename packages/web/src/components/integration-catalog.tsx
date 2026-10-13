@@ -3,7 +3,7 @@ import {PlusIcon} from 'lucide-react';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {IconButton} from '@/components/icon-button';
 import {RowList} from '@/components/row-list';
-import {INTEGRATIONS} from '@/lib/integrations';
+import {INTEGRATIONS, type Integration} from '@/lib/integrations';
 import type {Connection} from '@/lib/types';
 
 // The integrations connected by signing in to them. Their sign-in starts at
@@ -12,16 +12,24 @@ import type {Connection} from '@/lib/types';
 // `?returnTo=welcome`, it comes back to the welcome flow's page for the connection, or its catalog.
 const SIGN_IN: IntegrationId[] = ['granola', 'notion', 'linear'];
 
+// The rest are connected on a form of their own: a mailbox with an app password, a database with
+// a user's name and password.
+function formLabel(integration: Integration, count: number): string {
+	const what = integration.id === 'email' ? 'mailbox' : 'database';
+	return count > 0 ? `Connect another ${what}` : `Connect a ${what}`;
+}
+
 // The catalog: every integration, a plus to connect it, and how many accounts are connected. Each
 // can be connected again, for another mailbox or account.
 export function IntegrationCatalog({
 	connections,
 	returnTo,
-	onConnectEmail,
+	onConnectForm,
 }: {
 	connections: Connection[];
 	returnTo?: 'welcome';
-	onConnectEmail: () => void;
+	// The integration's form, by its id.
+	onConnectForm: (integrationId: IntegrationId) => void;
 }) {
 	const available = INTEGRATIONS.filter((integration) => !integration.builtIn);
 	const startQuery = returnTo ? `?returnTo=${returnTo}` : '';
@@ -60,8 +68,8 @@ export function IntegrationCatalog({
 							</IconButton>
 						) : (
 							<IconButton
-								label={count > 0 ? 'Connect another mailbox' : 'Connect a mailbox'}
-								onClick={onConnectEmail}
+								label={formLabel(integration, count)}
+								onClick={() => onConnectForm(integration.id)}
 							>
 								<PlusIcon />
 							</IconButton>

@@ -391,6 +391,124 @@ const linear: Integration = {
 	],
 };
 
+// A SQL database, signed in to with a database user's name and password: PostgreSQL, or MySQL
+// and MariaDB. What the user may do in the database is the limit, so access is narrowed in
+// Personal Agent Proxy: the tables and their rows are one tree, a table holding its rows, and a
+// query runs read-only SQL, one statement at a time, inside a read-only transaction. A row is
+// written as "column: value" lines and found again by its primary key; a table without one is
+// read but never written to. Nothing is copied: every request runs in the database.
+function sqlIntegration(id: 'postgres' | 'mysql', name: string, description: string): Integration {
+	return {
+		id,
+		name,
+		description,
+		actions: [
+			{
+				id: 'read',
+				label: 'Read tables',
+				description: 'List tables, their columns and their rows, and search rows',
+				risk: 'low',
+			},
+			{
+				id: 'query',
+				label: 'Run queries',
+				description:
+					'Run read-only SQL, one SELECT, WITH, SHOW or EXPLAIN at a time, in a read-only transaction',
+				risk: 'low',
+			},
+			{
+				id: 'insert',
+				label: 'Add rows',
+				description: 'Insert rows into tables',
+				risk: 'medium',
+				requires: 'read',
+			},
+			{
+				id: 'update',
+				label: 'Edit rows',
+				description: 'Change the values of rows, found by their primary key',
+				risk: 'high',
+				requires: 'read',
+			},
+			{
+				id: 'delete',
+				label: 'Delete rows',
+				description: 'Delete rows for good, found by their primary key',
+				risk: 'high',
+				requires: 'read',
+			},
+		],
+		collections: [
+			{
+				id: 'tables',
+				name: 'Tables',
+				singular: 'row',
+				titleField: 'name',
+				summaryField: 'summary',
+				searchHint:
+					'At the top, words in table names. Inside a table, rows with every word somewhere in their columns.',
+				nested: true,
+				read: 'read',
+				createLabel: 'Add row',
+				writes: {create: 'insert', update: 'update', delete: 'delete'},
+				editable: {field: 'kind', values: ['Row']},
+				fields: [
+					// A table's name with its schema, "public.users"; a row's table and primary key, "users 42".
+					{key: 'name', label: 'Name', type: 'text', system: true},
+					{
+						key: 'kind',
+						label: 'Kind',
+						type: 'select',
+						options: ['Table', 'View', 'Row'],
+						system: true,
+					},
+					// A table's size, "about 1,204 rows, 8 columns"; a row's first values.
+					{key: 'summary', label: 'Summary', type: 'text', system: true},
+					// A table's columns, one a line: "email text not null", "id integer primary key".
+					{key: 'columns', label: 'Columns', type: 'longtext', system: true},
+					// A row's values, one "column: value" a line, a value going on over the lines after it
+					// until the next column. An empty value is NULL. Only columns written differently change,
+					// and a column left out of a new row takes its default.
+					{key: 'values', label: 'Values', type: 'longtext'},
+				],
+			},
+			{
+				id: 'queries',
+				name: 'Queries',
+				singular: 'query',
+				titleField: 'sql',
+				writes: {},
+				commands: [
+					{
+						id: 'run',
+						on: 'new',
+						label: 'Run',
+						action: 'query',
+						readOnly: true,
+						done: 'Ran {}',
+						tried: 'run {}',
+					},
+				],
+				fields: [
+					{key: 'sql', label: 'SQL', type: 'longtext'},
+					// "12 rows", or "200 rows, more left out".
+					{key: 'rows', label: 'Rows', type: 'text', system: true},
+					// One row a line, as JSON: {"id": 42, "email": "alex@example.com"}.
+					{key: 'result', label: 'Result', type: 'longtext', system: true},
+				],
+			},
+		],
+	};
+}
+
+const postgres = sqlIntegration(
+	'postgres',
+	'PostgreSQL',
+	'Tables and queries in a Postgres database',
+);
+
+const mysql = sqlIntegration('mysql', 'MySQL', 'Tables and queries in a MySQL or MariaDB database');
+
 // Information's actions for one of its collections, such as `readCards` and `writeCards`: reading
 // it, and adding, editing and deleting as one.
 function infoActions(collectionId: string, plural: string): Action[] {
@@ -477,7 +595,7 @@ const info: Integration = {
 	],
 };
 
-export const INTEGRATIONS: Integration[] = [info, email, granola, notion, linear];
+export const INTEGRATIONS: Integration[] = [info, email, granola, notion, linear, postgres, mysql];
 
 export function findIntegration(id: string): Integration | undefined {
 	return INTEGRATIONS.find((integration) => integration.id === id);

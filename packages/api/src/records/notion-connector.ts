@@ -22,8 +22,9 @@ import {
 	type NotionRef,
 	type NotionView,
 } from '../connections/notion/notion-mcp';
-import {notionValues, propertyLines, readPropertyLines, shapeOfType, shapeOfValue, type NotionValue, type PropertyShape} from '../connections/notion/notion-properties';
+import {notionValues, propertyLines, shapeOfType, shapeOfValue, type NotionValue, type PropertyShape} from '../connections/notion/notion-properties';
 import type {Connector, Crumb, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
+import {readValueLines} from './value-lines';
 
 /**
  * A Notion workspace, fetched live from Notion's MCP server as the person who signed in, as a tree
@@ -223,7 +224,7 @@ function list(target: RecordTarget, query: ListQuery): Promise<Result<RecordPage
 // The properties lines written, as Notion's page tools take them, for the properties `shapes` names.
 function writtenProperties(text: string, shapes: Record<string, PropertyShape>, unchanged: (name: string, value: string) => boolean): Result<Record<string, NotionValue>, ApiError> {
 	return Do<Record<string, NotionValue>, ApiError>(($) => {
-		const written = $(readPropertyLines(text, Object.keys(shapes)));
+		const written = $(readValueLines(text, Object.keys(shapes)));
 		const values: Record<string, NotionValue> = {};
 		for (const [name, value] of Object.entries(written)) {
 			const shape = shapes[name];

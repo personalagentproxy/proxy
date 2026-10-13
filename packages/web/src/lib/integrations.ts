@@ -18,6 +18,8 @@ const LOGOS: Record<IntegrationId, LucideIcon | IntegrationLogoImage> = {
 	granola: {src: '/integrations/granola.png', fill: true},
 	notion: {src: '/integrations/notion.svg'},
 	linear: {src: '/integrations/linear.svg', fill: true},
+	postgres: {src: '/integrations/postgresql.svg'},
+	mysql: {src: '/integrations/mysql.svg'},
 };
 
 export const INTEGRATIONS: Integration[] = CATALOG.map((integration) => ({
@@ -36,4 +38,14 @@ export function signInFailedMessage(integrationId: string | null): string | null
 		return null;
 	}
 	return `Signing in to ${failed.name} didn’t finish. Try again.`;
+}
+
+/** What the catalog's plus leads to for a database: the form's title and where the database has to be. */
+export function describeDatabase(dialect: 'postgres' | 'mysql'): {title: string; intro: string} {
+	const name = findIntegration(dialect)?.name ?? dialect;
+	return {
+		title: `Connect a ${name} database`,
+		intro:
+			'Sign in with a database user made for this connection alone. The database has to be reachable from the internet; one on a private address needs Personal Agent Proxy self-hosted beside it.',
+	};
 }

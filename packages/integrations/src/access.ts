@@ -30,7 +30,7 @@ export function effectiveActions(
  */
 export function requiredAction(collection: Collection, request: string): string | null {
 	if (request === 'list' || request === 'view') {
-		return collection.read;
+		return collection.read ?? null;
 	}
 
 	if (request === 'create' || request === 'update' || request === 'delete') {

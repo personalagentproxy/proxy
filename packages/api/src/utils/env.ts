@@ -27,4 +27,5 @@ export const env = envSchema.parse({
 	PORT: read('PORT'),
 	TELEMETRY_ENABLED: read('TELEMETRY_ENABLED'),
 	APP_VERSION: read('APP_VERSION'),
+	ALLOW_PRIVATE_HOSTS: read('ALLOW_PRIVATE_HOSTS'),
 });

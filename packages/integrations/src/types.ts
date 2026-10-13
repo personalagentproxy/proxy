@@ -43,6 +43,8 @@ export type Command = {
 	// one tried: "mark {} as read".
 	done: string;
 	tried: string;
+	// Changes nothing, as running a read-only query doesn't: an MCP client may run it as a read.
+	readOnly?: true;
 };
 
 export type Collection = {
@@ -62,8 +64,9 @@ export type Collection = {
 	// Records hold others of the collection, as a Notion page holds its subpages or a folder its
 	// files: a list opens at one of them with `?parent=`, and a record made there goes in it.
 	nested?: boolean;
-	// The integration's action listing and opening records needs.
-	read: string;
+	// The integration's action listing and opening records needs. A collection without one is
+	// never listed or opened: a query's results are only ever run.
+	read?: string;
 	// The button creating a record, when not Create and the singular: Save as draft.
 	createLabel?: string;
 	// The action creating, editing and deleting a record each needs. One left out isn't offered.
@@ -73,7 +76,8 @@ export type Collection = {
 	commands?: Command[];
 };
 
-export type IntegrationId = 'info' | 'email' | 'granola' | 'notion' | 'linear';
+export type IntegrationId =
+	'info' | 'email' | 'granola' | 'notion' | 'linear' | 'postgres' | 'mysql';
 
 export type Integration = {
 	id: IntegrationId;

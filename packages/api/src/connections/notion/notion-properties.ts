@@ -5,10 +5,10 @@ import {ApiErr, type ApiError} from '@proxy/utils';
 import {propertyText, type NotionProperties} from './notion-mcp';
 
 /**
- * A database row's properties as an agent reads and writes them: one "Name: value" a line, a value
- * running on over the lines after it until the next property's name. Only properties written
- * differently from how they were read are sent back to Notion, which checks each against the
- * database and turns down what doesn't fit, so a value only has to be written the way it reads.
+ * A database row's properties as an agent reads and writes them: one "Name: value" a line
+ * (`readValueLines` in the records reads them back). Only properties written differently from how
+ * they were read are sent back to Notion, which checks each against the database and turns down
+ * what doesn't fit, so a value only has to be written the way it reads.
  */
 
 /** How Notion takes a property's value: text, a number, a list (pages, people, options) or a date. */
@@ -50,33 +50,6 @@ export function propertyLines(properties: NotionProperties): string {
 		.filter(([, text]) => text !== '')
 		.map(([name, text]) => `${name}: ${text}`)
 		.join('\n');
-}
-
-/**
- * The values "Name: value" lines give, by property, for the properties `names` lists. A line that
- * doesn't start with one of them goes on the value before it; one before any is turned down.
- */
-export function readPropertyLines(text: string, names: string[]): Result<Record<string, string>, ApiError> {
-	// The longest name first, so "Status Details" isn't read as "Status".
-	const byLength = [...names].sort((a, b) => b.length - a.length);
-	const values: Record<string, string> = {};
-	let current: string | null = null;
-	for (const line of text.split('\n')) {
-		const name = byLength.find((candidate) => line === `${candidate}:` || line.startsWith(`${candidate}: `));
-		if (name !== undefined) {
-			current = name;
-			values[name] = line.slice(name.length + 1).replace(/^ /, '');
-			continue;
-		}
-		if (current !== null) {
-			values[current] = `${values[current]}\n${line}`;
-			continue;
-		}
-		if (line.trim() !== '') {
-			return Err(ApiErr.validationError(`“${line}” doesn’t start with one of the properties: ${names.join(', ')}`));
-		}
-	}
-	return Ok(values);
 }
 
 /** What Notion's page tools take for one property written as text; an empty one clears it. */

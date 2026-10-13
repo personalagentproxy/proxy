@@ -1,29 +1,11 @@
 import {describe, expect, test} from 'bun:test';
 
-import {notionValues, propertyLines, readPropertyLines, shapeOfType, shapeOfValue} from './notion-properties';
+import {notionValues, propertyLines, shapeOfType, shapeOfValue} from './notion-properties';
 
 describe('propertyLines', () => {
 	test("writes each property on a line, lists joined, leaving out empty ones and what Notion doesn't resolve", () => {
 		const lines = propertyLines({Status: 'Contacted', Size: 100, Contacts: ['https://app.notion.com/p/a', 'https://app.notion.com/p/b'], Notes: '', Last: 'formulaResult://x/y/z', Done: null});
 		expect(lines).toBe('Status: Contacted\nSize: 100\nContacts: https://app.notion.com/p/a, https://app.notion.com/p/b');
-	});
-});
-
-describe('readPropertyLines', () => {
-	const names = ['Status', 'Status Details', 'Notes'];
-
-	test('reads a value by the property it starts with, running on over the lines after it', () => {
-		expect(readPropertyLines('Status: Contacted\nStatus Details: Sent on Monday\nNotes: first line\nsecond line: still notes\n', names).unwrap()).toEqual({
-			Status: 'Contacted',
-			'Status Details': 'Sent on Monday',
-			Notes: 'first line\nsecond line: still notes\n',
-		});
-		expect(readPropertyLines('Status:', names).unwrap()).toEqual({Status: ''});
-		expect(readPropertyLines('', names).unwrap()).toEqual({});
-	});
-
-	test('turns down a first line that is no property', () => {
-		expect(readPropertyLines('Owner: Sam', names).unwrapErr()).toMatchObject({kind: 'validation_error'});
 	});
 });
 

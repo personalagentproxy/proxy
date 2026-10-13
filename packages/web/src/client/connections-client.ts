@@ -38,3 +38,24 @@ export function connectEmail(input: ConnectEmailInput) {
 export function testEmail(input: ConnectEmailInput) {
 	return apiSend('POST', '/api/connections/email/test', input);
 }
+
+export type DatabaseDialect = 'postgres' | 'mysql';
+
+export type ConnectDatabaseInput = {
+	host: string;
+	port: number;
+	database: string;
+	username: string;
+	password: string;
+	tls: 'verify' | 'require' | 'off';
+};
+
+/** Signs in to the database first: 422 is a wrong password, 502 a server out of reach, 400 says what is wrong with the host. */
+export function connectDatabase(dialect: DatabaseDialect, input: ConnectDatabaseInput) {
+	return apiRequest('POST', `/api/connections/${dialect}`, connectionSchema, input);
+}
+
+/** Signs in to the database and saves nothing: the Test connection button. Answers 204, or the same errors as connecting. */
+export function testDatabase(dialect: DatabaseDialect, input: ConnectDatabaseInput) {
+	return apiSend('POST', `/api/connections/${dialect}/test`, input);
+}

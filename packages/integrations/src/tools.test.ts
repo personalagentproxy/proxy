@@ -158,3 +158,36 @@ describe('linear', () => {
 		expect(findTool(linear, 'issues_create')?.inputSchema.properties.statusType).toBeUndefined();
 	});
 });
+
+describe('postgres and mysql', () => {
+	const postgres = integration('postgres');
+
+	test('tables are a tree of rows, and a query only ever runs', () => {
+		expect(integrationTools(postgres).map((tool) => tool.name)).toEqual([
+			'tables_list',
+			'tables_get',
+			'tables_create',
+			'tables_update',
+			'tables_delete',
+			'queries_run',
+		]);
+		expect(integrationTools(integration('mysql')).map((tool) => tool.name)).toEqual(
+			integrationTools(postgres).map((tool) => tool.name),
+		);
+	});
+
+	test('running a query takes the SQL alone and counts as a read', () => {
+		const run = findTool(postgres, 'queries_run');
+		expect(run?.readOnly).toBe(true);
+		expect(run?.action).toBe('query');
+		expect(Object.keys(run?.inputSchema.properties ?? {})).toEqual(['sql']);
+		expect(findTool(postgres, 'tables_list')?.readOnly).toBe(true);
+		expect(findTool(postgres, 'tables_create')?.readOnly).toBe(false);
+	});
+
+	test('a row is written as its values, inside a table, and only rows are edited', () => {
+		const create = findTool(postgres, 'tables_create');
+		expect(Object.keys(create?.inputSchema.properties ?? {})).toEqual(['parent', 'values']);
+		expect(findTool(postgres, 'tables_update')?.where).toEqual({field: 'kind', values: ['Row']});
+	});
+});

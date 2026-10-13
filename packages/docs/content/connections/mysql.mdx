@@ -1,0 +1,64 @@
+---
+title: MySQL
+description: Connect a MySQL or MariaDB database for agents to read its tables, run queries and write rows.
+---
+
+Agents work with the database as the user you connect it with, and every request runs in the
+database live; nothing is copied. MariaDB, PlanetScale, TiDB and Aurora MySQL all speak MySQL and
+connect the same way.
+
+## Connect a database
+
+<Steps>
+
+### Make a database user for the connection
+
+Make a user with only the access agents should have, so the database holds the line whatever is
+ticked in Personal Agent Proxy. For reading, a user that can only read:
+
+```sql
+CREATE USER 'agent_reader'@'%' IDENTIFIED BY '…';
+GRANT SELECT ON app.* TO 'agent_reader'@'%';
+```
+
+### Fill in the form
+
+Open **Connections**, then **Add connection**, and **Connect a database** beside MySQL. Type in
+the host and port, the database, the user and its password, and choose the encryption: a managed
+database has a certificate for its host, which is verified; a self-signed one needs "any
+certificate". MySQL 8's default sign-in needs an encrypted connection. **Test connection** signs
+in without saving anything.
+
+The database has to be reachable from the internet. Hosted Personal Agent Proxy refuses hosts on
+private addresses, such as `192.168.1.5` or `localhost`; a database on one needs Personal Agent
+Proxy [self-hosted](/self-hosting) beside it, with `ALLOW_PRIVATE_HOSTS` set.
+
+### Review the defaults
+
+A new connection gives every agent Read tables and Run queries. Add rows, Edit rows and Delete rows
+are off by default. Turn them on for every agent on the connection's page, or only for one agent on
+the agent's page. The same database can be connected again as another user, such as one that may
+write.
+
+</Steps>
+
+## What agents can do
+
+- **Read tables** lists the database's tables and views, with their columns, and opens each
+  table's rows, newest first by primary key, 50 to a page, searching for words in any column. A row
+  reads as one `column: value` line per column; a value that reads empty is NULL.
+- **Run queries** runs one statement that reads, SELECT, WITH, SHOW, EXPLAIN or DESCRIBE, in a
+  read-only transaction with a 30 second limit, and answers up to 200 rows as one JSON object a
+  line. A second statement after a semicolon, or one that writes, is refused before it reaches the
+  database. MySQL lets a `CREATE`, `ALTER` or `DROP` through a read-only transaction, which is why
+  only statements that read are sent, and why a user that can only read is worth making.
+- **Add rows** inserts a row into a table, from the `column: value` lines written; a column left
+  out takes its default.
+- **Edit rows** changes the columns written differently from how they read, and sets one written
+  empty to NULL. It requires Read tables.
+- **Delete rows** deletes a row for good. It requires Read tables.
+
+Rows are found again by their primary key, so a table without one is read and never written to.
+Values are written the way they read: a date as `2026-01-02`, a datetime as
+`2026-01-02 10:00:00`, JSON as JSON. The database checks each value against its column and turns
+down what doesn't fit, and its own words come back to the agent.

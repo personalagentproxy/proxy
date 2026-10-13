@@ -29,7 +29,7 @@ test("every read, write, command and requirement names one of the integration's 
 		const named = [
 			...each.actions.flatMap((action) => (action.requires ? [action.requires] : [])),
 			...each.collections.flatMap((one) => [
-				one.read,
+				...(one.read ? [one.read] : []),
 				...Object.values(one.writes),
 				...(one.commands ?? []).map((command) => command.action),
 			]),

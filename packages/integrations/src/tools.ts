@@ -156,14 +156,18 @@ function collectionTools(integration: Integration, collection: Collection): Tool
 	const make = (
 		kind: ToolKind,
 		operation: string,
-		rest: Pick<Tool, 'title' | 'description' | 'inputSchema'> & {where?: Condition},
+		rest: Pick<Tool, 'title' | 'description' | 'inputSchema'> & {
+			where?: Condition;
+			readOnly?: true;
+		},
 	): Tool[] => {
 		const action = requiredAction(collection, operation);
 		const found = integration.actions.find((candidate) => candidate.id === action);
 		if (!action || !found) {
 			return [];
 		}
-		const readOnly = kind === 'list' || kind === 'get';
+		const {readOnly: commandReadOnly, ...tool} = rest;
+		const readOnly = kind === 'list' || kind === 'get' || commandReadOnly === true;
 		return [
 			{
 				name: toolName(collection.id, operation),
@@ -174,7 +178,7 @@ function collectionTools(integration: Integration, collection: Collection): Tool
 				readOnly,
 				risk: found.risk,
 				reachesOthers: found.reachesOthers ?? false,
-				...rest,
+				...tool,
 			},
 		];
 	};
@@ -226,6 +230,7 @@ function collectionTools(integration: Integration, collection: Collection): Tool
 					title: command.label,
 					description: `${command.label} a new ${collection.singular} from the fields given, without saving it first.${what}`,
 					inputSchema: objectSchema(valueProperties(collection)),
+					readOnly: command.readOnly,
 				});
 			}
 			return make('command', command.id, {

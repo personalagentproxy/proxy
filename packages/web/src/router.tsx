@@ -22,6 +22,7 @@ import {
 } from '@/loaders';
 import {ActivityPage} from '@/pages/activity-page';
 import {AddConnectionPage} from '@/pages/add-connection-page';
+import {AddDatabasePage} from '@/pages/add-database-page';
 import {AddEmailPage} from '@/pages/add-email-page';
 import {AgentPage} from '@/pages/agent-page';
 import {AgentSetupPage} from '@/pages/agent-setup-page';
@@ -92,6 +93,18 @@ export const router = createBrowserRouter([
 		errorElement: <RouteError />,
 	},
 	{
+		path: '/welcome/connections/postgres',
+		loader: welcomeLoader,
+		element: <WelcomePage step="postgres" />,
+		errorElement: <RouteError />,
+	},
+	{
+		path: '/welcome/connections/mysql',
+		loader: welcomeLoader,
+		element: <WelcomePage step="mysql" />,
+		errorElement: <RouteError />,
+	},
+	{
 		path: '/welcome/connections/:id',
 		loader: welcomeConnectionLoader,
 		element: <WelcomeConnectionPage />,
@@ -109,6 +122,8 @@ export const router = createBrowserRouter([
 			{path: '/connections', loader: connectionsLoader, element: <ConnectionsPage />},
 			{path: '/connections/new', loader: addConnectionLoader, element: <AddConnectionPage />},
 			{path: '/connections/new/email', element: <AddEmailPage />},
+			{path: '/connections/new/postgres', element: <AddDatabasePage dialect="postgres" />},
+			{path: '/connections/new/mysql', element: <AddDatabasePage dialect="mysql" />},
 			{path: '/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
 			{path: '/info', loader: infoLoader, element: <InfoPage />},
 			{path: '/agents', loader: agentsLoader, element: <AgentsPage />},
