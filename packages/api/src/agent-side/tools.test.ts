@@ -292,8 +292,9 @@ describe('runAgentTool', () => {
 		const outsideEnum = await runAgentTool(caller, 'mail-1', 'emails_list', {folder: 'Spam'});
 		const missingId = await runAgentTool(caller, 'mail-1', 'emails_get', {});
 		const notText = await runAgentTool(caller, 'mail-1', 'emails_get', {id: 7});
+		const inherited = await runAgentTool(caller, 'mail-1', 'emails_get', {id: 'inbox-1', constructor: 'x'});
 
-		for (const result of [unknown, outsideEnum, missingId, notText]) {
+		for (const result of [unknown, outsideEnum, missingId, notText, inherited]) {
 			expect(result.unwrapErr().kind).toBe('validation_error');
 		}
 		expect(connector.list).not.toHaveBeenCalled();

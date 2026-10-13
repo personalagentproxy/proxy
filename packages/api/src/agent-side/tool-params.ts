@@ -24,7 +24,8 @@ export function parseToolParams(tool: CollectionTool, params: unknown): Result<R
 	const known = Object.keys(properties);
 	const values: Record<string, string> = {};
 	for (const [key, value] of Object.entries(given)) {
-		const property = properties[key];
+		// Its own properties alone: `constructor` or `toString` is no param, though every object has one.
+		const property = Object.hasOwn(properties, key) ? properties[key] : undefined;
 		if (!property) {
 			const takes = known.length > 0 ? `; it takes ${known.join(', ')}` : '; it takes none';
 			return Err(ApiErr.validationError(`${tool.name} takes no ${key}${takes}`));
