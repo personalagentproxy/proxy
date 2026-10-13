@@ -23,7 +23,7 @@ function notes(): Collection {
 }
 
 const target = {
-	connection: {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), defaults: [], credential: null},
+	connection: {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), tools: null, defaults: [], credential: null},
 	collection: notes(),
 };
 

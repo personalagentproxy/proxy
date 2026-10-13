@@ -1,14 +1,37 @@
-import {Err, Ok, type Result} from 'ts-results-es';
+import {Err, Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, parseSchema} from '@proxy/utils';
-import {findIntegration, type Integration} from '@proxy/integrations';
+import {integrationFor, mcpToolSchema, type Integration, type McpTool} from '@proxy/integrations';
 
-/** The catalog's integration of a connection, or not_found for one it no longer has. */
-export function requireIntegration(integrationId: string): Result<Integration, ApiError> {
-	const integration = findIntegration(integrationId);
+import {log} from '../observability/log';
+
+/** A connection as the database holds it: its integration and, for a custom MCP server, its tools as JSON. */
+export type StoredIntegration = {integrationId: string; tools: string | null};
+
+/** A custom MCP server's tools as stored; null for every other integration, and none when the stored list can't be read. */
+export function parseStoredTools(json: string | null): McpTool[] | null {
+	if (json === null) {
+		return null;
+	}
+	const parsed = Result.wrap((): unknown => JSON.parse(json)).andThen((value) => parseSchema(z.array(z.unknown()), value));
+	if (parsed.isErr()) {
+		log.warn('A connection’s stored tools could not be read', {error: String(parsed.error)});
+		return [];
+	}
+	return parsed.value.flatMap((tool) => mcpToolSchema.safeParse(tool).data ?? []);
+}
+
+/** The integration of a connection, a custom MCP server's with its own tools as actions; undefined for one the catalog no longer has. */
+export function integrationOf(connection: StoredIntegration): Integration | undefined {
+	return integrationFor({integrationId: connection.integrationId, tools: parseStoredTools(connection.tools)});
+}
+
+/** The integration of a connection, or not_found for one the catalog no longer has. */
+export function requireIntegration(connection: StoredIntegration): Result<Integration, ApiError> {
+	const integration = integrationOf(connection);
 	if (!integration) {
-		return Err(ApiErr.notFound('integration', integrationId));
+		return Err(ApiErr.notFound('integration', connection.integrationId));
 	}
 	return Ok(integration);
 }

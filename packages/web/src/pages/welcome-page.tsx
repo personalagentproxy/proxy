@@ -7,6 +7,7 @@ import {AgentSetup} from '@/components/agent-setup';
 import type {DatabaseDialect} from '@/client/connections-client';
 import {ConnectDatabaseForm} from '@/components/connect-database-form';
 import {ConnectEmailForm} from '@/components/connect-email-form';
+import {ConnectMcpForm} from '@/components/connect-mcp-form';
 import {ConnectionAccess} from '@/components/connection-access';
 import {IntegrationCatalog} from '@/components/integration-catalog';
 import {StepHeading} from '@/components/step-heading';
@@ -18,9 +19,9 @@ import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin, Connection} from '@/lib/types';
 import type {welcomeConnectionLoader, welcomeLoader} from '@/loaders';
 
-// Step one is the agent; the rest are step two: the catalog, the mailbox and database forms, and
-// (on its own page, `WelcomeConnectionPage`) a new connection's permissions.
-type Step = 'agent' | 'connections' | 'email' | DatabaseDialect;
+// Step one is the agent; the rest are step two: the catalog, the mailbox, database and MCP server
+// forms, and (on its own page, `WelcomeConnectionPage`) a new connection's permissions.
+type Step = 'agent' | 'connections' | 'email' | 'mcp' | DatabaseDialect;
 
 // The welcome flow, before the app: step one connects the person's agent, in the way that agent
 // takes (an MCP client adds the server and signs in; another is handed a login), step two their
@@ -70,6 +71,9 @@ export function WelcomePage({step}: {step: Step}) {
 					dialect={step}
 					onContinue={(connection) => navigate(`/welcome/connections/${connection.id}`)}
 				/>
+			)}
+			{step === 'mcp' && (
+				<McpStep onContinue={(connection) => navigate(`/welcome/connections/${connection.id}`)} />
 			)}
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			{step === 'agent' && (
@@ -227,6 +231,31 @@ function DatabaseStep({
 					</Button>
 				}
 				continueLabel="Continue"
+				onConnected={onContinue}
+			/>
+		</>
+	);
+}
+
+// The custom MCP server form. Connect makes the connection, or opens the server's sign-in, which
+// comes back to the connection's permissions.
+function McpStep({onContinue}: {onContinue: (connection: Connection) => void}) {
+	return (
+		<>
+			<StepHeading title="Connect an MCP server">
+				Any MCP server over HTTP. Its tools become what the agent can be allowed, one by one.
+			</StepHeading>
+			<ConnectMcpForm
+				cancel={
+					<Button
+						variant="outline"
+						nativeButton={false}
+						render={<Link to="/welcome/connections" />}
+					>
+						Back
+					</Button>
+				}
+				returnTo="welcome"
 				onConnected={onContinue}
 			/>
 		</>

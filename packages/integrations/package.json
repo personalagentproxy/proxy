@@ -10,6 +10,9 @@
 		"test": "bun test",
 		"typecheck": "tsc --noEmit"
 	},
+	"dependencies": {
+		"zod": "^4.5.4"
+	},
 	"devDependencies": {
 		"@types/bun": "latest",
 		"typescript": "~6.0.2"

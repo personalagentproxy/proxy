@@ -13,14 +13,16 @@ import type {Connection} from '@/lib/types';
 const SIGN_IN: IntegrationId[] = ['granola', 'notion', 'linear'];
 
 // The rest are connected on a form of their own: a mailbox with an app password, a database with
-// a user's name and password.
+// a user's name and password, a custom MCP server by its address.
 function formLabel(integration: Integration, count: number): string {
-	const what = integration.id === 'email' ? 'mailbox' : 'database';
-	return count > 0 ? `Connect another ${what}` : `Connect a ${what}`;
+	const what =
+		integration.id === 'email' ? 'mailbox' : integration.custom ? 'MCP server' : 'database';
+	const article = integration.custom ? 'an' : 'a';
+	return count > 0 ? `Connect another ${what}` : `Connect ${article} ${what}`;
 }
 
 // The catalog: every integration, a plus to connect it, and how many accounts are connected. Each
-// can be connected again, for another mailbox or account.
+// can be connected again, for another mailbox, account or server.
 export function IntegrationCatalog({
 	connections,
 	returnTo,

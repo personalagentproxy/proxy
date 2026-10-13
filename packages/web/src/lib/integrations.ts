@@ -1,13 +1,15 @@
-import {IdCardIcon, MailIcon, type LucideIcon} from 'lucide-react';
+import {IdCardIcon, MailIcon, PlugIcon, type LucideIcon} from 'lucide-react';
 import {
 	INTEGRATIONS as CATALOG,
+	integrationFor,
 	type Integration as CatalogIntegration,
 	type IntegrationId,
+	type McpTool,
 } from '@proxy/integrations';
 
 // A brand's own logo where it has one (in `public/integrations/`), else an icon: Information is
-// ours, and Email is any mailbox. A logo that is already a square tile, as Granola's and Linear's
-// are, fills the tile edge to edge.
+// ours, Email is any mailbox, and a custom MCP server any server. A logo that is already a square
+// tile, as Granola's and Linear's are, fills the tile edge to edge.
 type IntegrationLogoImage = {src: string; fill?: boolean};
 
 export type Integration = CatalogIntegration & {logo: LucideIcon | IntegrationLogoImage};
@@ -20,6 +22,7 @@ const LOGOS: Record<IntegrationId, LucideIcon | IntegrationLogoImage> = {
 	linear: {src: '/integrations/linear.svg', fill: true},
 	postgres: {src: '/integrations/postgresql.svg'},
 	mysql: {src: '/integrations/mysql.svg'},
+	mcp: PlugIcon,
 };
 
 export const INTEGRATIONS: Integration[] = CATALOG.map((integration) => ({
@@ -27,8 +30,21 @@ export const INTEGRATIONS: Integration[] = CATALOG.map((integration) => ({
 	logo: LOGOS[integration.id],
 }));
 
+/** The catalog's integration: for a custom MCP server, the entry with no actions, since those are a connection's own. */
 export function findIntegration(id: string): Integration | undefined {
 	return INTEGRATIONS.find((integration) => integration.id === id);
+}
+
+/** The integration of a connection, a custom MCP server's with its own tools as actions; null for one the catalog no longer has. */
+export function integrationOf(connection: {
+	integrationId: string;
+	tools?: McpTool[] | null;
+}): Integration | null {
+	const integration = integrationFor(connection);
+	if (!integration) {
+		return null;
+	}
+	return {...integration, logo: LOGOS[integration.id]};
 }
 
 /** What the catalog says when a sign-in came back with `?error=<integration>`. */

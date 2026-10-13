@@ -9,6 +9,5 @@ import {getLinearAccount, LINEAR} from './linear-mcp';
 export const {handleStart: handleStartLinearRoute, handleCallback: handleLinearCallbackRoute} = mcpConnectRoutes({
 	integrationId: 'linear',
 	server: LINEAR,
-	defaults: ['read'],
-	account: getLinearAccount,
+	connection: async (signIn) => (await getLinearAccount(signIn)).map((account) => ({account, credential: signIn.credential, defaults: ['read']})),
 });

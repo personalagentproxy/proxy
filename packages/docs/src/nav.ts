@@ -25,7 +25,7 @@ export const NAV: {title: string; pages: NavEntry[]}[] = [
 			'connections/linear',
 			'connections/postgres',
 			'connections/mysql',
-			'connections/custom-integrations',
+			'connections/custom-mcp',
 		],
 	},
 	{title: 'Agents', pages: ['agents/mcp']},

@@ -3,7 +3,7 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import type {SignedInAgent} from '@proxy/db/agent';
-import {findIntegration, INFO_INTEGRATION_ID, INTEGRATIONS, type Tool} from '@proxy/integrations';
+import {findIntegration, INFO_INTEGRATION_ID, integrationFor, INTEGRATIONS, type Tool} from '@proxy/integrations';
 
 import {listAgentConnections, listAgentTools, runAgentTool, type AgentConnection} from '../agent-side/tools';
 import {requireAppUrl} from '../oauth/oauth-config';
@@ -64,9 +64,10 @@ export const MCP_TOOLS: McpToolDefinition[] = [
 	},
 ];
 
-// "Read, Archive, Send": what the actions are called, in the catalog's order.
+// "Read, Archive, Send": what the actions are called, in the catalog's order; a custom server's
+// tools by their titles.
 function describeActions(connection: AgentConnection): string {
-	const integration = findIntegration(connection.integrationId);
+	const integration = integrationFor(connection);
 	return (integration?.actions ?? [])
 		.filter((action) => connection.actions.includes(action.id))
 		.map((action) => action.label)
@@ -86,9 +87,12 @@ function toolSummary(tool: Tool) {
 	return {name: tool.name, title: tool.title, description: tool.description, use: tool.readOnly ? 'read' : 'run', risk: tool.risk, params: tool.inputSchema};
 }
 
-// "Email, Granola, Notion and Linear": the services a person can connect, Information being built in.
+// "Email, Granola, Notion, Linear and any custom MCP server": the services a person can connect,
+// Information being built in.
 function connectableServices(): string {
-	const names = INTEGRATIONS.filter((integration) => integration.id !== INFO_INTEGRATION_ID).map((integration) => integration.name);
+	const names = INTEGRATIONS.filter((integration) => integration.id !== INFO_INTEGRATION_ID).map((integration) =>
+		integration.custom ? `any ${integration.name.charAt(0).toLowerCase()}${integration.name.slice(1)}` : integration.name,
+	);
 	return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 }
 

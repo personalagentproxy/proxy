@@ -44,7 +44,7 @@ beforeEach(() => {
 	createAgent.mockResolvedValue(Ok(agentRow));
 	updateAgent.mockResolvedValue(Ok(true));
 	setAgentGrants.mockResolvedValue(Ok(undefined));
-	getConnection.mockResolvedValue(Ok({id: 'conn-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), defaults: []}));
+	getConnection.mockResolvedValue(Ok({id: 'conn-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), tools: null, defaults: []}));
 	isUsernameConflict.mockReturnValue(false);
 	isProviderConflict.mockReturnValue(false);
 });

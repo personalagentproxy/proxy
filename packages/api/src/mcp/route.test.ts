@@ -85,7 +85,7 @@ describe('handleMcpRoute', () => {
 		expect(result.instructions).toContain('Start with list_connections');
 		expect(result.instructions).toContain('- Email (alex@example.com), connection mail-1: Read, Archive');
 		expect(result.instructions).toContain('check Personal Agent Proxy first');
-		expect(result.instructions).toContain('Personal Agent Proxy connects Email, Granola, Notion, Linear, PostgreSQL and MySQL');
+		expect(result.instructions).toContain('Personal Agent Proxy connects Email, Granola, Notion, Linear, PostgreSQL, MySQL and any custom MCP server');
 		expect(result.instructions).toContain('https://app.example.com/connections/new');
 	});
 

@@ -1,7 +1,7 @@
 import {findCollection, type Collection} from '@proxy/integrations';
 import {useParams, useRouteLoaderData} from 'react-router';
 import type {AgentMe} from '@/client/agent-client';
-import {findIntegration, type Integration} from '@/lib/integrations';
+import {integrationOf, type Integration} from '@/lib/integrations';
 
 export type AgentTarget = {
 	connection: AgentMe['connections'][number];
@@ -24,7 +24,7 @@ export function useAgentTarget(): AgentTarget | null {
 	const {connectionId = '', collectionId = ''} = useParams();
 	const me = useAgentMe();
 	const connection = me?.connections.find((candidate) => candidate.id === connectionId);
-	const integration = connection && findIntegration(connection.integrationId);
+	const integration = connection && integrationOf(connection);
 	const collection = integration && findCollection(integration, collectionId);
 	if (!connection || !integration || !collection) {
 		return null;

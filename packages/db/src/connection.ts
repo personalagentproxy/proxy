@@ -9,6 +9,8 @@ export type ConnectionRow = {
 	integrationId: string;
 	account: string;
 	createdAt: Date;
+	// A custom MCP server's tools as JSON, the server's own list; null for every other integration.
+	tools: string | null;
 	// The actions agents get by default, one per row.
 	defaults: Array<{actionId: string}>;
 };
@@ -19,6 +21,7 @@ const connectionSelect = {
 	integrationId: true,
 	account: true,
 	createdAt: true,
+	tools: true,
 	defaults: {select: {actionId: true}},
 } as const;
 
@@ -57,7 +60,7 @@ export async function getConnectionWithCredential(
 
 /**
  * `credential` is already encrypted; this package never sees it in the clear. `defaults` are the
- * actions agents get from the start, none when left out.
+ * actions agents get from the start, none when left out; `tools` a custom MCP server's, as JSON.
  */
 export async function createConnection(data: {
 	orgId: string;
@@ -65,6 +68,7 @@ export async function createConnection(data: {
 	account: string;
 	credential: string;
 	defaults?: string[];
+	tools?: string;
 }): Promise<Result<ConnectionRow, ApiError>> {
 	const {defaults = [], ...connection} = data;
 	return wrapDb(() =>
@@ -76,21 +80,35 @@ export async function createConnection(data: {
 }
 
 /**
- * Replaces a connection's encrypted credential, as when Granola hands out new tokens. With
- * `previous`, only while the credential is still that one, so two servers refreshing at once
- * don't overwrite each other: `Ok(false)` when it had already changed.
+ * Replaces a connection's encrypted credential, as when Granola hands out new tokens, and with
+ * `tools` a custom MCP server's tools too. With `previous`, only while the credential is still
+ * that one, so two servers refreshing at once don't overwrite each other: `Ok(false)` when it had
+ * already changed.
  */
 export async function updateConnectionCredential(data: {
 	connectionId: string;
 	credential: string;
 	previous?: string;
+	tools?: string;
 }): Promise<Result<boolean, ApiError>> {
-	const {connectionId, credential, previous} = data;
+	const {connectionId, credential, previous, tools} = data;
 	const where =
 		previous === undefined ? {id: connectionId} : {id: connectionId, credential: previous};
-	return (await wrapDb(() => db.connection.updateMany({where, data: {credential}}))).map(
+	const changes = tools === undefined ? {credential} : {credential, tools};
+	return (await wrapDb(() => db.connection.updateMany({where, data: changes}))).map(
 		({count}) => count > 0,
 	);
+}
+
+/** Replaces a custom MCP server's tools, as JSON, once the server is asked for them again. */
+export async function updateConnectionTools(data: {
+	connectionId: string;
+	tools: string;
+}): Promise<Result<void, ApiError>> {
+	const {connectionId, tools} = data;
+	return wrapDb(async () => {
+		await db.connection.update({where: {id: connectionId}, data: {tools}});
+	});
 }
 
 /** `Ok(false)` means no such connection in the organization. Its defaults go with it. */

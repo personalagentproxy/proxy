@@ -24,6 +24,7 @@ const emailRow = {
 	integrationId: 'email',
 	account: 'alex@example.com',
 	createdAt: new Date('2026-10-01T00:00:00Z'),
+	tools: null,
 	defaults: [{actionId: 'read'}],
 };
 

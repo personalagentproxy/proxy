@@ -9,6 +9,5 @@ import {getNotionAccount, NOTION} from './notion-mcp';
 export const {handleStart: handleStartNotionRoute, handleCallback: handleNotionCallbackRoute} = mcpConnectRoutes({
 	integrationId: 'notion',
 	server: NOTION,
-	defaults: ['read'],
-	account: getNotionAccount,
+	connection: async (signIn) => (await getNotionAccount(signIn)).map((account) => ({account, credential: signIn.credential, defaults: ['read']})),
 });

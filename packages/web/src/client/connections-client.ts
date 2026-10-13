@@ -59,3 +59,28 @@ export function connectDatabase(dialect: DatabaseDialect, input: ConnectDatabase
 export function testDatabase(dialect: DatabaseDialect, input: ConnectDatabaseInput) {
 	return apiSend('POST', `/api/connections/${dialect}/test`, input);
 }
+
+export type ConnectMcpInput = {url: string; token?: string};
+
+/**
+ * Connects a custom MCP server by its address, with a token where the server takes one: the new
+ * connection, or that the server asks for a sign-in, which starts at `/api/connections/mcp/start`.
+ * A 400 says what is wrong with the address, 422 that the token was turned down, 502 that the
+ * server could not be reached.
+ */
+export function connectMcp(input: ConnectMcpInput) {
+	return apiRequest(
+		'POST',
+		'/api/connections/mcp',
+		z.discriminatedUnion('kind', [
+			z.object({kind: z.literal('connected'), connection: connectionSchema}),
+			z.object({kind: z.literal('signIn')}),
+		]),
+		input,
+	);
+}
+
+/** Asks a custom MCP server for its tools again and keeps the new list. */
+export function refreshMcpTools(connectionId: string) {
+	return apiRequest('POST', `/api/connections/${connectionId}/tools`, connectionSchema);
+}

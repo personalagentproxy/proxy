@@ -11,6 +11,10 @@ import {GRANOLA, getGranolaAccount} from './granola-mcp';
 export const {handleStart: handleStartGranolaRoute, handleCallback: handleGranolaCallbackRoute} = mcpConnectRoutes({
 	integrationId: 'granola',
 	server: GRANOLA,
-	defaults: findIntegration('granola')?.actions.map((action) => action.id) ?? [],
-	account: (signIn) => getGranolaAccount(signIn.credential.accessToken),
+	connection: async (signIn) =>
+		(await getGranolaAccount(signIn.credential.accessToken)).map((account) => ({
+			account,
+			credential: signIn.credential,
+			defaults: findIntegration('granola')?.actions.map((action) => action.id) ?? [],
+		})),
 });

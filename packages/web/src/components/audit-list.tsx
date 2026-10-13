@@ -1,6 +1,6 @@
 import {EmptyRows, RowHeader, RowList} from '@/components/row-list';
 import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
-import {connectionLabel, describeEntry, integrationOf, locateEntry} from '@/lib/access';
+import {connectionLabel, describeEntry, locateEntry} from '@/lib/access';
 import {formatDateTime} from '@/lib/format';
 import type {AgentLogin, AuditEntry, Connection} from '@/lib/types';
 import {cn} from '@proxy/ui/lib/utils';
@@ -45,7 +45,7 @@ export function AuditList({
 			{entries.map((entry) => {
 				const agent = agents.find((candidate) => candidate.id === entry.agentId);
 				const located = locateEntry(connections, entry);
-				const integration = located ? integrationOf(located.connection) : null;
+				const integration = located?.integration ?? null;
 				const denied = entry.outcome === 'denied';
 				return (
 					<li key={entry.id} className="flex h-10 items-center gap-3 px-4 text-sm md:px-3">
@@ -59,7 +59,7 @@ export function AuditList({
 							</span>
 						)}
 						<span className={cn('min-w-0 flex-1 truncate', denied && 'text-destructive')}>
-							{describeEntry(entry, located?.collection)}
+							{describeEntry(entry, located)}
 							{entry.via === 'mcp' && <span className="text-muted-foreground"> · over MCP</span>}
 						</span>
 						{showConnection && (

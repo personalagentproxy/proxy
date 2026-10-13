@@ -24,6 +24,7 @@ import {ActivityPage} from '@/pages/activity-page';
 import {AddConnectionPage} from '@/pages/add-connection-page';
 import {AddDatabasePage} from '@/pages/add-database-page';
 import {AddEmailPage} from '@/pages/add-email-page';
+import {AddMcpPage} from '@/pages/add-mcp-page';
 import {AgentPage} from '@/pages/agent-page';
 import {AgentSetupPage} from '@/pages/agent-setup-page';
 import {AgentsPage} from '@/pages/agents-page';
@@ -32,6 +33,7 @@ import {AgentHomePage} from '@/pages/agent/agent-home-page';
 import {AgentLoginPage} from '@/pages/agent/agent-login-page';
 import {AgentNewRecordPage} from '@/pages/agent/agent-new-record-page';
 import {AgentRecordPage} from '@/pages/agent/agent-record-page';
+import {AgentToolPage} from '@/pages/agent/agent-tool-page';
 import {ConnectAgentPage} from '@/pages/connect-agent-page';
 import {ConnectionPage} from '@/pages/connection-page';
 import {ConnectionsPage} from '@/pages/connections-page';
@@ -105,6 +107,12 @@ export const router = createBrowserRouter([
 		errorElement: <RouteError />,
 	},
 	{
+		path: '/welcome/connections/mcp',
+		loader: welcomeLoader,
+		element: <WelcomePage step="mcp" />,
+		errorElement: <RouteError />,
+	},
+	{
 		path: '/welcome/connections/:id',
 		loader: welcomeConnectionLoader,
 		element: <WelcomeConnectionPage />,
@@ -124,6 +132,7 @@ export const router = createBrowserRouter([
 			{path: '/connections/new/email', element: <AddEmailPage />},
 			{path: '/connections/new/postgres', element: <AddDatabasePage dialect="postgres" />},
 			{path: '/connections/new/mysql', element: <AddDatabasePage dialect="mysql" />},
+			{path: '/connections/new/mcp', element: <AddMcpPage />},
 			{path: '/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
 			{path: '/info', loader: infoLoader, element: <InfoPage />},
 			{path: '/agents', loader: agentsLoader, element: <AgentsPage />},
@@ -140,6 +149,8 @@ export const router = createBrowserRouter([
 		errorElement: <RouteError />,
 		children: [
 			{path: '/agent', element: <AgentHomePage />},
+			// A custom MCP server's tool, which has no collection.
+			{path: '/agent/:connectionId/tool/:toolName', element: <AgentToolPage />},
 			{
 				path: '/agent/:connectionId/:collectionId',
 				loader: agentCollectionLoader,

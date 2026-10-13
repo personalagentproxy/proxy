@@ -1,7 +1,12 @@
-import {CircleCheckIcon, RefreshCwIcon, UnplugIcon} from 'lucide-react';
+import {CircleCheckIcon, ListRestartIcon, RefreshCwIcon, UnplugIcon} from 'lucide-react';
+import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
-import {deleteConnection, setConnectionDefaults} from '@/client/connections-client';
+import {
+	deleteConnection,
+	refreshMcpTools,
+	setConnectionDefaults,
+} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
@@ -35,6 +40,7 @@ export function ConnectionPage() {
 	const [searchParams] = useSearchParams();
 	const added = searchParams.has('added');
 	const [disconnecting, setDisconnecting] = useState(false);
+	const [refreshing, setRefreshing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const integration = connection && integrationOf(connection);
 	if (!connection || !integration) {
@@ -57,11 +63,32 @@ export function ConnectionPage() {
 				</>
 			}
 			actions={
-				!integration.builtIn && (
-					<IconButton label="Disconnect" onClick={() => setDisconnecting(true)}>
-						<UnplugIcon />
-					</IconButton>
-				)
+				<>
+					{integration.custom && (
+						<IconButton
+							label={
+								refreshing
+									? 'Asking the server for its tools'
+									: 'Ask the server for its tools again'
+							}
+							disabled={refreshing}
+							onClick={async () => {
+								setRefreshing(true);
+								const result = await refreshMcpTools(connection.id);
+								setRefreshing(false);
+								setError(result.isErr() ? describeRefreshError(result.error) : null);
+								await revalidator.revalidate();
+							}}
+						>
+							<ListRestartIcon className={refreshing ? 'motion-safe:animate-spin' : undefined} />
+						</IconButton>
+					)}
+					{!integration.builtIn && (
+						<IconButton label="Disconnect" onClick={() => setDisconnecting(true)}>
+							<UnplugIcon />
+						</IconButton>
+					)}
+				</>
 			}
 		>
 			<div className="flex flex-col gap-8">
@@ -71,7 +98,17 @@ export function ConnectionPage() {
 						Connection added successfully
 					</p>
 				)}
-				<Section title="Permissions">
+				<Section
+					title="Permissions"
+					detail={
+						integration.custom
+							? 'The server’s tools, as it last listed them, each allowed on its own'
+							: undefined
+					}
+				>
+					{integration.custom && integration.actions.length === 0 && (
+						<p className="text-sm text-muted-foreground md:px-3">The server lists no tools.</p>
+					)}
 					<ConnectionAccess
 						actions={integration.actions}
 						defaults={defaultActions(connection)}
@@ -153,6 +190,17 @@ export function ConnectionPage() {
 			/>
 		</AppShell>
 	);
+}
+
+// What asking a custom MCP server for its tools again says when it fails.
+function describeRefreshError(error: FetchError): string {
+	if (error.kind === 'http' && error.status === 422) {
+		return 'The server turned the sign-in down. Disconnect it and connect it again.';
+	}
+	if (error.kind === 'http' && error.status === 502) {
+		return 'The server could not be reached. Try again in a moment.';
+	}
+	return describeFetchError(error);
 }
 
 // How many agents, revoked ones left out, have a setting of their own for each action.

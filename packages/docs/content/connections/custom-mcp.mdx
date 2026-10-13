@@ -1,0 +1,60 @@
+---
+title: Custom MCP servers
+description: Connect any MCP server by its address, and allow its tools one by one.
+---
+
+Any service with an MCP server over HTTP can be connected by its address. The server's tools become
+what agents can be allowed with it, each on its own, and every call an agent makes is checked
+against that access and written to the activity log, as with the built-in integrations.
+
+## Connect a server
+
+<Steps>
+
+### Enter the address
+
+Open **Connections**, then **Add connection**, and the plus beside **Custom MCP server**. Enter the
+server's MCP address, such as `https://mcp.example.com/mcp`. The address has to use `https`.
+
+### Sign in, if the server asks
+
+Personal Agent Proxy asks the server for its tools. A server that answers is connected at once. One
+that asks for a sign-in opens its sign-in page, as Granola, Notion and Linear do; once you approve
+access, it sends you back to the new connection. A server that takes a token or an API key instead
+of a sign-in gets it from the **Access token** field, which is sent as a bearer token with every
+request.
+
+### Review the tools
+
+The connection's page lists the server's tools under **Permissions**, one checkbox each. Tools that
+say they only read are on from the start; the rest are off until you turn them on, for every agent
+on the connection's page or for one agent on the agent's page.
+
+</Steps>
+
+## What agents can do
+
+Each tool the server lists is an action of its own, allowed or not. An agent that may run a tool
+calls it with the params the server describes, and gets back what the tool answered, as the server
+wrote it. Nothing is copied: every call goes to the server.
+
+A tool's risk comes from what the tool says about itself. One that says it only reads is low risk.
+One that changes something it says can be undone is medium. Any other tool, including one that says
+nothing about itself, is marked high risk, since it may do anything.
+
+The activity log shows each run by the tool's name, with the params the agent gave it.
+
+<Callout>
+A server's tools can change. The connection's page has a button that asks the server for its tools
+again and keeps the new list. A tool that appears later is off until you turn it on.
+</Callout>
+
+## How the sign-in works
+
+Personal Agent Proxy signs in to a server the way the MCP specification lays out: the server says
+which authorization server its tokens come from, Personal Agent Proxy registers itself there as a
+client, and you approve access on the authorization server's own page. Tokens are refreshed as they
+run out. A server whose authorization server does not let clients register themselves cannot be
+connected this way; use an access token instead, where the server offers one.
+
+When developing on your own machine, a server at `http://localhost` can be connected too.

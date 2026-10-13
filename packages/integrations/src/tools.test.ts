@@ -125,12 +125,12 @@ describe('nested collections', () => {
 			'properties',
 			'content',
 		]);
-		expect(findTool(notion, 'pages_update')?.inputSchema.properties.parent).toBeUndefined();
+		expect(findTool(notion, 'pages_update')?.inputSchema.properties?.parent).toBeUndefined();
 	});
 
 	test('a collection that is not nested takes no parent', () => {
-		expect(findTool(email, 'emails_list')?.inputSchema.properties.parent).toBeUndefined();
-		expect(findTool(email, 'emails_create')?.inputSchema.properties.parent).toBeUndefined();
+		expect(findTool(email, 'emails_list')?.inputSchema.properties?.parent).toBeUndefined();
+		expect(findTool(email, 'emails_create')?.inputSchema.properties?.parent).toBeUndefined();
 	});
 });
 
@@ -154,8 +154,8 @@ describe('linear', () => {
 			'statusType',
 			'page',
 		]);
-		expect(list?.inputSchema.properties.statusType?.enum).toContain('Started');
-		expect(findTool(linear, 'issues_create')?.inputSchema.properties.statusType).toBeUndefined();
+		expect(list?.inputSchema.properties?.statusType?.enum).toContain('Started');
+		expect(findTool(linear, 'issues_create')?.inputSchema.properties?.statusType).toBeUndefined();
 	});
 });
 
@@ -188,6 +188,10 @@ describe('postgres and mysql', () => {
 	test('a row is written as its values, inside a table, and only rows are edited', () => {
 		const create = findTool(postgres, 'tables_create');
 		expect(Object.keys(create?.inputSchema.properties ?? {})).toEqual(['parent', 'values']);
-		expect(findTool(postgres, 'tables_update')?.where).toEqual({field: 'kind', values: ['Row']});
+		const update = findTool(postgres, 'tables_update');
+		expect(update?.kind === 'update' ? update.where : null).toEqual({
+			field: 'kind',
+			values: ['Row'],
+		});
 	});
 });

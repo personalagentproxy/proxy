@@ -3,10 +3,9 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {deleteConnection, getConnection, listConnections, setConnectionDefaults} from '@proxy/db/connection';
-import {findIntegration} from '@proxy/integrations';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {parseActionChanges, requireIntegration} from '../utils/connection-actions';
+import {integrationOf, parseActionChanges, requireIntegration} from '../utils/connection-actions';
 import {requireUserOrgId} from '../utils/user-org';
 import {toConnectionResponse, type ConnectionResponse} from './connection-response';
 
@@ -33,7 +32,7 @@ export function handleDeleteConnectionRoute(request: AuthenticatedRequest): Prom
 		const orgId = $(await requireUserOrgId(request));
 		const connectionId = request.params.connectionId ?? '';
 		const row = $(requirePresent($(await getConnection(orgId, connectionId)), ApiErr.notFound('connection', connectionId)));
-		if (findIntegration(row.integrationId)?.builtIn) {
+		if (integrationOf(row)?.builtIn) {
 			return $(Err(ApiErr.forbidden()));
 		}
 
@@ -53,7 +52,7 @@ export function handleSetConnectionDefaultsRoute(request: AuthenticatedRequest):
 		const orgId = $(await requireUserOrgId(request));
 		const connectionId = request.params.connectionId ?? '';
 		const row = $(requirePresent($(await getConnection(orgId, connectionId)), ApiErr.notFound('connection', connectionId)));
-		const integration = $(requireIntegration(row.integrationId));
+		const integration = $(requireIntegration(row));
 		const actions = $(parseActionChanges(integration, z.boolean(), request.body));
 
 		$(await setConnectionDefaults({connectionId, actions}));

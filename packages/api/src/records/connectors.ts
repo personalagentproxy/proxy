@@ -8,7 +8,8 @@ import {linearConnector} from './linear-connector';
 import {notionConnector} from './notion-connector';
 import {sqlConnector} from './sql-connector';
 
-const CONNECTORS: Record<IntegrationId, Connector> = {
+// A custom MCP server has no records: its tools are called as they are (`connections/custom`).
+const CONNECTORS: Record<Exclude<IntegrationId, 'mcp'>, Connector> = {
 	info: infoConnector,
 	email: emailConnector,
 	granola: granolaConnector,
@@ -20,5 +21,8 @@ const CONNECTORS: Record<IntegrationId, Connector> = {
 
 export function connectorFor(integrationId: string): Connector | undefined {
 	const integration = findIntegration(integrationId);
-	return integration && CONNECTORS[integration.id];
+	if (!integration || integration.id === 'mcp') {
+		return undefined;
+	}
+	return CONNECTORS[integration.id];
 }

@@ -25,7 +25,7 @@ function collection(id: string): Collection {
 
 function targetFor(collectionId: string) {
 	return {
-		connection: {id: 'granola-1', integrationId: 'granola', account: 'alex@example.com', createdAt: new Date(), defaults: [], credential: 'v1.encrypted'},
+		connection: {id: 'granola-1', integrationId: 'granola', account: 'alex@example.com', createdAt: new Date(), tools: null, defaults: [], credential: 'v1.encrypted'},
 		collection: collection(collectionId),
 	};
 }

@@ -595,7 +595,30 @@ const info: Integration = {
 	],
 };
 
-export const INTEGRATIONS: Integration[] = [info, email, granola, notion, linear, postgres, mysql];
+// Any MCP server, by its address: what it lists as its tools is what an agent can be allowed, one
+// by one, so the catalog's entry has no actions of its own. A server that asks for a sign-in gets
+// one as Granola's does; one that takes a token typed in, or none, is connected with that. A tool's
+// risk is what the tool says of itself: low when it only reads, else high unless it says what it
+// changes can be undone.
+const mcp: Integration = {
+	id: 'mcp',
+	name: 'Custom MCP server',
+	description: 'Any MCP server, by its address',
+	custom: true,
+	actions: [],
+	collections: [],
+};
+
+export const INTEGRATIONS: Integration[] = [
+	info,
+	email,
+	granola,
+	notion,
+	linear,
+	postgres,
+	mysql,
+	mcp,
+];
 
 export function findIntegration(id: string): Integration | undefined {
 	return INTEGRATIONS.find((integration) => integration.id === id);

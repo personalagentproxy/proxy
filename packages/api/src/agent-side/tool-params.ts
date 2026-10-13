@@ -1,7 +1,7 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
-import type {Tool} from '@proxy/integrations';
+import type {CollectionTool} from '@proxy/integrations';
 
 const MAX_SEARCH_LENGTH = 200;
 
@@ -14,7 +14,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * an enum's values only, or none chosen, and every required one there. Left out entirely, a tool gets none. The
  * messages say what to change, for a model reading them.
  */
-export function parseToolParams(tool: Tool, params: unknown): Result<Record<string, string>, ApiError> {
+export function parseToolParams(tool: CollectionTool, params: unknown): Result<Record<string, string>, ApiError> {
 	const given = params ?? {};
 	if (!isPlainObject(given)) {
 		return Err(ApiErr.validationError(`${tool.name} takes an object of params`));

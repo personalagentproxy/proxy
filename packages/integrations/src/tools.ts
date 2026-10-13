@@ -1,9 +1,17 @@
 import {requiredAction} from './access';
+import {
+	mcpToolReadsOnly,
+	mcpToolRisk,
+	mcpToolTitle,
+	type McpInputSchema,
+	type McpTool,
+} from './mcp-tools';
 import type {Action, Collection, Condition, Field, Integration} from './types';
 
 // What an agent can do with a connection, as tools: listing and opening each collection's
 // records, writing them, and each command, generated from the catalog. The agent side's pages and
-// the MCP server both run them, so the catalog is all an integration needs to describe.
+// the MCP server both run them, so the catalog is all an integration needs to describe. A custom
+// MCP server's tools are passed on as they are, each a tool of its own (`call`).
 
 // Every input is text: a select's options are its enum.
 export type JsonSchemaProperty = {
@@ -21,19 +29,20 @@ export type JsonSchemaObject = {
 };
 
 // What a tool does with its collection: lists it, opens one record, writes one, or runs one of
-// its commands on a record (`command`) or on values typed in (`newCommand`).
-export type ToolKind = 'list' | 'get' | 'create' | 'update' | 'delete' | 'command' | 'newCommand';
+// its commands on a record (`command`) or on values typed in (`newCommand`); or, for a custom MCP
+// server, calls one of the server's own tools (`call`).
+export type ToolKind =
+	'list' | 'get' | 'create' | 'update' | 'delete' | 'command' | 'newCommand' | 'call';
 
-export type Tool = {
-	// The collection and what it does, unique within an integration: `emails_archive`.
+type ToolBase = {
+	// The collection and what it does, unique within an integration: `emails_archive`; a custom
+	// server's tool keeps its own name.
 	name: string;
 	// "Archive", "List Email".
 	title: string;
 	description: string;
-	collectionId: string;
-	kind: ToolKind;
 	// What the activity log calls it, and what `requiredAction` takes: list, view, create, update,
-	// delete, or the command's id.
+	// delete, or the command's id; a custom server's tool its name.
 	operation: string;
 	// The integration's action it needs.
 	action: string;
@@ -41,10 +50,21 @@ export type Tool = {
 	readOnly: boolean;
 	risk: Action['risk'];
 	reachesOthers: boolean;
+};
+
+/** A tool generated from the catalog: one of a collection's lists, opens, writes or commands. */
+export type CollectionTool = ToolBase & {
+	collectionId: string;
+	kind: Exclude<ToolKind, 'call'>;
 	// The records it applies to, when not every one: only drafts are edited or sent.
 	where?: Condition;
 	inputSchema: JsonSchemaObject;
 };
+
+/** A custom MCP server's own tool, its params as the server describes them. */
+export type ServerTool = ToolBase & {kind: 'call'; inputSchema: McpInputSchema};
+
+export type Tool = CollectionTool | ServerTool;
 
 const ID_PROPERTY: JsonSchemaProperty = {
 	type: 'string',
@@ -152,15 +172,15 @@ function listDescription(collection: Collection): string {
 	return `List ${collection.name.toLowerCase()}, newest first, a page at a time, with each record’s id for ${toolName(collection.id, 'view')}.${search}${nested}`;
 }
 
-function collectionTools(integration: Integration, collection: Collection): Tool[] {
+function collectionTools(integration: Integration, collection: Collection): CollectionTool[] {
 	const make = (
-		kind: ToolKind,
+		kind: CollectionTool['kind'],
 		operation: string,
-		rest: Pick<Tool, 'title' | 'description' | 'inputSchema'> & {
+		rest: Pick<CollectionTool, 'title' | 'description' | 'inputSchema'> & {
 			where?: Condition;
 			readOnly?: true;
 		},
-	): Tool[] => {
+	): CollectionTool[] => {
 		const action = requiredAction(collection, operation);
 		const found = integration.actions.find((candidate) => candidate.id === action);
 		if (!action || !found) {
@@ -243,8 +263,27 @@ function collectionTools(integration: Integration, collection: Collection): Tool
 	];
 }
 
+// A custom server's tools, each needing the action of its own name, and read-only where it says so.
+function serverTools(tools: McpTool[]): ServerTool[] {
+	return tools.map((tool) => ({
+		name: tool.name,
+		title: mcpToolTitle(tool),
+		description: tool.description ?? '',
+		kind: 'call',
+		operation: tool.name,
+		action: tool.name,
+		readOnly: mcpToolReadsOnly(tool),
+		risk: mcpToolRisk(tool),
+		reachesOthers: tool.annotations?.openWorldHint === true,
+		inputSchema: tool.inputSchema,
+	}));
+}
+
 /** Every tool of an integration, whatever an agent may do. */
 export function integrationTools(integration: Integration): Tool[] {
+	if (integration.mcpTools) {
+		return serverTools(integration.mcpTools);
+	}
 	return integration.collections.flatMap((collection) => collectionTools(integration, collection));
 }
 

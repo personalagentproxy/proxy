@@ -7,15 +7,13 @@ import {
 	type Command,
 	type FieldType,
 	type OwnSettings,
+	TOOLS_COLLECTION_ID,
 } from '@proxy/integrations';
 import {formatDate, formatDateTime} from '@/lib/format';
-import {findIntegration, type Integration} from '@/lib/integrations';
+import {integrationOf, type Integration} from '@/lib/integrations';
 import type {AgentLogin, AuditEntry, Connection, DataRecord} from '@/lib/types';
 
-// The connection's integration, or null for one the catalog no longer has.
-export function integrationOf(connection: {integrationId: string}): Integration | null {
-	return findIntegration(connection.integrationId) ?? null;
-}
+export {integrationOf};
 
 // The integration's name, and the account too once the integration is connected more than once.
 export function connectionLabel(connections: Connection[], connection: Connection): string {
@@ -97,18 +95,22 @@ export function agentsWithAccess(agents: AgentLogin[], connection: Connection): 
 	);
 }
 
-// The connection and collection an audit entry is about, while both still exist.
-export function locateEntry(
-	connections: Connection[],
-	entry: AuditEntry,
-): {connection: Connection; collection: Collection} | null {
+// The connection an audit entry is about, while it still exists, with its integration and the
+// collection the entry names, where the integration has it: a custom MCP server's tools have none.
+export type LocatedEntry = {
+	connection: Connection;
+	integration: Integration;
+	collection?: Collection;
+};
+
+export function locateEntry(connections: Connection[], entry: AuditEntry): LocatedEntry | null {
 	const connection = connections.find((candidate) => candidate.id === entry.connectionId);
 	const integration = connection && integrationOf(connection);
-	const collection = integration && findCollection(integration, entry.collectionId);
-	if (!connection || !collection) {
+	if (!connection || !integration) {
 		return null;
 	}
-	return {connection, collection};
+	const collection = findCollection(integration, entry.collectionId);
+	return {connection, integration, ...(collection ? {collection} : {})};
 }
 
 export function recordTitle(collection: Collection, record: DataRecord): string {
@@ -127,10 +129,25 @@ const ACTION_VERBS: Partial<Record<string, string>> = {
 	delete: 'Deleted',
 };
 
+// A custom MCP server's tool, run as it is: "Ran Search docs with {"query":"invoices"}", "Tried to
+// run Search docs"; by the tool's name once the server is disconnected.
+function describeToolRun(entry: AuditEntry, integration: Integration | undefined): string {
+	const title =
+		integration?.actions.find((action) => action.id === entry.action)?.label ?? entry.action;
+	if (entry.outcome === 'denied') {
+		return `Tried to run ${title}`;
+	}
+	return entry.query ? `Ran ${title} with ${entry.query}` : `Ran ${title}`;
+}
+
 // "Viewed email “Thursday sync moved?”", "Listed Payment cards", "Searched Email for “invoice”",
 // "Listed Pages in “Companies”", "Tried to list Contacts", and a command's own words: "Sent email
 // “Re: Q3”", "Tried to send email". A list's record title is the record it was opened in.
-export function describeEntry(entry: AuditEntry, collection: Collection | undefined): string {
+export function describeEntry(entry: AuditEntry, located: LocatedEntry | null): string {
+	if (located?.integration.custom || entry.collectionId === TOOLS_COLLECTION_ID) {
+		return describeToolRun(entry, located?.integration);
+	}
+	const collection = located?.collection;
 	const name = collection?.name ?? entry.collectionId;
 	const singular = collection?.singular ?? 'record';
 	const denied = entry.outcome === 'denied';

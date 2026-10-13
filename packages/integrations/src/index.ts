@@ -11,7 +11,25 @@ export {
 	LINEAR_STATUS_TYPES,
 } from './catalog';
 export {allowedTools, findTool, integrationTools, toolName} from './tools';
-export type {JsonSchemaObject, JsonSchemaProperty, Tool, ToolKind} from './tools';
+export type {
+	CollectionTool,
+	JsonSchemaObject,
+	JsonSchemaProperty,
+	ServerTool,
+	Tool,
+	ToolKind,
+} from './tools';
+export {
+	integrationFor,
+	mcpInputSchemaSchema,
+	mcpToolActions,
+	mcpToolReadsOnly,
+	mcpToolRisk,
+	mcpToolSchema,
+	mcpToolTitle,
+	TOOLS_COLLECTION_ID,
+} from './mcp-tools';
+export type {McpInputSchema, McpSchemaProperty, McpTool} from './mcp-tools';
 export {EMAIL_PROVIDERS} from './email-providers';
 export type {EmailProvider, MailServers} from './email-providers';
 export type {

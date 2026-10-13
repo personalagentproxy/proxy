@@ -132,6 +132,9 @@ model Connection {
   account       String
   // Encrypted with ENCRYPTION_KEY: an app password with its server settings. None for Information.
   credential    String?
+  // A custom MCP server's tools as the server last listed them (`@proxy/integrations`' McpTool),
+  // as JSON: what agents can be allowed with it. Null for every other integration.
+  tools         String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

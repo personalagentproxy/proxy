@@ -1,3 +1,5 @@
+import type {McpTool} from './mcp-tools';
+
 // `secret` reads like text but is masked to its last four characters wherever a row summarizes it.
 export type FieldType = 'text' | 'longtext' | 'email' | 'datetime' | 'date' | 'select' | 'secret';
 
@@ -77,7 +79,7 @@ export type Collection = {
 };
 
 export type IntegrationId =
-	'info' | 'email' | 'granola' | 'notion' | 'linear' | 'postgres' | 'mysql';
+	'info' | 'email' | 'granola' | 'notion' | 'linear' | 'postgres' | 'mysql' | 'mcp';
 
 export type Integration = {
 	id: IntegrationId;
@@ -89,4 +91,9 @@ export type Integration = {
 	// Information lives in Personal Agent Proxy itself: it is always there and never connected or
 	// disconnected.
 	builtIn?: boolean;
+	// A custom MCP server: its actions are a connection's own tools, so the catalog's entry has
+	// none, and `integrationFor` fills them in from the connection.
+	custom?: true;
+	// The tools of the connection a custom integration was built for, each a tool of its own.
+	mcpTools?: McpTool[];
 };

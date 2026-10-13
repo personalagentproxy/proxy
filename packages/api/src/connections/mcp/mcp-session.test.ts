@@ -90,6 +90,23 @@ describe('callMcpToolFor', () => {
 		expect((await callMcpToolFor(SERVER, connectionWith(null), 'list_meetings', {})).unwrapErr().kind).toBe('credentials_rejected');
 	});
 
+	test('whatever else the credential holds, as a custom server’s address, is kept beside the new tokens', async () => {
+		const {callMcpToolFor} = await import('./mcp-session');
+		const credential = {
+			auth: 'oauth',
+			url: 'https://mcp.example.com/mcp',
+			clientId: 'client-1',
+			accessToken: 'access-1',
+			refreshToken: 'refresh-1',
+			expiresAt: new Date(Date.now() + 10_000).toISOString(),
+		};
+		const connection = {id: 'conn-1', credential: `enc:${JSON.stringify(credential)}`};
+		await callMcpToolFor(SERVER, connection, 'search', {});
+
+		const saved = updateConnectionCredential.mock.calls[0]?.[0] as {credential: string};
+		expect(JSON.parse(saved.credential.replace(/^enc:/, ''))).toEqual({auth: 'oauth', url: 'https://mcp.example.com/mcp', ...fresh});
+	});
+
 	test('a connection the server will not refresh any more has to sign in again', async () => {
 		refreshMcpTokens.mockResolvedValue(Err(ApiErr.credentialsRejected()));
 		const {callMcpToolFor} = await import('./mcp-session');

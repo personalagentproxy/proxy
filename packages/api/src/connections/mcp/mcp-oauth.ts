@@ -13,19 +13,40 @@ import {ApiErr, type ApiError, type FetchError, httpRequest} from '@proxy/utils'
  * a self-hosted Personal Agent Proxy connects the same way.
  */
 
-/** An MCP server and the authorization server its tokens come from. */
-export type McpServer = {
+/** An MCP server, as far as calling its tools goes. */
+export type McpEndpoint = {
 	// Its name in errors and logs: "Granola".
 	name: string;
 	// The server's MCP endpoint, also the resource its tokens are for.
 	url: string;
-	registerUrl: string;
-	authorizeUrl: string;
-	tokenUrl: string;
-	scope: string;
+	// Initializes a session before each call, as the spec asks, for a server that may keep one. The
+	// built-in servers answer without.
+	handshake?: true;
 	// What a tool failing means, from the text it failed with; else the server out of reach.
 	toolError?: (text: string) => ApiError | null;
 };
+
+/** An MCP server and the authorization server its tokens come from. */
+export type McpServer = McpEndpoint & {
+	registerUrl: string;
+	authorizeUrl: string;
+	tokenUrl: string;
+	// What is asked for at sign-in; nothing when the server names no scopes.
+	scope: string;
+};
+
+/** The endpoints of a server found from its address, as the handshake cookie keeps them. */
+export const mcpEndpointsSchema = z.object({
+	name: z.string(),
+	url: z.string(),
+	registerUrl: z.string(),
+	authorizeUrl: z.string(),
+	tokenUrl: z.string(),
+	scope: z.string(),
+	handshake: z.literal(true).optional(),
+});
+
+export type McpEndpoints = z.infer<typeof mcpEndpointsSchema>;
 
 const TIMEOUT_MS = 15_000;
 
@@ -95,7 +116,9 @@ export function mcpAuthorizeUrl(server: McpServer, args: {clientId: string; redi
 	url.searchParams.set('response_type', 'code');
 	url.searchParams.set('client_id', args.clientId);
 	url.searchParams.set('redirect_uri', args.redirectUri);
-	url.searchParams.set('scope', server.scope);
+	if (server.scope) {
+		url.searchParams.set('scope', server.scope);
+	}
 	url.searchParams.set('state', args.state);
 	url.searchParams.set('code_challenge', args.challenge);
 	url.searchParams.set('code_challenge_method', 'S256');
