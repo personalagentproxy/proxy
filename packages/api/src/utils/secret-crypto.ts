@@ -9,6 +9,9 @@ import {env} from './env';
 // a new key or cipher later without touching what is already stored.
 const VERSION = 'v1';
 const ALGORITHM = 'aes-256-gcm';
+// The whole tag, always: told nothing, decryption would take a shortened one, which is far easier
+// to forge.
+const AUTH_TAG_LENGTH = 16;
 
 function encryptionKey(): Result<Buffer, ApiError> {
 	if (!env.ENCRYPTION_KEY) {
@@ -20,7 +23,7 @@ function encryptionKey(): Result<Buffer, ApiError> {
 export function encryptSecret(plaintext: string): Result<string, ApiError> {
 	return encryptionKey().map((key) => {
 		const iv = randomBytes(12);
-		const cipher = createCipheriv(ALGORITHM, key, iv);
+		const cipher = createCipheriv(ALGORITHM, key, iv, {authTagLength: AUTH_TAG_LENGTH});
 		const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
 		const parts = [iv, cipher.getAuthTag(), ciphertext].map((part) => part.toString('base64url'));
 		return [VERSION, ...parts].join('.');
@@ -36,7 +39,7 @@ export function decryptSecret(stored: string): Result<string, ApiError> {
 
 	return encryptionKey().andThen((key) =>
 		Result.wrap(() => {
-			const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(iv, 'base64url'));
+			const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(iv, 'base64url'), {authTagLength: AUTH_TAG_LENGTH});
 			decipher.setAuthTag(Buffer.from(tag, 'base64url'));
 			return Buffer.concat([decipher.update(Buffer.from(ciphertext, 'base64url')), decipher.final()]).toString('utf8');
 		}).mapErr((cause) => ApiErr.internalError(cause)),
