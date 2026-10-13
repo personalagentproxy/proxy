@@ -65,17 +65,19 @@ export function mcpToolReadsOnly(tool: McpTool): boolean {
 
 /**
  * How much harm a mistake with a tool does, from what it says of itself: low when it only reads,
- * medium when it changes something it says can be undone, else high, since a tool that says
- * nothing may do anything.
+ * medium when it changes something it says can be undone, high when it says what it changes
+ * can't be, and unknown when it says nothing, which is neither a verdict on the tool nor a reason
+ * to start it on.
  */
 export function mcpToolRisk(tool: McpTool): Action['risk'] {
 	if (mcpToolReadsOnly(tool)) {
 		return 'low';
 	}
-	if (tool.annotations?.destructiveHint === false) {
-		return 'medium';
+	const annotations = tool.annotations;
+	if (!annotations || annotations.destructiveHint === undefined) {
+		return 'unknown';
 	}
-	return 'high';
+	return annotations.destructiveHint ? 'high' : 'medium';
 }
 
 // The first line of a tool's description, kept short, for the line under its name.
@@ -91,7 +93,7 @@ function summarize(description: string | undefined): string {
 	return `${line.slice(0, SUMMARY_LENGTH - 1).trimEnd()}…`;
 }
 
-const RISK_ORDER: Record<Action['risk'], number> = {low: 0, medium: 1, high: 2};
+const RISK_ORDER: Record<Action['risk'], number> = {low: 0, medium: 1, unknown: 2, high: 3};
 
 /** The tools as actions, the ones that only read first and the high-risk ones last, as every page shows them. */
 export function mcpToolActions(tools: McpTool[]): Action[] {

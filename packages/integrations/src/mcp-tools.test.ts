@@ -22,19 +22,27 @@ const publish: McpTool = {
 	annotations: {readOnlyHint: false, destructiveHint: false, openWorldHint: true},
 };
 
-const wipe: McpTool = {name: 'delete_doc', inputSchema: {type: 'object'}};
+const wipe: McpTool = {
+	name: 'delete_doc',
+	inputSchema: {type: 'object'},
+	annotations: {destructiveHint: true},
+};
+
+const mystery: McpTool = {name: 'do_thing', inputSchema: {type: 'object'}};
 
 describe('mcpToolRisk', () => {
-	test('reads are low, changes that can be undone medium, and the rest high, a tool that says nothing included', () => {
+	test('reads are low, changes that can be undone medium, ones that cannot high, and a tool that says nothing unknown', () => {
 		expect(mcpToolRisk(search)).toBe('low');
 		expect(mcpToolRisk(publish)).toBe('medium');
 		expect(mcpToolRisk(wipe)).toBe('high');
+		expect(mcpToolRisk(mystery)).toBe('unknown');
+		expect(mcpToolRisk({...mystery, annotations: {readOnlyHint: false}})).toBe('unknown');
 	});
 });
 
 describe('mcpToolActions', () => {
 	test('one action per tool, named by the tool, the first line of its description beside it, high-risk ones last', () => {
-		expect(mcpToolActions([wipe, publish, search])).toEqual([
+		expect(mcpToolActions([wipe, mystery, publish, search])).toEqual([
 			{id: 'search_docs', label: 'Search docs', description: 'Searches the docs.', risk: 'low'},
 			{
 				id: 'publish_doc',
@@ -43,6 +51,7 @@ describe('mcpToolActions', () => {
 				risk: 'medium',
 				reachesOthers: true,
 			},
+			{id: 'do_thing', label: 'do_thing', description: '', risk: 'unknown'},
 			{id: 'delete_doc', label: 'delete_doc', description: '', risk: 'high'},
 		]);
 	});

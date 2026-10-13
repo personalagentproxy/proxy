@@ -48,8 +48,9 @@ calls it with the params the server describes, and gets back what the tool answe
 wrote it. Nothing is copied: every call goes to the server.
 
 A tool's risk comes from what the tool says about itself. One that says it only reads is low risk.
-One that changes something it says can be undone is medium. Any other tool, including one that says
-nothing about itself, is marked high risk, since it may do anything.
+One that changes something it says can be undone is medium, and one that says it can't be undone is
+marked high risk. A tool that says nothing about itself gets no risk label: it may do anything, so
+it starts off, but nothing is claimed about it either way.
 
 The activity log shows each run by the tool's name, with the params the agent gave it.
 

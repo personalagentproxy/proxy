@@ -19,8 +19,9 @@ export type Action = {
 	label: string;
 	description: string;
 	// How much harm a mistake does, for the person setting it: high is what can't be undone, or
-	// reaches other people.
-	risk: 'low' | 'medium' | 'high';
+	// reaches other people. Unknown is a custom MCP server's tool that says nothing about itself:
+	// it starts off, and is shown without a label rather than as any of the others.
+	risk: 'low' | 'medium' | 'high' | 'unknown';
 	// The action this one only counts with, such as Read for Archive.
 	requires?: string;
 	// Reaches people beyond the account, as sending email does.
