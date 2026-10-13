@@ -354,6 +354,13 @@ describe('handleTokenRoute', () => {
 		expect(missing.body).toMatchObject({error: 'invalid_client'});
 	});
 
+	test('a Basic header that does not decode is an unknown client, not a failure', async () => {
+		const res = await token({grant_type: 'refresh_token', refresh_token: 'refresh-1'}, {authorization: `Basic ${Buffer.from('client-1:%E0%A4%A').toString('base64')}`});
+
+		expect(res.statusCode).toBe(401);
+		expect(res.body).toMatchObject({error: 'invalid_client'});
+	});
+
 	test('any other grant type is unsupported', async () => {
 		const res = await token({grant_type: 'password', client_id: 'client-1'});
 

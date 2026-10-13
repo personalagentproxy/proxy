@@ -1,5 +1,5 @@
 import type {Request, Response} from 'express';
-import {Err, type Result} from 'ts-results-es';
+import {Err, Result} from 'ts-results-es';
 
 import {type ApiError, Do} from '@proxy/utils';
 import {createOAuthGrant, getOAuthClient, getOAuthGrantByRefreshToken, rotateOAuthGrant, takeOAuthCode, type OAuthClientRow, type OAuthTokens} from '@proxy/db/oauth';
@@ -31,7 +31,8 @@ function field(body: Record<string, unknown>, name: string): string | null {
 	return typeof value === 'string' && value !== '' ? value : null;
 }
 
-// HTTP Basic, as `client_secret_basic` sends the client's id and secret, each form-encoded.
+// HTTP Basic, as `client_secret_basic` sends the client's id and secret, each form-encoded. One
+// that doesn't decode is no credentials, so the client is refused rather than the request failing.
 function basicCredentials(header: string | undefined): {id: string; secret: string} | null {
 	if (!header?.startsWith('Basic ')) {
 		return null;
@@ -41,7 +42,7 @@ function basicCredentials(header: string | undefined): {id: string; secret: stri
 	if (colon < 0) {
 		return null;
 	}
-	return {id: decodeURIComponent(decoded.slice(0, colon)), secret: decodeURIComponent(decoded.slice(colon + 1))};
+	return Result.wrap(() => ({id: decodeURIComponent(decoded.slice(0, colon)), secret: decodeURIComponent(decoded.slice(colon + 1))})).unwrapOr(null);
 }
 
 function authenticateClient(req: Request, body: Record<string, unknown>): Promise<Result<OAuthClientRow, OAuthError>> {
