@@ -355,11 +355,11 @@ describe('custom MCP servers', () => {
 		callCustomTool.mockResolvedValue(Ok('3 results'));
 	});
 
-	test('lists the connection with the tools the agent may run as its actions, and every tool the server has', async () => {
+	test('lists the connection with the tools the agent may run as its actions, and only those tools', async () => {
 		const {listAgentConnections, listAgentTools} = await import('./tools');
 
 		expect((await listAgentConnections(signedIn)).unwrap().connections).toEqual([
-			{id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', actions: ['search_docs'], tools: [search, publish], name: null},
+			{id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', actions: ['search_docs'], tools: [search], name: null},
 		]);
 		expect((await listAgentTools(signedIn, 'mcp-1')).unwrap().map((tool) => tool.name)).toEqual(['search_docs']);
 	});

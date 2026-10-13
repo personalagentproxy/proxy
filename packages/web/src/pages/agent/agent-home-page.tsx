@@ -35,9 +35,7 @@ export function AgentHomePage() {
 						return null;
 					}
 					if (integration.custom) {
-						const tools = (connection.tools ?? []).filter((tool) =>
-							connection.actions.includes(tool.name),
-						);
+						const tools = connection.tools ?? [];
 						return (
 							<Section
 								key={connection.id}

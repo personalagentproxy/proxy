@@ -15,7 +15,7 @@ const agentMeSchema = z.object({
 			account: z.string(),
 			// The actions the agent can take with the connection.
 			actions: z.array(z.string()),
-			// A custom MCP server's tools, every one the server lists; null for every other integration.
+			// A custom MCP server's tools the agent may run; null for every other integration.
 			tools: z.array(mcpToolSchema).nullable(),
 			// What the person called the connection, where they named it.
 			name: z.string().nullable(),
@@ -45,7 +45,7 @@ export function getAgentMe() {
 // Everything an agent does with a connection is one of its tools, generated from the catalog
 // (`toolName` in @proxy/integrations): the page asks for a list or a record and gets one back.
 function toolPath(connectionId: string, tool: string): string {
-	return `/api/agent/connections/${connectionId}/tools/${tool}`;
+	return `/api/agent/connections/${connectionId}/tools/${encodeURIComponent(tool)}`;
 }
 
 /**

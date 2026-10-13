@@ -1,10 +1,10 @@
 import {Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {mcpToolReadsOnly, type McpTool} from '@proxy/integrations';
 
-import {decryptSecret} from '../../utils/secret-crypto';
+import {readStoredJson} from '../../utils/stored-json';
 import {callMcpTool, listMcpTools} from '../mcp/mcp-client';
 import {mcpCredentialSchema, mcpEndpointsSchema, type McpEndpoint, type McpServer} from '../mcp/mcp-oauth';
 import {withMcpToken} from '../mcp/mcp-session';
@@ -51,9 +51,7 @@ type StoredConnection = {id: string; credential: string | null};
 function readCredential(connection: StoredConnection): Result<CustomCredential, ApiError> {
 	return Do<CustomCredential, ApiError>(($) => {
 		const stored = $(requirePresent(connection.credential, ApiErr.internalError(new Error('Custom MCP connection without a credential'))));
-		const json = $(decryptSecret(stored));
-		const parsed = $(Result.wrap((): unknown => JSON.parse(json)).mapErr((cause) => ApiErr.internalError(cause)));
-		return $(parseSchema(customCredentialSchema, parsed));
+		return $(readStoredJson(stored, customCredentialSchema));
 	});
 }
 

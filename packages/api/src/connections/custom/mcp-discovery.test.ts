@@ -166,6 +166,22 @@ describe('discoverMcpServer', () => {
 		});
 	});
 
+	test('a sign-in page the metadata names is checked as every address is, since the browser is sent to it', async () => {
+		const {discoverMcpServer} = await import('./mcp-discovery');
+		servers.answers.set('https://mcp.example.com/.well-known/oauth-protected-resource', () => Response.json({authorization_servers: ['https://auth.example.com']}));
+		servers.answers.set('https://auth.example.com/.well-known/oauth-authorization-server', () =>
+			Response.json({authorization_endpoint: 'javascript:alert(1)//', token_endpoint: 'https://auth.example.com/token', registration_endpoint: 'https://auth.example.com/register'}),
+		);
+		const refused = (await discoverMcpServer(new URL(MCP_URL))).unwrapErr();
+		expect(refused.kind).toBe('validation_error');
+		expect('message' in refused && refused.message).toContain('sign-in page');
+
+		servers.answers.set('https://auth.example.com/.well-known/oauth-authorization-server', () =>
+			Response.json({authorization_endpoint: 'http://10.0.0.7/authorize', token_endpoint: 'https://auth.example.com/token', registration_endpoint: 'https://auth.example.com/register'}),
+		);
+		expect((await discoverMcpServer(new URL(MCP_URL))).unwrapErr().kind).toBe('validation_error');
+	});
+
 	test('an authorization server that does not let apps register themselves, or is not https, cannot be signed in to', async () => {
 		const {discoverMcpServer} = await import('./mcp-discovery');
 		servers.answers.set('https://mcp.example.com/.well-known/oauth-protected-resource', () => Response.json({authorization_servers: ['https://auth.example.com']}));

@@ -21,7 +21,6 @@ export type {
 } from './tools';
 export {
 	integrationFor,
-	mcpInputSchemaSchema,
 	mcpToolActions,
 	mcpToolReadsOnly,
 	mcpToolRisk,

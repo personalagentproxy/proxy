@@ -1,7 +1,7 @@
 import type {ConnectionRow} from '@proxy/db/connection';
 import type {McpTool} from '@proxy/integrations';
 
-import {integrationOf, parseStoredTools} from '../utils/connection-actions';
+import {integrationOf} from '../utils/connection-actions';
 
 export type ConnectionResponse = {
 	id: string;
@@ -19,13 +19,14 @@ export type ConnectionResponse = {
 };
 
 export function toConnectionResponse(row: ConnectionRow): ConnectionResponse {
-	const actions = integrationOf(row)?.actions ?? [];
+	const integration = integrationOf(row);
+	const actions = integration?.actions ?? [];
 	return {
 		id: row.id,
 		integrationId: row.integrationId,
 		account: row.account,
 		defaults: actions.map((action) => action.id).filter((id) => row.defaults.some((stored) => stored.actionId === id)),
-		tools: parseStoredTools(row.tools),
+		tools: integration?.mcpTools ?? null,
 		name: row.name,
 	};
 }

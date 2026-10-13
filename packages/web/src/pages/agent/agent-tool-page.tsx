@@ -16,7 +16,7 @@ import {
 import {Textarea} from '@proxy/ui/components/textarea';
 import {useAgentMe} from '@/hooks/use-agent-target';
 import {agentErrorMessage} from '@/lib/agent-errors';
-import {AgentDenied, AgentMissing} from '@/pages/agent/agent-collection-page';
+import {AgentMissing} from '@/pages/agent/agent-collection-page';
 
 // What a property's input is, from its JSON Schema: a choice, a number, yes or no, text, or JSON
 // for anything else.
@@ -73,9 +73,19 @@ function valueOf(
 // One of a custom MCP server's tools, run from a form of its params: one input per property, as
 // the tool's schema describes them, and what the tool answered below, as the server wrote it. Built
 // for a model driving a browser, so every param is labeled with its name and what the server says
-// about it.
+// about it. Keyed by the tool, so the params and the answer start over for each.
 export function AgentToolPage() {
 	const {connectionId = '', toolName = ''} = useParams();
+	return (
+		<AgentTool
+			key={`${connectionId}/${toolName}`}
+			connectionId={connectionId}
+			toolName={toolName}
+		/>
+	);
+}
+
+function AgentTool({connectionId, toolName}: {connectionId: string; toolName: string}) {
 	const id = useId();
 	const me = useAgentMe();
 	const [values, setValues] = useState<Record<string, string>>({});
@@ -84,11 +94,9 @@ export function AgentToolPage() {
 	const [running, setRunning] = useState(false);
 	const connection = me?.connections.find((candidate) => candidate.id === connectionId);
 	const tool = connection?.tools?.find((candidate) => candidate.name === toolName);
+	// The api lists only the tools the agent may run, so any other is simply not here.
 	if (!connection || !tool) {
 		return <AgentMissing />;
-	}
-	if (!connection.actions.includes(tool.name)) {
-		return <AgentDenied>This login may not run this tool.</AgentDenied>;
 	}
 
 	const title = mcpToolTitle(tool);

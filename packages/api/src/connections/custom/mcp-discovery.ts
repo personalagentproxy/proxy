@@ -134,10 +134,15 @@ export function discoverMcpServer(url: URL): Promise<Result<McpServer, ApiError>
 		if (!registerUrl) {
 			return $(Err(ApiErr.validationError('This server’s sign-in doesn’t let apps register themselves, so Personal Agent Proxy can’t sign in to it')));
 		}
+		// The browser is sent to the sign-in page, so it is checked as every address the api calls is:
+		// metadata could name anything, a `javascript:` address included.
+		const authorizeUrl = metadata?.authorization_endpoint ?? `${base}/authorize`;
+		const signInPage = $(Result.wrap(() => new URL(authorizeUrl)).mapErr(() => ApiErr.validationError(`The server’s sign-in page (${authorizeUrl}) is not an address`)));
+		$((await checkUrl(signInPage)).mapErr((error) => ApiErr.validationError(`The server’s sign-in page (${authorizeUrl}) can’t be used: ${'message' in error ? error.message : error.kind}`)));
 		return {
 			...customEndpoint(url.toString()),
 			registerUrl,
-			authorizeUrl: metadata?.authorization_endpoint ?? `${base}/authorize`,
+			authorizeUrl,
 			tokenUrl: metadata?.token_endpoint ?? `${base}/token`,
 			scope: scopes.join(' '),
 		};

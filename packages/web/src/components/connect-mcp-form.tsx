@@ -61,6 +61,12 @@ export function ConnectMcpForm({
 					return;
 				}
 				if (result.value.kind === 'signIn') {
+					// Only ever a web address: the api has checked it, and the browser goes nowhere else.
+					if (!/^https?:\/\//.test(result.value.url)) {
+						setPending(null);
+						setError('The server’s sign-in page is not a web address.');
+						return;
+					}
 					setPending('signingIn');
 					window.location.assign(result.value.url);
 					return;

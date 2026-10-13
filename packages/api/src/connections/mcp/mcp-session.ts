@@ -1,11 +1,12 @@
 import {Err, Result} from 'ts-results-es';
 import type {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {updateConnectionCredential} from '@proxy/db/connection';
 
 import {log} from '../../observability/log';
-import {decryptSecret, encryptSecret} from '../../utils/secret-crypto';
+import {encryptSecret} from '../../utils/secret-crypto';
+import {readStoredJson} from '../../utils/stored-json';
 import {callMcpTool} from './mcp-client';
 import {isExpiring, mcpCredentialSchema, refreshMcpTokens, type McpServer} from './mcp-oauth';
 
@@ -28,9 +29,7 @@ const renewing = new Map<string, Promise<Result<Session, ApiError>>>();
 function readSession(server: McpServer, connection: StoredConnection): Result<Session, ApiError> {
 	return Do<Session, ApiError>(($) => {
 		const stored = $(requirePresent(connection.credential, ApiErr.internalError(new Error(`${server.name} connection without a credential`))));
-		const json = $(decryptSecret(stored));
-		const parsed = $(Result.wrap((): unknown => JSON.parse(json)).mapErr((cause) => ApiErr.internalError(cause)));
-		return {stored, credential: $(parseSchema(storedCredentialSchema, parsed))};
+		return {stored, credential: $(readStoredJson(stored, storedCredentialSchema))};
 	});
 }
 

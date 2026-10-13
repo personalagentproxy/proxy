@@ -4,7 +4,7 @@ import type {Response} from 'express';
 import {Err, Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, parseCookieHeader, parseSchema, requirePresent} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, parseCookieHeader, requirePresent} from '@proxy/utils';
 import {createConnection, listConnections, updateConnectionCredential, updateConnectionName, updateConnectionTools, type ConnectionRow} from '@proxy/db/connection';
 import type {IntegrationId, McpTool} from '@proxy/integrations';
 
@@ -12,7 +12,8 @@ import {queryParam, timingSafeEqualString, useSecureCookies} from '../../auth/se
 import {log, serializeError} from '../../observability/log';
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {env} from '../../utils/env';
-import {decryptSecret, encryptSecret} from '../../utils/secret-crypto';
+import {encryptSecret} from '../../utils/secret-crypto';
+import {readStoredJson} from '../../utils/stored-json';
 import {requireUserOrgId} from '../../utils/user-org';
 import {exchangeMcpCode, makePkce, mcpAuthorizeUrl, mcpEndpoints, mcpEndpointsSchema, registerMcpClient, type McpServer, type McpSignIn} from './mcp-oauth';
 
@@ -105,9 +106,7 @@ export function mcpSignInRoutes(flow: {integrationId: IntegrationId; name: strin
 		return Do<StatePayload, ApiError>(($) => {
 			const cookie = parseCookieHeader(request.headers.cookie ?? '').get(stateCookieName);
 			const stored = $(requirePresent(cookie, ApiErr.validationError(`No ${name} sign-in under way`)));
-			const json = $(decryptSecret(stored));
-			const parsed = $(Result.wrap((): unknown => JSON.parse(json)).mapErr((cause) => ApiErr.internalError(cause)));
-			return $(parseSchema(statePayloadSchema, parsed));
+			return $(readStoredJson(stored, statePayloadSchema));
 		});
 	}
 
