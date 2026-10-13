@@ -40,6 +40,13 @@ export function signInFailedMessage(integrationId: string | null): string | null
 	return `Signing in to ${failed.name} didn’t finish. Try again.`;
 }
 
+/** What the catalog's plus leads to for a mailbox: the form's title and the password it takes. */
+export const EMAIL_FORM = {
+	title: 'Connect a mailbox',
+	intro:
+		'Sign in with an app password made for this connection alone in your mail account. Revoking it there disconnects the mailbox.',
+};
+
 /** What the catalog's plus leads to for a database: the form's title and where the database has to be. */
 export function describeDatabase(dialect: 'postgres' | 'mysql'): {title: string; intro: string} {
 	const name = findIntegration(dialect)?.name ?? dialect;

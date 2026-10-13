@@ -13,7 +13,7 @@ import {StepHeading} from '@/components/step-heading';
 import {SuccessLine} from '@/components/success-line';
 import {Button} from '@proxy/ui/components/button';
 import {defaultActions, defaultsOnOrOff, integrationOf} from '@/lib/access';
-import {describeDatabase, signInFailedMessage} from '@/lib/integrations';
+import {describeDatabase, EMAIL_FORM, signInFailedMessage} from '@/lib/integrations';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin, Connection} from '@/lib/types';
 import type {welcomeConnectionLoader, welcomeLoader} from '@/loaders';
@@ -180,10 +180,7 @@ function ConnectionsStep({
 function EmailStep({onContinue}: {onContinue: (connection: Connection) => void}) {
 	return (
 		<>
-			<StepHeading title="Connect a mailbox">
-				Sign in with an app password made for this connection alone in your mail account. Revoking
-				it there disconnects the mailbox.
-			</StepHeading>
+			<StepHeading title={EMAIL_FORM.title}>{EMAIL_FORM.intro}</StepHeading>
 			<ConnectEmailForm
 				cancel={
 					<Button
