@@ -5,7 +5,7 @@ import {Err, Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseCookieHeader, parseSchema, requirePresent} from '@proxy/utils';
-import {createConnection, listConnections, updateConnectionCredential, updateConnectionTools, type ConnectionRow} from '@proxy/db/connection';
+import {createConnection, listConnections, updateConnectionCredential, updateConnectionName, updateConnectionTools, type ConnectionRow} from '@proxy/db/connection';
 import type {IntegrationId, McpTool} from '@proxy/integrations';
 
 import {queryParam, timingSafeEqualString, useSecureCookies} from '../../auth/session';
@@ -43,36 +43,42 @@ const statePayloadSchema = z.object({
 	userId: z.string(),
 	returnTo: returnToSchema.optional(),
 	server: mcpEndpointsSchema.optional(),
+	// What the person called the connection, typed in before the sign-in, for a custom server.
+	name: z.string().optional(),
 });
 
 type StatePayload = z.infer<typeof statePayloadSchema>;
 
 type Route = (request: AuthenticatedRequest, res: Response) => Promise<void>;
 
-/** The connection a finished sign-in makes: its account, what it stores (encrypted), what agents get by default, and a custom server's tools. */
-export type McpConnection = {account: string; credential: Record<string, unknown>; defaults: string[]; tools?: McpTool[]};
+/** The connection a finished sign-in makes: its account, what it stores (encrypted), what agents get by default, and a custom server's tools and the name the person gave it. */
+export type McpConnection = {account: string; credential: Record<string, unknown>; defaults: string[]; tools?: McpTool[]; name?: string};
 
 type MakeConnection = (signIn: McpSignIn, server: McpServer) => Promise<Result<McpConnection, ApiError>>;
 
 /**
  * Saves a connection to an MCP server: a new one, or an existing one of the same account given
- * the new credential, and the tools, where the server has its own.
+ * the new credential, and the tools and the name, where the server has its own.
  */
 export function saveMcpConnection(orgId: string, integrationId: IntegrationId, made: McpConnection): Promise<Result<ConnectionRow, ApiError>> {
 	return Do(async ($) => {
 		const encrypted = $(encryptSecret(JSON.stringify(made.credential)));
 		const existing = $(await listConnections(orgId)).find((connection) => connection.integrationId === integrationId && connection.account === made.account);
+		const name = made.name === undefined ? {} : {name: made.name};
 		if (!existing) {
 			const tools = made.tools === undefined ? {} : {tools: JSON.stringify(made.tools)};
-			return $(await createConnection({orgId, integrationId, account: made.account, credential: encrypted, defaults: made.defaults, ...tools}));
+			return $(await createConnection({orgId, integrationId, account: made.account, credential: encrypted, defaults: made.defaults, ...tools, ...name}));
 		}
 		$(await updateConnectionCredential({connectionId: existing.id, credential: encrypted}));
+		if (made.name !== undefined) {
+			$(await updateConnectionName({connectionId: existing.id, name: made.name}));
+		}
 		if (made.tools === undefined) {
-			return existing;
+			return {...existing, ...name};
 		}
 		const tools = JSON.stringify(made.tools);
 		$(await updateConnectionTools({connectionId: existing.id, tools, actions: made.tools.map((tool) => tool.name)}));
-		return {...existing, tools};
+		return {...existing, tools, ...name};
 	});
 }
 
@@ -126,15 +132,23 @@ export function mcpSignInRoutes(flow: {integrationId: IntegrationId; name: strin
 		res.redirect(`${catalogUrl(appUrl, returnTo)}?error=${integrationId}`);
 	}
 
-	/** Registers with the server, keeps the handshake in a cookie on `res`, and answers the server's sign-in page, for the browser to go to. */
-	function beginSignIn(res: Response, args: {userId: string; server: McpServer; returnTo: ReturnTo | undefined}): Promise<Result<string, ApiError>> {
+	/** Registers with the server, keeps the handshake in a cookie on `res`, with the name the person gave the connection, and answers the server's sign-in page, for the browser to go to. */
+	function beginSignIn(res: Response, args: {userId: string; server: McpServer; returnTo: ReturnTo | undefined; name?: string}): Promise<Result<string, ApiError>> {
 		return Do(async ($) => {
 			const appUrl = $(requirePresent(env.APP_URL, ApiErr.internalError(new Error('APP_URL is not configured'))));
 			const clientId = $(await registerMcpClient(args.server, redirectUri(appUrl)));
 			const state = randomBytes(16).toString('hex');
 			const {verifier, challenge} = makePkce();
 			const kept = flow.server ? {} : {server: mcpEndpoints(args.server)};
-			const payload: StatePayload = {state, verifier, clientId, userId: args.userId, ...(args.returnTo ? {returnTo: args.returnTo} : {}), ...kept};
+			const payload: StatePayload = {
+				state,
+				verifier,
+				clientId,
+				userId: args.userId,
+				...(args.returnTo ? {returnTo: args.returnTo} : {}),
+				...kept,
+				...(args.name === undefined ? {} : {name: args.name}),
+			};
 			const cookie = $(encryptSecret(JSON.stringify(payload)));
 			res.cookie(stateCookieName, cookie, {...stateCookieOptions(), maxAge: stateCookieMaxAgeMs});
 			return mcpAuthorizeUrl(args.server, {clientId, redirectUri: redirectUri(appUrl), state, challenge});
@@ -159,7 +173,7 @@ export function mcpSignInRoutes(flow: {integrationId: IntegrationId; name: strin
 			const signIn = $(await exchangeMcpCode(server, {clientId: payload.clientId, redirectUri: redirectUri(appUrl), code, verifier: payload.verifier}));
 			const made = $(await flow.connection(signIn, server));
 			const orgId = $(await requireUserOrgId(request));
-			return $(await saveMcpConnection(orgId, integrationId, made)).id;
+			return $(await saveMcpConnection(orgId, integrationId, {...made, ...(payload.name === undefined ? {} : {name: payload.name})})).id;
 		});
 	}
 

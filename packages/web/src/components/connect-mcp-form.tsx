@@ -20,8 +20,9 @@ function connectErrorMessage(error: FetchError): string {
 	return 'Something went wrong. Try again.';
 }
 
-// The custom MCP server form: the server's address, and a token where the server takes one
-// instead of a sign-in. Connecting asks the server for its tools: a server that answers is
+// The custom MCP server form: a name for the connection, since a server says nothing about itself
+// that would do, the server's address, and a token where the server takes one instead of a
+// sign-in. Connecting asks the server for its tools: a server that answers is
 // connected at once, and for one that asks for a sign-in the api begins it and answers the
 // server's sign-in page, which the browser goes to; it comes back to the new connection, or to the
 // welcome flow's page for it. `cancel` sits beside the button.
@@ -34,11 +35,12 @@ export function ConnectMcpForm({
 	returnTo?: 'welcome';
 	onConnected: (connection: Connection) => void;
 }) {
+	const [name, setName] = useState('');
 	const [url, setUrl] = useState('');
 	const [token, setToken] = useState('');
 	const [error, setError] = useState<string | null>(null);
 	const [pending, setPending] = useState<'connecting' | 'signingIn' | null>(null);
-	const ready = url.trim() !== '';
+	const ready = name.trim() !== '' && url.trim() !== '';
 
 	return (
 		<form
@@ -48,6 +50,7 @@ export function ConnectMcpForm({
 				setPending('connecting');
 				setError(null);
 				const result = await connectMcp({
+					name: name.trim(),
 					url: url.trim(),
 					...(token.trim() ? {token: token.trim()} : {}),
 					...(returnTo ? {returnTo} : {}),
@@ -65,6 +68,20 @@ export function ConnectMcpForm({
 				onConnected(result.value.connection);
 			}}
 		>
+			<div className="grid gap-2">
+				<Label htmlFor="mcp-name">Name</Label>
+				<Input
+					id="mcp-name"
+					autoComplete="off"
+					maxLength={80}
+					placeholder="Company docs"
+					value={name}
+					onChange={(event) => setName(event.target.value)}
+				/>
+				<p className="text-sm text-muted-foreground">
+					What this connection is called here and to agents.
+				</p>
+			</div>
 			<div className="grid gap-2">
 				<Label htmlFor="mcp-url">Server address</Label>
 				<Input

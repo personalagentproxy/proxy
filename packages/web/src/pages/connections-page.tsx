@@ -46,7 +46,7 @@ export function ConnectionsPage() {
 							key={connection.id}
 							to={`/connections/${connection.id}`}
 							icon={integration && <IntegrationLogo integration={integration} />}
-							title={integration?.name ?? connection.integrationId}
+							title={connection.name ?? integration?.name ?? connection.integrationId}
 							cells={
 								<>
 									<span className={CELLS.account}>{connection.account}</span>

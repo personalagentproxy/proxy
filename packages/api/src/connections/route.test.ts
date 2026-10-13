@@ -25,6 +25,7 @@ const emailRow = {
 	account: 'alex@example.com',
 	createdAt: new Date('2026-10-01T00:00:00Z'),
 	tools: null,
+	name: null,
 	defaults: [{actionId: 'read'}],
 };
 

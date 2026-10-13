@@ -74,10 +74,12 @@ function describeActions(connection: AgentConnection): string {
 		.join(', ');
 }
 
+// A connection by its integration, and the name the person gave it where they did.
 function connectionSummary(connection: AgentConnection) {
 	return {
 		connection: connection.id,
 		integration: findIntegration(connection.integrationId)?.name ?? connection.integrationId,
+		...(connection.name === null ? {} : {name: connection.name}),
 		account: connection.account,
 		can: describeActions(connection),
 	};
@@ -103,7 +105,8 @@ export function serverInstructions(signedIn: SignedInAgent): Promise<Result<stri
 		const {connections} = $(await listAgentConnections(signedIn));
 		const lines = connections.map((connection) => {
 			const {integration, account, can} = connectionSummary(connection);
-			return `- ${integration} (${account}), connection ${connection.id}: ${can}`;
+			const called = connection.name === null ? `${integration} (${account})` : `${connection.name} (${integration}, ${account})`;
+			return `- ${called}, connection ${connection.id}: ${can}`;
 		});
 		return [
 			`You are signed in to Personal Agent Proxy as ${signedIn.name}. It holds the accounts and information a person gave you to work with, and lets you do only what they allowed.`,

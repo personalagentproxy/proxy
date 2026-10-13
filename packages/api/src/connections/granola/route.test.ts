@@ -9,7 +9,7 @@ const listConnections = mock();
 const createConnection = mock();
 const updateConnectionCredential = mock();
 
-mock.module('@proxy/db/connection', () => ({listConnections, createConnection, updateConnectionCredential, updateConnectionTools: mock()}));
+mock.module('@proxy/db/connection', () => ({listConnections, createConnection, updateConnectionCredential, updateConnectionTools: mock(), updateConnectionName: mock()}));
 
 const getUserOrgId = mock();
 

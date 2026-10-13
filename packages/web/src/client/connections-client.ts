@@ -60,7 +60,7 @@ export function testDatabase(dialect: DatabaseDialect, input: ConnectDatabaseInp
 	return apiSend('POST', `/api/connections/${dialect}/test`, input);
 }
 
-export type ConnectMcpInput = {url: string; token?: string; returnTo?: 'welcome'};
+export type ConnectMcpInput = {name: string; url: string; token?: string; returnTo?: 'welcome'};
 
 /**
  * Connects a custom MCP server by its address, with a token where the server takes one: the new

@@ -15,8 +15,12 @@ import type {AgentLogin, AuditEntry, Connection, DataRecord} from '@/lib/types';
 
 export {integrationOf};
 
-// The integration's name, and the account too once the integration is connected more than once.
+// The name the person gave the connection, else the integration's name, and the account too once
+// the integration is connected more than once.
 export function connectionLabel(connections: Connection[], connection: Connection): string {
+	if (connection.name !== null) {
+		return connection.name;
+	}
 	const name = integrationOf(connection)?.name ?? connection.integrationId;
 	const siblings = connections.filter(
 		(candidate) => candidate.integrationId === connection.integrationId,

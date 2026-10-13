@@ -11,6 +11,8 @@ export const connectionSchema = z.object({
 	defaults: z.array(z.string()),
 	// A custom MCP server's tools, what its actions are; null for every other integration.
 	tools: z.array(mcpToolSchema).nullable(),
+	// What the person called the connection, where they named it; null for every other integration.
+	name: z.string().nullable(),
 });
 
 export const agentSchema = z.object({

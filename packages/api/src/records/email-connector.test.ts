@@ -122,7 +122,7 @@ function emails(): Collection {
 }
 
 const target = {
-	connection: {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), tools: null, defaults: [], credential: 'v1.encrypted'},
+	connection: {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), tools: null, name: null, defaults: [], credential: 'v1.encrypted'},
 	collection: emails(),
 };
 

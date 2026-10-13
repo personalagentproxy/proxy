@@ -42,6 +42,8 @@ export type AgentConnection = {
 	// A custom MCP server's tools, every one the server lists, whether the agent may run it or not;
 	// null for every other integration.
 	tools: McpTool[] | null;
+	// What the person called the connection, where they named it.
+	name: string | null;
 };
 
 /** A page of records from a list, the record a tool opened, wrote or ran on (null once it is gone), or what a custom server's tool answered. */
@@ -81,6 +83,7 @@ export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<{a
 				account: connection.account,
 				actions: actionsOf(agent, connection),
 				tools: parseStoredTools(connection.tools),
+				name: connection.name,
 			}))
 			.filter(({actions}) => actions.length > 0);
 		return {agent: {id: agent.id, providerId: agent.providerId, name: agent.name}, connections};

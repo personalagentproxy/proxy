@@ -36,14 +36,15 @@ function integration(id: string): Integration {
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dots'};
 const caller = {agent: signedIn, via: 'mcp' as const};
 
-const infoConnection = {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), tools: null, defaults: [{actionId: 'readAddresses'}], credential: null};
-const emailConnection = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), tools: null, defaults: [{actionId: 'read'}], credential: 'v1.x.y.z'};
+const infoConnection = {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), tools: null, name: null, defaults: [{actionId: 'readAddresses'}], credential: null};
+const emailConnection = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), tools: null, name: null, defaults: [{actionId: 'read'}], credential: 'v1.x.y.z'};
 const notionConnection = {
 	id: 'notion-1',
 	integrationId: 'notion',
 	account: 'alex@example.com · Acme',
 	createdAt: new Date(),
 	tools: null,
+	name: null,
 	defaults: [{actionId: 'read'}, {actionId: 'create'}],
 	credential: 'v1.x.y.z',
 };
@@ -95,7 +96,7 @@ describe('listAgentConnections', () => {
 
 		expect(result.unwrap()).toEqual({
 			agent: {id: 'agent-1', providerId: 'dot', name: 'Dots'},
-			connections: [{id: 'info-1', integrationId: 'info', account: "Alex's Workspace", actions: ['readAddresses', 'readCards'], tools: null}],
+			connections: [{id: 'info-1', integrationId: 'info', account: "Alex's Workspace", actions: ['readAddresses', 'readCards'], tools: null, name: null}],
 		});
 	});
 });
@@ -343,6 +344,7 @@ describe('custom MCP servers', () => {
 		account: 'mcp.example.com/mcp',
 		createdAt: new Date(),
 		tools: JSON.stringify([search, publish]),
+		name: null,
 		defaults: [{actionId: 'search_docs'}],
 		credential: 'v1.x.y.z',
 	};
@@ -357,7 +359,7 @@ describe('custom MCP servers', () => {
 		const {listAgentConnections, listAgentTools} = await import('./tools');
 
 		expect((await listAgentConnections(signedIn)).unwrap().connections).toEqual([
-			{id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', actions: ['search_docs'], tools: [search, publish]},
+			{id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', actions: ['search_docs'], tools: [search, publish], name: null},
 		]);
 		expect((await listAgentTools(signedIn, 'mcp-1')).unwrap().map((tool) => tool.name)).toEqual(['search_docs']);
 	});

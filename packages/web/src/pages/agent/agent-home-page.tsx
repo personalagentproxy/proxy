@@ -47,7 +47,7 @@ export function AgentHomePage() {
 											integration={integration}
 											className="mr-2 inline-flex align-middle"
 										/>
-										{integration.name}
+										{connection.name ?? integration.name}
 									</>
 								}
 								detail={connection.account}

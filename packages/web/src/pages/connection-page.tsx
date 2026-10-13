@@ -54,10 +54,16 @@ export function ConnectionPage() {
 			title={
 				<>
 					<BackButton to="/connections" label="Back to connections" />
-					<PageTitle detail={connection.account}>
+					<PageTitle
+						detail={
+							connection.name === null
+								? connection.account
+								: `${integration.name} · ${connection.account}`
+						}
+					>
 						<span className="flex items-center gap-2">
 							<IntegrationLogo integration={integration} />
-							{integration.name}
+							{connection.name ?? integration.name}
 						</span>
 					</PageTitle>
 				</>

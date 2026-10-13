@@ -16,7 +16,8 @@ import {listCustomTools, mcpAccount, readOnlyToolNames, type CustomCredential} f
 import {discoverMcpServer, parseMcpServerUrl, probeMcpServer} from './mcp-discovery';
 
 /**
- * Connecting a custom MCP server by its address. `POST /api/connections/mcp` asks the server for
+ * Connecting a custom MCP server by its address, under a name the person gives it, since a server
+ * says nothing about itself that would do. `POST /api/connections/mcp` asks the server for
  * its tools, with a token typed in or none (sent as a bearer token, or as written when it has its
  * scheme in front, "Basic …"): a server that answers is connected at once, with its tools; for one
  * that asks for a sign-in, the sign-in is begun here, where the address came in
@@ -26,8 +27,11 @@ import {discoverMcpServer, parseMcpServerUrl, probeMcpServer} from './mcp-discov
  * the server for its tools again.
  */
 
+const MAX_NAME_LENGTH = 80;
+
 // A token is sent as a header, where a line break has no place.
 const connectBodySchema = z.object({
+	name: z.string().trim().min(1, 'Give the connection a name').max(MAX_NAME_LENGTH, `The name can be at most ${MAX_NAME_LENGTH} characters`),
 	url: z.string(),
 	token: z
 		.string()
@@ -65,16 +69,16 @@ function connectCustomMcp(request: AuthenticatedRequest, res: Response): Promise
 		const probe = $(await probeMcpServer(url, token));
 		if (probe.kind === 'signIn') {
 			const server = $(await discoverMcpServer(url));
-			return {kind: 'signIn' as const, url: $(await beginSignIn(res, {userId: request.user.userId, server, returnTo: body.returnTo}))};
+			return {kind: 'signIn' as const, url: $(await beginSignIn(res, {userId: request.user.userId, server, returnTo: body.returnTo, name: body.name}))};
 		}
 		const credential: CustomCredential = token === null ? {auth: 'none', url: url.toString()} : {auth: 'token', url: url.toString(), token};
 		const orgId = $(await requireUserOrgId(request));
-		const row = $(await saveMcpConnection(orgId, 'mcp', {account: mcpAccount(url), credential, defaults: readOnlyToolNames(probe.tools), tools: probe.tools}));
+		const row = $(await saveMcpConnection(orgId, 'mcp', {account: mcpAccount(url), credential, defaults: readOnlyToolNames(probe.tools), tools: probe.tools, name: body.name}));
 		return {kind: 'connected' as const, connection: toConnectionResponse(row)};
 	});
 }
 
-/** `POST /api/connections/mcp` with `{url, token?, returnTo?}`: connects the server, or begins the sign-in it asks for. */
+/** `POST /api/connections/mcp` with `{name, url, token?, returnTo?}`: connects the server, or begins the sign-in it asks for. */
 export async function handleConnectCustomMcpRoute(request: AuthenticatedRequest, res: Response): Promise<void> {
 	sendResult(res, await connectCustomMcp(request, res));
 }

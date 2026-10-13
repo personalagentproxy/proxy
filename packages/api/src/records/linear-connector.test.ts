@@ -25,7 +25,7 @@ function issues(): Collection {
 }
 
 const target = {
-	connection: {id: 'linear-1', integrationId: 'linear', account: 'alex@example.com · Acme', createdAt: new Date(), tools: null, defaults: [], credential: 'v1.encrypted'},
+	connection: {id: 'linear-1', integrationId: 'linear', account: 'alex@example.com · Acme', createdAt: new Date(), tools: null, name: null, defaults: [], credential: 'v1.encrypted'},
 	collection: issues(),
 };
 

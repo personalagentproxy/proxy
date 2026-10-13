@@ -21,7 +21,7 @@ mock.module('../observability/log', () => ({
 mock.module('../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com'}}));
 
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'claude', name: 'Claude'};
-const mailbox = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', actions: ['read', 'archive']};
+const mailbox = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', actions: ['read', 'archive'], tools: null, name: null};
 
 function makeRes() {
 	const res = {

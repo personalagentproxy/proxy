@@ -13,6 +13,9 @@ export type ConnectionResponse = {
 	// A custom MCP server's tools, as the server last listed them: what its actions are. Null for
 	// every other integration.
 	tools: McpTool[] | null;
+	// What the person called the connection, where they named it; null for every other integration,
+	// which is called by its integration.
+	name: string | null;
 };
 
 export function toConnectionResponse(row: ConnectionRow): ConnectionResponse {
@@ -23,5 +26,6 @@ export function toConnectionResponse(row: ConnectionRow): ConnectionResponse {
 		account: row.account,
 		defaults: actions.map((action) => action.id).filter((id) => row.defaults.some((stored) => stored.actionId === id)),
 		tools: parseStoredTools(row.tools),
+		name: row.name,
 	};
 }

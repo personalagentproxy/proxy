@@ -280,7 +280,9 @@ function ConnectionStep({
 
 	return (
 		<>
-			<StepHeading title={`What can ${agentName} do with ${connection.account}?`}>
+			<StepHeading
+				title={`What can ${agentName} do with ${connection.name ?? connection.account}?`}
+			>
 				Every agent gets what is ticked here unless its own page says otherwise. You can change it
 				any time on the connection's page.
 			</StepHeading>

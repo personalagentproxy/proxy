@@ -11,6 +11,8 @@ export type ConnectionRow = {
 	createdAt: Date;
 	// A custom MCP server's tools as JSON, the server's own list; null for every other integration.
 	tools: string | null;
+	// What the person called the connection, where they named it; null for every other integration.
+	name: string | null;
 	// The actions agents get by default, one per row.
 	defaults: Array<{actionId: string}>;
 };
@@ -22,6 +24,7 @@ const connectionSelect = {
 	account: true,
 	createdAt: true,
 	tools: true,
+	name: true,
 	defaults: {select: {actionId: true}},
 } as const;
 
@@ -60,7 +63,8 @@ export async function getConnectionWithCredential(
 
 /**
  * `credential` is already encrypted; this package never sees it in the clear. `defaults` are the
- * actions agents get from the start, none when left out; `tools` a custom MCP server's, as JSON.
+ * actions agents get from the start, none when left out; `tools` a custom MCP server's, as JSON,
+ * and `name` what the person called it.
  */
 export async function createConnection(data: {
 	orgId: string;
@@ -69,6 +73,7 @@ export async function createConnection(data: {
 	credential: string;
 	defaults?: string[];
 	tools?: string;
+	name?: string;
 }): Promise<Result<ConnectionRow, ApiError>> {
 	const {defaults = [], ...connection} = data;
 	return wrapDb(() =>
@@ -114,6 +119,17 @@ export async function updateConnectionTools(data: {
 			db.connectionDefault.deleteMany({where: {connectionId, actionId: {notIn: actions}}}),
 			db.agentGrant.deleteMany({where: {connectionId, actionId: {notIn: actions}}}),
 		]);
+	});
+}
+
+/** Renames a connection, as when the same server is connected again under a new name. */
+export async function updateConnectionName(data: {
+	connectionId: string;
+	name: string;
+}): Promise<Result<void, ApiError>> {
+	const {connectionId, name} = data;
+	return wrapDb(async () => {
+		await db.connection.update({where: {id: connectionId}, data: {name}});
 	});
 }
 
