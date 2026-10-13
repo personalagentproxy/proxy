@@ -62,6 +62,12 @@ describe('callMcpTool', () => {
 		expect((await callMcpTool(SERVER, 'access-1', 'list_meetings', {})).unwrapErr().kind).toBe('provider_unreachable');
 	});
 
+	test('a token with its scheme in front is sent as written, for a server that takes one other than Bearer', async () => {
+		server.answer = () => Response.json({jsonrpc: '2.0', id: 1, result: {content: [{type: 'text', text: 'ok'}]}});
+		(await callMcpTool(SERVER, 'Basic dXNlcjpwYXNz', 'list', {})).unwrap();
+		expect(server.requests[0]?.headers.get('authorization')).toBe('Basic dXNlcjpwYXNz');
+	});
+
 	test("a failed tool is what the server's toolError makes of it, where it knows", async () => {
 		const server = {...SERVER, toolError: (text: string) => (text.includes('not_found') ? ApiErr.notFound('record') : null)};
 		fetchSpy.mockImplementation((async (_input: string | URL | Request) =>

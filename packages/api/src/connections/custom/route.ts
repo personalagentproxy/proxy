@@ -17,15 +17,25 @@ import {discoverMcpServer, parseMcpServerUrl, probeMcpServer} from './mcp-discov
 
 /**
  * Connecting a custom MCP server by its address. `POST /api/connections/mcp` asks the server for
- * its tools, with a token typed in or none: a server that answers is connected at once, with its
- * tools; for one that asks for a sign-in, the sign-in is begun here, where the address came in
+ * its tools, with a token typed in or none (sent as a bearer token, or as written when it has its
+ * scheme in front, "Basic …"): a server that answers is connected at once, with its tools; for one
+ * that asks for a sign-in, the sign-in is begun here, where the address came in
  * with the browser's origin checked, and the answer is the server's sign-in page for the browser
  * to go to, which comes back to the callback as Granola's does. A new connection lets agents use
  * the tools that only read; the rest are turned on on the connection's page, which can also ask
  * the server for its tools again.
  */
 
-const connectBodySchema = z.object({url: z.string(), token: z.string().trim().optional(), returnTo: returnToSchema.optional()});
+// A token is sent as a header, where a line break has no place.
+const connectBodySchema = z.object({
+	url: z.string(),
+	token: z
+		.string()
+		.trim()
+		.regex(/^[^\r\n]*$/, 'The token can’t have line breaks')
+		.optional(),
+	returnTo: returnToSchema.optional(),
+});
 
 /** Connected, with the new connection, or the server asks for a sign-in, begun, at the page the browser goes to. */
 export type ConnectCustomMcpResponse = {kind: 'connected'; connection: ConnectionResponse} | {kind: 'signIn'; url: string};

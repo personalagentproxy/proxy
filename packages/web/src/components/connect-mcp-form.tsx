@@ -91,7 +91,8 @@ export function ConnectMcpForm({
 				/>
 				<p className="text-sm text-muted-foreground">
 					Only where the server takes a token or API key instead of a sign-in. It is sent as a
-					bearer token with every request.
+					bearer token with every request, or as written when it starts with its scheme, such as{' '}
+					<code>Basic …</code>.
 				</p>
 			</div>
 			{error && <p className="text-sm text-destructive">{error}</p>}

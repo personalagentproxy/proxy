@@ -65,13 +65,22 @@ function jsonRpcBody(body: string): string {
 
 type Posted = {json: unknown; sessionId: string | null};
 
+// The Authorization header for a token: a bare one as a bearer token, as the spec asks; one typed
+// in with its scheme in front, "Basic …", as written, for a server that takes another scheme.
+function authorization(token: string): string {
+	if (/\s/.test(token)) {
+		return token;
+	}
+	return `Bearer ${token}`;
+}
+
 // One JSON-RPC message to the server, its answer parsed, or nothing for a notification. A token the
 // server turns down is `credentials_rejected`, so the caller can refresh it.
 function post(server: McpEndpoint, accessToken: string | null, session: McpSession | null, message: Record<string, unknown>): Promise<Result<Posted, ApiError>> {
 	return Do(async ($) => {
 		const headers: Record<string, string> = {'content-type': 'application/json', accept: 'application/json, text/event-stream'};
 		if (accessToken !== null) {
-			headers.authorization = `Bearer ${accessToken}`;
+			headers.authorization = authorization(accessToken);
 		}
 		if (session) {
 			headers['mcp-protocol-version'] = session.protocolVersion;
@@ -129,7 +138,7 @@ async function closeSession(server: McpEndpoint, accessToken: string | null, ses
 	}
 	const headers: Record<string, string> = {'mcp-session-id': session.sessionId, 'mcp-protocol-version': session.protocolVersion};
 	if (accessToken !== null) {
-		headers.authorization = `Bearer ${accessToken}`;
+		headers.authorization = authorization(accessToken);
 	}
 	await checkedRequest(server.url, {method: 'DELETE', headers}, {timeoutMs: TIMEOUT_MS});
 }
