@@ -24,6 +24,7 @@ import {handleLinearCallbackRoute, handleStartLinearRoute} from '../connections/
 import {handleConnectMysqlRoute, handleTestMysqlRoute} from '../connections/mysql/route';
 import {handleNotionCallbackRoute, handleStartNotionRoute} from '../connections/notion/route';
 import {handleConnectPostgresRoute, handleTestPostgresRoute} from '../connections/postgres/route';
+import {handleConnectTickTickRoute, handleTestTickTickRoute} from '../connections/ticktick/route';
 import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleSetConnectionDefaultsRoute} from '../connections/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
 import {handleFinishOnboardingRoute, handleMeRoute} from '../me/route';
@@ -69,6 +70,8 @@ export function createApiRouter(): express.Router {
 	router.get('/api/connections/notion/callback', withAuth('Notion sign-in callback route', handleNotionCallbackRoute));
 	router.get('/api/connections/linear/start', withAuth('Start Linear sign-in route', handleStartLinearRoute));
 	router.get('/api/connections/linear/callback', withAuth('Linear sign-in callback route', handleLinearCallbackRoute));
+	router.post('/api/connections/ticktick', withAuthResult('Connect TickTick route', handleConnectTickTickRoute));
+	router.post('/api/connections/ticktick/test', withAuthResult('Test TickTick route', handleTestTickTickRoute));
 	router.post('/api/connections/postgres', withAuthResult('Connect Postgres route', handleConnectPostgresRoute));
 	router.post('/api/connections/postgres/test', withAuthResult('Test Postgres route', handleTestPostgresRoute));
 	router.post('/api/connections/mysql', withAuthResult('Connect MySQL route', handleConnectMysqlRoute));

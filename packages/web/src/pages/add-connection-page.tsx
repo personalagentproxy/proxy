@@ -5,8 +5,9 @@ import {IntegrationCatalog} from '@/components/integration-catalog';
 import {signInFailedMessage} from '@/lib/integrations';
 import type {addConnectionLoader} from '@/loaders';
 
-// The catalog: a plus per integration, with how many accounts of it are connected. A mailbox or a
-// database goes to its form; a sign-in starts at the api. Either lands on the new connection's page.
+// The catalog: a plus per integration, with how many accounts of it are connected. A mailbox,
+// TickTick or a database goes to its form; a sign-in starts at the api. Either lands on the new
+// connection's page.
 export function AddConnectionPage() {
 	const {connections} = useLoaderData<typeof addConnectionLoader>();
 	const navigate = useNavigate();

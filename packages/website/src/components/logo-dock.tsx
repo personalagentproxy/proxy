@@ -25,8 +25,8 @@ const AGENTS: Logo[] = [
 ];
 
 // The services they reach through Personal Agent Proxy: Gmail (through the Email integration),
-// Granola, Notion, Linear and the databases, which work now, and the ones coming next, Google
-// Workspace's apps spread out among the others.
+// Granola, Notion, Linear, TickTick and the databases, which work now, and the ones coming next,
+// Google Workspace's apps spread out among the others.
 const SERVICES: Logo[] = [
 	{name: 'Gmail', src: '/logos/gmail.svg', tile: 'bg-white p-[22%]'},
 	{name: 'Granola', src: '/logos/granola.png', tile: 'bg-[#A4C639]'},
@@ -36,6 +36,7 @@ const SERVICES: Logo[] = [
 	{name: 'Google Docs', src: '/logos/google-docs.svg', tile: 'bg-white p-[24%]'},
 	{name: 'Google Sheets', src: '/logos/google-sheets.svg', tile: 'bg-white p-[24%]'},
 	{name: 'Linear', src: '/logos/linear.svg', tile: 'bg-[#5E6AD2] p-[26%]'},
+	{name: 'TickTick', src: '/logos/ticktick.svg', tile: 'bg-[#4772FA] p-[24%]'},
 	{name: 'PostgreSQL', src: '/logos/postgresql.svg', tile: 'bg-white p-[22%]'},
 	{name: 'MySQL', src: '/logos/mysql.svg', tile: 'bg-white p-[22%]'},
 ];

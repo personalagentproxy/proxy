@@ -391,6 +391,108 @@ const linear: Integration = {
 	],
 };
 
+// TickTick's priorities, from its numbers 0, 1, 3 and 5.
+export const TICKTICK_PRIORITIES = ['None', 'Low', 'Medium', 'High'];
+
+// A TickTick account's tasks, through TickTick's Open API with a personal API token, which can't
+// be limited, so access is narrowed in Personal Agent Proxy. The lists are a tree: the top is the
+// Inbox and the lists, and inside a list its open tasks. A task's title, notes and priority are
+// written; its dates are shown but not set here yet. Completing a task is a command of its own, so
+// editing can't complete one, and tasks aren't deleted.
+const ticktick: Integration = {
+	id: 'ticktick',
+	name: 'TickTick',
+	description: 'Tasks and lists',
+	actions: [
+		{
+			id: 'read',
+			label: 'Read tasks',
+			description: 'List, search and open lists and the open tasks in them',
+			risk: 'low',
+		},
+		{
+			id: 'create',
+			label: 'Add tasks',
+			description: 'Add tasks to the Inbox or a list',
+			risk: 'low',
+		},
+		{
+			id: 'edit',
+			label: 'Edit tasks',
+			description: 'Change the title, notes and priority of tasks',
+			risk: 'medium',
+			requires: 'read',
+		},
+		{
+			id: 'complete',
+			label: 'Complete tasks',
+			description: 'Mark open tasks done',
+			risk: 'medium',
+			requires: 'read',
+		},
+	],
+	collections: [
+		{
+			id: 'tasks',
+			name: 'Tasks',
+			singular: 'task',
+			titleField: 'title',
+			summaryField: 'dueDate',
+			searchHint: 'At the top, words in list names. Inside a list, words in task titles and notes.',
+			nested: true,
+			read: 'read',
+			createLabel: 'Add task',
+			writes: {create: 'create', update: 'edit'},
+			// Lists aren't written to; the tasks in them are.
+			editable: {field: 'kind', values: ['Task']},
+			commands: [
+				{
+					id: 'complete',
+					on: 'record',
+					label: 'Complete',
+					action: 'complete',
+					where: {field: 'status', values: ['Open']},
+					done: 'Completed {}',
+					tried: 'complete {}',
+				},
+			],
+			fields: [
+				{key: 'title', label: 'Title', type: 'text'},
+				{
+					key: 'kind',
+					label: 'Kind',
+					type: 'select',
+					options: ['List', 'Task'],
+					system: true,
+				},
+				// A task's; a list has none.
+				{
+					key: 'status',
+					label: 'Status',
+					type: 'select',
+					options: ['Open', 'Completed'],
+					system: true,
+				},
+				// The list a task is in: "Inbox", "Groceries".
+				{key: 'list', label: 'List', type: 'text', system: true},
+				{key: 'priority', label: 'Priority', type: 'select', options: TICKTICK_PRIORITIES},
+				// In the task's time zone: "2026-10-20" for a day, "2026-10-20 09:00 (Europe/Berlin)" for a time.
+				{key: 'startDate', label: 'Start', type: 'text', system: true},
+				{key: 'dueDate', label: 'Due', type: 'text', system: true},
+				// Comma-separated: "errand, home".
+				{key: 'tags', label: 'Tags', type: 'text', system: true},
+				// A checklist task's items, one a line: "[x] Milk", "[ ] Eggs".
+				{key: 'checklist', label: 'Checklist', type: 'longtext', system: true},
+				// The task in TickTick's web app.
+				{key: 'link', label: 'Link', type: 'text', system: true},
+				{key: 'updated', label: 'Updated', type: 'datetime', system: true},
+				// The task's notes, or a checklist task's description.
+				{key: 'content', label: 'Notes', type: 'longtext'},
+			],
+		},
+	],
+};
+
 // A SQL database, signed in to with a database user's name and password: PostgreSQL, or MySQL
 // and MariaDB. What the user may do in the database is the limit, so access is narrowed in
 // Personal Agent Proxy: the tables and their rows are one tree, a table holding its rows, and a
@@ -595,7 +697,16 @@ const info: Integration = {
 	],
 };
 
-export const INTEGRATIONS: Integration[] = [info, email, granola, notion, linear, postgres, mysql];
+export const INTEGRATIONS: Integration[] = [
+	info,
+	email,
+	granola,
+	notion,
+	linear,
+	ticktick,
+	postgres,
+	mysql,
+];
 
 export function findIntegration(id: string): Integration | undefined {
 	return INTEGRATIONS.find((integration) => integration.id === id);

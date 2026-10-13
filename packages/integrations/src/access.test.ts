@@ -55,6 +55,18 @@ describe('effectiveActions', () => {
 		]);
 	});
 
+	test("a TickTick task is completed and edited only with Read, and editing doesn't complete", () => {
+		const ticktick = integration('ticktick');
+		expect(effectiveActions(ticktick, ['complete'])).toEqual([]);
+		expect(effectiveActions(ticktick, ['read', 'edit'])).toEqual(['read', 'edit']);
+		expect(effectiveActions(ticktick, ['read', 'edit'], {complete: true})).toEqual([
+			'read',
+			'edit',
+			'complete',
+		]);
+		expect(effectiveActions(ticktick, ['create'])).toEqual(['create']);
+	});
+
 	test('sending needs nothing else', () => {
 		expect(effectiveActions(email, ['send'])).toEqual(['send']);
 	});

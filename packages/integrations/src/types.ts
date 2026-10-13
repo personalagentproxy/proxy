@@ -77,7 +77,7 @@ export type Collection = {
 };
 
 export type IntegrationId =
-	'info' | 'email' | 'granola' | 'notion' | 'linear' | 'postgres' | 'mysql';
+	'info' | 'email' | 'granola' | 'notion' | 'linear' | 'ticktick' | 'postgres' | 'mysql';
 
 export type Integration = {
 	id: IntegrationId;

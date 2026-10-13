@@ -12,11 +12,16 @@ import type {Connection} from '@/lib/types';
 // `?returnTo=welcome`, it comes back to the welcome flow's page for the connection, or its catalog.
 const SIGN_IN: IntegrationId[] = ['granola', 'notion', 'linear'];
 
-// The rest are connected on a form of their own: a mailbox with an app password, a database with
-// a user's name and password.
+// The rest are connected on a form of their own: a mailbox with an app password, a TickTick account
+// with an API token, a database with a user's name and password.
 function formLabel(integration: Integration, count: number): string {
-	const what = integration.id === 'email' ? 'mailbox' : 'database';
-	return count > 0 ? `Connect another ${what}` : `Connect a ${what}`;
+	if (integration.id === 'email') {
+		return count > 0 ? 'Connect another mailbox' : 'Connect a mailbox';
+	}
+	if (integration.id === 'postgres' || integration.id === 'mysql') {
+		return count > 0 ? 'Connect another database' : 'Connect a database';
+	}
+	return count > 0 ? `Connect another ${integration.name} account` : `Connect ${integration.name}`;
 }
 
 // The catalog: every integration, a plus to connect it, and how many accounts are connected. Each

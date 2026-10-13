@@ -1,0 +1,47 @@
+---
+title: TickTick
+description: Connect a TickTick account for agents to read, add, edit and complete tasks.
+---
+
+Agents work with the Inbox and the lists in a TickTick account through TickTick's Open API, signed
+in with a personal API token. Tasks stay in TickTick; nothing is copied, and every request goes to
+TickTick as it is made.
+
+## Connect TickTick
+
+<Steps>
+
+### Make an API token
+
+In TickTick, open **Settings**, then **Account**, then **API Token**, and copy the token. It reaches
+everything in the account and can't be limited, so what agents may do is set in Personal Agent
+Proxy. Making a new token in TickTick replaces this one and disconnects the account.
+
+### Add the connection
+
+Open **Connections**, then **Add connection**, and **Connect TickTick** beside TickTick. Give the
+account a name, such as the email you sign in to TickTick with, since a token doesn't say whose it
+is, and paste the token. **Test connection** signs in and saves nothing; **Connect** signs in again
+and saves the token encrypted.
+
+### Review the defaults
+
+A new TickTick connection gives every agent Read tasks. Add tasks, Edit tasks and Complete tasks are
+off by default. Turn them on for every agent on the connection's page, or only for one agent on the
+agent's page.
+
+</Steps>
+
+## What agents can do
+
+- **Read tasks** lists the Inbox and the lists, and inside each the open tasks, the ones changed
+  last first. A task opens with its notes, priority, start and due dates, tags and checklist.
+- **Add tasks** adds a task to the Inbox or a list, with a title, notes and a priority.
+- **Edit tasks** changes a task's title, notes and priority. Only what is written differently is
+  sent; dates, tags, reminders and the rest of the task stay as they are. It requires Read tasks.
+- **Complete tasks** marks an open task done. It requires Read tasks. Editing can't complete a task,
+  so an agent with Edit tasks alone can't tick anything off.
+
+Searching matches words in list names at the top, and in task titles and notes inside a list. Dates
+are shown in the task's own time zone but not set here yet. Lists of notes, completed tasks and
+archived lists are left out, and Personal Agent Proxy never deletes a task.
