@@ -99,6 +99,22 @@ services:
       - path: /_next/static/*
         name: Cache-Control
         value: public, max-age=31536000, immutable
+      # The headers the app sends itself (packages/api/src/server/security-headers.ts).
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Content-Security-Policy
+        value: frame-ancestors 'none'
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=31536000
     routes:
       # The vault's guide, from where it was as Information.
       - type: redirect
@@ -131,6 +147,21 @@ services:
       - path: /_next/static/*
         name: Cache-Control
         value: public, max-age=31536000, immutable
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Content-Security-Policy
+        value: frame-ancestors 'none'
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=31536000
     envVars:
       - key: BUN_VERSION
         value: 1.4.4
