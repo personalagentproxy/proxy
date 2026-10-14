@@ -9,6 +9,7 @@ import {ConnectDatabaseForm} from '@/components/connect-database-form';
 import {ConnectEmailForm} from '@/components/connect-email-form';
 import {ConnectMcpForm} from '@/components/connect-mcp-form';
 import {ConnectionAccess} from '@/components/connection-access';
+import {useAccessSaves} from '@/hooks/use-access-saves';
 import {IntegrationCatalog} from '@/components/integration-catalog';
 import {StepHeading} from '@/components/step-heading';
 import {SuccessLine} from '@/components/success-line';
@@ -272,6 +273,7 @@ function ConnectionStep({
 }) {
 	const navigate = useNavigate();
 	const {revalidate} = useRevalidator();
+	const savesFor = useAccessSaves();
 	const [error, setError] = useState<string | null>(null);
 	const defaults = defaultActions(connection);
 
@@ -288,6 +290,7 @@ function ConnectionStep({
 				<ConnectionAccess
 					actions={actions}
 					defaults={defaults}
+					saves={savesFor(connection.id)}
 					onChange={async (changes) => {
 						const result = await setConnectionDefaults(connection.id, defaultsOnOrOff(changes));
 						setError(result.isErr() ? describeFetchError(result.error) : null);

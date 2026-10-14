@@ -11,6 +11,7 @@ import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
 import {ConnectionAccess} from '@/components/connection-access';
+import {useAccessSaves} from '@/hooks/use-access-saves';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
 import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
@@ -36,6 +37,7 @@ export function ConnectionPage() {
 	const {connection, connections, agents, entries} = useLoaderData<typeof connectionLoader>();
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
+	const savesFor = useAccessSaves();
 	// Set by whatever made the connection: the email dialog, or the api back from a service's sign-in.
 	const [searchParams] = useSearchParams();
 	const added = searchParams.has('added');
@@ -119,6 +121,7 @@ export function ConnectionPage() {
 						actions={integration.actions}
 						defaults={defaultActions(connection)}
 						differing={differingAgents(agents, connection.id)}
+						saves={savesFor(connection.id)}
 						onChange={async (actions) => {
 							const result = await setConnectionDefaults(connection.id, defaultsOnOrOff(actions));
 							setError(result.isErr() ? describeFetchError(result.error) : null);
