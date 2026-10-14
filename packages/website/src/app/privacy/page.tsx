@@ -109,10 +109,11 @@ export default function PrivacyPage() {
 				<p>
 					When you connect a Google account, Google asks you to grant the Services access to parts
 					of that account. Depending on what you grant, the Services may access your Google account
-					email address and information in Gmail, Google Drive, Google Docs, Google Sheets and
-					Google Slides, including the content and metadata of messages, files, documents,
-					spreadsheets and presentations, and may create, change, send and move to Trash such items
-					on your behalf. Google&apos;s consent screen lets you decline any of these.
+					email address and information in Gmail, Google Calendar, Google Drive, Google Docs, Google
+					Sheets, Google Slides and Google Contacts, including the content and metadata of messages,
+					calendars, events, files, documents, spreadsheets, presentations and contacts, and may
+					create, change, send and move to Trash such items, invite guests to events and answer
+					invitations on your behalf. Google&apos;s consent screen lets you decline any of these.
 				</p>
 				<p>
 					We use information received from Google Workspace APIs only to provide and improve the
