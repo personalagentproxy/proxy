@@ -39,7 +39,8 @@ model User {
   orgMembers OrgMember[]
 }
 
-// A sign-in provider identity linked to a user, such as their Google account.
+// A sign-in provider identity linked to a user, such as their Google account. The token columns
+// are no longer written: sign-in needs nothing from the provider afterwards.
 model Account {
   id                String  @id @default(cuid())
   userId            String

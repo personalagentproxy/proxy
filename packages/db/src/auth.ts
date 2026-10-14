@@ -127,18 +127,12 @@ export async function useVerificationToken(args: {
 	});
 }
 
-/** The token columns are snake_case because they mirror the OAuth token response. */
+/** The identity alone: the provider's tokens are never stored, so the token columns stay empty. */
 export async function createOAuthAccount(data: {
 	userId: string;
 	type: string;
 	provider: string;
 	providerAccountId: string;
-	access_token: string | null;
-	refresh_token: string | null;
-	expires_at: number | null;
-	token_type: string | null;
-	scope: string | null;
-	id_token: string | null;
 }): Promise<Result<void, ApiError>> {
 	return (await wrapDb(() => db.account.create({data}))).map(() => undefined);
 }

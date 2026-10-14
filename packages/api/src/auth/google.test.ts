@@ -264,12 +264,6 @@ describe('handleGoogleCallbackRoute', () => {
 			type: 'oauth',
 			provider: 'google',
 			providerAccountId: googleProfile.sub,
-			access_token: 'access-token-1',
-			refresh_token: 'refresh-token-1',
-			expires_at: expect.any(Number),
-			token_type: 'Bearer',
-			scope: 'openid email profile',
-			id_token: expect.stringContaining('.'),
 		});
 		expect(createSession).toHaveBeenCalledTimes(1);
 		expect((createSession.mock.calls[0]?.[0] as {userId: string}).userId).toBe('user-new');

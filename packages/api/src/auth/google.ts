@@ -16,7 +16,8 @@ import {canSignUp, establishSessionAndRedirect, queryParam, redirectToLoginError
  * Google sign-in, an OAuth authorization-code flow with PKCE. A Google identity is an Account
  * row (provider 'google', providerAccountId = the profile's `sub`); an email that already
  * belongs to a user who signed up another way gets `OAuthAccountNotLinked` rather than being
- * attached silently.
+ * attached silently. Google's tokens are only read for the profile in the id_token and never
+ * stored: signing in needs nothing from Google afterwards.
  *
  * Both endpoints are top-level browser navigations (302 redirects), not fetch calls.
  */
@@ -163,13 +164,9 @@ export async function handleGoogleStartRoute(req: Request, res: Response): Promi
 	res.redirect(url.toString());
 }
 
+// Only the id_token: the rest of Google's answer, its access token among it, is dropped as it is read.
 const googleTokensSchema = z.object({
-	access_token: z.string().min(1),
 	id_token: z.string().min(1),
-	expires_in: z.number().optional(),
-	refresh_token: z.string().optional(),
-	scope: z.string().optional(),
-	token_type: z.string().optional(),
 });
 
 /**
@@ -272,8 +269,7 @@ export async function handleGoogleCallbackRoute(req: Request, res: Response): Pr
 		return;
 	}
 
-	const tokens = tokensResult.value;
-	const profile = decodeIdTokenProfile(tokens.id_token);
+	const profile = decodeIdTokenProfile(tokensResult.value.id_token);
 	if (!profile) {
 		log.error('Google OAuth id_token missing sub or email');
 		redirectToLoginError(res, config.appUrl, 'OAuthCallback');
@@ -288,7 +284,6 @@ export async function handleGoogleCallbackRoute(req: Request, res: Response): Pr
 	}
 
 	if (accountResult.value) {
-		// The stored Account tokens are not refreshed on repeat sign-ins.
 		const userResult = await getUserFromId(accountResult.value.userId);
 		if (userResult.isErr() || !userResult.value) {
 			log.error('Google OAuth account points at a missing user', {userId: accountResult.value.userId});
@@ -341,12 +336,6 @@ export async function handleGoogleCallbackRoute(req: Request, res: Response): Pr
 		type: 'oauth',
 		provider: 'google',
 		providerAccountId: profile.sub,
-		access_token: tokens.access_token,
-		refresh_token: tokens.refresh_token ?? null,
-		expires_at: tokens.expires_in === undefined ? null : Math.floor(Date.now() / 1000) + tokens.expires_in,
-		token_type: tokens.token_type ?? null,
-		scope: tokens.scope ?? null,
-		id_token: tokens.id_token,
 	});
 	if (accountCreateResult.isErr()) {
 		log.error('Google OAuth account creation failed', serializeError(accountCreateResult.error));

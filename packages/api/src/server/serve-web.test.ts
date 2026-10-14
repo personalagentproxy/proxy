@@ -43,7 +43,7 @@ describe('the web app on the api origin', () => {
 			expect(res.headers.get('cache-control')).toBe('no-cache');
 			expect(res.headers.get('x-content-type-options')).toBe('nosniff');
 			expect(res.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin');
-			expect(res.headers.get('x-frame-options')).toBe('SAMEORIGIN');
+			expect(res.headers.get('x-frame-options')).toBe('DENY');
 			expect(await res.text()).toContain('<title>Personal Agent Proxy</title>');
 		}
 	});
@@ -54,7 +54,7 @@ describe('the web app on the api origin', () => {
 		const asset = await fetch(`${base}/assets/index-abc.js`);
 		expect(asset.status).toBe(200);
 		expect(asset.headers.get('cache-control')).toContain('immutable');
-		expect(asset.headers.get('x-frame-options')).toBe('SAMEORIGIN');
+		expect(asset.headers.get('x-frame-options')).toBe('DENY');
 	});
 
 	test('a missing asset is a 404, not the page', async () => {

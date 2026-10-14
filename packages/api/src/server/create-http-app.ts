@@ -7,6 +7,7 @@ import express from 'express';
 import {log} from '../observability/log';
 import {env} from '../utils/env';
 import {createApiRouter} from './create-api-router';
+import {setSecurityHeaders} from './security-headers';
 import {serveWeb} from './serve-web';
 
 // The web app's build sits at a fixed place beside this package, packages/web/dist, in the repo
@@ -20,6 +21,8 @@ export function createHttpApp({webDist = defaultWebDist}: {webDist?: string} = {
 	// Behind a TLS-terminating proxy, trust X-Forwarded-* so `req.secure` and `req.hostname`
 	// describe the original request.
 	app.set('trust proxy', true);
+	app.disable('x-powered-by');
+	app.use(setSecurityHeaders);
 
 	app.get('/health', (_req, res) => {
 		res.json({ok: true});
