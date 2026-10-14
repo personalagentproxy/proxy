@@ -26,9 +26,10 @@ type Login = {username: string; password: string};
 // adds the server and signs in, which makes its login; another is handed a login, made then and
 // there when it is chosen. The welcome flow, New agent and setting an agent up again all go
 // through here. An agent that has a login already is shown as it is, so arriving here after
-// signing in from Claude says Claude is connected. With `fixed`, it is that agent's alone.
-// The agent chosen is in the address (`?agent=claude`), so the browser's back button returns to
-// the choice.
+// signing in from Claude says Claude is connected. With `fixed`, it is that agent's alone, and
+// `agents` that agent's login alone. The agent chosen is in the address (`?agent=claude`), so the
+// browser's back button returns to the choice. A custom MCP agent can be added any number of
+// times, so the one being added is the one that signs in while this is open.
 export function AgentSetup({
 	agents,
 	providers,
@@ -46,11 +47,23 @@ export function AgentSetup({
 	const {revalidate} = useRevalidator();
 	const [params, setParams] = useSearchParams();
 	// The agent already set up, so arriving back here after signing in from Claude shows Claude,
-	// until another is chosen.
+	// until another is chosen. A custom agent could be any of several, so it isn't one.
 	const [arrival, setArrival] = useState<AgentProviderId | null>(
 		() =>
-			providers.find((provider) => live.some((agent) => agent.providerId === provider.id))?.id ??
-			null,
+			providers.find(
+				(provider) => !provider.custom && live.some((agent) => agent.providerId === provider.id),
+			)?.id ?? null,
+	);
+	// The custom agents there before, so the one added here is the one that signs in.
+	const [known] = useState(
+		() =>
+			new Set(
+				fixed
+					? []
+					: live
+							.filter((agent) => findAgentProvider(agent.providerId)?.custom)
+							.map((agent) => agent.id),
+			),
 	);
 	const chosenId = fixed ?? findAgentProvider(params.get('agent') ?? '')?.id ?? arrival;
 	const [login, setLogin] = useState<Login | null>(null);
@@ -58,7 +71,7 @@ export function AgentSetup({
 	const [error, setError] = useState<string | null>(null);
 	const chosen = chosenId ? findAgentProvider(chosenId) : undefined;
 	const existingFor = (provider: AgentProvider) =>
-		live.find((agent) => agent.providerId === provider.id) ?? null;
+		live.find((agent) => agent.providerId === provider.id && !known.has(agent.id)) ?? null;
 
 	const choose = async (provider: AgentProvider) => {
 		setArrival(null);
@@ -128,11 +141,13 @@ export function AgentSetup({
 								chosen={false}
 								disabled={!usable}
 								detail={
-									existingFor(provider)
-										? 'Connected'
-										: usable
-											? undefined
-											: 'Needs a public https address'
+									provider.custom
+										? 'Any agent that speaks MCP'
+										: existingFor(provider)
+											? 'Connected'
+											: usable
+												? undefined
+												: 'Needs a public https address'
 								}
 								onChoose={() => void choose(provider)}
 							/>
@@ -157,7 +172,14 @@ export function AgentSetup({
 		</div>
 	);
 	if (chosen.connects === 'mcp') {
-		return <McpAgent provider={chosen} existing={existing} actions={actions} />;
+		return (
+			<McpAgent
+				provider={chosen}
+				name={chosen.custom && !fixed ? null : (existing?.name ?? chosen.name)}
+				existing={existing}
+				actions={actions}
+			/>
+		);
 	}
 	return (
 		<LoginAgent
@@ -173,15 +195,25 @@ export function AgentSetup({
 }
 
 // What a Personal Agent Proxy on an http address, such as a development machine, is told: only
-// an agent on this computer can reach it; the rest need it on a server with a domain.
-function NotPublicCallout() {
+// an agent on this computer can reach it; the rest need it on a server with a domain. A custom
+// agent could be either, so it is warned that the address works only for one on this computer.
+function NotPublicCallout({custom = false}: {custom?: boolean}) {
 	return (
 		<div className="grid gap-2 rounded-xl border bg-muted/50 p-4 text-sm">
-			<p>
-				Only an agent on this computer can reach Personal Agent Proxy at{' '}
-				<span className="font-mono">{window.location.origin}</span>. The others need a public https
-				address.
-			</p>
+			{custom ? (
+				<p>
+					This server address only works for an agent on this computer: Personal Agent Proxy is at{' '}
+					<span className="font-mono">{window.location.origin}</span>, which nothing elsewhere can
+					reach. An agent that runs on its company's servers, as most do, needs a public https
+					address.
+				</p>
+			) : (
+				<p>
+					Only an agent on this computer can reach Personal Agent Proxy at{' '}
+					<span className="font-mono">{window.location.origin}</span>. The others need a public
+					https address.
+				</p>
+			)}
 			<p className="text-muted-foreground">
 				For those, run Personal Agent Proxy on a server reachable from the internet, such as a VPS,
 				and give it a domain name.{' '}
@@ -252,20 +284,32 @@ const MCP_STEPS: Partial<
 			'On poke.com, under Integrations, add a new one: a name and the address, with the API key left empty.',
 		url: 'https://poke.com/integrations/new',
 	},
+	custom: {
+		where:
+			'In your agent, add a custom connector or remote MCP server, as it calls them, over Streamable HTTP.',
+		afterAdd:
+			'Paste the server address and add it. It signs in with OAuth, so leave any API key or token empty.',
+		authorize:
+			'Your agent opens Personal Agent Proxy to sign in. Choose Custom MCP agent and give it a name, or choose the agent it already works as.',
+	},
 };
 
 // The server's address to add, and a wait for the client to sign in: when it has, the login it
 // made is here. An MCP client reaches the server over the internet, at an https address, so a
-// server that isn't one, such as a development machine, is told to move first.
+// server that isn't one, such as a development machine, is told to move first. A custom agent
+// is "your agent" until it has a name.
 function McpAgent({
 	provider,
+	name,
 	existing,
 	actions,
 }: {
 	provider: AgentProvider;
+	name: string | null;
 	existing: AgentLogin | null;
 	actions: ReactNode;
 }) {
+	const subject = name ?? 'Your agent';
 	const serverUrl = `${window.location.origin}/mcp`;
 	const reachable = PUBLIC || provider.local;
 	const steps = MCP_STEPS[provider.id];
@@ -283,11 +327,12 @@ function McpAgent({
 
 	return (
 		<>
-			<StepHeading title={`Add Personal Agent Proxy to ${provider.name}`}>
-				{provider.name} works through Personal Agent Proxy as a connector, signed in with its own
-				login.
+			<StepHeading title={`Add Personal Agent Proxy to ${name ?? 'your agent'}`}>
+				{provider.custom && !name ? 'Any agent that speaks MCP' : subject} works through Personal
+				Agent Proxy as a connector, signed in with its own login.
 			</StepHeading>
 			{!reachable && <NotPublicCallout />}
+			{!PUBLIC && provider.custom && <NotPublicCallout custom />}
 			{command ? (
 				<CopyLine label="Command" value={command} copyLabel="Copy command" />
 			) : (
@@ -327,12 +372,12 @@ function McpAgent({
 					{connected ? (
 						<>
 							<CheckIcon className="size-4" />
-							{provider.name} is signed in as {existing.name}.
+							{subject} is signed in as {existing.name}.
 						</>
 					) : (
 						<>
 							<LoaderCircleIcon className="size-4 animate-spin" />
-							Waiting for {provider.name} to sign in…
+							Waiting for {name ?? 'your agent'} to sign in…
 						</>
 					)}
 				</p>

@@ -9,7 +9,7 @@ import type {agentSetupLoader} from '@/loaders';
 // One agent set up again, as when it was added: a new password handed over the way it takes one,
 // or the connector added again.
 export function AgentSetupPage() {
-	const {agent, agents} = useLoaderData<typeof agentSetupLoader>();
+	const {agent} = useLoaderData<typeof agentSetupLoader>();
 	const navigate = useNavigate();
 	const provider = agent && findAgentProvider(agent.providerId);
 	if (!agent || !provider) {
@@ -28,7 +28,8 @@ export function AgentSetupPage() {
 			<div className="grid gap-4 md:px-3">
 				{agent.revokedAt === null ? (
 					<AgentSetup
-						agents={agents}
+						// Its own login alone, so a custom agent is set up as itself and not as another.
+						agents={[agent]}
 						providers={AGENT_PROVIDERS}
 						fixed={provider.id}
 						continueLabel="Done"

@@ -1,4 +1,5 @@
 import {findAgentProvider} from '@proxy/integrations';
+import {BotIcon} from 'lucide-react';
 import {cn} from '@proxy/ui/lib/utils';
 import type {ReactNode} from 'react';
 import type {Integration} from '@/lib/integrations';
@@ -19,11 +20,20 @@ function LogoTile({children, className}: {children: ReactNode; className?: strin
 	);
 }
 
+// A custom agent has no logo of its own, so it gets a robot.
 export function AgentLogo({providerId}: {providerId: string}) {
 	const provider = findAgentProvider(providerId);
+	if (provider?.custom) {
+		return (
+			<LogoTile>
+				<BotIcon className="size-[60%] text-neutral-500" />
+			</LogoTile>
+		);
+	}
+
 	return (
 		<LogoTile>
-			{provider && (
+			{provider?.faviconUrl && (
 				<img src={provider.faviconUrl} alt="" className="size-full object-contain p-[2px]" />
 			)}
 		</LogoTile>

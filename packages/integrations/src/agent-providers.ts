@@ -8,7 +8,8 @@ export type AgentProviderId =
 	| 'claude-code'
 	| 'claude-desktop'
 	| 'hermes'
-	| 'chatgpt';
+	| 'chatgpt'
+	| 'custom';
 
 export type AgentProvider = {
 	id: AgentProviderId;
@@ -30,11 +31,16 @@ export type AgentProvider = {
 	 * instead: asked for one, it sends a link to a page the person fills the login in on.
 	 */
 	vault?: boolean;
-	/** Bundled with the web app, under `packages/web/public`. */
-	faviconUrl: string;
+	/**
+	 * Any other agent that speaks MCP, named by the person rather than by its company, so an
+	 * organization can have as many as it likes.
+	 */
+	custom?: boolean;
+	/** Bundled with the web app, under `packages/web/public`. A custom agent has none. */
+	faviconUrl?: string;
 };
 
-// The agents an organization can make a login for, one each.
+// The agents an organization can make a login for: one each, and any number of custom ones.
 export const AGENT_PROVIDERS: AgentProvider[] = [
 	{
 		id: 'grok-bot',
@@ -118,21 +124,34 @@ export const AGENT_PROVIDERS: AgentProvider[] = [
 		local: false,
 		faviconUrl: '/agent-providers/chatgpt.png',
 	},
+	{
+		id: 'custom',
+		name: 'Custom MCP agent',
+		company: 'Custom',
+		connects: 'mcp',
+		// It may well run on this computer, so it isn't greyed out over http.
+		local: true,
+		custom: true,
+	},
 ];
 
 export function findAgentProvider(id: string): AgentProvider | undefined {
 	return AGENT_PROVIDERS.find((provider) => provider.id === id);
 }
 
+/** The longest name a custom agent can be given. */
+export const CUSTOM_AGENT_NAME_MAX = 60;
+
 /**
  * The provider an MCP client's registered name points at, such as "Claude" or "ChatGPT", so
  * connecting one suggests its login. The longest name that fits wins, so "Claude Code" is Claude
- * Code and not Claude. Names are the client's own, so this only ever suggests.
+ * Code and not Claude. Names are the client's own, so this only ever suggests; a client it points
+ * at none of is a custom agent.
  */
 export function suggestAgentProvider(clientName: string): AgentProvider | undefined {
 	const name = clientName.toLowerCase();
 	let best: {provider: AgentProvider; length: number} | undefined;
-	for (const provider of AGENT_PROVIDERS) {
+	for (const provider of AGENT_PROVIDERS.filter((candidate) => !candidate.custom)) {
 		for (const candidate of [provider.name, ...(provider.aliases ?? [])]) {
 			if (!name.includes(candidate.toLowerCase())) {
 				continue;

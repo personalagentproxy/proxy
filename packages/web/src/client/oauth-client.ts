@@ -20,9 +20,14 @@ export function getAuthorizationRequest(request: string) {
 	);
 }
 
-/** The person's answer, as an existing agent or a new login for a provider: where to go next. */
+/**
+ * The person's answer, as an existing agent or a new login for a provider, named by the person for
+ * a custom agent: where to go next.
+ */
 export type Consent =
-	{allow: false} | {allow: true; agentId: string} | {allow: true; providerId: string};
+	| {allow: false}
+	| {allow: true; agentId: string}
+	| {allow: true; providerId: string; name?: string};
 
 export function answerAuthorizationRequest(request: string, consent: Consent) {
 	return apiRequest('POST', '/api/oauth/consent', z.object({redirectTo: z.string()}), {

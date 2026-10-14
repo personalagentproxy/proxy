@@ -1,14 +1,18 @@
-import {AGENT_PROVIDERS, findAgentProvider} from '@proxy/integrations';
+import {AGENT_PROVIDERS, CUSTOM_AGENT_NAME_MAX, findAgentProvider} from '@proxy/integrations';
+import type {FetchError} from '@proxy/utils';
 import {useState, type ReactNode} from 'react';
 import {useLoaderData} from 'react-router';
 import {answerAuthorizationRequest, type Consent} from '@/client/oauth-client';
 import {AgentLogo} from '@/components/brand-logo';
 import {Button} from '@proxy/ui/components/button';
+import {Input} from '@proxy/ui/components/input';
+import {Label} from '@proxy/ui/components/label';
 import {cn} from '@proxy/ui/lib/utils';
+import {apiMessage} from '@/lib/agent-errors';
 import type {ConnectAgentData, connectAgentLoader} from '@/loaders';
 
-// One choice on the page: an agent login the organization has, or a new one for a provider
-// without one.
+// One choice on the page: an agent login the organization has, a new one for a provider without
+// one, or a new custom agent, which the person names.
 type Choice = {
 	key: string;
 	providerId: string;
@@ -20,7 +24,8 @@ type Choice = {
 
 // Where an MCP client such as Claude, ChatGPT or Poke signs in: the person chooses which of their
 // agents it works as, or makes a login for it, and the client gets that agent's access and nothing
-// more. Allowing or denying sends the browser back to the client.
+// more. Any other MCP client is a custom agent, named after the client unless the person names it
+// otherwise. Allowing or denying sends the browser back to the client.
 export function ConnectAgentPage() {
 	const loaded = useLoaderData<typeof connectAgentLoader>();
 	if (loaded.kind === 'error') {
@@ -59,7 +64,7 @@ function Consent({
 			consent: {allow: true, agentId: agent.id} as const,
 		})),
 		...AGENT_PROVIDERS.filter(
-			(provider) => !agents.some((agent) => agent.providerId === provider.id),
+			(provider) => provider.custom || !agents.some((agent) => agent.providerId === provider.id),
 		).map((provider) => ({
 			key: `new-${provider.id}`,
 			providerId: provider.id,
@@ -69,8 +74,13 @@ function Consent({
 			consent: {allow: true, providerId: provider.id} as const,
 		})),
 	];
-	const suggested = choices.find((choice) => choice.providerId === details.suggestedProviderId);
+	// The agent the client's name points at, else the custom agent of that name, else a new one.
+	const suggested = details.suggestedProviderId
+		? choices.find((choice) => choice.providerId === details.suggestedProviderId)
+		: (choices.find((choice) => !choice.isNew && choice.label === details.clientName) ??
+			choices.find((choice) => findAgentProvider(choice.providerId)?.custom && choice.isNew));
 	const [chosen, setChosen] = useState<string | null>(suggested?.key ?? null);
+	const [name, setName] = useState(details.clientName.slice(0, CUSTOM_AGENT_NAME_MAX));
 	const [sending, setSending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -79,12 +89,13 @@ function Consent({
 		const result = await answerAuthorizationRequest(request, consent);
 		if (result.isErr()) {
 			setSending(false);
-			setError('Something went wrong. Start connecting again from the app you came from.');
+			setError(consentErrorMessage(result.error));
 			return;
 		}
 		window.location.assign(result.value.redirectTo);
 	};
 	const choice = choices.find((candidate) => candidate.key === chosen);
+	const naming = choice?.isNew === true && findAgentProvider(choice.providerId)?.custom === true;
 
 	return (
 		<Frame>
@@ -121,15 +132,48 @@ function Consent({
 				))}
 			</fieldset>
 			{choice && <p className="text-sm text-muted-foreground">{choice.detail}.</p>}
+			{naming && (
+				<div className="grid gap-2">
+					<Label htmlFor="agent-name">Name</Label>
+					<Input
+						id="agent-name"
+						autoComplete="off"
+						maxLength={CUSTOM_AGENT_NAME_MAX}
+						value={name}
+						onChange={(event) => setName(event.target.value)}
+					/>
+				</div>
+			)}
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<div className="flex justify-end gap-2">
 				<Button variant="outline" disabled={sending} onClick={() => void answer({allow: false})}>
 					Deny
 				</Button>
-				<Button disabled={sending || !choice} onClick={() => choice && void answer(choice.consent)}>
+				<Button
+					disabled={sending || !choice || (naming && name.trim() === '')}
+					onClick={() =>
+						choice &&
+						void answer(
+							naming
+								? {allow: true, providerId: choice.providerId, name: name.trim()}
+								: choice.consent,
+						)
+					}
+				>
 					Allow
 				</Button>
 			</div>
 		</Frame>
 	);
+}
+
+const START_OVER = 'Something went wrong. Start connecting again from the app you came from.';
+
+// A name already taken, or one too long, is the person's to fix here; anything else means starting
+// over from the client.
+function consentErrorMessage(error: FetchError): string {
+	if (error.kind === 'http' && (error.status === 409 || error.status === 400)) {
+		return apiMessage(error.body) ?? START_OVER;
+	}
+	return START_OVER;
 }

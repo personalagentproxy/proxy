@@ -85,8 +85,7 @@ export async function agentLoader({params}: {params: {id?: string}}) {
 }
 
 export async function agentSetupLoader({params}: {params: {id?: string}}) {
-	const [agent, agents] = await Promise.all([getAgent(params.id ?? ''), listAgents()]);
-	return {agent: unwrapOrNull(agent), agents: unwrapLoaderResult(agents).agents};
+	return {agent: unwrapOrNull(await getAgent(params.id ?? ''))};
 }
 
 export async function activityLoader({request}: {request: Request}) {

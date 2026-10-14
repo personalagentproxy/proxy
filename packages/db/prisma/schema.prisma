@@ -186,7 +186,8 @@ model InfoRecord {
 model Agent {
   id           String    @id @default(cuid())
   orgId        String
-  // One of the catalog's AGENT_PROVIDERS; an organization has one login per provider.
+  // One of the catalog's AGENT_PROVIDERS. A provider's login is named by the provider, so an
+  // organization has one per provider; custom agents are named by the person, one per name.
   providerId   String
   name         String
   username     String    @unique
@@ -203,7 +204,7 @@ model Agent {
   oauthCodes  OAuthCode[]
   oauthGrants OAuthGrant[]
 
-  @@unique([orgId, providerId])
+  @@unique([orgId, providerId, name])
   @@index([orgId])
 }
 

@@ -85,6 +85,38 @@ describe('handleCreateAgentRoute', () => {
 		expect(result.unwrapErr().kind).toBe('parse_error');
 	});
 
+	test('names a custom agent as the person did, and any number of them', async () => {
+		const {handleCreateAgentRoute} = await import('./route');
+		await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: '  Cursor '}));
+		await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: 'Zed'}));
+
+		expect(createAgent.mock.calls[0]?.[0]).toMatchObject({providerId: 'custom', name: 'Cursor'});
+		expect(createAgent.mock.calls[0]?.[0].username).toMatch(/^cursor-[a-z0-9]{4}$/);
+		expect(createAgent.mock.calls[1]?.[0]).toMatchObject({providerId: 'custom', name: 'Zed'});
+	});
+
+	test('needs a custom agent named, and a provider named by itself', async () => {
+		const {handleCreateAgentRoute} = await import('./route');
+		const unnamed = await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: ' '}));
+		const tooLong = await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: 'x'.repeat(61)}));
+		await handleCreateAgentRoute(makeRequest({}, {providerId: 'dot', name: 'Something else'}));
+
+		expect(unnamed.unwrapErr().kind).toBe('validation_error');
+		expect(tooLong.unwrapErr().kind).toBe('validation_error');
+		expect(createAgent).toHaveBeenCalledTimes(1);
+		expect(createAgent.mock.calls[0]?.[0].name).toBe('Dots');
+	});
+
+	test('refuses a custom agent named as one the organization has', async () => {
+		createAgent.mockResolvedValue(Err(ApiErr.dbError(new Error('P2002'))));
+		isProviderConflict.mockReturnValue(true);
+
+		const {handleCreateAgentRoute} = await import('./route');
+		const result = await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: 'Cursor'}));
+
+		expect(result.unwrapErr()).toMatchObject({kind: 'conflict', message: 'An agent named Cursor already exists'});
+	});
+
 	test('refuses a second login for the same provider', async () => {
 		createAgent.mockResolvedValue(Err(ApiErr.dbError(new Error('P2002'))));
 		isProviderConflict.mockReturnValue(true);

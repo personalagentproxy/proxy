@@ -1,10 +1,10 @@
 ---
 title: Connect an agent over MCP
-description: Add Personal Agent Proxy to Claude, ChatGPT, Hermes Agent or Poke as an MCP server, and what an agent can do through it.
+description: Add Personal Agent Proxy to Claude, ChatGPT, Hermes Agent, Poke or any other MCP client as an MCP server, and what an agent can do through it.
 ---
 
 Personal Agent Proxy is an MCP server. An agent that speaks MCP, such as Claude, ChatGPT, Hermes
-Agent or Poke, connects to it, signs in with OAuth, and works as one of your agent logins: it can
+Agent, Poke or any other MCP client, connects to it, signs in with OAuth, and works as one of your agent logins: it can
 do what that login is allowed and nothing more, and every request it makes is in the activity log.
 
 The server is at your Personal Agent Proxy's address with `/mcp` after it, such as
@@ -26,6 +26,9 @@ Add the address as a custom connector, or custom MCP server, where the agent kee
   the terminal when asked.
 - **Poke**: on [poke.com/integrations/new](https://poke.com/integrations/new), enter a name and the
   address, and leave the API key empty.
+- **Any other agent**: choose **Custom MCP agent** when adding an agent, and add the address
+  wherever the agent keeps remote MCP servers, over Streamable HTTP. It signs in with OAuth, so leave
+  any API key or token empty.
 
 ### Sign in
 
@@ -36,7 +39,9 @@ The agent opens Personal Agent Proxy to sign in. Sign in as yourself if you aren
 Personal Agent Proxy asks which of your agent logins the app works as, with the one its name points
 at chosen, such as Claude for Claude. Choose an existing login to give it that login's access, or
 a new one for a company that doesn't have a login yet, which starts with every connection's
-defaults. **Allow** sends you back to the agent, signed in.
+defaults. An app whose name points at none of them is offered a new **Custom MCP agent** named after
+it, which you can rename; you can have as many custom agents as you like, each with its own name.
+**Allow** sends you back to the agent, signed in.
 
 </Steps>
 

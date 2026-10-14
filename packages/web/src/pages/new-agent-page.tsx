@@ -5,13 +5,13 @@ import {AppShell, PageTitle} from '@/components/app-shell';
 import {BackButton} from '@/components/back-button';
 import type {agentsLoader} from '@/loaders';
 
-// A new agent, set up as in the welcome flow: chosen from the companies without a login yet, then
-// handed its login or added as a connector, and on to its page.
+// A new agent, set up as in the welcome flow: chosen from the companies without a login yet, or a
+// custom MCP agent, then handed its login or added as a connector, and on to its page.
 export function NewAgentPage() {
 	const {agents} = useLoaderData<typeof agentsLoader>();
 	const navigate = useNavigate();
 	const providers = AGENT_PROVIDERS.filter(
-		(provider) => !agents.some((agent) => agent.providerId === provider.id),
+		(provider) => provider.custom || !agents.some((agent) => agent.providerId === provider.id),
 	);
 
 	return (

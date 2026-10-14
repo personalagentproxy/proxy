@@ -38,14 +38,15 @@ export function handleGetAgentRoute(request: AuthenticatedRequest): Promise<Resu
 	});
 }
 
-const createAgentBodySchema = z.object({providerId: z.string()});
+// A custom agent's name is the person's; every other agent is named by its provider.
+const createAgentBodySchema = z.object({providerId: z.string(), name: z.string().optional()});
 
 /** The only time the password is sent; Personal Agent Proxy keeps its hash. A new agent follows every default. */
 export function handleCreateAgentRoute(request: AuthenticatedRequest): Promise<Result<{agent: AgentResponse; password: string}, ApiError>> {
 	return Do(async ($) => {
-		const {providerId} = $(parseSchema(createAgentBodySchema, request.body));
+		const {providerId, name} = $(parseSchema(createAgentBodySchema, request.body));
 		const orgId = $(await requireUserOrgId(request));
-		const {agent, password} = $(await createAgentLogin(orgId, providerId));
+		const {agent, password} = $(await createAgentLogin(orgId, providerId, name));
 		return {agent: toAgentResponse(agent), password};
 	});
 }

@@ -1,6 +1,6 @@
 import {PlusIcon} from 'lucide-react';
 import {Link, useLoaderData} from 'react-router';
-import {AGENT_PROVIDERS, findAgentProvider} from '@proxy/integrations';
+import {findAgentProvider} from '@proxy/integrations';
 import {AgentLogo} from '@/components/brand-logo';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
@@ -20,25 +20,15 @@ const CELLS = {
 export function AgentsPage() {
 	const {agents} = useLoaderData<typeof agentsLoader>();
 	const active = agents.filter((agent) => agent.revokedAt === null).length;
-	const availableProviders = AGENT_PROVIDERS.filter(
-		(provider) => !agents.some((agent) => agent.providerId === provider.id),
-	);
 
 	return (
 		<AppShell
 			title={<PageTitle detail={`${active} active`}>Agents</PageTitle>}
 			actions={
-				availableProviders.length === 0 ? (
-					<Button size="sm" disabled>
-						<PlusIcon data-icon="inline-start" />
-						All agents added
-					</Button>
-				) : (
-					<Button size="sm" nativeButton={false} render={<Link to="/agents/new" />}>
-						<PlusIcon data-icon="inline-start" />
-						New agent
-					</Button>
-				)
+				<Button size="sm" nativeButton={false} render={<Link to="/agents/new" />}>
+					<PlusIcon data-icon="inline-start" />
+					New agent
+				</Button>
 			}
 		>
 			<RowList

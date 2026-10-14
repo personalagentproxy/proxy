@@ -129,7 +129,7 @@ export type AuthorizationRequestResponse = {
 	clientName: string;
 	// Where the browser goes back to, so the person can tell which app is asking.
 	redirectHost: string;
-	// The agent the client's name points at, such as Claude, if it has one.
+	// The agent the client's name points at, such as Claude, if it has one; else it is a custom one.
 	suggestedProviderId: string | null;
 };
 
@@ -146,10 +146,11 @@ export function handleGetAuthorizationRequestRoute(request: AuthenticatedRequest
 const consentBodySchema = z.union([
 	z.object({request: z.string(), allow: z.literal(false)}),
 	z.object({request: z.string(), allow: z.literal(true), agentId: z.string().min(1)}),
-	z.object({request: z.string(), allow: z.literal(true), providerId: z.string().min(1)}),
+	z.object({request: z.string(), allow: z.literal(true), providerId: z.string().min(1), name: z.string().optional()}),
 ]);
 
-// The agent login the client works as: one of the organization's, not revoked, or a new one.
+// The agent login the client works as: one of the organization's, not revoked, or a new one, which
+// for a custom agent is named by the person.
 function chooseAgent(orgId: string, body: z.infer<typeof consentBodySchema>): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		if ('agentId' in body) {
@@ -160,7 +161,7 @@ function chooseAgent(orgId: string, body: z.infer<typeof consentBodySchema>): Pr
 			return agent.id;
 		}
 		if ('providerId' in body) {
-			return $(await createAgentLogin(orgId, body.providerId)).agent.id;
+			return $(await createAgentLogin(orgId, body.providerId, body.name)).agent.id;
 		}
 		return $(Err(ApiErr.validationError('Choose an agent')));
 	});
