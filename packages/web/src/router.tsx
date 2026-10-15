@@ -41,6 +41,7 @@ import {ConnectionsPage} from '@/pages/connections-page';
 import {InfoPage} from '@/pages/info-page';
 import {LoginPage} from '@/pages/login-page';
 import {NewAgentPage} from '@/pages/new-agent-page';
+import {SettingsPage} from '@/pages/settings-page';
 import {WelcomeConnectionPage, WelcomePage} from '@/pages/welcome-page';
 
 // The human side's guard: no session sends the user to /login, and back here after. An
@@ -141,6 +142,7 @@ export const router = createBrowserRouter([
 			{path: '/agents/:id', loader: agentLoader, element: <AgentPage />},
 			{path: '/agents/:id/setup', loader: agentSetupLoader, element: <AgentSetupPage />},
 			{path: '/activity', loader: activityLoader, element: <ActivityPage />},
+			{path: '/settings', element: <SettingsPage />},
 		],
 	},
 	{

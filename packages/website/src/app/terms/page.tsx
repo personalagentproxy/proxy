@@ -163,11 +163,12 @@ export default function TermsPage() {
 
 			<LegalSection title="Termination">
 				<p>
-					You can stop using the Services at any time and ask us to delete your account by writing
-					to {LEGAL.contactEmail}. We may suspend or end your access to the Services, or any part of
-					them, at any time, with or without notice, for any or no reason, including if we believe
-					you broke these terms. On termination your right to use the Services ends; we may, but
-					need not, delete Your Content, and the sections that by their nature should survive do so.
+					You can stop using the Services at any time and delete your account in the Services&apos;
+					settings, or ask us to by writing to {LEGAL.contactEmail}. We may suspend or end your
+					access to the Services, or any part of them, at any time, with or without notice, for any
+					or no reason, including if we believe you broke these terms. On termination your right to
+					use the Services ends; we may, but need not, delete Your Content, and the sections that by
+					their nature should survive do so.
 				</p>
 			</LegalSection>
 

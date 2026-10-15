@@ -4,6 +4,7 @@ import {
 	LogOutIcon,
 	PlugIcon,
 	ScrollTextIcon,
+	SettingsIcon,
 	type LucideIcon,
 } from 'lucide-react';
 import {Link, useLocation, useRouteLoaderData} from 'react-router';
@@ -59,6 +60,16 @@ export function AppSidebar() {
 			</SidebarContent>
 			<SidebarFooter>
 				<SidebarMenu>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							isActive={pathname.startsWith('/settings')}
+							tooltip="Settings"
+							render={<Link to="/settings" onClick={() => setOpenMobile(false)} />}
+						>
+							<SettingsIcon />
+							<span>Settings</span>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<ThemeMenu />
 					</SidebarMenuItem>

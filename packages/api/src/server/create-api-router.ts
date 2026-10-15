@@ -28,7 +28,7 @@ import {handleNotionCallbackRoute, handleStartNotionRoute} from '../connections/
 import {handleConnectPostgresRoute, handleTestPostgresRoute} from '../connections/postgres/route';
 import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleRenameConnectionRoute, handleSetConnectionDefaultsRoute} from '../connections/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
-import {handleFinishOnboardingRoute, handleMeRoute} from '../me/route';
+import {handleDeleteMeRoute, handleFinishOnboardingRoute, handleMeRoute} from '../me/route';
 import {handleAuthorizeRoute, handleConsentRoute, handleGetAuthorizationRequestRoute} from '../oauth/authorize';
 import {handleAuthorizationServerMetadataRoute, handleProtectedResourceMetadataRoute} from '../oauth/metadata';
 import {handleRegisterClientRoute} from '../oauth/register';
@@ -60,6 +60,7 @@ export function createApiRouter(): express.Router {
 	router.use('/api/me', requireBrowserOrigin);
 	router.get('/api/me', withAuthResult('Me route', handleMeRoute));
 	router.post('/api/me/onboarded', withAuthResult('Finish onboarding route', handleFinishOnboardingRoute));
+	router.delete('/api/me', withAuth('Delete account route', handleDeleteMeRoute));
 
 	router.use('/api/connections', requireBrowserOrigin);
 	router.get('/api/connections', withAuthResult('List connections route', handleListConnectionsRoute));

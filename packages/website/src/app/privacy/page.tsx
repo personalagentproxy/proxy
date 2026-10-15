@@ -198,9 +198,10 @@ export default function PrivacyPage() {
 					including for as long as your account exists, and as needed to comply with the law,
 					resolve disputes and enforce our agreements. Disconnecting a service deletes its
 					credentials but doesn&apos;t by itself delete the other information we collected from it.
-					You can delete your account, and have the information in it deleted, by writing to{' '}
-					{LEGAL.contactEmail}. We may keep deidentified information, and copies in backups for a
-					limited time.
+					You can delete your account, and the information in it, at any time in the Services&apos;
+					settings, or by writing to {LEGAL.contactEmail}. Deleting it disconnects every connected
+					service, revoking our access with that service where it offers a way. We may keep
+					deidentified information, and copies in backups for a limited time.
 				</p>
 			</LegalSection>
 

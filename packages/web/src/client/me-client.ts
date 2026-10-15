@@ -34,3 +34,11 @@ export function getMe() {
 export function finishOnboarding() {
 	return apiSend('POST', '/api/me/onboarded');
 }
+
+/**
+ * Deletes the account: every connection is undone at its provider, then the user and everything
+ * in their organization; the session goes with it.
+ */
+export function deleteAccount() {
+	return apiSend('DELETE', '/api/me');
+}
