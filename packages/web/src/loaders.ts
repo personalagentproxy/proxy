@@ -11,6 +11,16 @@ import {redirect} from 'react-router';
 
 // The human side's pages, each loaded from the api on arrival and again after every change.
 
+// Home: what is connected, for the logos under its input. The page works without them, so a list
+// the api doesn't answer shows as empty rather than as an error.
+export async function homeLoader() {
+	const [connections, agents] = await Promise.all([listConnections(), listAgents()]);
+	return {
+		connections: connections.map((answer) => answer.connections).unwrapOr([]),
+		agents: agents.map((answer) => answer.agents).unwrapOr([]),
+	};
+}
+
 export async function connectionsLoader() {
 	const [connections, agents] = await Promise.all([listConnections(), listAgents()]);
 	return {

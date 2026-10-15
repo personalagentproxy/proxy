@@ -35,6 +35,7 @@ import {
 	type MessagePart,
 } from '../connections/google/gmail-api';
 import type {CommandRunner, Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
+import {gmailQuery, type EmailSearch} from './email-search';
 
 /**
  * Gmail as the `emails` collection, fetched live, the same email as any mailbox's: one list, 50 to
@@ -211,6 +212,21 @@ function listPage(target: RecordTarget, query: ListQuery): Promise<Result<Record
 				return toRecord(target.connection.account, draftId ? `draft-${draftId}` : message.id, message);
 			});
 			return {records, nextPage: page.nextPage};
+		}),
+	);
+}
+
+/**
+ * The newest emails a search in Gmail's syntax finds, all mail but Spam and Trash, at most
+ * `limit`, read with their headers alone: a list of a page would read 50. Drafts keep their
+ * message ids, as they are only shown.
+ */
+export function findGmailEmails(target: RecordTarget, search: EmailSearch, limit: number): Promise<Result<DataRecord[], ApiError>> {
+	return callGoogle(target.connection, (token) =>
+		Do(async ($) => {
+			const page = $(await listMessageIds(token, folderQuery(null, gmailQuery(search)), null));
+			const messages = $(present(await getMessageSummaries(token, page.items.slice(0, limit))));
+			return messages.flatMap((message) => (message ? [toRecord(target.connection.account, message.id, message)] : []));
 		}),
 	);
 }

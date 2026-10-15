@@ -8,7 +8,7 @@ import {findCollection, findIntegration, type Collection} from '@proxy/integrati
 // message the record tests open.
 type Folder = {path: string; specialUse?: string};
 type Stored = {uid: number; date: string; subject: string};
-type Criteria = {all?: boolean; uid?: string; text?: string; gmraw?: string};
+type Criteria = {all?: boolean; uid?: string; text?: string; gmraw?: string; from?: string; since?: string; or?: Criteria[]; not?: Criteria; to?: string; cc?: string};
 
 const UID_VALIDITY = 7n;
 
@@ -263,6 +263,37 @@ describe('emails', () => {
 
 		expect(result?.unwrapErr().kind).toBe('not_found');
 		expect(imap.calls).toEqual([]);
+	});
+});
+
+describe('findInboxEmails', () => {
+	test("searches the inbox in IMAP's own terms, newest first, at most as many as asked for", async () => {
+		imap.boxes.INBOX = fill(6, '2026-10-01T09:00:00Z');
+		const {findInboxEmails} = await import('./email-connector');
+		const found = (await findInboxEmails(target, {from: 'sam', words: [['Note']], since: '2026-10-01'}, 3)).unwrap();
+
+		expect(imap.opened).toBe('INBOX');
+		// IMAP ANDs one object's keys, so each further condition goes in as NOT NOT (…).
+		expect(imap.searches).toEqual([{from: 'sam', not: {not: {text: 'Note', not: {not: {since: '2026-10-01'}}}}}]);
+		expect(found.map((record) => record.values.subject)).toEqual(['Note 6', 'Note 5', 'Note 4']);
+	});
+
+	test("searches in Gmail's syntax on Gmail, and everything without a search", async () => {
+		const {findInboxEmails} = await import('./email-connector');
+		imap.gmail = true;
+		await findInboxEmails(target, {from: 'sam', words: [['Note']], since: null}, 3);
+		imap.gmail = false;
+		await findInboxEmails(target, {from: null, words: [], since: null}, 3);
+		await findInboxEmails(target, {from: null, involving: 'jacky', words: [], since: null}, 3);
+
+		await findInboxEmails(target, {from: null, words: [['flight', 'itinerary'], ['SFO']], since: null}, 3);
+
+		expect(imap.searches).toEqual([
+			{gmraw: 'from:sam Note'},
+			{all: true},
+			{or: [{from: 'jacky'}, {to: 'jacky'}, {cc: 'jacky'}]},
+			{or: [{text: 'flight'}, {text: 'itinerary'}], not: {not: {text: 'SFO'}}},
+		]);
 	});
 });
 

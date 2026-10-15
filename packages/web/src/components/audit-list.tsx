@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import {AuditEntryDialog} from '@/components/audit-entry-dialog';
 import {EmptyRows, RowHeader, RowList} from '@/components/row-list';
-import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
+import {AgentLogo, IntegrationLogo, ProxyLogo} from '@/components/brand-logo';
 import {connectionLabel, describeEntry, locateEntry} from '@/lib/access';
 import {formatDateTime} from '@/lib/format';
 import type {AgentLogin, AuditEntry, Connection} from '@/lib/types';
@@ -27,6 +27,20 @@ function NamedLogo({name, logo}: {name: string; logo: ReactNode}) {
 	);
 }
 
+// The agent an entry was made by, or Personal Agent Proxy for what it did itself.
+function EntryAgentLogo({agentId, agent}: {agentId: string | null; agent: AgentLogin | undefined}) {
+	if (agentId === null) {
+		return <NamedLogo name="Personal Agent Proxy" logo={<ProxyLogo />} />;
+	}
+
+	return (
+		<NamedLogo
+			name={agent?.name ?? 'Deleted agent'}
+			logo={agent && <AgentLogo providerId={agent.providerId} />}
+		/>
+	);
+}
+
 type Props = {
 	entries: AuditEntry[];
 	// To name each entry's agent and connection, while they still exist.
@@ -39,7 +53,8 @@ type Props = {
 
 // The audit log's lines: when, which agent, what it did, and where, the agent and the connection
 // each a logo with its name in a tooltip. Denied requests read in red; those that came in over MCP
-// say so. A row opens the entry in full.
+// say so. What Personal Agent Proxy did itself, as the home page's widgets write, reads as its own.
+// A row opens the entry in full.
 export function AuditList({
 	entries,
 	agents,
@@ -75,12 +90,7 @@ export function AuditList({
 								className="flex h-10 w-full items-center gap-3 px-4 text-left text-sm hover:bg-muted/50 active:bg-muted/50 md:px-3"
 							>
 								<span className={CELLS.at}>{formatDateTime(entry.at)}</span>
-								{showAgent && (
-									<NamedLogo
-										name={agent?.name ?? 'Deleted agent'}
-										logo={agent && <AgentLogo providerId={agent.providerId} />}
-									/>
-								)}
+								{showAgent && <EntryAgentLogo agentId={entry.agentId} agent={agent} />}
 								<span className={cn('min-w-0 flex-1 truncate', denied && 'text-destructive')}>
 									{describeEntry(entry, located)}
 									{entry.via === 'mcp' && (

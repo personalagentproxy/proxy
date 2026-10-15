@@ -173,6 +173,21 @@ async function connector() {
 	return googleConnector;
 }
 
+describe('findGmailEmails', () => {
+	test("searches all mail in Gmail's syntax and reads only as many as asked for, by their message ids", async () => {
+		const {findGmailEmails} = await import('./google-emails');
+		const found = (await findGmailEmails(target, {from: 'Sam Lee', words: [['planning']], since: '2026-09-01'}, 2)).unwrap();
+
+		const [list] = calls('GET', '/messages');
+		expect(Object.fromEntries(list?.url.searchParams ?? [])).toEqual({maxResults: '50', q: 'from:"Sam Lee" planning after:2026/09/01'});
+		expect(found.map((record) => [record.id, record.values.subject])).toEqual([
+			['m1', 'Q3 planning'],
+			['m2', 'Re: dinner'],
+		]);
+		expect(calls('GET', '/messages/m3')).toHaveLength(0);
+	});
+});
+
 describe('list', () => {
 	test('a folder is its label, the search Gmail’s own, from the page token given, each message read for its headers', async () => {
 		const page = (await (await connector()).list(target, query({filter: 'Inbox', search: 'from:sam', page: 'page-1'}))).unwrap();

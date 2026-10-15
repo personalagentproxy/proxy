@@ -40,6 +40,7 @@ services:
       PLAID_ENV: ${PLAID_ENV:-}
       RESEND_KEY: ${RESEND_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      OPENROUTER_KEY: ${OPENROUTER_KEY:-}
       TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-}
     logging: *logging
 

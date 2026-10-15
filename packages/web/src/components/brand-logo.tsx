@@ -21,21 +21,30 @@ function LogoTile({children, className}: {children: ReactNode; className?: strin
 }
 
 // A custom agent has no logo of its own, so it gets a robot.
-export function AgentLogo({providerId}: {providerId: string}) {
+export function AgentLogo({providerId, className}: {providerId: string; className?: string}) {
 	const provider = findAgentProvider(providerId);
 	if (provider?.custom) {
 		return (
-			<LogoTile>
+			<LogoTile className={className}>
 				<BotIcon className="size-[60%] text-neutral-500" />
 			</LogoTile>
 		);
 	}
 
 	return (
-		<LogoTile>
+		<LogoTile className={className}>
 			{provider?.faviconUrl && (
 				<img src={provider.faviconUrl} alt="" className="size-full object-contain p-[2px]" />
 			)}
+		</LogoTile>
+	);
+}
+
+// Personal Agent Proxy's own mark, for what it did itself in the activity log.
+export function ProxyLogo() {
+	return (
+		<LogoTile>
+			<img src="/favicon.svg" alt="" className="size-full object-contain p-[2px]" />
 		</LogoTile>
 	);
 }

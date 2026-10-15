@@ -28,6 +28,7 @@ import {handleNotionCallbackRoute, handleStartNotionRoute} from '../connections/
 import {handleConnectPlaidRoute, handleCreatePlaidLinkTokenRoute} from '../connections/plaid/route';
 import {handleConnectPostgresRoute, handleTestPostgresRoute} from '../connections/postgres/route';
 import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleRenameConnectionRoute, handleSetConnectionDefaultsRoute} from '../connections/route';
+import {handleClassifyIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
 import {handleDeleteMeRoute, handleFinishOnboardingRoute, handleMeRoute} from '../me/route';
 import {handleAuthorizeRoute, handleConsentRoute, handleGetAuthorizationRequestRoute} from '../oauth/authorize';
@@ -35,6 +36,12 @@ import {handleAuthorizationServerMetadataRoute, handleProtectedResourceMetadataR
 import {handleRegisterClientRoute} from '../oauth/register';
 import {handleTokenRoute} from '../oauth/token';
 import {handleCreateRecordRoute, handleDeleteRecordRoute, handleGetRecordRoute, handleListRecordsRoute, handleUpdateRecordRoute} from '../records/route';
+import {handleAgendaRoute} from '../widgets/agenda';
+import {handleFindEmailsRoute, handleMailboxesRoute, handleWriteEmailRoute} from '../widgets/emails';
+import {handleFindFilesRoute} from '../widgets/files';
+import {handleCreateEventRoute} from '../widgets/new-event';
+import {handlePeopleRoute} from '../widgets/people';
+import {handleRatesRoute} from '../widgets/rates';
 import {allowAnyOrigin} from './middleware/allow-any-origin';
 import {requireBrowserOrigin} from './middleware/require-browser-origin';
 import {withAgentAuthResult} from './middleware/require-agent';
@@ -108,6 +115,21 @@ export function createApiRouter(): express.Router {
 
 	router.use('/api/activity', requireBrowserOrigin);
 	router.get('/api/activity', withAuthResult('List activity route', handleListActivityRoute));
+
+	// The home page: which widget fits what the person types, and the entities in it.
+	router.use('/api/intent', requireBrowserOrigin);
+	router.post('/api/intent', withAuthResult('Classify intent route', handleClassifyIntentRoute));
+	// Its widgets: every connection with the collection a widget is about, read at once, and
+	// written to as the person picks.
+	router.use('/api/widgets', requireBrowserOrigin);
+	router.get('/api/widgets/people', withAuthResult('Widget people route', handlePeopleRoute));
+	router.get('/api/widgets/agenda', withAuthResult('Widget agenda route', handleAgendaRoute));
+	router.post('/api/widgets/events', withAuthResult('Widget create event route', handleCreateEventRoute));
+	router.get('/api/widgets/emails', withAuthResult('Widget find emails route', handleFindEmailsRoute));
+	router.post('/api/widgets/emails', withAuthResult('Widget write email route', handleWriteEmailRoute));
+	router.get('/api/widgets/mailboxes', withAuthResult('Widget mailboxes route', handleMailboxesRoute));
+	router.get('/api/widgets/files', withAuthResult('Widget find files route', handleFindFilesRoute));
+	router.get('/api/widgets/rates', withAuthResult('Widget exchange rates route', handleRatesRoute));
 
 	// The agent side: its own sign-in and cookie, and every request checked against the agent's
 	// access and logged.

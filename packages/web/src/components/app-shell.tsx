@@ -5,7 +5,9 @@ import {useDesktop} from '@proxy/ui/hooks/use-media-query';
 
 type Props = {
 	children: ReactNode;
-	title: ReactNode;
+	// The header's title; a page without one, as Home, has no header, and on a phone the sidebar's
+	// button alone in its corner.
+	title?: ReactNode;
 	actions?: ReactNode;
 };
 
@@ -18,13 +20,20 @@ export function AppShell({children, title, actions}: Props) {
 		<>
 			<AppSidebar />
 			<div className="relative flex min-h-dvh w-full min-w-0 flex-1 flex-col bg-background text-foreground">
-				<header className="sticky top-0 z-20 flex h-12 items-center justify-between gap-4 border-b bg-background px-4">
-					<div className="flex min-w-0 flex-1 items-center gap-2">
-						{!desktop && <SidebarTrigger />}
-						{title}
+				{title !== undefined && (
+					<header className="sticky top-0 z-20 flex h-12 items-center justify-between gap-4 border-b bg-background px-4">
+						<div className="flex min-w-0 flex-1 items-center gap-2">
+							{!desktop && <SidebarTrigger />}
+							{title}
+						</div>
+						{actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+					</header>
+				)}
+				{title === undefined && !desktop && (
+					<div className="absolute top-2 left-4 z-20">
+						<SidebarTrigger />
 					</div>
-					{actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
-				</header>
+				)}
 				<main className="mx-auto w-full max-w-3xl px-4 pt-6 pb-12">{children}</main>
 			</div>
 		</>

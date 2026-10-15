@@ -9,7 +9,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '@proxy/ui/components/dialog';
-import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
+import {AgentLogo, IntegrationLogo, ProxyLogo} from '@/components/brand-logo';
 import {describeEntry, entryAction, locateEntry} from '@/lib/access';
 import type {AgentLogin, AuditEntry, Connection} from '@/lib/types';
 
@@ -91,14 +91,21 @@ function AuditEntryContent({
 					)}
 				</Detail>
 				<Detail label="Agent">
-					{agent ? (
+					{entry.agentId === null && (
+						<>
+							<ProxyLogo />
+							<span className="min-w-0 truncate">Personal Agent Proxy</span>
+						</>
+					)}
+					{entry.agentId !== null && agent && (
 						<>
 							<AgentLogo providerId={agent.providerId} />
 							<Link to={`/agents/${agent.id}`} className="min-w-0 truncate hover:underline">
 								{agent.name}
 							</Link>
 						</>
-					) : (
+					)}
+					{entry.agentId !== null && !agent && (
 						<span className="text-muted-foreground">Deleted agent</span>
 					)}
 				</Detail>

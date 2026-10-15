@@ -80,7 +80,8 @@ export function integrationOf(connection: {
 // `/api/connections/<id>/start`: the api sends the browser on to the service, and back to the new
 // connection, or to the catalog with `?error=<id>` when it didn't finish, or with
 // `?error=<id>-unconfigured` when the server lacks what it needs. Started with
-// `?returnTo=welcome`, it comes back to the welcome flow's page for the connection, or its catalog;
+// `?returnTo=welcome`, it comes back to the welcome flow's page for the connection, or its catalog,
+// and with `?returnTo=home`, from a home page widget, to the home page;
 // with `?account=`, as signing in again from a connection does, the service opens on that account
 // where it can.
 const SIGN_IN: IntegrationId[] = ['google', 'granola', 'notion', 'linear'];
@@ -88,7 +89,7 @@ const SIGN_IN: IntegrationId[] = ['google', 'granola', 'notion', 'linear'];
 /** Where signing in to an integration starts, or null for one connected on a form of its own. */
 export function signInPath(
 	integrationId: string,
-	query: {returnTo?: 'welcome'; account?: string} = {},
+	query: {returnTo?: 'welcome' | 'home'; account?: string} = {},
 ): string | null {
 	if (!SIGN_IN.some((id) => id === integrationId)) {
 		return null;

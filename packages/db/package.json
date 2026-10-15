@@ -14,7 +14,8 @@
 		"./instance-meta": "./src/instance-meta.ts",
 		"./oauth": "./src/oauth.ts",
 		"./organization": "./src/organization.ts",
-		"./user": "./src/user.ts"
+		"./user": "./src/user.ts",
+		"./write-target": "./src/write-target.ts"
 	},
 	"scripts": {
 		"test": "bun test",

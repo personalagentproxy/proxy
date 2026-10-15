@@ -7,7 +7,8 @@ import {db} from '.';
 
 export type AuditEntryRow = {
 	id: string;
-	agentId: string;
+	// None for what Personal Agent Proxy did itself.
+	agentId: string | null;
 	connectionId: string;
 	collectionId: string;
 	// list, view, create, update or delete, or a command of the collection, such as `send`.
@@ -39,10 +40,29 @@ export async function logAgentRequest(data: {
 	});
 }
 
-/** Newest first, optionally only one agent's or one connection's requests. */
+/**
+ * Logs one thing Personal Agent Proxy did itself for a person, such as making an event from the
+ * home page: an entry without an agent, always allowed, since the person asked for it.
+ */
+export async function logProxyAction(data: {
+	orgId: string;
+	connectionId: string;
+	collectionId: string;
+	action: string;
+	recordTitle: string | null;
+}): Promise<Result<void, ApiError>> {
+	return wrapDb(async () => {
+		await db.auditEntry.create({data: {...data, agentId: null, query: null, outcome: 'allowed'}});
+	});
+}
+
+/**
+ * Newest first, optionally only one agent's or one connection's requests; an `agentId` of null is
+ * what Personal Agent Proxy did itself.
+ */
 export async function listAuditEntries(
 	orgId: string,
-	filter: {agentId?: string; connectionId?: string},
+	filter: {agentId?: string | null; connectionId?: string},
 	take: number,
 ): Promise<Result<AuditEntryRow[], ApiError>> {
 	return wrapDb(() =>

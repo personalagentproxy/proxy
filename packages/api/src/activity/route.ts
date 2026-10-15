@@ -12,7 +12,8 @@ const MAX_ENTRIES = 500;
 export type AuditEntryResponse = {
 	id: string;
 	at: string;
-	agentId: string;
+	// None for what Personal Agent Proxy did itself, as the home page's widgets write.
+	agentId: string | null;
 	connectionId: string;
 	collectionId: string;
 	// list, view, create, update or delete, or a command of the collection, such as `send`.
@@ -24,13 +25,17 @@ export type AuditEntryResponse = {
 	via: 'web' | 'mcp';
 };
 
+// `?agentId=proxy` is what Personal Agent Proxy did itself.
+const PROXY = 'proxy';
+
 const querySchema = z.object({agentId: z.string().min(1).optional(), connectionId: z.string().min(1).optional()});
 
 /** The organization's agent requests, newest first, the latest 500. */
 export function handleListActivityRoute(request: AuthenticatedRequest): Promise<Result<{entries: AuditEntryResponse[]}, ApiError>> {
 	return Do(async ($) => {
-		const filter = $(parseSchema(querySchema, request.query));
+		const {agentId, connectionId} = $(parseSchema(querySchema, request.query));
 		const orgId = $(await requireUserOrgId(request));
+		const filter = {...(agentId === undefined ? {} : {agentId: agentId === PROXY ? null : agentId}), ...(connectionId === undefined ? {} : {connectionId})};
 		const rows = $(await listAuditEntries(orgId, filter, MAX_ENTRIES));
 		return {entries: rows.map(({createdAt, ...entry}) => ({...entry, at: createdAt.toISOString()}))};
 	});

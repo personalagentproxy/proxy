@@ -24,6 +24,11 @@ const calendarSchema = z.object({
 	description: z.string().optional(),
 	primary: z.boolean().optional(),
 	timeZone: z.string().optional(),
+	// Whether Google Calendar shows it, as ticked in its list, and what the account may do in it:
+	// `owner` or `writer` make events, `reader` sees them, `freeBusyReader` only when it is busy.
+	selected: z.boolean().optional(),
+	accessRole: z.string().optional(),
+	backgroundColor: z.string().optional(),
 });
 
 export type GoogleCalendar = z.infer<typeof calendarSchema>;
@@ -106,16 +111,22 @@ export function getCalendar(accessToken: string, calendarId: string): Promise<Re
 	return googleRequest(accessToken, new URL(`${CALENDAR}/users/me/calendarList/${encodeURIComponent(calendarId)}`), calendarSchema);
 }
 
-/** A page of a calendar's events ending after `from`, soonest first, matching `search` where there is one. */
+/**
+ * A page of a calendar's events ending after `from`, and starting before `to` where it is given,
+ * soonest first, matching `search` where there is one.
+ */
 export async function listEvents(
 	accessToken: string,
 	calendarId: string,
-	args: {from: string; search: string | null; page: string | null},
+	args: {from: string; to?: string; search: string | null; page: string | null},
 ): Promise<Result<{events: GoogleEvent[]; nextPage: string | null}, ApiError>> {
 	const url = calendarUrl(calendarId, '/events');
 	url.searchParams.set('singleEvents', 'true');
 	url.searchParams.set('orderBy', 'startTime');
 	url.searchParams.set('timeMin', args.from);
+	if (args.to) {
+		url.searchParams.set('timeMax', args.to);
+	}
 	url.searchParams.set('maxResults', String(EVENTS_PAGE_SIZE));
 	if (args.search) {
 		url.searchParams.set('q', args.search);

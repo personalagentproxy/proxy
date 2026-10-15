@@ -42,7 +42,8 @@ export const dataRecordSchema = z.object({
 export const auditEntrySchema = z.object({
 	id: z.string(),
 	at: z.string(),
-	agentId: z.string(),
+	// None for what Personal Agent Proxy did itself, as the home page's widgets write.
+	agentId: z.string().nullable(),
 	connectionId: z.string(),
 	collectionId: z.string(),
 	action: z.string(),

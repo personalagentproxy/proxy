@@ -14,6 +14,7 @@ import {imapClientOptions, imapError, smtpError, smtpTransport} from '../connect
 import {log, serializeError} from '../observability/log';
 import {decryptSecret} from '../utils/secret-crypto';
 import type {CommandRunner, Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
+import {gmailQuery, type EmailSearch} from './email-search';
 
 /**
  * A mailbox over IMAP, signed in fresh for every request. Its one list is the inbox and the
@@ -229,6 +230,53 @@ async function folderPage(session: Session, search: string | null, before: numbe
 		return {messages: [], more: false};
 	}
 	return {messages: await client.fetchAll(uids.join(','), fields, {uid: true}), more: found.length > PAGE_SIZE};
+}
+
+// Any one of `conditions`.
+function anyOf(conditions: SearchObject[]): SearchObject {
+	return conditions.length === 1 && conditions[0] ? conditions[0] : {or: conditions};
+}
+
+// Every one of `conditions`. IMAP ANDs the keys of one object, so conditions that would share a key,
+// as two ORs do, go together as NOT NOT (…), which IMAP reads as the condition itself.
+function allOf(conditions: SearchObject[]): SearchObject {
+	const [first, ...rest] = conditions;
+	if (!first) {
+		return {all: true};
+	}
+	if (rest.length === 0) {
+		return first;
+	}
+	return {...first, not: {not: allOf(rest)}};
+}
+
+// A home page search in IMAP's own terms: from the sender, from, to or copied to someone, any of
+// each term's words anywhere in the email, received since the day.
+function imapCriteria(search: EmailSearch): SearchObject {
+	const {involving} = search;
+	return allOf([
+		...(search.from ? [{from: search.from}] : []),
+		...(involving ? [anyOf([{from: involving}, {to: involving}, {cc: involving}])] : []),
+		...search.words.filter((term) => term.length > 0).map((term) => anyOf(term.map((word) => ({text: word})))),
+		...(search.since ? [{since: search.since}] : []),
+	]);
+}
+
+/**
+ * The newest emails in the inbox a home page search finds, at most `limit`: in Gmail's syntax on
+ * Gmail, else in IMAP's own terms.
+ */
+export function findInboxEmails(target: RecordTarget, search: EmailSearch, limit: number): Promise<Result<DataRecord[], ApiError>> {
+	return withFolder(target, INBOX, async (session) => {
+		const {client} = session;
+		const criteria: SearchObject = isGmail(client) ? {gmraw: gmailQuery(search)} : imapCriteria(search);
+		const uids = ((await client.search(criteria, {uid: true})) || []).sort((a, b) => b - a).slice(0, limit);
+		if (uids.length === 0) {
+			return Ok([]);
+		}
+		const messages = await client.fetchAll(uids.join(','), {uid: true, envelope: true, internalDate: true, flags: true}, {uid: true});
+		return Ok(messages.sort((a, b) => b.uid - a.uid).map((message) => toRecord(session, message)));
+	});
 }
 
 // Where each folder goes on, in a page token: the folder, its UIDVALIDITY, and the UID listing

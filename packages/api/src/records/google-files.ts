@@ -123,7 +123,7 @@ function withDrive<T>(target: RecordTarget, run: (drive: Drive) => Promise<Resul
 	});
 }
 
-function kindOf(mimeType: string): string {
+export function kindOf(mimeType: string): string {
 	if (mimeType === MIME_TYPES.folder) {
 		return 'Folder';
 	}

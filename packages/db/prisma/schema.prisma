@@ -34,9 +34,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  accounts   Account[]
-  sessions   Session[]
-  orgMembers OrgMember[]
+  accounts     Account[]
+  sessions     Session[]
+  orgMembers   OrgMember[]
+  writeTargets WriteTarget[]
 }
 
 // A sign-in provider identity linked to a user, such as their Google account.
@@ -153,13 +154,36 @@ model Connection {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  org         Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  defaults    ConnectionDefault[]
-  infoRecords InfoRecord[]
-  agentGrants AgentGrant[]
+  org          Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  defaults     ConnectionDefault[]
+  infoRecords  InfoRecord[]
+  agentGrants  AgentGrant[]
+  writeTargets WriteTarget[]
 
   @@index([orgId])
   @@index([integrationId, providerAccountId])
+}
+
+// Where the home page's widgets write when there is more than one place: the calendar a new event
+// goes in, the mailbox an email goes out from. The last place each person wrote to, per
+// collection; none until they first write, and gone with the connection.
+model WriteTarget {
+  id           String  @id @default(cuid())
+  userId       String
+  // The collection written to, as the catalog names it: `events`, `emails`.
+  collectionId String
+  connectionId String
+  // Where in the connection, in a nested collection: a calendar's id.
+  parent       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, collectionId])
+  @@index([connectionId])
 }
 
 // An action of the connection that agents get by default, such as `read` or `archive` on a
@@ -265,12 +289,14 @@ enum AuditVia {
   mcp
 }
 
-// One request an agent made, allowed or denied. Plain ids rather than relations, so the entry
-// stays when the agent or the connection is gone.
+// One request an agent made, allowed or denied, or one thing Personal Agent Proxy did itself for a
+// person, as the home page's widgets write. Plain ids rather than relations, so the entry stays
+// when the agent or the connection is gone.
 model AuditEntry {
   id           String       @id @default(cuid())
   orgId        String
-  agentId      String
+  // None for what Personal Agent Proxy did itself.
+  agentId      String?
   connectionId String
   collectionId String
   // list, view, create, update or delete, or one of the collection's commands, such as `send`.

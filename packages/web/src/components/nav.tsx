@@ -1,5 +1,6 @@
 import {
 	BotIcon,
+	HomeIcon,
 	IdCardIcon,
 	LogOutIcon,
 	PlugIcon,
@@ -25,11 +26,18 @@ import {
 type Destination = {to: string; label: string; icon: LucideIcon};
 
 const DESTINATIONS: Destination[] = [
+	{to: '/', label: 'Home', icon: HomeIcon},
 	{to: '/connections', label: 'Connections', icon: PlugIcon},
 	{to: '/info', label: 'Information', icon: IdCardIcon},
 	{to: '/agents', label: 'Agents', icon: BotIcon},
 	{to: '/activity', label: 'Activity', icon: ScrollTextIcon},
 ];
+
+// Each destination is lit on its own pages too, as `/connections/:id`; Home only on itself, since
+// every path starts with `/`.
+function isActive(pathname: string, to: string): boolean {
+	return to === '/' ? pathname === '/' : pathname.startsWith(to);
+}
 
 // The stock shadcn sidebar: a rail in icon mode on desktop, labels in tooltips and ⌘B to expand
 // it; a sheet from the left on phones, opened from the header and closed again on every pick.
@@ -46,7 +54,7 @@ export function AppSidebar() {
 						{DESTINATIONS.map((destination) => (
 							<SidebarMenuItem key={destination.to}>
 								<SidebarMenuButton
-									isActive={pathname.startsWith(destination.to)}
+									isActive={isActive(pathname, destination.to)}
 									tooltip={destination.label}
 									render={<Link to={destination.to} onClick={() => setOpenMobile(false)} />}
 								>

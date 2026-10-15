@@ -16,6 +16,7 @@ import {
 	connectAgentLoader,
 	connectionLoader,
 	connectionsLoader,
+	homeLoader,
 	infoLoader,
 	welcomeConnectionLoader,
 	welcomeLoader,
@@ -39,6 +40,7 @@ import {AgentToolPage} from '@/pages/agent/agent-tool-page';
 import {ConnectAgentPage} from '@/pages/connect-agent-page';
 import {ConnectionPage} from '@/pages/connection-page';
 import {ConnectionsPage} from '@/pages/connections-page';
+import {HomePage} from '@/pages/home-page';
 import {InfoPage} from '@/pages/info-page';
 import {LoginPage} from '@/pages/login-page';
 import {NewAgentPage} from '@/pages/new-agent-page';
@@ -135,7 +137,7 @@ export const router = createBrowserRouter([
 		element: <HumanSide />,
 		errorElement: <RouteError />,
 		children: [
-			{path: '/', element: <Navigate to="/connections" replace />},
+			{path: '/', loader: homeLoader, element: <HomePage />},
 			{path: '/connections', loader: connectionsLoader, element: <ConnectionsPage />},
 			{path: '/connections/new', loader: addConnectionLoader, element: <AddConnectionPage />},
 			{path: '/connections/new/email', element: <AddEmailPage />},

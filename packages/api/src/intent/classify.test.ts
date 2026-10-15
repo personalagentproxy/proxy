@@ -1,0 +1,129 @@
+import {beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
+
+const mockEnv: {OPENROUTER_KEY?: string} = {};
+mock.module('../utils/env', () => ({env: mockEnv}));
+
+const text = 'Create a calendar invite with Jon Burke and Jacky Doe at One Boulevard Plaza at 7pm tomorrow';
+
+// What OpenRouter answers: the model's JSON as the message's text.
+let content = '';
+let status = 200;
+const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async () =>
+	status === 200 ? Response.json({choices: [{message: {content}}], provider: 'Cerebras'}) : Response.json({error: {message: 'down'}}, {status})) as unknown as typeof fetch);
+
+function answer(values: Record<string, string | string[] | string[][] | null>) {
+	content = JSON.stringify(values);
+}
+
+// The body of the request made to OpenRouter.
+function sent(): {
+	model: string;
+	messages: Array<{role: string; content: string}>;
+	provider: {order: string[]};
+	response_format: {json_schema: {schema: {required: string[]; properties: {widget: {enum: string[]}}}}};
+} {
+	return JSON.parse(String(fetchSpy.mock.calls.at(-1)?.[1]?.body));
+}
+
+beforeEach(() => {
+	fetchSpy.mockClear();
+	mockEnv.OPENROUTER_KEY = 'sk-or-1';
+	status = 200;
+	answer({
+		widget: 'new_event',
+		attendees: ['Jon Burke', ' Jacky Doe ', 'Jon Burke'],
+		location: 'One Boulevard Plaza',
+		title: null,
+		person: null,
+		to: [],
+		subject: null,
+		from: null,
+		about: null,
+		name: null,
+		owner: null,
+	});
+});
+
+describe('classifyIntent', () => {
+	test('asks gpt-oss-120b, on Cerebras first, for the widget and every field in one answer', async () => {
+		const {classifyIntent} = await import('./classify');
+		await classifyIntent(text);
+
+		const body = sent();
+		expect(body.model).toBe('openai/gpt-oss-120b');
+		expect(body.provider.order).toEqual(['Cerebras', 'Groq']);
+		expect(body.messages[1]).toEqual({role: 'user', content: text});
+		expect(body.messages[0]?.content).toContain('- find_file: Find or open a file');
+		const schema = body.response_format.json_schema.schema;
+		expect(schema.properties.widget.enum).toEqual(['new_event', 'find_person', 'write_email', 'find_email', 'find_file', 'calculate', 'convert_units', 'none']);
+		expect(schema.required).toEqual(['widget', 'attendees', 'location', 'title', 'person', 'to', 'subject', 'body', 'from', 'about', 'name', 'owner', 'expression', 'amount', 'fromUnit', 'toUnit']);
+	});
+
+	test("answers the picked widget's fields alone, each value trimmed and once", async () => {
+		const {classifyIntent} = await import('./classify');
+		const intent = (await classifyIntent(text)).unwrap();
+
+		expect(intent.widget).toBe('new_event');
+		expect(intent.fields).toEqual([
+			{id: 'attendees', name: 'Attendees', values: ['Jon Burke', 'Jacky Doe']},
+			{id: 'location', name: 'Location', values: ['One Boulevard Plaza']},
+			{id: 'title', name: 'Title', values: []},
+		]);
+	});
+
+	test('answers search terms as each one\'s words joined by " | "', async () => {
+		answer({widget: 'find_email', from: null, about: [['flight', ' itinerary ', 'e|ticket'], ['SFO'], []]});
+		const {classifyIntent} = await import('./classify');
+		const intent = (await classifyIntent('find the email about my flight to sfo')).unwrap();
+
+		expect(intent.fields).toEqual([
+			{id: 'from', name: 'From', values: []},
+			{id: 'about', name: 'About', values: ['flight | itinerary | e ticket', 'SFO']},
+		]);
+		const schema = sent().response_format.json_schema.schema as unknown as {properties: Record<string, object>};
+		expect(schema.properties.about).toEqual({type: 'array', items: {type: 'array', items: {type: 'string'}}});
+	});
+
+	test("every field id is one widget's alone, as the model answers them all in one object", async () => {
+		const {WIDGETS} = await import('./widgets');
+		const ids = WIDGETS.flatMap((widget) => widget.fields.map((field) => field.id));
+		expect(new Set(ids).size).toBe(ids.length);
+	});
+
+	test('holds a unit to the units there are', async () => {
+		const {classifyIntent} = await import('./classify');
+		await classifyIntent('5 miles in km');
+
+		const schema = sent().response_format.json_schema.schema as unknown as {properties: Record<string, {enum?: Array<string | null>}>};
+		expect(schema.properties.fromUnit?.enum).toContain('mi');
+		expect(schema.properties.toUnit?.enum).toContain(null);
+	});
+
+	test('none, or a widget there is no such of, has no fields', async () => {
+		const {classifyIntent} = await import('./classify');
+		for (const widget of ['none', 'make_coffee']) {
+			answer({widget});
+			expect((await classifyIntent('hi')).unwrap()).toMatchObject({widget: 'none', fields: []});
+		}
+	});
+
+	test('is unavailable without a key, and asks nothing', async () => {
+		delete mockEnv.OPENROUTER_KEY;
+		const {classifyIntent} = await import('./classify');
+
+		expect((await classifyIntent(text)).unwrapErr()).toMatchObject({kind: 'unavailable', message: 'The home page is not set up: set `OPENROUTER_KEY`.'});
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	test('OpenRouter failing, or the model answering outside the form, is a provider out of reach', async () => {
+		const {classifyIntent} = await import('./classify');
+
+		status = 503;
+		expect((await classifyIntent(text)).unwrapErr().kind).toBe('provider_unreachable');
+		status = 200;
+		content = 'Sure! Here is the form:';
+		expect((await classifyIntent(text)).unwrapErr().kind).toBe('provider_unreachable');
+		answer({attendees: ['Jon']});
+		expect((await classifyIntent(text)).unwrapErr().kind).toBe('provider_unreachable');
+	});
+});

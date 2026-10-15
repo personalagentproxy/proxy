@@ -15,9 +15,10 @@ const ALL = 'all';
 
 type Option = {value: string; label: string};
 
-// Every request an agent made, newest first, narrowed by agent and connection. The filters live
-// in the URL, so the agent and connection pages can link straight to their part of the log, and
-// the api applies them.
+// Every request an agent made, and what Personal Agent Proxy did itself from the home page,
+// newest first, narrowed by agent and connection. The filters live in the URL, so the agent and
+// connection pages can link straight to their part of the log, and the api applies them
+// (`?agent=proxy` for Personal Agent Proxy's own).
 export function ActivityPage() {
 	const {
 		entries,
@@ -40,6 +41,7 @@ export function ActivityPage() {
 
 	const agents: Option[] = [
 		{value: ALL, label: 'All agents'},
+		{value: 'proxy', label: 'Personal Agent Proxy'},
 		...allAgents.map((candidate) => ({value: candidate.id, label: candidate.name})),
 	];
 	const connections: Option[] = [
