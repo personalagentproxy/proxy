@@ -25,19 +25,24 @@ export function SettingsPage() {
 						{me.user.name && <AccountRow label="Name" value={me.user.name} />}
 					</RowList>
 				</Section>
-				<Section
-					title="Delete account"
-					action={
-						<Button size="xs" variant="destructive" onClick={() => setDeleting(true)}>
+				<section className="overflow-hidden rounded-xl border border-destructive/40">
+					<div className="grid gap-1 p-4">
+						<h2 className="text-sm font-medium">Delete account</h2>
+						<p className="text-sm text-muted-foreground">
+							Permanently delete your account and everything in it. Every connection is
+							disconnected, at its provider too where it has a way, and your information, agents and
+							their activity are deleted. This can't be undone.
+						</p>
+					</div>
+					<div className="flex justify-end border-t border-destructive/40 bg-destructive/5 px-4 py-3">
+						<Button
+							className="bg-destructive text-white hover:bg-destructive/90"
+							onClick={() => setDeleting(true)}
+						>
 							Delete account
 						</Button>
-					}
-				>
-					<p className="text-sm text-muted-foreground md:px-3">
-						Disconnects every connection, at its provider too where it has a way, as Google's access
-						is revoked, and deletes your information, agents and their activity.
-					</p>
-				</Section>
+					</div>
+				</section>
 			</div>
 			<DeleteAccountDialog
 				key={String(deleting)}
