@@ -45,14 +45,20 @@ export default function PrivacyPage() {
 				</p>
 				<p>
 					<span className="text-foreground">Information from your connected services.</span> When
-					you connect a service, such as an email account, a calendar, a file or document store, a
-					note-taking or project tool, a bank or other financial account, a database or a server
-					that speaks MCP, we collect the credentials needed to reach it and, depending on the
-					permissions you give your agents, information from that service: the content and metadata
-					of the messages, files, documents, events, contacts, notes, records, accounts,
-					transactions and other data your agents request, and the results of the actions they take.
-					Some of this may be sensitive, such as private communications, financial information or
-					health information, depending on what you connect and what you let your agents do.
+					you connect a service, such as an email account, a calendar, an address book, a file or
+					document store, a note-taking, meeting-notes or project-management tool, a bank, card or
+					other financial account, a database or any other service that speaks MCP, we collect the
+					credentials needed to reach it and, depending on the permissions you give your agents,
+					information from that service, which may include: emails and other messages, with their
+					attachments; calendars, events and invitations, with their guests and responses; contacts;
+					files, folders, documents, spreadsheets, presentations and pages; notes, meeting notes and
+					transcripts; issues, tasks, projects and comments; database tables, rows and query
+					results; financial accounts, with their names, types, the last digits of their numbers,
+					balances and limits, and their transactions, with amounts, dates, merchants, categories
+					and locations; anything else a connected service returns to your agents; the metadata of
+					all of these; and the results of the actions your agents take. Some of this may be
+					sensitive, such as private communications, financial information or health information,
+					depending on what you connect and what you let your agents do.
 				</p>
 				<p>
 					<span className="text-foreground">Information about your agents&apos; activity.</span> We
