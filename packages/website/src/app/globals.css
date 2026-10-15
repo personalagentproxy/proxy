@@ -23,7 +23,7 @@
 }
 
 /* LogoDock's sides: from the start of the middle copy of the logos to the start of the last, so
-   jumping back is invisible. Each side sets its own duration and delay. */
+   jumping back is invisible. Each side sets its own duration. */
 @keyframes logo-marquee {
 	from {
 		transform: translateY(calc(-100% / 3));
