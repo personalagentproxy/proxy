@@ -1,6 +1,6 @@
 import type {Collection} from '@proxy/integrations';
 import {Fragment, type ReactNode} from 'react';
-import {Link, useNavigate} from 'react-router';
+import {Link, useNavigate, useParams} from 'react-router';
 import {signOutAgent} from '@/client/agent-client';
 import {AgentLogo} from '@/components/brand-logo';
 import {Button} from '@proxy/ui/components/button';
@@ -9,9 +9,15 @@ import {useAgentMe} from '@/hooks/use-agent-target';
 
 // The agent side's frame. Built for a model driving a browser: no sidebar, no icon-only controls
 // and nothing that only shows on hover, so every action is a labeled link or button on the page.
-export function AgentShell({children}: {children: ReactNode}) {
+// Every page but the feedback form ends with a link to it, about the connection and the tool it is on.
+export function AgentShell({children, feedback = true}: {children: ReactNode; feedback?: boolean}) {
 	const navigate = useNavigate();
 	const agent = useAgentMe()?.agent;
+	const {connectionId, toolName} = useParams();
+	const about = new URLSearchParams({
+		...(connectionId ? {connection: connectionId} : {}),
+		...(toolName ? {tool: toolName} : {}),
+	}).toString();
 
 	return (
 		<div className="flex min-h-dvh w-full flex-col bg-background text-foreground">
@@ -40,6 +46,18 @@ export function AgentShell({children}: {children: ReactNode}) {
 				</div>
 			</header>
 			<main className="mx-auto w-full max-w-3xl px-4 pt-6 pb-12">{children}</main>
+			{feedback && (
+				<footer className="mx-auto w-full max-w-3xl px-4 pb-8 text-sm text-muted-foreground md:px-7">
+					Something here not working as you expected?{' '}
+					<Link
+						to={about ? `/agent/feedback?${about}` : '/agent/feedback'}
+						className="underline underline-offset-4 hover:text-foreground"
+					>
+						Send feedback
+					</Link>{' '}
+					to the makers of Personal Agent Proxy.
+				</footer>
+			)}
 		</div>
 	);
 }

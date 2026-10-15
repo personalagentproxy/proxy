@@ -9,6 +9,7 @@
 		"./audit": "./src/audit.ts",
 		"./auth": "./src/auth.ts",
 		"./connection": "./src/connection.ts",
+		"./feedback": "./src/feedback.ts",
 		"./info": "./src/info.ts",
 		"./instance-meta": "./src/instance-meta.ts",
 		"./oauth": "./src/oauth.ts",

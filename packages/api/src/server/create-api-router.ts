@@ -2,7 +2,7 @@ import express from 'express';
 
 import {handleListActivityRoute} from '../activity/route';
 import {handleAgentLoginRoute, handleAgentLogoutRoute} from '../agent-auth/session';
-import {handleAgentListToolsRoute, handleAgentMeRoute, handleAgentRunToolRoute} from '../agent-side/route';
+import {handleAgentFeedbackRoute, handleAgentListToolsRoute, handleAgentMeRoute, handleAgentRunToolRoute} from '../agent-side/route';
 import {
 	handleCreateAgentRoute,
 	handleDeleteAgentRoute,
@@ -113,6 +113,7 @@ export function createApiRouter(): express.Router {
 	router.get('/api/agent/me', withAgentAuthResult('Agent me route', handleAgentMeRoute));
 	router.get('/api/agent/connections/:connectionId/tools', withAgentAuthResult('Agent list tools route', handleAgentListToolsRoute));
 	router.post('/api/agent/connections/:connectionId/tools/:toolName', withAgentAuthResult('Agent run tool route', handleAgentRunToolRoute));
+	router.post('/api/agent/feedback', withAgentAuthResult('Agent feedback route', handleAgentFeedbackRoute));
 
 	// MCP clients such as Claude, ChatGPT and Poke: the MCP server, signed in with OAuth 2.1, where
 	// Personal Agent Proxy is its own authorization server. Clients find it from the MCP server's

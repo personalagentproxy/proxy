@@ -105,6 +105,7 @@ model Organization {
   connections Connection[]
   agents      Agent[]
   audit       AuditEntry[]
+  feedback    AgentFeedback[]
 }
 
 model OrgMember {
@@ -282,6 +283,30 @@ model AuditEntry {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId, createdAt])
+}
+
+// What an agent told the makers of Personal Agent Proxy, such as a tool that didn't work as it
+// expected: sent with the MCP server's send_feedback or the agent pages' feedback form, and read
+// by us, never shown in the app. Plain ids, like the activity log, so it stays when the agent or
+// the connection is gone; it goes with the organization.
+model AgentFeedback {
+  id           String   @id @default(cuid())
+  orgId        String
+  agentId      String
+  // The agent's AGENT_PROVIDERS id, such as `claude`, kept beside the login it came from.
+  providerId   String
+  message      String
+  // The connection and the tool it is about, where the agent named them.
+  connectionId String?
+  tool         String?
+  via          AuditVia
+
+  createdAt DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([createdAt])
 }
 
 // An MCP client that registered itself to sign agents in, such as Claude or ChatGPT (OAuth

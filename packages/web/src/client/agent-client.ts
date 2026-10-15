@@ -96,3 +96,11 @@ export function runAgentRecordTool(
 		},
 	);
 }
+
+/**
+ * Feedback for the makers of Personal Agent Proxy, such as a page that didn't work as the agent
+ * expected, and the connection and tool it is about where there are any.
+ */
+export function sendAgentFeedback(feedback: {message: string; connection?: string; tool?: string}) {
+	return apiRequest('POST', '/api/agent/feedback', z.object({sent: z.literal(true)}), feedback);
+}

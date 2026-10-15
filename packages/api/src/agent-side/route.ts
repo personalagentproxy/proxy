@@ -5,6 +5,7 @@ import {type ApiError, Do, parseSchema} from '@proxy/utils';
 import type {Tool} from '@proxy/integrations';
 
 import type {AgentRequest} from '../server/middleware/require-agent';
+import {sendAgentFeedback} from './feedback';
 import {listAgentConnections, listAgentTools, runAgentTool, type AgentConnection, type ToolResult} from './tools';
 
 // The agent side over HTTP, for the web app's agent pages: the same connections, tools and runs
@@ -28,4 +29,9 @@ export function handleAgentRunToolRoute(request: AgentRequest): Promise<Result<T
 		const {params} = $(parseSchema(runToolBodySchema, request.body ?? {}));
 		return $(await runAgentTool({agent: request.agent, via: 'web'}, request.params.connectionId ?? '', request.params.toolName ?? '', params));
 	});
+}
+
+/** `POST /api/agent/feedback` with `{message, connection?, tool?}`: feedback for the makers of Personal Agent Proxy. */
+export function handleAgentFeedbackRoute(request: AgentRequest): Promise<Result<{sent: true}, ApiError>> {
+	return sendAgentFeedback({agent: request.agent, via: 'web'}, request.body ?? {});
 }

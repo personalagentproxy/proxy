@@ -7,6 +7,10 @@ const listAgentConnections = mock();
 
 mock.module('./tools', () => ({runAgentTool, listAgentTools, listAgentConnections}));
 
+const sendAgentFeedback = mock();
+
+mock.module('./feedback', () => ({sendAgentFeedback}));
+
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dots'};
 
 function makeRequest(params: Record<string, string>, body: unknown = undefined) {
@@ -51,5 +55,16 @@ describe('handleAgentListToolsRoute', () => {
 
 		expect(result.unwrap()).toEqual({tools: []});
 		expect(listAgentTools).toHaveBeenCalledWith(signedIn, 'mail-1');
+	});
+});
+
+describe('handleAgentFeedbackRoute', () => {
+	test('sends the body as feedback from the signed-in agent, over the web', async () => {
+		sendAgentFeedback.mockResolvedValue(Ok({sent: true}));
+		const {handleAgentFeedbackRoute} = await import('./route');
+		const result = await handleAgentFeedbackRoute(makeRequest({}, {message: 'Save did nothing'}));
+
+		expect(result.unwrap()).toEqual({sent: true});
+		expect(sendAgentFeedback).toHaveBeenCalledWith({agent: signedIn, via: 'web'}, {message: 'Save did nothing'});
 	});
 });

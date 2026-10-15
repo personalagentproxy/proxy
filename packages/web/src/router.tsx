@@ -29,6 +29,7 @@ import {AgentPage} from '@/pages/agent-page';
 import {AgentSetupPage} from '@/pages/agent-setup-page';
 import {AgentsPage} from '@/pages/agents-page';
 import {AgentCollectionPage} from '@/pages/agent/agent-collection-page';
+import {AgentFeedbackPage} from '@/pages/agent/agent-feedback-page';
 import {AgentHomePage} from '@/pages/agent/agent-home-page';
 import {AgentLoginPage} from '@/pages/agent/agent-login-page';
 import {AgentNewRecordPage} from '@/pages/agent/agent-new-record-page';
@@ -149,6 +150,7 @@ export const router = createBrowserRouter([
 		errorElement: <RouteError />,
 		children: [
 			{path: '/agent', element: <AgentHomePage />},
+			{path: '/agent/feedback', element: <AgentFeedbackPage />},
 			// A custom MCP server's tool, which has no collection.
 			{path: '/agent/:connectionId/tool/:toolName', element: <AgentToolPage />},
 			{

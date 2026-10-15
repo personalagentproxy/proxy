@@ -267,9 +267,10 @@ async function visit(pattern: string, url: string, capture: boolean): Promise<vo
 		[...document.querySelectorAll<HTMLAnchorElement>('a[href]')].map((anchor) => ({
 			href: anchor.getAttribute('href') ?? '',
 			text: anchor.innerText.trim() || anchor.getAttribute('aria-label') || '',
-			// The sidebar, breadcrumbs, and the agent side's brand, which leads home from every page.
+			// The sidebar, breadcrumbs, and the agent side's brand and feedback link, which lead home
+			// and to the feedback form from every page.
 			nav:
-				anchor.closest('[data-slot="sidebar"], nav') !== null ||
+				anchor.closest('[data-slot="sidebar"], nav, footer') !== null ||
 				(anchor.closest('header') !== null && anchor.getAttribute('href') === '/agent'),
 		})),
 	);
