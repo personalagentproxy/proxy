@@ -29,9 +29,9 @@ export function SettingsPage() {
 					<div className="grid gap-1 p-4">
 						<h2 className="text-sm font-medium">Delete account</h2>
 						<p className="text-sm text-muted-foreground">
-							Permanently delete your account and everything in it. Every connection is
-							disconnected, at its provider too where it has a way, and your information, agents and
-							their activity are deleted. This can't be undone.
+							Every connection is first invalidated at the provider (where possible), and then
+							deleted from Personal Agent Proxy, along with your information, agents and activity.
+							This cannot be undone.
 						</p>
 					</div>
 					<div className="flex justify-end border-t border-destructive/40 bg-destructive/5 px-4 py-3">

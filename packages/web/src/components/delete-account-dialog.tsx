@@ -54,9 +54,9 @@ export function DeleteAccountDialog({open, email, onClose, onDelete}: Props) {
 					<DialogHeader>
 						<DialogTitle>Delete your account?</DialogTitle>
 						<DialogDescription>
-							Every connection is disconnected, at its provider too where it has a way, and your
-							information, agents and activity are deleted. Agents lose access at once. This can't
-							be undone.
+							Every connection is first invalidated at the provider (where possible), and then
+							deleted from Personal Agent Proxy, along with your information, agents and activity.
+							This cannot be undone.
 						</DialogDescription>
 					</DialogHeader>
 					<div className="grid gap-2">
