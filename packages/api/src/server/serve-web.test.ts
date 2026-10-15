@@ -63,7 +63,7 @@ describe('the web app on the api origin', () => {
 
 	test("leaves the api's paths to the api, with or without a trailing slash", async () => {
 		expect(await (await fetch(`${base}/health`)).json()).toEqual({ok: true});
-		expect(await (await fetch(`${base}/auth/methods`)).json()).toEqual({google: false, needs: {google: false}});
+		expect(await (await fetch(`${base}/auth/methods`)).json()).toEqual({google: false, needs: {google: false, plaid: false}});
 
 		for (const path of ['/api', '/api/nope', '/auth', '/auth/nope', '/agent-auth', '/agent-auth/nope']) {
 			const res = await fetch(`${base}${path}`);

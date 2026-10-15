@@ -37,12 +37,18 @@ const mockEnv: {
 	GOOGLE_CLIENT_ID: string | undefined;
 	GOOGLE_CLIENT_SECRET: string;
 	ALLOWED_SIGNUP_EMAILS: string[] | undefined;
+	PLAID_CLIENT_ID: string | undefined;
+	PLAID_SECRET: string;
+	PLAID_ENV: string;
 } = {
 	NODE_ENV: 'production',
 	ALLOWED_SIGNUP_EMAILS: undefined,
 	APP_URL: 'https://app.example.com',
 	GOOGLE_CLIENT_ID: 'google-client-id',
 	GOOGLE_CLIENT_SECRET: 'google-client-secret',
+	PLAID_CLIENT_ID: undefined,
+	PLAID_SECRET: 'plaid-secret',
+	PLAID_ENV: 'sandbox',
 };
 
 mock.module('../utils/env', () => ({env: mockEnv}));
@@ -136,6 +142,7 @@ beforeEach(() => {
 	mockEnv.APP_URL = 'https://app.example.com';
 	mockEnv.GOOGLE_CLIENT_ID = 'google-client-id';
 	mockEnv.ALLOWED_SIGNUP_EMAILS = undefined;
+	mockEnv.PLAID_CLIENT_ID = undefined;
 	mockTokenExchangeSuccess();
 	getAccountByProvider.mockResolvedValue(Ok(null));
 	getUserByEmail.mockResolvedValue(Ok(null));
@@ -152,12 +159,12 @@ describe('handleSignInMethodsRoute', () => {
 
 		const configured = makeRes();
 		handleSignInMethodsRoute({} as never, configured as never);
-		expect(configured.json).toHaveBeenCalledWith({google: true, needs: {google: true}});
+		expect(configured.json).toHaveBeenCalledWith({google: true, needs: {google: true, plaid: false}});
 
 		mockEnv.GOOGLE_CLIENT_ID = undefined;
 		const unconfigured = makeRes();
 		handleSignInMethodsRoute({} as never, unconfigured as never);
-		expect(unconfigured.json).toHaveBeenCalledWith({google: false, needs: {google: false}});
+		expect(unconfigured.json).toHaveBeenCalledWith({google: false, needs: {google: false, plaid: false}});
 	});
 
 	test('says a Google connection can start with the client alone, as its start route does', async () => {
@@ -166,7 +173,16 @@ describe('handleSignInMethodsRoute', () => {
 
 		const res = makeRes();
 		handleSignInMethodsRoute({} as never, res as never);
-		expect(res.json).toHaveBeenCalledWith({google: false, needs: {google: true}});
+		expect(res.json).toHaveBeenCalledWith({google: false, needs: {google: true, plaid: false}});
+	});
+
+	test('says a bank can be connected once the server has its Plaid keys', async () => {
+		const {handleSignInMethodsRoute} = await importRoutes();
+		mockEnv.PLAID_CLIENT_ID = 'plaid-client-id';
+
+		const res = makeRes();
+		handleSignInMethodsRoute({} as never, res as never);
+		expect(res.json).toHaveBeenCalledWith({google: true, needs: {google: true, plaid: true}});
 	});
 });
 

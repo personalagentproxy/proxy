@@ -9,6 +9,7 @@ export const metadata: Metadata = {
 };
 
 const GOOGLE_USER_DATA_POLICY = 'https://developers.google.com/terms/api-services-user-data-policy';
+const PLAID_END_USER_PRIVACY_POLICY = 'https://plaid.com/legal/#end-user-privacy-policy';
 
 export default function PrivacyPage() {
 	return (
@@ -44,14 +45,14 @@ export default function PrivacyPage() {
 				</p>
 				<p>
 					<span className="text-foreground">Information from your connected services.</span> When
-					you connect a service, such as an email account, Google, Granola, Notion, Linear, a
-					database or a server that speaks MCP, we collect the credentials needed to reach it and,
-					depending on the permissions you give your agents, information from that service: the
-					content and metadata of emails, files, documents, spreadsheets, presentations, pages,
-					issues, meeting notes, database records and other data your agents request, and the
-					results of the actions they take. Some of this may be sensitive, such as private
-					communications, financial information or health information, depending on what you connect
-					and what you let your agents do.
+					you connect a service, such as an email account, Google, Granola, Notion, Linear, a bank
+					through Plaid, a database or a server that speaks MCP, we collect the credentials needed
+					to reach it and, depending on the permissions you give your agents, information from that
+					service: the content and metadata of emails, files, documents, spreadsheets,
+					presentations, pages, issues, meeting notes, bank account balances and transactions,
+					database records and other data your agents request, and the results of the actions they
+					take. Some of this may be sensitive, such as private communications, financial information
+					or health information, depending on what you connect and what you let your agents do.
 				</p>
 				<p>
 					<span className="text-foreground">Information about your agents&apos; activity.</span> We
@@ -151,6 +152,26 @@ export default function PrivacyPage() {
 					</LegalLink>
 					. Disconnecting deletes the stored credentials. Deleting your account deletes the
 					information we collected from your Google account.
+				</p>
+			</LegalSection>
+
+			<LegalSection title="Information from your bank, through Plaid">
+				<p>
+					When you connect a bank, Plaid Inc. connects the Services to it: you sign in to your bank
+					in Plaid&apos;s own window and choose the accounts to share. The Services then receive
+					from Plaid the names, types and last digits of those accounts, their balances, and their
+					transactions, with the amounts, dates, merchants, categories and locations Plaid gives
+					them. We store the access token Plaid issues, encrypted at rest; balances and transactions
+					are fetched from Plaid when your agents request them, and kept only as described under
+					your agents&apos; activity. The Services only ever read your accounts: they can&apos;t
+					move money or change anything at your bank.
+				</p>
+				<p>
+					Plaid handles the information it collects under its{' '}
+					<LegalLink href={PLAID_END_USER_PRIVACY_POLICY}>End User Privacy Policy</LegalLink>.
+					Disconnecting the bank in the Services removes it at Plaid too and deletes the stored
+					access token. You can also see and manage the connections Plaid keeps at{' '}
+					<LegalLink href="https://my.plaid.com">my.plaid.com</LegalLink>.
 				</p>
 			</LegalSection>
 

@@ -20,8 +20,9 @@ export type Integration = CatalogIntegration & {
 };
 
 // What an integration can need from the server, and whether it has it: the answer of
-// `/auth/methods`, since Google sign-in and Google connections share the client.
-export type Need = 'google';
+// `/auth/methods`, since Google sign-in and Google connections share the client, and a bank needs
+// the server's Plaid keys.
+export type Need = 'google' | 'plaid';
 
 export type Configured = Record<Need, boolean>;
 
@@ -31,9 +32,13 @@ export const NEEDS: Record<Need, {variables: string[]; docsUrl: string}> = {
 		variables: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'],
 		docsUrl: 'https://docs.personalagentproxy.com/connections/google/',
 	},
+	plaid: {
+		variables: ['PLAID_CLIENT_ID', 'PLAID_SECRET'],
+		docsUrl: 'https://docs.personalagentproxy.com/connections/plaid/',
+	},
 };
 
-const NEEDED_BY: Partial<Record<IntegrationId, Need>> = {google: 'google'};
+const NEEDED_BY: Partial<Record<IntegrationId, Need>> = {google: 'google', plaid: 'plaid'};
 
 const LOGOS: Record<IntegrationId, LucideIcon | IntegrationLogoImage> = {
 	info: IdCardIcon,
@@ -42,6 +47,7 @@ const LOGOS: Record<IntegrationId, LucideIcon | IntegrationLogoImage> = {
 	granola: {src: '/integrations/granola.png', fill: true},
 	notion: {src: '/integrations/notion.svg'},
 	linear: {src: '/integrations/linear.svg', fill: true},
+	plaid: {src: '/integrations/plaid.svg'},
 	postgres: {src: '/integrations/postgresql.svg'},
 	mysql: {src: '/integrations/mysql.svg'},
 	mcp: {src: '/favicon.svg'},
@@ -114,6 +120,13 @@ export const EMAIL_FORM = {
 	title: 'Connect a mailbox',
 	intro:
 		'Sign in with an app password made for this connection alone in your mail account. Revoking it there disconnects the mailbox.',
+};
+
+/** What the catalog's plus leads to for a bank: the page's title and what connecting it through Plaid does. */
+export const PLAID_FORM = {
+	title: 'Connect a bank',
+	intro:
+		'Plaid signs in to your bank in a window of its own and shares the accounts you choose. Agents only ever read them: balances and transactions, each allowed on its own.',
 };
 
 /** What the catalog's plus leads to for a database: the form's title and where the database has to be. */

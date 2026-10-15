@@ -7,7 +7,7 @@ import {z} from 'zod';
  */
 
 export type EnvDoc = {
-	group: 'Core' | 'Sign-in' | 'Deployment';
+	group: 'Core' | 'Sign-in' | 'Connections' | 'Deployment';
 	description: string;
 	// Personal Agent Proxy does not work without it, though the api still starts so its errors can say why.
 	required?: true;
@@ -83,6 +83,20 @@ export const envSchema = z.object({
 	EMAIL_FROM: documented(z.string().min(1).optional(), {
 		group: 'Sign-in',
 		description: 'The sender of magic-link emails, such as `Personal Agent Proxy <login@example.com>`, on a domain verified with Resend.',
+	}),
+
+	PLAID_CLIENT_ID: documented(z.string().min(1).optional(), {
+		group: 'Connections',
+		description:
+			'Turns on connecting bank accounts through Plaid, with `PLAID_SECRET`: the client id from the Keys page of your Plaid dashboard. Plaid’s free Trial plan, for new teams in the US and Canada, connects up to 10 banks; past that, Plaid bills each connected bank monthly.',
+	}),
+	PLAID_SECRET: documented(z.string().min(1).optional(), {
+		group: 'Connections',
+		description: 'The Plaid secret for the environment `PLAID_ENV` names: Sandbox and Production each have their own.',
+	}),
+	PLAID_ENV: documented(z.enum(['sandbox', 'production']).default('production'), {
+		group: 'Connections',
+		description: 'Which of Plaid’s environments to use: `sandbox` connects only Plaid’s test banks, signed in to with `user_good` and `pass_good`.',
 	}),
 
 	NODE_ENV: documented(z.enum(['development', 'test', 'production']).default('production'), {

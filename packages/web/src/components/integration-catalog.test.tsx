@@ -1,7 +1,7 @@
 /// <reference types="bun" />
 
 import {afterEach, describe, expect, mock, test} from 'bun:test';
-import {cleanup, render, screen, within} from '@testing-library/react';
+import {cleanup, fireEvent, render, screen, within} from '@testing-library/react';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {IntegrationCatalog, SignInFailed} from '@/components/integration-catalog';
 import type {Connection} from '@/lib/types';
@@ -22,19 +22,26 @@ afterEach(() => {
 	cleanup();
 });
 
-function renderCatalog(args: {google: boolean; connections?: Connection[]}) {
+function renderCatalog(args: {
+	google?: boolean;
+	plaid?: boolean;
+	connections?: Connection[];
+	name?: string;
+	onConnectForm?: (integrationId: string) => void;
+}) {
 	render(
 		<TooltipProvider>
 			<IntegrationCatalog
 				connections={args.connections ?? []}
-				configured={{google: args.google}}
-				onConnectForm={mock()}
+				configured={{google: args.google ?? true, plaid: args.plaid ?? true}}
+				onConnectForm={args.onConnectForm ?? mock()}
 			/>
 		</TooltipProvider>,
 	);
-	const row = screen.getByText('Google').closest('li');
+	const name = args.name ?? 'Google';
+	const row = screen.getByText(name).closest('li');
 	if (!row) {
-		throw new Error('The catalog has no Google row');
+		throw new Error(`The catalog has no ${name} row`);
 	}
 	return within(row);
 }
@@ -63,11 +70,28 @@ describe('IntegrationCatalog', () => {
 		expect(row.getByRole('link').getAttribute('href')).toBe('/api/connections/google/start');
 		expect(row.queryByText(/GOOGLE_CLIENT_ID/)).toBeNull();
 	});
+
+	test('a bank without Plaid’s keys on the server is greyed out, saying what to set', () => {
+		const row = renderCatalog({plaid: false, name: 'Plaid'});
+
+		expect(row.queryByRole('button')).toBeNull();
+		expect(row.getByText(/Needs/).textContent).toBe(
+			'Needs PLAID_CLIENT_ID and PLAID_SECRET on the server. See the docs.',
+		);
+	});
+
+	test('a bank with Plaid’s keys on the server goes to its own page', () => {
+		const onConnectForm = mock();
+		const row = renderCatalog({name: 'Plaid', onConnectForm});
+
+		fireEvent.click(row.getByRole('button'));
+		expect(onConnectForm).toHaveBeenCalledWith('plaid');
+	});
 });
 
 describe('SignInFailed', () => {
 	test('a sign-in that could not start says what the server is missing', () => {
-		render(<SignInFailed error="google-unconfigured" configured={{google: false}} />);
+		render(<SignInFailed error="google-unconfigured" configured={{google: false, plaid: true}} />);
 
 		expect(screen.getByText(/Needs/).textContent).toBe(
 			'Needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the server. See the docs.',
@@ -77,14 +101,14 @@ describe('SignInFailed', () => {
 
 	test('says nothing of what the server was missing once it has it', () => {
 		const {container} = render(
-			<SignInFailed error="google-unconfigured" configured={{google: true}} />,
+			<SignInFailed error="google-unconfigured" configured={{google: true, plaid: true}} />,
 		);
 
 		expect(container.textContent).toBe('');
 	});
 
 	test('a sign-in that failed says to try again', () => {
-		render(<SignInFailed error="google" configured={{google: true}} />);
+		render(<SignInFailed error="google" configured={{google: true, plaid: true}} />);
 
 		expect(screen.getByText('Signing in to Google didn’t finish. Try again.')).toBeDefined();
 	});

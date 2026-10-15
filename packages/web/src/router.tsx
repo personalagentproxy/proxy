@@ -21,6 +21,7 @@ import {
 	welcomeLoader,
 } from '@/loaders';
 import {ActivityPage} from '@/pages/activity-page';
+import {AddBankPage} from '@/pages/add-bank-page';
 import {AddConnectionPage} from '@/pages/add-connection-page';
 import {AddDatabasePage} from '@/pages/add-database-page';
 import {AddEmailPage} from '@/pages/add-email-page';
@@ -59,7 +60,7 @@ async function humanLoader() {
 async function loginLoader({request}: {request: Request}): Promise<SignInMethods> {
 	const [me, methods] = await Promise.all([getMe(), getSignInMethods()]);
 	if (me.isErr()) {
-		return methods.unwrapOr({google: true, needs: {google: true}});
+		return methods.unwrapOr({google: true, needs: {google: true, plaid: true}});
 	}
 
 	const callbackUrl = sanitizeCallbackUrl(new URL(request.url).searchParams.get('callbackUrl'));
@@ -109,6 +110,12 @@ export const router = createBrowserRouter([
 		errorElement: <RouteError />,
 	},
 	{
+		path: '/welcome/connections/plaid',
+		loader: welcomeLoader,
+		element: <WelcomePage step="plaid" />,
+		errorElement: <RouteError />,
+	},
+	{
 		path: '/welcome/connections/mcp',
 		loader: welcomeLoader,
 		element: <WelcomePage step="mcp" />,
@@ -134,6 +141,7 @@ export const router = createBrowserRouter([
 			{path: '/connections/new/email', element: <AddEmailPage />},
 			{path: '/connections/new/postgres', element: <AddDatabasePage dialect="postgres" />},
 			{path: '/connections/new/mysql', element: <AddDatabasePage dialect="mysql" />},
+			{path: '/connections/new/plaid', element: <AddBankPage />},
 			{path: '/connections/new/mcp', element: <AddMcpPage />},
 			{path: '/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
 			{path: '/info', loader: infoLoader, element: <InfoPage />},

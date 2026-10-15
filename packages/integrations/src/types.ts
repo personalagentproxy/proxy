@@ -92,7 +92,16 @@ export type Collection = {
 };
 
 export type IntegrationId =
-	'info' | 'email' | 'granola' | 'notion' | 'linear' | 'postgres' | 'mysql' | 'mcp' | 'google';
+	| 'info'
+	| 'email'
+	| 'granola'
+	| 'notion'
+	| 'linear'
+	| 'postgres'
+	| 'mysql'
+	| 'mcp'
+	| 'google'
+	| 'plaid';
 
 export type Integration = {
 	id: IntegrationId;

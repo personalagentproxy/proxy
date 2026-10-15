@@ -5,6 +5,7 @@ import {setConnectionDefaults} from '@/client/connections-client';
 import {finishOnboarding} from '@/client/me-client';
 import {AgentSetup} from '@/components/agent-setup';
 import type {DatabaseDialect} from '@/client/connections-client';
+import {ConnectBankForm} from '@/components/connect-bank-form';
 import {ConnectDatabaseForm} from '@/components/connect-database-form';
 import {ConnectEmailForm} from '@/components/connect-email-form';
 import {ConnectMcpForm} from '@/components/connect-mcp-form';
@@ -17,6 +18,7 @@ import {defaultActions, defaultsOnOrOff, integrationOf} from '@/lib/access';
 import {
 	describeDatabase,
 	EMAIL_FORM,
+	PLAID_FORM,
 	signInPath,
 	type Configured,
 	type Integration,
@@ -25,9 +27,9 @@ import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin, Connection} from '@/lib/types';
 import type {welcomeConnectionLoader, welcomeLoader} from '@/loaders';
 
-// Step one is the agent; the rest are step two: the catalog, the mailbox, database and MCP server
-// forms, and (on its own page, `WelcomeConnectionPage`) a new connection's permissions.
-type Step = 'agent' | 'connections' | 'email' | 'mcp' | DatabaseDialect;
+// Step one is the agent; the rest are step two: the catalog, the mailbox, bank, database and MCP
+// server forms, and (on its own page, `WelcomeConnectionPage`) a new connection's permissions.
+type Step = 'agent' | 'connections' | 'email' | 'plaid' | 'mcp' | DatabaseDialect;
 
 // The welcome flow, before the app: step one connects the person's agent, in the way that agent
 // takes (an MCP client adds the server and signs in; another is handed a login), step two their
@@ -72,6 +74,9 @@ export function WelcomePage({step}: {step: Step}) {
 			)}
 			{step === 'email' && (
 				<EmailStep onContinue={(connection) => navigate(`/welcome/connections/${connection.id}`)} />
+			)}
+			{step === 'plaid' && (
+				<BankStep onContinue={(connection) => navigate(`/welcome/connections/${connection.id}`)} />
 			)}
 			{(step === 'postgres' || step === 'mysql') && (
 				<DatabaseStep
@@ -205,6 +210,27 @@ function EmailStep({onContinue}: {onContinue: (connection: Connection) => void})
 					</Button>
 				}
 				continueLabel="Continue"
+				onConnected={onContinue}
+			/>
+		</>
+	);
+}
+
+// Connecting a bank through Plaid, which goes on to the new connection's permissions.
+function BankStep({onContinue}: {onContinue: (connection: Connection) => void}) {
+	return (
+		<>
+			<StepHeading title={PLAID_FORM.title}>{PLAID_FORM.intro}</StepHeading>
+			<ConnectBankForm
+				cancel={
+					<Button
+						variant="outline"
+						nativeButton={false}
+						render={<Link to="/welcome/connections" />}
+					>
+						Back
+					</Button>
+				}
 				onConnected={onContinue}
 			/>
 		</>

@@ -88,6 +88,7 @@ The compose file reads these from `.env`:
 | `PROXY_VERSION`                                                        | `main`             | The image tag to run. See [upgrades](/self-hosting/upgrades-and-backups#versions).                                 |
 | `ALLOWED_SIGNUP_EMAILS`                                                | Optional           | Who can create an account.                                                                                         |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `RESEND_KEY`, `EMAIL_FROM` | Optional           | [Sign-in](/self-hosting/sign-in) and [connections](/connections/google) with Google, and sign-in links by email.   |
+| `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV`                         | Optional           | [Connecting banks](/connections/plaid) through Plaid.                                                              |
 
 Every other setting is in [Environment variables](/self-hosting/environment); add one under the
 `proxy` service's `environment` in the compose file.

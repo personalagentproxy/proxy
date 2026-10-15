@@ -25,6 +25,7 @@ import {handleGranolaCallbackRoute, handleStartGranolaRoute} from '../connection
 import {handleLinearCallbackRoute, handleStartLinearRoute} from '../connections/linear/route';
 import {handleConnectMysqlRoute, handleTestMysqlRoute} from '../connections/mysql/route';
 import {handleNotionCallbackRoute, handleStartNotionRoute} from '../connections/notion/route';
+import {handleConnectPlaidRoute, handleCreatePlaidLinkTokenRoute} from '../connections/plaid/route';
 import {handleConnectPostgresRoute, handleTestPostgresRoute} from '../connections/postgres/route';
 import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleRenameConnectionRoute, handleSetConnectionDefaultsRoute} from '../connections/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
@@ -74,6 +75,8 @@ export function createApiRouter(): express.Router {
 	router.get('/api/connections/notion/callback', withAuth('Notion sign-in callback route', handleNotionCallbackRoute));
 	router.get('/api/connections/linear/start', withAuth('Start Linear sign-in route', handleStartLinearRoute));
 	router.get('/api/connections/linear/callback', withAuth('Linear sign-in callback route', handleLinearCallbackRoute));
+	router.post('/api/connections/plaid', withAuthResult('Connect Plaid route', handleConnectPlaidRoute));
+	router.post('/api/connections/plaid/link-token', withAuthResult('Create Plaid Link token route', handleCreatePlaidLinkTokenRoute));
 	router.post('/api/connections/postgres', withAuthResult('Connect Postgres route', handleConnectPostgresRoute));
 	router.post('/api/connections/postgres/test', withAuthResult('Test Postgres route', handleTestPostgresRoute));
 	router.post('/api/connections/mysql', withAuthResult('Connect MySQL route', handleConnectMysqlRoute));

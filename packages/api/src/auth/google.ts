@@ -8,6 +8,7 @@ import {createOAuthAccount, getAccountByProvider} from '@proxy/db/auth';
 import {createUserFromOAuthProfile, deleteUser, getUserByEmail, getUserFromId} from '@proxy/db/user';
 import {formatFetchError, httpRequest, parseCookieHeader} from '@proxy/utils';
 
+import {plaidClient} from '../connections/plaid/plaid-client';
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
 import {googleOAuthClient} from '../utils/google-oauth-client';
@@ -66,10 +67,10 @@ function getOAuthConfig(): OAuthConfig | null {
  * `GET /auth/methods` — the sign-in methods beside the magic link, so the login page offers only
  * those set up, and what the server has of what integrations need (`needs`), so the catalog offers
  * only the ones whose sign-in can start: a Google connection needs the client, as its start route
- * checks.
+ * checks, and a bank connected through Plaid the server's Plaid keys.
  */
 export function handleSignInMethodsRoute(_req: Request, res: Response): void {
-	res.json({google: getOAuthConfig() !== null, needs: {google: googleOAuthClient() !== null}});
+	res.json({google: getOAuthConfig() !== null, needs: {google: googleOAuthClient() !== null, plaid: plaidClient() !== null}});
 }
 
 const statePayloadSchema = z.object({
