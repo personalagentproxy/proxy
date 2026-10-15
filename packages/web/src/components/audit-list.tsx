@@ -1,15 +1,31 @@
+import {useState} from 'react';
+import {AuditEntryDialog} from '@/components/audit-entry-dialog';
 import {EmptyRows, RowHeader, RowList} from '@/components/row-list';
 import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
 import {connectionLabel, describeEntry, locateEntry} from '@/lib/access';
 import {formatDateTime} from '@/lib/format';
 import type {AgentLogin, AuditEntry, Connection} from '@/lib/types';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
+import type {ReactNode} from 'react';
 
 const CELLS = {
-	at: 'w-28 shrink-0 text-muted-foreground tabular-nums',
-	agent: 'hidden w-36 shrink-0 truncate md:block',
-	connection: 'hidden w-36 shrink-0 truncate text-right text-muted-foreground md:block',
+	at: 'w-32 shrink-0 whitespace-nowrap text-muted-foreground tabular-nums',
+	logo: 'flex w-5 shrink-0',
 };
+
+// A logo standing for an agent or a connection, named in its tooltip. One that is gone has an
+// empty tile.
+function NamedLogo({name, logo}: {name: string; logo: ReactNode}) {
+	return (
+		<Tooltip>
+			<TooltipTrigger render={<span role="img" aria-label={name} className={CELLS.logo} />}>
+				{logo ?? <span className="size-5 rounded-md border border-dashed" />}
+			</TooltipTrigger>
+			<TooltipContent>{name}</TooltipContent>
+		</Tooltip>
+	);
+}
 
 type Props = {
 	entries: AuditEntry[];
@@ -21,8 +37,9 @@ type Props = {
 	showConnection?: boolean;
 };
 
-// The audit log's lines: when, which agent, what it did, and where. Denied requests read in red;
-// those that came in over MCP say so.
+// The audit log's lines: when, which agent, what it did, and where, the agent and the connection
+// each a logo with its name in a tooltip. Denied requests read in red; those that came in over MCP
+// say so. A row opens the entry in full.
 export function AuditList({
 	entries,
 	agents,
@@ -30,51 +47,65 @@ export function AuditList({
 	showAgent = true,
 	showConnection = true,
 }: Props) {
+	const [opened, setOpened] = useState<AuditEntry | null>(null);
+
 	return (
-		<RowList
-			header={
-				<RowHeader>
-					<span className={CELLS.at}>Time</span>
-					{showAgent && <span className={CELLS.agent}>Agent</span>}
-					<span className="min-w-0 flex-1">Request</span>
-					{showConnection && <span className={CELLS.connection}>Connection</span>}
-				</RowHeader>
-			}
-		>
-			{entries.length === 0 && <EmptyRows>No activity yet.</EmptyRows>}
-			{entries.map((entry) => {
-				const agent = agents.find((candidate) => candidate.id === entry.agentId);
-				const located = locateEntry(connections, entry);
-				const integration = located?.integration ?? null;
-				const denied = entry.outcome === 'denied';
-				return (
-					<li key={entry.id} className="flex h-10 items-center gap-3 px-4 text-sm md:px-3">
-						<span className={CELLS.at}>{formatDateTime(entry.at)}</span>
-						{showAgent && (
-							<span className={CELLS.agent}>
-								<span className="flex items-center gap-2">
-									{agent && <AgentLogo providerId={agent.providerId} />}
-									<span className="truncate">{agent?.name ?? 'Deleted agent'}</span>
+		<>
+			<RowList
+				header={
+					<RowHeader>
+						<span className={CELLS.at}>Time</span>
+						{showAgent && <span className={CELLS.logo} />}
+						<span className="min-w-0 flex-1">Request</span>
+						{showConnection && <span className={CELLS.logo} />}
+					</RowHeader>
+				}
+			>
+				{entries.length === 0 && <EmptyRows>No activity yet.</EmptyRows>}
+				{entries.map((entry) => {
+					const agent = agents.find((candidate) => candidate.id === entry.agentId);
+					const located = locateEntry(connections, entry);
+					const integration = located?.integration ?? null;
+					const denied = entry.outcome === 'denied';
+					return (
+						<li key={entry.id}>
+							<button
+								type="button"
+								onClick={() => setOpened(entry)}
+								className="flex h-10 w-full items-center gap-3 px-4 text-left text-sm hover:bg-muted/50 active:bg-muted/50 md:px-3"
+							>
+								<span className={CELLS.at}>{formatDateTime(entry.at)}</span>
+								{showAgent && (
+									<NamedLogo
+										name={agent?.name ?? 'Deleted agent'}
+										logo={agent && <AgentLogo providerId={agent.providerId} />}
+									/>
+								)}
+								<span className={cn('min-w-0 flex-1 truncate', denied && 'text-destructive')}>
+									{describeEntry(entry, located)}
+									{entry.via === 'mcp' && (
+										<span className="text-muted-foreground"> · over MCP</span>
+									)}
 								</span>
-							</span>
-						)}
-						<span className={cn('min-w-0 flex-1 truncate', denied && 'text-destructive')}>
-							{describeEntry(entry, located)}
-							{entry.via === 'mcp' && <span className="text-muted-foreground"> · over MCP</span>}
-						</span>
-						{showConnection && (
-							<span className={CELLS.connection}>
-								<span className="flex items-center justify-end gap-2">
-									{integration && <IntegrationLogo integration={integration} />}
-									<span className="truncate">
-										{located ? connectionLabel(connections, located.connection) : 'Disconnected'}
-									</span>
-								</span>
-							</span>
-						)}
-					</li>
-				);
-			})}
-		</RowList>
+								{showConnection && (
+									<NamedLogo
+										name={
+											located ? connectionLabel(connections, located.connection) : 'Disconnected'
+										}
+										logo={integration && <IntegrationLogo integration={integration} />}
+									/>
+								)}
+							</button>
+						</li>
+					);
+				})}
+			</RowList>
+			<AuditEntryDialog
+				entry={opened}
+				agents={agents}
+				connections={connections}
+				onClose={() => setOpened(null)}
+			/>
+		</>
 	);
 }

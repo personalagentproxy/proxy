@@ -180,6 +180,17 @@ export function describeEntry(entry: AuditEntry, located: LocatedEntry | null): 
 	return `${ACTION_VERBS[entry.action] ?? entry.action} ${record}`;
 }
 
+// The action the request needed: a custom server's tool is its own, anything else the one its
+// collection names for it. Null once the connection is gone.
+export function entryAction(entry: AuditEntry, located: LocatedEntry | null): Action | null {
+	if (!located) {
+		return null;
+	}
+	const {integration, collection} = located;
+	const id = collection ? requiredAction(collection, entry.action) : entry.action;
+	return integration.actions.find((action) => action.id === id) ?? null;
+}
+
 // What a row shows for a field: secrets down to their last four characters.
 export function displayValue(type: FieldType, value: string | undefined): string {
 	if (!value) {
