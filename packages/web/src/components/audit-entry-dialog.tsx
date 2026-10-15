@@ -10,7 +10,7 @@ import {
 	DialogTitle,
 } from '@proxy/ui/components/dialog';
 import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
-import {connectionLabel, describeEntry, entryAction, locateEntry} from '@/lib/access';
+import {describeEntry, entryAction, locateEntry} from '@/lib/access';
 import type {AgentLogin, AuditEntry, Connection} from '@/lib/types';
 
 type Props = {
@@ -77,7 +77,7 @@ function AuditEntryContent({
 	const toolRun = located?.integration.custom || entry.collectionId === TOOLS_COLLECTION_ID;
 
 	return (
-		<DialogContent className="sm:max-w-lg">
+		<DialogContent className="grid-cols-[minmax(0,1fr)] sm:max-w-lg">
 			<DialogHeader>
 				<DialogTitle className="pr-8 leading-snug">{describeEntry(entry, located)}</DialogTitle>
 				<DialogDescription>{formatMoment(entry.at)}</DialogDescription>
@@ -94,7 +94,7 @@ function AuditEntryContent({
 					{agent ? (
 						<>
 							<AgentLogo providerId={agent.providerId} />
-							<Link to={`/agents/${agent.id}`} className="truncate hover:underline">
+							<Link to={`/agents/${agent.id}`} className="min-w-0 truncate hover:underline">
 								{agent.name}
 							</Link>
 						</>
@@ -108,11 +108,13 @@ function AuditEntryContent({
 							<IntegrationLogo integration={located.integration} />
 							<Link
 								to={`/connections/${located.connection.id}`}
-								className="truncate hover:underline"
+								className="max-w-1/2 shrink-0 truncate hover:underline"
 							>
-								{connectionLabel(connections, located.connection)}
+								{located.connection.name ?? located.integration.name}
 							</Link>
-							<span className="truncate text-muted-foreground">{located.connection.account}</span>
+							<span className="min-w-0 truncate text-muted-foreground">
+								{located.connection.account}
+							</span>
 						</>
 					) : (
 						<span className="text-muted-foreground">Disconnected</span>
