@@ -80,8 +80,9 @@ function summaryValues(meeting: GranolaMeeting): RecordValues {
 	return {title: meeting.title, date: meeting.date};
 }
 
+// A note and its transcript open on the same page in Granola.
 function toRecord(meeting: GranolaMeeting, values: RecordValues): DataRecord {
-	return {id: meeting.id, values, updatedAt: meeting.day ?? ''};
+	return {id: meeting.id, values, updatedAt: meeting.day ?? '', ...(meeting.url ? {url: meeting.url} : {})};
 }
 
 function getMeeting(target: RecordTarget, meetingId: string): Promise<Result<GranolaMeeting, ApiError>> {
@@ -115,7 +116,7 @@ export const granolaConnector: Connector = {
 				const text = $(await callMcpToolFor(GRANOLA, target.connection, 'get_meeting_transcript', {meeting_id: recordId}));
 				return toRecord(meeting, {...summaryValues(meeting), transcript: $(parseGranolaTranscript(text))});
 			}
-			return toRecord(meeting, {...summaryValues(meeting), attendees: meeting.participants, link: meeting.url, summary: meeting.summary, privateNotes: meeting.privateNotes});
+			return toRecord(meeting, {...summaryValues(meeting), attendees: meeting.participants, summary: meeting.summary, privateNotes: meeting.privateNotes});
 		}),
 	create: () => readOnly(),
 	update: () => readOnly(),

@@ -216,8 +216,8 @@ describe('opening', () => {
 			organizer: 'Sam Lee <sam@example.com>',
 			repeats: 'Yes',
 			meeting: 'https://meet.google.com/abc-defg-hij',
-			link: 'https://www.google.com/calendar/event?eid=ev2',
 		});
+		expect(record.url).toBe('https://www.google.com/calendar/event?eid=ev2');
 	});
 
 	test("an all-day event's end reads as its last day, and the account's own event has no answer", async () => {

@@ -2,7 +2,13 @@ import {applies, toolName, type Command} from '@proxy/integrations';
 import {useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
 import {runAgentRecordTool} from '@/client/agent-client';
-import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
+import {
+	AgentHeading,
+	AgentShell,
+	Crumbs,
+	OpenInLink,
+	PersonLinkHint,
+} from '@/components/agent-shell';
 import {RecordFields, RecordForm} from '@/components/record-form';
 import {Button} from '@proxy/ui/components/button';
 import {useAgentTarget} from '@/hooks/use-agent-target';
@@ -79,6 +85,13 @@ export function AgentRecordPage() {
 			<div className="mb-4 md:px-3">
 				<AgentHeading>{editing ? `Edit ${collection.singular}` : title}</AgentHeading>
 			</div>
+			{/* The address written out too, for a model that reads the page as an image. */}
+			{record.url && (
+				<p className="mb-2 text-sm break-all md:px-3">
+					<OpenInLink collection={collection} url={record.url} />: {record.url}
+				</p>
+			)}
+			<PersonLinkHint collection={collection} />
 			{(commands.length > 0 || canEdit || canDelete || record.hasChildren) && !editing && (
 				<div className="mb-6 flex flex-wrap gap-2 md:px-3">
 					{record.hasChildren && (

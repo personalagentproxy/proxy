@@ -138,9 +138,9 @@ test('a contact opens with every field, an address written over lines on one, a 
 		addresses: '1 Main St, London, UK',
 		birthday: '04-12',
 		notes: 'Met at the Q3 offsite',
-		link: 'https://contacts.google.com/person/c111',
 	});
 	expect(record.updatedAt).toBe('2026-10-01T08:00:00Z');
+	expect(record.url).toBe('https://contacts.google.com/person/c111');
 	expect(messageOf(await googleConnector.get(target, 'people/c111'))).toBe('not_found');
 	expect(messageOf(await googleConnector.get(target, 'c404'))).toBe('not_found');
 });

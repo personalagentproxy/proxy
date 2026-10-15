@@ -176,13 +176,19 @@ function listSchema(collection: Collection): JsonSchemaObject {
 	return objectSchema(properties);
 }
 
+// ", and its url, its link in Gmail for the person": what a record says beside its fields, where
+// its records have an address of their own.
+function urlText(collection: Collection): string {
+	return collection.openIn ? `, and its url, its link in ${collection.openIn} for the person` : '';
+}
+
 function listDescription(collection: Collection): string {
 	const search = collection.searchHint ? ' Can be searched.' : '';
 	const nested = collection.nested
 		? ` ${collection.name} hold others: one with hasChildren lists what is inside it as parent, and the list says where it is in trail.`
 		: '';
 	const order = collection.upcoming ? 'from now on, soonest first' : 'newest first';
-	return `List ${collection.name.toLowerCase()}, ${order}, a page at a time, with each record’s id for ${toolName(collection.id, 'view')}.${search}${nested}`;
+	return `List ${collection.name.toLowerCase()}, ${order}, a page at a time, with each record’s id for ${toolName(collection.id, 'view')}${urlText(collection)}.${search}${nested}`;
 }
 
 function collectionTools(integration: Integration, collection: Collection): CollectionTool[] {
@@ -226,7 +232,7 @@ function collectionTools(integration: Integration, collection: Collection): Coll
 		}),
 		...make('get', 'view', {
 			title: `Open ${collection.singular}`,
-			description: `Open one ${collection.singular} by its id, with every field.`,
+			description: `Open one ${collection.singular} by its id, with every field${urlText(collection)}.`,
 			inputSchema: objectSchema({id: ID_PROPERTY}, ['id']),
 		}),
 		...(writes.create

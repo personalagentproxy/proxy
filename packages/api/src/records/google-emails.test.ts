@@ -186,6 +186,8 @@ describe('list', () => {
 			id: 'm1',
 			values: {folder: 'Inbox', from: 'Sam Lee <sam@example.com>', to: 'Alex Kim <alex@example.com>', subject: 'Q3 planning', date: '2026-10-01T09:00:00.000Z', status: 'Unread'},
 			updatedAt: '2026-10-01T09:00:00.000Z',
+			// In Gmail, in the connection's account.
+			url: 'https://mail.google.com/mail/?authuser=alex%40example.com#all/m1',
 		});
 	});
 
@@ -280,6 +282,8 @@ describe('get', () => {
 		expect(byDraft.id).toBe('draft-r1');
 		expect(byDraft.values).toMatchObject({folder: 'Draft', to: 'robin@example.com', body: 'Draft text'});
 		expect(byMessage.id).toBe('draft-r1');
+		// A draft opens in Gmail to be written, by its message id.
+		expect(byDraft.url).toBe('https://mail.google.com/mail/?authuser=alex%40example.com#drafts?compose=m3');
 	});
 
 	test('an email Gmail doesn’t have is not found, and an id that isn’t Gmail’s never reaches it', async () => {

@@ -76,6 +76,9 @@ export type Collection = {
 	// Listed from now on, soonest first, as a calendar's events are, rather than newest first: a
 	// list's next page is later rather than older.
 	upcoming?: true;
+	// Where a record's own address opens, for its link: "Open in Gmail". A collection whose records
+	// have no address the person can open, as a mailbox's over IMAP haven't, has none.
+	openIn?: string;
 	// The integration's action listing and opening records needs. A collection without one is
 	// never listed or opened: a query's results are only ever run.
 	read?: string;

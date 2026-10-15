@@ -6,8 +6,12 @@ import type {Collection} from '@proxy/integrations';
 
 export type RecordValues = Record<string, string>;
 
-/** A record and, in a nested collection, whether it holds records of its own to list. */
-export type DataRecord = {id: string; values: RecordValues; updatedAt: string; hasChildren?: boolean};
+/**
+ * A record and, in a nested collection, whether it holds records of its own to list. `url` is
+ * where the person sees it in the provider's own app, as Gmail or Notion shows it, for an agent to
+ * hand them; a record without one has no page they can open.
+ */
+export type DataRecord = {id: string; values: RecordValues; updatedAt: string; url?: string; hasChildren?: boolean};
 
 /**
  * What to list: records matching `search`, with the collection's filter field at `filter` (an

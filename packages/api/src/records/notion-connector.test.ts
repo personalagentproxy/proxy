@@ -130,8 +130,8 @@ describe('notionConnector.list', () => {
 		expect(tools.calls).toEqual([{name: 'notion-list-recent-pages', args: {limit: 50, cursor: 'offset:0'}}]);
 		expect(page).toEqual({
 			records: [
-				{id: PAGE, values: {title: 'Outreach', kind: 'Page', path: ''}, updatedAt: ''},
-				{id: DATABASE, values: {title: 'Companies', kind: 'Database', path: ''}, updatedAt: '', hasChildren: true},
+				{id: PAGE, values: {title: 'Outreach', kind: 'Page', path: ''}, updatedAt: '', url: url(PAGE)},
+				{id: DATABASE, values: {title: 'Companies', kind: 'Database', path: ''}, updatedAt: '', url: url(DATABASE), hasChildren: true},
 			],
 			nextPage: 'offset:50',
 		});
@@ -153,7 +153,7 @@ describe('notionConnector.list', () => {
 		const page = (await notionConnector.list(target, query({parent: DATABASE, page: 's:first'}))).unwrap();
 
 		expect(tools.calls.at(-1)).toEqual({name: 'notion-query-data-sources', args: {data: {mode: 'view', view_url: `view://${VIEW}`, page_size: 50, start_cursor: 's:first'}}});
-		expect(page.records).toEqual([{id: ROW, values: {title: 'Acme GmbH', kind: 'Page', path: ''}, updatedAt: ''}]);
+		expect(page.records).toEqual([{id: ROW, values: {title: 'Acme GmbH', kind: 'Page', path: ''}, updatedAt: '', url: url(ROW)}]);
 		expect(page.nextPage).toBe('s:next');
 		expect(page.trail).toEqual([
 			{id: PAGE, title: 'Outreach'},
@@ -198,7 +198,8 @@ describe('notionConnector.get', () => {
 		const {notionConnector} = await import('./notion-connector');
 		const record = (await notionConnector.get(target, ROW)).unwrap();
 
-		expect(record.values).toEqual({title: 'Acme GmbH', kind: 'Page', path: '', link: url(ROW), edited: '2026-09-24T00:38:13.331Z', properties: 'Status: Contacted\nSize: 100', content: ''});
+		expect(record.url).toBe(url(ROW));
+		expect(record.values).toEqual({title: 'Acme GmbH', kind: 'Page', path: '', edited: '2026-09-24T00:38:13.331Z', properties: 'Status: Contacted\nSize: 100', content: ''});
 		expect(record.hasChildren).toBe(false);
 	});
 

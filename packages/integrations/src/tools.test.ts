@@ -318,6 +318,19 @@ describe('google', () => {
 		});
 	});
 
+	test('Gmail’s lists and opens say each email has its link in Gmail; a mailbox’s have none', () => {
+		expect(findTool(google, 'emails_list')?.description).toContain(
+			'and its url, its link in Gmail for the person.',
+		);
+		expect(findTool(google, 'emails_get')?.description).toBe(
+			'Open one email by its id, with every field, and its url, its link in Gmail for the person.',
+		);
+		expect(findTool(email, 'emails_list')?.description).not.toContain('url');
+		expect(findTool(email, 'emails_get')?.description).toBe(
+			'Open one email by its id, with every field.',
+		);
+	});
+
 	test('a list takes the folder to list inside and a search', () => {
 		const list = findTool(google, 'files_list');
 

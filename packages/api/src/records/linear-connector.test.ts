@@ -97,13 +97,16 @@ describe('linearConnector.list', () => {
 		const {linearConnector} = await import('./linear-connector');
 		const page = (await linearConnector.list(target, query({page: CURSOR}))).unwrap();
 
-		expect(tools.calls).toEqual([{name: 'list_issues', args: {limit: 50, orderBy: 'updatedAt', fields: ['id', 'title', 'team', 'status', 'statusType', 'assignee', 'updatedAt'], cursor: CURSOR}}]);
+		expect(tools.calls).toEqual([
+			{name: 'list_issues', args: {limit: 50, orderBy: 'updatedAt', fields: ['id', 'title', 'team', 'status', 'statusType', 'assignee', 'url', 'updatedAt'], cursor: CURSOR}},
+		]);
 		expect(page).toEqual({
 			records: [
 				{
 					id: 'ENG-5',
 					values: {title: 'Fix the login page', team: 'Engineering', status: 'In Progress', statusType: 'Started', assignee: 'Sam Lee', updated: '2026-10-08T08:16:23.137Z'},
 					updatedAt: '2026-10-08T08:16:23.137Z',
+					url: 'https://linear.app/acme/issue/ENG-5/fix-the-login-page',
 				},
 			],
 			nextPage: CURSOR,
@@ -145,10 +148,10 @@ describe('linearConnector.get', () => {
 			labels: 'Bug, Frontend',
 			dueDate: '',
 			createdBy: 'Alex Kim',
-			link: 'https://linear.app/acme/issue/ENG-5/fix-the-login-page',
 			description: 'The **button** is gone',
 			comments: 'Alex Kim · 2026-10-08 09:00 UTC\nCan you look?\n\n---\n\nReply from Sam Lee · 2026-10-08 09:30 UTC\nOn it',
 		});
+		expect(record.url).toBe('https://linear.app/acme/issue/ENG-5/fix-the-login-page');
 	});
 
 	test('an issue Linear has no such one of, or an id that is not an identifier, is not found', async () => {

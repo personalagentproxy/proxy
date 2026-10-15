@@ -70,7 +70,6 @@ function contactValues(person: Person): RecordValues {
 		),
 		birthday: birthdayOf(person),
 		notes: person.biographies?.[0]?.value ?? '',
-		link: `https://contacts.google.com/person/${idOf(person)}`,
 	};
 }
 
@@ -84,7 +83,7 @@ function updatedAt(person: Person): string {
 }
 
 function contactRecord(person: Person): DataRecord {
-	return {id: idOf(person), values: contactValues(person), updatedAt: updatedAt(person)};
+	return {id: idOf(person), values: contactValues(person), updatedAt: updatedAt(person), url: `https://contacts.google.com/person/${idOf(person)}`};
 }
 
 function listContactsPage(target: RecordTarget, query: ListQuery): Promise<Result<RecordPage, ApiError>> {

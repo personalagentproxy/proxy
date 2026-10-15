@@ -41,6 +41,7 @@ function emailsCollection(args: {
 	folders: string[];
 	searchHint: string;
 	flag: FlagWords;
+	openIn?: string;
 }): Collection {
 	const {actions, flag} = args;
 	return {
@@ -51,6 +52,7 @@ function emailsCollection(args: {
 		summaryField: 'from',
 		filterField: 'folder',
 		searchHint: args.searchHint,
+		...(args.openIn ? {openIn: args.openIn} : {}),
 		read: actions.read,
 		createLabel: 'Save as draft',
 		writes: {create: actions.write, update: actions.write, delete: actions.write},
@@ -256,6 +258,7 @@ const granola: Integration = {
 			singular: 'note',
 			titleField: 'title',
 			summaryField: 'date',
+			openIn: 'Granola',
 			read: 'readNotes',
 			writes: {},
 			fields: [
@@ -264,8 +267,6 @@ const granola: Integration = {
 				{key: 'date', label: 'Date', type: 'text', system: true},
 				// As Granola writes them: "Alex (note creator) from Acme <alex@acme.com>, Sam <sam@example.com>".
 				{key: 'attendees', label: 'Attendees', type: 'text', system: true},
-				// The note in Granola's web app.
-				{key: 'link', label: 'Link', type: 'text', system: true},
 				{key: 'summary', label: 'Summary', type: 'longtext', system: true},
 				{key: 'privateNotes', label: 'Private notes', type: 'longtext', system: true},
 			],
@@ -276,6 +277,7 @@ const granola: Integration = {
 			singular: 'transcript',
 			titleField: 'title',
 			summaryField: 'date',
+			openIn: 'Granola',
 			read: 'readTranscripts',
 			writes: {},
 			fields: [
@@ -330,6 +332,7 @@ const notion: Integration = {
 			searchHint:
 				'Notion’s own search: words in titles and content, or what a page is about. Inside a page or database, only what is in it.',
 			nested: true,
+			openIn: 'Notion',
 			read: 'read',
 			writes: {create: 'create', update: 'edit'},
 			// Databases and their views aren't written to; their rows are pages.
@@ -345,8 +348,6 @@ const notion: Integration = {
 				},
 				// Where the page is: "Outreach / Companies".
 				{key: 'path', label: 'In', type: 'text', system: true},
-				// The page in Notion.
-				{key: 'link', label: 'Link', type: 'text', system: true},
 				{key: 'edited', label: 'Last edited', type: 'datetime', system: true},
 				// A database row's properties, one "Name: value" a line, a value going on over the lines
 				// after it until the next property. Only properties written differently are changed.
@@ -411,6 +412,7 @@ const linear: Integration = {
 			summaryField: 'status',
 			filterField: 'statusType',
 			searchHint: 'Words in an issue’s title or description.',
+			openIn: 'Linear',
 			read: 'read',
 			writes: {create: 'create', update: 'edit'},
 			fields: [
@@ -434,8 +436,6 @@ const linear: Integration = {
 				{key: 'labels', label: 'Labels', type: 'text'},
 				{key: 'dueDate', label: 'Due date', type: 'date'},
 				{key: 'createdBy', label: 'Created by', type: 'text', system: true},
-				// The issue in Linear.
-				{key: 'link', label: 'Link', type: 'text', system: true},
 				{key: 'updated', label: 'Updated', type: 'datetime', system: true},
 				// Markdown.
 				{key: 'description', label: 'Description', type: 'longtext'},
@@ -748,6 +748,7 @@ const google: Integration = {
 			searchHint:
 				'Gmail’s own search syntax, as in Gmail’s search box, such as from:sam has:attachment newer_than:7d. Inside a folder, only what is in it.',
 			flag: STAR,
+			openIn: 'Gmail',
 		}),
 		// The calendars the account sees, each holding its events: from now on, soonest first, every
 		// time a repeating event comes round its own record. Times are written as Google takes them,
@@ -764,6 +765,7 @@ const google: Integration = {
 				'Words in an event’s title, description, location or guests, from now on. Begin with a day, such as 2026-10-15 standup, for the events from that day on, earlier ones too. At the top, in the primary calendar.',
 			nested: true,
 			upcoming: true,
+			openIn: 'Google Calendar',
 			read: 'readEvents',
 			writes: {create: 'writeEvents', update: 'writeEvents'},
 			// Calendars are only read.
@@ -823,8 +825,6 @@ const google: Integration = {
 				{key: 'repeats', label: 'Repeats', type: 'text', system: true},
 				// The video call's address, where the event has one.
 				{key: 'meeting', label: 'Video call', type: 'text', system: true},
-				// The event in Google Calendar.
-				{key: 'link', label: 'Link', type: 'text', system: true},
 			],
 		},
 		{
@@ -836,6 +836,7 @@ const google: Integration = {
 			searchHint:
 				'Words in file names and contents, anywhere in Drive, or inside the folder opened.',
 			nested: true,
+			openIn: 'Google Drive',
 			read: 'readFiles',
 			writes: {create: 'createFiles', update: 'editFiles'},
 			// The four places at the top are always there, as they are.
@@ -870,8 +871,6 @@ const google: Integration = {
 				{key: 'modified', label: 'Modified', type: 'datetime', system: true},
 				// Whoever owns the file in Drive; files in a shared drive have none.
 				{key: 'owner', label: 'Owner', type: 'text', system: true},
-				// The file in Drive.
-				{key: 'link', label: 'Link', type: 'text', system: true},
 				// A document as Markdown, a presentation as text, a spreadsheet's tabs one a line with their
 				// size, a row's values one "Header: value" a line, the headers from the tab's first row. A
 				// new document is written as Markdown and a new spreadsheet as CSV. Writing a document's
@@ -932,6 +931,7 @@ const google: Integration = {
 			summaryField: 'emails',
 			searchHint:
 				'The start of a name, email address, phone number or company, as Google Contacts matches them: sam, sam@, +44.',
+			openIn: 'Google Contacts',
 			read: 'readContacts',
 			writes: {create: 'writeContacts', update: 'writeContacts'},
 			fields: [
@@ -943,8 +943,6 @@ const google: Integration = {
 				{key: 'addresses', label: 'Addresses', type: 'longtext'},
 				{key: 'birthday', label: 'Birthday', type: 'text'},
 				{key: 'notes', label: 'Notes', type: 'longtext'},
-				// The contact in Google Contacts.
-				{key: 'link', label: 'Link', type: 'text', system: true},
 			],
 		},
 	],

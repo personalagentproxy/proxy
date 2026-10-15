@@ -48,13 +48,12 @@ function issueValues(issue: LinearIssue): RecordValues {
 		labels: issue.labels.join(', '),
 		dueDate: issue.dueDate,
 		createdBy: issue.createdBy,
-		link: issue.url,
 		description: issue.description,
 	};
 }
 
 function toRecord(issue: LinearIssue, values: RecordValues): DataRecord {
-	return {id: issue.id, values, updatedAt: issue.updatedAt};
+	return {id: issue.id, values, updatedAt: issue.updatedAt, ...(issue.url ? {url: issue.url} : {})};
 }
 
 // "Sam Lee · 2026-10-08 08:16 UTC", a reply's marked, then what an inline comment quotes and what was written.

@@ -33,6 +33,8 @@ export const dataRecordSchema = z.object({
 	id: z.string(),
 	values: z.record(z.string(), z.string()),
 	updatedAt: z.string(),
+	// Where the person sees it in the provider's own app, as Gmail shows it, where it has one.
+	url: z.string().optional(),
 	// In a nested collection, whether it holds records of its own to list.
 	hasChildren: z.boolean().optional(),
 });

@@ -70,6 +70,8 @@ describe('granolaConnector.list', () => {
 			{title: 'Weekly sync', date: 'Sep 21, 2026 11:01 AM PDT'},
 		]);
 		expect(page.nextPage).toBe('2026-09-05');
+		// A meeting's page in Granola, where Granola gave one.
+		expect(page.records.map((record) => record.url)).toEqual([`https://notes.granola.ai/d/${MEETING_ID}`, undefined]);
 	});
 
 	test('the first page runs to tomorrow', async () => {
@@ -111,7 +113,7 @@ describe('granolaConnector.list', () => {
 });
 
 describe('granolaConnector.get', () => {
-	test('opens a note with its attendees, link and summary', async () => {
+	test('opens a note with its attendees, summary and link', async () => {
 		const {granolaConnector} = await import('./granola-connector');
 		const record = (await granolaConnector.get(targetFor('notes'), MEETING_ID)).unwrap();
 
@@ -120,10 +122,10 @@ describe('granolaConnector.get', () => {
 			title: 'Q3 planning & budget',
 			date: 'Sep 22, 2026 11:00 AM PDT',
 			attendees: 'Alex (note creator) from Acme <alex@acme.com>, Sam <sam@example.com>',
-			link: `https://notes.granola.ai/d/${MEETING_ID}`,
 			summary: '## Q3\n\nWe planned Q3.',
 			privateNotes: '',
 		});
+		expect(record.url).toBe(`https://notes.granola.ai/d/${MEETING_ID}`);
 	});
 
 	test('opens a transcript as Granola writes it, without the summary', async () => {
@@ -132,6 +134,7 @@ describe('granolaConnector.get', () => {
 
 		expect(tools.calls.map((call) => call.name)).toEqual(['get_meetings', 'get_meeting_transcript']);
 		expect(record.values).toEqual({title: 'Q3 planning & budget', date: 'Sep 22, 2026 11:00 AM PDT', transcript: 'System audio: Shall we start?\n\nMicrophone: Sounds good.'});
+		expect(record.url).toBe(`https://notes.granola.ai/d/${MEETING_ID}`);
 	});
 
 	test('a meeting Granola does not know, or an id that is not one, is not found', async () => {

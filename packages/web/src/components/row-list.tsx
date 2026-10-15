@@ -25,12 +25,14 @@ type RowProps = {
 	cells?: ReactNode;
 	// The row's context menu, opened with a right click or a long press: its items.
 	menu?: ReactNode;
+	// Beside the row rather than in it, as a link elsewhere is: a link can't hold another.
+	after?: ReactNode;
 } & ({to: string; onClick?: never} | {onClick: () => void; to?: never});
 
 const ROW =
-	'flex h-10 w-full items-center gap-3 px-4 text-left text-sm hover:bg-muted/50 active:bg-muted/50 md:px-3';
+	'flex h-10 w-full min-w-0 items-center gap-3 px-4 text-left text-sm hover:bg-muted/50 active:bg-muted/50 md:px-3';
 
-export function Row({to, onClick, icon, title, cells, menu}: RowProps) {
+export function Row({to, onClick, icon, title, cells, menu, after}: RowProps) {
 	const content = (
 		<>
 			{icon}
@@ -38,7 +40,7 @@ export function Row({to, onClick, icon, title, cells, menu}: RowProps) {
 			{cells}
 		</>
 	);
-	const control =
+	const link =
 		to !== undefined ? (
 			<Link to={to} className={ROW}>
 				{content}
@@ -48,6 +50,14 @@ export function Row({to, onClick, icon, title, cells, menu}: RowProps) {
 				{content}
 			</button>
 		);
+	const control = after ? (
+		<div className="flex items-center">
+			{link}
+			{after}
+		</div>
+	) : (
+		link
+	);
 
 	if (!menu) {
 		return <li>{control}</li>;

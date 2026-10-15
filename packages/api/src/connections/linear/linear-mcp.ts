@@ -111,8 +111,8 @@ export type LinearIssue = {
 };
 
 /** The fields asked for when listing issues, and when opening one. */
-export const LIST_FIELDS = ['id', 'title', 'team', 'status', 'statusType', 'assignee', 'updatedAt'];
-export const ISSUE_FIELDS = [...LIST_FIELDS, 'priority', 'project', 'labels', 'dueDate', 'createdBy', 'url', 'description'];
+export const LIST_FIELDS = ['id', 'title', 'team', 'status', 'statusType', 'assignee', 'url', 'updatedAt'];
+export const ISSUE_FIELDS = [...LIST_FIELDS, 'priority', 'project', 'labels', 'dueDate', 'createdBy', 'description'];
 
 // Every field asked for is there, null when it has no value; those not asked for are left out.
 const text = z.string().nullish();

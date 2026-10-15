@@ -87,6 +87,7 @@ describe('handleMcpRoute', () => {
 		expect(result.instructions).toContain('check Personal Agent Proxy first');
 		expect(result.instructions).toContain('Personal Agent Proxy connects Email, Google, Granola, Notion, Linear, PostgreSQL, MySQL and any custom MCP server');
 		expect(result.instructions).toContain('https://app.example.com/connections/new');
+		expect(result.instructions).toContain('give them its url');
 	});
 
 	test('lists the four tools, read-only ones marked so', async () => {

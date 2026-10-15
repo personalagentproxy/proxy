@@ -1,8 +1,10 @@
+import type {Collection} from '@proxy/integrations';
 import {Fragment, type ReactNode} from 'react';
 import {Link, useNavigate} from 'react-router';
 import {signOutAgent} from '@/client/agent-client';
 import {AgentLogo} from '@/components/brand-logo';
 import {Button} from '@proxy/ui/components/button';
+import {cn} from '@proxy/ui/lib/utils';
 import {useAgentMe} from '@/hooks/use-agent-target';
 
 // The agent side's frame. Built for a model driving a browser: no sidebar, no icon-only controls
@@ -76,5 +78,37 @@ export function AgentHeading({children, detail}: {children: ReactNode; detail?: 
 			{children}
 			{detail && <span className="ml-2 text-sm font-normal text-muted-foreground">{detail}</span>}
 		</h1>
+	);
+}
+
+// What the person can open: these pages only open with the agent's login, so a record is shown to
+// them by its link in the provider's own app, or, where it has none, named.
+export function PersonLinkHint({collection}: {collection: Collection}) {
+	const title = collection.fields.find((field) => field.key === collection.titleField);
+	const text = collection.openIn
+		? `To show the person ${collection.name.toLowerCase()}, give them the links in ${collection.openIn}, never the address of a page here: only this login can open these pages.`
+		: `The person can’t open these pages: only this login can. Tell them which ${collection.singular} you mean by its ${title?.label.toLowerCase() ?? 'title'} instead.`;
+	return <p className="mb-4 text-sm text-muted-foreground md:px-3">{text}</p>;
+}
+
+// A record's link in the provider's app, "Open in Gmail", opening in a new tab.
+export function OpenInLink({
+	collection,
+	url,
+	className,
+}: {
+	collection: Collection;
+	url: string;
+	className?: string;
+}) {
+	return (
+		<a
+			href={url}
+			target="_blank"
+			rel="noreferrer"
+			className={cn('underline underline-offset-4 hover:text-foreground', className)}
+		>
+			{collection.openIn ? `Open in ${collection.openIn}` : 'Open'}
+		</a>
 	);
 }

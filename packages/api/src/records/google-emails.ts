@@ -140,12 +140,22 @@ function summaryValues(message: GmailMessage): RecordValues {
 	};
 }
 
-function toRecord(recordId: string, message: GmailMessage, values: RecordValues = summaryValues(message)): DataRecord {
-	return {id: recordId, values, updatedAt: dateOf(message) || new Date(0).toISOString()};
+// The email in Gmail, in the account it is in, whichever of their accounts the person's browser
+// opens first: a draft opens to be written, any other email in its conversation.
+function webUrl(account: string, message: GmailMessage): string {
+	const base = `https://mail.google.com/mail/?authuser=${encodeURIComponent(account)}`;
+	if (isDraft(message)) {
+		return `${base}#drafts?compose=${message.id}`;
+	}
+	return `${base}#all/${message.id}`;
 }
 
-function fullRecord(recordId: string, message: GmailMessage): DataRecord {
-	return toRecord(recordId, message, {...summaryValues(message), body: messageBody(message.payload)});
+function toRecord(account: string, recordId: string, message: GmailMessage, values: RecordValues = summaryValues(message)): DataRecord {
+	return {id: recordId, values, updatedAt: dateOf(message) || new Date(0).toISOString(), url: webUrl(account, message)};
+}
+
+function fullRecord(account: string, recordId: string, message: GmailMessage): DataRecord {
+	return toRecord(account, recordId, message, {...summaryValues(message), body: messageBody(message.payload)});
 }
 
 // A draft in the drafts, not one moved to Trash, which Gmail doesn't list among them.
@@ -166,7 +176,7 @@ function present(messages: Array<Result<GmailMessage, ApiError>>): Result<Array<
 }
 
 /** A page of drafts, by their draft ids, matching the search. */
-function listDraftsPage(token: string, query: ListQuery): Promise<Result<RecordPage, ApiError>> {
+function listDraftsPage(token: string, account: string, query: ListQuery): Promise<Result<RecordPage, ApiError>> {
 	return Do(async ($) => {
 		const page = $(await listDrafts(token, query.search, query.page));
 		const messages = $(
@@ -179,7 +189,7 @@ function listDraftsPage(token: string, query: ListQuery): Promise<Result<RecordP
 		);
 		const records = page.items.flatMap(({draftId}, index) => {
 			const message = messages[index];
-			return message ? [toRecord(`draft-${draftId}`, message)] : [];
+			return message ? [toRecord(account, `draft-${draftId}`, message)] : [];
 		});
 		return {records, nextPage: page.nextPage};
 	});
@@ -190,7 +200,7 @@ function listPage(target: RecordTarget, query: ListQuery): Promise<Result<Record
 	return callGoogle(target.connection, (token) =>
 		Do(async ($) => {
 			if (query.filter === 'Draft') {
-				return $(await listDraftsPage(token, query));
+				return $(await listDraftsPage(token, target.connection.account, query));
 			}
 			const page = $(await listMessageIds(token, folderQuery(query.filter, query.search), query.page));
 			const messages = $(present(await getMessageSummaries(token, page.items))).flatMap((message) => (message ? [message] : []));
@@ -198,36 +208,36 @@ function listPage(target: RecordTarget, query: ListQuery): Promise<Result<Record
 			const draftIds = drafts.length > 0 ? $(await findDraftIds(token, drafts)) : new Map<string, string>();
 			const records = messages.map((message) => {
 				const draftId = draftIds.get(message.id);
-				return toRecord(draftId ? `draft-${draftId}` : message.id, message);
+				return toRecord(target.connection.account, draftId ? `draft-${draftId}` : message.id, message);
 			});
 			return {records, nextPage: page.nextPage};
 		}),
 	);
 }
 
-function readDraft(token: string, recordId: string, draftId: string): Promise<Result<DataRecord, ApiError>> {
+function readDraft(token: string, account: string, recordId: string, draftId: string): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
 		const draft = $((await getDraft(token, draftId)).mapErr(notFoundAs(recordId)));
-		return fullRecord(`draft-${draft.id}`, draft.message);
+		return fullRecord(account, `draft-${draft.id}`, draft.message);
 	});
 }
 
 // A message opened by its message id that turns out to be a draft is given its draft's id.
-function readMessage(token: string, recordId: string, messageId: string): Promise<Result<DataRecord, ApiError>> {
+function readMessage(token: string, account: string, recordId: string, messageId: string): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
 		const message = $((await getMessage(token, messageId)).mapErr(notFoundAs(recordId)));
 		const draftId = isDraft(message) ? $(await findDraftIds(token, [message.id])).get(message.id) : undefined;
-		return fullRecord(draftId ? `draft-${draftId}` : message.id, message);
+		return fullRecord(account, draftId ? `draft-${draftId}` : message.id, message);
 	});
 }
 
-function readRecord(token: string, recordId: string): Promise<Result<DataRecord, ApiError>> {
+function readRecord(token: string, account: string, recordId: string): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
 		const ref = $(requireRef(recordId));
 		if (ref.kind === 'draft') {
-			return $(await readDraft(token, recordId, ref.draftId));
+			return $(await readDraft(token, account, recordId, ref.draftId));
 		}
-		return $(await readMessage(token, recordId, ref.messageId));
+		return $(await readMessage(token, account, recordId, ref.messageId));
 	});
 }
 
@@ -267,7 +277,7 @@ function createDraftRecord(target: RecordTarget, values: RecordValues): Promise<
 		Do(async ($) => {
 			const source = $(await compose(target.connection.account, values, null));
 			const draft = $(await createDraft(token, rawMessage(source, null)));
-			return $(await readDraft(token, `draft-${draft.id}`, draft.id));
+			return $(await readDraft(token, target.connection.account, `draft-${draft.id}`, draft.id));
 		}),
 	);
 }
@@ -293,7 +303,7 @@ function updateDraftRecord(target: RecordTarget, recordId: string, values: Recor
 			const html = written.body === current.body ? messageHtml(payload) : null;
 			const source = $(await compose(target.connection.account, {...written, to}, keptOf(payload), html));
 			$(await updateDraft(token, draftId, rawMessage(source, threadId ?? null)));
-			return $(await readDraft(token, recordId, draftId));
+			return $(await readDraft(token, target.connection.account, recordId, draftId));
 		}),
 	);
 }
@@ -314,7 +324,7 @@ function relabel(change: {add?: string[]; remove?: string[]}): CommandRunner {
 			Do(async ($) => {
 				const messageId = $(requireMessage(recordId));
 				$((await modifyMessage(token, messageId, change)).mapErr(notFoundAs(recordId)));
-				return $(await readMessage(token, recordId, messageId));
+				return $(await readMessage(token, target.connection.account, recordId, messageId));
 			}),
 		);
 }
@@ -325,7 +335,7 @@ const trash: CommandRunner = (target, recordId) =>
 		Do(async ($) => {
 			const messageId = $(requireMessage(recordId));
 			$((await trashMessage(token, messageId)).mapErr(notFoundAs(recordId)));
-			return $(await readMessage(token, recordId, messageId));
+			return $(await readMessage(token, target.connection.account, recordId, messageId));
 		}),
 	);
 
@@ -361,7 +371,7 @@ function sendNew(target: RecordTarget, values: RecordValues): Promise<Result<nul
 
 export const gmailConnector: Connector = {
 	list: listPage,
-	get: (target, recordId) => callGoogle(target.connection, (token) => readRecord(token, recordId)),
+	get: (target, recordId) => callGoogle(target.connection, (token) => readRecord(token, target.connection.account, recordId)),
 	create: createDraftRecord,
 	update: updateDraftRecord,
 	remove: removeDraft,

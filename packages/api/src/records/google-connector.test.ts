@@ -166,10 +166,10 @@ describe('googleConnector.list', () => {
 
 		expect(page).toEqual({
 			records: [
-				{id: 'root', values: {name: 'My Drive', kind: 'Place'}, updatedAt: '', hasChildren: true},
-				{id: 'shared-with-me', values: {name: 'Shared with me', kind: 'Place'}, updatedAt: '', hasChildren: true},
-				{id: 'shared-drives', values: {name: 'Shared drives', kind: 'Place'}, updatedAt: '', hasChildren: true},
-				{id: 'recent', values: {name: 'Recent', kind: 'Place'}, updatedAt: '', hasChildren: true},
+				{id: 'root', values: {name: 'My Drive', kind: 'Place'}, updatedAt: '', url: 'https://drive.google.com/drive/my-drive', hasChildren: true},
+				{id: 'shared-with-me', values: {name: 'Shared with me', kind: 'Place'}, updatedAt: '', url: 'https://drive.google.com/drive/shared-with-me', hasChildren: true},
+				{id: 'shared-drives', values: {name: 'Shared drives', kind: 'Place'}, updatedAt: '', url: 'https://drive.google.com/drive/shared-drives', hasChildren: true},
+				{id: 'recent', values: {name: 'Recent', kind: 'Place'}, updatedAt: '', url: 'https://drive.google.com/drive/recent', hasChildren: true},
 			],
 			nextPage: null,
 		});
@@ -195,14 +195,16 @@ describe('googleConnector.list', () => {
 		expect(page.records).toEqual([
 			{
 				id: '1Projects',
-				values: {name: 'Projects', kind: 'Folder', modified: '2026-10-01T09:00:00.000Z', owner: 'Alex Kim', link: 'https://drive.google.com/drive/folders/1Projects'},
+				values: {name: 'Projects', kind: 'Folder', modified: '2026-10-01T09:00:00.000Z', owner: 'Alex Kim'},
 				updatedAt: '2026-10-01T09:00:00.000Z',
+				url: 'https://drive.google.com/drive/folders/1Projects',
 				hasChildren: true,
 			},
 			{
 				id: '1Plan',
-				values: {name: 'Launch plan', kind: 'Document', modified: '2026-10-08T08:16:23.137Z', owner: 'Alex Kim', link: 'https://docs.google.com/document/d/1Plan/edit?usp=drivesdk'},
+				values: {name: 'Launch plan', kind: 'Document', modified: '2026-10-08T08:16:23.137Z', owner: 'Alex Kim'},
 				updatedAt: '2026-10-08T08:16:23.137Z',
+				url: 'https://docs.google.com/document/d/1Plan/edit?usp=drivesdk',
 			},
 		]);
 		expect(page.trail).toEqual([
@@ -241,7 +243,9 @@ describe('googleConnector.list', () => {
 		const drives = (await googleConnector.list(target, query({parent: 'shared-drives'}))).unwrap();
 		const inside = (await googleConnector.list(target, query({parent: 'drive-0ATeamDrive'}))).unwrap();
 
-		expect(drives.records).toEqual([{id: 'drive-0ATeamDrive', values: {name: 'Team', kind: 'Shared drive'}, updatedAt: '', hasChildren: true}]);
+		expect(drives.records).toEqual([
+			{id: 'drive-0ATeamDrive', values: {name: 'Team', kind: 'Shared drive'}, updatedAt: '', url: 'https://drive.google.com/drive/folders/0ATeamDrive', hasChildren: true},
+		]);
 		const [list] = requested('/drive/v3/files');
 		expect(list?.searchParams.get('q')).toBe("'0ATeamDrive' in parents and trashed=false");
 		expect(list?.searchParams.get('corpora')).toBe('drive');
@@ -276,9 +280,9 @@ describe('googleConnector.list', () => {
 		const {googleConnector} = await import('./google-connector');
 		const tabs = (await googleConnector.list(target, query({parent: '1Budget'}))).unwrap();
 
-		expect(tabs.records.map((record) => [record.id, record.values.name, record.values.content, record.hasChildren])).toEqual([
-			['sheet-1Budget-0', 'Q1', '120 rows, 8 columns', true],
-			['sheet-1Budget-1834', "Alex's notes", '1000 rows, 26 columns', true],
+		expect(tabs.records.map((record) => [record.id, record.values.name, record.values.content, record.hasChildren, record.url])).toEqual([
+			['sheet-1Budget-0', 'Q1', '120 rows, 8 columns', true, 'https://docs.google.com/spreadsheets/d/1Budget/edit?usp=drivesdk#gid=0'],
+			['sheet-1Budget-1834', "Alex's notes", '1000 rows, 26 columns', true, 'https://docs.google.com/spreadsheets/d/1Budget/edit?usp=drivesdk#gid=1834'],
 		]);
 		expect(tabs.trail).toEqual([
 			{id: 'root', title: 'My Drive'},
@@ -296,10 +300,11 @@ describe('googleConnector.list', () => {
 				kind: 'Row',
 				modified: '2026-10-07T12:00:00.000Z',
 				owner: 'Alex Kim',
-				link: 'https://docs.google.com/spreadsheets/d/1Budget/edit?usp=drivesdk#gid=1834',
 				content: 'Item: Item 2\nAmount: 20\nColumn C: Paid',
 			},
 			updatedAt: '2026-10-07T12:00:00.000Z',
+			// The row itself, in its tab.
+			url: 'https://docs.google.com/spreadsheets/d/1Budget/edit?usp=drivesdk#gid=1834&range=A2',
 		});
 		expect(first.nextPage).toBe('52');
 		expect(first.trail?.at(-1)).toEqual({id: 'sheet-1Budget-1834', title: "Alex's notes"});
@@ -388,10 +393,10 @@ describe('googleConnector.get', () => {
 				kind: 'Document',
 				modified: '2026-10-08T08:16:23.137Z',
 				owner: 'Alex Kim',
-				link: 'https://docs.google.com/document/d/1Plan/edit?usp=drivesdk',
 				content: '# Launch plan\n\n- Ship it',
 			},
 			updatedAt: '2026-10-08T08:16:23.137Z',
+			url: 'https://docs.google.com/document/d/1Plan/edit?usp=drivesdk',
 		});
 	});
 

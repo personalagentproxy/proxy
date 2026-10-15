@@ -177,12 +177,11 @@ function eventValues(event: GoogleEvent): RecordValues {
 		organizer: event.organizer?.self ? '' : named(event.organizer ?? {}),
 		repeats: event.recurringEventId ? 'Yes' : '',
 		meeting: meetingOf(event),
-		link: event.htmlLink ?? '',
 	};
 }
 
 function eventRecord(calendarId: string, event: GoogleEvent): DataRecord {
-	return {id: eventRecordId(calendarId, event.id), values: eventValues(event), updatedAt: event.updated ?? NEVER};
+	return {id: eventRecordId(calendarId, event.id), values: eventValues(event), updatedAt: event.updated ?? NEVER, ...(event.htmlLink ? {url: event.htmlLink} : {})};
 }
 
 // A day, moved by `days`.

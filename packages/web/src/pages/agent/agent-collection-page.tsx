@@ -1,6 +1,12 @@
 import type {ReactNode} from 'react';
 import {Form, Link, useLoaderData, useLocation, useSearchParams} from 'react-router';
-import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
+import {
+	AgentHeading,
+	AgentShell,
+	Crumbs,
+	OpenInLink,
+	PersonLinkHint,
+} from '@/components/agent-shell';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {Button} from '@proxy/ui/components/button';
 import {Input} from '@proxy/ui/components/input';
@@ -125,6 +131,7 @@ export function AgentCollectionPage() {
 	return (
 		<AgentShell>
 			{header}
+			<PersonLinkHint collection={collection} />
 			{collection.searchHint && (
 				<>
 					<Form method="get" className="mb-1 flex gap-2 md:px-3">
@@ -181,6 +188,15 @@ export function AgentCollectionPage() {
 						key={record.id}
 						to={record.hasChildren ? `${base}${inside(record.id)}` : recordPath(base, record.id)}
 						title={recordTitle(collection, record)}
+						after={
+							record.url && (
+								<OpenInLink
+									collection={collection}
+									url={record.url}
+									className="shrink-0 pr-4 text-sm text-muted-foreground md:pr-3"
+								/>
+							)
+						}
 						cells={
 							<>
 								{record.hasChildren && (

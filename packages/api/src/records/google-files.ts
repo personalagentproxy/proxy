@@ -45,11 +45,12 @@ import {readValueLines, valueLines} from './value-lines';
  * and a spreadsheet's content are only read. Files go to Trash, never deleted for good.
  */
 
+// Each with where Drive shows it: `https://drive.google.com/drive/<path>`.
 const PLACES = [
-	{id: 'root', name: 'My Drive'},
-	{id: 'shared-with-me', name: 'Shared with me'},
-	{id: 'shared-drives', name: 'Shared drives'},
-	{id: 'recent', name: 'Recent'},
+	{id: 'root', name: 'My Drive', path: 'my-drive'},
+	{id: 'shared-with-me', name: 'Shared with me', path: 'shared-with-me'},
+	{id: 'shared-drives', name: 'Shared drives', path: 'shared-drives'},
+	{id: 'recent', name: 'Recent', path: 'recent'},
 ] as const;
 
 type Place = (typeof PLACES)[number];
@@ -141,28 +142,29 @@ function kindOf(mimeType: string): string {
 
 function fileValues(file: DriveFile): Record<string, string> {
 	const owner = file.owners?.[0];
-	return {name: file.name, kind: kindOf(file.mimeType), modified: file.modifiedTime ?? '', owner: owner?.displayName ?? owner?.emailAddress ?? '', link: file.webViewLink ?? ''};
+	return {name: file.name, kind: kindOf(file.mimeType), modified: file.modifiedTime ?? '', owner: owner?.displayName ?? owner?.emailAddress ?? ''};
+}
+
+// The file in Drive, or in Docs, Sheets or Slides, as Drive links it; `at` is where in it, a tab or a row.
+function fileUrl(file: DriveFile, at = ''): Pick<DataRecord, 'url'> {
+	return file.webViewLink ? {url: `${file.webViewLink}${at}`} : {};
 }
 
 function fileRecord(file: DriveFile): DataRecord {
 	const kind = kindOf(file.mimeType);
-	return {id: file.id, values: fileValues(file), updatedAt: file.modifiedTime ?? '', ...(kind === 'Folder' || kind === 'Spreadsheet' ? {hasChildren: true} : {})};
+	return {id: file.id, values: fileValues(file), updatedAt: file.modifiedTime ?? '', ...fileUrl(file), ...(kind === 'Folder' || kind === 'Spreadsheet' ? {hasChildren: true} : {})};
 }
 
 function placeRecord(place: Place): DataRecord {
-	return {id: place.id, values: {name: place.name, kind: 'Place'}, updatedAt: '', hasChildren: true};
+	return {id: place.id, values: {name: place.name, kind: 'Place'}, updatedAt: '', url: `https://drive.google.com/drive/${place.path}`, hasChildren: true};
 }
 
 function driveRecord(drive: SharedDrive): DataRecord {
-	return {id: `drive-${drive.id}`, values: {name: drive.name, kind: 'Shared drive'}, updatedAt: '', hasChildren: true};
+	return {id: `drive-${drive.id}`, values: {name: drive.name, kind: 'Shared drive'}, updatedAt: '', url: `https://drive.google.com/drive/folders/${drive.id}`, hasChildren: true};
 }
 
 function sheetId(file: DriveFile, sheet: Sheet): string {
 	return `sheet-${file.id}-${sheet.sheetId}`;
-}
-
-function sheetLink(file: DriveFile, sheet: Sheet): string {
-	return file.webViewLink ? `${file.webViewLink}#gid=${sheet.sheetId}` : '';
 }
 
 // "Sheet1: 120 rows, 8 columns", the tab's grid, empty cells included.
@@ -173,8 +175,9 @@ function sheetSize(sheet: Sheet): string {
 function sheetRecord(file: DriveFile, sheet: Sheet): DataRecord {
 	return {
 		id: sheetId(file, sheet),
-		values: {...fileValues(file), name: sheet.title, kind: 'Sheet', link: sheetLink(file, sheet), content: sheetSize(sheet)},
+		values: {...fileValues(file), name: sheet.title, kind: 'Sheet', content: sheetSize(sheet)},
 		updatedAt: file.modifiedTime ?? '',
+		...fileUrl(file, `#gid=${sheet.sheetId}`),
 		hasChildren: true,
 	};
 }
@@ -214,8 +217,9 @@ function rowRecord(file: DriveFile, sheet: Sheet, headers: string[], row: number
 	return {
 		id: `row-${file.id}-${sheet.sheetId}-${row}`,
 		// Rows have no time of their own; the spreadsheet's is when anything in it changed.
-		values: {...fileValues(file), name: cells[0] || `Row ${row}`, kind: 'Row', link: sheetLink(file, sheet), content},
+		values: {...fileValues(file), name: cells[0] || `Row ${row}`, kind: 'Row', content},
 		updatedAt: file.modifiedTime ?? '',
+		...fileUrl(file, `#gid=${sheet.sheetId}&range=A${row}`),
 	};
 }
 
