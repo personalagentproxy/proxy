@@ -45,14 +45,14 @@ export default function PrivacyPage() {
 				</p>
 				<p>
 					<span className="text-foreground">Information from your connected services.</span> When
-					you connect a service, such as an email account, Google, Granola, Notion, Linear, a bank
-					through Plaid, a database or a server that speaks MCP, we collect the credentials needed
-					to reach it and, depending on the permissions you give your agents, information from that
-					service: the content and metadata of emails, files, documents, spreadsheets,
-					presentations, pages, issues, meeting notes, bank account balances and transactions,
-					database records and other data your agents request, and the results of the actions they
-					take. Some of this may be sensitive, such as private communications, financial information
-					or health information, depending on what you connect and what you let your agents do.
+					you connect a service, such as an email account, a calendar, a file or document store, a
+					note-taking or project tool, a bank or other financial account, a database or a server
+					that speaks MCP, we collect the credentials needed to reach it and, depending on the
+					permissions you give your agents, information from that service: the content and metadata
+					of the messages, files, documents, events, contacts, notes, records, accounts,
+					transactions and other data your agents request, and the results of the actions they take.
+					Some of this may be sensitive, such as private communications, financial information or
+					health information, depending on what you connect and what you let your agents do.
 				</p>
 				<p>
 					<span className="text-foreground">Information about your agents&apos; activity.</span> We
@@ -110,11 +110,12 @@ export default function PrivacyPage() {
 				<p>
 					When you connect a Google account, Google asks you to grant the Services access to parts
 					of that account. Depending on what you grant, the Services may access your Google account
-					email address and information in Gmail, Google Calendar, Google Drive, Google Docs, Google
-					Sheets, Google Slides and Google Contacts, including the content and metadata of messages,
-					calendars, events, files, documents, spreadsheets, presentations and contacts, and may
-					create, change, send and move to Trash such items, invite guests to events and answer
-					invitations on your behalf. Google&apos;s consent screen lets you decline any of these.
+					email address and information in the Google services you grant access to, such as Gmail,
+					Google Calendar, Google Drive, Google Docs, Google Sheets, Google Slides and Google
+					Contacts, including the content and metadata of what is in them, and may act on it for
+					your agents within the permissions you set, such as sending email, creating and changing
+					documents and events, or moving items to Trash. Google&apos;s consent screen lets you
+					decline any of these.
 				</p>
 				<p>
 					We use information received from Google Workspace APIs only to provide and improve the
@@ -155,22 +156,16 @@ export default function PrivacyPage() {
 				</p>
 			</LegalSection>
 
-			<LegalSection title="Information from your bank, through Plaid">
+			<LegalSection title="Services connected through a third party">
 				<p>
-					When you connect a bank, Plaid Inc. connects the Services to it: you sign in to your bank
-					in Plaid&apos;s own window and choose the accounts to share. The Services then receive
-					from Plaid the names, types and last digits of those accounts, their balances, and their
-					transactions, with the amounts, dates, merchants, categories and locations Plaid gives
-					them. We store the access token Plaid issues, encrypted at rest; balances and transactions
-					are fetched from Plaid when your agents request them, and kept only as described under
-					your agents&apos; activity. The Services only ever read your accounts: they can&apos;t
-					move money or change anything at your bank.
-				</p>
-				<p>
-					Plaid handles the information it collects under its{' '}
-					<LegalLink href={PLAID_END_USER_PRIVACY_POLICY}>End User Privacy Policy</LegalLink>.
-					Disconnecting the bank in the Services removes it at Plaid too and deletes the stored
-					access token. You can also see and manage the connections Plaid keeps at{' '}
+					Some services are connected through a third party that links the Services to your account
+					there, such as Plaid Inc. for bank accounts. You sign in with your provider in that third
+					party&apos;s own window and choose what to share, and the third party handles the
+					information it collects under its own privacy policy, such as Plaid&apos;s{' '}
+					<LegalLink href={PLAID_END_USER_PRIVACY_POLICY}>End User Privacy Policy</LegalLink>. We
+					store the credentials it issues, encrypted at rest. Disconnecting the service in the
+					Services, or deleting your account, ends our access through the third party where it
+					offers a way, and you can also manage that access with the third party, such as at{' '}
 					<LegalLink href="https://my.plaid.com">my.plaid.com</LegalLink>.
 				</p>
 			</LegalSection>

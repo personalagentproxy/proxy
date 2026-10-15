@@ -980,6 +980,7 @@ const plaid: Integration = {
 			singular: 'account',
 			titleField: 'name',
 			summaryField: 'balance',
+			listsAll: true,
 			read: 'readBalances',
 			writes: {},
 			fields: [
@@ -1005,6 +1006,7 @@ const plaid: Integration = {
 			searchHint:
 				'A day, such as 2026-09-30, for the transactions on it and before it, or two, 2026-09-01 2026-09-30, for those between them. At the top, in every account.',
 			nested: true,
+			listsAll: true,
 			read: 'readTransactions',
 			writes: {},
 			fields: [

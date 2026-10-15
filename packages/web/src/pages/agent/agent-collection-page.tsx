@@ -1,3 +1,4 @@
+import type {Collection} from '@proxy/integrations';
 import type {ReactNode} from 'react';
 import {Form, Link, useLoaderData, useLocation, useSearchParams} from 'react-router';
 import {
@@ -14,6 +15,7 @@ import {useAgentTarget} from '@/hooks/use-agent-target';
 import {canStartNew, displayValue, recordTitle} from '@/lib/access';
 import {inside, recordPath} from '@/lib/agent-paths';
 import type {agentCollectionLoader} from '@/agent-loaders';
+import type {DataRecord} from '@/lib/types';
 
 // What a page hands over when its record left the list, or was sent: "Sent email “Re: Q3”".
 export function noticeFromState(state: unknown): string | null {
@@ -183,39 +185,49 @@ export function AgentCollectionPage() {
 							: `No ${collection.name.toLowerCase()}${here ? ' in here' : ''}.`}
 					</EmptyRows>
 				)}
-				{records.map((record) => (
-					<Row
-						key={record.id}
-						to={record.hasChildren ? `${base}${inside(record.id)}` : recordPath(base, record.id)}
-						title={recordTitle(collection, record)}
-						after={
-							record.url && (
-								<OpenInLink
-									collection={collection}
-									url={record.url}
-									className="shrink-0 pr-4 text-sm text-muted-foreground md:pr-3"
-								/>
-							)
-						}
-						cells={
-							<>
-								{record.hasChildren && (
-									<span className="shrink-0 text-muted-foreground">Has more inside</span>
-								)}
-								{summary && (
-									<span className="max-w-[40%] shrink-0 truncate text-muted-foreground">
-										{displayValue(summary.type, record.values[summary.key])}
-									</span>
-								)}
-								{filter && !chosen && (
-									<span className="w-20 shrink-0 text-right text-muted-foreground">
-										{record.values[filter.key]}
-									</span>
-								)}
-							</>
-						}
-					/>
-				))}
+				{collection.listsAll &&
+					records.map((record) => (
+						<FieldsRow
+							key={record.id}
+							collection={collection}
+							record={record}
+							to={record.hasChildren ? `${base}${inside(record.id)}` : recordPath(base, record.id)}
+						/>
+					))}
+				{!collection.listsAll &&
+					records.map((record) => (
+						<Row
+							key={record.id}
+							to={record.hasChildren ? `${base}${inside(record.id)}` : recordPath(base, record.id)}
+							title={recordTitle(collection, record)}
+							after={
+								record.url && (
+									<OpenInLink
+										collection={collection}
+										url={record.url}
+										className="shrink-0 pr-4 text-sm text-muted-foreground md:pr-3"
+									/>
+								)
+							}
+							cells={
+								<>
+									{record.hasChildren && (
+										<span className="shrink-0 text-muted-foreground">Has more inside</span>
+									)}
+									{summary && (
+										<span className="max-w-[40%] shrink-0 truncate text-muted-foreground">
+											{displayValue(summary.type, record.values[summary.key])}
+										</span>
+									)}
+									{filter && !chosen && (
+										<span className="w-20 shrink-0 text-right text-muted-foreground">
+											{record.values[filter.key]}
+										</span>
+									)}
+								</>
+							}
+						/>
+					))}
 			</RowList>
 			{nextPage && (
 				<div className="mt-4 md:px-3">
@@ -249,5 +261,44 @@ export function AgentDenied({children}: {children: ReactNode}) {
 			<Crumbs items={[{label: 'Home', to: '/agent'}, {label: 'No access'}]} />
 			<p className="text-sm md:px-3">{children} Ask the person who made it to give it access.</p>
 		</AgentShell>
+	);
+}
+
+// A row with every field the record has under its title, "Label: value" one after another, so
+// an agent reads the whole record from the list without opening it. A day is written as it is,
+// 2026-10-11, its year and all.
+function FieldsRow({
+	collection,
+	record,
+	to,
+}: {
+	collection: Collection;
+	record: DataRecord;
+	to: string;
+}) {
+	const fields = collection.fields.filter(
+		(field) => field.key !== collection.titleField && record.values[field.key],
+	);
+	return (
+		<li>
+			<Link
+				to={to}
+				className="flex min-w-0 flex-col gap-0.5 px-4 py-2 text-sm hover:bg-muted/50 active:bg-muted/50 md:px-3"
+			>
+				<span className="min-w-0 truncate">{recordTitle(collection, record)}</span>
+				<span className="text-muted-foreground">
+					{fields.map((field, index) => (
+						<span key={field.key}>
+							{index > 0 && ' · '}
+							{field.label}:{' '}
+							{field.type === 'date'
+								? record.values[field.key]
+								: displayValue(field.type, record.values[field.key])}
+						</span>
+					))}
+					{record.hasChildren && (fields.length > 0 ? ' · Has more inside' : 'Has more inside')}
+				</span>
+			</Link>
+		</li>
 	);
 }

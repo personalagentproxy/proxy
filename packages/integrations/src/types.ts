@@ -76,6 +76,10 @@ export type Collection = {
 	// Listed from now on, soonest first, as a calendar's events are, rather than newest first: a
 	// list's next page is later rather than older.
 	upcoming?: true;
+	// A list's rows show every field a record has, under its title, rather than one beside it: for
+	// records read like a statement's lines, as a bank's transactions are, all of whose fields are
+	// short.
+	listsAll?: true;
 	// Where a record's own address opens, for its link: "Open in Gmail". A collection whose records
 	// have no address the person can open, as a mailbox's over IMAP haven't, has none.
 	openIn?: string;
