@@ -38,10 +38,19 @@ export default function PrivacyPage() {
 				<p>
 					<span className="text-foreground">Information you give us.</span> When you create an
 					account, we collect your email address and, if you sign in with Google, your name, profile
-					picture and Google account id. We collect the information you type into the Services, such
-					as addresses, payment details and notes you keep for your agents, the services and
-					accounts you connect, the agents you set up and the permissions you give them, and
-					anything you send us when you contact us.
+					picture and Google account id. If you add a way to confirm it&apos;s you when you sign in,
+					such as a passkey, an authenticator app or a phone number, we collect what it needs. We
+					collect the information you type into the Services, such as addresses, payment details and
+					notes you keep for your agents, the services and accounts you connect, the agents you set
+					up and the permissions you give them, the people you invite to an organization, such as
+					their email addresses, and anything you send us when you contact us.
+				</p>
+				<p>
+					<span className="text-foreground">Billing information.</span> If you pay for the Services,
+					we collect billing information, such as your name, billing address, the plan you choose
+					and your payment history. Card details are collected by our payment processor under its
+					own privacy policy; we receive only limited details, such as the card&apos;s brand, last
+					digits and expiry date.
 				</p>
 				<p>
 					<span className="text-foreground">Information from your connected services.</span> When
@@ -100,9 +109,11 @@ export default function PrivacyPage() {
 						training, fine-tuning and evaluating models, subject to the limits on Google user data
 						below and to the choices described under &quot;Your choices&quot;;
 					</li>
+					<li>process payments and manage billing;</li>
 					<li>
-						communicate with you about the Services, respond to you, and send you service and
-						account notices;
+						communicate with you about the Services, respond to you, send you service and account
+						notices, and send you news, updates and offers about the Services, which you can
+						unsubscribe from;
 					</li>
 					<li>
 						detect, investigate and prevent abuse, fraud and security incidents, and enforce our
@@ -133,17 +144,18 @@ export default function PrivacyPage() {
 				</p>
 				<p>
 					We disclose information from Google Workspace APIs only to the agents you authorized and
-					the companies that run them, as needed to provide the feature you asked for; to service
-					providers that help us run the Services and may handle it only for that purpose; and as
-					required by law or to protect the security of the Services. We do not use it to serve
-					advertising, do not sell it, do not disclose it to data brokers or information resellers,
-					and do not use it to determine creditworthiness or for lending. We do not use information
-					from Google Workspace APIs to develop, improve or train any artificial intelligence or
-					machine learning model, other than a model personalized to you alone for a feature you
-					use, and we do not allow third parties to do so. People working for us do not read it
-					unless you ask us to and give your consent, it is needed for security or to investigate
-					abuse, it is required by law, or it has been aggregated and deidentified for internal
-					operations.
+					the companies that run them, as needed to provide the feature you asked for; to the
+					members of the organization you connected the account in, as described under &quot;How we
+					disclose information&quot;; to service providers that help us run the Services and may
+					handle it only for that purpose; and as required by law or to protect the security of the
+					Services. We do not use it to serve advertising, do not sell it, do not disclose it to
+					data brokers or information resellers, and do not use it to determine creditworthiness or
+					for lending. We do not use information from Google Workspace APIs to develop, improve or
+					train any artificial intelligence or machine learning model, other than a model
+					personalized to you alone for a feature you use, and we do not allow third parties to do
+					so. People working for us do not read it unless you ask us to and give your consent, it is
+					needed for security or to investigate abuse, it is required by law, or it has been
+					aggregated and deidentified for internal operations.
 				</p>
 				<p>
 					Personal Agent Proxy&apos;s use and transfer to any other app of information received from
@@ -190,15 +202,20 @@ export default function PrivacyPage() {
 				<p>We may disclose information:</p>
 				<LegalList>
 					<li>
+						to the other members of an organization you use the Services in: depending on their
+						role, they can see and manage its connections, agents, permissions, Information and
+						activity, including what you added and what agents did with it;
+					</li>
+					<li>
 						to the agents you authorize and the companies that run them, such as Anthropic, OpenAI
 						or the maker of any other agent you connect, which handle it under their own terms and
 						policies;
 					</li>
 					<li>to the services you connect, when your agents act on them for you;</li>
 					<li>
-						to service providers that help us run the Services, such as hosting, email delivery,
-						analytics, payment processing, security and AI model providers, which may use it only to
-						provide services to us;
+						to service providers that help us run the Services, such as hosting, email and text
+						message delivery, analytics, payment processing, security and AI model providers, which
+						may use it only to provide services to us;
 					</li>
 					<li>
 						to our affiliates, and to a buyer or successor in a merger, acquisition, financing or
@@ -221,9 +238,11 @@ export default function PrivacyPage() {
 					resolve disputes and enforce our agreements. Disconnecting a service deletes its
 					credentials but doesn&apos;t by itself delete the other information we collected from it.
 					You can delete your account, and the information in it, at any time in the Services&apos;
-					settings, or by writing to {LEGAL.contactEmail}. Deleting it disconnects every connected
-					service, revoking our access with that service where it offers a way. We may keep
-					deidentified information, and copies in backups for a limited time.
+					settings, or by writing to {LEGAL.contactEmail}. Deleting it also deletes any organization
+					only you belong to, disconnecting its connected services and revoking our access with each
+					service where it offers a way. What you added to an organization others belong to stays
+					with that organization until its members delete it. We may keep billing records as the law
+					requires, deidentified information, and copies in backups for a limited time.
 				</p>
 			</LegalSection>
 
@@ -238,6 +257,11 @@ export default function PrivacyPage() {
 						by writing to {LEGAL.contactEmail} or through the settings when they offer it. This
 						applies going forward and doesn&apos;t affect models already trained. We never use
 						information from Google Workspace APIs this way, whatever you choose.
+					</li>
+					<li>
+						You can unsubscribe from news, updates and offers with the link in each email. Service
+						and account notices, such as security alerts and billing receipts, still reach you while
+						you have an account.
 					</li>
 					<li>
 						You can ask for a copy of your information, or to have it corrected or deleted, by
