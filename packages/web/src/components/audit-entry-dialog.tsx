@@ -79,7 +79,9 @@ function AuditEntryContent({
 	return (
 		<DialogContent className="grid-cols-[minmax(0,1fr)] sm:max-w-lg">
 			<DialogHeader>
-				<DialogTitle className="pr-8 leading-snug">{describeEntry(entry, located)}</DialogTitle>
+				<DialogTitle className="pr-8 leading-snug break-words">
+					{describeEntry(entry, located)}
+				</DialogTitle>
 				<DialogDescription>{formatMoment(entry.at)}</DialogDescription>
 			</DialogHeader>
 			<dl className="divide-y text-sm">
