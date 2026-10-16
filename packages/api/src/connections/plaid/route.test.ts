@@ -60,8 +60,8 @@ const bankRow = {
 	credential: 'enc:{"accessToken":"access-sandbox-1","itemId":"item-1"}',
 };
 
-function makeRequest(body: unknown) {
-	return {user: {userId: 'user-1', email: 'alex@example.com'}, params: {}, body} as never;
+function makeRequest(body: unknown, experiments = ['plaid']) {
+	return {user: {userId: 'user-1', email: 'alex@example.com', experiments}, params: {}, body} as never;
 }
 
 beforeEach(() => {
@@ -114,6 +114,13 @@ describe('handleCreatePlaidLinkTokenRoute', () => {
 		expect(plaid.requests).toEqual([]);
 	});
 
+	test('refuses an organization without the experiment on, before asking Plaid', async () => {
+		const {handleCreatePlaidLinkTokenRoute} = await import('./route');
+
+		expect((await handleCreatePlaidLinkTokenRoute(makeRequest({}, []))).unwrapErr().kind).toBe('forbidden');
+		expect(plaid.requests).toEqual([]);
+	});
+
 	test('says so when the server has no Plaid keys', async () => {
 		env.PLAID_CLIENT_ID = undefined;
 		const {handleCreatePlaidLinkTokenRoute} = await import('./route');
@@ -124,6 +131,14 @@ describe('handleCreatePlaidLinkTokenRoute', () => {
 });
 
 describe('handleConnectPlaidRoute', () => {
+	test('refuses an organization without the experiment on, before exchanging the token', async () => {
+		const {handleConnectPlaidRoute} = await import('./route');
+
+		expect((await handleConnectPlaidRoute(makeRequest({publicToken: 'public-sandbox-1'}, []))).unwrapErr().kind).toBe('forbidden');
+		expect(plaid.requests).toEqual([]);
+		expect(createConnection).not.toHaveBeenCalled();
+	});
+
 	test('exchanges the public token and keeps the login as a connection named by its bank, giving agents nothing yet', async () => {
 		const {handleConnectPlaidRoute} = await import('./route');
 		const connection = (await handleConnectPlaidRoute(makeRequest({publicToken: 'public-sandbox-1'}))).unwrap();

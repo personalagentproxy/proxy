@@ -1,4 +1,5 @@
 import {AGENT_PROVIDERS} from '@proxy/integrations';
+import type {Experiment} from '@proxy/utils';
 import {useState, type ReactNode} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
 import {setConnectionDefaults} from '@/client/connections-client';
@@ -36,7 +37,7 @@ type Step = 'agent' | 'connections' | 'email' | 'plaid' | 'mcp' | DatabaseDialec
 // services, each connection's permissions confirmed as it is made. Done, or skipped, it is not
 // shown again.
 export function WelcomePage({step}: {step: Step}) {
-	const {agents, connections, configured} = useLoaderData<typeof welcomeLoader>();
+	const {agents, connections, configured, experiments} = useLoaderData<typeof welcomeLoader>();
 	const navigate = useNavigate();
 	const [finishing, setFinishing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -68,6 +69,7 @@ export function WelcomePage({step}: {step: Step}) {
 					agentName={agentName}
 					connections={connections}
 					configured={configured}
+					experiments={experiments}
 					finishing={finishing}
 					onDone={() => void finish()}
 				/>
@@ -155,12 +157,14 @@ function ConnectionsStep({
 	agentName,
 	connections,
 	configured,
+	experiments,
 	finishing,
 	onDone,
 }: {
 	agentName: string;
 	connections: Connection[];
 	configured: Configured;
+	experiments: Experiment[];
 	finishing: boolean;
 	onDone: () => void;
 }) {
@@ -178,6 +182,7 @@ function ConnectionsStep({
 			<IntegrationCatalog
 				connections={connections}
 				configured={configured}
+				experiments={experiments}
 				returnTo="welcome"
 				onConnectForm={(integrationId) => navigate(`/welcome/connections/${integrationId}`)}
 			/>

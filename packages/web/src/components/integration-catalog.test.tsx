@@ -5,6 +5,7 @@ import {cleanup, fireEvent, render, screen, within} from '@testing-library/react
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {IntegrationCatalog, SignInFailed} from '@/components/integration-catalog';
 import type {Connection} from '@/lib/types';
+import type {Experiment} from '@proxy/utils';
 
 const GOOGLE_DOCS = 'https://docs.personalagentproxy.com/connections/google/';
 
@@ -25,6 +26,7 @@ afterEach(() => {
 function renderCatalog(args: {
 	google?: boolean;
 	plaid?: boolean;
+	experiments?: Experiment[];
 	connections?: Connection[];
 	name?: string;
 	onConnectForm?: (integrationId: string) => void;
@@ -34,6 +36,7 @@ function renderCatalog(args: {
 			<IntegrationCatalog
 				connections={args.connections ?? []}
 				configured={{google: args.google ?? true, plaid: args.plaid ?? true}}
+				experiments={args.experiments ?? ['plaid']}
 				onConnectForm={args.onConnectForm ?? mock()}
 			/>
 		</TooltipProvider>,
@@ -86,6 +89,12 @@ describe('IntegrationCatalog', () => {
 
 		fireEvent.click(row.getByRole('button'));
 		expect(onConnectForm).toHaveBeenCalledWith('plaid');
+	});
+
+	test('a bank isn’t offered to an organization without the experiment on', () => {
+		renderCatalog({experiments: []});
+
+		expect(screen.queryByText('Plaid')).toBeNull();
 	});
 });
 

@@ -1,7 +1,7 @@
-import {Err, type Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, hasExperiment, parseSchema} from '@proxy/utils';
 import {getConnectionWithCredential} from '@proxy/db/connection';
 
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
@@ -19,8 +19,16 @@ import {readPlaidCredential, requirePlaidClient, type PlaidCredential} from './p
  * connection of its own, named by its bank, found by Plaid's id for it. Signing in to a bank again
  * is Link's update mode on the same login, which keeps its access token, so nothing is saved after
  * it. A new connection gives agents nothing until a default or an agent's own setting says
- * otherwise.
+ * otherwise. Banks are an experiment for now: only an organization with `plaid` on connects one.
  */
+
+// Only an organization with the experiment on connects a bank, or signs in to one again.
+function requirePlaidExperiment(request: AuthenticatedRequest): Result<void, ApiError> {
+	if (!hasExperiment(request.user, 'plaid')) {
+		return Err(ApiErr.forbidden());
+	}
+	return Ok(undefined);
+}
 
 const linkTokenBodySchema = z.object({connectionId: z.string().min(1).optional()});
 
@@ -41,6 +49,7 @@ function requirePlaidConnection(orgId: string, connectionId: string): Promise<Re
  */
 export function handleCreatePlaidLinkTokenRoute(request: AuthenticatedRequest): Promise<Result<{linkToken: string}, ApiError>> {
 	return Do(async ($) => {
+		$(requirePlaidExperiment(request));
 		const client = $(requirePlaidClient());
 		const {connectionId} = $(parseSchema(linkTokenBodySchema, request.body ?? {}));
 		const orgId = $(await requireUserOrgId(request));
@@ -54,6 +63,7 @@ const connectBodySchema = z.object({publicToken: z.string().min(1)});
 /** `POST /api/connections/plaid` — the public token Link answered with, exchanged and saved as a connection named by its bank. */
 export function handleConnectPlaidRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
 	return Do(async ($) => {
+		$(requirePlaidExperiment(request));
 		const client = $(requirePlaidClient());
 		const {publicToken} = $(parseSchema(connectBodySchema, request.body));
 		const orgId = $(await requireUserOrgId(request));
