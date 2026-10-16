@@ -1,15 +1,11 @@
 import {CalendarIcon, ClockIcon, MapPinIcon} from 'lucide-react';
 import type {Intent} from '@/client/intent-client';
-import {
-	createEvent,
-	type Agenda,
-	type AgendaEvent,
-	type People,
-	type Person,
-} from '@/client/widgets-client';
+import {createEvent, type Agenda, type People, type Person} from '@/client/widgets-client';
 import {Button} from '@proxy/ui/components/button';
 import {Input} from '@proxy/ui/components/input';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
+import {DayGrid} from '@/components/widgets/day-grid';
+import {dayBounds, timedItems, type DayItem} from '@/lib/calendar-day';
 import {Avatar, DetailRow, Missing, WidgetFrame} from '@/components/widgets/widget-frame';
 import {WidgetSelect} from '@/components/widgets/widget-select';
 import {WriteResult} from '@/components/widgets/write-result';
@@ -27,17 +23,13 @@ import {useSuggested} from '@/lib/use-suggested';
 import {useWriteStatus, writeErrorMessage} from '@/lib/write-status';
 import {useState} from 'react';
 
-const HOUR_PX = 28;
 const TIME = new Intl.DateTimeFormat(undefined, {hour: 'numeric', minute: '2-digit'});
 const DAY = new Intl.DateTimeFormat(undefined, {weekday: 'short', month: 'short', day: 'numeric'});
 
 // The day a time falls on, from its midnight to the next, on the person's clock.
 function dayAround(date: Date): {from: string; to: string} {
-	const from = new Date(date);
-	from.setHours(0, 0, 0, 0);
-	const to = new Date(from);
-	to.setDate(to.getDate() + 1);
-	return {from: from.toISOString(), to: to.toISOString()};
+	const {start, end} = dayBounds(date);
+	return {from: start.toISOString(), to: end.toISOString()};
 }
 
 // A guest as the widget shows them: the contact a name stands for, picked among those it found,
@@ -248,32 +240,7 @@ function GuestRow({
 	);
 }
 
-function hours(date: Date): number {
-	return date.getHours() + date.getMinutes() / 60;
-}
-
-type Timed = {title: string; start: Date; end: Date};
-
-function timedOn(events: AgendaEvent[], time: EventTime): Timed[] {
-	const day = new Date(time.start);
-	day.setHours(0, 0, 0, 0);
-	const next = new Date(day);
-	next.setDate(next.getDate() + 1);
-	return events.flatMap((event) => {
-		if (event.allDay) {
-			return [];
-		}
-		const start = new Date(Math.max(Date.parse(event.start), day.getTime()));
-		const end = new Date(Math.min(Date.parse(event.end), next.getTime() - 60_000));
-		return end > start ? [{title: event.title, start, end}] : [];
-	});
-}
-
-function overlaps(item: Timed, time: EventTime): boolean {
-	return item.start < time.end && time.start < item.end;
-}
-
-// The event's day from 9 to 6, widened to take in it and the day's events, with them beside it.
+// The event's day with the day's events beside it, and what it clashes with.
 function DayAgenda({
 	time,
 	agenda,
@@ -283,21 +250,17 @@ function DayAgenda({
 	agenda: Agenda | null;
 	loading: boolean;
 }) {
-	const items = timedOn(agenda?.events ?? [], time);
+	const items = timedItems(agenda?.events ?? [], time.start, null);
 	const allDay = agenda?.events.filter((event) => event.allDay) ?? [];
-	const from = Math.min(
-		9,
-		Math.floor(hours(time.start)),
-		...items.map((item) => Math.floor(hours(item.start))),
-	);
-	const to = Math.max(
-		18,
-		Math.ceil(hours(time.end)),
-		...items.map((item) => Math.ceil(hours(item.end))),
-	);
-	const clashes = items.filter((item) => overlaps(item, time));
-	const top = (date: Date) => (hours(date) - from) * HOUR_PX;
-	const height = (start: Date, end: Date) => Math.max((hours(end) - hours(start)) * HOUR_PX, 18);
+	const clashes = items.filter((item) => item.start < time.end && time.start < item.end);
+	const proposed: DayItem = {
+		key: 'new',
+		title: 'New event',
+		start: time.start,
+		end: time.end,
+		highlighted: true,
+		link: null,
+	};
 
 	return (
 		<div className="flex min-w-0 flex-col gap-2">
@@ -306,32 +269,7 @@ function DayAgenda({
 					All day: {allDay.map((event) => event.title).join(', ')}
 				</p>
 			)}
-			<div className="relative" style={{height: (to - from) * HOUR_PX}} aria-label="Day">
-				{Array.from({length: to - from}, (_, index) => (
-					<div
-						key={index}
-						className="absolute inset-x-0 border-t text-muted-foreground"
-						style={{top: index * HOUR_PX}}
-					>
-						<span className="text-xs">{TIME.format(new Date(2000, 0, 1, from + index))}</span>
-					</div>
-				))}
-				{items.map((item, index) => (
-					<div
-						key={`${item.title}-${index}`}
-						className="absolute right-0 left-16 truncate rounded-md bg-muted px-2 text-muted-foreground"
-						style={{top: top(item.start), height: height(item.start, item.end)}}
-					>
-						{item.title}
-					</div>
-				))}
-				<div
-					className={`absolute right-0 truncate rounded-md bg-primary px-2 text-primary-foreground ${clashes.length > 0 ? 'left-1/2' : 'left-16'}`}
-					style={{top: top(time.start), height: height(time.start, time.end)}}
-				>
-					New event
-				</div>
-			</div>
+			<DayGrid items={[...items, proposed]} />
 			<p className="text-muted-foreground">
 				{!agenda && loading
 					? 'Reading your calendar…'

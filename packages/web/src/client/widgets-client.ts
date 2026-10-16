@@ -101,6 +101,25 @@ export function getAgenda(from: Date, to: Date) {
 	);
 }
 
+const foundEventsSchema = z.object({
+	sources: z.array(sourceSchema),
+	events: z.array(agendaEventSchema),
+	failed: z.array(failureSchema),
+});
+
+export type FoundEvents = z.infer<typeof foundEventsSchema>;
+
+export type EventSearch = {from: string; searches: string[]};
+
+/** The events from a time on that any of the searches finds in every calendar, soonest first. */
+export function findEvents(search: EventSearch) {
+	return apiRequest(
+		'GET',
+		`/api/widgets/events${query({from: search.from, search: search.searches})}`,
+		foundEventsSchema,
+	);
+}
+
 export type NewEvent = {
 	connectionId: string;
 	calendarId: string;

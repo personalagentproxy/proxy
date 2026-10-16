@@ -1,6 +1,7 @@
 import {
 	useAgenda,
 	useEmails,
+	useEvents,
 	useFiles,
 	useMailboxes,
 	usePeople,
@@ -106,6 +107,36 @@ function agenda(url: URL) {
 	};
 }
 
+// Hugo's 1:1, on the Tuesday after the day searched from and the one after, found by his name or
+// his address, as Google's search finds guests.
+function foundEvents(url: URL) {
+	const from = new Date(url.searchParams.get('from') ?? '');
+	const searches = url.searchParams.getAll('search');
+	const tuesday = (weeks: number, hour: number) => {
+		const time = new Date(from);
+		time.setDate(time.getDate() + ((9 - time.getDay()) % 7 || 7) + weeks * 7);
+		time.setHours(hour, 0, 0, 0);
+		return time.toISOString();
+	};
+	const found = searches.some((search) => /hugo/i.test(search));
+	return {
+		sources: [google],
+		events: found
+			? [0, 1].map((weeks) => ({
+					connectionId: 'google-1',
+					calendarId: 'me@example.com',
+					id: `hugo-${weeks}`,
+					title: 'Hugo / me',
+					start: tuesday(weeks, 15),
+					end: tuesday(weeks, 16),
+					allDay: false,
+					link: `https://calendar.google.com/event?eid=hugo-${weeks}`,
+				}))
+			: [],
+		failed: [],
+	};
+}
+
 const EMAILS = [
 	{
 		connectionId: 'google-1',
@@ -143,6 +174,9 @@ export function widgetsAnswer(input: string, init?: RequestInit): Response | nul
 	if (route === 'GET /api/widgets/agenda') {
 		return Response.json(agenda(url));
 	}
+	if (route === 'GET /api/widgets/events') {
+		return Response.json(foundEvents(url));
+	}
 	if (route === 'POST /api/widgets/events') {
 		return Response.json({title: 'Made', link: 'https://calendar.google.com/event?eid=1'});
 	}
@@ -169,7 +203,15 @@ export function widgetsAnswer(input: string, init?: RequestInit): Response | nul
 
 /** Forgets what the widgets read, between tests. */
 export function clearWidgetLookups(): void {
-	for (const lookup of [usePeople, useAgenda, useEmails, useMailboxes, useFiles, useRates]) {
+	for (const lookup of [
+		usePeople,
+		useAgenda,
+		useEvents,
+		useEmails,
+		useMailboxes,
+		useFiles,
+		useRates,
+	]) {
 		lookup.clear();
 	}
 }

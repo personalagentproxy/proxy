@@ -111,15 +111,13 @@ export function getCalendar(accessToken: string, calendarId: string): Promise<Re
 	return googleRequest(accessToken, new URL(`${CALENDAR}/users/me/calendarList/${encodeURIComponent(calendarId)}`), calendarSchema);
 }
 
+export type EventsQuery = {from: string; to?: string; search: string | null; page: string | null};
+
 /**
  * A page of a calendar's events ending after `from`, and starting before `to` where it is given,
  * soonest first, matching `search` where there is one.
  */
-export async function listEvents(
-	accessToken: string,
-	calendarId: string,
-	args: {from: string; to?: string; search: string | null; page: string | null},
-): Promise<Result<{events: GoogleEvent[]; nextPage: string | null}, ApiError>> {
+export async function listEvents(accessToken: string, calendarId: string, args: EventsQuery): Promise<Result<{events: GoogleEvent[]; nextPage: string | null}, ApiError>> {
 	const url = calendarUrl(calendarId, '/events');
 	url.searchParams.set('singleEvents', 'true');
 	url.searchParams.set('orderBy', 'startTime');

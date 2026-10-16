@@ -51,6 +51,19 @@ export const WIDGETS: Widget[] = [
 		],
 	},
 	{
+		id: 'show_calendar',
+		name: 'Calendar',
+		description: 'See what is on the calendar on a day, or find when a meeting or event is: what is on today or tomorrow, when the person is meeting someone, when their next dentist appointment is',
+		fields: [
+			{id: 'meetingWith', name: 'With', hint: "each person the event is with, one per item, as written (a name or an email address) without 's; never the person typing", many: true},
+			{
+				id: 'eventName',
+				name: 'Event',
+				hint: 'what the event is, as written, without the people or any day or time ("dentist", "standup", "flight to SFO"); null when it is only a meeting, call or event, or only a day is asked about',
+			},
+		],
+	},
+	{
 		id: 'find_person',
 		name: 'Person',
 		description: 'Look up who someone is, or their email address or phone number',

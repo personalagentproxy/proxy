@@ -6,7 +6,9 @@ import type {People, Person} from '@/client/widgets-client';
 import {
 	aboutPhrase,
 	bestMatch,
+	dayAsked,
 	emailQuery,
+	eventSearches,
 	eventTime,
 	fileSearch,
 	isAddress,
@@ -126,6 +128,40 @@ describe('eventTime', () => {
 
 	test('is nothing without a time', () => {
 		expect(eventTime('book a meeting with jon', now)).toBeNull();
+	});
+});
+
+describe('calendar', () => {
+	test('reads the day asked about, the coming one for a weekday, and none where none is said', () => {
+		expect(dayAsked("what's on my calendar today", now)).toEqual(new Date(2026, 9, 14));
+		expect(dayAsked('what do i have tomorrow', now)).toEqual(new Date(2026, 9, 15));
+		expect(dayAsked('my calendar on monday', now)).toEqual(new Date(2026, 9, 19));
+		expect(dayAsked('when am i meeting arne', now)).toBeNull();
+	});
+
+	test('searches for the person by name and the addresses found, with what the event is, or for that alone', () => {
+		const people: People = {
+			sources: [],
+			people: [{name: 'arne', matches: [person('Arne Strickmann', 'arne@varislabs.com')]}],
+			failed: [],
+		};
+		expect(eventSearches(intentWith('show_calendar', {meetingWith: ['arne']}), people)).toEqual([
+			'arne',
+			'arne@varislabs.com',
+		]);
+		expect(
+			eventSearches(
+				intentWith('show_calendar', {meetingWith: ['arne'], eventName: ['lunch']}),
+				people,
+			),
+		).toEqual(['lunch arne', 'lunch arne@varislabs.com']);
+		expect(
+			eventSearches(intentWith('show_calendar', {meetingWith: ['arne@varislabs.com']}), null),
+		).toEqual(['arne@varislabs.com']);
+		expect(eventSearches(intentWith('show_calendar', {eventName: ['dentist']}), null)).toEqual([
+			'dentist',
+		]);
+		expect(eventSearches(intentWith('show_calendar', {}), null)).toEqual([]);
 	});
 });
 

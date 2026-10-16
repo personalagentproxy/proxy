@@ -110,6 +110,53 @@ describe('IntentWidget', () => {
 		expect(which.textContent).toContain('Jacky Doe');
 	});
 
+	test('Calendar: the day asked about, with what is in it', async () => {
+		show(intentWith('show_calendar', {}), "what's on my calendar tomorrow");
+
+		const widget = widgetNamed('Calendar');
+		expect(within(widget).getByText(/^Tomorrow · Thu, Oct 15$/)).toBeTruthy();
+		expect(await within(widget).findByText('Focus time')).toBeTruthy();
+		expect(within(widget).getByText('1 event')).toBeTruthy();
+		expect(fetchMock.mock.calls.some(([input]) => input.startsWith('/api/widgets/events'))).toBe(
+			false,
+		);
+	});
+
+	test('Calendar: when the person is meeting someone, their day with the meeting highlighted, the next a click away', async () => {
+		show(intentWith('show_calendar', {meetingWith: ['hugo']}), 'when am i meeting hugo');
+
+		const widget = widgetNamed('Calendar');
+		const meeting = await within(widget).findByRole('link', {current: true});
+		expect(meeting.textContent).toBe('Hugo / me');
+		expect(meeting.getAttribute('href')).toBe('https://calendar.google.com/event?eid=hugo-0');
+		expect(within(widget).getByText(/with Hugo Brandt/)).toBeTruthy();
+		expect(within(widget).getByText(/^Tue, Oct 20$/)).toBeTruthy();
+		// Searched by his name and the address his contact has, from today on.
+		const searched = fetchMock.mock.calls.find(([input]) =>
+			input.startsWith('/api/widgets/events'),
+		);
+		const url = new URL(searched?.[0] ?? '', 'http://localhost');
+		expect(url.searchParams.getAll('search')).toEqual(['hugo', 'hugo.brandt@example.com']);
+		expect(url.searchParams.get('from')).toBe(new Date(2026, 9, 14).toISOString());
+
+		fireEvent.click(
+			within(within(widget).getByRole('list', {name: 'Also found'})).getByRole('button'),
+		);
+		expect(await within(widget).findByText(/^Tue, Oct 27$/)).toBeTruthy();
+		expect(within(widget).getByRole('link', {current: true}).getAttribute('href')).toBe(
+			'https://calendar.google.com/event?eid=hugo-1',
+		);
+	});
+
+	test('Calendar: says when nothing is coming up', async () => {
+		show(
+			intentWith('show_calendar', {eventName: ['dentist']}),
+			'when is my next dentist appointment',
+		);
+
+		expect(await within(widgetNamed('Calendar')).findByText(/nothing coming up/)).toBeTruthy();
+	});
+
 	test('a widget with nothing connected to read asks to connect it, and comes back home', async () => {
 		fetchMock.mockImplementationOnce(() =>
 			Promise.resolve(

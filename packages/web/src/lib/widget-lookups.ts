@@ -1,5 +1,6 @@
 import {
 	findEmails,
+	findEvents,
 	findFiles,
 	findPeople,
 	getAgenda,
@@ -16,6 +17,8 @@ export const usePeople = lookup(findPeople);
 export const useAgenda = lookup((range: {from: string; to: string}) =>
 	getAgenda(new Date(range.from), new Date(range.to)),
 );
+
+export const useEvents = lookup(findEvents);
 
 export const useEmails = lookup(findEmails);
 

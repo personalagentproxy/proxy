@@ -131,6 +131,32 @@ export function eventTime(typed: string, now: Date): EventTime | null {
 	return {start, end: said && said > start ? said : minutes(start), hourGuessed: false};
 }
 
+/** The day asked about, "today", "tomorrow" or the coming "friday", at its midnight; null when none is said. */
+export function dayAsked(typed: string, now: Date): Date | null {
+	const [first] = chrono.parse(typed, now, {forwardDate: true});
+	if (!first) {
+		return null;
+	}
+	const day = first.start.date();
+	day.setHours(0, 0, 0, 0);
+	return day;
+}
+
+/**
+ * What to search the calendars for: the first person the event is with, by the name written and
+ * the addresses found for them, as an invite names its guests by either, each with what the event
+ * is where that is said; or only what it is. At most three.
+ */
+export function eventSearches(intent: Intent, people: People | null): string[] {
+	const [name] = namesIn(intent, 'meetingWith');
+	const [what] = fieldTexts(intent, 'eventName');
+	if (!name) {
+		return what ? [what] : [];
+	}
+	const who = isAddress(name) ? [name] : [name, ...(bestMatch(people, name)?.emails ?? [])];
+	return who.slice(0, 3).map((term) => (what ? `${what} ${term}` : term));
+}
+
 // A time of day alone ("the 3pm call") says nothing of when an email came.
 function onlyTimeOfDay(result: chrono.ParsedResult): boolean {
 	const {start} = result;

@@ -36,7 +36,7 @@ import {handleAuthorizationServerMetadataRoute, handleProtectedResourceMetadataR
 import {handleRegisterClientRoute} from '../oauth/register';
 import {handleTokenRoute} from '../oauth/token';
 import {handleCreateRecordRoute, handleDeleteRecordRoute, handleGetRecordRoute, handleListRecordsRoute, handleUpdateRecordRoute} from '../records/route';
-import {handleAgendaRoute} from '../widgets/agenda';
+import {handleAgendaRoute, handleFindEventsRoute} from '../widgets/agenda';
 import {handleFindEmailsRoute, handleMailboxesRoute, handleWriteEmailRoute} from '../widgets/emails';
 import {handleFindFilesRoute} from '../widgets/files';
 import {handleCreateEventRoute} from '../widgets/new-event';
@@ -125,6 +125,7 @@ export function createApiRouter(): express.Router {
 	router.use('/api/widgets', requireBrowserOrigin);
 	router.get('/api/widgets/people', withAuthResult('Widget people route', handlePeopleRoute));
 	router.get('/api/widgets/agenda', withAuthResult('Widget agenda route', handleAgendaRoute));
+	router.get('/api/widgets/events', withAuthResult('Widget find events route', handleFindEventsRoute));
 	router.post('/api/widgets/events', withAuthResult('Widget create event route', handleCreateEventRoute));
 	router.get('/api/widgets/emails', withAuthResult('Widget find emails route', handleFindEmailsRoute));
 	router.post('/api/widgets/emails', withAuthResult('Widget write email route', handleWriteEmailRoute));

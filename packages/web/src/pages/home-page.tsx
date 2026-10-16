@@ -23,6 +23,8 @@ const PAUSE_MS = 600;
 // What the empty input suggests, one after another: things the widgets do well, one per widget.
 const EXAMPLES = [
 	'Book lunch with Jacky tomorrow at 1',
+	"What's on my calendar tomorrow?",
+	'When am I meeting Hugo?',
 	'Find the email about my flight to SFO',
 	'Email Jon asking for a 1:1 next week',
 	"What's Hugo's phone number?",
