@@ -206,10 +206,12 @@ function searchCriteria(client: ImapFlow, search: string | null): SearchObject {
 	return {text: search};
 }
 
+// What a list reads of each message.
+const SUMMARY_FIELDS = {uid: true, envelope: true, internalDate: true, flags: true};
+
 /** A folder's newest messages below the UID `before`, matching the search, and whether it has more. */
 async function folderPage(session: Session, search: string | null, before: number | null): Promise<{messages: FetchMessageObject[]; more: boolean}> {
 	const {client, mailbox} = session;
-	const fields = {uid: true, envelope: true, internalDate: true, flags: true};
 
 	// The common case, the newest messages: read by position, without a search.
 	if (!search && before === null) {
@@ -217,7 +219,7 @@ async function folderPage(session: Session, search: string | null, before: numbe
 			return {messages: [], more: false};
 		}
 		const range = `${Math.max(1, mailbox.exists - PAGE_SIZE + 1)}:*`;
-		return {messages: await client.fetchAll(range, fields), more: mailbox.exists > PAGE_SIZE};
+		return {messages: await client.fetchAll(range, SUMMARY_FIELDS), more: mailbox.exists > PAGE_SIZE};
 	}
 
 	if (before !== null && before <= 1) {
@@ -229,7 +231,7 @@ async function folderPage(session: Session, search: string | null, before: numbe
 	if (uids.length === 0) {
 		return {messages: [], more: false};
 	}
-	return {messages: await client.fetchAll(uids.join(','), fields, {uid: true}), more: found.length > PAGE_SIZE};
+	return {messages: await client.fetchAll(uids.join(','), SUMMARY_FIELDS, {uid: true}), more: found.length > PAGE_SIZE};
 }
 
 // Any one of `conditions`.
@@ -275,17 +277,56 @@ async function findInSession(session: Session, search: EmailSearch, limit: numbe
 	if (uids.length === 0) {
 		return [];
 	}
-	const messages = await client.fetchAll(uids.join(','), {uid: true, envelope: true, internalDate: true, flags: true}, {uid: true});
+	const messages = await client.fetchAll(uids.join(','), SUMMARY_FIELDS, {uid: true});
 	return messages.sort((a, b) => b.uid - a.uid).map((message) => withCc(toRecord(session, message), message));
+}
+
+// A search only for someone the email is from, to or copied to, which the envelope alone tells.
+function onlyInvolving(search: EmailSearch): search is EmailSearch & {involving: string} {
+	return Boolean(search.involving) && !search.from && search.words.length === 0 && !search.since;
+}
+
+// Whether the email is from, to or copied to someone, as IMAP's FROM, TO and CC match: the words
+// anywhere in the header, its names or addresses, whatever their case.
+function involves(message: FetchMessageObject, someone: string): boolean {
+	const {envelope} = message;
+	const wanted = someone.toLowerCase();
+	return [...(envelope?.from ?? []), ...(envelope?.to ?? []), ...(envelope?.cc ?? [])].some(({name, address}) => `${name ?? ''} <${address ?? ''}>`.toLowerCase().includes(wanted));
+}
+
+/**
+ * The newest emails each of `searches`, each only for someone, finds, at most `limit` each, from
+ * one IMAP search for any of them: the newest of their emails, as many as all of them could want,
+ * each going to everyone it involves. Someone those leave short, behind someone written to more,
+ * is searched for on their own, so each still gets their own newest.
+ */
+async function findEveryone(session: Session, searches: Array<EmailSearch & {involving: string}>, limit: number): Promise<DataRecord[][]> {
+	const {client} = session;
+	const criteria: SearchObject = {or: searches.flatMap(({involving}) => [{from: involving}, {to: involving}, {cc: involving}])};
+	const uids = ((await client.search(criteria, {uid: true})) || []).sort((a, b) => b - a);
+	const newest = uids.slice(0, limit * searches.length);
+	const messages = newest.length === 0 ? [] : (await client.fetchAll(newest.join(','), SUMMARY_FIELDS, {uid: true})).sort((a, b) => b.uid - a.uid);
+	const found: DataRecord[][] = [];
+	for (const search of searches) {
+		const theirs = messages.filter((message) => involves(message, search.involving)).slice(0, limit);
+		const short = theirs.length < limit && uids.length > newest.length;
+		found.push(short ? await findInSession(session, search, limit) : theirs.map((message) => withCc(toRecord(session, message), message)));
+	}
+	return found;
 }
 
 /**
  * The newest emails in the inbox each home page search finds, at most `limit` each: in Gmail's
- * syntax on Gmail, else in IMAP's own terms. One sign-in runs them all, one after the other, as
- * servers allow an account only so many connections at once.
+ * syntax on Gmail, else in IMAP's own terms. One sign-in runs them all, as servers allow an
+ * account only so many connections at once: searches only for people, as the People widget's,
+ * as one search for any of them where it can, any others one after the other.
  */
 export function findInboxEmails(target: RecordTarget, searches: EmailSearch[], limit: number): Promise<Result<DataRecord[][], ApiError>> {
 	return withFolder(target, INBOX, async (session) => {
+		const people = searches.filter(onlyInvolving);
+		if (searches.length > 1 && people.length === searches.length) {
+			return Ok(await findEveryone(session, people, limit));
+		}
 		const found: DataRecord[][] = [];
 		for (const search of searches) {
 			found.push(await findInSession(session, search, limit));

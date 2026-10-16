@@ -7,7 +7,8 @@ import {findCollection, findIntegration, type Collection} from '@proxy/integrati
 // A mailbox in memory: the folders the server marks, each folder's messages by UID, and the one
 // message the record tests open.
 type Folder = {path: string; specialUse?: string};
-type Stored = {uid: number; date: string; subject: string};
+type Address = {name?: string; address: string};
+type Stored = {uid: number; date: string; subject: string; from?: Address[]; to?: Address[]};
 type Criteria = {all?: boolean; uid?: string; text?: string; gmraw?: string; from?: string; since?: string; or?: Criteria[]; not?: Criteria; to?: string; cc?: string};
 
 const UID_VALIDITY = 7n;
@@ -18,6 +19,7 @@ const imap = {
 	gmail: false,
 	opened: '',
 	logins: 0,
+	fetches: 0,
 	searches: [] as Criteria[],
 	calls: [] as Array<[string, ...unknown[]]>,
 	message: null as null | {uid: number; flags: Set<string>; source: Buffer},
@@ -47,18 +49,23 @@ class FakeImapFlow {
 		this.mailbox = {path, uidValidity: UID_VALIDITY, exists: uids.length, uidNext: Math.max(0, ...uids) + 1};
 		return {release: () => {}};
 	}
-	// Matches the subject for a search, as a server would the headers and text.
+	// Matches the subject for a search, as a server would the headers and text, and for an OR of
+	// FROM and TO, the sender's and recipients' addresses, here all lowercase.
 	async search(criteria: Criteria) {
 		imap.searches.push(criteria);
 		const words = criteria.gmraw ?? criteria.text;
 		const below = criteria.uid ? Number(criteria.uid.split(':')[1]) : Infinity;
 		const path = this.mailbox ? this.mailbox.path : '';
+		// Without regard to case, as servers match headers.
+		const has = (addresses: Address[] | undefined, wanted: string | undefined) => wanted !== undefined && (addresses ?? []).some(({address}) => address.includes(wanted.toLowerCase()));
+		const involves = (message: Stored, one: Criteria) => has(message.from, one.from) || has(message.to, one.to);
 		return box(path)
-			.filter((message) => message.uid <= below && (!words || message.subject.includes(words)))
+			.filter((message) => message.uid <= below && (!words || message.subject.includes(words)) && (!criteria.or || criteria.or.some((one) => involves(message, one))))
 			.map((message) => message.uid);
 	}
 	// By position (`41:*`), or by UID with `{uid: true}` (`12,9,3`).
 	async fetchAll(range: string, _fields: object, options?: {uid?: boolean}) {
+		imap.fetches += 1;
 		const path = this.mailbox ? this.mailbox.path : '';
 		const stored = [...box(path)].sort((a, b) => a.uid - b.uid);
 		const picked = options?.uid ? stored.filter((message) => range.split(',').includes(String(message.uid))) : stored.slice(Number(range.split(':')[0]) - 1);
@@ -66,7 +73,7 @@ class FakeImapFlow {
 			uid: message.uid,
 			flags: new Set(),
 			internalDate: new Date(message.date),
-			envelope: {subject: message.subject, from: [], to: [], cc: [{name: 'Jo Park', address: 'jo@example.com'}]},
+			envelope: {subject: message.subject, from: message.from ?? [], to: message.to ?? [], cc: [{name: 'Jo Park', address: 'jo@example.com'}]},
 		}));
 	}
 	async fetchOne(uid: string) {
@@ -155,6 +162,7 @@ beforeEach(() => {
 	};
 	imap.gmail = false;
 	imap.logins = 0;
+	imap.fetches = 0;
 	imap.searches = [];
 	imap.calls = [];
 	imap.message = {uid: 12, flags: new Set(), source};
@@ -318,6 +326,36 @@ describe('findInboxEmails', () => {
 
 		expect(imap.logins).toBe(1);
 		expect(found.map((records) => records.map((record) => record.values.subject))).toEqual([['Notes for Sam'], ['Lunch with Jacky'], []]);
+	});
+
+	test('looks for several people in one search, and anyone it leaves short behind someone written to more on their own', async () => {
+		const me = {address: 'me@example.com'};
+		const jacky = {name: 'Jacky Doe', address: 'jacky@example.com'};
+		const hugo = {name: 'Hugo Brandt', address: 'hugo@example.com'};
+		const {findInboxEmails} = await import('./email-connector');
+		const involving = (someone: string) => ({from: null, involving: someone, words: [], since: null});
+		const subjects = (found: Array<Array<{values: Record<string, string>}>>) => found.map((records) => records.map((record) => record.values.subject));
+		const either = (someone: string) => [{from: someone}, {to: someone}, {cc: someone}];
+
+		imap.boxes.INBOX = [
+			{uid: 1, date: '2026-09-01T09:00:00Z', subject: 'From Hugo', from: [hugo], to: [me]},
+			{uid: 2, date: '2026-10-01T09:00:00Z', subject: 'From Jacky', from: [jacky], to: [me]},
+		];
+		const together = (await findInboxEmails(target, [involving('jacky'), involving('HUGO')], 2)).unwrap();
+		expect(imap.searches).toEqual([{or: [...either('jacky'), ...either('HUGO')]}]);
+		expect(subjects(together)).toEqual([['From Jacky'], ['From Hugo']]);
+		expect(imap.fetches).toBe(1);
+
+		imap.searches = [];
+		imap.fetches = 0;
+		imap.boxes.INBOX = [
+			{uid: 1, date: '2026-09-01T09:00:00Z', subject: 'From Hugo', from: [hugo], to: [me]},
+			...Array.from({length: 10}, (_, index) => ({uid: index + 2, date: '2026-10-01T09:00:00Z', subject: `Jacky ${index + 1}`, from: [jacky], to: [me]})),
+		];
+		const crowded = (await findInboxEmails(target, [involving('jacky'), involving('hugo')], 2)).unwrap();
+		expect(imap.searches).toEqual([{or: [...either('jacky'), ...either('hugo')]}, {or: either('hugo')}]);
+		expect(subjects(crowded)).toEqual([['Jacky 10', 'Jacky 9'], ['From Hugo']]);
+		expect(imap.logins).toBe(2);
 	});
 });
 
