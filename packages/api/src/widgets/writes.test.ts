@@ -23,7 +23,7 @@ const event = {connectionId: 'work', calendarId: 'team', title: ' Lunch ', start
 beforeEach(() => {
 	mock.clearAllMocks();
 	requireWritable.mockResolvedValue(Ok(source));
-	create.mockResolvedValue(Ok({id: 'team:e1', values: {title: 'Lunch', link: 'https://calendar.google.com/e1'}, updatedAt: ''}));
+	create.mockResolvedValue(Ok({id: 'team:e1', values: {title: 'Lunch'}, updatedAt: '', url: 'https://calendar.google.com/e1'}));
 	sendNew.mockResolvedValue(Ok(null));
 });
 

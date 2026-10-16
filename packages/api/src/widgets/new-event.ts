@@ -35,6 +35,6 @@ export function handleCreateEventRoute(request: AuthenticatedRequest): Promise<R
 		const source = $(await requireWritable(orgId, body.connectionId, 'events', 'create', written));
 		const made = $(await source.connector.create(source, values, body.calendarId));
 		await afterWrite({orgId, userId: request.user.userId, source, action: 'create', title: made.values.title ?? body.title, parent: body.calendarId});
-		return {title: made.values.title ?? body.title, link: made.values.link || null};
+		return {title: made.values.title ?? body.title, link: made.url ?? null};
 	});
 }

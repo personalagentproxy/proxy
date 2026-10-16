@@ -33,5 +33,8 @@ describe('days', () => {
 		expect(isTimeZone('UTC')).toBe(true);
 		expect(isTimeZone('Mars/Olympus')).toBe(false);
 		expect(isTimeZone("UTC'; DROP TABLE")).toBe(false);
+		expect(isTimeZone('Etc/GMT+5')).toBe(true);
+		expect(isTimeZone('+05:00')).toBe(false);
+		expect(isTimeZone('-05')).toBe(false);
 	});
 });

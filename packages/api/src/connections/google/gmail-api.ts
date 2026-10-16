@@ -25,8 +25,8 @@ const DRAFTS_PAGE_SIZE = 500;
 /** Gmail's message and draft ids, as every id an agent sends is checked against before it reaches an address. */
 export const GMAIL_ID = /^[A-Za-z0-9_-]+$/;
 
-/** The headers a list reads of each message. */
-const LIST_HEADERS = ['Subject', 'From', 'To'];
+/** The headers a list reads of each message, and Cc, which the home page's widgets read. */
+const LIST_HEADERS = ['Subject', 'From', 'To', 'Cc'];
 
 const headerSchema = z.object({name: z.string(), value: z.string()});
 

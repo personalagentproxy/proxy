@@ -262,6 +262,11 @@ function imapCriteria(search: EmailSearch): SearchObject {
 	]);
 }
 
+// A record found for the home page's widgets, with who was copied, which they find people in.
+function withCc(record: DataRecord, message: FetchMessageObject): DataRecord {
+	return {...record, values: {...record.values, cc: formatAddresses(message.envelope?.cc, true)}};
+}
+
 /**
  * The newest emails in the inbox a home page search finds, at most `limit`: in Gmail's syntax on
  * Gmail, else in IMAP's own terms.
@@ -275,7 +280,7 @@ export function findInboxEmails(target: RecordTarget, search: EmailSearch, limit
 			return Ok([]);
 		}
 		const messages = await client.fetchAll(uids.join(','), {uid: true, envelope: true, internalDate: true, flags: true}, {uid: true});
-		return Ok(messages.sort((a, b) => b.uid - a.uid).map((message) => toRecord(session, message)));
+		return Ok(messages.sort((a, b) => b.uid - a.uid).map((message) => withCc(toRecord(session, message), message)));
 	});
 }
 

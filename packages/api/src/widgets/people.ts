@@ -68,7 +68,7 @@ export function personOf(connectionId: string, record: DataRecord): Person {
 		company: values.company ?? '',
 		jobTitle: values.jobTitle ?? '',
 		addresses: split(values.addresses, /\n/),
-		link: values.link || null,
+		link: record.url ?? null,
 	};
 }
 
@@ -100,14 +100,15 @@ function automated(address: string): boolean {
 }
 
 /**
- * The people in a mailbox's emails whose names, or addresses where they have none, are close to
- * the one written, those in the most emails first, the mailbox's own account left out. Gmail and
- * IMAP find an email by anyone in it, so the rest of its senders and recipients are someone else.
+ * The people in a mailbox's emails, from, to or copied, whose names, or addresses where they have
+ * none, are close to the one written, those in the most emails first, the mailbox's own account
+ * left out. Gmail and IMAP find an email by anyone in it, so the rest of those in it are someone else.
  */
 export function peopleInEmails(connectionId: string, account: string, records: DataRecord[], name: string): Person[] {
 	const found = new Map<string, {name: string; count: number}>();
 	for (const record of records) {
-		const addresses = addressparser(`${record.values.from ?? ''}, ${record.values.to ?? ''}`, {flatten: true});
+		const {from = '', to = '', cc = ''} = record.values;
+		const addresses = addressparser(`${from}, ${to}, ${cc}`, {flatten: true});
 		for (const {name: written, address} of addresses) {
 			const key = address?.toLowerCase();
 			if (!key || key === account.toLowerCase() || automated(key)) {

@@ -63,10 +63,12 @@ const html = (body: string): Part => ({mimeType: 'text/html', filename: '', head
 // A mailbox as Gmail answers it: an unread email from Sam in the inbox, one sent, and a draft.
 function mailbox(): Record<string, Message> {
 	return {
-		m1: message('m1', ['UNREAD', 'IMPORTANT', 'INBOX'], {Subject: 'Q3 planning', From: '"Sam Lee" <sam@example.com>', To: 'Alex Kim <alex@example.com>', Date: 'Thu, 1 Oct 2026 09:00:00 +0000'}, [
-			text('Agenda attached.\n'),
-			html('<p>Agenda attached.</p>'),
-		]),
+		m1: message(
+			'm1',
+			['UNREAD', 'IMPORTANT', 'INBOX'],
+			{Subject: 'Q3 planning', From: '"Sam Lee" <sam@example.com>', To: 'Alex Kim <alex@example.com>', Cc: 'Jo Park <jo@example.com>', Date: 'Thu, 1 Oct 2026 09:00:00 +0000'},
+			[text('Agenda attached.\n'), html('<p>Agenda attached.</p>')],
+		),
 		m2: message('m2', ['SENT'], {Subject: 'Re: dinner', From: 'Alex Kim <alex@example.com>', To: 'Robin <robin@example.com>'}, [html('<p>See you <b>Friday</b>&nbsp;at 8.</p>')]),
 		m3: message(
 			'm3',
@@ -180,9 +182,10 @@ describe('findGmailEmails', () => {
 
 		const [list] = calls('GET', '/messages');
 		expect(Object.fromEntries(list?.url.searchParams ?? [])).toEqual({maxResults: '50', q: 'from:"Sam Lee" planning after:2026/09/01'});
-		expect(found.map((record) => [record.id, record.values.subject])).toEqual([
-			['m1', 'Q3 planning'],
-			['m2', 'Re: dinner'],
+		// With who was copied, which the widgets find people in, and Gmail's page for each.
+		expect(found.map((record) => [record.id, record.values.subject, record.values.cc, record.url])).toEqual([
+			['m1', 'Q3 planning', 'Jo Park <jo@example.com>', 'https://mail.google.com/mail/?authuser=alex%40example.com#all/m1'],
+			['m2', 'Re: dinner', '', 'https://mail.google.com/mail/?authuser=alex%40example.com#all/m2'],
 		]);
 		expect(calls('GET', '/messages/m3')).toHaveLength(0);
 	});
@@ -194,7 +197,7 @@ describe('list', () => {
 
 		const [list] = calls('GET', '/messages');
 		expect(Object.fromEntries(list?.url.searchParams ?? [])).toEqual({maxResults: '50', labelIds: 'INBOX', q: 'from:sam', pageToken: 'page-1'});
-		expect(calls('GET', '/messages/m1')[0]?.url.searchParams.getAll('metadataHeaders')).toEqual(['Subject', 'From', 'To']);
+		expect(calls('GET', '/messages/m1')[0]?.url.searchParams.getAll('metadataHeaders')).toEqual(['Subject', 'From', 'To', 'Cc']);
 		expect(calls('GET', '/messages/m1')[0]?.url.searchParams.get('format')).toBe('metadata');
 		expect(page.nextPage).toBe('page-2');
 		expect(page.records[0]).toEqual({

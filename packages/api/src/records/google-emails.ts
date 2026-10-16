@@ -226,7 +226,9 @@ export function findGmailEmails(target: RecordTarget, search: EmailSearch, limit
 		Do(async ($) => {
 			const page = $(await listMessageIds(token, folderQuery(null, gmailQuery(search)), null));
 			const messages = $(present(await getMessageSummaries(token, page.items.slice(0, limit))));
-			return messages.flatMap((message) => (message ? [toRecord(target.connection.account, message.id, message)] : []));
+			return messages.flatMap((message) =>
+				message ? [toRecord(target.connection.account, message.id, message, {...summaryValues(message), cc: formatAddresses(headerOf(message.payload, 'Cc'), true)})] : [],
+			);
 		}),
 	);
 }

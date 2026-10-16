@@ -24,22 +24,16 @@ export type FoundEmail = {connectionId: string; id: string; from: string; subjec
 // What the widget lists at most, across every mailbox.
 const LIMIT = 8;
 
-// Gmail opens an email by its message id, in the account it is in.
-function gmailLink(account: string, messageId: string): string {
-	return `https://mail.google.com/mail/?authuser=${encodeURIComponent(account)}#all/${messageId}`;
-}
-
 function foundEmail(source: Source, record: DataRecord): FoundEmail {
 	const {values} = record;
-	const {id: connectionId, account, integrationId} = source.connection;
 	return {
-		connectionId,
+		connectionId: source.connection.id,
 		id: record.id,
 		from: values.from ?? '',
 		subject: values.subject ?? '',
 		date: values.date ?? record.updatedAt,
 		unread: (values.status ?? '').startsWith('Unread'),
-		link: integrationId === 'google' ? gmailLink(account, record.id) : null,
+		link: record.url ?? null,
 	};
 }
 

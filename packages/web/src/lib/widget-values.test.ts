@@ -140,6 +140,19 @@ describe('emails', () => {
 		expect(termsRead(['flight | itinerary | booking', 'SFO | San Francisco'])).toBe('flight, SFO');
 	});
 
+	test('goes back to the last of a day said alone, and to none still to come or that the email is about', () => {
+		const since = (typed: string) => emailQuery(intentWith('find_email', {}), typed, now).since;
+
+		expect(since('emails from jon on friday')).toBe('2026-10-09');
+		expect(since('emails since monday')).toBe('2026-10-12');
+		expect(since('emails from december')).toBe('2025-12-01');
+		expect(since('emails from yesterday')).toBe('2026-10-13');
+		expect(since('find the email about my flight tomorrow')).toBeNull();
+		expect(since('the email about the 3pm call')).toBeNull();
+		expect(since("the invite for monday's meeting")).toBeNull();
+		expect(since('the invite for friday’s offsite, sent yesterday')).toBe('2026-10-13');
+	});
+
 	test('searches everything without a sender, a topic or a day', () => {
 		expect(emailQuery(intentWith('find_email', {}), 'find my email', now)).toEqual({
 			from: null,

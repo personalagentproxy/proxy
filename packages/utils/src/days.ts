@@ -5,9 +5,16 @@ import {Result} from 'ts-results-es';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// A time zone's name, `Europe/Berlin` or `UTC`. An offset such as `+05:00`, which the runtime takes
+// too, isn't one: Postgres reads it the POSIX way, as five hours behind UTC rather than ahead.
+const ZONE_NAME = /^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)*$/;
+
 /** Whether the runtime knows the IANA time zone, such as `Europe/Berlin`, aliases included. */
 export function isTimeZone(value: string): boolean {
-	return Result.wrap(() => new Intl.DateTimeFormat('en-US', {timeZone: value})).isOk();
+	return (
+		ZONE_NAME.test(value) &&
+		Result.wrap(() => new Intl.DateTimeFormat('en-US', {timeZone: value})).isOk()
+	);
 }
 
 /** The day it is at the instant on the time zone's clock. */

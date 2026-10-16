@@ -1,7 +1,7 @@
-import type {AuditOutcome, AuditVia} from '@prisma/client';
+import {type AuditOutcome, type AuditVia, Prisma} from '@prisma/client';
 import type {Result} from 'ts-results-es';
 
-import {type ApiError, wrapDb} from '@proxy/utils';
+import {ApiErr, type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
 
@@ -106,6 +106,22 @@ function earliestInstantOf(day: string): Date {
 	return new Date(Date.parse(`${day}T00:00:00Z`) - MAX_OFFSET_MS);
 }
 
+// The database refusing a time zone it has no rules for, `time zone "…" not recognized`: one the
+// runtime knows but the database's time zone data, older or newer, doesn't.
+export function unknownTimeZoneAs(timeZone: string) {
+	return (error: ApiError): ApiError => {
+		const cause = error.kind === 'db_error' ? error.cause : null;
+		if (
+			!(cause instanceof Prisma.PrismaClientKnownRequestError) ||
+			cause.code !== 'P2010' ||
+			cause.meta?.code !== '22023'
+		) {
+			return error;
+		}
+		return ApiErr.validationError(`The database doesn’t know the time zone ${timeZone}`);
+	};
+}
+
 export type AuditDayCount = {
 	// `2026-10-16`, on the time zone's clock.
 	day: string;
@@ -125,7 +141,7 @@ export async function countAuditEntriesByDay(
 	fromDay: string,
 ): Promise<Result<AuditDayCount[], ApiError>> {
 	// `createdAt` is a UTC time without its zone: read as UTC, then onto the time zone's clock.
-	return wrapDb(
+	const counted = await wrapDb(
 		() =>
 			db.$queryRaw<AuditDayCount[]>`
 			SELECT to_char(("createdAt" AT TIME ZONE 'UTC') AT TIME ZONE ${timeZone}, 'YYYY-MM-DD') AS day,
@@ -139,6 +155,7 @@ export async function countAuditEntriesByDay(
 			GROUP BY 1, 2
 			ORDER BY 1, 2`,
 	);
+	return counted.mapErr(unknownTimeZoneAs(timeZone));
 }
 
 export type AuditActionCount = {
@@ -155,7 +172,7 @@ export async function countAuditEntriesByAction(
 	timeZone: string,
 	fromDay: string,
 ): Promise<Result<AuditActionCount[], ApiError>> {
-	return wrapDb(
+	const counted = await wrapDb(
 		() =>
 			db.$queryRaw<AuditActionCount[]>`
 			SELECT "connectionId", "collectionId", action, outcome, count(*)::int AS count
@@ -166,4 +183,5 @@ export async function countAuditEntriesByAction(
 			GROUP BY 1, 2, 3, 4
 			ORDER BY count DESC`,
 	);
+	return counted.mapErr(unknownTimeZoneAs(timeZone));
 }

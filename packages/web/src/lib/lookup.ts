@@ -1,5 +1,5 @@
 import type {FetchError} from '@proxy/utils';
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import type {Result} from 'ts-results-es';
 
 // What a widget has read: the answer for what it asks now, or while that is on its way, the one
@@ -20,29 +20,50 @@ type Entry<T> = {at: number; result: Result<T, FetchError>};
  * kept by their arguments, so a widget asking the same again while the person types, or another
  * widget asking the same, reads it once. Each
  * call makes one store, of one kind of answer. `null` asks nothing. `clear` drops what is kept,
- * after a write changed it.
+ * after a write changed it, and every widget showing it reads it again.
  */
 export function lookup<A, T>(load: (args: A) => Promise<Result<T, FetchError>>) {
 	const cache = new Map<string, Entry<T>>();
 	const pending = new Map<string, Promise<Entry<T>>>();
+	// How many times it was cleared: an answer asked for before a clear isn't kept after it.
+	let generation = 0;
+	const listeners = new Set<() => void>();
+
+	function subscribe(listener: () => void) {
+		listeners.add(listener);
+		return () => {
+			listeners.delete(listener);
+		};
+	}
 
 	function read(key: string, args: A): Promise<Entry<T>> {
+		const asked = generation;
 		const loading =
 			pending.get(key) ??
 			load(args).then((result) => {
 				const entry = {at: Date.now(), result};
-				cache.set(key, entry);
-				pending.delete(key);
+				if (asked === generation) {
+					cache.set(key, entry);
+					pending.delete(key);
+				}
 				return entry;
 			});
 		pending.set(key, loading);
 		return loading;
 	}
 
+	function clear() {
+		cache.clear();
+		pending.clear();
+		generation += 1;
+		listeners.forEach((listener) => listener());
+	}
+
 	function useLookup(args: A | null): Lookup<T> {
 		const key = args === null ? null : JSON.stringify(args);
 		const latest = useRef(args);
 		const [shown, setShown] = useState<Entry<T> | null>(null);
+		const cleared = useSyncExternalStore(subscribe, () => generation);
 		const entry = key === null ? undefined : cache.get(key);
 
 		useEffect(() => {
@@ -70,7 +91,7 @@ export function lookup<A, T>(load: (args: A) => Promise<Result<T, FetchError>>) 
 				live = false;
 				clearTimeout(timer);
 			};
-		}, [key]);
+		}, [key, cleared]);
 
 		const current = entry ?? shown;
 		return {
@@ -80,5 +101,5 @@ export function lookup<A, T>(load: (args: A) => Promise<Result<T, FetchError>>) 
 		};
 	}
 
-	return Object.assign(useLookup, {clear: () => cache.clear()});
+	return Object.assign(useLookup, {clear});
 }

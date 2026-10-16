@@ -59,7 +59,12 @@ class FakeImapFlow {
 		const path = this.mailbox ? this.mailbox.path : '';
 		const stored = [...box(path)].sort((a, b) => a.uid - b.uid);
 		const picked = options?.uid ? stored.filter((message) => range.split(',').includes(String(message.uid))) : stored.slice(Number(range.split(':')[0]) - 1);
-		return picked.map((message) => ({uid: message.uid, flags: new Set(), internalDate: new Date(message.date), envelope: {subject: message.subject, from: [], to: []}}));
+		return picked.map((message) => ({
+			uid: message.uid,
+			flags: new Set(),
+			internalDate: new Date(message.date),
+			envelope: {subject: message.subject, from: [], to: [], cc: [{name: 'Jo Park', address: 'jo@example.com'}]},
+		}));
 	}
 	async fetchOne(uid: string) {
 		if (!imap.message || String(imap.message.uid) !== uid) {
@@ -276,6 +281,8 @@ describe('findInboxEmails', () => {
 		// IMAP ANDs one object's keys, so each further condition goes in as NOT NOT (…).
 		expect(imap.searches).toEqual([{from: 'sam', not: {not: {text: 'Note', not: {not: {since: '2026-10-01'}}}}}]);
 		expect(found.map((record) => record.values.subject)).toEqual(['Note 6', 'Note 5', 'Note 4']);
+		// With who was copied, which the widgets find people in.
+		expect(found[0]?.values.cc).toBe('Jo Park <jo@example.com>');
 	});
 
 	test("searches in Gmail's syntax on Gmail, and everything without a search", async () => {

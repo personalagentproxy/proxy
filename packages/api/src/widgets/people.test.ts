@@ -14,8 +14,9 @@ mock.module('../utils/user-org', () => ({requireUserOrgId}));
 function contact(id: string, name: string, emails: string) {
 	return {
 		id,
-		values: {name, emails, phones: '+1 555 0100', company: 'Example', jobTitle: '', addresses: 'One Boulevard Plaza\nSecond Street', link: `https://contacts.google.com/person/${id}`},
+		values: {name, emails, phones: '+1 555 0100', company: 'Example', jobTitle: '', addresses: 'One Boulevard Plaza\nSecond Street'},
 		updatedAt: '',
+		url: `https://contacts.google.com/person/${id}`,
 	};
 }
 
@@ -60,9 +61,9 @@ describe('rankPeople', () => {
 	});
 });
 
-// An email as a mailbox lists it: its sender and recipients, names where they were written.
-function email(from: string, to: string) {
-	return {id: from, values: {from, to, subject: 'Hi'}, updatedAt: ''};
+// An email as a mailbox search finds it: its sender, recipients and those copied, names where they were written.
+function email(from: string, to: string, cc = '') {
+	return {id: from, values: {from, to, cc, subject: 'Hi'}, updatedAt: ''};
 }
 
 describe('peopleInEmails', () => {
@@ -78,6 +79,12 @@ describe('peopleInEmails', () => {
 			['Jacky Doe', ['jacky@example.com'], 'email'],
 			['Jacky Chen', ['jacky.chen@example.com'], 'email'],
 		]);
+	});
+
+	test('finds someone only ever copied', async () => {
+		const {peopleInEmails} = await import('./people');
+		const emails = [email('Sam Lee <sam@example.com>', 'me@example.com', 'Jacky Doe <jacky@example.com>, Me <me@example.com>')];
+		expect(peopleInEmails('mail', 'me@example.com', emails, 'jacky').map((person) => [person.name, person.emails])).toEqual([['Jacky Doe', ['jacky@example.com']]]);
 	});
 });
 

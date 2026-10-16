@@ -131,15 +131,57 @@ export function eventTime(typed: string, now: Date): EventTime | null {
 	return {start, end: said && said > start ? said : minutes(start), hourGuessed: false};
 }
 
-/** The day a search for email goes back to, from what was typed: "last week", "yesterday". */
-function sinceDay(typed: string, now: Date): Date | null {
-	const [parsed] = chrono.parse(typed, now);
-	if (!parsed) {
-		return null;
-	}
-	const day = parsed.start.date();
+// A time of day alone ("the 3pm call") says nothing of when an email came.
+function onlyTimeOfDay(result: chrono.ParsedResult): boolean {
+	const {start} = result;
+	return (
+		start.isCertain('hour') &&
+		!start.isCertain('day') &&
+		!start.isCertain('weekday') &&
+		!start.isCertain('month')
+	);
+}
+
+// "friday's meeting" is what the email is about, not when it came.
+function possessive(typed: string, result: chrono.ParsedResult): boolean {
+	return /^['’]s\b/.test(typed.slice(result.index + result.text.length));
+}
+
+// The day a date said is, among those an email can have come on: "friday" or "december" alone
+// are the last one, and a day still to come, as "tomorrow", none.
+function pastDay(result: chrono.ParsedResult, today: Date): Date | null {
+	const {start} = result;
+	const day = start.date();
 	day.setHours(0, 0, 0, 0);
-	return day;
+	if (day <= today) {
+		return day;
+	}
+	if (start.isCertain('weekday') && !start.isCertain('day')) {
+		day.setDate(day.getDate() - 7);
+		return day;
+	}
+	if (start.isCertain('month') && !start.isCertain('year')) {
+		day.setFullYear(day.getFullYear() - 1);
+		return day;
+	}
+	return null;
+}
+
+/**
+ * The day a search for email goes back to, from what was typed: "last week", "yesterday", "since
+ * monday". Dates that describe what the email is about rather than when it came are left out: a
+ * day still to come ("my flight tomorrow"), a time of day alone, and one said as "friday's".
+ */
+function sinceDay(typed: string, now: Date): Date | null {
+	const today = new Date(now);
+	today.setHours(0, 0, 0, 0);
+	for (const result of chrono.parse(typed, now)) {
+		const day = onlyTimeOfDay(result) || possessive(typed, result) ? null : pastDay(result, today);
+		if (day) {
+			return day;
+		}
+	}
+	return null;
 }
 
 function words(text: string): string[] {
