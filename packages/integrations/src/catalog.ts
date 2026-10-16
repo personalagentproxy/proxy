@@ -1,3 +1,5 @@
+import {type Experiment, hasExperiment} from '@proxy/utils';
+
 import type {Action, Collection, Condition, Integration} from './types';
 
 const INBOX: Condition = {field: 'folder', values: ['Inbox']};
@@ -959,6 +961,7 @@ const plaid: Integration = {
 	id: 'plaid',
 	name: 'Plaid',
 	description: 'Balances and transactions from your bank accounts, cards and loans',
+	experiment: 'plaid',
 	actions: [
 		{
 			id: 'readBalances',
@@ -1156,6 +1159,14 @@ export const INTEGRATIONS: Integration[] = [
 
 export function findIntegration(id: string): Integration | undefined {
 	return INTEGRATIONS.find((integration) => integration.id === id);
+}
+
+/** Whether an organization can connect the integration: it is behind no experiment, or one it has on. */
+export function isOffered(
+	integration: Pick<Integration, 'experiment'>,
+	holder: {experiments: Experiment[]},
+): boolean {
+	return !integration.experiment || hasExperiment(holder, integration.experiment);
 }
 
 export function findCollection<T extends {collections: Collection[]}>(

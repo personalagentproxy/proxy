@@ -1,11 +1,12 @@
 import {Err, Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
+import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
 import {getAccounts, getTransactions, type PlaidAccount, type PlaidTransaction} from '../connections/plaid/plaid-api';
 import {callPlaid, type PlaidClient} from '../connections/plaid/plaid-client';
 import type {Connector, DataRecord, ListQuery, RecordPage, RecordTarget} from './connector';
+import {readPageToken, writePageToken} from './page-token';
 
 /**
  * A bank login through Plaid, fetched live and only ever read: `accounts`, each account with its
@@ -41,8 +42,10 @@ function parseTransactionRef(recordId: string): TransactionRef | null {
 	return {accountId, date, transactionId};
 }
 
+// A day the calendar has: not 2026-02-30, which Date rolls into March, nor 2026-13-01, which it can't read.
 function realDay(day: string): boolean {
-	return DAY.test(day) && new Date(`${day}T00:00:00Z`).toISOString().startsWith(day);
+	const date = new Date(`${day}T00:00:00Z`);
+	return DAY.test(day) && !Number.isNaN(date.getTime()) && date.toISOString().startsWith(day);
 }
 
 // A list opened inside a record is in an account: transactions hold nothing.
@@ -60,13 +63,22 @@ function notFoundAs(recordId: string) {
 	return (error: ApiError): ApiError => (error.kind === 'not_found' ? ApiErr.notFound('record', recordId) : error);
 }
 
-// Plaid writes the currency's code, or for one without an ISO code, such as a cryptocurrency, its own.
+// The digits after the point a currency with an ISO code is written with: 2 for USD, 0 for JPY.
+function currencyDigits(code: string): number {
+	return Result.wrap(() => new Intl.NumberFormat('en-US', {style: 'currency', currency: code}).resolvedOptions().maximumFractionDigits ?? 2).unwrapOr(2);
+}
+
+// Plaid writes the currency's code, or for one without an ISO code, such as a cryptocurrency, its
+// own; an amount in one of those keeps every digit Plaid gives, 0.00342 BTC.
 function money(amount: number | null | undefined, currency: {iso_currency_code?: string | null; unofficial_currency_code?: string | null}): string {
 	if (amount === null || amount === undefined) {
 		return '';
 	}
-	const code = currency.iso_currency_code ?? currency.unofficial_currency_code ?? '';
-	return `${amount.toFixed(2)} ${code}`.trim();
+	if (currency.iso_currency_code) {
+		return `${amount.toFixed(currencyDigits(currency.iso_currency_code))} ${currency.iso_currency_code}`;
+	}
+	const digits = amount.toLocaleString('en-US', {useGrouping: false, maximumFractionDigits: 20});
+	return `${digits} ${currency.unofficial_currency_code ?? ''}`.trim();
 }
 
 const ACRONYMS: Partial<Record<string, string>> = {cd: 'CD', ira: 'IRA', hsa: 'HSA', '401k': '401(k)', '403b': '403(b)', '529': '529 plan'};
@@ -180,26 +192,14 @@ function readSearch(search: string | null): Result<{from: string; to: string}, A
 // What a list's next page carries: the days it covers, since tomorrow moves, and how far in it is.
 const pageSchema = z.object({from: z.string().regex(DAY), to: z.string().regex(DAY), offset: z.number().int().min(0)});
 
-type Page = z.infer<typeof pageSchema>;
-
-function pageToken(page: Page): string {
-	return Buffer.from(JSON.stringify(page)).toString('base64url');
-}
-
-function readPage(page: string): Result<Page, ApiError> {
-	const notOne = () => ApiErr.validationError('That page is not one a list gave');
-	const json = Result.wrap((): unknown => JSON.parse(Buffer.from(page, 'base64url').toString('utf8')));
-	return json.mapErr(notOne).andThen((value) => parseSchema(pageSchema, value).mapErr(notOne));
-}
-
 function transactionsPage(client: PlaidClient, accessToken: string, query: ListQuery): Promise<Result<RecordPage, ApiError>> {
 	return Do(async ($) => {
 		const accountId = query.parent === null ? null : $(requireAccountId(query.parent));
-		const page = query.page === null ? {...$(readSearch(query.search)), offset: 0} : $(readPage(query.page));
+		const page = query.page === null ? {...$(readSearch(query.search)), offset: 0} : $(readPageToken(pageSchema, query.page));
 		const answer = $((await getTransactions(client, accessToken, {...page, accountId, count: PAGE_SIZE, offset: page.offset})).mapErr(notFoundAs(query.parent ?? '')));
 		const records = answer.transactions.map((transaction) => transactionRecord(transaction, answer.accounts));
 		const next = page.offset + answer.transactions.length;
-		const nextPage = answer.transactions.length > 0 && next < answer.total ? pageToken({...page, offset: next}) : null;
+		const nextPage = answer.transactions.length > 0 && next < answer.total ? writePageToken({...page, offset: next}) : null;
 		const account = answer.accounts.find((one) => one.account_id === accountId);
 		const trail = account ? {trail: [{id: account.account_id, title: account.name}]} : {};
 		return {records, nextPage, ...trail};

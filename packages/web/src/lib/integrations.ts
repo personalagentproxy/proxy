@@ -6,7 +6,6 @@ import {
 	type IntegrationId,
 	type McpTool,
 } from '@proxy/integrations';
-import type {Experiment} from '@proxy/utils';
 
 // A brand's own logo where it has one (in `public/integrations/`), else an icon: Information is
 // ours and Email is any mailbox. Custom MCP servers use our mark because Personal Agent Proxy is
@@ -18,8 +17,6 @@ export type Integration = CatalogIntegration & {
 	logo: LucideIcon | IntegrationLogoImage;
 	// What the server has to have before the integration can be connected, such as Google's client.
 	needs?: Need;
-	// The experiment the organization needs on before the catalog offers it.
-	experiment?: Experiment;
 };
 
 // What an integration can need from the server, and whether it has it: the answer of
@@ -43,8 +40,6 @@ export const NEEDS: Record<Need, {variables: string[]; docsUrl: string}> = {
 
 const NEEDED_BY: Partial<Record<IntegrationId, Need>> = {google: 'google', plaid: 'plaid'};
 
-const EXPERIMENT_OF: Partial<Record<IntegrationId, Experiment>> = {plaid: 'plaid'};
-
 const LOGOS: Record<IntegrationId, LucideIcon | IntegrationLogoImage> = {
 	info: IdCardIcon,
 	email: MailIcon,
@@ -62,7 +57,6 @@ export const INTEGRATIONS: Integration[] = CATALOG.map((integration) => ({
 	...integration,
 	logo: LOGOS[integration.id],
 	needs: NEEDED_BY[integration.id],
-	experiment: EXPERIMENT_OF[integration.id],
 }));
 
 /** The catalog's integration: for a custom MCP server, the entry with no actions, since those are a connection's own. */

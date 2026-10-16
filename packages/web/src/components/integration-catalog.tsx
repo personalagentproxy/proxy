@@ -1,5 +1,5 @@
-import type {IntegrationId} from '@proxy/integrations';
-import {hasExperiment, type Experiment} from '@proxy/utils';
+import {isOffered, type IntegrationId} from '@proxy/integrations';
+import type {Experiment} from '@proxy/utils';
 import {buttonVariants} from '@proxy/ui/components/button';
 import {cn} from '@proxy/ui/lib/utils';
 import {PlusIcon} from 'lucide-react';
@@ -50,9 +50,7 @@ export function IntegrationCatalog({
 	onConnectForm: (integrationId: IntegrationId) => void;
 }) {
 	const available = INTEGRATIONS.filter(
-		(integration) =>
-			!integration.builtIn &&
-			(!integration.experiment || hasExperiment({experiments}, integration.experiment)),
+		(integration) => !integration.builtIn && isOffered(integration, {experiments}),
 	);
 
 	return (

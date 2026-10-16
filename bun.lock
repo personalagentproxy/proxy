@@ -87,6 +87,7 @@
       "name": "@proxy/integrations",
       "version": "0.0.0",
       "dependencies": {
+        "@proxy/utils": "workspace:*",
         "zod": "^4.5.4",
       },
       "devDependencies": {

@@ -5,6 +5,7 @@ import {
 	ContextMenuContent,
 	ContextMenuTrigger,
 } from '@proxy/ui/components/context-menu';
+import {cn} from '@proxy/ui/lib/utils';
 
 // The compact list every page shares: one line per row, the whole row a link or a button.
 // Callers pass their own trailing cells, with widths and phone/desktop visibility set by class,
@@ -21,6 +22,8 @@ export function RowList({header, children}: {header?: ReactNode; children: React
 type RowProps = {
 	icon?: ReactNode;
 	title: ReactNode;
+	// A line under the title, wrapping as long as it needs, the row growing with it.
+	subtitle?: ReactNode;
 	// Cells after the title, right-aligned in the order given.
 	cells?: ReactNode;
 	// The row's context menu, opened with a right click or a long press: its items.
@@ -30,23 +33,31 @@ type RowProps = {
 } & ({to: string; onClick?: never} | {onClick: () => void; to?: never});
 
 const ROW =
-	'flex h-10 w-full min-w-0 items-center gap-3 px-4 text-left text-sm hover:bg-muted/50 active:bg-muted/50 md:px-3';
+	'flex w-full min-w-0 items-center gap-3 px-4 text-left text-sm hover:bg-muted/50 active:bg-muted/50 md:px-3';
 
-export function Row({to, onClick, icon, title, cells, menu, after}: RowProps) {
+export function Row({to, onClick, icon, title, subtitle, cells, menu, after}: RowProps) {
+	const className = cn(ROW, subtitle ? 'min-h-10 py-2' : 'h-10');
 	const content = (
 		<>
 			{icon}
-			<span className="min-w-0 flex-1 truncate">{title}</span>
+			{subtitle ? (
+				<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+					<span className="truncate">{title}</span>
+					<span className="text-muted-foreground">{subtitle}</span>
+				</span>
+			) : (
+				<span className="min-w-0 flex-1 truncate">{title}</span>
+			)}
 			{cells}
 		</>
 	);
 	const link =
 		to !== undefined ? (
-			<Link to={to} className={ROW}>
+			<Link to={to} className={className}>
 				{content}
 			</Link>
 		) : (
-			<button type="button" onClick={onClick} className={ROW}>
+			<button type="button" onClick={onClick} className={className}>
 				{content}
 			</button>
 		);

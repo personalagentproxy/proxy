@@ -97,6 +97,7 @@ type PlaidRequest = {path: string; body: Record<string, unknown>; headers: Heade
 const plaid = {
 	requests: [] as PlaidRequest[],
 	total: 2,
+	accounts: [CHECKING, CARD] as object[],
 	transactions: [UBER, PAYROLL] as object[],
 	error: null as null | {status: number; body: object},
 };
@@ -109,7 +110,7 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 		return Response.json(plaid.error.body, {status: plaid.error.status});
 	}
 	if (url.pathname === '/accounts/get') {
-		return Response.json({accounts: [CHECKING, CARD], item: ITEM});
+		return Response.json({accounts: plaid.accounts, item: ITEM});
 	}
 	if (url.pathname === '/transactions/get') {
 		return Response.json({accounts: [CHECKING, CARD], transactions: plaid.transactions, total_transactions: plaid.total, item: ITEM});
@@ -120,6 +121,7 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 beforeEach(() => {
 	plaid.requests = [];
 	plaid.total = 2;
+	plaid.accounts = [CHECKING, CARD];
 	plaid.transactions = [UBER, PAYROLL];
 	plaid.error = null;
 });
@@ -152,6 +154,16 @@ describe('accounts', () => {
 
 		expect((await plaidConnector.get(accounts, CARD_ID)).unwrap().values.limit).toBe('2000.00 USD');
 		expect((await plaidConnector.get(accounts, 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')).unwrapErr().kind).toBe('not_found');
+	});
+
+	test('writes an amount with its currency’s own digits, and one without an ISO code with every digit Plaid gives', async () => {
+		const {plaidConnector} = await import('./plaid-connector');
+		plaid.accounts = [
+			{...CHECKING, balances: {current: 15000, available: null, limit: null, iso_currency_code: 'JPY'}},
+			{...CARD, balances: {current: 0.00342, available: null, limit: null, iso_currency_code: null, unofficial_currency_code: 'BTC'}},
+		];
+
+		expect((await plaidConnector.list(accounts, LIST)).unwrap().records.map((record) => record.values.balance)).toEqual(['15000 JPY', '0.00342 BTC']);
 	});
 
 	test('is only read', async () => {
@@ -243,7 +255,15 @@ describe('transactions', () => {
 
 		expect(messageOf(await plaidConnector.list(transactions, {...LIST, search: 'coffee'}))).toStartWith('Search with a day');
 		expect(messageOf(await plaidConnector.list(transactions, {...LIST, search: '2026-02-30'}))).toStartWith('Search with a day');
+		expect(messageOf(await plaidConnector.list(transactions, {...LIST, search: '2026-13-01'}))).toStartWith('Search with a day');
+		expect(messageOf(await plaidConnector.list(transactions, {...LIST, search: '2026-09-01 2026-02-32'}))).toStartWith('Search with a day');
 		expect(plaid.requests).toEqual([]);
+	});
+
+	test('a transaction on a day the calendar doesn’t have is not found', async () => {
+		const {plaidConnector} = await import('./plaid-connector');
+
+		expect((await plaidConnector.get(transactions, `${CHECKING_ID}:2026-13-01:${UBER_ID}`)).unwrapErr().kind).toBe('not_found');
 	});
 
 	test('opens a transaction among its account’s on its day', async () => {

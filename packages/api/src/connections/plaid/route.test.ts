@@ -1,7 +1,7 @@
 import {beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
-import {Ok, type Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 
-import type {ApiError} from '@proxy/utils';
+import {ApiErr, type ApiError} from '@proxy/utils';
 
 const findAccountConnection = mock();
 const createConnection = mock();
@@ -42,6 +42,9 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 	}
 	if (url.pathname === '/item/public_token/exchange') {
 		return Response.json({access_token: 'access-sandbox-1', item_id: 'item-1'});
+	}
+	if (url.pathname === '/item/remove') {
+		return Response.json({request_id: 'request-1'});
 	}
 	if (url.pathname === '/accounts/get' && plaid.accountsStatus === 200) {
 		return Response.json({accounts: [], item: {item_id: 'item-1', institution_id: 'ins_1', institution_name: 'First Platypus Bank'}});
@@ -114,11 +117,18 @@ describe('handleCreatePlaidLinkTokenRoute', () => {
 		expect(plaid.requests).toEqual([]);
 	});
 
-	test('refuses an organization without the experiment on, before asking Plaid', async () => {
+	test('refuses a new bank to an organization without the experiment on, before asking Plaid', async () => {
 		const {handleCreatePlaidLinkTokenRoute} = await import('./route');
 
 		expect((await handleCreatePlaidLinkTokenRoute(makeRequest({}, []))).unwrapErr().kind).toBe('forbidden');
 		expect(plaid.requests).toEqual([]);
+	});
+
+	test('signs in to a bank already connected again without the experiment, so it keeps working', async () => {
+		const {handleCreatePlaidLinkTokenRoute} = await import('./route');
+
+		expect((await handleCreatePlaidLinkTokenRoute(makeRequest({connectionId: 'bank-1'}, []))).unwrap()).toEqual({linkToken: 'link-sandbox-1'});
+		expect(plaid.requests[0]?.body).toMatchObject({access_token: 'access-sandbox-1'});
 	});
 
 	test('says so when the server has no Plaid keys', async () => {
@@ -163,6 +173,14 @@ describe('handleConnectPlaidRoute', () => {
 		const {handleConnectPlaidRoute} = await import('./route');
 
 		expect((await handleConnectPlaidRoute(makeRequest({publicToken: 'public-sandbox-1'}))).unwrap().account).toBe('Bank');
+	});
+
+	test('removes the login at Plaid when the connection can’t be saved, so nothing is billed for it', async () => {
+		createConnection.mockResolvedValue(Err(ApiErr.dbError(new Error('db down'))));
+		const {handleConnectPlaidRoute} = await import('./route');
+
+		expect((await handleConnectPlaidRoute(makeRequest({publicToken: 'public-sandbox-1'}))).isErr()).toBe(true);
+		expect(plaid.requests.at(-1)).toEqual({path: '/item/remove', body: {access_token: 'access-sandbox-1'}});
 	});
 
 	test('needs the public token', async () => {

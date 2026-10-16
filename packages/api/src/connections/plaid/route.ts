@@ -4,12 +4,13 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, Do, hasExperiment, parseSchema} from '@proxy/utils';
 import {getConnectionWithCredential} from '@proxy/db/connection';
 
+import {log} from '../../observability/log';
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {requireUserOrgId} from '../../utils/user-org';
 import {saveConnection} from '../connect-flow';
 import {toConnectionResponse, type ConnectionResponse} from '../connection-response';
-import {createLinkToken, exchangePublicToken, getAccounts} from './plaid-api';
-import {readPlaidCredential, requirePlaidClient, type PlaidCredential} from './plaid-client';
+import {createLinkToken, exchangePublicToken, getAccounts, removeItem} from './plaid-api';
+import {readPlaidCredential, requirePlaidClient, type PlaidClient, type PlaidCredential} from './plaid-client';
 
 /**
  * Connecting a bank through Plaid. Plaid Link runs in the browser, in a window of Plaid's own, so
@@ -19,10 +20,11 @@ import {readPlaidCredential, requirePlaidClient, type PlaidCredential} from './p
  * connection of its own, named by its bank, found by Plaid's id for it. Signing in to a bank again
  * is Link's update mode on the same login, which keeps its access token, so nothing is saved after
  * it. A new connection gives agents nothing until a default or an agent's own setting says
- * otherwise. Banks are an experiment for now: only an organization with `plaid` on connects one.
+ * otherwise. Banks are an experiment for now: only an organization with `plaid` on connects one,
+ * though a bank already connected can be signed in to again without it, so it keeps working.
  */
 
-// Only an organization with the experiment on connects a bank, or signs in to one again.
+// Only an organization with the experiment on connects a new bank.
 function requirePlaidExperiment(request: AuthenticatedRequest): Result<void, ApiError> {
 	if (!hasExperiment(request.user, 'plaid')) {
 		return Err(ApiErr.forbidden());
@@ -49,13 +51,22 @@ function requirePlaidConnection(orgId: string, connectionId: string): Promise<Re
  */
 export function handleCreatePlaidLinkTokenRoute(request: AuthenticatedRequest): Promise<Result<{linkToken: string}, ApiError>> {
 	return Do(async ($) => {
-		$(requirePlaidExperiment(request));
-		const client = $(requirePlaidClient());
 		const {connectionId} = $(parseSchema(linkTokenBodySchema, request.body ?? {}));
+		if (connectionId === undefined) {
+			$(requirePlaidExperiment(request));
+		}
+		const client = $(requirePlaidClient());
 		const orgId = $(await requireUserOrgId(request));
 		const accessToken = connectionId === undefined ? null : $(await requirePlaidConnection(orgId, connectionId)).accessToken;
 		return {linkToken: $(await createLinkToken(client, {userId: request.user.userId, accessToken}))};
 	});
+}
+
+async function removeUnsavedItem(client: PlaidClient, credential: PlaidCredential): Promise<void> {
+	const removed = await removeItem(client, credential.accessToken);
+	if (removed.isErr()) {
+		log.warn('Removing a bank login that wasn’t saved failed', {itemId: credential.itemId, kind: removed.error.kind});
+	}
 }
 
 const connectBodySchema = z.object({publicToken: z.string().min(1)});
@@ -70,7 +81,13 @@ export function handleConnectPlaidRoute(request: AuthenticatedRequest): Promise<
 		const credential = $(await exchangePublicToken(client, publicToken));
 		// The login is made at Plaid by now, and billed: it is saved even when its bank's name can't be read.
 		const institution = (await getAccounts(client, credential.accessToken)).map((answer) => answer.institution).unwrapOr(null);
-		const {row} = $(await saveConnection(orgId, 'plaid', {account: institution ?? 'Bank', accountId: credential.itemId, credential, defaults: []}));
+		const saved = await saveConnection(orgId, 'plaid', {account: institution ?? 'Bank', accountId: credential.itemId, credential, defaults: []});
+		if (saved.isErr()) {
+			// A login no connection keeps couldn't be disconnected, and would be billed on: it is removed.
+			await removeUnsavedItem(client, credential);
+			return $(saved);
+		}
+		const {row} = saved.value;
 		// Plaid's login covers everything the integration does: every action is available.
 		return toConnectionResponse(row, []);
 	});

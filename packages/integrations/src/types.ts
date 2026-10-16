@@ -1,3 +1,5 @@
+import type {Experiment} from '@proxy/utils';
+
 import type {McpTool} from './mcp-tools';
 
 // `secret` reads like text but is masked to its last four characters wherever a row summarizes it.
@@ -125,4 +127,7 @@ export type Integration = {
 	custom?: true;
 	// The tools of the connection a custom integration was built for, each a tool of its own.
 	mcpTools?: McpTool[];
+	// The experiment an organization needs on to connect it: the catalog, the api's routes and the
+	// MCP server's instructions all leave it out without. Connections already made keep working.
+	experiment?: Experiment;
 };

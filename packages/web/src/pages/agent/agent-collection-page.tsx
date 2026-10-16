@@ -185,31 +185,25 @@ export function AgentCollectionPage() {
 							: `No ${collection.name.toLowerCase()}${here ? ' in here' : ''}.`}
 					</EmptyRows>
 				)}
-				{collection.listsAll &&
-					records.map((record) => (
-						<FieldsRow
-							key={record.id}
-							collection={collection}
-							record={record}
-							to={record.hasChildren ? `${base}${inside(record.id)}` : recordPath(base, record.id)}
-						/>
-					))}
-				{!collection.listsAll &&
-					records.map((record) => (
-						<Row
-							key={record.id}
-							to={record.hasChildren ? `${base}${inside(record.id)}` : recordPath(base, record.id)}
-							title={recordTitle(collection, record)}
-							after={
-								record.url && (
-									<OpenInLink
-										collection={collection}
-										url={record.url}
-										className="shrink-0 pr-4 text-sm text-muted-foreground md:pr-3"
-									/>
-								)
-							}
-							cells={
+				{records.map((record) => (
+					<Row
+						key={record.id}
+						to={record.hasChildren ? `${base}${inside(record.id)}` : recordPath(base, record.id)}
+						title={recordTitle(collection, record)}
+						subtitle={
+							collection.listsAll && <RecordFieldsLine collection={collection} record={record} />
+						}
+						after={
+							record.url && (
+								<OpenInLink
+									collection={collection}
+									url={record.url}
+									className="shrink-0 pr-4 text-sm text-muted-foreground md:pr-3"
+								/>
+							)
+						}
+						cells={
+							!collection.listsAll && (
 								<>
 									{record.hasChildren && (
 										<span className="shrink-0 text-muted-foreground">Has more inside</span>
@@ -225,9 +219,10 @@ export function AgentCollectionPage() {
 										</span>
 									)}
 								</>
-							}
-						/>
-					))}
+							)
+						}
+					/>
+				))}
 			</RowList>
 			{nextPage && (
 				<div className="mt-4 md:px-3">
@@ -264,41 +259,25 @@ export function AgentDenied({children}: {children: ReactNode}) {
 	);
 }
 
-// A row with every field the record has under its title, "Label: value" one after another, so
-// an agent reads the whole record from the list without opening it. A day is written as it is,
-// 2026-10-11, its year and all.
-function FieldsRow({
-	collection,
-	record,
-	to,
-}: {
-	collection: Collection;
-	record: DataRecord;
-	to: string;
-}) {
+// Every field the record has but its title, "Label: value" one after another, under the title of
+// a row in a `listsAll` collection, so an agent reads the whole record from the list without
+// opening it. A day is written as it is, 2026-10-11, its year and all.
+function RecordFieldsLine({collection, record}: {collection: Collection; record: DataRecord}) {
 	const fields = collection.fields.filter(
 		(field) => field.key !== collection.titleField && record.values[field.key],
 	);
 	return (
-		<li>
-			<Link
-				to={to}
-				className="flex min-w-0 flex-col gap-0.5 px-4 py-2 text-sm hover:bg-muted/50 active:bg-muted/50 md:px-3"
-			>
-				<span className="min-w-0 truncate">{recordTitle(collection, record)}</span>
-				<span className="text-muted-foreground">
-					{fields.map((field, index) => (
-						<span key={field.key}>
-							{index > 0 && ' · '}
-							{field.label}:{' '}
-							{field.type === 'date'
-								? record.values[field.key]
-								: displayValue(field.type, record.values[field.key])}
-						</span>
-					))}
-					{record.hasChildren && (fields.length > 0 ? ' · Has more inside' : 'Has more inside')}
+		<>
+			{fields.map((field, index) => (
+				<span key={field.key}>
+					{index > 0 && ' · '}
+					{field.label}:{' '}
+					{field.type === 'date'
+						? record.values[field.key]
+						: displayValue(field.type, record.values[field.key])}
 				</span>
-			</Link>
-		</li>
+			))}
+			{record.hasChildren && (fields.length > 0 ? ' · Has more inside' : 'Has more inside')}
+		</>
 	);
 }
