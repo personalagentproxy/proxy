@@ -57,17 +57,29 @@ export async function logProxyAction(data: {
 }
 
 /**
- * Newest first, optionally only one agent's or one connection's requests; an `agentId` of null is
- * what Personal Agent Proxy did itself.
+ * Newest first, optionally only one agent's or one connection's requests, only allowed or denied
+ * ones, or only those made from `from` until before `to`; an `agentId` of null is what Personal
+ * Agent Proxy did itself.
  */
 export async function listAuditEntries(
 	orgId: string,
-	filter: {agentId?: string | null; connectionId?: string},
+	filter: {
+		agentId?: string | null;
+		connectionId?: string;
+		outcome?: AuditOutcome;
+		from?: Date;
+		to?: Date;
+	},
 	take: number,
 ): Promise<Result<AuditEntryRow[], ApiError>> {
+	const {from, to, ...rest} = filter;
+	const createdAt =
+		from === undefined && to === undefined
+			? {}
+			: {createdAt: {...(from ? {gte: from} : {}), ...(to ? {lt: to} : {})}};
 	return wrapDb(() =>
 		db.auditEntry.findMany({
-			where: {orgId, ...filter},
+			where: {orgId, ...rest, ...createdAt},
 			orderBy: {createdAt: 'desc'},
 			take,
 			select: {
@@ -83,5 +95,75 @@ export async function listAuditEntries(
 				createdAt: true,
 			},
 		}),
+	);
+}
+
+// The furthest any time zone's clock is ahead of UTC (Kiribati's): a day there starts 14 hours
+// before it does in UTC, so the entries of a day on and after it are all made after this before it.
+const MAX_OFFSET_MS = 14 * 60 * 60 * 1000;
+
+function earliestInstantOf(day: string): Date {
+	return new Date(Date.parse(`${day}T00:00:00Z`) - MAX_OFFSET_MS);
+}
+
+export type AuditDayCount = {
+	// `2026-10-16`, on the time zone's clock.
+	day: string;
+	agentId: string | null;
+	count: number;
+	denied: number;
+};
+
+/**
+ * How many requests each agent made each day from `fromDay` on, and how many of them were denied,
+ * the days on the time zone's clock; days without any are left out. An `agentId` of null is what
+ * Personal Agent Proxy did itself.
+ */
+export async function countAuditEntriesByDay(
+	orgId: string,
+	timeZone: string,
+	fromDay: string,
+): Promise<Result<AuditDayCount[], ApiError>> {
+	// `createdAt` is a UTC time without its zone: read as UTC, then onto the time zone's clock.
+	return wrapDb(
+		() =>
+			db.$queryRaw<AuditDayCount[]>`
+			SELECT to_char(("createdAt" AT TIME ZONE 'UTC') AT TIME ZONE ${timeZone}, 'YYYY-MM-DD') AS day,
+				"agentId",
+				count(*)::int AS count,
+				(count(*) FILTER (WHERE outcome = 'denied'))::int AS denied
+			FROM "AuditEntry"
+			WHERE "orgId" = ${orgId}
+				AND "createdAt" >= ${earliestInstantOf(fromDay)}
+				AND (("createdAt" AT TIME ZONE 'UTC') AT TIME ZONE ${timeZone})::date >= ${fromDay}::date
+			GROUP BY 1, 2
+			ORDER BY 1, 2`,
+	);
+}
+
+export type AuditActionCount = {
+	connectionId: string;
+	collectionId: string;
+	action: string;
+	outcome: AuditOutcome;
+	count: number;
+};
+
+/** How many times each action was requested of each collection from `fromDay` on, the time zone's. */
+export async function countAuditEntriesByAction(
+	orgId: string,
+	timeZone: string,
+	fromDay: string,
+): Promise<Result<AuditActionCount[], ApiError>> {
+	return wrapDb(
+		() =>
+			db.$queryRaw<AuditActionCount[]>`
+			SELECT "connectionId", "collectionId", action, outcome, count(*)::int AS count
+			FROM "AuditEntry"
+			WHERE "orgId" = ${orgId}
+				AND "createdAt" >= ${earliestInstantOf(fromDay)}
+				AND (("createdAt" AT TIME ZONE 'UTC') AT TIME ZONE ${timeZone})::date >= ${fromDay}::date
+			GROUP BY 1, 2, 3, 4
+			ORDER BY count DESC`,
 	);
 }

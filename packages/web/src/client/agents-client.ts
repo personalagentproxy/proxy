@@ -1,6 +1,6 @@
 import type {AgentProviderId} from '@proxy/integrations';
 import {z} from 'zod';
-import {agentSchema, auditEntrySchema} from '@/client/schemas';
+import {activitySummarySchema, agentSchema, auditEntrySchema} from '@/client/schemas';
 import {apiRequest, apiSend} from '@/client/request';
 
 export function listAgents() {
@@ -58,7 +58,16 @@ export function disconnectMcpClient(agentId: string, clientId: string) {
 	return apiSend('DELETE', `/api/agents/${agentId}/mcp-clients/${clientId}`);
 }
 
-export function listActivity(filter: {agentId?: string; connectionId?: string}) {
+export type ActivityFilter = {
+	agentId?: string;
+	connectionId?: string;
+	outcome?: 'allowed' | 'denied';
+	// Only what was made from `from` until before `to`, ISO instants.
+	from?: string;
+	to?: string;
+};
+
+export function listActivity(filter: ActivityFilter) {
 	const query = new URLSearchParams(
 		Object.entries(filter).filter((entry): entry is [string, string] => entry[1] !== undefined),
 	);
@@ -67,5 +76,14 @@ export function listActivity(filter: {agentId?: string; connectionId?: string}) 
 		'GET',
 		`/api/activity${suffix}`,
 		z.object({entries: z.array(auditEntrySchema)}),
+	);
+}
+
+/** The home page's graph: each day's requests on the browser's clock, and the past week's by action. */
+export function getActivitySummary(timeZone: string) {
+	return apiRequest(
+		'GET',
+		`/api/activity/summary?${new URLSearchParams({timeZone})}`,
+		activitySummarySchema,
 	);
 }

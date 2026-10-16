@@ -1,6 +1,6 @@
 import express from 'express';
 
-import {handleListActivityRoute} from '../activity/route';
+import {handleActivitySummaryRoute, handleListActivityRoute} from '../activity/route';
 import {handleAgentLoginRoute, handleAgentLogoutRoute} from '../agent-auth/session';
 import {handleAgentFeedbackRoute, handleAgentListToolsRoute, handleAgentMeRoute, handleAgentRunToolRoute} from '../agent-side/route';
 import {
@@ -115,6 +115,7 @@ export function createApiRouter(): express.Router {
 
 	router.use('/api/activity', requireBrowserOrigin);
 	router.get('/api/activity', withAuthResult('List activity route', handleListActivityRoute));
+	router.get('/api/activity/summary', withAuthResult('Activity summary route', handleActivitySummaryRoute));
 
 	// The home page: which widget fits what the person types, and the entities in it.
 	router.use('/api/intent', requireBrowserOrigin);

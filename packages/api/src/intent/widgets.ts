@@ -117,5 +117,11 @@ export const WIDGETS: Widget[] = [
 	},
 ];
 
-/** The answer when none of the widgets fits, or the text says too little yet. */
+/** The answer when what was asked is whole and none of the widgets does it. */
 export const NO_WIDGET = 'none';
+
+/**
+ * The answer when the text is cut off or says too little to tell yet, as it is half-way through
+ * typing: the home page waits for more rather than saying nothing fits.
+ */
+export const INCOMPLETE = 'incomplete';

@@ -3,16 +3,22 @@ import {useEffect, useRef, useState} from 'react';
 import {useLoaderData, useRouteLoaderData} from 'react-router';
 import {classifyIntent, type Intent} from '@/client/intent-client';
 import type {Me} from '@/client/me-client';
+import {ActivityGraph} from '@/components/activity-graph';
 import {AnimatedHeight} from '@/components/animated-height';
 import {ConnectedLogos} from '@/components/connected-logos';
 import {AppShell} from '@/components/app-shell';
 import {IntentWidget} from '@/components/widgets/intent-widget';
+import {UnsupportedWidget} from '@/components/widgets/unsupported-widget';
 import {Input} from '@proxy/ui/components/input';
 import {apiMessage} from '@/lib/agent-errors';
 import type {homeLoader} from '@/loaders';
 
 // How often what is typed is classified while typing goes on.
 const INTERVAL_MS = 300;
+
+// How long typing has to stop before what fits no quick action says so: a pause mid-sentence is
+// shorter than that more often than not.
+const PAUSE_MS = 600;
 
 // What the empty input suggests, one after another: things the widgets do well, one per widget.
 const EXAMPLES = [
@@ -46,7 +52,15 @@ function greeting(me: Me | undefined, now: Date): string {
 }
 
 // An answer, with the text it was for and when it came: a widget reads its times against that.
-type Answer = {intent: Intent; text: string; at: Date};
+// `follows` when it came while the answer before it said nothing fits, on screen.
+type Answer = {intent: Intent; text: string; at: Date; follows: boolean};
+
+// Whether an answer of no widget says so: the model tells text still being typed (`incomplete`,
+// never kept) from a whole request no widget does (`none`), and as a backstop, `none` waits until
+// typing has paused on the text it was for, then stays while typing goes on until a widget fits.
+function saysUnsupported(answer: Answer, pausedOn: string): boolean {
+	return answer.intent.widget === 'none' && (answer.text === pausedOn || answer.follows);
+}
 
 // The start page, as Sana's: one input, and as it is typed in, it comes forward over the page,
 // which blurs behind it, and opens into the widget for what is typed, the input at its top. The api
@@ -54,12 +68,17 @@ type Answer = {intent: Intent; text: string; at: Date};
 // it back.
 export function HomePage() {
 	const me = useRouteLoaderData<Me>('human');
-	const {connections, agents} = useLoaderData<typeof homeLoader>();
+	const {connections, agents, activity} = useLoaderData<typeof homeLoader>();
 	// The time the page opened, for its greeting.
 	const [opened] = useState(() => new Date());
 	const [text, setText] = useState('');
 	const [answer, setAnswer] = useState<Answer | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	// The text typing last paused on for `PAUSE_MS`, as state for the page and as a ref for the
+	// answers coming in.
+	const [pausedOn, setPausedOn] = useState('');
+	const pausedOnNow = useRef('');
+	const pause = useRef<ReturnType<typeof setTimeout>>(undefined);
 	// What is typed now, trimmed, and what the last request was sent with.
 	const typed = useRef('');
 	const sent = useRef('');
@@ -70,7 +89,18 @@ export function HomePage() {
 	const tick = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const input = useRef<HTMLInputElement>(null);
 
-	useEffect(() => () => clearTimeout(tick.current), []);
+	useEffect(
+		() => () => {
+			clearTimeout(tick.current);
+			clearTimeout(pause.current);
+		},
+		[],
+	);
+
+	const pauseOn = (words: string) => {
+		pausedOnNow.current = words;
+		setPausedOn(words);
+	};
 
 	const send = () => {
 		tick.current = undefined;
@@ -92,7 +122,16 @@ export function HomePage() {
 				return;
 			}
 			setError(null);
-			setAnswer({intent: result.value, text: words, at: new Date()});
+			// Too little to tell yet: what is on screen stays until there is more.
+			if (result.value.widget === 'incomplete') {
+				return;
+			}
+			setAnswer((previous) => ({
+				intent: result.value,
+				text: words,
+				at: new Date(),
+				follows: previous !== null && saysUnsupported(previous, pausedOnNow.current),
+			}));
 		});
 	};
 
@@ -109,6 +148,8 @@ export function HomePage() {
 				setError(null);
 			}
 			tick.current ??= setTimeout(send, INTERVAL_MS);
+			clearTimeout(pause.current);
+			pause.current = setTimeout(() => pauseOn(typed.current), PAUSE_MS);
 			return;
 		}
 
@@ -116,6 +157,8 @@ export function HomePage() {
 		// for text that's gone.
 		clearTimeout(tick.current);
 		tick.current = undefined;
+		clearTimeout(pause.current);
+		pauseOn('');
 		sent.current = '';
 		shown.current = sequence.current;
 	};
@@ -128,10 +171,18 @@ export function HomePage() {
 	};
 
 	const active = text.trim() !== '';
-	const widget =
-		answer && answer.intent.widget !== 'none' ? (
-			<IntentWidget intent={answer.intent} typed={answer.text} now={answer.at} onAsk={ask} />
-		) : null;
+	const shownWidget = () => {
+		if (!answer) {
+			return null;
+		}
+		if (answer.intent.widget !== 'none') {
+			return (
+				<IntentWidget intent={answer.intent} typed={answer.text} now={answer.at} onAsk={ask} />
+			);
+		}
+		return saysUnsupported(answer, pausedOn) ? <UnsupportedWidget agents={agents} /> : null;
+	};
+	const widget = shownWidget();
 	const open = active && (widget !== null || error !== null);
 
 	return (
@@ -197,6 +248,11 @@ export function HomePage() {
 					</AnimatedHeight>
 				</div>
 				<ConnectedLogos connections={connections} agents={agents} />
+				{activity && (
+					<div className="mt-[6vh] flex w-full justify-center">
+						<ActivityGraph summary={activity} agents={agents} connections={connections} />
+					</div>
+				)}
 			</div>
 		</AppShell>
 	);

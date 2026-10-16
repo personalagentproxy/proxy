@@ -4,7 +4,7 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, httpRequest, parseSchema} from '@proxy/utils';
 
 import {env} from '../utils/env';
-import {NO_WIDGET, WIDGETS, type WidgetField} from './widgets';
+import {INCOMPLETE, NO_WIDGET, WIDGETS, type WidgetField} from './widgets';
 
 /**
  * What a person typed into the home page's input, in one request to gpt-oss-120b over OpenRouter,
@@ -26,9 +26,9 @@ const TIMEOUT_MS = 5000;
 export type FilledField = {id: string; name: string; values: string[]};
 
 export type Intent = {
-	/** The widget's id, or `none` when none fits or too little was typed yet. */
+	/** The widget's id, `none` when what was asked is whole and none does it, or `incomplete` when too little was typed to tell yet. */
 	widget: string;
-	/** The widget's fields, each with what fills it; none for `none`. */
+	/** The widget's fields, each with what fills it; none for `none` and `incomplete`. */
 	fields: FilledField[];
 	/** How long the model took. */
 	ms: number;
@@ -40,7 +40,8 @@ const INSTRUCTIONS = [
 	'Pick the widget for what the person typed into a command box, and fill in its fields from the text. Copy values from the text, but write the body of an email; never invent a person, place or address. Leave the fields of other widgets empty. Answer with JSON only.',
 	'Widgets:',
 	...WIDGETS.map((widget) => `- ${widget.id}: ${widget.description}. Fields: ${widget.fields.map((field) => `${field.id}${field.many ? ' (list)' : ''}: ${field.hint}`).join('; ')}`),
-	`- ${NO_WIDGET}: nothing above fits, or the text says too little yet`,
+	`- ${INCOMPLETE}: the text is cut off or says too little to tell what is wanted yet, as it is while still being typed ("find the", "email", "what's")`,
+	`- ${NO_WIDGET}: a whole request that nothing above does ("summarize my week", "what's the weather tomorrow")`,
 ].join('\n');
 
 function fieldSchema(field: WidgetField) {
@@ -61,7 +62,7 @@ const JSON_SCHEMA = {
 	additionalProperties: false,
 	required: ['widget', ...FIELDS.map((field) => field.id)],
 	properties: {
-		widget: {type: 'string', enum: [...WIDGETS.map((widget) => widget.id), NO_WIDGET]},
+		widget: {type: 'string', enum: [...WIDGETS.map((widget) => widget.id), INCOMPLETE, NO_WIDGET]},
 		...Object.fromEntries(FIELDS.map((field) => [field.id, fieldSchema(field)])),
 	},
 };
@@ -128,6 +129,9 @@ export async function classifyIntent(text: string): Promise<Result<Intent, ApiEr
 		return Err(ApiErr.providerUnreachable(new Error(`The model answered outside the form: ${content.slice(0, 200)}`)));
 	}
 
+	if (answer.value.widget === INCOMPLETE) {
+		return Ok({widget: INCOMPLETE, fields: [], ms});
+	}
 	const widget = WIDGETS.find((candidate) => candidate.id === answer.value.widget);
 	if (!widget) {
 		return Ok({widget: NO_WIDGET, fields: [], ms});

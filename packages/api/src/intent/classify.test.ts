@@ -55,7 +55,7 @@ describe('classifyIntent', () => {
 		expect(body.messages[1]).toEqual({role: 'user', content: text});
 		expect(body.messages[0]?.content).toContain('- find_file: Find or open a file');
 		const schema = body.response_format.json_schema.schema;
-		expect(schema.properties.widget.enum).toEqual(['new_event', 'find_person', 'write_email', 'find_email', 'find_file', 'calculate', 'convert_units', 'none']);
+		expect(schema.properties.widget.enum).toEqual(['new_event', 'find_person', 'write_email', 'find_email', 'find_file', 'calculate', 'convert_units', 'incomplete', 'none']);
 		expect(schema.required).toEqual(['widget', 'attendees', 'location', 'title', 'person', 'to', 'subject', 'body', 'from', 'about', 'name', 'owner', 'expression', 'amount', 'fromUnit', 'toUnit']);
 	});
 
@@ -105,6 +105,14 @@ describe('classifyIntent', () => {
 			answer({widget});
 			expect((await classifyIntent('hi')).unwrap()).toMatchObject({widget: 'none', fields: []});
 		}
+	});
+
+	test('tells text still being typed from a whole request no widget does', async () => {
+		const {classifyIntent} = await import('./classify');
+		answer({widget: 'incomplete'});
+
+		expect((await classifyIntent('find the')).unwrap()).toMatchObject({widget: 'incomplete', fields: []});
+		expect(sent().messages[0]?.content).toContain('- incomplete: the text is cut off');
 	});
 
 	test('is unavailable without a key, and asks nothing', async () => {

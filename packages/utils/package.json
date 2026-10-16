@@ -5,6 +5,7 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
+		"./days": "./src/days.ts",
 		"./units": "./src/units.ts"
 	},
 	"scripts": {

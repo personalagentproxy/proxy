@@ -109,7 +109,10 @@ export type LocatedEntry = {
 	collection?: Collection;
 };
 
-export function locateEntry(connections: Connection[], entry: AuditEntry): LocatedEntry | null {
+export function locateEntry(
+	connections: Connection[],
+	entry: Pick<AuditEntry, 'connectionId' | 'collectionId'>,
+): LocatedEntry | null {
 	const connection = connections.find((candidate) => candidate.id === entry.connectionId);
 	const integration = connection && integrationOf(connection);
 	if (!connection || !integration) {
@@ -189,6 +192,52 @@ export function entryAction(entry: AuditEntry, located: LocatedEntry | null): Ac
 	const {integration, collection} = located;
 	const id = collection ? requiredAction(collection, entry.action) : entry.action;
 	return integration.actions.find((action) => action.id === id) ?? null;
+}
+
+// "email", "2 emails", "3 queries", "2 addresses".
+function counted(count: number, singular: string): string {
+	if (count === 1) {
+		return `1 ${singular}`;
+	}
+	if (/[^aeiou]y$/.test(singular)) {
+		return `${count} ${singular.slice(0, -1)}ies`;
+	}
+	if (/(s|x|ch|sh)$/.test(singular)) {
+		return `${count} ${singular}es`;
+	}
+	return `${count} ${singular}s`;
+}
+
+function times(count: number): string {
+	if (count === 1) {
+		return 'once';
+	}
+	return count === 2 ? 'twice' : `${count} times`;
+}
+
+// What an action requested `count` times came to, in the activity log's words: "Viewed 140
+// emails", "Sent 2 emails", "Ran Search docs 3 times". Lists have nothing to count but pages of
+// records, so they say nothing.
+export function describeCount(
+	{action, collectionId}: Pick<AuditEntry, 'action' | 'collectionId'>,
+	count: number,
+	located: LocatedEntry | null,
+): string | null {
+	if (located?.integration.custom || collectionId === TOOLS_COLLECTION_ID) {
+		const title =
+			located?.integration.actions.find((candidate) => candidate.id === action)?.label ?? action;
+		return `Ran ${title} ${times(count)}`;
+	}
+	if (action === 'list') {
+		return null;
+	}
+
+	const records = counted(count, located?.collection?.singular ?? 'record');
+	const command = located?.collection?.commands?.find((candidate) => candidate.id === action);
+	if (command) {
+		return command.done.replace('{}', records);
+	}
+	return `${ACTION_VERBS[action] ?? action} ${records}`;
 }
 
 // What a row shows for a field: secrets down to their last four characters.

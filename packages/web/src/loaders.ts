@@ -1,23 +1,37 @@
 import {getSignInMethods} from '@/client/auth-client';
-import {getAgent, listActivity, listAgents, listMcpClients} from '@/client/agents-client';
+import {
+	type ActivityFilter,
+	getActivitySummary,
+	getAgent,
+	listActivity,
+	listAgents,
+	listMcpClients,
+} from '@/client/agents-client';
 import {getConnection, listConnections} from '@/client/connections-client';
 import {getMe} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {listRecords} from '@/client/records-client';
 import {INFO_INTEGRATION_ID} from '@proxy/integrations';
+import {browserTimeZone, daySpan} from '@/lib/activity-graph';
 import {findIntegration} from '@/lib/integrations';
 import {unwrapLoaderResult, unwrapOrNull} from '@/lib/loader-utils';
 import {redirect} from 'react-router';
 
 // The human side's pages, each loaded from the api on arrival and again after every change.
 
-// Home: what is connected, for the logos under its input. The page works without them, so a list
-// the api doesn't answer shows as empty rather than as an error.
+// Home: what is connected, for the logos under its input, and what was done, for the graph under
+// them. The page works without them, so a list the api doesn't answer shows as empty, and a graph
+// it doesn't as none, rather than as an error.
 export async function homeLoader() {
-	const [connections, agents] = await Promise.all([listConnections(), listAgents()]);
+	const [connections, agents, activity] = await Promise.all([
+		listConnections(),
+		listAgents(),
+		getActivitySummary(browserTimeZone()),
+	]);
 	return {
 		connections: connections.map((answer) => answer.connections).unwrapOr([]),
 		agents: agents.map((answer) => answer.agents).unwrapOr([]),
+		activity: activity.unwrapOr(null),
 	};
 }
 
@@ -107,9 +121,13 @@ export async function agentSetupLoader({params}: {params: {id?: string}}) {
 
 export async function activityLoader({request}: {request: Request}) {
 	const params = new URL(request.url).searchParams;
-	const filter = {
+	const outcome = params.get('outcome');
+	const filter: ActivityFilter = {
 		agentId: params.get('agent') ?? undefined,
 		connectionId: params.get('connection') ?? undefined,
+		outcome: outcome === 'allowed' || outcome === 'denied' ? outcome : undefined,
+		// A day of the home page's graph, on the browser's clock as the graph counts it.
+		...daySpan(params.get('day') ?? ''),
 	};
 	const [activity, connections, agents] = await Promise.all([
 		listActivity(filter),
