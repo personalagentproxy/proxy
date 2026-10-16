@@ -97,6 +97,10 @@ model Organization {
   slug String @unique
   // When the welcome flow was finished or skipped; until then the web app shows it instead of the app.
   onboardedAt DateTime?
+  // Experiments on for the organization, by id (EXPERIMENTS in @proxy/utils; an id no longer there
+  // is ignored), and an insider has all of them. Both set from the internal admin, never in the app.
+  experiments String[] @default([])
+  insider     Boolean  @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

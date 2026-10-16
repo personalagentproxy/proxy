@@ -1,7 +1,7 @@
 import type {Response} from 'express';
 import {Err, type Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, type Experiment, requirePresent} from '@proxy/utils';
 import {listConnectionsWithCredential} from '@proxy/db/connection';
 import {getUserOrganization, markOrganizationOnboarded} from '@proxy/db/organization';
 import {deleteUser, getUserFromId} from '@proxy/db/user';
@@ -16,6 +16,8 @@ export type MeResponse = {
 	user: {id: string; email: string; name: string | null; image: string | null};
 	/** False until the welcome flow is finished or skipped; the web app shows it instead of the app until then. */
 	onboarded: boolean;
+	/** The experiments on for the organization, for the web app's `useExperiment`. */
+	experiments: Experiment[];
 };
 
 /** Who is signed in. The web app's guard: 401 means "send them to /login". */
@@ -31,6 +33,7 @@ export function handleMeRoute(request: AuthenticatedRequest): Promise<Result<MeR
 		return {
 			user: {id: user.id, email: user.email, name: user.name, image: user.image},
 			onboarded: organization.onboardedAt !== null,
+			experiments: request.user.experiments,
 		};
 	});
 }

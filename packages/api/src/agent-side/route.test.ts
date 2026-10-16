@@ -11,7 +11,7 @@ const sendAgentFeedback = mock();
 
 mock.module('./feedback', () => ({sendAgentFeedback}));
 
-const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dots'};
+const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dots', experiments: []};
 
 function makeRequest(params: Record<string, string>, body: unknown = undefined) {
 	return {agent: signedIn, params, body, query: {}} as never;

@@ -3,7 +3,7 @@ import type {Result} from 'ts-results-es';
 import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
-import type {SignedInAgent} from './agent';
+import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed-in-agent';
 
 // Agents signing in over MCP with OAuth: the clients that registered themselves, the codes they
 // exchange once, and the tokens of each client signed in as an agent. Codes and tokens are kept
@@ -131,18 +131,14 @@ export async function getAgentByAccessToken(
 		await wrapDb(() =>
 			db.oAuthGrant.findUnique({
 				where: {accessTokenHash},
-				select: {
-					accessExpires: true,
-					agent: {select: {id: true, orgId: true, providerId: true, name: true, revokedAt: true}},
-				},
+				select: {accessExpires: true, agent: {select: signedInAgentSelect}},
 			}),
 		)
 	).map((grant) => {
-		if (!grant || grant.accessExpires <= new Date() || grant.agent.revokedAt !== null) {
+		if (!grant || grant.accessExpires <= new Date()) {
 			return null;
 		}
-		const {agent} = grant;
-		return {agentId: agent.id, orgId: agent.orgId, providerId: agent.providerId, name: agent.name};
+		return toSignedInAgent(grant.agent);
 	});
 }
 

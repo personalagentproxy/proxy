@@ -1,4 +1,4 @@
-import {httpRequest, type FetchError} from '@proxy/utils';
+import {httpRequest, isExperiment, type FetchError} from '@proxy/utils';
 import {z} from 'zod';
 import {apiSend} from '@/client/request';
 
@@ -11,6 +11,8 @@ const meSchema = z.object({
 	}),
 	// False until the welcome flow is finished or skipped; the human side shows it until then.
 	onboarded: z.boolean(),
+	// The experiments on for the organization; read them with useExperiment.
+	experiments: z.array(z.string()).transform((ids) => ids.filter(isExperiment)),
 });
 
 export type Me = z.infer<typeof meSchema>;

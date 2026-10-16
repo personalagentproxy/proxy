@@ -42,7 +42,7 @@ const user = {
 
 function makeRequest() {
 	return {
-		user: {userId: 'user-1', email: 'test@example.com', name: 'Test User'},
+		user: {userId: 'user-1', email: 'test@example.com', name: 'Test User', experiments: []},
 	};
 }
 
@@ -70,6 +70,7 @@ describe('handleMeRoute', () => {
 				image: 'https://example.com/avatar.png',
 			},
 			onboarded: true,
+			experiments: [],
 		});
 		expect(getUserFromId).toHaveBeenCalledWith('user-1');
 		expect(getUserOrganization).toHaveBeenCalledWith('user-1');

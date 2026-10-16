@@ -4,6 +4,7 @@ import type {Result} from 'ts-results-es';
 import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
+import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed-in-agent';
 
 export type AgentRow = {
 	id: string;
@@ -161,12 +162,7 @@ export async function createAgentSession(data: {
 	return (await wrapDb(() => db.agentSession.create({data}))).map(() => undefined);
 }
 
-export type SignedInAgent = {
-	agentId: string;
-	orgId: string;
-	providerId: string;
-	name: string;
-};
+export type {SignedInAgent} from './signed-in-agent';
 
 /** `Ok(null)` means no live session: unknown, expired, or the agent has been revoked. */
 export async function getSignedInAgent(
@@ -176,24 +172,14 @@ export async function getSignedInAgent(
 		await wrapDb(() =>
 			db.agentSession.findUnique({
 				where: {tokenHash},
-				select: {
-					expires: true,
-					agent: {
-						select: {id: true, orgId: true, providerId: true, name: true, revokedAt: true},
-					},
-				},
+				select: {expires: true, agent: {select: signedInAgentSelect}},
 			}),
 		)
 	).map((session) => {
-		if (!session || session.expires <= new Date() || session.agent.revokedAt !== null) {
+		if (!session || session.expires <= new Date()) {
 			return null;
 		}
-		return {
-			agentId: session.agent.id,
-			orgId: session.agent.orgId,
-			providerId: session.agent.providerId,
-			name: session.agent.name,
-		};
+		return toSignedInAgent(session.agent);
 	});
 }
 

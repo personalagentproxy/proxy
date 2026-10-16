@@ -38,7 +38,7 @@ function integration(id: string): Integration {
 	return found;
 }
 
-const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dots'};
+const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dots', experiments: []};
 const caller = {agent: signedIn, via: 'mcp' as const};
 
 const infoConnection = {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), tools: null, name: null, defaults: [{actionId: 'readAddresses'}], credential: null};
