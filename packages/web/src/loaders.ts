@@ -26,7 +26,7 @@ export async function addConnectionLoader() {
 	const [connections, methods] = await Promise.all([listConnections(), getSignInMethods()]);
 	return {
 		connections: unwrapLoaderResult(connections).connections,
-		configured: methods.map(({needs}) => needs).unwrapOr({google: true}),
+		configured: methods.map(({needs}) => needs).unwrapOr({google: true, plaid: true}),
 	};
 }
 
@@ -141,13 +141,15 @@ export async function welcomeLoader() {
 		listConnections(),
 		getSignInMethods(),
 	]);
-	if (unwrapLoaderResult(me).onboarded) {
+	const {onboarded, experiments} = unwrapLoaderResult(me);
+	if (onboarded) {
 		throw redirect('/connections');
 	}
 	return {
+		experiments,
 		agents: unwrapLoaderResult(agents).agents,
 		connections: unwrapLoaderResult(connections).connections,
-		configured: methods.map(({needs}) => needs).unwrapOr({google: true}),
+		configured: methods.map(({needs}) => needs).unwrapOr({google: true, plaid: true}),
 	};
 }
 

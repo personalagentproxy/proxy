@@ -37,12 +37,15 @@ mock.module('../utils/secret-crypto', () => ({
 	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
 }));
 
-// Google's revoke endpoint: each request, and its answer.
-const google = {requests: [] as Array<{url: string; body: URLSearchParams}>, status: 200};
+mock.module('../utils/env', () => ({env: {PLAID_CLIENT_ID: 'plaid-client', PLAID_SECRET: 'plaid-secret', PLAID_ENV: 'sandbox'}}));
+
+// Google's revoke endpoint and Plaid's: each request, and its answer.
+const google = {requests: [] as Array<{url: string; body: URLSearchParams; text: string}>, status: 200};
 
 spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request, init?: RequestInit) => {
 	const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-	google.requests.push({url, body: new URLSearchParams(typeof init?.body === 'string' ? init.body : '')});
+	const text = typeof init?.body === 'string' ? init.body : '';
+	google.requests.push({url, body: new URLSearchParams(text), text});
 	return new Response(google.status === 200 ? '{}' : '{"error":"invalid_token"}', {status: google.status});
 }) as typeof fetch);
 
@@ -230,6 +233,17 @@ describe('handleDeleteConnectionRoute', () => {
 		expect(result.isOk()).toBe(true);
 		expect(warn).toHaveBeenCalledTimes(1);
 		expect(deleteConnection).toHaveBeenCalledWith('org-1', 'conn-2');
+	});
+
+	test('removes a bank login at Plaid first, which ends what Plaid bills for it', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, id: 'conn-3', integrationId: 'plaid', credential: 'enc:{"accessToken":"access-sandbox-1","itemId":"item-1"}'}));
+
+		const {handleDeleteConnectionRoute} = await import('./route');
+		const result = await handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-3'}));
+
+		expect(result.isOk()).toBe(true);
+		expect(google.requests.map(({url, text}) => [url, JSON.parse(text)])).toEqual([['https://sandbox.plaid.com/item/remove', {access_token: 'access-sandbox-1'}]]);
+		expect(deleteConnection).toHaveBeenCalledWith('org-1', 'conn-3');
 	});
 
 	test('asks nothing of the provider for any other connection', async () => {

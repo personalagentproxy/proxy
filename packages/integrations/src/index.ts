@@ -12,6 +12,7 @@ export {
 	findIntegration,
 	INFO_INTEGRATION_ID,
 	INTEGRATIONS,
+	isOffered,
 	LINEAR_PRIORITIES,
 	LINEAR_STATUS_TYPES,
 } from './catalog';

@@ -95,6 +95,15 @@ describe('handleMcpRoute', () => {
 		expect(result.instructions).toContain('send_feedback');
 	});
 
+	test('the instructions name a bank among the services only to an organization with the experiment on', async () => {
+		getAgentByAccessToken.mockResolvedValueOnce(Ok({...signedIn, experiments: ['plaid']}));
+		const response = await post(rpc('initialize', {protocolVersion: '2025-06-18'}));
+
+		expect((response.body as {result: {instructions: string}}).result.instructions).toContain(
+			'Personal Agent Proxy connects Email, Google, Granola, Notion, Linear, Plaid, PostgreSQL, MySQL and any custom MCP server',
+		);
+	});
+
 	test('lists the five tools, read-only ones marked so', async () => {
 		const res = await post(rpc('tools/list'));
 		const tools = (res.body as {result: {tools: Array<{name: string; annotations: {readOnlyHint: boolean}}>}}).result.tools;

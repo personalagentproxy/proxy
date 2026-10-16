@@ -26,7 +26,10 @@ export function requestMagicLink(email: string, callbackUrl?: string) {
 	);
 }
 
-const signInMethodsSchema = z.object({google: z.boolean(), needs: z.object({google: z.boolean()})});
+const signInMethodsSchema = z.object({
+	google: z.boolean(),
+	needs: z.object({google: z.boolean(), plaid: z.boolean()}),
+});
 
 export type SignInMethods = z.infer<typeof signInMethodsSchema>;
 

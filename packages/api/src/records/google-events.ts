@@ -1,7 +1,7 @@
 import {Err, Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
+import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
 import {
 	getCalendar,
@@ -18,6 +18,7 @@ import {
 } from '../connections/google/calendar-api';
 import {callGoogle} from '../connections/google/google-client';
 import type {CommandRunner, Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
+import {readPageToken, writePageToken} from './page-token';
 
 /**
  * Google Calendar as the nested `events` collection, fetched live: at the top the calendars in the
@@ -331,18 +332,11 @@ function withGuests(event: GoogleEvent | null, guests: string[]): Attendee[] {
 // What a list's next page carries: where the list began, since "now" moves, and Google's token.
 const pageSchema = z.object({from: z.string(), token: z.string()});
 
-function pageToken(from: string, token: string): string {
-	return Buffer.from(JSON.stringify({from, token})).toString('base64url');
-}
-
 function readPage(page: string | null): Result<z.infer<typeof pageSchema> | null, ApiError> {
 	if (page === null) {
 		return Ok(null);
 	}
-	const json = Result.wrap((): unknown => JSON.parse(Buffer.from(page, 'base64url').toString('utf8')));
-	return json
-		.mapErr(() => ApiErr.validationError('That page is not one a list gave'))
-		.andThen((value) => parseSchema(pageSchema, value).mapErr(() => ApiErr.validationError('That page is not one a list gave')));
+	return readPageToken(pageSchema, page);
 }
 
 // How far ahead of UTC a time zone's clock is at an instant.
@@ -391,7 +385,7 @@ function listEventsTree(target: RecordTarget, query: ListQuery): Promise<Result<
 			const from = page?.from ?? search.from;
 			const answer = $(await listEvents(token, calendar.id, {from, search: search.words, page: page?.token ?? null}));
 			const trail = query.parent === null ? {} : {trail: [{id: calendar.id, title: calendarTitle(calendar)}]};
-			return {records: answer.events.map((event) => eventRecord(calendar.id, event)), nextPage: answer.nextPage ? pageToken(from, answer.nextPage) : null, ...trail};
+			return {records: answer.events.map((event) => eventRecord(calendar.id, event)), nextPage: answer.nextPage ? writePageToken({from, token: answer.nextPage}) : null, ...trail};
 		}),
 	);
 }

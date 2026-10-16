@@ -1,10 +1,12 @@
 import {AGENT_PROVIDERS} from '@proxy/integrations';
+import type {Experiment} from '@proxy/utils';
 import {useState, type ReactNode} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
 import {setConnectionDefaults} from '@/client/connections-client';
 import {finishOnboarding} from '@/client/me-client';
 import {AgentSetup} from '@/components/agent-setup';
 import type {DatabaseDialect} from '@/client/connections-client';
+import {ConnectBankForm} from '@/components/connect-bank-form';
 import {ConnectDatabaseForm} from '@/components/connect-database-form';
 import {ConnectEmailForm} from '@/components/connect-email-form';
 import {ConnectMcpForm} from '@/components/connect-mcp-form';
@@ -17,6 +19,7 @@ import {defaultActions, defaultsOnOrOff, integrationOf} from '@/lib/access';
 import {
 	describeDatabase,
 	EMAIL_FORM,
+	PLAID_FORM,
 	signInPath,
 	type Configured,
 	type Integration,
@@ -25,16 +28,16 @@ import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin, Connection} from '@/lib/types';
 import type {welcomeConnectionLoader, welcomeLoader} from '@/loaders';
 
-// Step one is the agent; the rest are step two: the catalog, the mailbox, database and MCP server
-// forms, and (on its own page, `WelcomeConnectionPage`) a new connection's permissions.
-type Step = 'agent' | 'connections' | 'email' | 'mcp' | DatabaseDialect;
+// Step one is the agent; the rest are step two: the catalog, the mailbox, bank, database and MCP
+// server forms, and (on its own page, `WelcomeConnectionPage`) a new connection's permissions.
+type Step = 'agent' | 'connections' | 'email' | 'plaid' | 'mcp' | DatabaseDialect;
 
 // The welcome flow, before the app: step one connects the person's agent, in the way that agent
 // takes (an MCP client adds the server and signs in; another is handed a login), step two their
 // services, each connection's permissions confirmed as it is made. Done, or skipped, it is not
 // shown again.
 export function WelcomePage({step}: {step: Step}) {
-	const {agents, connections, configured} = useLoaderData<typeof welcomeLoader>();
+	const {agents, connections, configured, experiments} = useLoaderData<typeof welcomeLoader>();
 	const navigate = useNavigate();
 	const [finishing, setFinishing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -66,12 +69,16 @@ export function WelcomePage({step}: {step: Step}) {
 					agentName={agentName}
 					connections={connections}
 					configured={configured}
+					experiments={experiments}
 					finishing={finishing}
 					onDone={() => void finish()}
 				/>
 			)}
 			{step === 'email' && (
 				<EmailStep onContinue={(connection) => navigate(`/welcome/connections/${connection.id}`)} />
+			)}
+			{step === 'plaid' && (
+				<BankStep onContinue={(connection) => navigate(`/welcome/connections/${connection.id}`)} />
 			)}
 			{(step === 'postgres' || step === 'mysql') && (
 				<DatabaseStep
@@ -150,12 +157,14 @@ function ConnectionsStep({
 	agentName,
 	connections,
 	configured,
+	experiments,
 	finishing,
 	onDone,
 }: {
 	agentName: string;
 	connections: Connection[];
 	configured: Configured;
+	experiments: Experiment[];
 	finishing: boolean;
 	onDone: () => void;
 }) {
@@ -173,6 +182,7 @@ function ConnectionsStep({
 			<IntegrationCatalog
 				connections={connections}
 				configured={configured}
+				experiments={experiments}
 				returnTo="welcome"
 				onConnectForm={(integrationId) => navigate(`/welcome/connections/${integrationId}`)}
 			/>
@@ -205,6 +215,27 @@ function EmailStep({onContinue}: {onContinue: (connection: Connection) => void})
 					</Button>
 				}
 				continueLabel="Continue"
+				onConnected={onContinue}
+			/>
+		</>
+	);
+}
+
+// Connecting a bank through Plaid, which goes on to the new connection's permissions.
+function BankStep({onContinue}: {onContinue: (connection: Connection) => void}) {
+	return (
+		<>
+			<StepHeading title={PLAID_FORM.title}>{PLAID_FORM.intro}</StepHeading>
+			<ConnectBankForm
+				cancel={
+					<Button
+						variant="outline"
+						nativeButton={false}
+						render={<Link to="/welcome/connections" />}
+					>
+						Back
+					</Button>
+				}
 				onConnected={onContinue}
 			/>
 		</>

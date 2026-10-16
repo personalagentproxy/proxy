@@ -2,6 +2,7 @@ import {useLoaderData, useNavigate, useSearchParams} from 'react-router';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {BackButton} from '@/components/back-button';
 import {IntegrationCatalog, SignInFailed} from '@/components/integration-catalog';
+import {useExperiments} from '@/hooks/use-experiment';
 import type {addConnectionLoader} from '@/loaders';
 
 // The catalog: a plus per integration, with how many accounts of it are connected. A mailbox, a
@@ -11,6 +12,7 @@ export function AddConnectionPage() {
 	const {connections, configured} = useLoaderData<typeof addConnectionLoader>();
 	const navigate = useNavigate();
 	const [params] = useSearchParams();
+	const experiments = useExperiments();
 
 	return (
 		<AppShell
@@ -25,6 +27,7 @@ export function AddConnectionPage() {
 			<IntegrationCatalog
 				connections={connections}
 				configured={configured}
+				experiments={experiments}
 				onConnectForm={(integrationId) => navigate(`/connections/new/${integrationId}`)}
 			/>
 		</AppShell>

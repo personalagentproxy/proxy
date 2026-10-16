@@ -6,6 +6,10 @@ import type {Me} from '@/client/me-client';
 // loader; off outside it, as in the welcome flow. Hiding something here is only for looks: the
 // api checks the experiment itself.
 export function useExperiment(experiment: Experiment): boolean {
-	const me = useRouteLoaderData<Me>('human');
-	return me ? hasExperiment(me, experiment) : false;
+	return hasExperiment({experiments: useExperiments()}, experiment);
+}
+
+// Every experiment on for the signed-in person's organization, the same way.
+export function useExperiments(): Experiment[] {
+	return useRouteLoaderData<Me>('human')?.experiments ?? [];
 }

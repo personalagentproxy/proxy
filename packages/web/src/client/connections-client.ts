@@ -90,3 +90,21 @@ export function connectMcp(input: ConnectMcpInput) {
 export function refreshMcpTools(connectionId: string) {
 	return apiRequest('POST', `/api/connections/${connectionId}/tools`, connectionSchema);
 }
+
+/**
+ * A Link token for Plaid Link: a new bank, or, with `connectionId`, signing in again to the bank of
+ * that connection. A 400 says Plaid isn't set up on the server, or what Plaid refused.
+ */
+export function createPlaidLinkToken(connectionId?: string) {
+	return apiRequest(
+		'POST',
+		'/api/connections/plaid/link-token',
+		z.object({linkToken: z.string()}),
+		connectionId === undefined ? {} : {connectionId},
+	);
+}
+
+/** Connects the bank Plaid Link signed in to, by the public token it answered with. */
+export function connectPlaid(publicToken: string) {
+	return apiRequest('POST', '/api/connections/plaid', connectionSchema, {publicToken});
+}

@@ -9,6 +9,7 @@ import {
 } from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
+import {SignInToBankAgain} from '@/components/connect-bank-form';
 import {BackButton} from '@/components/back-button';
 import {ConnectionAccess, SignInAgain} from '@/components/connection-access';
 import {ConfirmDialog} from '@/components/confirm-dialog';
@@ -135,6 +136,9 @@ export function ConnectionPage() {
 						}}
 					/>
 					{signInAgain && <SignInAgain href={signInAgain} className="md:px-3" />}
+					{connection.integrationId === 'plaid' && (
+						<SignInToBankAgain connectionId={connection.id} className="md:px-3" />
+					)}
 					{error && <p className="mt-2 text-sm text-destructive md:px-3">{error}</p>}
 				</Section>
 				<Section title="Agents with access">

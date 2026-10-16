@@ -9,6 +9,7 @@ export const metadata: Metadata = {
 };
 
 const GOOGLE_USER_DATA_POLICY = 'https://developers.google.com/terms/api-services-user-data-policy';
+const PLAID_END_USER_PRIVACY_POLICY = 'https://plaid.com/legal/#end-user-privacy-policy';
 
 export default function PrivacyPage() {
 	return (
@@ -37,21 +38,36 @@ export default function PrivacyPage() {
 				<p>
 					<span className="text-foreground">Information you give us.</span> When you create an
 					account, we collect your email address and, if you sign in with Google, your name, profile
-					picture and Google account id. We collect the information you type into the Services, such
-					as addresses, payment details and notes you keep for your agents, the services and
-					accounts you connect, the agents you set up and the permissions you give them, and
-					anything you send us when you contact us.
+					picture and Google account id. If you add a way to confirm it&apos;s you when you sign in,
+					such as a passkey, an authenticator app or a phone number, we collect what it needs. We
+					collect the information you type into the Services, such as addresses, payment details and
+					notes you keep for your agents, the services and accounts you connect, the agents you set
+					up and the permissions you give them, the people you invite to an organization, such as
+					their email addresses, and anything you send us when you contact us.
+				</p>
+				<p>
+					<span className="text-foreground">Billing information.</span> If you pay for the Services,
+					we collect billing information, such as your name, billing address, the plan you choose
+					and your payment history. Card details are collected by our payment processor under its
+					own privacy policy; we receive only limited details, such as the card&apos;s brand, last
+					digits and expiry date.
 				</p>
 				<p>
 					<span className="text-foreground">Information from your connected services.</span> When
-					you connect a service, such as an email account, Google, Granola, Notion, Linear, a
-					database or a server that speaks MCP, we collect the credentials needed to reach it and,
-					depending on the permissions you give your agents, information from that service: the
-					content and metadata of emails, files, documents, spreadsheets, presentations, pages,
-					issues, meeting notes, database records and other data your agents request, and the
-					results of the actions they take. Some of this may be sensitive, such as private
-					communications, financial information or health information, depending on what you connect
-					and what you let your agents do.
+					you connect a service, such as an email account, a calendar, an address book, a file or
+					document store, a note-taking, meeting-notes or project-management tool, a bank, card or
+					other financial account, a database or any other service that speaks MCP, we collect the
+					credentials needed to reach it and, depending on the permissions you give your agents,
+					information from that service, which may include: emails and other messages, with their
+					attachments; calendars, events and invitations, with their guests and responses; contacts;
+					files, folders, documents, spreadsheets, presentations and pages; notes, meeting notes and
+					transcripts; issues, tasks, projects and comments; database tables, rows and query
+					results; financial accounts, with their names, types, the last digits of their numbers,
+					balances and limits, and their transactions, with amounts, dates, merchants, categories
+					and locations; anything else a connected service returns to your agents; the metadata of
+					all of these; and the results of the actions your agents take. Some of this may be
+					sensitive, such as private communications, financial information or health information,
+					depending on what you connect and what you let your agents do.
 				</p>
 				<p>
 					<span className="text-foreground">Information about your agents&apos; activity.</span> We
@@ -93,9 +109,11 @@ export default function PrivacyPage() {
 						training, fine-tuning and evaluating models, subject to the limits on Google user data
 						below and to the choices described under &quot;Your choices&quot;;
 					</li>
+					<li>process payments and manage billing;</li>
 					<li>
-						communicate with you about the Services, respond to you, and send you service and
-						account notices;
+						communicate with you about the Services, respond to you, send you service and account
+						notices, and send you news, updates and offers about the Services, which you can
+						unsubscribe from;
 					</li>
 					<li>
 						detect, investigate and prevent abuse, fraud and security incidents, and enforce our
@@ -109,11 +127,12 @@ export default function PrivacyPage() {
 				<p>
 					When you connect a Google account, Google asks you to grant the Services access to parts
 					of that account. Depending on what you grant, the Services may access your Google account
-					email address and information in Gmail, Google Calendar, Google Drive, Google Docs, Google
-					Sheets, Google Slides and Google Contacts, including the content and metadata of messages,
-					calendars, events, files, documents, spreadsheets, presentations and contacts, and may
-					create, change, send and move to Trash such items, invite guests to events and answer
-					invitations on your behalf. Google&apos;s consent screen lets you decline any of these.
+					email address and information in the Google services you grant access to, such as Gmail,
+					Google Calendar, Google Drive, Google Docs, Google Sheets, Google Slides and Google
+					Contacts, including the content and metadata of what is in them, and may act on it for
+					your agents within the permissions you set, such as sending email, creating and changing
+					documents and events, or moving items to Trash. Google&apos;s consent screen lets you
+					decline any of these.
 				</p>
 				<p>
 					We use information received from Google Workspace APIs only to provide and improve the
@@ -125,17 +144,18 @@ export default function PrivacyPage() {
 				</p>
 				<p>
 					We disclose information from Google Workspace APIs only to the agents you authorized and
-					the companies that run them, as needed to provide the feature you asked for; to service
-					providers that help us run the Services and may handle it only for that purpose; and as
-					required by law or to protect the security of the Services. We do not use it to serve
-					advertising, do not sell it, do not disclose it to data brokers or information resellers,
-					and do not use it to determine creditworthiness or for lending. We do not use information
-					from Google Workspace APIs to develop, improve or train any artificial intelligence or
-					machine learning model, other than a model personalized to you alone for a feature you
-					use, and we do not allow third parties to do so. People working for us do not read it
-					unless you ask us to and give your consent, it is needed for security or to investigate
-					abuse, it is required by law, or it has been aggregated and deidentified for internal
-					operations.
+					the companies that run them, as needed to provide the feature you asked for; to the
+					members of the organization you connected the account in, as described under &quot;How we
+					disclose information&quot;; to service providers that help us run the Services and may
+					handle it only for that purpose; and as required by law or to protect the security of the
+					Services. We do not use it to serve advertising, do not sell it, do not disclose it to
+					data brokers or information resellers, and do not use it to determine creditworthiness or
+					for lending. We do not use information from Google Workspace APIs to develop, improve or
+					train any artificial intelligence or machine learning model, other than a model
+					personalized to you alone for a feature you use, and we do not allow third parties to do
+					so. People working for us do not read it unless you ask us to and give your consent, it is
+					needed for security or to investigate abuse, it is required by law, or it has been
+					aggregated and deidentified for internal operations.
 				</p>
 				<p>
 					Personal Agent Proxy&apos;s use and transfer to any other app of information received from
@@ -154,6 +174,20 @@ export default function PrivacyPage() {
 				</p>
 			</LegalSection>
 
+			<LegalSection title="Services connected through a third party">
+				<p>
+					Some services are connected through a third party that links the Services to your account
+					there, such as Plaid Inc. for bank accounts. You sign in with your provider in that third
+					party&apos;s own window and choose what to share, and the third party handles the
+					information it collects under its own privacy policy, such as Plaid&apos;s{' '}
+					<LegalLink href={PLAID_END_USER_PRIVACY_POLICY}>End User Privacy Policy</LegalLink>. We
+					store the credentials it issues, encrypted at rest. Disconnecting the service in the
+					Services, or deleting your account, ends our access through the third party where it
+					offers a way, and you can also manage that access with the third party, such as at{' '}
+					<LegalLink href="https://my.plaid.com">my.plaid.com</LegalLink>.
+				</p>
+			</LegalSection>
+
 			<LegalSection title="Cookies and similar technologies">
 				<p>
 					We use cookies and similar technologies to keep you and your agents signed in, to carry
@@ -168,15 +202,20 @@ export default function PrivacyPage() {
 				<p>We may disclose information:</p>
 				<LegalList>
 					<li>
+						to the other members of an organization you use the Services in: depending on their
+						role, they can see and manage its connections, agents, permissions, Information and
+						activity, including what you added and what agents did with it;
+					</li>
+					<li>
 						to the agents you authorize and the companies that run them, such as Anthropic, OpenAI
 						or the maker of any other agent you connect, which handle it under their own terms and
 						policies;
 					</li>
 					<li>to the services you connect, when your agents act on them for you;</li>
 					<li>
-						to service providers that help us run the Services, such as hosting, email delivery,
-						analytics, payment processing, security and AI model providers, which may use it only to
-						provide services to us;
+						to service providers that help us run the Services, such as hosting, email and text
+						message delivery, analytics, payment processing, security and AI model providers, which
+						may use it only to provide services to us;
 					</li>
 					<li>
 						to our affiliates, and to a buyer or successor in a merger, acquisition, financing or
@@ -199,9 +238,11 @@ export default function PrivacyPage() {
 					resolve disputes and enforce our agreements. Disconnecting a service deletes its
 					credentials but doesn&apos;t by itself delete the other information we collected from it.
 					You can delete your account, and the information in it, at any time in the Services&apos;
-					settings, or by writing to {LEGAL.contactEmail}. Deleting it disconnects every connected
-					service, revoking our access with that service where it offers a way. We may keep
-					deidentified information, and copies in backups for a limited time.
+					settings, or by writing to {LEGAL.contactEmail}. Deleting it also deletes any organization
+					only you belong to, disconnecting its connected services and revoking our access with each
+					service where it offers a way. What you added to an organization others belong to stays
+					with that organization until its members delete it. We may keep billing records as the law
+					requires, deidentified information, and copies in backups for a limited time.
 				</p>
 			</LegalSection>
 
@@ -216,6 +257,11 @@ export default function PrivacyPage() {
 						by writing to {LEGAL.contactEmail} or through the settings when they offer it. This
 						applies going forward and doesn&apos;t affect models already trained. We never use
 						information from Google Workspace APIs this way, whatever you choose.
+					</li>
+					<li>
+						You can unsubscribe from news, updates and offers with the link in each email. Service
+						and account notices, such as security alerts and billing receipts, still reach you while
+						you have an account.
 					</li>
 					<li>
 						You can ask for a copy of your information, or to have it corrected or deleted, by

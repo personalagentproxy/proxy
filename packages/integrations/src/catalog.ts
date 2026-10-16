@@ -1,3 +1,5 @@
+import {type Experiment, hasExperiment} from '@proxy/utils';
+
 import type {Action, Collection, Condition, Integration} from './types';
 
 const INBOX: Condition = {field: 'folder', values: ['Inbox']};
@@ -948,6 +950,100 @@ const google: Integration = {
 	],
 };
 
+// A bank login connected through Plaid, in the US and Canada: its accounts and their transactions,
+// only ever read. Balances and transactions are each an action of their own, so an agent can be
+// told how much there is without seeing what it went on. Balances are as of Plaid's last update
+// from the bank, several times a day. Transactions are one tree: the accounts at the top, each
+// holding its transactions, newest first, two years of them at most from when the bank was
+// connected. Amounts are signed as a statement reads: money out of the account negative, money in
+// positive, on a card or a loan too. Plaid has no search in words: a list is narrowed by days.
+const plaid: Integration = {
+	id: 'plaid',
+	name: 'Plaid',
+	description: 'Balances and transactions from your bank accounts, cards and loans',
+	experiment: 'plaid',
+	actions: [
+		{
+			id: 'readBalances',
+			label: 'Read balances',
+			description: 'See your accounts and what each holds or owes',
+			risk: 'low',
+		},
+		{
+			id: 'readTransactions',
+			label: 'Read transactions',
+			description: 'List and open each account’s transactions',
+			risk: 'medium',
+		},
+	],
+	collections: [
+		{
+			id: 'accounts',
+			name: 'Balances',
+			singular: 'account',
+			titleField: 'name',
+			summaryField: 'balance',
+			listsAll: true,
+			read: 'readBalances',
+			writes: {},
+			fields: [
+				{key: 'name', label: 'Name', type: 'text', system: true},
+				// "Checking", "Credit card", "Mortgage".
+				{key: 'type', label: 'Type', type: 'text', system: true},
+				// The account number's last digits, as the bank shows them: "••0000".
+				{key: 'number', label: 'Number', type: 'text', system: true},
+				// What the account holds, or on a card or a loan what is owed: "1234.56 USD".
+				{key: 'balance', label: 'Balance', type: 'text', system: true},
+				// What can be spent or drawn now, where the bank says.
+				{key: 'available', label: 'Available', type: 'text', system: true},
+				// A card's or credit line's limit.
+				{key: 'limit', label: 'Limit', type: 'text', system: true},
+			],
+		},
+		{
+			id: 'transactions',
+			name: 'Transactions',
+			singular: 'transaction',
+			titleField: 'name',
+			summaryField: 'amount',
+			searchHint:
+				'A day, such as 2026-09-30, for the transactions on it and before it, or two, 2026-09-01 2026-09-30, for those between them. At the top, in every account.',
+			nested: true,
+			listsAll: true,
+			read: 'readTransactions',
+			writes: {},
+			fields: [
+				// The merchant where Plaid knows it, else the bank's own description.
+				{key: 'name', label: 'Name', type: 'text', system: true},
+				{
+					key: 'kind',
+					label: 'Kind',
+					type: 'select',
+					options: ['Account', 'Transaction'],
+					system: true,
+				},
+				{key: 'date', label: 'Date', type: 'date', system: true},
+				// Money out negative, money in positive: "-12.50 USD".
+				{key: 'amount', label: 'Amount', type: 'text', system: true},
+				// The account's name and last digits: "Checking ••0000".
+				{key: 'account', label: 'Account', type: 'text', system: true},
+				// Plaid's category: "Food and drink: Restaurant".
+				{key: 'category', label: 'Category', type: 'text', system: true},
+				{
+					key: 'status',
+					label: 'Status',
+					type: 'select',
+					options: ['Pending', 'Posted'],
+					system: true,
+				},
+				// The bank's own description of it, as the statement shows it.
+				{key: 'description', label: 'Description', type: 'text', system: true},
+				{key: 'location', label: 'Location', type: 'text', system: true},
+			],
+		},
+	],
+};
+
 // Information's actions for one of its collections, such as `readCards` and `writeCards`: reading
 // it, and adding, editing and deleting as one.
 function infoActions(collectionId: string, plural: string): Action[] {
@@ -1055,6 +1151,7 @@ export const INTEGRATIONS: Integration[] = [
 	granola,
 	notion,
 	linear,
+	plaid,
 	postgres,
 	mysql,
 	mcp,
@@ -1062,6 +1159,14 @@ export const INTEGRATIONS: Integration[] = [
 
 export function findIntegration(id: string): Integration | undefined {
 	return INTEGRATIONS.find((integration) => integration.id === id);
+}
+
+/** Whether an organization can connect the integration: it is behind no experiment, or one it has on. */
+export function isOffered(
+	integration: Pick<Integration, 'experiment'>,
+	holder: {experiments: Experiment[]},
+): boolean {
+	return !integration.experiment || hasExperiment(holder, integration.experiment);
 }
 
 export function findCollection<T extends {collections: Collection[]}>(

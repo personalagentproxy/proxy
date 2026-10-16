@@ -1,3 +1,5 @@
+import type {Experiment} from '@proxy/utils';
+
 import type {McpTool} from './mcp-tools';
 
 // `secret` reads like text but is masked to its last four characters wherever a row summarizes it.
@@ -76,6 +78,10 @@ export type Collection = {
 	// Listed from now on, soonest first, as a calendar's events are, rather than newest first: a
 	// list's next page is later rather than older.
 	upcoming?: true;
+	// A list's rows show every field a record has, under its title, rather than one beside it: for
+	// records read like a statement's lines, as a bank's transactions are, all of whose fields are
+	// short.
+	listsAll?: true;
 	// Where a record's own address opens, for its link: "Open in Gmail". A collection whose records
 	// have no address the person can open, as a mailbox's over IMAP haven't, has none.
 	openIn?: string;
@@ -92,7 +98,16 @@ export type Collection = {
 };
 
 export type IntegrationId =
-	'info' | 'email' | 'granola' | 'notion' | 'linear' | 'postgres' | 'mysql' | 'mcp' | 'google';
+	| 'info'
+	| 'email'
+	| 'granola'
+	| 'notion'
+	| 'linear'
+	| 'postgres'
+	| 'mysql'
+	| 'mcp'
+	| 'google'
+	| 'plaid';
 
 export type Integration = {
 	id: IntegrationId;
@@ -112,4 +127,7 @@ export type Integration = {
 	custom?: true;
 	// The tools of the connection a custom integration was built for, each a tool of its own.
 	mcpTools?: McpTool[];
+	// The experiment an organization needs on to connect it: the catalog, the api's routes and the
+	// MCP server's instructions all leave it out without. Connections already made keep working.
+	experiment?: Experiment;
 };

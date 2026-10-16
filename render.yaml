@@ -62,6 +62,10 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
+      - key: PLAID_CLIENT_ID
+        sync: false
+      - key: PLAID_SECRET
+        sync: false
       # Hosted Personal Agent Proxy is not an installation to count.
       - key: TELEMETRY_ENABLED
         value: 'false'

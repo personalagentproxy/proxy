@@ -1,4 +1,5 @@
-import type {IntegrationId} from '@proxy/integrations';
+import {isOffered, type IntegrationId} from '@proxy/integrations';
+import type {Experiment} from '@proxy/utils';
 import {buttonVariants} from '@proxy/ui/components/button';
 import {cn} from '@proxy/ui/lib/utils';
 import {PlusIcon} from 'lucide-react';
@@ -31,20 +32,26 @@ const PLUS = cn(
 
 // The catalog: every integration, a plus to connect it, and how many accounts are connected. Each
 // can be connected again, for another mailbox, account or server. One that needs what the server
-// doesn't have, such as Google without its client, is greyed out, saying what to set up.
+// doesn't have, such as Google without its client, is greyed out, saying what to set up. One behind
+// an experiment the organization doesn't have on isn't offered.
 export function IntegrationCatalog({
 	connections,
 	configured,
+	experiments,
 	returnTo,
 	onConnectForm,
 }: {
 	connections: Connection[];
 	configured: Configured;
+	// The experiments on for the organization.
+	experiments: Experiment[];
 	returnTo?: 'welcome';
 	// The integration's form, by its id.
 	onConnectForm: (integrationId: IntegrationId) => void;
 }) {
-	const available = INTEGRATIONS.filter((integration) => !integration.builtIn);
+	const available = INTEGRATIONS.filter(
+		(integration) => !integration.builtIn && isOffered(integration, {experiments}),
+	);
 
 	return (
 		<RowList>

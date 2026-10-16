@@ -1,3 +1,4 @@
+import type {Collection} from '@proxy/integrations';
 import type {ReactNode} from 'react';
 import {Form, Link, useLoaderData, useLocation, useSearchParams} from 'react-router';
 import {
@@ -14,6 +15,7 @@ import {useAgentTarget} from '@/hooks/use-agent-target';
 import {canStartNew, displayValue, recordTitle} from '@/lib/access';
 import {inside, recordPath} from '@/lib/agent-paths';
 import type {agentCollectionLoader} from '@/agent-loaders';
+import type {DataRecord} from '@/lib/types';
 
 // What a page hands over when its record left the list, or was sent: "Sent email “Re: Q3”".
 export function noticeFromState(state: unknown): string | null {
@@ -188,6 +190,9 @@ export function AgentCollectionPage() {
 						key={record.id}
 						to={record.hasChildren ? `${base}${inside(record.id)}` : recordPath(base, record.id)}
 						title={recordTitle(collection, record)}
+						subtitle={
+							collection.listsAll && <RecordFieldsLine collection={collection} record={record} />
+						}
 						after={
 							record.url && (
 								<OpenInLink
@@ -198,21 +203,23 @@ export function AgentCollectionPage() {
 							)
 						}
 						cells={
-							<>
-								{record.hasChildren && (
-									<span className="shrink-0 text-muted-foreground">Has more inside</span>
-								)}
-								{summary && (
-									<span className="max-w-[40%] shrink-0 truncate text-muted-foreground">
-										{displayValue(summary.type, record.values[summary.key])}
-									</span>
-								)}
-								{filter && !chosen && (
-									<span className="w-20 shrink-0 text-right text-muted-foreground">
-										{record.values[filter.key]}
-									</span>
-								)}
-							</>
+							!collection.listsAll && (
+								<>
+									{record.hasChildren && (
+										<span className="shrink-0 text-muted-foreground">Has more inside</span>
+									)}
+									{summary && (
+										<span className="max-w-[40%] shrink-0 truncate text-muted-foreground">
+											{displayValue(summary.type, record.values[summary.key])}
+										</span>
+									)}
+									{filter && !chosen && (
+										<span className="w-20 shrink-0 text-right text-muted-foreground">
+											{record.values[filter.key]}
+										</span>
+									)}
+								</>
+							)
 						}
 					/>
 				))}
@@ -249,5 +256,28 @@ export function AgentDenied({children}: {children: ReactNode}) {
 			<Crumbs items={[{label: 'Home', to: '/agent'}, {label: 'No access'}]} />
 			<p className="text-sm md:px-3">{children} Ask the person who made it to give it access.</p>
 		</AgentShell>
+	);
+}
+
+// Every field the record has but its title, "Label: value" one after another, under the title of
+// a row in a `listsAll` collection, so an agent reads the whole record from the list without
+// opening it. A day is written as it is, 2026-10-11, its year and all.
+function RecordFieldsLine({collection, record}: {collection: Collection; record: DataRecord}) {
+	const fields = collection.fields.filter(
+		(field) => field.key !== collection.titleField && record.values[field.key],
+	);
+	return (
+		<>
+			{fields.map((field, index) => (
+				<span key={field.key}>
+					{index > 0 && ' · '}
+					{field.label}:{' '}
+					{field.type === 'date'
+						? record.values[field.key]
+						: displayValue(field.type, record.values[field.key])}
+				</span>
+			))}
+			{record.hasChildren && (fields.length > 0 ? ' · Has more inside' : 'Has more inside')}
+		</>
 	);
 }

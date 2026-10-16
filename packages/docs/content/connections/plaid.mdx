@@ -1,0 +1,91 @@
+---
+title: Plaid
+description: Connect a bank through Plaid for agents to read balances and transactions.
+---
+
+Agents read the accounts of a bank you connect: what each holds or owes, and its transactions.
+Plaid connects Personal Agent Proxy to the bank, in the US and Canada. Agents only ever read: they
+can't move money or change anything at the bank. Every request goes to Plaid live; nothing is
+copied.
+
+<Callout>
+Banks are being tried out with some organizations first, so the catalog only offers Plaid to an
+organization that has them turned on. On a self-hosted Personal Agent Proxy, turn them on for every
+organization in its database:
+
+```sql
+UPDATE "Organization" SET experiments = array_append(experiments, 'plaid')
+WHERE NOT 'plaid' = ANY(experiments);
+```
+
+</Callout>
+
+## Before you start: Plaid keys
+
+Hosted Personal Agent Proxy has its own Plaid keys, so skip to [Connect a bank](#connect-a-bank). A
+self-hosted Personal Agent Proxy needs keys of its own, from a Plaid account you own. Without them,
+Plaid is greyed out in the catalog.
+
+<Steps>
+
+### Make a Plaid account
+
+Sign up at [dashboard.plaid.com](https://dashboard.plaid.com/signup). A new team in the US or Canada
+starts on Plaid's free Trial plan, which connects up to 10 banks with real data. Removing a bank
+doesn't free its place, so sign in to a bank again rather than disconnecting and connecting it.
+
+### Copy the keys
+
+On the dashboard's [Keys](https://dashboard.plaid.com/developers/keys) page, copy the client id and
+the secret, and set them as `PLAID_CLIENT_ID` and `PLAID_SECRET`.
+
+### Try it in Sandbox first
+
+Sandbox has a secret of its own and connects only Plaid's test banks, with the username
+`user_good` and the password `pass_good`. Set `PLAID_ENV` to `sandbox` with the Sandbox secret to
+try it; leave it unset for real banks.
+
+</Steps>
+
+Plaid opens the sign-in of a bank that uses OAuth, such as Chase or Wells Fargo, in a popup, so
+there is no redirect URI to register. Past the Trial, Plaid bills each connected bank monthly for
+as long as it stays connected; disconnecting a bank in Personal Agent Proxy removes it at Plaid,
+which ends that.
+
+## Connect a bank
+
+<Steps>
+
+### Choose your bank
+
+Open **Connections**, then **Add connection**, then **Plaid**, and **Choose your bank**. Plaid
+opens over the page: find your bank, sign in to it and choose the accounts to share. Each bank
+signed in to is a connection of its own, named by the bank.
+
+### Review the defaults
+
+A new bank gives agents nothing. Turn on Read balances and Read transactions for every agent on
+the connection's page, or only for one agent on the agent's page.
+
+</Steps>
+
+## What agents can do
+
+- **Read balances** lists the accounts with what each holds, or on a card or a loan what is owed,
+  what is available, and a card's limit. Balances are as of Plaid's last update from the bank,
+  several times a day.
+- **Read transactions** lists each account's transactions, newest first, up to two years back from
+  when the bank was connected, with the merchant, the amount, the date, Plaid's category and
+  whether it is still pending. Amounts read as a statement does: money out negative, money in
+  positive.
+
+Plaid has no search in words: a search is a day, such as `2026-09-30`, for the transactions on it
+and before it, or two days, `2026-09-01 2026-09-30`, for those between them. A search at the top is
+in every account.
+
+## When the bank asks to sign in again
+
+Banks end a login now and then, such as after a password change. Agents are then told the bank
+needs its login again. On the connection's page, **Sign in to the bank again** opens Plaid on the
+same login, which keeps the connection and its permissions; it also changes which accounts are
+shared.

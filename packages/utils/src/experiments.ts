@@ -5,7 +5,10 @@
  * or is dropped, delete it here, and the compiler points at every place that asked for it; its id
  * left in the database is ignored.
  */
-export const EXPERIMENTS = {} as const satisfies Record<string, string>;
+export const EXPERIMENTS = {
+	// Connecting banks through Plaid (the `plaid` integration).
+	plaid: 'Bank accounts through Plaid',
+} as const satisfies Record<string, string>;
 
 export type Experiment = keyof typeof EXPERIMENTS;
 
