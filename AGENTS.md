@@ -182,4 +182,4 @@ Never offer to `/schedule` follow-up work. Do not suggest scheduling background 
 
 ## Editing this file
 
-Never edit the Agents.md. If information in this file becomes outdated as a result of a change that was made, alert the user but don't do the edit yourself unless explicitly asked.
+Never edit `AGENTS.md`. If information in this file becomes outdated as a result of a change that was made, alert the user but don't do the edit yourself unless explicitly asked.
