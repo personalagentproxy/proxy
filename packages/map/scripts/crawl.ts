@@ -113,7 +113,7 @@ async function signInHuman(signInPath: string): Promise<BrowserContext> {
 // A throwaway person whose organization still has the welcome flow ahead of it.
 async function signInFresh(): Promise<{context: BrowserContext; connectionId: string}> {
 	const context = await newContext();
-	await postJson(context, '/auth/dev/login');
+	await postJson(context, '/auth/dev/login', {fresh: true});
 	const {connections} = await getJson<{connections: Array<{id: string}>}>(
 		context,
 		'/api/connections',

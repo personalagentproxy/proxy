@@ -60,7 +60,7 @@ export async function signOut(): Promise<void> {
 	window.location.reload();
 }
 
-/** Dev only: creates a throwaway user and signs in as them. The api 404s outside development. */
+/** Dev only: signs in as the dev user, made on its first sign-in. The api 404s outside development. */
 export function devLogin() {
 	return httpRequest('/auth/dev/login', {
 		method: 'POST',

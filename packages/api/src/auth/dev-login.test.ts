@@ -10,9 +10,11 @@ mock.module('@proxy/db/auth', () => ({
 }));
 
 const createUser = mock();
+const getUserByEmail = mock();
 
 mock.module('@proxy/db/user', () => ({
 	createUser,
+	getUserByEmail,
 }));
 
 mock.module('../observability/log', () => ({
@@ -42,11 +44,13 @@ function makeRes() {
 	return res;
 }
 
-const devUser = {id: 'user-dev', email: 'dev-abc@dev.proxy.local', name: 'Dev User'};
+const devUser = {id: 'user-dev', email: 'dev@dev.proxy.local', name: 'Dev User'};
+const throwawayUser = {id: 'user-throwaway', email: 'dev-abc@dev.proxy.local', name: 'Dev User'};
 
 beforeEach(() => {
 	mock.clearAllMocks();
 	mockEnv.NODE_ENV = 'development';
+	getUserByEmail.mockResolvedValue(Ok(null));
 	createUser.mockResolvedValue(Ok(devUser));
 	createSession.mockResolvedValue(Ok(undefined));
 });
@@ -57,21 +61,21 @@ describe('handleDevLoginRoute', () => {
 
 		const {handleDevLoginRoute} = await import('./dev-login');
 		const res = makeRes();
-		await handleDevLoginRoute({} as never, res as never);
+		await handleDevLoginRoute({body: {}} as never, res as never);
 
 		expect(res.status).toHaveBeenCalledWith(404);
 		expect(res.json).toHaveBeenCalledWith({error: 'not_found'});
 		expect(createUser).not.toHaveBeenCalled();
 	});
 
-	test('creates a user and a session, sets the dev cookie', async () => {
+	test('first sign-in creates the dev user and a session, sets the dev cookie', async () => {
 		const {handleDevLoginRoute} = await import('./dev-login');
 		const res = makeRes();
-		await handleDevLoginRoute({} as never, res as never);
+		await handleDevLoginRoute({body: {}} as never, res as never);
 
-		// Throwaway identity on the dev marker domain.
+		expect(getUserByEmail).toHaveBeenCalledWith('dev@dev.proxy.local');
 		const createUserArgs = createUser.mock.calls[0]?.[0] as {email: string; name: string; emailVerified: Date};
-		expect(createUserArgs.email).toMatch(/^dev-[0-9a-f]{16}@dev\.proxy\.local$/);
+		expect(createUserArgs.email).toBe('dev@dev.proxy.local');
 		expect(createUserArgs.name).toBe('Dev User');
 		expect(createUserArgs.emailVerified).toBeInstanceOf(Date);
 
@@ -94,12 +98,52 @@ describe('handleDevLoginRoute', () => {
 		expect(res.json).toHaveBeenCalledWith({ok: true});
 	});
 
+	test('later sign-ins reuse the dev user', async () => {
+		getUserByEmail.mockResolvedValue(Ok(devUser));
+
+		const {handleDevLoginRoute} = await import('./dev-login');
+		const res = makeRes();
+		await handleDevLoginRoute({body: {}} as never, res as never);
+
+		expect(createUser).not.toHaveBeenCalled();
+		const sessionArgs = createSession.mock.calls[0]?.[0] as {userId: string};
+		expect(sessionArgs.userId).toBe(devUser.id);
+		expect(res.json).toHaveBeenCalledWith({ok: true});
+	});
+
+	test('fresh → a throwaway user on the dev domain', async () => {
+		createUser.mockResolvedValue(Ok(throwawayUser));
+
+		const {handleDevLoginRoute} = await import('./dev-login');
+		const res = makeRes();
+		await handleDevLoginRoute({body: {fresh: true}} as never, res as never);
+
+		expect(getUserByEmail).not.toHaveBeenCalled();
+		const createUserArgs = createUser.mock.calls[0]?.[0] as {email: string};
+		expect(createUserArgs.email).toMatch(/^dev-[0-9a-f]{16}@dev\.proxy\.local$/);
+		const sessionArgs = createSession.mock.calls[0]?.[0] as {userId: string};
+		expect(sessionArgs.userId).toBe(throwawayUser.id);
+	});
+
+	test('lookup failure → 500, no user created', async () => {
+		getUserByEmail.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
+
+		const {handleDevLoginRoute} = await import('./dev-login');
+		const res = makeRes();
+		await handleDevLoginRoute({body: {}} as never, res as never);
+
+		expect(res.status).toHaveBeenCalledWith(500);
+		expect(res.json).toHaveBeenCalledWith({error: 'user_creation_failed'});
+		expect(createUser).not.toHaveBeenCalled();
+		expect(createSession).not.toHaveBeenCalled();
+	});
+
 	test('user creation failure → 500, no session', async () => {
 		createUser.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
 
 		const {handleDevLoginRoute} = await import('./dev-login');
 		const res = makeRes();
-		await handleDevLoginRoute({} as never, res as never);
+		await handleDevLoginRoute({body: {}} as never, res as never);
 
 		expect(res.status).toHaveBeenCalledWith(500);
 		expect(res.json).toHaveBeenCalledWith({error: 'user_creation_failed'});
@@ -112,7 +156,7 @@ describe('handleDevLoginRoute', () => {
 
 		const {handleDevLoginRoute} = await import('./dev-login');
 		const res = makeRes();
-		await handleDevLoginRoute({} as never, res as never);
+		await handleDevLoginRoute({body: {}} as never, res as never);
 
 		expect(res.status).toHaveBeenCalledWith(500);
 		expect(res.json).toHaveBeenCalledWith({error: 'session_creation_failed'});

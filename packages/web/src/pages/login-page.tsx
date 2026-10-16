@@ -150,7 +150,7 @@ export function LoginPage() {
 	);
 }
 
-// Development only: a fresh throwaway user, signed in at once, without Google or an email.
+// Development only: the same dev user every time, signed in at once, without Google or an email.
 function DevLoginButton({callbackUrl}: {callbackUrl: string | undefined}) {
 	const [loading, setLoading] = useState(false);
 
@@ -168,7 +168,7 @@ function DevLoginButton({callbackUrl}: {callbackUrl: string | undefined}) {
 				window.location.href = callbackUrl ?? '/';
 			}}
 		>
-			Create dev user
+			Log in as dev user
 		</Button>
 	);
 }
