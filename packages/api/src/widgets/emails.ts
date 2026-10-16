@@ -70,9 +70,9 @@ export function handleFindEmailsRoute(request: AuthenticatedRequest): Promise<Re
 		const search = readSearch($(parseSchema(searchSchema, request.query)));
 		const orgId = $(await requireUserOrgId(request));
 		const sources = searchable($(await findSources(orgId, 'emails', 'list')));
-		const {found, failed} = await eachSource(sources, (source) => source.find(source, search, LIMIT));
+		const {found, failed} = await eachSource(sources, (source) => source.find(source, [search], LIMIT));
 		const emails = found
-			.flatMap(({source, value}) => value.map((record) => foundEmail(source, record)))
+			.flatMap(({source, value: [records = []]}) => records.map((record) => foundEmail(source, record)))
 			.sort((a, b) => Date.parse(b.date) - Date.parse(a.date))
 			.slice(0, LIMIT);
 		return {sources: sources.map(summarize), emails, failed};

@@ -204,24 +204,22 @@ export function handlePeopleRoute(request: AuthenticatedRequest): Promise<Result
 		const books = $(await findSources(orgId, 'contacts', 'list'));
 		const mailboxes = searchable($(await findSources(orgId, 'emails', 'list')));
 		const wanted = [...new Set(names)].slice(0, 10);
-		const searched = await Promise.all(
-			wanted.map(async (name) => {
-				const [inBooks, inEmail] = await Promise.all([
-					eachSource(books, (source) => searchContacts(source, name)),
-					eachSource(mailboxes, (source) =>
-						source
-							.find(source, {from: null, involving: name, words: [], since: null}, EMAILS_READ)
-							.then((found) => found.map((records) => peopleInEmails(source.connection.id, source.connection.account, records, name))),
-					),
-				]);
-				return {people: [...inBooks.found, ...inEmail.found].flatMap(({value}) => value), failed: [...inBooks.failed, ...inEmail.failed]};
-			}),
-		);
-		const failed = new Map(searched.flatMap((one) => one.failed.map((failure): [string, Failure] => [failure.connectionId, failure])));
+		// Each mailbox is asked once for every name, over one sign-in, rather than once a name.
+		const searches = wanted.map((name) => ({from: null, involving: name, words: [], since: null}));
+		const [inBooks, inEmail] = await Promise.all([
+			Promise.all(wanted.map((name) => eachSource(books, (source) => searchContacts(source, name)))),
+			eachSource(mailboxes, (source) => source.find(source, searches, EMAILS_READ)),
+		]);
+		const people = wanted.map((name, index) => [
+			...(inBooks[index]?.found ?? []).flatMap(({value}) => value),
+			...inEmail.found.flatMap(({source, value}) => peopleInEmails(source.connection.id, source.connection.account, value[index] ?? [], name)),
+		]);
+		const failures = [...inBooks.flatMap((one) => one.failed), ...inEmail.failed];
+		const failed = new Map(failures.map((failure): [string, Failure] => [failure.connectionId, failure]));
 		const sources = new Map([...books, ...mailboxes].map((source): [string, SourceSummary] => [source.connection.id, summarize(source)]));
 		return {
 			sources: [...sources.values()],
-			people: wanted.map((name, index) => ({name, matches: rankPeople(searched[index]?.people ?? [], name)})),
+			people: wanted.map((name, index) => ({name, matches: rankPeople(people[index] ?? [], name)})),
 			failed: [...failed.values()],
 		};
 	});

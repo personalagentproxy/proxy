@@ -131,7 +131,9 @@ describe('mergePeople', () => {
 
 describe('handlePeopleRoute', () => {
 	test('searches every contact book for each name, and says which it could not', async () => {
-		const mailSearch = mock(async (_source: unknown, search: {involving: string}) => Ok(search.involving === 'hugo' ? [email('Hugo Brandt <hugo@example.com>', 'mail@example.com')] : []));
+		const mailSearch = mock(async (_source: unknown, searches: Array<{involving: string}>) =>
+			Ok(searches.map((search) => (search.involving === 'hugo' ? [email('Hugo Brandt <hugo@example.com>', 'mail@example.com')] : []))),
+		);
 		findSources.mockImplementation(async (_orgId: string, collectionId: string) =>
 			Ok(
 				collectionId === 'contacts'
@@ -147,7 +149,16 @@ describe('handlePeopleRoute', () => {
 		const answer = (await handlePeopleRoute({user: {userId: 'user-1'}, query: {name: ['jacky', ' hugo ', 'jacky']}} as never)).unwrap();
 		expect(findSources).toHaveBeenCalledWith('org-1', 'contacts', 'list');
 		expect(findSources).toHaveBeenCalledWith('org-1', 'emails', 'list');
-		expect(mailSearch).toHaveBeenCalledWith(expect.anything(), {from: null, involving: 'hugo', words: [], since: null}, 10);
+		// The mailbox is asked once, for every name.
+		expect(mailSearch).toHaveBeenCalledTimes(1);
+		expect(mailSearch).toHaveBeenCalledWith(
+			expect.anything(),
+			[
+				{from: null, involving: 'jacky', words: [], since: null},
+				{from: null, involving: 'hugo', words: [], since: null},
+			],
+			10,
+		);
 		expect(answer.sources.map((one) => one.connectionId)).toEqual(['work', 'home', 'mail']);
 		expect(answer.people.map(({name, matches}) => [name, matches.map((match) => `${match.name} (${match.origin})`)])).toEqual([
 			['jacky', ['Jacky Doe (contacts)']],

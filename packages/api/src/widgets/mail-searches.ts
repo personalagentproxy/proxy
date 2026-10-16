@@ -10,11 +10,12 @@ import {findGmailEmails} from '../records/google-emails';
 import type {Source} from './sources';
 
 /**
- * How an integration's mail is searched; a mail integration joins the widgets with one. Its
- * records have a list's values and `cc` beside them, which the collection has no field for but
- * the widgets find people in.
+ * How an integration's mail is searched; a mail integration joins the widgets with one. It runs
+ * several searches at once, as the People widget asks one per name, over one sign-in, and answers
+ * the emails each found, in the order asked. Its records have a list's values and `cc` beside
+ * them, which the collection has no field for but the widgets find people in.
  */
-export type MailSearch = (source: Source, search: EmailSearch, limit: number) => Promise<Result<DataRecord[], ApiError>>;
+export type MailSearch = (source: Source, searches: EmailSearch[], limit: number) => Promise<Result<DataRecord[][], ApiError>>;
 
 const SEARCHES: Partial<Record<IntegrationId, MailSearch>> = {google: findGmailEmails, email: findInboxEmails};
 

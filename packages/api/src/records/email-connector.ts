@@ -267,20 +267,30 @@ function withCc(record: DataRecord, message: FetchMessageObject): DataRecord {
 	return {...record, values: {...record.values, cc: formatAddresses(message.envelope?.cc, true)}};
 }
 
+// The newest emails in the open inbox one search finds, at most `limit`.
+async function findInSession(session: Session, search: EmailSearch, limit: number): Promise<DataRecord[]> {
+	const {client} = session;
+	const criteria: SearchObject = isGmail(client) ? {gmraw: gmailQuery(search)} : imapCriteria(search);
+	const uids = ((await client.search(criteria, {uid: true})) || []).sort((a, b) => b - a).slice(0, limit);
+	if (uids.length === 0) {
+		return [];
+	}
+	const messages = await client.fetchAll(uids.join(','), {uid: true, envelope: true, internalDate: true, flags: true}, {uid: true});
+	return messages.sort((a, b) => b.uid - a.uid).map((message) => withCc(toRecord(session, message), message));
+}
+
 /**
- * The newest emails in the inbox a home page search finds, at most `limit`: in Gmail's syntax on
- * Gmail, else in IMAP's own terms.
+ * The newest emails in the inbox each home page search finds, at most `limit` each: in Gmail's
+ * syntax on Gmail, else in IMAP's own terms. One sign-in runs them all, one after the other, as
+ * servers allow an account only so many connections at once.
  */
-export function findInboxEmails(target: RecordTarget, search: EmailSearch, limit: number): Promise<Result<DataRecord[], ApiError>> {
+export function findInboxEmails(target: RecordTarget, searches: EmailSearch[], limit: number): Promise<Result<DataRecord[][], ApiError>> {
 	return withFolder(target, INBOX, async (session) => {
-		const {client} = session;
-		const criteria: SearchObject = isGmail(client) ? {gmraw: gmailQuery(search)} : imapCriteria(search);
-		const uids = ((await client.search(criteria, {uid: true})) || []).sort((a, b) => b - a).slice(0, limit);
-		if (uids.length === 0) {
-			return Ok([]);
+		const found: DataRecord[][] = [];
+		for (const search of searches) {
+			found.push(await findInSession(session, search, limit));
 		}
-		const messages = await client.fetchAll(uids.join(','), {uid: true, envelope: true, internalDate: true, flags: true}, {uid: true});
-		return Ok(messages.sort((a, b) => b.uid - a.uid).map((message) => withCc(toRecord(session, message), message)));
+		return Ok(found);
 	});
 }
 

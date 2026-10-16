@@ -178,7 +178,7 @@ async function connector() {
 describe('findGmailEmails', () => {
 	test("searches all mail in Gmail's syntax and reads only as many as asked for, by their message ids", async () => {
 		const {findGmailEmails} = await import('./google-emails');
-		const found = (await findGmailEmails(target, {from: 'Sam Lee', words: [['planning']], since: '2026-09-01'}, 2)).unwrap();
+		const [found = []] = (await findGmailEmails(target, [{from: 'Sam Lee', words: [['planning']], since: '2026-09-01'}], 2)).unwrap();
 
 		const [list] = calls('GET', '/messages');
 		expect(Object.fromEntries(list?.url.searchParams ?? [])).toEqual({maxResults: '50', q: 'from:"Sam Lee" planning after:2026/09/01'});

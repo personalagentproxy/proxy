@@ -221,16 +221,17 @@ function listPage(target: RecordTarget, query: ListQuery): Promise<Result<Record
  * `limit`, read with their headers alone: a list of a page would read 50. Drafts keep their
  * message ids, as they are only shown.
  */
-export function findGmailEmails(target: RecordTarget, search: EmailSearch, limit: number): Promise<Result<DataRecord[], ApiError>> {
-	return callGoogle(target.connection, (token) =>
-		Do(async ($) => {
-			const page = $(await listMessageIds(token, folderQuery(null, gmailQuery(search)), null));
-			const messages = $(present(await getMessageSummaries(token, page.items.slice(0, limit))));
-			return messages.flatMap((message) =>
-				message ? [toRecord(target.connection.account, message.id, message, {...summaryValues(message), cc: formatAddresses(headerOf(message.payload, 'Cc'), true)})] : [],
-			);
-		}),
-	);
+// The newest emails one search finds, at most `limit`, each with who was copied, which the widgets find people in.
+function findWithToken(token: string, account: string, search: EmailSearch, limit: number): Promise<Result<DataRecord[], ApiError>> {
+	return Do(async ($) => {
+		const page = $(await listMessageIds(token, folderQuery(null, gmailQuery(search)), null));
+		const messages = $(present(await getMessageSummaries(token, page.items.slice(0, limit))));
+		return messages.flatMap((message) => (message ? [toRecord(account, message.id, message, {...summaryValues(message), cc: formatAddresses(headerOf(message.payload, 'Cc'), true)})] : []));
+	});
+}
+
+export function findGmailEmails(target: RecordTarget, searches: EmailSearch[], limit: number): Promise<Result<DataRecord[][], ApiError>> {
+	return callGoogle(target.connection, async (token) => Result.all(await Promise.all(searches.map((search) => findWithToken(token, target.connection.account, search, limit)))));
 }
 
 function readDraft(token: string, account: string, recordId: string, draftId: string): Promise<Result<DataRecord, ApiError>> {

@@ -17,6 +17,7 @@ const imap = {
 	boxes: {} as Record<string, Stored[]>,
 	gmail: false,
 	opened: '',
+	logins: 0,
 	searches: [] as Criteria[],
 	calls: [] as Array<[string, ...unknown[]]>,
 	message: null as null | {uid: number; flags: Set<string>; source: Buffer},
@@ -33,7 +34,9 @@ class FakeImapFlow {
 	}
 	on() {}
 	close() {}
-	async connect() {}
+	async connect() {
+		imap.logins += 1;
+	}
 	async logout() {}
 	async list() {
 		return imap.folders;
@@ -151,6 +154,7 @@ beforeEach(() => {
 		Drafts: [{uid: 1, date: '2026-10-03T09:00:00Z', subject: 'In Drafts'}],
 	};
 	imap.gmail = false;
+	imap.logins = 0;
 	imap.searches = [];
 	imap.calls = [];
 	imap.message = {uid: 12, flags: new Set(), source};
@@ -275,7 +279,7 @@ describe('findInboxEmails', () => {
 	test("searches the inbox in IMAP's own terms, newest first, at most as many as asked for", async () => {
 		imap.boxes.INBOX = fill(6, '2026-10-01T09:00:00Z');
 		const {findInboxEmails} = await import('./email-connector');
-		const found = (await findInboxEmails(target, {from: 'sam', words: [['Note']], since: '2026-10-01'}, 3)).unwrap();
+		const [found = []] = (await findInboxEmails(target, [{from: 'sam', words: [['Note']], since: '2026-10-01'}], 3)).unwrap();
 
 		expect(imap.opened).toBe('INBOX');
 		// IMAP ANDs one object's keys, so each further condition goes in as NOT NOT (…).
@@ -288,12 +292,12 @@ describe('findInboxEmails', () => {
 	test("searches in Gmail's syntax on Gmail, and everything without a search", async () => {
 		const {findInboxEmails} = await import('./email-connector');
 		imap.gmail = true;
-		await findInboxEmails(target, {from: 'sam', words: [['Note']], since: null}, 3);
+		await findInboxEmails(target, [{from: 'sam', words: [['Note']], since: null}], 3);
 		imap.gmail = false;
-		await findInboxEmails(target, {from: null, words: [], since: null}, 3);
-		await findInboxEmails(target, {from: null, involving: 'jacky', words: [], since: null}, 3);
+		await findInboxEmails(target, [{from: null, words: [], since: null}], 3);
+		await findInboxEmails(target, [{from: null, involving: 'jacky', words: [], since: null}], 3);
 
-		await findInboxEmails(target, {from: null, words: [['flight', 'itinerary'], ['SFO']], since: null}, 3);
+		await findInboxEmails(target, [{from: null, words: [['flight', 'itinerary'], ['SFO']], since: null}], 3);
 
 		expect(imap.searches).toEqual([
 			{gmraw: 'from:sam Note'},
@@ -301,6 +305,19 @@ describe('findInboxEmails', () => {
 			{or: [{from: 'jacky'}, {to: 'jacky'}, {cc: 'jacky'}]},
 			{or: [{text: 'flight'}, {text: 'itinerary'}], not: {not: {text: 'SFO'}}},
 		]);
+	});
+
+	test('runs every search over one sign-in, answering what each found in the order asked', async () => {
+		imap.boxes.INBOX = [
+			{uid: 1, date: '2026-10-01T09:00:00Z', subject: 'Lunch with Jacky'},
+			{uid: 2, date: '2026-10-02T09:00:00Z', subject: 'Notes for Sam'},
+		];
+		const {findInboxEmails} = await import('./email-connector');
+		const search = (words: string) => ({from: null, words: [[words]], since: null});
+		const found = (await findInboxEmails(target, [search('Sam'), search('Jacky'), search('Robin')], 10)).unwrap();
+
+		expect(imap.logins).toBe(1);
+		expect(found.map((records) => records.map((record) => record.values.subject))).toEqual([['Notes for Sam'], ['Lunch with Jacky'], []]);
 	});
 });
 
