@@ -4,10 +4,9 @@
 // left out.
 export const BUTTON_EDGES: ReadonlyArray<{from: string; to: string; label: string}> = [
 	{from: '/login', to: '/connections', label: 'Sign in'},
-	{from: '/login', to: '/welcome', label: 'Sign in, new organization'},
+	{from: '/login', to: '/welcome/connections', label: 'Sign in, new organization'},
 	{from: '/agent/login', to: '/agent', label: 'Sign in'},
 
-	{from: '/welcome', to: '/welcome/connections', label: 'Continue'},
 	{from: '/welcome/connections', to: '/welcome/connections/email', label: 'Add a mailbox'},
 	{from: '/welcome/connections', to: '/welcome/connections/postgres', label: 'Add PostgreSQL'},
 	{from: '/welcome/connections', to: '/welcome/connections/mysql', label: 'Add MySQL'},
@@ -17,12 +16,14 @@ export const BUTTON_EDGES: ReadonlyArray<{from: string; to: string; label: strin
 		to: '/welcome/connections/:id',
 		label: 'Sign in to Granola, Notion or Linear',
 	},
-	{from: '/welcome/connections', to: '/connections', label: 'Finish'},
+	{from: '/welcome/connections', to: '/welcome/agent', label: 'Continue'},
+	{from: '/welcome/connections', to: '/connections', label: 'Skip setup'},
 	{from: '/welcome/connections/email', to: '/welcome/connections/:id', label: 'Connect'},
 	{from: '/welcome/connections/postgres', to: '/welcome/connections/:id', label: 'Connect'},
 	{from: '/welcome/connections/mysql', to: '/welcome/connections/:id', label: 'Connect'},
 	{from: '/welcome/connections/mcp', to: '/welcome/connections/:id', label: 'Connect'},
 	{from: '/welcome/connections/:id', to: '/welcome/connections', label: 'Confirm'},
+	{from: '/welcome/agent', to: '/connections', label: 'Finish'},
 
 	{from: '/connections/new', to: '/connections/new/email', label: 'Add a mailbox'},
 	{from: '/connections/new', to: '/connections/new/postgres', label: 'Add PostgreSQL'},

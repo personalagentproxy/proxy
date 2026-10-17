@@ -28,13 +28,13 @@ import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin, Connection} from '@/lib/types';
 import type {welcomeConnectionLoader, welcomeLoader} from '@/loaders';
 
-// Step one is the agent; the rest are step two: the catalog, the mailbox, bank, database and MCP
-// server forms, and (on its own page, `WelcomeConnectionPage`) a new connection's permissions.
-type Step = 'agent' | 'connections' | 'email' | 'plaid' | 'mcp' | DatabaseDialect;
+// Step one is the catalog, the mailbox, bank, database and MCP server forms, and (on its own page,
+// `WelcomeConnectionPage`) a new connection's permissions; step two is the agent.
+type Step = 'connections' | 'email' | 'plaid' | 'mcp' | DatabaseDialect | 'agent';
 
-// The welcome flow, before the app: step one connects the person's agent, in the way that agent
-// takes (an MCP client adds the server and signs in; another is handed a login), step two their
-// services, each connection's permissions confirmed as it is made. Done, or skipped, it is not
+// The welcome flow, before the app: step one connects the person's services, each connection's
+// permissions confirmed as it is made, step two their agent, in the way that agent takes (an MCP
+// client adds the server and signs in; another is handed a login). Done, or skipped, it is not
 // shown again.
 export function WelcomePage({step}: {step: Step}) {
 	const {agents, connections, configured, experiments} = useLoaderData<typeof welcomeLoader>();
@@ -55,23 +55,13 @@ export function WelcomePage({step}: {step: Step}) {
 	};
 
 	return (
-		<Frame step={step === 'agent' ? 1 : 2}>
-			{step === 'agent' && (
-				<AgentSetup
-					agents={agents}
-					providers={AGENT_PROVIDERS}
-					continueLabel="Continue"
-					onContinue={() => navigate('/welcome/connections')}
-				/>
-			)}
+		<Frame step={step === 'agent' ? 2 : 1}>
 			{step === 'connections' && (
 				<ConnectionsStep
 					agentName={agentName}
 					connections={connections}
 					configured={configured}
 					experiments={experiments}
-					finishing={finishing}
-					onDone={() => void finish()}
 				/>
 			)}
 			{step === 'email' && (
@@ -89,15 +79,23 @@ export function WelcomePage({step}: {step: Step}) {
 			{step === 'mcp' && (
 				<McpStep onContinue={(connection) => navigate(`/welcome/connections/${connection.id}`)} />
 			)}
-			{error && <p className="text-sm text-destructive">{error}</p>}
 			{step === 'agent' && (
+				<AgentSetup
+					agents={agents}
+					providers={AGENT_PROVIDERS}
+					continueLabel="Finish"
+					onContinue={() => void finish()}
+				/>
+			)}
+			{error && <p className="text-sm text-destructive">{error}</p>}
+			{(step === 'connections' || step === 'agent') && (
 				<button
 					type="button"
 					disabled={finishing}
 					className="justify-self-start text-sm text-muted-foreground underline underline-offset-4"
 					onClick={() => void finish()}
 				>
-					Skip setup
+					{step === 'connections' ? 'Skip setup' : 'Skip for now'}
 				</button>
 			)}
 		</Frame>
@@ -158,19 +156,14 @@ function ConnectionsStep({
 	connections,
 	configured,
 	experiments,
-	finishing,
-	onDone,
 }: {
 	agentName: string;
 	connections: Connection[];
 	configured: Configured;
 	experiments: Experiment[];
-	finishing: boolean;
-	onDone: () => void;
 }) {
 	const navigate = useNavigate();
 	const [params] = useSearchParams();
-	const connected = connections.filter((connection) => connection.integrationId !== 'info');
 
 	return (
 		<>
@@ -186,12 +179,9 @@ function ConnectionsStep({
 				returnTo="welcome"
 				onConnectForm={(integrationId) => navigate(`/welcome/connections/${integrationId}`)}
 			/>
-			<div className="flex justify-between gap-2">
-				<Button variant="outline" nativeButton={false} render={<Link to="/welcome" />}>
-					Back
-				</Button>
-				<Button disabled={finishing} onClick={onDone}>
-					{connected.length === 0 ? 'Skip for now' : 'Finish'}
+			<div className="flex justify-end">
+				<Button nativeButton={false} render={<Link to="/welcome/agent" />}>
+					Continue
 				</Button>
 			</div>
 		</>
