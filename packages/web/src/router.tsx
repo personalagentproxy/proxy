@@ -52,7 +52,7 @@ import {WelcomeConnectionPage, WelcomePage} from '@/pages/welcome-page';
 async function humanLoader() {
 	const me = unwrapLoaderResult(await getMe());
 	if (!me.onboarded) {
-		throw redirect('/welcome');
+		throw redirect('/welcome/connections');
 	}
 	return me;
 }
@@ -79,14 +79,8 @@ export const router = createBrowserRouter([
 		element: <ConnectAgentPage />,
 		errorElement: <RouteError />,
 	},
-	// The welcome flow: the person's agent, then their connections, before the app itself. A
+	// The welcome flow: the person's connections, then their agent, before the app itself. A
 	// connection made in it gets a page of its own, for its permissions.
-	{
-		path: '/welcome',
-		loader: welcomeLoader,
-		element: <WelcomePage step="agent" />,
-		errorElement: <RouteError />,
-	},
 	{
 		path: '/welcome/connections',
 		loader: welcomeLoader,
@@ -127,6 +121,12 @@ export const router = createBrowserRouter([
 		path: '/welcome/connections/:id',
 		loader: welcomeConnectionLoader,
 		element: <WelcomeConnectionPage />,
+		errorElement: <RouteError />,
+	},
+	{
+		path: '/welcome/agent',
+		loader: welcomeLoader,
+		element: <WelcomePage step="agent" />,
 		errorElement: <RouteError />,
 	},
 	{
