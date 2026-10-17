@@ -42,3 +42,17 @@ export function formatAgo(iso: string): string {
 
 	return formatDate(iso);
 }
+
+// "1 email", "2 emails", "3 queries", "2 addresses", "1,204 requests".
+export function counted(count: number, singular: string): string {
+	if (count === 1) {
+		return `1 ${singular}`;
+	}
+	if (/[^aeiou]y$/.test(singular)) {
+		return `${count.toLocaleString('en-US')} ${singular.slice(0, -1)}ies`;
+	}
+	if (/(s|x|ch|sh)$/.test(singular)) {
+		return `${count.toLocaleString('en-US')} ${singular}es`;
+	}
+	return `${count.toLocaleString('en-US')} ${singular}s`;
+}

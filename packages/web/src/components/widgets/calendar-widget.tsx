@@ -4,7 +4,7 @@ import type {Intent} from '@/client/intent-client';
 import type {AgendaEvent, Failure} from '@/client/widgets-client';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
 import {DayGrid} from '@/components/widgets/day-grid';
-import {dayAround, dayBounds, eventKey, timedItems} from '@/lib/calendar-day';
+import {dayAround, dayBounds, eventKey, searchFrom, timedItems} from '@/lib/calendar-day';
 import {Missing, WidgetFrame} from '@/components/widgets/widget-frame';
 import {useAgenda, useEvents, usePeople} from '@/lib/widget-lookups';
 import {
@@ -63,7 +63,7 @@ export function CalendarWidget({intent, typed, now}: {intent: Intent; typed: str
 	const searches = eventSearches({name: first, what}, people.data);
 	const ready = searching && searches.length > 0 && (lookFor.length === 0 || !people.loading);
 	const found = useEvents(
-		ready ? {from: dayBounds(asked ?? now).start.toISOString(), searches} : null,
+		ready ? {from: searchFrom(asked, now).toISOString(), searches} : null,
 	);
 	const [picked, setPicked] = useState<string | null>(null);
 

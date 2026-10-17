@@ -218,6 +218,9 @@ describe('changing an event', () => {
 		]);
 		expect(guestsNamed(guests, 'jacky@example.com', null)).toEqual(['jacky@example.com']);
 		expect(guestsNamed(guests, 'hugo', null)).toEqual([]);
+		expect(
+			guestsNamed(['dan@example.com', 'daniel@example.com', 'dana.r@example.com'], 'dan', null),
+		).toEqual(['dan@example.com']);
 	});
 });
 

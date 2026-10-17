@@ -9,7 +9,7 @@ import {DayAgenda, GuestRow} from '@/components/widgets/event-widget';
 import {Avatar, DetailRow, Missing, WidgetFrame} from '@/components/widgets/widget-frame';
 import {WidgetSelect} from '@/components/widgets/widget-select';
 import {WriteResult} from '@/components/widgets/write-result';
-import {dayAround, dayBounds, eventKey} from '@/lib/calendar-day';
+import {dayAround, eventKey, searchFrom} from '@/lib/calendar-day';
 import {useAgenda, useEvents, usePeople} from '@/lib/widget-lookups';
 import {
 	dayAsked,
@@ -61,7 +61,7 @@ export function EditEventWidget({intent, typed, now}: {intent: Intent; typed: st
 	].filter((one) => !isAddress(one));
 	const people = usePeople(lookFor.length > 0 ? lookFor : null);
 	const searches = eventSearches({name, what}, people.data);
-	const from = dayBounds((when ? dayAsked(when, now) : null) ?? now).start;
+	const from = searchFrom(when ? dayAsked(when, now) : null, now);
 	const found = useEvents(
 		searches.length > 0 && (lookFor.length === 0 || !people.loading)
 			? {from: from.toISOString(), searches}

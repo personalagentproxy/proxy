@@ -85,8 +85,15 @@ async function pathOf(client: ImapFlow, folder: Folder): Promise<Result<string, 
 	return Ok('INBOX');
 }
 
-/** Signs in, runs `work`, and always signs out again. */
-async function withClient<T>(target: RecordTarget, work: (client: ImapFlow, credential: EmailCredential) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
+/**
+ * Signs in, runs `work`, and always signs out again; once `signal` says the work was given up on,
+ * the connection is closed there and then, rather than left open until the work is done.
+ */
+async function withClient<T>(
+	target: RecordTarget,
+	work: (client: ImapFlow, credential: EmailCredential) => Promise<Result<T, ApiError>>,
+	signal?: AbortSignal,
+): Promise<Result<T, ApiError>> {
 	const credential = readCredential(target);
 	if (credential.isErr()) {
 		return credential;
@@ -94,13 +101,20 @@ async function withClient<T>(target: RecordTarget, work: (client: ImapFlow, cred
 
 	const client = new ImapFlow(imapClientOptions(credential.value));
 	client.on('error', (error: unknown) => log.warn('imap socket error', serializeError(error)));
+	const close = () => client.close();
+	signal?.addEventListener('abort', close, {once: true});
 	const connected = await Result.wrapAsync(() => client.connect());
 	if (connected.isErr()) {
+		signal?.removeEventListener('abort', close);
 		client.close();
 		return Err(imapError(connected.error));
 	}
 
 	const outcome = (await Result.wrapAsync(() => work(client, credential.value))).mapErr((cause) => ApiErr.providerUnreachable(cause)).andThen((result) => result);
+	signal?.removeEventListener('abort', close);
+	if (signal?.aborted) {
+		return outcome;
+	}
 	await Result.wrapAsync(() => client.logout());
 	return outcome;
 }
@@ -117,8 +131,8 @@ async function inFolder<T>(client: ImapFlow, credential: EmailCredential, folder
 	});
 }
 
-function withFolder<T>(target: RecordTarget, folder: Folder, work: (session: Session) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
-	return withClient(target, (client, credential) => inFolder(client, credential, folder, work));
+function withFolder<T>(target: RecordTarget, folder: Folder, work: (session: Session) => Promise<Result<T, ApiError>>, signal?: AbortSignal): Promise<Result<T, ApiError>> {
+	return withClient(target, (client, credential) => inFolder(client, credential, folder, work), signal);
 }
 
 function recordId(session: Session, uid: number): string {
@@ -269,10 +283,20 @@ function withCc(record: DataRecord, message: FetchMessageObject): DataRecord {
 	return {...record, values: {...record.values, cc: formatAddresses(message.envelope?.cc, true)}};
 }
 
+// A home page search in the server's terms: Gmail's own syntax where it takes it, else IMAP's.
+// Gmail is asked for every email by an empty search, which X-GM-RAW won't take.
+function findCriteria(client: ImapFlow, search: EmailSearch): SearchObject {
+	const query = isGmail(client) ? gmailQuery(search) : '';
+	if (query !== '') {
+		return {gmraw: query};
+	}
+	return imapCriteria(search);
+}
+
 // The newest emails in the open inbox one search finds, at most `limit`.
 async function findInSession(session: Session, search: EmailSearch, limit: number): Promise<DataRecord[]> {
 	const {client} = session;
-	const criteria: SearchObject = isGmail(client) ? {gmraw: gmailQuery(search)} : imapCriteria(search);
+	const criteria = findCriteria(client, search);
 	const uids = ((await client.search(criteria, {uid: true})) || []).sort((a, b) => b - a).slice(0, limit);
 	if (uids.length === 0) {
 		return [];
@@ -321,18 +345,23 @@ async function findEveryone(session: Session, searches: Array<EmailSearch & {inv
  * account only so many connections at once: searches only for people, as the People widget's,
  * as one search for any of them where it can, any others one after the other.
  */
-export function findInboxEmails(target: RecordTarget, searches: EmailSearch[], limit: number): Promise<Result<DataRecord[][], ApiError>> {
-	return withFolder(target, INBOX, async (session) => {
-		const people = searches.filter(onlyInvolving);
-		if (searches.length > 1 && people.length === searches.length) {
-			return Ok(await findEveryone(session, people, limit));
-		}
-		const found: DataRecord[][] = [];
-		for (const search of searches) {
-			found.push(await findInSession(session, search, limit));
-		}
-		return Ok(found);
-	});
+export function findInboxEmails(target: RecordTarget, searches: EmailSearch[], limit: number, signal?: AbortSignal): Promise<Result<DataRecord[][], ApiError>> {
+	return withFolder(
+		target,
+		INBOX,
+		async (session) => {
+			const people = searches.filter(onlyInvolving);
+			if (searches.length > 1 && people.length === searches.length) {
+				return Ok(await findEveryone(session, people, limit));
+			}
+			const found: DataRecord[][] = [];
+			for (const search of searches) {
+				found.push(await findInSession(session, search, limit));
+			}
+			return Ok(found);
+		},
+		signal,
+	);
 }
 
 // Where each folder goes on, in a page token: the folder, its UIDVALIDITY, and the UID listing

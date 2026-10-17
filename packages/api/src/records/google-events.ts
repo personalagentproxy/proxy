@@ -2,6 +2,7 @@ import {Err, Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
+import {addDays} from '@proxy/utils/days';
 
 import {
 	getCalendar,
@@ -183,13 +184,6 @@ function eventValues(event: GoogleEvent): RecordValues {
 
 function eventRecord(calendarId: string, event: GoogleEvent): DataRecord {
 	return {id: eventRecordId(calendarId, event.id), values: eventValues(event), updatedAt: event.updated ?? NEVER, ...(event.htmlLink ? {url: event.htmlLink} : {})};
-}
-
-// A day, moved by `days`.
-function addDays(day: string, days: number): string {
-	const date = new Date(`${day}T00:00:00Z`);
-	date.setUTCDate(date.getUTCDate() + days);
-	return date.toISOString().slice(0, 10);
 }
 
 // A time as written: a day for an all-day event, or a time, with its offset or on the calendar's clock.

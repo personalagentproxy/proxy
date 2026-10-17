@@ -27,6 +27,20 @@ export function dayAround(date: Date): {from: string; to: string} {
 	return {from: start.toISOString(), to: end.toISOString()};
 }
 
+/**
+ * Where a search for an event starts: the midnight of the day asked about, else the minute it is
+ * now, so a meeting already over today isn't the next one. Kept to the minute, so asking again
+ * while typing on reads what was found.
+ */
+export function searchFrom(asked: Date | null, now: Date): Date {
+	if (asked) {
+		return dayBounds(asked).start;
+	}
+	const minute = new Date(now);
+	minute.setSeconds(0, 0);
+	return minute;
+}
+
 export function eventKey(event: Pick<AgendaEvent, 'connectionId' | 'id'>): string {
 	return `${event.connectionId} ${event.id}`;
 }

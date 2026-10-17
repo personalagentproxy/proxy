@@ -2,6 +2,7 @@ import {useRef, useState} from 'react';
 import {Link} from 'react-router';
 import type {ActivitySummary} from '@/client/schemas';
 import {agentName, formatDay, graphWeeks, summarizeWeek, type GraphDay} from '@/lib/activity-graph';
+import {counted} from '@/lib/format';
 import type {AgentLogin, Connection} from '@/lib/types';
 import {cn} from '@proxy/ui/lib/utils';
 
@@ -25,10 +26,6 @@ const CELL = 'size-2.5 rounded-[2px]';
 
 // About half a day's tooltip, so one at either end of the grid stays over it.
 const TOOLTIP_HALF = 72;
-
-function plural(count: number, one: string): string {
-	return `${count.toLocaleString('en-US')} ${one}${count === 1 ? '' : 's'}`;
-}
 
 // The month a week's column is labelled with: the one starting in it.
 function monthStarting(week: Array<GraphDay | null>): string | null {
@@ -118,7 +115,7 @@ export function ActivityGraph({
 			)}
 			{summary.days.length > 0 && (
 				<p className="text-center text-sm text-balance text-muted-foreground">
-					{week.total === 0 ? 'No requests' : plural(week.total, 'request')} in the past week
+					{week.total === 0 ? 'No requests' : counted(week.total, 'request')} in the past week
 					{week.done.length > 0 && `: ${week.done.map(lowerFirst).join(', ')}`}
 					{week.denied > 0 && (
 						<>
@@ -167,7 +164,7 @@ function Cell({
 	return (
 		<Link
 			to={`/activity?day=${cell.day}`}
-			aria-label={`${formatDay(cell.day)}: ${plural(cell.count, 'request')}`}
+			aria-label={`${formatDay(cell.day)}: ${counted(cell.count, 'request')}`}
 			onMouseEnter={(event) => onShow(cell, event.currentTarget)}
 			onFocus={(event) => onShow(cell, event.currentTarget)}
 			onBlur={onHide}
@@ -190,7 +187,7 @@ function DayTooltip({hovered, agents}: {hovered: Hovered; agents: AgentLogin[]})
 			className="pointer-events-none absolute z-50 flex w-max max-w-xs -translate-x-1/2 -translate-y-[calc(100%+6px)] flex-col gap-0.5 rounded-md bg-foreground px-3 py-1.5 text-xs text-background"
 		>
 			<span>
-				<span className="font-medium">{plural(cell.count, 'request')}</span>
+				<span className="font-medium">{counted(cell.count, 'request')}</span>
 				<span className="opacity-70"> · {formatDay(cell.day)}</span>
 			</span>
 			{cell.agents.map((agent) => (

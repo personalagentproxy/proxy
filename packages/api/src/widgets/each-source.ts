@@ -13,8 +13,22 @@ type Gathered<S, T> = {found: Array<{source: S; value: T}>; failed: Failure[]};
 // How long a widget waits for one source: one that is slow is left out rather than holding up the rest.
 const TIMEOUT_MS = 6_000;
 
-function timeout(): Promise<Result<never, ApiError>> {
-	return new Promise((resolve) => setTimeout(() => resolve(Err(ApiErr.providerUnreachable(new Error('Timed out')))), TIMEOUT_MS));
+/** Work on one source, told by `signal` when it is given up on, as an IMAP sign-in is then closed. */
+export type SourceWork<S, T> = (source: S, signal: AbortSignal) => Promise<Result<T, ApiError>>;
+
+// What `work` answers for a source, or a failure once it has taken too long, when it is told to stop.
+async function withinTimeout<S, T>(source: S, work: SourceWork<S, T>): Promise<Result<T, ApiError>> {
+	const controller = new AbortController();
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timedOut = new Promise<Result<never, ApiError>>((resolve) => {
+		timer = setTimeout(() => {
+			controller.abort();
+			resolve(Err(ApiErr.providerUnreachable(new Error('Timed out'))));
+		}, TIMEOUT_MS);
+	});
+	const result = await Promise.race([work(source, controller.signal), timedOut]);
+	clearTimeout(timer);
+	return result;
 }
 
 /** What a widget says of a source it couldn't read. */
@@ -34,10 +48,10 @@ function failureMessage(error: ApiError): string {
 /**
  * Runs `work` on every source at once and gathers what each found. A source that fails, or takes
  * longer than six seconds, is a failure beside the rest rather than failing them all, so one
- * expired sign-in doesn't empty a widget.
+ * expired sign-in doesn't empty a widget; one given up on is told to stop.
  */
-export async function eachSource<S extends Source, T>(sources: S[], work: (source: S) => Promise<Result<T, ApiError>>): Promise<Gathered<S, T>> {
-	const results = await Promise.all(sources.map((source) => Promise.race([work(source), timeout()])));
+export async function eachSource<S extends Source, T>(sources: S[], work: SourceWork<S, T>): Promise<Gathered<S, T>> {
+	const results = await Promise.all(sources.map((source) => withinTimeout(source, work)));
 	const gathered: Gathered<S, T> = {found: [], failed: []};
 	results.forEach((result, index) => {
 		const source = sources[index];

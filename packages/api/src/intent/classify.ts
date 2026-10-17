@@ -22,6 +22,8 @@ const MODEL = 'openai/gpt-oss-120b';
 // While typing goes on, a newer text is asked about every 300 ms, so a slower answer is never shown.
 const TIMEOUT_MS = 5000;
 
+const MAX_TOKENS = 2000;
+
 /** A field of the picked widget and what fills it: one value, or each of a list's. */
 export type FilledField = {id: string; name: string; values: string[]};
 
@@ -109,7 +111,9 @@ export async function classifyIntent(text: string): Promise<Result<Intent, ApiEr
 					{role: 'user', content: text},
 				],
 				temperature: 0,
-				max_tokens: 500,
+				// Its thinking and every widget's fields count toward it, an email's body among them, so
+				// it is well past what an answer takes: cut off, the answer would be no JSON at all.
+				max_tokens: MAX_TOKENS,
 				// It thinks before answering; a little is enough here, and keeps it fast.
 				reasoning: {effort: 'low'},
 				response_format: {type: 'json_schema', json_schema: {name: 'intent', strict: true, schema: JSON_SCHEMA}},

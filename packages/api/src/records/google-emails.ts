@@ -5,7 +5,7 @@ import MailComposer from 'nodemailer/lib/mail-composer';
 import type Mail from 'nodemailer/lib/mailer';
 import {Err, Ok, Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, mapWithLimit, requirePresent} from '@proxy/utils';
 
 import {callGoogle} from '../connections/google/google-client';
 import {
@@ -26,6 +26,7 @@ import {
 	messageBody,
 	messageHtml,
 	modifyMessage,
+	PAGE_SIZE,
 	rawMessage,
 	sendDraft,
 	sendMessage,
@@ -216,22 +217,25 @@ function listPage(target: RecordTarget, query: ListQuery): Promise<Result<Record
 	);
 }
 
-/**
- * The newest emails a search in Gmail's syntax finds, all mail but Spam and Trash, at most
- * `limit`, read with their headers alone: a list of a page would read 50. Drafts keep their
- * message ids, as they are only shown.
- */
+// Searches asked of one account at once: Gmail turns down a burst of them, as of messages.
+const SEARCHES_AT_ONCE = 3;
+
 // The newest emails one search finds, at most `limit`, each with who was copied, which the widgets find people in.
 function findWithToken(token: string, account: string, search: EmailSearch, limit: number): Promise<Result<DataRecord[], ApiError>> {
 	return Do(async ($) => {
-		const page = $(await listMessageIds(token, folderQuery(null, gmailQuery(search)), null));
+		const page = $(await listMessageIds(token, folderQuery(null, gmailQuery(search)), null, Math.min(limit, PAGE_SIZE)));
 		const messages = $(present(await getMessageSummaries(token, page.items.slice(0, limit))));
 		return messages.flatMap((message) => (message ? [toRecord(account, message.id, message, {...summaryValues(message), cc: formatAddresses(headerOf(message.payload, 'Cc'), true)})] : []));
 	});
 }
 
+/**
+ * The newest emails each search in Gmail's syntax finds, all mail but Spam and Trash, at most
+ * `limit` each, read with their headers alone: a list of a page would read 50. Drafts keep their
+ * message ids, as they are only shown.
+ */
 export function findGmailEmails(target: RecordTarget, searches: EmailSearch[], limit: number): Promise<Result<DataRecord[][], ApiError>> {
-	return callGoogle(target.connection, async (token) => Result.all(await Promise.all(searches.map((search) => findWithToken(token, target.connection.account, search, limit)))));
+	return callGoogle(target.connection, async (token) => Result.all(await mapWithLimit(searches, SEARCHES_AT_ONCE, (search) => findWithToken(token, target.connection.account, search, limit))));
 }
 
 function readDraft(token: string, account: string, recordId: string, draftId: string): Promise<Result<DataRecord, ApiError>> {

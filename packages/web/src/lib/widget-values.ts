@@ -1,6 +1,8 @@
 import * as chrono from 'chrono-node';
+import {dayIn} from '@proxy/utils/days';
 import type {Intent} from '@/client/intent-client';
 import type {EmailQuery, FileKind, People, Person} from '@/client/widgets-client';
+import {browserTimeZone} from '@/lib/activity-graph';
 
 // What the home page's widgets make of the fields the api filled: the people names stand for,
 // times read as dates, and what to search mailboxes and file stores for.
@@ -221,16 +223,22 @@ export function guestsOf(
 	});
 }
 
+// The first word of an address, as "arne" is of arne.s@gmail.com.
+function firstWord(address: string): string {
+	return address.split('@')[0]?.split(/[._+-]/)[0] ?? '';
+}
+
 /**
  * The guests a name taken off an event means: its address, the addresses the contact it finds
- * has, or a guest's address beginning with it, as "arne" is arne@example.com.
+ * has, or a guest's address whose first word it is, as "arne" is arne.s@gmail.com, and not
+ * one only beginning with it, as "dan" isn't daniel@example.com.
  */
 export function guestsNamed(guests: string[], name: string, people: People | null): string[] {
 	const wanted = name.trim().toLowerCase();
 	const addresses = (bestMatch(people, name)?.emails ?? []).map((email) => email.toLowerCase());
 	return guests.filter((guest) => {
 		const address = guest.toLowerCase();
-		return address === wanted || addresses.includes(address) || address.startsWith(wanted);
+		return address === wanted || addresses.includes(address) || firstWord(address) === wanted;
 	});
 }
 
@@ -345,13 +353,6 @@ const FILLER = new Set(
 	),
 );
 
-/** A day as the api takes one: 2026-10-07, on the person's clock. */
-function dayKey(date: Date): string {
-	const month = String(date.getMonth() + 1).padStart(2, '0');
-	const day = String(date.getDate()).padStart(2, '0');
-	return `${date.getFullYear()}-${month}-${day}`;
-}
-
 /**
  * What to search the mailboxes for: from the sender as written, about the model's terms, each the
  * words any of which will do ("flight | itinerary | booking"), since the day said.
@@ -359,7 +360,7 @@ function dayKey(date: Date): string {
 export function emailQuery(intent: Intent, typed: string, now: Date): EmailQuery {
 	const [from = null] = fieldTexts(intent, 'from');
 	const since = sinceDay(typed, now);
-	return {from, words: fieldTexts(intent, 'about'), since: since ? dayKey(since) : null};
+	return {from, words: fieldTexts(intent, 'about'), since: since ? dayIn(since, browserTimeZone()) : null};
 }
 
 /** The terms of a search as they read: the first of each one's words, "flight, SFO". */

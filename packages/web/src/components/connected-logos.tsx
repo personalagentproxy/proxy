@@ -3,6 +3,7 @@ import type {ReactNode} from 'react';
 import {Link} from 'react-router';
 import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
 import {connectionLabel} from '@/lib/access';
+import {counted} from '@/lib/format';
 import {integrationOf, type Integration} from '@/lib/integrations';
 import type {AgentLogin, Connection} from '@/lib/types';
 
@@ -10,10 +11,6 @@ const TILE = 'size-6 rounded-md ring-2 ring-background';
 
 // The logos a stack shows at most; the count beside it says how many there are.
 const SHOWN = 8;
-
-function plural(count: number, one: string): string {
-	return `${count} ${one}${count === 1 ? '' : 's'}`;
-}
 
 // The connections as the stack shows them: one logo per integration, its connections behind it,
 // Information left out, since every organization has it. A custom MCP server is its own.
@@ -54,7 +51,7 @@ export function ConnectedLogos({
 		<div className="flex items-center justify-center gap-6 text-sm text-muted-foreground">
 			<Group
 				to={sourceCount > 0 ? '/connections' : '/connections/new'}
-				label={sourceCount > 0 ? plural(sourceCount, 'source') : 'Connect a source'}
+				label={sourceCount > 0 ? counted(sourceCount, 'source') : 'Connect a source'}
 			>
 				{sources.slice(0, SHOWN).map(({integration, names}) => (
 					<Logo
@@ -71,7 +68,7 @@ export function ConnectedLogos({
 			</Group>
 			<Group
 				to={active.length > 0 ? '/agents' : '/agents/new'}
-				label={active.length > 0 ? plural(active.length, 'agent') : 'Add an agent'}
+				label={active.length > 0 ? counted(active.length, 'agent') : 'Add an agent'}
 			>
 				{active.slice(0, SHOWN).map((agent) => (
 					<Logo key={agent.id} name={agent.name}>

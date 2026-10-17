@@ -158,6 +158,7 @@ describe('handlePeopleRoute', () => {
 				{from: null, involving: 'hugo', words: [], since: null},
 			],
 			10,
+			expect.any(AbortSignal),
 		);
 		expect(answer.sources.map((one) => one.connectionId)).toEqual(['work', 'home', 'mail']);
 		expect(answer.people.map(({name, matches}) => [name, matches.map((match) => `${match.name} (${match.origin})`)])).toEqual([

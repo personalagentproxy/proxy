@@ -181,7 +181,7 @@ describe('findGmailEmails', () => {
 		const [found = []] = (await findGmailEmails(target, [{from: 'Sam Lee', words: [['planning']], since: '2026-09-01'}], 2)).unwrap();
 
 		const [list] = calls('GET', '/messages');
-		expect(Object.fromEntries(list?.url.searchParams ?? [])).toEqual({maxResults: '50', q: 'from:"Sam Lee" planning after:2026/09/01'});
+		expect(Object.fromEntries(list?.url.searchParams ?? [])).toEqual({maxResults: '2', q: 'from:"Sam Lee" planning after:2026/09/01'});
 		// With who was copied, which the widgets find people in, and Gmail's page for each.
 		expect(found.map((record) => [record.id, record.values.subject, record.values.cc, record.url])).toEqual([
 			['m1', 'Q3 planning', 'Jo Park <jo@example.com>', 'https://mail.google.com/mail/?authuser=alex%40example.com#all/m1'],

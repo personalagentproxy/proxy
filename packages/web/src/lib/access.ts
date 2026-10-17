@@ -9,7 +9,7 @@ import {
 	type OwnSettings,
 	TOOLS_COLLECTION_ID,
 } from '@proxy/integrations';
-import {formatDate, formatDateTime} from '@/lib/format';
+import {counted, formatDate, formatDateTime} from '@/lib/format';
 import {integrationOf, type Integration} from '@/lib/integrations';
 import type {AgentLogin, AuditEntry, Connection, DataRecord} from '@/lib/types';
 
@@ -192,20 +192,6 @@ export function entryAction(entry: AuditEntry, located: LocatedEntry | null): Ac
 	const {integration, collection} = located;
 	const id = collection ? requiredAction(collection, entry.action) : entry.action;
 	return integration.actions.find((action) => action.id === id) ?? null;
-}
-
-// "email", "2 emails", "3 queries", "2 addresses".
-function counted(count: number, singular: string): string {
-	if (count === 1) {
-		return `1 ${singular}`;
-	}
-	if (/[^aeiou]y$/.test(singular)) {
-		return `${count} ${singular.slice(0, -1)}ies`;
-	}
-	if (/(s|x|ch|sh)$/.test(singular)) {
-		return `${count} ${singular}es`;
-	}
-	return `${count} ${singular}s`;
 }
 
 function times(count: number): string {

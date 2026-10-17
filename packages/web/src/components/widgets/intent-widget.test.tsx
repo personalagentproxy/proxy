@@ -131,13 +131,13 @@ describe('IntentWidget', () => {
 		expect(meeting.getAttribute('href')).toBe('https://calendar.google.com/event?eid=hugo-0');
 		expect(within(widget).getByText(/with Hugo Brandt/)).toBeTruthy();
 		expect(within(widget).getByText(/^Tue, Oct 20$/)).toBeTruthy();
-		// Searched by his name and the address his contact has, from today on.
+		// Searched by his name and the address his contact has, from now on.
 		const searched = fetchMock.mock.calls.find(([input]) =>
 			input.startsWith('/api/widgets/events'),
 		);
 		const url = new URL(searched?.[0] ?? '', 'http://localhost');
 		expect(url.searchParams.getAll('search')).toEqual(['hugo', 'hugo.brandt@example.com']);
-		expect(url.searchParams.get('from')).toBe(new Date(2026, 9, 14).toISOString());
+		expect(url.searchParams.get('from')).toBe(new Date(2026, 9, 14, 14, 30).toISOString());
 
 		fireEvent.click(
 			within(within(widget).getByRole('list', {name: 'Also found'})).getByRole('button'),

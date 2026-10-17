@@ -5,6 +5,7 @@ export {EXPERIMENTS, hasExperiment, isExperiment, organizationExperiments} from 
 export type {Experiment} from './experiments';
 export {formatFetchError, httpRequest, readJsonValidated} from './fetch';
 export type {FetchError} from './fetch';
+export {mapWithLimit} from './map-with-limit';
 export {parseSchema, requirePresent} from './parse';
 export {
 	agentSessionCookieNames,

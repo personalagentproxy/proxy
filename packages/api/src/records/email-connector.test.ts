@@ -19,6 +19,8 @@ const imap = {
 	gmail: false,
 	opened: '',
 	logins: 0,
+	logouts: 0,
+	closes: 0,
 	fetches: 0,
 	searches: [] as Criteria[],
 	calls: [] as Array<[string, ...unknown[]]>,
@@ -35,11 +37,15 @@ class FakeImapFlow {
 		return new Set(imap.gmail ? ['X-GM-EXT-1'] : []);
 	}
 	on() {}
-	close() {}
+	close() {
+		imap.closes += 1;
+	}
 	async connect() {
 		imap.logins += 1;
 	}
-	async logout() {}
+	async logout() {
+		imap.logouts += 1;
+	}
 	async list() {
 		return imap.folders;
 	}
@@ -162,6 +168,8 @@ beforeEach(() => {
 	};
 	imap.gmail = false;
 	imap.logins = 0;
+	imap.logouts = 0;
+	imap.closes = 0;
 	imap.fetches = 0;
 	imap.searches = [];
 	imap.calls = [];
@@ -301,6 +309,7 @@ describe('findInboxEmails', () => {
 		const {findInboxEmails} = await import('./email-connector');
 		imap.gmail = true;
 		await findInboxEmails(target, [{from: 'sam', words: [['Note']], since: null}], 3);
+		await findInboxEmails(target, [{from: null, words: [], since: null}], 3);
 		imap.gmail = false;
 		await findInboxEmails(target, [{from: null, words: [], since: null}], 3);
 		await findInboxEmails(target, [{from: null, involving: 'jacky', words: [], since: null}], 3);
@@ -310,9 +319,21 @@ describe('findInboxEmails', () => {
 		expect(imap.searches).toEqual([
 			{gmraw: 'from:sam Note'},
 			{all: true},
+			{all: true},
 			{or: [{from: 'jacky'}, {to: 'jacky'}, {cc: 'jacky'}]},
 			{or: [{text: 'flight'}, {text: 'itinerary'}], not: {not: {text: 'SFO'}}},
 		]);
+	});
+
+	test('closes the connection when the search is given up on, rather than signing out after it', async () => {
+		const {findInboxEmails} = await import('./email-connector');
+		const controller = new AbortController();
+		const finding = findInboxEmails(target, [{from: 'sam', words: [], since: null}], 3, controller.signal);
+		controller.abort();
+		await finding;
+
+		expect(imap.closes).toBe(1);
+		expect(imap.logouts).toBe(0);
 	});
 
 	test('runs every search over one sign-in, answering what each found in the order asked', async () => {

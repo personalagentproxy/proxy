@@ -1,7 +1,7 @@
 import {Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import type {ApiError} from '@proxy/utils';
+import {type ApiError, mapWithLimit} from '@proxy/utils';
 
 import {googleDelete, googleRequest, googleWrite} from './google-client';
 
@@ -314,23 +314,9 @@ export function messageBody(payload: MessagePart | undefined): string {
 
 // ---- Calls -----------------------------------------------------------------------------------
 
-/** Runs `work` on every item, at most `limit` at once, the results in the items' order. */
-export async function mapWithLimit<T, R>(items: T[], limit: number, work: (item: T) => Promise<R>): Promise<R[]> {
-	const results = new Array<R>(items.length);
-	// One iterator shared by every worker, so each item is taken once.
-	const queue = items.entries();
-	const worker = async (): Promise<void> => {
-		for (const [index, item] of queue) {
-			results[index] = await work(item);
-		}
-	};
-	await Promise.all(Array.from({length: Math.min(limit, items.length)}, worker));
-	return results;
-}
-
-/** One page of message ids, newest first, in a folder and matching a search, from the page a previous one pointed at. */
-export async function listMessageIds(accessToken: string, query: FolderQuery, pageToken: string | null): Promise<Result<Page<string>, ApiError>> {
-	const params = {maxResults: String(PAGE_SIZE), labelIds: query.labelIds, q: query.q, includeSpamTrash: query.includeSpamTrash ? 'true' : null, pageToken};
+/** One page of message ids, newest first, in a folder and matching a search, from the page a previous one pointed at, of 50 unless asked for fewer. */
+export async function listMessageIds(accessToken: string, query: FolderQuery, pageToken: string | null, pageSize = PAGE_SIZE): Promise<Result<Page<string>, ApiError>> {
+	const params = {maxResults: String(pageSize), labelIds: query.labelIds, q: query.q, includeSpamTrash: query.includeSpamTrash ? 'true' : null, pageToken};
 	const list = await googleRequest(accessToken, gmailUrl('/messages', params), messageListSchema);
 	return list.map(({messages = [], nextPageToken}) => ({items: messages.map(({id}) => id), nextPage: nextPageToken ?? null}));
 }

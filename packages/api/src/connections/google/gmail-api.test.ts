@@ -9,7 +9,7 @@ mock.module('@proxy/db/connection', () => ({updateConnectionCredential: mock(), 
 
 mock.module('../../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com', GOOGLE_CLIENT_ID: 'client-1', GOOGLE_CLIENT_SECRET: 'secret-1'}}));
 
-const {attachmentNames, folderOf, folderQuery, htmlToText, mapWithLimit, messageBody} = await import('./gmail-api');
+const {attachmentNames, folderOf, folderQuery, htmlToText, messageBody} = await import('./gmail-api');
 
 const base64url = (text: string, encoding: BufferEncoding = 'utf8'): string => Buffer.from(text, encoding).toString('base64url');
 
@@ -130,19 +130,4 @@ test('htmlToText takes time in proportion to the email, however many tags are le
 	htmlToText(`${'<a href="x">y'.repeat(100_000)}${'<'.repeat(100_000)}${'<!--'.repeat(100_000)}`);
 
 	expect(performance.now() - started).toBeLessThan(1000);
-});
-
-test('mapWithLimit keeps the order and never runs more than the limit at once', async () => {
-	let running = 0;
-	let most = 0;
-	const results = await mapWithLimit([5, 1, 4, 2, 3, 0, 6], 3, async (value) => {
-		running += 1;
-		most = Math.max(most, running);
-		await Bun.sleep(value);
-		running -= 1;
-		return value * 10;
-	});
-
-	expect(results).toEqual([50, 10, 40, 20, 30, 0, 60]);
-	expect(most).toBe(3);
 });

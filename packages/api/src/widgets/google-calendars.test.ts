@@ -100,3 +100,29 @@ describe('googleCalendars.search', () => {
 		expect(found.map((event) => event.title)).toEqual(['Lunch', 'Arne / Konsti']);
 	});
 });
+
+describe('googleCalendars, an event on two calendars', () => {
+	test('shows it once, the copy the person can change, and fails the account when Google is out of reach', async () => {
+		listCalendars.mockResolvedValue(
+			Ok([
+				{id: 'colleague', summary: 'Arne', selected: true, accessRole: 'reader'},
+				{id: 'me@work', summary: 'me@work', primary: true, accessRole: 'owner'},
+			]),
+		);
+		const oneOnOne = {id: '1on1', summary: 'Arne / me', start: {dateTime: '2026-10-21T15:00:00+02:00'}, end: {dateTime: '2026-10-21T15:30:00+02:00'}, organizer: {email: 'me@work', self: true}};
+		listEvents.mockResolvedValue(Ok({events: [oneOnOne], nextPage: null}));
+		const {googleCalendars} = await import('./google-calendars');
+		const source = {connection: {id: 'work'}} as never;
+
+		const range = {from: '2026-10-21T00:00:00+02:00', to: '2026-10-22T00:00:00+02:00'};
+		const day = (await googleCalendars.agenda(source, range)).unwrap();
+		expect(day.events.map((event) => [event.calendarId, event.editable])).toEqual([['me@work', true]]);
+		const found = (await googleCalendars.search(source, {from: range.from, searches: ['arne']})).unwrap();
+		expect(found.map((event) => [event.calendarId, event.editable])).toEqual([['me@work', true]]);
+
+		listEvents.mockImplementation(async (_token: string, calendarId: string) =>
+			calendarId === 'colleague' ? Err(ApiErr.providerUnreachable(new Error('rateLimitExceeded'))) : Ok({events: [oneOnOne], nextPage: null}),
+		);
+		expect((await googleCalendars.search(source, {from: range.from, searches: ['arne']})).isErr()).toBe(true);
+	});
+});
