@@ -21,6 +21,12 @@ export function dayBounds(date: Date): {start: Date; end: Date} {
 	return {start, end};
 }
 
+/** The day a time falls on, as the agenda is asked for it. */
+export function dayAround(date: Date): {from: string; to: string} {
+	const {start, end} = dayBounds(date);
+	return {from: start.toISOString(), to: end.toISOString()};
+}
+
 export function eventKey(event: Pick<AgendaEvent, 'connectionId' | 'id'>): string {
 	return `${event.connectionId} ${event.id}`;
 }

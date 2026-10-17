@@ -157,6 +157,60 @@ describe('IntentWidget', () => {
 		expect(await within(widgetNamed('Calendar')).findByText(/nothing coming up/)).toBeTruthy();
 	});
 
+	test('Change event: finds the event, moves it in its own week, adds a guest and sends the update', async () => {
+		show(
+			intentWith('change_event', {
+				changeWith: ['hugo'],
+				changeTo: ['thursday at 4'],
+				invite: ['jacky'],
+			}),
+			'move my 1:1 with hugo to thursday at 4 and invite jacky',
+		);
+
+		const widget = widgetNamed('Change event');
+		expect(await within(widget).findByDisplayValue('Hugo / me')).toBeTruthy();
+		// From Tuesday's 3 to 4 to Thursday's 4 to 5, beside Thursday's focus time.
+		expect(within(widget).getByText(/^Tue, Oct 20 · 3:00 PM – 4:00 PM$/)).toBeTruthy();
+		expect(within(widget).getByText(/Thu, Oct 22 · 4:00 PM – 5:00 PM/)).toBeTruthy();
+		expect(await within(widget).findByText('Free then')).toBeTruthy();
+		// Two of them coming up, so it says which.
+		expect(within(widget).getByRole('combobox', {name: 'Which event'})).toBeTruthy();
+		expect(within(widget).getByText('hugo.brandt@example.com')).toBeTruthy();
+		expect(await within(widget).findByRole('combobox', {name: 'Which jacky'})).toBeTruthy();
+
+		fireEvent.click(within(widget).getByRole('button', {name: 'Send update'}));
+		expect(await within(widget).findByText(/Update sent/)).toBeTruthy();
+		const call = fetchMock.mock.calls.find(
+			([input, init]) => input === '/api/widgets/events' && init?.method === 'PUT',
+		);
+		expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+			connectionId: 'google-1',
+			calendarId: 'me@example.com',
+			eventId: 'hugo-0',
+			start: new Date(2026, 9, 22, 16).toISOString(),
+			end: new Date(2026, 9, 22, 17).toISOString(),
+			guests: ['hugo.brandt@example.com', 'jacky.doe@example.com'],
+		});
+	});
+
+	test('Change event: nothing to save until something changes', async () => {
+		show(intentWith('change_event', {changeWith: ['hugo']}), 'change my meeting with hugo');
+
+		const widget = widgetNamed('Change event');
+		expect(await within(widget).findByDisplayValue('Hugo / me')).toBeTruthy();
+		expect(within(widget).getByRole('button', {name: 'Send update'})).toHaveProperty(
+			'disabled',
+			true,
+		);
+		fireEvent.change(within(widget).getByRole('textbox', {name: 'Title'}), {
+			target: {value: 'Hugo 1:1'},
+		});
+		expect(within(widget).getByRole('button', {name: 'Send update'})).toHaveProperty(
+			'disabled',
+			false,
+		);
+	});
+
 	test('a widget with nothing connected to read asks to connect it, and comes back home', async () => {
 		fetchMock.mockImplementationOnce(() =>
 			Promise.resolve(

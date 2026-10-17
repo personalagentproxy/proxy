@@ -1,51 +1,22 @@
 import {CalendarIcon, ClockIcon, MapPinIcon} from 'lucide-react';
 import type {Intent} from '@/client/intent-client';
-import {createEvent, type Agenda, type People, type Person} from '@/client/widgets-client';
+import {createEvent, type Agenda} from '@/client/widgets-client';
 import {Button} from '@proxy/ui/components/button';
 import {Input} from '@proxy/ui/components/input';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
 import {DayGrid} from '@/components/widgets/day-grid';
-import {dayBounds, timedItems, type DayItem} from '@/lib/calendar-day';
+import {dayAround, timedItems, type DayItem} from '@/lib/calendar-day';
 import {Avatar, DetailRow, Missing, WidgetFrame} from '@/components/widgets/widget-frame';
 import {WidgetSelect} from '@/components/widgets/widget-select';
 import {WriteResult} from '@/components/widgets/write-result';
 import {useAgenda, usePeople} from '@/lib/widget-lookups';
-import {
-	eventTime,
-	fieldTexts,
-	isAddress,
-	matchesFor,
-	namesIn,
-	personKey,
-	type EventTime,
-} from '@/lib/widget-values';
+import {eventTime, fieldTexts, guestsOf, namesIn, personKey, type Guest} from '@/lib/widget-values';
 import {useSuggested} from '@/lib/use-suggested';
 import {useWriteStatus, writeErrorMessage} from '@/lib/write-status';
 import {useState} from 'react';
 
 const TIME = new Intl.DateTimeFormat(undefined, {hour: 'numeric', minute: '2-digit'});
 const DAY = new Intl.DateTimeFormat(undefined, {weekday: 'short', month: 'short', day: 'numeric'});
-
-// The day a time falls on, from its midnight to the next, on the person's clock.
-function dayAround(date: Date): {from: string; to: string} {
-	const {start, end} = dayBounds(date);
-	return {from: start.toISOString(), to: end.toISOString()};
-}
-
-// A guest as the widget shows them: the contact a name stands for, picked among those it found,
-// or an address typed as it is.
-type Guest = {name: string; person: Person | null; address: string | null; matches: Person[]};
-
-function guestsOf(names: string[], people: People | null, chosen: Record<string, string>): Guest[] {
-	return names.map((name) => {
-		if (isAddress(name)) {
-			return {name, person: null, address: name, matches: []};
-		}
-		const matches = matchesFor(people, name);
-		const person = matches.find((match) => personKey(match) === chosen[name]) ?? matches[0] ?? null;
-		return {name, person, address: person?.emails[0] ?? null, matches};
-	});
-}
 
 // Where the event can go: every calendar the person can write to, named with its account where
 // there are several.
@@ -205,7 +176,7 @@ export function EventWidget({intent, typed, now}: {intent: Intent; typed: string
 	);
 }
 
-function GuestRow({
+export function GuestRow({
 	guest,
 	loading,
 	onChoose,
@@ -240,22 +211,29 @@ function GuestRow({
 	);
 }
 
-// The event's day with the day's events beside it, and what it clashes with.
-function DayAgenda({
+// The event's day with the day's events beside it, and what it clashes with. An event being moved
+// (`moving`, its key) is left out, so it doesn't clash with itself, and shows where it goes as `title`.
+export function DayAgenda({
 	time,
 	agenda,
 	loading,
+	title = 'New event',
+	moving = null,
 }: {
-	time: EventTime;
+	time: {start: Date; end: Date};
 	agenda: Agenda | null;
 	loading: boolean;
+	title?: string;
+	moving?: string | null;
 }) {
-	const items = timedItems(agenda?.events ?? [], time.start, null);
+	const items = timedItems(agenda?.events ?? [], time.start, null).filter(
+		(item) => item.key !== moving,
+	);
 	const allDay = agenda?.events.filter((event) => event.allDay) ?? [];
 	const clashes = items.filter((item) => item.start < time.end && time.start < item.end);
 	const proposed: DayItem = {
 		key: 'new',
-		title: 'New event',
+		title,
 		start: time.start,
 		end: time.end,
 		highlighted: true,

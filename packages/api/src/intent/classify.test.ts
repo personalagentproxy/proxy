@@ -55,12 +55,32 @@ describe('classifyIntent', () => {
 		expect(body.messages[1]).toEqual({role: 'user', content: text});
 		expect(body.messages[0]?.content).toContain('- find_file: Find or open a file');
 		const schema = body.response_format.json_schema.schema;
-		expect(schema.properties.widget.enum).toEqual(['new_event', 'show_calendar', 'find_person', 'write_email', 'find_email', 'find_file', 'calculate', 'convert_units', 'incomplete', 'none']);
+		expect(schema.properties.widget.enum).toEqual([
+			'new_event',
+			'change_event',
+			'show_calendar',
+			'find_person',
+			'write_email',
+			'find_email',
+			'find_file',
+			'calculate',
+			'convert_units',
+			'incomplete',
+			'none',
+		]);
 		expect(schema.required).toEqual([
 			'widget',
 			'attendees',
 			'location',
 			'title',
+			'changeWith',
+			'changeEvent',
+			'changeFrom',
+			'changeTo',
+			'invite',
+			'uninvite',
+			'newTitle',
+			'newLocation',
 			'meetingWith',
 			'eventName',
 			'person',

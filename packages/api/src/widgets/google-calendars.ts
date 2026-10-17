@@ -19,13 +19,17 @@ import type {AgendaCalendar, AgendaEvent, CalendarAdapter} from './agenda';
 // A person ticks a dozen calendars at most; past that, the rest wait on the first.
 const MAX_CALENDARS = 12;
 
+function writable(calendar: GoogleCalendar): boolean {
+	return calendar.accessRole === 'owner' || calendar.accessRole === 'writer';
+}
+
 function calendarOf(connectionId: string, calendar: GoogleCalendar): AgendaCalendar {
 	return {
 		connectionId,
 		id: calendar.id,
 		name: calendar.summaryOverride ?? calendar.summary ?? calendar.id,
 		primary: calendar.primary === true,
-		writable: calendar.accessRole === 'owner' || calendar.accessRole === 'writer',
+		writable: writable(calendar),
 		color: calendar.backgroundColor ?? null,
 	};
 }
@@ -41,7 +45,23 @@ function eventOf(connectionId: string, calendar: GoogleCalendar, event: GoogleEv
 		return [];
 	}
 	const title = event.summary ?? (calendar.accessRole === 'freeBusyReader' ? 'Busy' : '(No title)');
-	return [{connectionId, calendarId: calendar.id, id: event.id, title, start, end, allDay: event.start?.date !== undefined, link: event.htmlLink ?? null}];
+	const guests = (event.attendees ?? []).flatMap((attendee) => (attendee.self || attendee.resource || !attendee.email ? [] : [attendee.email]));
+	const editable = writable(calendar) && (event.organizer === undefined || event.organizer.self === true);
+	return [
+		{
+			connectionId,
+			calendarId: calendar.id,
+			id: event.id,
+			title,
+			start,
+			end,
+			allDay: event.start?.date !== undefined,
+			location: event.location ?? '',
+			guests,
+			editable,
+			link: event.htmlLink ?? null,
+		},
+	];
 }
 
 // The calendars Google Calendar shows: the primary one and those ticked in its list.

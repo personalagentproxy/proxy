@@ -95,6 +95,72 @@ function withTimeOf(day: Date, time: Date): Date {
 	return date;
 }
 
+// "an hour later", "30 minutes earlier", "push it back by half an hour": how far an event moves
+// from where it is, in milliseconds, later positive; null when that isn't what was said.
+const SHIFTS = [
+	/\b(\d+(?:\.\d+)?|an?|half an?)\s*(hours?|hrs?|minutes?|mins?)\s+(later|earlier|sooner|back)\b/i,
+	/\b(later|earlier|sooner|back)\s+(?:by\s+)?(\d+(?:\.\d+)?|an?|half an?)\s*(hours?|hrs?|minutes?|mins?)\b/i,
+];
+
+function shiftOf(said: string): number | null {
+	for (const [index, pattern] of SHIFTS.entries()) {
+		const match = pattern.exec(said);
+		if (!match) {
+			continue;
+		}
+		const [amount = '', unit = '', direction = ''] =
+			index === 0 ? [match[1], match[2], match[3]] : [match[2], match[3], match[1]];
+		const count = /^half/i.test(amount) ? 0.5 : /^an?$/i.test(amount) ? 1 : Number(amount);
+		const ms = count * (/^h/i.test(unit) ? 3_600_000 : 60_000);
+		return /^(earlier|sooner)$/i.test(direction) ? -ms : ms;
+	}
+	return null;
+}
+
+// A weekday said alone is the first from the event's own day on: a Tuesday meeting moved to
+// "thursday" goes two days later, not to the Thursday before it. "Tomorrow" is from now.
+function weekdayFirst(said: string, eventStart: Date, now: Date): chrono.ParsedResult[] {
+	const results = chrono.parse(said, now, {forwardDate: true});
+	const [first] = results;
+	if (!first || !first.start.isCertain('weekday') || first.start.isCertain('day')) {
+		return results;
+	}
+	const from = new Date(Math.max(eventStart.getTime(), now.getTime()));
+	from.setHours(0, 0, 0, 0);
+	return chrono.parse(said, from, {forwardDate: true});
+}
+
+/**
+ * When an event moves to, from what was said of its new time: "an hour later" from where it is,
+ * else the day and hour said, the rest as the event is ("10am" its own day, "thursday" its own
+ * hour), its length kept unless an end is said. Null when no time can be read.
+ */
+export function movedTime(
+	said: string,
+	event: {start: Date; end: Date},
+	now: Date,
+): {start: Date; end: Date} | null {
+	const length = event.end.getTime() - event.start.getTime();
+	const shift = shiftOf(said);
+	if (shift !== null) {
+		const start = new Date(event.start.getTime() + shift);
+		return {start, end: new Date(start.getTime() + length)};
+	}
+	const [first] = weekdayFirst(said, event.start, now);
+	if (!first) {
+		return null;
+	}
+	const daySaid = first.start.isCertain('day') || first.start.isCertain('weekday');
+	const hourSaid = first.start.isCertain('hour');
+	const start = withTimeOf(
+		daySaid ? first.start.date() : event.start,
+		hourSaid ? afternoonGuess(first.start, first.start.date()) : event.start,
+	);
+	const end =
+		hourSaid && first.end ? withTimeOf(start, afternoonGuess(first.end, first.end.date())) : null;
+	return {start, end: end && end > start ? end : new Date(start.getTime() + length)};
+}
+
 /**
  * When a meeting is, read from all that was typed with chrono-node: no field holds the time, and a
  * bare hour needs the "at" said before it. A day and an hour said apart ("on
@@ -131,6 +197,60 @@ export function eventTime(typed: string, now: Date): EventTime | null {
 	return {start, end: said && said > start ? said : minutes(start), hourGuessed: false};
 }
 
+// A guest as the event widgets show them: the contact a name stands for, picked among those it
+// found, or an address typed as it is.
+export type Guest = {
+	name: string;
+	person: Person | null;
+	address: string | null;
+	matches: Person[];
+};
+
+export function guestsOf(
+	names: string[],
+	people: People | null,
+	chosen: Record<string, string>,
+): Guest[] {
+	return names.map((name) => {
+		if (isAddress(name)) {
+			return {name, person: null, address: name, matches: []};
+		}
+		const matches = matchesFor(people, name);
+		const person = matches.find((match) => personKey(match) === chosen[name]) ?? matches[0] ?? null;
+		return {name, person, address: person?.emails[0] ?? null, matches};
+	});
+}
+
+/**
+ * The guests a name taken off an event means: its address, the addresses the contact it finds
+ * has, or a guest's address beginning with it, as "arne" is arne@example.com.
+ */
+export function guestsNamed(guests: string[], name: string, people: People | null): string[] {
+	const wanted = name.trim().toLowerCase();
+	const addresses = (bestMatch(people, name)?.emails ?? []).map((email) => email.toLowerCase());
+	return guests.filter((guest) => {
+		const address = guest.toLowerCase();
+		return address === wanted || addresses.includes(address) || address.startsWith(wanted);
+	});
+}
+
+/**
+ * Who a name means on an event: the person it finds whose address is among the event's guests, as
+ * "mike" is the Mike invited, not the first Mike the contacts and mailboxes have; null when none is.
+ */
+export function personOnEvent(
+	people: People | null,
+	name: string,
+	guests: string[],
+): Person | null {
+	const invited = guests.map((guest) => guest.toLowerCase());
+	return (
+		matchesFor(people, name).find((person) =>
+			person.emails.some((email) => invited.includes(email.toLowerCase())),
+		) ?? null
+	);
+}
+
 /** The day asked about, "today", "tomorrow" or the coming "friday", at its midnight; null when none is said. */
 export function dayAsked(typed: string, now: Date): Date | null {
 	const [first] = chrono.parse(typed, now, {forwardDate: true});
@@ -143,13 +263,14 @@ export function dayAsked(typed: string, now: Date): Date | null {
 }
 
 /**
- * What to search the calendars for: the first person the event is with, by the name written and
- * the addresses found for them, as an invite names its guests by either, each with what the event
- * is where that is said; or only what it is. At most three.
+ * What to search the calendars for: the person the event is with, by the name written and the
+ * addresses found for them, as an invite names its guests by either, each with what the event is
+ * where that is said; or only what it is. At most three.
  */
-export function eventSearches(intent: Intent, people: People | null): string[] {
-	const [name] = namesIn(intent, 'meetingWith');
-	const [what] = fieldTexts(intent, 'eventName');
+export function eventSearches(
+	{name, what}: {name: string | undefined; what: string | undefined},
+	people: People | null,
+): string[] {
 	if (!name) {
 		return what ? [what] : [];
 	}

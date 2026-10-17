@@ -2,17 +2,21 @@ import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
+import {findCollection, findIntegration} from '@proxy/integrations';
 
 const requireWritable = mock();
 const afterWrite = mock(async () => {});
 const create = mock();
 const sendNew = mock();
+const get = mock();
+const update = mock();
 
 mock.module('./sources', () => ({requireWritable, findSources: mock(), summarize: mock()}));
 mock.module('./writes', () => ({afterWrite}));
 mock.module('../utils/user-org', () => ({requireUserOrgId: async () => Ok('org-1')}));
 
-const source = {connection: {id: 'work'}, collection: {id: 'events'}, connector: {create, newCommands: {sendNew}}};
+const events = findCollection(findIntegration('google') ?? {collections: []}, 'events');
+const source = {connection: {id: 'work'}, collection: events, connector: {create, get, update, newCommands: {sendNew}}};
 
 function request(body: unknown) {
 	return {user: {userId: 'user-1'}, body} as never;
@@ -89,5 +93,62 @@ describe('handleWriteEmailRoute', () => {
 		const {handleWriteEmailRoute} = await import('./emails');
 
 		expect((await handleWriteEmailRoute(request({...email, to: [], send: true}))).unwrapErr().kind).toBe('parse_error');
+	});
+});
+
+describe('handleEditEventRoute', () => {
+	const lunch = {
+		id: 'team:e1',
+		values: {
+			title: 'Lunch',
+			kind: 'Event',
+			start: '2026-10-15T13:00:00+02:00',
+			end: '2026-10-15T13:30:00+02:00',
+			location: 'Nopa',
+			guests: 'jacky@example.com',
+			description: 'Agenda',
+			organizer: '',
+			answers: 'Jacky <jacky@example.com>: Accepted',
+		},
+		updatedAt: '',
+	};
+	const moved = {connectionId: 'work', calendarId: 'team', eventId: 'e1', start: '2026-10-16T15:00:00+02:00', end: '2026-10-16T15:30:00+02:00'};
+
+	beforeEach(() => {
+		get.mockResolvedValue(Ok(lunch));
+		update.mockResolvedValue(Ok({...lunch, values: {...lunch.values, start: moved.start, end: moved.end}, url: 'https://calendar.google.com/e1'}));
+	});
+
+	test('changes only what is given, the rest as the event is, through its connector', async () => {
+		const {handleEditEventRoute} = await import('./edit-event');
+
+		const changed = await handleEditEventRoute(request(moved));
+		expect(changed.unwrap()).toEqual({title: 'Lunch', link: 'https://calendar.google.com/e1'});
+		expect(get).toHaveBeenCalledWith(source, 'team:e1');
+		expect(update).toHaveBeenCalledWith(source, 'team:e1', {title: 'Lunch', start: moved.start, end: moved.end, location: 'Nopa', guests: 'jacky@example.com', description: 'Agenda'}, lunch);
+		// Its guests are told, which needs Invite guests too.
+		expect(requireWritable).toHaveBeenCalledWith('org-1', 'work', 'events', 'update', ['start', 'end']);
+		expect(requireWritable).toHaveBeenCalledWith('org-1', 'work', 'events', 'update', ['guests']);
+		// A change picks no calendar for the next new event.
+		expect(afterWrite).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1', source, action: 'update', title: 'Lunch', parent: undefined});
+	});
+
+	test('writes the guests as given', async () => {
+		const {handleEditEventRoute} = await import('./edit-event');
+
+		await handleEditEventRoute(request({connectionId: 'work', calendarId: 'team', eventId: 'e1', guests: ['jacky@example.com', 'hugo@example.com']}));
+		expect(requireWritable).toHaveBeenCalledTimes(1);
+		expect(update.mock.calls[0]?.[2]).toMatchObject({guests: 'jacky@example.com, hugo@example.com', start: lunch.values.start});
+	});
+
+	test('changes no event someone else organizes, and no calendar', async () => {
+		const {handleEditEventRoute} = await import('./edit-event');
+
+		get.mockResolvedValueOnce(Ok({...lunch, values: {...lunch.values, organizer: 'Sam Lee <sam@example.com>'}}));
+		expect((await handleEditEventRoute(request(moved))).unwrapErr()).toEqual(ApiErr.validationError('Only an event you organize can be changed here'));
+		get.mockResolvedValueOnce(Ok({...lunch, values: {...lunch.values, kind: 'Calendar'}}));
+		expect((await handleEditEventRoute(request(moved))).unwrapErr().kind).toBe('not_found');
+		expect(update).not.toHaveBeenCalled();
+		expect(afterWrite).not.toHaveBeenCalled();
 	});
 });

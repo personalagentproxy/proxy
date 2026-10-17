@@ -4,16 +4,16 @@ import type {Intent} from '@/client/intent-client';
 import type {AgendaEvent, Failure} from '@/client/widgets-client';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
 import {DayGrid} from '@/components/widgets/day-grid';
-import {dayBounds, eventKey, timedItems} from '@/lib/calendar-day';
+import {dayAround, dayBounds, eventKey, timedItems} from '@/lib/calendar-day';
 import {Missing, WidgetFrame} from '@/components/widgets/widget-frame';
 import {useAgenda, useEvents, usePeople} from '@/lib/widget-lookups';
 import {
-	bestMatch,
 	dayAsked,
 	eventSearches,
 	fieldTexts,
 	isAddress,
 	namesIn,
+	personOnEvent,
 } from '@/lib/widget-values';
 
 const DAY = new Intl.DateTimeFormat(undefined, {weekday: 'short', month: 'short', day: 'numeric'});
@@ -60,7 +60,7 @@ export function CalendarWidget({intent, typed, now}: {intent: Intent; typed: str
 	// The person is looked up first, so their addresses are searched for too.
 	const lookFor = first && !isAddress(first) ? [first] : [];
 	const people = usePeople(lookFor.length > 0 ? lookFor : null);
-	const searches = eventSearches(intent, people.data);
+	const searches = eventSearches({name: first, what}, people.data);
 	const ready = searching && searches.length > 0 && (lookFor.length === 0 || !people.loading);
 	const found = useEvents(
 		ready ? {from: dayBounds(asked ?? now).start.toISOString(), searches} : null,
@@ -72,8 +72,7 @@ export function CalendarWidget({intent, typed, now}: {intent: Intent; typed: str
 	const day = shown ? startDay(shown) : (asked ?? now);
 	// Searching, the day waits for what is found, or shows the day asked about when nothing is.
 	const showsDay = !searching || shown !== null || (found.data !== null && asked !== null);
-	const {start, end} = dayBounds(day);
-	const agenda = useAgenda(showsDay ? {from: start.toISOString(), to: end.toISOString()} : null);
+	const agenda = useAgenda(showsDay ? dayAround(day) : null);
 
 	if (agenda.data?.sources.length === 0 || found.data?.sources.length === 0) {
 		return (
@@ -90,7 +89,10 @@ export function CalendarWidget({intent, typed, now}: {intent: Intent; typed: str
 		shown && !read.some((event) => eventKey(event) === highlighted) ? [...read, shown] : read;
 	const items = timedItems(events, day, highlighted);
 	const allDay = events.filter((event) => event.allDay);
-	const who = first ? (bestMatch(people.data, first)?.name ?? first) : null;
+	// Named as the person on the event found, never a namesake; else as written.
+	const who = first
+		? ((shown && personOnEvent(people.data, first, shown.guests)?.name) ?? first)
+		: null;
 	const described = [...(who ? [`with ${who}`] : []), ...(what ? [what] : [])].join(' · ');
 	const others = matches.filter((event) => event !== shown).slice(0, MORE);
 	const failed = eachConnection([...(agenda.data?.failed ?? []), ...(found.data?.failed ?? [])]);

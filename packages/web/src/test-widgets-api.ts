@@ -99,6 +99,9 @@ function agenda(url: URL) {
 				start: at(14),
 				end: at(16),
 				allDay: false,
+				location: '',
+				guests: [],
+				editable: true,
 				link: null,
 			},
 		],
@@ -130,6 +133,9 @@ function foundEvents(url: URL) {
 					start: tuesday(weeks, 15),
 					end: tuesday(weeks, 16),
 					allDay: false,
+					location: 'Nopa',
+					guests: ['hugo.brandt@example.com'],
+					editable: true,
 					link: `https://calendar.google.com/event?eid=hugo-${weeks}`,
 				}))
 			: [],
@@ -179,6 +185,9 @@ export function widgetsAnswer(input: string, init?: RequestInit): Response | nul
 	}
 	if (route === 'POST /api/widgets/events') {
 		return Response.json({title: 'Made', link: 'https://calendar.google.com/event?eid=1'});
+	}
+	if (route === 'PUT /api/widgets/events') {
+		return Response.json({title: 'Changed', link: 'https://calendar.google.com/event?eid=hugo-0'});
 	}
 	if (route === 'GET /api/widgets/emails') {
 		return Response.json({sources: [google], emails: EMAILS, failed: []});

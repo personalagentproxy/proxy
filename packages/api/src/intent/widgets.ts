@@ -35,7 +35,8 @@ export type Widget = {
 	fields: WidgetField[];
 };
 
-// Times aren't fields: the web app reads them from the whole text, which no field holds whole.
+// Times aren't fields: the web app reads them from the whole text, which no field holds whole. A
+// change to an event says two, when it is and when it moves to, so those are fields of their own.
 // The units Convert units knows, each as the model is told of it: `mi` (mile).
 const UNIT_LIST = UNITS.map((unit) => `${unit.id} (${unit.name})`).join(', ');
 
@@ -48,6 +49,26 @@ export const WIDGETS: Widget[] = [
 			{id: 'attendees', name: 'Attendees', hint: 'each person to invite, one per item, as written (a name or an email address); never the person typing', many: true},
 			{id: 'location', name: 'Location', hint: 'where it takes place, as written, or null'},
 			{id: 'title', name: 'Title', hint: 'the event\'s name: one it was given, else a short one from what it is ("Lunch"); null when it is only a meeting, call or event'},
+		],
+	},
+	{
+		id: 'change_event',
+		name: 'Change event',
+		description: 'Change an event already in the calendar: move it to another time, rename it, change where it is, or invite people to it or take them off it',
+		fields: [
+			{
+				id: 'changeWith',
+				name: 'With',
+				hint: 'each person the event to change is with, to find it by, as written without \'s ("my 1:1 with arne" is arne); never the person typing, nor someone being invited or taken off',
+				many: true,
+			},
+			{id: 'changeEvent', name: 'Event', hint: 'what the event to change is, as written, without the people or any day or time ("standup", "lunch"); null when it is only a meeting, call or event'},
+			{id: 'changeFrom', name: 'When', hint: 'when the event to change is now, as written ("friday", "tomorrow\'s"); null when not said'},
+			{id: 'changeTo', name: 'New time', hint: 'the time it moves to, as written ("thursday at 3", "10am", "an hour later"); null when its time stays'},
+			{id: 'invite', name: 'Invite', hint: 'each person to invite to it, one per item, as written (a name or an email address)', many: true},
+			{id: 'uninvite', name: 'Take off', hint: 'each person to take off it, one per item, as written (a name or an email address)', many: true},
+			{id: 'newTitle', name: 'New title', hint: 'its new name when it is renamed, else null'},
+			{id: 'newLocation', name: 'New location', hint: 'where it moves to, as written, else null'},
 		],
 	},
 	{

@@ -1,6 +1,7 @@
 import type {Intent} from '@/client/intent-client';
 import {CalendarWidget} from '@/components/widgets/calendar-widget';
 import {ConvertWidget} from '@/components/widgets/convert-widget';
+import {EditEventWidget} from '@/components/widgets/edit-event-widget';
 import {EventWidget} from '@/components/widgets/event-widget';
 import {FindEmailWidget} from '@/components/widgets/find-email-widget';
 import {FindFileWidget} from '@/components/widgets/find-file-widget';
@@ -24,6 +25,9 @@ export function IntentWidget({intent, typed, now, onAsk}: Props) {
 	const id = intent.widget;
 	if (id === 'new_event') {
 		return <EventWidget intent={intent} typed={typed} now={now} />;
+	}
+	if (id === 'change_event') {
+		return <EditEventWidget intent={intent} typed={typed} now={now} />;
 	}
 	if (id === 'show_calendar') {
 		return <CalendarWidget intent={intent} typed={typed} now={now} />;

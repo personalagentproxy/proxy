@@ -11,6 +11,9 @@ import {
 	eventSearches,
 	eventTime,
 	fileSearch,
+	guestsNamed,
+	movedTime,
+	personOnEvent,
 	isAddress,
 	matchesFor,
 	namesIn,
@@ -139,29 +142,82 @@ describe('calendar', () => {
 		expect(dayAsked('when am i meeting arne', now)).toBeNull();
 	});
 
+	test('names the person on the event found, never a namesake', () => {
+		const people: People = {
+			sources: [],
+			people: [
+				{
+					name: 'mike',
+					matches: [
+						person('Mike McCarthy', 'mike@cloudsquid.io'),
+						person('Mike Mahlkow', 'mike@fastgen.com'),
+					],
+				},
+			],
+			failed: [],
+		};
+		expect(personOnEvent(people, 'mike', ['MIKE@fastgen.com'])?.name).toBe('Mike Mahlkow');
+		expect(personOnEvent(people, 'mike', ['someone@example.com'])).toBeNull();
+	});
+
 	test('searches for the person by name and the addresses found, with what the event is, or for that alone', () => {
 		const people: People = {
 			sources: [],
 			people: [{name: 'arne', matches: [person('Arne Strickmann', 'arne@varislabs.com')]}],
 			failed: [],
 		};
-		expect(eventSearches(intentWith('show_calendar', {meetingWith: ['arne']}), people)).toEqual([
+		expect(eventSearches({name: 'arne', what: undefined}, people)).toEqual([
 			'arne',
 			'arne@varislabs.com',
 		]);
-		expect(
-			eventSearches(
-				intentWith('show_calendar', {meetingWith: ['arne'], eventName: ['lunch']}),
-				people,
-			),
-		).toEqual(['lunch arne', 'lunch arne@varislabs.com']);
-		expect(
-			eventSearches(intentWith('show_calendar', {meetingWith: ['arne@varislabs.com']}), null),
-		).toEqual(['arne@varislabs.com']);
-		expect(eventSearches(intentWith('show_calendar', {eventName: ['dentist']}), null)).toEqual([
-			'dentist',
+		expect(eventSearches({name: 'arne', what: 'lunch'}, people)).toEqual([
+			'lunch arne',
+			'lunch arne@varislabs.com',
 		]);
-		expect(eventSearches(intentWith('show_calendar', {}), null)).toEqual([]);
+		expect(eventSearches({name: 'arne@varislabs.com', what: undefined}, null)).toEqual([
+			'arne@varislabs.com',
+		]);
+		expect(eventSearches({name: undefined, what: 'dentist'}, null)).toEqual(['dentist']);
+		expect(eventSearches({name: undefined, what: undefined}, null)).toEqual([]);
+	});
+});
+
+describe('changing an event', () => {
+	// Tuesday 20 October, 3 to 4 in the afternoon.
+	const meeting = {start: new Date(2026, 9, 20, 15), end: new Date(2026, 9, 20, 16)};
+	const moved = (said: string) => {
+		const time = movedTime(said, meeting, now);
+		return time && [time.start.toString().slice(0, 21), time.end.toString().slice(16, 21)];
+	};
+
+	test('moves it by what is said, keeping its length', () => {
+		expect(moved('an hour later')).toEqual(['Tue Oct 20 2026 16:00', '17:00']);
+		expect(moved('push it back by 30 minutes')).toEqual(['Tue Oct 20 2026 15:30', '16:30']);
+		expect(moved('half an hour earlier')).toEqual(['Tue Oct 20 2026 14:30', '15:30']);
+	});
+
+	test('takes the day or the hour said, the rest as it is, a weekday from its own day on', () => {
+		expect(moved('10am')).toEqual(['Tue Oct 20 2026 10:00', '11:00']);
+		expect(moved('thursday')).toEqual(['Thu Oct 22 2026 15:00', '16:00']);
+		expect(moved('thursday at 4')).toEqual(['Thu Oct 22 2026 16:00', '17:00']);
+		expect(moved('tomorrow at 9am')).toEqual(['Thu Oct 15 2026 09:00', '10:00']);
+		expect(moved('2 to 4')).toEqual(['Tue Oct 20 2026 14:00', '16:00']);
+		expect(moved('whenever works')).toBeNull();
+	});
+
+	test('finds the guests a name taken off means', () => {
+		const people: People = {
+			sources: [],
+			people: [{name: 'arne', matches: [person('Arne Strickmann', 'a.strickmann@example.com')]}],
+			failed: [],
+		};
+		const guests = ['a.strickmann@example.com', 'jacky@example.com', 'arne.s@gmail.com'];
+		expect(guestsNamed(guests, 'arne', people)).toEqual([
+			'a.strickmann@example.com',
+			'arne.s@gmail.com',
+		]);
+		expect(guestsNamed(guests, 'jacky@example.com', null)).toEqual(['jacky@example.com']);
+		expect(guestsNamed(guests, 'hugo', null)).toEqual([]);
 	});
 });
 

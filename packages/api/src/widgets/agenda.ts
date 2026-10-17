@@ -22,9 +22,23 @@ export type AgendaCalendar = {connectionId: string; id: string; name: string; pr
 
 /**
  * An event of a calendar: its times with their offsets, or for an all-day event its first day and
- * the day after its last.
+ * the day after its last; where it is, everyone invited but the account itself and rooms, by
+ * their addresses, and whether the person can change it, which they can only of an event they
+ * organize, in a calendar they can write to.
  */
-export type AgendaEvent = {connectionId: string; calendarId: string; id: string; title: string; start: string; end: string; allDay: boolean; link: string | null};
+export type AgendaEvent = {
+	connectionId: string;
+	calendarId: string;
+	id: string;
+	title: string;
+	start: string;
+	end: string;
+	allDay: boolean;
+	location: string;
+	guests: string[];
+	editable: boolean;
+	link: string | null;
+};
 
 /**
  * How an integration's calendars are read; a calendar integration joins the widgets with one: the

@@ -77,6 +77,9 @@ const agendaEventSchema = z.object({
 	start: z.string(),
 	end: z.string(),
 	allDay: z.boolean(),
+	location: z.string(),
+	guests: z.array(z.string()),
+	editable: z.boolean(),
 	link: z.string().nullable(),
 });
 
@@ -130,14 +133,28 @@ export type NewEvent = {
 	guests: string[];
 };
 
+const madeEventSchema = z.object({title: z.string(), link: z.string().nullable()});
+
 /** Makes the event; the calendar's provider invites its guests. */
 export function createEvent(event: NewEvent) {
-	return apiRequest(
-		'POST',
-		'/api/widgets/events',
-		z.object({title: z.string(), link: z.string().nullable()}),
-		event,
-	);
+	return apiRequest('POST', '/api/widgets/events', madeEventSchema, event);
+}
+
+/** What changes of an event: only what is given, guests as they are to be once it is changed. */
+export type EventChange = {
+	connectionId: string;
+	calendarId: string;
+	eventId: string;
+	title?: string;
+	start?: string;
+	end?: string;
+	location?: string;
+	guests?: string[];
+};
+
+/** Changes an event the person organizes, its guests told. */
+export function editEvent(change: EventChange) {
+	return apiRequest('PUT', '/api/widgets/events', madeEventSchema, change);
 }
 
 const foundEmailSchema = z.object({

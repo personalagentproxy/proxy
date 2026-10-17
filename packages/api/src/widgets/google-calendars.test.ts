@@ -30,10 +30,19 @@ describe('googleCalendars.agenda', () => {
 			}
 			const events = {
 				'me@work': [
-					{id: 'standup', summary: 'Standup', start: {dateTime: '2026-10-15T09:30:00+02:00'}, end: {dateTime: '2026-10-15T09:45:00+02:00'}, htmlLink: 'https://calendar.google.com/standup'},
+					{
+						id: 'standup',
+						summary: 'Standup',
+						location: 'Room 1',
+						start: {dateTime: '2026-10-15T09:30:00+02:00'},
+						end: {dateTime: '2026-10-15T09:45:00+02:00'},
+						htmlLink: 'https://calendar.google.com/standup',
+						organizer: {email: 'me@work', self: true},
+						attendees: [{email: 'me@work', self: true}, {email: 'sam@example.com'}, {email: 'room-1@resource.calendar.google.com', resource: true}],
+					},
 					{id: 'declined', summary: 'Skip', start: {dateTime: '2026-10-15T11:00:00+02:00'}, end: {dateTime: '2026-10-15T12:00:00+02:00'}, attendees: [{self: true, responseStatus: 'declined'}]},
 				],
-				team: [{id: 'offsite', summary: 'Offsite', start: {date: '2026-10-15'}, end: {date: '2026-10-16'}}],
+				team: [{id: 'offsite', summary: 'Offsite', start: {date: '2026-10-15'}, end: {date: '2026-10-16'}, organizer: {email: 'boss@work'}}],
 				boss: [{id: 'x', start: {dateTime: '2026-10-15T14:00:00+02:00'}, end: {dateTime: '2026-10-15T15:00:00+02:00'}}],
 			}[calendarId];
 			return Ok({events: events ?? [], nextPage: null});
@@ -51,11 +60,14 @@ describe('googleCalendars.agenda', () => {
 			['boss', false, false],
 			['broken', false, false],
 		]);
-		expect(read.events.map((event) => [event.title, event.allDay])).toEqual([
-			['Standup', false],
-			['Offsite', true],
-			['Busy', false],
+		// Only an event the account organizes, in a calendar it writes to, can be changed.
+		expect(read.events.map((event) => [event.title, event.allDay, event.editable])).toEqual([
+			['Standup', false, true],
+			['Offsite', true, false],
+			['Busy', false, false],
 		]);
+		// The guests but the account and the room.
+		expect(read.events[0]).toMatchObject({location: 'Room 1', guests: ['sam@example.com']});
 		expect(read.events[0]?.link).toBe('https://calendar.google.com/standup');
 	});
 });

@@ -25,6 +25,7 @@ const EXAMPLES = [
 	'Book lunch with Jacky tomorrow at 1',
 	"What's on my calendar tomorrow?",
 	'When am I meeting Hugo?',
+	'Move my 1:1 with Hugo to Thursday at 4',
 	'Find the email about my flight to SFO',
 	'Email Jon asking for a 1:1 next week',
 	"What's Hugo's phone number?",
