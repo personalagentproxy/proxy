@@ -1,7 +1,11 @@
-import {describe, expect, test} from 'bun:test';
+import {describe, expect, mock, test} from 'bun:test';
 
 import {gmailQuery} from '../records/email-search';
-import {driveQuery, rankFiles} from './files';
+
+// The Google client and the mail connectors read the environment on import, which tests don't have.
+mock.module('../utils/env', () => ({env: {NODE_ENV: 'test'}}));
+
+const {driveQuery, rankFiles} = await import('./files');
 
 describe('the searches in each provider’s terms', () => {
 	test("Drive's: every word in the name, or in the text, the owner, never what is trashed, quotes escaped; the kind no filter", () => {

@@ -11,6 +11,8 @@ const sendNew = mock();
 const get = mock();
 const update = mock();
 
+// The Google client and the mail connectors read the environment on import, which tests don't have.
+mock.module('../utils/env', () => ({env: {NODE_ENV: 'test'}}));
 mock.module('./sources', () => ({requireWritable, findSources: mock(), summarize: mock()}));
 mock.module('./writes', () => ({afterWrite}));
 mock.module('../utils/user-org', () => ({requireUserOrgId: async () => Ok('org-1')}));

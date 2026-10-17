@@ -5,6 +5,8 @@ const listConnectionsWithCredential = mock();
 const getConnectionWithCredential = mock();
 const unavailableActions = mock((_connection: {id: string}): string[] => []);
 
+// The Google client and the mail connectors read the environment on import, which tests don't have.
+mock.module('../utils/env', () => ({env: {NODE_ENV: 'test'}}));
 mock.module('@proxy/db/connection', () => ({listConnectionsWithCredential, getConnectionWithCredential, getConnectionCredential: mock(), updateConnectionCredential: mock()}));
 mock.module('../connections/unavailable', () => ({
 	unavailableActions,
