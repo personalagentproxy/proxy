@@ -1,4 +1,5 @@
 import type {Intent} from '@/client/intent-client';
+import {BalancesWidget} from '@/components/widgets/balances-widget';
 import {CalendarWidget} from '@/components/widgets/calendar-widget';
 import {ConvertWidget} from '@/components/widgets/convert-widget';
 import {EditEventWidget} from '@/components/widgets/edit-event-widget';
@@ -7,6 +8,7 @@ import {FindEmailWidget} from '@/components/widgets/find-email-widget';
 import {FindFileWidget} from '@/components/widgets/find-file-widget';
 import {MathWidget} from '@/components/widgets/math-widget';
 import {PersonWidget} from '@/components/widgets/person-widget';
+import {TransactionsWidget} from '@/components/widgets/transactions-widget';
 import {WriteEmailWidget} from '@/components/widgets/write-email-widget';
 
 type Props = {
@@ -49,6 +51,12 @@ export function IntentWidget({intent, typed, now, onAsk}: Props) {
 	}
 	if (id === 'convert_units') {
 		return <ConvertWidget intent={intent} />;
+	}
+	if (id === 'show_balances') {
+		return <BalancesWidget intent={intent} />;
+	}
+	if (id === 'find_transactions') {
+		return <TransactionsWidget intent={intent} typed={typed} now={now} />;
 	}
 	return null;
 }

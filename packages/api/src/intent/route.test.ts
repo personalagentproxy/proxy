@@ -6,7 +6,7 @@ const classifyIntent = mock();
 mock.module('./classify', () => ({classifyIntent}));
 
 function makeRequest(body: unknown) {
-	return {user: {userId: 'user-1'}, body} as never;
+	return {user: {userId: 'user-1', experiments: ['plaid']}, body} as never;
 }
 
 beforeEach(() => {
@@ -15,12 +15,12 @@ beforeEach(() => {
 });
 
 describe('handleClassifyIntentRoute', () => {
-	test('classifies the text, trimmed', async () => {
+	test("classifies the text, trimmed, among the widgets the person's organization is offered", async () => {
 		const {handleClassifyIntentRoute} = await import('./route');
 		const result = await handleClassifyIntentRoute(makeRequest({text: '  who is hugo  '}));
 
 		expect(result.isOk()).toBe(true);
-		expect(classifyIntent).toHaveBeenCalledWith('who is hugo');
+		expect(classifyIntent).toHaveBeenCalledWith('who is hugo', {userId: 'user-1', experiments: ['plaid']});
 	});
 
 	test('refuses empty text, and text past 500 characters, without asking the models', async () => {

@@ -12,6 +12,6 @@ const intentBodySchema = z.object({text: z.string().trim().min(1).max(500)});
 export function handleClassifyIntentRoute(request: AuthenticatedRequest): Promise<Result<Intent, ApiError>> {
 	return Do(async ($) => {
 		const {text} = $(parseSchema(intentBodySchema, request.body));
-		return $(await classifyIntent(text));
+		return $(await classifyIntent(text, request.user));
 	});
 }

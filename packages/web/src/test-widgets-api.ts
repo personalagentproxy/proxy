@@ -1,4 +1,5 @@
 import {
+	useAccounts,
 	useAgenda,
 	useEmails,
 	useEvents,
@@ -6,16 +7,24 @@ import {
 	useMailboxes,
 	usePeople,
 	useRates,
+	useTransactions,
 } from '@/lib/widget-lookups';
 
 // A fake of the home page widgets' api (`/api/widgets/…`) for the web app's tests: one Google
-// account with contacts, a calendar, mail and files, answering as the api does. `widgetsAnswer`
-// answers a widget request, or null for any other.
+// account with contacts, a calendar, mail and files, and one bank, answering as the api does.
+// `widgetsAnswer` answers a widget request, or null for any other.
 
 const google = {
 	connectionId: 'google-1',
 	integrationId: 'google',
 	account: 'me@example.com',
+	name: null,
+};
+
+const bank = {
+	connectionId: 'bank-1',
+	integrationId: 'plaid',
+	account: 'First Platypus Bank',
 	name: null,
 };
 
@@ -168,6 +177,101 @@ const FILES = [
 	},
 ];
 
+export const ACCOUNTS = [
+	{
+		connectionId: 'bank-1',
+		id: 'checking',
+		name: 'Plaid Checking',
+		type: 'Checking',
+		mask: '0000',
+		owed: false,
+		balance: 110,
+		available: 100,
+		limit: null,
+		currency: 'USD',
+	},
+	{
+		connectionId: 'bank-1',
+		id: 'card',
+		name: 'Plaid Credit Card',
+		type: 'Credit card',
+		mask: '3333',
+		owed: true,
+		balance: 410,
+		available: 1590,
+		limit: 2000,
+		currency: 'USD',
+	},
+];
+
+const transaction = (
+	id: string,
+	accountId: string,
+	date: string,
+	merchant: string | null,
+	name: string,
+	amount: number,
+	category: string | null,
+	pending = false,
+) => ({
+	connectionId: 'bank-1',
+	accountId,
+	id,
+	date,
+	name,
+	merchant,
+	amount,
+	currency: 'USD',
+	category,
+	pending,
+});
+
+// On the test's clock, Wednesday 14 October 2026: this month's, and September's before them.
+export const TRANSACTIONS = [
+	transaction(
+		'uber',
+		'checking',
+		'2026-10-11',
+		'Uber',
+		'Uber 063015 SF**POOL**',
+		-5.4,
+		'TRANSPORTATION',
+	),
+	transaction('payroll', 'checking', '2026-10-10', null, 'ACME PAYROLL', 2500, 'INCOME', true),
+	transaction(
+		'wholefoods',
+		'card',
+		'2026-10-03',
+		'Whole Foods',
+		'WHOLEFDS SF 10013',
+		-82.15,
+		'FOOD_AND_DRINK',
+	),
+	transaction('netflix', 'card', '2026-10-01', 'Netflix', 'Netflix.com', -15.49, 'ENTERTAINMENT'),
+	transaction('nopa', 'card', '2026-09-20', 'Nopa', 'NOPA SAN FRANCISCO', -64, 'FOOD_AND_DRINK'),
+	transaction(
+		'uber-sep',
+		'checking',
+		'2026-09-12',
+		'Uber',
+		'Uber 091215 SF**POOL**',
+		-12.8,
+		'TRANSPORTATION',
+	),
+];
+
+function transactions(url: URL) {
+	const from = url.searchParams.get('from') ?? '';
+	const to = url.searchParams.get('to') ?? '';
+	return {
+		sources: [bank],
+		accounts: ACCOUNTS,
+		transactions: TRANSACTIONS.filter((one) => one.date >= from && one.date <= to),
+		more: false,
+		failed: [],
+	};
+}
+
 export function widgetsAnswer(input: string, init?: RequestInit): Response | null {
 	const url = new URL(input, 'http://localhost');
 	if (!url.pathname.startsWith('/api/widgets/')) {
@@ -207,6 +311,12 @@ export function widgetsAnswer(input: string, init?: RequestInit): Response | nul
 	if (route === 'GET /api/widgets/files') {
 		return Response.json({sources: [google], files: FILES, failed: []});
 	}
+	if (route === 'GET /api/widgets/accounts') {
+		return Response.json({sources: [bank], accounts: ACCOUNTS, failed: []});
+	}
+	if (route === 'GET /api/widgets/transactions') {
+		return Response.json(transactions(url));
+	}
 	return Response.json({error: 'not_found'}, {status: 404});
 }
 
@@ -220,6 +330,8 @@ export function clearWidgetLookups(): void {
 		useMailboxes,
 		useFiles,
 		useRates,
+		useAccounts,
+		useTransactions,
 	]) {
 		lookup.clear();
 	}

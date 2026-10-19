@@ -427,6 +427,127 @@ describe('IntentWidget', () => {
 		).toBeTruthy();
 	});
 
+	test('Balances: every account with what it holds or owes, the one asked about standing out', async () => {
+		show(intentWith('show_balances', {balanceAccount: ['checking']}));
+		const widget = widgetNamed('Balances');
+		expect(within(widget).getByText('of checking')).toBeTruthy();
+		expect(await within(widget).findByText('Plaid Checking')).toBeTruthy();
+		expect(within(widget).getByText('$110.00')).toBeTruthy();
+		expect(within(widget).getByText('Checking ••0000 · $100.00 available')).toBeTruthy();
+		// The card folds away, until asked for.
+		expect(within(widget).queryByText('Plaid Credit Card')).toBeNull();
+		fireEvent.click(within(widget).getByRole('button', {name: '1 more account'}));
+		expect(within(widget).getByText('Plaid Credit Card')).toBeTruthy();
+		expect(within(widget).getByText('owed')).toBeTruthy();
+		expect(within(widget).getByText('Credit card ••3333 · $1,590.00 available')).toBeTruthy();
+		expect(within(widget).getByLabelText('In all').textContent).toBe(
+			'In accounts $110.00 · Owed $410.00',
+		);
+		cleanup();
+
+		show(intentWith('show_balances', {balanceAccount: ['chase']}));
+		expect(
+			await within(widgetNamed('Balances')).findByText(
+				'No account called “chase”, so every account is shown.',
+			),
+		).toBeTruthy();
+		expect(within(widgetNamed('Balances')).getByText('Plaid Credit Card')).toBeTruthy();
+	});
+
+	test('Transactions: the days asked about are read once, and sifted by kind, with the days before beside the total', async () => {
+		show(
+			intentWith('find_transactions', {category: ['FOOD_AND_DRINK'], flow: ['out']}),
+			'how much did I spend on restaurants this month',
+		);
+		const widget = widgetNamed('Transactions');
+		expect(within(widget).getByText('Food and drink · this month')).toBeTruthy();
+		expect(await within(widget).findByText('Whole Foods')).toBeTruthy();
+		// The kind goes without saying in the rows, once asked for; the account doesn't.
+		expect(within(widget).queryByText('Food and drink')).toBeNull();
+		expect(within(widget).getByText('Plaid Credit Card ••3333')).toBeTruthy();
+		// September 17 to October 14: this month and the 14 days before it, in one read.
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/widgets/transactions?from=2026-09-17&to=2026-10-14',
+			expect.anything(),
+		);
+		expect(within(widget).getByLabelText('In all').textContent).toBe(
+			'$82.151 transaction · Oct 1 – Oct 14 · $64.00 the 14 days before',
+		);
+		expect(within(widget).queryByText('Uber')).toBeNull();
+		expect(within(widget).queryByText('Netflix')).toBeNull();
+	});
+
+	test('Transactions: a merchant by name, money in, and an account, the default days said as missing', async () => {
+		show(intentWith('find_transactions', {merchant: ['uber']}), 'find the uber charge');
+		const widget = widgetNamed('Transactions');
+		expect(within(widget).getByText('the last 30 days')).toBeTruthy();
+		expect(await within(widget).findByText('Uber')).toBeTruthy();
+		// September's Uber is before the 30 days, and beside the total.
+		expect(within(widget).getByLabelText('In all').textContent).toBe(
+			'$5.401 transaction · Sep 15 – Oct 14 · $12.80 the 30 days before',
+		);
+		cleanup();
+
+		show(intentWith('find_transactions', {flow: ['in']}), 'when did I last get paid');
+		expect(await within(widgetNamed('Transactions')).findByText(/ACME PAYROLL/)).toBeTruthy();
+		expect(within(widgetNamed('Transactions')).getByText('+$2,500.00')).toBeTruthy();
+		expect(within(widgetNamed('Transactions')).getByText('· pending')).toBeTruthy();
+		cleanup();
+
+		show(
+			intentWith('find_transactions', {transactionAccount: ['card']}),
+			'what did I spend on my card in october',
+		);
+		const onCard = widgetNamed('Transactions');
+		expect(await within(onCard).findByText('Netflix')).toBeTruthy();
+		expect(within(onCard).getByText('Plaid Credit Card ••3333 · October')).toBeTruthy();
+		expect(within(onCard).getByText('Entertainment')).toBeTruthy();
+		expect(within(onCard).queryByText('Uber')).toBeNull();
+		cleanup();
+
+		// A merchant no transaction has beside a kind is that kind said twice.
+		show(
+			intentWith('find_transactions', {merchant: ['groceries'], category: ['FOOD_AND_DRINK']}),
+			'how much did I spend on groceries this month',
+		);
+		expect(await within(widgetNamed('Transactions')).findByText('Whole Foods')).toBeTruthy();
+		expect(
+			within(widgetNamed('Transactions')).getByText('Food and drink · this month'),
+		).toBeTruthy();
+		cleanup();
+
+		// A merchant the model took an account for is the account.
+		show(
+			intentWith('find_transactions', {merchant: ['credit card']}),
+			'what did I spend on my credit card in october',
+		);
+		expect(await within(widgetNamed('Transactions')).findByText('Netflix')).toBeTruthy();
+		expect(
+			within(widgetNamed('Transactions')).getByText('Plaid Credit Card ••3333 · October'),
+		).toBeTruthy();
+	});
+
+	test('Balances and Transactions ask for a bank when none is connected', async () => {
+		fetchMock.mockImplementation(() =>
+			Promise.resolve(
+				Response.json({sources: [], accounts: [], transactions: [], more: false, failed: []}),
+			),
+		);
+		show(intentWith('show_balances', {}));
+		expect(
+			await screen.findByText('Connect a bank to see your balances and spending from here.'),
+		).toBeTruthy();
+		expect(screen.getByRole('link', {name: /Connect Plaid/}).getAttribute('href')).toBe(
+			'/connections/new/plaid',
+		);
+		cleanup();
+
+		show(intentWith('find_transactions', {merchant: ['uber']}), 'uber');
+		expect(
+			await screen.findByText('Connect a bank to see your balances and spending from here.'),
+		).toBeTruthy();
+	});
+
 	test('shows nothing when no widget fits', () => {
 		const {container} = show(intentWith('none', {}));
 		expect(container.innerHTML).toBe('');

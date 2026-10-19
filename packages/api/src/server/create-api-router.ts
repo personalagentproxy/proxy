@@ -37,6 +37,7 @@ import {handleRegisterClientRoute} from '../oauth/register';
 import {handleTokenRoute} from '../oauth/token';
 import {handleCreateRecordRoute, handleDeleteRecordRoute, handleGetRecordRoute, handleListRecordsRoute, handleUpdateRecordRoute} from '../records/route';
 import {handleAgendaRoute, handleFindEventsRoute} from '../widgets/agenda';
+import {handleBankAccountsRoute, handleBankTransactionsRoute} from '../widgets/bank';
 import {handleEditEventRoute} from '../widgets/edit-event';
 import {handleFindEmailsRoute, handleMailboxesRoute, handleWriteEmailRoute} from '../widgets/emails';
 import {handleFindFilesRoute} from '../widgets/files';
@@ -134,6 +135,8 @@ export function createApiRouter(): express.Router {
 	router.get('/api/widgets/mailboxes', withAuthResult('Widget mailboxes route', handleMailboxesRoute));
 	router.get('/api/widgets/files', withAuthResult('Widget find files route', handleFindFilesRoute));
 	router.get('/api/widgets/rates', withAuthResult('Widget exchange rates route', handleRatesRoute));
+	router.get('/api/widgets/accounts', withAuthResult('Widget bank accounts route', handleBankAccountsRoute));
+	router.get('/api/widgets/transactions', withAuthResult('Widget bank transactions route', handleBankTransactionsRoute));
 
 	// The agent side: its own sign-in and cookie, and every request checked against the agent's
 	// access and logged.

@@ -10,6 +10,7 @@ import {AppShell} from '@/components/app-shell';
 import {IntentWidget} from '@/components/widgets/intent-widget';
 import {UnsupportedWidget} from '@/components/widgets/unsupported-widget';
 import {Input} from '@proxy/ui/components/input';
+import {useExperiment} from '@/hooks/use-experiment';
 import {apiMessage} from '@/lib/agent-errors';
 import type {homeLoader} from '@/loaders';
 
@@ -32,6 +33,12 @@ const EXAMPLES = [
 	'Find the pricing spreadsheet Paul shared',
 	"What's an 18% tip on $86.40?",
 	'72°F in Celsius',
+];
+
+// Examples for an organization with banks connected through Plaid.
+const BANK_EXAMPLES = [
+	"What's my checking balance?",
+	'How much did I spend on restaurants last month?',
 ];
 
 // How long each example shows.
@@ -71,6 +78,7 @@ function saysUnsupported(answer: Answer, pausedOn: string): boolean {
 // it back.
 export function HomePage() {
 	const me = useRouteLoaderData<Me>('human');
+	const banks = useExperiment('plaid');
 	const {connections, agents, activity} = useLoaderData<typeof homeLoader>();
 	// The time the page opened, for its greeting.
 	const [opened] = useState(() => new Date());
@@ -200,7 +208,9 @@ export function HomePage() {
 				<div
 					className={`relative z-40 w-full max-w-2xl overflow-hidden rounded-2xl border bg-card transition-[translate,box-shadow] duration-300 ease-out motion-reduce:transition-none ${active ? '-translate-y-[8vh] shadow-2xl' : 'shadow-sm'}`}
 				>
-					{!active && <QuickActions />}
+					{!active && (
+						<QuickActions examples={banks ? [...EXAMPLES, ...BANK_EXAMPLES] : EXAMPLES} />
+					)}
 					{active && (
 						<button
 							type="button"
@@ -263,16 +273,16 @@ export function HomePage() {
 
 // The empty input's placeholder: "Quick actions:" and an example of what to type, the next fading in
 // every few seconds. Drawn over the input, since a placeholder can't fade.
-function QuickActions() {
+function QuickActions({examples}: {examples: string[]}) {
 	const [index, setIndex] = useState(0);
 
 	useEffect(() => {
 		const timer = setInterval(
-			() => setIndex((current) => (current + 1) % EXAMPLES.length),
+			() => setIndex((current) => (current + 1) % examples.length),
 			EXAMPLE_MS,
 		);
 		return () => clearInterval(timer);
-	}, []);
+	}, [examples.length]);
 
 	return (
 		<div
@@ -284,7 +294,7 @@ function QuickActions() {
 				key={index}
 				className="truncate animate-in duration-500 fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none"
 			>
-				{EXAMPLES[index]}
+				{examples[index]}
 			</span>
 		</div>
 	);

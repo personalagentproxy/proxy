@@ -87,12 +87,14 @@ function sentenceCase(text: string): string {
 	return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function accountType(account: PlaidAccount): string {
+/** An account's kind as a person reads it: "Checking", "Credit card", "IRA". */
+export function accountType(account: PlaidAccount): string {
 	const kind = account.subtype ?? account.type;
 	return ACRONYMS[kind] ?? sentenceCase(kind);
 }
 
-function accountNumber(account: PlaidAccount): string {
+/** The account number's last digits as the bank shows them, "••0000", or nothing. */
+export function accountNumber(account: PlaidAccount): string {
 	return account.mask ? `••${account.mask}` : '';
 }
 

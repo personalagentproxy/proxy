@@ -1,10 +1,13 @@
+import {type Experiment, hasExperiment} from '@proxy/utils';
+import {TRANSACTION_CATEGORIES} from '@proxy/utils/transaction-categories';
 import {UNITS} from '@proxy/utils/units';
 
 /**
  * The widgets the home page shows for what a person types, Sana's way: a small, fast LLM picks the
  * one that fits and fills in its fields from the text. Most are meant for one kind of data:
- * Calendar, Contacts, Gmail or Drive; Math and Convert units are worked out in the web app. Field ids are unique across widgets, as the LLM answers
- * every widget's fields in one object.
+ * Calendar, Contacts, Gmail or Drive, or a bank; Math and Convert units are worked out in the web
+ * app. Field ids are unique across widgets, as the LLM answers every widget's fields in one object.
+ * A widget behind an experiment is offered only to an organization with it on.
  */
 
 export type WidgetField = {
@@ -33,12 +36,18 @@ export type Widget = {
 	/** What the LLM reads to tell the widgets apart. */
 	description: string;
 	fields: WidgetField[];
+	/** The experiment an organization needs on to be offered it, as banks are behind `plaid`. */
+	experiment?: Experiment;
 };
 
 // Times aren't fields: the web app reads them from the whole text, which no field holds whole. A
 // change to an event says two, when it is and when it moves to, so those are fields of their own.
 // The units Convert units knows, each as the model is told of it: `mi` (mile).
 const UNIT_LIST = UNITS.map((unit) => `${unit.id} (${unit.name})`).join(', ');
+
+// The kinds of spending Transactions knows, each as the model is told of it: `FOOD_AND_DRINK`
+// (restaurants, groceries, coffee, bars, delivery, eating out).
+const CATEGORY_LIST = TRANSACTION_CATEGORIES.map((category) => `${category.id} (${category.examples})`).join(', ');
 
 export const WIDGETS: Widget[] = [
 	{
@@ -149,7 +158,41 @@ export const WIDGETS: Widget[] = [
 			{id: 'toUnit', name: 'To', hint: 'the unit to convert it to, of the same list; null when not said', options: UNITS.map((unit) => unit.id)},
 		],
 	},
+	{
+		id: 'show_balances',
+		name: 'Balances',
+		experiment: 'plaid',
+		description: 'See the balance of a bank account, card or loan, or how much money the person has or owes in all',
+		fields: [{id: 'balanceAccount', name: 'Account', hint: 'the account asked about, as written without my ("checking", "amex", "savings", "credit card"); null for every account'}],
+	},
+	{
+		id: 'find_transactions',
+		name: 'Transactions',
+		experiment: 'plaid',
+		description:
+			'Find bank or card transactions, charges, payments and deposits, or add up what was spent or received: at a merchant, of a kind, on an account, over some days ("how much did I spend on restaurants last month", "find the uber charge", "when did I last get paid")',
+		fields: [
+			{
+				id: 'merchant',
+				name: 'Merchant',
+				hint: 'the business or person paid or paying, as written ("uber", "netflix", "my landlord"), without any day or time; never a kind of thing bought ("groceries", "rent", "coffee"), which is category, nor an account or card of the person\'s own ("my sapphire", "checking"), which is transactionAccount; null when no one is named',
+			},
+			{
+				id: 'category',
+				name: 'Category',
+				hint: `the kind of spending or income asked about, one of: ${CATEGORY_LIST}; null when none is said`,
+				options: TRANSACTION_CATEGORIES.map((category) => category.id),
+			},
+			{id: 'flow', name: 'Flow', hint: '"in" for money coming in (deposits, paychecks, refunds, income), "out" for money spent or paid; null when either or not said', options: ['in', 'out']},
+			{id: 'transactionAccount', name: 'Account', hint: 'the account the transactions are on, as written without my ("checking", "amex"); null when not said'},
+		],
+	},
 ];
+
+/** The widgets offered to an organization: every one not behind an experiment, and those behind one it has on. */
+export function offeredWidgets(holder: {experiments: Experiment[]}): Widget[] {
+	return WIDGETS.filter((widget) => !widget.experiment || hasExperiment(holder, widget.experiment));
+}
 
 /** The answer when what was asked is whole and none of the widgets does it. */
 export const NO_WIDGET = 'none';
