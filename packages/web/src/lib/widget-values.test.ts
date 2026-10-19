@@ -28,7 +28,6 @@ function intentWith(widget: string, fields: Record<string, string[]>): Intent {
 	return {
 		widget,
 		fields: Object.entries(fields).map(([id, values]) => ({id, name: id, values})),
-		ms: 0,
 	};
 }
 

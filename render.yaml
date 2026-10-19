@@ -58,8 +58,10 @@ services:
         sync: false
       - key: EMAIL_FROM
         sync: false
-      # The model the home page's widgets are picked and filled in with; without it the home page
-      # says it is not set up.
+      # Jev, which picks the home page's widget, and the model that fills it in; without both the
+      # home page says it is not set up.
+      - key: TYPESAFE_API_KEY
+        sync: false
       - key: OPENROUTER_KEY
         sync: false
       - key: GOOGLE_CLIENT_ID

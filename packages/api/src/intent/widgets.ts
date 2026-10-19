@@ -3,11 +3,10 @@ import {TRANSACTION_CATEGORIES} from '@proxy/utils/transaction-categories';
 import {UNITS} from '@proxy/utils/units';
 
 /**
- * The widgets the home page shows for what a person types, Sana's way: a small, fast LLM picks the
- * one that fits and fills in its fields from the text. Most are meant for one kind of data:
+ * The widgets the home page shows for what a person types, Sana's way: Jev picks the one that fits,
+ * and a small, fast LLM fills in its fields from the text. Most are meant for one kind of data:
  * Calendar, Contacts, Gmail or Drive, or a bank; Math and Convert units are worked out in the web
- * app. Field ids are unique across widgets, as the LLM answers every widget's fields in one object.
- * A widget behind an experiment is offered only to an organization with it on.
+ * app. A widget behind an experiment is offered only to an organization with it on.
  */
 
 export type WidgetField = {
@@ -33,7 +32,7 @@ export type WidgetField = {
 export type Widget = {
 	id: string;
 	name: string;
-	/** What the LLM reads to tell the widgets apart. */
+	/** What Jev reads to tell the widgets apart, and the LLM reads to know what it fills in. */
 	description: string;
 	fields: WidgetField[];
 	/** The experiment an organization needs on to be offered it, as banks are behind `plaid`. */

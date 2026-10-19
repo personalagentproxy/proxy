@@ -90,14 +90,28 @@ let home: {
 };
 
 const realFetch = globalThis.fetch;
-// `/api/intent`, which each test answers; the widgets' own requests go to a fake of their api.
+// `/api/intent`, the widget picked, which each test answers; `/api/intent/fields`, its fields, filled
+// in as `intent` and `person` have them unless a test says otherwise; the widgets' own requests go
+// to a fake of their api.
 const fetchMock = mock<(input: string, init?: RequestInit) => Promise<Response>>();
+const fieldsMock = mock<(input: string, init?: RequestInit) => Promise<Response>>();
+
+function fieldsFor(init?: RequestInit): Promise<Response> {
+	const {widget} = JSON.parse(String(init?.body)) as {widget: string};
+	const filled = [intent, person].find((one) => one.widget === widget);
+	return Promise.resolve(Response.json({fields: filled?.fields ?? [], ms: 1}));
+}
 
 beforeEach(() => {
 	fetchMock.mockReset();
+	fieldsMock.mockReset();
+	fieldsMock.mockImplementation((_input, init) => fieldsFor(init));
 	globalThis.fetch = ((input: string, init?: RequestInit) => {
 		const answer = widgetsAnswer(input, init);
-		return answer ? Promise.resolve(answer) : fetchMock(input, init);
+		if (answer) {
+			return Promise.resolve(answer);
+		}
+		return input === '/api/intent/fields' ? fieldsMock(input, init) : fetchMock(input, init);
 	}) as typeof fetch;
 });
 
@@ -199,7 +213,7 @@ describe('HomePage', () => {
 	});
 
 	test('suggests a quick action while the input is empty, and none once typing starts', async () => {
-		fetchMock.mockResolvedValue(Response.json(intent));
+		fetchMock.mockImplementation(() => Promise.resolve(Response.json(intent)));
 		renderHomePage();
 
 		expect(await screen.findByText('Quick actions:')).toBeTruthy();
@@ -209,7 +223,7 @@ describe('HomePage', () => {
 	});
 
 	test('opens what is typed into its widget under the input, and nothing else', async () => {
-		fetchMock.mockResolvedValue(Response.json(intent));
+		fetchMock.mockImplementation(() => Promise.resolve(Response.json(intent)));
 		renderHomePage();
 
 		await typeInto('lunch with Jacky Doe at Nopa');
@@ -224,8 +238,69 @@ describe('HomePage', () => {
 				body: JSON.stringify({text: 'lunch with Jacky Doe at Nopa'}),
 			}),
 		);
+		expect(fieldsMock).toHaveBeenCalledWith(
+			'/api/intent/fields',
+			expect.objectContaining({
+				method: 'POST',
+				body: JSON.stringify({text: 'lunch with Jacky Doe at Nopa', widget: 'new_event'}),
+			}),
+		);
 		// The raw answer is not shown.
 		expect(screen.queryByText(/140 ms/)).toBeNull();
+	});
+
+	test('shows the widget as soon as it is picked, and fills it in when its fields come', async () => {
+		fetchMock.mockImplementation(() => Promise.resolve(Response.json(intent)));
+		let fields: (response: Response) => void = () => {};
+		fieldsMock.mockImplementationOnce(() => new Promise<Response>((resolve) => (fields = resolve)));
+		renderHomePage();
+
+		await typeInto('lunch with Jacky Doe');
+		const filling = await screen.findByRole('region', {name: 'New event'});
+		expect(within(filling).getByText('Filling in…')).toBeTruthy();
+
+		await waitFor(() => expect(fieldsMock).toHaveBeenCalledTimes(1));
+		fields(Response.json({fields: intent.fields, ms: 1}));
+		expect(await screen.findByText(/jacky\.doe@example\.com/)).toBeTruthy();
+		expect(screen.queryByText('Filling in…')).toBeNull();
+	});
+
+	test('the widget on screen, picked again, stays filled in until its new fields come', async () => {
+		fetchMock.mockImplementation(() => Promise.resolve(Response.json(intent)));
+		renderHomePage();
+
+		await typeInto('lunch with Jacky Doe');
+		const widget = await screen.findByRole('region', {name: 'New event'});
+		expect(await within(widget).findByText(/jacky\.doe@example\.com/)).toBeTruthy();
+
+		fieldsMock.mockImplementation(() => new Promise<Response>(() => {}));
+		await typeInto('lunch with Jacky Doe at Nopa');
+		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+		await new Promise((resolve) => setTimeout(resolve, 50));
+
+		expect(screen.queryByText('Filling in…')).toBeNull();
+		expect(
+			within(screen.getByRole('region', {name: 'New event'})).getByText(/jacky\.doe@example\.com/),
+		).toBeTruthy();
+	});
+
+	test("fields for a widget no longer on screen aren't shown", async () => {
+		fetchMock.mockImplementationOnce(() => Promise.resolve(Response.json(intent)));
+		fetchMock.mockImplementationOnce(() => Promise.resolve(Response.json(person)));
+		let fields: (response: Response) => void = () => {};
+		fieldsMock.mockImplementationOnce(() => new Promise<Response>((resolve) => (fields = resolve)));
+		renderHomePage();
+
+		await typeInto('lunch with');
+		await screen.findByRole('region', {name: 'New event'});
+		await typeInto('who is hugo');
+		await screen.findByRole('region', {name: 'Person'});
+
+		expect(fieldsMock).toHaveBeenCalledTimes(2);
+		fields(Response.json({fields: intent.fields, ms: 1}));
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(screen.getByRole('region', {name: 'Person'})).toBeTruthy();
+		expect(screen.queryByRole('region', {name: 'New event'})).toBeNull();
 	});
 
 	test('says what fits no quick action is for an agent, once typing pauses', async () => {
@@ -418,7 +493,10 @@ describe('HomePage', () => {
 	test("shows the api's reason when classifying isn't set up", async () => {
 		fetchMock.mockResolvedValue(
 			Response.json(
-				{error: 'unavailable', message: 'The home page is not set up: set `OPENROUTER_KEY`.'},
+				{
+					error: 'unavailable',
+					message: 'The home page is not set up: set `TYPESAFE_API_KEY` and `OPENROUTER_KEY`.',
+				},
 				{status: 503},
 			),
 		);
@@ -427,7 +505,9 @@ describe('HomePage', () => {
 		await typeInto('who is hugo');
 
 		expect(
-			await screen.findByText('The home page is not set up: set `OPENROUTER_KEY`.'),
+			await screen.findByText(
+				'The home page is not set up: set `TYPESAFE_API_KEY` and `OPENROUTER_KEY`.',
+			),
 		).toBeTruthy();
 	});
 });

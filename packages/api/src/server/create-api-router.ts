@@ -28,7 +28,7 @@ import {handleNotionCallbackRoute, handleStartNotionRoute} from '../connections/
 import {handleConnectPlaidRoute, handleCreatePlaidLinkTokenRoute} from '../connections/plaid/route';
 import {handleConnectPostgresRoute, handleTestPostgresRoute} from '../connections/postgres/route';
 import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleRenameConnectionRoute, handleSetConnectionDefaultsRoute} from '../connections/route';
-import {handleClassifyIntentRoute} from '../intent/route';
+import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
 import {handleDeleteMeRoute, handleFinishOnboardingRoute, handleMeRoute} from '../me/route';
 import {handleAuthorizeRoute, handleConsentRoute, handleGetAuthorizationRequestRoute} from '../oauth/authorize';
@@ -119,9 +119,10 @@ export function createApiRouter(): express.Router {
 	router.get('/api/activity', withAuthResult('List activity route', handleListActivityRoute));
 	router.get('/api/activity/summary', withAuthResult('Activity summary route', handleActivitySummaryRoute));
 
-	// The home page: which widget fits what the person types, and the entities in it.
+	// The home page: which widget fits what the person types, then its fields filled in.
 	router.use('/api/intent', requireBrowserOrigin);
-	router.post('/api/intent', withAuthResult('Classify intent route', handleClassifyIntentRoute));
+	router.post('/api/intent', withAuthResult('Pick intent route', handlePickIntentRoute));
+	router.post('/api/intent/fields', withAuthResult('Fill intent route', handleFillIntentRoute));
 	// Its widgets: every connection with the collection a widget is about, read at once, and
 	// written to as the person picks.
 	router.use('/api/widgets', requireBrowserOrigin);
