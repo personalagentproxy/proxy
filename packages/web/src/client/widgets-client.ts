@@ -245,6 +245,100 @@ export function findFiles(search: FileQuery) {
 	);
 }
 
+const foundMeetingSchema = z.object({
+	connectionId: z.string(),
+	id: z.string(),
+	title: z.string(),
+	// As the notetaker writes it: "Sep 22, 2026 11:00 AM PDT".
+	date: z.string(),
+	participants: z.string(),
+	link: z.string().nullable(),
+});
+
+const foundMeetingsSchema = z.object({
+	sources: z.array(sourceSchema),
+	meetings: z.array(foundMeetingSchema),
+	failed: z.array(failureSchema),
+});
+
+export type FoundMeeting = z.infer<typeof foundMeetingSchema>;
+export type FoundMeetings = z.infer<typeof foundMeetingsSchema>;
+
+// Days as 2026-10-14, both included, the last month when not given; people by name or address.
+export type MeetingQuery = {
+	from: string | null;
+	to: string | null;
+	with: string[];
+	words: string[];
+};
+
+/** The meetings every notetaker has between two days with every person, those about the words first. */
+export function findMeetings(search: MeetingQuery) {
+	return apiRequest(
+		'GET',
+		`/api/widgets/meetings${query({from: search.from, to: search.to, with: search.with, words: search.words})}`,
+		foundMeetingsSchema,
+	);
+}
+
+const foundRecordSchema = z.object({
+	connectionId: z.string(),
+	id: z.string(),
+	title: z.string(),
+	updated: z.string(),
+	link: z.string().nullable(),
+});
+
+const foundRecordsSchema = z.object({
+	sources: z.array(sourceSchema),
+	records: z.array(foundRecordSchema),
+	failed: z.array(failureSchema),
+});
+
+export type FoundRecord = z.infer<typeof foundRecordSchema>;
+export type FoundRecords = z.infer<typeof foundRecordsSchema>;
+
+/** A collection searched as an agent searches it: Notion's pages, Linear's issues. */
+export type RecordQuery = {collection: 'pages' | 'issues'; words: string[]};
+
+/** What every source's own search finds in the collection for the words, in its order. */
+export function findRecords(search: RecordQuery) {
+	return apiRequest(
+		'GET',
+		`/api/widgets/records${query({collection: search.collection, words: search.words})}`,
+		foundRecordsSchema,
+	);
+}
+
+const answerSchema = z.object({
+	title: z.string(),
+	link: z.string().nullable(),
+	// Whether it says what was asked.
+	found: z.boolean(),
+	answer: z.string(),
+	// Passages of it, word for word, the answer rests on.
+	quotes: z.array(z.string()),
+	// Whether it was longer than was read.
+	cut: z.boolean(),
+});
+
+export type Answer = z.infer<typeof answerSchema>;
+
+/** What Ask reads, by the collection the catalog names: a meeting's notes, a file, an email, a page or an issue. */
+export type AskedCollection = 'notes' | 'files' | 'emails' | 'pages' | 'issues';
+
+export type AskQuery = {
+	question: string;
+	connectionId: string;
+	collectionId: AskedCollection;
+	id: string;
+};
+
+/** What the meeting, file, email, page or issue says of the question, read whole. */
+export function askAbout(ask: AskQuery) {
+	return apiRequest('POST', '/api/widgets/answer', answerSchema, ask);
+}
+
 const ratesSchema = z.object({date: z.string(), rates: z.record(z.string(), z.number())});
 
 export type DayRates = z.infer<typeof ratesSchema>;

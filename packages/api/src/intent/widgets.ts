@@ -6,7 +6,8 @@ import {UNITS} from '@proxy/utils/units';
  * The widgets the home page shows for what a person types, Sana's way: Jev picks the one that fits,
  * and a small, fast LLM fills in its fields from the text. Most are meant for one kind of data:
  * Calendar, Contacts, Gmail or Drive, or a bank; Math and Convert units are worked out in the web
- * app. A widget behind an experiment is offered only to an organization with it on.
+ * app; Ask reads one meeting, file, email, page or issue and answers from it. A widget behind an experiment is offered
+ * only to an organization with it on.
  */
 
 export type WidgetField = {
@@ -133,6 +134,32 @@ export const WIDGETS: Widget[] = [
 		fields: [
 			{id: 'name', name: 'Name', hint: "the file's name, or the words in it, as written, without its owner or 's"},
 			{id: 'owner', name: 'Owner', hint: "who made, owns or shared it, as written without 's, or null"},
+		],
+	},
+	{
+		id: 'ask',
+		name: 'Ask',
+		experiment: 'ask',
+		description:
+			'Ask what one meeting, call, document, page, email or issue says: what was talked about or decided with someone, what a document or an email says about something, where an issue stands, or a summary of any of them ("what did I talk to sam about on monday", "what does the pricing doc say about discounts", "what did my landlord\'s email say about the deposit", "what\'s the status of the checkout bug", "summarize the board deck")',
+		fields: [
+			{
+				id: 'askIn',
+				name: 'In',
+				hint: '"meetings" when it asks about a meeting or call, what was talked about, said or decided with someone, or a meeting\'s notes or transcript; "documents" when it asks about a document, file, spreadsheet, presentation, page or wiki, in Drive or Notion; "emails" when it asks about an email, or what someone wrote or sent by email; "issues" when it asks about an issue, ticket, bug or task in Linear; null when none is clear',
+				options: ['meetings', 'documents', 'emails', 'issues'],
+			},
+			{
+				id: 'askWith',
+				name: 'With',
+				hint: "each person the meeting was with, who sent the email, or who wrote or owns the document, one per item, as written without 's; never the person typing",
+				many: true,
+			},
+			{
+				id: 'askAbout',
+				name: 'About',
+				hint: 'the meeting\'s, document\'s, email\'s or issue\'s name or topic, to find it by, as written, without the people, any date or time, words such as "meeting", "call", "doc", "file", "email" or "issue", or what is asked of it ("what does the pricing doc say about discounts" is "pricing", "summarize our weekly sync" is "weekly sync", "what did my landlord\'s email say about the deposit" is "deposit"); null when it is found by its people or time alone',
+			},
 		],
 	},
 	{

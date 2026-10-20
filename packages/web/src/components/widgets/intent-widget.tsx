@@ -7,12 +7,14 @@ import {
 	InboxIcon,
 	LandmarkIcon,
 	MailIcon,
+	MessageCircleQuestionMarkIcon,
 	ReceiptTextIcon,
 	UserRoundIcon,
 	type LucideIcon,
 } from 'lucide-react';
 import type {Intent} from '@/client/intent-client';
 import {Skeleton} from '@proxy/ui/components/skeleton';
+import {AskWidget} from '@/components/widgets/ask-widget';
 import {BalancesWidget} from '@/components/widgets/balances-widget';
 import {CalendarWidget} from '@/components/widgets/calendar-widget';
 import {ConvertWidget} from '@/components/widgets/convert-widget';
@@ -61,6 +63,9 @@ export function IntentWidget({intent, typed, now, onAsk}: Props) {
 	if (id === 'find_file') {
 		return <FindFileWidget intent={intent} typed={typed} />;
 	}
+	if (id === 'ask') {
+		return <AskWidget intent={intent} typed={typed} now={now} />;
+	}
 	if (id === 'calculate') {
 		return <MathWidget intent={intent} />;
 	}
@@ -86,6 +91,7 @@ const FRAMES: Partial<Record<string, {icon: LucideIcon; name: string}>> = {
 	write_email: {icon: MailIcon, name: 'Write email'},
 	find_email: {icon: InboxIcon, name: 'Find email'},
 	find_file: {icon: FileSearchIcon, name: 'Find file'},
+	ask: {icon: MessageCircleQuestionMarkIcon, name: 'Ask'},
 	calculate: {icon: CalculatorIcon, name: 'Math'},
 	convert_units: {icon: ArrowRightLeftIcon, name: 'Convert units'},
 	show_balances: {icon: LandmarkIcon, name: 'Balances'},

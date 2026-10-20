@@ -34,7 +34,7 @@ export function WriteEmailWidget({intent, typed}: {intent: Intent; typed: string
 
 	if (mailboxes.data?.sources.length === 0) {
 		return (
-			<ConnectWidget icon={MailIcon} name="Write email" collectionId="emails">
+			<ConnectWidget icon={MailIcon} name="Write email" collectionIds={['emails']}>
 				Connect a mailbox to write and send email from here.
 			</ConnectWidget>
 		);

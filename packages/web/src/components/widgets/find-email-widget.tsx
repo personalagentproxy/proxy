@@ -16,7 +16,7 @@ export function FindEmailWidget({intent, typed, now}: {intent: Intent; typed: st
 
 	if (emails.data && sources.length === 0) {
 		return (
-			<ConnectWidget icon={InboxIcon} name="Find email" collectionId="emails">
+			<ConnectWidget icon={InboxIcon} name="Find email" collectionIds={['emails']}>
 				Connect a mailbox to search your email from here.
 			</ConnectWidget>
 		);

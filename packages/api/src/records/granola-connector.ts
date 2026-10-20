@@ -43,7 +43,8 @@ function daysBefore(day: string, days: number): string {
 	return dayOf(Date.parse(day) - days * DAY_MS);
 }
 
-function listMeetings(target: RecordTarget, start: string, end: string): Promise<Result<GranolaMeeting[], ApiError>> {
+/** The meetings between two days, both included, newest first, as Granola lists them. */
+export function listGranolaMeetings(target: RecordTarget, start: string, end: string): Promise<Result<GranolaMeeting[], ApiError>> {
 	return Do(async ($) => {
 		const text = $(await callMcpToolFor(GRANOLA, target.connection, 'list_meetings', {time_range: 'custom', custom_start: start, custom_end: end}));
 		return $(parseGranolaMeetings(text));
@@ -55,7 +56,7 @@ function listMeetings(target: RecordTarget, start: string, end: string): Promise
 function meetingsPage(target: RecordTarget, end: string): Promise<Result<{meetings: GranolaMeeting[]; nextPage: string | null}, ApiError>> {
 	return Do(async ($) => {
 		const start = daysBefore(end, WINDOW_DAYS - 1);
-		const meetings = $(await listMeetings(target, start, end));
+		const meetings = $(await listGranolaMeetings(target, start, end));
 		if (meetings.length > 0) {
 			return {meetings, nextPage: start > FIRST_DAY ? daysBefore(start, 1) : null};
 		}
@@ -63,7 +64,7 @@ function meetingsPage(target: RecordTarget, end: string): Promise<Result<{meetin
 			return {meetings, nextPage: null};
 		}
 
-		const older = $(await listMeetings(target, FIRST_DAY, daysBefore(start, 1)));
+		const older = $(await listGranolaMeetings(target, FIRST_DAY, daysBefore(start, 1)));
 		const newest = older.map((meeting) => meeting.day).find((day) => day !== null);
 		if (!newest) {
 			return {meetings: older, nextPage: null};

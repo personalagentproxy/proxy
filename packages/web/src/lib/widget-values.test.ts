@@ -5,6 +5,7 @@ import type {Intent} from '@/client/intent-client';
 import type {People, Person} from '@/client/widgets-client';
 import {
 	aboutPhrase,
+	askSearch,
 	bestMatch,
 	dayAsked,
 	emailQuery,
@@ -16,6 +17,7 @@ import {
 	personOnEvent,
 	isAddress,
 	matchesFor,
+	meetingDays,
 	namesIn,
 	senderName,
 	termsRead,
@@ -274,5 +276,60 @@ describe('files', () => {
 	test('searches for what was typed when no name was found, without filler', () => {
 		const search = fileSearch(intentWith('find_file', {}), 'where is the q3 board deck');
 		expect(search).toEqual({words: ['q3', 'board'], kind: 'Presentation', ownerName: null});
+	});
+});
+
+describe('ask', () => {
+	test('the days of a meeting: the day said, or from a stretch of days on until today', () => {
+		expect(meetingDays('what did I talk to sam about yesterday', now)).toEqual({
+			from: '2026-10-13',
+			to: '2026-10-13',
+		});
+		expect(meetingDays("summarize monday's meeting", now)).toEqual({
+			from: '2026-10-12',
+			to: '2026-10-12',
+		});
+		expect(meetingDays('what did we decide last week', now)).toEqual({
+			from: '2026-10-07',
+			to: '2026-10-14',
+		});
+		expect(meetingDays('everything with sam since monday', now)).toEqual({
+			from: '2026-10-12',
+			to: '2026-10-14',
+		});
+		// A day still to come, or an hour alone, says nothing of a meeting had.
+		expect(meetingDays('what is the plan for tomorrow', now)).toBeNull();
+		expect(meetingDays('what did sam say in the 3pm call', now)).toBeNull();
+		expect(meetingDays('what did sam say', now)).toBeNull();
+	});
+
+	test('where to look: as the model said, else the meetings when people are named', () => {
+		expect(
+			askSearch(
+				intentWith('ask', {askIn: ['documents'], askWith: ['paul'], askAbout: ['the pricing doc']}),
+				'what does pauls pricing doc say',
+				now,
+			),
+		).toEqual({
+			in: 'documents',
+			people: ['paul'],
+			words: ['pricing'],
+			kind: 'Document',
+			days: null,
+		});
+		expect(
+			askSearch(
+				intentWith('ask', {askWith: ['sam and jo'], askAbout: ['weekly sync meeting']}),
+				'what did sam and jo say in the weekly sync',
+				now,
+			),
+		).toMatchObject({
+			in: 'meetings',
+			people: ['sam', 'jo'],
+			words: ['weekly', 'sync'],
+		});
+		expect(
+			askSearch(intentWith('ask', {askAbout: ['board deck']}), 'summarize the board deck', now),
+		).toMatchObject({in: 'documents', words: ['board'], kind: 'Presentation'});
 	});
 });

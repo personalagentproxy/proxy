@@ -1,9 +1,10 @@
-import {Err, Ok, Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, type Experiment, httpRequest, parseSchema} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, type Experiment, httpRequest} from '@proxy/utils';
 
 import {env} from '../utils/env';
+import {askModel} from './open-router';
 import {INCOMPLETE, NO_WIDGET, offeredWidgets, type Widget, type WidgetField} from './widgets';
 
 /**
@@ -22,10 +23,6 @@ const TYPESAFE_URL = 'https://api.typesafe.ai/v1/systemone';
 
 // Pinned, so a new release of Jev doesn't change which widget is picked until it is moved to.
 const JEV_MODEL = 'jev-1.13.0';
-
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-
-const FILL_MODEL = 'openai/gpt-oss-120b';
 
 // While typing goes on, a newer text is asked about every 300 ms, so a slower answer is never shown.
 const TIMEOUT_MS = 5000;
@@ -96,8 +93,6 @@ function jsonSchema(widget: Widget) {
 	};
 }
 
-const completionSchema = z.object({choices: z.array(z.object({message: z.object({content: z.string()})})).min(1)});
-
 // Each field's value by its id.
 const answerSchema = z.record(z.string(), z.union([z.string(), z.array(z.string()), z.array(z.array(z.string())), z.null()]));
 
@@ -142,43 +137,23 @@ async function pickWidget(text: string, widgets: Widget[], key: string): Promise
 }
 
 // `widget`'s fields, as gpt-oss-120b fills them in from `text`.
-async function fillWidget(text: string, widget: Widget, key: string): Promise<Result<FilledField[], ApiError>> {
-	const answered = await httpRequest(
-		OPENROUTER_URL,
-		{
-			method: 'POST',
-			headers: {'content-type': 'application/json', authorization: `Bearer ${key}`},
-			body: JSON.stringify({
-				model: FILL_MODEL,
-				messages: [
-					{role: 'system', content: instructions(widget)},
-					{role: 'user', content: text},
-				],
-				temperature: 0,
-				// Its thinking and the fields count toward it, an email's body among them, so it is
-				// well past what an answer takes: cut off, the answer would be no JSON at all.
-				max_tokens: MAX_TOKENS,
-				// It thinks before answering; a little is enough here, and keeps it fast.
-				reasoning: {effort: 'low'},
-				response_format: {type: 'json_schema', json_schema: {name: 'fields', strict: true, schema: jsonSchema(widget)}},
-				// Cerebras first, Groq next, and any other host of the model after them, but only a
-				// host OpenRouter records as neither keeping prompts nor training on them: the
-				// text is what the person typed, their bank's name or a merchant's among it.
-				provider: {order: ['Cerebras', 'Groq'], allow_fallbacks: true, data_collection: 'deny'},
+function fillWidget(text: string, widget: Widget, key: string): Promise<Result<FilledField[], ApiError>> {
+	return Do(async ($) => {
+		const answer = $(
+			await askModel({
+				key,
+				system: instructions(widget),
+				user: text,
+				name: 'fields',
+				jsonSchema: jsonSchema(widget),
+				answer: answerSchema,
+				// An email's body is among the fields, so it is well past what an answer takes.
+				maxTokens: MAX_TOKENS,
+				timeoutMs: TIMEOUT_MS,
 			}),
-		},
-		{schema: completionSchema, timeoutMs: TIMEOUT_MS},
-	);
-	if (answered.isErr()) {
-		return Err(ApiErr.providerUnreachable(answered.error));
-	}
-
-	const content = answered.value.choices[0]?.message.content ?? '';
-	const answer = Result.wrap((): unknown => JSON.parse(content)).andThen((json) => parseSchema(answerSchema, json));
-	if (answer.isErr()) {
-		return Err(ApiErr.providerUnreachable(new Error(`The model answered outside the form: ${content.slice(0, 200)}`)));
-	}
-	return Ok(widget.fields.map((field) => ({id: field.id, name: field.name, values: cleaned(answer.value[field.id])})));
+		);
+		return widget.fields.map((field) => ({id: field.id, name: field.name, values: cleaned(answer[field.id])}));
+	});
 }
 
 // Both keys, as the home page needs Jev and the model that fills in alike.

@@ -1,12 +1,15 @@
 import {
 	useAccounts,
 	useAgenda,
+	useAnswer,
 	useEmails,
 	useEvents,
 	useFiles,
 	useMailboxes,
+	useMeetings,
 	usePeople,
 	useRates,
+	useRecords,
 	useTransactions,
 } from '@/lib/widget-lookups';
 
@@ -177,6 +180,114 @@ const FILES = [
 	},
 ];
 
+const granola = {
+	connectionId: 'granola-1',
+	integrationId: 'granola',
+	account: 'me@example.com',
+	name: null,
+};
+
+export const MEETINGS = [
+	{
+		connectionId: 'granola-1',
+		id: 'm2',
+		title: 'Hugo / me',
+		date: 'Oct 13, 2026 3:00 PM PDT',
+		participants: 'Me (note creator), Hugo Brandt <hugo.brandt@example.com>',
+		link: 'https://notes.granola.ai/d/m2',
+	},
+	{
+		connectionId: 'granola-1',
+		id: 'm1',
+		title: 'Pricing review',
+		date: 'Oct 6, 2026 11:00 AM PDT',
+		participants: 'Me (note creator), Hugo Brandt <hugo.brandt@example.com>',
+		link: 'https://notes.granola.ai/d/m1',
+	},
+];
+
+const notion = {
+	connectionId: 'notion-1',
+	integrationId: 'notion',
+	account: 'Example workspace',
+	name: null,
+};
+
+const linear = {
+	connectionId: 'linear-1',
+	integrationId: 'linear',
+	account: 'Example',
+	name: null,
+};
+
+const PAGES = [
+	{
+		connectionId: 'notion-1',
+		id: 'p2',
+		title: 'Team handbook',
+		updated: '2026-10-09T09:00:00.000Z',
+		link: 'https://www.notion.so/p2',
+	},
+	{
+		connectionId: 'notion-1',
+		id: 'p1',
+		title: 'Pricing FAQ',
+		updated: '2026-10-02T09:00:00.000Z',
+		link: 'https://www.notion.so/p1',
+	},
+];
+
+const ISSUES = [
+	{
+		connectionId: 'linear-1',
+		id: 'ENG-12',
+		title: 'Checkout fails on Safari',
+		updated: '2026-10-13T09:00:00.000Z',
+		link: 'https://linear.app/example/issue/ENG-12',
+	},
+];
+
+// Notion's pages and Linear's issues, whatever the words.
+function records(url: URL) {
+	if (url.searchParams.get('collection') === 'pages') {
+		return {sources: [notion], records: PAGES, failed: []};
+	}
+	return {sources: [linear], records: ISSUES, failed: []};
+}
+
+// What each meeting, file, email, page or issue says of anything asked of it.
+function answer(body: {collectionId: string; id: string}) {
+	const meeting = MEETINGS.find((candidate) => candidate.id === body.id);
+	if (body.collectionId === 'notes' && meeting) {
+		return {
+			title: meeting.title,
+			link: meeting.link,
+			found: true,
+			answer: `You talked with Hugo about hiring, in ${meeting.title}.`,
+			quotes: ['We should hire two more engineers.'],
+			cut: false,
+		};
+	}
+	if (body.collectionId === 'files') {
+		return {
+			title: 'Pricing 2026',
+			link: null,
+			found: false,
+			answer: 'The file doesn’t say; it lists prices.',
+			quotes: [],
+			cut: false,
+		};
+	}
+	return {
+		title: body.id,
+		link: null,
+		found: true,
+		answer: `The ${body.collectionId} ${body.id} says so.`,
+		quotes: [],
+		cut: false,
+	};
+}
+
 export const ACCOUNTS = [
 	{
 		connectionId: 'bank-1',
@@ -311,6 +422,15 @@ export function widgetsAnswer(input: string, init?: RequestInit): Response | nul
 	if (route === 'GET /api/widgets/files') {
 		return Response.json({sources: [google], files: FILES, failed: []});
 	}
+	if (route === 'GET /api/widgets/meetings') {
+		return Response.json({sources: [granola], meetings: MEETINGS, failed: []});
+	}
+	if (route === 'GET /api/widgets/records') {
+		return Response.json(records(url));
+	}
+	if (route === 'POST /api/widgets/answer') {
+		return Response.json(answer(JSON.parse(String(init?.body))));
+	}
 	if (route === 'GET /api/widgets/accounts') {
 		return Response.json({sources: [bank], accounts: ACCOUNTS, failed: []});
 	}
@@ -329,7 +449,10 @@ export function clearWidgetLookups(): void {
 		useEmails,
 		useMailboxes,
 		useFiles,
+		useMeetings,
+		useAnswer,
 		useRates,
+		useRecords,
 		useAccounts,
 		useTransactions,
 	]) {

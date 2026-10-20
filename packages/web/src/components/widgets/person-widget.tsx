@@ -30,7 +30,7 @@ export function PersonWidget({intent, onAsk}: {intent: Intent; onAsk: (text: str
 
 	if (people.data?.sources.length === 0) {
 		return (
-			<ConnectWidget icon={UserRoundIcon} name="Person" collectionId="contacts">
+			<ConnectWidget icon={UserRoundIcon} name="Person" collectionIds={['contacts']}>
 				Connect your contacts to look people up from here.
 			</ConnectWidget>
 		);

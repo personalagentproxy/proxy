@@ -8,19 +8,19 @@ import {INTEGRATIONS, signInPath} from '@/lib/integrations';
 type Props = {
 	icon: LucideIcon;
 	name: string;
-	// The collection the widget reads, as the catalog names it: `events`.
-	collectionId: string;
+	// The collections the widget reads, as the catalog names them: `events`.
+	collectionIds: string[];
 	// What it asks for and why: "Connect a calendar to see your day and send invites from here."
 	children: string;
 };
 
 // A widget with nothing connected to read: what it needs, and a button per integration that has
-// it, which signs in and comes back to the home page, or opens the integration's form.
-export function ConnectWidget({icon, name, collectionId, children}: Props) {
+// one of its collections, which signs in and comes back to the home page, or opens the integration's form.
+export function ConnectWidget({icon, name, collectionIds, children}: Props) {
 	const offering = INTEGRATIONS.filter(
 		(integration) =>
 			!integration.builtIn &&
-			integration.collections.some((collection) => collection.id === collectionId),
+			integration.collections.some((collection) => collectionIds.includes(collection.id)),
 	);
 
 	return (

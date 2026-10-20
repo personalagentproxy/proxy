@@ -48,7 +48,8 @@ export function findSources(orgId: string, collectionId: string, request: string
 	});
 }
 
-function covers(connection: {id: string; integrationId: string; credential: string | null}, collection: Collection, request: string): boolean {
+/** Whether the connection's sign-in covered `request` of the collection: `view` to read it, `create` to write to it, or a command's id. */
+export function covers(connection: {id: string; integrationId: string; credential: string | null}, collection: Collection, request: string): boolean {
 	const action = requiredAction(collection, request);
 	return action !== null && !unavailableActions(connection).includes(action);
 }
@@ -59,6 +60,15 @@ function covers(connection: {id: string; integrationId: string; credential: stri
  * event's guests need Invite guests. One whose sign-in didn't cover them all is refused, saying so.
  */
 export function requireWritable(orgId: string, connectionId: string, collectionId: string, request: string, fields: string[]): Promise<Result<Source, ApiError>> {
+	return requireCovered(orgId, connectionId, collectionId, request, fields);
+}
+
+/** One connection to read, with the collection; one whose sign-in didn't cover reading it is refused, saying so. */
+export function requireReadable(orgId: string, connectionId: string, collectionId: string): Promise<Result<Source, ApiError>> {
+	return requireCovered(orgId, connectionId, collectionId, 'view', []);
+}
+
+function requireCovered(orgId: string, connectionId: string, collectionId: string, request: string, fields: string[]): Promise<Result<Source, ApiError>> {
 	return Do(async ($) => {
 		const target = $(await loadRecordTarget(orgId, connectionId, collectionId));
 		const integration = integrationOf(target.connection);
