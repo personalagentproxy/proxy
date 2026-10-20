@@ -63,9 +63,11 @@ type SignInAnswer<E> = {redirectUri: string; code: string; verifier: string; kep
 /**
  * A connection to save: the account it shows, the provider's own id for it where it gives one,
  * which stays as the account's address changes (Google's `sub`), its credential, stored encrypted,
- * the actions agents get with a new one, and a custom MCP server's tools and the name the person
- * gave it. `anonymous` where the provider said nothing of who signed in, as Exa and Parallel
- * don't: the account is only a label, so no existing connection is the same account's.
+ * the actions agents get with a new one, a custom MCP server's tools, and the name the person gave
+ * it: a new connection's, or, for a custom server added again, the connection's new name; any other
+ * connection renewed keeps its own. `anonymous` where the provider said nothing of who signed in,
+ * as Exa and Parallel don't: the account is only a label, so no existing connection is the same
+ * account's.
  */
 export type Connected<C> = {account: string; accountId?: string; credential: C; defaults: string[]; tools?: McpTool[]; name?: string; anonymous?: true};
 
@@ -80,7 +82,8 @@ function makePkce(): {verifier: string; challenge: string} {
 // (`?connection=`) renews that one, while it is still the organization's and the integration's,
 // only where its account can't be told apart from another's: the provider said nothing of who
 // signed in (`anonymous`), or the connection was never signed in to, as one moved over from a
-// custom MCP server without a sign-in of the integration's (`take-over-custom.ts`).
+// custom MCP server without a sign-in of the integration's (`take-over-custom.ts`), and no other
+// connection is the account's already, so an account is never connected twice.
 function connectionToRenew(
 	orgId: string,
 	integrationId: IntegrationId,
@@ -88,23 +91,27 @@ function connectionToRenew(
 	connectionId: string | null,
 ): Promise<Result<ConnectionRow | null, ApiError>> {
 	return Do(async ($) => {
-		const begunFrom = connectionId === null ? null : $(await getConnectionWithCredential(orgId, connectionId));
-		if (begunFrom?.integrationId === integrationId && (connected.anonymous || begunFrom.credential === null)) {
-			const {credential: _credential, ...row} = begunFrom;
-			return row;
+		const {account, providerAccountId} = connected;
+		const sameAccount = connected.anonymous ? null : $(await findAccountConnection({orgId, integrationId, account, providerAccountId}));
+		if (sameAccount) {
+			return sameAccount;
 		}
-		if (connected.anonymous) {
+		const begunFrom = connectionId === null ? null : $(await getConnectionWithCredential(orgId, connectionId));
+		if (begunFrom?.integrationId !== integrationId) {
 			return null;
 		}
-		const {account, providerAccountId} = connected;
-		return $(await findAccountConnection({orgId, integrationId, account, providerAccountId}));
+		if (!connected.anonymous && begunFrom.credential !== null) {
+			return null;
+		}
+		const {credential: _credential, ...row} = begunFrom;
+		return row;
 	});
 }
 
 /**
  * Saves a connection: a new one, or an existing one (`connectionToRenew`), given the new credential
- * and the account as the provider names it now, such as an address changed since, and the tools
- * and the name, where it has its own; `added` unless it was already there.
+ * and the account as the provider names it now, such as an address changed since, and, for a
+ * custom server, its tools and the name; `added` unless it was already there.
  */
 export function saveConnection<C>(
 	orgId: string,
@@ -123,11 +130,13 @@ export function saveConnection<C>(
 			return {row: $(await createConnection({orgId, integrationId, account, providerAccountId, credential: encrypted, defaults: connected.defaults, ...listed, ...name})), added: true};
 		}
 		$(await renewConnection({connectionId: existing.id, account, providerAccountId, credential: encrypted}));
+		if (tools === undefined) {
+			return {row: {...existing, account}, added: false};
+		}
+		// A custom server added again is the same connection, with the server's tools as it lists
+		// them now and the name the person gave it this time.
 		if (connected.name !== undefined) {
 			$(await updateConnectionName({connectionId: existing.id, name: connected.name}));
-		}
-		if (tools === undefined) {
-			return {row: {...existing, account, ...name}, added: false};
 		}
 		const stored = JSON.stringify(tools);
 		$(await updateConnectionTools({connectionId: existing.id, tools: stored, actions: tools.map((tool) => tool.name)}));

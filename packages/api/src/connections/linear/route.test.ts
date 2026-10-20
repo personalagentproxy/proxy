@@ -170,9 +170,20 @@ describe('handleLinearCallbackRoute', () => {
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
 		expect(getConnectionWithCredential).toHaveBeenCalledWith('org-1', 'conn-0');
-		expect(findAccountConnection).not.toHaveBeenCalled();
 		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0', account: 'alex@example.com · Acme'});
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-0');
+	});
+
+	test('signing in from a connection never signed in to, as an account connected since, gives that account its connection the new tokens, never a second one', async () => {
+		findAccountConnection.mockResolvedValue(Ok({id: 'conn-5'}));
+		getConnectionWithCredential.mockResolvedValue(Ok({id: 'conn-0', integrationId: 'linear', account: 'mcp.linear.app/mcp', credential: null}));
+		const {cookie, state} = await start({connection: 'conn-0'});
+		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
+
+		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'linear', account: 'alex@example.com · Acme', providerAccountId: null});
+		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-5'});
+		expect(createConnection).not.toHaveBeenCalled();
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-5');
 	});
 
 	test('signing in to another workspace from a signed-in connection makes a connection of its own, the first kept', async () => {

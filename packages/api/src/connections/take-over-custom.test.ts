@@ -19,9 +19,14 @@ mock.module('@proxy/db/connection', () => ({
 	updateConnectionName: mock(),
 }));
 
-const listCollectionEntries = mock();
-
-mock.module('@proxy/db/audit', () => ({listCollectionEntries}));
+// The servers, as a key is checked with them: one starting "bad-" is turned down at the door, and
+// Exa, which answers anyone until a tool is called, turns it down then.
+const rejected = (key: string | null) => key?.startsWith('bad-') === true;
+mock.module('./mcp/mcp-client', () => ({
+	callMcpTool: mock(async (_server: unknown, key: string | null) => (rejected(key) ? Err(ApiErr.credentialsRejected()) : Ok('# Example Domain'))),
+	listMcpTools: mock(async (_server: unknown, key: string | null) => (rejected(key) ? Err(ApiErr.credentialsRejected()) : Ok([]))),
+	parseToolJson: mock(),
+}));
 
 // Linear names who a key is for, and Notion who signed in and the workspace, for the access token
 // it is asked with; one it doesn't take is turned down.
@@ -78,7 +83,7 @@ function stored(credential: object): string {
 }
 
 const EXA_SIGN_IN = {
-	auth: 'oauth',
+	auth: 'oauth' as const,
 	url: 'https://mcp.exa.ai/mcp',
 	server: {
 		name: 'mcp.exa.ai',
@@ -87,7 +92,7 @@ const EXA_SIGN_IN = {
 		authorizeUrl: 'https://auth.exa.ai/oauth/authorize',
 		tokenUrl: 'https://auth.exa.ai/api/oauth/token',
 		scope: 'mcp:tools',
-		handshake: true,
+		handshake: true as const,
 	},
 	clientId: 'client-1',
 	accessToken: 'access-1',
@@ -168,35 +173,31 @@ describe('movedRun', () => {
 
 describe('movedCredential', () => {
 	test("keeps a sign-in to the integration's own server, whatever the query of the address", () => {
-		expect(movedCredential(EXA_MCP, stored({...EXA_SIGN_IN, url: 'https://mcp.exa.ai/mcp?tools=web_search_exa'})).unwrap()).toEqual({
+		expect(movedCredential(EXA_MCP, {...EXA_SIGN_IN, url: 'https://mcp.exa.ai/mcp?tools=web_search_exa'})).toEqual({
 			kind: 'moved',
 			credential: {clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null},
 		});
 	});
 
 	test("a token typed in becomes the integration's API key, where it takes one and the token is a bare one", () => {
-		expect(movedCredential(EXA_MCP, stored({auth: 'token', url: 'https://mcp.exa.ai/mcp', token: 'key-1'})).unwrap()).toEqual({kind: 'moved', credential: {auth: 'key', key: 'key-1'}});
-		expect(movedCredential(PARALLEL_MCP, stored({auth: 'token', url: 'https://search.parallel.ai/mcp', token: 'pk_1'})).unwrap()).toEqual({kind: 'moved', credential: {auth: 'key', key: 'pk_1'}});
-		expect(movedCredential(LINEAR_MCP, stored({auth: 'token', url: 'https://mcp.linear.app/mcp', token: 'lin_api_1'})).unwrap()).toEqual({kind: 'moved', credential: {auth: 'key', key: 'lin_api_1'}});
-		expect(movedCredential(EXA_MCP, stored({auth: 'token', url: 'https://mcp.exa.ai/mcp', token: 'Basic abc'})).unwrap()).toEqual({kind: 'moved', credential: null});
+		expect(movedCredential(EXA_MCP, {auth: 'token', url: 'https://mcp.exa.ai/mcp', token: 'key-1'})).toEqual({kind: 'moved', credential: {auth: 'key', key: 'key-1'}});
+		expect(movedCredential(PARALLEL_MCP, {auth: 'token', url: 'https://search.parallel.ai/mcp', token: 'pk_1'})).toEqual({kind: 'moved', credential: {auth: 'key', key: 'pk_1'}});
+		expect(movedCredential(LINEAR_MCP, {auth: 'token', url: 'https://mcp.linear.app/mcp', token: 'lin_api_1'})).toEqual({kind: 'moved', credential: {auth: 'key', key: 'lin_api_1'}});
+		expect(movedCredential(EXA_MCP, {auth: 'token', url: 'https://mcp.exa.ai/mcp', token: 'Basic abc'})).toEqual({kind: 'moved', credential: null});
 	});
 
 	test("a key in the address, as Exa's own setup writes it, becomes the integration's API key", () => {
-		expect(movedCredential(EXA_MCP, stored({auth: 'none', url: 'https://mcp.exa.ai/mcp?exaApiKey=key-2'})).unwrap()).toEqual({kind: 'moved', credential: {auth: 'key', key: 'key-2'}});
+		expect(movedCredential(EXA_MCP, {auth: 'none', url: 'https://mcp.exa.ai/mcp?exaApiKey=key-2'})).toEqual({kind: 'moved', credential: {auth: 'key', key: 'key-2'}});
 	});
 
 	test('a server reached with nothing at all stays custom, rather than stop working', () => {
-		expect(movedCredential(PARALLEL_MCP, stored({auth: 'none', url: 'https://search.parallel.ai/mcp'})).unwrap()).toEqual({kind: 'stays'});
-		expect(movedCredential(EXA_MCP, stored({auth: 'none', url: 'https://mcp.exa.ai/mcp'})).unwrap()).toEqual({kind: 'stays'});
+		expect(movedCredential(PARALLEL_MCP, {auth: 'none', url: 'https://search.parallel.ai/mcp'})).toEqual({kind: 'stays'});
+		expect(movedCredential(EXA_MCP, {auth: 'none', url: 'https://mcp.exa.ai/mcp'})).toEqual({kind: 'stays'});
 	});
 
 	test('a sign-in through another authorization server has to be signed in to again', () => {
-		expect(movedCredential(EXA_MCP, stored({...EXA_SIGN_IN, server: {...EXA_SIGN_IN.server, tokenUrl: 'https://elsewhere.example.com/token'}})).unwrap()).toEqual({kind: 'moved', credential: null});
-		expect(movedCredential(LINEAR_MCP, stored({...EXA_SIGN_IN, url: 'https://mcp.linear.app/sse'})).unwrap()).toEqual({kind: 'moved', credential: null});
-	});
-
-	test("a credential that can't be read is an error, never taken for none", () => {
-		expect(movedCredential(LINEAR_MCP, 'enc:not json').isErr()).toBe(true);
+		expect(movedCredential(EXA_MCP, {...EXA_SIGN_IN, server: {...EXA_SIGN_IN.server, tokenUrl: 'https://elsewhere.example.com/token'}})).toEqual({kind: 'moved', credential: null});
+		expect(movedCredential(LINEAR_MCP, {...EXA_SIGN_IN, url: 'https://mcp.linear.app/sse'})).toEqual({kind: 'moved', credential: null});
 	});
 });
 
@@ -211,23 +212,43 @@ function customRow(id: string, account: string, credential: object, tools: strin
 	};
 }
 
-// What each connection moved became, as `takeOverConnection` was told with it locked, and the
-// credentials kept on the way.
+type Row = ReturnType<typeof customRow>;
+type Run = {id: string; action: string; query: string | null};
+type Move = (connection: Row & {runs: Run[]}, keepCredential: (credential: string) => Promise<Result<void, ApiError>>) => Promise<Result<object | null, ApiError>>;
+
+// The custom connections, as the lock reads them, their tool runs in the activity log, what each
+// moved became, as `takeOverConnection` was told with it locked, and the credentials kept on the way.
+let rows: Row[] = [];
+let runs: Record<string, Run[]> = {};
 let moves: Array<{connectionId: string} & Record<string, string | null | object>> = [];
 let kept: Array<{connectionId: string; credential: string}> = [];
 
+function listed(...listedRows: Row[]) {
+	rows = listedRows;
+	listCustomMcpConnections.mockResolvedValue(Ok(listedRows.map(({id, account}) => ({id, account}))));
+}
+
 beforeEach(() => {
 	mock.clearAllMocks();
+	rows = [];
+	runs = {};
 	moves = [];
 	kept = [];
 	tokenRequests.length = 0;
-	listCollectionEntries.mockResolvedValue(Ok([]));
-	takeOverConnection.mockImplementation(async (connectionId: string, move: (keepCredential: (credential: string) => Promise<void>) => Promise<Result<object, ApiError>>) => {
-		const moved = await move(async (credential) => {
+	takeOverConnection.mockImplementation(async (connectionId: string, collectionId: string, move: Move) => {
+		const row = rows.find((candidate) => candidate.id === connectionId);
+		if (!row || collectionId !== 'tools') {
+			return Ok(false);
+		}
+		const moved = await move({...row, runs: runs[connectionId] ?? []}, async (credential) => {
 			kept.push({connectionId, credential});
+			return Ok(undefined);
 		});
 		if (moved.isErr()) {
 			return moved;
+		}
+		if (moved.value === null) {
+			return Ok(false);
 		}
 		moves.push({connectionId, ...moved.value});
 		return Ok(true);
@@ -236,29 +257,21 @@ beforeEach(() => {
 
 describe('takeOverCustomConnections', () => {
 	test('moves each custom connection to a server an integration takes over, and leaves the rest', async () => {
-		listCustomMcpConnections.mockResolvedValue(
-			Ok([
-				customRow('mcp-exa', 'mcp.exa.ai/mcp', EXA_SIGN_IN, ['web_search_exa', 'web_fetch_exa', 'agent_run'], ['web_search_exa', 'agent_run']),
-				customRow('mcp-parallel', 'search.parallel.ai/mcp', {auth: 'token', url: 'https://search.parallel.ai/mcp', token: 'pk_5678'}, ['web_search', 'web_fetch'], ['web_search', 'web_fetch']),
-				customRow('mcp-keyless', 'search.parallel.ai/mcp', {auth: 'none', url: 'https://search.parallel.ai/mcp'}, ['web_search'], ['web_search']),
-				customRow('mcp-docs', 'mcp.example.com/mcp', {auth: 'none', url: 'https://mcp.example.com/mcp'}, ['web_search'], ['web_search']),
-			]),
+		listed(
+			customRow('mcp-exa', 'mcp.exa.ai/mcp', EXA_SIGN_IN, ['web_search_exa', 'web_fetch_exa', 'agent_run'], ['web_search_exa', 'agent_run']),
+			customRow('mcp-parallel', 'search.parallel.ai/mcp', {auth: 'token', url: 'https://search.parallel.ai/mcp', token: 'pk_5678'}, ['web_search', 'web_fetch'], ['web_search', 'web_fetch']),
+			customRow('mcp-keyless', 'search.parallel.ai/mcp', {auth: 'none', url: 'https://search.parallel.ai/mcp'}, ['web_search'], ['web_search']),
+			customRow('mcp-docs', 'mcp.example.com/mcp', {auth: 'none', url: 'https://mcp.example.com/mcp'}, ['web_search'], ['web_search']),
 		);
-		listCollectionEntries.mockImplementation(async (connectionId: string) =>
-			Ok(
-				connectionId === 'mcp-exa'
-					? [
-							{id: 'e-1', action: 'web_search_exa', query: JSON.stringify({query: 'bun mocks'})},
-							{id: 'e-2', action: 'agent_run', query: null},
-						]
-					: [],
-			),
-		);
+		runs['mcp-exa'] = [
+			{id: 'e-1', action: 'web_search_exa', query: JSON.stringify({query: 'bun mocks'})},
+			{id: 'e-2', action: 'agent_run', query: null},
+		];
 
 		await takeOverCustomConnections();
 
-		expect(listCollectionEntries).toHaveBeenCalledWith('mcp-exa', 'tools');
-		expect(takeOverConnection.mock.calls.map((call) => call[0])).toEqual(['mcp-exa', 'mcp-parallel']);
+		// Whether a keyless server's connection stays custom is told from its credential as locked.
+		expect(takeOverConnection.mock.calls.map((call) => call[0])).toEqual(['mcp-exa', 'mcp-parallel', 'mcp-keyless']);
 		expect(moves).toEqual([
 			{
 				connectionId: 'mcp-exa',
@@ -288,7 +301,7 @@ describe('takeOverCustomConnections', () => {
 	const read = (credential: string | null | object | undefined) => JSON.parse(String(credential).replace(/^enc:/, ''));
 
 	test('a sign-in still good is asked for its account as it is, workspace and all', async () => {
-		listCustomMcpConnections.mockResolvedValue(Ok([customRow('mcp-notion', 'mcp.notion.com/mcp', NOTION_SIGN_IN, ['notion-search'], ['notion-search'])]));
+		listed(customRow('mcp-notion', 'mcp.notion.com/mcp', NOTION_SIGN_IN, ['notion-search'], ['notion-search']));
 
 		await takeOverCustomConnections();
 
@@ -298,11 +311,9 @@ describe('takeOverCustomConnections', () => {
 	});
 
 	test('a sign-in that ran out, or was turned down before its time, is refreshed first, and the new tokens kept at once', async () => {
-		listCustomMcpConnections.mockResolvedValue(
-			Ok([
-				customRow('mcp-expired', 'mcp.notion.com/mcp', {...NOTION_SIGN_IN, expiresAt: EXPIRED}, ['notion-search'], []),
-				customRow('mcp-stale', 'mcp.notion.com/mcp', {...NOTION_SIGN_IN, accessToken: 'stale-1'}, ['notion-search'], []),
-			]),
+		listed(
+			customRow('mcp-expired', 'mcp.notion.com/mcp', {...NOTION_SIGN_IN, expiresAt: EXPIRED}, ['notion-search'], []),
+			customRow('mcp-stale', 'mcp.notion.com/mcp', {...NOTION_SIGN_IN, accessToken: 'stale-1'}, ['notion-search'], []),
 		);
 
 		await takeOverCustomConnections();
@@ -318,7 +329,7 @@ describe('takeOverCustomConnections', () => {
 	});
 
 	test('a sign-in Notion revoked carries nothing over: it waits to be signed in to', async () => {
-		listCustomMcpConnections.mockResolvedValue(Ok([customRow('mcp-revoked', 'mcp.notion.com/mcp', {...NOTION_SIGN_IN, expiresAt: EXPIRED, refreshToken: 'revoked'}, ['notion-search'], [])]));
+		listed(customRow('mcp-revoked', 'mcp.notion.com/mcp', {...NOTION_SIGN_IN, expiresAt: EXPIRED, refreshToken: 'revoked'}, ['notion-search'], []));
 
 		await takeOverCustomConnections();
 
@@ -327,7 +338,7 @@ describe('takeOverCustomConnections', () => {
 	});
 
 	test('Notion out of reach after a refresh leaves the connection to the next start, the new refresh token kept', async () => {
-		listCustomMcpConnections.mockResolvedValue(Ok([customRow('mcp-notion', 'mcp.notion.com/mcp', {...NOTION_SIGN_IN, expiresAt: EXPIRED, refreshToken: 'refresh-down'}, ['notion-search'], [])]));
+		listed(customRow('mcp-notion', 'mcp.notion.com/mcp', {...NOTION_SIGN_IN, expiresAt: EXPIRED, refreshToken: 'refresh-down'}, ['notion-search'], []));
 
 		await takeOverCustomConnections();
 
@@ -336,19 +347,32 @@ describe('takeOverCustomConnections', () => {
 	});
 
 	test("a credential that can't be read is left as it is, for the next start", async () => {
-		listCustomMcpConnections.mockResolvedValue(Ok([{...customRow('mcp-linear', 'mcp.linear.app/mcp', {}, ['list_issues'], []), credential: 'enc:not json'}]));
+		listed({...customRow('mcp-linear', 'mcp.linear.app/mcp', {}, ['list_issues'], []), credential: 'enc:not json'});
 
 		await takeOverCustomConnections();
 
-		expect(takeOverConnection).not.toHaveBeenCalled();
+		expect(takeOverConnection).toHaveBeenCalledTimes(1);
+		expect(moves).toEqual([]);
+	});
+
+	test('a key is checked with the server, as connecting with one is: a token it turns down carries nothing over', async () => {
+		listed(
+			customRow('mcp-exa', 'mcp.exa.ai/mcp', {auth: 'token', url: 'https://mcp.exa.ai/mcp', token: 'bad-1234'}, ['web_search_exa'], ['web_search_exa']),
+			customRow('mcp-linear', 'mcp.linear.app/mcp', {auth: 'token', url: 'https://mcp.linear.app/mcp', token: 'bad-5678'}, ['list_issues'], ['list_issues']),
+		);
+
+		await takeOverCustomConnections();
+
+		expect(moves.map((move) => [move.connectionId, move.integrationId, move.account, move.credential])).toEqual([
+			['mcp-exa', 'exa', 'mcp.exa.ai/mcp', null],
+			['mcp-linear', 'linear', 'mcp.linear.app/mcp', null],
+		]);
 	});
 
 	test('a connection another server moved first is left to it, and the rest still move', async () => {
-		listCustomMcpConnections.mockResolvedValue(
-			Ok([
-				customRow('mcp-exa', 'mcp.exa.ai/mcp', EXA_SIGN_IN, ['web_search_exa'], []),
-				customRow('mcp-linear', 'mcp.linear.app/mcp', {auth: 'token', url: 'https://mcp.linear.app/mcp', token: 'lin_api_1'}, ['list_issues', 'get_issue'], ['list_issues', 'get_issue']),
-			]),
+		listed(
+			customRow('mcp-exa', 'mcp.exa.ai/mcp', EXA_SIGN_IN, ['web_search_exa'], []),
+			customRow('mcp-linear', 'mcp.linear.app/mcp', {auth: 'token', url: 'https://mcp.linear.app/mcp', token: 'lin_api_1'}, ['list_issues', 'get_issue'], ['list_issues', 'get_issue']),
 		);
 		takeOverConnection.mockImplementationOnce(async () => Ok(false));
 

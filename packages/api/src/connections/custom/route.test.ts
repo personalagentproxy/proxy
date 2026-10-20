@@ -269,6 +269,17 @@ describe('handleConnectCustomMcpRoute', () => {
 		expect(probeMcpServer).not.toHaveBeenCalled();
 	});
 
+	test('a token for an account already connected gives that connection the key, its own name kept rather than the one typed', async () => {
+		listMcpTools.mockResolvedValue(Ok([]));
+		findAccountConnection.mockResolvedValue(Ok({...row, id: 'linear-1', integrationId: 'linear', account: 'alex@example.com · Acme', tools: null, name: 'Work'}));
+		const res = await connect({name: 'Linear test', url: 'https://mcp.linear.app/mcp', token: 'key-1234'});
+
+		expect(createConnection).not.toHaveBeenCalled();
+		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'linear-1', credential: `enc:${JSON.stringify({auth: 'key', key: 'key-1234'})}`});
+		expect(updateConnectionName).not.toHaveBeenCalled();
+		expect(res.sent).toMatchObject({kind: 'connected', connection: {id: 'linear-1', name: 'Work', account: 'alex@example.com · Acme'}});
+	});
+
 	test("a key in the address, as Exa's own setup writes it, connects the integration with it as its API key", async () => {
 		callMcpTool.mockResolvedValue(Ok('# Example Domain'));
 		const res = await connect({name: 'Web search', url: 'https://mcp.exa.ai/mcp?exaApiKey=key-5678'});

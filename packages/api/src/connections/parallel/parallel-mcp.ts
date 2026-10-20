@@ -1,8 +1,9 @@
-import {Err, Ok, Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, parseSchema} from '@proxy/utils';
+import {ApiErr, type ApiError} from '@proxy/utils';
 
+import {parseToolJson} from '../mcp/mcp-client';
 import type {McpServer} from '../mcp/mcp-oauth';
 
 /**
@@ -42,15 +43,9 @@ const fetchSchema = z.object({
 	errors: z.array(z.object({url: z.string(), error_type: z.string(), http_status_code: z.number().nullish()})).nullish(),
 });
 
-function parseJson<T>(text: string, schema: z.ZodType<T>): Result<T, ApiError> {
-	return Result.wrap((): unknown => JSON.parse(text))
-		.mapErr((cause) => ApiErr.providerUnreachable(cause))
-		.andThen((json) => parseSchema(schema, json).mapErr((error) => ApiErr.providerUnreachable(error)));
-}
-
 /** A `web_search` answer written out as Exa writes its results: a block a page, between "---" lines. */
 export function formatParallelResults(text: string): Result<string, ApiError> {
-	return parseJson(text, searchSchema).map(({results}) =>
+	return parseToolJson(text, searchSchema).map(({results}) =>
 		results
 			.map((result) => [`Title: ${result.title || result.url}`, `URL: ${result.url}`, `Published: ${result.publish_date ?? 'N/A'}`, 'Highlights:', (result.excerpts ?? []).join('\n...\n')].join('\n'))
 			.join('\n\n---\n\n'),
@@ -59,7 +54,7 @@ export function formatParallelResults(text: string): Result<string, ApiError> {
 
 /** The page in a `web_fetch` answer for `url`, or why Parallel couldn't read it. */
 export function parseParallelPage(text: string, url: string): Result<{title: string; content: string}, ApiError> {
-	return parseJson(text, fetchSchema).andThen((answer): Result<{title: string; content: string}, ApiError> => {
+	return parseToolJson(text, fetchSchema).andThen((answer): Result<{title: string; content: string}, ApiError> => {
 		const page = answer.results[0];
 		if (!page) {
 			const error = answer.errors?.[0];

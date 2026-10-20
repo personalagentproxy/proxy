@@ -1,10 +1,10 @@
-import {Err, Result} from 'ts-results-es';
+import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
+import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import {LINEAR_PRIORITIES, LINEAR_STATUS_TYPES} from '@proxy/integrations';
 
-import {callMcpTool} from '../mcp/mcp-client';
+import {callMcpTool, parseToolJson} from '../mcp/mcp-client';
 import type {McpServer} from '../mcp/mcp-oauth';
 
 /**
@@ -27,7 +27,7 @@ function linearToolError(text: string): ApiError | null {
 		return /^Could not find issue\b/.test(refusal[1]) ? ApiErr.notFound('issue') : ApiErr.validationError(`Linear turned it down: ${refusal[1]}`);
 	}
 
-	const failure = parseJson(text, toolFailureSchema);
+	const failure = parseToolJson(text, toolFailureSchema);
 	if (failure.isErr() || failure.value.error !== 'invalid_request') {
 		return null;
 	}
@@ -47,12 +47,6 @@ export const LINEAR: McpServer = {
 	toolError: linearToolError,
 };
 
-function parseJson<T>(text: string, schema: z.ZodType<T>): Result<T, ApiError> {
-	return Result.wrap((): unknown => JSON.parse(text))
-		.mapErr((cause) => ApiErr.providerUnreachable(cause))
-		.andThen((json) => parseSchema(schema, json).mapErr((error) => ApiErr.providerUnreachable(error)));
-}
-
 const userSchema = z.object({name: z.string().optional(), email: z.string().optional()});
 const workspaceSchema = z.object({name: z.string()});
 
@@ -63,8 +57,8 @@ const workspaceSchema = z.object({name: z.string()});
 export function getLinearAccount(token: string): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const [userText, workspaceText] = await Promise.all([callMcpTool(LINEAR, token, 'get_user', {query: 'me'}), callMcpTool(LINEAR, token, 'get_workspace', {})]);
-		const user = $(parseJson($(userText), userSchema));
-		const workspace = $(parseJson($(workspaceText), workspaceSchema));
+		const user = $(parseToolJson($(userText), userSchema));
+		const workspace = $(parseToolJson($(workspaceText), workspaceSchema));
 		const who = user.email?.toLowerCase() ?? user.name;
 		if (!who) {
 			return $(Err(ApiErr.providerUnreachable(new Error('Linear did not say who signed in'))));
@@ -160,12 +154,12 @@ function toIssue(issue: z.infer<typeof issueSchema>): LinearIssue {
 
 /** A `list_issues` answer's issues, newest first as Linear sends them, and the next page's cursor. */
 export function parseLinearIssues(text: string): Result<{issues: LinearIssue[]; nextCursor: string | null}, ApiError> {
-	return parseJson(text, issuesSchema).map((page) => ({issues: page.issues.map(toIssue), nextCursor: page.hasNextPage ? (page.cursor ?? null) : null}));
+	return parseToolJson(text, issuesSchema).map((page) => ({issues: page.issues.map(toIssue), nextCursor: page.hasNextPage ? (page.cursor ?? null) : null}));
 }
 
 /** A `get_issue` or `save_issue` answer's issue. */
 export function parseLinearIssue(text: string): Result<LinearIssue, ApiError> {
-	return parseJson(text, issueSchema).map(toIssue);
+	return parseToolJson(text, issueSchema).map(toIssue);
 }
 
 export type LinearComment = {
@@ -195,7 +189,7 @@ const commentsSchema = z.object({
 
 /** A `list_comments` answer's comments, oldest first, and whether there are older ones it left out. */
 export function parseLinearComments(text: string): Result<{comments: LinearComment[]; more: boolean}, ApiError> {
-	return parseJson(text, commentsSchema).map((page) => ({
+	return parseToolJson(text, commentsSchema).map((page) => ({
 		comments: page.comments
 			.map((comment) => {
 				const author = comment.author?.name ?? 'Someone';

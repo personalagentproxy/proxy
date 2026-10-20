@@ -98,19 +98,6 @@ export async function listAuditEntries(
 	);
 }
 
-/** A connection's entries in one collection, such as a custom MCP server's tool runs, each its action and query. */
-export async function listCollectionEntries(
-	connectionId: string,
-	collectionId: string,
-): Promise<Result<Array<{id: string; action: string; query: string | null}>, ApiError>> {
-	return wrapDb(() =>
-		db.auditEntry.findMany({
-			where: {connectionId, collectionId},
-			select: {id: true, action: true, query: true},
-		}),
-	);
-}
-
 // The furthest any time zone's clock is ahead of UTC (Kiribati's): a day there starts 14 hours
 // before it does in UTC, so the entries of a day on and after it are all made after this before it.
 const MAX_OFFSET_MS = 14 * 60 * 60 * 1000;

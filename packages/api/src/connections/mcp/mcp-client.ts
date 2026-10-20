@@ -26,6 +26,13 @@ const MAX_TOOL_PAGES = 20;
 
 const CLIENT_INFO = {name: 'personal-agent-proxy', title: 'Personal Agent Proxy', version: '1.0.0'};
 
+/** What a tool answered, as JSON of the shape expected; anything else is the server not answering as it should. */
+export function parseToolJson<T>(text: string, schema: z.ZodType<T>): Result<T, ApiError> {
+	return Result.wrap((): unknown => JSON.parse(text))
+		.mapErr((cause) => ApiErr.providerUnreachable(cause))
+		.andThen((json) => parseSchema(schema, json).mapErr((error) => ApiErr.providerUnreachable(error)));
+}
+
 const jsonRpcErrorSchema = z.object({message: z.string()});
 
 const toolResponseSchema = z.object({

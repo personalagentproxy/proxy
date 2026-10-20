@@ -103,6 +103,19 @@ export function keyAccountOf(builtIn: BuiltInMcp, key: string): Promise<Result<s
 }
 
 /**
+ * The account a key is for, checked with the server first, as the provider names it, else the key's
+ * end. A key the server turns down is `credentials_rejected`; one for an integration that takes
+ * none is refused.
+ */
+export function checkedKeyAccount(builtIn: BuiltInMcp, key: string): Promise<Result<string, ApiError>> {
+	return Do(async ($) => {
+		const apiKey = $(requirePresent(builtIn.apiKey, ApiErr.validationError(`${builtIn.server.name} is connected by signing in to it`)));
+		$(await apiKey.check(key));
+		return $(await keyAccountOf(builtIn, key));
+	});
+}
+
+/**
  * Connects an integration with an API key, checked with the server first: a new connection, called
  * `name` where the custom MCP form gave one, or an existing one given the key in place of its
  * sign-in or key, its name kept: the one of the key's account, or `connectionId` where its account
@@ -111,13 +124,11 @@ export function keyAccountOf(builtIn: BuiltInMcp, key: string): Promise<Result<s
  */
 export function connectWithKey(builtIn: BuiltInMcp, orgId: string, args: {name?: string; key: string; connectionId: string | null}): Promise<Result<ConnectionRow, ApiError>> {
 	return Do(async ($) => {
-		const apiKey = $(requirePresent(builtIn.apiKey, ApiErr.validationError(`${builtIn.server.name} is connected by signing in to it`)));
 		if (/\s/.test(args.key)) {
 			return $(Err(ApiErr.validationError('An API key has no spaces')));
 		}
-		$(await apiKey.check(args.key));
+		const account = $(await checkedKeyAccount(builtIn, args.key));
 		const credential: McpKeyCredential = {auth: 'key', key: args.key};
-		const account = $(await keyAccountOf(builtIn, args.key));
 		const connected = {account, credential, defaults: builtIn.defaults, ...anonymity(builtIn), ...(args.name === undefined ? {} : {name: args.name})};
 		return $(await saveConnection(orgId, builtIn.integrationId, connected, args.connectionId)).row;
 	});

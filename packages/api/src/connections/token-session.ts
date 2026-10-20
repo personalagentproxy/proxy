@@ -108,24 +108,43 @@ async function renew<C>(refresher: TokenRefresher<C>, connectionId: string, sess
 	return stored.andThen((renewed) => readSession(refresher, renewed));
 }
 
+/** How a credential is kept fresh through one call: whether it is running out, and new tokens for it. */
+export type Freshening<C> = {isExpiring: (credential: C) => boolean; refresh: (credential: C) => Promise<Result<C, ApiError>>};
+
 /**
- * Makes a call with a connection's credential: refreshed first when it is running out, and once
- * more when the provider turns it down anyway. A connection the provider won't refresh any more is
+ * Makes a call with a credential: refreshed first when it is running out, and once more when the
+ * provider turns it down anyway. The policy alone, for whoever keeps the tokens: a connection's
+ * (`callWithToken`), or a custom MCP connection being moved over, which keeps them under a lock
+ * (`take-over-custom.ts`).
+ */
+export function callWithRefresh<C, T>(fresh: Freshening<C>, credential: C, call: (credential: C) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
+	return Do(async ($) => {
+		const current = fresh.isExpiring(credential) ? $(await fresh.refresh(credential)) : credential;
+		const first = await call(current);
+		if (first.isOk() || first.error.kind !== 'credentials_rejected') {
+			return $(first);
+		}
+		if (current !== credential) {
+			return $(Err(first.error));
+		}
+
+		const renewed = $(await fresh.refresh(current));
+		return $(await call(renewed));
+	});
+}
+
+/**
+ * Makes a call with a connection's credential, kept fresh as `callWithRefresh` does, the new tokens
+ * saved on the connection. A connection the provider won't refresh any more is
  * `credentials_rejected`, and has to be signed in again.
  */
 export function callWithToken<C, T>(refresher: TokenRefresher<C>, connection: StoredConnection, call: (credential: C) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
 	return Do(async ($) => {
 		const read = $(readSession(refresher, connection.credential));
-		const session = refresher.isExpiring(read.credential) ? $(await renew(refresher, connection.id, read)) : read;
-		const first = await call(session.credential);
-		if (first.isOk() || first.error.kind !== 'credentials_rejected') {
-			return $(first);
-		}
-		if (session !== read) {
-			return $(Err(first.error));
-		}
-
-		const renewed = $(await renew(refresher, connection.id, session));
-		return $(await call(renewed.credential));
+		const fresh: Freshening<Session<C>> = {
+			isExpiring: (session) => refresher.isExpiring(session.credential),
+			refresh: (session) => renew(refresher, connection.id, session),
+		};
+		return $(await callWithRefresh(fresh, read, (session) => call(session.credential)));
 	});
 }
