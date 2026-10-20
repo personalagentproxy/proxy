@@ -1,7 +1,14 @@
+import {createHash} from 'node:crypto';
+
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
+
+// How the api stores a session's token: the hex of its SHA-256.
+function sha256(text: string): string {
+	return createHash('sha256').update(text).digest('hex');
+}
 
 const createSession = mock();
 
@@ -79,13 +86,14 @@ describe('handleDevLoginRoute', () => {
 		expect(createUserArgs.name).toBe('Dev User');
 		expect(createUserArgs.emailVerified).toBeInstanceOf(Date);
 
-		const sessionArgs = createSession.mock.calls[0]?.[0] as {sessionToken: string; userId: string; expires: Date};
+		const sessionArgs = createSession.mock.calls[0]?.[0] as {tokenHash: string; userId: string; expires: Date};
 		expect(sessionArgs.userId).toBe(devUser.id);
-		expect(sessionArgs.sessionToken).toMatch(/^[0-9a-f]{64}$/);
+		expect(sessionArgs.tokenHash).toMatch(/^[0-9a-f]{64}$/);
 
 		// Dev naming: not secure, host-only.
 		const sessionCookie = res.cookies.find((cookie) => cookie.name === 'proxy.session-token');
-		expect(sessionCookie?.value).toBe(sessionArgs.sessionToken);
+		// The cookie has the token, the database only its hash.
+		expect(sha256(sessionCookie?.value ?? '')).toBe(sessionArgs.tokenHash);
 		expect(sessionCookie?.options).toMatchObject({
 			httpOnly: true,
 			sameSite: 'lax',

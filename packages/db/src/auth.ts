@@ -5,7 +5,6 @@ import {type ApiError, type Experiment, organizationExperiments, wrapDb} from '@
 import {db, Prisma} from '.';
 
 export type AuthenticatedSession = {
-	sessionToken: string;
 	userId: string;
 	user: {
 		email: string;
@@ -16,15 +15,14 @@ export type AuthenticatedSession = {
 	expires: Date;
 };
 
-/** `Ok(null)` means no live session: the token is unknown or expired. */
+/** By the hash of the cookie's token. `Ok(null)` means no live session: unknown or expired. */
 export async function getAuthenticatedSessionDatabase(
-	sessionToken: string,
+	tokenHash: string,
 ): Promise<Result<AuthenticatedSession | null, ApiError>> {
 	const result = await wrapDb(() =>
 		db.session.findUnique({
-			where: {sessionToken},
+			where: {tokenHash},
 			select: {
-				sessionToken: true,
 				userId: true,
 				user: {
 					select: {
@@ -57,7 +55,6 @@ export async function getAuthenticatedSessionDatabase(
 
 	const organization = session.user.orgMembers[0]?.org;
 	return Ok({
-		sessionToken: session.sessionToken,
 		userId: session.userId,
 		user: {
 			email: session.user.email,
@@ -69,15 +66,15 @@ export async function getAuthenticatedSessionDatabase(
 }
 
 export async function createSession(data: {
-	sessionToken: string;
+	tokenHash: string;
 	userId: string;
 	expires: Date;
 }): Promise<Result<void, ApiError>> {
 	return (await wrapDb(() => db.session.create({data}))).map(() => undefined);
 }
 
-export async function deleteSessionByToken(sessionToken: string): Promise<Result<void, ApiError>> {
-	return (await wrapDb(() => db.session.deleteMany({where: {sessionToken}}))).map(() => undefined);
+export async function deleteSession(tokenHash: string): Promise<Result<void, ApiError>> {
+	return (await wrapDb(() => db.session.deleteMany({where: {tokenHash}}))).map(() => undefined);
 }
 
 /** `Ok(null)` means the provider identity has never signed in here. */
@@ -137,18 +134,11 @@ export async function useVerificationToken(args: {
 	});
 }
 
-/** The token columns are snake_case because they mirror the OAuth token response. */
 export async function createOAuthAccount(data: {
 	userId: string;
 	type: string;
 	provider: string;
 	providerAccountId: string;
-	access_token: string | null;
-	refresh_token: string | null;
-	expires_at: number | null;
-	token_type: string | null;
-	scope: string | null;
-	id_token: string | null;
 }): Promise<Result<void, ApiError>> {
 	return (await wrapDb(() => db.account.create({data}))).map(() => undefined);
 }

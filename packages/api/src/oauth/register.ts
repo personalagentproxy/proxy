@@ -8,7 +8,8 @@ import {Do} from '@proxy/utils';
 import {createOAuthClient, deleteStaleOAuthClients} from '@proxy/db/oauth';
 
 import {log, serializeError} from '../observability/log';
-import {hashToken, isAllowedRedirectUri, randomToken} from './oauth-config';
+import {hashToken} from '../auth/session';
+import {isAllowedRedirectUri, randomToken} from './oauth-config';
 import {sendOAuthError, type OAuthError} from './oauth-error';
 
 /**

@@ -1,4 +1,4 @@
-import {randomBytes, timingSafeEqual} from 'node:crypto';
+import {createHash, randomBytes, timingSafeEqual} from 'node:crypto';
 
 import type {CookieOptions, Request, Response} from 'express';
 import type {Result} from 'ts-results-es';
@@ -107,13 +107,21 @@ export function queryParam(req: Request, name: string): string | null {
 	return value;
 }
 
-/** Signs the browser in: a Session row and the cookie pointing at it. */
+/**
+ * How a random token is stored: its SHA-256, so the database never holds one that signs anyone
+ * in. For browsers' and agents' sessions and the OAuth server's codes, tokens and secrets.
+ */
+export function hashToken(token: string): string {
+	return createHash('sha256').update(token).digest('hex');
+}
+
+/** Signs the browser in: a Session row with the token's hash, and the cookie with the token. */
 export async function establishSession(res: Response, userId: string): Promise<Result<void, ApiError>> {
-	const sessionToken = randomBytes(32).toString('hex');
+	const token = randomBytes(32).toString('hex');
 	const expires = new Date(Date.now() + sessionMaxAgeSeconds * 1000);
-	const sessionResult = await createSession({sessionToken, userId, expires});
+	const sessionResult = await createSession({tokenHash: hashToken(token), userId, expires});
 	if (sessionResult.isOk()) {
-		res.cookie(sessionCookieName(), sessionToken, {...sessionCookieOptions(), expires});
+		res.cookie(sessionCookieName(), token, {...sessionCookieOptions(), expires});
 	}
 
 	return sessionResult;

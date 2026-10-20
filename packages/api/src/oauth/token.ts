@@ -4,9 +4,9 @@ import {Err, type Result} from 'ts-results-es';
 import {type ApiError, Do} from '@proxy/utils';
 import {createOAuthGrant, getOAuthClient, getOAuthGrantByRefreshToken, rotateOAuthGrant, takeOAuthCode, type OAuthClientRow, type OAuthTokens} from '@proxy/db/oauth';
 
-import {timingSafeEqualString} from '../auth/session';
+import {hashToken, timingSafeEqualString} from '../auth/session';
 import {log, serializeError} from '../observability/log';
-import {ACCESS_TOKEN_TTL_SECONDS, hashToken, OAUTH_SCOPE, randomToken, REFRESH_TOKEN_TTL_MS, verifiesPkce} from './oauth-config';
+import {ACCESS_TOKEN_TTL_SECONDS, OAUTH_SCOPE, randomToken, REFRESH_TOKEN_TTL_MS, verifiesPkce} from './oauth-config';
 import {sendOAuthError, type OAuthError} from './oauth-error';
 
 /**

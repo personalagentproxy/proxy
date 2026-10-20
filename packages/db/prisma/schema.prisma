@@ -40,19 +40,14 @@ model User {
   writeTargets WriteTarget[]
 }
 
-// A sign-in provider identity linked to a user, such as their Google account.
+// A sign-in provider identity linked to a user, such as their Google account. Only who it is:
+// signing in needs no tokens from the provider once the identity is known, so none are kept.
 model Account {
-  id                String  @id @default(cuid())
+  id                String @id @default(cuid())
   userId            String
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String?
-  access_token      String?
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -63,12 +58,13 @@ model Account {
   @@index([userId])
 }
 
-// A signed-in browser. The session cookie holds `sessionToken`.
+// A signed-in browser. The session cookie holds a random token; only its hash is stored, as for
+// agents' sessions, so a leaked table signs no one in.
 model Session {
-  id           String   @id @default(cuid())
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expires   DateTime
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

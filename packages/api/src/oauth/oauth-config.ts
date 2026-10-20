@@ -40,10 +40,6 @@ export function randomToken(): string {
 	return randomBytes(32).toString('base64url');
 }
 
-export function hashToken(token: string): string {
-	return createHash('sha256').update(token).digest('hex');
-}
-
 /** Whether a PKCE verifier is the one the S256 challenge was made from. */
 export function verifiesPkce(verifier: string, challenge: string): boolean {
 	return timingSafeEqualString(createHash('sha256').update(verifier).digest('base64url'), challenge);

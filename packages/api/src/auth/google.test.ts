@@ -1,7 +1,14 @@
+import {createHash} from 'node:crypto';
+
 import {beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
 import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
+
+// How the api stores a session's token: the hex of its SHA-256.
+function sha256(text: string): string {
+	return createHash('sha256').update(text).digest('hex');
+}
 
 const createSession = mock();
 const getAccountByProvider = mock();
@@ -255,14 +262,15 @@ describe('handleGoogleCallbackRoute', () => {
 		expect(createOAuthAccount).not.toHaveBeenCalled();
 
 		expect(createSession).toHaveBeenCalledTimes(1);
-		const sessionArgs = createSession.mock.calls[0]?.[0] as {sessionToken: string; userId: string; expires: Date};
+		const sessionArgs = createSession.mock.calls[0]?.[0] as {tokenHash: string; userId: string; expires: Date};
 		expect(sessionArgs.userId).toBe('user-1');
-		expect(sessionArgs.sessionToken).toMatch(/^[0-9a-f]{64}$/);
+		expect(sessionArgs.tokenHash).toMatch(/^[0-9a-f]{64}$/);
 
 		// Prod naming under the mocked env.
 		const sessionCookie = res.cookies.find((cookie) => cookie.name === '__Secure-proxy.session-token');
 		expect(sessionCookie).toBeDefined();
-		expect(sessionCookie?.value).toBe(sessionArgs.sessionToken);
+		// The cookie has the token, the database only its hash.
+		expect(sha256(sessionCookie?.value ?? '')).toBe(sessionArgs.tokenHash);
 		expect(sessionCookie?.options).toMatchObject({
 			httpOnly: true,
 			sameSite: 'lax',
@@ -289,12 +297,6 @@ describe('handleGoogleCallbackRoute', () => {
 			type: 'oauth',
 			provider: 'google',
 			providerAccountId: googleProfile.sub,
-			access_token: 'access-token-1',
-			refresh_token: 'refresh-token-1',
-			expires_at: expect.any(Number),
-			token_type: 'Bearer',
-			scope: 'openid email profile',
-			id_token: expect.stringContaining('.'),
 		});
 		expect(createSession).toHaveBeenCalledTimes(1);
 		expect((createSession.mock.calls[0]?.[0] as {userId: string}).userId).toBe('user-new');
