@@ -5,11 +5,11 @@
 export const BUTTON_EDGES: ReadonlyArray<{from: string; to: string; label: string}> = [
 	{from: '/login', to: '/connections', label: 'Sign in'},
 	{from: '/login', to: '/welcome/connections', label: 'Sign in, new organization'},
-	// Signing in lets go of any task, so the agent lands on starting one.
-	{from: '/agent/login', to: '/agent/task', label: 'Sign in'},
-	{from: '/agent/task', to: '/agent', label: 'Start task'},
-	// From every agent page, through the header; the home page stands for them.
-	{from: '/agent', to: '/agent/task', label: 'Finish task'},
+	// The agent lands on its tasks, to open one or start another.
+	{from: '/agent/login', to: '/agent', label: 'Sign in'},
+	{from: '/agent', to: '/agent/:taskId', label: 'Start task'},
+	// From every page of a task, through the header; the task's home stands for them.
+	{from: '/agent/:taskId', to: '/agent', label: 'Finish task'},
 
 	{from: '/welcome/connections', to: '/welcome/connections/email', label: 'Add a mailbox'},
 	{from: '/welcome/connections', to: '/welcome/connections/postgres', label: 'Add PostgreSQL'},
@@ -45,18 +45,18 @@ export const BUTTON_EDGES: ReadonlyArray<{from: string; to: string; label: strin
 	{from: '/agents/:id', to: '/agents', label: 'Delete'},
 
 	{
-		from: '/agent/:connectionId/:collectionId/new',
-		to: '/agent/:connectionId/:collectionId/:recordId',
+		from: '/agent/:taskId/:connectionId/:collectionId/new',
+		to: '/agent/:taskId/:connectionId/:collectionId/:recordId',
 		label: 'Save',
 	},
 	{
-		from: '/agent/:connectionId/:collectionId/new',
-		to: '/agent/:connectionId/:collectionId',
+		from: '/agent/:taskId/:connectionId/:collectionId/new',
+		to: '/agent/:taskId/:connectionId/:collectionId',
 		label: 'Cancel',
 	},
 	{
-		from: '/agent/:connectionId/:collectionId/:recordId',
-		to: '/agent/:connectionId/:collectionId',
+		from: '/agent/:taskId/:connectionId/:collectionId/:recordId',
+		to: '/agent/:taskId/:connectionId/:collectionId',
 		label: 'Delete',
 	},
 ];

@@ -14,8 +14,9 @@ mock.module('./feedback', () => ({sendAgentFeedback}));
 const startAgentTask = mock();
 const finishAgentTask = mock();
 const listAgentOpenTasks = mock();
+const getAgentOpenTask = mock();
 
-mock.module('./tasks', () => ({startAgentTask, finishAgentTask, listAgentOpenTasks}));
+mock.module('./tasks', () => ({startAgentTask, finishAgentTask, listAgentOpenTasks, getAgentOpenTask}));
 
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dots', experiments: []};
 
@@ -80,6 +81,18 @@ describe('handleAgentListTasksRoute', () => {
 
 		expect(result.unwrap()).toEqual({tasks: []});
 		expect(listAgentOpenTasks).toHaveBeenCalledWith(signedIn);
+	});
+});
+
+describe('handleAgentGetTaskRoute', () => {
+	test('opens the URL’s task for the signed-in agent', async () => {
+		const task = {task: 'task-1', title: 'Triage inbox', goal: 'Archive the newsletters', startedAt: '2026-10-16T09:00:00.000Z', finishedAt: null};
+		getAgentOpenTask.mockResolvedValue(Ok(task));
+		const {handleAgentGetTaskRoute} = await import('./route');
+		const result = await handleAgentGetTaskRoute(makeRequest({taskId: 'task-1'}));
+
+		expect(result.unwrap()).toEqual(task);
+		expect(getAgentOpenTask).toHaveBeenCalledWith(signedIn, 'task-1');
 	});
 });
 

@@ -7,6 +7,7 @@ import {RecordFields, RecordForm} from '@/components/record-form';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {allows, newCommands} from '@/lib/access';
 import {agentErrorMessage} from '@/lib/agent-errors';
+import {taskHome, useTaskId} from '@/lib/agent-task';
 import {inside, recordPath} from '@/lib/agent-paths';
 import type {DataRecord} from '@/lib/types';
 import {AgentDenied} from '@/pages/agent/agent-collection-page';
@@ -30,6 +31,8 @@ export function AgentNewRecordPage() {
 	const [params] = useSearchParams();
 	const parentTitle = parentTitleFromState(useLocation().state);
 	const target = useAgentTarget();
+	const taskId = useTaskId();
+	const home = taskHome(taskId);
 	const [error, setError] = useState<string | null>(null);
 	const [answer, setAnswer] = useState<DataRecord | null>(null);
 	const canCreate = target !== null && allows(target.collection, target.actions, 'create');
@@ -40,11 +43,12 @@ export function AgentNewRecordPage() {
 
 	const {connection, collection, place} = target;
 	const parent = params.get('parent');
-	const recordsPath = `/agent/${connection.id}/${collection.id}`;
+	const recordsPath = `${home}/${connection.id}/${collection.id}`;
 	const listPath = `${recordsPath}${inside(parent)}`;
 	const createLabel = collection.createLabel ?? `Create ${collection.singular}`;
 	const create = async (values: Record<string, string>) => {
 		const result = await runAgentRecordTool(
+			taskId,
 			connection.id,
 			toolName(collection.id, 'create'),
 			parent ? {...values, parent} : values,
@@ -59,6 +63,7 @@ export function AgentNewRecordPage() {
 	};
 	const run = async (chosen: Command, values: Record<string, string>) => {
 		const result = await runAgentRecordTool(
+			taskId,
 			connection.id,
 			toolName(collection.id, chosen.id),
 			values,
@@ -74,7 +79,7 @@ export function AgentNewRecordPage() {
 		}
 		const title = values[collection.titleField]?.trim() || `untitled ${collection.singular}`;
 		const notice = chosen.done.replace('{}', `${collection.singular} “${title}”`);
-		navigate(allows(collection, target.actions, 'list') ? listPath : '/agent', {
+		navigate(allows(collection, target.actions, 'list') ? listPath : home, {
 			replace: true,
 			state: {notice},
 		});
@@ -102,7 +107,7 @@ export function AgentNewRecordPage() {
 		<AgentShell>
 			<Crumbs
 				items={[
-					{label: 'Home', to: '/agent'},
+					{label: 'Home', to: home},
 					{label: place},
 					{label: collection.name, to: recordsPath},
 					...(parent ? [{label: parentTitle ?? 'Where it goes', to: listPath}] : []),
@@ -118,7 +123,7 @@ export function AgentNewRecordPage() {
 				<RecordForm
 					fields={collection.fields}
 					submitLabel={command ? command.label : createLabel}
-					onCancel={() => navigate(command && !canCreate ? '/agent' : listPath)}
+					onCancel={() => navigate(command && !canCreate ? home : listPath)}
 					onSubmit={(values) => void (command ? run(command, values) : create(values))}
 					alternative={alternative()}
 				/>

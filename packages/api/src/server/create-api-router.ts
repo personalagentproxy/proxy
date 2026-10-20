@@ -5,6 +5,7 @@ import {handleAgentLoginRoute, handleAgentLogoutRoute} from '../agent-auth/sessi
 import {
 	handleAgentFeedbackRoute,
 	handleAgentFinishTaskRoute,
+	handleAgentGetTaskRoute,
 	handleAgentListTasksRoute,
 	handleAgentListToolsRoute,
 	handleAgentMeRoute,
@@ -159,6 +160,7 @@ export function createApiRouter(): express.Router {
 	router.get('/api/agent/me', withAgentAuthResult('Agent me route', handleAgentMeRoute));
 	router.get('/api/agent/tasks', withAgentAuthResult('Agent list tasks route', handleAgentListTasksRoute));
 	router.post('/api/agent/tasks', withAgentAuthResult('Agent start task route', handleAgentStartTaskRoute));
+	router.get('/api/agent/tasks/:taskId', withAgentAuthResult('Agent get task route', handleAgentGetTaskRoute));
 	router.post('/api/agent/tasks/:taskId/finish', withAgentAuthResult('Agent finish task route', handleAgentFinishTaskRoute));
 	router.get('/api/agent/connections/:connectionId/tools', withAgentAuthResult('Agent list tools route', handleAgentListToolsRoute));
 	router.post('/api/agent/connections/:connectionId/tools/:toolName', withAgentAuthResult('Agent run tool route', handleAgentRunToolRoute));

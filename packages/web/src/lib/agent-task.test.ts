@@ -1,21 +1,10 @@
-import {afterEach, describe, expect, test} from 'bun:test';
-import {clearAgentTask, isTaskRefusal, storeAgentTask, storedAgentTask} from '@/lib/agent-task';
+import {describe, expect, test} from 'bun:test';
+import {isTaskRefusal, taskHome, taskRefusedPath} from '@/lib/agent-task';
 
-afterEach(() => clearAgentTask());
-
-describe('storedAgentTask', () => {
-	test('is the task stored, and none for anything else there', () => {
-		storeAgentTask({id: 'task-1', title: 'Triage inbox', goal: 'Archive the newsletters'});
-		expect(storedAgentTask()).toEqual({
-			id: 'task-1',
-			title: 'Triage inbox',
-			goal: 'Archive the newsletters',
-		});
-
-		localStorage.setItem('agent-task', '{"id":');
-		expect(storedAgentTask()).toBeNull();
-		localStorage.setItem('agent-task', '{"id":""}');
-		expect(storedAgentTask()).toBeNull();
+describe('task paths', () => {
+	test('a task’s pages start at its id, and a refused one sends back to the tasks naming it', () => {
+		expect(taskHome('task-1')).toBe('/agent/task-1');
+		expect(taskRefusedPath('task-1')).toBe('/agent?refused=task-1');
 	});
 });
 

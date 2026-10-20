@@ -1,33 +1,22 @@
 import type {FetchError} from '@proxy/utils';
-import {redirect} from 'react-router';
+import {redirect, type ShouldRevalidateFunctionArgs} from 'react-router';
 import type {Result} from 'ts-results-es';
 import {toolName} from '@proxy/integrations';
 import {
 	getAgentMe,
+	getAgentTask,
 	listAgentTasks,
 	runAgentListTool,
 	runAgentRecordTool,
 } from '@/client/agent-client';
 import type {DataRecord} from '@/lib/types';
 import {isNotFoundError, isUnauthenticatedError} from '@/client/me-client';
-import {
-	clearAgentTask,
-	isTaskRefusal,
-	opensWithoutTask,
-	START_TASK_PATH,
-	storedAgentTask,
-} from '@/lib/agent-task';
+import {isTaskRefusal, taskRefusedPath} from '@/lib/agent-task';
 import {fetchErrorToResponse} from '@/lib/loader-utils';
 
-// The agent side's pages. Every records request is made for the task the agent is on, checked and
-// logged by the api; a page shows what came back, a refusal included. An agent that is on no task
-// is sent to start one before any page that would make a request.
-
-function requireStoredTask(): void {
-	if (storedAgentTask() === null) {
-		throw redirect(START_TASK_PATH);
-	}
-}
+// The agent side's pages. Every records request is made for the task in the page's address,
+// checked and logged by the api; a page shows what came back, a refusal included. A task the api
+// refuses, unknown, finished or abandoned, sends the agent back to its tasks.
 
 // No live session, a revoked login included, sends the agent to its sign-in.
 function unwrapAgentResult<T>(result: Result<T, FetchError>): T {
@@ -42,12 +31,11 @@ function unwrapAgentResult<T>(result: Result<T, FetchError>): T {
 
 export type Outcome<T> = {kind: 'ok'; value: T} | {kind: 'denied'} | {kind: 'missing'};
 
-// A run refused for its task, one another tab finished or a day left abandoned, lets the task go
-// and sends the agent to choose or start another, rather than show the page as refused or missing.
-function toOutcome<T>(result: Result<T, FetchError>): Outcome<T> {
+// A run refused for its task, one finished since the page opened or a day left abandoned, sends
+// the agent back to its tasks, rather than show the page as refused or missing.
+function toOutcome<T>(taskId: string, result: Result<T, FetchError>): Outcome<T> {
 	if (result.isErr() && isTaskRefusal(result.error)) {
-		clearAgentTask();
-		throw redirect(START_TASK_PATH);
+		throw redirect(taskRefusedPath(taskId));
 	}
 	if (result.isErr() && result.error.kind === 'http' && result.error.status === 403) {
 		return {kind: 'denied'};
@@ -58,27 +46,44 @@ function toOutcome<T>(result: Result<T, FetchError>): Outcome<T> {
 	return {kind: 'ok', value: unwrapAgentResult(result)};
 }
 
-export async function agentSideLoader({request}: {request: Request}) {
-	if (!opensWithoutTask(new URL(request.url).pathname)) {
-		requireStoredTask();
-	}
+export async function agentSideLoader() {
 	return unwrapAgentResult(await getAgentMe());
 }
 
-// The task page: the agent's tasks under way, to switch between or finish.
+// The task list: the agent's tasks under way, to open or finish.
 export async function agentTasksLoader() {
 	return unwrapAgentResult(await listAgentTasks());
 }
 
-type Params = {connectionId?: string; collectionId?: string; recordId?: string};
+type Params = {taskId?: string; connectionId?: string; collectionId?: string; recordId?: string};
+
+// A task's pages: the task, for the header to name, while it is under way.
+export async function agentTaskLoader({params}: {params: Params}) {
+	const taskId = params.taskId ?? '';
+	const result = await getAgentTask(taskId);
+	if (result.isErr() && isTaskRefusal(result.error)) {
+		throw redirect(taskRefusedPath(taskId));
+	}
+	return unwrapAgentResult(result);
+}
+
+// The task is read again only when the address names another; its pages read the rest.
+export function shouldRevalidateAgentTask({
+	currentParams,
+	nextParams,
+}: ShouldRevalidateFunctionArgs) {
+	return currentParams.taskId !== nextParams.taskId;
+}
 
 // The address's query is the list tool's params as they are: `?search=`, `?page=` and the
 // collection's filter field, such as `?folder=Draft`. The api refuses any it doesn't take.
 export async function agentCollectionLoader({params, request}: {params: Params; request: Request}) {
-	requireStoredTask();
+	const taskId = params.taskId ?? '';
 	const query = Object.fromEntries(new URL(request.url).searchParams);
 	return toOutcome(
+		taskId,
 		await runAgentListTool(
+			taskId,
 			params.connectionId ?? '',
 			toolName(params.collectionId ?? '', 'list'),
 			query,
@@ -87,13 +92,14 @@ export async function agentCollectionLoader({params, request}: {params: Params; 
 }
 
 export async function agentRecordLoader({params}: {params: Params}): Promise<Outcome<DataRecord>> {
-	requireStoredTask();
+	const taskId = params.taskId ?? '';
 	const result = await runAgentRecordTool(
+		taskId,
 		params.connectionId ?? '',
 		toolName(params.collectionId ?? '', 'view'),
 		{id: params.recordId ?? ''},
 	);
-	const outcome = toOutcome(result);
+	const outcome = toOutcome(taskId, result);
 	if (outcome.kind !== 'ok') {
 		return outcome;
 	}

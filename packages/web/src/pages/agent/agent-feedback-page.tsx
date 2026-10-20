@@ -8,11 +8,13 @@ import {Label} from '@proxy/ui/components/label';
 import {Textarea} from '@proxy/ui/components/textarea';
 import {useAgentMe} from '@/hooks/use-agent-target';
 import {agentErrorMessage} from '@/lib/agent-errors';
+import {taskHome, TASKS_PATH} from '@/lib/agent-task';
 
 // Feedback for the makers of Personal Agent Proxy, as the MCP server's send_feedback takes it: what
 // the agent tried, what happened and what it expected. Opened from the link at the foot of every
-// agent page, which says the connection and the tool it was on, `?connection=` and `?tool=`, sent
-// along with it.
+// agent page, which says the task, the connection and the tool it was on, `?task=`,
+// `?connection=` and `?tool=`, sent along with it; it leads back to the task's pages, or to the
+// task list from a page of none.
 export function AgentFeedbackPage() {
 	const id = useId();
 	const [params] = useSearchParams();
@@ -23,6 +25,8 @@ export function AgentFeedbackPage() {
 	const [sent, setSent] = useState(false);
 	const connectionId = params.get('connection') ?? undefined;
 	const tool = params.get('tool') ?? undefined;
+	const task = params.get('task') ?? undefined;
+	const back = task ? taskHome(task) : TASKS_PATH;
 	const connection = connections.find((candidate) => candidate.id === connectionId);
 	const about = [connection && (connection.name ?? connection.account), tool]
 		.filter(Boolean)
@@ -31,7 +35,7 @@ export function AgentFeedbackPage() {
 	const send = async () => {
 		setSending(true);
 		setError(null);
-		const result = await sendAgentFeedback({message, connection: connectionId, tool});
+		const result = await sendAgentFeedback({message, connection: connectionId, tool, task});
 		setSending(false);
 		if (result.isErr()) {
 			setError(agentErrorMessage(result.error));
@@ -43,7 +47,7 @@ export function AgentFeedbackPage() {
 
 	return (
 		<AgentShell feedback={false}>
-			<Crumbs items={[{label: 'Home', to: '/agent'}, {label: 'Send feedback'}]} />
+			<Crumbs items={[{label: 'Home', to: back}, {label: 'Send feedback'}]} />
 			<AgentHeading>Send feedback</AgentHeading>
 			<div className="flex flex-col gap-4">
 				<p className="text-sm text-muted-foreground">
@@ -57,8 +61,8 @@ export function AgentFeedbackPage() {
 					<SuccessLine>
 						<span>
 							Sent, thank you. You can send more, or go back to{' '}
-							<Link to="/agent" className="underline underline-offset-4">
-								what you can access
+							<Link to={back} className="underline underline-offset-4">
+								{task ? 'what you can access' : 'your tasks'}
 							</Link>
 							.
 						</span>

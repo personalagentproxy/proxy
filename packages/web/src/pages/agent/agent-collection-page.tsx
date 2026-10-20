@@ -13,6 +13,7 @@ import {Button} from '@proxy/ui/components/button';
 import {Input} from '@proxy/ui/components/input';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {canStartNew, displayValue, recordTitle} from '@/lib/access';
+import {taskHome, useTaskId} from '@/lib/agent-task';
 import {inside, recordPath} from '@/lib/agent-paths';
 import type {agentCollectionLoader} from '@/agent-loaders';
 import type {DataRecord} from '@/lib/types';
@@ -37,12 +38,13 @@ export function AgentCollectionPage() {
 	const notice = noticeFromState(useLocation().state);
 	const [params] = useSearchParams();
 	const target = useAgentTarget();
+	const home = taskHome(useTaskId());
 	if (outcome.kind === 'missing' || !target) {
 		return <AgentMissing />;
 	}
 
 	const {connection, collection, place, actions} = target;
-	const base = `/agent/${connection.id}/${collection.id}`;
+	const base = `${home}/${connection.id}/${collection.id}`;
 	const parent = params.get('parent');
 	const trail = outcome.kind === 'ok' ? (outcome.value.trail ?? []) : [];
 	const here = trail.at(-1);
@@ -50,7 +52,7 @@ export function AgentCollectionPage() {
 		<>
 			<Crumbs
 				items={[
-					{label: 'Home', to: '/agent'},
+					{label: 'Home', to: home},
 					{label: place},
 					{label: collection.name, to: parent ? base : undefined},
 					...trail.map((crumb) => ({
@@ -239,9 +241,10 @@ export function AgentCollectionPage() {
 }
 
 export function AgentMissing() {
+	const home = taskHome(useTaskId());
 	return (
 		<AgentShell>
-			<Crumbs items={[{label: 'Home', to: '/agent'}, {label: 'Not found'}]} />
+			<Crumbs items={[{label: 'Home', to: home}, {label: 'Not found'}]} />
 			<p className="text-sm text-muted-foreground">There is nothing at this address.</p>
 		</AgentShell>
 	);
@@ -250,9 +253,10 @@ export function AgentMissing() {
 // What an agent sees when it asks for something it was not given. The api logged the request as
 // denied.
 export function AgentDenied({children}: {children: ReactNode}) {
+	const home = taskHome(useTaskId());
 	return (
 		<AgentShell>
-			<Crumbs items={[{label: 'Home', to: '/agent'}, {label: 'No access'}]} />
+			<Crumbs items={[{label: 'Home', to: home}, {label: 'No access'}]} />
 			<p className="text-sm">{children} Ask the person who made it to give it access.</p>
 		</AgentShell>
 	);

@@ -6,7 +6,7 @@ import type {Tool} from '@proxy/integrations';
 
 import type {AgentRequest} from '../server/middleware/require-agent';
 import {sendAgentFeedback} from './feedback';
-import {type AgentTaskResponse, finishAgentTask, listAgentOpenTasks, startAgentTask} from './tasks';
+import {type AgentTaskResponse, finishAgentTask, getAgentOpenTask, listAgentOpenTasks, startAgentTask} from './tasks';
 import {listAgentConnections, listAgentTools, runAgentTool, type AgentConnection, type ToolResult} from './tools';
 
 // The agent side over HTTP, for the web app's agent pages: the same tasks, connections, tools and
@@ -25,6 +25,14 @@ export function handleAgentListToolsRoute(request: AgentRequest): Promise<Result
 /** `GET /api/agent/tasks`: the agent's tasks still under way, newest first. */
 export function handleAgentListTasksRoute(request: AgentRequest): Promise<Result<{tasks: AgentTaskResponse[]}, ApiError>> {
 	return listAgentOpenTasks(request.agent);
+}
+
+/**
+ * `GET /api/agent/tasks/:taskId`: the task while it is under way, as the agent pages open it from
+ * their address; unknown is 404, finished or abandoned 409, as a run for it would be.
+ */
+export function handleAgentGetTaskRoute(request: AgentRequest): Promise<Result<AgentTaskResponse, ApiError>> {
+	return getAgentOpenTask(request.agent, request.params.taskId ?? '');
 }
 
 /** `POST /api/agent/tasks` with `{title, goal}`: starts a task, answering with its id as `task`. */

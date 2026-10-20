@@ -57,6 +57,11 @@ export function listAgentOpenTasks(agent: SignedInAgent): Promise<Result<{tasks:
 	return Do(async ($) => ({tasks: $(await listOpenAgentTasks(agent.orgId, agent.agentId)).map(toResponse)}));
 }
 
+/** The agent's task `taskId` while it is under way, refused as a call made for it would be (`requireOpenTask`). */
+export function getAgentOpenTask(agent: SignedInAgent, taskId: string): Promise<Result<AgentTaskResponse, ApiError>> {
+	return Do(async ($) => toResponse($(await requireOpenTask(agent, taskId))));
+}
+
 /** Marks the agent's task `{task}` finished; one finished already stays as it is. */
 export function finishAgentTask(caller: AgentCaller, args: unknown): Promise<Result<AgentTaskResponse, ApiError>> {
 	return Do(async ($) => {

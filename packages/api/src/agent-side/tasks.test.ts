@@ -118,3 +118,18 @@ describe('requireOpenTask', () => {
 		});
 	});
 });
+
+describe('getAgentOpenTask', () => {
+	beforeEach(() => setSystemTime(new Date('2026-10-16T12:00:00Z')));
+	afterEach(() => setSystemTime());
+
+	test('answers the task while it is under way, and refuses it as a call for it would be', async () => {
+		const {getAgentOpenTask} = await import('./tasks');
+		const open = await getAgentOpenTask(agent, 'task-1');
+		getAgentTask.mockResolvedValue(Ok(finishedRow));
+		const finished = await getAgentOpenTask(agent, 'task-1');
+
+		expect(open.unwrap()).toEqual({task: 'task-1', title: 'Triage inbox', goal: 'Archive the newsletters', startedAt: '2026-10-16T09:00:00.000Z', finishedAt: null});
+		expect(finished.unwrapErr()).toMatchObject({kind: 'conflict', statusCode: 409});
+	});
+});

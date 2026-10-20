@@ -1,6 +1,6 @@
 import {findCollection, type Collection} from '@proxy/integrations';
 import {useParams, useRouteLoaderData} from 'react-router';
-import type {AgentMe} from '@/client/agent-client';
+import type {AgentMe, AgentTask} from '@/client/agent-client';
 import {integrationOf, type Integration} from '@/lib/integrations';
 
 export type AgentTarget = {
@@ -16,6 +16,12 @@ export type AgentTarget = {
 // The signed-in agent and what it can reach, from the agent side's loader.
 export function useAgentMe(): AgentMe | null {
 	return useRouteLoaderData<AgentMe>('agent') ?? null;
+}
+
+// The task an agent page is on, from the loader of the task's pages; null on the task list and the
+// feedback form, which aren't any task's.
+export function useAgentTask(): AgentTask | null {
+	return useRouteLoaderData<AgentTask>('agent-task') ?? null;
 }
 
 // The connection and collection an agent page's URL points at, among those the agent can reach;
