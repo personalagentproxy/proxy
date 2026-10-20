@@ -62,6 +62,22 @@ describe('callMcpTool', () => {
 		expect((await callMcpTool(SERVER, 'access-1', 'list_meetings', {})).unwrapErr().kind).toBe('provider_unreachable');
 	});
 
+	test('a 403 asking for a scope the sign-in lacks says which, for the model; any other 403 is the token turned down', async () => {
+		server.answer = () =>
+			new Response(null, {
+				status: 403,
+				headers: {'www-authenticate': 'Bearer realm="OAuth", error="insufficient_scope", scope="user:read account:read dns.write", error_description="This operation needs the dns.write scope"'},
+			});
+		const refused = (await callMcpTool(SERVER, 'access-1', 'execute', {})).unwrapErr();
+		expect(refused).toMatchObject({kind: 'validation_error'});
+		expect('message' in refused ? refused.message : '').toBe(
+			'Example turned it down: This operation needs the dns.write scope. The person who connected Example can sign in to the connection again, granting it.',
+		);
+
+		server.answer = () => new Response('Forbidden', {status: 403});
+		expect((await callMcpTool(SERVER, 'access-1', 'execute', {})).unwrapErr().kind).toBe('credentials_rejected');
+	});
+
 	test('a token with its scheme in front is sent as written, for a server that takes one other than Bearer', async () => {
 		server.answer = () => Response.json({jsonrpc: '2.0', id: 1, result: {content: [{type: 'text', text: 'ok'}]}});
 		(await callMcpTool(SERVER, 'Basic dXNlcjpwYXNz', 'list', {})).unwrap();

@@ -72,6 +72,21 @@ function jsonRpcBody(body: string): string {
 
 type Posted = {json: unknown; sessionId: string | null};
 
+// What a server needs beyond what the sign-in granted, as the spec has it say on a 403:
+// `Bearer error="insufficient_scope", scope="…", error_description="This operation needs the dns.write scope"`.
+const INSUFFICIENT_SCOPE = /error="insufficient_scope"/;
+const SCOPE_DESCRIPTION = /error_description="([^"]*)"/;
+
+// A 403: the sign-in lacks a permission the call needs, which signing in again granting it fixes,
+// for the model to tell the person; anything else, the credential turned down.
+function forbidden(server: McpEndpoint, challenge: string | null): ApiError {
+	if (!challenge || !INSUFFICIENT_SCOPE.test(challenge)) {
+		return ApiErr.credentialsRejected();
+	}
+	const needs = SCOPE_DESCRIPTION.exec(challenge)?.[1] ?? 'This needs a permission the sign-in didn’t grant';
+	return ApiErr.validationError(`${server.name} turned it down: ${needs}. The person who connected ${server.name} can sign in to the connection again, granting it.`);
+}
+
 // The Authorization header for a token: a bare one as a bearer token, as the spec asks; one typed
 // in with its scheme in front, "Basic …", as written, for a server that takes another scheme.
 function authorization(token: string): string {
@@ -95,12 +110,19 @@ function post(server: McpEndpoint, accessToken: string | null, session: McpSessi
 		if (session?.sessionId) {
 			headers['mcp-session-id'] = session.sessionId;
 		}
-		const response = await checkedRequest(server.url, {method: 'POST', headers, body: JSON.stringify({jsonrpc: '2.0', ...message})}, {parse: 'response', timeoutMs: TIMEOUT_MS});
-		if (response.isErr() && response.error.kind === 'http' && (response.error.status === 401 || response.error.status === 403)) {
+		const response = await checkedRequest(
+			server.url,
+			{method: 'POST', headers, body: JSON.stringify({jsonrpc: '2.0', ...message})},
+			{parse: 'response', timeoutMs: TIMEOUT_MS, allowStatus: (status) => (status >= 200 && status < 300) || status === 403},
+		);
+		if (response.isErr() && response.error.kind === 'http' && response.error.status === 401) {
 			return $(Err(ApiErr.credentialsRejected()));
 		}
 
 		const answer = $(response.mapErr((error) => ApiErr.providerUnreachable(error)));
+		if (answer.status === 403) {
+			return $(Err(forbidden(server, answer.headers.get('www-authenticate'))));
+		}
 		const body = $((await Result.wrapAsync(() => answer.text())).mapErr((cause) => ApiErr.providerUnreachable(cause)));
 		const sessionId = answer.headers.get('mcp-session-id');
 		if (body.trim() === '') {

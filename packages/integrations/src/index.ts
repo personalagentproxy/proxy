@@ -8,6 +8,7 @@ export type {AgentProvider, AgentProviderId} from './agent-providers';
 export {applies, effectiveActions, requiredAction} from './access';
 export type {OwnSettings} from './access';
 export {
+	CLOUDFLARE_METHODS,
 	findCollection,
 	findIntegration,
 	INFO_INTEGRATION_ID,
