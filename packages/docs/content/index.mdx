@@ -6,15 +6,19 @@ description: What Personal Agent Proxy is, and what you run to host it yourself.
 Personal Agent Proxy holds the integrations and personal information an AI agent needs, so every
 agent company does not have to rebuild them and you do not have to trust each one's security. You
 connect your services and hand out agent logins; an agent signs in with one and works through what
-it was given. Every request an agent makes is checked against its access and written to the activity
-log, allowed or denied.
+it was given. Successful connection actions, and actions denied by the login's access settings, are
+written to the activity log.
+
+On the home page, [quick actions](/quick-actions) find people, email and files, work with calendars,
+write email, calculate, convert units and show balances or spending from the services you connect.
 
 The connection guides explain the integrations available today: [Information](/connections/information)
 for details stored in Personal Agent Proxy, [Email](/connections/email) for IMAP and SMTP mailboxes,
 [Google](/connections/google) for Gmail, Calendar, Drive, Docs, Sheets, Slides and Contacts,
 [Granola](/connections/granola) for meeting notes and transcripts, [Notion](/connections/notion)
 for pages and databases, [Linear](/connections/linear) for issues, [Exa](/connections/exa) or
-[Parallel](/connections/parallel) for searching and reading the web, and
+[Parallel](/connections/parallel) for searching and reading the web, [Plaid](/connections/plaid) for
+bank balances and transactions, and
 [PostgreSQL](/connections/postgres) or [MySQL](/connections/mysql) for a database's tables and
 queries. [Custom MCP servers](/connections/custom-mcp) explains how to connect any other service
 that has an MCP server, and allow its tools one by one.

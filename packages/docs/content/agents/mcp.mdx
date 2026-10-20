@@ -1,11 +1,12 @@
 ---
 title: Connect an agent over MCP
-description: Add Personal Agent Proxy to Claude, ChatGPT, Hermes Agent, Poke or any other MCP client as an MCP server, and what an agent can do through it.
+description: Add Personal Agent Proxy to Claude, Claude Code, Claude Desktop, ChatGPT, Hermes Agent, Poke or any other MCP client as an MCP server, and what an agent can do through it.
 ---
 
-Personal Agent Proxy is an MCP server. An agent that speaks MCP, such as Claude, ChatGPT, Hermes
-Agent, Poke or any other MCP client, connects to it, signs in with OAuth, and works as one of your agent logins: it can
-do what that login is allowed and nothing more, and every request it makes is in the activity log.
+Personal Agent Proxy is an MCP server. An agent that speaks MCP, such as Claude, Claude Code,
+Claude Desktop, ChatGPT, Hermes Agent, Poke or any other MCP client, connects to it, signs in with
+OAuth, and works as one of your agent logins: it can do what that login is allowed and nothing
+more. Successful connection actions and actions denied by access settings are in the activity log.
 
 The server is at your Personal Agent Proxy's address with `/mcp` after it, such as
 `https://app.personalagentproxy.com/mcp`. Each agent's page in Personal Agent Proxy shows it under
@@ -17,7 +18,10 @@ The server is at your Personal Agent Proxy's address with `/mcp` after it, such 
 
 Add the address as a custom connector, or custom MCP server, where the agent keeps them:
 
-- **Claude**: in **Settings**, **Connectors**, **Add custom connector**.
+- **Claude**: open **Connectors** and add a custom connector with the address.
+- **Claude Code**: run the setup command shown on the agent's page. It begins
+  `claude mcp add --transport http personal-agent-proxy` and ends with the server address.
+- **Claude Desktop**: open **Connectors** and add a custom connector with the address.
 - **ChatGPT**: turn on developer mode in the settings for apps and connectors, then create a
   connector with the address.
 - **Hermes Agent**: copy and run the `hermes mcp add` command shown on its setup page. The command
@@ -29,6 +33,10 @@ Add the address as a custom connector, or custom MCP server, where the agent kee
 - **Any other agent**: choose **Custom MCP agent** when adding an agent, and add the address
   wherever the agent keeps remote MCP servers, over Streamable HTTP. It signs in with OAuth, so leave
   any API key or token empty.
+
+On a Claude Team or Enterprise plan, an owner first adds the custom Web connector under
+**Organization settings**, **Connectors**. Members then find and connect it under **Customize**,
+**Connectors**.
 
 ### Sign in
 
@@ -73,8 +81,8 @@ of Personal Agent Proxy's own, which only its login can open. A mailbox over IMA
 your Information have no such page, so the agent names what it means instead, such as an email by
 its subject.
 
-A request the login isn't allowed is refused, and logged as denied. The activity log marks the
-requests that came in over MCP.
+An action the login isn't allowed is refused, and logged as denied. The activity log marks the
+actions that came in over MCP.
 
 ## Disconnect an agent
 
@@ -84,6 +92,7 @@ every app working as it, as well as its sign-in to the agent pages.
 
 <Callout>
 A self-hosted Personal Agent Proxy has to be reachable from the internet over HTTPS for Claude,
-ChatGPT and Poke to connect to it: they call it from their own servers, not from your computer.
-Hermes Agent can instead connect to one running on the same computer, including over localhost.
+Claude Desktop, ChatGPT and Poke to connect to it: they call it from their own servers, not from
+your computer. Claude Code and Hermes Agent can instead connect to one running on the same
+computer, including over localhost.
 </Callout>

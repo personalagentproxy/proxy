@@ -1,0 +1,44 @@
+---
+title: Quick actions
+description: Find things, work with calendars and email, calculate, convert units and read bank activity from the home page.
+---
+
+Type what you want into **Quick actions** on the home page. Personal Agent Proxy picks the matching
+card while you type and fills in its fields. Actions that change something stay on the card for you
+to review: no email or invitation is sent, and no record is created or changed, until you choose
+its button.
+
+## What they can do
+
+| Quick action                      | What it uses                                                                                                                                                                                                     |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Calendar, New event, Change event | Events from connected Google accounts. New events show the time, guests and conflicts, and let you choose a calendar when several are writable. Changes show the event and its proposed updates before you save. |
+| Person                            | Google Contacts, with names and email addresses from connected mailboxes as a fallback.                                                                                                                          |
+| Find email, Write email           | Connected Gmail or IMAP mailboxes whose sign-in grants the needed email access. You choose **Save draft** or **Send** after reviewing a new email.                                                               |
+| Find file                         | Files in connected Google Drives, searched by name or contents.                                                                                                                                                  |
+| Balances, Transactions            | Accounts connected through Plaid. Transactions can be narrowed by merchant, category, account and dates, or added up.                                                                                            |
+| Math, Convert units               | Arithmetic runs in the browser. Unit conversion includes currencies, using the European Central Bank's latest rates through Frankfurter.                                                                         |
+
+Read actions combine results from every matching connection whose sign-in grants the needed access.
+When a write can use more than one mailbox or calendar, the card starts with a recent or default
+target and lets you choose another. These are actions you take as the owner of the workspace, so an
+agent's access settings do not limit them.
+
+For anything outside this list, ask one of your agents. Its requests still follow that agent
+login's access.
+
+## Self-hosting
+
+Hosted Personal Agent Proxy has quick actions set up. A self-hosted instance needs both keys:
+
+```sh
+TYPESAFE_API_KEY="…"
+OPENROUTER_KEY="…"
+```
+
+The current text in Quick actions goes to TypeSafe AI as you type so Jev can choose the card, then
+to OpenRouter so the card's fields can be filled in. The records read from connected services are
+not part of those requests. Without either key, the rest of Personal Agent Proxy still works and
+the home page says quick actions are not set up.
+
+See [Environment variables](/self-hosting/environment) for the full reference.

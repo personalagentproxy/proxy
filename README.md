@@ -19,6 +19,12 @@
 Personal Agent Proxy defines how people can use multiple personal agents without giving every provider
 their full private context or silently expanding what an agent may do.
 
+Connect email, Google, Granola, Notion, Linear, Plaid, PostgreSQL, MySQL or any service with an
+MCP server. From Home, quick actions can find people, email and files, work with calendars, write
+email, calculate, convert units and show balances or spending. Each agent gets its own login and
+access. Successful connection actions and actions denied by access settings appear in the activity
+log.
+
 <h3 align="center">
   <a href="https://docs.personalagentproxy.com/self-hosting/">Self-host Personal Agent Proxy →</a>
 </h3>
@@ -31,37 +37,45 @@ their full private context or silently expanding what an agent may do.
 
 <table align="center">
   <tr>
-    <td align="center" width="25%">
+    <td align="center" width="20%">
       <img src="docs/assets/agents/dot.png" width="48" height="48" alt="Dots logo"><br>
       <strong>Dots</strong>
     </td>
-    <td align="center" width="25%">
+    <td align="center" width="20%">
       <img src="docs/assets/agents/grok-bot.png" width="48" height="48" alt="Grok Bot logo"><br>
       <strong>Grok&nbsp;Bot</strong>
     </td>
-    <td align="center" width="25%">
+    <td align="center" width="20%">
       <img src="docs/assets/agents/muse.png" width="48" height="48" alt="Muse logo"><br>
       <strong>Muse</strong>
     </td>
-    <td align="center" width="25%">
+    <td align="center" width="20%">
       <img src="docs/assets/agents/instinct.png" width="48" height="48" alt="Instinct logo"><br>
       <strong>Instinct</strong>
     </td>
-  </tr>
-  <tr>
-    <td align="center" width="25%">
+    <td align="center" width="20%">
       <img src="docs/assets/agents/poke.png" width="48" height="48" alt="Poke logo"><br>
       <strong>Poke</strong>
     </td>
-    <td align="center" width="25%">
+  </tr>
+  <tr>
+    <td align="center" width="20%">
       <img src="docs/assets/agents/claude.png" width="48" height="48" alt="Claude logo"><br>
       <strong>Claude</strong>
     </td>
-    <td align="center" width="25%">
+    <td align="center" width="20%">
+      <img src="docs/assets/agents/claude-code.png" width="48" height="48" alt="Claude Code logo"><br>
+      <strong>Claude&nbsp;Code</strong>
+    </td>
+    <td align="center" width="20%">
+      <img src="docs/assets/agents/claude-desktop.png" width="48" height="48" alt="Claude Desktop logo"><br>
+      <strong>Claude&nbsp;Desktop</strong>
+    </td>
+    <td align="center" width="20%">
       <img src="docs/assets/agents/chatgpt.png" width="48" height="48" alt="ChatGPT logo"><br>
       <strong>ChatGPT</strong>
     </td>
-    <td align="center" width="25%">
+    <td align="center" width="20%">
       <img src="docs/assets/agents/hermes-readme.svg" width="48" height="48" alt="Hermes Agent logo"><br>
       <strong>Hermes&nbsp;Agent</strong>
     </td>
