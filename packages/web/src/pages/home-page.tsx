@@ -10,7 +10,6 @@ import {AppShell} from '@/components/app-shell';
 import {FillingWidget, IntentWidget} from '@/components/widgets/intent-widget';
 import {UnsupportedWidget} from '@/components/widgets/unsupported-widget';
 import {Input} from '@proxy/ui/components/input';
-import {useExperiment} from '@/hooks/use-experiment';
 import {apiMessage} from '@/lib/agent-errors';
 import type {homeLoader} from '@/loaders';
 
@@ -33,10 +32,6 @@ const EXAMPLES = [
 	'Find the pricing spreadsheet Paul shared',
 	"What's an 18% tip on $86.40?",
 	'72°F in Celsius',
-];
-
-// Examples for an organization with banks connected through Plaid.
-const BANK_EXAMPLES = [
 	"What's my checking balance?",
 	'How much did I spend on restaurants last month?',
 ];
@@ -79,7 +74,6 @@ function saysUnsupported(answer: Answer, pausedOn: string): boolean {
 // fields come; Esc, or a click beside it, puts it back.
 export function HomePage() {
 	const me = useRouteLoaderData<Me>('human');
-	const banks = useExperiment('plaid');
 	const {connections, agents, activity} = useLoaderData<typeof homeLoader>();
 	// The time the page opened, for its greeting.
 	const [opened] = useState(() => new Date());
@@ -251,9 +245,7 @@ export function HomePage() {
 				<div
 					className={`relative z-40 w-full max-w-2xl overflow-hidden rounded-2xl border bg-card transition-[translate,box-shadow] duration-300 ease-out motion-reduce:transition-none ${active ? '-translate-y-[8vh] shadow-2xl' : 'shadow-sm'}`}
 				>
-					{!active && (
-						<QuickActions examples={banks ? [...EXAMPLES, ...BANK_EXAMPLES] : EXAMPLES} />
-					)}
+					{!active && <QuickActions examples={EXAMPLES} />}
 					{active && (
 						<button
 							type="button"

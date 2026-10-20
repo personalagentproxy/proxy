@@ -7,7 +7,7 @@ const fillIntent = mock();
 mock.module('./classify', () => ({pickIntent, fillIntent}));
 
 function makeRequest(body: unknown) {
-	return {user: {userId: 'user-1', experiments: ['plaid']}, body} as never;
+	return {user: {userId: 'user-1', experiments: []}, body} as never;
 }
 
 beforeEach(() => {
@@ -22,7 +22,7 @@ describe('handlePickIntentRoute', () => {
 		const result = await handlePickIntentRoute(makeRequest({text: '  who is hugo  '}));
 
 		expect(result.isOk()).toBe(true);
-		expect(pickIntent).toHaveBeenCalledWith('who is hugo', {userId: 'user-1', experiments: ['plaid']});
+		expect(pickIntent).toHaveBeenCalledWith('who is hugo', {userId: 'user-1', experiments: []});
 	});
 
 	test('refuses empty text, and text past 500 characters, without asking the models', async () => {
@@ -41,7 +41,7 @@ describe('handleFillIntentRoute', () => {
 		const result = await handleFillIntentRoute(makeRequest({text: '  who is hugo  ', widget: 'find_person'}));
 
 		expect(result.isOk()).toBe(true);
-		expect(fillIntent).toHaveBeenCalledWith('who is hugo', 'find_person', {userId: 'user-1', experiments: ['plaid']});
+		expect(fillIntent).toHaveBeenCalledWith('who is hugo', 'find_person', {userId: 'user-1', experiments: []});
 	});
 
 	test('refuses a request without a widget, or with text that is empty or past 500 characters', async () => {

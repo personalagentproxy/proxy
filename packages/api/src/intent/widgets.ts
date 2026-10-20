@@ -35,7 +35,7 @@ export type Widget = {
 	/** What Jev reads to tell the widgets apart, and the LLM reads to know what it fills in. */
 	description: string;
 	fields: WidgetField[];
-	/** The experiment an organization needs on to be offered it, as banks are behind `plaid`. */
+	/** The experiment an organization needs on to be offered it. */
 	experiment?: Experiment;
 };
 
@@ -160,14 +160,12 @@ export const WIDGETS: Widget[] = [
 	{
 		id: 'show_balances',
 		name: 'Balances',
-		experiment: 'plaid',
 		description: 'See the balance of a bank account, card or loan, or how much money the person has or owes in all',
 		fields: [{id: 'balanceAccount', name: 'Account', hint: 'the account asked about, as written without my ("checking", "amex", "savings", "credit card"); null for every account'}],
 	},
 	{
 		id: 'find_transactions',
 		name: 'Transactions',
-		experiment: 'plaid',
 		description:
 			'Find bank or card transactions, charges, payments and deposits, or add up what was spent or received: at a merchant, of a kind, on an account, over some days ("how much did I spend on restaurants last month", "find the uber charge", "when did I last get paid")',
 		fields: [

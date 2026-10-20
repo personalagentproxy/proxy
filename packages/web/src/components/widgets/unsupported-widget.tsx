@@ -2,7 +2,6 @@ import {BotIcon} from 'lucide-react';
 import {Link} from 'react-router';
 import {buttonVariants} from '@proxy/ui/components/button';
 import {WidgetFrame} from '@/components/widgets/widget-frame';
-import {useExperiment} from '@/hooks/use-experiment';
 import type {AgentLogin} from '@/lib/types';
 
 // "Claude", "Claude or Poke", and past two, "one of your agents".
@@ -18,7 +17,6 @@ function whomToAsk(agents: AgentLogin[]): string {
 // rest is for the person's agent, or, with none yet, offers to add one.
 export function UnsupportedWidget({agents}: {agents: AgentLogin[]}) {
 	const active = agents.filter((agent) => agent.revokedAt === null);
-	const banks = useExperiment('plaid');
 	return (
 		<WidgetFrame
 			icon={BotIcon}
@@ -33,7 +31,7 @@ export function UnsupportedWidget({agents}: {agents: AgentLogin[]}) {
 		>
 			<p>
 				Quick actions make events, find people, emails and files, write emails, do math and convert
-				units{banks ? ', and show your balances and spending' : ''}.{' '}
+				units, and show your balances and spending.{' '}
 				{active.length > 0
 					? `For anything else, ask ${whomToAsk(active)}, which can work with your connections.`
 					: 'For anything else, add an agent and ask it: it can work with your connections.'}

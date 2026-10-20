@@ -8,18 +8,6 @@ Plaid connects Personal Agent Proxy to the bank, in the US and Canada. Agents on
 can't move money or change anything at the bank. Every request goes to Plaid live; nothing is
 copied.
 
-<Callout>
-Banks are being tried out with some organizations first, so the catalog only offers Plaid to an
-organization that has them turned on. On a self-hosted Personal Agent Proxy, turn them on for every
-organization in its database:
-
-```sql
-UPDATE "Organization" SET experiments = array_append(experiments, 'plaid')
-WHERE NOT 'plaid' = ANY(experiments);
-```
-
-</Callout>
-
 ## Before you start: Plaid keys
 
 Hosted Personal Agent Proxy has its own Plaid keys, so skip to [Connect a bank](#connect-a-bank). A

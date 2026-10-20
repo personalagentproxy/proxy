@@ -5,9 +5,8 @@ mock.module('../utils/env', () => ({env: mockEnv}));
 
 const text = 'Create a calendar invite with Jon Burke and Jacky Doe at One Boulevard Plaza at 7pm tomorrow';
 
-// An organization with no experiment on, and one with banks.
+// An organization with no experiment on.
 const NOBODY = {experiments: []};
-const WITH_BANKS = {experiments: ['plaid' as const]};
 
 // What Jev picks, and what OpenRouter answers: the model's JSON as the message's text.
 let choice = '';
@@ -82,25 +81,14 @@ describe('pickIntent', () => {
 			'find_file',
 			'calculate',
 			'convert_units',
+			'show_balances',
+			'find_transactions',
 			'incomplete',
 			'none',
 		]);
 		expect(body.questions.widget.criteria.find_file).toBe('Find or open a file, document, spreadsheet or presentation in Drive');
 		expect(body.questions.widget.criteria.incomplete).toContain('cut off');
 		expect(calls('https://openrouter.ai/')).toHaveLength(0);
-	});
-
-	test('offers the bank widgets only to an organization with the plaid experiment', async () => {
-		const {pickIntent} = await import('./classify');
-		pick('find_transactions');
-
-		expect((await pickIntent('uber charges this month', WITH_BANKS)).unwrap()).toMatchObject({widget: 'find_transactions'});
-		expect(asked().questions.widget.criteria.find_transactions).toContain('Find bank or card transactions');
-		expect(asked().questions.widget.criteria).toHaveProperty('show_balances');
-
-		expect((await pickIntent('uber charges this month', NOBODY)).unwrap()).toMatchObject({widget: 'none'});
-		expect(asked().questions.widget.criteria).not.toHaveProperty('find_transactions');
-		expect(asked().questions.widget.criteria).not.toHaveProperty('show_balances');
 	});
 
 	test('answers incomplete and none as Jev picks them, and a widget there is no such of as none', async () => {
@@ -162,11 +150,11 @@ describe('fillIntent', () => {
 		expect(sent().response_format.json_schema.schema.properties.about).toEqual({type: 'array', items: {type: 'array', items: {type: 'string'}}});
 	});
 
-	test('fills a bank widget in for an organization with the experiment, and none for one without', async () => {
+	test('fills a bank widget in, and none for a widget there is no such of', async () => {
 		const {fillIntent} = await import('./classify');
 		answer({merchant: 'uber', category: 'TRANSPORTATION', flow: 'out', transactionAccount: null});
 
-		expect((await fillIntent('uber charges this month', 'find_transactions', WITH_BANKS)).unwrap().fields).toMatchObject([
+		expect((await fillIntent('uber charges this month', 'find_transactions', NOBODY)).unwrap().fields).toMatchObject([
 			{id: 'merchant', values: ['uber']},
 			{id: 'category', values: ['TRANSPORTATION']},
 			{id: 'flow', values: ['out']},
@@ -175,7 +163,7 @@ describe('fillIntent', () => {
 		expect(sent().messages[0]?.content).toContain('FOOD_AND_DRINK (restaurants, groceries');
 
 		fetchSpy.mockClear();
-		for (const widget of ['find_transactions', 'none', 'make_coffee']) {
+		for (const widget of ['none', 'make_coffee']) {
 			expect((await fillIntent('uber charges this month', widget, NOBODY)).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'widget', id: widget});
 		}
 		expect(fetchSpy).not.toHaveBeenCalled();
