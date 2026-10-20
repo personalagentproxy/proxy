@@ -3,6 +3,8 @@ import {
 	findEvents,
 	findFiles,
 	findPeople,
+	findTransactions,
+	getAccounts,
 	getAgenda,
 	getMailboxes,
 	getRates,
@@ -27,3 +29,7 @@ export const useMailboxes = lookup((_all: true) => getMailboxes());
 export const useFiles = lookup(findFiles);
 
 export const useRates = lookup((_today: true) => getRates());
+
+export const useAccounts = lookup((_all: true) => getAccounts());
+
+export const useTransactions = lookup(findTransactions);

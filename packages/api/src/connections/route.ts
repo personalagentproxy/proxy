@@ -9,14 +9,14 @@ import {integrationOf, parseActionChanges, requireIntegration} from '../utils/co
 import {requireUserOrgId} from '../utils/user-org';
 import {toConnectionResponse, type ConnectionResponse} from './connection-response';
 import {beforeDisconnect} from './disconnect';
-import {refuseUnavailable, unavailableActions} from './unavailable';
+import {needsSignIn, refuseUnavailable, unavailableActions} from './unavailable';
 
 type StoredConnectionRow = ConnectionRow & {credential: string | null};
 
 // The connection as the web app gets it, with the actions its sign-in didn't cover, read from its
 // credential on every request.
 function respond(row: StoredConnectionRow): ConnectionResponse {
-	return toConnectionResponse(row, unavailableActions(row));
+	return toConnectionResponse(row, unavailableActions(row), needsSignIn(row));
 }
 
 function requireConnection(orgId: string, connectionId: string): Promise<Result<StoredConnectionRow, ApiError>> {

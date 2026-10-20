@@ -1,61 +1,77 @@
 import {beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
 
-const mockEnv: {OPENROUTER_KEY?: string} = {};
+const mockEnv: {TYPESAFE_API_KEY?: string; OPENROUTER_KEY?: string} = {};
 mock.module('../utils/env', () => ({env: mockEnv}));
 
 const text = 'Create a calendar invite with Jon Burke and Jacky Doe at One Boulevard Plaza at 7pm tomorrow';
 
-// What OpenRouter answers: the model's JSON as the message's text.
+// An organization with no experiment on.
+const NOBODY = {experiments: []};
+
+// What Jev picks, and what OpenRouter answers: the model's JSON as the message's text.
+let choice = '';
 let content = '';
-let status = 200;
-const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async () =>
-	status === 200 ? Response.json({choices: [{message: {content}}], provider: 'Cerebras'}) : Response.json({error: {message: 'down'}}, {status})) as unknown as typeof fetch);
+let jevStatus = 200;
+let openRouterStatus = 200;
+const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (input: string) => {
+	if (input.startsWith('https://api.typesafe.ai/')) {
+		return jevStatus === 200
+			? Response.json({model: 'jev-1.13.0', answers: {widget: {type: 'choice', choice, confidence: 0.9, probabilities: {[choice]: 0.9}}}, usage: {input_tokens: 1, output_tokens: 1}})
+			: Response.json({error: 'down'}, {status: jevStatus});
+	}
+	return openRouterStatus === 200 ? Response.json({choices: [{message: {content}}], provider: 'Cerebras'}) : Response.json({error: {message: 'down'}}, {status: openRouterStatus});
+}) as unknown as typeof fetch);
+
+function pick(widget: string) {
+	choice = widget;
+}
 
 function answer(values: Record<string, string | string[] | string[][] | null>) {
 	content = JSON.stringify(values);
 }
 
-// The body of the request made to OpenRouter.
+// The calls made to `host`, each with its headers and body.
+function calls(host: string) {
+	return fetchSpy.mock.calls.filter(([url]) => String(url).startsWith(host)).map(([, init]) => ({headers: init?.headers as Record<string, string>, body: JSON.parse(String(init?.body))}));
+}
+
+// The body of the request last made to Jev.
+function asked(): {model: string; state: string; questions: {widget: {type: string; instructions: string; criteria: Record<string, string>}}} {
+	return calls('https://api.typesafe.ai/').at(-1)?.body;
+}
+
+// The body of the request last made to OpenRouter.
 function sent(): {
 	model: string;
 	messages: Array<{role: string; content: string}>;
-	provider: {order: string[]};
-	response_format: {json_schema: {schema: {required: string[]; properties: {widget: {enum: string[]}}}}};
+	provider: {order: string[]; data_collection: string};
+	response_format: {json_schema: {schema: {required: string[]; properties: Record<string, object>}}};
 } {
-	return JSON.parse(String(fetchSpy.mock.calls.at(-1)?.[1]?.body));
+	return calls('https://openrouter.ai/').at(-1)?.body;
 }
 
 beforeEach(() => {
 	fetchSpy.mockClear();
+	mockEnv.TYPESAFE_API_KEY = 'ts-1';
 	mockEnv.OPENROUTER_KEY = 'sk-or-1';
-	status = 200;
-	answer({
-		widget: 'new_event',
-		attendees: ['Jon Burke', ' Jacky Doe ', 'Jon Burke'],
-		location: 'One Boulevard Plaza',
-		title: null,
-		person: null,
-		to: [],
-		subject: null,
-		from: null,
-		about: null,
-		name: null,
-		owner: null,
-	});
+	jevStatus = 200;
+	openRouterStatus = 200;
+	pick('new_event');
+	answer({attendees: ['Jon Burke', ' Jacky Doe ', 'Jon Burke'], location: 'One Boulevard Plaza', title: null});
 });
 
-describe('classifyIntent', () => {
-	test('asks gpt-oss-120b, on Cerebras first, for the widget and every field in one answer', async () => {
-		const {classifyIntent} = await import('./classify');
-		await classifyIntent(text);
+describe('pickIntent', () => {
+	test('asks Jev which widget fits, among those offered, incomplete and none, and fills nothing in', async () => {
+		const {pickIntent} = await import('./classify');
+		expect((await pickIntent(text, NOBODY)).unwrap()).toMatchObject({widget: 'new_event'});
 
-		const body = sent();
-		expect(body.model).toBe('openai/gpt-oss-120b');
-		expect(body.provider.order).toEqual(['Cerebras', 'Groq']);
-		expect(body.messages[1]).toEqual({role: 'user', content: text});
-		expect(body.messages[0]?.content).toContain('- find_file: Find or open a file');
-		const schema = body.response_format.json_schema.schema;
-		expect(schema.properties.widget.enum).toEqual([
+		const [jev] = calls('https://api.typesafe.ai/');
+		expect(jev?.headers.authorization).toBe('Bearer ts-1');
+		const body = asked();
+		expect(body.model).toBe('jev-1.13.0');
+		expect(body.state).toBe(text);
+		expect(body.questions.widget.type).toBe('choice');
+		expect(Object.keys(body.questions.widget.criteria)).toEqual([
 			'new_event',
 			'change_event',
 			'show_calendar',
@@ -65,45 +81,57 @@ describe('classifyIntent', () => {
 			'find_file',
 			'calculate',
 			'convert_units',
+			'show_balances',
+			'find_transactions',
 			'incomplete',
 			'none',
 		]);
-		expect(schema.required).toEqual([
-			'widget',
-			'attendees',
-			'location',
-			'title',
-			'changeWith',
-			'changeEvent',
-			'changeFrom',
-			'changeTo',
-			'invite',
-			'uninvite',
-			'newTitle',
-			'newLocation',
-			'meetingWith',
-			'eventName',
-			'person',
-			'to',
-			'subject',
-			'body',
-			'from',
-			'about',
-			'name',
-			'owner',
-			'expression',
-			'amount',
-			'fromUnit',
-			'toUnit',
-		]);
+		expect(body.questions.widget.criteria.find_file).toBe('Find or open a file, document, spreadsheet or presentation in Drive');
+		expect(body.questions.widget.criteria.incomplete).toContain('cut off');
+		expect(calls('https://openrouter.ai/')).toHaveLength(0);
 	});
 
-	test("answers the picked widget's fields alone, each value trimmed and once", async () => {
-		const {classifyIntent} = await import('./classify');
-		const intent = (await classifyIntent(text)).unwrap();
+	test('answers incomplete and none as Jev picks them, and a widget there is no such of as none', async () => {
+		const {pickIntent} = await import('./classify');
+		for (const [picked, widget] of [
+			['incomplete', 'incomplete'],
+			['none', 'none'],
+			['make_coffee', 'none'],
+		]) {
+			pick(picked ?? '');
+			expect((await pickIntent('hi', NOBODY)).unwrap()).toMatchObject({widget});
+		}
+	});
 
-		expect(intent.widget).toBe('new_event');
-		expect(intent.fields).toEqual([
+	test('Jev failing is a provider out of reach', async () => {
+		const {pickIntent} = await import('./classify');
+		jevStatus = 503;
+		expect((await pickIntent(text, NOBODY)).unwrapErr().kind).toBe('provider_unreachable');
+	});
+});
+
+describe('fillIntent', () => {
+	test("asks gpt-oss-120b, on Cerebras first, for the widget's fields alone", async () => {
+		const {fillIntent} = await import('./classify');
+		await fillIntent(text, 'new_event', NOBODY);
+
+		const body = sent();
+		expect(body.model).toBe('openai/gpt-oss-120b');
+		expect(body.provider.order).toEqual(['Cerebras', 'Groq']);
+		expect(body.provider.data_collection).toBe('deny');
+		expect(body.messages[1]).toEqual({role: 'user', content: text});
+		expect(body.messages[0]?.content).toContain('Fill in the fields of the New event widget');
+		expect(body.messages[0]?.content).toContain('- attendees (list): each person to invite');
+		expect(body.messages[0]?.content).not.toContain('find_file');
+		expect(body.response_format.json_schema.schema.required).toEqual(['attendees', 'location', 'title']);
+		expect(calls('https://api.typesafe.ai/')).toHaveLength(0);
+	});
+
+	test("answers the widget's fields, each value trimmed and once", async () => {
+		const {fillIntent} = await import('./classify');
+		const filled = (await fillIntent(text, 'new_event', NOBODY)).unwrap();
+
+		expect(filled.fields).toEqual([
 			{id: 'attendees', name: 'Attendees', values: ['Jon Burke', 'Jacky Doe']},
 			{id: 'location', name: 'Location', values: ['One Boulevard Plaza']},
 			{id: 'title', name: 'Title', values: []},
@@ -111,66 +139,67 @@ describe('classifyIntent', () => {
 	});
 
 	test('answers search terms as each one\'s words joined by " | "', async () => {
-		answer({widget: 'find_email', from: null, about: [['flight', ' itinerary ', 'e|ticket'], ['SFO'], []]});
-		const {classifyIntent} = await import('./classify');
-		const intent = (await classifyIntent('find the email about my flight to sfo')).unwrap();
+		answer({from: null, about: [['flight', ' itinerary ', 'e|ticket'], ['SFO'], []]});
+		const {fillIntent} = await import('./classify');
+		const filled = (await fillIntent('find the email about my flight to sfo', 'find_email', NOBODY)).unwrap();
 
-		expect(intent.fields).toEqual([
+		expect(filled.fields).toEqual([
 			{id: 'from', name: 'From', values: []},
 			{id: 'about', name: 'About', values: ['flight | itinerary | e ticket', 'SFO']},
 		]);
-		const schema = sent().response_format.json_schema.schema as unknown as {properties: Record<string, object>};
-		expect(schema.properties.about).toEqual({type: 'array', items: {type: 'array', items: {type: 'string'}}});
+		expect(sent().response_format.json_schema.schema.properties.about).toEqual({type: 'array', items: {type: 'array', items: {type: 'string'}}});
 	});
 
-	test("every field id is one widget's alone, as the model answers them all in one object", async () => {
-		const {WIDGETS} = await import('./widgets');
-		const ids = WIDGETS.flatMap((widget) => widget.fields.map((field) => field.id));
-		expect(new Set(ids).size).toBe(ids.length);
-	});
+	test('fills a bank widget in, and none for a widget there is no such of', async () => {
+		const {fillIntent} = await import('./classify');
+		answer({merchant: 'uber', category: 'TRANSPORTATION', flow: 'out', transactionAccount: null});
 
-	test('holds a unit to the units there are', async () => {
-		const {classifyIntent} = await import('./classify');
-		await classifyIntent('5 miles in km');
+		expect((await fillIntent('uber charges this month', 'find_transactions', NOBODY)).unwrap().fields).toMatchObject([
+			{id: 'merchant', values: ['uber']},
+			{id: 'category', values: ['TRANSPORTATION']},
+			{id: 'flow', values: ['out']},
+			{id: 'transactionAccount', values: []},
+		]);
+		expect(sent().messages[0]?.content).toContain('FOOD_AND_DRINK (restaurants, groceries');
 
-		const schema = sent().response_format.json_schema.schema as unknown as {properties: Record<string, {enum?: Array<string | null>}>};
-		expect(schema.properties.fromUnit?.enum).toContain('mi');
-		expect(schema.properties.toUnit?.enum).toContain(null);
-	});
-
-	test('none, or a widget there is no such of, has no fields', async () => {
-		const {classifyIntent} = await import('./classify');
+		fetchSpy.mockClear();
 		for (const widget of ['none', 'make_coffee']) {
-			answer({widget});
-			expect((await classifyIntent('hi')).unwrap()).toMatchObject({widget: 'none', fields: []});
+			expect((await fillIntent('uber charges this month', widget, NOBODY)).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'widget', id: widget});
 		}
-	});
-
-	test('tells text still being typed from a whole request no widget does', async () => {
-		const {classifyIntent} = await import('./classify');
-		answer({widget: 'incomplete'});
-
-		expect((await classifyIntent('find the')).unwrap()).toMatchObject({widget: 'incomplete', fields: []});
-		expect(sent().messages[0]?.content).toContain('- incomplete: the text is cut off');
-	});
-
-	test('is unavailable without a key, and asks nothing', async () => {
-		delete mockEnv.OPENROUTER_KEY;
-		const {classifyIntent} = await import('./classify');
-
-		expect((await classifyIntent(text)).unwrapErr()).toMatchObject({kind: 'unavailable', message: 'The home page is not set up: set `OPENROUTER_KEY`.'});
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
-	test('OpenRouter failing, or the model answering outside the form, is a provider out of reach', async () => {
-		const {classifyIntent} = await import('./classify');
+	test('holds a unit to the units there are', async () => {
+		answer({amount: '5', fromUnit: 'mi', toUnit: 'km'});
+		const {fillIntent} = await import('./classify');
+		await fillIntent('5 miles in km', 'convert_units', NOBODY);
 
-		status = 503;
-		expect((await classifyIntent(text)).unwrapErr().kind).toBe('provider_unreachable');
-		status = 200;
-		content = 'Sure! Here is the form:';
-		expect((await classifyIntent(text)).unwrapErr().kind).toBe('provider_unreachable');
-		answer({attendees: ['Jon']});
-		expect((await classifyIntent(text)).unwrapErr().kind).toBe('provider_unreachable');
+		const properties = sent().response_format.json_schema.schema.properties as Record<string, {enum?: Array<string | null>}>;
+		expect(properties.fromUnit?.enum).toContain('mi');
+		expect(properties.toUnit?.enum).toContain(null);
 	});
+
+	test('OpenRouter failing, or the model answering outside the form, is a provider out of reach', async () => {
+		const {fillIntent} = await import('./classify');
+
+		openRouterStatus = 503;
+		expect((await fillIntent(text, 'new_event', NOBODY)).unwrapErr().kind).toBe('provider_unreachable');
+		openRouterStatus = 200;
+		content = 'Sure! Here is the form:';
+		expect((await fillIntent(text, 'new_event', NOBODY)).unwrapErr().kind).toBe('provider_unreachable');
+	});
+});
+
+test('picking and filling in are unavailable without either key, and ask nothing', async () => {
+	const {fillIntent, pickIntent} = await import('./classify');
+
+	for (const key of ['TYPESAFE_API_KEY', 'OPENROUTER_KEY'] as const) {
+		mockEnv.TYPESAFE_API_KEY = 'ts-1';
+		mockEnv.OPENROUTER_KEY = 'sk-or-1';
+		delete mockEnv[key];
+		for (const result of [await pickIntent(text, NOBODY), await fillIntent(text, 'new_event', NOBODY)]) {
+			expect(result.unwrapErr()).toMatchObject({kind: 'unavailable', message: 'The home page is not set up: set `TYPESAFE_API_KEY` and `OPENROUTER_KEY`.'});
+		}
+	}
+	expect(fetchSpy).not.toHaveBeenCalled();
 });

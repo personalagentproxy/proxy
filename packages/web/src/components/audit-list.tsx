@@ -86,11 +86,11 @@ export function AuditList({
 					const denied = entry.outcome === 'denied';
 					const task = tasks.find((candidate) => candidate.id === entry.taskId);
 					return (
-						<li key={entry.id}>
+						<li key={entry.id} className="-mx-(--bleed)">
 							<button
 								type="button"
 								onClick={() => setOpened(entry)}
-								className="flex h-10 w-full items-center gap-3 px-4 text-left text-sm hover:bg-muted/50 active:bg-muted/50 md:px-3"
+								className="flex h-10 w-full items-center gap-3 px-(--bleed) text-left text-sm hover:bg-muted/50 active:bg-muted/50"
 							>
 								<span className={CELLS.at}>{formatDateTime(entry.at)}</span>
 								{showAgent && <EntryAgentLogo agentId={entry.agentId} agent={agent} />}

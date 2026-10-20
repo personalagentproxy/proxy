@@ -19,9 +19,12 @@ export type ConnectionResponse = {
 	// The actions the connection's sign-in didn't cover, in the catalog's order: no agent gets them
 	// until the person signs in again and allows them.
 	unavailable: string[];
+	// The connection has no sign-in at all, as one moved over from a custom MCP server may not: every
+	// action is unavailable until the person signs in.
+	signInNeeded: boolean;
 };
 
-export function toConnectionResponse(row: ConnectionRow, unavailable: string[]): ConnectionResponse {
+export function toConnectionResponse(row: ConnectionRow, unavailable: string[], signInNeeded = false): ConnectionResponse {
 	const integration = integrationOf(row);
 	const actions = integration?.actions ?? [];
 	return {
@@ -32,5 +35,6 @@ export function toConnectionResponse(row: ConnectionRow, unavailable: string[]):
 		tools: integration?.mcpTools ?? null,
 		name: row.name,
 		unavailable,
+		signInNeeded,
 	};
 }

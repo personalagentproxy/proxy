@@ -59,7 +59,7 @@ export function AgentCollectionPage() {
 					})),
 				]}
 			/>
-			<div className="mb-4 flex items-center justify-between gap-4 md:px-3">
+			<div className="flex items-center justify-between gap-4">
 				<AgentHeading>{here?.title ?? collection.name}</AgentHeading>
 				<div className="flex gap-2">
 					{here && (
@@ -86,14 +86,14 @@ export function AgentCollectionPage() {
 					)}
 				</div>
 			</div>
-			{notice && <p className="mb-4 text-sm md:px-3">{notice}.</p>}
+			{notice && <p className="text-sm">{notice}.</p>}
 		</>
 	);
 	if (outcome.kind === 'denied' && canStartNew(collection, actions)) {
 		return (
 			<AgentShell>
 				{header}
-				<p className="text-sm text-muted-foreground md:px-3">
+				<p className="text-sm text-muted-foreground">
 					This login can add {collection.name.toLowerCase()} here but not read it.
 				</p>
 			</AgentShell>
@@ -135,8 +135,8 @@ export function AgentCollectionPage() {
 			{header}
 			<PersonLinkHint collection={collection} />
 			{collection.searchHint && (
-				<>
-					<Form method="get" className="mb-1 flex gap-2 md:px-3">
+				<div className="flex flex-col gap-1">
+					<Form method="get" className="flex gap-2">
 						{filter && chosen && <input type="hidden" name={filter.key} value={chosen} />}
 						{parent && <input type="hidden" name="parent" value={parent} />}
 						<Input
@@ -159,11 +159,11 @@ export function AgentCollectionPage() {
 							</Button>
 						)}
 					</Form>
-					<p className="mb-4 text-sm text-muted-foreground md:px-3">{collection.searchHint}</p>
-				</>
+					<p className="text-sm text-muted-foreground">{collection.searchHint}</p>
+				</div>
 			)}
 			{filter && (
-				<nav aria-label={`${filter.label} filter`} className="mb-3 flex gap-1 md:px-3">
+				<nav aria-label={`${filter.label} filter`} className="flex gap-1">
 					{[null, ...(filter.options ?? [])].map((option) => (
 						<Button
 							key={option ?? 'all'}
@@ -198,7 +198,7 @@ export function AgentCollectionPage() {
 								<OpenInLink
 									collection={collection}
 									url={record.url}
-									className="shrink-0 pr-4 text-sm text-muted-foreground md:pr-3"
+									className="text-sm text-muted-foreground"
 								/>
 							)
 						}
@@ -225,15 +225,14 @@ export function AgentCollectionPage() {
 				))}
 			</RowList>
 			{nextPage && (
-				<div className="mt-4 md:px-3">
-					<Button
-						variant="outline"
-						nativeButton={false}
-						render={<Link to={listLink({page: nextPage})} />}
-					>
-						{collection.upcoming ? 'Later' : 'Older'} {collection.name.toLowerCase()}
-					</Button>
-				</div>
+				<Button
+					variant="outline"
+					className="self-start"
+					nativeButton={false}
+					render={<Link to={listLink({page: nextPage})} />}
+				>
+					{collection.upcoming ? 'Later' : 'Older'} {collection.name.toLowerCase()}
+				</Button>
 			)}
 		</AgentShell>
 	);
@@ -243,7 +242,7 @@ export function AgentMissing() {
 	return (
 		<AgentShell>
 			<Crumbs items={[{label: 'Home', to: '/agent'}, {label: 'Not found'}]} />
-			<p className="text-sm text-muted-foreground md:px-3">There is nothing at this address.</p>
+			<p className="text-sm text-muted-foreground">There is nothing at this address.</p>
 		</AgentShell>
 	);
 }
@@ -254,7 +253,7 @@ export function AgentDenied({children}: {children: ReactNode}) {
 	return (
 		<AgentShell>
 			<Crumbs items={[{label: 'Home', to: '/agent'}, {label: 'No access'}]} />
-			<p className="text-sm md:px-3">{children} Ask the person who made it to give it access.</p>
+			<p className="text-sm">{children} Ask the person who made it to give it access.</p>
 		</AgentShell>
 	);
 }

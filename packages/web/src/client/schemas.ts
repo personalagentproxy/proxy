@@ -15,6 +15,9 @@ export const connectionSchema = z.object({
 	name: z.string().nullable(),
 	// The actions the connection's sign-in didn't cover: no agent gets them until it is signed in again.
 	unavailable: z.array(z.string()),
+	// It has no sign-in at all, as one moved over from a custom MCP server may not: every action is
+	// unavailable until the person signs in.
+	signInNeeded: z.boolean(),
 });
 
 export const agentSchema = z.object({

@@ -15,6 +15,7 @@ import {IntegrationCatalog, SignInFailed} from '@/components/integration-catalog
 import {StepHeading} from '@/components/step-heading';
 import {SuccessLine} from '@/components/success-line';
 import {Button} from '@proxy/ui/components/button';
+import {Card} from '@proxy/ui/components/card';
 import {defaultActions, defaultsOnOrOff, integrationOf} from '@/lib/access';
 import {
 	describeDatabase,
@@ -140,7 +141,7 @@ function agentNameOf(agents: AgentLogin[]): string {
 
 function Frame({step, children}: {step: 1 | 2; children: ReactNode}) {
 	return (
-		<div className="flex min-h-dvh w-full justify-center bg-background p-4 pt-[12vh] text-foreground">
+		<div className="page-column flex min-h-dvh w-full justify-center bg-background pt-[12vh] pb-4 text-foreground">
 			<div className="grid w-full max-w-lg content-start gap-4">
 				<p className="text-sm text-muted-foreground">Step {step} of 2</p>
 				{children}
@@ -178,6 +179,7 @@ function ConnectionsStep({
 				experiments={experiments}
 				returnTo="welcome"
 				onConnectForm={(integrationId) => navigate(`/welcome/connections/${integrationId}`)}
+				onConnected={(connection) => navigate(`/welcome/connections/${connection.id}`)}
 			/>
 			<div className="flex justify-end">
 				<Button nativeButton={false} render={<Link to="/welcome/agent" />}>
@@ -306,7 +308,11 @@ function ConnectionStep({
 	const defaults = defaultActions(connection);
 	const signInAgain =
 		connection.unavailable.length > 0
-			? signInPath(connection.integrationId, {returnTo: 'welcome', account: connection.account})
+			? signInPath(connection.integrationId, {
+					returnTo: 'welcome',
+					account: connection.account,
+					connection: connection.id,
+				})
 			: null;
 
 	return (
@@ -321,19 +327,25 @@ function ConnectionStep({
 			{integration.disclosure && (
 				<p className="text-sm text-muted-foreground">{integration.disclosure}</p>
 			)}
-			<div className="rounded-xl border bg-card px-1 py-1">
+			<Card>
 				<ConnectionAccess
 					actions={integration.actions}
 					defaults={defaults}
 					unavailable={connection.unavailable}
+					signInNeeded={connection.signInNeeded}
 					onChange={async (changes) => {
 						const result = await setConnectionDefaults(connection.id, defaultsOnOrOff(changes));
 						setError(result.isErr() ? describeFetchError(result.error) : null);
 						await revalidate();
 					}}
 				/>
-			</div>
-			{signInAgain && <SignInAgain href={signInAgain} />}
+			</Card>
+			{signInAgain && (
+				<SignInAgain
+					href={signInAgain}
+					reason={connection.signInNeeded ? 'needed' : 'unavailable'}
+				/>
+			)}
 			{defaults.every((id) => connection.unavailable.includes(id)) && (
 				<p className="text-sm text-muted-foreground">
 					Nothing is ticked, so {agentName} can't use this account yet.

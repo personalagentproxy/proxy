@@ -26,17 +26,16 @@ import {handleDevLoginRoute} from '../auth/dev-login';
 import {handleEmailSignInRoute, handleEmailVerifyRoute} from '../auth/email';
 import {handleGoogleCallbackRoute, handleGoogleStartRoute, handleSignInMethodsRoute} from '../auth/google';
 import {handleSignOutRoute} from '../auth/signout';
+import {BUILT_IN_MCP} from '../connections/built-in-mcp';
 import {handleConnectCustomMcpRoute, handleCustomMcpCallbackRoute, handleRefreshCustomMcpToolsRoute} from '../connections/custom/route';
 import {handleConnectEmailRoute, handleTestEmailRoute} from '../connections/email/route';
 import {handleGoogleCallbackRoute as handleConnectGoogleCallbackRoute, handleStartGoogleRoute} from '../connections/google/route';
-import {handleGranolaCallbackRoute, handleStartGranolaRoute} from '../connections/granola/route';
-import {handleLinearCallbackRoute, handleStartLinearRoute} from '../connections/linear/route';
+import {keyConnectRoute, mcpConnectRoutes} from '../connections/mcp/mcp-connect';
 import {handleConnectMysqlRoute, handleTestMysqlRoute} from '../connections/mysql/route';
-import {handleNotionCallbackRoute, handleStartNotionRoute} from '../connections/notion/route';
 import {handleConnectPlaidRoute, handleCreatePlaidLinkTokenRoute} from '../connections/plaid/route';
 import {handleConnectPostgresRoute, handleTestPostgresRoute} from '../connections/postgres/route';
 import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleRenameConnectionRoute, handleSetConnectionDefaultsRoute} from '../connections/route';
-import {handleClassifyIntentRoute} from '../intent/route';
+import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
 import {handleDeleteMeRoute, handleFinishOnboardingRoute, handleMeRoute} from '../me/route';
 import {handleAuthorizeRoute, handleConsentRoute, handleGetAuthorizationRequestRoute} from '../oauth/authorize';
@@ -45,6 +44,7 @@ import {handleRegisterClientRoute} from '../oauth/register';
 import {handleTokenRoute} from '../oauth/token';
 import {handleCreateRecordRoute, handleDeleteRecordRoute, handleGetRecordRoute, handleListRecordsRoute, handleUpdateRecordRoute} from '../records/route';
 import {handleAgendaRoute, handleFindEventsRoute} from '../widgets/agenda';
+import {handleBankAccountsRoute, handleBankTransactionsRoute} from '../widgets/bank';
 import {handleEditEventRoute} from '../widgets/edit-event';
 import {handleFindEmailsRoute, handleMailboxesRoute, handleWriteEmailRoute} from '../widgets/emails';
 import {handleFindFilesRoute} from '../widgets/files';
@@ -85,12 +85,17 @@ export function createApiRouter(): express.Router {
 	router.post('/api/connections/email/test', withAuthResult('Test email route', handleTestEmailRoute));
 	router.get('/api/connections/google/start', withAuth('Start Google sign-in route', handleStartGoogleRoute));
 	router.get('/api/connections/google/callback', withAuth('Google sign-in callback route', handleConnectGoogleCallbackRoute));
-	router.get('/api/connections/granola/start', withAuth('Start Granola sign-in route', handleStartGranolaRoute));
-	router.get('/api/connections/granola/callback', withAuth('Granola sign-in callback route', handleGranolaCallbackRoute));
-	router.get('/api/connections/notion/start', withAuth('Start Notion sign-in route', handleStartNotionRoute));
-	router.get('/api/connections/notion/callback', withAuth('Notion sign-in callback route', handleNotionCallbackRoute));
-	router.get('/api/connections/linear/start', withAuth('Start Linear sign-in route', handleStartLinearRoute));
-	router.get('/api/connections/linear/callback', withAuth('Linear sign-in callback route', handleLinearCallbackRoute));
+	// Every integration built on its MCP server signs in the same way, from its declaration, and
+	// takes an API key the same way where its server does.
+	for (const builtIn of BUILT_IN_MCP) {
+		const {handleStart, handleCallback} = mcpConnectRoutes(builtIn);
+		const {integrationId, server} = builtIn;
+		router.get(`/api/connections/${integrationId}/start`, withAuth(`Start ${server.name} sign-in route`, handleStart));
+		router.get(`/api/connections/${integrationId}/callback`, withAuth(`${server.name} sign-in callback route`, handleCallback));
+		if (builtIn.apiKey) {
+			router.post(`/api/connections/${integrationId}`, withAuthResult(`Connect ${server.name} with an API key route`, keyConnectRoute(builtIn)));
+		}
+	}
 	router.post('/api/connections/plaid', withAuthResult('Connect Plaid route', handleConnectPlaidRoute));
 	router.post('/api/connections/plaid/link-token', withAuthResult('Create Plaid Link token route', handleCreatePlaidLinkTokenRoute));
 	router.post('/api/connections/postgres', withAuthResult('Connect Postgres route', handleConnectPostgresRoute));
@@ -126,9 +131,10 @@ export function createApiRouter(): express.Router {
 	router.get('/api/activity', withAuthResult('List activity route', handleListActivityRoute));
 	router.get('/api/activity/lanes', withAuthResult('Activity lanes route', handleActivityLanesRoute));
 
-	// The home page: which widget fits what the person types, and the entities in it.
+	// The home page: which widget fits what the person types, then its fields filled in.
 	router.use('/api/intent', requireBrowserOrigin);
-	router.post('/api/intent', withAuthResult('Classify intent route', handleClassifyIntentRoute));
+	router.post('/api/intent', withAuthResult('Pick intent route', handlePickIntentRoute));
+	router.post('/api/intent/fields', withAuthResult('Fill intent route', handleFillIntentRoute));
 	// Its widgets: every connection with the collection a widget is about, read at once, and
 	// written to as the person picks.
 	router.use('/api/widgets', requireBrowserOrigin);
@@ -142,6 +148,8 @@ export function createApiRouter(): express.Router {
 	router.get('/api/widgets/mailboxes', withAuthResult('Widget mailboxes route', handleMailboxesRoute));
 	router.get('/api/widgets/files', withAuthResult('Widget find files route', handleFindFilesRoute));
 	router.get('/api/widgets/rates', withAuthResult('Widget exchange rates route', handleRatesRoute));
+	router.get('/api/widgets/accounts', withAuthResult('Widget bank accounts route', handleBankAccountsRoute));
+	router.get('/api/widgets/transactions', withAuthResult('Widget bank transactions route', handleBankTransactionsRoute));
 
 	// The agent side: its own sign-in and cookie, and every request made for one of the agent's
 	// tasks, checked against the agent's access and logged with the task.

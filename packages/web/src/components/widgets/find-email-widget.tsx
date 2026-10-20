@@ -35,9 +35,9 @@ export function FindEmailWidget({intent, typed, now}: {intent: Intent; typed: st
 				<span className="text-muted-foreground">Email </span>
 				{described.length === 0 ? <Missing>of every kind</Missing> : described.join(' · ')}
 			</p>
-			<ul className="-mx-4 flex flex-col" aria-label="Emails">
+			<ul className="flex flex-col" aria-label="Emails">
 				{found.length === 0 && (
-					<li className="px-4 text-muted-foreground">
+					<li className="text-muted-foreground">
 						{emails.loading ? 'Searching…' : 'No emails match.'}
 					</li>
 				)}
@@ -65,18 +65,18 @@ export function FindEmailWidget({intent, typed, now}: {intent: Intent; typed: st
 						</>
 					);
 					return (
-						<li key={`${email.connectionId} ${email.id}`}>
+						<li key={`${email.connectionId} ${email.id}`} className="-mx-(--bleed)">
 							{email.link ? (
 								<a
 									href={email.link}
 									target="_blank"
 									rel="noreferrer"
-									className="flex h-10 min-w-0 items-center gap-3 px-4 hover:bg-muted"
+									className="flex h-10 min-w-0 items-center gap-3 px-(--bleed) hover:bg-muted"
 								>
 									{row}
 								</a>
 							) : (
-								<div className="flex h-10 min-w-0 items-center gap-3 px-4">{row}</div>
+								<div className="flex h-10 min-w-0 items-center gap-3 px-(--bleed)">{row}</div>
 							)}
 						</li>
 					);

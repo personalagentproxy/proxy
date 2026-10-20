@@ -7,6 +7,7 @@ import {AgentProviderTile} from '@/components/agent-provider-tile';
 import {CopyButton} from '@/components/copy-button';
 import {StepHeading} from '@/components/step-heading';
 import {Button} from '@proxy/ui/components/button';
+import {Card} from '@proxy/ui/components/card';
 import {cn} from '@proxy/ui/lib/utils';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin} from '@/lib/types';
@@ -209,7 +210,7 @@ export function AgentSetup({
 // agent could be either, so it is warned that the address works only for one on this computer.
 function NotPublicCallout({custom = false}: {custom?: boolean}) {
 	return (
-		<div className="grid gap-2 rounded-xl border bg-muted/50 p-4 text-sm">
+		<Card className="grid gap-2 bg-muted/50 text-sm">
 			{custom ? (
 				<p>
 					This server address only works for an agent on this computer: Personal Agent Proxy is at{' '}
@@ -236,7 +237,7 @@ function NotPublicCallout({custom = false}: {custom?: boolean}) {
 					How to set that up
 				</a>
 			</p>
-		</div>
+		</Card>
 	);
 }
 
@@ -244,11 +245,11 @@ function NotPublicCallout({custom = false}: {custom?: boolean}) {
 // copy button.
 function CopyLine({label, value, copyLabel}: {label: string; value: string; copyLabel: string}) {
 	return (
-		<div className="flex min-w-0 items-center gap-3 rounded-xl border bg-card p-4 text-sm">
+		<Card className="flex min-w-0 items-center gap-3 text-sm">
 			<span className="shrink-0 text-muted-foreground">{label}</span>
 			<span className="min-w-0 flex-1 truncate font-mono">{value}</span>
 			<CopyButton value={value} label={copyLabel} />
-		</div>
+		</Card>
 	);
 }
 
@@ -432,7 +433,7 @@ function LoginAgent({
 			{login && provider.vault && <VaultHandover provider={provider} login={login} />}
 			{login && !provider.vault && <HandoverMessage login={login} />}
 			{!login && (
-				<div className="grid gap-3 rounded-xl border bg-card p-4 text-sm">
+				<Card className="grid gap-3 text-sm">
 					{pending && (
 						<p className="flex items-center gap-2 text-muted-foreground">
 							<LoaderCircleIcon className="size-4 animate-spin" />
@@ -454,7 +455,7 @@ function LoginAgent({
 					{!pending && !existing && !error && (
 						<p className="text-muted-foreground">The login could not be made.</p>
 					)}
-				</div>
+				</Card>
 			)}
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			{actions}
@@ -493,14 +494,14 @@ function VaultHandover({provider, login}: {provider: AgentProvider; login: Login
 				<Message value={ask} copyLabel="Copy message" />
 			</VaultStep>
 			<VaultStep number={2} title="Enter the login on the page it sends">
-				<div className="grid gap-2 rounded-xl border bg-card p-4">
+				<Card className="grid gap-2">
 					<LoginLine label="Sign-in page" value={signInUrl} copyLabel="Copy sign-in page" />
 					<LoginLine label="Username" value={login.username} copyLabel="Copy username" />
 					<LoginLine label="Password" value={login.password} copyLabel="Copy password" />
 					<p className="text-muted-foreground">
 						The password is not shown again once you leave this page.
 					</p>
-				</div>
+				</Card>
 			</VaultStep>
 			<VaultStep number={3} title={`Tell ${provider.name} it is set up`}>
 				<Message value={done} copyLabel="Copy message" />
@@ -540,21 +541,21 @@ function Message({
 }) {
 	if (!children) {
 		return (
-			<div className="flex items-start gap-3 rounded-xl border bg-card p-4">
+			<Card className="flex items-start gap-3">
 				<pre className="min-w-0 flex-1 font-sans text-sm whitespace-pre-wrap">{value}</pre>
 				<CopyButton value={value} label={copyLabel} />
-			</div>
+			</Card>
 		);
 	}
 
 	return (
-		<div className="grid gap-3 rounded-xl border bg-card p-4">
+		<Card className="grid gap-3">
 			<pre className="font-sans text-sm whitespace-pre-wrap">{value}</pre>
 			<div className="flex items-center justify-between gap-4">
 				<p className="text-sm text-muted-foreground">{children}</p>
 				<CopyButton value={value} label={copyLabel} />
 			</div>
-		</div>
+		</Card>
 	);
 }
 

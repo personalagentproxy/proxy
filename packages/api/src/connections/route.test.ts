@@ -133,7 +133,17 @@ describe('handleListConnectionsRoute', () => {
 			tools: null,
 			name: null,
 			unavailable: ['readFiles', 'createFiles', 'editFiles', 'trashFiles'],
+			signInNeeded: false,
 		});
+	});
+
+	test('a connection without a credential needs a sign-in, and has every action unavailable until then', async () => {
+		listConnectionsWithCredential.mockResolvedValue(Ok([{...withoutDrive, id: 'conn-3', integrationId: 'linear', account: 'mcp.linear.app/mcp', credential: null}]));
+
+		const {handleListConnectionsRoute} = await import('./route');
+		const [connection] = (await handleListConnectionsRoute(makeRequest())).unwrap().connections;
+
+		expect(connection).toMatchObject({integrationId: 'linear', unavailable: ['read', 'create', 'edit'], signInNeeded: true});
 	});
 
 	test('a user without an organization is signed out', async () => {

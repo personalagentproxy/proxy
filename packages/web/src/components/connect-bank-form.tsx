@@ -131,13 +131,7 @@ export function ConnectBankForm({
 
 // Signing in to a connected bank again, when it asks for its login again or to share other
 // accounts: Plaid Link's update mode on the same login, which keeps the connection as it is.
-export function SignInToBankAgain({
-	connectionId,
-	className,
-}: {
-	connectionId: string;
-	className?: string;
-}) {
+export function SignInToBankAgain({connectionId}: {connectionId: string}) {
 	const [done, setDone] = useState(false);
 	const {start, pending, error, link} = usePlaidLinkFlow({
 		connectionId,
@@ -148,7 +142,7 @@ export function SignInToBankAgain({
 	});
 
 	return (
-		<div className={className}>
+		<div className="flex flex-col gap-2">
 			{link}
 			<p className="text-sm text-muted-foreground">
 				When the bank asks for its login again, or to share other accounts:{' '}
@@ -164,12 +158,8 @@ export function SignInToBankAgain({
 					{pending ? 'Opening Plaid…' : 'Sign in to the bank again'}
 				</button>
 			</p>
-			{done && (
-				<div className="mt-2">
-					<SuccessLine>Signed in to the bank again</SuccessLine>
-				</div>
-			)}
-			{error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+			{done && <SuccessLine>Signed in to the bank again</SuccessLine>}
+			{error && <p className="text-sm text-destructive">{error}</p>}
 		</div>
 	);
 }

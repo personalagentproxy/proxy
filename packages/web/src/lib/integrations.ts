@@ -7,10 +7,7 @@ import {
 	type McpTool,
 } from '@proxy/integrations';
 
-// A brand's own logo where it has one (in `public/integrations/`), else an icon: Information is
-// ours and Email is any mailbox. Custom MCP servers use our mark because Personal Agent Proxy is
-// the service connecting them. A logo that is already a square tile, as Granola's and Linear's
-// are, fills the tile edge to edge.
+// A brand's own logo, `public/integrations/<id>.svg`, unless `LOGOS` says otherwise.
 type IntegrationLogoImage = {src: string; fill?: boolean};
 
 export type Integration = CatalogIntegration & {
@@ -40,22 +37,27 @@ export const NEEDS: Record<Need, {variables: string[]; docsUrl: string}> = {
 
 const NEEDED_BY: Partial<Record<IntegrationId, Need>> = {google: 'google', plaid: 'plaid'};
 
-const LOGOS: Record<IntegrationId, LucideIcon | IntegrationLogoImage> = {
+// The integrations whose logo isn't `public/integrations/<id>.svg` as it is: an icon for those
+// that are no one brand's, Information being ours and Email any mailbox, and our mark for custom
+// MCP servers, since Personal Agent Proxy is the service connecting them; another kind of file;
+// or a logo that is already a square tile, as Granola's and Linear's are, which fills the tile
+// edge to edge.
+const LOGOS: Partial<Record<IntegrationId, LucideIcon | IntegrationLogoImage>> = {
 	info: IdCardIcon,
 	email: MailIcon,
-	google: {src: '/integrations/google.svg'},
-	granola: {src: '/integrations/granola.png', fill: true},
-	notion: {src: '/integrations/notion.svg'},
-	linear: {src: '/integrations/linear.svg', fill: true},
-	plaid: {src: '/integrations/plaid.svg'},
-	postgres: {src: '/integrations/postgresql.svg'},
-	mysql: {src: '/integrations/mysql.svg'},
 	mcp: {src: '/favicon.svg'},
+	granola: {src: '/integrations/granola.png', fill: true},
+	linear: {src: '/integrations/linear.svg', fill: true},
 };
+
+/** An integration's logo: its file in `public/integrations/`, named by its id, unless `LOGOS` has another. */
+export function logoOf(integrationId: IntegrationId): LucideIcon | IntegrationLogoImage {
+	return LOGOS[integrationId] ?? {src: `/integrations/${integrationId}.svg`};
+}
 
 export const INTEGRATIONS: Integration[] = CATALOG.map((integration) => ({
 	...integration,
-	logo: LOGOS[integration.id],
+	logo: logoOf(integration.id),
 	needs: NEEDED_BY[integration.id],
 }));
 
@@ -73,25 +75,26 @@ export function integrationOf(connection: {
 	if (!integration) {
 		return null;
 	}
-	return {...integration, logo: LOGOS[integration.id]};
+	return {...integration, logo: logoOf(integration.id)};
 }
 
-// The integrations connected by signing in to them. Their sign-in starts at
-// `/api/connections/<id>/start`: the api sends the browser on to the service, and back to the new
-// connection, or to the catalog with `?error=<id>` when it didn't finish, or with
-// `?error=<id>-unconfigured` when the server lacks what it needs. Started with
+// The integrations connected by signing in to them, as the catalog marks them (`signIn`). Their
+// sign-in starts at `/api/connections/<id>/start`: the api sends the browser on to the service,
+// and back to the new connection, or to the catalog with `?error=<id>` when it didn't finish, or
+// with `?error=<id>-unconfigured` when the server lacks what it needs. Started with
 // `?returnTo=welcome`, it comes back to the welcome flow's page for the connection, or its catalog,
 // and with `?returnTo=home`, from a home page widget, to the home page;
 // with `?account=`, as signing in again from a connection does, the service opens on that account
-// where it can.
-const SIGN_IN: IntegrationId[] = ['google', 'granola', 'notion', 'linear'];
-
+// where it can, and with `?connection=` the sign-in renews that connection where its account can't
+// be told apart from another's: the integration says nothing of who signed in (`anonymous`), or
+// the connection was never signed in to. Otherwise the connection of the account signed in to is
+// renewed, or a new one made.
 /** Where signing in to an integration starts, or null for one connected on a form of its own. */
 export function signInPath(
 	integrationId: string,
-	query: {returnTo?: 'welcome' | 'home'; account?: string} = {},
+	query: {returnTo?: 'welcome' | 'home'; account?: string; connection?: string} = {},
 ): string | null {
-	if (!SIGN_IN.some((id) => id === integrationId)) {
+	if (!findIntegration(integrationId)?.signIn) {
 		return null;
 	}
 	const params = new URLSearchParams(

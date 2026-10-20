@@ -6,7 +6,7 @@ import {Row, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {useAgentMe} from '@/hooks/use-agent-target';
 import {allows, canStartNew, describeActions} from '@/lib/access';
-import {integrationOf} from '@/lib/integrations';
+import {integrationOf, type Integration} from '@/lib/integrations';
 import {noticeFromState} from '@/pages/agent/agent-collection-page';
 
 // Everything this login can do, connection by connection: what it is allowed, and the lists it can
@@ -19,12 +19,12 @@ export function AgentHomePage() {
 	return (
 		<AgentShell>
 			<div className="flex flex-col gap-8">
-				<div className="md:px-3">
+				<div className="flex flex-col gap-2">
 					<AgentHeading>What you can access</AgentHeading>
-					{notice && <p className="mt-2 text-sm">{notice}.</p>}
+					{notice && <p className="text-sm">{notice}.</p>}
 				</div>
 				{connections.length === 0 && (
-					<p className="text-sm text-muted-foreground md:px-3">
+					<p className="text-sm text-muted-foreground">
 						No connections are available to this login yet. Ask the person who set it up to add a
 						service on the Connections page, or give this login access to one already connected.
 					</p>
@@ -41,16 +41,13 @@ export function AgentHomePage() {
 								key={connection.id}
 								title={
 									<>
-										<IntegrationLogo
-											integration={integration}
-											className="mr-2 inline-flex align-middle"
-										/>
+										<LogoBeforeTitle integration={integration} />
 										{connection.name ?? integration.name}
 									</>
 								}
 								detail={connection.account}
 							>
-								<p className="text-sm text-muted-foreground md:px-3">
+								<p className="text-sm text-muted-foreground">
 									The server's tools you may run, each with the params it takes.
 								</p>
 								<RowList>
@@ -80,16 +77,13 @@ export function AgentHomePage() {
 							key={connection.id}
 							title={
 								<>
-									<IntegrationLogo
-										integration={integration}
-										className="mr-2 inline-flex align-middle"
-									/>
+									<LogoBeforeTitle integration={integration} />
 									{integration.name}
 								</>
 							}
 							detail={connection.account}
 						>
-							<p className="text-sm text-muted-foreground md:px-3">
+							<p className="text-sm text-muted-foreground">
 								You can: {describeActions(integration, connection.actions)}.
 							</p>
 							<RowList>
@@ -111,5 +105,14 @@ export function AgentHomePage() {
 				})}
 			</div>
 		</AgentShell>
+	);
+}
+
+// An integration's logo in the run of a heading's text, centered on it, the space after it its own.
+function LogoBeforeTitle({integration}: {integration: Integration}) {
+	return (
+		<span className="inline-flex pr-2 align-middle">
+			<IntegrationLogo integration={integration} />
+		</span>
 	);
 }

@@ -44,10 +44,8 @@ export function AgentFeedbackPage() {
 	return (
 		<AgentShell feedback={false}>
 			<Crumbs items={[{label: 'Home', to: '/agent'}, {label: 'Send feedback'}]} />
-			<div className="mb-4 md:px-3">
-				<AgentHeading>Send feedback</AgentHeading>
-			</div>
-			<div className="flex flex-col gap-4 md:px-3">
+			<AgentHeading>Send feedback</AgentHeading>
+			<div className="flex flex-col gap-4">
 				<p className="text-sm text-muted-foreground">
 					Tell the makers of Personal Agent Proxy about something that didn’t work as you expected:
 					a page or button that failed or showed something odd, a hint or error that misled you, or

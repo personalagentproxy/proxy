@@ -5,7 +5,6 @@ import {cleanup, fireEvent, render, screen, within} from '@testing-library/react
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {IntegrationCatalog, SignInFailed} from '@/components/integration-catalog';
 import type {Connection} from '@/lib/types';
-import type {Experiment} from '@proxy/utils';
 
 const GOOGLE_DOCS = 'https://docs.personalagentproxy.com/connections/google/';
 
@@ -17,6 +16,7 @@ const google: Connection = {
 	tools: null,
 	name: null,
 	unavailable: [],
+	signInNeeded: false,
 };
 
 afterEach(() => {
@@ -26,7 +26,6 @@ afterEach(() => {
 function renderCatalog(args: {
 	google?: boolean;
 	plaid?: boolean;
-	experiments?: Experiment[];
 	connections?: Connection[];
 	name?: string;
 	onConnectForm?: (integrationId: string) => void;
@@ -36,8 +35,9 @@ function renderCatalog(args: {
 			<IntegrationCatalog
 				connections={args.connections ?? []}
 				configured={{google: args.google ?? true, plaid: args.plaid ?? true}}
-				experiments={args.experiments ?? ['plaid']}
+				experiments={[]}
 				onConnectForm={args.onConnectForm ?? mock()}
+				onConnected={mock()}
 			/>
 		</TooltipProvider>,
 	);
@@ -74,6 +74,21 @@ describe('IntegrationCatalog', () => {
 		expect(row.queryByText(/GOOGLE_CLIENT_ID/)).toBeNull();
 	});
 
+	test('Exa is signed in to with the row, and its key opens the API key dialog', () => {
+		const row = renderCatalog({name: 'Exa'});
+
+		expect(row.getByRole('link').getAttribute('href')).toBe('/api/connections/exa/start');
+		// Its plus is a link of its own, since the key sits before it.
+		expect(row.getByRole('button', {name: 'Sign in with Exa'}).getAttribute('href')).toBe(
+			'/api/connections/exa/start',
+		);
+		fireEvent.click(row.getByRole('button', {name: 'Connect Exa with an API key'}));
+		expect(screen.getByRole('dialog').textContent).toContain('Connect Exa with an API key');
+		expect(screen.getByRole('link', {name: 'dashboard.exa.ai'}).getAttribute('href')).toBe(
+			'https://dashboard.exa.ai/api-keys',
+		);
+	});
+
 	test('a bank without Plaid’s keys on the server is greyed out, saying what to set', () => {
 		const row = renderCatalog({plaid: false, name: 'Plaid'});
 
@@ -89,12 +104,6 @@ describe('IntegrationCatalog', () => {
 
 		fireEvent.click(row.getByRole('button'));
 		expect(onConnectForm).toHaveBeenCalledWith('plaid');
-	});
-
-	test('a bank isn’t offered to an organization without the experiment on', () => {
-		renderCatalog({experiments: []});
-
-		expect(screen.queryByText('Plaid')).toBeNull();
 	});
 });
 

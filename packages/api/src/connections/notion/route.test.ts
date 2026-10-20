@@ -8,6 +8,7 @@ const createConnection = mock();
 const renewConnection = mock();
 
 mock.module('@proxy/db/connection', () => ({
+	getConnectionWithCredential: mock(),
 	findAccountConnection,
 	createConnection,
 	renewConnection,
@@ -40,7 +41,9 @@ mock.module('../../utils/secret-crypto', () => ({
 const CALLBACK = 'https://app.example.com/api/connections/notion/callback';
 
 // Notion's authorization and MCP server: each request, and its answers.
-const notion = {requests: [] as Array<{url: URL; headers: Headers; body: string}>};
+const SELF = {workspace: {id: 'ws-1', name: 'Acme'}, user: {type: 'person', id: 'user-1', name: 'Alex', email: 'Alex@Example.com'}};
+
+const notion = {requests: [] as Array<{url: URL; headers: Headers; body: string}>, self: SELF as object};
 
 spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request, init?: RequestInit) => {
 	const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
@@ -49,11 +52,18 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 		return Response.json({client_id: 'client-1'}, {status: 201});
 	}
 	if (url.pathname === '/token') {
-		return Response.json({access_token: 'access-1', refresh_token: 'refresh-1', expires_in: 28800, workspace_name: 'Acme', workspace_id: 'ws-1', user_id: 'user-1'});
+		// Refreshed tokens come without the workspace: only `notion-get-self` names it.
+		return Response.json({access_token: 'access-1', refresh_token: 'refresh-1', expires_in: 3600, token_type: 'bearer', scope: '', resource: 'https://mcp.notion.com/mcp'});
 	}
-	const users = {results: [{type: 'person', id: 'user-1', name: 'Alex', email: 'Alex@Example.com'}], has_more: false};
-	return Response.json({jsonrpc: '2.0', id: 1, result: {content: [{type: 'text', text: JSON.stringify(users)}]}});
+	return Response.json({jsonrpc: '2.0', id: 1, result: {content: [{type: 'text', text: JSON.stringify(notion.self)}]}});
 }) as typeof fetch);
+
+// The sign-in routes the api makes of Notion's declaration.
+async function routes() {
+	const {mcpConnectRoutes} = await import('../mcp/mcp-connect');
+	const {NOTION_MCP} = await import('./route');
+	return mcpConnectRoutes(NOTION_MCP);
+}
 
 function makeRes() {
 	const cookies: Array<{name: string; value: string; options: Record<string, unknown>}> = [];
@@ -73,7 +83,7 @@ function makeRes() {
 const user = {userId: 'user-1', email: 'alex@example.com'};
 
 async function start() {
-	const {handleStartNotionRoute} = await import('./route');
+	const {handleStart: handleStartNotionRoute} = await routes();
 	const res = makeRes();
 	await handleStartNotionRoute({user, query: {}, headers: {}} as never, res as never);
 	const cookie = res.cookies.find((candidate) => candidate.name === 'proxy.notion-state');
@@ -82,7 +92,7 @@ async function start() {
 }
 
 async function callback(args: {cookie: string; query: Record<string, string>}) {
-	const {handleNotionCallbackRoute} = await import('./route');
+	const {handleCallback: handleNotionCallbackRoute} = await routes();
 	const res = makeRes();
 	await handleNotionCallbackRoute({user, query: args.query, headers: {cookie: `proxy.notion-state=${args.cookie}`}} as never, res as never);
 	return res;
@@ -91,6 +101,7 @@ async function callback(args: {cookie: string; query: Record<string, string>}) {
 beforeEach(() => {
 	mock.clearAllMocks();
 	notion.requests = [];
+	notion.self = SELF;
 	getUserOrgId.mockResolvedValue(Ok('org-1'));
 	findAccountConnection.mockResolvedValue(Ok(null));
 	createConnection.mockResolvedValue(Ok({id: 'conn-1'}));
@@ -118,11 +129,19 @@ describe('handleNotionCallbackRoute', () => {
 
 		const toolCall = notion.requests.find((request) => request.url.pathname === '/mcp');
 		expect(toolCall?.headers.get('authorization')).toBe('Bearer access-1');
-		expect(JSON.parse(toolCall?.body ?? '{}').params).toEqual({name: 'notion-get-users', arguments: {user_id: 'self'}});
+		expect(JSON.parse(toolCall?.body ?? '{}').params).toEqual({name: 'notion-get-self', arguments: {}});
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'notion', account: 'alex@example.com · Acme', defaults: ['read']});
 		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toMatchObject({clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1'});
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1?added');
+	});
+
+	test('a sign-in Notion names no workspace for is named by who signed in alone', async () => {
+		notion.self = {user: {type: 'person', id: 'user-1', name: 'Alex', email: 'Alex@Example.com'}};
+		const {cookie, state} = await start();
+		await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
+
+		expect(createConnection.mock.calls[0]?.[0]).toMatchObject({integrationId: 'notion', account: 'alex@example.com'});
 	});
 
 	test('a sign-in turned down at Notion goes back to the catalog', async () => {

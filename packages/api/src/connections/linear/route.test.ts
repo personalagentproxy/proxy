@@ -4,11 +4,13 @@ import {Ok, type Result} from 'ts-results-es';
 import type {ApiError} from '@proxy/utils';
 
 const findAccountConnection = mock();
+const getConnectionWithCredential = mock();
 const createConnection = mock();
 const renewConnection = mock();
 
 mock.module('@proxy/db/connection', () => ({
 	findAccountConnection,
+	getConnectionWithCredential,
 	createConnection,
 	renewConnection,
 	updateConnectionCredential: mock(),
@@ -58,11 +60,25 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 	if (url.pathname === '/token') {
 		return Response.json({access_token: 'access-1', refresh_token: 'refresh-1', expires_in: 86399, token_type: 'bearer'});
 	}
+	// The MCP server turns a bad key down at the door.
+	if (new Headers(init?.headers).get('authorization') === 'Bearer bad-key') {
+		return new Response('Unauthorized', {status: 401});
+	}
+	if (JSON.parse(body).method === 'tools/list') {
+		return Response.json({jsonrpc: '2.0', id: 1, result: {tools: [{name: 'list_issues', inputSchema: {type: 'object'}}]}});
+	}
 	if (JSON.parse(body).params?.name === 'get_workspace') {
 		return toolAnswer({id: 'ws-1', name: 'Acme', url: 'https://linear.app/acme'});
 	}
 	return toolAnswer({id: 'user-1', name: 'Alex Kim', email: 'Alex@Example.com', displayName: 'alex'});
 }) as typeof fetch);
+
+// The sign-in routes the api makes of Linear's declaration.
+async function routes() {
+	const {mcpConnectRoutes} = await import('../mcp/mcp-connect');
+	const {LINEAR_MCP} = await import('./route');
+	return mcpConnectRoutes(LINEAR_MCP);
+}
 
 function makeRes() {
 	const cookies: Array<{name: string; value: string; options: Record<string, unknown>}> = [];
@@ -81,17 +97,17 @@ function makeRes() {
 
 const user = {userId: 'user-1', email: 'alex@example.com'};
 
-async function start() {
-	const {handleStartLinearRoute} = await import('./route');
+async function start(query: Record<string, string> = {}) {
+	const {handleStart: handleStartLinearRoute} = await routes();
 	const res = makeRes();
-	await handleStartLinearRoute({user, query: {}, headers: {}} as never, res as never);
+	await handleStartLinearRoute({user, query, headers: {}} as never, res as never);
 	const cookie = res.cookies.find((candidate) => candidate.name === 'proxy.linear-state');
 	const authorizeUrl = new URL(res.redirect.mock.calls[0]?.[0] as string);
 	return {cookie, authorizeUrl, state: authorizeUrl.searchParams.get('state') ?? ''};
 }
 
 async function callback(args: {cookie: string; query: Record<string, string>}) {
-	const {handleLinearCallbackRoute} = await import('./route');
+	const {handleCallback: handleLinearCallbackRoute} = await routes();
 	const res = makeRes();
 	await handleLinearCallbackRoute({user, query: args.query, headers: {cookie: `proxy.linear-state=${args.cookie}`}} as never, res as never);
 	return res;
@@ -148,11 +164,83 @@ describe('handleLinearCallbackRoute', () => {
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-0');
 	});
 
+	test('signing in from a connection never signed in to, as one moved over without a sign-in, gives that one the new tokens', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok({id: 'conn-0', integrationId: 'linear', account: 'mcp.linear.app/mcp', credential: null}));
+		const {cookie, state} = await start({connection: 'conn-0'});
+		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
+
+		expect(getConnectionWithCredential).toHaveBeenCalledWith('org-1', 'conn-0');
+		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0', account: 'alex@example.com · Acme'});
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-0');
+	});
+
+	test('signing in from a connection never signed in to, as an account connected since, gives that account its connection the new tokens, never a second one', async () => {
+		findAccountConnection.mockResolvedValue(Ok({id: 'conn-5'}));
+		getConnectionWithCredential.mockResolvedValue(Ok({id: 'conn-0', integrationId: 'linear', account: 'mcp.linear.app/mcp', credential: null}));
+		const {cookie, state} = await start({connection: 'conn-0'});
+		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
+
+		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'linear', account: 'alex@example.com · Acme', providerAccountId: null});
+		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-5'});
+		expect(createConnection).not.toHaveBeenCalled();
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-5');
+	});
+
+	test('signing in to another workspace from a signed-in connection makes a connection of its own, the first kept', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok({id: 'conn-0', integrationId: 'linear', account: 'alex@example.com · Beta', credential: 'enc:{}'}));
+		const {cookie, state} = await start({connection: 'conn-0'});
+		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
+
+		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'linear', account: 'alex@example.com · Acme', providerAccountId: null});
+		expect(renewConnection).not.toHaveBeenCalled();
+		expect(createConnection.mock.calls[0]?.[0]).toMatchObject({integrationId: 'linear', account: 'alex@example.com · Acme'});
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1?added');
+	});
+
+	test('a connection of another integration, or gone, is no connection to sign in again', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok({id: 'conn-9', integrationId: 'notion', account: 'alex@example.com · Acme', credential: null}));
+		const {cookie, state} = await start({connection: 'conn-9'});
+		await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
+
+		expect(renewConnection).not.toHaveBeenCalled();
+		expect(createConnection.mock.calls[0]?.[0]).toMatchObject({integrationId: 'linear', account: 'alex@example.com · Acme'});
+	});
+
 	test('a sign-in turned down at Linear goes back to the catalog', async () => {
 		const {cookie, state} = await start();
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, error: 'access_denied'}});
 
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/new?error=linear');
+		expect(createConnection).not.toHaveBeenCalled();
+	});
+});
+
+describe('keyConnectRoute', () => {
+	async function connectWithKey(body: unknown) {
+		const {keyConnectRoute} = await import('../mcp/mcp-connect');
+		const {LINEAR_MCP} = await import('./route');
+		return keyConnectRoute(LINEAR_MCP)({user, body} as never);
+	}
+
+	test('connects with an API key, checked by listing the tools with it: the connection for who the key is, the key its credential', async () => {
+		createConnection.mockImplementation(async (data: {integrationId: string; account: string; defaults: string[]}) =>
+			Ok({id: 'conn-1', integrationId: data.integrationId, account: data.account, createdAt: new Date(), tools: null, name: null, defaults: data.defaults.map((actionId) => ({actionId}))}),
+		);
+		const connection = (await connectWithKey({key: 'lin_api_1234'})).unwrap();
+
+		const calls = linear.requests.filter((request) => request.url.pathname === '/mcp');
+		expect(calls.map((call) => call.headers.get('authorization'))).toEqual(['Bearer lin_api_1234', 'Bearer lin_api_1234', 'Bearer lin_api_1234']);
+		expect(calls.map((call) => JSON.parse(call.body).method)).toEqual(['tools/list', 'tools/call', 'tools/call']);
+		// The same account a sign-in would find: a key for it renews its connection.
+		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'linear', account: 'alex@example.com · Acme', providerAccountId: null});
+		const created = createConnection.mock.calls[0]?.[0];
+		expect(created).toMatchObject({integrationId: 'linear', account: 'alex@example.com · Acme', defaults: ['read']});
+		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toEqual({auth: 'key', key: 'lin_api_1234'});
+		expect(connection).toMatchObject({id: 'conn-1', account: 'alex@example.com · Acme'});
+	});
+
+	test('a key Linear turns down is refused, and nothing saved', async () => {
+		expect((await connectWithKey({key: 'bad-key'})).unwrapErr().kind).toBe('credentials_rejected');
 		expect(createConnection).not.toHaveBeenCalled();
 	});
 });

@@ -11,7 +11,7 @@ const meSchema = z.object({
 	}),
 	// False until the welcome flow is finished or skipped; the human side shows it until then.
 	onboarded: z.boolean(),
-	// The experiments on for the organization; read them with useExperiment.
+	// The experiments on for the organization; read them with useExperiments.
 	experiments: z.array(z.string()).transform((ids) => ids.filter(isExperiment)),
 });
 

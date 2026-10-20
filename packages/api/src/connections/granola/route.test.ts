@@ -10,6 +10,7 @@ const createConnection = mock();
 const renewConnection = mock();
 
 mock.module('@proxy/db/connection', () => ({
+	getConnectionWithCredential: mock(),
 	findAccountConnection,
 	createConnection,
 	renewConnection,
@@ -56,6 +57,13 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 	return Response.json(granola.userinfo);
 }) as typeof fetch);
 
+// The sign-in routes the api makes of Granola's declaration.
+async function routes() {
+	const {mcpConnectRoutes} = await import('../mcp/mcp-connect');
+	const {GRANOLA_MCP} = await import('./route');
+	return mcpConnectRoutes(GRANOLA_MCP);
+}
+
 function makeRes() {
 	const cookies: Array<{name: string; value: string; options: Record<string, unknown>}> = [];
 	const res = {
@@ -75,7 +83,7 @@ const user = {userId: 'user-1', email: 'alex@example.com'};
 
 // The start route for a real state cookie and Granola sign-in address.
 async function start(query: Record<string, string> = {}) {
-	const {handleStartGranolaRoute} = await import('./route');
+	const {handleStart: handleStartGranolaRoute} = await routes();
 	const res = makeRes();
 	await handleStartGranolaRoute({user, query, headers: {}} as never, res as never);
 	const cookie = res.cookies.find((candidate) => candidate.name === 'proxy.granola-state');
@@ -84,7 +92,7 @@ async function start(query: Record<string, string> = {}) {
 }
 
 async function callback(args: {cookie: string; query: Record<string, string>; userId?: string}) {
-	const {handleGranolaCallbackRoute} = await import('./route');
+	const {handleCallback: handleGranolaCallbackRoute} = await routes();
 	const res = makeRes();
 	await handleGranolaCallbackRoute({user: {...user, userId: args.userId ?? user.userId}, query: args.query, headers: {cookie: `proxy.granola-state=${args.cookie}`}} as never, res as never);
 	return res;

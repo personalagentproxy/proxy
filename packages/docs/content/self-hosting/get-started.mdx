@@ -5,8 +5,9 @@ description: Run Personal Agent Proxy on one server with Docker Compose, with Po
 
 <Callout>
   Run Personal Agent Proxy on a server reachable from the internet, such as a VPS, with a domain
-  pointed at it. Agents reach it from wherever they run, and most, such as Claude, ChatGPT and
-  Poke, run on their own servers, so they can only use it once it has a public HTTPS address.
+  pointed at it. Agents reach it from wherever they run, and most, such as Claude, Claude Desktop,
+  ChatGPT and Poke, run their connectors on their own servers, so they can only use it once it has a
+  public HTTPS address.
 </Callout>
 
 The compose file runs three containers: Personal Agent Proxy, Postgres, and Caddy in front of them
@@ -44,8 +45,8 @@ docker compose up -d
 ```
 
 Open [http://localhost](http://localhost) on the same machine. To try Personal Agent Proxy on your
-own computer, you can stop here and [sign in](#sign-in), but only agents running on the same
-machine can reach it until it has a domain.
+own computer, you can stop here and [sign in](#sign-in), but only local MCP clients such as Claude
+Code and Hermes Agent can reach it until it has a domain.
 
 ### Give it a domain
 
@@ -89,6 +90,7 @@ The compose file reads these from `.env`:
 | `ALLOWED_SIGNUP_EMAILS`                                                | Optional           | Who can create an account.                                                                                         |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `RESEND_KEY`, `EMAIL_FROM` | Optional           | [Sign-in](/self-hosting/sign-in) and [connections](/connections/google) with Google, and sign-in links by email.   |
 | `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV`                         | Optional           | [Connecting banks](/connections/plaid) through Plaid.                                                              |
+| `TYPESAFE_API_KEY`, `OPENROUTER_KEY`                                   | Optional           | Choose and fill in [quick actions](/quick-actions) from what a person types on the home page.                      |
 
 Every other setting is in [Environment variables](/self-hosting/environment); add one under the
 `proxy` service's `environment` in the compose file.

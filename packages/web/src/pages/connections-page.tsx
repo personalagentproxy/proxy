@@ -50,6 +50,7 @@ export function ConnectionsPage() {
 				</Button>
 			}
 		>
+			{error && <p className="text-sm text-destructive">{error}</p>}
 			<RowList
 				header={
 					<RowHeader>
@@ -60,7 +61,6 @@ export function ConnectionsPage() {
 					</RowHeader>
 				}
 			>
-				{error && <p className="mb-4 text-sm text-destructive md:px-3">{error}</p>}
 				{connections.length === 0 && <EmptyRows>Nothing connected yet.</EmptyRows>}
 				{connections.map((connection) => {
 					const integration = integrationOf(connection);

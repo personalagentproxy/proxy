@@ -23,14 +23,12 @@ export function NewAgentPage() {
 				</>
 			}
 		>
-			<div className="grid gap-4 md:px-3">
-				<AgentSetup
-					agents={agents}
-					providers={providers}
-					continueLabel="Done"
-					onContinue={(agent) => navigate(agent ? `/agents/${agent.id}` : '/agents')}
-				/>
-			</div>
+			<AgentSetup
+				agents={agents}
+				providers={providers}
+				continueLabel="Done"
+				onContinue={(agent) => navigate(agent ? `/agents/${agent.id}` : '/agents')}
+			/>
 		</AppShell>
 	);
 }

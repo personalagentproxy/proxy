@@ -1,13 +1,13 @@
 import type {FetchError} from '@proxy/utils';
 import {useEffect, useRef, useState} from 'react';
 import {useLoaderData, useRouteLoaderData} from 'react-router';
-import {classifyIntent, type Intent} from '@/client/intent-client';
+import {fillIntent, type Intent, pickIntent} from '@/client/intent-client';
 import type {Me} from '@/client/me-client';
 import {AgentLanes} from '@/components/agent-lanes';
 import {AnimatedHeight} from '@/components/animated-height';
 import {ConnectedLogos} from '@/components/connected-logos';
 import {AppShell} from '@/components/app-shell';
-import {IntentWidget} from '@/components/widgets/intent-widget';
+import {FillingWidget, IntentWidget} from '@/components/widgets/intent-widget';
 import {UnsupportedWidget} from '@/components/widgets/unsupported-widget';
 import {Input} from '@proxy/ui/components/input';
 import {apiMessage} from '@/lib/agent-errors';
@@ -32,6 +32,8 @@ const EXAMPLES = [
 	'Find the pricing spreadsheet Paul shared',
 	"What's an 18% tip on $86.40?",
 	'72°F in Celsius',
+	"What's my checking balance?",
+	'How much did I spend on restaurants last month?',
 ];
 
 // How long each example shows.
@@ -55,8 +57,9 @@ function greeting(me: Me | undefined, now: Date): string {
 }
 
 // An answer, with the text it was for and when it came: a widget reads its times against that.
-// `follows` when it came while the answer before it said nothing fits, on screen.
-type Answer = {intent: Intent; text: string; at: Date; follows: boolean};
+// `follows` when it came while the answer before it said nothing fits, on screen. `filling` while
+// the widget is picked and its fields are still to come.
+type Answer = {intent: Intent; text: string; at: Date; follows: boolean; filling: boolean};
 
 // Whether an answer of no widget says so: the model tells text still being typed (`incomplete`,
 // never kept) from a whole request no widget does (`none`), and as a backstop, `none` waits until
@@ -67,8 +70,8 @@ function saysUnsupported(answer: Answer, pausedOn: string): boolean {
 
 // The start page, as Sana's: one input, and as it is typed in, it comes forward over the page,
 // which blurs behind it, and opens into the widget for what is typed, the input at its top. The api
-// picks the widget and fills it, every 300 ms while typing goes on; Esc, or a click beside it, puts
-// it back.
+// picks the widget every 300 ms while typing goes on, and it shows at once, then fills in when its
+// fields come; Esc, or a click beside it, puts it back.
 export function HomePage() {
 	const me = useRouteLoaderData<Me>('human');
 	const {connections, agents, activity} = useLoaderData<typeof homeLoader>();
@@ -86,9 +89,11 @@ export function HomePage() {
 	const typed = useRef('');
 	const sent = useRef('');
 	// Requests are numbered as they are sent. An answer is shown when it is newer than the one on
-	// screen, so answers keep coming while typing goes on, but a slow one never replaces a newer one.
+	// screen, so answers keep coming while typing goes on, but a slow one never replaces a newer one:
+	// `shown` is the newest pick on screen, `filled` the newest fields.
 	const sequence = useRef(0);
 	const shown = useRef(0);
+	const filled = useRef(0);
 	const tick = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const input = useRef<HTMLInputElement>(null);
 
@@ -105,6 +110,32 @@ export function HomePage() {
 		setPausedOn(words);
 	};
 
+	// The fields of `widget`, picked for `words`, shown when it is still the widget on screen and no
+	// newer fields are.
+	const fill = (words: string, widget: string, request: number) => {
+		void fillIntent(words, widget).then((result) => {
+			if (request <= filled.current) {
+				return;
+			}
+			if (result.isErr()) {
+				if (request === shown.current) {
+					setError(intentErrorMessage(result.error));
+				}
+				return;
+			}
+			filled.current = request;
+			if (request === shown.current) {
+				setError(null);
+			}
+			const {fields} = result.value;
+			setAnswer((previous) =>
+				previous?.intent.widget === widget
+					? {...previous, intent: {widget, fields}, text: words, at: new Date(), filling: false}
+					: previous,
+			);
+		});
+	};
+
 	const send = () => {
 		tick.current = undefined;
 		const words = typed.current;
@@ -115,7 +146,7 @@ export function HomePage() {
 		sent.current = words;
 		sequence.current += 1;
 		const request = sequence.current;
-		void classifyIntent(words).then((result) => {
+		void pickIntent(words).then((result) => {
 			if (request <= shown.current) {
 				return;
 			}
@@ -125,16 +156,26 @@ export function HomePage() {
 				return;
 			}
 			setError(null);
+			const widget = result.value.widget;
 			// Too little to tell yet: what is on screen stays until there is more.
-			if (result.value.widget === 'incomplete') {
+			if (widget === 'incomplete') {
 				return;
 			}
-			setAnswer((previous) => ({
-				intent: result.value,
-				text: words,
-				at: new Date(),
-				follows: previous !== null && saysUnsupported(previous, pausedOnNow.current),
-			}));
+			// The widget on screen, picked again, stays as it is filled in until its new fields come.
+			setAnswer((previous) =>
+				previous?.intent.widget === widget && widget !== 'none'
+					? previous
+					: {
+							intent: {widget, fields: []},
+							text: words,
+							at: new Date(),
+							follows: previous !== null && saysUnsupported(previous, pausedOnNow.current),
+							filling: widget !== 'none',
+						},
+			);
+			if (widget !== 'none') {
+				fill(words, widget, request);
+			}
 		});
 	};
 
@@ -164,6 +205,7 @@ export function HomePage() {
 		pauseOn('');
 		sent.current = '';
 		shown.current = sequence.current;
+		filled.current = sequence.current;
 	};
 
 	// A widget asking for something else, as Person's Find emails does: it is typed in anew, and the
@@ -177,6 +219,9 @@ export function HomePage() {
 	const shownWidget = () => {
 		if (!answer) {
 			return null;
+		}
+		if (answer.filling) {
+			return <FillingWidget widget={answer.intent.widget} />;
 		}
 		if (answer.intent.widget !== 'none') {
 			return (
@@ -200,7 +245,7 @@ export function HomePage() {
 				<div
 					className={`relative z-40 w-full max-w-2xl overflow-hidden rounded-2xl border bg-card transition-[translate,box-shadow] duration-300 ease-out motion-reduce:transition-none ${active ? '-translate-y-[8vh] shadow-2xl' : 'shadow-sm'}`}
 				>
-					{!active && <QuickActions />}
+					{!active && <QuickActions examples={EXAMPLES} />}
 					{active && (
 						<button
 							type="button"
@@ -252,7 +297,7 @@ export function HomePage() {
 				</div>
 				<ConnectedLogos connections={connections} agents={agents} />
 				{activity && (
-					<div className="mt-[6vh] flex w-full justify-center">
+					<div className="flex w-full justify-center pt-[6vh]">
 						<AgentLanes initial={activity} agents={agents} connections={connections} />
 					</div>
 				)}
@@ -263,16 +308,16 @@ export function HomePage() {
 
 // The empty input's placeholder: "Quick actions:" and an example of what to type, the next fading in
 // every few seconds. Drawn over the input, since a placeholder can't fade.
-function QuickActions() {
+function QuickActions({examples}: {examples: string[]}) {
 	const [index, setIndex] = useState(0);
 
 	useEffect(() => {
 		const timer = setInterval(
-			() => setIndex((current) => (current + 1) % EXAMPLES.length),
+			() => setIndex((current) => (current + 1) % examples.length),
 			EXAMPLE_MS,
 		);
 		return () => clearInterval(timer);
-	}, []);
+	}, [examples.length]);
 
 	return (
 		<div
@@ -284,7 +329,7 @@ function QuickActions() {
 				key={index}
 				className="truncate animate-in duration-500 fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none"
 			>
-				{EXAMPLES[index]}
+				{examples[index]}
 			</span>
 		</div>
 	);

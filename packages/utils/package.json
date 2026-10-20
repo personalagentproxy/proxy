@@ -7,7 +7,8 @@
 		".": "./src/index.ts",
 		"./days": "./src/days.ts",
 		"./tasks": "./src/tasks.ts",
-		"./units": "./src/units.ts"
+		"./units": "./src/units.ts",
+		"./transaction-categories": "./src/transaction-categories.ts"
 	},
 	"scripts": {
 		"test": "bun test",

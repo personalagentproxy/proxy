@@ -109,13 +109,11 @@ export function AgentNewRecordPage() {
 					{label: 'New'},
 				]}
 			/>
-			<div className="mb-6 md:px-3">
-				<AgentHeading>
-					New {collection.singular}
-					{parentTitle ? ` in “${parentTitle}”` : ''}
-				</AgentHeading>
-			</div>
-			<div className="flex flex-col gap-3 md:px-3">
+			<AgentHeading>
+				New {collection.singular}
+				{parentTitle ? ` in “${parentTitle}”` : ''}
+			</AgentHeading>
+			<div className="flex flex-col gap-3">
 				{error && <p className="text-sm text-destructive">{error}</p>}
 				<RecordForm
 					fields={collection.fields}

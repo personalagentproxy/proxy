@@ -1,6 +1,6 @@
 import {describe, expect, test} from 'bun:test';
 
-import {addDays, dayIn} from './days';
+import {addDays, dayIn, daysBetween} from './days';
 
 describe('days', () => {
 	test('the day is the time zone’s, half-hour and quarter-hour offsets too', () => {
@@ -17,5 +17,7 @@ describe('days', () => {
 		expect(addDays('2026-10-31', 1)).toBe('2026-11-01');
 		expect(addDays('2027-01-01', -1)).toBe('2026-12-31');
 		expect(addDays('2028-02-28', 1)).toBe('2028-02-29');
+		expect(daysBetween('2026-10-01', '2026-10-16')).toBe(15);
+		expect(daysBetween('2026-10-16', '2026-10-01')).toBe(-15);
 	});
 });

@@ -119,7 +119,7 @@ function AgentDetail({id}: {id: string}) {
 			}
 		>
 			<div className="flex flex-col gap-8">
-				{error && <p className="text-sm text-destructive md:px-3">{error}</p>}
+				{error && <p className="text-sm text-destructive">{error}</p>}
 				{mcpClients.length > 0 && (
 					<Section title="MCP">
 						<McpClients
@@ -202,7 +202,7 @@ function McpClients({
 	return (
 		<RowList>
 			{clients.map((client) => (
-				<li key={client.id} className="flex h-10 items-center gap-3 px-4 text-sm md:px-3">
+				<li key={client.id} className="bleed flex h-10 items-center gap-3 text-sm">
 					<span className="min-w-0 flex-1 truncate">{client.name}</span>
 					<span className="shrink-0 text-muted-foreground">
 						connected {formatDate(client.connectedAt)}
@@ -288,7 +288,7 @@ function AccessGrid({agent, connections, onChange, onMakeDefault}: GridProps) {
 
 	return (
 		<div className="flex flex-col gap-6">
-			<div className="flex items-center gap-4 md:px-3">
+			<div className="flex items-center gap-4">
 				<div className="relative max-w-xs flex-1">
 					<SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
 					<Input
@@ -319,12 +319,12 @@ function AccessGrid({agent, connections, onChange, onMakeDefault}: GridProps) {
 				{groups.map(({connection, integration, label, own, actions}) => {
 					const open = filtering || opened.has(connection.id);
 					return (
-						<div key={connection.id} className={cn('flex flex-col', open && 'mb-2')}>
+						<div key={connection.id} className={cn('flex flex-col', open && 'pb-2')}>
 							<button
 								type="button"
 								aria-expanded={open}
 								onClick={() => toggle(connection.id)}
-								className="-mx-4 flex h-10 items-center gap-2 px-4 text-left text-sm hover:bg-muted/50 md:mx-0 md:px-3"
+								className="bleed flex h-10 items-center gap-2 text-left text-sm hover:bg-muted/50"
 							>
 								<ChevronRightIcon
 									className={cn(
@@ -343,6 +343,7 @@ function AccessGrid({agent, connections, onChange, onMakeDefault}: GridProps) {
 									actions={actions}
 									defaults={defaultActions(connection)}
 									unavailable={connection.unavailable}
+									signInNeeded={connection.signInNeeded}
 									own={own}
 									onChange={(changes) => onChange(connection.id, changes)}
 									onMakeDefault={(actionId, allowed) =>

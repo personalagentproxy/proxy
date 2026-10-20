@@ -6,8 +6,8 @@ import {useExperiments} from '@/hooks/use-experiment';
 import type {addConnectionLoader} from '@/loaders';
 
 // The catalog: a plus per integration, with how many accounts of it are connected. A mailbox, a
-// database or a custom MCP server goes to its form; a sign-in starts at the api. Each lands on the
-// new connection's page.
+// database or a custom MCP server goes to its form; a sign-in starts at the api; an API key is
+// taken in a dialog here. Each lands on the new connection's page.
 export function AddConnectionPage() {
 	const {connections, configured} = useLoaderData<typeof addConnectionLoader>();
 	const navigate = useNavigate();
@@ -23,12 +23,13 @@ export function AddConnectionPage() {
 				</>
 			}
 		>
-			<SignInFailed error={params.get('error')} configured={configured} className="mb-4 md:px-3" />
+			<SignInFailed error={params.get('error')} configured={configured} />
 			<IntegrationCatalog
 				connections={connections}
 				configured={configured}
 				experiments={experiments}
 				onConnectForm={(integrationId) => navigate(`/connections/new/${integrationId}`)}
+				onConnected={(connection) => navigate(`/connections/${connection.id}?added`)}
 			/>
 		</AppShell>
 	);

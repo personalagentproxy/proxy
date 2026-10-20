@@ -16,10 +16,10 @@ type Props = {
 };
 
 // One widget, as the home page's input card opens into it: what it is, what it found, and its
-// buttons. The card draws the border.
+// buttons. The card draws the border, and its rows reach it.
 export function WidgetFrame({icon: Icon, name, children, actions, status, failed = []}: Props) {
 	return (
-		<section aria-label={name} className="flex flex-col gap-4 p-4 text-sm">
+		<section aria-label={name} className="flex flex-col gap-4 p-4 text-sm [--bleed:--spacing(4)]">
 			<header className="flex items-center gap-2 text-muted-foreground">
 				<Icon className="size-4" />
 				{name}

@@ -25,22 +25,20 @@ export function AgentSetupPage() {
 				</>
 			}
 		>
-			<div className="grid gap-4 md:px-3">
-				{agent.revokedAt === null ? (
-					<AgentSetup
-						// Its own login alone, so a custom agent is set up as itself and not as another.
-						agents={[agent]}
-						providers={AGENT_PROVIDERS}
-						fixed={provider.id}
-						continueLabel="Done"
-						onContinue={() => navigate(`/agents/${agent.id}`)}
-					/>
-				) : (
-					<p className="text-sm text-muted-foreground">
-						This login is revoked. Restore it on its page to set it up again.
-					</p>
-				)}
-			</div>
+			{agent.revokedAt === null ? (
+				<AgentSetup
+					// Its own login alone, so a custom agent is set up as itself and not as another.
+					agents={[agent]}
+					providers={AGENT_PROVIDERS}
+					fixed={provider.id}
+					continueLabel="Done"
+					onContinue={() => navigate(`/agents/${agent.id}`)}
+				/>
+			) : (
+				<p className="text-sm text-muted-foreground">
+					This login is revoked. Restore it on its page to set it up again.
+				</p>
+			)}
 		</AppShell>
 	);
 }

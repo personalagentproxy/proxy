@@ -1,4 +1,4 @@
-import {CircleCheckIcon, ListRestartIcon, RefreshCwIcon, UnplugIcon} from 'lucide-react';
+import {ListRestartIcon, RefreshCwIcon, UnplugIcon} from 'lucide-react';
 import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
@@ -11,6 +11,7 @@ import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {SignInToBankAgain} from '@/components/connect-bank-form';
 import {BackButton} from '@/components/back-button';
+import {ConnectWithKeyDialog} from '@/components/connect-with-key-dialog';
 import {ConnectionAccess, SignInAgain} from '@/components/connection-access';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
@@ -18,6 +19,7 @@ import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
 import {NotFound} from '@/components/not-found';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
+import {SuccessLine} from '@/components/success-line';
 import {
 	actionsFor,
 	agentsWithAccess,
@@ -44,6 +46,7 @@ export function ConnectionPage() {
 	const added = searchParams.has('added');
 	const [disconnecting, setDisconnecting] = useState(false);
 	const [refreshing, setRefreshing] = useState(false);
+	const [replacingKey, setReplacingKey] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const integration = connection && integrationOf(connection);
 	if (!connection || !integration) {
@@ -51,10 +54,22 @@ export function ConnectionPage() {
 	}
 
 	const withAccess = agentsWithAccess(agents, connection);
-	const signInAgain =
-		connection.unavailable.length > 0
-			? signInPath(connection.integrationId, {account: connection.account})
-			: null;
+	// Why the connection can be signed in to again from here: its sign-in left actions out, it has
+	// none, or its integration says nothing of who signed in, so only this page renews it.
+	const renewReason = connection.signInNeeded
+		? 'needed'
+		: connection.unavailable.length > 0
+			? 'unavailable'
+			: integration.anonymous
+				? 'renew'
+				: null;
+	const renew =
+		renewReason === null
+			? null
+			: signInPath(connection.integrationId, {
+					account: connection.account,
+					connection: connection.id,
+				});
 
 	return (
 		<AppShell
@@ -105,12 +120,7 @@ export function ConnectionPage() {
 			}
 		>
 			<div className="flex flex-col gap-8">
-				{added && (
-					<p className="flex items-center gap-2 rounded-lg bg-green-500/10 px-3 py-2 text-sm text-green-700 dark:text-green-400">
-						<CircleCheckIcon className="size-4 shrink-0" />
-						Connection added successfully
-					</p>
-				)}
+				{added && <SuccessLine>Connection added successfully</SuccessLine>}
 				<Section
 					title="Permissions"
 					detail={
@@ -120,15 +130,16 @@ export function ConnectionPage() {
 					}
 				>
 					{integration.disclosure && (
-						<p className="text-sm text-muted-foreground md:px-3">{integration.disclosure}</p>
+						<p className="text-sm text-muted-foreground">{integration.disclosure}</p>
 					)}
 					{integration.custom && integration.actions.length === 0 && (
-						<p className="text-sm text-muted-foreground md:px-3">The server lists no tools.</p>
+						<p className="text-sm text-muted-foreground">The server lists no tools.</p>
 					)}
 					<ConnectionAccess
 						actions={integration.actions}
 						defaults={defaultActions(connection)}
 						unavailable={connection.unavailable}
+						signInNeeded={connection.signInNeeded}
 						differing={differingAgents(agents, connection.id)}
 						onChange={async (actions) => {
 							const result = await setConnectionDefaults(connection.id, defaultsOnOrOff(actions));
@@ -136,11 +147,28 @@ export function ConnectionPage() {
 							await revalidator.revalidate();
 						}}
 					/>
-					{signInAgain && <SignInAgain href={signInAgain} className="md:px-3" />}
-					{connection.integrationId === 'plaid' && (
-						<SignInToBankAgain connectionId={connection.id} className="md:px-3" />
+					{renew && renewReason && (
+						<SignInAgain
+							href={renew}
+							reason={renewReason}
+							onUseKey={integration.apiKey ? () => setReplacingKey(true) : undefined}
+						/>
 					)}
-					{error && <p className="mt-2 text-sm text-destructive md:px-3">{error}</p>}
+					{replacingKey && (
+						<ConnectWithKeyDialog
+							integrationId={integration.id}
+							connectionId={connection.id}
+							onClose={() => setReplacingKey(false)}
+							onConnected={async () => {
+								setReplacingKey(false);
+								await revalidator.revalidate();
+							}}
+						/>
+					)}
+					{connection.integrationId === 'plaid' && (
+						<SignInToBankAgain connectionId={connection.id} />
+					)}
+					{error && <p className="text-sm text-destructive">{error}</p>}
 				</Section>
 				<Section title="Agents with access">
 					<RowList>

@@ -5,7 +5,7 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseCookieHeader, requirePresent} from '@proxy/utils';
-import {createConnection, findAccountConnection, renewConnection, updateConnectionName, updateConnectionTools, type ConnectionRow} from '@proxy/db/connection';
+import {createConnection, findAccountConnection, getConnectionWithCredential, renewConnection, updateConnectionName, updateConnectionTools, type ConnectionRow} from '@proxy/db/connection';
 import type {IntegrationId, McpTool} from '@proxy/integrations';
 
 import {queryParam, timingSafeEqualString, useSecureCookies} from '../auth/session';
@@ -24,13 +24,15 @@ import {requireUserOrgId} from '../utils/user-org';
  * `/api/connections/<integration>`, for a provider known in advance (`signInRoutes`), or from the
  * answer of the route that found it, as a custom server's connect route (`signInFlow`). The
  * callback checks the provider's answer against the cookie, trades the code for tokens and makes
- * the connection, or gives an existing one of the same account its new tokens, which is how
- * signing in again works, and ends on the connection's page, or back on the catalog with
+ * the connection, or gives an existing one its new tokens, which is how signing in again works:
+ * the one of the same account, or, where the account can't be told apart (`connectionToRenew`),
+ * the one the sign-in was begun from (`?connection=`), as a connection's page begins it, so only
+ * that page renews it. The callback ends on the connection's page, or back on the catalog with
  * `?error=<integration>` (with `?error=<integration>-unconfigured` when the server lacks what the
- * sign-in needs, such as Google's client); a sign-in begun from the welcome flow (`returnTo: 'welcome'`) ends on its
- * page for the connection, or its catalog, instead, and one begun from a home page widget's card
- * (`returnTo: 'home'`) back on the home page. What the provider's sign-in page is and how a
- * code becomes tokens and a connection is the integration's.
+ * sign-in needs, such as Google's client); a sign-in begun from the welcome flow
+ * (`returnTo: 'welcome'`) ends on its page for the connection, or its catalog, instead, and one
+ * begun from a home page widget's card (`returnTo: 'home'`) back on the home page. What the
+ * provider's sign-in page is and how a code becomes tokens and a connection is the integration's.
  */
 
 const stateCookieMaxAgeMs = 15 * 60 * 1000;
@@ -38,9 +40,12 @@ const stateCookieMaxAgeMs = 15 * 60 * 1000;
 /** Where a sign-in ends when not on the connection's page: the welcome flow or the home page it began from. */
 export const returnToSchema = z.enum(['welcome', 'home']);
 
-type ReturnTo = z.infer<typeof returnToSchema>;
+export type ReturnTo = z.infer<typeof returnToSchema>;
 
 type Route = (request: AuthenticatedRequest, res: Response) => Promise<void>;
+
+/** What a connection the person names is called, as the custom MCP form's is. */
+export const connectionNameSchema = z.string().trim().min(1, 'Give the connection a name').max(80, 'The name can be at most 80 characters');
 
 /**
  * What the provider's sign-in is sent: where it comes back to, the state, the PKCE challenge, and
@@ -58,10 +63,13 @@ type SignInAnswer<E> = {redirectUri: string; code: string; verifier: string; kep
 /**
  * A connection to save: the account it shows, the provider's own id for it where it gives one,
  * which stays as the account's address changes (Google's `sub`), its credential, stored encrypted,
- * the actions agents get with a new one, and a custom MCP server's tools and the name the person
- * gave it.
+ * the actions agents get with a new one, a custom MCP server's tools, and the name the person gave
+ * it: a new connection's, or, for a custom server added again, the connection's new name; any other
+ * connection renewed keeps its own. `anonymous` where the provider said nothing of who signed in,
+ * as Exa and Parallel don't: the account is only a label, so no existing connection is the same
+ * account's.
  */
-export type Connected<C> = {account: string; accountId?: string; credential: C; defaults: string[]; tools?: McpTool[]; name?: string};
+export type Connected<C> = {account: string; accountId?: string; credential: C; defaults: string[]; tools?: McpTool[]; name?: string; anonymous?: true};
 
 /** A PKCE verifier and the challenge the provider is sent in its place. */
 function makePkce(): {verifier: string; challenge: string} {
@@ -69,28 +77,66 @@ function makePkce(): {verifier: string; challenge: string} {
 	return {verifier, challenge: createHash('sha256').update(verifier).digest('base64url')};
 }
 
+// The one of the same account, if there is one: a sign-in to another account is a connection of
+// its own, never one agents were given for the first. A sign-in begun from a connection
+// (`?connection=`) renews that one, while it is still the organization's and the integration's,
+// only where its account can't be told apart from another's: the provider said nothing of who
+// signed in (`anonymous`), or the connection was never signed in to, as one moved over from a
+// custom MCP server without a sign-in of the integration's (`take-over-custom.ts`), and no other
+// connection is the account's already, so an account is never connected twice.
+function connectionToRenew(
+	orgId: string,
+	integrationId: IntegrationId,
+	connected: {account: string; providerAccountId: string | null; anonymous: boolean},
+	connectionId: string | null,
+): Promise<Result<ConnectionRow | null, ApiError>> {
+	return Do(async ($) => {
+		const {account, providerAccountId} = connected;
+		const sameAccount = connected.anonymous ? null : $(await findAccountConnection({orgId, integrationId, account, providerAccountId}));
+		if (sameAccount) {
+			return sameAccount;
+		}
+		const begunFrom = connectionId === null ? null : $(await getConnectionWithCredential(orgId, connectionId));
+		if (begunFrom?.integrationId !== integrationId) {
+			return null;
+		}
+		if (!connected.anonymous && begunFrom.credential !== null) {
+			return null;
+		}
+		const {credential: _credential, ...row} = begunFrom;
+		return row;
+	});
+}
+
 /**
- * Saves a connection: a new one, or an existing one of the same account given the new credential
- * and the account as the provider names it now, such as an address changed since, and the tools
- * and the name, where it has its own; `added` unless it was already there.
+ * Saves a connection: a new one, or an existing one (`connectionToRenew`), given the new credential
+ * and the account as the provider names it now, such as an address changed since, and, for a
+ * custom server, its tools and the name; `added` unless it was already there.
  */
-export function saveConnection<C>(orgId: string, integrationId: IntegrationId, connected: Connected<C>): Promise<Result<{row: ConnectionRow; added: boolean}, ApiError>> {
+export function saveConnection<C>(
+	orgId: string,
+	integrationId: IntegrationId,
+	connected: Connected<C>,
+	connectionId: string | null = null,
+): Promise<Result<{row: ConnectionRow; added: boolean}, ApiError>> {
 	return Do(async ($) => {
 		const {account, tools} = connected;
 		const encrypted = $(encryptSecret(JSON.stringify(connected.credential)));
 		const providerAccountId = connected.accountId ?? null;
 		const name = connected.name === undefined ? {} : {name: connected.name};
-		const existing = $(await findAccountConnection({orgId, integrationId, account, providerAccountId}));
+		const existing = $(await connectionToRenew(orgId, integrationId, {account, providerAccountId, anonymous: connected.anonymous === true}, connectionId));
 		if (!existing) {
 			const listed = tools === undefined ? {} : {tools: JSON.stringify(tools)};
 			return {row: $(await createConnection({orgId, integrationId, account, providerAccountId, credential: encrypted, defaults: connected.defaults, ...listed, ...name})), added: true};
 		}
 		$(await renewConnection({connectionId: existing.id, account, providerAccountId, credential: encrypted}));
+		if (tools === undefined) {
+			return {row: {...existing, account}, added: false};
+		}
+		// A custom server added again is the same connection, with the server's tools as it lists
+		// them now and the name the person gave it this time.
 		if (connected.name !== undefined) {
 			$(await updateConnectionName({connectionId: existing.id, name: connected.name}));
-		}
-		if (tools === undefined) {
-			return {row: {...existing, account, ...name}, added: false};
 		}
 		const stored = JSON.stringify(tools);
 		$(await updateConnectionTools({connectionId: existing.id, tools: stored, actions: tools.map((tool) => tool.name)}));
@@ -126,9 +172,9 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 	const stateCookieName = `proxy.${integrationId}-state`;
 	// Only sent to these routes.
 	const basePath = `/api/connections/${integrationId}`;
-	const statePayloadSchema = z.object({state: z.string(), verifier: z.string(), userId: z.string(), returnTo: returnToSchema.optional(), kept: args.keptSchema});
+	const statePayloadSchema = z.object({state: z.string(), verifier: z.string(), userId: z.string(), returnTo: returnToSchema.optional(), connectionId: z.string().optional(), kept: args.keptSchema});
 
-	type StatePayload = {state: string; verifier: string; userId: string; returnTo?: ReturnTo; kept: E};
+	type StatePayload = {state: string; verifier: string; userId: string; returnTo?: ReturnTo; connectionId?: string; kept: E};
 
 	function redirectUri(appUrl: string): string {
 		return `${appUrl}${basePath}/callback`;
@@ -152,13 +198,23 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 	}
 
 	/** Keeps the handshake, and what `start` keeps beside it, in a cookie on `res`, and answers the provider's sign-in page, for the browser to go to. */
-	function beginSignIn(res: Response, begin: {userId: string; returnTo: ReturnTo | undefined; account: string | null; start: SignInStart<E>}): Promise<Result<string, ApiError>> {
+	function beginSignIn(
+		res: Response,
+		begin: {userId: string; returnTo: ReturnTo | undefined; account: string | null; connectionId?: string | null; start: SignInStart<E>},
+	): Promise<Result<string, ApiError>> {
 		return Do(async ($) => {
 			const appUrl = $(requirePresent(env.APP_URL, ApiErr.internalError(new Error('APP_URL is not configured'))));
 			const state = randomBytes(16).toString('hex');
 			const {verifier, challenge} = makePkce();
 			const {url, kept} = $(await begin.start({redirectUri: redirectUri(appUrl), state, challenge, account: begin.account}));
-			const payload: StatePayload = {state, verifier, userId: begin.userId, ...(begin.returnTo ? {returnTo: begin.returnTo} : {}), kept};
+			const payload: StatePayload = {
+				state,
+				verifier,
+				userId: begin.userId,
+				...(begin.returnTo ? {returnTo: begin.returnTo} : {}),
+				...(begin.connectionId ? {connectionId: begin.connectionId} : {}),
+				kept,
+			};
 			const cookie = $(encryptSecret(JSON.stringify(payload)));
 			res.cookie(stateCookieName, cookie, {...stateCookieOptions(), maxAge: stateCookieMaxAgeMs});
 			return url;
@@ -181,7 +237,7 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 
 			const connected = $(await args.finish({redirectUri: redirectUri(appUrl), code, verifier: payload.verifier, kept: payload.kept}));
 			const orgId = $(await requireUserOrgId(request));
-			const {row, added} = $(await saveConnection(orgId, integrationId, connected));
+			const {row, added} = $(await saveConnection(orgId, integrationId, connected, payload.connectionId ?? null));
 			return {id: row.id, added};
 		});
 	}
@@ -247,7 +303,7 @@ export function signInRoutes<E, C>(
 			return;
 		}
 
-		const begun = await flow.beginSignIn(res, {userId: request.user.userId, returnTo, account: queryParam(request, 'account'), start: args.start});
+		const begun = await flow.beginSignIn(res, {userId: request.user.userId, returnTo, account: queryParam(request, 'account'), connectionId: queryParam(request, 'connection'), start: args.start});
 		if (begun.isErr()) {
 			flow.redirectToConnectError(res, appUrl, returnTo, begun.error);
 			return;

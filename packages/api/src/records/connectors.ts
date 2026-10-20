@@ -9,6 +9,7 @@ import {linearConnector} from './linear-connector';
 import {notionConnector} from './notion-connector';
 import {plaidConnector} from './plaid-connector';
 import {sqlConnector} from './sql-connector';
+import {exaConnector, parallelConnector} from './web-connector';
 
 // A custom MCP server has no records: its tools are called as they are (`connections/custom`).
 const CONNECTORS: Record<Exclude<IntegrationId, 'mcp'>, Connector> = {
@@ -17,6 +18,8 @@ const CONNECTORS: Record<Exclude<IntegrationId, 'mcp'>, Connector> = {
 	granola: granolaConnector,
 	notion: notionConnector,
 	linear: linearConnector,
+	exa: exaConnector,
+	parallel: parallelConnector,
 	postgres: sqlConnector('postgres'),
 	mysql: sqlConnector('mysql'),
 	google: googleConnector,

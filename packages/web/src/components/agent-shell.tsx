@@ -51,9 +51,11 @@ export function AgentShell({children, feedback = true}: {children: ReactNode; fe
 				</div>
 			</header>
 			{task && <TaskBar task={task} />}
-			<main className="mx-auto w-full max-w-3xl px-4 pt-6 pb-12">{children}</main>
+			<main className="page-column mx-auto flex w-full max-w-3xl flex-col gap-4 pt-6 pb-12">
+				{children}
+			</main>
 			{feedback && (
-				<footer className="mx-auto w-full max-w-3xl px-4 pb-8 text-sm text-muted-foreground md:px-7">
+				<footer className="page-column mx-auto w-full max-w-3xl pb-8 text-sm text-muted-foreground">
 					Something here not working as you expected?{' '}
 					<Link
 						to={about ? `/agent/feedback?${about}` : '/agent/feedback'}
@@ -97,19 +99,21 @@ function TaskBar({task}: {task: {id: string; title: string}}) {
 
 	return (
 		<div className="border-b bg-muted/40">
-			<div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-4 px-4 py-2 text-sm">
-				<p className="min-w-0 truncate">
-					<span className="text-muted-foreground">Task: </span>
-					<Link to={START_TASK_PATH} className="font-medium hover:underline">
-						{task.title}
-					</Link>
+			<div className="page-column mx-auto flex w-full max-w-3xl items-center justify-between gap-4 py-2 text-sm">
+				<p className="flex min-w-0 items-baseline gap-2">
+					<span className="min-w-0 truncate">
+						<span className="text-muted-foreground">Task: </span>
+						<Link to={START_TASK_PATH} className="font-medium hover:underline">
+							{task.title}
+						</Link>
+					</span>
 					<Link
 						to={START_TASK_PATH}
-						className="ml-2 text-muted-foreground underline underline-offset-4"
+						className="shrink-0 text-muted-foreground underline underline-offset-4"
 					>
 						Switch task
 					</Link>
-					{error && <span className="ml-2 text-destructive">{error}</span>}
+					{error && <span className="min-w-0 truncate text-destructive">{error}</span>}
 				</p>
 				<Button size="sm" variant="outline" disabled={finishing} onClick={() => void finish()}>
 					{finishing ? 'Finishing…' : 'Finish task'}
@@ -126,7 +130,7 @@ export function Crumbs({items}: {items: Crumb[]}) {
 	return (
 		<nav
 			aria-label="Breadcrumb"
-			className="mb-4 flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground md:px-3"
+			className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground"
 		>
 			{items.map((item, index) => (
 				<Fragment key={index}>
@@ -149,9 +153,9 @@ export function Crumbs({items}: {items: Crumb[]}) {
 // The page's own heading, with what the agent may do here beside it.
 export function AgentHeading({children, detail}: {children: ReactNode; detail?: string}) {
 	return (
-		<h1 className="text-lg font-semibold">
+		<h1 className="flex flex-wrap items-baseline gap-x-2 text-lg font-semibold">
 			{children}
-			{detail && <span className="ml-2 text-sm font-normal text-muted-foreground">{detail}</span>}
+			{detail && <span className="text-sm font-normal text-muted-foreground">{detail}</span>}
 		</h1>
 	);
 }
@@ -163,7 +167,7 @@ export function PersonLinkHint({collection}: {collection: Collection}) {
 	const text = collection.openIn
 		? `To show the person ${collection.name.toLowerCase()}, give them the links in ${collection.openIn}, never the address of a page here: only this login can open these pages.`
 		: `The person can’t open these pages: only this login can. Tell them which ${collection.singular} you mean by its ${title?.label.toLowerCase() ?? 'title'} instead.`;
-	return <p className="mb-4 text-sm text-muted-foreground md:px-3">{text}</p>;
+	return <p className="text-sm text-muted-foreground">{text}</p>;
 }
 
 // A record's link in the provider's app, "Open in Gmail", opening in a new tab.

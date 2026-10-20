@@ -10,9 +10,9 @@ const getConnectionWithCredential = mock();
 const updateConnectionTools = mock();
 const updateConnectionName = mock();
 
-// The authorization server, taking the registration a sign-in begins with.
+// The authorization servers, taking the registration a sign-in begins with.
 const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request) => {
-	if (String(input) === 'https://mcp.example.com/register') {
+	if (String(input).endsWith('/register')) {
 		return Response.json({client_id: 'client-1'}, {status: 201});
 	}
 	return new Response('Not found', {status: 404});
@@ -70,9 +70,14 @@ const mcpOauth = await import('../mcp/mcp-oauth');
 mock.module('../mcp/mcp-oauth', () => ({...mcpOauth, exchangeMcpCode}));
 
 const listMcpTools = mock();
+const callMcpTool = mock();
 
 const mcpClient = await import('../mcp/mcp-client');
-mock.module('../mcp/mcp-client', () => ({...mcpClient, listMcpTools}));
+mock.module('../mcp/mcp-client', () => ({...mcpClient, listMcpTools, callMcpTool}));
+
+// Linear names who a key is for.
+const linearMcp = await import('../linear/linear-mcp');
+mock.module('../linear/linear-mcp', () => ({...linearMcp, getLinearAccount: mock(async () => Ok('alex@example.com · Acme'))}));
 
 const search = {name: 'search_docs', title: 'Search docs', inputSchema: {type: 'object', properties: {query: {type: 'string'}}}, annotations: {readOnlyHint: true}};
 const publish = {name: 'publish_doc', inputSchema: {type: 'object'}};
@@ -165,7 +170,7 @@ describe('handleConnectCustomMcpRoute', () => {
 		});
 		expect(res.sent).toEqual({
 			kind: 'connected',
-			connection: {id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', defaults: ['search_docs'], tools: [search, publish], name: 'Docs', unavailable: []},
+			connection: {id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', defaults: ['search_docs'], tools: [search, publish], name: 'Docs', unavailable: [], signInNeeded: false},
 		});
 	});
 
@@ -231,6 +236,65 @@ describe('handleConnectCustomMcpRoute', () => {
 		expect(res.sent).toMatchObject({error: 'validation_error'});
 		expect(probeMcpServer).not.toHaveBeenCalled();
 	});
+
+	test('the server of an integration that is built in, whatever its path or query, is signed in to as that integration instead', async () => {
+		for (const [url, integrationId, authorize] of [
+			['https://mcp.exa.ai/mcp?tools=web_search_exa', 'exa', 'https://auth.exa.ai/oauth/authorize'],
+			['https://search.parallel.ai/mcp', 'parallel', 'https://platform.parallel.ai/getKeys/authorize'],
+			['https://mcp.linear.app/sse', 'linear', 'https://mcp.linear.app/authorize'],
+		] as const) {
+			const res = await connect({name: 'Search', url});
+			expect(res.sent).toMatchObject({kind: 'signIn'});
+			const signIn = new URL((res.sent as {url: string}).url);
+			expect(signIn.origin + signIn.pathname).toBe(authorize);
+			expect(signIn.searchParams.get('redirect_uri')).toBe(`https://app.example.com/api/connections/${integrationId}/callback`);
+			expect(res.cookies.map((cookie) => [cookie.name, cookie.options.path])).toEqual([[`proxy.${integrationId}-state`, `/api/connections/${integrationId}`]]);
+		}
+		expect(probeMcpServer).not.toHaveBeenCalled();
+		expect(createConnection).not.toHaveBeenCalled();
+	});
+
+	test("a token typed in for a built-in integration's server connects the integration with it as its API key, under the name given", async () => {
+		callMcpTool.mockResolvedValue(Ok('# Example Domain'));
+		listMcpTools.mockResolvedValue(Ok([]));
+		for (const [url, integrationId, account] of [
+			['https://mcp.exa.ai/mcp', 'exa', 'API key ending 1234'],
+			['https://search.parallel.ai/mcp', 'parallel', 'API key ending 1234'],
+			['https://mcp.linear.app/sse', 'linear', 'alex@example.com · Acme'],
+		] as const) {
+			const res = await connect({name: 'Web search', url, token: 'key-1234'});
+			expect(res.sent).toMatchObject({kind: 'connected', connection: {name: 'Web search', account}});
+			expect(createConnection.mock.calls.at(-1)?.[0]).toMatchObject({integrationId, name: 'Web search', credential: `enc:${JSON.stringify({auth: 'key', key: 'key-1234'})}`});
+		}
+		expect(probeMcpServer).not.toHaveBeenCalled();
+	});
+
+	test('a token for an account already connected gives that connection the key, its own name kept rather than the one typed', async () => {
+		listMcpTools.mockResolvedValue(Ok([]));
+		findAccountConnection.mockResolvedValue(Ok({...row, id: 'linear-1', integrationId: 'linear', account: 'alex@example.com · Acme', tools: null, name: 'Work'}));
+		const res = await connect({name: 'Linear test', url: 'https://mcp.linear.app/mcp', token: 'key-1234'});
+
+		expect(createConnection).not.toHaveBeenCalled();
+		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'linear-1', credential: `enc:${JSON.stringify({auth: 'key', key: 'key-1234'})}`});
+		expect(updateConnectionName).not.toHaveBeenCalled();
+		expect(res.sent).toMatchObject({kind: 'connected', connection: {id: 'linear-1', name: 'Work', account: 'alex@example.com · Acme'}});
+	});
+
+	test("a key in the address, as Exa's own setup writes it, connects the integration with it as its API key", async () => {
+		callMcpTool.mockResolvedValue(Ok('# Example Domain'));
+		const res = await connect({name: 'Web search', url: 'https://mcp.exa.ai/mcp?exaApiKey=key-5678'});
+
+		expect(res.sent).toMatchObject({kind: 'connected', connection: {name: 'Web search', account: 'API key ending 5678'}});
+		expect(createConnection.mock.calls.at(-1)?.[0]).toMatchObject({integrationId: 'exa', credential: `enc:${JSON.stringify({auth: 'key', key: 'key-5678'})}`});
+	});
+
+	test('a token for a built-in integration that takes no key is refused, rather than dropped for a sign-in', async () => {
+		const res = await connect({name: 'Notes', url: 'https://mcp.notion.com/mcp', token: 'secret_1234'});
+
+		expect(res.sent).toMatchObject({error: 'validation_error', message: 'Notion is connected by signing in to it, so leave the token out'});
+		expect(res.cookies).toEqual([]);
+		expect(createConnection).not.toHaveBeenCalled();
+	});
 });
 
 describe('handleCustomMcpCallbackRoute', () => {
@@ -241,7 +305,7 @@ describe('handleCustomMcpCallbackRoute', () => {
 		const cookie = `proxy.mcp-state=${encodeURIComponent(begun.cookies[0]?.value ?? '')}`;
 
 		const tokens = {clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null};
-		exchangeMcpCode.mockResolvedValue(Ok({credential: tokens, workspaceName: null}));
+		exchangeMcpCode.mockResolvedValue(Ok(tokens));
 		listMcpTools.mockResolvedValue(Ok([search, publish]));
 		const {handleCustomMcpCallbackRoute} = await import('./route');
 		const res = makeRes();

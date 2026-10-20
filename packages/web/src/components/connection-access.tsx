@@ -1,7 +1,6 @@
 import type {Action, OwnSettings} from '@proxy/integrations';
 import {CheckCheckIcon, Undo2Icon} from 'lucide-react';
-import {useId, useRef, useState} from 'react';
-import {RowList} from '@/components/row-list';
+import {useId, useLayoutEffect, useRef, useState} from 'react';
 import {IconButton} from '@/components/icon-button';
 import {Badge} from '@proxy/ui/components/badge';
 import {Button} from '@proxy/ui/components/button';
@@ -22,7 +21,13 @@ type Props = {
 	onMakeDefault?: (actionId: string, allowed: boolean) => Promise<void>;
 	// The actions the connection's sign-in didn't cover: off and disabled until it is signed in again.
 	unavailable?: string[];
+	// The connection has no sign-in at all yet, so none of its actions is covered.
+	signInNeeded?: boolean;
 };
+
+// The actions, one under another, spaced by the list rather than each row, so the list sits
+// as tight to what holds it as anything else does.
+const ROWS = 'flex flex-col gap-4';
 
 // A connection's access, the way an editor shows its settings: one checkbox per action, the only
 // control for it, under the name of the part of the provider it belongs to where the integration
@@ -41,6 +46,7 @@ export function ConnectionAccess({
 	onChange,
 	onMakeDefault,
 	unavailable = [],
+	signInNeeded = false,
 }: Props) {
 	// A connection's actions show on more than one page section, so the ids need their own prefix.
 	const idPrefix = useId();
@@ -48,10 +54,15 @@ export function ConnectionAccess({
 	const [pending, setPending] = useState<Partial<Record<string, boolean>>>({});
 	const queues = useRef<Partial<Record<string, Promise<void>>>>({});
 	const rangeAnchor = useRef<string | null>(null);
+	// The latest settings, for a change saved after others finished, read when it runs rather than
+	// when it was clicked: kept as the render commits, before a queued save can run, which a passive
+	// effect, run later, wouldn't be.
 	const defaultsRef = useRef(defaults);
 	const ownRef = useRef(own);
-	defaultsRef.current = defaults;
-	ownRef.current = own;
+	useLayoutEffect(() => {
+		defaultsRef.current = defaults;
+		ownRef.current = own;
+	});
 	const isDefault = (id: string) => defaults.includes(id);
 	const isUnavailable = (id: string) => unavailable.includes(id);
 	const storedIsOn = (id: string) => (own ? (own[id] ?? isDefault(id)) : isDefault(id));
@@ -145,33 +156,36 @@ export function ConnectionAccess({
 			<li
 				key={action.id}
 				className={cn(
-					'flex items-start gap-3 border-l-2 py-2 pr-4 pl-3.5 text-sm md:pr-3 md:pl-2.5',
-					isOwn(action.id) ? 'border-primary' : 'border-transparent',
+					// Out in the gutter as any row, where a setting of the agent's own shows as a stripe.
+					'bleed flex items-start gap-3 text-sm',
+					isOwn(action.id) && 'shadow-[inset_2px_0_0_var(--color-primary)]',
 				)}
 			>
-				<Checkbox
-					id={inputId}
-					aria-labelledby={labelId}
-					aria-describedby={descriptionId}
-					className="mt-0.5"
-					checked={checked}
-					disabled={disabled}
-					onMouseDown={(event) => {
-						if (disabled || !event.shiftKey || event.button !== 0) {
-							return;
-						}
+				{/* As tall as the label's line, the box centered on it. */}
+				<span className="flex h-5 shrink-0 items-center">
+					<Checkbox
+						id={inputId}
+						aria-labelledby={labelId}
+						aria-describedby={descriptionId}
+						checked={checked}
+						disabled={disabled}
+						onMouseDown={(event) => {
+							if (disabled || !event.shiftKey || event.button !== 0) {
+								return;
+							}
 
-						event.preventDefault();
-						event.currentTarget.focus();
-					}}
-					onCheckedChange={(next, details) =>
-						changeRange(
-							action.id,
-							next,
-							details.event instanceof MouseEvent && details.event.shiftKey,
-						)
-					}
-				/>
+							event.preventDefault();
+							event.currentTarget.focus();
+						}}
+						onCheckedChange={(next, details) =>
+							changeRange(
+								action.id,
+								next,
+								details.event instanceof MouseEvent && details.event.shiftKey,
+							)
+						}
+					/>
+				</span>
 				<div
 					className="flex min-w-0 flex-1 flex-col gap-0.5"
 					onMouseDown={(event) => {
@@ -208,7 +222,10 @@ export function ConnectionAccess({
 					<span id={descriptionId} className="text-muted-foreground">
 						{action.description}
 						{blocked && required && ` · Off while ${required.label} is off`}
-						{isUnavailable(action.id) && ' · Not allowed at sign-in. Sign in again to allow it.'}
+						{isUnavailable(action.id) &&
+							(signInNeeded
+								? ' · Sign in to allow it.'
+								: ' · Not allowed at sign-in. Sign in again to allow it.')}
 					</span>
 				</div>
 				<span className="flex shrink-0 items-center gap-2 text-muted-foreground">
@@ -248,24 +265,22 @@ export function ConnectionAccess({
 		);
 	};
 	const all = settable.length > 1 && (
-		<div className="flex md:px-3">
-			<Button variant="outline" size="sm" onClick={() => setAll(!allOn)}>
-				{allOn ? 'Disable all' : 'Enable all'}
-			</Button>
-		</div>
+		<Button variant="outline" size="sm" className="self-start" onClick={() => setAll(!allOn)}>
+			{allOn ? 'Disable all' : 'Enable all'}
+		</Button>
 	);
 
 	const groups = groupsOf(actions);
 	if (groups.length === 1 && groups[0]?.name === undefined) {
 		return (
-			<div className="flex flex-col gap-2">
+			<div className="flex flex-col gap-4">
 				{all}
-				<RowList>{actions.map(row)}</RowList>
+				<ul className={ROWS}>{actions.map(row)}</ul>
 			</div>
 		);
 	}
 	return (
-		<div className="flex flex-col gap-4">
+		<div className="flex flex-col gap-6">
 			{all}
 			{groups.map((group, index) => {
 				const headingId = `${idPrefix}-group-${index}`;
@@ -274,13 +289,13 @@ export function ConnectionAccess({
 					<section
 						key={group.name ?? 'other'}
 						aria-labelledby={headingId}
-						className="flex flex-col"
+						className="flex flex-col gap-2"
 					>
-						<div className="flex h-8 items-center justify-between gap-3 text-sm md:px-3">
+						<div className="flex h-8 items-center justify-between gap-3 text-sm">
 							<h3 id={headingId}>{group.name ?? 'Other'}</h3>
 							<span className="text-muted-foreground">{howManyOn(on, group.actions.length)}</span>
 						</div>
-						<RowList>{group.actions.map(row)}</RowList>
+						<ul className={ROWS}>{group.actions.map(row)}</ul>
 					</section>
 				);
 			})}
@@ -315,11 +330,49 @@ function groupsOf(actions: Action[]): Group[] {
 	return groups;
 }
 
-// Under a connection's permissions when its sign-in didn't cover some actions. Signing in again
-// gives the same connection new tokens, its defaults and every agent's settings kept.
-export function SignInAgain({href, className}: {href: string; className?: string}) {
+// Under a connection's permissions: when its sign-in didn't cover some actions (`unavailable`),
+// when it has none yet, as one moved over from a custom MCP server may not (`needed`), or, for an
+// integration that says nothing of who signed in, so only this page renews its connection, always
+// (`renew`). Signing in again, or a new API key where the integration takes one (`onUseKey`),
+// gives the same connection its new credential, its defaults and every agent's settings kept.
+export function SignInAgain({
+	href,
+	reason,
+	onUseKey,
+}: {
+	href: string;
+	reason: 'unavailable' | 'needed' | 'renew';
+	onUseKey?: () => void;
+}) {
+	const link = 'text-foreground underline underline-offset-4';
+	const useKey = onUseKey && (
+		<button type="button" onClick={onUseKey} className={link}>
+			use an API key
+		</button>
+	);
+	if (reason === 'needed') {
+		return (
+			<p className="text-sm text-muted-foreground">
+				This connection isn't signed in yet, so agents can't use it.{' '}
+				<a href={href} className={link}>
+					Sign in
+				</a>
+				{useKey && <>, or {useKey},</>} to start.
+			</p>
+		);
+	}
+	if (reason === 'renew') {
+		return (
+			<p className="text-sm text-muted-foreground">
+				<a href={href} className={link}>
+					Sign in again
+				</a>
+				{useKey && <>, or {useKey}</>}, keeping every agent's settings.
+			</p>
+		);
+	}
 	return (
-		<p className={cn('text-sm text-muted-foreground', className)}>
+		<p className="text-sm text-muted-foreground">
 			Some actions weren't allowed when this account was signed in.{' '}
 			<a href={href} className="text-foreground underline underline-offset-4">
 				Sign in again

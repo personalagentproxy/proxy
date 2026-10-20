@@ -34,7 +34,9 @@ export function AppShell({children, title, actions}: Props) {
 						<SidebarTrigger />
 					</div>
 				)}
-				<main className="mx-auto w-full max-w-3xl px-4 pt-6 pb-12">{children}</main>
+				<main className="page-column mx-auto flex w-full max-w-3xl flex-col gap-4 pt-6 pb-12">
+					{children}
+				</main>
 			</div>
 		</>
 	);

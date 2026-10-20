@@ -168,11 +168,11 @@ describe('callWithToken', () => {
 		expect(updateConnectionCredential).not.toHaveBeenCalled();
 	});
 
-	test('a connection without a credential is an internal error', async () => {
+	test('a connection without a credential has to be signed in to', async () => {
 		const {callWithToken} = await import('./token-session');
 		const result = await callWithToken(REFRESHER, {id: 'conn-1', credential: null}, call);
 
-		expect(result.unwrapErr().kind).toBe('internal_error');
+		expect(result.unwrapErr().kind).toBe('credentials_rejected');
 		expect(call).not.toHaveBeenCalled();
 	});
 });

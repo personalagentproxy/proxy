@@ -102,19 +102,10 @@ describe('handleMcpRoute', () => {
 		expect(result.instructions).toContain('with the task it was made for');
 		expect(result.instructions).toContain('- Email (alex@example.com), connection mail-1: Read, Archive');
 		expect(result.instructions).toContain('check Personal Agent Proxy first');
-		expect(result.instructions).toContain('Personal Agent Proxy connects Email, Google, Granola, Notion, Linear, PostgreSQL, MySQL and any custom MCP server');
+		expect(result.instructions).toContain('Personal Agent Proxy connects Email, Google, Granola, Notion, Linear, Exa, Parallel, Plaid, PostgreSQL, MySQL and any custom MCP server');
 		expect(result.instructions).toContain('https://app.example.com/connections/new');
 		expect(result.instructions).toContain('give them its url');
 		expect(result.instructions).toContain('send_feedback');
-	});
-
-	test('the instructions name a bank among the services only to an organization with the experiment on', async () => {
-		getAgentByAccessToken.mockResolvedValueOnce(Ok({...signedIn, experiments: ['plaid']}));
-		const response = await post(rpc('initialize', {protocolVersion: '2025-06-18'}));
-
-		expect((response.body as {result: {instructions: string}}).result.instructions).toContain(
-			'Personal Agent Proxy connects Email, Google, Granola, Notion, Linear, Plaid, PostgreSQL, MySQL and any custom MCP server',
-		);
 	});
 
 	test('lists the seven tools, read-only ones marked so, every call but starting, finishing and feedback taking the task', async () => {

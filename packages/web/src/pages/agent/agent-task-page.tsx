@@ -31,12 +31,10 @@ export function AgentTaskPage() {
 		<AgentShell>
 			<div className="flex flex-col gap-8">
 				{tasks.length > 0 && (
-					<div>
-						<div className="mb-4 md:px-3">
-							<AgentHeading detail={`${tasks.length} under way`}>Your tasks</AgentHeading>
-							{notice && <p className="mt-2 text-sm">{notice}.</p>}
-						</div>
-						<p className="mb-4 text-sm text-muted-foreground md:px-3">
+					<div className="flex flex-col gap-4">
+						<AgentHeading detail={`${tasks.length} under way`}>Your tasks</AgentHeading>
+						{notice && <p className="text-sm">{notice}.</p>}
+						<p className="text-sm text-muted-foreground">
 							Work on any of them: the pages then make their requests for it. Finish a task once you
 							have done what the person asked for with it, or given it up.
 						</p>
@@ -51,7 +49,7 @@ export function AgentTaskPage() {
 								/>
 							))}
 						</RowList>
-						{error && <p className="mt-2 text-sm text-destructive md:px-3">{error}</p>}
+						{error && <p className="text-sm text-destructive">{error}</p>}
 					</div>
 				)}
 				<StartTaskForm first={tasks.length === 0} notice={tasks.length === 0 ? notice : null} />
@@ -102,13 +100,7 @@ function TaskRow({
 				</span>
 			}
 			after={
-				<Button
-					size="sm"
-					variant="outline"
-					className="mr-4 md:mr-3"
-					disabled={finishing}
-					onClick={() => void finish()}
-				>
+				<Button size="sm" variant="outline" disabled={finishing} onClick={() => void finish()}>
 					{finishing ? 'Finishing…' : 'Finish'}
 				</Button>
 			}
@@ -139,12 +131,10 @@ function StartTaskForm({first, notice}: {first: boolean; notice: string | null})
 	};
 
 	return (
-		<div>
-			<div className="mb-4 md:px-3">
-				<AgentHeading>{first ? 'Start a task' : 'Start another task'}</AgentHeading>
-				{notice && <p className="mt-2 text-sm">{notice}.</p>}
-			</div>
-			<div className="flex flex-col gap-4 md:px-3">
+		<div className="flex flex-col gap-4">
+			<AgentHeading>{first ? 'Start a task' : 'Start another task'}</AgentHeading>
+			{notice && <p className="text-sm">{notice}.</p>}
+			<div className="flex flex-col gap-4">
 				<p className="text-sm text-muted-foreground">
 					{first
 						? 'Before anything else, say what you are about to do for the person here, as one task: '

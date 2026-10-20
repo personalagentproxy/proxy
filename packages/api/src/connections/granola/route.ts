@@ -1,20 +1,18 @@
-import {findIntegration} from '@proxy/integrations';
-
-import {mcpConnectRoutes} from '../mcp/mcp-connect';
+import type {BuiltInMcp} from '../mcp/built-in';
 import {GRANOLA, getGranolaAccount} from './granola-mcp';
 
 /**
- * Connecting Granola by signing in to it, as its MCP server asks. A new Granola connection lets
- * agents read both its notes and its transcripts by default; either can be turned off on the
- * connection's page.
+ * Granola, through its MCP server. A new Granola connection lets agents read both its notes and
+ * its transcripts by default; either can be turned off on the connection's page.
  */
-export const {handleStart: handleStartGranolaRoute, handleCallback: handleGranolaCallbackRoute} = mcpConnectRoutes({
+export const GRANOLA_MCP: BuiltInMcp = {
 	integrationId: 'granola',
 	server: GRANOLA,
-	connection: async (signIn) =>
-		(await getGranolaAccount(signIn.credential.accessToken)).map((account) => ({
-			account,
-			credential: signIn.credential,
-			defaults: findIntegration('granola')?.actions.map((action) => action.id) ?? [],
-		})),
-});
+	account: getGranolaAccount,
+	defaults: ['readNotes', 'readTranscripts'],
+	tools: {
+		list_meetings: {actions: ['readNotes'], run: () => ({collectionId: 'notes', operation: 'list'})},
+		get_meetings: {actions: ['readNotes'], run: () => ({collectionId: 'notes', operation: 'view'})},
+		get_meeting_transcript: {actions: ['readTranscripts'], run: () => ({collectionId: 'transcripts', operation: 'view'})},
+	},
+};

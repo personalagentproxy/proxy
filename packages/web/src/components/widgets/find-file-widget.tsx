@@ -69,9 +69,9 @@ export function FindFileWidget({intent, typed}: {intent: Intent; typed: string})
 					No contact named “{ownerName}”, so files by anyone are shown.
 				</p>
 			)}
-			<ul className="-mx-4 flex flex-col" aria-label="Files">
+			<ul className="flex flex-col" aria-label="Files">
 				{found.length === 0 && (
-					<li className="px-4 text-muted-foreground">
+					<li className="text-muted-foreground">
 						{files.loading || !files.data ? 'Searching…' : 'No files match.'}
 					</li>
 				)}
@@ -90,18 +90,18 @@ export function FindFileWidget({intent, typed}: {intent: Intent; typed: string})
 						</>
 					);
 					return (
-						<li key={`${file.connectionId} ${file.id}`}>
+						<li key={`${file.connectionId} ${file.id}`} className="-mx-(--bleed)">
 							{file.link ? (
 								<a
 									href={file.link}
 									target="_blank"
 									rel="noreferrer"
-									className="flex h-10 min-w-0 items-center gap-3 px-4 hover:bg-muted"
+									className="flex h-10 min-w-0 items-center gap-3 px-(--bleed) hover:bg-muted"
 								>
 									{row}
 								</a>
 							) : (
-								<div className="flex h-10 min-w-0 items-center gap-3 px-4">{row}</div>
+								<div className="flex h-10 min-w-0 items-center gap-3 px-(--bleed)">{row}</div>
 							)}
 						</li>
 					);

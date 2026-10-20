@@ -4,6 +4,7 @@ import {Result} from 'ts-results-es';
 
 import {connectDb, disconnectDb} from '@proxy/db';
 
+import {takeOverCustomConnections} from './connections/take-over-custom';
 import {log, serializeError} from './observability/log';
 import {createHttpApp} from './server/create-http-app';
 import {startTelemetry} from './telemetry';
@@ -58,5 +59,7 @@ async function startApiServer(): Promise<void> {
 
 	server.listen(port, () => {
 		log.info(`@proxy/api listening on http://localhost:${port}`);
+		// After listening, since signing in to a provider to name an account can take a while.
+		void takeOverCustomConnections();
 	});
 }

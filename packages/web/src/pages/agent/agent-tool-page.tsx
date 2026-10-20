@@ -134,12 +134,10 @@ function AgentTool({connectionId, toolName}: {connectionId: string; toolName: st
 			<Crumbs
 				items={[{label: 'Home', to: '/agent'}, {label: connection.account}, {label: title}]}
 			/>
-			<div className="mb-4 md:px-3">
-				<AgentHeading detail={mcpToolReadsOnly(tool) ? 'Only reads' : 'Changes something'}>
-					{title}
-				</AgentHeading>
-			</div>
-			<div className="flex flex-col gap-4 md:px-3">
+			<AgentHeading detail={mcpToolReadsOnly(tool) ? 'Only reads' : 'Changes something'}>
+				{title}
+			</AgentHeading>
+			<div className="flex flex-col gap-4">
 				{tool.description && (
 					<p className="text-sm whitespace-pre-wrap text-muted-foreground">{tool.description}</p>
 				)}

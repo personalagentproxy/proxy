@@ -1,10 +1,10 @@
 import {Err, Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
+import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
-import {callMcpTool} from '../mcp/mcp-client';
-import type {McpServer, McpSignIn} from '../mcp/mcp-oauth';
+import {callMcpTool, parseToolJson} from '../mcp/mcp-client';
+import type {McpServer} from '../mcp/mcp-oauth';
 
 /**
  * Notion's MCP server and what its tools answer: JSON, a page's own text inside it as Notion writes
@@ -20,7 +20,7 @@ const BASE = 'https://mcp.notion.com';
 const toolFailureSchema = z.object({code: z.string(), message: z.string().optional()});
 
 function notionToolError(text: string): ApiError | null {
-	const failure = parseJson(text, toolFailureSchema);
+	const failure = parseToolJson(text, toolFailureSchema);
 	if (failure.isErr()) {
 		return null;
 	}
@@ -43,27 +43,23 @@ export const NOTION: McpServer = {
 	toolError: notionToolError,
 };
 
-function parseJson<T>(text: string, schema: z.ZodType<T>): Result<T, ApiError> {
-	return Result.wrap((): unknown => JSON.parse(text))
-		.mapErr((cause) => ApiErr.providerUnreachable(cause))
-		.andThen((json) => parseSchema(schema, json).mapErr((error) => ApiErr.providerUnreachable(error)));
-}
-
-const usersSchema = z.object({results: z.array(z.object({name: z.string().optional(), email: z.string().optional()}))});
+// The workspace is named where Notion says it; a sign-in it says nothing of the workspace for is named by who signed in alone.
+const selfSchema = z.object({workspace: z.object({name: z.string().optional()}).optional(), user: z.object({name: z.string().optional(), email: z.string().optional()})});
 
 /**
- * The Notion account a sign-in is for, by who signed in and the workspace they chose:
- * "alex@example.com · Acme". Signing in to another workspace is another connection.
+ * The Notion account a sign-in is for, by who signed in and the workspace they chose, as
+ * `notion-get-self` names them: "alex@example.com · Acme". Signing in to another workspace is
+ * another connection.
  */
-export function getNotionAccount(signIn: McpSignIn): Promise<Result<string, ApiError>> {
+export function getNotionAccount(accessToken: string): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
-		const text = $(await callMcpTool(NOTION, signIn.credential.accessToken, 'notion-get-users', {user_id: 'self'}));
-		const user = $(parseJson(text, usersSchema)).results[0];
-		const who = user?.email?.toLowerCase() ?? user?.name;
+		const text = $(await callMcpTool(NOTION, accessToken, 'notion-get-self', {}));
+		const {workspace, user} = $(parseToolJson(text, selfSchema));
+		const who = user.email?.toLowerCase() ?? user.name;
 		if (!who) {
 			return $(Err(ApiErr.providerUnreachable(new Error('Notion did not say who signed in'))));
 		}
-		return signIn.workspaceName ? `${who} · ${signIn.workspaceName}` : who;
+		return workspace?.name ? `${who} · ${workspace.name}` : who;
 	});
 }
 
@@ -187,12 +183,12 @@ function listedNodes(results: Array<z.infer<typeof listedSchema>>): NotionNode[]
 
 /** The pages and databases in a `notion-list-recent-pages` answer, as Notion orders them, and its next page's cursor. */
 export function parseNotionRecent(text: string): Result<{nodes: NotionNode[]; nextCursor: string | null}, ApiError> {
-	return parseJson(text, recentSchema).map((answer) => ({nodes: listedNodes(answer.results), nextCursor: answer.nextCursor ?? null}));
+	return parseToolJson(text, recentSchema).map((answer) => ({nodes: listedNodes(answer.results), nextCursor: answer.nextCursor ?? null}));
 }
 
 /** The pages and databases in a `notion-search` answer, best match first; other tools' results left out. */
 export function parseNotionSearch(text: string): Result<NotionNode[], ApiError> {
-	return parseJson(text, searchSchema).map((answer) => listedNodes(answer.results));
+	return parseToolJson(text, searchSchema).map((answer) => listedNodes(answer.results));
 }
 
 const propertyValueSchema = z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.null()]);
@@ -318,7 +314,7 @@ function dataSourcesOf(text: string): Result<NotionDataSource[], ApiError> {
 	return Result.all(
 		found.map((match) => {
 			const id = idOfRef(match[1] ?? '');
-			return parseJson(match[2] ?? '', dataSourceStateSchema).andThen((state) =>
+			return parseToolJson(match[2] ?? '', dataSourceStateSchema).andThen((state) =>
 				id
 					? Ok({id, name: state.name ?? '', schema: Object.fromEntries(Object.entries(state.schema).map(([name, property]) => [name, property.type]))})
 					: Err(ApiErr.providerUnreachable(new Error('A data source without an id'))),
@@ -333,7 +329,7 @@ const viewStateSchema = z.object({name: z.string().optional(), dataSourceUrl: z.
 function viewsOf(text: string): NotionViewSummary[] {
 	return [...text.matchAll(/<view url="([^"]+)">\n([\s\S]*?)\n<\/view>/g)].flatMap((match) => {
 		const id = idOfRef(match[1] ?? '');
-		const state = parseJson(match[2] ?? '', viewStateSchema);
+		const state = parseToolJson(match[2] ?? '', viewStateSchema);
 		if (!id || state.isErr()) {
 			return [];
 		}
@@ -343,7 +339,7 @@ function viewsOf(text: string): NotionViewSummary[] {
 
 function pageOf(id: string, fetched: Fetched): Result<NotionPage, ApiError> {
 	const json = between(fetched.text, 'properties');
-	const parsed: Result<NotionProperties, ApiError> = json === null ? Ok({}) : parseJson(json, propertiesSchema);
+	const parsed: Result<NotionProperties, ApiError> = json === null ? Ok({}) : parseToolJson(json, propertiesSchema);
 	return parsed.map((all) => {
 		// Notion puts an emoji icon before the title.
 		const emoji = fetched.icon?.emoji;
@@ -373,7 +369,7 @@ function pageOf(id: string, fetched: Fetched): Result<NotionPage, ApiError> {
  * its data sources. Anything else is not found.
  */
 export function parseNotionFetched(text: string): Result<NotionFetched, ApiError> {
-	return parseJson(text, fetchedSchema).andThen((fetched): Result<NotionFetched, ApiError> => {
+	return parseToolJson(text, fetchedSchema).andThen((fetched): Result<NotionFetched, ApiError> => {
 		const type = fetched.metadata.type;
 		if (type === 'view') {
 			const id = fetched.url ? idOfRef(fetched.url) : null;
@@ -420,7 +416,7 @@ const viewRowsSchema = z.object({results: z.array(z.record(z.string(), propertyV
  * data source's `titleProperty`, and the cursor of the rows after them.
  */
 export function parseNotionViewRows(text: string, titleProperty: string | null): Result<{nodes: NotionNode[]; nextCursor: string | null}, ApiError> {
-	return parseJson(text, viewRowsSchema).map((answer) => ({
+	return parseToolJson(text, viewRowsSchema).map((answer) => ({
 		nodes: answer.results.flatMap((row) => {
 			const url = typeof row.url === 'string' ? row.url : '';
 			const id = idOfUrl(url);

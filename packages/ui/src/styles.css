@@ -8,6 +8,34 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Where text starts, and how far a row reaches past it. A container sets both: its padding is the
+ * text line, and `--bleed` how far into that padding a row's box may reach, so a row's hover, or
+ * the stripe of a setting of its own, can fill it while the row's text stays on the line. Nothing
+ * else indents itself, and spacing between things is the gap of what holds them.
+ */
+
+/* Outside any container that sets it, a row reaches no further than its text. */
+:root {
+	--bleed: 0px;
+}
+
+/* A row: its box out into the container's padding by `--bleed`, its content where it was. */
+@utility bleed {
+	margin-inline: calc(var(--bleed) * -1);
+	padding-inline: var(--bleed);
+}
+
+/* A page's column: rows reach the screen's edge on a phone, and a little past the text beside. */
+@utility page-column {
+	--bleed: --spacing(4);
+	padding-inline: --spacing(4);
+	@variant md {
+		--bleed: --spacing(3);
+		padding-inline: --spacing(7);
+	}
+}
+
 /* Lets light-dark() colors follow the theme class. */
 :root {
 	color-scheme: light;

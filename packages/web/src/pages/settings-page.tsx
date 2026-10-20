@@ -65,7 +65,7 @@ export function SettingsPage() {
 
 function AccountRow({label, value}: {label: string; value: string}) {
 	return (
-		<li className="flex h-10 min-w-0 items-center gap-3 px-4 text-sm md:px-3">
+		<li className="bleed flex h-10 min-w-0 items-center gap-3 text-sm">
 			<span className="w-24 shrink-0 text-muted-foreground">{label}</span>
 			<span className="min-w-0 flex-1 truncate">{value}</span>
 		</li>

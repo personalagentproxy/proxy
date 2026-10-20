@@ -82,18 +82,18 @@ export function AgentRecordPage() {
 					{label: title},
 				]}
 			/>
-			<div className="mb-4 md:px-3">
-				<AgentHeading>{editing ? `Edit ${collection.singular}` : title}</AgentHeading>
+			<AgentHeading>{editing ? `Edit ${collection.singular}` : title}</AgentHeading>
+			<div className="flex flex-col gap-2">
+				{/* The address written out too, for a model that reads the page as an image. */}
+				{record.url && (
+					<p className="text-sm break-all">
+						<OpenInLink collection={collection} url={record.url} />: {record.url}
+					</p>
+				)}
+				<PersonLinkHint collection={collection} />
 			</div>
-			{/* The address written out too, for a model that reads the page as an image. */}
-			{record.url && (
-				<p className="mb-2 text-sm break-all md:px-3">
-					<OpenInLink collection={collection} url={record.url} />: {record.url}
-				</p>
-			)}
-			<PersonLinkHint collection={collection} />
 			{(commands.length > 0 || canEdit || canDelete || record.hasChildren) && !editing && (
-				<div className="mb-6 flex flex-wrap gap-2 md:px-3">
+				<div className="flex flex-wrap gap-2">
 					{record.hasChildren && (
 						<Button
 							size="sm"
@@ -142,7 +142,7 @@ export function AgentRecordPage() {
 					)}
 				</div>
 			)}
-			<div className="flex flex-col gap-3 md:px-3">
+			<div className="flex flex-col gap-3">
 				{error && <p className="text-sm text-destructive">{error}</p>}
 				{editing ? (
 					<RecordForm

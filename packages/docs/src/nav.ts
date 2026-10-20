@@ -5,7 +5,7 @@
 export type NavEntry = string | {page: string; pages: string[]; open?: boolean};
 
 export const NAV: {title: string; pages: NavEntry[]}[] = [
-	{title: 'Overview', pages: ['']},
+	{title: 'Overview', pages: ['', 'quick-actions']},
 	{
 		title: 'Connections',
 		pages: [
@@ -24,6 +24,8 @@ export const NAV: {title: string; pages: NavEntry[]}[] = [
 			'connections/granola',
 			'connections/notion',
 			'connections/linear',
+			'connections/exa',
+			'connections/parallel',
 			'connections/plaid',
 			'connections/postgres',
 			'connections/mysql',

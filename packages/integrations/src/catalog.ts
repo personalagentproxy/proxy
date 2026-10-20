@@ -237,6 +237,7 @@ const email: Integration = {
 // There is no search.
 const granola: Integration = {
 	id: 'granola',
+	signIn: true,
 	name: 'Granola',
 	description: 'Meeting notes and transcripts',
 	actions: [
@@ -300,6 +301,7 @@ const granola: Integration = {
 // shared with. Pages aren't deleted.
 const notion: Integration = {
 	id: 'notion',
+	signIn: true,
 	name: 'Notion',
 	description: 'Pages and database rows in a workspace',
 	actions: [
@@ -382,6 +384,8 @@ export const LINEAR_PRIORITIES = ['No priority', 'Urgent', 'High', 'Medium', 'Lo
 // tool that archives or deletes an issue, so issues aren't deleted.
 const linear: Integration = {
 	id: 'linear',
+	signIn: true,
+	apiKey: {keysUrl: 'https://linear.app/settings/account/security'},
 	name: 'Linear',
 	description: 'Issues in a workspace',
 	actions: [
@@ -447,6 +451,108 @@ const linear: Integration = {
 		},
 	],
 };
+
+// The web, searched and read through a search engine made for agents, through its MCP server after
+// signing in to it or with an API key made at `keysUrl`: what an agent searches for and the pages
+// it reads go to the provider, on the account signed in with or the key's. A search is answered as
+// the provider's results, each page's title, address and the passages that fit the query; a page as
+// its text. Nothing is listed or kept: searches and pages are only ever run.
+function webIntegration(
+	id: 'exa' | 'parallel',
+	name: string,
+	description: string,
+	keysUrl: string,
+): Integration {
+	return {
+		id,
+		name,
+		description,
+		signIn: true,
+		apiKey: {keysUrl},
+		anonymous: true,
+		actions: [
+			{
+				id: 'search',
+				label: 'Search the web',
+				description:
+					'Search the web, describing what to find in plain words, for pages with the passages that fit',
+				risk: 'low',
+			},
+			{
+				id: 'fetch',
+				label: 'Read web pages',
+				description: 'Read a web page’s text by its address',
+				risk: 'low',
+			},
+		],
+		collections: [
+			{
+				id: 'searches',
+				name: 'Searches',
+				singular: 'search',
+				titleField: 'query',
+				writes: {},
+				commands: [
+					{
+						id: 'run',
+						on: 'new',
+						label: 'Run',
+						action: 'search',
+						readOnly: true,
+						done: 'Ran {}',
+						tried: 'run {}',
+					},
+				],
+				fields: [
+					// What to find, described in plain words: "blog posts comparing React and Vue performance".
+					{key: 'query', label: 'Query', type: 'text'},
+					// One page a block, "Title: …", "URL: …", "Published: …" and its passages, the blocks
+					// between "---" lines.
+					{key: 'results', label: 'Results', type: 'longtext', system: true},
+				],
+			},
+			{
+				id: 'pages',
+				name: 'Pages',
+				singular: 'page',
+				titleField: 'url',
+				summaryField: 'title',
+				writes: {},
+				commands: [
+					{
+						id: 'read',
+						on: 'new',
+						label: 'Read',
+						action: 'fetch',
+						readOnly: true,
+						done: 'Read {}',
+						tried: 'read {}',
+					},
+				],
+				fields: [
+					{key: 'url', label: 'URL', type: 'text'},
+					{key: 'title', label: 'Title', type: 'text', system: true},
+					// As Markdown, where the provider gives it so.
+					{key: 'content', label: 'Content', type: 'longtext', system: true},
+				],
+			},
+		],
+	};
+}
+
+const exa = webIntegration(
+	'exa',
+	'Exa',
+	'Search and read the web',
+	'https://dashboard.exa.ai/api-keys',
+);
+
+const parallel = webIntegration(
+	'parallel',
+	'Parallel',
+	'Search and read the web',
+	'https://platform.parallel.ai',
+);
 
 // A SQL database, signed in to with a database user's name and password: PostgreSQL, or MySQL
 // and MariaDB. What the user may do in the database is the limit, so access is narrowed in
@@ -591,6 +697,7 @@ const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet'
 // request goes to Google.
 const google: Integration = {
 	id: 'google',
+	signIn: true,
 	name: 'Google',
 	description: 'Gmail, Calendar, Drive, Docs, Sheets, Slides and Contacts for one Google account',
 	// Google's Limited Use policy asks for what happens with its data to be said where access is given.
@@ -961,7 +1068,6 @@ const plaid: Integration = {
 	id: 'plaid',
 	name: 'Plaid',
 	description: 'Balances and transactions from your bank accounts, cards and loans',
-	experiment: 'plaid',
 	actions: [
 		{
 			id: 'readBalances',
@@ -1151,6 +1257,8 @@ export const INTEGRATIONS: Integration[] = [
 	granola,
 	notion,
 	linear,
+	exa,
+	parallel,
 	plaid,
 	postgres,
 	mysql,

@@ -253,3 +253,74 @@ export type DayRates = z.infer<typeof ratesSchema>;
 export function getRates() {
 	return apiRequest('GET', '/api/widgets/rates', ratesSchema);
 }
+
+const bankAccountSchema = z.object({
+	connectionId: z.string(),
+	id: z.string(),
+	name: z.string(),
+	// "Checking", "Credit card", "Mortgage".
+	type: z.string(),
+	// The account number's last digits, or nothing.
+	mask: z.string(),
+	// A card or a loan: its balance is what is owed.
+	owed: z.boolean(),
+	balance: z.number().nullable(),
+	available: z.number().nullable(),
+	limit: z.number().nullable(),
+	currency: z.string(),
+});
+
+const bankAccountsSchema = z.object({
+	sources: z.array(sourceSchema),
+	accounts: z.array(bankAccountSchema),
+	failed: z.array(failureSchema),
+});
+
+export type BankAccount = z.infer<typeof bankAccountSchema>;
+export type BankAccounts = z.infer<typeof bankAccountsSchema>;
+
+/** Every bank's accounts with their balances. */
+export function getAccounts() {
+	return apiRequest('GET', '/api/widgets/accounts', bankAccountsSchema);
+}
+
+const bankTransactionSchema = z.object({
+	connectionId: z.string(),
+	accountId: z.string(),
+	id: z.string(),
+	// The day, 2026-10-11.
+	date: z.string(),
+	// The bank's own description, and the merchant where the bank knows it.
+	name: z.string(),
+	merchant: z.string().nullable(),
+	// As a statement signs it: money out negative, money in positive.
+	amount: z.number(),
+	currency: z.string(),
+	// One of TRANSACTION_CATEGORIES' ids, or none.
+	category: z.string().nullable(),
+	pending: z.boolean(),
+});
+
+const bankTransactionsSchema = z.object({
+	sources: z.array(sourceSchema),
+	accounts: z.array(bankAccountSchema),
+	transactions: z.array(bankTransactionSchema),
+	// Whether a bank had more than were read.
+	more: z.boolean(),
+	failed: z.array(failureSchema),
+});
+
+export type BankTransaction = z.infer<typeof bankTransactionSchema>;
+export type BankTransactions = z.infer<typeof bankTransactionsSchema>;
+
+/** Two days, both included, as 2026-09-01. */
+export type DayRange = {from: string; to: string};
+
+/** Every bank's transactions between two days, newest first, with the accounts they are on. */
+export function findTransactions(range: DayRange) {
+	return apiRequest(
+		'GET',
+		`/api/widgets/transactions${query({from: range.from, to: range.to})}`,
+		bankTransactionsSchema,
+	);
+}

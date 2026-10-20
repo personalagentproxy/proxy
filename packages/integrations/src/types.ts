@@ -103,6 +103,8 @@ export type IntegrationId =
 	| 'granola'
 	| 'notion'
 	| 'linear'
+	| 'exa'
+	| 'parallel'
 	| 'postgres'
 	| 'mysql'
 	| 'mcp'
@@ -127,6 +129,15 @@ export type Integration = {
 	custom?: true;
 	// The tools of the connection a custom integration was built for, each a tool of its own.
 	mcpTools?: McpTool[];
+	// Connected by signing in to the provider, the sign-in starting at
+	// `/api/connections/<id>/start`: Google, and every integration built on its MCP server.
+	signIn?: true;
+	// Also connected with an API key, made at `keysUrl`, on `/api/connections/<id>`: Exa, Linear
+	// and Parallel, whose MCP servers take one as a bearer token.
+	apiKey?: {keysUrl: string};
+	// Says nothing of who signed in, or whose a key is: Exa and Parallel. Each sign-in or key is a
+	// connection of its own, which only its own page signs in to again or gives a new key.
+	anonymous?: true;
 	// The experiment an organization needs on to connect it: the catalog, the api's routes and the
 	// MCP server's instructions all leave it out without. Connections already made keep working.
 	experiment?: Experiment;

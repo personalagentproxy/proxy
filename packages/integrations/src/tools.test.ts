@@ -196,6 +196,32 @@ describe('postgres and mysql', () => {
 	});
 });
 
+describe('exa and parallel', () => {
+	const exa = integration('exa');
+
+	test('searches and pages only ever run, each a read with an action of its own', () => {
+		expect(integrationTools(exa).map((tool) => tool.name)).toEqual(['searches_run', 'pages_read']);
+		expect(integrationTools(integration('parallel'))).toEqual(integrationTools(exa));
+		expect(findTool(exa, 'searches_run')).toMatchObject({
+			readOnly: true,
+			action: 'search',
+			risk: 'low',
+		});
+		expect(findTool(exa, 'pages_read')).toMatchObject({
+			readOnly: true,
+			action: 'fetch',
+			risk: 'low',
+		});
+	});
+
+	test('a search takes the query alone, and a page its address', () => {
+		expect(Object.keys(findTool(exa, 'searches_run')?.inputSchema.properties ?? {})).toEqual([
+			'query',
+		]);
+		expect(Object.keys(findTool(exa, 'pages_read')?.inputSchema.properties ?? {})).toEqual(['url']);
+	});
+});
+
 describe('google', () => {
 	const google = integration('google');
 

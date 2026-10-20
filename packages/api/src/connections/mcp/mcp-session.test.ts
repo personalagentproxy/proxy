@@ -116,3 +116,26 @@ describe('callMcpToolFor', () => {
 		expect(callMcpTool).not.toHaveBeenCalled();
 	});
 });
+
+describe('callMcpToolFor with an API key', () => {
+	const connection = {id: 'conn-2', credential: `enc:${JSON.stringify({auth: 'key', key: 'exa-key-1'})}`};
+
+	test('sends the key as the token, and never refreshes it', async () => {
+		const {callMcpToolFor} = await import('./mcp-session');
+		const text = (await callMcpToolFor(SERVER, connection, 'web_search_exa', {query: 'bun'})).unwrap();
+
+		expect(text).toBe('answer');
+		expect(callMcpTool).toHaveBeenCalledWith(SERVER, 'exa-key-1', 'web_search_exa', {query: 'bun'});
+		expect(refreshMcpTokens).not.toHaveBeenCalled();
+	});
+
+	test('a key the server turns down is credentials_rejected, nothing refreshed or saved', async () => {
+		callMcpTool.mockResolvedValue(Err(ApiErr.credentialsRejected()));
+		const {callMcpToolFor} = await import('./mcp-session');
+		const error = (await callMcpToolFor(SERVER, connection, 'web_search_exa', {})).unwrapErr();
+
+		expect(error.kind).toBe('credentials_rejected');
+		expect(refreshMcpTokens).not.toHaveBeenCalled();
+		expect(updateConnectionCredential).not.toHaveBeenCalled();
+	});
+});

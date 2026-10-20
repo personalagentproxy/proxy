@@ -74,7 +74,7 @@ export function ActivityPage() {
 
 	return (
 		<AppShell title={<PageTitle detail={`${entries.length} requests`}>Activity</PageTitle>}>
-			<div className="mb-3 flex flex-wrap gap-2 md:flex-nowrap md:px-3">
+			<div className="flex flex-wrap gap-2 md:flex-nowrap">
 				<Filter
 					label="Agent"
 					options={agents}
@@ -118,7 +118,7 @@ function TaskCard({
 	onClear: () => void;
 }) {
 	return (
-		<div className="relative mb-3 rounded-lg border px-4 py-3 pr-12 text-sm md:mx-3">
+		<div className="relative flex flex-col gap-1.5 rounded-lg border px-4 py-3 pr-12 text-sm">
 			<Button variant="ghost" size="icon-sm" className="absolute top-2 right-2" onClick={onClear}>
 				<XIcon />
 				<span className="sr-only">Show every task</span>
@@ -127,8 +127,8 @@ function TaskCard({
 				<span className="font-medium">{task.title}</span>
 				<TaskBadge task={task} />
 			</div>
-			<p className="mt-1 text-muted-foreground">{task.goal}</p>
-			<p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
+			<p className="text-muted-foreground">{task.goal}</p>
+			<p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
 				{agent && (
 					<span className="inline-flex items-center gap-1.5">
 						<AgentLogo providerId={agent.providerId} />

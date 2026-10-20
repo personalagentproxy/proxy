@@ -31,7 +31,7 @@ export function UnsupportedWidget({agents}: {agents: AgentLogin[]}) {
 		>
 			<p>
 				Quick actions make events, find people, emails and files, write emails, do math and convert
-				units.{' '}
+				units, and show your balances and spending.{' '}
 				{active.length > 0
 					? `For anything else, ask ${whomToAsk(active)}, which can work with your connections.`
 					: 'For anything else, add an agent and ask it: it can work with your connections.'}

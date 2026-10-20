@@ -1,13 +1,19 @@
-import {mcpConnectRoutes} from '../mcp/mcp-connect';
+import {textParam, type BuiltInMcp} from '../mcp/built-in';
 import {getNotionAccount, NOTION} from './notion-mcp';
 
 /**
- * Connecting Notion by signing in to it, through its MCP server, as Granola is. A new Notion
- * connection lets agents read its pages by default; creating and editing are turned on on the
- * connection's page.
+ * Notion, through its MCP server, as Granola is. A new Notion connection lets agents read its pages
+ * by default; creating and editing are turned on on the connection's page.
  */
-export const {handleStart: handleStartNotionRoute, handleCallback: handleNotionCallbackRoute} = mcpConnectRoutes({
+export const NOTION_MCP: BuiltInMcp = {
 	integrationId: 'notion',
 	server: NOTION,
-	connection: async (signIn) => (await getNotionAccount(signIn)).map((account) => ({account, credential: signIn.credential, defaults: ['read']})),
-});
+	account: getNotionAccount,
+	defaults: ['read'],
+	tools: {
+		'notion-search': {actions: ['read'], run: (params) => ({collectionId: 'pages', operation: 'list', query: textParam(params, 'query')})},
+		'notion-fetch': {actions: ['read'], run: () => ({collectionId: 'pages', operation: 'view'})},
+		'notion-create-pages': {actions: ['create'], run: () => ({collectionId: 'pages', operation: 'create'})},
+		'notion-update-page': {actions: ['edit'], run: () => ({collectionId: 'pages', operation: 'update'})},
+	},
+};

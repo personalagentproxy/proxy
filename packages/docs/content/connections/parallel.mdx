@@ -1,0 +1,41 @@
+---
+title: Parallel
+description: Connect Parallel for agents to search the web and read web pages.
+---
+
+Agents search the web and read pages through Parallel, on the Parallel account you sign in with or the
+API key you give. What they search for and the pages they read go to Parallel, and searches count
+toward that account's usage. Nothing is kept in Personal Agent Proxy beyond the activity log.
+
+## Connect Parallel
+
+<Steps>
+
+### Sign in, or use an API key
+
+Open **Connections**, then **Add connection**. Choose **Parallel** to sign in with your Parallel account,
+or the key beside it to paste an API key made at [platform.parallel.ai](https://platform.parallel.ai). The key is checked with
+Parallel before the connection is made, and sent with every request as its bearer token.
+
+Parallel says nothing about who signed in, so a connection made with a key shows as the key's end,
+and one signed in to as **Signed in**. Connect Parallel as often as you like, for another account or
+another key; rename a connection from the list of connections to tell them apart.
+
+### Review the defaults
+
+A new Parallel connection gives every agent Search the web and Read web pages. Turn either off on the
+connection's page, or for one agent on the agent's page.
+
+</Steps>
+
+To sign in again, or replace the key, open the connection: under its permissions, choose **Sign in
+again** or **use an API key**. The connection keeps its name and every agent's settings.
+
+## What agents can do
+
+- **Search the web** takes what to find, described in plain words, and answers with the pages that
+  fit, each with its title, address, publish date where known and the passages that match.
+- **Read web pages** opens one page by its address and answers with its title and text, the first
+  100,000 characters of it.
+
+Agents can't change anything through Parallel: both actions only read.

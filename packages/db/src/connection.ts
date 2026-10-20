@@ -1,4 +1,4 @@
-import type {Result} from 'ts-results-es';
+import {Ok, type Result} from 'ts-results-es';
 
 import {type ApiError, wrapDb} from '@proxy/utils';
 
@@ -263,4 +263,143 @@ export async function setConnectionDefaults(data: {
 			),
 		]);
 	});
+}
+
+/** A custom MCP connection, for moving it to a built-in integration: its id, and its server's address, which it shows as its account. */
+export type CustomMcpConnectionRow = {id: string; account: string};
+
+/** Every organization's custom MCP connections, for moving those an integration built in since takes over. */
+export async function listCustomMcpConnections(): Promise<
+	Result<CustomMcpConnectionRow[], ApiError>
+> {
+	return wrapDb(() =>
+		db.connection.findMany({
+			where: {integrationId: 'mcp'},
+			select: {id: true, account: true},
+		}),
+	);
+}
+
+/** A custom MCP connection as it is under the lock, with everything moving it rewrites: its tool runs in the activity log beside the rest. */
+export type LockedCustomMcpConnection = CustomMcpConnectionRow & {
+	credential: string | null;
+	tools: string | null;
+	defaults: Array<{actionId: string}>;
+	agentGrants: Array<{agentId: string; actionId: string; allowed: boolean}>;
+	runs: Array<{id: string; action: string; query: string | null}>;
+};
+
+/** One of a custom connection's tool runs in the activity log, as the built-in integration logs it. */
+export type MovedRun = {
+	id: string;
+	collectionId: string;
+	action: string;
+	recordTitle: string | null;
+	query: string | null;
+};
+
+/** What a custom MCP connection becomes, moved to a built-in integration. */
+export type MovedConnection = {
+	integrationId: string;
+	account: string;
+	credential: string | null;
+	defaults: string[];
+	grants: Array<{agentId: string; actionId: string; allowed: boolean}>;
+	runs: MovedRun[];
+};
+
+/**
+ * Moves a custom MCP connection to a built-in integration, all at once: the connection, with no
+ * tools of its own and the credential given, null where it has to be signed in to; its defaults and
+ * every agent's settings, replaced; and its tool runs in the activity log, the entries of
+ * `runsCollectionId`, rewritten. `move` says what it becomes, or null where it stays custom, from
+ * the connection as it is with the row locked, read only then, so a request refreshing its tokens
+ * meanwhile is never undone; it runs only while it is still a custom connection, so two servers
+ * starting at once move it once, and only one of them refreshes its tokens: `Ok(false)` when
+ * another did, or it stays custom. Tokens refreshed on the way are kept with `keepCredential` at
+ * once, even when the move then fails, since a provider may take back the refresh token they
+ * replaced. `move` must not use the database itself, whose connection the lock holds, the local
+ * database having only one.
+ */
+export async function takeOverConnection(
+	connectionId: string,
+	runsCollectionId: string,
+	move: (
+		connection: LockedCustomMcpConnection,
+		keepCredential: (credential: string) => Promise<Result<void, ApiError>>,
+	) => Promise<Result<MovedConnection | null, ApiError>>,
+): Promise<Result<boolean, ApiError>> {
+	const done = await wrapDb(() =>
+		db.$transaction(
+			async (tx): Promise<Result<boolean, ApiError>> => {
+				const locked = await tx.$queryRaw<
+					Array<{id: string; account: string; credential: string | null; tools: string | null}>
+				>`
+					SELECT "id", "account", "credential", "tools" FROM "Connection"
+					WHERE "id" = ${connectionId} AND "integrationId" = 'mcp' FOR UPDATE`;
+				const row = locked[0];
+				if (!row) {
+					return Ok(false);
+				}
+				const [defaults, agentGrants, runs] = await Promise.all([
+					tx.connectionDefault.findMany({where: {connectionId}, select: {actionId: true}}),
+					tx.agentGrant.findMany({
+						where: {connectionId},
+						select: {agentId: true, actionId: true, allowed: true},
+					}),
+					tx.auditEntry.findMany({
+						where: {connectionId, collectionId: runsCollectionId},
+						select: {id: true, action: true, query: true},
+					}),
+				]);
+				const moved = await move({...row, defaults, agentGrants, runs}, (credential) =>
+					wrapDb(async () => {
+						await tx.connection.update({where: {id: connectionId}, data: {credential}});
+					}),
+				);
+				if (moved.isErr()) {
+					return moved;
+				}
+				if (moved.value === null) {
+					return Ok(false);
+				}
+				const {
+					integrationId,
+					account,
+					credential,
+					defaults: newDefaults,
+					grants,
+					runs: newRuns,
+				} = moved.value;
+				await tx.connection.update({
+					where: {id: connectionId},
+					data: {integrationId, account, credential, tools: null},
+				});
+				await tx.connectionDefault.deleteMany({where: {connectionId}});
+				await tx.connectionDefault.createMany({
+					data: newDefaults.map((actionId) => ({connectionId, actionId})),
+				});
+				await tx.agentGrant.deleteMany({where: {connectionId}});
+				await tx.agentGrant.createMany({data: grants.map((grant) => ({...grant, connectionId}))});
+				if (newRuns.length > 0) {
+					await tx.$executeRaw`
+						UPDATE "AuditEntry" AS e
+						SET "collectionId" = r."collectionId", "action" = r."action", "recordTitle" = r."recordTitle", "query" = r."query"
+						FROM unnest(
+							${newRuns.map((run) => run.id)}::text[],
+							${newRuns.map((run) => run.collectionId)}::text[],
+							${newRuns.map((run) => run.action)}::text[],
+							${newRuns.map((run) => run.recordTitle)}::text[],
+							${newRuns.map((run) => run.query)}::text[]
+						) AS r("id", "collectionId", "action", "recordTitle", "query")
+						WHERE e."id" = r."id"`;
+				}
+				return Ok(true);
+			},
+			// The provider is asked for the account, and the connection's whole activity log is
+			// rewritten, in it.
+			{timeout: 60_000},
+		),
+	);
+	return done.andThen((moved) => moved);
 }

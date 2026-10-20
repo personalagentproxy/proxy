@@ -22,7 +22,7 @@ import {
 } from '@proxy/integrations';
 
 import {callCustomTool} from '../connections/custom/custom-mcp';
-import {unavailableActions, unavailableError} from '../connections/unavailable';
+import {needsSignIn, signInNeededError, unavailableActions, unavailableError} from '../connections/unavailable';
 import type {Connector, DataRecord, RecordPage, RecordTarget, RecordValues} from '../records/connector';
 import {parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
@@ -184,11 +184,15 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 	});
 }
 
-// Why an action is refused: the sign-in, naming the action it didn't cover, where signing in again
-// would allow it as the agent's settings stand; else plainly forbidden.
-function refusal(integration: Integration, agent: AgentRow, connection: ConnectionRow, unavailable: string[], actionId: string): ApiError {
+// Why an action is refused: the sign-in, naming the action it didn't cover, or the connection
+// having none, where signing in would allow it as the agent's settings stand; else plainly
+// forbidden.
+function refusal(integration: Integration, agent: AgentRow, connection: ConnectionRow & {credential: string | null}, unavailable: string[], actionId: string): ApiError {
 	if (!actionsOf(agent, connection, integration, []).includes(actionId)) {
 		return ApiErr.forbidden();
+	}
+	if (needsSignIn(connection)) {
+		return signInNeededError(integration);
 	}
 	const required = integration.actions.find((action) => action.id === actionId)?.requires;
 	return unavailableError(integration, unavailable.includes(actionId) || required === undefined ? actionId : required);

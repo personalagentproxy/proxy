@@ -1,34 +1,55 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Ok} from 'ts-results-es';
 
-const classifyIntent = mock();
+const pickIntent = mock();
+const fillIntent = mock();
 
-mock.module('./classify', () => ({classifyIntent}));
+mock.module('./classify', () => ({pickIntent, fillIntent}));
 
 function makeRequest(body: unknown) {
-	return {user: {userId: 'user-1'}, body} as never;
+	return {user: {userId: 'user-1', experiments: []}, body} as never;
 }
 
 beforeEach(() => {
 	mock.clearAllMocks();
-	classifyIntent.mockResolvedValue(Ok({widget: 'none', fields: [], ms: 1}));
+	pickIntent.mockResolvedValue(Ok({widget: 'none', ms: 1}));
+	fillIntent.mockResolvedValue(Ok({fields: [], ms: 1}));
 });
 
-describe('handleClassifyIntentRoute', () => {
-	test('classifies the text, trimmed', async () => {
-		const {handleClassifyIntentRoute} = await import('./route');
-		const result = await handleClassifyIntentRoute(makeRequest({text: '  who is hugo  '}));
+describe('handlePickIntentRoute', () => {
+	test("picks among the widgets the person's organization is offered, for the text trimmed", async () => {
+		const {handlePickIntentRoute} = await import('./route');
+		const result = await handlePickIntentRoute(makeRequest({text: '  who is hugo  '}));
 
 		expect(result.isOk()).toBe(true);
-		expect(classifyIntent).toHaveBeenCalledWith('who is hugo');
+		expect(pickIntent).toHaveBeenCalledWith('who is hugo', {userId: 'user-1', experiments: []});
 	});
 
 	test('refuses empty text, and text past 500 characters, without asking the models', async () => {
-		const {handleClassifyIntentRoute} = await import('./route');
+		const {handlePickIntentRoute} = await import('./route');
 
 		for (const text of ['   ', 'a'.repeat(501)]) {
-			expect((await handleClassifyIntentRoute(makeRequest({text}))).unwrapErr().kind).toBe('parse_error');
+			expect((await handlePickIntentRoute(makeRequest({text}))).unwrapErr().kind).toBe('parse_error');
 		}
-		expect(classifyIntent).not.toHaveBeenCalled();
+		expect(pickIntent).not.toHaveBeenCalled();
+	});
+});
+
+describe('handleFillIntentRoute', () => {
+	test("fills in the widget's fields for the person's organization, from the text trimmed", async () => {
+		const {handleFillIntentRoute} = await import('./route');
+		const result = await handleFillIntentRoute(makeRequest({text: '  who is hugo  ', widget: 'find_person'}));
+
+		expect(result.isOk()).toBe(true);
+		expect(fillIntent).toHaveBeenCalledWith('who is hugo', 'find_person', {userId: 'user-1', experiments: []});
+	});
+
+	test('refuses a request without a widget, or with text that is empty or past 500 characters', async () => {
+		const {handleFillIntentRoute} = await import('./route');
+
+		for (const body of [{text: 'who is hugo'}, {text: 'who is hugo', widget: ''}, {text: '   ', widget: 'find_person'}, {text: 'a'.repeat(501), widget: 'find_person'}]) {
+			expect((await handleFillIntentRoute(makeRequest(body))).unwrapErr().kind).toBe('parse_error');
+		}
+		expect(fillIntent).not.toHaveBeenCalled();
 	});
 });

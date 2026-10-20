@@ -106,7 +106,7 @@ function Consent({
 				to {details.redirectHost}.
 			</p>
 			<fieldset className="grid gap-1">
-				<legend className="mb-2 text-sm">Work as</legend>
+				<legend className="pb-2 text-sm">Work as</legend>
 				{choices.map((option) => (
 					<label
 						key={option.key}
