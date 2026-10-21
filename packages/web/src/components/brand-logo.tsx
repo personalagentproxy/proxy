@@ -1,7 +1,7 @@
 import {findAgentProvider} from '@proxy/integrations';
 import {BotIcon} from 'lucide-react';
 import {cn} from '@proxy/ui/lib/utils';
-import type {ReactNode} from 'react';
+import {useState, type ReactNode} from 'react';
 import type {Integration} from '@/lib/integrations';
 
 // Logos sit on a white tile in both themes, so dark marks stay legible. They're decorative: the
@@ -56,16 +56,18 @@ export function IntegrationLogo({
 	integration: Integration;
 	className?: string;
 }) {
+	const [failed, setFailed] = useState<string | null>(null);
 	if ('src' in integration.logo) {
+		const {src, fallback, fill} = integration.logo;
+		// A logo found on the internet that doesn't load, or that the api found none of, is our file.
+		const shown = failed === src && fallback ? fallback : src;
 		return (
 			<LogoTile className={className}>
 				<img
-					src={integration.logo.src}
+					src={shown}
 					alt=""
-					className={cn(
-						'size-full',
-						integration.logo.fill ? 'object-cover' : 'object-contain p-[2px]',
-					)}
+					onError={() => setFailed(src)}
+					className={cn('size-full', fill ? 'object-cover' : 'object-contain p-[2px]')}
 				/>
 			</LogoTile>
 		);

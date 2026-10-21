@@ -36,6 +36,7 @@ import {handleConnectMysqlRoute, handleTestMysqlRoute} from '../connections/mysq
 import {handleConnectPlaidRoute, handleCreatePlaidLinkTokenRoute} from '../connections/plaid/route';
 import {handleConnectPostgresRoute, handleTestPostgresRoute} from '../connections/postgres/route';
 import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleRenameConnectionRoute, handleSetConnectionDefaultsRoute} from '../connections/route';
+import {handleFaviconRoute} from '../favicons/route';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
 import {handleDeleteMeRoute, handleFinishOnboardingRoute, handleMeRoute} from '../me/route';
@@ -119,6 +120,9 @@ export function createApiRouter(): express.Router {
 	router.get(`${records}/:recordId`, withAuthResult('Get record route', handleGetRecordRoute));
 	router.put(`${records}/:recordId`, withAuthResult('Update record route', handleUpdateRecordRoute));
 	router.delete(`${records}/:recordId`, withAuthResult('Delete record route', handleDeleteRecordRoute));
+
+	// A custom MCP server's logo, the icon of its site, for the person's pages and the agent's alike.
+	router.get('/api/favicons/:host', wrapAsyncRoute('Favicon route', handleFaviconRoute));
 
 	router.use('/api/agents', requireBrowserOrigin);
 	router.get('/api/agents', withAuthResult('List agents route', handleListAgentsRoute));
