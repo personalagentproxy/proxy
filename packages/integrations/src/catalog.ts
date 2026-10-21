@@ -1154,8 +1154,8 @@ const plaid: Integration = {
 export const VAULT_ENTRY_TYPES = ['Text', 'Address', 'Phone number', 'Email', 'Link', 'Date'];
 
 // The vault: what a person keeps in Personal Agent Proxy for their agents, and what agents keep
-// there for them, as a memory. Each entry is a key, a type and a value, all plain text to an agent
-// allowed to read it.
+// there for them, as a memory. Each entry is a title, a type and its content, all plain text to an
+// agent allowed to read it.
 const vault: Integration = {
 	id: VAULT_INTEGRATION_ID,
 	name: 'Vault',
@@ -1176,15 +1176,15 @@ const vault: Integration = {
 			id: 'entries',
 			name: 'Entries',
 			singular: 'entry',
-			titleField: 'key',
-			summaryField: 'value',
+			titleField: 'title',
+			summaryField: 'content',
 			read: 'readEntries',
 			writes: {create: 'writeEntries', update: 'writeEntries', delete: 'writeEntries'},
-			searchHint: 'Matches the words in the key, the type or the value, in any case.',
+			searchHint: 'Matches the words in the title, the type or the content, in any case.',
 			fields: [
-				{key: 'key', label: 'Key', type: 'text'},
+				{key: 'title', label: 'Title', type: 'text'},
 				{key: 'type', label: 'Type', type: 'select', options: VAULT_ENTRY_TYPES},
-				{key: 'value', label: 'Value', type: 'longtext'},
+				{key: 'content', label: 'Content', type: 'longtext'},
 			],
 		},
 	],

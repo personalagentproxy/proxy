@@ -247,24 +247,24 @@ const connections: [Connection, ...Connection[]] = [
 
 // ---- Vault entries --------------------------------------------------------------------------
 
-const VAULT_ENTRIES: Array<{key: string; type: string; value: string}> = [
+const VAULT_ENTRIES: Array<{title: string; type: string; content: string}> = [
 	{
-		key: 'Home',
+		title: 'Home',
 		type: 'Address',
-		value: 'Demo User\n221B Baker Street\nNW1 6XE London\nUnited Kingdom',
+		content: 'Demo User\n221B Baker Street\nNW1 6XE London\nUnited Kingdom',
 	},
 	{
-		key: 'Office',
+		title: 'Office',
 		type: 'Address',
-		value: 'Demo User, Acme Corp\n1 Market Street, Floor 12\n94105 San Francisco\nUnited States',
+		content: 'Demo User, Acme Corp\n1 Market Street, Floor 12\n94105 San Francisco\nUnited States',
 	},
-	{key: 'Mobile', type: 'Phone number', value: '+44 20 7946 0958'},
-	{key: 'Work email', type: 'Email', value: 'demo@acme-corp.com'},
-	{key: 'Personal website', type: 'Link', value: 'https://demo-user.example.com'},
-	{key: 'Birthday', type: 'Date', value: '1990-04-12'},
-	{key: 'Clothing sizes', type: 'Text', value: 'Shirts: M\nTrousers: 32/32\nShoes: EU 43 / US 10'},
-	{key: 'Dietary preferences', type: 'Text', value: 'Vegetarian. No peanuts (allergy).'},
-	{key: 'Flights', type: 'Text', value: 'Prefers aisle seats, and morning flights.'},
+	{title: 'Mobile', type: 'Phone number', content: '+44 20 7946 0958'},
+	{title: 'Work email', type: 'Email', content: 'demo@acme-corp.com'},
+	{title: 'Personal website', type: 'Link', content: 'https://demo-user.example.com'},
+	{title: 'Birthday', type: 'Date', content: '1990-04-12'},
+	{title: 'Clothing sizes', type: 'Text', content: 'Shirts: M\nTrousers: 32/32\nShoes: EU 43 / US 10'},
+	{title: 'Dietary preferences', type: 'Text', content: 'Vegetarian. No peanuts (allergy).'},
+	{title: 'Flights', type: 'Text', content: 'Prefers aisle seats, and morning flights.'},
 ];
 
 for (const values of VAULT_ENTRIES) {
@@ -485,8 +485,8 @@ function recordTitle(connection: Connection, collectionId: string): string {
 		return pick(FILE_TITLES);
 	}
 
-	const keys = VAULT_ENTRIES.map((entry) => entry.key);
-	return keys[Math.floor(random() * keys.length)] ?? 'Untitled';
+	const titles = VAULT_ENTRIES.map((entry) => entry.title);
+	return titles[Math.floor(random() * titles.length)] ?? 'Untitled';
 }
 
 type Request = {connection: Connection; collection: Collection; action: string};

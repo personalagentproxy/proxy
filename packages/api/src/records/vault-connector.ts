@@ -29,7 +29,7 @@ function toRecord(row: VaultEntryRow): Result<DataRecord, ApiError> {
 	return decryptValues(row.values).map((values) => ({id: row.id, values, updatedAt: row.updatedAt.toISOString()}));
 }
 
-/** The vault lives in Personal Agent Proxy: each entry's key, type and value are stored as encrypted JSON. */
+/** The vault lives in Personal Agent Proxy: each entry's title, type and content are stored as encrypted JSON. */
 export const vaultConnector: Connector = {
 	// Few enough to search in memory, after decrypting, and to list on one page.
 	list: (target, query) =>

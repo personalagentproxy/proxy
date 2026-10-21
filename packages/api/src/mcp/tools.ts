@@ -129,7 +129,7 @@ function vaultInstructions(connections: AgentConnection[]): string[] {
 	}
 
 	return [
-		`${reading} When you learn something about them that would help next time, save it there with entries_create: a short key, its type and the value. When something kept there has changed, edit that entry rather than adding another.`,
+		`${reading} When you learn something about them that would help next time, save it there with entries_create: a short title, its type and the content. When something kept there has changed, edit that entry rather than adding another.`,
 	];
 }
 

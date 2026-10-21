@@ -10,8 +10,8 @@ import {decryptValues, encryptValues} from './vault-connector';
 /**
  * Turning what Information kept into vault entries, every time the api starts, since only the api
  * can read them (the names and access moved in migration `v022_rename_information_to_vault`): an
- * address becomes an Address entry under its label, written out a line at a time; a note a Text
- * entry under its title; a payment card is deleted, as the vault keeps none. Each record once,
+ * address becomes an Address entry titled by its label, written out a line at a time; a note a
+ * Text entry under its title; a payment card is deleted, as the vault keeps none. Each record once,
  * however many servers start at once (`replaceOldVaultRecord`), and tried again on the next start
  * where it failed.
  */
@@ -21,11 +21,11 @@ export function entryFrom(collectionId: string, values: RecordValues): RecordVal
 	const field = (key: string) => values[key]?.trim() ?? '';
 	if (collectionId === 'addresses') {
 		const lines = [field('name'), field('street'), `${field('postalCode')} ${field('city')}`.trim(), field('country')];
-		return {key: field('label') || 'Address', type: 'Address', value: lines.filter(Boolean).join('\n')};
+		return {title: field('label') || 'Address', type: 'Address', content: lines.filter(Boolean).join('\n')};
 	}
 
 	if (collectionId === 'notes') {
-		return {key: field('title') || 'Note', type: 'Text', value: field('body')};
+		return {title: field('title') || 'Note', type: 'Text', content: field('body')};
 	}
 
 	// A payment card, the one other collection there was.

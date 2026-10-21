@@ -22,7 +22,7 @@ function collection(integrationId: string, collectionId: string): Collection {
 
 const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock()};
 
-const record = {id: 'rec-1', values: {key: 'Sizes', type: '', value: ''}, updatedAt: '2026-10-01T00:00:00.000Z'};
+const record = {id: 'rec-1', values: {title: 'Sizes', type: '', content: ''}, updatedAt: '2026-10-01T00:00:00.000Z'};
 
 function makeRequest(params: Record<string, string>, body: unknown = undefined) {
 	return {user: {userId: 'user-1', email: 'alex@example.com'}, params, body, query: {}} as never;
@@ -52,9 +52,9 @@ describe('records routes', () => {
 
 	test('create with the parsed values', async () => {
 		const {handleCreateRecordRoute} = await import('./route');
-		const result = await handleCreateRecordRoute(makeRequest({connectionId: 'conn-1', collectionId: 'entries'}, {values: {key: 'Sizes'}}));
+		const result = await handleCreateRecordRoute(makeRequest({connectionId: 'conn-1', collectionId: 'entries'}, {values: {title: 'Sizes'}}));
 
-		expect(connector.create.mock.calls[0]?.[1]).toEqual({key: 'Sizes', type: '', value: ''});
+		expect(connector.create.mock.calls[0]?.[1]).toEqual({title: 'Sizes', type: '', content: ''});
 		expect(result.unwrap()).toEqual(record);
 	});
 

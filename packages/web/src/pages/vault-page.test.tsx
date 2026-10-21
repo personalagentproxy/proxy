@@ -47,12 +47,13 @@ function renderVaultPage(entries: Array<{id: string; values: Record<string, stri
 }
 
 describe('VaultPage', () => {
-	test('lists each entry by its key, with the first line of its value', async () => {
+	test('lists each entry by its title, with its type and the first line of its content', async () => {
 		renderVaultPage([
-			{id: 'entry-1', values: {key: 'Home', type: 'Address', value: '1 Main St\n10115 Berlin'}},
+			{id: 'entry-1', values: {title: 'Home', type: 'Address', content: '1 Main St\n10115 Berlin'}},
 		]);
 
 		const row = await screen.findByRole('button', {name: /Home/});
+		expect(row.textContent).toContain('Address');
 		expect(row.textContent).toContain('1 Main St');
 		expect(row.textContent).not.toContain('Berlin');
 	});
@@ -64,12 +65,12 @@ describe('VaultPage', () => {
 	});
 
 	test('a new entry needs something written, its type alone is not enough', async () => {
-		renderVaultPage([{id: 'entry-1', values: {key: 'Phone', type: 'Phone number', value: ''}}]);
+		renderVaultPage([{id: 'entry-1', values: {title: 'Phone', type: 'Phone number', content: ''}}]);
 
 		fireEvent.click(await screen.findByRole('button', {name: 'Add entry'}));
 		const save = await screen.findByRole('button', {name: 'Save'});
 		expect(save).toHaveProperty('disabled', true);
-		fireEvent.change(screen.getByLabelText('Key'), {target: {value: 'Shoe size'}});
+		fireEvent.change(screen.getByLabelText('Title'), {target: {value: 'Shoe size'}});
 		expect(save).toHaveProperty('disabled', false);
 		fireEvent.click(screen.getByRole('button', {name: 'Cancel'}));
 		await waitFor(() => expect(screen.queryByRole('button', {name: 'Save'})).toBeNull());

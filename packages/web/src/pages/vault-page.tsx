@@ -16,7 +16,8 @@ import type {Result} from 'ts-results-es';
 import {createRecord, deleteRecord, updateRecord} from '@/client/records-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {RecordForm} from '@/components/record-form';
-import {EmptyRows, Row, RowList} from '@/components/row-list';
+import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
+import {Badge} from '@proxy/ui/components/badge';
 import {Button} from '@proxy/ui/components/button';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@proxy/ui/components/dialog';
 import {recordTitle} from '@/lib/access';
@@ -27,7 +28,14 @@ import type {vaultLoader} from '@/loaders';
 
 const ENTRIES = 'entries';
 
-// Each of the catalog's VAULT_ENTRY_TYPES, as a row shows it.
+// The table's columns after the title, the header's and the rows' alike: the content only on
+// screens wide enough for it.
+const CELLS = {
+	type: 'w-36 shrink-0',
+	content: 'hidden w-2/5 shrink-0 truncate text-muted-foreground md:block',
+};
+
+// Each of the catalog's VAULT_ENTRY_TYPES, as its badge shows it.
 const TYPE_ICONS: Record<string, LucideIcon> = {
 	Text: TextIcon,
 	Address: MapPinIcon,
@@ -37,11 +45,21 @@ const TYPE_ICONS: Record<string, LucideIcon> = {
 	Date: CalendarIcon,
 };
 
+function TypeBadge({type}: {type: string}) {
+	const Icon = TYPE_ICONS[type] ?? TextIcon;
+	return (
+		<Badge variant="secondary" className="font-normal">
+			<Icon data-icon="inline-start" />
+			{type}
+		</Badge>
+	);
+}
+
 // Which entry the dialog is open on: a new one, or one being edited.
 type Editing = {entry: DataRecord | null};
 
-// What the person's agents should know about them, kept by the person or by the agents: an entry
-// a row, opened for editing.
+// What the person's agents should know about them, kept by the person or by the agents: a table of
+// the entries, each opened for editing.
 export function VaultPage() {
 	const {connectionId, entries} = useLoaderData<typeof vaultLoader>();
 	const revalidator = useRevalidator();
@@ -78,29 +96,36 @@ export function VaultPage() {
 				</Button>
 			}
 		>
-			<RowList>
+			<RowList
+				header={
+					<RowHeader>
+						<span className="min-w-0 flex-1">Title</span>
+						<span className={CELLS.type}>Type</span>
+						<span className={CELLS.content}>Content</span>
+					</RowHeader>
+				}
+			>
 				{entries.length === 0 && (
 					<EmptyRows>
 						Nothing yet. Add what your agents should know about you, or let them keep what they
 						learn.
 					</EmptyRows>
 				)}
-				{entries.map((entry) => {
-					const Icon = TYPE_ICONS[entry.values.type ?? ''] ?? TextIcon;
-					return (
-						<Row
-							key={entry.id}
-							onClick={() => open({entry})}
-							icon={<Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />}
-							title={recordTitle(collection, entry)}
-							cells={
-								<span className="max-w-1/2 shrink-0 truncate text-muted-foreground">
-									{entry.values.value?.split('\n')[0]}
+				{entries.map((entry) => (
+					<Row
+						key={entry.id}
+						onClick={() => open({entry})}
+						title={recordTitle(collection, entry)}
+						cells={
+							<>
+								<span className={CELLS.type}>
+									<TypeBadge type={entry.values.type || 'Text'} />
 								</span>
-							}
-						/>
-					);
-				})}
+								<span className={CELLS.content}>{entry.values.content?.split('\n')[0]}</span>
+							</>
+						}
+					/>
+				))}
 			</RowList>
 			<Dialog
 				open={editing !== null}

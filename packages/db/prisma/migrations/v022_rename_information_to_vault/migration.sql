@@ -1,4 +1,4 @@
--- Information is now the vault: one collection of entries, a key, a type and a value each, in
+-- Information is now the vault: one collection of entries, a title, a type and content each, in
 -- place of addresses, payment cards and notes. The api turns the records into entries as it
 -- starts, since only it can read them (`records/vault-entries.ts`); here, the names and access.
 

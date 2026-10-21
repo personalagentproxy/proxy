@@ -196,13 +196,13 @@ model ConnectionDefault {
   @@unique([connectionId, actionId])
 }
 
-// An entry of the built-in vault connection: a key, a type and a value.
+// An entry of the built-in vault connection: a title, a type and its content.
 model VaultEntry {
   id           String @id @default(cuid())
   connectionId String
   // `entries`, the vault's one collection.
   collectionId String
-  // The key, the type and the value as JSON, encrypted with ENCRYPTION_KEY.
+  // The title, the type and the content as JSON, encrypted with ENCRYPTION_KEY.
   values       String
 
   createdAt DateTime @default(now())

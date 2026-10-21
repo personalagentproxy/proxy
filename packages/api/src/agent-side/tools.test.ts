@@ -81,7 +81,7 @@ const triage = {
 	grants: ['write', 'archive', 'send'].map((actionId) => ({connectionId: 'mail-1', actionId, allowed: true})),
 };
 
-const entry = {id: 'rec-1', values: {key: 'Home address', type: 'Address', value: '1 Main St'}, updatedAt: '2026-10-01T00:00:00.000Z'};
+const entry = {id: 'rec-1', values: {title: 'Home address', type: 'Address', content: '1 Main St'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 const inboxEmail = {id: 'inbox-7-12', values: {folder: 'Inbox', subject: 'Invoice #20931'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 const draft = {id: 'drafts-7-3', values: {folder: 'Draft', from: 'alex@example.com', to: 'sam@example.com', subject: 'Re: Q3 planning', body: 'Draft body'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 
@@ -239,7 +239,7 @@ describe('runAgentTool', () => {
 
 	test('limited to tools that read, or to those that change something, any other is refused unlogged', async () => {
 		const {runAgentTool} = await import('./tools');
-		const readingAWrite = await runAgentTool(caller, 'vault-1', 'entries_create', {key: 'New'}, {readOnly: true});
+		const readingAWrite = await runAgentTool(caller, 'vault-1', 'entries_create', {title: 'New'}, {readOnly: true});
 		const runningARead = await runAgentTool(caller, 'vault-1', 'entries_list', {}, {readOnly: false});
 
 		expect(readingAWrite.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'entries_create changes something: use run for it'});
