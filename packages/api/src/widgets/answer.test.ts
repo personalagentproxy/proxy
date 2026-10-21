@@ -52,6 +52,21 @@ beforeEach(() => {
 	content = JSON.stringify({found: true, answer: ' You agreed to hire two engineers. ', quotes: ['We should hire  two more engineers.', 'We will hire ten.']});
 });
 
+describe('quotedFrom', () => {
+	test("a list copied whole is its first line the text has, without the list's marks", async () => {
+		const {quotedFrom} = await import('./answer');
+		const notes = '## Pricing\n- Dana’s framing: no “self-serve plan” yet\n  - Existing plans either over- or under-price small teams\n1. Ship the beta';
+		expect(
+			quotedFrom(notes, [
+				'- Dana’s framing: no “self-serve plan” yet\n  - Existing plans either over- or under-price small teams',
+				'"1. Ship the beta"',
+				'- Something never said',
+				'Dana’s framing: no “self-serve plan” yet',
+			]),
+		).toEqual(['Dana’s framing: no “self-serve plan” yet', 'Ship the beta']);
+	});
+});
+
 describe('handleAnswerRoute', () => {
 	test("reads a meeting's notes and transcript, and keeps only the quotes it has word for word", async () => {
 		const {handleAnswerRoute} = await import('./answer');

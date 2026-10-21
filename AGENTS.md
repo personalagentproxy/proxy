@@ -15,6 +15,10 @@
 - `bun run build` - Production builds of the web app, the docs and the website
 - `docker build -t proxy .` - The self-hosting image (`Dockerfile`): the api serving the web app's build on one origin, applying the migrations on start (`docker-entrypoint.sh`). `docker-compose.yml` runs it with Postgres and Caddy; `.github/workflows/image.yml` publishes it to `ghcr.io/personalagentproxy/proxy`. Hosted Personal Agent Proxy runs on Render from `render.yaml`: the image as one service (api and web app on one origin, two instances), Render Postgres, and the docs and the website as static sites
 
+## Running the Stack for the User
+
+When the user asks you to run the stack so they can use it (sign in, connect an integration, try a change), they open it by binding your machine's ports to their own localhost: the web app at http://localhost:5173 in their browser is yours. Keep `APP_URL="http://localhost:5173"` in `.env` and don't share a preview or tunnel URL instead: the api refuses sign-ins and other writes from any origin but `APP_URL`, and OAuth sign-ins (Google, Granola, Notion, Linear) return to it.
+
 ## Code Style
 
 ### Early Returns
@@ -171,6 +175,10 @@ If you see a file not conforming, notify the user and rename.
 ## Communication
 
 Don't flatter the user. Skip openers like "great question", "good catch", "you're absolutely right". Respond to what was said — agreement is fine when it's substantive, but the praise preamble is noise.
+
+## Real Data
+
+When you test against the user's real accounts (their Granola, mail, files, calendars), never let what you saw leave the conversation with them: no names, meeting titles, notes, quotes or other details of theirs in code, comments, tests, fixtures, commit messages or pull requests. Write invented examples instead ("Pricing review with Dana"), and don't say that something was tested against a real account.
 
 ## Git
 

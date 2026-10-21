@@ -264,7 +264,7 @@ const foundMeetingsSchema = z.object({
 export type FoundMeeting = z.infer<typeof foundMeetingSchema>;
 export type FoundMeetings = z.infer<typeof foundMeetingsSchema>;
 
-// Days as 2026-10-14, both included, the last month when not given; people by name or address.
+// Days as 2026-10-14, both included, the last three months when not given; people by name or address.
 export type MeetingQuery = {
 	from: string | null;
 	to: string | null;

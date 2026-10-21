@@ -423,7 +423,11 @@ export function widgetsAnswer(input: string, init?: RequestInit): Response | nul
 		return Response.json({sources: [google], files: FILES, failed: []});
 	}
 	if (route === 'GET /api/widgets/meetings') {
-		return Response.json({sources: [granola], meetings: MEETINGS, failed: []});
+		const people = url.searchParams.getAll('with').map((person) => person.toLowerCase());
+		const meetings = MEETINGS.filter((meeting) =>
+			people.every((person) => meeting.participants.toLowerCase().includes(person)),
+		);
+		return Response.json({sources: [granola], meetings, failed: []});
 	}
 	if (route === 'GET /api/widgets/records') {
 		return Response.json(records(url));
