@@ -117,8 +117,9 @@ export type AgentCaller = {agent: SignedInAgent; via: 'web' | 'mcp'};
 // PRE-TASK CLIENTS: null for a pre-task client's call (mcp/pre-task-clients.ts).
 export type TaskCaller = AgentCaller & {taskId: string | null};
 
-// `actions` are what the agent can do with the connection, and `refuse` why it can't do another.
-type ToolRun = {caller: TaskCaller; target: RecordTarget; connector: Connector; tool: CollectionTool; actions: string[]; refuse: (actionId: string) => ApiError};
+// `actions` are what the agent can do with the connection, and `refuse` why it can't do another;
+// `startedAt` is when the call came in, so the log can say how long it took.
+type ToolRun = {caller: TaskCaller; target: RecordTarget; connector: Connector; tool: CollectionTool; actions: string[]; refuse: (actionId: string) => ApiError; startedAt: number};
 
 function recordTitle(collection: Collection, values: RecordValues): string | null {
 	return values[collection.titleField]?.trim() || null;
@@ -137,6 +138,7 @@ function log(run: ToolRun, outcome: 'allowed' | 'denied', title: string | null, 
 		outcome,
 		via: run.caller.via,
 		taskId: run.caller.taskId,
+		durationMs: Date.now() - run.startedAt,
 	});
 }
 
@@ -151,6 +153,7 @@ function log(run: ToolRun, outcome: 'allowed' | 'denied', title: string | null, 
  */
 export function runAgentTool(caller: TaskCaller, connectionId: string, toolName: string, params: unknown, options: {readOnly?: boolean} = {}): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
+		const startedAt = Date.now();
 		// None of the three needs another's answer, so they are read at once; a refusal still comes in this order.
 		const [agentRead, taskRead, connectionRead] = await Promise.all([requireAgent(caller.agent), requireOpenTaskIfAny(caller.agent, caller.taskId), loadConnection(caller.agent.orgId, connectionId)]);
 		const agent = $(agentRead);
@@ -161,7 +164,7 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 			return $(Err(ApiErr.validationError(tool.readOnly ? `${tool.name} only reads: use read for it` : `${tool.name} changes something: use run for it`)));
 		}
 		if (tool.kind === 'call') {
-			return $(await runServerTool(caller, agent, connection, integration, tool, params));
+			return $(await runServerTool(caller, agent, connection, integration, tool, params, startedAt));
 		}
 
 		const collection = $(requirePresent(findCollection(integration, tool.collectionId), ApiErr.notFound('tool', toolName)));
@@ -173,6 +176,7 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 			tool,
 			actions: actionsOf(agent, connection, integration, unavailable),
 			refuse: (actionId) => refusal(integration, agent, connection, unavailable, actionId),
+			startedAt,
 		};
 
 		// A list's search is logged, a refused one's too, so its params are read first.
@@ -225,6 +229,7 @@ function runServerTool(
 	integration: Integration,
 	tool: ServerTool,
 	params: unknown,
+	startedAt: number,
 ): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
 		const args = params ?? {};
@@ -244,6 +249,7 @@ function runServerTool(
 				outcome,
 				via: caller.via,
 				taskId: caller.taskId,
+				durationMs: Date.now() - startedAt,
 			});
 		if (!actionsOf(agent, connection, integration, unavailableActions(connection)).includes(tool.action)) {
 			$(await logRun('denied'));

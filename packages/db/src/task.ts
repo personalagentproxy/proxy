@@ -10,28 +10,38 @@ import {db} from '.';
 export type AgentTaskRow = {
 	id: string;
 	agentId: string;
+	// The task this one is a sub-task of; null for one started on its own.
+	parentId: string | null;
 	title: string;
 	goal: string;
 	via: AuditVia;
 	createdAt: Date;
 	// Null while the task is under way.
 	finishedAt: Date | null;
+	// What was done or found, as the agent said when it finished; null where it said nothing.
+	outcome: string | null;
 };
 
 const taskSelect = {
 	id: true,
 	agentId: true,
+	parentId: true,
 	title: true,
 	goal: true,
 	via: true,
 	createdAt: true,
 	finishedAt: true,
+	outcome: true,
 } as const;
 
-/** Starts a task for the agent: what it is called and what the person asked for. */
+/**
+ * Starts a task for the agent: what it is called and what the person asked for, and the task it
+ * is a sub-task of, where it is one.
+ */
 export async function createAgentTask(data: {
 	orgId: string;
 	agentId: string;
+	parentId: string | null;
 	title: string;
 	goal: string;
 	via: AuditVia;
@@ -51,21 +61,53 @@ export async function getAgentTask(
 }
 
 /**
- * Marks the agent's task finished now; one already finished keeps the time it was. `Ok(null)` means
- * the agent has no such task.
+ * The organization's task, whichever of its agents started it, for starting a sub-task of it.
+ * `Ok(null)` means the organization has no such task.
+ */
+export async function getOrgTask(
+	orgId: string,
+	taskId: string,
+): Promise<Result<AgentTaskRow | null, ApiError>> {
+	return wrapDb(() => db.agentTask.findFirst({where: {id: taskId, orgId}, select: taskSelect}));
+}
+
+/**
+ * Marks the agent's task finished now, with what was done where the agent said, and its sub-tasks
+ * still under way finished with it, whoever's they are, since they were started for it; one
+ * already finished keeps the time it was and what was said. `Ok(null)` means the agent has no such
+ * task.
  */
 export async function finishAgentTask(
 	orgId: string,
 	agentId: string,
 	taskId: string,
+	outcome: string | null,
 ): Promise<Result<AgentTaskRow | null, ApiError>> {
 	return wrapDb(async () => {
-		await db.agentTask.updateMany({
+		const finishedAt = new Date();
+		const {count} = await db.agentTask.updateMany({
 			where: {id: taskId, orgId, agentId, finishedAt: null},
-			data: {finishedAt: new Date()},
+			data: {finishedAt, outcome},
 		});
+		if (count > 0) {
+			await finishSubTasks(orgId, [taskId], finishedAt);
+		}
 		return db.agentTask.findFirst({where: {id: taskId, orgId, agentId}, select: taskSelect});
 	});
+}
+
+// Finishes the open sub-tasks of `parentIds`, level by level down the tree, at `finishedAt`.
+async function finishSubTasks(orgId: string, parentIds: string[], finishedAt: Date): Promise<void> {
+	const open = await db.agentTask.findMany({
+		where: {orgId, parentId: {in: parentIds}, finishedAt: null},
+		select: {id: true},
+	});
+	if (open.length === 0) {
+		return;
+	}
+	const ids = open.map((task) => task.id);
+	await db.agentTask.updateMany({where: {id: {in: ids}}, data: {finishedAt}});
+	await finishSubTasks(orgId, ids, finishedAt);
 }
 
 /** The agent's tasks still under way, newest first: none finished, and none abandoned (@proxy/utils/tasks). */

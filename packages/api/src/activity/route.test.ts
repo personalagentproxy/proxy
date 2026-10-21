@@ -11,7 +11,7 @@ mock.module('@proxy/db/audit', () => ({listAuditEntries, summarizeTaskRequests})
 const listAgentTasks = mock();
 const listAgentTasksSince = mock();
 
-mock.module('@proxy/db/task', () => ({listAgentTasks, listAgentTasksSince}));
+mock.module('@proxy/db/task', () => ({listAgentTasks, listAgentTasksSince, getOrgTask: mock()}));
 
 function makeRequest(query: Record<string, string>) {
 	return {user: {userId: 'user-1', email: 'test@example.com', name: 'Test User'}, query};
@@ -33,7 +33,17 @@ afterEach(() => {
 
 describe('handleActivityLanesRoute', () => {
 	test('answers the tasks under way since the time asked for, with what was done for each', async () => {
-		const task = {id: 'task-1', agentId: 'agent-1', title: 'Triage inbox', goal: 'Archive the newsletters', via: 'mcp', createdAt: new Date('2026-10-15T20:00:00Z'), finishedAt: null};
+		const task = {
+			id: 'task-1',
+			agentId: 'agent-1',
+			parentId: null,
+			title: 'Triage inbox',
+			goal: 'Archive the newsletters',
+			via: 'mcp',
+			createdAt: new Date('2026-10-15T20:00:00Z'),
+			finishedAt: null,
+			outcome: null,
+		};
 		listAgentTasksSince.mockResolvedValue(Ok([task]));
 		summarizeTaskRequests.mockResolvedValue(
 			Ok([
@@ -54,11 +64,13 @@ describe('handleActivityLanesRoute', () => {
 				{
 					id: 'task-1',
 					agentId: 'agent-1',
+					parentId: null,
 					title: 'Triage inbox',
 					goal: 'Archive the newsletters',
 					via: 'mcp',
 					startedAt: '2026-10-15T20:00:00.000Z',
 					finishedAt: null,
+					outcome: null,
 					requests: 9,
 					denied: 1,
 					// Notion was used most, though the mailbox came first.
@@ -105,11 +117,24 @@ describe('handleListActivityRoute', () => {
 			outcome: 'allowed',
 			via: 'mcp',
 			taskId: 'task-1',
+			durationMs: 340,
 			createdAt: new Date('2026-10-15T10:00:00Z'),
 		};
-		listAuditEntries.mockResolvedValue(Ok([entry, {...entry, id: 'e2', taskId: null, agentId: null}]));
+		listAuditEntries.mockResolvedValue(Ok([entry, {...entry, id: 'e2', taskId: null, agentId: null, durationMs: null}]));
 		listAgentTasks.mockResolvedValue(
-			Ok([{id: 'task-1', agentId: 'agent-1', title: 'Triage inbox', goal: 'Archive the newsletters', via: 'mcp', createdAt: new Date('2026-10-15T09:00:00Z'), finishedAt: null}]),
+			Ok([
+				{
+					id: 'task-1',
+					agentId: 'agent-1',
+					parentId: 'task-0',
+					title: 'Triage inbox',
+					goal: 'Archive the newsletters',
+					via: 'mcp',
+					createdAt: new Date('2026-10-15T09:00:00Z'),
+					finishedAt: new Date('2026-10-15T09:30:00Z'),
+					outcome: 'Archived 12 newsletters',
+				},
+			]),
 		);
 		const {handleListActivityRoute} = await import('./route');
 		const result = await handleListActivityRoute(makeRequest({taskId: 'task-2'}) as never);
@@ -129,6 +154,7 @@ describe('handleListActivityRoute', () => {
 					outcome: 'allowed',
 					via: 'mcp',
 					taskId: 'task-1',
+					durationMs: 340,
 					at: '2026-10-15T10:00:00.000Z',
 				},
 				{
@@ -142,10 +168,23 @@ describe('handleListActivityRoute', () => {
 					outcome: 'allowed',
 					via: 'mcp',
 					taskId: null,
+					durationMs: null,
 					at: '2026-10-15T10:00:00.000Z',
 				},
 			],
-			tasks: [{id: 'task-1', agentId: 'agent-1', title: 'Triage inbox', goal: 'Archive the newsletters', via: 'mcp', startedAt: '2026-10-15T09:00:00.000Z', finishedAt: null}],
+			tasks: [
+				{
+					id: 'task-1',
+					agentId: 'agent-1',
+					parentId: 'task-0',
+					title: 'Triage inbox',
+					goal: 'Archive the newsletters',
+					via: 'mcp',
+					startedAt: '2026-10-15T09:00:00.000Z',
+					finishedAt: '2026-10-15T09:30:00.000Z',
+					outcome: 'Archived 12 newsletters',
+				},
+			],
 		});
 	});
 });

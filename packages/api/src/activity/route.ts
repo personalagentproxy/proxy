@@ -27,18 +27,26 @@ export type AuditEntryResponse = {
 	// The agent's task the request was made for, among the answer's `tasks`; none for entries from
 	// before tasks, and for what Personal Agent Proxy did itself.
 	taskId: string | null;
+	// How long the request took; none for entries from before it was kept, and for what Personal
+	// Agent Proxy did itself.
+	durationMs: number | null;
 };
 
 /** What an agent set out to do, as it said when it started: what the entries made for it were for. */
 export type ActivityTaskResponse = {
 	id: string;
 	agentId: string;
+	// The task it is a sub-task of, where an agent handed part of that task on; null for a task
+	// started on its own. The parent may be another agent's, and may be missing from the answer.
+	parentId: string | null;
 	title: string;
 	goal: string;
 	via: 'web' | 'mcp';
 	startedAt: string;
 	// Null while the agent hasn't called it finished, abandoned (@proxy/utils/tasks) or not.
 	finishedAt: string | null;
+	// What was done or found, as the agent said when it finished; null where it said nothing.
+	outcome: string | null;
 };
 
 function toActivityTask({createdAt, finishedAt, ...task}: AgentTaskRow): ActivityTaskResponse {

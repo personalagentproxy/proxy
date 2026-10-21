@@ -35,14 +35,19 @@ export function handleAgentGetTaskRoute(request: AgentRequest): Promise<Result<A
 	return getAgentOpenTask(request.agent, request.params.taskId ?? '');
 }
 
-/** `POST /api/agent/tasks` with `{title, goal}`: starts a task, answering with its id as `task`. */
+/** `POST /api/agent/tasks` with `{title, goal, parent?}`: starts a task, a sub-task of `parent` where given, answering with its id as `task`. */
 export function handleAgentStartTaskRoute(request: AgentRequest): Promise<Result<AgentTaskResponse, ApiError>> {
 	return startAgentTask({agent: request.agent, via: 'web'}, request.body ?? {});
 }
 
-/** `POST /api/agent/tasks/:taskId/finish`: marks the task finished. */
+const finishTaskBodySchema = z.object({outcome: z.string().optional()});
+
+/** `POST /api/agent/tasks/:taskId/finish` with `{outcome?}`: marks the task finished, with what was done where given. */
 export function handleAgentFinishTaskRoute(request: AgentRequest): Promise<Result<AgentTaskResponse, ApiError>> {
-	return finishAgentTask({agent: request.agent, via: 'web'}, {task: request.params.taskId ?? ''});
+	return Do(async ($) => {
+		const {outcome} = $(parseSchema(finishTaskBodySchema, request.body ?? {}));
+		return $(await finishAgentTask({agent: request.agent, via: 'web'}, {task: request.params.taskId ?? '', outcome}));
+	});
 }
 
 const runToolBodySchema = z.object({task: z.string().min(1), params: z.unknown().optional()});

@@ -59,17 +59,28 @@ describe('handleAgentRunToolRoute', () => {
 
 describe('handleAgentStartTaskRoute and handleAgentFinishTaskRoute', () => {
 	test('start and finish the task as the signed-in agent, over the web', async () => {
-		const started = {task: 'task-1', title: 'Triage inbox', goal: 'Archive the newsletters', startedAt: '2026-10-16T09:00:00.000Z', finishedAt: null};
+		const started = {task: 'task-1', parent: null, title: 'Triage inbox', goal: 'Archive the newsletters', startedAt: '2026-10-16T09:00:00.000Z', finishedAt: null, outcome: null};
 		startAgentTask.mockResolvedValue(Ok(started));
 		finishAgentTask.mockResolvedValue(Ok({...started, finishedAt: '2026-10-16T09:30:00.000Z'}));
 		const {handleAgentFinishTaskRoute, handleAgentStartTaskRoute} = await import('./route');
-		const start = await handleAgentStartTaskRoute(makeRequest({}, {title: 'Triage inbox', goal: 'Archive the newsletters'}));
+		const start = await handleAgentStartTaskRoute(makeRequest({}, {title: 'Triage inbox', goal: 'Archive the newsletters', parent: 'task-0'}));
 		const finish = await handleAgentFinishTaskRoute(makeRequest({taskId: 'task-1'}));
+		const finishSaying = await handleAgentFinishTaskRoute(makeRequest({taskId: 'task-1'}, {outcome: 'Archived 12 newsletters'}));
 
 		expect(start.unwrap()).toEqual(started);
-		expect(startAgentTask).toHaveBeenCalledWith({agent: signedIn, via: 'web'}, {title: 'Triage inbox', goal: 'Archive the newsletters'});
+		expect(startAgentTask).toHaveBeenCalledWith({agent: signedIn, via: 'web'}, {title: 'Triage inbox', goal: 'Archive the newsletters', parent: 'task-0'});
 		expect(finish.unwrap().finishedAt).toBe('2026-10-16T09:30:00.000Z');
-		expect(finishAgentTask).toHaveBeenCalledWith({agent: signedIn, via: 'web'}, {task: 'task-1'});
+		expect(finishSaying.isOk()).toBe(true);
+		expect(finishAgentTask.mock.calls).toEqual([
+			[
+				{agent: signedIn, via: 'web'},
+				{task: 'task-1', outcome: undefined},
+			],
+			[
+				{agent: signedIn, via: 'web'},
+				{task: 'task-1', outcome: 'Archived 12 newsletters'},
+			],
+		]);
 	});
 });
 
@@ -86,7 +97,7 @@ describe('handleAgentListTasksRoute', () => {
 
 describe('handleAgentGetTaskRoute', () => {
 	test('opens the URL’s task for the signed-in agent', async () => {
-		const task = {task: 'task-1', title: 'Triage inbox', goal: 'Archive the newsletters', startedAt: '2026-10-16T09:00:00.000Z', finishedAt: null};
+		const task = {task: 'task-1', parent: null, title: 'Triage inbox', goal: 'Archive the newsletters', startedAt: '2026-10-16T09:00:00.000Z', finishedAt: null, outcome: null};
 		getAgentOpenTask.mockResolvedValue(Ok(task));
 		const {handleAgentGetTaskRoute} = await import('./route');
 		const result = await handleAgentGetTaskRoute(makeRequest({taskId: 'task-1'}));

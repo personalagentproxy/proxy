@@ -4,7 +4,7 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {taskEndedAt} from '@proxy/utils/tasks';
 import type {SignedInAgent} from '@proxy/db/agent';
-import {type AgentTaskRow, createAgentTask, finishAgentTask as markAgentTaskFinished, getAgentTask, listOpenAgentTasks} from '@proxy/db/task';
+import {type AgentTaskRow, createAgentTask, finishAgentTask as markAgentTaskFinished, getAgentTask, getOrgTask, listOpenAgentTasks} from '@proxy/db/task';
 
 import type {AgentCaller} from './tools';
 
@@ -12,24 +12,45 @@ import type {AgentCaller} from './tools';
  * Tasks: what an agent set out to do with Personal Agent Proxy. Before anything else, an agent
  * starts one, naming it and saying what the person asked for; it gives the task's id with every
  * call it makes, which the activity log keeps with the request; and it finishes the task when it is
- * done. So the person can see which request was made for what. An agent can have any number of
- * tasks under way at once, each with calls of its own.
+ * done, saying what it did where it says. So the person can see which request was made for what.
+ * An agent can have any number of tasks under way at once, each with calls of its own.
+ *
+ * When an agent hands part of a task to another agent, or to a sub-agent of its own, that part is
+ * a sub-task: started with the task it was handed from as its parent, by whichever login does the
+ * work, so the tasks of one job form a tree the person can follow. A sub-task belongs to the login
+ * that started it, as any task does; its parent only has to be a task of the organization still
+ * under way, whoever's it is. Finishing a task finishes its sub-tasks still under way too.
  */
 
 const MAX_TITLE = 120;
 const MAX_GOAL = 2000;
+const MAX_OUTCOME = 2000;
 
-const startSchema = z.object({title: z.string(), goal: z.string()});
-const finishSchema = z.object({task: z.string()});
+const startSchema = z.object({title: z.string(), goal: z.string(), parent: z.string().optional()});
+const finishSchema = z.object({task: z.string(), outcome: z.string().optional()});
 
-/** A task as an agent sees it: `task` is its id, which every other call takes. */
-export type AgentTaskResponse = {task: string; title: string; goal: string; startedAt: string; finishedAt: string | null};
+/**
+ * A task as an agent sees it: `task` is its id, which every other call takes; `parent` the task it
+ * is a sub-task of, or null; `outcome` what was done, once finished with one.
+ */
+export type AgentTaskResponse = {task: string; parent: string | null; title: string; goal: string; startedAt: string; finishedAt: string | null; outcome: string | null};
 
 function toResponse(task: AgentTaskRow): AgentTaskResponse {
-	return {task: task.id, title: task.title, goal: task.goal, startedAt: task.createdAt.toISOString(), finishedAt: task.finishedAt?.toISOString() ?? null};
+	return {
+		task: task.id,
+		parent: task.parentId,
+		title: task.title,
+		goal: task.goal,
+		startedAt: task.createdAt.toISOString(),
+		finishedAt: task.finishedAt?.toISOString() ?? null,
+		outcome: task.outcome,
+	};
 }
 
-/** Starts a task for the agent: `{title, goal}`, both trimmed and neither empty. */
+/**
+ * Starts a task for the agent: `{title, goal}`, both trimmed and neither empty, and `parent` where
+ * it is a sub-task, the id of a task of the organization still under way.
+ */
 export function startAgentTask(caller: AgentCaller, args: unknown): Promise<Result<AgentTaskResponse, ApiError>> {
 	return Do(async ($) => {
 		const parsed = $(parseSchema(startSchema, args));
@@ -47,8 +68,27 @@ export function startAgentTask(caller: AgentCaller, args: unknown): Promise<Resu
 		if (goal.length > MAX_GOAL) {
 			return $(Err(ApiErr.validationError(`The goal is ${goal.length} characters long; keep it under ${MAX_GOAL}, a sentence or two.`)));
 		}
-		const task = $(await createAgentTask({orgId: caller.agent.orgId, agentId: caller.agent.agentId, title, goal, via: caller.via}));
+		const parentId = parsed.parent?.trim() || null;
+		if (parentId !== null) {
+			$(await requireOpenParent(caller.agent.orgId, parentId));
+		}
+		const task = $(await createAgentTask({orgId: caller.agent.orgId, agentId: caller.agent.agentId, parentId, title, goal, via: caller.via}));
 		return toResponse(task);
+	});
+}
+
+// The task a sub-task is started for: any of the organization's, whichever login started it, as
+// long as it is still under way; refused in words that say what to do instead.
+function requireOpenParent(orgId: string, parentId: string): Promise<Result<AgentTaskRow, ApiError>> {
+	return Do(async ($) => {
+		const parent = $(await getOrgTask(orgId, parentId));
+		if (parent === null) {
+			return $(Err(ApiErr.validationError(`There is no task ${parentId} to be a sub-task of. Give as parent the id of the task the work was handed from, or leave it out for a task of its own.`)));
+		}
+		if (taskEndedAt({startedAt: parent.createdAt, finishedAt: parent.finishedAt}, new Date()) !== null) {
+			return $(Err(ApiErr.conflict(`Task ${parentId} (${parent.title}) is no longer under way, so no sub-task can be started for it. Start a task of its own for what you are doing now.`)));
+		}
+		return parent;
 	});
 }
 
@@ -62,11 +102,19 @@ export function getAgentOpenTask(agent: SignedInAgent, taskId: string): Promise<
 	return Do(async ($) => toResponse($(await requireOpenTask(agent, taskId))));
 }
 
-/** Marks the agent's task `{task}` finished; one finished already stays as it is. */
+/**
+ * Marks the agent's task `{task}` finished, with `outcome`, what was done or found, where the
+ * agent gives one; its sub-tasks still under way are finished with it. One finished already stays
+ * as it is.
+ */
 export function finishAgentTask(caller: AgentCaller, args: unknown): Promise<Result<AgentTaskResponse, ApiError>> {
 	return Do(async ($) => {
-		const {task: taskId} = $(parseSchema(finishSchema, args));
-		const task = $(await markAgentTaskFinished(caller.agent.orgId, caller.agent.agentId, taskId));
+		const {task: taskId, outcome: given} = $(parseSchema(finishSchema, args));
+		const outcome = given?.trim() || null;
+		if (outcome !== null && outcome.length > MAX_OUTCOME) {
+			return $(Err(ApiErr.validationError(`The outcome is ${outcome.length} characters long; keep it under ${MAX_OUTCOME}, a sentence or two.`)));
+		}
+		const task = $(await markAgentTaskFinished(caller.agent.orgId, caller.agent.agentId, taskId, outcome));
 		return toResponse($(requirePresent(task, ApiErr.notFound('task', taskId))));
 	});
 }
