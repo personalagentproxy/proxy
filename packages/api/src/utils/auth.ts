@@ -10,7 +10,10 @@ export type AuthenticatedApiRequest = {
 	userId: string;
 	email: string;
 	name?: string;
-	/** The experiments on for the user's organization; ask with `hasExperiment(request.user, …)`. */
+	// The session, by the hash of its token, and the organization it has open in the switcher.
+	sessionTokenHash: string;
+	activeOrgId: string | null;
+	/** The experiments on for the organization the user works in; ask with `hasExperiment(request.user, …)`. */
 	experiments: Experiment[];
 };
 
@@ -21,7 +24,8 @@ export async function authenticateApiRequest(headers: IncomingHttpHeaders): Prom
 		return Err(ApiErr.unauthenticated());
 	}
 
-	const sessionResult = await getAuthenticatedSessionDatabase(hashToken(sessionToken));
+	const sessionTokenHash = hashToken(sessionToken);
+	const sessionResult = await getAuthenticatedSessionDatabase(sessionTokenHash);
 	if (sessionResult.isErr()) {
 		return sessionResult;
 	}
@@ -34,6 +38,8 @@ export async function authenticateApiRequest(headers: IncomingHttpHeaders): Prom
 		userId: sessionResult.value.userId,
 		email: sessionResult.value.user.email,
 		name: sessionResult.value.user.name ?? undefined,
+		sessionTokenHash,
+		activeOrgId: sessionResult.value.activeOrgId,
 		experiments: sessionResult.value.experiments,
 	});
 }

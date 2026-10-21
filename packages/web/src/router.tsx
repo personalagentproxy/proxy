@@ -9,10 +9,12 @@ import {
 } from '@/agent-loaders';
 import {getSignInMethods, type SignInMethods} from '@/client/auth-client';
 import {getMe} from '@/client/me-client';
+import {listOrgs} from '@/client/orgs-client';
 import {HumanSide} from '@/components/human-side';
 import {RouteError} from '@/components/route-error';
 import {sanitizeCallbackUrl} from '@/lib/callback-url';
 import {unwrapLoaderResult} from '@/lib/loader-utils';
+import type {Human} from '@/lib/orgs';
 import {
 	activityLoader,
 	addConnectionLoader,
@@ -23,6 +25,8 @@ import {
 	connectionLoader,
 	connectionsLoader,
 	homeLoader,
+	inviteLoader,
+	membersLoader,
 	vaultLoader,
 	welcomeConnectionLoader,
 	welcomeLoader,
@@ -48,20 +52,24 @@ import {ConnectAgentPage} from '@/pages/connect-agent-page';
 import {ConnectionPage} from '@/pages/connection-page';
 import {ConnectionsPage} from '@/pages/connections-page';
 import {HomePage} from '@/pages/home-page';
+import {InvitePage} from '@/pages/invite-page';
 import {LoginPage} from '@/pages/login-page';
+import {MembersPage} from '@/pages/members-page';
 import {NewAgentPage} from '@/pages/new-agent-page';
 import {SettingsPage} from '@/pages/settings-page';
 import {VaultPage} from '@/pages/vault-page';
 import {WelcomeConnectionPage, WelcomePage} from '@/pages/welcome-page';
 
 // The human side's guard: no session sends the user to /login, and back here after. An
-// organization that has not been through the welcome flow goes there first.
-async function humanLoader() {
-	const me = unwrapLoaderResult(await getMe());
-	if (!me.onboarded) {
+// organization that has not been through the welcome flow goes there first. With who is signed in,
+// the organizations they are in, for the switcher and every page that says which is open.
+async function humanLoader(): Promise<Human> {
+	const [me, orgs] = await Promise.all([getMe(), listOrgs()]);
+	const signedIn = unwrapLoaderResult(me);
+	if (!signedIn.onboarded) {
 		throw redirect('/welcome/connections');
 	}
-	return me;
+	return {...signedIn, orgs: unwrapLoaderResult(orgs).orgs};
 }
 
 // A signed-in user has no business on the login page; anything else, an api outage included,
@@ -84,6 +92,13 @@ export const router = createBrowserRouter([
 		path: '/connect-agent',
 		loader: connectAgentLoader,
 		element: <ConnectAgentPage />,
+		errorElement: <RouteError />,
+	},
+	// An invitation's link, outside the human side's layout like the welcome flow.
+	{
+		path: '/invite/:token',
+		loader: inviteLoader,
+		element: <InvitePage />,
 		errorElement: <RouteError />,
 	},
 	// The welcome flow: the person's connections, then their agent, before the app itself. A
@@ -139,8 +154,10 @@ export const router = createBrowserRouter([
 	{
 		id: 'human',
 		loader: humanLoader,
-		// Once per page load: the session is checked on arrival, not on every click.
-		shouldRevalidate: () => false,
+		// The session is checked on arrival, not on every click: only a page revalidating after a
+		// change (the address the same), as switching or renaming an organization, or inviting someone,
+		// loads the organizations again.
+		shouldRevalidate: ({currentUrl, nextUrl}) => currentUrl.href === nextUrl.href,
 		element: <HumanSide />,
 		errorElement: <RouteError />,
 		children: [
@@ -161,6 +178,7 @@ export const router = createBrowserRouter([
 			{path: '/agents/:id', loader: agentLoader, element: <AgentPage />},
 			{path: '/agents/:id/setup', loader: agentSetupLoader, element: <AgentSetupPage />},
 			{path: '/activity', loader: activityLoader, element: <ActivityPage />},
+			{path: '/members', loader: membersLoader, element: <MembersPage />},
 			{path: '/settings', element: <SettingsPage />},
 		],
 	},

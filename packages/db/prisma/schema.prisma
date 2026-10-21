@@ -37,6 +37,7 @@ model User {
   accounts     Account[]
   sessions     Session[]
   orgMembers   OrgMember[]
+  ownedOrgs    Organization[]
   writeTargets WriteTarget[]
 }
 
@@ -61,10 +62,13 @@ model Account {
 // A signed-in browser. The session cookie holds a random token; only its hash is stored, as for
 // agents' sessions, so a leaked table signs no one in.
 model Session {
-  id        String   @id @default(cuid())
-  tokenHash String   @unique
-  userId    String
-  expires   DateTime
+  id          String   @id @default(cuid())
+  tokenHash   String   @unique
+  userId      String
+  expires     DateTime
+  // The organization the human side works in, picked in the switcher. A plain id, checked against
+  // the user's memberships on every request; the first one joined when it is none of theirs.
+  activeOrgId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -86,12 +90,14 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-// Every user gets one organization at sign-up, for when data is shared between people. Nothing
-// reads it yet.
+// People working together: every user gets one at sign-up and can make more or be invited into
+// others'. Each has one owner, whoever made it, for good, who is also one of its members; it goes
+// with their account, and the last one they own can't go before it, so everyone owns one.
 model Organization {
   id          String    @id @default(cuid())
   name        String
   slug        String    @unique
+  ownerUserId String
   // When the welcome flow was finished or skipped; until then the web app shows it instead of the app.
   onboardedAt DateTime?
   // Experiments on for the organization, by id (EXPERIMENTS in @proxy/utils; an id no longer there
@@ -102,14 +108,20 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
+  owner       User            @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   members     OrgMember[]
+  invitations Invitation[]
   connections Connection[]
   agents      Agent[]
   audit       AuditEntry[]
   feedback    AgentFeedback[]
   tasks       AgentTask[]
+
+  @@index([ownerUserId])
 }
 
+// A person in an organization: its owner (`Organization.ownerUserId`), who renames and deletes
+// it, invites people and removes members, or anyone else, who can leave.
 model OrgMember {
   id     String @id @default(cuid())
   orgId  String
@@ -121,8 +133,27 @@ model OrgMember {
   org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([orgId, userId])
   @@index([orgId])
   @@index([userId])
+}
+
+// Someone asked into an organization by email: the link sent them signs them in or up and makes
+// them a member. Only the token's SHA-256 is kept; taking it up deletes it.
+model Invitation {
+  id          String   @id @default(cuid())
+  orgId       String
+  email       String
+  tokenHash   String   @unique
+  // A plain id: the invitation stays when whoever sent it is gone.
+  invitedById String
+  expires     DateTime
+
+  createdAt DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
 }
 
 // A connected account of an integration from the catalog (`@proxy/integrations`), such as a

@@ -5,6 +5,9 @@
 export const BUTTON_EDGES: ReadonlyArray<{from: string; to: string; label: string}> = [
 	{from: '/login', to: '/connections', label: 'Sign in'},
 	{from: '/login', to: '/welcome/connections', label: 'Sign in, new organization'},
+	// Joining from an invitation's link opens the organization on Home, which the map leaves out.
+	{from: '/members', to: '/connections', label: 'Leave'},
+	{from: '/settings', to: '/connections', label: 'Delete organization'},
 	// The agent lands on its tasks, to open one or start another.
 	{from: '/agent/login', to: '/agent', label: 'Sign in'},
 	{from: '/agent', to: '/agent/:taskId', label: 'Start task'},

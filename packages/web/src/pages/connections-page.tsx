@@ -5,6 +5,7 @@ import {deleteConnection, renameConnection} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {ConfirmDialog} from '@/components/confirm-dialog';
+import {OrgNotice} from '@/components/org-notice';
 import {RenameDialog} from '@/components/rename-dialog';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
 import {Badge} from '@proxy/ui/components/badge';
@@ -90,6 +91,7 @@ export function ConnectionsPage() {
 				</Button>
 			}
 		>
+			<OrgNotice />
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<RowList
 				header={

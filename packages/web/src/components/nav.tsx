@@ -6,17 +6,20 @@ import {
 	PlugIcon,
 	ScrollTextIcon,
 	SettingsIcon,
+	UsersIcon,
 	type LucideIcon,
 } from 'lucide-react';
 import {Link, useLocation, useRouteLoaderData} from 'react-router';
 import {signOut} from '@/client/auth-client';
 import type {Me} from '@/client/me-client';
+import {OrgSwitcher} from '@/components/org-switcher';
 import {ThemeMenu} from '@/components/theme-menu';
 import {
 	Sidebar,
 	SidebarContent,
 	SidebarFooter,
 	SidebarGroup,
+	SidebarHeader,
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarMenuItem,
@@ -25,12 +28,14 @@ import {
 
 type Destination = {to: string; label: string; icon: LucideIcon};
 
+// The open organization's, under the switcher.
 const DESTINATIONS: Destination[] = [
 	{to: '/', label: 'Home', icon: HomeIcon},
 	{to: '/connections', label: 'Connections', icon: PlugIcon},
 	{to: '/vault', label: 'Vault', icon: LibraryIcon},
 	{to: '/agents', label: 'Agents', icon: BotIcon},
 	{to: '/activity', label: 'Activity', icon: ScrollTextIcon},
+	{to: '/members', label: 'Members', icon: UsersIcon},
 ];
 
 // Each destination is lit on its own pages too, as `/connections/:id`; Home only on itself, since
@@ -40,7 +45,8 @@ function isActive(pathname: string, to: string): boolean {
 }
 
 // The stock shadcn sidebar: a rail in icon mode on desktop, labels in tooltips and ⌘B to expand
-// it; a sheet from the left on phones, opened from the header and closed again on every pick.
+// it; a sheet from the left on phones, opened from the header and closed again on every pick. The
+// organization switcher sits at its top.
 export function AppSidebar() {
 	const {pathname} = useLocation();
 	const me = useRouteLoaderData<Me>('human');
@@ -48,8 +54,15 @@ export function AppSidebar() {
 
 	return (
 		<Sidebar collapsible="icon">
+			<SidebarHeader>
+				<SidebarMenu>
+					<SidebarMenuItem>
+						<OrgSwitcher />
+					</SidebarMenuItem>
+				</SidebarMenu>
+			</SidebarHeader>
 			<SidebarContent>
-				<SidebarGroup>
+				<SidebarGroup className="pt-0">
 					<SidebarMenu>
 						{DESTINATIONS.map((destination) => (
 							<SidebarMenuItem key={destination.to}>

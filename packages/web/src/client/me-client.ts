@@ -9,6 +9,8 @@ const meSchema = z.object({
 		name: z.string().nullable(),
 		image: z.string().nullable(),
 	}),
+	// The organization open in the switcher, and the person's role there.
+	org: z.object({id: z.string(), name: z.string(), role: z.enum(['owner', 'member'])}),
 	// False until the welcome flow is finished or skipped; the human side shows it until then.
 	onboarded: z.boolean(),
 	// The experiments on for the organization; read them with useExperiments.
@@ -38,8 +40,8 @@ export function finishOnboarding() {
 }
 
 /**
- * Deletes the account: every connection is undone at its provider, then the user and everything
- * in their organization; the session goes with it.
+ * Deletes the account: every connection in the organizations the person owns is undone at its
+ * provider, then the user and those organizations go; the session goes with them.
  */
 export function deleteAccount() {
 	return apiSend('DELETE', '/api/me');

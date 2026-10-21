@@ -89,7 +89,13 @@ const user = await db.user.create({
 	data: {email: DEMO_EMAIL, name: 'Demo User', emailVerified: new Date(), createdAt: daysAgo(40)},
 });
 const org = await db.organization.create({
-	data: {name: ORG_NAME, slug: WORKSPACE_SLUG, onboardedAt: daysAgo(40), createdAt: daysAgo(40)},
+	data: {
+		name: ORG_NAME,
+		slug: WORKSPACE_SLUG,
+		ownerUserId: user.id,
+		onboardedAt: daysAgo(40),
+		createdAt: daysAgo(40),
+	},
 });
 await db.orgMember.create({data: {orgId: org.id, userId: user.id}});
 

@@ -247,6 +247,8 @@ function discover(pattern: string, url: string): void {
 discover('/welcome/connections/:id', `/welcome/connections/${fresh.connectionId}`);
 discover('/connect-agent', await connectAgentPath(human));
 discover('/agent/:taskId', `/agent/${taskId}`);
+// No page links to an invitation: the one a token nobody was sent opens.
+discover('/invite/:token', '/invite/not-a-token');
 for (const pattern of patterns) {
 	if (!pattern.includes(':')) {
 		discover(pattern, pattern);

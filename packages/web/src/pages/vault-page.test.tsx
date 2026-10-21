@@ -19,7 +19,12 @@ function renderVaultPage(entries: Array<{id: string; values: Record<string, stri
 				id: 'human',
 				loader: () => ({
 					user: {id: 'user-1', email: 'person@example.com', name: null, image: null},
+					org: {id: 'org-1', name: 'Workspace', role: 'owner'},
 					onboarded: true,
+					experiments: [],
+					orgs: [
+						{id: 'org-1', name: 'Workspace', role: 'owner', memberCount: 1, invitationCount: 0},
+					],
 				}),
 				element: <HumanSide />,
 				children: [

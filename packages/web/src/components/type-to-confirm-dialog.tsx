@@ -13,19 +13,32 @@ import {Label} from '@proxy/ui/components/label';
 
 type Props = {
 	open: boolean;
-	// The account's address, typed again to confirm.
-	email: string;
+	title: string;
+	description: string;
+	// What is typed again to confirm, in any case: the account's address, the organization's name.
+	word: string;
+	// The button, such as Delete account.
+	confirmLabel: string;
 	onClose: () => void;
-	// Deletes the account; what went wrong, shown in the dialog, or null once it is gone.
-	onDelete: () => Promise<string | null>;
+	// Does it; what went wrong, shown in the dialog, or null once it is done.
+	onConfirm: () => Promise<string | null>;
 };
 
-// Deleting the account can't be undone, so it asks for the account's address before it does.
-export function DeleteAccountDialog({open, email, onClose, onDelete}: Props) {
+// Something that can't be undone, such as deleting the account or an organization, asks for its
+// name typed again before it is done.
+export function TypeToConfirmDialog({
+	open,
+	title,
+	description,
+	word,
+	confirmLabel,
+	onClose,
+	onConfirm,
+}: Props) {
 	const [typed, setTyped] = useState('');
 	const [error, setError] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState(false);
-	const ready = typed.trim().toLowerCase() === email.toLowerCase();
+	const ready = typed.trim().toLowerCase() === word.trim().toLowerCase();
 
 	return (
 		<Dialog
@@ -46,23 +59,19 @@ export function DeleteAccountDialog({open, email, onClose, onDelete}: Props) {
 							return;
 						}
 						setDeleting(true);
-						const failed = await onDelete();
+						const failed = await onConfirm();
 						setDeleting(false);
 						setError(failed);
 					}}
 				>
 					<DialogHeader>
-						<DialogTitle>Delete your account?</DialogTitle>
-						<DialogDescription>
-							Every connection is first invalidated at the provider (where possible), and then
-							deleted from Personal Agent Proxy, along with your information, agents and activity.
-							This cannot be undone.
-						</DialogDescription>
+						<DialogTitle>{title}</DialogTitle>
+						<DialogDescription>{description}</DialogDescription>
 					</DialogHeader>
 					<div className="grid gap-2">
-						<Label htmlFor="delete-account-email">Type {email} to confirm</Label>
+						<Label htmlFor="type-to-confirm">Type {word} to confirm</Label>
 						<Input
-							id="delete-account-email"
+							id="type-to-confirm"
 							autoFocus
 							autoComplete="off"
 							value={typed}
@@ -75,7 +84,7 @@ export function DeleteAccountDialog({open, email, onClose, onDelete}: Props) {
 							Cancel
 						</Button>
 						<Button type="submit" variant="destructive" disabled={!ready || deleting}>
-							{deleting ? 'Deleting…' : 'Delete account'}
+							{deleting ? 'Deleting…' : confirmLabel}
 						</Button>
 					</DialogFooter>
 				</form>

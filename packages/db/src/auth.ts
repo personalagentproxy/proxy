@@ -6,16 +6,22 @@ import {db, Prisma} from '.';
 
 export type AuthenticatedSession = {
 	userId: string;
+	// The organization the session has open in the switcher; none until one is picked.
+	activeOrgId: string | null;
 	user: {
 		email: string;
 		name: string | null;
 	};
-	/** The experiments on for the user's organization. */
+	/** The experiments on for the organization the session works in. */
 	experiments: Experiment[];
 	expires: Date;
 };
 
-/** By the hash of the cookie's token. `Ok(null)` means no live session: unknown or expired. */
+/**
+ * By the hash of the cookie's token. `Ok(null)` means no live session: unknown or expired. The
+ * experiments are the organization's the session works in: the one open, while the user is still
+ * a member of it, else the first one they joined, as `getUserOrgId` picks it.
+ */
 export async function getAuthenticatedSessionDatabase(
 	tokenHash: string,
 ): Promise<Result<AuthenticatedSession | null, ApiError>> {
@@ -24,15 +30,14 @@ export async function getAuthenticatedSessionDatabase(
 			where: {tokenHash},
 			select: {
 				userId: true,
+				activeOrgId: true,
 				user: {
 					select: {
 						name: true,
 						email: true,
-						// Their organization, the first they joined as getUserOrganization reads it.
 						orgMembers: {
-							select: {org: {select: {insider: true, experiments: true}}},
+							select: {orgId: true, org: {select: {insider: true, experiments: true}}},
 							orderBy: {createdAt: 'asc'},
-							take: 1,
 						},
 					},
 				},
@@ -53,9 +58,13 @@ export async function getAuthenticatedSessionDatabase(
 		return Ok(null);
 	}
 
-	const organization = session.user.orgMembers[0]?.org;
+	const memberships = session.user.orgMembers;
+	const organization = (
+		memberships.find((member) => member.orgId === session.activeOrgId) ?? memberships[0]
+	)?.org;
 	return Ok({
 		userId: session.userId,
+		activeOrgId: session.activeOrgId,
 		user: {
 			email: session.user.email,
 			name: session.user.name,
@@ -71,6 +80,16 @@ export async function createSession(data: {
 	expires: Date;
 }): Promise<Result<void, ApiError>> {
 	return (await wrapDb(() => db.session.create({data}))).map(() => undefined);
+}
+
+/** Opens an organization in the session's switcher; the caller has checked the user is a member. */
+export async function setSessionActiveOrg(
+	tokenHash: string,
+	orgId: string,
+): Promise<Result<void, ApiError>> {
+	return (
+		await wrapDb(() => db.session.updateMany({where: {tokenHash}, data: {activeOrgId: orgId}}))
+	).map(() => undefined);
 }
 
 export async function deleteSession(tokenHash: string): Promise<Result<void, ApiError>> {

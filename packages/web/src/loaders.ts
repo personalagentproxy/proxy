@@ -10,6 +10,7 @@ import {
 import {getConnection, listConnections} from '@/client/connections-client';
 import {getMe} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
+import {getInvitation, listMembers} from '@/client/orgs-client';
 import {listRecords} from '@/client/records-client';
 import {VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import {LOADED_MINUTES, windowStart} from '@/lib/agent-lanes';
@@ -153,6 +154,19 @@ export async function connectAgentLoader({request}: {request: Request}) {
 }
 
 export type ConnectAgentData = Awaited<ReturnType<typeof connectAgentLoader>>;
+
+// The organization open's members and invitations.
+export async function membersLoader() {
+	const me = unwrapLoaderResult(await getMe());
+	return unwrapLoaderResult(await listMembers(me.org.id));
+}
+
+// An invitation's link, signed in (anyone signed out signs in or up first and comes back): who is
+// signed in, and what the link is for, null for none.
+export async function inviteLoader({params}: {params: {token?: string}}) {
+	const [me, invitation] = await Promise.all([getMe(), getInvitation(params.token ?? '')]);
+	return {me: unwrapLoaderResult(me), invitation: unwrapOrNull(invitation)};
+}
 
 // The welcome flow, shown until the organization finishes or skips it: what the person has
 // connected so far, so each step can say what is done, and what the server has set up for the

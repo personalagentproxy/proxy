@@ -1,0 +1,373 @@
+import type {FetchError} from '@proxy/utils';
+import {EllipsisIcon, LogOutIcon, MailPlusIcon, Trash2Icon, XIcon} from 'lucide-react';
+import {useState} from 'react';
+import {useLoaderData, useNavigate, useRevalidator} from 'react-router';
+import type {Result} from 'ts-results-es';
+import {
+	inviteMember,
+	leaveOrg,
+	removeMember,
+	revokeInvitation,
+	type Member,
+} from '@/client/orgs-client';
+import {AppShell, PageTitle} from '@/components/app-shell';
+import {ConfirmDialog} from '@/components/confirm-dialog';
+import {IconButton} from '@/components/icon-button';
+import {OrgTile} from '@/components/org-switcher';
+import {RowHeader, RowList} from '@/components/row-list';
+import {Section} from '@/components/section';
+import {Button} from '@proxy/ui/components/button';
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from '@proxy/ui/components/dialog';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from '@proxy/ui/components/dropdown-menu';
+import {Input} from '@proxy/ui/components/input';
+import {Label} from '@proxy/ui/components/label';
+import {useHuman} from '@/hooks/use-human';
+import {apiMessage} from '@/lib/agent-errors';
+import {formatDate} from '@/lib/format';
+import {describeFetchError} from '@/lib/loader-utils';
+import {activeOrgOf} from '@/lib/orgs';
+import type {membersLoader} from '@/loaders';
+
+// Widths and visibility shared by the header and every row, so the columns line up.
+const CELLS = {
+	email: 'hidden w-52 shrink-0 truncate text-muted-foreground md:block',
+	role: 'w-20 shrink-0 text-muted-foreground',
+	date: 'w-24 shrink-0 text-right text-muted-foreground tabular-nums',
+};
+
+// A row on the rows' text line, reaching into the gutter as a RowList's rows do.
+const ROW = 'bleed flex h-10 items-center gap-3 text-sm';
+
+// What a row's menu is about: the member, and whether they are being removed or are leaving.
+type Pending = {member: Member; action: 'remove' | 'leave'};
+
+// What the api said went wrong, in its words where it has them.
+function failureOf(error: FetchError): string {
+	const said = error.kind === 'http' ? apiMessage(error.body) : null;
+	return said ?? describeFetchError(error);
+}
+
+// The people in the organization open, and the invitations not taken up yet. Its owner, whoever
+// made it, invites and removes, and deletes it rather than leaving; members leave. Roles never
+// change.
+export function MembersPage() {
+	const {members, invitations} = useLoaderData<typeof membersLoader>();
+	const human = useHuman();
+	const navigate = useNavigate();
+	const revalidator = useRevalidator();
+	const [inviting, setInviting] = useState(false);
+	const [pending, setPending] = useState<Pending | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	if (!human) {
+		return null;
+	}
+
+	const org = activeOrgOf(human);
+	const owner = human.org.role === 'owner';
+	const nameOf = (member: Member) => member.name ?? member.email;
+	const apply = async (change: Promise<Result<unknown, FetchError>>) => {
+		const result = await change;
+		if (result.isErr()) {
+			setError(failureOf(result.error));
+			return;
+		}
+		setError(null);
+		await revalidator.revalidate();
+	};
+
+	return (
+		<AppShell
+			title={
+				<PageTitle detail={`${members.length} ${members.length === 1 ? 'member' : 'members'}`}>
+					<span className="flex items-center gap-2">
+						<OrgTile org={org} />
+						{org.name}
+					</span>
+				</PageTitle>
+			}
+			actions={
+				owner && (
+					<Button size="sm" onClick={() => setInviting(true)}>
+						<MailPlusIcon data-icon="inline-start" />
+						Invite
+					</Button>
+				)
+			}
+		>
+			<div className="flex flex-col gap-8">
+				{error && <p className="text-sm text-destructive">{error}</p>}
+				<Section title="Members">
+					<RowList
+						header={
+							<RowHeader>
+								<span className="size-5 shrink-0" />
+								<span className="min-w-0 flex-1">Name</span>
+								<span className={CELLS.email}>Email</span>
+								<span className={CELLS.role}>Role</span>
+								<span className={CELLS.date}>Joined</span>
+								<span className="size-8 shrink-0" />
+							</RowHeader>
+						}
+					>
+						{members.map((member) => {
+							const you = member.userId === human.user.id;
+							return (
+								<li key={member.userId} className={ROW}>
+									<Initial name={nameOf(member)} />
+									<span className="min-w-0 flex-1 truncate">
+										{nameOf(member)}
+										{you && <span className="text-muted-foreground"> · You</span>}
+									</span>
+									<span className={CELLS.email}>{member.email}</span>
+									<span className={CELLS.role}>{member.role === 'owner' ? 'Owner' : 'Member'}</span>
+									<span className={CELLS.date}>{formatDate(member.joinedAt)}</span>
+									<MemberMenu
+										you={you}
+										name={nameOf(member)}
+										owner={owner}
+										onRemove={() => setPending({member, action: you ? 'leave' : 'remove'})}
+									/>
+								</li>
+							);
+						})}
+					</RowList>
+				</Section>
+				{invitations.length > 0 && (
+					<Section title="Invitations" detail={invitations.length}>
+						<RowList
+							header={
+								<RowHeader>
+									<span className="size-5 shrink-0" />
+									<span className="min-w-0 flex-1">Email</span>
+									<span className={CELLS.email}>Invited by</span>
+									<span className={CELLS.date}>Expires</span>
+									<span className="size-8 shrink-0" />
+								</RowHeader>
+							}
+						>
+							{invitations.map((invitation) => (
+								<li key={invitation.id} className={ROW}>
+									<Initial name={invitation.email} muted />
+									<span className="min-w-0 flex-1 truncate">{invitation.email}</span>
+									<span className={CELLS.email}>{invitation.invitedBy ?? 'A former member'}</span>
+									<span className={CELLS.date}>{formatDate(invitation.expiresAt)}</span>
+									{owner ? (
+										<IconButton
+											label={`Revoke the invitation to ${invitation.email}`}
+											onClick={() => void apply(revokeInvitation(org.id, invitation.id))}
+										>
+											<XIcon />
+										</IconButton>
+									) : (
+										<span className="size-8 shrink-0" />
+									)}
+								</li>
+							))}
+						</RowList>
+					</Section>
+				)}
+				<p className="text-sm text-muted-foreground">
+					Everyone in {org.name} works with its connections, agents and activity. Its owner invites
+					people and removes members.
+				</p>
+			</div>
+			<InviteDialog
+				key={String(inviting)}
+				open={inviting}
+				orgName={org.name}
+				onClose={() => setInviting(false)}
+				onInvite={async (email) => {
+					const result = await inviteMember(org.id, email);
+					if (result.isErr()) {
+						return failureOf(result.error);
+					}
+					await revalidator.revalidate();
+					return null;
+				}}
+			/>
+			<ConfirmDialog
+				open={pending?.action === 'remove'}
+				title={pending ? `Remove ${nameOf(pending.member)}?` : ''}
+				description={
+					pending
+						? `${nameOf(pending.member)} loses ${org.name} at once: its connections, agents and activity are no longer theirs to see or use.`
+						: ''
+				}
+				confirmLabel="Remove"
+				destructive
+				onClose={() => setPending(null)}
+				onConfirm={() => {
+					if (!pending) {
+						return;
+					}
+					void apply(removeMember(org.id, pending.member.userId));
+				}}
+			/>
+			<ConfirmDialog
+				open={pending?.action === 'leave'}
+				title={`Leave ${org.name}?`}
+				description={`You lose ${org.name} at once: its connections, agents and activity are no longer yours to see or use. Its owner can invite you again.`}
+				confirmLabel="Leave"
+				destructive
+				onClose={() => setPending(null)}
+				onConfirm={async () => {
+					const result = await leaveOrg(org.id);
+					if (result.isErr()) {
+						setError(failureOf(result.error));
+						return;
+					}
+					await navigate(`/connections?left=${encodeURIComponent(org.name)}`);
+					await revalidator.revalidate();
+				}}
+			/>
+		</AppShell>
+	);
+}
+
+// A member's actions: leaving for a member themselves, and removing for the owner looking at
+// someone else. The owner has none for themselves: they delete the organization in Settings. A
+// space where there are none, so the columns stay lined up.
+function MemberMenu({
+	you,
+	name,
+	owner,
+	onRemove,
+}: {
+	you: boolean;
+	name: string;
+	owner: boolean;
+	onRemove: () => void;
+}) {
+	if (you === owner) {
+		return <span className="size-8 shrink-0" />;
+	}
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				render={<Button variant="ghost" size="icon-sm" aria-label={`Actions for ${name}`} />}
+			>
+				<EllipsisIcon />
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end" className="w-48">
+				{you ? (
+					<DropdownMenuItem variant="destructive" onClick={onRemove}>
+						<LogOutIcon />
+						Leave…
+					</DropdownMenuItem>
+				) : (
+					<DropdownMenuItem variant="destructive" onClick={onRemove}>
+						<Trash2Icon />
+						Remove…
+					</DropdownMenuItem>
+				)}
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
+// A person's mark: the first letter of their name, on a round tile the size of a logo.
+function Initial({name, muted = false}: {name: string; muted?: boolean}) {
+	return (
+		<span
+			aria-hidden
+			className={
+				muted
+					? 'flex size-5 shrink-0 items-center justify-center rounded-full border border-dashed text-xs text-muted-foreground'
+					: 'flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs'
+			}
+		>
+			{name.slice(0, 1).toUpperCase()}
+		</span>
+	);
+}
+
+function InviteDialog({
+	open,
+	orgName,
+	onClose,
+	onInvite,
+}: {
+	open: boolean;
+	orgName: string;
+	onClose: () => void;
+	// Sends it; what went wrong, shown in the dialog, or null once it is sent.
+	onInvite: (email: string) => Promise<string | null>;
+}) {
+	const [email, setEmail] = useState('');
+	const [error, setError] = useState<string | null>(null);
+	const [sending, setSending] = useState(false);
+	const ready = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+	return (
+		<Dialog
+			open={open}
+			onOpenChange={(next) => {
+				if (next) {
+					return;
+				}
+				onClose();
+			}}
+		>
+			<DialogContent>
+				<form
+					className="grid gap-4"
+					onSubmit={async (event) => {
+						event.preventDefault();
+						if (!ready) {
+							return;
+						}
+						setSending(true);
+						const failed = await onInvite(email.trim());
+						setSending(false);
+						setError(failed);
+						if (failed === null) {
+							onClose();
+						}
+					}}
+				>
+					<DialogHeader>
+						<DialogTitle>Invite to {orgName}</DialogTitle>
+						<DialogDescription>
+							They get a link by email that signs them in and adds them as a member, working with
+							everything connected in {orgName}.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="grid gap-2">
+						<Label htmlFor="invite-email">Email</Label>
+						<Input
+							id="invite-email"
+							type="email"
+							autoFocus
+							autoComplete="off"
+							placeholder="name@company.com"
+							value={email}
+							onChange={(event) => setEmail(event.target.value)}
+						/>
+					</div>
+					{error && <p className="text-sm text-destructive">{error}</p>}
+					<DialogFooter>
+						<Button type="button" variant="outline" onClick={onClose}>
+							Cancel
+						</Button>
+						<Button type="submit" disabled={!ready || sending}>
+							{sending ? 'Sending…' : 'Send invitation'}
+						</Button>
+					</DialogFooter>
+				</form>
+			</DialogContent>
+		</Dialog>
+	);
+}

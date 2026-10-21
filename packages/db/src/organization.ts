@@ -1,8 +1,8 @@
 import {Prisma} from '@prisma/client';
 
-import type {Result} from 'ts-results-es';
+import {Err, type Result} from 'ts-results-es';
 
-import {type ApiError, wrapDb} from '@proxy/utils';
+import {ApiErr, type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
 
@@ -81,33 +81,226 @@ export function isSlugUniqueConflict(error: ApiError): boolean {
 	return Array.isArray(target) && target.includes('slug');
 }
 
-/**
- * The organization a user works in. Every user has exactly one, made at sign-up; `Ok(null)` means
- * the user is gone.
- */
-export async function getUserOrgId(userId: string): Promise<Result<string | null, ApiError>> {
-	return (
-		await wrapDb(() =>
-			db.orgMember.findFirst({where: {userId}, select: {orgId: true}, orderBy: {createdAt: 'asc'}}),
-		)
-	).map((member) => member?.orgId ?? null);
+// A person's place in an organization: its owner (`Organization.ownerUserId`), or a member.
+export type OrgRole = 'owner' | 'member';
+
+function roleOf(userId: string, org: {ownerUserId: string}): OrgRole {
+	return org.ownerUserId === userId ? 'owner' : 'member';
 }
 
-export type UserOrganization = {id: string; onboardedAt: Date | null};
+// The membership a user works in: `preferred`, the organization their session has open, while they
+// are a member of it, else the first one they joined.
+async function workingMembership<S extends Prisma.OrgMemberSelect>(
+	userId: string,
+	preferred: string | null,
+	select: S,
+) {
+	const open = preferred
+		? await db.orgMember.findFirst({where: {userId, orgId: preferred}, select})
+		: null;
+	return open ?? db.orgMember.findFirst({where: {userId}, select, orderBy: {createdAt: 'asc'}});
+}
 
-/** The user's organization with whether it has been through the welcome flow; `Ok(null)` means the user is gone. */
+/**
+ * The organization a user works in: `preferred`, the one their session has open, while they are a
+ * member of it, else the first one they joined. `Ok(null)` means they are in none: the user is gone.
+ */
+export async function getUserOrgId(
+	userId: string,
+	preferred: string | null = null,
+): Promise<Result<string | null, ApiError>> {
+	return (await wrapDb(() => workingMembership(userId, preferred, {orgId: true}))).map(
+		(member) => member?.orgId ?? null,
+	);
+}
+
+export type UserOrganization = {id: string; name: string; role: OrgRole; onboardedAt: Date | null};
+
+/**
+ * The organization a user works in, as `getUserOrgId` picks it, with their role there and whether
+ * it has been through the welcome flow; `Ok(null)` means they are in none.
+ */
 export async function getUserOrganization(
 	userId: string,
+	preferred: string | null = null,
 ): Promise<Result<UserOrganization | null, ApiError>> {
 	return (
 		await wrapDb(() =>
-			db.orgMember.findFirst({
-				where: {userId},
-				select: {org: {select: {id: true, onboardedAt: true}}},
-				orderBy: {createdAt: 'asc'},
+			workingMembership(userId, preferred, {
+				org: {select: {id: true, name: true, onboardedAt: true, ownerUserId: true}},
 			}),
 		)
-	).map((member) => member?.org ?? null);
+	).map((member) => {
+		if (!member) {
+			return null;
+		}
+		const {ownerUserId, ...org} = member.org;
+		return {...org, role: roleOf(userId, {ownerUserId})};
+	});
+}
+
+/** The person's role in an organization; `Ok(null)` when they aren't a member of it. */
+export async function getMembership(
+	userId: string,
+	orgId: string,
+): Promise<Result<{role: OrgRole} | null, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.orgMember.findUnique({
+				where: {orgId_userId: {orgId, userId}},
+				select: {org: {select: {ownerUserId: true}}},
+			}),
+		)
+	).map((member) => (member ? {role: roleOf(userId, member.org)} : null));
+}
+
+export type UserOrgRow = {
+	id: string;
+	name: string;
+	role: OrgRole;
+	memberCount: number;
+	// Invitations not taken up yet, expired ones included.
+	invitationCount: number;
+};
+
+/**
+ * The organizations the person is a member of, the first one joined first, with how many members
+ * and invitations each has.
+ */
+export async function listUserOrgs(userId: string): Promise<Result<UserOrgRow[], ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.orgMember.findMany({
+				where: {userId},
+				orderBy: {createdAt: 'asc'},
+				select: {
+					org: {
+						select: {
+							id: true,
+							name: true,
+							ownerUserId: true,
+							_count: {select: {members: true, invitations: true}},
+						},
+					},
+				},
+			}),
+		)
+	).map((memberships) =>
+		memberships.map(({org}) => ({
+			id: org.id,
+			name: org.name,
+			role: roleOf(userId, org),
+			memberCount: org._count.members,
+			invitationCount: org._count.invitations,
+		})),
+	);
+}
+
+const MAX_SLUG_ATTEMPTS = 5;
+
+/**
+ * A new organization, the person its owner, with its vault as a sign-up's organization has it. It
+ * has been through the welcome flow from the start: that is the first organization's. Retries
+ * when a parallel creation took the slug.
+ */
+export async function createOrganization(data: {
+	userId: string;
+	name: string;
+}): Promise<Result<{id: string; name: string}, ApiError>> {
+	const {userId, name} = data;
+	const base = buildBaseSlug(name);
+	for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
+		const result = await wrapDb(() =>
+			db.$transaction(async (tx) => {
+				const slug = await pickAvailableSlugDatabase(tx, base);
+				const org = await tx.organization.create({
+					data: {name, slug, ownerUserId: userId, onboardedAt: new Date()},
+					select: {id: true, name: true},
+				});
+				await tx.orgMember.create({data: {orgId: org.id, userId}});
+				await tx.connection.create({
+					data: {
+						orgId: org.id,
+						integrationId: 'vault',
+						account: name,
+						defaults: {create: [{actionId: 'readEntries'}, {actionId: 'writeEntries'}]},
+					},
+				});
+				return org;
+			}),
+		);
+		if (result.isOk() || !isSlugUniqueConflict(result.error)) {
+			return result;
+		}
+	}
+	return Err(ApiErr.dbError(new Error(`Slug conflict retries exhausted for base "${base}"`)));
+}
+
+export async function renameOrganization(
+	orgId: string,
+	name: string,
+): Promise<Result<void, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.organization.update({where: {id: orgId}, data: {name}, select: {id: true}}),
+		)
+	).map(() => undefined);
+}
+
+export type MemberRow = {
+	userId: string;
+	name: string | null;
+	email: string;
+	image: string | null;
+	role: OrgRole;
+	joinedAt: Date;
+};
+
+/** The organization's members, the first one joined first. */
+export async function listMembers(orgId: string): Promise<Result<MemberRow[], ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.orgMember.findMany({
+				where: {orgId},
+				orderBy: {createdAt: 'asc'},
+				select: {
+					createdAt: true,
+					org: {select: {ownerUserId: true}},
+					user: {select: {id: true, name: true, email: true, image: true}},
+				},
+			}),
+		)
+	).map((members) =>
+		members.map(({createdAt, org, user}) => ({
+			userId: user.id,
+			name: user.name,
+			email: user.email,
+			image: user.image,
+			role: roleOf(user.id, org),
+			joinedAt: createdAt,
+		})),
+	);
+}
+
+/** Takes a person out of an organization. The caller has checked they aren't its owner. */
+export async function removeMembership(data: {
+	orgId: string;
+	userId: string;
+}): Promise<Result<void, ApiError>> {
+	const {orgId, userId} = data;
+	return (await wrapDb(() => db.orgMember.deleteMany({where: {orgId, userId}}))).map(
+		() => undefined,
+	);
+}
+
+/**
+ * Deletes an organization; the cascades take its memberships, connections, vault, agents,
+ * invitations and activity. The caller has undone its connections at their providers first.
+ */
+export async function deleteOrganization(orgId: string): Promise<Result<void, ApiError>> {
+	return (await wrapDb(() => db.organization.deleteMany({where: {id: orgId}}))).map(
+		() => undefined,
+	);
 }
 
 /** Marks the welcome flow done, once: a second finish keeps the first time. */

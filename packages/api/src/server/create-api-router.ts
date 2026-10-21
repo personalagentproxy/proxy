@@ -39,6 +39,19 @@ import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnect
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
 import {handleDeleteMeRoute, handleFinishOnboardingRoute, handleMeRoute} from '../me/route';
+import {handleAcceptInvitationRoute, handleGetInvitationRoute} from '../orgs/invitation-link';
+import {
+	handleCreateOrgRoute,
+	handleDeleteOrgRoute,
+	handleInviteRoute,
+	handleLeaveOrgRoute,
+	handleListMembersRoute,
+	handleListOrgsRoute,
+	handleRemoveMemberRoute,
+	handleRenameOrgRoute,
+	handleRevokeInvitationRoute,
+	handleSetActiveOrgRoute,
+} from '../orgs/route';
 import {handleAuthorizeRoute, handleConsentRoute, handleGetAuthorizationRequestRoute} from '../oauth/authorize';
 import {handleAuthorizationServerMetadataRoute, handleProtectedResourceMetadataRoute} from '../oauth/metadata';
 import {handleRegisterClientRoute} from '../oauth/register';
@@ -82,6 +95,22 @@ export function createApiRouter(): express.Router {
 	router.get('/api/me', withAuthResult('Me route', handleMeRoute));
 	router.post('/api/me/onboarded', withAuthResult('Finish onboarding route', handleFinishOnboardingRoute));
 	router.delete('/api/me', withAuth('Delete account route', handleDeleteMeRoute));
+	router.post('/api/me/active-org', withAuthResult('Set active organization route', handleSetActiveOrgRoute));
+
+	router.use('/api/orgs', requireBrowserOrigin);
+	router.get('/api/orgs', withAuthResult('List organizations route', handleListOrgsRoute));
+	router.post('/api/orgs', withAuthResult('Create organization route', handleCreateOrgRoute));
+	router.patch('/api/orgs/:orgId', withAuthResult('Rename organization route', handleRenameOrgRoute));
+	router.delete('/api/orgs/:orgId', withAuthResult('Delete organization route', handleDeleteOrgRoute));
+	router.post('/api/orgs/:orgId/leave', withAuthResult('Leave organization route', handleLeaveOrgRoute));
+	router.get('/api/orgs/:orgId/members', withAuthResult('List members route', handleListMembersRoute));
+	router.delete('/api/orgs/:orgId/members/:userId', withAuthResult('Remove member route', handleRemoveMemberRoute));
+	router.post('/api/orgs/:orgId/invitations', withAuthResult('Invite route', handleInviteRoute));
+	router.delete('/api/orgs/:orgId/invitations/:invitationId', withAuthResult('Revoke invitation route', handleRevokeInvitationRoute));
+
+	router.use('/api/invitations', requireBrowserOrigin);
+	router.get('/api/invitations/:token', withAuthResult('Get invitation route', handleGetInvitationRoute));
+	router.post('/api/invitations/:token/accept', withAuthResult('Accept invitation route', handleAcceptInvitationRoute));
 
 	router.use('/api/connections', requireBrowserOrigin);
 	router.get('/api/connections', withAuthResult('List connections route', handleListConnectionsRoute));

@@ -1,7 +1,7 @@
 import {httpRequest} from '@proxy/utils';
 import type {z} from 'zod';
 
-type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
+type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 /** A JSON call to the api with the session cookies, parsed with `schema`. */
 export function apiRequest<S extends z.ZodType>(

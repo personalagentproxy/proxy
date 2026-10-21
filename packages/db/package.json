@@ -11,6 +11,7 @@
 		"./connection": "./src/connection.ts",
 		"./feedback": "./src/feedback.ts",
 		"./vault": "./src/vault.ts",
+		"./invitation": "./src/invitation.ts",
 		"./instance-meta": "./src/instance-meta.ts",
 		"./oauth": "./src/oauth.ts",
 		"./organization": "./src/organization.ts",
