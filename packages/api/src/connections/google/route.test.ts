@@ -20,7 +20,7 @@ mock.module('@proxy/db/connection', () => ({
 
 const getUserOrgId = mock();
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId}));
+mock.module('@proxy/db/organization', () => ({getUserOrgId, getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
 mock.module('../../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
@@ -188,7 +188,7 @@ describe('handleGoogleCallbackRoute', () => {
 			code_verifier: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
 		});
 		const created = createConnection.mock.calls[0]?.[0];
-		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'google', account: 'alex@example.com', providerAccountId: '1093'});
+		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, {integrationId: 'google', account: 'alex@example.com', providerAccountId: '1093'});
 		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'google', account: 'alex@example.com', providerAccountId: '1093', defaults: []});
 		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toEqual({
 			accessToken: 'access-1',
@@ -216,7 +216,7 @@ describe('handleGoogleCallbackRoute', () => {
 		const {cookie, state} = await start();
 		await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
-		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'google', account: 'alex.kim@example.com', providerAccountId: '1093'});
+		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, {integrationId: 'google', account: 'alex.kim@example.com', providerAccountId: '1093'});
 		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0', account: 'alex.kim@example.com', providerAccountId: '1093'});
 		expect(JSON.parse(String(renewConnection.mock.calls[0]?.[0].credential).replace(/^enc:/, ''))).toMatchObject({email: 'alex.kim@example.com'});
 	});

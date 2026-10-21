@@ -38,6 +38,7 @@ model User {
   sessions     Session[]
   orgMembers   OrgMember[]
   ownedOrgs    Organization[]
+  connections  Connection[]
   writeTargets WriteTarget[]
 }
 
@@ -157,8 +158,10 @@ model Invitation {
 }
 
 // A connected account of an integration from the catalog (`@proxy/integrations`), such as a
-// mailbox. An organization can connect the same integration more than once. Every organization
-// also has one built-in vault connection, made with it, whose entries live in Personal Agent Proxy.
+// mailbox. An organization can connect the same integration more than once. A connection is either
+// one member's, which nobody else in the organization sees, or shared with every member of it; one
+// that is shared stays shared. Every member also has their own built-in vault connection in each
+// organization, made when they join it, whose entries live in Personal Agent Proxy.
 model Connection {
   id                String  @id @default(cuid())
   orgId             String
@@ -177,17 +180,26 @@ model Connection {
   // What the person called the connection, where they named it: a custom MCP server is named when
   // it is connected. Null for every other integration, which shows as its integration.
   name              String?
+  // The member whose connection it is, which nobody else in the organization sees; null for one
+  // shared with every member of it.
+  ownerUserId       String?
+  // Who connected it, kept once it is shared: who a sign-in acts as, and who may change it beside
+  // the organization's owner. A plain id rather than a relation, so a shared connection stays when
+  // they are gone.
+  connectedById     String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
   org          Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner        User?               @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   defaults     ConnectionDefault[]
   vaultEntries VaultEntry[]
   agentGrants  AgentGrant[]
   writeTargets WriteTarget[]
 
   @@index([orgId])
+  @@index([ownerUserId])
   @@index([integrationId, providerAccountId])
 }
 

@@ -22,7 +22,7 @@ mock.module('@proxy/db/connection', () => ({
 
 const getUserOrgId = mock();
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId}));
+mock.module('@proxy/db/organization', () => ({getUserOrgId, getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
 mock.module('../../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
@@ -148,7 +148,7 @@ describe('handleGranolaCallbackRoute', () => {
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
 		expect(createConnection).not.toHaveBeenCalled();
-		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'granola', account: 'alex@example.com', providerAccountId: null});
+		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, {integrationId: 'granola', account: 'alex@example.com', providerAccountId: null});
 		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-old'});
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-old');
 	});

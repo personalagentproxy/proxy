@@ -1,6 +1,6 @@
 import {Prisma} from '@prisma/client';
 
-import {Err, type Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, wrapDb} from '@proxy/utils';
 
@@ -199,9 +199,9 @@ export async function listUserOrgs(userId: string): Promise<Result<UserOrgRow[],
 const MAX_SLUG_ATTEMPTS = 5;
 
 /**
- * A new organization, the person its owner, with its vault as a sign-up's organization has it. It
- * has been through the welcome flow from the start: that is the first organization's. Retries
- * when a parallel creation took the slug.
+ * A new organization, the person its owner with their own vault there, as every member of an
+ * organization has. It has been through the welcome flow from the start: that is the first
+ * organization's. Retries when a parallel creation took the slug.
  */
 export async function createOrganization(data: {
 	userId: string;
@@ -218,14 +218,7 @@ export async function createOrganization(data: {
 					select: {id: true, name: true},
 				});
 				await tx.orgMember.create({data: {orgId: org.id, userId}});
-				await tx.connection.create({
-					data: {
-						orgId: org.id,
-						integrationId: 'vault',
-						account: name,
-						defaults: {create: [{actionId: 'readEntries'}, {actionId: 'writeEntries'}]},
-					},
-				});
+				await tx.connection.create({data: vaultFor({orgId: org.id, userId, name})});
 				return org;
 			}),
 		);
@@ -282,20 +275,69 @@ export async function listMembers(orgId: string): Promise<Result<MemberRow[], Ap
 	);
 }
 
-/** Takes a person out of an organization. The caller has checked they aren't its owner. */
+/**
+ * What members are called, their name or else their address, by organization and person, as who
+ * connected a connection is shown; someone no longer in the organization is left out.
+ */
+export async function listMemberNames(
+	members: Array<{orgId: string; userId: string}>,
+): Promise<Result<Array<{orgId: string; userId: string; name: string}>, ApiError>> {
+	if (members.length === 0) {
+		return Ok([]);
+	}
+	return (
+		await wrapDb(() =>
+			db.orgMember.findMany({
+				where: {OR: members},
+				select: {orgId: true, userId: true, user: {select: {name: true, email: true}}},
+			}),
+		)
+	).map((rows) =>
+		rows.map(({orgId, userId, user}) => ({orgId, userId, name: user.name ?? user.email})),
+	);
+}
+
+/**
+ * A member's own vault in an organization, as they get one on joining it: agents read it and keep
+ * what they learn there, unless the member says otherwise.
+ */
+export function vaultFor(data: {
+	orgId: string;
+	userId: string;
+	name: string;
+}): Prisma.ConnectionUncheckedCreateInput {
+	return {
+		orgId: data.orgId,
+		ownerUserId: data.userId,
+		connectedById: data.userId,
+		integrationId: 'vault',
+		account: data.name,
+		defaults: {create: [{actionId: 'readEntries'}, {actionId: 'writeEntries'}]},
+	};
+}
+
+/**
+ * Takes a person out of an organization: their own connections there go, with their defaults,
+ * entries and every agent's settings on them. The caller has undone the connections at their
+ * providers first, and checked they aren't its owner.
+ */
 export async function removeMembership(data: {
 	orgId: string;
 	userId: string;
 }): Promise<Result<void, ApiError>> {
 	const {orgId, userId} = data;
-	return (await wrapDb(() => db.orgMember.deleteMany({where: {orgId, userId}}))).map(
-		() => undefined,
-	);
+	return wrapDb(async () => {
+		await db.$transaction([
+			db.connection.deleteMany({where: {orgId, ownerUserId: userId}}),
+			db.orgMember.deleteMany({where: {orgId, userId}}),
+		]);
+	});
 }
 
 /**
- * Deletes an organization; the cascades take its memberships, connections, vault, agents,
- * invitations and activity. The caller has undone its connections at their providers first.
+ * Deletes an organization; the cascades take its memberships, connections, every member's vault
+ * there, agents, invitations and activity. The caller has undone its connections at their
+ * providers first.
  */
 export async function deleteOrganization(orgId: string): Promise<Result<void, ApiError>> {
 	return (await wrapDb(() => db.organization.deleteMany({where: {id: orgId}}))).map(

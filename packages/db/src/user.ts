@@ -9,6 +9,7 @@ import {
 	isSlugUniqueConflict,
 	pickAvailableSlugDatabase,
 	planPersonalOrgIdentity,
+	vaultFor,
 } from './organization';
 
 export type CreatedUser = {id: string; email: string; name: string | null};
@@ -33,7 +34,7 @@ export async function getUserByEmail(email: string): Promise<Result<CreatedUser 
 
 /**
  * Creates the user together with their first organization, which they own, their membership and
- * the organization's vault connection, in one transaction, so no user exists without them. Retries when a parallel sign-up took the slug.
+ * their own vault there, in one transaction, so no user exists without them. Retries when a parallel sign-up took the slug.
  * Every sign-up comes through the sign-in page, past its notice of the terms, so the terms count as
  * accepted from the start.
  */
@@ -56,15 +57,7 @@ async function createUserWithPersonalOrg(data: {
 				const slug = await pickAvailableSlugDatabase(tx, base);
 				const org = await tx.organization.create({data: {name, slug, ownerUserId: user.id}});
 				await tx.orgMember.create({data: {orgId: org.id, userId: user.id}});
-				// Agents read the vault and keep what they learn there, unless the person says otherwise.
-				await tx.connection.create({
-					data: {
-						orgId: org.id,
-						integrationId: 'vault',
-						account: name,
-						defaults: {create: [{actionId: 'readEntries'}, {actionId: 'writeEntries'}]},
-					},
-				});
+				await tx.connection.create({data: vaultFor({orgId: org.id, userId: user.id, name})});
 				return user;
 			}),
 		);
@@ -114,10 +107,11 @@ export async function createUser(data: {
 }
 
 /**
- * Deletes the user; the cascades take their accounts, sessions, memberships and the organizations
- * they own, with those organizations' connections, vault, agents, other members and activity.
- * Sign-in links still waiting for their address go too. The caller has taken them out of every
- * other organization first.
+ * Deletes the user; the cascades take their accounts, sessions, memberships, their own connections
+ * everywhere and the organizations they own, with those organizations' connections, vaults,
+ * agents, other members and activity. Sign-in links still waiting for their address go too. The
+ * caller has undone their connections at their providers and taken them out of every other
+ * organization first.
  */
 export async function deleteUser(userId: string): Promise<Result<void, ApiError>> {
 	return wrapDb(() =>

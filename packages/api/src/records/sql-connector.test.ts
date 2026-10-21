@@ -34,7 +34,22 @@ function target(integrationId: 'postgres' | 'mysql', collectionId: string): Reco
 	if (!collection) {
 		throw new Error(`No ${collectionId} in ${integrationId}`);
 	}
-	return {connection: {id: 'conn-1', integrationId, account: 'reader@db.example.com/app', createdAt: new Date(), tools: null, name: null, defaults: [], credential: 'stored'}, collection};
+	return {
+		connection: {
+			id: 'conn-1',
+			integrationId,
+			orgId: 'org-1',
+			ownerUserId: 'user-1',
+			connectedById: 'user-1',
+			account: 'reader@db.example.com/app',
+			createdAt: new Date(),
+			tools: null,
+			name: null,
+			defaults: [],
+			credential: 'stored',
+		},
+		collection,
+	};
 }
 
 const userColumns = [

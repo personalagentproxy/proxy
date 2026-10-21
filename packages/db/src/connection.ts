@@ -4,10 +4,19 @@ import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
 
+// Who is looking at an organization's connections: they see the ones shared with every member of
+// it and their own, never another member's.
+export type Viewer = {orgId: string; userId: string};
+
 export type ConnectionRow = {
 	id: string;
+	orgId: string;
 	integrationId: string;
 	account: string;
+	// The member whose connection it is; null when it is shared with every member.
+	ownerUserId: string | null;
+	// Who connected it, kept once it is shared.
+	connectedById: string | null;
 	createdAt: Date;
 	// A custom MCP server's tools as JSON, the server's own list; null for every other integration.
 	tools: string | null;
@@ -21,18 +30,26 @@ export type ConnectionRow = {
 // `getConnectionCredential` read it.
 const connectionSelect = {
 	id: true,
+	orgId: true,
 	integrationId: true,
 	account: true,
+	ownerUserId: true,
+	connectedById: true,
 	createdAt: true,
 	tools: true,
 	name: true,
 	defaults: {select: {actionId: true}},
 } as const;
 
-export async function listConnections(orgId: string): Promise<Result<ConnectionRow[], ApiError>> {
+// The connections a viewer sees: the organization's shared ones and their own.
+function visibleTo(viewer: Viewer) {
+	return {orgId: viewer.orgId, OR: [{ownerUserId: null}, {ownerUserId: viewer.userId}]};
+}
+
+export async function listConnections(viewer: Viewer): Promise<Result<ConnectionRow[], ApiError>> {
 	return wrapDb(() =>
 		db.connection.findMany({
-			where: {orgId},
+			where: visibleTo(viewer),
 			select: connectionSelect,
 			orderBy: {createdAt: 'asc'},
 		}),
@@ -40,10 +57,53 @@ export async function listConnections(orgId: string): Promise<Result<ConnectionR
 }
 
 /**
- * The organization's connections with their encrypted credentials, for what a sign-in covered,
+ * The connections the viewer sees with their encrypted credentials, for what a sign-in covered,
  * which the api reads from them.
  */
 export async function listConnectionsWithCredential(
+	viewer: Viewer,
+): Promise<Result<Array<ConnectionRow & {credential: string | null}>, ApiError>> {
+	return wrapDb(() =>
+		db.connection.findMany({
+			where: visibleTo(viewer),
+			select: {...connectionSelect, credential: true},
+			orderBy: {createdAt: 'asc'},
+		}),
+	);
+}
+
+/** `Ok(null)` means no such connection the viewer sees. */
+export async function getConnection(
+	viewer: Viewer,
+	connectionId: string,
+): Promise<Result<ConnectionRow | null, ApiError>> {
+	return wrapDb(() =>
+		db.connection.findFirst({
+			where: {id: connectionId, ...visibleTo(viewer)},
+			select: connectionSelect,
+		}),
+	);
+}
+
+/** The connection with its encrypted credential, for the code that talks to the provider. */
+export async function getConnectionWithCredential(
+	viewer: Viewer,
+	connectionId: string,
+): Promise<Result<(ConnectionRow & {credential: string | null}) | null, ApiError>> {
+	return wrapDb(() =>
+		db.connection.findFirst({
+			where: {id: connectionId, ...visibleTo(viewer)},
+			select: {...connectionSelect, credential: true},
+		}),
+	);
+}
+
+/**
+ * Every connection of an organization, whoever's it is, with its credential: for undoing them at
+ * their providers before the organization is deleted, and, until agents are a member's own or
+ * shared, for what an organization's agents reach.
+ */
+export async function listOrgConnectionsWithCredential(
 	orgId: string,
 ): Promise<Result<Array<ConnectionRow & {credential: string | null}>, ApiError>> {
 	return wrapDb(() =>
@@ -55,18 +115,8 @@ export async function listConnectionsWithCredential(
 	);
 }
 
-/** `Ok(null)` means no such connection in the organization. */
-export async function getConnection(
-	orgId: string,
-	connectionId: string,
-): Promise<Result<ConnectionRow | null, ApiError>> {
-	return wrapDb(() =>
-		db.connection.findFirst({where: {id: connectionId, orgId}, select: connectionSelect}),
-	);
-}
-
-/** The connection with its encrypted credential, for the code that talks to the provider. */
-export async function getConnectionWithCredential(
+/** One connection of an organization, whoever's it is, with its credential; `Ok(null)` for none. */
+export async function getOrgConnectionWithCredential(
 	orgId: string,
 	connectionId: string,
 ): Promise<Result<(ConnectionRow & {credential: string | null}) | null, ApiError>> {
@@ -76,6 +126,30 @@ export async function getConnectionWithCredential(
 			select: {...connectionSelect, credential: true},
 		}),
 	);
+}
+
+/**
+ * A member's own connections in an organization, with their credentials: for undoing them at their
+ * providers before they leave it.
+ */
+export async function listOwnConnectionsWithCredential(data: {
+	orgId: string;
+	userId: string;
+}): Promise<Result<Array<ConnectionRow & {credential: string | null}>, ApiError>> {
+	return wrapDb(() =>
+		db.connection.findMany({
+			where: {orgId: data.orgId, ownerUserId: data.userId},
+			select: {...connectionSelect, credential: true},
+			orderBy: {createdAt: 'asc'},
+		}),
+	);
+}
+
+/** Shares a connection with every member of its organization, for good: nothing makes it one member's own again. */
+export async function shareConnection(connectionId: string): Promise<Result<void, ApiError>> {
+	return wrapDb(async () => {
+		await db.connection.update({where: {id: connectionId}, data: {ownerUserId: null}});
+	});
 }
 
 /** A connection's encrypted credential as it is now, `null` once the connection is gone. */
@@ -91,10 +165,13 @@ export async function getConnectionCredential(
 /**
  * `credential` is already encrypted; this package never sees it in the clear. `defaults` are the
  * actions agents get from the start, none when left out; `tools` a custom MCP server's, as JSON,
- * and `name` what the person called it.
+ * and `name` what the person called it. `ownerUserId` is who it is for, null to share it with every
+ * member, and `connectedById` who connected it.
  */
 export async function createConnection(data: {
 	orgId: string;
+	ownerUserId: string | null;
+	connectedById: string;
 	integrationId: string;
 	account: string;
 	providerAccountId?: string | null;
@@ -113,29 +190,28 @@ export async function createConnection(data: {
 }
 
 /**
- * The organization's connection of an integration for an account, signed in to again: by the
- * provider's own id for the account where it gives one, else by its address, which is also how a
- * connection made before ids were kept is found.
+ * The connection of an integration for an account among those the viewer sees, signed in to again:
+ * by the provider's own id for the account where it gives one, else by its address, which is also
+ * how a connection made before ids were kept is found. Another member's own connection of the same
+ * account is never found: it is theirs.
  */
-export async function findAccountConnection(data: {
-	orgId: string;
-	integrationId: string;
-	account: string;
-	providerAccountId: string | null;
-}): Promise<Result<ConnectionRow | null, ApiError>> {
-	const {orgId, integrationId, account, providerAccountId} = data;
+export async function findAccountConnection(
+	viewer: Viewer,
+	data: {integrationId: string; account: string; providerAccountId: string | null},
+): Promise<Result<ConnectionRow | null, ApiError>> {
+	const {integrationId, account, providerAccountId} = data;
 	return wrapDb(async () => {
 		const byId =
 			providerAccountId === null
 				? null
 				: await db.connection.findFirst({
-						where: {orgId, integrationId, providerAccountId},
+						where: {...visibleTo(viewer), integrationId, providerAccountId},
 						select: connectionSelect,
 					});
 		return (
 			byId ??
 			db.connection.findFirst({
-				where: {orgId, integrationId, account, providerAccountId: null},
+				where: {...visibleTo(viewer), integrationId, account, providerAccountId: null},
 				select: connectionSelect,
 			})
 		);
@@ -230,19 +306,19 @@ export async function countSameAccountConnections(
 	});
 }
 
-/** `Ok(false)` means no such connection in the organization. Its defaults go with it. */
+/** `Ok(false)` means no such connection the viewer sees. Its defaults go with it. */
 export async function deleteConnection(
-	orgId: string,
+	viewer: Viewer,
 	connectionId: string,
 ): Promise<Result<boolean, ApiError>> {
-	return (await wrapDb(() => db.connection.deleteMany({where: {id: connectionId, orgId}}))).map(
-		({count}) => count > 0,
-	);
+	return (
+		await wrapDb(() => db.connection.deleteMany({where: {id: connectionId, ...visibleTo(viewer)}}))
+	).map(({count}) => count > 0);
 }
 
 /**
  * Turns default actions of a connection on or off; actions left out stay as they are. The caller
- * has checked that the connection belongs to the organization and the actions to its integration.
+ * has checked that the viewer sees the connection and the actions belong to its integration.
  */
 export async function setConnectionDefaults(data: {
 	connectionId: string;

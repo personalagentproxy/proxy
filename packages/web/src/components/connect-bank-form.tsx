@@ -96,9 +96,12 @@ function usePlaidLinkFlow({
 // then the api keeps the login as a new connection. `cancel` sits beside the button.
 export function ConnectBankForm({
 	cancel,
+	shared = false,
 	onConnected,
 }: {
 	cancel?: ReactNode;
+	// For every member of the organization rather than the person's own.
+	shared?: boolean;
 	onConnected: (connection: Connection) => void;
 }) {
 	const {start, pending, error, link} = usePlaidLinkFlow({
@@ -106,7 +109,7 @@ export function ConnectBankForm({
 			if (publicToken === null) {
 				return 'Plaid didn’t answer with the bank’s login. Try again.';
 			}
-			const result = await connectPlaid(publicToken);
+			const result = await connectPlaid(publicToken, shared);
 			if (result.isErr()) {
 				return plaidErrorMessage(result.error);
 			}

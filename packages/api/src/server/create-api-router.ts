@@ -35,7 +35,14 @@ import {keyConnectRoute, mcpConnectRoutes} from '../connections/mcp/mcp-connect'
 import {handleConnectMysqlRoute, handleTestMysqlRoute} from '../connections/mysql/route';
 import {handleConnectPlaidRoute, handleCreatePlaidLinkTokenRoute} from '../connections/plaid/route';
 import {handleConnectPostgresRoute, handleTestPostgresRoute} from '../connections/postgres/route';
-import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleRenameConnectionRoute, handleSetConnectionDefaultsRoute} from '../connections/route';
+import {
+	handleDeleteConnectionRoute,
+	handleGetConnectionRoute,
+	handleListConnectionsRoute,
+	handleRenameConnectionRoute,
+	handleSetConnectionDefaultsRoute,
+	handleShareConnectionRoute,
+} from '../connections/route';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
 import {handleDeleteMeRoute, handleFinishOnboardingRoute, handleMeRoute} from '../me/route';
@@ -141,6 +148,7 @@ export function createApiRouter(): express.Router {
 	router.delete('/api/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
 	router.put('/api/connections/:connectionId/defaults', withAuthResult('Set connection defaults route', handleSetConnectionDefaultsRoute));
 	router.put('/api/connections/:connectionId/name', withAuthResult('Rename connection route', handleRenameConnectionRoute));
+	router.post('/api/connections/:connectionId/share', withAuthResult('Share connection route', handleShareConnectionRoute));
 	router.post('/api/connections/:connectionId/tools', withAuthResult('Refresh custom MCP server tools route', handleRefreshCustomMcpToolsRoute));
 	const records = '/api/connections/:connectionId/collections/:collectionId/records';
 	router.get(records, withAuthResult('List records route', handleListRecordsRoute));

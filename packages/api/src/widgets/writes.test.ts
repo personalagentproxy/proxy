@@ -19,7 +19,7 @@ mock.module('../utils/env', () => ({env: {NODE_ENV: 'test'}}));
 mock.module('./sources', () => ({requireWritable, requireReadable, findSources: mock(), summarize: mock()}));
 mock.module('./mail-replies', () => ({replierFor}));
 mock.module('./writes', () => ({afterWrite}));
-mock.module('../utils/user-org', () => ({requireUserOrgId: async () => Ok('org-1')}));
+mock.module('../utils/user-org', () => ({requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1'}), requireUserOrgId: async () => Ok('org-1')}));
 
 const events = findCollection(findIntegration('google') ?? {collections: []}, 'events');
 const source = {connection: {id: 'work'}, collection: events, connector: {create, get, update, newCommands: {sendNew}}};
@@ -45,7 +45,7 @@ describe('handleCreateEventRoute', () => {
 
 		const made = await handleCreateEventRoute(request({...event, guests: ['jacky@example.com', 'sam@example.com']}));
 		expect(made.unwrap()).toEqual({title: 'Lunch', link: 'https://calendar.google.com/e1'});
-		expect(requireWritable).toHaveBeenCalledWith('org-1', 'work', 'events', 'create', ['title', 'start', 'end', 'location', 'guests']);
+		expect(requireWritable).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'work', 'events', 'create', ['title', 'start', 'end', 'location', 'guests']);
 		expect(create).toHaveBeenCalledWith(source, {title: 'Lunch', start: event.start, end: event.end, location: 'Nopa', guests: 'jacky@example.com, sam@example.com'}, 'team');
 		expect(afterWrite).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1', source, action: 'create', title: 'Lunch', parent: 'team'});
 	});
@@ -54,7 +54,7 @@ describe('handleCreateEventRoute', () => {
 		const {handleCreateEventRoute} = await import('./new-event');
 
 		await handleCreateEventRoute(request(event));
-		expect(requireWritable).toHaveBeenCalledWith('org-1', 'work', 'events', 'create', ['title', 'start', 'end', 'location']);
+		expect(requireWritable).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'work', 'events', 'create', ['title', 'start', 'end', 'location']);
 	});
 
 	test('writes nothing and logs nothing when refused', async () => {
@@ -82,7 +82,7 @@ describe('handleWriteEmailRoute', () => {
 		const {handleWriteEmailRoute} = await import('./emails');
 
 		expect((await handleWriteEmailRoute(request({...email, send: true}))).unwrap()).toEqual({sent: true});
-		expect(requireWritable).toHaveBeenCalledWith('org-1', 'work', 'emails', 'sendNew', ['to', 'subject', 'body']);
+		expect(requireWritable).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'work', 'emails', 'sendNew', ['to', 'subject', 'body']);
 		expect(sendNew).toHaveBeenCalledWith(source, {to: 'jacky@example.com', subject: 'Lunch', body: 'Tuesday?'});
 		expect(create).not.toHaveBeenCalled();
 		expect(afterWrite).toHaveBeenCalledWith(expect.objectContaining({action: 'sendNew', title: 'Lunch', parent: null}));
@@ -92,7 +92,7 @@ describe('handleWriteEmailRoute', () => {
 		const {handleWriteEmailRoute} = await import('./emails');
 
 		expect((await handleWriteEmailRoute(request({...email, send: false}))).unwrap()).toEqual({sent: false});
-		expect(requireWritable).toHaveBeenCalledWith('org-1', 'work', 'emails', 'create', ['to', 'subject', 'body']);
+		expect(requireWritable).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'work', 'emails', 'create', ['to', 'subject', 'body']);
 		expect(create).toHaveBeenCalledWith(source, {to: 'jacky@example.com', subject: 'Lunch', body: 'Tuesday?'}, null);
 		expect(sendNew).not.toHaveBeenCalled();
 	});
@@ -111,8 +111,8 @@ describe('handleReplyEmailRoute', () => {
 		const {handleReplyEmailRoute} = await import('./emails');
 
 		expect((await handleReplyEmailRoute(request({...answer, send: true}))).unwrap()).toEqual({sent: true});
-		expect(requireWritable).toHaveBeenCalledWith('org-1', 'work', 'emails', 'sendNew', ['to', 'subject', 'body']);
-		expect(requireReadable).toHaveBeenCalledWith('org-1', 'work', 'emails');
+		expect(requireWritable).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'work', 'emails', 'sendNew', ['to', 'subject', 'body']);
+		expect(requireReadable).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'work', 'emails');
 		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: true});
 		// The mailbox is the email's, so none is picked for the next new email.
 		expect(afterWrite).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1', source, action: 'sendNew', title: 'Re: Invoice', parent: undefined});
@@ -122,7 +122,7 @@ describe('handleReplyEmailRoute', () => {
 		const {handleReplyEmailRoute} = await import('./emails');
 
 		expect((await handleReplyEmailRoute(request({...answer, send: false}))).unwrap()).toEqual({sent: false});
-		expect(requireWritable).toHaveBeenCalledWith('org-1', 'work', 'emails', 'create', ['to', 'subject', 'body']);
+		expect(requireWritable).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'work', 'emails', 'create', ['to', 'subject', 'body']);
 		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: false});
 	});
 
@@ -169,8 +169,8 @@ describe('handleEditEventRoute', () => {
 		expect(get).toHaveBeenCalledWith(source, 'team:e1');
 		expect(update).toHaveBeenCalledWith(source, 'team:e1', {title: 'Lunch', start: moved.start, end: moved.end, location: 'Nopa', guests: 'jacky@example.com', description: 'Agenda'}, lunch);
 		// Its guests are told, which needs Invite guests too.
-		expect(requireWritable).toHaveBeenCalledWith('org-1', 'work', 'events', 'update', ['start', 'end']);
-		expect(requireWritable).toHaveBeenCalledWith('org-1', 'work', 'events', 'update', ['guests']);
+		expect(requireWritable).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'work', 'events', 'update', ['start', 'end']);
+		expect(requireWritable).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'work', 'events', 'update', ['guests']);
 		// A change picks no calendar for the next new event.
 		expect(afterWrite).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1', source, action: 'update', title: 'Lunch', parent: undefined});
 	});

@@ -10,7 +10,7 @@ mock.module('@proxy/db/connection', () => ({listConnections, createConnection}))
 
 const getUserOrgId = mock();
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId}));
+mock.module('@proxy/db/organization', () => ({getUserOrgId, getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
 const checkMailbox = mock();
 
@@ -18,11 +18,14 @@ mock.module('./mail-check', () => ({checkMailbox}));
 
 const encryptSecret = mock((plaintext: string): Result<string, ApiError> => Ok(`encrypted:${plaintext}`));
 
-mock.module('../../utils/secret-crypto', () => ({encryptSecret}));
+mock.module('../../utils/secret-crypto', () => ({encryptSecret, decryptSecret: (stored: string) => Ok(stored)}));
 
 const createdRow = {
 	id: 'conn-1',
 	integrationId: 'email',
+	orgId: 'org-1',
+	ownerUserId: 'user-1',
+	connectedById: 'user-1',
 	account: 'alex@gmail.com',
 	createdAt: new Date('2026-10-01T00:00:00Z'),
 	tools: null,
@@ -51,6 +54,8 @@ describe('handleConnectEmailRoute', () => {
 		expect(checkMailbox).toHaveBeenCalledWith(credential);
 		expect(createConnection).toHaveBeenCalledWith({
 			orgId: 'org-1',
+			ownerUserId: 'user-1',
+			connectedById: 'user-1',
 			integrationId: 'email',
 			account: 'alex@gmail.com',
 			credential: `encrypted:${JSON.stringify(credential)}`,

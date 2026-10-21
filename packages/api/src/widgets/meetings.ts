@@ -7,7 +7,7 @@ import type {IntegrationId} from '@proxy/integrations';
 import type {GranolaMeeting} from '../connections/granola/granola-mcp';
 import {getGranolaMeetings, listGranolaMeetings} from '../records/granola-connector';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {requireUserOrgId} from '../utils/user-org';
+import {requireViewer} from '../utils/user-org';
 import {requireAskExperiment} from './ask-experiment';
 import {eachSource, type Failure} from './each-source';
 import {findSources, summarize, type Source, type SourceSummary} from './sources';
@@ -168,8 +168,8 @@ export function handleFindMeetingsRoute(request: AuthenticatedRequest): Promise<
 		const query = $(parseSchema(querySchema, request.query));
 		const to = query.to ?? dayOf(Date.now() + DAY_MS);
 		const search: MeetingSearch = {from: query.from ?? dayOf(Date.parse(to) - DEFAULT_DAYS * DAY_MS), to, people: query.with, words: query.words};
-		const orgId = $(await requireUserOrgId(request));
-		const sources = $(await findSources(orgId, 'notes', 'list')).flatMap((source) => {
+		const viewer = $(await requireViewer(request));
+		const sources = $(await findSources(viewer, 'notes', 'list')).flatMap((source) => {
 			const list = LISTS[source.integration.id];
 			return list ? [{...source, list}] : [];
 		});

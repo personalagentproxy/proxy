@@ -101,7 +101,7 @@ export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promis
 		const agentId = agentIdOf(request);
 		const connectionId = request.params.connectionId ?? '';
 		$(await requireAgent(orgId, agentId));
-		const connection = $(requirePresent($(await getConnectionWithCredential(orgId, connectionId)), ApiErr.notFound('connection', connectionId)));
+		const connection = $(requirePresent($(await getConnectionWithCredential({orgId, userId: request.user.userId}, connectionId)), ApiErr.notFound('connection', connectionId)));
 		const integration = $(requireIntegration(connection));
 		const actions = $(parseActionChanges(integration, z.boolean().nullable(), request.body));
 		$(refuseUnavailable(integration, unavailableActions(connection), actions));

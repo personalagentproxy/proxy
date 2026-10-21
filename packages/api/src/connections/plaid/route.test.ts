@@ -18,7 +18,7 @@ mock.module('@proxy/db/connection', () => ({
 
 const getUserOrgId = mock();
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId}));
+mock.module('@proxy/db/organization', () => ({getUserOrgId, getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
 const env: {PLAID_CLIENT_ID?: string; PLAID_SECRET?: string; PLAID_ENV: string} = {PLAID_ENV: 'sandbox'};
 
@@ -55,6 +55,9 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 const bankRow = {
 	id: 'bank-1',
 	integrationId: 'plaid',
+	orgId: 'org-1',
+	ownerUserId: 'user-1',
+	connectedById: 'user-1',
 	account: 'First Platypus Bank',
 	createdAt: new Date('2026-10-01T00:00:00Z'),
 	tools: null,
@@ -104,7 +107,7 @@ describe('handleCreatePlaidLinkTokenRoute', () => {
 		const {handleCreatePlaidLinkTokenRoute} = await import('./route');
 		await handleCreatePlaidLinkTokenRoute(makeRequest({connectionId: 'bank-1'}));
 
-		expect(getConnectionWithCredential).toHaveBeenCalledWith('org-1', 'bank-1');
+		expect(getConnectionWithCredential).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'bank-1');
 		expect(plaid.requests[0]?.body).toMatchObject({access_token: 'access-sandbox-1', update: {account_selection_enabled: true}});
 		expect(plaid.requests[0]?.body).not.toHaveProperty('products');
 	});
@@ -137,6 +140,8 @@ describe('handleConnectPlaidRoute', () => {
 		]);
 		expect(createConnection).toHaveBeenCalledWith({
 			orgId: 'org-1',
+			ownerUserId: 'user-1',
+			connectedById: 'user-1',
 			integrationId: 'plaid',
 			account: 'First Platypus Bank',
 			providerAccountId: 'item-1',

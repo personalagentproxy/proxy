@@ -53,10 +53,13 @@ function connectErrorMessage(error: FetchError): string {
 export function ConnectEmailForm({
 	cancel,
 	continueLabel = 'Connect',
+	shared,
 	onConnected,
 }: {
 	cancel?: ReactNode;
 	continueLabel?: string;
+	// For every member of the organization rather than the person's own.
+	shared?: boolean;
 	onConnected: (connection: Connection) => void;
 }) {
 	const [providerId, setProviderId] = useState<EmailProvider['id']>('gmail');
@@ -106,7 +109,7 @@ export function ConnectEmailForm({
 				event.preventDefault();
 				setPending('connect');
 				setError(null);
-				const result = await connectEmail(input);
+				const result = await connectEmail({...input, ...(shared ? {shared} : {})});
 				setPending(null);
 				if (result.isErr()) {
 					setError(connectErrorMessage(result.error));

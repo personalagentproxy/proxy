@@ -23,6 +23,8 @@ type Props = {
 	unavailable?: string[];
 	// The connection has no sign-in at all yet, so none of its actions is covered.
 	signInNeeded?: boolean;
+	// Shown but not changed: a shared connection by a member who only uses it.
+	readOnly?: boolean;
 };
 
 // The actions, one under another, spaced by the list rather than each row, so the list sits
@@ -47,6 +49,7 @@ export function ConnectionAccess({
 	onMakeDefault,
 	unavailable = [],
 	signInNeeded = false,
+	readOnly = false,
 }: Props) {
 	// A connection's actions show on more than one page section, so the ids need their own prefix.
 	const idPrefix = useId();
@@ -151,7 +154,7 @@ export function ConnectionAccess({
 		const inputId = `${idPrefix}-${action.id}`;
 		const labelId = `${inputId}-label`;
 		const descriptionId = `${inputId}-description`;
-		const disabled = isUnavailable(action.id);
+		const disabled = readOnly || isUnavailable(action.id);
 		return (
 			<li
 				key={action.id}
@@ -265,7 +268,13 @@ export function ConnectionAccess({
 		);
 	};
 	const all = settable.length > 1 && (
-		<Button variant="outline" size="sm" className="self-start" onClick={() => setAll(!allOn)}>
+		<Button
+			variant="outline"
+			size="sm"
+			className="self-start"
+			disabled={readOnly}
+			onClick={() => setAll(!allOn)}
+		>
 			{allOn ? 'Disable all' : 'Enable all'}
 		</Button>
 	);

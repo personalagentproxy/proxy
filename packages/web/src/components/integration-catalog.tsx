@@ -45,6 +45,7 @@ export function IntegrationCatalog({
 	configured,
 	experiments,
 	returnTo,
+	shared = false,
 	onConnectForm,
 	onConnected,
 }: {
@@ -53,6 +54,8 @@ export function IntegrationCatalog({
 	// The experiments on for the organization.
 	experiments: Experiment[];
 	returnTo?: 'welcome';
+	// A new connection is for every member of the organization rather than the person's own.
+	shared?: boolean;
 	// The integration's form, by its id.
 	onConnectForm: (integrationId: IntegrationId) => void;
 	// A connection made here, with an API key.
@@ -69,6 +72,7 @@ export function IntegrationCatalog({
 			{keyFor && (
 				<ConnectWithKeyDialog
 					integrationId={keyFor}
+					shared={shared}
 					onClose={() => setKeyFor(null)}
 					onConnected={onConnected}
 				/>
@@ -78,7 +82,10 @@ export function IntegrationCatalog({
 					const count = connections.filter(
 						(connection) => connection.integrationId === integration.id,
 					).length;
-					const signIn = signInPath(integration.id, {returnTo});
+					const signIn = signInPath(integration.id, {
+						returnTo,
+						share: shared ? 'everyone' : undefined,
+					});
 					const unmet =
 						integration.needs && !configured[integration.needs] ? integration.needs : null;
 					const content = (

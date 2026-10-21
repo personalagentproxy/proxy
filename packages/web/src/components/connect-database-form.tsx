@@ -58,11 +58,14 @@ export function ConnectDatabaseForm({
 	dialect,
 	cancel,
 	continueLabel = 'Connect',
+	shared,
 	onConnected,
 }: {
 	dialect: DatabaseDialect;
 	cancel?: ReactNode;
 	continueLabel?: string;
+	// For every member of the organization rather than the person's own.
+	shared?: boolean;
 	onConnected: (connection: Connection) => void;
 }) {
 	const [host, setHost] = useState('');
@@ -107,7 +110,7 @@ export function ConnectDatabaseForm({
 				event.preventDefault();
 				setPending('connect');
 				setError(null);
-				const result = await connectDatabase(dialect, input);
+				const result = await connectDatabase(dialect, {...input, ...(shared ? {shared} : {})});
 				setPending(null);
 				if (result.isErr()) {
 					setError(connectErrorMessage(result.error));

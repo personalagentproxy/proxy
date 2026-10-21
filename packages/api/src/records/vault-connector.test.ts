@@ -23,7 +23,19 @@ function entries(): Collection {
 }
 
 const target = {
-	connection: {id: 'vault-1', integrationId: 'vault', account: "Alex's Workspace", createdAt: new Date(), tools: null, name: null, defaults: [], credential: null},
+	connection: {
+		id: 'vault-1',
+		integrationId: 'vault',
+		orgId: 'org-1',
+		ownerUserId: 'user-1',
+		connectedById: 'user-1',
+		account: "Alex's Workspace",
+		createdAt: new Date(),
+		tools: null,
+		name: null,
+		defaults: [],
+		credential: null,
+	},
 	collection: entries(),
 };
 

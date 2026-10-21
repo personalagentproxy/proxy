@@ -50,7 +50,7 @@ export function handleGetInvitationRoute(request: AuthenticatedRequest): Promise
 
 /**
  * `POST /api/invitations/:token/accept`: the signed-in person, at the address it was sent to,
- * becomes a member, and the organization opens in their switcher.
+ * becomes a member, with their own vault there, and the organization opens in their switcher.
  */
 export function handleAcceptInvitationRoute(request: AuthenticatedRequest): Promise<Result<{orgId: string}, ApiError>> {
 	return Do(async ($) => {
@@ -61,7 +61,7 @@ export function handleAcceptInvitationRoute(request: AuthenticatedRequest): Prom
 		if (invitation.email.toLowerCase() !== request.user.email.toLowerCase()) {
 			return $(Err(ApiErr.forbidden()));
 		}
-		$(await acceptInvitation({invitationId: invitation.id, orgId: invitation.org.id, userId: request.user.userId}));
+		$(await acceptInvitation({invitationId: invitation.id, orgId: invitation.org.id, userId: request.user.userId, vaultName: invitation.org.name}));
 		$(await setSessionActiveOrg(request.user.sessionTokenHash, invitation.org.id));
 		return {orgId: invitation.org.id};
 	});

@@ -8,7 +8,7 @@ const getWriteTarget = mock(async (): Promise<unknown> => Ok(null));
 mock.module('./sources', () => ({findSources, summarize: (source: {connection: {id: string}}) => ({connectionId: source.connection.id})}));
 mock.module('./google-calendars', () => ({googleCalendars}));
 mock.module('@proxy/db/write-target', () => ({getWriteTarget}));
-mock.module('../utils/user-org', () => ({requireUserOrgId: async () => Ok('org-1')}));
+mock.module('../utils/user-org', () => ({requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1'}), requireUserOrgId: async () => Ok('org-1')}));
 
 const calendar = (connectionId: string, id: string, primary: boolean, writable: boolean) => ({connectionId, id, name: id, primary, writable, color: null});
 
@@ -90,7 +90,7 @@ describe('handleFindEventsRoute', () => {
 		const {handleFindEventsRoute} = await import('./agenda');
 
 		const found = (await handleFindEventsRoute({user: {userId: 'user-1'}, query: {from, search: ['arne', ' arne@example.com ', 'arne']}} as never)).unwrap();
-		expect(findSources).toHaveBeenCalledWith('org-1', 'events', 'list');
+		expect(findSources).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'events', 'list');
 		expect(googleCalendars.search).toHaveBeenCalledWith(expect.anything(), {from, searches: ['arne', 'arne@example.com']});
 		expect(found.events.map((one) => one.id)).toEqual(['sooner', 'later']);
 	});

@@ -5,9 +5,10 @@ const setSessionActiveOrg = mock();
 
 mock.module('@proxy/db/auth', () => ({setSessionActiveOrg}));
 
-const listConnectionsWithCredential = mock();
+const listOrgConnectionsWithCredential = mock();
+const listOwnConnectionsWithCredential = mock();
 
-mock.module('@proxy/db/connection', () => ({listConnectionsWithCredential}));
+mock.module('@proxy/db/connection', () => ({listOrgConnectionsWithCredential, listOwnConnectionsWithCredential}));
 
 const createInvitation = mock();
 const deleteInvitation = mock();
@@ -73,7 +74,8 @@ beforeEach(() => {
 	getMembership.mockResolvedValue(Ok({role: 'owner'}));
 	listUserOrgs.mockResolvedValue(Ok([mine, acme]));
 	listMembers.mockResolvedValue(Ok([member('user-1', 'owner', 'alex@example.com'), member('maya-1', 'member'), member('jonas-1', 'member')]));
-	listConnectionsWithCredential.mockResolvedValue(Ok([]));
+	listOrgConnectionsWithCredential.mockResolvedValue(Ok([]));
+	listOwnConnectionsWithCredential.mockResolvedValue(Ok([]));
 	removeMembership.mockResolvedValue(Ok(undefined));
 	deleteOrganization.mockResolvedValue(Ok(undefined));
 	renameOrganization.mockResolvedValue(Ok(undefined));
@@ -147,7 +149,7 @@ describe('handleDeleteOrgRoute', () => {
 	test('undoes every connection in it at its provider, then deletes it', async () => {
 		const google = {id: 'conn-1', integrationId: 'google', credential: 'enc:g'};
 		const mailbox = {id: 'conn-2', integrationId: 'email', credential: 'enc:m'};
-		listConnectionsWithCredential.mockResolvedValue(Ok([google, mailbox]));
+		listOrgConnectionsWithCredential.mockResolvedValue(Ok([google, mailbox]));
 		const order: string[] = [];
 		beforeDisconnect.mockImplementation(async (connection: {id: string}) => {
 			order.push(connection.id);
@@ -161,7 +163,7 @@ describe('handleDeleteOrgRoute', () => {
 		const result = await handleDeleteOrgRoute(makeRequest({orgId: 'org-2'}));
 
 		expect(result.isOk()).toBe(true);
-		expect(listConnectionsWithCredential).toHaveBeenCalledWith('org-2');
+		expect(listOrgConnectionsWithCredential).toHaveBeenCalledWith('org-2');
 		expect(order).toEqual(['conn-1', 'conn-2', 'org']);
 		expect(deleteOrganization).toHaveBeenCalledWith('org-2');
 	});

@@ -9,7 +9,8 @@ const getUserOrganization = mock();
 const markOrganizationOnboarded = mock();
 const listUserOrgs = mock();
 const removeMembership = mock();
-const listConnectionsWithCredential = mock();
+const listOrgConnectionsWithCredential = mock();
+const listOwnConnectionsWithCredential = mock();
 const beforeDisconnect = mock();
 const clearSessionCookie = mock();
 
@@ -18,7 +19,7 @@ mock.module('@proxy/db/user', () => ({
 	deleteUser,
 }));
 
-mock.module('@proxy/db/connection', () => ({listConnectionsWithCredential}));
+mock.module('@proxy/db/connection', () => ({listOrgConnectionsWithCredential, listOwnConnectionsWithCredential}));
 
 mock.module('../connections/disconnect', () => ({beforeDisconnect}));
 
@@ -59,7 +60,8 @@ beforeEach(() => {
 	markOrganizationOnboarded.mockResolvedValue(Ok(undefined));
 	listUserOrgs.mockResolvedValue(Ok([mine]));
 	removeMembership.mockResolvedValue(Ok(undefined));
-	listConnectionsWithCredential.mockResolvedValue(Ok([]));
+	listOrgConnectionsWithCredential.mockResolvedValue(Ok([]));
+	listOwnConnectionsWithCredential.mockResolvedValue(Ok([]));
 	beforeDisconnect.mockResolvedValue(undefined);
 	deleteUser.mockResolvedValue(Ok(undefined));
 });
@@ -161,7 +163,7 @@ describe('handleDeleteMeRoute', () => {
 	const bank = {id: 'conn-2', integrationId: 'plaid', credential: 'enc:plaid'};
 
 	test('undoes every connection of an organization they own at its provider, then deletes the user, and signs out', async () => {
-		listConnectionsWithCredential.mockResolvedValue(Ok([google, bank]));
+		listOrgConnectionsWithCredential.mockResolvedValue(Ok([google, bank]));
 		const order: string[] = [];
 		beforeDisconnect.mockImplementation(async (connection: {id: string}) => {
 			order.push(connection.id);
@@ -174,7 +176,7 @@ describe('handleDeleteMeRoute', () => {
 		const res = makeRes();
 		await handleDeleteMeRoute(makeRequest() as never, res as never);
 
-		expect(listConnectionsWithCredential).toHaveBeenCalledWith('org-1');
+		expect(listOrgConnectionsWithCredential).toHaveBeenCalledWith('org-1');
 		expect(removeMembership).not.toHaveBeenCalled();
 		expect(order).toEqual(['conn-1', 'conn-2', 'user']);
 		expect(deleteUser).toHaveBeenCalledWith('user-1');
@@ -187,15 +189,15 @@ describe('handleDeleteMeRoute', () => {
 		const {handleDeleteMeRoute} = await import('./route');
 		await handleDeleteMeRoute(makeRequest() as never, makeRes() as never);
 
-		expect(listConnectionsWithCredential).toHaveBeenCalledTimes(1);
-		expect(listConnectionsWithCredential).toHaveBeenCalledWith('org-1');
+		expect(listOrgConnectionsWithCredential).toHaveBeenCalledTimes(1);
+		expect(listOrgConnectionsWithCredential).toHaveBeenCalledWith('org-1');
 		expect(removeMembership).toHaveBeenCalledWith({orgId: 'org-2', userId: 'user-1'});
 		expect(deleteUser).toHaveBeenCalledWith('user-1');
 	});
 
 	test('deletes an organization they own with others in it, every connection there undone first', async () => {
 		listUserOrgs.mockResolvedValue(Ok([{id: 'org-2', name: 'Acme', role: 'owner', memberCount: 2, invitationCount: 0}]));
-		listConnectionsWithCredential.mockResolvedValue(Ok([google, bank]));
+		listOrgConnectionsWithCredential.mockResolvedValue(Ok([google, bank]));
 		const {handleDeleteMeRoute} = await import('./route');
 		const res = makeRes();
 		await handleDeleteMeRoute(makeRequest() as never, res as never);
@@ -221,7 +223,7 @@ describe('handleDeleteMeRoute', () => {
 		const {handleDeleteMeRoute} = await import('./route');
 		await handleDeleteMeRoute(makeRequest() as never, makeRes() as never);
 
-		expect(listConnectionsWithCredential).not.toHaveBeenCalled();
+		expect(listOrgConnectionsWithCredential).not.toHaveBeenCalled();
 		expect(deleteUser).toHaveBeenCalledWith('user-1');
 	});
 });

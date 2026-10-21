@@ -23,7 +23,7 @@ mock.module('@proxy/db/connection', () => ({
 
 const getUserOrgId = mock();
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId}));
+mock.module('@proxy/db/organization', () => ({getUserOrgId, getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
 mock.module('../../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
@@ -119,6 +119,9 @@ async function connectWithKey(body: unknown) {
 const existing = {
 	id: 'conn-0',
 	integrationId: 'exa',
+	orgId: 'org-1',
+	ownerUserId: 'user-1',
+	connectedById: 'user-1',
 	account: 'Signed in',
 	createdAt: new Date('2026-10-01T00:00:00Z'),
 	tools: null,
@@ -179,7 +182,7 @@ describe('handleExaCallbackRoute', () => {
 		const {cookie, state} = await start({connection: 'conn-0'});
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
-		expect(getConnectionWithCredential).toHaveBeenCalledWith('org-1', 'conn-0');
+		expect(getConnectionWithCredential).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'conn-0');
 		expect(createConnection).not.toHaveBeenCalled();
 		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0', account: 'Signed in'});
 		expect(updateConnectionName).not.toHaveBeenCalled();
@@ -190,7 +193,7 @@ describe('handleExaCallbackRoute', () => {
 		const {beginBuiltInSignIn} = await import('../mcp/mcp-connect');
 		const {EXA_MCP} = await import('./route');
 		const begun = makeRes();
-		const url = new URL((await beginBuiltInSignIn(EXA_MCP, begun as never, {userId: 'user-1', returnTo: undefined, name: 'Web search'})).unwrap());
+		const url = new URL((await beginBuiltInSignIn(EXA_MCP, begun as never, {viewer: {orgId: 'org-1', userId: 'user-1'}, returnTo: undefined, name: 'Web search', shared: false})).unwrap());
 		const cookie = begun.cookies.find((candidate) => candidate.name === 'proxy.exa-state');
 		await callback({cookie: cookie?.value ?? '', query: {state: url.searchParams.get('state') ?? '', code: 'code-1'}});
 

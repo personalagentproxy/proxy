@@ -3,11 +3,34 @@ title: Organizations
 description: Work with other people in an organization, on one set of connections and agents.
 ---
 
-Everything in Personal Agent Proxy is in an organization: its connections, its vault, its agents and
-its activity log. Everyone starts with one of their own, and can make more, such as one for work
+Everything in Personal Agent Proxy is in an organization: its connections, its agents and its
+activity log, and each member's own vault. Everyone starts with one of their own, and can make more, such as one for work
 beside a personal one, or join someone else's. The mark at the top of the sidebar is the
 organization open: hover it to switch, or to create another. Every page shows the open
 organization's, and your agents there reach what is connected there.
+
+## Your own or everyone's
+
+A connection is either yours or shared with everyone in the organization:
+
+- **Just me**: only you and your agents can use it. Nobody else in the organization sees it, its
+  owner included. Your mailbox belongs here, and so does your vault, which is yours in every
+  organization you are in.
+- **Everyone in the organization**: every member's agents can use it, with the permissions on its
+  page. Members see it listed, never its password or token. A team account, a shared mailbox or a
+  database user belongs here.
+
+A shared connection acts as the account it was connected with. For a mailbox, a database, an API
+key or a custom MCP server that is the account itself; for a service you sign in to, such as
+Google, Granola, Notion or Linear, it is whoever signed in, so everyone's agents work as that
+person there. The connection's page says who it acts as and who connected it.
+
+Once anyone else is in the organization, or invited to it, **Add connection** asks who a new
+connection is for, and **Connections** lists the two apart. On the page of a connection of your own,
+**Share with everyone** under **Sharing** shares it. Sharing can't be undone: to have it as your own
+again, disconnect it and connect it again. A shared connection is renamed, disconnected, signed in
+to again and has its permissions changed by whoever connected it and the organization's owner;
+everyone else uses it as it is.
 
 ## Members
 
@@ -25,6 +48,8 @@ set up ([Sign-in](/self-hosting/sign-in#sign-in-links)).
 
 A member leaves an organization from **Members**; its owner can't, and deletes it from
 **Settings** instead, as long as it isn't the last one they own, so everyone always owns one.
-Deleting an organization disconnects every connection in it and deletes its vault, agents and
-activity, for everyone in it. Deleting your account deletes every organization you own, with
-everyone else in them losing them too, and takes you out of the others.
+Leaving, or being removed, disconnects what you connected for yourself there; the shared
+connections stay. Deleting an organization disconnects every connection in it, shared and every
+member's own, and deletes its vaults, agents and activity, for everyone in it. Deleting your
+account deletes every organization you own, with everyone else in them losing them too, and takes
+you out of the others.

@@ -3,6 +3,7 @@ import type {Result} from 'ts-results-es';
 import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
+import {vaultFor} from './organization';
 
 export type InvitationRow = {
 	id: string;
@@ -110,22 +111,26 @@ export async function getInvitationByTokenHash(
 }
 
 /**
- * Takes an invitation up: the person becomes a member of its organization, unless they already
- * are, and the invitation is gone.
+ * Takes an invitation up: the person becomes a member of its organization, with their own vault
+ * there, unless they already are, and the invitation is gone.
  */
 export async function acceptInvitation(data: {
 	invitationId: string;
 	orgId: string;
 	userId: string;
+	vaultName: string;
 }): Promise<Result<void, ApiError>> {
-	const {invitationId, orgId, userId} = data;
+	const {invitationId, orgId, userId, vaultName} = data;
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
-			await tx.orgMember.upsert({
+			const member = await tx.orgMember.findUnique({
 				where: {orgId_userId: {orgId, userId}},
-				create: {orgId, userId},
-				update: {},
+				select: {id: true},
 			});
+			if (!member) {
+				await tx.orgMember.create({data: {orgId, userId}});
+				await tx.connection.create({data: vaultFor({orgId, userId, name: vaultName})});
+			}
 			await tx.invitation.deleteMany({where: {id: invitationId}});
 		}),
 	);

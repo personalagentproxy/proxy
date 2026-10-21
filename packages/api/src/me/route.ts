@@ -2,7 +2,7 @@ import type {Response} from 'express';
 import {Err, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, type Experiment, requirePresent} from '@proxy/utils';
-import {listConnectionsWithCredential} from '@proxy/db/connection';
+import {listOrgConnectionsWithCredential, listOwnConnectionsWithCredential} from '@proxy/db/connection';
 import {getUserOrganization, listUserOrgs, markOrganizationOnboarded, type OrgRole, removeMembership} from '@proxy/db/organization';
 import {deleteUser, getUserFromId} from '@proxy/db/user';
 
@@ -54,25 +54,25 @@ export function handleFinishOnboardingRoute(request: AuthenticatedRequest): Prom
 
 /**
  * Deletes the signed-in person's account. The organizations they own are deleted with everything
- * in them, their other members losing them; they leave the others. Every connection in an
- * organization deleted is undone at its provider first, as disconnecting it does (Google's grant
- * revoked, a bank's login removed at Plaid); a provider that can't be reached doesn't stop the
- * deletion, and is logged, as disconnecting logs it. Then the user goes, with their agents, their
- * logins and MCP clients, and the activity log.
+ * in them, their other members losing them; they leave the others, their own connections there
+ * going, the shared ones staying. Every connection deleted is undone at its provider first, as
+ * disconnecting it does (Google's grant revoked, a bank's login removed at Plaid); a provider that
+ * can't be reached doesn't stop the deletion, and is logged, as disconnecting logs it. Then the
+ * user goes, with their agents, their logins and MCP clients, and the activity log.
  */
 function deleteAccount(userId: string): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		let undone = 0;
 		for (const org of $(await listUserOrgs(userId))) {
-			if (org.role !== 'owner') {
-				$(await removeMembership({orgId: org.id, userId}));
-				continue;
-			}
-			const connections = $(await listConnectionsWithCredential(org.id));
+			const owned = org.role === 'owner';
+			const connections = owned ? $(await listOrgConnectionsWithCredential(org.id)) : $(await listOwnConnectionsWithCredential({orgId: org.id, userId}));
 			for (const connection of connections) {
 				await beforeDisconnect(connection);
 			}
 			undone += connections.length;
+			if (!owned) {
+				$(await removeMembership({orgId: org.id, userId}));
+			}
 		}
 		$(await deleteUser(userId));
 		log.info('Deleted an account', {userId, connections: undone});

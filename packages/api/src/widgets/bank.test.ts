@@ -14,7 +14,7 @@ mock.module('./sources', () => ({
 	findSources: async () => Ok([{connection: {id: 'bank-1', integrationId: 'plaid', account: 'First Platypus Bank', name: null, credential: 'access-1'}, integration: {id: 'plaid'}}]),
 	summarize: (source: {connection: {id: string}}) => ({connectionId: source.connection.id}),
 }));
-mock.module('../utils/user-org', () => ({requireUserOrgId: async () => Ok('org-1')}));
+mock.module('../utils/user-org', () => ({requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1'}), requireUserOrgId: async () => Ok('org-1')}));
 
 const CHECKING = {
 	account_id: 'checking',

@@ -5,7 +5,7 @@ import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/uti
 import {getWriteTarget} from '@proxy/db/write-target';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {requireUserOrgId} from '../utils/user-org';
+import {requireViewer} from '../utils/user-org';
 import type {DataRecord} from '../records/connector';
 import type {EmailSearch} from '../records/email-search';
 import {eachSource, type Failure} from './each-source';
@@ -70,8 +70,8 @@ export type FoundEmails = {sources: SourceSummary[]; emails: FoundEmail[]; faile
 export function handleFindEmailsRoute(request: AuthenticatedRequest): Promise<Result<FoundEmails, ApiError>> {
 	return Do(async ($) => {
 		const search = readSearch($(parseSchema(searchSchema, request.query)));
-		const orgId = $(await requireUserOrgId(request));
-		const sources = searchable($(await findSources(orgId, 'emails', 'list')));
+		const viewer = $(await requireViewer(request));
+		const sources = searchable($(await findSources(viewer, 'emails', 'list')));
 		const {found, failed} = await eachSource(sources, (source, signal) => source.find(source, [search], LIMIT, signal));
 		const emails = found
 			.flatMap(({source, value: [records = []]}) => records.map((record) => foundEmail(source, record)))
@@ -86,8 +86,8 @@ export type Mailboxes = {sources: SourceSummary[]; target: string | null};
 /** `GET /api/widgets/mailboxes`: the mailboxes email can go out from, the one last written from first. */
 export function handleMailboxesRoute(request: AuthenticatedRequest): Promise<Result<Mailboxes, ApiError>> {
 	return Do(async ($) => {
-		const orgId = $(await requireUserOrgId(request));
-		const sources = $(await findSources(orgId, 'emails', 'sendNew')).map(summarize);
+		const viewer = $(await requireViewer(request));
+		const sources = $(await findSources(viewer, 'emails', 'sendNew')).map(summarize);
 		const last = $(await getWriteTarget(request.user.userId, 'emails'));
 		const kept = sources.find((source) => source.connectionId === last?.connectionId);
 		return {sources, target: (kept ?? sources[0])?.connectionId ?? null};
@@ -109,10 +109,10 @@ export type WrittenEmail = {sent: boolean};
 export function handleWriteEmailRoute(request: AuthenticatedRequest): Promise<Result<WrittenEmail, ApiError>> {
 	return Do(async ($) => {
 		const body = $(parseSchema(writeSchema, request.body));
-		const orgId = $(await requireUserOrgId(request));
+		const viewer = $(await requireViewer(request));
 		const values = {to: body.to.join(', '), subject: body.subject, body: body.body};
 		const write = body.send ? 'sendNew' : 'create';
-		const source = $(await requireWritable(orgId, body.connectionId, 'emails', write, Object.keys(values)));
+		const source = $(await requireWritable(viewer, body.connectionId, 'emails', write, Object.keys(values)));
 		if (!body.send) {
 			$(await source.connector.create(source, values, null));
 		}
@@ -120,7 +120,7 @@ export function handleWriteEmailRoute(request: AuthenticatedRequest): Promise<Re
 			const sendNew = $(requirePresent(source.connector.newCommands?.sendNew, ApiErr.forbidden()));
 			$(await sendNew(source, values));
 		}
-		await afterWrite({orgId, userId: request.user.userId, source, action: write, title: body.subject, parent: null});
+		await afterWrite({orgId: viewer.orgId, userId: request.user.userId, source, action: write, title: body.subject, parent: null});
 		return {sent: body.send};
 	});
 }
@@ -138,13 +138,13 @@ const replySchema = z.object({
 export function handleReplyEmailRoute(request: AuthenticatedRequest): Promise<Result<WrittenEmail, ApiError>> {
 	return Do(async ($) => {
 		const body = $(parseSchema(replySchema, request.body));
-		const orgId = $(await requireUserOrgId(request));
+		const viewer = $(await requireViewer(request));
 		const write = body.send ? 'sendNew' : 'create';
-		const source = $(await requireWritable(orgId, body.connectionId, 'emails', write, ['to', 'subject', 'body']));
-		$(await requireReadable(orgId, body.connectionId, 'emails'));
+		const source = $(await requireWritable(viewer, body.connectionId, 'emails', write, ['to', 'subject', 'body']));
+		$(await requireReadable(viewer, body.connectionId, 'emails'));
 		const reply = $(requirePresent(replierFor(source), ApiErr.forbidden()));
 		const written = $(await reply(source, body.emailId, {body: body.body, send: body.send}));
-		await afterWrite({orgId, userId: request.user.userId, source, action: write, title: written.subject, parent: undefined});
+		await afterWrite({orgId: viewer.orgId, userId: request.user.userId, source, action: write, title: written.subject, parent: undefined});
 		return {sent: body.send};
 	});
 }

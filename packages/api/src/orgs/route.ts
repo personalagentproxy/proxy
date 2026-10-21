@@ -5,7 +5,7 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {setSessionActiveOrg} from '@proxy/db/auth';
-import {listConnectionsWithCredential} from '@proxy/db/connection';
+import {listOrgConnectionsWithCredential, listOwnConnectionsWithCredential} from '@proxy/db/connection';
 import {createInvitation, deleteInvitation, listInvitations, type InvitationRow} from '@proxy/db/invitation';
 import {
 	createOrganization,
@@ -102,8 +102,8 @@ export function handleRenameOrgRoute(request: AuthenticatedRequest): Promise<Res
 
 /**
  * `DELETE /api/orgs/:orgId`: its owner deletes it, unless it is the last one they own. Every
- * connection in it is undone at its provider first, as disconnecting does; a provider that can't
- * be reached doesn't stop it.
+ * connection in it, shared or a member's own, is undone at its provider first, as disconnecting
+ * does; a provider that can't be reached doesn't stop it.
  */
 export function handleDeleteOrgRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
@@ -112,12 +112,25 @@ export function handleDeleteOrgRoute(request: AuthenticatedRequest): Promise<Res
 		if (owned.length <= 1) {
 			return $(Err(ApiErr.conflict('This is the only organization you own. Create another first, or delete your account instead.')));
 		}
-		const connections = $(await listConnectionsWithCredential(orgId));
+		const connections = $(await listOrgConnectionsWithCredential(orgId));
 		for (const connection of connections) {
 			await beforeDisconnect(connection);
 		}
 		$(await deleteOrganization(orgId));
 		log.info('Deleted an organization', {orgId, connections: connections.length});
+	});
+}
+
+/**
+ * Takes a member out: their own connections there are undone at their providers and deleted; the
+ * shared ones stay. The caller has checked they aren't its owner.
+ */
+function takeOut(orgId: string, userId: string): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		for (const connection of $(await listOwnConnectionsWithCredential({orgId, userId}))) {
+			await beforeDisconnect(connection);
+		}
+		$(await removeMembership({orgId, userId}));
 	});
 }
 
@@ -128,7 +141,7 @@ export function handleLeaveOrgRoute(request: AuthenticatedRequest): Promise<Resu
 		if (role === 'owner') {
 			return $(Err(ApiErr.conflict('You own this organization, so it can’t be left. Delete it instead.')));
 		}
-		$(await removeMembership({orgId, userId}));
+		$(await takeOut(orgId, userId));
 	});
 }
 
@@ -151,7 +164,7 @@ export function handleRemoveMemberRoute(request: AuthenticatedRequest): Promise<
 			return $(Err(ApiErr.validationError('You own this organization. Delete it instead.')));
 		}
 		$(requirePresent($(await getMembership(userId, orgId)), ApiErr.notFound('member', userId)));
-		$(await removeMembership({orgId, userId}));
+		$(await takeOut(orgId, userId));
 	});
 }
 

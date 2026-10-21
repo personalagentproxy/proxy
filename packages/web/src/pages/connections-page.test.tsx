@@ -21,8 +21,12 @@ function connection(
 ): Connection {
 	return {
 		id,
+		orgId: 'org-1',
 		integrationId,
 		account,
+		shared: false,
+		connectedById: 'user-1',
+		connectedBy: null,
 		defaults: [],
 		tools: null,
 		name,

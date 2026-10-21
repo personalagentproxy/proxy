@@ -5,7 +5,7 @@ import {findCollection, findIntegration, type Collection} from '@proxy/integrati
 
 const requireUserOrgId = mock();
 
-mock.module('../utils/user-org', () => ({requireUserOrgId}));
+mock.module('../utils/user-org', () => ({requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1'}), requireUserOrgId}));
 
 const loadRecordTarget = mock();
 
@@ -45,7 +45,7 @@ describe('records routes', () => {
 		const {handleListRecordsRoute} = await import('./route');
 		const result = await handleListRecordsRoute(makeRequest({connectionId: 'conn-1', collectionId: 'entries'}));
 
-		expect(loadRecordTarget).toHaveBeenCalledWith('org-1', 'conn-1', 'entries');
+		expect(loadRecordTarget).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'conn-1', 'entries');
 		expect(connector.list.mock.calls[0]?.[1]).toEqual({search: null, page: null, filter: null, parent: null});
 		expect(result.unwrap()).toEqual({records: [record], nextPage: null});
 	});

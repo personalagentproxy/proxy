@@ -30,10 +30,13 @@ function connectErrorMessage(error: FetchError): string {
 export function ConnectMcpForm({
 	cancel,
 	returnTo,
+	shared,
 	onConnected,
 }: {
 	cancel?: ReactNode;
 	returnTo?: 'welcome';
+	// For every member of the organization rather than the person's own.
+	shared?: boolean;
 	onConnected: (connection: Connection) => void;
 }) {
 	const [name, setName] = useState('');
@@ -57,6 +60,7 @@ export function ConnectMcpForm({
 					url: url.trim(),
 					...(token.trim() ? {token: token.trim()} : {}),
 					...(returnTo ? {returnTo} : {}),
+					...(shared ? {shared} : {}),
 				});
 				if (result.isErr()) {
 					setPending(null);

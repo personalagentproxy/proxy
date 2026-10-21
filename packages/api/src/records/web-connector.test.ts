@@ -27,7 +27,19 @@ function collection(integrationId: string, id: string): Collection {
 
 function run(integrationId: 'exa' | 'parallel', command: 'run' | 'read', values: Record<string, string>) {
 	const target = {
-		connection: {id: `${integrationId}-1`, integrationId, account: 'alex@example.com', createdAt: new Date(), tools: null, name: null, defaults: [], credential: 'v1.encrypted'},
+		connection: {
+			id: `${integrationId}-1`,
+			integrationId,
+			orgId: 'org-1',
+			ownerUserId: 'user-1',
+			connectedById: 'user-1',
+			account: 'alex@example.com',
+			createdAt: new Date(),
+			tools: null,
+			name: null,
+			defaults: [],
+			credential: 'v1.encrypted',
+		},
 		collection: collection(integrationId, command === 'run' ? 'searches' : 'pages'),
 	};
 	const runner = (integrationId === 'exa' ? exaConnector : parallelConnector).newCommands?.[command];

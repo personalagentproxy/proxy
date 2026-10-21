@@ -33,6 +33,8 @@ type Props = {
 	integrationId: IntegrationId;
 	// The connection to give the key, as its page does; else a new one is made.
 	connectionId?: string;
+	// A new connection is for every member of the organization rather than the person's own.
+	shared?: boolean;
 	onClose: () => void;
 	onConnected: (connection: Connection) => void;
 };
@@ -41,7 +43,13 @@ type Props = {
 // dialog: the key, checked with the service before the connection is made, and where to get one.
 // The connection shows as the key's account, or its end where the service names none; it can be
 // renamed from the connections list.
-export function ConnectWithKeyDialog({integrationId, connectionId, onClose, onConnected}: Props) {
+export function ConnectWithKeyDialog({
+	integrationId,
+	connectionId,
+	shared,
+	onClose,
+	onConnected,
+}: Props) {
 	const integration = findIntegration(integrationId);
 	const [key, setKey] = useState('');
 	const [error, setError] = useState<string | null>(null);
@@ -76,6 +84,7 @@ export function ConnectWithKeyDialog({integrationId, connectionId, onClose, onCo
 						const result = await connectWithKey(integrationId, {
 							key: key.trim(),
 							...(connectionId === undefined ? {} : {connection: connectionId}),
+							...(shared ? {shared} : {}),
 						});
 						setPending(false);
 						if (result.isErr()) {

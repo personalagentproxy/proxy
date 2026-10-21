@@ -88,11 +88,17 @@ export function integrationOf(connection: {
 // where it can, and with `?connection=` the sign-in renews that connection where its account can't
 // be told apart from another's: the integration says nothing of who signed in (`anonymous`), or
 // the connection was never signed in to. Otherwise the connection of the account signed in to is
-// renewed, or a new one made.
+// renewed, or a new one made. With `?share=everyone`, a new connection is for every member of the
+// organization rather than the person's own.
 /** Where signing in to an integration starts, or null for one connected on a form of its own. */
 export function signInPath(
 	integrationId: string,
-	query: {returnTo?: 'welcome' | 'home'; account?: string; connection?: string} = {},
+	query: {
+		returnTo?: 'welcome' | 'home';
+		account?: string;
+		connection?: string;
+		share?: 'everyone';
+	} = {},
 ): string | null {
 	if (!findIntegration(integrationId)?.signIn) {
 		return null;

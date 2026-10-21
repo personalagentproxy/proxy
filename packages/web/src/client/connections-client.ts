@@ -3,8 +3,14 @@ import {z} from 'zod';
 import {connectionSchema} from '@/client/schemas';
 import {apiRequest, apiSend} from '@/client/request';
 
+/** The connections the person sees in the organization open: its shared ones and their own. */
 export function listConnections() {
 	return apiRequest('GET', '/api/connections', z.object({connections: z.array(connectionSchema)}));
+}
+
+/** Shares one's own connection with every member of its organization, for good. */
+export function shareConnection(connectionId: string) {
+	return apiRequest('POST', `/api/connections/${connectionId}/share`, connectionSchema);
 }
 
 export function getConnection(connectionId: string) {
@@ -27,11 +33,13 @@ export function setConnectionDefaults(connectionId: string, actions: Record<stri
 	});
 }
 
+// `shared`: for every member of the organization rather than the person's own.
 export type ConnectEmailInput = {
 	provider: EmailProvider['id'];
 	email: string;
 	password: string;
 	servers?: MailServers;
+	shared?: boolean;
 };
 
 /** Signs in to the mailbox first: 422 is a wrong password, 502 a server out of reach. */
@@ -53,6 +61,7 @@ export type ConnectDatabaseInput = {
 	username: string;
 	password: string;
 	tls: 'verify' | 'require' | 'off';
+	shared?: boolean;
 };
 
 /** Signs in to the database first: 422 is a wrong password, 502 a server out of reach, 400 says what is wrong with the host. */
@@ -65,7 +74,13 @@ export function testDatabase(dialect: DatabaseDialect, input: ConnectDatabaseInp
 	return apiSend('POST', `/api/connections/${dialect}/test`, input);
 }
 
-export type ConnectMcpInput = {name: string; url: string; token?: string; returnTo?: 'welcome'};
+export type ConnectMcpInput = {
+	name: string;
+	url: string;
+	token?: string;
+	returnTo?: 'welcome';
+	shared?: boolean;
+};
 
 /**
  * Connects a custom MCP server by its address, with a token where the server takes one: the new
@@ -86,7 +101,7 @@ export function connectMcp(input: ConnectMcpInput) {
 	);
 }
 
-export type ConnectWithKeyInput = {key: string; connection?: string};
+export type ConnectWithKeyInput = {key: string; connection?: string; shared?: boolean};
 
 /**
  * Connects an integration that takes an API key, Cloudflare, Exa, Linear or Parallel, with one,
@@ -116,7 +131,10 @@ export function createPlaidLinkToken(connectionId?: string) {
 	);
 }
 
-/** Connects the bank Plaid Link signed in to, by the public token it answered with. */
-export function connectPlaid(publicToken: string) {
-	return apiRequest('POST', '/api/connections/plaid', connectionSchema, {publicToken});
+/** Connects the bank Plaid Link signed in to, by the public token it answered with, the person's own or every member's. */
+export function connectPlaid(publicToken: string, shared = false) {
+	return apiRequest('POST', '/api/connections/plaid', connectionSchema, {
+		publicToken,
+		...(shared ? {shared} : {}),
+	});
 }

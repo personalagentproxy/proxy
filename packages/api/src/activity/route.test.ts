@@ -5,7 +5,7 @@ const getUserOrgId = mock();
 const listAuditEntries = mock();
 const summarizeTaskRequests = mock();
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId}));
+mock.module('@proxy/db/organization', () => ({getUserOrgId, getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 mock.module('@proxy/db/audit', () => ({listAuditEntries, summarizeTaskRequests}));
 
 const listAgentTasks = mock();

@@ -5,8 +5,16 @@ import {z} from 'zod';
 
 export const connectionSchema = z.object({
 	id: z.string(),
+	// The organization it is in.
+	orgId: z.string(),
 	integrationId: z.string(),
 	account: z.string(),
+	// Shared with every member of its organization, rather than one member's own.
+	shared: z.boolean(),
+	// Who connected it, kept once it is shared, and their name or address while they are still in
+	// its organization.
+	connectedById: z.string().nullable(),
+	connectedBy: z.string().nullable(),
 	// The actions agents get by default.
 	defaults: z.array(z.string()),
 	// A custom MCP server's tools, what its actions are; null for every other integration.

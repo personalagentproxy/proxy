@@ -21,7 +21,7 @@ mock.module('@proxy/db/connection', () => ({
 
 const getUserOrgId = mock();
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId}));
+mock.module('@proxy/db/organization', () => ({getUserOrgId, getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
 mock.module('../../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
@@ -169,7 +169,7 @@ describe('handleLinearCallbackRoute', () => {
 		const {cookie, state} = await start({connection: 'conn-0'});
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
-		expect(getConnectionWithCredential).toHaveBeenCalledWith('org-1', 'conn-0');
+		expect(getConnectionWithCredential).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'conn-0');
 		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0', account: 'alex@example.com · Acme'});
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-0');
 	});
@@ -180,7 +180,7 @@ describe('handleLinearCallbackRoute', () => {
 		const {cookie, state} = await start({connection: 'conn-0'});
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
-		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'linear', account: 'alex@example.com · Acme', providerAccountId: null});
+		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, {integrationId: 'linear', account: 'alex@example.com · Acme', providerAccountId: null});
 		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-5'});
 		expect(createConnection).not.toHaveBeenCalled();
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-5');
@@ -191,7 +191,7 @@ describe('handleLinearCallbackRoute', () => {
 		const {cookie, state} = await start({connection: 'conn-0'});
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
-		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'linear', account: 'alex@example.com · Acme', providerAccountId: null});
+		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, {integrationId: 'linear', account: 'alex@example.com · Acme', providerAccountId: null});
 		expect(renewConnection).not.toHaveBeenCalled();
 		expect(createConnection.mock.calls[0]?.[0]).toMatchObject({integrationId: 'linear', account: 'alex@example.com · Acme'});
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1?added');
@@ -232,7 +232,7 @@ describe('keyConnectRoute', () => {
 		expect(calls.map((call) => call.headers.get('authorization'))).toEqual(['Bearer lin_api_1234', 'Bearer lin_api_1234', 'Bearer lin_api_1234']);
 		expect(calls.map((call) => JSON.parse(call.body).method)).toEqual(['tools/list', 'tools/call', 'tools/call']);
 		// The same account a sign-in would find: a key for it renews its connection.
-		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'linear', account: 'alex@example.com · Acme', providerAccountId: null});
+		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, {integrationId: 'linear', account: 'alex@example.com · Acme', providerAccountId: null});
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(created).toMatchObject({integrationId: 'linear', account: 'alex@example.com · Acme', defaults: ['read']});
 		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toEqual({auth: 'key', key: 'lin_api_1234'});

@@ -114,6 +114,9 @@ async function connect(data: {
 	const connection = await db.connection.create({
 		data: {
 			orgId: org.id,
+			// The demo user's own, as everything in an organization with one member is.
+			ownerUserId: user.id,
+			connectedById: user.id,
 			integrationId: data.integrationId,
 			account: data.account,
 			credential: data.credential,

@@ -25,7 +25,19 @@ function pages(): Collection {
 }
 
 const target = {
-	connection: {id: 'notion-1', integrationId: 'notion', account: 'alex@example.com · Acme', createdAt: new Date(), tools: null, name: null, defaults: [], credential: 'v1.encrypted'},
+	connection: {
+		id: 'notion-1',
+		integrationId: 'notion',
+		orgId: 'org-1',
+		ownerUserId: 'user-1',
+		connectedById: 'user-1',
+		account: 'alex@example.com · Acme',
+		createdAt: new Date(),
+		tools: null,
+		name: null,
+		defaults: [],
+		credential: 'v1.encrypted',
+	},
 	collection: pages(),
 };
 

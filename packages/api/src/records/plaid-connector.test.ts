@@ -30,6 +30,9 @@ function messageOf<T>(result: Result<T, ApiError>): string | null {
 const connection = {
 	id: 'bank-1',
 	integrationId: 'plaid',
+	orgId: 'org-1',
+	ownerUserId: 'user-1',
+	connectedById: 'user-1',
 	account: 'First Platypus Bank',
 	createdAt: new Date(),
 	tools: null,

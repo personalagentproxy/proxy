@@ -25,7 +25,7 @@ mock.module('../utils/secret-crypto', () => ({
 
 const requireUserOrgId = mock();
 
-mock.module('../utils/user-org', () => ({requireUserOrgId}));
+mock.module('../utils/user-org', () => ({requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1'}), requireUserOrgId}));
 
 const agentRow = {
 	id: 'agent-1',
@@ -50,7 +50,19 @@ beforeEach(() => {
 	updateAgent.mockResolvedValue(Ok(true));
 	setAgentGrants.mockResolvedValue(Ok(undefined));
 	getConnectionWithCredential.mockResolvedValue(
-		Ok({id: 'conn-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), tools: null, name: null, defaults: [], credential: 'enc:{}'}),
+		Ok({
+			id: 'conn-1',
+			integrationId: 'email',
+			orgId: 'org-1',
+			ownerUserId: 'user-1',
+			connectedById: 'user-1',
+			account: 'alex@example.com',
+			createdAt: new Date(),
+			tools: null,
+			name: null,
+			defaults: [],
+			credential: 'enc:{}',
+		}),
 	);
 	isUsernameConflict.mockReturnValue(false);
 	isProviderConflict.mockReturnValue(false);
@@ -189,7 +201,17 @@ describe('handleSetAgentGrantsRoute', () => {
 	test("refuses turning on an action the connection's sign-in didn't cover, but not turning it off", async () => {
 		const credential = {accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null, scopes: ['openid'], email: 'alex@example.com'};
 		getConnectionWithCredential.mockResolvedValue(
-			Ok({id: 'conn-1', integrationId: 'google', account: 'alex@example.com', createdAt: new Date(), defaults: [], credential: `enc:${JSON.stringify(credential)}`}),
+			Ok({
+				id: 'conn-1',
+				integrationId: 'google',
+				orgId: 'org-1',
+				ownerUserId: 'user-1',
+				connectedById: 'user-1',
+				account: 'alex@example.com',
+				createdAt: new Date(),
+				defaults: [],
+				credential: `enc:${JSON.stringify(credential)}`,
+			}),
 		);
 
 		const {handleSetAgentGrantsRoute} = await import('./route');

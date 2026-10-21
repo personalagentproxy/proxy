@@ -1,3 +1,4 @@
+import type {Viewer} from '@proxy/db/connection';
 import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
@@ -6,7 +7,7 @@ import {daysBetween} from '@proxy/utils/days';
 import type {IntegrationId} from '@proxy/integrations';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {requireUserOrgId} from '../utils/user-org';
+import {requireViewer} from '../utils/user-org';
 import {getAccounts, getTransactions, type PlaidAccount, type PlaidTransaction} from '../connections/plaid/plaid-api';
 import {callPlaid} from '../connections/plaid/plaid-client';
 import {accountNumber, accountType} from '../records/plaid-connector';
@@ -141,8 +142,8 @@ const plaidBank: BankAdapter = {
 const ADAPTERS: Partial<Record<IntegrationId, BankAdapter>> = {plaid: plaidBank};
 
 // Every bank connected whose collection a widget can read, with how.
-async function bankSources(orgId: string, collectionId: 'accounts' | 'transactions'): Promise<Result<Array<Source & {adapter: BankAdapter}>, ApiError>> {
-	return (await findSources(orgId, collectionId, 'list')).map((sources) =>
+async function bankSources(viewer: Viewer, collectionId: 'accounts' | 'transactions'): Promise<Result<Array<Source & {adapter: BankAdapter}>, ApiError>> {
+	return (await findSources(viewer, collectionId, 'list')).map((sources) =>
 		sources.flatMap((source) => {
 			const adapter = ADAPTERS[source.integration.id];
 			return adapter ? [{...source, adapter}] : [];
@@ -155,8 +156,8 @@ export type BankAccounts = {sources: SourceSummary[]; accounts: BankAccount[]; f
 /** `GET /api/widgets/accounts`: every bank's accounts with their balances. */
 export function handleBankAccountsRoute(request: AuthenticatedRequest): Promise<Result<BankAccounts, ApiError>> {
 	return Do(async ($) => {
-		const orgId = $(await requireUserOrgId(request));
-		const sources = $(await bankSources(orgId, 'accounts'));
+		const viewer = $(await requireViewer(request));
+		const sources = $(await bankSources(viewer, 'accounts'));
 		const {found, failed} = await eachSource(sources, (source) => source.adapter.accounts(source));
 		return {sources: sources.map(summarize), accounts: found.flatMap(({value}) => value), failed};
 	});
@@ -177,8 +178,8 @@ export function handleBankTransactionsRoute(request: AuthenticatedRequest): Prom
 		if (days < 0 || days >= MAX_DAYS) {
 			return $(Err(ApiErr.validationError('Ask for at most two years, from before to')));
 		}
-		const orgId = $(await requireUserOrgId(request));
-		const sources = $(await bankSources(orgId, 'transactions'));
+		const viewer = $(await requireViewer(request));
+		const sources = $(await bankSources(viewer, 'transactions'));
 		const {found, failed} = await eachSource(sources, (source) => source.adapter.transactions(source, range));
 		const transactions = found.flatMap(({value}) => value.transactions).sort((a, b) => b.date.localeCompare(a.date));
 		return {

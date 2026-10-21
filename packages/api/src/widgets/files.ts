@@ -5,7 +5,7 @@ import {type ApiError, Do, parseSchema} from '@proxy/utils';
 import type {IntegrationId} from '@proxy/integrations';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {requireUserOrgId} from '../utils/user-org';
+import {requireViewer} from '../utils/user-org';
 import {driveQuoted, listFiles, type DriveFile} from '../connections/google/drive-api';
 import {callGoogle} from '../connections/google/google-client';
 import {kindOf} from '../records/google-files';
@@ -104,8 +104,8 @@ export function handleFindFilesRoute(request: AuthenticatedRequest): Promise<Res
 			kind: query.kind ?? null,
 			owner: query.owner ?? null,
 		};
-		const orgId = $(await requireUserOrgId(request));
-		const sources = $(await findSources(orgId, 'files', 'list')).flatMap((source) => {
+		const viewer = $(await requireViewer(request));
+		const sources = $(await findSources(viewer, 'files', 'list')).flatMap((source) => {
 			const find = SEARCHES[source.integration.id];
 			return find ? [{...source, find}] : [];
 		});

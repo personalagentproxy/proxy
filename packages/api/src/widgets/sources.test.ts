@@ -7,7 +7,13 @@ const unavailableActions = mock((_connection: {id: string}): string[] => []);
 
 // The Google client and the mail connectors read the environment on import, which tests don't have.
 mock.module('../utils/env', () => ({env: {NODE_ENV: 'test'}}));
-mock.module('@proxy/db/connection', () => ({listConnectionsWithCredential, getConnectionWithCredential, getConnectionCredential: mock(), updateConnectionCredential: mock()}));
+mock.module('@proxy/db/connection', () => ({
+	getOrgConnectionWithCredential: mock(),
+	listConnectionsWithCredential,
+	getConnectionWithCredential,
+	getConnectionCredential: mock(),
+	updateConnectionCredential: mock(),
+}));
 mock.module('../connections/unavailable', () => ({
 	unavailableActions,
 	unavailableError: (_integration: unknown, actionId: string) => ({kind: 'validation_error', statusCode: 400, message: `not allowed: ${actionId}`}),
@@ -30,10 +36,10 @@ describe('findSources', () => {
 		unavailableActions.mockImplementation((stored) => (stored.id === 'narrow' ? ['readEvents', 'writeEvents'] : []));
 		const {findSources} = await import('./sources');
 
-		const calendars = (await findSources('org-1', 'events', 'list')).unwrap();
+		const calendars = (await findSources({orgId: 'org-1', userId: 'user-1'}, 'events', 'list')).unwrap();
 		expect(calendars.map((source) => source.connection.id)).toEqual(['work', 'home']);
 
-		const mailboxes = (await findSources('org-1', 'emails', 'list')).unwrap();
+		const mailboxes = (await findSources({orgId: 'org-1', userId: 'user-1'}, 'emails', 'list')).unwrap();
 		expect(mailboxes.map((source) => [source.connection.id, source.integration.id])).toEqual([
 			['work', 'google'],
 			['home', 'google'],
@@ -47,7 +53,7 @@ describe('findSources', () => {
 		unavailableActions.mockImplementation((stored) => (stored.id === 'readonly' ? ['sendEmails'] : []));
 		const {findSources} = await import('./sources');
 
-		expect((await findSources('org-1', 'emails', 'sendNew')).unwrap().map((source) => source.connection.id)).toEqual(['work']);
+		expect((await findSources({orgId: 'org-1', userId: 'user-1'}, 'emails', 'sendNew')).unwrap().map((source) => source.connection.id)).toEqual(['work']);
 	});
 });
 
@@ -57,10 +63,10 @@ describe('requireWritable', () => {
 		unavailableActions.mockImplementation(() => ['inviteGuests']);
 		const {requireWritable} = await import('./sources');
 
-		const refused = await requireWritable('org-1', 'work', 'events', 'create', ['title', 'start', 'guests']);
+		const refused = await requireWritable({orgId: 'org-1', userId: 'user-1'}, 'work', 'events', 'create', ['title', 'start', 'guests']);
 		expect(refused.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'not allowed: inviteGuests'});
 
-		const allowed = await requireWritable('org-1', 'work', 'events', 'create', ['title', 'start']);
+		const allowed = await requireWritable({orgId: 'org-1', userId: 'user-1'}, 'work', 'events', 'create', ['title', 'start']);
 		expect(allowed.unwrap().collection.id).toBe('events');
 	});
 
@@ -68,6 +74,6 @@ describe('requireWritable', () => {
 		getConnectionWithCredential.mockResolvedValue(Ok(connection('imap', 'email')));
 		const {requireWritable} = await import('./sources');
 
-		expect((await requireWritable('org-1', 'imap', 'events', 'create', [])).unwrapErr().kind).toBe('not_found');
+		expect((await requireWritable({orgId: 'org-1', userId: 'user-1'}, 'imap', 'events', 'create', [])).unwrapErr().kind).toBe('not_found');
 	});
 });

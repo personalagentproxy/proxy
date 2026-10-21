@@ -1,3 +1,4 @@
+import type {Viewer} from '@proxy/db/connection';
 import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
@@ -6,7 +7,7 @@ import {getWriteTarget} from '@proxy/db/write-target';
 import type {IntegrationId} from '@proxy/integrations';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {requireUserOrgId} from '../utils/user-org';
+import {requireViewer} from '../utils/user-org';
 import {eachSource, type Failure} from './each-source';
 import {googleCalendars} from './google-calendars';
 import {findSources, summarize, type Source, type SourceSummary} from './sources';
@@ -73,8 +74,8 @@ export function pickTarget(calendars: AgendaCalendar[], last: {connectionId: str
 }
 
 // Every calendar connected that a widget can read, with how.
-async function calendarSources(orgId: string): Promise<Result<Array<Source & {adapter: CalendarAdapter}>, ApiError>> {
-	return (await findSources(orgId, 'events', 'list')).map((sources) =>
+async function calendarSources(viewer: Viewer): Promise<Result<Array<Source & {adapter: CalendarAdapter}>, ApiError>> {
+	return (await findSources(viewer, 'events', 'list')).map((sources) =>
 		sources.flatMap((source) => {
 			const adapter = ADAPTERS[source.integration.id];
 			return adapter ? [{...source, adapter}] : [];
@@ -90,8 +91,8 @@ export function handleAgendaRoute(request: AuthenticatedRequest): Promise<Result
 		if (span <= 0 || span > MAX_RANGE_MS) {
 			return $(Err(ApiErr.validationError('Ask for at most two days, from before to')));
 		}
-		const orgId = $(await requireUserOrgId(request));
-		const sources = $(await calendarSources(orgId));
+		const viewer = $(await requireViewer(request));
+		const sources = $(await calendarSources(viewer));
 		const {found, failed} = await eachSource(sources, (source) => source.adapter.agenda(source, range));
 		const calendars = found.flatMap(({value}) => value.calendars);
 		const events = found.flatMap(({value}) => value.events).sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
@@ -122,8 +123,8 @@ export type FoundEvents = {sources: SourceSummary[]; events: AgendaEvent[]; fail
 export function handleFindEventsRoute(request: AuthenticatedRequest): Promise<Result<FoundEvents, ApiError>> {
 	return Do(async ($) => {
 		const {from, search} = $(parseSchema(searchSchema, request.query));
-		const orgId = $(await requireUserOrgId(request));
-		const sources = $(await calendarSources(orgId));
+		const viewer = $(await requireViewer(request));
+		const sources = $(await calendarSources(viewer));
 		const {found, failed} = await eachSource(sources, (source) => source.adapter.search(source, {from, searches: search}));
 		const events = found
 			.flatMap(({value}) => value)

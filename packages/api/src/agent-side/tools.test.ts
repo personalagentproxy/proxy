@@ -16,9 +16,9 @@ const getAgentTask = mock();
 
 mock.module('@proxy/db/task', () => ({getAgentTask, createAgentTask: mock(), finishAgentTask: mock(), listOpenAgentTasks: mock()}));
 
-const listConnectionsWithCredential = mock();
+const listOrgConnectionsWithCredential = mock();
 
-mock.module('@proxy/db/connection', () => ({listConnectionsWithCredential, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
+mock.module('@proxy/db/connection', () => ({listOrgConnectionsWithCredential, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
 
 // Readable stand-ins for encryption, so a test can write the credential it means.
 mock.module('../utils/secret-crypto', () => ({
@@ -26,9 +26,9 @@ mock.module('../utils/secret-crypto', () => ({
 	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
 }));
 
-const loadConnection = mock();
+const loadAgentConnection = mock();
 
-mock.module('../records/target', () => ({loadConnection}));
+mock.module('../records/target', () => ({loadAgentConnection}));
 
 const callCustomTool = mock();
 
@@ -49,8 +49,32 @@ const caller = {agent: signedIn, via: 'mcp' as const, taskId: 'task-1'};
 // Started a moment ago, so it is under way whenever the tests run.
 const task = {id: 'task-1', agentId: 'agent-1', title: 'Find the Visa', goal: 'Look up the card number', via: 'mcp', createdAt: new Date(), finishedAt: null};
 
-const vaultConnection = {id: 'vault-1', integrationId: 'vault', account: "Alex's Workspace", createdAt: new Date(), tools: null, name: null, defaults: [{actionId: 'readEntries'}], credential: null};
-const emailConnection = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), tools: null, name: null, defaults: [{actionId: 'read'}], credential: 'v1.x.y.z'};
+const vaultConnection = {
+	id: 'vault-1',
+	integrationId: 'vault',
+	orgId: 'org-1',
+	ownerUserId: 'user-1',
+	connectedById: 'user-1',
+	account: "Alex's Workspace",
+	createdAt: new Date(),
+	tools: null,
+	name: null,
+	defaults: [{actionId: 'readEntries'}],
+	credential: null,
+};
+const emailConnection = {
+	id: 'mail-1',
+	integrationId: 'email',
+	orgId: 'org-1',
+	ownerUserId: 'user-1',
+	connectedById: 'user-1',
+	account: 'alex@example.com',
+	createdAt: new Date(),
+	tools: null,
+	name: null,
+	defaults: [{actionId: 'read'}],
+	credential: 'v1.x.y.z',
+};
 const notionConnection = {
 	id: 'notion-1',
 	integrationId: 'notion',
@@ -66,6 +90,9 @@ const notionConnection = {
 const googleConnection = {
 	id: 'google-1',
 	integrationId: 'google',
+	orgId: 'org-1',
+	ownerUserId: 'user-1',
+	connectedById: 'user-1',
 	account: 'alex@example.com',
 	createdAt: new Date(),
 	defaults: [{actionId: 'readFiles'}],
@@ -99,7 +126,7 @@ const sendNew = mock();
 const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send}, newCommands: {sendNew}};
 
 function useConnection(connection: typeof vaultConnection | typeof emailConnection | typeof notionConnection | typeof googleConnection) {
-	loadConnection.mockResolvedValue(Ok({connection, integration: integration(connection.integrationId), connector}));
+	loadAgentConnection.mockResolvedValue(Ok({connection, integration: integration(connection.integrationId), connector}));
 }
 
 beforeEach(() => {
@@ -107,7 +134,7 @@ beforeEach(() => {
 	getAgent.mockResolvedValue(Ok(agent));
 	getAgentTask.mockResolvedValue(Ok(task));
 	logAgentRequest.mockResolvedValue(Ok(undefined));
-	listConnectionsWithCredential.mockResolvedValue(Ok([vaultConnection, emailConnection, googleConnection]));
+	listOrgConnectionsWithCredential.mockResolvedValue(Ok([vaultConnection, emailConnection, googleConnection]));
 	connector.list.mockResolvedValue(Ok({records: [entry], nextPage: null}));
 	connector.get.mockResolvedValue(Ok(entry));
 	useConnection(vaultConnection);
@@ -276,7 +303,7 @@ describe('runAgentTool', () => {
 	test('a connection outside the organization or a tool the integration lacks is not found and not logged', async () => {
 		const {runAgentTool} = await import('./tools');
 		const tool = await runAgentTool(caller, 'vault-1', 'entries_send', {});
-		loadConnection.mockResolvedValue(Err(ApiErr.notFound('connection', 'elsewhere')));
+		loadAgentConnection.mockResolvedValue(Err(ApiErr.notFound('connection', 'elsewhere')));
 		const connection = await runAgentTool(caller, 'elsewhere', 'entries_list', {});
 
 		expect(tool.unwrapErr().kind).toBe('not_found');
@@ -495,6 +522,9 @@ describe('custom MCP servers', () => {
 	const customConnection = {
 		id: 'mcp-1',
 		integrationId: 'mcp',
+		orgId: 'org-1',
+		ownerUserId: 'user-1',
+		connectedById: 'user-1',
 		account: 'mcp.example.com/mcp',
 		createdAt: new Date(),
 		tools: JSON.stringify([search, publish]),
@@ -504,8 +534,8 @@ describe('custom MCP servers', () => {
 	};
 
 	beforeEach(() => {
-		loadConnection.mockResolvedValue(Ok({connection: customConnection, integration: integrationFor({integrationId: 'mcp', tools: [search, publish]}), connector: null}));
-		listConnectionsWithCredential.mockResolvedValue(Ok([customConnection]));
+		loadAgentConnection.mockResolvedValue(Ok({connection: customConnection, integration: integrationFor({integrationId: 'mcp', tools: [search, publish]}), connector: null}));
+		listOrgConnectionsWithCredential.mockResolvedValue(Ok([customConnection]));
 		callCustomTool.mockResolvedValue(Ok('3 results'));
 	});
 

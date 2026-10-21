@@ -11,6 +11,10 @@ const GOOGLE_DOCS = 'https://docs.personalagentproxy.com/connections/google/';
 const google: Connection = {
 	id: 'conn-1',
 	integrationId: 'google',
+	orgId: 'org-1',
+	shared: false,
+	connectedById: 'user-1',
+	connectedBy: null,
 	account: 'alex@example.com',
 	defaults: ['readFiles'],
 	tools: null,

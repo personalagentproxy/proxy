@@ -22,7 +22,7 @@ mock.module('@proxy/db/agent', () => ({getAgent}));
 
 const getUserOrgId = mock();
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId}));
+mock.module('@proxy/db/organization', () => ({getUserOrgId, getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
 const createAgentLogin = mock();
 
