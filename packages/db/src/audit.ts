@@ -39,11 +39,13 @@ export async function logAgentRequest(data: {
 	via: AuditVia;
 	// PRE-TASK CLIENTS: null for a call of an MCP client from before tasks (api's mcp/pre-task-clients.ts).
 	taskId: string | null;
-	durationMs: number;
+	// When the request came in, in ms since the epoch, so the entry says how long it took.
+	startedAt: number;
 }): Promise<Result<void, ApiError>> {
+	const {startedAt, ...entry} = data;
 	return wrapDb(async () => {
 		await db.$transaction([
-			db.auditEntry.create({data}),
+			db.auditEntry.create({data: {...entry, durationMs: Date.now() - startedAt}}),
 			db.agent.update({where: {id: data.agentId}, data: {lastActiveAt: new Date()}}),
 		]);
 	});

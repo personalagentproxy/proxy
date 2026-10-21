@@ -571,8 +571,8 @@ const TASKS: [{title: string; goal: string}, ...Array<{title: string; goal: stri
 	},
 ];
 
-// Parts of a task an agent handed to a sub-agent of its own, or to another login: each a sub-task
-// of it, with what the sub-agent handed back once done.
+// Parts of a task an agent handed to sub-agents of its own: each a sub-task of it, with what the
+// sub-agent handed back once done.
 const SUB_TASKS: [
 	{title: string; goal: string; outcome: string},
 	...Array<{title: string; goal: string; outcome: string}>,
@@ -645,7 +645,7 @@ for (const agent of agents) {
 			}),
 		);
 		// The oldest task, done, and the newest, under way, were split among sub-agents: a sub-task
-		// each, the done one's with what it handed back, and one handed to another login.
+		// each, the done one's with what it handed back.
 		const subTasks: typeof concurrent = [];
 		for (const parent of [concurrent[0], concurrent.at(-1)].flatMap((task) =>
 			task ? [task] : [],
@@ -655,14 +655,10 @@ for (const agent of agents) {
 				const startedAt = parent.startedAt + (2 + index * 3 + random() * 2) * MINUTE;
 				const finishedAt =
 					parentDone || index === 0 ? startedAt + (4 + random() * 8) * MINUTE : null;
-				const other = agents.find(
-					(candidate) => candidate.id !== agent.id && candidate.revokedAt === null,
-				);
-				const handedOn = index === SUB_TASKS.length - 1 && other !== undefined;
 				const task = await db.agentTask.create({
 					data: {
 						orgId: org.id,
-						agentId: handedOn ? other.id : agent.id,
+						agentId: agent.id,
 						parentId: parent.id,
 						title: part.title,
 						goal: part.goal,
@@ -673,10 +669,7 @@ for (const agent of agents) {
 					},
 				});
 				taskCount += 1;
-				// The other login's requests are its own; only this login's sub-tasks take some of these.
-				if (!handedOn) {
-					subTasks.push({id: task.id, via: parent.via, startedAt, endsAt: finishedAt ?? now});
-				}
+				subTasks.push({id: task.id, via: parent.via, startedAt, endsAt: finishedAt ?? now});
 			}
 		}
 		const pool = [...concurrent, ...subTasks];

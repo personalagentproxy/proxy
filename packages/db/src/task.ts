@@ -1,4 +1,4 @@
-import type {AuditVia} from '@prisma/client';
+import type {AuditVia, Prisma} from '@prisma/client';
 import type {Result} from 'ts-results-es';
 
 import {type ApiError, wrapDb} from '@proxy/utils';
@@ -35,8 +35,10 @@ const taskSelect = {
 } as const;
 
 /**
- * Starts a task for the agent: what it is called and what the person asked for, and the task it
- * is a sub-task of, where it is one.
+ * Starts a task for the agent: what it is called and what the person asked for, and the agent's
+ * task it is a sub-task of, where it is one. The parent is locked while the sub-task is made, so it
+ * can't be finished in between and leave the sub-task open; `Ok(null)` means it is no longer under
+ * way, finished or abandoned (@proxy/utils/tasks).
  */
 export async function createAgentTask(data: {
 	orgId: string;
@@ -45,8 +47,25 @@ export async function createAgentTask(data: {
 	title: string;
 	goal: string;
 	via: AuditVia;
-}): Promise<Result<AgentTaskRow, ApiError>> {
-	return wrapDb(() => db.agentTask.create({data, select: taskSelect}));
+}): Promise<Result<AgentTaskRow | null, ApiError>> {
+	const {orgId, agentId, parentId} = data;
+	if (parentId === null) {
+		return wrapDb(() => db.agentTask.create({data, select: taskSelect}));
+	}
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const abandonedBefore = new Date(Date.now() - TASK_ABANDONED_AFTER_MS);
+			const parent = await tx.$queryRaw<Array<{id: string}>>`
+				SELECT "id" FROM "AgentTask"
+				WHERE "id" = ${parentId} AND "orgId" = ${orgId} AND "agentId" = ${agentId}
+					AND "finishedAt" IS NULL AND "createdAt" > ${abandonedBefore}
+				FOR UPDATE`;
+			if (parent.length === 0) {
+				return null;
+			}
+			return tx.agentTask.create({data, select: taskSelect});
+		}),
+	);
 }
 
 /** `Ok(null)` means the agent has no such task: unknown, or another agent's. */
@@ -61,21 +80,11 @@ export async function getAgentTask(
 }
 
 /**
- * The organization's task, whichever of its agents started it, for starting a sub-task of it.
- * `Ok(null)` means the organization has no such task.
- */
-export async function getOrgTask(
-	orgId: string,
-	taskId: string,
-): Promise<Result<AgentTaskRow | null, ApiError>> {
-	return wrapDb(() => db.agentTask.findFirst({where: {id: taskId, orgId}, select: taskSelect}));
-}
-
-/**
  * Marks the agent's task finished now, with what was done where the agent said, and its sub-tasks
- * still under way finished with it, whoever's they are, since they were started for it; one
- * already finished keeps the time it was and what was said. `Ok(null)` means the agent has no such
- * task.
+ * still under way finished with it, in one transaction. One already finished keeps the time it was,
+ * and takes the outcome only where it has none, as a sub-task finished with its parent does; one
+ * abandoned (@proxy/utils/tasks) stays as it is, ended when it was abandoned. `Ok(null)` means the
+ * agent has no such task.
  */
 export async function finishAgentTask(
 	orgId: string,
@@ -83,31 +92,51 @@ export async function finishAgentTask(
 	taskId: string,
 	outcome: string | null,
 ): Promise<Result<AgentTaskRow | null, ApiError>> {
-	return wrapDb(async () => {
-		const finishedAt = new Date();
-		const {count} = await db.agentTask.updateMany({
-			where: {id: taskId, orgId, agentId, finishedAt: null},
-			data: {finishedAt, outcome},
-		});
-		if (count > 0) {
-			await finishSubTasks(orgId, [taskId], finishedAt);
-		}
-		return db.agentTask.findFirst({where: {id: taskId, orgId, agentId}, select: taskSelect});
-	});
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const finishedAt = new Date();
+			const abandonedBefore = new Date(finishedAt.getTime() - TASK_ABANDONED_AFTER_MS);
+			const {count} = await tx.agentTask.updateMany({
+				where: {id: taskId, orgId, agentId, finishedAt: null, createdAt: {gt: abandonedBefore}},
+				data: {finishedAt, outcome},
+			});
+			if (count > 0) {
+				await finishSubTasks(tx, {orgId, agentId, finishedAt, abandonedBefore}, [taskId]);
+			}
+			if (count === 0 && outcome !== null) {
+				await tx.agentTask.updateMany({
+					where: {id: taskId, orgId, agentId, finishedAt: {not: null}, outcome: null},
+					data: {outcome},
+				});
+			}
+			return tx.agentTask.findFirst({where: {id: taskId, orgId, agentId}, select: taskSelect});
+		}),
+	);
 }
 
-// Finishes the open sub-tasks of `parentIds`, level by level down the tree, at `finishedAt`.
-async function finishSubTasks(orgId: string, parentIds: string[], finishedAt: Date): Promise<void> {
-	const open = await db.agentTask.findMany({
-		where: {orgId, parentId: {in: parentIds}, finishedAt: null},
+// Finishes the sub-tasks of `parentIds` still under way, level by level down the tree. Each level
+// is read after the one above is updated, which waits for a sub-task being made under it
+// (createAgentTask), so none is left open. An abandoned sub-task keeps when it ended, but its own
+// sub-tasks, started before it was abandoned, may still be under way.
+async function finishSubTasks(
+	tx: Prisma.TransactionClient,
+	at: {orgId: string; agentId: string; finishedAt: Date; abandonedBefore: Date},
+	parentIds: string[],
+): Promise<void> {
+	const open = await tx.agentTask.findMany({
+		where: {orgId: at.orgId, agentId: at.agentId, parentId: {in: parentIds}, finishedAt: null},
 		select: {id: true},
 	});
 	if (open.length === 0) {
 		return;
 	}
 	const ids = open.map((task) => task.id);
-	await db.agentTask.updateMany({where: {id: {in: ids}}, data: {finishedAt}});
-	await finishSubTasks(orgId, ids, finishedAt);
+	// Not one finished since it was read, which keeps its own time and outcome.
+	await tx.agentTask.updateMany({
+		where: {id: {in: ids}, finishedAt: null, createdAt: {gt: at.abandonedBefore}},
+		data: {finishedAt: at.finishedAt},
+	});
+	await finishSubTasks(tx, at, ids);
 }
 
 /** The agent's tasks still under way, newest first: none finished, and none abandoned (@proxy/utils/tasks). */

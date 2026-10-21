@@ -14,7 +14,7 @@ mock.module('@proxy/db/audit', () => ({logAgentRequest}));
 
 const getAgentTask = mock();
 
-mock.module('@proxy/db/task', () => ({getAgentTask, createAgentTask: mock(), finishAgentTask: mock(), listOpenAgentTasks: mock(), getOrgTask: mock()}));
+mock.module('@proxy/db/task', () => ({getAgentTask, createAgentTask: mock(), finishAgentTask: mock(), listOpenAgentTasks: mock()}));
 
 const listConnectionsWithCredential = mock();
 
@@ -196,7 +196,7 @@ describe('runAgentTool', () => {
 			outcome: 'allowed',
 			via: 'mcp',
 			taskId: 'task-1',
-			durationMs: expect.any(Number),
+			startedAt: expect.any(Number),
 		});
 		expect(getAgentTask).toHaveBeenCalledWith('org-1', 'agent-1', 'task-1');
 	});

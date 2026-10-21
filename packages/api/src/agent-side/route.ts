@@ -40,14 +40,9 @@ export function handleAgentStartTaskRoute(request: AgentRequest): Promise<Result
 	return startAgentTask({agent: request.agent, via: 'web'}, request.body ?? {});
 }
 
-const finishTaskBodySchema = z.object({outcome: z.string().optional()});
-
 /** `POST /api/agent/tasks/:taskId/finish` with `{outcome?}`: marks the task finished, with what was done where given. */
 export function handleAgentFinishTaskRoute(request: AgentRequest): Promise<Result<AgentTaskResponse, ApiError>> {
-	return Do(async ($) => {
-		const {outcome} = $(parseSchema(finishTaskBodySchema, request.body ?? {}));
-		return $(await finishAgentTask({agent: request.agent, via: 'web'}, {task: request.params.taskId ?? '', outcome}));
-	});
+	return finishAgentTask({agent: request.agent, via: 'web'}, {...request.body, task: request.params.taskId ?? ''});
 }
 
 const runToolBodySchema = z.object({task: z.string().min(1), params: z.unknown().optional()});

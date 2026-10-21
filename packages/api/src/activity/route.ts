@@ -36,8 +36,8 @@ export type AuditEntryResponse = {
 export type ActivityTaskResponse = {
 	id: string;
 	agentId: string;
-	// The task it is a sub-task of, where an agent handed part of that task on; null for a task
-	// started on its own. The parent may be another agent's, and may be missing from the answer.
+	// The agent's task it is a sub-task of, where the agent handed part of that task to a sub-agent;
+	// null for a task started on its own. The parent may be missing from the answer.
 	parentId: string | null;
 	title: string;
 	goal: string;

@@ -11,7 +11,7 @@ mock.module('@proxy/db/audit', () => ({listAuditEntries, summarizeTaskRequests})
 const listAgentTasks = mock();
 const listAgentTasksSince = mock();
 
-mock.module('@proxy/db/task', () => ({listAgentTasks, listAgentTasksSince, getOrgTask: mock()}));
+mock.module('@proxy/db/task', () => ({listAgentTasks, listAgentTasksSince}));
 
 function makeRequest(query: Record<string, string>) {
 	return {user: {userId: 'user-1', email: 'test@example.com', name: 'Test User'}, query};

@@ -322,15 +322,15 @@ model AuditEntry {
 
 // What an agent set out to do with Personal Agent Proxy: an agent starts a task, naming it and
 // saying what the person asked for, makes its requests for it, each logged with the task, and
-// finishes it. A task an agent hands part of to another agent, or to one of its own sub-agents,
-// is a sub-task of the task it was handed from, so the tasks of one job form a tree. Plain ids,
-// like the activity log, so it stays when the agent is gone.
+// finishes it. Part of a task an agent hands to one of its sub-agents is a sub-task of it, so the
+// tasks of one job form a tree. Plain ids, like the activity log, so it stays when the agent is
+// gone.
 model AgentTask {
   id         String    @id @default(cuid())
   orgId      String
   agentId    String
-  // The task this one was started for, as a sub-task (AgentTask, in the same organization); none
-  // for a task started on its own.
+  // The agent's task this one was started for, as a sub-task (AgentTask); none for a task started
+  // on its own.
   parentId   String?
   // A few words, as a heading.
   title      String

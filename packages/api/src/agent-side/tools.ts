@@ -138,7 +138,7 @@ function log(run: ToolRun, outcome: 'allowed' | 'denied', title: string | null, 
 		outcome,
 		via: run.caller.via,
 		taskId: run.caller.taskId,
-		durationMs: Date.now() - run.startedAt,
+		startedAt: run.startedAt,
 	});
 }
 
@@ -249,7 +249,7 @@ function runServerTool(
 				outcome,
 				via: caller.via,
 				taskId: caller.taskId,
-				durationMs: Date.now() - startedAt,
+				startedAt,
 			});
 		if (!actionsOf(agent, connection, integration, unavailableActions(connection)).includes(tool.action)) {
 			$(await logRun('denied'));
