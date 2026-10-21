@@ -453,7 +453,7 @@ const linear: Integration = {
 };
 
 // The methods a Cloudflare API request is sent with, each needing the action of what it does.
-export const CLOUDFLARE_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+const CLOUDFLARE_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
 // A Cloudflare account, through Cloudflare's MCP server, which reaches all of Cloudflare's API:
 // zones and their DNS records, Workers, KV, R2, D1, Pages, analytics and the rest, as the person who

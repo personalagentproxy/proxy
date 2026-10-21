@@ -41,6 +41,11 @@ describe('requestCode', () => {
 		expect(sent).toEqual([{method: 'GET', path: '/zones?name=example.com'}]);
 	});
 
+	test('a path for one account fails asking for it, where none was named and there are several', async () => {
+		const code = requestCode({method: 'GET', path: '/accounts/{account_id}/workers/scripts'});
+		await expect(execute(code, undefined)).rejects.toThrow('give the Account ID');
+	});
+
 	test('nothing a request says runs as code', async () => {
 		const path = "/zones'); globalThis.ran = true; ('";
 		const {sent} = await execute(requestCode({method: 'GET', path, body: {query: '`${globalThis.ran = true}`'}}), undefined);

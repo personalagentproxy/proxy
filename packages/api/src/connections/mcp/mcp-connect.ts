@@ -9,7 +9,7 @@ import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {requireUserOrgId} from '../../utils/user-org';
 import {toConnectionResponse, type ConnectionResponse} from '../connection-response';
 import {saveConnection, signInFlow, signInRoutes, type Connected, type ReturnTo, type SignInRequest} from '../connect-flow';
-import type {BuiltInMcp} from './built-in';
+import type {BuiltInMcp, ProviderAccount} from './built-in';
 import {exchangeMcpCode, mcpAuthorizeUrl, registerMcpClient, type McpCredential, type McpServer} from './mcp-oauth';
 import type {McpKeyCredential} from './mcp-session';
 
@@ -30,9 +30,9 @@ export function startMcpSignIn<K extends object>(server: McpServer, {redirectUri
 }
 
 /** What a connection shows as its account: as the provider names it, or that it was signed in to, where the provider says nothing of who did. */
-export function accountOf(builtIn: BuiltInMcp, accessToken: string): Promise<Result<string, ApiError>> {
+export function accountOf(builtIn: BuiltInMcp, accessToken: string): Promise<Result<ProviderAccount, ApiError>> {
 	if (!builtIn.account) {
-		return Promise.resolve(Ok(SIGNED_IN));
+		return Promise.resolve(Ok({account: SIGNED_IN}));
 	}
 	return builtIn.account(accessToken);
 }
@@ -62,7 +62,7 @@ function builtInSignIn(builtIn: BuiltInMcp) {
 			Do<Connected<McpCredential>, ApiError>(async ($) => {
 				const credential = $(await exchangeMcpCode(server, {clientId: kept.clientId, redirectUri, code, verifier}));
 				const account = $(await accountOf(builtIn, credential.accessToken));
-				return {account, credential, defaults: builtIn.defaults, ...anonymity(builtIn), ...(kept.name ? {name: kept.name} : {})};
+				return {...account, credential, defaults: builtIn.defaults, ...anonymity(builtIn), ...(kept.name ? {name: kept.name} : {})};
 			}),
 	};
 }
@@ -95,9 +95,9 @@ export function keyAccount(key: string): string {
 }
 
 /** The account a key is for, as the provider names it, else the key's end. */
-export function keyAccountOf(builtIn: BuiltInMcp, key: string): Promise<Result<string, ApiError>> {
+export function keyAccountOf(builtIn: BuiltInMcp, key: string): Promise<Result<ProviderAccount, ApiError>> {
 	if (!builtIn.account) {
-		return Promise.resolve(Ok(keyAccount(key)));
+		return Promise.resolve(Ok({account: keyAccount(key)}));
 	}
 	return builtIn.account(key);
 }
@@ -107,7 +107,7 @@ export function keyAccountOf(builtIn: BuiltInMcp, key: string): Promise<Result<s
  * end. A key the server turns down is `credentials_rejected`; one for an integration that takes
  * none is refused.
  */
-export function checkedKeyAccount(builtIn: BuiltInMcp, key: string): Promise<Result<string, ApiError>> {
+export function checkedKeyAccount(builtIn: BuiltInMcp, key: string): Promise<Result<ProviderAccount, ApiError>> {
 	return Do(async ($) => {
 		const apiKey = $(requirePresent(builtIn.apiKey, ApiErr.validationError(`${builtIn.server.name} is connected by signing in to it`)));
 		$(await apiKey.check(key));
@@ -129,7 +129,7 @@ export function connectWithKey(builtIn: BuiltInMcp, orgId: string, args: {name?:
 		}
 		const account = $(await checkedKeyAccount(builtIn, args.key));
 		const credential: McpKeyCredential = {auth: 'key', key: args.key};
-		const connected = {account, credential, defaults: builtIn.defaults, ...anonymity(builtIn), ...(args.name === undefined ? {} : {name: args.name})};
+		const connected = {...account, credential, defaults: builtIn.defaults, ...anonymity(builtIn), ...(args.name === undefined ? {} : {name: args.name})};
 		return $(await saveConnection(orgId, builtIn.integrationId, connected, args.connectionId)).row;
 	});
 }

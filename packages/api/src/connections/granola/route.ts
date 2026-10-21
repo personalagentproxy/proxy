@@ -1,4 +1,4 @@
-import type {BuiltInMcp} from '../mcp/built-in';
+import {named, type BuiltInMcp} from '../mcp/built-in';
 import {GRANOLA, getGranolaAccount} from './granola-mcp';
 
 /**
@@ -8,7 +8,7 @@ import {GRANOLA, getGranolaAccount} from './granola-mcp';
 export const GRANOLA_MCP: BuiltInMcp = {
 	integrationId: 'granola',
 	server: GRANOLA,
-	account: getGranolaAccount,
+	account: named(getGranolaAccount),
 	defaults: ['readNotes', 'readTranscripts'],
 	tools: {
 		list_meetings: {actions: ['readNotes'], run: () => ({collectionId: 'notes', operation: 'list'})},

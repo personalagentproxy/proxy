@@ -4,6 +4,7 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
 import {callMcpTool, parseToolJson} from '../mcp/mcp-client';
+import type {ProviderAccount} from '../mcp/built-in';
 import type {McpServer} from '../mcp/mcp-oauth';
 
 /**
@@ -84,41 +85,43 @@ export const CLOUDFLARE: McpServer = {
 };
 
 // Who a credential is: a user, by their email, for a sign-in or a user's token; an account, by its
-// name, for an account's token. The id never changes.
+// name, for an account's token. The id never changes, as a name or an email may.
 const whoamiSchema = z.object({id: z.string(), email: z.string().optional(), name: z.string().optional()});
 
 /**
  * The Cloudflare account a sign-in or token is for, as the connection shows it: the email of who
- * signed in, or whose token it is, or the account an account's token is for, by name. Signing in
- * again as the same person renews their connection.
+ * signed in, or whose token it is, or the account an account's token is for, by name; and
+ * Cloudflare's id for it, by which a connection is told to be the same. Signing in again as the
+ * same person, or giving a token of the same account, renews its connection, even after the name
+ * changed, and two accounts of the same name are two connections.
  */
-export function getCloudflareAccount(token: string): Promise<Result<string, ApiError>> {
+export function getCloudflareAccount(token: string): Promise<Result<ProviderAccount, ApiError>> {
 	return Do(async ($) => {
 		const who = $(parseToolJson($(await callMcpTool(CLOUDFLARE, token, 'whoami', {})), whoamiSchema));
-		return who.email?.toLowerCase() ?? who.name ?? who.id;
+		return {account: who.email?.toLowerCase() ?? who.name ?? who.id, accountId: who.id};
 	});
 }
 
-type Json = z.infer<typeof jsonSchema>;
-
-const jsonSchema = z.json();
-
-/** A request's body, as JSON. */
-export const requestBodySchema = jsonSchema;
+/** JSON, as a request's body is. */
+export type Json = z.infer<ReturnType<typeof z.json>>;
 
 /** A request to Cloudflare's API, as `cloudflare.request()` takes it. */
 export type CloudflareRequest = {method: string; path: string; body?: Json};
 
 /**
  * The function `execute` runs for one request: it sends the request as it is, `{account_id}` in
- * its path the account the call is for, and returns Cloudflare's answer. Everything the request
- * says is written in as JSON, so nothing of it runs as code.
+ * its path the account the call is for, and returns Cloudflare's answer. A path with
+ * `{account_id}`, where the sign-in or token has several accounts and none was named, fails asking
+ * for one. Everything the request says is written in as JSON, so nothing of it runs as code.
  */
 export function requestCode(request: CloudflareRequest): string {
 	return [
 		'async () => {',
 		`\tconst request = ${JSON.stringify(request)};`,
-		"\tconst path = request.path.includes('{account_id}') ? request.path.replaceAll('{account_id}', accountId) : request.path;",
+		"\tif (request.path.includes('{account_id}') && !accountId) {",
+		"\t\tthrow new Error('The connection has several accounts: give the Account ID of the one {account_id} is for');",
+		'\t}',
+		"\tconst path = request.path.replaceAll('{account_id}', accountId);",
 		'\treturn cloudflare.request({...request, path});',
 		'}',
 	].join('\n');

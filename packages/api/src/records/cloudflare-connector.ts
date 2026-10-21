@@ -1,10 +1,10 @@
 import {Err, Ok, Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
+import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
-import {CLOUDFLARE, endpointsCode, isGraphqlPath, requestBodySchema, requestCode, requestPath, type CloudflareRequest} from '../connections/cloudflare/cloudflare-mcp';
+import {CLOUDFLARE, endpointsCode, isGraphqlPath, requestCode, requestPath, type CloudflareRequest, type Json} from '../connections/cloudflare/cloudflare-mcp';
 import {callMcpToolFor} from '../connections/mcp/mcp-session';
-import type {Connector, DataRecord, NewCommandRunner, RecordTarget, RecordValues} from './connector';
+import {onlyRun, type Connector, type DataRecord, type NewCommandRunner, type RecordValues} from './connector';
 
 /**
  * A Cloudflare account, through Cloudflare's MCP server, fetched live with the connection's
@@ -13,8 +13,6 @@ import type {Connector, DataRecord, NewCommandRunner, RecordTarget, RecordValues
  * an agent may do follows from what the request is, whatever the sign-in allows: Read sends GET
  * and GraphQL analytics queries, Send POST, PUT and PATCH, and Delete DELETE.
  */
-
-type Connection = RecordTarget['connection'];
 
 // What each request command sends: the methods it takes, the one a request without a method is
 // sent with, and what to tell an agent that asked it for another.
@@ -30,14 +28,23 @@ function requestBody(raw: string | undefined): Result<Pick<CloudflareRequest, 'b
 	if (text === '') {
 		return Ok({});
 	}
-	const json = Result.wrap((): unknown => JSON.parse(text)).mapErr(() => ApiErr.validationError('The body is JSON, such as {"type": "A", "name": "www", "content": "192.0.2.1"}'));
-	return json.andThen((value) => parseSchema(requestBodySchema, value)).map((body) => ({body}));
+	return Result.wrap((): Json => JSON.parse(text))
+		.map((body) => ({body}))
+		.mapErr(() => ApiErr.validationError('The body is JSON, such as {"type": "A", "name": "www", "content": "192.0.2.1"}'));
 }
+
+// GraphQL's strings, block strings first, and its comments, matched together so a `#` in a string
+// is no comment and a quote in a comment no string: what they say is never an operation.
+const GRAPHQL_TEXT = /"""[\s\S]*?"""|"(?:\\.|[^"\\\n\r])*"|#[^\n\r]*/g;
+
+// A document with a mutation or a subscription in it anywhere, its strings and comments left out:
+// a document may hold several operations, any of them first, and `operationName` pick another.
+const WRITES = /\b(mutation|subscription)\b/i;
 
 // A GraphQL query that only reads: Cloudflare's analytics, never a mutation.
 function readsOnly(body: CloudflareRequest['body']): boolean {
 	const query = typeof body === 'object' && body !== null && !Array.isArray(body) ? body.query : undefined;
-	return typeof query === 'string' && !/^\s*mutation\b/i.test(query);
+	return typeof query === 'string' && !WRITES.test(query.replace(GRAPHQL_TEXT, ' '));
 }
 
 // The request a command sends from the values typed in, as long as it is one the command sends.
@@ -56,13 +63,12 @@ function cloudflareRequest(sends: Sends, values: RecordValues): Result<Cloudflar
 		if (!sends.methods.includes(method)) {
 			return $(Err(ApiErr.validationError(`${sends.refused}, not ${method}`)));
 		}
+		// Cloudflare's sandbox turns down a GET with a body, so it is turned down here first, saying why.
+		if (method === 'GET' && body !== undefined) {
+			return $(Err(ApiErr.validationError('A GET request has no body: put what it asks for in its path, such as /zones?name=example.com')));
+		}
 		return {method, path, ...(body === undefined ? {} : {body})};
 	});
-}
-
-// Runs one of the server's tools for the connection, its answer as it is.
-function call(connection: Connection, tool: string, args: Record<string, string>): Promise<Result<string, ApiError>> {
-	return callMcpToolFor(CLOUDFLARE, connection, tool, args);
 }
 
 function sendRequest(sends: Sends): NewCommandRunner {
@@ -70,7 +76,7 @@ function sendRequest(sends: Sends): NewCommandRunner {
 		Do(async ($): Promise<DataRecord> => {
 			const request = $(cloudflareRequest(sends, values));
 			const account = (values.account ?? '').trim();
-			const response = $(await call(target.connection, 'execute', {code: requestCode(request), ...(account ? {account_id: account} : {})}));
+			const response = $(await callMcpToolFor(CLOUDFLARE, target.connection, 'execute', {code: requestCode(request), ...(account ? {account_id: account} : {})}));
 			const sent: RecordValues = {method: request.method, path: request.path};
 			const body = (values.body ?? '').trim();
 			if (body) {
@@ -83,16 +89,8 @@ function sendRequest(sends: Sends): NewCommandRunner {
 		});
 }
 
-function onlyRun<T>(): Promise<Result<T, ApiError>> {
-	return Promise.resolve(Err(ApiErr.validationError('Requests and searches are only run, never listed or kept')));
-}
-
 export const cloudflareConnector: Connector = {
-	list: () => onlyRun(),
-	get: () => onlyRun(),
-	create: () => onlyRun(),
-	update: () => onlyRun(),
-	remove: () => onlyRun(),
+	...onlyRun('Requests and searches are only run, never listed or kept'),
 	newCommands: {
 		read: sendRequest(READ),
 		send: sendRequest(SEND),
@@ -103,7 +101,7 @@ export const cloudflareConnector: Connector = {
 				if (!search) {
 					return $(Err(ApiErr.validationError('Say what to look up: words, such as "dns records", or one endpoint, such as "POST /zones/{zone_id}/dns_records"')));
 				}
-				const endpoints = $(await call(target.connection, 'search', {code: endpointsCode(search)}));
+				const endpoints = $(await callMcpToolFor(CLOUDFLARE, target.connection, 'search', {code: endpointsCode(search)}));
 				return {id: 'endpoints', values: {search, endpoints}, updatedAt: new Date().toISOString()};
 			}),
 		run: (target, values) =>
@@ -112,7 +110,7 @@ export const cloudflareConnector: Connector = {
 				if (!query) {
 					return $(Err(ApiErr.validationError('Say what to search the docs for')));
 				}
-				const results = $(await call(target.connection, 'docs', {query}));
+				const results = $(await callMcpToolFor(CLOUDFLARE, target.connection, 'docs', {query}));
 				return {id: 'docs', values: {query, results}, updatedAt: new Date().toISOString()};
 			}),
 	},

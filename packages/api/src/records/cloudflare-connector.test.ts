@@ -86,8 +86,28 @@ describe('requests', () => {
 		expect(tools.calls[0]?.args.code).toBe(requestCode({method: 'POST', path: '/graphql', body: JSON.parse(body)}));
 
 		expect((await run('read', {path: '/graphql', body: '{"query": "mutation { deleteEverything }"}'})).unwrapErr().kind).toBe('validation_error');
+		// A mutation after a comment, after a query `operationName` passes over, or after a fragment.
+		for (const query of [
+			'# hi\nmutation { deleteEverything }',
+			'query A { viewer { zones { zoneTag } } } mutation B { deleteEverything }',
+			'fragment F on Zone { zoneTag } mutation { deleteEverything }',
+			'subscription { changes }',
+		]) {
+			expect((await run('read', {path: '/graphql', body: JSON.stringify({query, operationName: 'B'})})).unwrapErr().kind).toBe('validation_error');
+		}
 		expect((await run('read', {path: '/graphql'})).unwrapErr().kind).toBe('validation_error');
 		expect(tools.calls).toHaveLength(1);
+	});
+
+	test('reads a query that only says "mutation" in a string or a comment', async () => {
+		const query = '# no mutation here\n{ viewer { zones(filter: {zoneTag: "mutation"}) { zoneTag } } }';
+		await run('read', {path: '/graphql', body: JSON.stringify({query})});
+		expect(tools.calls).toHaveLength(1);
+	});
+
+	test('refuses a GET with a body, before asking Cloudflare', async () => {
+		expect((await run('read', {path: '/zones', body: '{}'})).unwrapErr()).toMatchObject({kind: 'validation_error', message: expect.stringContaining('A GET request has no body')});
+		expect(tools.calls).toEqual([]);
 	});
 
 	test('refuses a body that is no JSON and a path that is no path, before asking Cloudflare', async () => {

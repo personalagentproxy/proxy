@@ -33,17 +33,25 @@ export type MovedTool = {
 	run?: (params: ToolParams) => MovedToolRun;
 };
 
+/** An account as a provider names it, and its id where the provider gives one, which stays as its name changes. */
+export type ProviderAccount = {account: string; accountId?: string};
+
+/** An account by its name alone, for a provider whose getter names it only. */
+export function named(get: (accessToken: string) => Promise<Result<string, ApiError>>): (accessToken: string) => Promise<Result<ProviderAccount, ApiError>> {
+	return async (accessToken) => (await get(accessToken)).map((account) => ({account}));
+}
+
 export type BuiltInMcp = {
 	integrationId: IntegrationId;
 	server: McpServer;
 	// Hosts beyond the server's own that are the same service, as Parallel's keyless server.
 	otherHosts?: string[];
 	// The account a sign-in or a key is for, asked with its access token or the key, as the
-	// connection shows it: two sign-ins to the same
-	// account are the same connection. Left out where the provider says nothing of who signed in,
-	// as Exa and Parallel don't: every sign-in or key is a connection of its own, which only its
+	// connection shows it, and the provider's own id for it where it gives one: two sign-ins to the
+	// same account are the same connection. Left out where the provider says nothing of who signed
+	// in, as Exa and Parallel don't: every sign-in or key is a connection of its own, which only its
 	// own page renews.
-	account?: (accessToken: string) => Promise<Result<string, ApiError>>;
+	account?: (accessToken: string) => Promise<Result<ProviderAccount, ApiError>>;
 	// Also connected with an API key, sent as the bearer token (`apiKey` in the catalog): whether
 	// the server takes a key, as only a call with it shows for a server that answers anyone until
 	// a tool is called, and the query param a server's address may carry the key in

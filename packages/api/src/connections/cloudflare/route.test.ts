@@ -171,12 +171,13 @@ describe('keyConnectRoute', () => {
 		);
 	});
 
-	test("connects with an account's API token, checked by listing the tools with it: the connection for its account, by name", async () => {
+	test("connects with an account's API token, checked by listing the tools with it: the connection for its account, by name, told apart by its id", async () => {
 		const connection = (await connectWithKey({key: 'account-token'})).unwrap();
 
 		const calls = cloudflare.requests.filter((request) => request.url.pathname === '/mcp');
 		expect(calls.map((call) => JSON.parse(call.body).method)).toEqual(['tools/list', 'tools/call']);
-		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'cloudflare', account: 'Acme', providerAccountId: null});
+		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'cloudflare', account: 'Acme', providerAccountId: 'account:acc-1'});
+		expect(createConnection.mock.calls[0]?.[0]).toMatchObject({account: 'Acme', providerAccountId: 'account:acc-1'});
 		expect(JSON.parse(String(createConnection.mock.calls[0]?.[0].credential).replace(/^enc:/, ''))).toEqual({auth: 'key', key: 'account-token'});
 		expect(connection).toMatchObject({id: 'conn-1', account: 'Acme'});
 	});
@@ -185,7 +186,7 @@ describe('keyConnectRoute', () => {
 		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0'}));
 		await connectWithKey({key: 'user-token'});
 
-		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'cloudflare', account: 'alex@example.com', providerAccountId: null});
+		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'cloudflare', account: 'alex@example.com', providerAccountId: 'user:user-1'});
 		expect(createConnection).not.toHaveBeenCalled();
 		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0'});
 	});

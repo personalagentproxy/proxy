@@ -77,14 +77,17 @@ type Posted = {json: unknown; sessionId: string | null};
 const INSUFFICIENT_SCOPE = /error="insufficient_scope"/;
 const SCOPE_DESCRIPTION = /error_description="([^"]*)"/;
 
-// A 403: the sign-in lacks a permission the call needs, which signing in again granting it fixes,
-// for the model to tell the person; anything else, the credential turned down.
+// A 403: the sign-in, key or token lacks a permission the call needs, for the model to tell the
+// person, who can sign in again granting it or give a key or token that has it; anything else,
+// the credential turned down.
 function forbidden(server: McpEndpoint, challenge: string | null): ApiError {
 	if (!challenge || !INSUFFICIENT_SCOPE.test(challenge)) {
 		return ApiErr.credentialsRejected();
 	}
-	const needs = SCOPE_DESCRIPTION.exec(challenge)?.[1] ?? 'This needs a permission the sign-in didn’t grant';
-	return ApiErr.validationError(`${server.name} turned it down: ${needs}. The person who connected ${server.name} can sign in to the connection again, granting it.`);
+	const needs = SCOPE_DESCRIPTION.exec(challenge)?.[1] ?? 'This needs a permission the connection wasn’t given';
+	return ApiErr.validationError(
+		`${server.name} turned it down: ${needs}. The person who connected ${server.name} can give the connection that permission: by signing in to it again, granting it, or with a key or token that has it.`,
+	);
 }
 
 // The Authorization header for a token: a bare one as a bearer token, as the spec asks; one typed
@@ -121,6 +124,8 @@ function post(server: McpEndpoint, accessToken: string | null, session: McpSessi
 
 		const answer = $(response.mapErr((error) => ApiErr.providerUnreachable(error)));
 		if (answer.status === 403) {
+			// Its body is never read, so it is let go, for the connection to be used again.
+			await Result.wrapAsync(async () => answer.body?.cancel());
 			return $(Err(forbidden(server, answer.headers.get('www-authenticate'))));
 		}
 		const body = $((await Result.wrapAsync(() => answer.text())).mapErr((cause) => ApiErr.providerUnreachable(cause)));

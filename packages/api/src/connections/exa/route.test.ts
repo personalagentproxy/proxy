@@ -58,6 +58,9 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 		if (authorization === 'Bearer bad-key') {
 			return Response.json({jsonrpc: '2.0', id: 1, result: {content: [{type: 'text', text: 'web_fetch_exa error (401): Invalid API key. Provide a valid key.'}], isError: true}});
 		}
+		if (authorization === 'Bearer narrow-key') {
+			return new Response('Forbidden', {status: 403, headers: {'www-authenticate': 'Bearer error="insufficient_scope", error_description="This key cannot read pages"'}});
+		}
 		if (authorization === 'Bearer busy-key-4321') {
 			return Response.json({jsonrpc: '2.0', id: 1, result: {content: [{type: 'text', text: 'Error fetching URL(s): example.com timeout'}], isError: true}});
 		}
@@ -220,6 +223,13 @@ describe('keyConnectRoute', () => {
 		const error = (await connectWithKey({key: 'bad-key'})).unwrapErr();
 
 		expect(error.kind).toBe('credentials_rejected');
+		expect(createConnection).not.toHaveBeenCalled();
+	});
+
+	test('a key Exa refuses the request of, lacking a permission, is refused, and nothing saved', async () => {
+		const error = (await connectWithKey({key: 'narrow-key'})).unwrapErr();
+
+		expect(error).toMatchObject({kind: 'validation_error', message: expect.stringContaining('This key cannot read pages')});
 		expect(createConnection).not.toHaveBeenCalled();
 	});
 

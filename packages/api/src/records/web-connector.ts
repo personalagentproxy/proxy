@@ -6,7 +6,7 @@ import {EXA, parseExaPage} from '../connections/exa/exa-mcp';
 import type {McpServer} from '../connections/mcp/mcp-oauth';
 import {callMcpToolFor} from '../connections/mcp/mcp-session';
 import {formatParallelResults, parseParallelPage, PARALLEL} from '../connections/parallel/parallel-mcp';
-import type {Connector, DataRecord} from './connector';
+import {onlyRun, type Connector, type DataRecord} from './connector';
 
 /**
  * The web, through a search engine made for agents, Exa or Parallel, fetched live from its MCP
@@ -51,20 +51,12 @@ function pageUrl(raw: string): Result<string, ApiError> {
 	return Ok(trimmed);
 }
 
-function onlyRun<T>(): Promise<Result<T, ApiError>> {
-	return Promise.resolve(Err(ApiErr.validationError('Searches and pages are only run, never listed or kept')));
-}
-
 function webConnector(provider: WebProvider): Connector {
 	const use = <T>(connection: {id: string; credential: string | null}, {tool, args, answer}: ToolUse<T>): Promise<Result<T, ApiError>> =>
 		Do(async ($) => $(answer($(await callMcpToolFor(provider.server, connection, tool, args)))));
 
 	return {
-		list: () => onlyRun(),
-		get: () => onlyRun(),
-		create: () => onlyRun(),
-		update: () => onlyRun(),
-		remove: () => onlyRun(),
+		...onlyRun('Searches and pages are only run, never listed or kept'),
 		newCommands: {
 			run: (target, values) =>
 				Do(async ($): Promise<DataRecord> => {

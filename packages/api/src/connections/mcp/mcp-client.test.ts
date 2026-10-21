@@ -71,11 +71,18 @@ describe('callMcpTool', () => {
 		const refused = (await callMcpTool(SERVER, 'access-1', 'execute', {})).unwrapErr();
 		expect(refused).toMatchObject({kind: 'validation_error'});
 		expect('message' in refused ? refused.message : '').toBe(
-			'Example turned it down: This operation needs the dns.write scope. The person who connected Example can sign in to the connection again, granting it.',
+			'Example turned it down: This operation needs the dns.write scope. The person who connected Example can give the connection that permission: by signing in to it again, granting it, or with a key or token that has it.',
 		);
 
 		server.answer = () => new Response('Forbidden', {status: 403});
 		expect((await callMcpTool(SERVER, 'access-1', 'execute', {})).unwrapErr().kind).toBe('credentials_rejected');
+	});
+
+	test("a 403's body, never read, is let go, for the connection to be used again", async () => {
+		let cancelled = false;
+		server.answer = () => new Response(new ReadableStream({cancel: () => void (cancelled = true)}), {status: 403});
+		expect((await callMcpTool(SERVER, 'access-1', 'execute', {})).unwrapErr().kind).toBe('credentials_rejected');
+		expect(cancelled).toBe(true);
 	});
 
 	test('a token with its scheme in front is sent as written, for a server that takes one other than Bearer', async () => {
