@@ -1,14 +1,21 @@
+import {createHash} from 'node:crypto';
+
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
 
+// How the api stores a session's token: the hex of its SHA-256.
+function sha256(text: string): string {
+	return createHash('sha256').update(text).digest('hex');
+}
+
 const createSession = mock();
-const deleteSessionByToken = mock();
+const deleteSession = mock();
 
 mock.module('@proxy/db/auth', () => ({
 	createSession,
-	deleteSessionByToken,
+	deleteSession,
 }));
 
 mock.module('../observability/log', () => ({
@@ -44,7 +51,7 @@ function makeReq(cookieHeader?: string) {
 
 beforeEach(() => {
 	mock.clearAllMocks();
-	deleteSessionByToken.mockResolvedValue(Ok(undefined));
+	deleteSession.mockResolvedValue(Ok(undefined));
 });
 
 describe('handleSignOutRoute', () => {
@@ -53,7 +60,8 @@ describe('handleSignOutRoute', () => {
 		const res = makeRes();
 		await handleSignOutRoute(makeReq('__Secure-proxy.session-token=tok-123') as never, res as never);
 
-		expect(deleteSessionByToken).toHaveBeenCalledWith('tok-123');
+		// By the token's hash, which is all the database has.
+		expect(deleteSession).toHaveBeenCalledWith(sha256('tok-123'));
 
 		// Clearing only works with the name, path and domain the cookie was set with (prod here).
 		expect(res.clearedCookies).toEqual([
@@ -76,13 +84,13 @@ describe('handleSignOutRoute', () => {
 		const res = makeRes();
 		await handleSignOutRoute(makeReq() as never, res as never);
 
-		expect(deleteSessionByToken).not.toHaveBeenCalled();
+		expect(deleteSession).not.toHaveBeenCalled();
 		expect(res.clearedCookies).toHaveLength(1);
 		expect(res.json).toHaveBeenCalledWith({ok: true});
 	});
 
 	test('db failure → 500, cookie left in place so the session stays revocable', async () => {
-		deleteSessionByToken.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
+		deleteSession.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
 
 		const {handleSignOutRoute} = await import('./signout');
 		const res = makeRes();

@@ -86,7 +86,7 @@ export function EditEventWidget({intent, typed, now}: {intent: Intent; typed: st
 
 	if (found.data?.sources.length === 0) {
 		return (
-			<ConnectWidget icon={CalendarIcon} name="Change event" collectionId="events">
+			<ConnectWidget icon={CalendarIcon} name="Change event" collectionIds={['events']}>
 				Connect a calendar to change your events from here.
 			</ConnectWidget>
 		);

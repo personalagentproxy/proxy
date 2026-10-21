@@ -4,6 +4,8 @@ import {getAuthenticatedSessionDatabase} from '@proxy/db/auth';
 import {ApiErr, type ApiError, type Experiment, getSessionTokenFromHeader} from '@proxy/utils';
 import {Err, Ok, type Result} from 'ts-results-es';
 
+import {hashToken} from '../auth/session';
+
 export type AuthenticatedApiRequest = {
 	userId: string;
 	email: string;
@@ -19,7 +21,7 @@ export async function authenticateApiRequest(headers: IncomingHttpHeaders): Prom
 		return Err(ApiErr.unauthenticated());
 	}
 
-	const sessionResult = await getAuthenticatedSessionDatabase(sessionToken);
+	const sessionResult = await getAuthenticatedSessionDatabase(hashToken(sessionToken));
 	if (sessionResult.isErr()) {
 		return sessionResult;
 	}

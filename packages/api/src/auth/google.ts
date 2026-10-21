@@ -170,13 +170,9 @@ export async function handleGoogleStartRoute(req: Request, res: Response): Promi
 	res.redirect(url.toString());
 }
 
+// Only the id_token, which says who signed in; the rest of Google's answer isn't kept.
 const googleTokensSchema = z.object({
-	access_token: z.string().min(1),
 	id_token: z.string().min(1),
-	expires_in: z.number().optional(),
-	refresh_token: z.string().optional(),
-	scope: z.string().optional(),
-	token_type: z.string().optional(),
 });
 
 /**
@@ -348,12 +344,6 @@ export async function handleGoogleCallbackRoute(req: Request, res: Response): Pr
 		type: 'oauth',
 		provider: 'google',
 		providerAccountId: profile.sub,
-		access_token: tokens.access_token,
-		refresh_token: tokens.refresh_token ?? null,
-		expires_at: tokens.expires_in === undefined ? null : Math.floor(Date.now() / 1000) + tokens.expires_in,
-		token_type: tokens.token_type ?? null,
-		scope: tokens.scope ?? null,
-		id_token: tokens.id_token,
 	});
 	if (accountCreateResult.isErr()) {
 		log.error('Google OAuth account creation failed', serializeError(accountCreateResult.error));

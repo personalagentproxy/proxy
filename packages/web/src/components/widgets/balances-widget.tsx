@@ -52,7 +52,7 @@ export function BalancesWidget({intent}: {intent: Intent}) {
 
 	if (read.data && sources.length === 0) {
 		return (
-			<ConnectWidget icon={LandmarkIcon} name="Balances" collectionId="accounts">
+			<ConnectWidget icon={LandmarkIcon} name="Balances" collectionIds={['accounts']}>
 				{CONNECT_BANK}
 			</ConnectWidget>
 		);

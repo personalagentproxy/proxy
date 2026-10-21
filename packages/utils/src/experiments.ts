@@ -5,7 +5,10 @@
  * or is dropped, delete it here, and the compiler points at every place that asked for it; its id
  * left in the database is ignored.
  */
-export const EXPERIMENTS = {} as const satisfies Record<string, string>;
+export const EXPERIMENTS = {
+	// The Ask quick action: what a meeting, document, email or issue says, answered from reading it.
+	ask: 'Ask quick action',
+} as const satisfies Record<string, string>;
 
 export type Experiment = keyof typeof EXPERIMENTS;
 

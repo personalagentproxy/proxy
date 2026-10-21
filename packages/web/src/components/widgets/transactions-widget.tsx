@@ -74,7 +74,7 @@ export function TransactionsWidget({
 
 	if (read.data && sources.length === 0) {
 		return (
-			<ConnectWidget icon={ReceiptTextIcon} name="Transactions" collectionId="transactions">
+			<ConnectWidget icon={ReceiptTextIcon} name="Transactions" collectionIds={['transactions']}>
 				{CONNECT_BANK}
 			</ConnectWidget>
 		);

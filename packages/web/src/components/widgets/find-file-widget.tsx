@@ -10,8 +10,8 @@ import {
 import type {Intent} from '@/client/intent-client';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
 import {Missing, WidgetFrame} from '@/components/widgets/widget-frame';
-import {useFiles, usePeople} from '@/lib/widget-lookups';
-import {bestMatch, fileSearch, isAddress, shortDay} from '@/lib/widget-values';
+import {useAddress, useFiles} from '@/lib/widget-lookups';
+import {fileSearch, shortDay} from '@/lib/widget-values';
 
 const KIND_ICONS: Partial<Record<string, LucideIcon>> = {
 	Document: FileTextIcon,
@@ -26,21 +26,13 @@ const KIND_ICONS: Partial<Record<string, LucideIcon>> = {
 export function FindFileWidget({intent, typed}: {intent: Intent; typed: string}) {
 	const search = fileSearch(intent, typed);
 	const ownerName = search.ownerName;
-	const people = usePeople(ownerName && !isAddress(ownerName) ? [ownerName] : null);
-	const owner = ownerName
-		? isAddress(ownerName)
-			? ownerName
-			: (bestMatch(people.data, ownerName)?.emails[0] ?? null)
-		: null;
-	// The owner is looked up first: a search without them would only be replaced.
-	const files = useFiles(
-		ownerName && !owner && people.loading ? null : {words: search.words, kind: search.kind, owner},
-	);
+	const {address: owner, looking} = useAddress(ownerName);
+	const files = useFiles(looking ? null : {words: search.words, kind: search.kind, owner});
 	const sources = files.data?.sources ?? [];
 
 	if (files.data && sources.length === 0) {
 		return (
-			<ConnectWidget icon={FileSearchIcon} name="Find file" collectionId="files">
+			<ConnectWidget icon={FileSearchIcon} name="Find file" collectionIds={['files']}>
 				Connect Google Drive to find your files from here.
 			</ConnectWidget>
 		);
@@ -64,7 +56,7 @@ export function FindFileWidget({intent, typed}: {intent: Intent; typed: string})
 					No file is named “{search.words.join(' ')}”; these have it inside.
 				</p>
 			)}
-			{ownerName && !owner && !people.loading && (
+			{ownerName && !owner && !looking && (
 				<p className="text-muted-foreground">
 					No contact named “{ownerName}”, so files by anyone are shown.
 				</p>

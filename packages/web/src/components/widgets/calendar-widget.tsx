@@ -76,7 +76,7 @@ export function CalendarWidget({intent, typed, now}: {intent: Intent; typed: str
 
 	if (agenda.data?.sources.length === 0 || found.data?.sources.length === 0) {
 		return (
-			<ConnectWidget icon={CalendarDaysIcon} name="Calendar" collectionId="events">
+			<ConnectWidget icon={CalendarDaysIcon} name="Calendar" collectionIds={['events']}>
 				Connect a calendar to see your days and find your meetings from here.
 			</ConnectWidget>
 		);

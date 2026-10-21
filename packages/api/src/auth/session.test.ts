@@ -1,7 +1,14 @@
+import {createHash} from 'node:crypto';
+
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
+
+// How the api stores a session's token: the hex of its SHA-256.
+function sha256(text: string): string {
+	return createHash('sha256').update(text).digest('hex');
+}
 
 const createSession = mock();
 
@@ -49,15 +56,17 @@ describe('establishSession', () => {
 		const result = await establishSession(res as never, 'user-1');
 
 		expect(result.isOk()).toBe(true);
-		const sessionArgs = createSession.mock.calls[0]?.[0] as {sessionToken: string; userId: string; expires: Date};
+		const sessionArgs = createSession.mock.calls[0]?.[0] as {tokenHash: string; userId: string; expires: Date};
 		expect(sessionArgs.userId).toBe('user-1');
-		expect(sessionArgs.sessionToken).toMatch(/^[0-9a-f]{64}$/);
+		expect(sessionArgs.tokenHash).toMatch(/^[0-9a-f]{64}$/);
 		expect(sessionArgs.expires.valueOf() - before).toBeGreaterThanOrEqual(sessionMaxAgeSeconds * 1000 - 1000);
 
+		// The cookie has the token, the database only its hash.
+		expect(sha256(res.cookies[0]?.value ?? '')).toBe(sessionArgs.tokenHash);
 		expect(res.cookies).toEqual([
 			{
 				name: 'proxy.session-token',
-				value: sessionArgs.sessionToken,
+				value: expect.stringMatching(/^[0-9a-f]{64}$/),
 				options: {httpOnly: true, sameSite: 'lax', path: '/', secure: false, expires: sessionArgs.expires},
 			},
 		]);

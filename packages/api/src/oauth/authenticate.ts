@@ -6,7 +6,8 @@ import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import type {SignedInAgent} from '@proxy/db/agent';
 import {getAgentByAccessToken} from '@proxy/db/oauth';
 
-import {hashToken, resourceMetadataUrl} from './oauth-config';
+import {hashToken} from '../auth/session';
+import {resourceMetadataUrl} from './oauth-config';
 
 function bearerToken(headers: IncomingHttpHeaders): string | null {
 	const header = headers.authorization;

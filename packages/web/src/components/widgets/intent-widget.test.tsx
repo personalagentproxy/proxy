@@ -344,6 +344,91 @@ describe('IntentWidget', () => {
 		);
 	});
 
+	test('Ask: the meeting with the person on the day said, what it says, and the others to choose from', async () => {
+		show(
+			intentWith('ask', {askIn: ['meetings'], askWith: ['hugo']}),
+			'what did I talk to hugo about yesterday',
+		);
+		const widget = widgetNamed('Ask');
+		expect(
+			await within(widget).findByText('You talked with Hugo about hiring, in Hugo / me.'),
+		).toBeTruthy();
+		expect(within(widget).getByText('“We should hire two more engineers.”')).toBeTruthy();
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/widgets/meetings?from=2026-10-13&to=2026-10-13&with=hugo',
+			expect.anything(),
+		);
+		expect(sentTo('/api/widgets/answer')).toEqual({
+			question: 'what did I talk to hugo about yesterday',
+			connectionId: 'granola-1',
+			collectionId: 'notes',
+			id: 'm2',
+		});
+		expect(within(widget).getByRole('combobox', {name: 'Which meeting'}).textContent).toContain(
+			'Hugo / me · Oct 13',
+		);
+		expect(within(widget).getByRole('link', {name: 'Open in Granola'}).getAttribute('href')).toBe(
+			'https://notes.granola.ai/d/m2',
+		);
+	});
+
+	test('Ask: a document in Drive or Notion, those named with the words first, and an answer that it doesn’t say', async () => {
+		show(
+			intentWith('ask', {askIn: ['documents'], askAbout: ['pricing']}),
+			'what does the pricing sheet say about discounts',
+		);
+		const widget = widgetNamed('Ask');
+		expect(await within(widget).findByText('The file doesn’t say; it lists prices.')).toBeTruthy();
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/widgets/files?words=pricing&kind=Spreadsheet',
+			expect.anything(),
+		);
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/widgets/records?collection=pages&words=pricing',
+			expect.anything(),
+		);
+		const which = within(widget).getByRole('combobox', {name: 'Which document'});
+		expect(which.textContent).toContain('Pricing 2026 · Oct 8');
+		fireEvent.click(which);
+		const options = (await screen.findAllByRole('option')).map((option) => option.textContent);
+		expect(options).toEqual([
+			'Pricing 2026 · Oct 8',
+			'Pricing FAQ · Oct 2',
+			'Team handbook · Oct 9',
+		]);
+		expect(within(widget).getByRole('link', {name: 'Open in Google Drive'})).toBeTruthy();
+	});
+
+	test('Ask: an email from the person named, since the day said', async () => {
+		show(
+			intentWith('ask', {askIn: ['emails'], askWith: ['sam'], askAbout: ['invoice']}),
+			'what did sam say in the invoice email last week',
+		);
+		const widget = widgetNamed('Ask');
+		expect(await within(widget).findByText('The emails m1 says so.')).toBeTruthy();
+		expect(within(widget).getByText('Sam Lee: Invoice #1042 for September · Oct 11')).toBeTruthy();
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/widgets/emails?from=sam&words=invoice&since=2026-10-07',
+			expect.anything(),
+		);
+		expect(sentTo('/api/widgets/answer')).toMatchObject({collectionId: 'emails', id: 'm1'});
+	});
+
+	test('Ask: an issue in Linear, by the words of its title', async () => {
+		show(
+			intentWith('ask', {askIn: ['issues'], askAbout: ['checkout bug']}),
+			"what's the status of the checkout bug",
+		);
+		const widget = widgetNamed('Ask');
+		expect(await within(widget).findByText('The issues ENG-12 says so.')).toBeTruthy();
+		expect(within(widget).getByText('Checkout fails on Safari · Oct 13')).toBeTruthy();
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/widgets/records?collection=issues&words=checkout&words=bug',
+			expect.anything(),
+		);
+		expect(within(widget).getByRole('link', {name: 'Open in Linear'})).toBeTruthy();
+	});
+
 	test('Math: works out the calculation the model read, rather than trusting the model with it', () => {
 		show(intentWith('calculate', {expression: ['18% * 86.40']}));
 		const widget = widgetNamed('Math');

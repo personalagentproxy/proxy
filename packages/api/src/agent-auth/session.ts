@@ -1,4 +1,4 @@
-import {createHash, randomBytes} from 'node:crypto';
+import {randomBytes} from 'node:crypto';
 
 import type {IncomingHttpHeaders} from 'node:http';
 import type {Request, Response} from 'express';
@@ -8,7 +8,7 @@ import {z} from 'zod';
 import {createAgentSession, deleteAgentSession, getAgentForSignIn, getSignedInAgent, type SignedInAgent} from '@proxy/db/agent';
 import {agentSessionCookieNames, ApiErr, type ApiError, Do, getAgentSessionTokenFromHeader, parseSchema, requirePresent} from '@proxy/utils';
 
-import {sessionCookieOptions, useSecureCookies} from '../auth/session';
+import {hashToken, sessionCookieOptions, useSecureCookies} from '../auth/session';
 import {log, serializeError} from '../observability/log';
 import {sendApiError} from '../server/response';
 
@@ -23,10 +23,6 @@ const agentSessionMaxAgeSeconds = 7 * 24 * 60 * 60;
 // Checked against when the username is unknown, so a wrong username takes as long as a wrong
 // password and doesn't give away which usernames exist.
 const unknownUsernameHash = Bun.password.hash(randomBytes(16).toString('hex'));
-
-function hashToken(token: string): string {
-	return createHash('sha256').update(token).digest('hex');
-}
 
 function agentSessionCookieName(): string {
 	if (useSecureCookies()) {

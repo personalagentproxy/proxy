@@ -64,7 +64,7 @@ export function EventWidget({intent, typed, now}: {intent: Intent; typed: string
 
 	if (agenda.data?.sources.length === 0) {
 		return (
-			<ConnectWidget icon={CalendarIcon} name="New event" collectionId="events">
+			<ConnectWidget icon={CalendarIcon} name="New event" collectionIds={['events']}>
 				Connect a calendar to see your day and send invites from here.
 			</ConnectWidget>
 		);

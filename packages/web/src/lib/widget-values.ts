@@ -339,6 +339,33 @@ function sinceDay(typed: string, now: Date): Date | null {
 	return null;
 }
 
+/** Two days, both included, as 2026-10-14. */
+export type Days = {from: string; to: string};
+
+// A time said as a stretch of days, from when it began until now: "last week", "the past month".
+const STRETCH = /\b(?:weeks?|months?|years?)\b/i;
+
+/**
+ * The days to look for a meeting in, from what was typed: the day said ("yesterday", "monday's",
+ * "on oct 3", "this morning"), or from a time on until today ("last week", "since monday"). A day
+ * still to come says nothing of a meeting had. Null when no time is said.
+ */
+export function meetingDays(typed: string, now: Date): Days | null {
+	const today = new Date(now);
+	today.setHours(0, 0, 0, 0);
+	const zone = browserTimeZone();
+	for (const result of chrono.parse(typed, now)) {
+		const day = onlyTimeOfDay(result) ? null : pastDay(result, today);
+		if (!day) {
+			continue;
+		}
+		const stretch =
+			STRETCH.test(result.text) || /\b(?:since|after)\s+$/i.test(typed.slice(0, result.index));
+		return {from: dayIn(day, zone), to: dayIn(stretch ? today : day, zone)};
+	}
+	return null;
+}
+
 function words(text: string): string[] {
 	return text
 		.toLowerCase()
@@ -413,6 +440,55 @@ export function fileSearch(intent: Intent, typed: string): FileSearch {
 		),
 		kind: kinds[0] ?? null,
 		ownerName,
+	};
+}
+
+// What a meeting, an email or an issue is called around its name, left out of the search as the
+// kind of file is.
+const KIND_NOUNS = new Set(
+	'meeting meetings call calls email emails mail issue issues ticket tickets page pages'.split(' '),
+);
+
+const ASK_IN = ['meetings', 'documents', 'emails', 'issues'] as const;
+
+export type AskIn = (typeof ASK_IN)[number];
+
+export type AskSearch = {
+	/** Where to look: the meetings, the documents (in Drive and Notion), the emails or the issues. */
+	in: AskIn;
+	/** Who the meeting was with, who sent the email, or who owns the file. */
+	people: string[];
+	/** Words of the meeting's or file's name or topic. */
+	words: string[];
+	/** The kind of file said ("the pricing deck"), to prefer. */
+	kind: FileKind | null;
+	days: Days | null;
+};
+
+/**
+ * What Ask looks for: where the model said, else the meetings when people are named, since a
+ * document is seldom asked about by who owns it, and the documents when none are; by the people, the words
+ * of the name or topic without filler, the kind of file said anywhere in what was typed, and the
+ * days said.
+ */
+export function askSearch(intent: Intent, typed: string, now: Date): AskSearch {
+	const [said] = fieldTexts(intent, 'askIn');
+	const people = namesIn(intent, 'askWith');
+	const [about = ''] = fieldTexts(intent, 'askAbout');
+	const kinds = words(typed).flatMap((word) =>
+		KIND_WORDS.filter(([kindWord]) => kindWord === word).map(([, kind]) => kind),
+	);
+	return {
+		in: ASK_IN.find((one) => one === said) ?? (people.length > 0 ? 'meetings' : 'documents'),
+		people,
+		words: words(about).filter(
+			(word) =>
+				!FILLER.has(word) &&
+				!KIND_NOUNS.has(word) &&
+				!KIND_WORDS.some(([kindWord]) => kindWord === word),
+		),
+		kind: kinds[0] ?? null,
+		days: meetingDays(typed, now),
 	};
 }
 

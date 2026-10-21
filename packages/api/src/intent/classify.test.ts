@@ -5,8 +5,9 @@ mock.module('../utils/env', () => ({env: mockEnv}));
 
 const text = 'Create a calendar invite with Jon Burke and Jacky Doe at One Boulevard Plaza at 7pm tomorrow';
 
-// An organization with no experiment on.
+// An organization with no experiment on, and one with Ask.
 const NOBODY = {experiments: []};
+const WITH_ASK = {experiments: ['ask' as const]};
 
 // What Jev picks, and what OpenRouter answers: the model's JSON as the message's text.
 let choice = '';
@@ -89,6 +90,21 @@ describe('pickIntent', () => {
 		expect(body.questions.widget.criteria.find_file).toBe('Find or open a file, document, spreadsheet or presentation in Drive');
 		expect(body.questions.widget.criteria.incomplete).toContain('cut off');
 		expect(calls('https://openrouter.ai/')).toHaveLength(0);
+	});
+
+	test('offers Ask only to an organization with the ask experiment, and fills it in only for one', async () => {
+		const {pickIntent, fillIntent} = await import('./classify');
+		pick('ask');
+
+		expect((await pickIntent('what did I talk to sam about yesterday', WITH_ASK)).unwrap()).toMatchObject({widget: 'ask'});
+		expect(asked().questions.widget.criteria.ask).toContain('Ask what one meeting');
+
+		expect((await pickIntent('what did I talk to sam about yesterday', NOBODY)).unwrap()).toMatchObject({widget: 'none'});
+		expect(asked().questions.widget.criteria).not.toHaveProperty('ask');
+
+		fetchSpy.mockClear();
+		expect((await fillIntent('what did I talk to sam about yesterday', 'ask', NOBODY)).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'widget', id: 'ask'});
+		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
 	test('answers incomplete and none as Jev picks them, and a widget there is no such of as none', async () => {

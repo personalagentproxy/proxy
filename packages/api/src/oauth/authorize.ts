@@ -8,12 +8,12 @@ import {createOAuthCode, getOAuthClient, type OAuthClientRow} from '@proxy/db/oa
 import {suggestAgentProvider} from '@proxy/integrations';
 
 import {createAgentLogin} from '../agents/create-agent-login';
-import {queryParam} from '../auth/session';
+import {hashToken, queryParam} from '../auth/session';
 import {log, serializeError} from '../observability/log';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {decryptSecret, encryptSecret} from '../utils/secret-crypto';
 import {requireUserOrgId} from '../utils/user-org';
-import {CODE_TTL_MS, hashToken, mcpResourceUrl, randomToken, requireAppUrl, withParams} from './oauth-config';
+import {CODE_TTL_MS, mcpResourceUrl, randomToken, requireAppUrl, withParams} from './oauth-config';
 
 /**
  * Signing an MCP client in as one of a person's agents. The client sends the browser to
