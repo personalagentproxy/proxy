@@ -74,7 +74,7 @@ describe('unavailableActions', () => {
 		const {unavailableActions} = await import('./unavailable');
 
 		expect(unavailableActions({id: 'email-1', integrationId: 'email', credential: 'v1.unreadable'})).toEqual([]);
-		expect(unavailableActions({id: 'info-1', integrationId: 'info', credential: null})).toEqual([]);
+		expect(unavailableActions({id: 'vault-1', integrationId: 'vault', credential: null})).toEqual([]);
 	});
 
 	test("a Google credential that won't decrypt or read covers no action, and is logged", async () => {

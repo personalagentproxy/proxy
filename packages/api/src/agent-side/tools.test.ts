@@ -41,7 +41,7 @@ function integration(id: string): Integration {
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dots', experiments: []};
 const caller = {agent: signedIn, via: 'mcp' as const};
 
-const infoConnection = {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), tools: null, name: null, defaults: [{actionId: 'readAddresses'}], credential: null};
+const vaultConnection = {id: 'vault-1', integrationId: 'vault', account: "Alex's Workspace", createdAt: new Date(), tools: null, name: null, defaults: [{actionId: 'readEntries'}], credential: null};
 const emailConnection = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), tools: null, name: null, defaults: [{actionId: 'read'}], credential: 'v1.x.y.z'};
 const notionConnection = {
 	id: 'notion-1',
@@ -64,13 +64,13 @@ const googleConnection = {
 	credential: `enc:${JSON.stringify({accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null, scopes: ['openid', 'https://www.googleapis.com/auth/userinfo.email'], email: 'alex@example.com'})}`,
 };
 
-// Reads cards of its own, and doesn't read the mailbox.
+// Edits the vault of its own, and doesn't read the mailbox.
 const agent = {
 	id: 'agent-1',
 	providerId: 'dot',
 	name: 'Dots',
 	grants: [
-		{connectionId: 'info-1', actionId: 'readCards', allowed: true},
+		{connectionId: 'vault-1', actionId: 'writeEntries', allowed: true},
 		{connectionId: 'mail-1', actionId: 'read', allowed: false},
 	],
 };
@@ -81,7 +81,7 @@ const triage = {
 	grants: ['write', 'archive', 'send'].map((actionId) => ({connectionId: 'mail-1', actionId, allowed: true})),
 };
 
-const card = {id: 'rec-1', values: {label: 'Personal Visa', number: '4242'}, updatedAt: '2026-10-01T00:00:00.000Z'};
+const entry = {id: 'rec-1', values: {key: 'Home address', type: 'Address', value: '1 Main St'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 const inboxEmail = {id: 'inbox-7-12', values: {folder: 'Inbox', subject: 'Invoice #20931'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 const draft = {id: 'drafts-7-3', values: {folder: 'Draft', from: 'alex@example.com', to: 'sam@example.com', subject: 'Re: Q3 planning', body: 'Draft body'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 
@@ -90,7 +90,7 @@ const send = mock();
 const sendNew = mock();
 const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send}, newCommands: {sendNew}};
 
-function useConnection(connection: typeof infoConnection | typeof emailConnection | typeof notionConnection | typeof googleConnection) {
+function useConnection(connection: typeof vaultConnection | typeof emailConnection | typeof notionConnection | typeof googleConnection) {
 	loadConnection.mockResolvedValue(Ok({connection, integration: integration(connection.integrationId), connector}));
 }
 
@@ -98,10 +98,10 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	getAgent.mockResolvedValue(Ok(agent));
 	logAgentRequest.mockResolvedValue(Ok(undefined));
-	listConnectionsWithCredential.mockResolvedValue(Ok([infoConnection, emailConnection, googleConnection]));
-	connector.list.mockResolvedValue(Ok({records: [card], nextPage: null}));
-	connector.get.mockResolvedValue(Ok(card));
-	useConnection(infoConnection);
+	listConnectionsWithCredential.mockResolvedValue(Ok([vaultConnection, emailConnection, googleConnection]));
+	connector.list.mockResolvedValue(Ok({records: [entry], nextPage: null}));
+	connector.get.mockResolvedValue(Ok(entry));
+	useConnection(vaultConnection);
 });
 
 describe('listAgentConnections', () => {
@@ -111,7 +111,7 @@ describe('listAgentConnections', () => {
 
 		expect(result.unwrap()).toEqual({
 			agent: {id: 'agent-1', providerId: 'dot', name: 'Dots'},
-			connections: [{id: 'info-1', integrationId: 'info', account: "Alex's Workspace", actions: ['readAddresses', 'readCards'], tools: null, name: null}],
+			connections: [{id: 'vault-1', integrationId: 'vault', account: "Alex's Workspace", actions: ['readEntries', 'writeEntries'], tools: null, name: null}],
 		});
 	});
 });
@@ -123,7 +123,7 @@ describe("actions the connection's sign-in didn't cover", () => {
 		const {listAgentConnections} = await import('./tools');
 		const result = await listAgentConnections(signedIn);
 
-		expect(result.unwrap().connections.map((connection) => connection.id)).toEqual(['info-1', 'mail-1']);
+		expect(result.unwrap().connections.map((connection) => connection.id)).toEqual(['vault-1', 'mail-1']);
 	});
 
 	test('offer no tools', async () => {
@@ -172,17 +172,17 @@ describe('listAgentTools', () => {
 describe('runAgentTool', () => {
 	test('a read the agent may make is logged with the record title', async () => {
 		const {runAgentTool} = await import('./tools');
-		const result = await runAgentTool(caller, 'info-1', 'cards_get', {id: 'rec-1'});
+		const result = await runAgentTool(caller, 'vault-1', 'entries_get', {id: 'rec-1'});
 
-		expect(result.unwrap()).toEqual({record: card});
+		expect(result.unwrap()).toEqual({record: entry});
 		expect(connector.get.mock.calls[0]?.[1]).toBe('rec-1');
 		expect(logAgentRequest).toHaveBeenCalledWith({
 			orgId: 'org-1',
 			agentId: 'agent-1',
-			connectionId: 'info-1',
-			collectionId: 'cards',
+			connectionId: 'vault-1',
+			collectionId: 'entries',
 			action: 'view',
-			recordTitle: 'Personal Visa',
+			recordTitle: 'Home address',
 			query: null,
 			outcome: 'allowed',
 			via: 'mcp',
@@ -190,12 +190,13 @@ describe('runAgentTool', () => {
 	});
 
 	test('a tool without its action is refused and logged as denied, its search too', async () => {
+		useConnection(emailConnection);
 		const {runAgentTool} = await import('./tools');
-		const result = await runAgentTool(caller, 'info-1', 'notes_list', {search: ' sizes '});
+		const result = await runAgentTool(caller, 'mail-1', 'emails_list', {search: ' sizes '});
 
 		expect(result.unwrapErr().kind).toBe('forbidden');
 		expect(connector.list).not.toHaveBeenCalled();
-		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'notes', action: 'list', query: 'sizes', outcome: 'denied'});
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'emails', action: 'list', query: 'sizes', outcome: 'denied'});
 	});
 
 	test('a list passes the search, the filter field and the page on', async () => {
@@ -238,11 +239,11 @@ describe('runAgentTool', () => {
 
 	test('limited to tools that read, or to those that change something, any other is refused unlogged', async () => {
 		const {runAgentTool} = await import('./tools');
-		const readingAWrite = await runAgentTool(caller, 'info-1', 'cards_create', {label: 'New'}, {readOnly: true});
-		const runningARead = await runAgentTool(caller, 'info-1', 'cards_list', {}, {readOnly: false});
+		const readingAWrite = await runAgentTool(caller, 'vault-1', 'entries_create', {key: 'New'}, {readOnly: true});
+		const runningARead = await runAgentTool(caller, 'vault-1', 'entries_list', {}, {readOnly: false});
 
-		expect(readingAWrite.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'cards_create changes something: use run for it'});
-		expect(runningARead.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'cards_list only reads: use read for it'});
+		expect(readingAWrite.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'entries_create changes something: use run for it'});
+		expect(runningARead.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'entries_list only reads: use read for it'});
 		expect(connector.create).not.toHaveBeenCalled();
 		expect(connector.list).not.toHaveBeenCalled();
 		expect(logAgentRequest).not.toHaveBeenCalled();
@@ -250,9 +251,9 @@ describe('runAgentTool', () => {
 
 	test('a connection outside the organization or a tool the integration lacks is not found and not logged', async () => {
 		const {runAgentTool} = await import('./tools');
-		const tool = await runAgentTool(caller, 'info-1', 'cards_send', {});
+		const tool = await runAgentTool(caller, 'vault-1', 'entries_send', {});
 		loadConnection.mockResolvedValue(Err(ApiErr.notFound('connection', 'elsewhere')));
-		const connection = await runAgentTool(caller, 'elsewhere', 'cards_list', {});
+		const connection = await runAgentTool(caller, 'elsewhere', 'entries_list', {});
 
 		expect(tool.unwrapErr().kind).toBe('not_found');
 		expect(connection.unwrapErr().kind).toBe('not_found');

@@ -33,7 +33,7 @@ export async function getUserByEmail(email: string): Promise<Result<CreatedUser 
 
 /**
  * Creates the user together with their personal organization, membership and the organization's
- * Information connection, in one transaction, so no user exists without them. Retries when a parallel sign-up took the slug.
+ * vault connection, in one transaction, so no user exists without them. Retries when a parallel sign-up took the slug.
  * Every sign-up comes through the sign-in page, past its notice of the terms, so the terms count as
  * accepted from the start.
  */
@@ -56,7 +56,7 @@ async function createUserWithPersonalOrg(data: {
 				const slug = await pickAvailableSlugDatabase(tx, base);
 				const org = await tx.organization.create({data: {name, slug}});
 				await tx.orgMember.create({data: {orgId: org.id, userId: user.id}});
-				await tx.connection.create({data: {orgId: org.id, integrationId: 'info', account: name}});
+				await tx.connection.create({data: {orgId: org.id, integrationId: 'vault', account: name}});
 				return user;
 			}),
 		);
@@ -107,7 +107,7 @@ export async function createUser(data: {
 
 /**
  * Deletes the user and their organization; the cascades take their accounts, sessions,
- * membership and the organization's connections, information, agents and activity. Sign-in links
+ * membership and the organization's connections, vault, agents and activity. Sign-in links
  * still waiting for their address go too. Organizations have one member for now, so every
  * organization the user belongs to is theirs alone.
  */

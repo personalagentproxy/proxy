@@ -34,7 +34,7 @@ const INPUT_TYPES: Partial<Record<Field['type'], string>> = {
 };
 
 // One form for every collection, built from its fields: the agent side's create and edit pages
-// and the Information dialog alike.
+// and the vault's dialog alike.
 export function RecordForm({
 	fields,
 	initial = {},
@@ -49,7 +49,10 @@ export function RecordForm({
 	const [values, setValues] = useState(initial);
 	const set = (key: string, value: string) => setValues((current) => ({...current, [key]: value}));
 	const typedIn = fields.filter((field) => !field.system);
-	const empty = typedIn.every((field) => (values[field.key] ?? '').trim().length === 0);
+	// A choice from a list alone, such as a vault entry's type chosen ahead, is nothing written yet.
+	const empty = typedIn
+		.filter((field) => field.type !== 'select')
+		.every((field) => (values[field.key] ?? '').trim().length === 0);
 	// Only what the form shows goes out: the fields a provider sets, such as an email's folder,
 	// are never sent back.
 	const submitted = () =>
@@ -150,9 +153,7 @@ export function RecordFields({fields, values}: {fields: Field[]; values: Record<
 				<div key={field.key} className="grid gap-1">
 					<dt className="text-sm text-muted-foreground">{field.label}</dt>
 					<dd className="text-sm whitespace-pre-wrap">
-						{field.type === 'secret'
-							? values[field.key]
-							: displayValue(field.type, values[field.key])}
+						{displayValue(field.type, values[field.key])}
 					</dd>
 				</div>
 			))}

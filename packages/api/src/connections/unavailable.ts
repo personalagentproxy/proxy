@@ -17,7 +17,7 @@ import {unavailableGoogleActions} from './google/scopes';
 
 type StoredConnection = {id: string; integrationId: string; credential: string | null};
 
-/** Whether the connection has no sign-in at all, as one moved over from a custom MCP server may not. Information is never signed in to. */
+/** Whether the connection has no sign-in at all, as one moved over from a custom MCP server may not. The vault is never signed in to. */
 export function needsSignIn(connection: StoredConnection): boolean {
 	return connection.credential === null && !findIntegration(connection.integrationId)?.builtIn;
 }

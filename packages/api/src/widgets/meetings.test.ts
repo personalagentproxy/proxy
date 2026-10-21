@@ -10,8 +10,8 @@ mock.module('./sources', () => ({
 	findSources: async () =>
 		Ok([
 			{connection: {id: 'granola-1'}, integration: {id: 'granola'}},
-			// The built-in notes have no meetings to list.
-			{connection: {id: 'info-1'}, integration: {id: 'info'}},
+			// The vault has no meetings to list.
+			{connection: {id: 'vault-1'}, integration: {id: 'vault'}},
 		]),
 	summarize: (source: {connection: {id: string}}) => ({connectionId: source.connection.id}),
 }));

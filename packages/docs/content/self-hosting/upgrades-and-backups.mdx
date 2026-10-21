@@ -39,7 +39,7 @@ docker compose exec -T postgres pg_dump -U proxy proxy > proxy-$(date +%F).sql
 
 <Callout type="warning">
   A backup is only readable with the `ENCRYPTION_KEY` it was made with: connections' credentials
-  and Information records are encrypted with it. Keep a copy of the key apart from the backups.
+  and vault entries are encrypted with it. Keep a copy of the key apart from the backups.
 </Callout>
 
 To restore, load the backup into a new, empty database before Personal Agent Proxy starts on it.

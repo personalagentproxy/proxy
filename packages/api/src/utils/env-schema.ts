@@ -58,7 +58,7 @@ export const envSchema = z.object({
 			group: 'Core',
 			required: true,
 			description:
-				'Encrypts the app passwords, OAuth tokens and Information records Personal Agent Proxy stores: 32 random bytes, base64 (`openssl rand -base64 32`). Back it up: changing or losing it makes everything stored with it unreadable.',
+				'Encrypts the app passwords, OAuth tokens and vault entries Personal Agent Proxy stores: 32 random bytes, base64 (`openssl rand -base64 32`). Back it up: changing or losing it makes everything stored with it unreadable.',
 		},
 	),
 

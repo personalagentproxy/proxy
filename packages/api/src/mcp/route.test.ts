@@ -95,6 +95,25 @@ describe('handleMcpRoute', () => {
 		expect(result.instructions).toContain('send_feedback');
 	});
 
+	test("the vault is the agent's memory, to search before asking and to save to where it may", async () => {
+		const vault = {id: 'vault-1', integrationId: 'vault', account: 'Alex', actions: ['readEntries'], tools: null, name: null};
+		const instructions = async () => ((await post(rpc('initialize', {protocolVersion: '2025-06-18'}))).body as {result: {instructions: string}}).result.instructions;
+
+		expect(await instructions()).not.toContain('memory');
+
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [vault, mailbox]}));
+		const reading = await instructions();
+		expect(reading).toContain('The vault, connection vault-1, is your memory of the person');
+		expect(reading).toContain('search it with entries_list');
+		expect(reading).toContain('suggest they add it to their vault');
+		expect(reading).not.toContain('entries_create');
+
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...vault, actions: ['readEntries', 'writeEntries']}]}));
+		const saving = await instructions();
+		expect(saving).toContain('save it there with entries_create');
+		expect(saving).toContain('edit that entry rather than adding another');
+	});
+
 	test('lists the five tools, read-only ones marked so', async () => {
 		const res = await post(rpc('tools/list'));
 		const tools = (res.body as {result: {tools: Array<{name: string; annotations: {readOnlyHint: boolean}}>}}).result.tools;

@@ -7,11 +7,11 @@ import {
 	effectiveActions,
 	EMAIL_PROVIDERS,
 	findIntegration,
-	INFO_INTEGRATION_ID,
 	requiredAction,
 	type AgentProviderId,
 	type Collection,
 	type EmailProvider,
+	VAULT_INTEGRATION_ID,
 } from '@proxy/integrations';
 
 import {db} from '../src';
@@ -130,12 +130,12 @@ async function connectMailbox(
 	return connect({integrationId: 'email', account, credential, ...data});
 }
 
-const info = await connect({
-	integrationId: INFO_INTEGRATION_ID,
+const vault = await connect({
+	integrationId: VAULT_INTEGRATION_ID,
 	account: ORG_NAME,
 	credential: null,
 	daysAgo: 40,
-	defaults: ['readAddresses', 'readNotes'],
+	defaults: ['readEntries'],
 });
 const personal = await connectMailbox('gmail', 'demo.user@gmail.com', {
 	daysAgo: 38,
@@ -234,7 +234,7 @@ const googleAccount = await connect({
 });
 
 const connections: [Connection, ...Connection[]] = [
-	info,
+	vault,
 	personal,
 	work,
 	receipts,
@@ -245,59 +245,36 @@ const connections: [Connection, ...Connection[]] = [
 	googleAccount,
 ];
 
-// ---- Information records --------------------------------------------------------------------
+// ---- Vault entries --------------------------------------------------------------------------
 
-const INFO_RECORDS: Record<string, Array<Record<string, string>>> = {
-	addresses: [
-		{
-			label: 'Home',
-			name: 'Demo User',
-			street: '221B Baker Street',
-			postalCode: 'NW1 6XE',
-			city: 'London',
-			country: 'United Kingdom',
-		},
-		{
-			label: 'Office',
-			name: 'Demo User, Acme Corp',
-			street: '1 Market Street, Floor 12',
-			postalCode: '94105',
-			city: 'San Francisco',
-			country: 'United States',
-		},
-		{
-			label: "Parents' place",
-			name: 'Demo User',
-			street: 'Hauptstraße 5',
-			postalCode: '10115',
-			city: 'Berlin',
-			country: 'Germany',
-		},
-	],
-	cards: [
-		{label: 'Personal Visa', cardholder: 'DEMO USER', number: '4242424242424242', expiry: '08/28'},
-		{label: 'Work Amex', cardholder: 'DEMO USER', number: '378282246310005', expiry: '11/27'},
-	],
-	notes: [
-		{title: 'Clothing sizes', body: 'Shirts: M\nTrousers: 32/32\nShoes: EU 43 / US 10'},
-		{
-			title: 'Frequent flyer numbers',
-			body: 'Lufthansa Miles & More: 992000123456789\nUnited MileagePlus: AB123456',
-		},
-		{
-			title: 'Dietary preferences',
-			body: 'Vegetarian. No peanuts (allergy). Prefers aisle seats on flights.',
-		},
-		{title: 'Gift ideas', body: 'Mum: gardening gloves, good secateurs\nSam: the new Murakami'},
-	],
-};
+const VAULT_ENTRIES: Array<{key: string; type: string; value: string}> = [
+	{
+		key: 'Home',
+		type: 'Address',
+		value: 'Demo User\n221B Baker Street\nNW1 6XE London\nUnited Kingdom',
+	},
+	{
+		key: 'Office',
+		type: 'Address',
+		value: 'Demo User, Acme Corp\n1 Market Street, Floor 12\n94105 San Francisco\nUnited States',
+	},
+	{key: 'Mobile', type: 'Phone number', value: '+44 20 7946 0958'},
+	{key: 'Work email', type: 'Email', value: 'demo@acme-corp.com'},
+	{key: 'Personal website', type: 'Link', value: 'https://demo-user.example.com'},
+	{key: 'Birthday', type: 'Date', value: '1990-04-12'},
+	{key: 'Clothing sizes', type: 'Text', value: 'Shirts: M\nTrousers: 32/32\nShoes: EU 43 / US 10'},
+	{key: 'Dietary preferences', type: 'Text', value: 'Vegetarian. No peanuts (allergy).'},
+	{key: 'Flights', type: 'Text', value: 'Prefers aisle seats, and morning flights.'},
+];
 
-for (const [collectionId, records] of Object.entries(INFO_RECORDS)) {
-	for (const values of records) {
-		await db.infoRecord.create({
-			data: {connectionId: info.id, collectionId, values: encrypt(JSON.stringify(values))},
-		});
-	}
+for (const values of VAULT_ENTRIES) {
+	await db.vaultEntry.create({
+		data: {
+			connectionId: vault.id,
+			collectionId: 'entries',
+			values: encrypt(JSON.stringify(values)),
+		},
+	});
 }
 
 // ---- Agents and their own settings ----------------------------------------------------------
@@ -352,7 +329,7 @@ const agents = [
 		username: 'dots-k7q2',
 		daysAgo: 35,
 		grants: [
-			grant(info, {writeAddresses: true, readCards: true, writeNotes: true}),
+			grant(vault, {writeEntries: true}),
 			grant(personal, {send: true}),
 			grant(work, {write: true, send: true}),
 			grant(receipts, {read: true}),
@@ -360,14 +337,13 @@ const agents = [
 			grant(googleAccount, {createFiles: true, editFiles: true}),
 		],
 	}),
-	// Reads the cards no agent gets by default and files receipts; kept out of the work mailbox.
+	// Files receipts; kept out of the work mailbox.
 	await makeAgent({
 		providerId: 'instinct',
 		name: 'Instinct',
 		username: 'instinct-m3x9',
 		daysAgo: 28,
 		grants: [
-			grant(info, {readCards: true}),
 			grant(personal, {write: false}),
 			grant(work, {read: false}),
 			grant(receipts, {read: true, archive: true}),
@@ -391,7 +367,7 @@ const agents = [
 			grant(personal, {trash: true, write: false}),
 			grant(work, {mark: true, flag: true, archive: true}),
 			grant(googleAccount, {readEmails: true, markEmails: true, archiveEmails: true}),
-			grant(info, {readAddresses: false, readNotes: false}),
+			grant(vault, {readEntries: false}),
 			grant(meetings, {readTranscripts: false}),
 			grant(wiki, {read: false}),
 			grant(tracker, {create: false}),
@@ -418,7 +394,7 @@ function requestsOf(collection: Collection): [string, ...string[]] {
 	];
 }
 
-// Titles for the mailboxes' emails, and Gmail's; Information's come from the records seeded above.
+// Titles for the mailboxes' emails, and Gmail's; the vault's come from the entries seeded above.
 const EMAIL_TITLES: [string, ...string[]] = [
 	'Your order has shipped',
 	'Q3 planning — agenda',
@@ -509,8 +485,8 @@ function recordTitle(connection: Connection, collectionId: string): string {
 		return pick(FILE_TITLES);
 	}
 
-	const titles = (INFO_RECORDS[collectionId] ?? []).map((values) => values.label ?? values.title);
-	return titles[Math.floor(random() * titles.length)] ?? 'Untitled';
+	const keys = VAULT_ENTRIES.map((entry) => entry.key);
+	return keys[Math.floor(random() * keys.length)] ?? 'Untitled';
 }
 
 type Request = {connection: Connection; collection: Collection; action: string};

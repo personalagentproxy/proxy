@@ -42,7 +42,7 @@ export function handleGetConnectionRoute(request: AuthenticatedRequest): Promise
 
 /**
  * Agents lose the connection at once, and the provider's grant is revoked first where it has a way,
- * as Google does. Information is built in and can't be disconnected.
+ * as Google does. The vault is built in and can't be disconnected.
  */
 export function handleDeleteConnectionRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
@@ -68,7 +68,7 @@ const renameBodySchema = z.object({name: z.string().trim().max(MAX_NAME_LENGTH, 
 /**
  * Renames a connection, `{name}`: what it is called here and to agents. An empty name is none of
  * its own, so the connection shows as its integration again, except for a custom MCP server, which
- * has nothing else to be called. Information is built in and keeps its name.
+ * has nothing else to be called. The vault is built in and keeps its name.
  */
 export function handleRenameConnectionRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
 	return Do(async ($) => {

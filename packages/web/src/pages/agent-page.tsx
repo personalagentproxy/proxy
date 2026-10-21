@@ -244,7 +244,7 @@ type GridProps = {
 	onMakeDefault: (connectionId: string, actionId: string, allowed: boolean) => Promise<void>;
 };
 
-// Every connection, Information first, with a checkbox per action. Each starts folded to a line
+// Every connection, the vault first, with a checkbox per action. Each starts folded to a line
 // saying whether the agent follows its default or has changed something. A filter narrows them to
 // the connections, actions and groups of actions (Calendar) it names, and Changed only keeps the actions the agent has a setting of its own for; either opens
 // everything it keeps.

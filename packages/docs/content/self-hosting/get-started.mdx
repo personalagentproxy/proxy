@@ -34,7 +34,7 @@ echo "ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
 
 <Callout type="warning">
   Back up `ENCRYPTION_KEY` somewhere apart from the server. It encrypts the app passwords and
-  Information records in the database, so changing or losing it makes them unreadable, backups
+  vault entries in the database, so changing or losing it makes them unreadable, backups
   included.
 </Callout>
 
@@ -84,7 +84,7 @@ The compose file reads these from `.env`:
 | ---------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------ |
 | `POSTGRES_PASSWORD`                                                    | Required           | The database's password, set when the database is first created. Changing it later needs a change in Postgres too. |
 | `AUTH_SECRET`                                                          | Required           | Hashes sign-in tokens.                                                                                             |
-| `ENCRYPTION_KEY`                                                       | Required           | Encrypts credentials and Information records. Never change it.                                                     |
+| `ENCRYPTION_KEY`                                                       | Required           | Encrypts credentials and vault entries. Never change it.                                                           |
 | `PROXY_URL`                                                            | `http://localhost` | Where Personal Agent Proxy is opened. An `https://` address gets a certificate.                                    |
 | `PROXY_VERSION`                                                        | `main`             | The image tag to run. See [upgrades](/self-hosting/upgrades-and-backups#versions).                                 |
 | `ALLOWED_SIGNUP_EMAILS`                                                | Optional           | Who can create an account.                                                                                         |

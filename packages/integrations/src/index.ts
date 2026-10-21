@@ -10,11 +10,12 @@ export type {OwnSettings} from './access';
 export {
 	findCollection,
 	findIntegration,
-	INFO_INTEGRATION_ID,
 	INTEGRATIONS,
 	isOffered,
 	LINEAR_PRIORITIES,
 	LINEAR_STATUS_TYPES,
+	VAULT_ENTRY_TYPES,
+	VAULT_INTEGRATION_ID,
 } from './catalog';
 export {allowedTools, findTool, integrationTools, toolName} from './tools';
 export type {

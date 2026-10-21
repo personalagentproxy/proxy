@@ -188,13 +188,13 @@ describe('handleRenameConnectionRoute', () => {
 		expect(cleared.name).toBeNull();
 	});
 
-	test('a custom MCP server needs a name, and Information keeps its own', async () => {
+	test('a custom MCP server needs a name, and the vault keeps its own', async () => {
 		updateConnectionName.mockResolvedValue(Ok(undefined));
 		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId: 'mcp', tools: '[]', name: 'Docs'}));
 		const {handleRenameConnectionRoute} = await import('./route');
 		expect((await handleRenameConnectionRoute(makeRequest({connectionId: 'conn-1'}, {name: ' '}))).unwrapErr().kind).toBe('validation_error');
 
-		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId: 'info'}));
+		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId: 'vault'}));
 		expect((await handleRenameConnectionRoute(makeRequest({connectionId: 'conn-1'}, {name: 'Mine'}))).unwrapErr().kind).toBe('forbidden');
 		expect(updateConnectionName).not.toHaveBeenCalled();
 	});
@@ -263,8 +263,8 @@ describe('handleDeleteConnectionRoute', () => {
 		expect(google.requests).toEqual([]);
 	});
 
-	test('Information is built in and stays', async () => {
-		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId: 'info'}));
+	test('the vault is built in and stays', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId: 'vault'}));
 
 		const {handleDeleteConnectionRoute} = await import('./route');
 		const result = await handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-1'}));
@@ -294,7 +294,7 @@ describe('handleSetConnectionDefaultsRoute', () => {
 
 	test('refuses an action the integration does not have', async () => {
 		const {handleSetConnectionDefaultsRoute} = await import('./route');
-		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {readCards: true}}));
+		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {readEntries: true}}));
 
 		expect(result.unwrapErr().kind).toBe('validation_error');
 		expect(setConnectionDefaults).not.toHaveBeenCalled();

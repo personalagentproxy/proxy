@@ -9,7 +9,7 @@ export const NAV: {title: string; pages: NavEntry[]}[] = [
 	{
 		title: 'Connections',
 		pages: [
-			'connections/information',
+			'connections/vault',
 			{
 				page: 'connections/email',
 				pages: [

@@ -29,7 +29,7 @@ function titleOf(connection: Connection): string {
 	return connection.name ?? integrationOf(connection)?.name ?? connection.integrationId;
 }
 
-// The services connected to Personal Agent Proxy. Information is kept on a page of its own. A
+// The services connected to Personal Agent Proxy. The vault is kept on a page of its own. A
 // right click on a row renames or deletes the connection.
 export function ConnectionsPage() {
 	const {connections: all, agents} = useLoaderData<typeof connectionsLoader>();

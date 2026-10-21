@@ -77,7 +77,7 @@ let home: {
 	activity: ActivitySummary | null;
 } = {
 	connections: [
-		connection('info-1', 'info', 'Acme'),
+		connection('vault-1', 'vault', 'Acme'),
 		connection('google-1', 'google', 'me@example.com'),
 		connection('google-2', 'google', 'me@home.example'),
 		connection('notion-1', 'notion', 'Acme'),
@@ -159,7 +159,7 @@ async function typeInto(value: string): Promise<HTMLElement> {
 }
 
 describe('HomePage', () => {
-	test('shows the sources and agents connected under the input, Information and revoked logins left out', async () => {
+	test('shows the sources and agents connected under the input, the vault and revoked logins left out', async () => {
 		renderHomePage();
 
 		const sources = await screen.findByRole('link', {name: '3 sources'});
@@ -169,7 +169,7 @@ describe('HomePage', () => {
 
 	test('with nothing connected, leads to connecting a source and adding an agent', async () => {
 		const before = home;
-		home = {connections: [connection('info-1', 'info', 'Acme')], agents: [], activity: null};
+		home = {connections: [connection('vault-1', 'vault', 'Acme')], agents: [], activity: null};
 		renderHomePage();
 
 		expect((await screen.findByRole('link', {name: 'Connect a source'})).getAttribute('href')).toBe(

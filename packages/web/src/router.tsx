@@ -17,7 +17,7 @@ import {
 	connectionLoader,
 	connectionsLoader,
 	homeLoader,
-	infoLoader,
+	vaultLoader,
 	welcomeConnectionLoader,
 	welcomeLoader,
 } from '@/loaders';
@@ -41,10 +41,10 @@ import {ConnectAgentPage} from '@/pages/connect-agent-page';
 import {ConnectionPage} from '@/pages/connection-page';
 import {ConnectionsPage} from '@/pages/connections-page';
 import {HomePage} from '@/pages/home-page';
-import {InfoPage} from '@/pages/info-page';
 import {LoginPage} from '@/pages/login-page';
 import {NewAgentPage} from '@/pages/new-agent-page';
 import {SettingsPage} from '@/pages/settings-page';
+import {VaultPage} from '@/pages/vault-page';
 import {WelcomeConnectionPage, WelcomePage} from '@/pages/welcome-page';
 
 // The human side's guard: no session sends the user to /login, and back here after. An
@@ -146,7 +146,9 @@ export const router = createBrowserRouter([
 			{path: '/connections/new/plaid', element: <AddBankPage />},
 			{path: '/connections/new/mcp', element: <AddMcpPage />},
 			{path: '/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
-			{path: '/info', loader: infoLoader, element: <InfoPage />},
+			{path: '/vault', loader: vaultLoader, element: <VaultPage />},
+			// Where the vault was, as Information.
+			{path: '/info', element: <Navigate to="/vault" replace />},
 			{path: '/agents', loader: agentsLoader, element: <AgentsPage />},
 			{path: '/agents/new', loader: agentsLoader, element: <NewAgentPage />},
 			{path: '/agents/:id', loader: agentLoader, element: <AgentPage />},

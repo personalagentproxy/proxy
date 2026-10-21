@@ -51,9 +51,7 @@ describe('effectiveActions', () => {
 
 	test('an action counts only with the one it requires', () => {
 		expect(effectiveActions(email, ['read', 'archive'], {read: false})).toEqual([]);
-		expect(effectiveActions(integration('info'), ['writeCards', 'readNotes'])).toEqual([
-			'readNotes',
-		]);
+		expect(effectiveActions(integration('vault'), ['writeEntries'])).toEqual([]);
 	});
 
 	test('an action counts only while the whole chain under it does', () => {
@@ -91,8 +89,8 @@ test("an integration's groups each hold their actions together, in one run", () 
 
 describe('requiredAction', () => {
 	test("reading needs the collection's read, writing and commands their own action", () => {
-		expect(requiredAction(collection('info', 'cards'), 'list')).toBe('readCards');
-		expect(requiredAction(collection('info', 'cards'), 'update')).toBe('writeCards');
+		expect(requiredAction(collection('vault', 'entries'), 'list')).toBe('readEntries');
+		expect(requiredAction(collection('vault', 'entries'), 'update')).toBe('writeEntries');
 		expect(requiredAction(emails, 'markUnread')).toBe('mark');
 		expect(requiredAction(emails, 'sendNew')).toBe('send');
 	});

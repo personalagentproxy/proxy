@@ -10,7 +10,7 @@
 		"./auth": "./src/auth.ts",
 		"./connection": "./src/connection.ts",
 		"./feedback": "./src/feedback.ts",
-		"./info": "./src/info.ts",
+		"./vault": "./src/vault.ts",
 		"./instance-meta": "./src/instance-meta.ts",
 		"./oauth": "./src/oauth.ts",
 		"./organization": "./src/organization.ts",

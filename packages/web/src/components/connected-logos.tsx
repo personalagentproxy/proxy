@@ -13,7 +13,7 @@ const TILE = 'size-6 rounded-md ring-2 ring-background';
 const SHOWN = 8;
 
 // The connections as the stack shows them: one logo per integration, its connections behind it,
-// Information left out, since every organization has it. A custom MCP server is its own.
+// The vault left out, since every organization has it. A custom MCP server is its own.
 function sourcesOf(connections: Connection[]): Array<{integration: Integration; names: string[]}> {
 	const sources: Array<{integration: Integration; names: string[]}> = [];
 	for (const connection of connections) {

@@ -25,7 +25,7 @@ beforeEach(() => {
 describe('findSources', () => {
 	test('finds every connection with the collection whose sign-in covered reading it', async () => {
 		listConnectionsWithCredential.mockResolvedValue(
-			Ok([connection('info', 'info'), connection('work', 'google'), connection('home', 'google'), connection('imap', 'email'), connection('narrow', 'google')]),
+			Ok([connection('vault', 'vault'), connection('work', 'google'), connection('home', 'google'), connection('imap', 'email'), connection('narrow', 'google')]),
 		);
 		unavailableActions.mockImplementation((stored) => (stored.id === 'narrow' ? ['readEvents', 'writeEvents'] : []));
 		const {findSources} = await import('./sources');

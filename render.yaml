@@ -99,6 +99,14 @@ services:
       - path: /_next/static/*
         name: Cache-Control
         value: public, max-age=31536000, immutable
+    routes:
+      # The vault's guide, from where it was as Information.
+      - type: redirect
+        source: /connections/information
+        destination: /connections/vault/
+      - type: redirect
+        source: /connections/information/
+        destination: /connections/vault/
     envVars:
       # The version the repo is developed and the image built with.
       - key: BUN_VERSION

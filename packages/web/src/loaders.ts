@@ -11,9 +11,8 @@ import {getConnection, listConnections} from '@/client/connections-client';
 import {getMe} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {listRecords} from '@/client/records-client';
-import {INFO_INTEGRATION_ID} from '@proxy/integrations';
+import {VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import {browserTimeZone, daySpan} from '@/lib/activity-graph';
-import {findIntegration} from '@/lib/integrations';
 import {unwrapLoaderResult, unwrapOrNull} from '@/lib/loader-utils';
 import {redirect} from 'react-router';
 
@@ -70,27 +69,18 @@ export async function connectionLoader({params}: {params: {id?: string}}) {
 	};
 }
 
-// Information is the one built-in connection; its records are kept in Personal Agent Proxy.
-export async function infoLoader() {
+// The vault is the one built-in connection; its entries are kept in Personal Agent Proxy.
+export async function vaultLoader() {
 	const {connections} = unwrapLoaderResult(await listConnections());
 	const connection = connections.find(
-		(candidate) => candidate.integrationId === INFO_INTEGRATION_ID,
+		(candidate) => candidate.integrationId === VAULT_INTEGRATION_ID,
 	);
 	if (!connection) {
-		throw new Error('The organization has no Information connection');
+		throw new Error('The organization has no vault');
 	}
 
-	const collections = findIntegration(INFO_INTEGRATION_ID)?.collections ?? [];
-	const records = await Promise.all(
-		collections.map(
-			async (collection) =>
-				[
-					collection.id,
-					unwrapLoaderResult(await listRecords(connection.id, collection.id)).records,
-				] as const,
-		),
-	);
-	return {connectionId: connection.id, records: Object.fromEntries(records)};
+	const {records} = unwrapLoaderResult(await listRecords(connection.id, 'entries'));
+	return {connectionId: connection.id, entries: records};
 }
 
 export async function agentsLoader() {

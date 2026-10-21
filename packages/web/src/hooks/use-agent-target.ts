@@ -9,7 +9,7 @@ export type AgentTarget = {
 	collection: Collection;
 	// The actions the agent can take with the connection.
 	actions: string[];
-	// What the breadcrumbs call the connection: the mailbox's address, or Information.
+	// What the breadcrumbs call the connection: the mailbox's address, or Vault.
 	place: string;
 };
 

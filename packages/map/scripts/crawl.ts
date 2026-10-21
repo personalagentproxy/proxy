@@ -125,7 +125,7 @@ async function signInFresh(): Promise<{context: BrowserContext; connectionId: st
 	return {context, connectionId};
 }
 
-// The first agent login that can read Information, whose records live in the database and so
+// The first agent login that can read the vault, whose entries live in the database and so
 // show without a live account, as a mailbox's or an MCP server's would need; else the first
 // login that is not revoked.
 async function signInAgent(human: BrowserContext, password: string): Promise<BrowserContext> {
@@ -144,7 +144,7 @@ async function signInAgent(human: BrowserContext, password: string): Promise<Bro
 			context,
 			'/api/agent/me',
 		);
-		if (me.connections.some((connection) => connection.integrationId === 'info')) {
+		if (me.connections.some((connection) => connection.integrationId === 'vault')) {
 			return context;
 		}
 		fallback ??= context;

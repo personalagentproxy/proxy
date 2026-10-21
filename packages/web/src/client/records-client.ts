@@ -2,7 +2,7 @@ import {z} from 'zod';
 import {dataRecordSchema} from '@/client/schemas';
 import {apiRequest, apiSend} from '@/client/request';
 
-// The human side's records: in full, and not logged. Only Information's are shown for now.
+// The human side's records: in full, and not logged. Only the vault's are shown for now.
 
 function recordsPath(connectionId: string, collectionId: string): string {
 	return `/api/connections/${connectionId}/collections/${collectionId}/records`;

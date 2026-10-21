@@ -15,12 +15,12 @@ function collection(integrationId: string, collectionId: string): Collection {
 
 describe('parseRecordValues', () => {
 	test('keeps the typed-in fields and fills the missing ones with empty strings', () => {
-		const result = parseRecordValues(collection('info', 'notes'), {title: 'Sizes'});
-		expect(result.unwrap()).toEqual({title: 'Sizes', body: ''});
+		const result = parseRecordValues(collection('vault', 'entries'), {key: 'Sizes'});
+		expect(result.unwrap()).toEqual({key: 'Sizes', type: '', value: ''});
 	});
 
 	test('refuses fields the collection does not have', () => {
-		const result = parseRecordValues(collection('info', 'notes'), {title: 'Sizes', color: 'red'});
+		const result = parseRecordValues(collection('vault', 'entries'), {key: 'Sizes', color: 'red'});
 		expect(result.unwrapErr().kind).toBe('validation_error');
 	});
 
@@ -30,7 +30,7 @@ describe('parseRecordValues', () => {
 	});
 
 	test('refuses values that are not strings', () => {
-		const result = parseRecordValues(collection('info', 'notes'), {title: 3});
+		const result = parseRecordValues(collection('vault', 'entries'), {key: 3});
 		expect(result.unwrapErr().kind).toBe('parse_error');
 	});
 });

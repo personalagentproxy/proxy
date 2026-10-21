@@ -40,10 +40,10 @@ export default function PrivacyPage() {
 					account, we collect your email address and, if you sign in with Google, your name, profile
 					picture and Google account id. If you add a way to confirm it&apos;s you when you sign in,
 					such as a passkey, an authenticator app or a phone number, we collect what it needs. We
-					collect the information you type into the Services, such as addresses, payment details and
-					notes you keep for your agents, the services and accounts you connect, the agents you set
-					up and the permissions you give them, the people you invite to an organization, such as
-					their email addresses, and anything you send us when you contact us.
+					collect the information you type into the Services, such as the addresses, phone numbers
+					and notes you and your agents keep in your vault, the services and accounts you connect,
+					the agents you set up and the permissions you give them, the people you invite to an
+					organization, such as their email addresses, and anything you send us when you contact us.
 				</p>
 				<p>
 					<span className="text-foreground">Billing information.</span> If you pay for the Services,
@@ -203,8 +203,8 @@ export default function PrivacyPage() {
 				<LegalList>
 					<li>
 						to the other members of an organization you use the Services in: depending on their
-						role, they can see and manage its connections, agents, permissions, Information and
-						activity, including what you added and what agents did with it;
+						role, they can see and manage its connections, agents, permissions, vault and activity,
+						including what you added and what agents did with it;
 					</li>
 					<li>
 						to the agents you authorize and the companies that run them, such as Anthropic, OpenAI

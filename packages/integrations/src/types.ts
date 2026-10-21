@@ -2,8 +2,7 @@ import type {Experiment} from '@proxy/utils';
 
 import type {McpTool} from './mcp-tools';
 
-// `secret` reads like text but is masked to its last four characters wherever a row summarizes it.
-export type FieldType = 'text' | 'longtext' | 'email' | 'datetime' | 'date' | 'select' | 'secret';
+export type FieldType = 'text' | 'longtext' | 'email' | 'datetime' | 'date' | 'select';
 
 export type Field = {
 	key: string;
@@ -98,7 +97,7 @@ export type Collection = {
 };
 
 export type IntegrationId =
-	| 'info'
+	| 'vault'
 	| 'email'
 	| 'granola'
 	| 'notion'
@@ -121,7 +120,7 @@ export type Integration = {
 	// Shown above a connection's permissions: what ticking them hands the person's agents, where a
 	// provider's policy asks for it to be said.
 	disclosure?: string;
-	// Information lives in Personal Agent Proxy itself: it is always there and never connected or
+	// The vault lives in Personal Agent Proxy itself: it is always there and never connected or
 	// disconnected.
 	builtIn?: boolean;
 	// A custom MCP server: its actions are a connection's own tools, so the catalog's entry has

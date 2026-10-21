@@ -149,7 +149,7 @@ function describeToolRun(entry: AuditEntry, integration: Integration | undefined
 	return entry.query ? `Ran ${title} with ${entry.query}` : `Ran ${title}`;
 }
 
-// "Viewed email “Thursday sync moved?”", "Listed Payment cards", "Searched Email for “invoice”",
+// "Viewed email “Thursday sync moved?”", "Listed Entries", "Searched Email for “invoice”",
 // "Listed Pages in “Companies”", "Tried to list Contacts", and a command's own words: "Sent email
 // “Re: Q3”", "Tried to send email". A list's record title is the record it was opened in.
 export function describeEntry(entry: AuditEntry, located: LocatedEntry | null): string {
@@ -226,14 +226,10 @@ export function describeCount(
 	return `${ACTION_VERBS[action] ?? action} ${records}`;
 }
 
-// What a row shows for a field: secrets down to their last four characters.
+// What a row shows for a field: dates and times as people read them.
 export function displayValue(type: FieldType, value: string | undefined): string {
 	if (!value) {
 		return '';
-	}
-
-	if (type === 'secret') {
-		return `•••• ${value.replace(/\s/g, '').slice(-4)}`;
 	}
 
 	if (type === 'datetime') {

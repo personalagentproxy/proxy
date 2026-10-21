@@ -1,10 +1,10 @@
 import {type Experiment, hasExperiment} from '@proxy/utils';
 
-import type {Action, Collection, Condition, Integration} from './types';
+import type {Collection, Condition, Integration} from './types';
 
 const INBOX: Condition = {field: 'folder', values: ['Inbox']};
 
-export const INFO_INTEGRATION_ID = 'info';
+export const VAULT_INTEGRATION_ID = 'vault';
 
 // The actions an email collection's reads, writes and commands need, by what they do.
 type EmailActions = {
@@ -684,7 +684,7 @@ const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet'
 
 // A Google account, signed in to once for everything Personal Agent Proxy reads and writes there:
 // Gmail, Calendar, Drive, Docs, Sheets, Slides and Contacts. One connection holds every product, so
-// action ids carry the product, as Information's `readCards` and `writeCards` do, and each action
+// action ids carry the product, such as `readEmails` and `sendEmails`, and each action
 // names its product as its group. Gmail is the same email as any mailbox's, its labels as folders:
 // all mail but Spam and Trash in one list, narrowed to the inbox, drafts, sent mail, the archive,
 // Trash or Spam. Drafts are the only email edited or deleted; nothing else is deleted for good, only
@@ -1150,87 +1150,41 @@ const plaid: Integration = {
 	],
 };
 
-// Information's actions for one of its collections, such as `readCards` and `writeCards`: reading
-// it, and adding, editing and deleting as one.
-function infoActions(collectionId: string, plural: string): Action[] {
-	const name = collectionId.charAt(0).toUpperCase() + collectionId.slice(1);
-	return [
-		{
-			id: `read${name}`,
-			label: `Read ${plural}`,
-			description: `List and open ${plural}`,
-			risk: 'low',
-		},
-		{
-			id: `write${name}`,
-			label: `Edit ${plural}`,
-			description: `Add, edit and delete ${plural}`,
-			risk: 'medium',
-			requires: `read${name}`,
-		},
-	];
-}
+// What a vault entry's value is, so a row shows it as such and an agent knows what it holds.
+export const VAULT_ENTRY_TYPES = ['Text', 'Address', 'Phone number', 'Email', 'Link', 'Date'];
 
-function infoAccess(collectionId: string): Pick<Collection, 'read' | 'writes' | 'searchHint'> {
-	const name = collectionId.charAt(0).toUpperCase() + collectionId.slice(1);
-	const write = `write${name}`;
-	return {
-		read: `read${name}`,
-		writes: {create: write, update: write, delete: write},
-		searchHint: 'Matches the words in any field, in any case.',
-	};
-}
-
-const info: Integration = {
-	id: INFO_INTEGRATION_ID,
-	name: 'Information',
-	description: 'Details you keep in Personal Agent Proxy for agents to use',
+// The vault: what a person keeps in Personal Agent Proxy for their agents, and what agents keep
+// there for them, as a memory. Each entry is a key, a type and a value, all plain text to an agent
+// allowed to read it.
+const vault: Integration = {
+	id: VAULT_INTEGRATION_ID,
+	name: 'Vault',
+	description: 'What your agents should know about you, kept in Personal Agent Proxy',
 	builtIn: true,
 	actions: [
-		...infoActions('addresses', 'addresses'),
-		...infoActions('cards', 'payment cards'),
-		...infoActions('notes', 'notes'),
+		{id: 'readEntries', label: 'Read entries', description: 'List and open entries', risk: 'low'},
+		{
+			id: 'writeEntries',
+			label: 'Edit entries',
+			description: 'Add, edit and delete entries',
+			risk: 'medium',
+			requires: 'readEntries',
+		},
 	],
 	collections: [
 		{
-			id: 'addresses',
-			name: 'Addresses',
-			singular: 'address',
-			titleField: 'label',
-			summaryField: 'city',
-			...infoAccess('addresses'),
+			id: 'entries',
+			name: 'Entries',
+			singular: 'entry',
+			titleField: 'key',
+			summaryField: 'value',
+			read: 'readEntries',
+			writes: {create: 'writeEntries', update: 'writeEntries', delete: 'writeEntries'},
+			searchHint: 'Matches the words in the key, the type or the value, in any case.',
 			fields: [
-				{key: 'label', label: 'Label', type: 'text'},
-				{key: 'name', label: 'Name', type: 'text'},
-				{key: 'street', label: 'Street', type: 'text'},
-				{key: 'postalCode', label: 'Postal code', type: 'text'},
-				{key: 'city', label: 'City', type: 'text'},
-				{key: 'country', label: 'Country', type: 'text'},
-			],
-		},
-		{
-			id: 'cards',
-			name: 'Payment cards',
-			singular: 'payment card',
-			titleField: 'label',
-			summaryField: 'number',
-			...infoAccess('cards'),
-			fields: [
-				{key: 'label', label: 'Label', type: 'text'},
-				{key: 'cardholder', label: 'Cardholder', type: 'text'},
-				{key: 'number', label: 'Number', type: 'secret'},
-				{key: 'expiry', label: 'Expiry (MM/YY)', type: 'text'},
-			],
-		},
-		{
-			id: 'notes',
-			name: 'Notes',
-			singular: 'note',
-			titleField: 'title',
-			...infoAccess('notes'),
-			fields: [
-				{key: 'title', label: 'Title', type: 'text'},
-				{key: 'body', label: 'Body', type: 'longtext'},
+				{key: 'key', label: 'Key', type: 'text'},
+				{key: 'type', label: 'Type', type: 'select', options: VAULT_ENTRY_TYPES},
+				{key: 'value', label: 'Value', type: 'longtext'},
 			],
 		},
 	],
@@ -1251,7 +1205,7 @@ const mcp: Integration = {
 };
 
 export const INTEGRATIONS: Integration[] = [
-	info,
+	vault,
 	email,
 	google,
 	granola,

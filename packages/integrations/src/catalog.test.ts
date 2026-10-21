@@ -23,7 +23,7 @@ describe('catalog', () => {
 
 	// The home page's widgets read these collections by their ids from every integration that has
 	// them (all of a person's mailboxes, every calendar), so their fields are one contract. Other
-	// ids may mean different things: Information's notes aren't Granola's.
+	// ids may mean different things: Granola's notes aren't a note collection of any other.
 	test('gives the collections the widgets read the same fields in every integration', () => {
 		const read = ['emails', 'events', 'contacts', 'files'];
 		const collections = INTEGRATIONS.flatMap((integration) =>

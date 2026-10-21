@@ -126,19 +126,18 @@ model OrgMember {
 
 // A connected account of an integration from the catalog (`@proxy/integrations`), such as a
 // mailbox. An organization can connect the same integration more than once. Every organization
-// also has one built-in Information connection, made with it, whose records live in
-// Personal Agent Proxy.
+// also has one built-in vault connection, made with it, whose entries live in Personal Agent Proxy.
 model Connection {
   id            String  @id @default(cuid())
   orgId         String
   integrationId String
   // The account as the provider names it, such as an email address; the organization's name for
-  // Information.
+  // the vault.
   account       String
   // The provider's own id for the account, which stays as its address changes: Google's `sub`.
   // None where the provider gives none, or for a connection from before it was kept.
   providerAccountId String?
-  // Encrypted with ENCRYPTION_KEY: an app password with its server settings. None for Information.
+  // Encrypted with ENCRYPTION_KEY: an app password with its server settings. None for the vault.
   credential    String?
   // A custom MCP server's tools as the server last listed them (`@proxy/integrations`' McpTool),
   // as JSON: what agents can be allowed with it. Null for every other integration.
@@ -152,7 +151,7 @@ model Connection {
 
   org          Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
   defaults     ConnectionDefault[]
-  infoRecords  InfoRecord[]
+  vaultEntries VaultEntry[]
   agentGrants  AgentGrant[]
   writeTargets WriteTarget[]
 
@@ -197,12 +196,13 @@ model ConnectionDefault {
   @@unique([connectionId, actionId])
 }
 
-// A record of the built-in Information connection, such as an address or a payment card.
-model InfoRecord {
+// An entry of the built-in vault connection: a key, a type and a value.
+model VaultEntry {
   id           String @id @default(cuid())
   connectionId String
+  // `entries`, the vault's one collection.
   collectionId String
-  // The field values as JSON, encrypted with ENCRYPTION_KEY.
+  // The key, the type and the value as JSON, encrypted with ENCRYPTION_KEY.
   values       String
 
   createdAt DateTime @default(now())
