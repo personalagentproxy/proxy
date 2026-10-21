@@ -75,7 +75,8 @@ export function OrgSwitcher() {
 					closeDelay={200}
 					render={<SidebarMenuButton aria-label={`Organization: ${activeOrg.name}`} />}
 				>
-					<OrgTile org={activeOrg} />
+					{/* The size of the rail's icons, so it centers on them as they do. */}
+					<OrgTile org={activeOrg} className="size-4 text-[11px]" />
 					<span className="min-w-0 flex-1 truncate">{activeOrg.name}</span>
 					<ChevronsUpDownIcon className="ml-auto text-muted-foreground" />
 				</DropdownMenuTrigger>
