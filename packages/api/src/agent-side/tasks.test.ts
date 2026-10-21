@@ -8,7 +8,7 @@ const listOpenAgentTasks = mock();
 
 mock.module('@proxy/db/task', () => ({createAgentTask, getAgentTask, finishAgentTask, listOpenAgentTasks}));
 
-const agent = {agentId: 'agent-1', orgId: 'org-1', providerId: 'claude', name: 'Claude', experiments: []};
+const agent = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', experiments: []};
 const caller = {agent, via: 'mcp' as const};
 const row = {id: 'task-1', agentId: 'agent-1', title: 'Triage inbox', goal: 'Archive the newsletters', via: 'mcp' as const, createdAt: new Date('2026-10-16T09:00:00Z'), finishedAt: null};
 const finishedRow = {...row, finishedAt: new Date('2026-10-16T09:30:00Z')};
@@ -25,7 +25,7 @@ describe('startAgentTask', () => {
 		const {startAgentTask} = await import('./tasks');
 		const result = await startAgentTask(caller, {title: ' Triage inbox ', goal: 'Archive the newsletters\n'});
 
-		expect(createAgentTask).toHaveBeenCalledWith({orgId: 'org-1', agentId: 'agent-1', title: 'Triage inbox', goal: 'Archive the newsletters', via: 'mcp'});
+		expect(createAgentTask).toHaveBeenCalledWith({orgId: 'org-1', agentId: 'agent-1', ownerUserId: 'user-1', title: 'Triage inbox', goal: 'Archive the newsletters', via: 'mcp'});
 		expect(result.unwrap()).toEqual({task: 'task-1', title: 'Triage inbox', goal: 'Archive the newsletters', startedAt: '2026-10-16T09:00:00.000Z', finishedAt: null});
 	});
 

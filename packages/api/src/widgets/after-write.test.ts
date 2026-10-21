@@ -9,14 +9,14 @@ const saveWriteTarget = mock(async (): Promise<unknown> => Ok(undefined));
 mock.module('@proxy/db/audit', () => ({logProxyAction}));
 mock.module('@proxy/db/write-target', () => ({saveWriteTarget}));
 
-const source = {connection: {id: 'work'}, collection: {id: 'events'}} as never;
+const source = {connection: {id: 'work', ownerUserId: 'user-1'}, collection: {id: 'events'}} as never;
 
 describe('afterWrite', () => {
 	test("logs the write as Personal Agent Proxy's and keeps where it went", async () => {
 		const {afterWrite} = await import('./writes');
 
 		await afterWrite({orgId: 'org-1', userId: 'user-1', source, action: 'create', title: 'Lunch', parent: 'team'});
-		expect(logProxyAction).toHaveBeenCalledWith({orgId: 'org-1', connectionId: 'work', collectionId: 'events', action: 'create', recordTitle: 'Lunch'});
+		expect(logProxyAction).toHaveBeenCalledWith({orgId: 'org-1', connectionId: 'work', collectionId: 'events', action: 'create', recordTitle: 'Lunch', ownerUserId: 'user-1'});
 		expect(saveWriteTarget).toHaveBeenCalledWith({userId: 'user-1', collectionId: 'events', connectionId: 'work', parent: 'team'});
 	});
 

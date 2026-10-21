@@ -4,6 +4,7 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {getAgent} from '@proxy/db/agent';
+import type {MemberViewer} from '@proxy/db/connection';
 import {createOAuthCode, getOAuthClient, type OAuthClientRow} from '@proxy/db/oauth';
 import {suggestAgentProvider} from '@proxy/integrations';
 
@@ -12,7 +13,7 @@ import {hashToken, queryParam} from '../auth/session';
 import {log, serializeError} from '../observability/log';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {decryptSecret, encryptSecret} from '../utils/secret-crypto';
-import {requireUserOrgId} from '../utils/user-org';
+import {requireUserOrgId, requireViewer} from '../utils/user-org';
 import {CODE_TTL_MS, mcpResourceUrl, randomToken, requireAppUrl, withParams} from './oauth-config';
 
 /**
@@ -149,19 +150,19 @@ const consentBodySchema = z.union([
 	z.object({request: z.string(), allow: z.literal(true), providerId: z.string().min(1), name: z.string().optional()}),
 ]);
 
-// The agent login the client works as: one of the organization's, not revoked, or a new one, which
-// for a custom agent is named by the person.
-function chooseAgent(orgId: string, body: z.infer<typeof consentBodySchema>): Promise<Result<string, ApiError>> {
+// The agent login the client works as: one the person sees, their own or shared, not revoked, or a
+// new one of their own, which for a custom agent is named by the person.
+function chooseAgent(viewer: MemberViewer, body: z.infer<typeof consentBodySchema>): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		if ('agentId' in body) {
-			const agent = $(requirePresent($(await getAgent(orgId, body.agentId)), ApiErr.notFound('agent', body.agentId)));
+			const agent = $(requirePresent($(await getAgent(viewer, body.agentId)), ApiErr.notFound('agent', body.agentId)));
 			if (agent.revokedAt !== null) {
 				return $(Err(ApiErr.validationError(`${agent.name} is revoked. Restore it first, or choose another agent.`)));
 			}
 			return agent.id;
 		}
 		if ('providerId' in body) {
-			return $(await createAgentLogin(orgId, body.providerId, body.name)).agent.id;
+			return $(await createAgentLogin(viewer, body.providerId, {name: body.name})).agent.id;
 		}
 		return $(Err(ApiErr.validationError('Choose an agent')));
 	});
@@ -181,8 +182,8 @@ export function handleConsentRoute(request: AuthenticatedRequest): Promise<Resul
 			return {redirectTo: withParams(redirectUri, {error: 'access_denied', error_description: 'The person declined', state, iss: appUrl})};
 		}
 
-		const orgId = $(await requireUserOrgId(request));
-		const agentId = $(await chooseAgent(orgId, body));
+		const viewer = $(await requireViewer(request));
+		const agentId = $(await chooseAgent(viewer, body));
 		const code = randomToken();
 		$(await createOAuthCode({codeHash: hashToken(code), clientId: client.id, agentId, redirectUri, codeChallenge: authorization.codeChallenge, expires: new Date(Date.now() + CODE_TTL_MS)}));
 		return {redirectTo: withParams(redirectUri, {code, state, iss: appUrl})};

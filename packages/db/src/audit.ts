@@ -4,6 +4,7 @@ import type {Result} from 'ts-results-es';
 import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
+import type {Viewer} from './connection';
 
 export type AuditEntryRow = {
 	id: string;
@@ -36,6 +37,8 @@ export async function logAgentRequest(data: {
 	via: AuditVia;
 	// PRE-TASK CLIENTS: null for a call of an MCP client from before tasks (api's mcp/pre-task-clients.ts).
 	taskId: string | null;
+	// The member whose own the agent is, who alone sees the entry; null for a shared agent's.
+	ownerUserId: string | null;
 }): Promise<Result<void, ApiError>> {
 	return wrapDb(async () => {
 		await db.$transaction([
@@ -47,7 +50,8 @@ export async function logAgentRequest(data: {
 
 /**
  * Logs one thing Personal Agent Proxy did itself for a person, such as making an event from the
- * home page: an entry without an agent, always allowed, since the person asked for it.
+ * home page: an entry without an agent, always allowed, since the person asked for it. Whose entry
+ * it is (`ownerUserId`) is whose own the connection is: everyone's for a shared one.
  */
 export async function logProxyAction(data: {
 	orgId: string;
@@ -55,6 +59,7 @@ export async function logProxyAction(data: {
 	collectionId: string;
 	action: string;
 	recordTitle: string | null;
+	ownerUserId: string | null;
 }): Promise<Result<void, ApiError>> {
 	return wrapDb(async () => {
 		await db.auditEntry.create({
@@ -64,11 +69,13 @@ export async function logProxyAction(data: {
 }
 
 /**
- * Newest first, optionally only one agent's or one connection's requests, only one task's, or only
- * allowed or denied ones; an `agentId` of null is what Personal Agent Proxy did itself.
+ * The entries the viewer sees, newest first: the organization's shared agents' and shared
+ * connections', and their own; optionally only one agent's or one connection's requests, only one
+ * task's, or only allowed or denied ones; an `agentId` of null is what Personal Agent Proxy did
+ * itself.
  */
 export async function listAuditEntries(
-	orgId: string,
+	viewer: Viewer,
 	filter: {
 		agentId?: string | null;
 		connectionId?: string;
@@ -79,7 +86,11 @@ export async function listAuditEntries(
 ): Promise<Result<AuditEntryRow[], ApiError>> {
 	return wrapDb(() =>
 		db.auditEntry.findMany({
-			where: {orgId, ...filter},
+			where: {
+				orgId: viewer.orgId,
+				OR: [{ownerUserId: null}, {ownerUserId: viewer.userId}],
+				...filter,
+			},
 			orderBy: {createdAt: 'desc'},
 			take,
 			select: {

@@ -12,7 +12,19 @@ const setAgentGrants = mock();
 const isUsernameConflict = mock(() => false);
 const isProviderConflict = mock(() => false);
 
-mock.module('@proxy/db/agent', () => ({listAgents, getAgent, createAgent, updateAgent, deleteAgent, setAgentGrants, isUsernameConflict, isProviderConflict}));
+mock.module('@proxy/db/agent', () => ({
+	listAgents,
+	getAgent,
+	createAgent,
+	updateAgent,
+	deleteAgent,
+	setAgentGrants,
+	shareAgent: mock(async () => Ok(undefined)),
+	isUsernameConflict,
+	isProviderConflict,
+}));
+
+mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
 const getConnectionWithCredential = mock();
 
@@ -29,6 +41,9 @@ mock.module('../utils/user-org', () => ({requireViewer: async () => Ok({orgId: '
 
 const agentRow = {
 	id: 'agent-1',
+	orgId: 'org-1',
+	ownerUserId: 'user-1',
+	createdById: 'user-1',
 	providerId: 'dot',
 	name: 'Dots',
 	username: 'dots-k7q2',

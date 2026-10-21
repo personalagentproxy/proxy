@@ -1,9 +1,9 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
-import {getAgent, type AgentRow, type SignedInAgent} from '@proxy/db/agent';
+import {getAgentById, type AgentRow, type SignedInAgent} from '@proxy/db/agent';
 import {logAgentRequest} from '@proxy/db/audit';
-import {listOrgConnectionsWithCredential, type ConnectionRow} from '@proxy/db/connection';
+import {listConnectionsWithCredential, type ConnectionRow, type Viewer} from '@proxy/db/connection';
 import {
 	allowedTools,
 	applies,
@@ -25,7 +25,7 @@ import {callCustomTool} from '../connections/custom/custom-mcp';
 import {needsSignIn, signInNeededError, unavailableActions, unavailableError} from '../connections/unavailable';
 import type {Connector, DataRecord, RecordPage, RecordTarget, RecordValues} from '../records/connector';
 import {parseRecordValues} from '../records/record-values';
-import {loadAgentConnection} from '../records/target';
+import {loadConnection} from '../records/target';
 import {integrationOf} from '../utils/connection-actions';
 import {requireOpenTaskIfAny} from '../mcp/pre-task-clients';
 import {isPlainObject, parseToolParams} from './tool-params';
@@ -67,21 +67,26 @@ export function actionsOf(agent: AgentRow, connection: ConnectionRow, integratio
 	);
 }
 
+/**
+ * What an agent reaches, as a viewer of its organization's connections: the shared ones and, for a
+ * member's own agent, that member's own.
+ */
+export function agentViewer(signedIn: SignedInAgent): Viewer {
+	return {orgId: signedIn.orgId, userId: signedIn.ownerUserId};
+}
+
 export function requireAgent(signedIn: SignedInAgent): Promise<Result<AgentRow, ApiError>> {
 	return Do(async ($) => {
-		const agent = $(await getAgent(signedIn.orgId, signedIn.agentId));
+		const agent = $(await getAgentById(signedIn.orgId, signedIn.agentId));
 		return $(requirePresent(agent, ApiErr.unauthenticated()));
 	});
 }
 
-/**
- * Who the agent is and what it can do with each connection; connections it can't use are left out.
- * Until agents are a member's own or shared, an agent reaches every connection in its organization.
- */
+/** Who the agent is and what it can do with each connection it reaches; connections it can't use are left out. */
 export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<{agent: {id: string; providerId: string; name: string}; connections: AgentConnection[]}, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
-		const connections = $(await listOrgConnectionsWithCredential(signedIn.orgId))
+		const connections = $(await listConnectionsWithCredential(agentViewer(signedIn)))
 			.flatMap((connection) => {
 				const integration = integrationOf(connection);
 				if (!integration) {
@@ -108,7 +113,7 @@ export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<{a
 export function listAgentTools(signedIn: SignedInAgent, connectionId: string): Promise<Result<Tool[], ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
-		const {connection, integration} = $(await loadAgentConnection(signedIn, connectionId));
+		const {connection, integration} = $(await loadConnection(agentViewer(signedIn), connectionId));
 		return allowedTools(integration, actionsOf(agent, connection, integration, unavailableActions(connection)));
 	});
 }
@@ -140,13 +145,14 @@ function log(run: ToolRun, outcome: 'allowed' | 'denied', title: string | null, 
 		outcome,
 		via: run.caller.via,
 		taskId: run.caller.taskId,
+		ownerUserId: run.caller.agent.ownerUserId,
 	});
 }
 
 /**
  * Runs one of the connection's tools with `params`, as its input schema describes them, for the
  * caller's task, which has to be one of the agent's and still under way; a run without one is
- * refused, unlogged. A connection outside the organization, or a tool its integration doesn't have,
+ * refused, unlogged. A connection the agent doesn't reach, or a tool its integration doesn't have,
  * is not found and not logged; a tool whose action the agent doesn't have is refused and logged as
  * denied, saying how to allow it where the connection's sign-in didn't cover the action.
  * `readOnly` limits the run to tools that only read, or only to those that change something, as
@@ -155,7 +161,11 @@ function log(run: ToolRun, outcome: 'allowed' | 'denied', title: string | null, 
 export function runAgentTool(caller: TaskCaller, connectionId: string, toolName: string, params: unknown, options: {readOnly?: boolean} = {}): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
 		// None of the three needs another's answer, so they are read at once; a refusal still comes in this order.
-		const [agentRead, taskRead, connectionRead] = await Promise.all([requireAgent(caller.agent), requireOpenTaskIfAny(caller.agent, caller.taskId), loadAgentConnection(caller.agent, connectionId)]);
+		const [agentRead, taskRead, connectionRead] = await Promise.all([
+			requireAgent(caller.agent),
+			requireOpenTaskIfAny(caller.agent, caller.taskId),
+			loadConnection(agentViewer(caller.agent), connectionId),
+		]);
 		const agent = $(agentRead);
 		$(taskRead);
 		const {connection, integration, connector} = $(connectionRead);
@@ -247,6 +257,7 @@ function runServerTool(
 				outcome,
 				via: caller.via,
 				taskId: caller.taskId,
+				ownerUserId: caller.agent.ownerUserId,
 			});
 		if (!actionsOf(agent, connection, integration, unavailableActions(connection)).includes(tool.action)) {
 			$(await logRun('denied'));

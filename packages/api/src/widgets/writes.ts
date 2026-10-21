@@ -17,7 +17,7 @@ export async function afterWrite(args: {orgId: string; userId: string; source: S
 	const connectionId = source.connection.id;
 	const collectionId = source.collection.id;
 	const [logged, saved] = await Promise.all([
-		logProxyAction({orgId, connectionId, collectionId, action, recordTitle: title || null}),
+		logProxyAction({orgId, connectionId, collectionId, action, recordTitle: title || null, ownerUserId: source.connection.ownerUserId}),
 		parent === undefined ? Ok(null) : saveWriteTarget({userId, collectionId, connectionId, parent}),
 	]);
 	if (logged.isErr()) {

@@ -33,6 +33,12 @@ export const agentSchema = z.object({
 	providerId: z.string(),
 	name: z.string(),
 	username: z.string(),
+	// Shared with every member of its organization, rather than one member's own.
+	shared: z.boolean(),
+	// Who made it, kept once it is shared, and their name or address while they are still in its
+	// organization.
+	createdById: z.string().nullable(),
+	createdBy: z.string().nullable(),
 	createdAt: z.string(),
 	lastActiveAt: z.string().nullable(),
 	revokedAt: z.string().nullable(),

@@ -14,7 +14,7 @@ import {SignInToBankAgain} from '@/components/connect-bank-form';
 import {BackButton} from '@/components/back-button';
 import {ConnectWithKeyDialog} from '@/components/connect-with-key-dialog';
 import {ConnectionAccess, SignInAgain} from '@/components/connection-access';
-import {ConnectionSharing} from '@/components/connection-sharing';
+import {Sharing} from '@/components/sharing';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
 import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
@@ -180,13 +180,17 @@ export function ConnectionPage() {
 					{error && <p className="text-sm text-destructive">{error}</p>}
 				</Section>
 				{!integration.builtIn && (
-					<ConnectionSharing
+					<Sharing
 						orgName={activeOrg.name}
 						shared={connection.shared}
-						actsAs={actsAs(connection, mine ? 'you' : connectedBy)}
-						connectedBy={connectedBy}
+						what="connection"
+						rows={[
+							{label: 'Acts as', value: actsAs(connection, mine ? 'you' : connectedBy)},
+							{label: 'Connected by', value: connectedBy},
+						]}
 						canShare={manages}
 						alone={!hasOtherPeople(activeOrg)}
+						confirmDescription={`Every member's agents in ${activeOrg.name} can use it, as ${actsAs(connection, mine ? 'you' : connectedBy)}, with the permissions above. Members see it listed, never its password or token. This can't be undone: to have it as your own again, disconnect it and connect it again.`}
 						onShare={async () => {
 							const result = await shareConnection(connection.id);
 							if (result.isErr()) {

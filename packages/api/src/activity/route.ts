@@ -6,7 +6,7 @@ import {listAuditEntries, summarizeTaskRequests} from '@proxy/db/audit';
 import {type AgentTaskRow, listAgentTasks, listAgentTasksSince} from '@proxy/db/task';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {requireUserOrgId} from '../utils/user-org';
+import {requireViewer} from '../utils/user-org';
 
 const MAX_ENTRIES = 500;
 
@@ -56,22 +56,23 @@ const querySchema = z.object({
 });
 
 /**
- * The organization's agent requests, newest first, the latest 500, and the tasks they were made
- * for; with `?taskId=`, that task too, even before any request was made for it.
+ * The requests the person sees in the organization, newest first, the latest 500: shared agents'
+ * and their own agents', on shared connections and their own; and the tasks they were made for;
+ * with `?taskId=`, that task too, even before any request was made for it.
  */
 export function handleListActivityRoute(request: AuthenticatedRequest): Promise<Result<{entries: AuditEntryResponse[]; tasks: ActivityTaskResponse[]}, ApiError>> {
 	return Do(async ($) => {
 		const {agentId, connectionId, taskId, outcome} = $(parseSchema(querySchema, request.query));
-		const orgId = $(await requireUserOrgId(request));
+		const viewer = $(await requireViewer(request));
 		const filter = {
 			...(agentId === undefined ? {} : {agentId: agentId === PROXY ? null : agentId}),
 			...(connectionId === undefined ? {} : {connectionId}),
 			...(taskId === undefined ? {} : {taskId}),
 			...(outcome === undefined ? {} : {outcome}),
 		};
-		const rows = $(await listAuditEntries(orgId, filter, MAX_ENTRIES));
+		const rows = $(await listAuditEntries(viewer, filter, MAX_ENTRIES));
 		const taskIds = new Set([...rows.flatMap((row) => (row.taskId === null ? [] : [row.taskId])), ...(taskId === undefined ? [] : [taskId])]);
-		const tasks = $(await listAgentTasks(orgId, [...taskIds]));
+		const tasks = $(await listAgentTasks(viewer, [...taskIds]));
 		return {
 			entries: rows.map(({createdAt, ...entry}) => ({...entry, at: createdAt.toISOString()})),
 			tasks: tasks.map(toActivityTask),
@@ -102,17 +103,17 @@ export type ActivityLanesResponse = {
 	tasks: LaneTaskResponse[];
 };
 
-/** The organization's tasks under way at some point since `?from=`, with what was done for each. */
+/** The tasks the person sees under way at some point since `?from=`, shared agents' and their own agents', with what was done for each. */
 export function handleActivityLanesRoute(request: AuthenticatedRequest): Promise<Result<ActivityLanesResponse, ApiError>> {
 	return Do(async ($) => {
 		const query = $(parseSchema(lanesQuerySchema, request.query));
-		const orgId = $(await requireUserOrgId(request));
+		const viewer = $(await requireViewer(request));
 		const now = new Date();
 		const from = new Date(Math.max(new Date(query.from).getTime(), now.getTime() - MAX_WINDOW_MS));
-		const rows = $(await listAgentTasksSince(orgId, from, MAX_TASKS));
+		const rows = $(await listAgentTasksSince(viewer, from, MAX_TASKS));
 		const requests = $(
 			await summarizeTaskRequests(
-				orgId,
+				viewer.orgId,
 				rows.map((row) => row.id),
 			),
 		);

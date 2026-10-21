@@ -16,11 +16,17 @@ export function getAgent(agentId: string) {
 	return apiRequest('GET', `/api/agents/${agentId}`, agentSchema);
 }
 
-/** The only time the password is sent; the api keeps its hash. */
-export function createAgent(providerId: AgentProviderId) {
+/** The only time the password is sent; the api keeps its hash. `shared` makes the agent every member's rather than the person's own. */
+export function createAgent(providerId: AgentProviderId, shared = false) {
 	return apiRequest('POST', '/api/agents', z.object({agent: agentSchema, password: z.string()}), {
 		providerId,
+		...(shared ? {shared} : {}),
 	});
+}
+
+/** Shares one's own agent with every member of its organization, for good. */
+export function shareAgent(agentId: string) {
+	return apiRequest('POST', `/api/agents/${agentId}/share`, agentSchema);
 }
 
 export function resetAgentPassword(agentId: string) {

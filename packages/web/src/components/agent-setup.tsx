@@ -36,12 +36,15 @@ export function AgentSetup({
 	agents,
 	providers,
 	fixed,
+	shared = false,
 	continueLabel,
 	onContinue,
 }: {
 	agents: AgentLogin[];
 	providers: AgentProvider[];
 	fixed?: AgentProviderId;
+	// A new login is every member's rather than the person's own.
+	shared?: boolean;
 	continueLabel: string;
 	onContinue: (agent: AgentLogin | null) => void;
 }) {
@@ -97,7 +100,7 @@ export function AgentSetup({
 			return;
 		}
 		setPending(true);
-		const result = await createAgent(provider.id);
+		const result = await createAgent(provider.id, shared);
 		setPending(false);
 		if (result.isErr()) {
 			setError(describeFetchError(result.error));

@@ -232,7 +232,7 @@ describe('handleConsentRoute', () => {
 		createAgentLogin.mockResolvedValue(Ok({agent: {id: 'agent-new'}, password: 'unused'}));
 		await consent({request: sealed(), allow: true, providerId: 'claude'});
 
-		expect(createAgentLogin).toHaveBeenCalledWith('org-1', 'claude', undefined);
+		expect(createAgentLogin).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'claude', {name: undefined});
 		expect(createOAuthCode.mock.calls[0]?.[0].agentId).toBe('agent-new');
 	});
 
@@ -240,7 +240,7 @@ describe('handleConsentRoute', () => {
 		createAgentLogin.mockResolvedValue(Ok({agent: {id: 'agent-new'}, password: 'unused'}));
 		await consent({request: sealed(), allow: true, providerId: 'custom', name: 'MCP Inspector'});
 
-		expect(createAgentLogin).toHaveBeenCalledWith('org-1', 'custom', 'MCP Inspector');
+		expect(createAgentLogin).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'custom', {name: 'MCP Inspector'});
 		expect(createOAuthCode.mock.calls[0]?.[0].agentId).toBe('agent-new');
 	});
 

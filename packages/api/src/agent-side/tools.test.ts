@@ -4,9 +4,9 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {ApiErr, type ApiError} from '@proxy/utils';
 import {findIntegration, integrationFor, type Integration} from '@proxy/integrations';
 
-const getAgent = mock();
+const getAgentById = mock();
 
-mock.module('@proxy/db/agent', () => ({getAgent}));
+mock.module('@proxy/db/agent', () => ({getAgentById}));
 
 const logAgentRequest = mock();
 
@@ -16,9 +16,9 @@ const getAgentTask = mock();
 
 mock.module('@proxy/db/task', () => ({getAgentTask, createAgentTask: mock(), finishAgentTask: mock(), listOpenAgentTasks: mock()}));
 
-const listOrgConnectionsWithCredential = mock();
+const listConnectionsWithCredential = mock();
 
-mock.module('@proxy/db/connection', () => ({listOrgConnectionsWithCredential, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
+mock.module('@proxy/db/connection', () => ({listConnectionsWithCredential, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
 
 // Readable stand-ins for encryption, so a test can write the credential it means.
 mock.module('../utils/secret-crypto', () => ({
@@ -26,9 +26,9 @@ mock.module('../utils/secret-crypto', () => ({
 	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
 }));
 
-const loadAgentConnection = mock();
+const loadConnection = mock();
 
-mock.module('../records/target', () => ({loadAgentConnection}));
+mock.module('../records/target', () => ({loadConnection}));
 
 const callCustomTool = mock();
 
@@ -42,7 +42,7 @@ function integration(id: string): Integration {
 	return found;
 }
 
-const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dots', experiments: []};
+const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'dot', name: 'Dots', experiments: []};
 const caller = {agent: signedIn, via: 'mcp' as const, taskId: 'task-1'};
 
 // The task every run here is for, under way.
@@ -126,15 +126,15 @@ const sendNew = mock();
 const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send}, newCommands: {sendNew}};
 
 function useConnection(connection: typeof vaultConnection | typeof emailConnection | typeof notionConnection | typeof googleConnection) {
-	loadAgentConnection.mockResolvedValue(Ok({connection, integration: integration(connection.integrationId), connector}));
+	loadConnection.mockResolvedValue(Ok({connection, integration: integration(connection.integrationId), connector}));
 }
 
 beforeEach(() => {
 	mock.clearAllMocks();
-	getAgent.mockResolvedValue(Ok(agent));
+	getAgentById.mockResolvedValue(Ok(agent));
 	getAgentTask.mockResolvedValue(Ok(task));
 	logAgentRequest.mockResolvedValue(Ok(undefined));
-	listOrgConnectionsWithCredential.mockResolvedValue(Ok([vaultConnection, emailConnection, googleConnection]));
+	listConnectionsWithCredential.mockResolvedValue(Ok([vaultConnection, emailConnection, googleConnection]));
 	connector.list.mockResolvedValue(Ok({records: [entry], nextPage: null}));
 	connector.get.mockResolvedValue(Ok(entry));
 	useConnection(vaultConnection);
@@ -154,7 +154,7 @@ describe('listAgentConnections', () => {
 
 describe("actions the connection's sign-in didn't cover", () => {
 	test('are not among what the agent can do, whatever is ticked', async () => {
-		getAgent.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'google-1', actionId: 'readFiles', allowed: true}]}));
+		getAgentById.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'google-1', actionId: 'readFiles', allowed: true}]}));
 
 		const {listAgentConnections} = await import('./tools');
 		const result = await listAgentConnections(signedIn);
@@ -183,7 +183,7 @@ describe("actions the connection's sign-in didn't cover", () => {
 	});
 
 	test("one the agent's own setting turns off anyway is plainly forbidden", async () => {
-		getAgent.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'google-1', actionId: 'readFiles', allowed: false}]}));
+		getAgentById.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'google-1', actionId: 'readFiles', allowed: false}]}));
 		useConnection(googleConnection);
 
 		const {runAgentTool} = await import('./tools');
@@ -196,7 +196,7 @@ describe("actions the connection's sign-in didn't cover", () => {
 describe('listAgentTools', () => {
 	test("the tools of the connection's actions the agent has", async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'mail-1', actionId: 'send', allowed: true}]}));
+		getAgentById.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'mail-1', actionId: 'send', allowed: true}]}));
 
 		const {listAgentTools} = await import('./tools');
 		const result = await listAgentTools(signedIn, 'mail-1');
@@ -214,6 +214,7 @@ describe('runAgentTool', () => {
 		expect(connector.get.mock.calls[0]?.[1]).toBe('rec-1');
 		expect(logAgentRequest).toHaveBeenCalledWith({
 			orgId: 'org-1',
+			ownerUserId: 'user-1',
 			agentId: 'agent-1',
 			connectionId: 'vault-1',
 			collectionId: 'entries',
@@ -252,7 +253,7 @@ describe('runAgentTool', () => {
 
 	test('a list passes the search, the filter field and the page on', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 
 		const {runAgentTool} = await import('./tools');
 		await runAgentTool(caller, 'mail-1', 'emails_list', {search: 'invoice', folder: 'Inbox', page: 'next'});
@@ -263,7 +264,7 @@ describe('runAgentTool', () => {
 
 	test('params the tool does not take are refused before anything runs', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 
 		const {runAgentTool} = await import('./tools');
 		const unknown = await runAgentTool(caller, 'mail-1', 'emails_list', {filter: 'Inbox'});
@@ -280,7 +281,7 @@ describe('runAgentTool', () => {
 
 	test('a select left unchosen, as a form sends it, is left out', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 
 		const {runAgentTool} = await import('./tools');
 		await runAgentTool(caller, 'mail-1', 'emails_list', {folder: ''});
@@ -303,7 +304,7 @@ describe('runAgentTool', () => {
 	test('a connection outside the organization or a tool the integration lacks is not found and not logged', async () => {
 		const {runAgentTool} = await import('./tools');
 		const tool = await runAgentTool(caller, 'vault-1', 'entries_send', {});
-		loadAgentConnection.mockResolvedValue(Err(ApiErr.notFound('connection', 'elsewhere')));
+		loadConnection.mockResolvedValue(Err(ApiErr.notFound('connection', 'elsewhere')));
 		const connection = await runAgentTool(caller, 'elsewhere', 'entries_list', {});
 
 		expect(tool.unwrapErr().kind).toBe('not_found');
@@ -313,7 +314,7 @@ describe('runAgentTool', () => {
 
 	test('an edit changes only the fields given', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 		connector.get.mockResolvedValue(Ok(draft));
 		connector.update.mockResolvedValue(Ok({...draft, values: {...draft.values, subject: 'Re: Q4 planning'}}));
 
@@ -327,7 +328,7 @@ describe('runAgentTool', () => {
 
 	test('an edit refuses the fields the provider sets', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 		connector.get.mockResolvedValue(Ok(draft));
 
 		const {runAgentTool} = await import('./tools');
@@ -339,7 +340,7 @@ describe('runAgentTool', () => {
 
 	test('only drafts can be edited, even with Write drafts', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 		connector.get.mockResolvedValue(Ok(inboxEmail));
 
 		const {runAgentTool} = await import('./tools');
@@ -351,7 +352,7 @@ describe('runAgentTool', () => {
 
 	test('runs a command on a record, logged with its title, and only where it applies', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 		connector.get.mockResolvedValue(Ok(inboxEmail));
 		archive.mockResolvedValue(Ok(null));
 
@@ -367,7 +368,7 @@ describe('runAgentTool', () => {
 
 	test('sends a new email with Send alone, and logs its subject', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'mail-1', actionId: 'send', allowed: true}]}));
+		getAgentById.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'mail-1', actionId: 'send', allowed: true}]}));
 		sendNew.mockResolvedValue(Ok(null));
 		const values = {to: 'sam@example.com', subject: 'Friday', body: 'See you then.'};
 
@@ -381,7 +382,7 @@ describe('runAgentTool', () => {
 
 	test('a failed run is not logged as allowed, and a run that cannot be logged is not returned', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 		connector.get.mockResolvedValue(Ok(inboxEmail));
 		archive.mockResolvedValue(Err(ApiErr.notFound('folder', 'Archive')));
 
@@ -430,7 +431,7 @@ describe('nested collections', () => {
 
 	test('a collection that is not nested takes no parent', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 		const {runAgentTool} = await import('./tools');
 		const listed = await runAgentTool(caller, 'mail-1', 'emails_list', {parent: 'inbox-1'});
 		const created = await runAgentTool(caller, 'mail-1', 'emails_create', {parent: 'inbox-1', subject: 'Hi'});
@@ -493,7 +494,7 @@ describe('a field that needs an action of its own', () => {
 	});
 
 	test('with Invite guests, both go through', async () => {
-		getAgent.mockResolvedValue(Ok(inviting));
+		getAgentById.mockResolvedValue(Ok(inviting));
 		connector.get.mockResolvedValue(Ok(meeting));
 
 		const {runAgentTool} = await import('./tools');
@@ -506,7 +507,7 @@ describe('a field that needs an action of its own', () => {
 
 	test("without Calendar's scopes, Invite guests is refused saying to sign in again", async () => {
 		useConnection({...calendarConnection, credential: googleConnection.credential});
-		getAgent.mockResolvedValue(Ok(inviting));
+		getAgentById.mockResolvedValue(Ok(inviting));
 
 		const {runAgentTool} = await import('./tools');
 		const result = await runAgentTool(caller, 'google-1', 'events_create', {title: 'Q4 planning', start: '2026-10-15T09:00', guests: 'sam@example.com'});
@@ -534,8 +535,8 @@ describe('custom MCP servers', () => {
 	};
 
 	beforeEach(() => {
-		loadAgentConnection.mockResolvedValue(Ok({connection: customConnection, integration: integrationFor({integrationId: 'mcp', tools: [search, publish]}), connector: null}));
-		listOrgConnectionsWithCredential.mockResolvedValue(Ok([customConnection]));
+		loadConnection.mockResolvedValue(Ok({connection: customConnection, integration: integrationFor({integrationId: 'mcp', tools: [search, publish]}), connector: null}));
+		listConnectionsWithCredential.mockResolvedValue(Ok([customConnection]));
 		callCustomTool.mockResolvedValue(Ok('3 results'));
 	});
 

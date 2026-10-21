@@ -13,7 +13,7 @@ import {
 	updateConnectionName,
 	updateConnectionTools,
 	type ConnectionRow,
-	type Viewer,
+	type MemberViewer,
 } from '@proxy/db/connection';
 import {getMembership} from '@proxy/db/organization';
 import type {IntegrationId, McpTool} from '@proxy/integrations';
@@ -100,7 +100,7 @@ function makePkce(): {verifier: string; challenge: string} {
 // custom MCP server without a sign-in of the integration's (`take-over-custom.ts`), and no other
 // connection is the account's already, so an account is never connected twice.
 function connectionToRenew(
-	viewer: Viewer,
+	viewer: MemberViewer,
 	integrationId: IntegrationId,
 	connected: {account: string; providerAccountId: string | null; anonymous: boolean},
 	connectionId: string | null,
@@ -132,7 +132,12 @@ export type SaveOptions = {shared?: boolean; connectionId?: string | null};
  * such as an address changed since, and, for a custom server, its tools and the name; `added`
  * unless it was already there.
  */
-export function saveConnection<C>(viewer: Viewer, integrationId: IntegrationId, connected: Connected<C>, options: SaveOptions = {}): Promise<Result<{row: ConnectionRow; added: boolean}, ApiError>> {
+export function saveConnection<C>(
+	viewer: MemberViewer,
+	integrationId: IntegrationId,
+	connected: Connected<C>,
+	options: SaveOptions = {},
+): Promise<Result<{row: ConnectionRow; added: boolean}, ApiError>> {
 	return Do(async ($) => {
 		const {account, tools} = connected;
 		const encrypted = $(encryptSecret(JSON.stringify(connected.credential)));
@@ -235,7 +240,7 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 	 */
 	function beginSignIn(
 		res: Response,
-		begin: {viewer: Viewer; returnTo: ReturnTo | undefined; account: string | null; shared?: boolean; connectionId?: string | null; start: SignInStart<E>},
+		begin: {viewer: MemberViewer; returnTo: ReturnTo | undefined; account: string | null; shared?: boolean; connectionId?: string | null; start: SignInStart<E>},
 	): Promise<Result<string, ApiError>> {
 		return Do(async ($) => {
 			const appUrl = $(requirePresent(env.APP_URL, ApiErr.internalError(new Error('APP_URL is not configured'))));

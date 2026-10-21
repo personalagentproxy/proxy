@@ -47,7 +47,7 @@ export function startAgentTask(caller: AgentCaller, args: unknown): Promise<Resu
 		if (goal.length > MAX_GOAL) {
 			return $(Err(ApiErr.validationError(`The goal is ${goal.length} characters long; keep it under ${MAX_GOAL}, a sentence or two.`)));
 		}
-		const task = $(await createAgentTask({orgId: caller.agent.orgId, agentId: caller.agent.agentId, title, goal, via: caller.via}));
+		const task = $(await createAgentTask({orgId: caller.agent.orgId, agentId: caller.agent.agentId, ownerUserId: caller.agent.ownerUserId, title, goal, via: caller.via}));
 		return toResponse(task);
 	});
 }

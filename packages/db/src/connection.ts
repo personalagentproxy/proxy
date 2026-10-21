@@ -4,9 +4,13 @@ import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
 
-// Who is looking at an organization's connections: they see the ones shared with every member of
-// it and their own, never another member's.
-export type Viewer = {orgId: string; userId: string};
+// Who is looking at an organization's connections: a member, who sees the ones shared with every
+// member of it and their own, never another member's, or a shared agent (`userId` null), which sees
+// the shared ones alone.
+export type Viewer = {orgId: string; userId: string | null};
+
+/** A member looking at the organization: a viewer with a user, who also connects, shares and changes things. */
+export type MemberViewer = {orgId: string; userId: string};
 
 export type ConnectionRow = {
 	id: string;
@@ -43,6 +47,9 @@ const connectionSelect = {
 
 // The connections a viewer sees: the organization's shared ones and their own.
 function visibleTo(viewer: Viewer) {
+	if (viewer.userId === null) {
+		return {orgId: viewer.orgId, ownerUserId: null};
+	}
 	return {orgId: viewer.orgId, OR: [{ownerUserId: null}, {ownerUserId: viewer.userId}]};
 }
 
@@ -100,8 +107,7 @@ export async function getConnectionWithCredential(
 
 /**
  * Every connection of an organization, whoever's it is, with its credential: for undoing them at
- * their providers before the organization is deleted, and, until agents are a member's own or
- * shared, for what an organization's agents reach.
+ * their providers before the organization is deleted.
  */
 export async function listOrgConnectionsWithCredential(
 	orgId: string,
@@ -111,19 +117,6 @@ export async function listOrgConnectionsWithCredential(
 			where: {orgId},
 			select: {...connectionSelect, credential: true},
 			orderBy: {createdAt: 'asc'},
-		}),
-	);
-}
-
-/** One connection of an organization, whoever's it is, with its credential; `Ok(null)` for none. */
-export async function getOrgConnectionWithCredential(
-	orgId: string,
-	connectionId: string,
-): Promise<Result<(ConnectionRow & {credential: string | null}) | null, ApiError>> {
-	return wrapDb(() =>
-		db.connection.findFirst({
-			where: {id: connectionId, orgId},
-			select: {...connectionSelect, credential: true},
 		}),
 	);
 }

@@ -8,6 +8,9 @@ import {type Experiment, organizationExperiments} from '@proxy/utils';
 export type SignedInAgent = {
 	agentId: string;
 	orgId: string;
+	// The member whose own the agent is, whose connections it reaches beside the shared ones; null
+	// for a shared agent, which reaches the shared ones alone.
+	ownerUserId: string | null;
 	providerId: string;
 	name: string;
 	/** The experiments on for the agent's organization. */
@@ -18,6 +21,7 @@ export type SignedInAgent = {
 export const signedInAgentSelect = {
 	id: true,
 	orgId: true,
+	ownerUserId: true,
 	providerId: true,
 	name: true,
 	revokedAt: true,
@@ -34,6 +38,7 @@ export function toSignedInAgent(
 	return {
 		agentId: agent.id,
 		orgId: agent.orgId,
+		ownerUserId: agent.ownerUserId,
 		providerId: agent.providerId,
 		name: agent.name,
 		experiments: organizationExperiments(agent.org),

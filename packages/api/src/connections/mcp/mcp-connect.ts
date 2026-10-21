@@ -3,7 +3,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
-import type {ConnectionRow, Viewer} from '@proxy/db/connection';
+import type {ConnectionRow, MemberViewer} from '@proxy/db/connection';
 
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {requireViewer} from '../../utils/user-org';
@@ -82,7 +82,11 @@ export function mcpConnectRoutes(builtIn: BuiltInMcp) {
  * integration's own server, the connection called `name`, the viewer's own or `shared`; its sign-in
  * page, for the browser to go to, which comes back to the integration's callback.
  */
-export function beginBuiltInSignIn(builtIn: BuiltInMcp, res: Response, begin: {viewer: Viewer; returnTo: ReturnTo | undefined; name: string; shared: boolean}): Promise<Result<string, ApiError>> {
+export function beginBuiltInSignIn(
+	builtIn: BuiltInMcp,
+	res: Response,
+	begin: {viewer: MemberViewer; returnTo: ReturnTo | undefined; name: string; shared: boolean},
+): Promise<Result<string, ApiError>> {
 	return signInFlow(builtInSignIn(builtIn)).beginSignIn(res, {
 		viewer: begin.viewer,
 		returnTo: begin.returnTo,
@@ -125,7 +129,7 @@ export function checkedKeyAccount(builtIn: BuiltInMcp, key: string): Promise<Res
  * `connectionId` where its account can't be told apart from another's (`saveConnection`). A key the
  * server turns down is `credentials_rejected`.
  */
-export function connectWithKey(builtIn: BuiltInMcp, viewer: Viewer, args: {name?: string; key: string} & SaveOptions): Promise<Result<ConnectionRow & {credential: string}, ApiError>> {
+export function connectWithKey(builtIn: BuiltInMcp, viewer: MemberViewer, args: {name?: string; key: string} & SaveOptions): Promise<Result<ConnectionRow & {credential: string}, ApiError>> {
 	return Do(async ($) => {
 		if (/\s/.test(args.key)) {
 			return $(Err(ApiErr.validationError('An API key has no spaces')));

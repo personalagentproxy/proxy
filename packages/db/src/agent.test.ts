@@ -33,6 +33,7 @@ describe('toSignedInAgent', () => {
 	const agent = {
 		id: 'agent-1',
 		orgId: 'org-1',
+		ownerUserId: 'user-1',
 		providerId: 'claude',
 		name: 'Claude',
 		revokedAt: null,
@@ -43,6 +44,7 @@ describe('toSignedInAgent', () => {
 		expect(toSignedInAgent(agent)).toEqual({
 			agentId: 'agent-1',
 			orgId: 'org-1',
+			ownerUserId: 'user-1',
 			providerId: 'claude',
 			name: 'Claude',
 			experiments: [],

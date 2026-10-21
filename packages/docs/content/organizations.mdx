@@ -3,8 +3,8 @@ title: Organizations
 description: Work with other people in an organization, on one set of connections and agents.
 ---
 
-Everything in Personal Agent Proxy is in an organization: its connections, its agents and its
-activity log, and each member's own vault. Everyone starts with one of their own, and can make more, such as one for work
+Everything in Personal Agent Proxy is in an organization: its connections and agents, each shared
+with everyone in it or one member's own, its activity log, and each member's own vault. Everyone starts with one of their own, and can make more, such as one for work
 beside a personal one, or join someone else's. The mark at the top of the sidebar is the
 organization open: hover it to switch, or to create another. Every page shows the open
 organization's, and your agents there reach what is connected there.
@@ -32,6 +32,23 @@ again, disconnect it and connect it again. A shared connection is renamed, disco
 to again and has its permissions changed by whoever connected it and the organization's owner;
 everyone else uses it as it is.
 
+## Agents
+
+An agent login is yours or shared with the organization, the same way a connection is:
+
+- **Just me**: only you see it. It reaches the connections shared with everyone and your own, with
+  the permissions you give it.
+- **Everyone in the organization**: every member sees it and can give its login to their own tools.
+  It reaches the connections shared with everyone, never anyone's own, so sharing an agent of yours
+  drops its settings on your own connections. Whoever made it and the organization's owner change
+  its access, revoke it, hand it a new password and delete it; everyone else sees it as it is.
+
+Once anyone else is in the organization, or invited to it, **New agent** asks who the agent is for,
+and **Agents** lists the two apart. On the page of an agent of your own, **Share with everyone**
+under **Sharing** shares it, for good. A login made when an MCP client signs in is yours. The
+activity log shows what shared agents did on shared connections, and what your own agents did;
+another member's own agent's doings are theirs.
+
 ## Members
 
 **Members** lists who is in the organization and who is invited. Every organization has one owner,
@@ -48,8 +65,8 @@ set up ([Sign-in](/self-hosting/sign-in#sign-in-links)).
 
 A member leaves an organization from **Members**; its owner can't, and deletes it from
 **Settings** instead, as long as it isn't the last one they own, so everyone always owns one.
-Leaving, or being removed, disconnects what you connected for yourself there; the shared
-connections stay. Deleting an organization disconnects every connection in it, shared and every
-member's own, and deletes its vaults, agents and activity, for everyone in it. Deleting your
+Leaving, or being removed, disconnects what you connected for yourself there and deletes your own
+agents there; the shared connections and agents stay. Deleting an organization disconnects every connection in it, shared and every
+member's own, and deletes its vaults, every agent and its activity, for everyone in it. Deleting your
 account deletes every organization you own, with everyone else in them losing them too, and takes
 you out of the others.

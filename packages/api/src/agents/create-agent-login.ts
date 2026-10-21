@@ -1,7 +1,7 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
-import {createAgent, isProviderConflict, isUsernameConflict, type AgentRow} from '@proxy/db/agent';
+import {createAgent, isProviderConflict, isUsernameConflict, type AgentRow, type AgentViewer} from '@proxy/db/agent';
 import {CUSTOM_AGENT_NAME_MAX, findAgentProvider, type AgentProvider} from '@proxy/integrations';
 
 import {generatePassword, generateUsername} from './credentials';
@@ -24,24 +24,32 @@ function nameFor(provider: AgentProvider, name: string | undefined): Result<stri
 }
 
 /**
- * A new agent login for one of the providers, with a generated username and password; only the
- * password's hash is kept, so this is the one time it is known. A new agent follows every default.
- * A provider the organization already has a login for is a conflict, as is a custom agent with the
- * name of one it already has.
+ * A new agent login for one of the providers, the viewer's own or, `shared`, every member's, with a
+ * generated username and password; only the password's hash is kept, so this is the one time it is
+ * known. A new agent follows every default. A provider the person already has a login for, or the
+ * organization a shared one, is a conflict, as is a custom agent with the name of one there already.
  */
-export function createAgentLogin(orgId: string, providerId: string, givenName?: string): Promise<Result<{agent: AgentRow; password: string}, ApiError>> {
+export function createAgentLogin(viewer: AgentViewer, providerId: string, options: {name?: string; shared?: boolean} = {}): Promise<Result<{agent: AgentRow; password: string}, ApiError>> {
 	return Do(async ($) => {
 		const provider = $(requirePresent(findAgentProvider(providerId), ApiErr.parseError(`Unknown agent ${providerId}`)));
-		const name = $(nameFor(provider, givenName));
+		const name = $(nameFor(provider, options.name));
 		const password = generatePassword();
 		const passwordHash = await Bun.password.hash(password);
 
 		for (let attempt = 0; attempt < MAX_USERNAME_ATTEMPTS; attempt++) {
-			const created = await createAgent({orgId, providerId: provider.id, name, username: generateUsername(name), passwordHash});
+			const created = await createAgent({
+				orgId: viewer.orgId,
+				ownerUserId: options.shared ? null : viewer.userId,
+				createdById: viewer.userId,
+				providerId: provider.id,
+				name,
+				username: generateUsername(name),
+				passwordHash,
+			});
 			if (created.isOk()) {
 				return {agent: created.value, password};
 			}
-			if (isProviderConflict(created.error)) {
+			if (created.error.kind === 'conflict' || isProviderConflict(created.error)) {
 				return $(Err(ApiErr.conflict(provider.custom ? `An agent named ${name} already exists` : `${provider.name} already has an agent login`)));
 			}
 			if (!isUsernameConflict(created.error)) {

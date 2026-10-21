@@ -1,7 +1,7 @@
 import type {Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
-import type {Viewer} from '@proxy/db/connection';
+import type {MemberViewer} from '@proxy/db/connection';
 import {getUserOrgId} from '@proxy/db/organization';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
@@ -21,7 +21,7 @@ export async function requireUserOrgId(request: AuthenticatedRequest): Promise<R
  * The signed-in user in the organization they work in: what they see there is its shared
  * connections and their own.
  */
-export async function requireViewer(request: AuthenticatedRequest): Promise<Result<Viewer, ApiError>> {
+export async function requireViewer(request: AuthenticatedRequest): Promise<Result<MemberViewer, ApiError>> {
 	return Do(async ($) => {
 		const orgId = $(await requireUserOrgId(request));
 		return {orgId, userId: request.user.userId};

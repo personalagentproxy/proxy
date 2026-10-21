@@ -325,6 +325,9 @@ async function makeAgent(data: {
 	const agent = await db.agent.create({
 		data: {
 			orgId: org.id,
+			// The demo user's own, as everything in an organization with one member is.
+			ownerUserId: user.id,
+			createdById: user.id,
 			providerId: data.providerId,
 			name: data.name,
 			username: `${data.username}${USERNAME_SUFFIX}`,
@@ -614,6 +617,7 @@ for (const agent of agents) {
 				const task = await db.agentTask.create({
 					data: {
 						orgId: org.id,
+						ownerUserId: user.id,
 						agentId: agent.id,
 						...pick(TASKS),
 						via: taskVia,
@@ -639,6 +643,7 @@ for (const agent of agents) {
 			await db.auditEntry.create({
 				data: {
 					orgId: org.id,
+					ownerUserId: user.id,
 					agentId: agent.id,
 					connectionId: request.connection.id,
 					collectionId: request.collection.id,
@@ -667,6 +672,7 @@ for (const agent of agents) {
 			const task = await db.agentTask.create({
 				data: {
 					orgId: org.id,
+					ownerUserId: user.id,
 					agentId: agent.id,
 					...pick(TASKS),
 					via,
@@ -688,6 +694,7 @@ for (const agent of agents) {
 		await db.auditEntry.create({
 			data: {
 				orgId: org.id,
+				ownerUserId: user.id,
 				agentId: agent.id,
 				connectionId: request.connection.id,
 				collectionId,

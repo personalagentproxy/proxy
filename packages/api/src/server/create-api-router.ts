@@ -22,6 +22,7 @@ import {
 	handleResetAgentPasswordRoute,
 	handleSetAgentGrantsRoute,
 	handleSetAgentRevokedRoute,
+	handleShareAgentRoute,
 } from '../agents/route';
 import {handleDevLoginRoute} from '../auth/dev-login';
 import {handleEmailSignInRoute, handleEmailVerifyRoute} from '../auth/email';
@@ -164,6 +165,7 @@ export function createApiRouter(): express.Router {
 	router.delete('/api/agents/:agentId', withAuthResult('Delete agent route', handleDeleteAgentRoute));
 	router.post('/api/agents/:agentId/password', withAuthResult('Reset agent password route', handleResetAgentPasswordRoute));
 	router.put('/api/agents/:agentId/revoked', withAuthResult('Set agent revoked route', handleSetAgentRevokedRoute));
+	router.post('/api/agents/:agentId/share', withAuthResult('Share agent route', handleShareAgentRoute));
 	router.put('/api/agents/:agentId/grants/:connectionId', withAuthResult('Set agent grants route', handleSetAgentGrantsRoute));
 	router.get('/api/agents/:agentId/mcp-clients', withAuthResult('List MCP clients route', handleListMcpClientsRoute));
 	router.delete('/api/agents/:agentId/mcp-clients/:grantId', withAuthResult('Disconnect MCP client route', handleDisconnectMcpClientRoute));

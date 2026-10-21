@@ -8,32 +8,34 @@ import {Button} from '@proxy/ui/components/button';
 type Props = {
 	orgName: string;
 	shared: boolean;
-	// Who the provider sees when an agent uses it: "Maya Chen, who signed in", a database's user.
-	actsAs: string;
-	// Who connected it, "You" for you.
-	connectedBy: string;
-	// Whether the person may share it: their own connection.
+	// What is shared: 'connection' or 'agent', in the texts.
+	what: string;
+	// What else to say of it: who it acts as, who connected or made it.
+	rows: Array<{label: string; value: string}>;
+	// Whether the person may share it: their own.
 	canShare: boolean;
 	// Nobody else is in the organization or invited: there is no one to share with yet.
 	alone: boolean;
+	// What sharing means, under the question.
+	confirmDescription: string;
 	onShare: () => Promise<void>;
 };
 
 const LABEL = 'w-32 shrink-0 text-muted-foreground';
 const ROW = 'bleed flex h-10 items-center gap-3 text-sm';
 
-// A connection's place in an organization with other people in it: whether everyone's agents
-// can use it or only its connector's, who the provider sees, and who connected it
-// (`Connection.connectedById`, kept once it is shared). One's own connection has a Share button,
+// A connection's or an agent's place in an organization with other people in it: whether everyone
+// can use it or only its owner, and what else there is to say of it. One's own has a Share button,
 // which asks first; sharing is for good, so a shared one says who can use it and nothing more.
 // Alone in the organization, it points to Members instead.
-export function ConnectionSharing({
+export function Sharing({
 	orgName,
 	shared,
-	actsAs,
-	connectedBy,
+	what,
+	rows,
 	canShare,
 	alone,
+	confirmDescription,
 	onShare,
 }: Props) {
 	const [confirming, setConfirming] = useState(false);
@@ -45,7 +47,7 @@ export function ConnectionSharing({
 					<Link to="/members" className="text-foreground underline underline-offset-4">
 						Invite people
 					</Link>{' '}
-					to {orgName} to share connections with them.
+					to {orgName} to share {what}s with them.
 				</p>
 			</Section>
 		);
@@ -65,19 +67,17 @@ export function ConnectionSharing({
 						</Button>
 					)}
 				</li>
-				<li className={ROW}>
-					<span className={LABEL}>Acts as</span>
-					<span className="min-w-0 flex-1 truncate">{actsAs}</span>
-				</li>
-				<li className={ROW}>
-					<span className={LABEL}>Connected by</span>
-					<span className="min-w-0 flex-1 truncate">{connectedBy}</span>
-				</li>
+				{rows.map((row) => (
+					<li key={row.label} className={ROW}>
+						<span className={LABEL}>{row.label}</span>
+						<span className="min-w-0 flex-1 truncate">{row.value}</span>
+					</li>
+				))}
 			</RowList>
 			<ConfirmDialog
 				open={confirming}
 				title={`Share it with everyone in ${orgName}?`}
-				description={`Every member's agents in ${orgName} can use it, as ${actsAs}, with the permissions above. Members see it listed, never its password or token. This can't be undone: to have it as your own again, disconnect it and connect it again.`}
+				description={confirmDescription}
 				confirmLabel="Share"
 				onClose={() => setConfirming(false)}
 				onConfirm={() => void onShare()}

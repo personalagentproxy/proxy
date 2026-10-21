@@ -5,8 +5,19 @@ import {useShareChoice} from '@/lib/share-choice';
 // Who a new connection is for, in an organization with anyone else in it or invited, chosen above
 // the catalog and shown again on the connection's form (`lib/share-choice.ts`).
 
-// Above the catalog: the choice, and what it means.
-export function SharePicker() {
+// What a connection being shared or kept means, under the choice.
+const CONNECTION = {
+	shared:
+		"Every member's agents can use it, as the account you connect: for a service you sign in to, that is you. Best for a team account, a shared mailbox or a database user.",
+	own: 'Only you and your agents. Nobody else in the organization sees it, its owner included.',
+};
+
+// Above the catalog, or New agent: the choice, and what it means.
+export function SharePicker({
+	descriptions = CONNECTION,
+}: {
+	descriptions?: {shared: string; own: string};
+}) {
 	const [, setParams] = useSearchParams();
 	const {org, asked, shared} = useShareChoice();
 	if (!asked || !org) {
@@ -24,9 +35,7 @@ export function SharePicker() {
 				/>
 			</div>
 			<p className="text-sm text-muted-foreground">
-				{shared
-					? `Every member's agents can use it, as the account you connect: for a service you sign in to, that is you. Best for a team account, a shared mailbox or a database user.`
-					: `Only you and your agents. Nobody else in ${org.name} sees it, its owner included.`}
+				{shared ? descriptions.shared : descriptions.own}
 			</p>
 		</div>
 	);

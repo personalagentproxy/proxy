@@ -318,8 +318,9 @@ export function vaultFor(data: {
 
 /**
  * Takes a person out of an organization: their own connections there go, with their defaults,
- * entries and every agent's settings on them. The caller has undone the connections at their
- * providers first, and checked they aren't its owner.
+ * entries and every agent's settings on them, and so do their own agents there, with their logins
+ * and MCP clients; the shared ones stay. The caller has undone the connections at their providers
+ * first, and checked they aren't its owner.
  */
 export async function removeMembership(data: {
 	orgId: string;
@@ -329,6 +330,7 @@ export async function removeMembership(data: {
 	return wrapDb(async () => {
 		await db.$transaction([
 			db.connection.deleteMany({where: {orgId, ownerUserId: userId}}),
+			db.agent.deleteMany({where: {orgId, ownerUserId: userId}}),
 			db.orgMember.deleteMany({where: {orgId, userId}}),
 		]);
 	});

@@ -1,7 +1,7 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
-import {getConnectionWithCredential, getOrgConnectionWithCredential, type Viewer} from '@proxy/db/connection';
+import {getConnectionWithCredential, type Viewer} from '@proxy/db/connection';
 import {findCollection, type Integration} from '@proxy/integrations';
 
 import {integrationOf} from '../utils/connection-actions';
@@ -26,16 +26,6 @@ function loaded(connection: RecordTarget['connection'] | null, connectionId: str
 export function loadConnection(viewer: Viewer, connectionId: string): Promise<Result<LoadedConnection, ApiError>> {
 	return Do(async ($) => {
 		return $(loaded($(await getConnectionWithCredential(viewer, connectionId)), connectionId));
-	});
-}
-
-/**
- * A connection an agent reaches: until agents are a member's own or shared, every connection in
- * the agent's organization.
- */
-export function loadAgentConnection(agent: {orgId: string}, connectionId: string): Promise<Result<LoadedConnection, ApiError>> {
-	return Do(async ($) => {
-		return $(loaded($(await getOrgConnectionWithCredential(agent.orgId, connectionId)), connectionId));
 	});
 }
 
