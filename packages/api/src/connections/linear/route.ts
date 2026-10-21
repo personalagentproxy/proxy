@@ -1,4 +1,4 @@
-import {textParam, type BuiltInMcp} from '../mcp/built-in';
+import {named, textParam, type BuiltInMcp} from '../mcp/built-in';
 import {listMcpTools} from '../mcp/mcp-client';
 import {getLinearAccount, LINEAR} from './linear-mcp';
 
@@ -11,7 +11,7 @@ import {getLinearAccount, LINEAR} from './linear-mcp';
 export const LINEAR_MCP: BuiltInMcp = {
 	integrationId: 'linear',
 	server: LINEAR,
-	account: getLinearAccount,
+	account: named(getLinearAccount),
 	// Linear turns a bad key down at the door, so listing the tools with it is enough.
 	apiKey: {check: async (key) => (await listMcpTools(LINEAR, key)).map(() => undefined)},
 	defaults: ['read'],

@@ -1,5 +1,6 @@
 import {describe, expect, test} from 'bun:test';
 
+import {effectiveActions} from './access';
 import {findIntegration, INTEGRATIONS} from './catalog';
 import {allowedTools, findTool, integrationTools, toolName} from './tools';
 import type {Integration} from './types';
@@ -219,6 +220,54 @@ describe('exa and parallel', () => {
 			'query',
 		]);
 		expect(Object.keys(findTool(exa, 'pages_read')?.inputSchema.properties ?? {})).toEqual(['url']);
+	});
+});
+
+describe('cloudflare', () => {
+	const cloudflare = integration('cloudflare');
+
+	test('requests only ever run, reading as a read, sending and deleting each with an action of their own', () => {
+		expect(integrationTools(cloudflare).map((tool) => tool.name)).toEqual([
+			'requests_read',
+			'requests_send',
+			'requests_remove',
+			'endpoints_find',
+			'docs_run',
+		]);
+		expect(findTool(cloudflare, 'requests_read')).toMatchObject({
+			readOnly: true,
+			action: 'read',
+			risk: 'low',
+		});
+		expect(findTool(cloudflare, 'requests_send')).toMatchObject({
+			readOnly: false,
+			action: 'write',
+			risk: 'high',
+		});
+		expect(findTool(cloudflare, 'requests_remove')).toMatchObject({
+			readOnly: false,
+			action: 'delete',
+			risk: 'high',
+		});
+		expect(findTool(cloudflare, 'endpoints_find')).toMatchObject({readOnly: true, action: 'read'});
+		expect(findTool(cloudflare, 'docs_run')).toMatchObject({readOnly: true, action: 'read'});
+	});
+
+	test('a request takes its method, path, body and account', () => {
+		expect(findTool(cloudflare, 'requests_send')?.inputSchema.properties).toMatchObject({
+			method: {enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']},
+			path: {},
+			body: {},
+			account: {},
+		});
+		expect(
+			Object.keys(findTool(cloudflare, 'endpoints_find')?.inputSchema.properties ?? {}),
+		).toEqual(['search']);
+	});
+
+	test('sending and deleting count only with reading', () => {
+		expect(effectiveActions(cloudflare, ['write', 'delete'])).toEqual([]);
+		expect(effectiveActions(cloudflare, ['read', 'delete'])).toEqual(['read', 'delete']);
 	});
 });
 

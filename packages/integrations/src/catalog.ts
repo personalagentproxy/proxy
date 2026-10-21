@@ -452,6 +452,147 @@ const linear: Integration = {
 	],
 };
 
+// The methods a Cloudflare API request is sent with, each needing the action of what it does.
+const CLOUDFLARE_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+
+// A Cloudflare account, through Cloudflare's MCP server, which reaches all of Cloudflare's API:
+// zones and their DNS records, Workers, KV, R2, D1, Pages, analytics and the rest, as the person who
+// signed in, or as the API token given. A sign-in is narrowed on Cloudflare's own page, a token by
+// its permissions; Personal Agent Proxy narrows it again by what a request does, by its method:
+// reading, creating and changing, and deleting are each an action of their own. A GraphQL
+// analytics query is a read. An agent finds the endpoint in Cloudflare's API reference or its docs,
+// then sends the request. Requests are only ever run, never listed or kept: nothing is copied.
+const cloudflare: Integration = {
+	id: 'cloudflare',
+	signIn: true,
+	apiKey: {keysUrl: 'https://dash.cloudflare.com/profile/api-tokens'},
+	name: 'Cloudflare',
+	description: 'Zones, DNS, Workers and the rest of an account',
+	actions: [
+		{
+			id: 'read',
+			label: 'Read',
+			description:
+				'Look up endpoints in Cloudflare’s API reference and docs, and send GET requests and GraphQL analytics queries, such as listing zones, DNS records or Workers',
+			risk: 'low',
+		},
+		{
+			id: 'write',
+			label: 'Create and change',
+			description:
+				'Send POST, PUT and PATCH requests, such as adding a DNS record, deploying a Worker, running a D1 query or changing a setting, which apply to live sites at once',
+			risk: 'high',
+			requires: 'read',
+		},
+		{
+			id: 'delete',
+			label: 'Delete',
+			description:
+				'Send DELETE requests, such as removing a DNS record, a Worker or a bucket, for good',
+			risk: 'high',
+			requires: 'read',
+		},
+	],
+	collections: [
+		{
+			id: 'requests',
+			name: 'API requests',
+			singular: 'request',
+			titleField: 'path',
+			summaryField: 'method',
+			writes: {},
+			commands: [
+				{
+					id: 'read',
+					on: 'new',
+					label: 'Read',
+					action: 'read',
+					readOnly: true,
+					done: 'Read {}',
+					tried: 'read {}',
+				},
+				{
+					id: 'send',
+					on: 'new',
+					label: 'Send',
+					action: 'write',
+					done: 'Sent {}',
+					tried: 'send {}',
+				},
+				{
+					id: 'remove',
+					on: 'new',
+					label: 'Delete',
+					action: 'delete',
+					done: 'Deleted {}',
+					tried: 'delete {}',
+				},
+			],
+			fields: [
+				// Left out, the one the command sends: GET to read, POST to send, DELETE to delete.
+				{key: 'method', label: 'Method', type: 'select', options: CLOUDFLARE_METHODS},
+				// As Cloudflare's API reference writes it, with its query: "/zones?name=example.com", or
+				// "/graphql" for an analytics query. `{account_id}` stands for the account.
+				{key: 'path', label: 'Path', type: 'text'},
+				// JSON: {"type": "A", "name": "www", "content": "192.0.2.1"}, or {"query": "…"} for GraphQL.
+				{key: 'body', label: 'Body', type: 'longtext'},
+				// The account `{account_id}` is, where the sign-in or token has more than one.
+				{key: 'account', label: 'Account ID', type: 'text'},
+				// Cloudflare's answer as JSON, cut where it runs long.
+				{key: 'response', label: 'Response', type: 'longtext', system: true},
+			],
+		},
+		{
+			id: 'endpoints',
+			name: 'API reference',
+			singular: 'endpoint',
+			titleField: 'search',
+			writes: {},
+			commands: [
+				{
+					id: 'find',
+					on: 'new',
+					label: 'Find',
+					action: 'read',
+					readOnly: true,
+					done: 'Looked up {}',
+					tried: 'look up {}',
+				},
+			],
+			fields: [
+				// Words in an endpoint's path, summary or product, "dns records", for a list of them; or one
+				// endpoint, "POST /zones/{zone_id}/dns_records", for its parameters and body.
+				{key: 'search', label: 'Search', type: 'text'},
+				// One endpoint a line, "GET /zones/{zone_id}/dns_records List DNS Records"; or one's details as JSON.
+				{key: 'endpoints', label: 'Endpoints', type: 'longtext', system: true},
+			],
+		},
+		{
+			id: 'docs',
+			name: 'Docs',
+			singular: 'docs search',
+			titleField: 'query',
+			writes: {},
+			commands: [
+				{
+					id: 'run',
+					on: 'new',
+					label: 'Run',
+					action: 'read',
+					readOnly: true,
+					done: 'Searched the docs for {}',
+					tried: 'search the docs for {}',
+				},
+			],
+			fields: [
+				{key: 'query', label: 'Query', type: 'text'},
+				// The passages of developers.cloudflare.com that fit, each with its page's title and address.
+				{key: 'results', label: 'Results', type: 'longtext', system: true},
+			],
+		},
+	],
+};
+
 // The web, searched and read through a search engine made for agents, through its MCP server after
 // signing in to it or with an API key made at `keysUrl`: what an agent searches for and the pages
 // it reads go to the provider, on the account signed in with or the key's. A search is answered as
@@ -1211,6 +1352,7 @@ export const INTEGRATIONS: Integration[] = [
 	granola,
 	notion,
 	linear,
+	cloudflare,
 	exa,
 	parallel,
 	plaid,

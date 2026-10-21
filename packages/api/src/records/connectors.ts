@@ -1,5 +1,6 @@
 import {findIntegration, type IntegrationId} from '@proxy/integrations';
 
+import {cloudflareConnector} from './cloudflare-connector';
 import type {Connector} from './connector';
 import {emailConnector} from './email-connector';
 import {googleConnector} from './google-connector';
@@ -18,6 +19,7 @@ const CONNECTORS: Record<Exclude<IntegrationId, 'mcp'>, Connector> = {
 	granola: granolaConnector,
 	notion: notionConnector,
 	linear: linearConnector,
+	cloudflare: cloudflareConnector,
 	exa: exaConnector,
 	parallel: parallelConnector,
 	postgres: sqlConnector('postgres'),

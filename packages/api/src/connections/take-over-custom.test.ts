@@ -72,6 +72,7 @@ mock.module('../utils/secret-crypto', () => ({
 }));
 
 const {movedCredential, movedPermissions, movedRun, takeOverCustomConnections} = await import('./take-over-custom');
+const {CLOUDFLARE_MCP} = await import('./cloudflare/route');
 const {EXA_MCP} = await import('./exa/route');
 const {LINEAR_MCP} = await import('./linear/route');
 const {PARALLEL_MCP} = await import('./parallel/route');
@@ -134,6 +135,14 @@ describe('movedPermissions', () => {
 		const moved = movedPermissions(EXA_MCP, ['search', 'fetch'], {listed: ['web_search_exa', 'web_fetch_exa'], defaults: ['web_search_exa', 'web_fetch_exa'], grants: []});
 
 		expect(moved.defaults).toEqual(['search', 'fetch']);
+	});
+
+	test("Cloudflare's execute ran any code, so it is every action at once; search and docs reached nothing of the account and count for nothing", () => {
+		const listed = ['search', 'execute', 'docs', 'whoami'];
+		const actions = ['read', 'write', 'delete'];
+
+		expect(movedPermissions(CLOUDFLARE_MCP, actions, {listed, defaults: ['execute'], grants: []}).defaults).toEqual(actions);
+		expect(movedPermissions(CLOUDFLARE_MCP, actions, {listed, defaults: ['search', 'docs'], grants: []}).defaults).toEqual([]);
 	});
 });
 

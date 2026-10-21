@@ -1,6 +1,6 @@
-import type {Result} from 'ts-results-es';
+import {Err, type Result} from 'ts-results-es';
 
-import type {ApiError} from '@proxy/utils';
+import {ApiErr, type ApiError} from '@proxy/utils';
 import type {ConnectionRow} from '@proxy/db/connection';
 import type {Collection} from '@proxy/integrations';
 
@@ -61,3 +61,12 @@ export type Connector = {
 	commands?: Partial<Record<string, CommandRunner>>;
 	newCommands?: Partial<Record<string, NewCommandRunner>>;
 };
+
+/**
+ * The record methods of a connector whose records are only run, never listed, opened or kept, as
+ * a search is: each turns the request down, saying why.
+ */
+export function onlyRun(message: string): Pick<Connector, 'list' | 'get' | 'create' | 'update' | 'remove'> {
+	const refuse = (): Promise<Result<never, ApiError>> => Promise.resolve(Err(ApiErr.validationError(message)));
+	return {list: refuse, get: refuse, create: refuse, update: refuse, remove: refuse};
+}

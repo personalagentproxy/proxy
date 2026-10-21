@@ -136,7 +136,7 @@ export function movedAccount(
 		}
 		const named: Result<{account: string; credential: Carried}, ApiError> =
 			'key' in credential
-				? (await checkedKeyAccount(builtIn, credential.key)).map((account) => ({account, credential}))
+				? (await checkedKeyAccount(builtIn, credential.key)).map(({account}) => ({account, credential}))
 				: await callWithRefresh(
 						{
 							isExpiring,
@@ -148,7 +148,7 @@ export function movedAccount(
 								}),
 						},
 						credential,
-						async (tokens) => (await accountOf(builtIn, tokens.accessToken)).map((account) => ({account, credential: tokens})),
+						async (tokens) => (await accountOf(builtIn, tokens.accessToken)).map(({account}) => ({account, credential: tokens})),
 					);
 		if (named.isErr() && named.error.kind === 'credentials_rejected') {
 			return unsignedIn(address);

@@ -1,0 +1,67 @@
+---
+title: Cloudflare
+description: Connect a Cloudflare account for agents to read and change zones, DNS, Workers and the rest of it through Cloudflare's API.
+---
+
+Agents work with a Cloudflare account through Cloudflare's API, as the person who connects
+Cloudflare or as the API token given: zones and their DNS records, Workers, KV, R2, D1, Pages,
+analytics and anything else the API reaches. Every request goes to Cloudflare as it is sent;
+nothing is copied.
+
+## Connect Cloudflare
+
+<Steps>
+
+### Sign in with Cloudflare, or use an API token
+
+Open **Connections**, then **Add connection**, and **Cloudflare**. Cloudflare's page asks which
+permissions to grant, starting from reading and writing zones, DNS, analytics, caching,
+certificates and the developer platform. Narrow them there, or widen them, such as to Zero Trust,
+with its **Full access** preset.
+
+Or choose the key beside it and paste an API token made at
+[dash.cloudflare.com](https://dash.cloudflare.com/profile/api-tokens), a user's or an account's.
+Agents then have exactly the token's permissions. An account's token needs **Account Resources:
+Read** for the account to be found. Tokens limited to certain IP addresses don't work, since
+Cloudflare's MCP server sends the requests. The token is checked with Cloudflare before the
+connection is made.
+
+A connection shows as the email of who signed in, or whose token it is, or as the account an
+account's token is for. Signing in again as the same person, or giving a token of theirs, renews
+their connection.
+
+### Review the defaults
+
+A new Cloudflare connection gives every agent Read. Create and change, and Delete, are off by
+default. Turn them on for every agent on the connection's page, or only for one agent on the
+agent's page.
+
+</Steps>
+
+## What agents can do
+
+What a request may do follows from its HTTP method, whatever the sign-in or token allows:
+
+- **Read** sends `GET` requests, such as listing zones, DNS records or Workers, and GraphQL
+  analytics queries to `/graphql`. It also looks up endpoints in Cloudflare's API reference, with
+  their parameters and body, and searches Cloudflare's docs.
+- **Create and change** sends `POST`, `PUT` and `PATCH` requests, such as adding a DNS record,
+  purging the cache or changing a setting. A D1 query is a `POST`, so it needs this too, even one
+  that only reads. Changes apply to live sites at once. It requires Read.
+- **Delete** sends `DELETE` requests, such as removing a DNS record, a Worker or a bucket, for good.
+  It requires Read.
+
+A path's `{account_id}` stands for the account the sign-in or token has, or, where it has several,
+the one the agent names. Request bodies are JSON, so uploading a Worker's script, which Cloudflare
+takes as a multipart form, isn't possible.
+
+A request beyond the permissions granted fails with the permission it needs. To grant it, open the
+connection and choose **Sign in** again, adding it on Cloudflare's page, or give the connection a
+token that has it.
+
+## Moving from a custom MCP server
+
+A [custom MCP server](/connections/custom-mcp) connection to `https://mcp.cloudflare.com/mcp`
+becomes a Cloudflare connection the next time Personal Agent Proxy starts, keeping its name, its
+agents and its activity, and its sign-in or token. Its `execute` tool ran any code, so an agent
+allowed it keeps Read, Create and change, and Delete; one that wasn't gets none of them.

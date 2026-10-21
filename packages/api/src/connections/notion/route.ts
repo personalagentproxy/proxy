@@ -1,4 +1,4 @@
-import {textParam, type BuiltInMcp} from '../mcp/built-in';
+import {named, textParam, type BuiltInMcp} from '../mcp/built-in';
 import {getNotionAccount, NOTION} from './notion-mcp';
 
 /**
@@ -8,7 +8,7 @@ import {getNotionAccount, NOTION} from './notion-mcp';
 export const NOTION_MCP: BuiltInMcp = {
 	integrationId: 'notion',
 	server: NOTION,
-	account: getNotionAccount,
+	account: named(getNotionAccount),
 	defaults: ['read'],
 	tools: {
 		'notion-search': {actions: ['read'], run: (params) => ({collectionId: 'pages', operation: 'list', query: textParam(params, 'query')})},
