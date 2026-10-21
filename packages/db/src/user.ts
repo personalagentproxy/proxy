@@ -56,7 +56,15 @@ async function createUserWithPersonalOrg(data: {
 				const slug = await pickAvailableSlugDatabase(tx, base);
 				const org = await tx.organization.create({data: {name, slug}});
 				await tx.orgMember.create({data: {orgId: org.id, userId: user.id}});
-				await tx.connection.create({data: {orgId: org.id, integrationId: 'vault', account: name}});
+				// Agents read the vault and keep what they learn there, unless the person says otherwise.
+				await tx.connection.create({
+					data: {
+						orgId: org.id,
+						integrationId: 'vault',
+						account: name,
+						defaults: {create: [{actionId: 'readEntries'}, {actionId: 'writeEntries'}]},
+					},
+				});
 				return user;
 			}),
 		);

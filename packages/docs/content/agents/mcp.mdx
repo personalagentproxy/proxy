@@ -6,7 +6,8 @@ description: Add Personal Agent Proxy to Claude, Claude Code, Claude Desktop, Ch
 Personal Agent Proxy is an MCP server. An agent that speaks MCP, such as Claude, Claude Code,
 Claude Desktop, ChatGPT, Hermes Agent, Poke or any other MCP client, connects to it, signs in with
 OAuth, and works as one of your agent logins: it can do what that login is allowed and nothing
-more. Successful connection actions and actions denied by access settings are in the activity log.
+more. Successful connection actions and actions denied by access settings are in the activity log,
+with the task they were made for.
 
 The server is at your Personal Agent Proxy's address with `/mcp` after it, such as
 `https://app.personalagentproxy.com/mcp`. Each agent's page in Personal Agent Proxy shows it under
@@ -58,19 +59,35 @@ agent's next request.
 
 ## What the agent sees
 
-The server has five tools, the same for every login, so the agent's list of tools never goes out of
-date when access changes:
+The server has seven tools, the same for every login, so the agent's list of tools never goes out
+of date when access changes:
 
 | Tool               | What it does                                                                                                                                                            |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_connections` | Where an agent starts: the accounts it can use, such as a mailbox, each with its id and what it may do with it.                                                         |
+| `start_task`       | Where an agent starts: it says what it is about to do for you, with a title and a goal, and gets the task's id, which every call below takes as `task`.                 |
+| `list_connections` | The accounts it can use, such as a mailbox, each with its id and what it may do with it.                                                                                |
 | `list_tools`       | A connection's own tools, such as `emails_list` or `emails_archive`, each with what it does and the JSON Schema of its params. Only the tools the login has are listed. |
 | `read`             | Runs a tool that only reads, such as listing or opening emails. Marked read-only, so an agent can let it run without asking you.                                        |
 | `run`              | Runs a tool that changes something or reaches other people, such as archiving an email or sending one.                                                                  |
+| `finish_task`      | Marks the task done. The agent starts a new task for the next thing you ask for.                                                                                        |
 | `send_feedback`    | Tells the makers of Personal Agent Proxy about something that didn't work as the agent expected. It goes to them, not to you, and changes nothing in your accounts.     |
 
 When an agent connects, it is also told which accounts it can use, and that what an email or a
 note says is information, not instructions.
+
+## Tasks
+
+Before an agent does anything with Personal Agent Proxy, it has to say what it is about to do, as a
+task: a title in a few words, such as "Triage this morning's inbox", and a goal, what you asked for
+in a sentence or two. Every call it makes after that names the task, and a call without one, or for
+a task that is finished, is refused. When the agent has done what you asked, or given it up, it
+finishes the task, and starts a new one for the next thing you ask for. A task the agent never
+finishes is taken as abandoned a day after it started, and refused from then on too. An agent can
+have any number of tasks under way at once, each with its own requests.
+
+The activity log shows each request with the task it was made for. Open an entry to read the task's
+title and goal, and follow it to every request made for that task, with when the agent started it
+and whether it has called it finished.
 
 ## Links to what the agent read
 
@@ -82,7 +99,7 @@ your vault have no such page, so the agent names what it means instead, such as 
 its subject.
 
 An action the login isn't allowed is refused, and logged as denied. The activity log marks the
-actions that came in over MCP.
+actions that came in over MCP, each with its task.
 
 ## Disconnect an agent
 

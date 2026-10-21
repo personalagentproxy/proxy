@@ -6,7 +6,7 @@ import {createMemoryRouter, RouterProvider} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {HumanSide} from '@/components/human-side';
-import type {ActivitySummary} from '@/client/schemas';
+import type {ActivityLanes} from '@/client/schemas';
 import {HomePage} from '@/pages/home-page';
 import {clearWidgetLookups, widgetsAnswer} from '@/test-widgets-api';
 
@@ -40,41 +40,45 @@ const agent = (id: string, providerId: string, name: string, revokedAt: string |
 	grants: [],
 });
 
-// A fortnight of activity: Claude's on Monday and Tuesday, the person's own on Tuesday, two of
-// Claude's refused, and the past week's events made and emails sent.
-const activity: ActivitySummary = {
-	today: '2026-10-16',
-	days: [
-		{day: '2026-10-02', agentId: 'a1', count: 1, denied: 0},
-		{day: '2026-10-12', agentId: 'a1', count: 5, denied: 2},
-		{day: '2026-10-13', agentId: 'a1', count: 8, denied: 0},
-		{day: '2026-10-13', agentId: null, count: 2, denied: 0},
-	],
-	week: [
+// The past day's lanes: Claude working on the inbox, with two requests refused, and a task it
+// finished in Notion earlier.
+const activity: ActivityLanes = {
+	now: '2026-10-16T12:00:00.000Z',
+	from: '2026-10-15T12:00:00.000Z',
+	tasks: [
 		{
-			connectionId: 'google-1',
-			collectionId: 'emails',
-			action: 'view',
-			outcome: 'allowed',
-			count: 9,
+			id: 't1',
+			agentId: 'a1',
+			title: 'Triage inbox',
+			goal: 'Archive the newsletters and flag what needs an answer',
+			via: 'mcp',
+			startedAt: '2026-10-16T11:00:00.000Z',
+			finishedAt: null,
+			requests: 9,
+			denied: 2,
+			connectionIds: ['google-1'],
 		},
 		{
-			connectionId: 'google-1',
-			collectionId: 'events',
-			action: 'create',
-			outcome: 'allowed',
-			count: 2,
+			id: 't2',
+			agentId: 'a1',
+			title: 'Prepare for the Acme call',
+			goal: 'Pull the notes and draft an agenda',
+			via: 'web',
+			startedAt: '2026-10-16T08:00:00.000Z',
+			finishedAt: '2026-10-16T08:30:00.000Z',
+			requests: 4,
+			denied: 0,
+			connectionIds: ['notion-1'],
 		},
-		{connectionId: 'google-1', collectionId: 'emails', action: 'send', outcome: 'denied', count: 2},
 	],
 };
 
 // What the home route's loader answers: the connections and agent logins, for the logos, and
-// what was done, for the graph.
+// what the agents are doing, for the lanes.
 let home: {
 	connections: ReturnType<typeof connection>[];
 	agents: ReturnType<typeof agent>[];
-	activity: ActivitySummary | null;
+	activity: ActivityLanes | null;
 } = {
 	connections: [
 		connection('vault-1', 'vault', 'Acme'),
@@ -181,34 +185,24 @@ describe('HomePage', () => {
 		home = before;
 	});
 
-	test('graphs what was done each day, each busy day leading to its part of the log', async () => {
+	test('shows who is doing what, each task leading to its requests in the log', async () => {
 		renderHomePage();
 
-		const tuesday = await screen.findByRole('link', {name: /Oct 13: 10 requests/});
-		expect(tuesday.getAttribute('href')).toBe('/activity?day=2026-10-13');
-		expect(screen.getByRole('region', {name: 'Activity'})).toBeTruthy();
-		expect(
-			screen.getByText('13 requests in the past week: created 2 events, viewed 9 emails', {
-				exact: false,
-			}),
-		).toBeTruthy();
-		expect(screen.getByRole('link', {name: '2 blocked'}).getAttribute('href')).toBe(
-			'/activity?outcome=denied',
-		);
-
-		fireEvent.mouseEnter(tuesday);
-		const tooltip = screen.getByRole('tooltip');
-		expect(within(tooltip).getByText('Claude')).toBeTruthy();
-		expect(within(tooltip).getByText('You')).toBeTruthy();
+		const inbox = await screen.findByRole('link', {name: /Triage inbox/});
+		expect(inbox.getAttribute('href')).toBe('/activity?task=t1');
+		expect(screen.getByRole('region', {name: 'Agents'})).toBeTruthy();
+		expect(screen.getByRole('link', {name: /Prepare for the Acme call/})).toBeTruthy();
+		// A revoked login gets no lane.
+		expect(screen.queryByText('ChatGPT')).toBeNull();
 	});
 
-	test('shows the graph before there is any activity', async () => {
+	test('shows no lanes before there is any task', async () => {
 		const before = home;
-		home = {...home, activity: {today: '2026-10-16', days: [], week: []}};
+		home = {...home, activity: {...activity, tasks: []}};
 		renderHomePage();
 
-		expect(await screen.findByRole('region', {name: 'Activity'})).toBeTruthy();
-		expect(screen.getByText('Your agents’ activity will show up here')).toBeTruthy();
+		await screen.findByRole('searchbox', {name: 'Quick actions'});
+		expect(screen.queryByRole('region', {name: 'Agents'})).toBeNull();
 		home = before;
 	});
 
@@ -372,7 +366,7 @@ describe('HomePage', () => {
 
 		expect(
 			screen.getAllByRole('region').map((region) => region.getAttribute('aria-label')),
-		).toEqual(['Activity']);
+		).toEqual(['Agents']);
 	});
 
 	test('with no agent yet, offers to add one for what fits no quick action', async () => {

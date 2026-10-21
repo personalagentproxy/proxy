@@ -372,6 +372,26 @@ describe('IntentWidget', () => {
 		);
 	});
 
+	test('Ask: no meeting with the person, over the days it looked at', async () => {
+		show(
+			intentWith('ask', {askIn: ['meetings'], askWith: ['Dana']}),
+			'what did i talk about in the meeting with dana?',
+		);
+		const widget = widgetNamed('Ask');
+		expect(
+			await within(widget).findByText('No meeting with Dana in the last 3 months'),
+		).toBeTruthy();
+		cleanup();
+
+		show(
+			intentWith('ask', {askIn: ['meetings'], askWith: ['Dana']}),
+			'what did dana and i talk about last week?',
+		);
+		expect(
+			await within(widgetNamed('Ask')).findByText('No meeting with Dana since Oct 7'),
+		).toBeTruthy();
+	});
+
 	test('Ask: a document in Drive or Notion, those named with the words first, and an answer that it doesn’t say', async () => {
 		show(
 			intentWith('ask', {askIn: ['documents'], askAbout: ['pricing']}),

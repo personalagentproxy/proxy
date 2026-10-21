@@ -52,7 +52,8 @@ export function AgentPage() {
 }
 
 function AgentDetail({id}: {id: string}) {
-	const {agent, connections, agents, entries, mcpClients} = useLoaderData<typeof agentLoader>();
+	const {agent, connections, agents, entries, tasks, mcpClients} =
+		useLoaderData<typeof agentLoader>();
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
 	const [confirming, setConfirming] = useState<Confirming>(null);
@@ -156,6 +157,7 @@ function AgentDetail({id}: {id: string}) {
 						entries={entries.slice(0, RECENT)}
 						agents={agents}
 						connections={connections}
+						tasks={tasks}
 						showAgent={false}
 					/>
 				</Section>

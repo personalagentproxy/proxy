@@ -14,6 +14,8 @@ export async function saveAgentFeedback(data: {
 	connectionId: string | null;
 	tool: string | null;
 	via: AuditVia;
+	// The task the agent was on, where it named one.
+	taskId: string | null;
 }): Promise<Result<void, ApiError>> {
 	return wrapDb(async () => {
 		await db.agentFeedback.create({data});

@@ -16,6 +16,7 @@ import {
 import {Textarea} from '@proxy/ui/components/textarea';
 import {useAgentMe} from '@/hooks/use-agent-target';
 import {agentErrorMessage} from '@/lib/agent-errors';
+import {taskHome, useTaskId} from '@/lib/agent-task';
 import {AgentMissing} from '@/pages/agent/agent-collection-page';
 
 // What a property's input is, from its JSON Schema: a choice, a number, yes or no, text, or JSON
@@ -88,6 +89,8 @@ export function AgentToolPage() {
 function AgentTool({connectionId, toolName}: {connectionId: string; toolName: string}) {
 	const id = useId();
 	const me = useAgentMe();
+	const taskId = useTaskId();
+	const home = taskHome(taskId);
 	const [values, setValues] = useState<Record<string, string>>({});
 	const [output, setOutput] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -120,7 +123,7 @@ function AgentTool({connectionId, toolName}: {connectionId: string; toolName: st
 		}
 		setRunning(true);
 		setError(null);
-		const result = await runAgentServerTool(connection.id, tool.name, params);
+		const result = await runAgentServerTool(taskId, connection.id, tool.name, params);
 		setRunning(false);
 		if (result.isErr()) {
 			setError(agentErrorMessage(result.error));
@@ -131,9 +134,7 @@ function AgentTool({connectionId, toolName}: {connectionId: string; toolName: st
 
 	return (
 		<AgentShell>
-			<Crumbs
-				items={[{label: 'Home', to: '/agent'}, {label: connection.account}, {label: title}]}
-			/>
+			<Crumbs items={[{label: 'Home', to: home}, {label: connection.account}, {label: title}]} />
 			<AgentHeading detail={mcpToolReadsOnly(tool) ? 'Only reads' : 'Changes something'}>
 				{title}
 			</AgentHeading>

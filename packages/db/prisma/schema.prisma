@@ -22,11 +22,11 @@ model InstanceMeta {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String    @unique
-  emailVerified DateTime?
-  image         String?
+  id              String    @id @default(cuid())
+  name            String?
+  email           String    @unique
+  emailVerified   DateTime?
+  image           String?
   // When they accepted the terms of service and the privacy policy, by signing up past the notice
   // on the sign-in page. None for an account from before the notice, until it is asked to accept.
   termsAcceptedAt DateTime?
@@ -89,15 +89,15 @@ model VerificationToken {
 // Every user gets one organization at sign-up, for when data is shared between people. Nothing
 // reads it yet.
 model Organization {
-  id   String @id @default(cuid())
-  name String
-  slug String @unique
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
   // When the welcome flow was finished or skipped; until then the web app shows it instead of the app.
   onboardedAt DateTime?
   // Experiments on for the organization, by id (EXPERIMENTS in @proxy/utils; an id no longer there
   // is ignored), and an insider has all of them. Both set from the internal admin, never in the app.
-  experiments String[] @default([])
-  insider     Boolean  @default(false)
+  experiments String[]  @default([])
+  insider     Boolean   @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -107,6 +107,7 @@ model Organization {
   agents      Agent[]
   audit       AuditEntry[]
   feedback    AgentFeedback[]
+  tasks       AgentTask[]
 }
 
 model OrgMember {
@@ -128,23 +129,23 @@ model OrgMember {
 // mailbox. An organization can connect the same integration more than once. Every organization
 // also has one built-in vault connection, made with it, whose entries live in Personal Agent Proxy.
 model Connection {
-  id            String  @id @default(cuid())
-  orgId         String
-  integrationId String
+  id                String  @id @default(cuid())
+  orgId             String
+  integrationId     String
   // The account as the provider names it, such as an email address; the organization's name for
   // the vault.
-  account       String
+  account           String
   // The provider's own id for the account, which stays as its address changes: Google's `sub`.
   // None where the provider gives none, or for a connection from before it was kept.
   providerAccountId String?
   // Encrypted with ENCRYPTION_KEY: an app password with its server settings. None for the vault.
-  credential    String?
+  credential        String?
   // A custom MCP server's tools as the server last listed them (`@proxy/integrations`' McpTool),
   // as JSON: what agents can be allowed with it. Null for every other integration.
-  tools         String?
+  tools             String?
   // What the person called the connection, where they named it: a custom MCP server is named when
   // it is connected. Null for every other integration, which shows as its integration.
-  name          String?
+  name              String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -303,12 +304,39 @@ model AuditEntry {
   query        String?
   outcome      AuditOutcome
   via          AuditVia     @default(web)
+  // The agent's task the request was made for (AgentTask); none for entries from before tasks,
+  // and for what Personal Agent Proxy did itself.
+  taskId       String?
 
   createdAt DateTime @default(now())
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId, createdAt])
+  @@index([taskId])
+}
+
+// What an agent set out to do with Personal Agent Proxy: an agent starts a task, naming it and
+// saying what the person asked for, makes its requests for it, each logged with the task, and
+// finishes it. Plain ids, like the activity log, so it stays when the agent is gone.
+model AgentTask {
+  id         String    @id @default(cuid())
+  orgId      String
+  agentId    String
+  // A few words, as a heading.
+  title      String
+  // What the person asked for, in a sentence or two.
+  goal       String
+  via        AuditVia
+  // Set once the agent calls the task finished; null while it is under way.
+  finishedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt])
+  @@index([agentId])
 }
 
 // What an agent told the makers of Personal Agent Proxy, such as a tool that didn't work as it
@@ -326,6 +354,8 @@ model AgentFeedback {
   connectionId String?
   tool         String?
   via          AuditVia
+  // The task the agent was on, where it named one.
+  taskId       String?
 
   createdAt DateTime @default(now())
 

@@ -155,6 +155,16 @@ async function signInAgent(human: BrowserContext, password: string): Promise<Bro
 	return fallback;
 }
 
+// A task's pages, `/agent/:taskId/…`, make every request for the task in their address: the crawl
+// starts one through the api, and opens the agent side on its pages.
+async function startTask(context: BrowserContext): Promise<string> {
+	const task = (await postJson(context, '/api/agent/tasks', {
+		title: 'Look around',
+		goal: 'See every page of the agent side for the screen map.',
+	})) as {task: string};
+	return task.task;
+}
+
 // `/connect-agent` only opens with a request an MCP client's sign-in sealed, so the crawl
 // registers as one and starts a sign-in, taking the address the api sends the browser to.
 async function connectAgentPath(human: BrowserContext): Promise<string> {
@@ -208,6 +218,7 @@ const contexts: Record<ContextName, BrowserContext> = {
 	fresh: fresh.context,
 	agent: await signInAgent(human, agentPassword),
 };
+const taskId = await startTask(contexts.agent);
 
 // The folder is emptied, not replaced: Vite serves it and stops noticing files in a new one.
 await mkdir(OUT_DIR, {recursive: true});
@@ -235,6 +246,7 @@ function discover(pattern: string, url: string): void {
 
 discover('/welcome/connections/:id', `/welcome/connections/${fresh.connectionId}`);
 discover('/connect-agent', await connectAgentPath(human));
+discover('/agent/:taskId', `/agent/${taskId}`);
 for (const pattern of patterns) {
 	if (!pattern.includes(':')) {
 		discover(pattern, pattern);

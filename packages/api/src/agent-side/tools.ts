@@ -27,12 +27,14 @@ import type {Connector, DataRecord, RecordPage, RecordTarget, RecordValues} from
 import {parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
 import {integrationOf} from '../utils/connection-actions';
+import {requireOpenTaskIfAny} from '../mcp/pre-task-clients';
 import {isPlainObject, parseToolParams} from './tool-params';
 
 /**
  * The agent side, whichever way an agent comes in: the connections it can use, the tools it has
- * with each, and running one. Every run is checked against the agent's access as it is now and
- * logged, a refused one too; one that can't be logged fails rather than go unrecorded.
+ * with each, and running one. Every run is made for one of the agent's tasks (tasks.ts), checked
+ * against the agent's access as it is now and logged with the task, a refused one too; one that
+ * can't be logged fails rather than go unrecorded.
  */
 
 export type AgentConnection = {
@@ -108,11 +110,15 @@ export function listAgentTools(signedIn: SignedInAgent, connectionId: string): P
 	});
 }
 
-// Who runs a tool and which way it came in: the web app's agent pages, or the MCP server.
+// Who calls and which way it came in: the web app's agent pages, or the MCP server.
 export type AgentCaller = {agent: SignedInAgent; via: 'web' | 'mcp'};
 
+/** Who runs a tool, and the task it is run for, by its id. */
+// PRE-TASK CLIENTS: null for a pre-task client's call (mcp/pre-task-clients.ts).
+export type TaskCaller = AgentCaller & {taskId: string | null};
+
 // `actions` are what the agent can do with the connection, and `refuse` why it can't do another.
-type ToolRun = {caller: AgentCaller; target: RecordTarget; connector: Connector; tool: CollectionTool; actions: string[]; refuse: (actionId: string) => ApiError};
+type ToolRun = {caller: TaskCaller; target: RecordTarget; connector: Connector; tool: CollectionTool; actions: string[]; refuse: (actionId: string) => ApiError};
 
 function recordTitle(collection: Collection, values: RecordValues): string | null {
 	return values[collection.titleField]?.trim() || null;
@@ -130,21 +136,26 @@ function log(run: ToolRun, outcome: 'allowed' | 'denied', title: string | null, 
 		query,
 		outcome,
 		via: run.caller.via,
+		taskId: run.caller.taskId,
 	});
 }
 
 /**
- * Runs one of the connection's tools with `params`, as its input schema describes them. A
- * connection outside the organization, or a tool its integration doesn't have, is not found and
- * not logged; a tool whose action the agent doesn't have is refused and logged as denied, saying
- * how to allow it where the connection's sign-in didn't cover the action.
+ * Runs one of the connection's tools with `params`, as its input schema describes them, for the
+ * caller's task, which has to be one of the agent's and still under way; a run without one is
+ * refused, unlogged. A connection outside the organization, or a tool its integration doesn't have,
+ * is not found and not logged; a tool whose action the agent doesn't have is refused and logged as
+ * denied, saying how to allow it where the connection's sign-in didn't cover the action.
  * `readOnly` limits the run to tools that only read, or only to those that change something, as
  * the MCP server's `read` and `run` do; any other is refused, unlogged.
  */
-export function runAgentTool(caller: AgentCaller, connectionId: string, toolName: string, params: unknown, options: {readOnly?: boolean} = {}): Promise<Result<ToolResult, ApiError>> {
+export function runAgentTool(caller: TaskCaller, connectionId: string, toolName: string, params: unknown, options: {readOnly?: boolean} = {}): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
-		const agent = $(await requireAgent(caller.agent));
-		const {connection, integration, connector} = $(await loadConnection(caller.agent.orgId, connectionId));
+		// None of the three needs another's answer, so they are read at once; a refusal still comes in this order.
+		const [agentRead, taskRead, connectionRead] = await Promise.all([requireAgent(caller.agent), requireOpenTaskIfAny(caller.agent, caller.taskId), loadConnection(caller.agent.orgId, connectionId)]);
+		const agent = $(agentRead);
+		$(taskRead);
+		const {connection, integration, connector} = $(connectionRead);
 		const tool = $(requirePresent(findTool(integration, toolName), ApiErr.notFound('tool', toolName)));
 		if (options.readOnly !== undefined && options.readOnly !== tool.readOnly) {
 			return $(Err(ApiErr.validationError(tool.readOnly ? `${tool.name} only reads: use read for it` : `${tool.name} changes something: use run for it`)));
@@ -208,7 +219,7 @@ function loggedParams(args: Record<string, unknown>): string | null {
 // them against its own schema, and its answer comes back as text. Logged by the tool's name, with
 // its params, allowed or denied.
 function runServerTool(
-	caller: AgentCaller,
+	caller: TaskCaller,
 	agent: AgentRow,
 	connection: ConnectionRow & {credential: string | null},
 	integration: Integration,
@@ -232,6 +243,7 @@ function runServerTool(
 				query: logged,
 				outcome,
 				via: caller.via,
+				taskId: caller.taskId,
 			});
 		if (!actionsOf(agent, connection, integration, unavailableActions(connection)).includes(tool.action)) {
 			$(await logRun('denied'));

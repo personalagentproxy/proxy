@@ -5,7 +5,7 @@ import {cleanup, fireEvent, render, screen, within} from '@testing-library/react
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {AuditList} from '@/components/audit-list';
-import type {AgentLogin, AuditEntry, Connection} from '@/lib/types';
+import type {ActivityTask, AgentLogin, AuditEntry, Connection} from '@/lib/types';
 
 afterEach(() => {
 	cleanup();
@@ -33,6 +33,16 @@ const connection: Connection = {
 	signInNeeded: false,
 };
 
+const task: ActivityTask = {
+	id: 'task-1',
+	agentId: agent.id,
+	title: 'Triage inbox',
+	goal: 'Archive the newsletters',
+	via: 'mcp',
+	startedAt: '2026-10-14T21:00:00.000Z',
+	finishedAt: null,
+};
+
 const entry: AuditEntry = {
 	id: 'entry-1',
 	at: '2026-10-14T21:15:32.000Z',
@@ -44,6 +54,7 @@ const entry: AuditEntry = {
 	query: null,
 	outcome: 'denied',
 	via: 'mcp',
+	taskId: task.id,
 };
 
 describe('AuditList', () => {
@@ -54,7 +65,12 @@ describe('AuditList', () => {
 					path: '/activity',
 					element: (
 						<TooltipProvider>
-							<AuditList entries={[entry]} agents={[agent]} connections={[connection]} />
+							<AuditList
+								entries={[entry]}
+								agents={[agent]}
+								connections={[connection]}
+								tasks={[task]}
+							/>
 						</TooltipProvider>
 					),
 				},
@@ -63,10 +79,16 @@ describe('AuditList', () => {
 		);
 		render(<RouterProvider router={router} />);
 
-		fireEvent.click(await screen.findByRole('button', {name: /Tried to archive email/}));
+		const row = await screen.findByRole('button', {name: /Tried to archive email/});
+		expect(row.textContent).toContain('· for Triage inbox');
+		fireEvent.click(row);
 
 		const dialog = await screen.findByRole('dialog');
 		expect(within(dialog).getByText('Denied')).toBeDefined();
+		expect(within(dialog).getByRole('link', {name: 'Triage inbox'}).getAttribute('href')).toBe(
+			'/activity?task=task-1',
+		);
+		expect(within(dialog).getByText('Archive the newsletters')).toBeDefined();
 		expect(within(dialog).getByRole('link', {name: 'Claude'}).getAttribute('href')).toBe(
 			'/agents/agent-1',
 		);

@@ -2,7 +2,7 @@ import * as chrono from 'chrono-node';
 import {Result} from 'ts-results-es';
 import {addDays, daysBetween, dayIn} from '@proxy/utils/days';
 import type {BankAccount, BankTransaction, DayRange} from '@/client/widgets-client';
-import {browserTimeZone} from '@/lib/activity-graph';
+import {browserTimeZone} from '@/lib/time-zone';
 
 // What the Balances and Transactions widgets make of what was typed: the days asked about, the
 // accounts a name stands for, the transactions that match, and what they add up to.

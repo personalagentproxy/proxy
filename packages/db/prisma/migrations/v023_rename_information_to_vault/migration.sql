@@ -8,22 +8,22 @@ ALTER INDEX "InfoRecord_connectionId_collectionId_idx" RENAME TO "VaultEntry_con
 
 UPDATE "Connection" SET "integrationId" = 'vault' WHERE "integrationId" = 'info';
 
--- Six actions become two: Read entries where any of the reads was on, Edit entries where any of the
--- edits was. Only the vault's: Granola has a `readNotes` of its own.
+-- Six actions become two, and both are on by default now, here as for every new vault: agents
+-- read the vault and keep what they learn there. Only the vault's: Granola has a `readNotes` of
+-- its own.
 CREATE TEMP TABLE "OldVaultAction" ("actionId" TEXT, "newActionId" TEXT);
 INSERT INTO "OldVaultAction" VALUES
 	('readAddresses', 'readEntries'), ('readCards', 'readEntries'), ('readNotes', 'readEntries'),
 	('writeAddresses', 'writeEntries'), ('writeCards', 'writeEntries'), ('writeNotes', 'writeEntries');
 
--- An agent's own setting, where it had one for any of them: what it could do with any of them,
--- its setting where it had one and the default where it hadn't. Worked out before the defaults
--- change, kept on one of its rows.
+-- An agent's own setting, where it had one for any of the old actions: on unless it had turned
+-- off every one of them, since what it had no setting for follows the new default. Kept on one of
+-- its rows.
 CREATE TEMP TABLE "NewVaultGrant" AS
 SELECT min(g.id) AS id, g."agentId", g."connectionId", o."newActionId",
-	(SELECT bool_or(COALESCE(own.allowed, d.id IS NOT NULL))
+	(SELECT bool_or(COALESCE(own.allowed, true))
 	 FROM "OldVaultAction" o2
 	 LEFT JOIN "AgentGrant" own ON own."agentId" = g."agentId" AND own."connectionId" = g."connectionId" AND own."actionId" = o2."actionId"
-	 LEFT JOIN "ConnectionDefault" d ON d."connectionId" = g."connectionId" AND d."actionId" = o2."actionId"
 	 WHERE o2."newActionId" = o."newActionId") AS allowed
 FROM "AgentGrant" g
 JOIN "OldVaultAction" o ON o."actionId" = g."actionId"
@@ -36,18 +36,13 @@ FROM "NewVaultGrant" n WHERE g.id = n.id;
 DELETE FROM "AgentGrant" g USING "OldVaultAction" o, "Connection" c
 WHERE g."actionId" = o."actionId" AND c.id = g."connectionId" AND c."integrationId" = 'vault';
 
--- The defaults: a row is on, so one row per new action that any old one was on for.
-UPDATE "ConnectionDefault" d SET "actionId" = o."newActionId"
-FROM "OldVaultAction" o
-WHERE d."actionId" = o."actionId" AND d.id IN (
-	SELECT min(d2.id) FROM "ConnectionDefault" d2
-	JOIN "OldVaultAction" o2 ON o2."actionId" = d2."actionId"
-	JOIN "Connection" c ON c.id = d2."connectionId" AND c."integrationId" = 'vault'
-	GROUP BY d2."connectionId", o2."newActionId"
-);
-
 DELETE FROM "ConnectionDefault" d USING "OldVaultAction" o, "Connection" c
 WHERE d."actionId" = o."actionId" AND c.id = d."connectionId" AND c."integrationId" = 'vault';
+
+INSERT INTO "ConnectionDefault" (id, "connectionId", "actionId", "updatedAt")
+SELECT gen_random_uuid()::text, c.id, a."actionId", now()
+FROM "Connection" c CROSS JOIN (VALUES ('readEntries'), ('writeEntries')) AS a("actionId")
+WHERE c."integrationId" = 'vault';
 
 DROP TABLE "NewVaultGrant";
 DROP TABLE "OldVaultAction";

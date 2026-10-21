@@ -11,13 +11,15 @@ import {
 } from '@proxy/ui/components/dialog';
 import {AgentLogo, IntegrationLogo, ProxyLogo} from '@/components/brand-logo';
 import {describeEntry, entryAction, locateEntry} from '@/lib/access';
-import type {AgentLogin, AuditEntry, Connection} from '@/lib/types';
+import type {ActivityTask, AgentLogin, AuditEntry, Connection} from '@/lib/types';
 
 type Props = {
 	// The entry shown, or null while the dialog is closed.
 	entry: AuditEntry | null;
 	agents: AgentLogin[];
 	connections: Connection[];
+	// To name the task the entry was made for.
+	tasks: ActivityTask[];
 	onClose: () => void;
 };
 
@@ -43,9 +45,10 @@ function Detail({label, children}: {label: string; children: ReactNode}) {
 	);
 }
 
-// One activity log entry in full: who, what, where, when, and the permission it needed, with
-// links to the agent and the connection while they still exist.
-export function AuditEntryDialog({entry, agents, connections, onClose}: Props) {
+// One activity log entry in full: who, what, for which task, where, when, and the permission it
+// needed, with links to the agent and the connection while they still exist, and to the task's
+// other requests.
+export function AuditEntryDialog({entry, agents, connections, tasks, onClose}: Props) {
 	return (
 		<Dialog
 			open={entry !== null}
@@ -56,7 +59,9 @@ export function AuditEntryDialog({entry, agents, connections, onClose}: Props) {
 				onClose();
 			}}
 		>
-			{entry && <AuditEntryContent entry={entry} agents={agents} connections={connections} />}
+			{entry && (
+				<AuditEntryContent entry={entry} agents={agents} connections={connections} tasks={tasks} />
+			)}
 		</Dialog>
 	);
 }
@@ -65,12 +70,15 @@ function AuditEntryContent({
 	entry,
 	agents,
 	connections,
+	tasks,
 }: {
 	entry: AuditEntry;
 	agents: AgentLogin[];
 	connections: Connection[];
+	tasks: ActivityTask[];
 }) {
 	const agent = agents.find((candidate) => candidate.id === entry.agentId);
+	const task = tasks.find((candidate) => candidate.id === entry.taskId);
 	const located = locateEntry(connections, entry);
 	const action = entryAction(entry, located);
 	const denied = entry.outcome === 'denied';
@@ -111,6 +119,23 @@ function AuditEntryContent({
 						<span className="text-muted-foreground">Deleted agent</span>
 					)}
 				</Detail>
+				{entry.taskId !== null && (
+					<Detail label="Task">
+						{task ? (
+							<span className="flex min-w-0 flex-col gap-0.5">
+								<Link
+									to={`/activity?task=${encodeURIComponent(task.id)}`}
+									className="min-w-0 break-words hover:underline"
+								>
+									{task.title}
+								</Link>
+								<span className="min-w-0 text-muted-foreground break-words">{task.goal}</span>
+							</span>
+						) : (
+							<span className="text-muted-foreground">Unknown task</span>
+						)}
+					</Detail>
+				)}
 				<Detail label="Connection">
 					{located ? (
 						<>

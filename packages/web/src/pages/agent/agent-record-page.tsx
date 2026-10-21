@@ -14,6 +14,7 @@ import {Button} from '@proxy/ui/components/button';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {allows, recordTitle} from '@/lib/access';
 import {agentErrorMessage} from '@/lib/agent-errors';
+import {taskHome, useTaskId} from '@/lib/agent-task';
 import {inside, recordPath} from '@/lib/agent-paths';
 import type {agentRecordLoader} from '@/agent-loaders';
 import {AgentDenied, AgentMissing} from '@/pages/agent/agent-collection-page';
@@ -28,6 +29,8 @@ export function AgentRecordPage() {
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
 	const target = useAgentTarget();
+	const taskId = useTaskId();
+	const home = taskHome(taskId);
 	const [editing, setEditing] = useState(false);
 	const [running, setRunning] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -52,12 +55,17 @@ export function AgentRecordPage() {
 			allows(collection, actions, command.id),
 	);
 	const title = recordTitle(collection, record);
-	const listPath = `/agent/${connection.id}/${collection.id}`;
+	const listPath = `${home}/${connection.id}/${collection.id}`;
 	const run = async (command: Command) => {
 		setRunning(command.id);
-		const result = await runAgentRecordTool(connection.id, toolName(collection.id, command.id), {
-			id: record.id,
-		});
+		const result = await runAgentRecordTool(
+			taskId,
+			connection.id,
+			toolName(collection.id, command.id),
+			{
+				id: record.id,
+			},
+		);
 		setRunning(null);
 		if (result.isErr()) {
 			setError(agentErrorMessage(result.error));
@@ -76,7 +84,7 @@ export function AgentRecordPage() {
 		<AgentShell>
 			<Crumbs
 				items={[
-					{label: 'Home', to: '/agent'},
+					{label: 'Home', to: home},
 					{label: place},
 					{label: collection.name, to: listPath},
 					{label: title},
@@ -126,6 +134,7 @@ export function AgentRecordPage() {
 							variant="destructive"
 							onClick={async () => {
 								const result = await runAgentRecordTool(
+									taskId,
 									connection.id,
 									toolName(collection.id, 'delete'),
 									{id: record.id},
@@ -152,6 +161,7 @@ export function AgentRecordPage() {
 						onCancel={() => setEditing(false)}
 						onSubmit={async (values) => {
 							const result = await runAgentRecordTool(
+								taskId,
 								connection.id,
 								toolName(collection.id, 'update'),
 								{...values, id: record.id},

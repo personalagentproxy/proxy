@@ -2,7 +2,7 @@ import * as chrono from 'chrono-node';
 import {dayIn} from '@proxy/utils/days';
 import type {Intent} from '@/client/intent-client';
 import type {EmailQuery, FileKind, People, Person} from '@/client/widgets-client';
-import {browserTimeZone} from '@/lib/activity-graph';
+import {browserTimeZone} from '@/lib/time-zone';
 
 // What the home page's widgets make of the fields the api filled: the people names stand for,
 // times read as dates, and what to search mailboxes and file stores for.

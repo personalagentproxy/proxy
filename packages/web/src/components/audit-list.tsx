@@ -4,7 +4,7 @@ import {EmptyRows, RowHeader, RowList} from '@/components/row-list';
 import {AgentLogo, IntegrationLogo, ProxyLogo} from '@/components/brand-logo';
 import {connectionLabel, describeEntry, locateEntry} from '@/lib/access';
 import {formatDateTime} from '@/lib/format';
-import type {AgentLogin, AuditEntry, Connection} from '@/lib/types';
+import type {ActivityTask, AgentLogin, AuditEntry, Connection} from '@/lib/types';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
 import type {ReactNode} from 'react';
@@ -43,22 +43,24 @@ function EntryAgentLogo({agentId, agent}: {agentId: string | null; agent: AgentL
 
 type Props = {
 	entries: AuditEntry[];
-	// To name each entry's agent and connection, while they still exist.
+	// To name each entry's agent and connection, while they still exist, and the task it was for.
 	agents: AgentLogin[];
 	connections: Connection[];
+	tasks: ActivityTask[];
 	// Left out where the page is about one agent or one connection already.
 	showAgent?: boolean;
 	showConnection?: boolean;
 };
 
-// The audit log's lines: when, which agent, what it did, and where, the agent and the connection
-// each a logo with its name in a tooltip. Denied requests read in red; those that came in over MCP
-// say so. What Personal Agent Proxy did itself, as the home page's widgets write, reads as its own.
-// A row opens the entry in full.
+// The audit log's lines: when, which agent, what it did, for which task, and where, the agent and
+// the connection each a logo with its name in a tooltip. Denied requests read in red; those that
+// came in over MCP say so. What Personal Agent Proxy did itself, as the home page's widgets write,
+// reads as its own. A row opens the entry in full.
 export function AuditList({
 	entries,
 	agents,
 	connections,
+	tasks,
 	showAgent = true,
 	showConnection = true,
 }: Props) {
@@ -82,6 +84,7 @@ export function AuditList({
 					const located = locateEntry(connections, entry);
 					const integration = located?.integration ?? null;
 					const denied = entry.outcome === 'denied';
+					const task = tasks.find((candidate) => candidate.id === entry.taskId);
 					return (
 						<li key={entry.id} className="-mx-(--bleed)">
 							<button
@@ -93,6 +96,7 @@ export function AuditList({
 								{showAgent && <EntryAgentLogo agentId={entry.agentId} agent={agent} />}
 								<span className={cn('min-w-0 flex-1 truncate', denied && 'text-destructive')}>
 									{describeEntry(entry, located)}
+									{task && <span className="text-muted-foreground"> · for {task.title}</span>}
 									{entry.via === 'mcp' && (
 										<span className="text-muted-foreground"> · over MCP</span>
 									)}
@@ -114,6 +118,7 @@ export function AuditList({
 				entry={opened}
 				agents={agents}
 				connections={connections}
+				tasks={tasks}
 				onClose={() => setOpened(null)}
 			/>
 		</>

@@ -1,4 +1,4 @@
-import {MailIcon, VaultIcon, type LucideIcon} from 'lucide-react';
+import {LibraryIcon, MailIcon, type LucideIcon} from 'lucide-react';
 import {
 	INTEGRATIONS as CATALOG,
 	integrationFor,
@@ -43,7 +43,7 @@ const NEEDED_BY: Partial<Record<IntegrationId, Need>> = {google: 'google', plaid
 // or a logo that is already a square tile, as Granola's and Linear's are, which fills the tile
 // edge to edge.
 const LOGOS: Partial<Record<IntegrationId, LucideIcon | IntegrationLogoImage>> = {
-	vault: VaultIcon,
+	vault: LibraryIcon,
 	email: MailIcon,
 	mcp: {src: '/favicon.svg'},
 	granola: {src: '/integrations/granola.png', fill: true},

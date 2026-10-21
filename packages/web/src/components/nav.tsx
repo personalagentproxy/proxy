@@ -1,11 +1,11 @@
 import {
 	BotIcon,
 	HomeIcon,
+	LibraryIcon,
 	LogOutIcon,
 	PlugIcon,
 	ScrollTextIcon,
 	SettingsIcon,
-	VaultIcon,
 	type LucideIcon,
 } from 'lucide-react';
 import {Link, useLocation, useRouteLoaderData} from 'react-router';
@@ -28,7 +28,7 @@ type Destination = {to: string; label: string; icon: LucideIcon};
 const DESTINATIONS: Destination[] = [
 	{to: '/', label: 'Home', icon: HomeIcon},
 	{to: '/connections', label: 'Connections', icon: PlugIcon},
-	{to: '/vault', label: 'Vault', icon: VaultIcon},
+	{to: '/vault', label: 'Vault', icon: LibraryIcon},
 	{to: '/agents', label: 'Agents', icon: BotIcon},
 	{to: '/activity', label: 'Activity', icon: ScrollTextIcon},
 ];

@@ -3,7 +3,7 @@ import {useEffect, useRef, useState} from 'react';
 import {useLoaderData, useRouteLoaderData} from 'react-router';
 import {fillIntent, type Intent, pickIntent} from '@/client/intent-client';
 import type {Me} from '@/client/me-client';
-import {ActivityGraph} from '@/components/activity-graph';
+import {AgentLanes} from '@/components/agent-lanes';
 import {AnimatedHeight} from '@/components/animated-height';
 import {ConnectedLogos} from '@/components/connected-logos';
 import {AppShell} from '@/components/app-shell';
@@ -298,7 +298,7 @@ export function HomePage() {
 				<ConnectedLogos connections={connections} agents={agents} />
 				{activity && (
 					<div className="flex w-full justify-center pt-[6vh]">
-						<ActivityGraph summary={activity} agents={agents} connections={connections} />
+						<AgentLanes initial={activity} agents={agents} connections={connections} />
 					</div>
 				)}
 			</div>

@@ -86,13 +86,20 @@ function toRecord(meeting: GranolaMeeting, values: RecordValues): DataRecord {
 	return {id: meeting.id, values, updatedAt: meeting.day ?? '', ...(meeting.url ? {url: meeting.url} : {})};
 }
 
+/** The meetings with the ids, each with its summary and the owner's own notes, which a list leaves out. */
+export function getGranolaMeetings(target: RecordTarget, meetingIds: string[]): Promise<Result<GranolaMeeting[], ApiError>> {
+	return Do(async ($) => {
+		const text = $(await callMcpToolFor(GRANOLA, target.connection, 'get_meetings', {meeting_ids: meetingIds}));
+		return $(parseGranolaMeetings(text));
+	});
+}
+
 function getMeeting(target: RecordTarget, meetingId: string): Promise<Result<GranolaMeeting, ApiError>> {
 	return Do(async ($) => {
 		if (!MEETING_ID.test(meetingId)) {
 			return $(Err(ApiErr.notFound('record', meetingId)));
 		}
-		const text = $(await callMcpToolFor(GRANOLA, target.connection, 'get_meetings', {meeting_ids: [meetingId]}));
-		const meeting = $(parseGranolaMeetings(text)).find((candidate) => candidate.id === meetingId);
+		const meeting = $(await getGranolaMeetings(target, [meetingId])).find((candidate) => candidate.id === meetingId);
 		if (!meeting) {
 			return $(Err(ApiErr.notFound('record', meetingId)));
 		}

@@ -2,8 +2,8 @@ import type {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {type ApiError, Do, parseSchema} from '@proxy/utils';
-import {addDays, dayIn, isTimeZone} from '@proxy/utils/days';
-import {type AuditActionCount, type AuditDayCount, countAuditEntriesByAction, countAuditEntriesByDay, listAuditEntries} from '@proxy/db/audit';
+import {listAuditEntries, summarizeTaskRequests} from '@proxy/db/audit';
+import {type AgentTaskRow, listAgentTasks, listAgentTasksSince} from '@proxy/db/task';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireUserOrgId} from '../utils/user-org';
@@ -24,7 +24,26 @@ export type AuditEntryResponse = {
 	outcome: 'allowed' | 'denied';
 	// The web app's agent pages, or the MCP server.
 	via: 'web' | 'mcp';
+	// The agent's task the request was made for, among the answer's `tasks`; none for entries from
+	// before tasks, and for what Personal Agent Proxy did itself.
+	taskId: string | null;
 };
+
+/** What an agent set out to do, as it said when it started: what the entries made for it were for. */
+export type ActivityTaskResponse = {
+	id: string;
+	agentId: string;
+	title: string;
+	goal: string;
+	via: 'web' | 'mcp';
+	startedAt: string;
+	// Null while the agent hasn't called it finished, abandoned (@proxy/utils/tasks) or not.
+	finishedAt: string | null;
+};
+
+function toActivityTask({createdAt, finishedAt, ...task}: AgentTaskRow): ActivityTaskResponse {
+	return {...task, startedAt: createdAt.toISOString(), finishedAt: finishedAt?.toISOString() ?? null};
+}
 
 // `?agentId=proxy` is what Personal Agent Proxy did itself.
 const PROXY = 'proxy';
@@ -32,53 +51,85 @@ const PROXY = 'proxy';
 const querySchema = z.object({
 	agentId: z.string().min(1).optional(),
 	connectionId: z.string().min(1).optional(),
+	taskId: z.string().min(1).optional(),
 	outcome: z.enum(['allowed', 'denied']).optional(),
-	// Only what was made from `from` until before `to`, as a day on the person's clock is.
-	from: z.iso.datetime({offset: true}).optional(),
-	to: z.iso.datetime({offset: true}).optional(),
 });
 
-/** The organization's agent requests, newest first, the latest 500. */
-export function handleListActivityRoute(request: AuthenticatedRequest): Promise<Result<{entries: AuditEntryResponse[]}, ApiError>> {
+/**
+ * The organization's agent requests, newest first, the latest 500, and the tasks they were made
+ * for; with `?taskId=`, that task too, even before any request was made for it.
+ */
+export function handleListActivityRoute(request: AuthenticatedRequest): Promise<Result<{entries: AuditEntryResponse[]; tasks: ActivityTaskResponse[]}, ApiError>> {
 	return Do(async ($) => {
-		const {agentId, connectionId, outcome, from, to} = $(parseSchema(querySchema, request.query));
+		const {agentId, connectionId, taskId, outcome} = $(parseSchema(querySchema, request.query));
 		const orgId = $(await requireUserOrgId(request));
 		const filter = {
 			...(agentId === undefined ? {} : {agentId: agentId === PROXY ? null : agentId}),
 			...(connectionId === undefined ? {} : {connectionId}),
+			...(taskId === undefined ? {} : {taskId}),
 			...(outcome === undefined ? {} : {outcome}),
-			...(from === undefined ? {} : {from: new Date(from)}),
-			...(to === undefined ? {} : {to: new Date(to)}),
 		};
 		const rows = $(await listAuditEntries(orgId, filter, MAX_ENTRIES));
-		return {entries: rows.map(({createdAt, ...entry}) => ({...entry, at: createdAt.toISOString()}))};
+		const taskIds = new Set([...rows.flatMap((row) => (row.taskId === null ? [] : [row.taskId])), ...(taskId === undefined ? [] : [taskId])]);
+		const tasks = $(await listAgentTasks(orgId, [...taskIds]));
+		return {
+			entries: rows.map(({createdAt, ...entry}) => ({...entry, at: createdAt.toISOString()})),
+			tasks: tasks.map(toActivityTask),
+		};
 	});
 }
 
-// The home page's graph: 53 weeks, so a year of whole weeks ends in this one whatever day it is.
-const GRAPH_DAYS = 53 * 7;
-// Its summary line: today and the six days before it.
-const WEEK_DAYS = 7;
+// The home page's lanes: at most this many tasks, and a window at most this far back.
+const MAX_TASKS = 200;
+const MAX_WINDOW_MS = 31 * 24 * 60 * 60 * 1000;
 
-const summaryQuerySchema = z.object({timeZone: z.string().refine(isTimeZone, 'Not a time zone')});
+const lanesQuerySchema = z.object({from: z.iso.datetime({offset: true})});
 
-export type ActivitySummaryResponse = {
-	// Today on the person's clock, `2026-10-16`, the day the graph ends on.
-	today: string;
-	// Each agent's requests each day of the graph's, on the person's clock, days without any left
-	// out; an `agentId` of null is what Personal Agent Proxy did itself.
-	days: AuditDayCount[];
-	// The past week's requests by connection, collection, action and outcome, the most first.
-	week: AuditActionCount[];
+/** A task as the home page's lanes draw it: when it ran, and what was done for it. */
+export type LaneTaskResponse = ActivityTaskResponse & {
+	// How many requests were made for it, and how many of them were refused.
+	requests: number;
+	denied: number;
+	// The connections its requests used, the most used first, the earlier used first among equals.
+	connectionIds: string[];
 };
 
-/** The organization's activity by day for the home page's graph, and the past week's by action. */
-export function handleActivitySummaryRoute(request: AuthenticatedRequest): Promise<Result<ActivitySummaryResponse, ApiError>> {
+export type ActivityLanesResponse = {
+	// When the answer was made: the right edge of the lanes.
+	now: string;
+	from: string;
+	// Every task under way at some point since `from`, newest first.
+	tasks: LaneTaskResponse[];
+};
+
+/** The organization's tasks under way at some point since `?from=`, with what was done for each. */
+export function handleActivityLanesRoute(request: AuthenticatedRequest): Promise<Result<ActivityLanesResponse, ApiError>> {
 	return Do(async ($) => {
-		const {timeZone} = $(parseSchema(summaryQuerySchema, request.query));
+		const query = $(parseSchema(lanesQuerySchema, request.query));
 		const orgId = $(await requireUserOrgId(request));
-		const today = dayIn(new Date(), timeZone);
-		const [days, week] = await Promise.all([countAuditEntriesByDay(orgId, timeZone, addDays(today, 1 - GRAPH_DAYS)), countAuditEntriesByAction(orgId, timeZone, addDays(today, 1 - WEEK_DAYS))]);
-		return {today, days: $(days), week: $(week)};
+		const now = new Date();
+		const from = new Date(Math.max(new Date(query.from).getTime(), now.getTime() - MAX_WINDOW_MS));
+		const rows = $(await listAgentTasksSince(orgId, from, MAX_TASKS));
+		const requests = $(
+			await summarizeTaskRequests(
+				orgId,
+				rows.map((row) => row.id),
+			),
+		);
+		const tasks = rows.map((task) => {
+			const own = requests.filter((row) => row.taskId === task.id);
+			const used = new Map<string, {count: number; first: Date}>();
+			for (const row of own) {
+				const known = used.get(row.connectionId) ?? {count: 0, first: row.first};
+				used.set(row.connectionId, {count: known.count + row.count, first: row.first < known.first ? row.first : known.first});
+			}
+			return {
+				...toActivityTask(task),
+				requests: own.reduce((total, row) => total + row.count, 0),
+				denied: own.filter((row) => row.outcome === 'denied').reduce((total, row) => total + row.count, 0),
+				connectionIds: [...used.entries()].sort((a, b) => b[1].count - a[1].count || a[1].first.getTime() - b[1].first.getTime()).map(([connectionId]) => connectionId),
+			};
+		});
+		return {now: now.toISOString(), from: from.toISOString(), tasks};
 	});
 }

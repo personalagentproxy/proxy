@@ -9,7 +9,7 @@ import {
 	type OwnSettings,
 	TOOLS_COLLECTION_ID,
 } from '@proxy/integrations';
-import {counted, formatDate, formatDateTime} from '@/lib/format';
+import {formatDate, formatDateTime} from '@/lib/format';
 import {integrationOf, type Integration} from '@/lib/integrations';
 import type {AgentLogin, AuditEntry, Connection, DataRecord} from '@/lib/types';
 
@@ -192,38 +192,6 @@ export function entryAction(entry: AuditEntry, located: LocatedEntry | null): Ac
 	const {integration, collection} = located;
 	const id = collection ? requiredAction(collection, entry.action) : entry.action;
 	return integration.actions.find((action) => action.id === id) ?? null;
-}
-
-function times(count: number): string {
-	if (count === 1) {
-		return 'once';
-	}
-	return count === 2 ? 'twice' : `${count} times`;
-}
-
-// What an action requested `count` times came to, in the activity log's words: "Viewed 140
-// emails", "Sent 2 emails", "Ran Search docs 3 times". Lists have nothing to count but pages of
-// records, so they say nothing.
-export function describeCount(
-	{action, collectionId}: Pick<AuditEntry, 'action' | 'collectionId'>,
-	count: number,
-	located: LocatedEntry | null,
-): string | null {
-	if (located?.integration.custom || collectionId === TOOLS_COLLECTION_ID) {
-		const title =
-			located?.integration.actions.find((candidate) => candidate.id === action)?.label ?? action;
-		return `Ran ${title} ${times(count)}`;
-	}
-	if (action === 'list') {
-		return null;
-	}
-
-	const records = counted(count, located?.collection?.singular ?? 'record');
-	const command = located?.collection?.commands?.find((candidate) => candidate.id === action);
-	if (command) {
-		return command.done.replace('{}', records);
-	}
-	return `${ACTION_VERBS[action] ?? action} ${records}`;
 }
 
 // What a row shows for a field: dates and times as people read them.

@@ -37,7 +37,8 @@ import type {connectionLoader} from '@/loaders';
 const RECENT = 10;
 
 export function ConnectionPage() {
-	const {connection, connections, agents, entries} = useLoaderData<typeof connectionLoader>();
+	const {connection, connections, agents, entries, tasks} =
+		useLoaderData<typeof connectionLoader>();
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
 	// Set by whatever made the connection: the email dialog, or the api back from a service's sign-in.
@@ -216,6 +217,7 @@ export function ConnectionPage() {
 						entries={entries.slice(0, RECENT)}
 						agents={agents}
 						connections={connections}
+						tasks={tasks}
 						showConnection={false}
 					/>
 				</Section>

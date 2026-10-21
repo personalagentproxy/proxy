@@ -2,14 +2,22 @@
 
 import {afterEach, describe, expect, test} from 'bun:test';
 import {cleanup, render, screen} from '@testing-library/react';
-import {createMemoryRouter, RouterProvider} from 'react-router';
-import {AgentSide} from '@/components/agent-side';
+import {createMemoryRouter, Outlet, RouterProvider} from 'react-router';
 import {AgentCollectionPage} from '@/pages/agent/agent-collection-page';
 import {AgentRecordPage} from '@/pages/agent/agent-record-page';
 
 afterEach(() => {
 	cleanup();
 });
+
+// The task the pages are on, in their address.
+const TASK = {
+	task: 'task-1',
+	title: 'Find the Q3 email',
+	goal: 'Open the email about Q3 planning',
+	startedAt: '2026-10-16T09:00:00.000Z',
+	finishedAt: null,
+};
 
 const GMAIL_URL = 'https://mail.google.com/mail/?authuser=alex%40example.com#all/m1';
 
@@ -53,27 +61,35 @@ function renderAgentSide(path: string) {
 						},
 					],
 				}),
-				element: <AgentSide />,
+				element: <Outlet />,
 				children: [
 					{
-						path: '/agent/:connectionId/:collectionId',
-						// A mailbox's email over IMAP has no address of its own.
-						loader: ({params}) => ({
-							kind: 'ok',
-							value: {
-								records:
-									params.connectionId === 'mail-1'
-										? [{...EMAIL, url: undefined}]
-										: [EMAIL, {...EMAIL, id: 'm2', url: undefined}],
-								nextPage: null,
+						id: 'agent-task',
+						path: '/agent/:taskId',
+						loader: () => TASK,
+						element: <Outlet />,
+						children: [
+							{
+								path: '/agent/:taskId/:connectionId/:collectionId',
+								// A mailbox's email over IMAP has no address of its own.
+								loader: ({params}) => ({
+									kind: 'ok',
+									value: {
+										records:
+											params.connectionId === 'mail-1'
+												? [{...EMAIL, url: undefined}]
+												: [EMAIL, {...EMAIL, id: 'm2', url: undefined}],
+										nextPage: null,
+									},
+								}),
+								element: <AgentCollectionPage />,
 							},
-						}),
-						element: <AgentCollectionPage />,
-					},
-					{
-						path: '/agent/:connectionId/:collectionId/:recordId',
-						loader: () => ({kind: 'ok', value: EMAIL}),
-						element: <AgentRecordPage />,
+							{
+								path: '/agent/:taskId/:connectionId/:collectionId/:recordId',
+								loader: () => ({kind: 'ok', value: EMAIL}),
+								element: <AgentRecordPage />,
+							},
+						],
 					},
 				],
 			},
@@ -85,7 +101,7 @@ function renderAgentSide(path: string) {
 
 describe('links for the person', () => {
 	test('a record opens in Gmail, its address written out, and the agent is told to give that', async () => {
-		renderAgentSide('/agent/google-1/emails/m1');
+		renderAgentSide('/agent/task-1/google-1/emails/m1');
 
 		const link = await screen.findByRole('link', {name: 'Open in Gmail'});
 		expect(link.getAttribute('href')).toBe(GMAIL_URL);
@@ -98,14 +114,18 @@ describe('links for the person', () => {
 	});
 
 	test('a list links each record that has an address beside its row', async () => {
-		renderAgentSide('/agent/google-1/emails');
+		renderAgentSide('/agent/task-1/google-1/emails');
 
 		const links = await screen.findAllByRole('link', {name: 'Open in Gmail'});
 		expect(links.map((link) => link.getAttribute('href'))).toEqual([GMAIL_URL]);
+		// Its own page is the task's, as every link of the pages is.
+		expect(screen.getAllByRole('link', {name: /Q3 planning/})[0]?.getAttribute('href')).toBe(
+			'/agent/task-1/google-1/emails/m1',
+		);
 	});
 
 	test('a mailbox over IMAP has no links, so the agent is told to name the email instead', async () => {
-		renderAgentSide('/agent/mail-1/emails');
+		renderAgentSide('/agent/task-1/mail-1/emails');
 
 		expect(
 			await screen.findByText(/Tell them which email you mean by its subject instead/),

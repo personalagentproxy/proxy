@@ -26,6 +26,7 @@ describe('sendAgentFeedback', () => {
 			connectionId: 'mail-1',
 			tool: 'emails_list',
 			via: 'mcp',
+			taskId: null,
 		});
 	});
 
@@ -34,6 +35,14 @@ describe('sendAgentFeedback', () => {
 		await sendAgentFeedback({agent, via: 'web'}, {message: 'The pages are slow', connection: ''});
 
 		expect(saveAgentFeedback).toHaveBeenCalledWith(expect.objectContaining({connectionId: null, tool: null, via: 'web'}));
+	});
+
+	test('keeps the task it names as it was given, one that was never started too', async () => {
+		const {sendAgentFeedback} = await import('./feedback');
+		const result = await sendAgentFeedback({agent, via: 'mcp'}, {message: 'start_task answered an id read refuses', task: 'task-9'});
+
+		expect(result.unwrap()).toEqual({sent: true});
+		expect(saveAgentFeedback).toHaveBeenCalledWith(expect.objectContaining({taskId: 'task-9'}));
 	});
 
 	test('an empty or overlong message is refused in words the agent can act on', async () => {

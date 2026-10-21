@@ -218,10 +218,27 @@ const PEOPLE_WORDS: Record<AskIn, string | null> = {
 // What was searched for, in words: "with Sam about pricing".
 function described(search: AskSearch): string {
 	const people = PEOPLE_WORDS[search.in];
+	const when = searchedWhen(search);
 	return [
 		...(people && search.people.length > 0 ? [`${people} ${search.people.join(' and ')}`] : []),
 		...(search.words.length > 0 ? [`about ${search.words.join(' ')}`] : []),
+		...(when ? [when] : []),
 	].join(' ');
+}
+
+// A day sent to the api, 2026-10-14, as a list shows it: "Oct 14".
+function dayRead(day: string): string {
+	const [year = 0, month = 1, date = 1] = day.split('-').map(Number);
+	return shortDay(new Date(year, month - 1, date));
+}
+
+// The days searched, as the line saying nothing was found ends: "on Oct 14", "since Oct 7", or,
+// for meetings when no day was said, the last three months the api looks back over.
+function searchedWhen({in: place, days}: AskSearch): string | null {
+	if (days) {
+		return days.from === days.to ? `on ${dayRead(days.from)}` : `since ${dayRead(days.from)}`;
+	}
+	return place === 'meetings' ? 'in the last 3 months' : null;
 }
 
 // Ask: the meeting, document, email or issue what was asked is about, found by its people, its

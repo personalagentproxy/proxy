@@ -1,20 +1,26 @@
 import type {Collection} from '@proxy/integrations';
-import {Fragment, type ReactNode} from 'react';
+import {Fragment, type ReactNode, useState} from 'react';
 import {Link, useNavigate, useParams} from 'react-router';
-import {signOutAgent} from '@/client/agent-client';
+import {finishAgentTask, signOutAgent} from '@/client/agent-client';
 import {AgentLogo} from '@/components/brand-logo';
 import {Button} from '@proxy/ui/components/button';
 import {cn} from '@proxy/ui/lib/utils';
-import {useAgentMe} from '@/hooks/use-agent-target';
+import {useAgentMe, useAgentTask} from '@/hooks/use-agent-target';
+import {agentErrorMessage} from '@/lib/agent-errors';
+import {taskHome, TASKS_PATH} from '@/lib/agent-task';
 
 // The agent side's frame. Built for a model driving a browser: no sidebar, no icon-only controls
 // and nothing that only shows on hover, so every action is a labeled link or button on the page.
-// Every page but the feedback form ends with a link to it, about the connection and the tool it is on.
+// Under the header, on a task's pages, the task they are on, leading back to the others under way,
+// with the button that finishes it. Every page but the feedback form ends with a link to the
+// feedback form, about the task, the connection and the tool it is on.
 export function AgentShell({children, feedback = true}: {children: ReactNode; feedback?: boolean}) {
 	const navigate = useNavigate();
 	const agent = useAgentMe()?.agent;
 	const {connectionId, toolName} = useParams();
+	const task = useAgentTask();
 	const about = new URLSearchParams({
+		...(task ? {task: task.task} : {}),
 		...(connectionId ? {connection: connectionId} : {}),
 		...(toolName ? {tool: toolName} : {}),
 	}).toString();
@@ -22,7 +28,10 @@ export function AgentShell({children, feedback = true}: {children: ReactNode; fe
 	return (
 		<div className="flex min-h-dvh w-full flex-col bg-background text-foreground">
 			<header className="sticky top-0 z-20 flex h-12 items-center justify-between gap-4 border-b bg-background px-4">
-				<Link to="/agent" className="shrink-0 text-sm font-medium whitespace-nowrap">
+				<Link
+					to={task ? taskHome(task.task) : TASKS_PATH}
+					className="shrink-0 text-sm font-medium whitespace-nowrap"
+				>
 					Personal Agent Proxy <span className="font-normal text-muted-foreground">for agents</span>
 				</Link>
 				<div className="flex min-w-0 items-center gap-3">
@@ -45,6 +54,7 @@ export function AgentShell({children, feedback = true}: {children: ReactNode; fe
 					</Button>
 				</div>
 			</header>
+			{task && <TaskBar task={task} />}
 			<main className="page-column mx-auto flex w-full max-w-3xl flex-col gap-4 pt-6 pb-12">
 				{children}
 			</main>
@@ -60,6 +70,58 @@ export function AgentShell({children, feedback = true}: {children: ReactNode; fe
 					to the makers of Personal Agent Proxy.
 				</footer>
 			)}
+		</div>
+	);
+}
+
+// The task the pages are on, by its title, leading to the task list to switch to another, and
+// Finish task: the api marks it finished, and the agent is sent to its tasks to open or start the
+// next.
+function TaskBar({task}: {task: {task: string; title: string}}) {
+	const navigate = useNavigate();
+	const [finishing, setFinishing] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	const finish = async () => {
+		setFinishing(true);
+		setError(null);
+		const result = await finishAgentTask(task.task);
+		setFinishing(false);
+		if (result.isErr()) {
+			setError(agentErrorMessage(result.error));
+			return;
+		}
+		navigate(TASKS_PATH, {
+			replace: true,
+			state: {
+				notice:
+					'Task finished. Carry on with another, or start one for the next thing the person asks for',
+			},
+		});
+	};
+
+	return (
+		<div className="border-b bg-muted/40">
+			<div className="page-column mx-auto flex w-full max-w-3xl items-center justify-between gap-4 py-2 text-sm">
+				<p className="flex min-w-0 items-baseline gap-2">
+					<span className="min-w-0 truncate">
+						<span className="text-muted-foreground">Task: </span>
+						<Link to={TASKS_PATH} className="font-medium hover:underline">
+							{task.title}
+						</Link>
+					</span>
+					<Link
+						to={TASKS_PATH}
+						className="shrink-0 text-muted-foreground underline underline-offset-4"
+					>
+						Switch task
+					</Link>
+					{error && <span className="min-w-0 truncate text-destructive">{error}</span>}
+				</p>
+				<Button size="sm" variant="outline" disabled={finishing} onClick={() => void finish()}>
+					{finishing ? 'Finishing…' : 'Finish task'}
+				</Button>
+			</div>
 		</div>
 	);
 }

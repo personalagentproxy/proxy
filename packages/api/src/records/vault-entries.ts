@@ -9,7 +9,7 @@ import {decryptValues, encryptValues} from './vault-connector';
 
 /**
  * Turning what Information kept into vault entries, every time the api starts, since only the api
- * can read them (the names and access moved in migration `v022_rename_information_to_vault`): an
+ * can read them (the names and access moved in migration `v023_rename_information_to_vault`): an
  * address becomes an Address entry titled by its label, written out a line at a time; a note a
  * Text entry under its title; a payment card is deleted, as the vault keeps none. Each record once,
  * however many servers start at once (`replaceOldVaultRecord`), and tried again on the next start

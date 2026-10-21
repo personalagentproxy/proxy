@@ -5,7 +5,7 @@ import {type ApiError, Do, parseSchema} from '@proxy/utils';
 import type {IntegrationId} from '@proxy/integrations';
 
 import type {GranolaMeeting} from '../connections/granola/granola-mcp';
-import {listGranolaMeetings} from '../records/granola-connector';
+import {getGranolaMeetings, listGranolaMeetings} from '../records/granola-connector';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireUserOrgId} from '../utils/user-org';
 import {requireAskExperiment} from './ask-experiment';
@@ -14,9 +14,9 @@ import {findSources, summarize, type Source, type SourceSummary} from './sources
 
 /**
  * Meetings for the Ask widget: every meeting notetaker connected, its meetings between two days,
- * those with every person named, the ones whose title or summary has the most of the words first,
- * then the newest. Granola has no search, so its meetings for the days are listed and picked from
- * here.
+ * those with every person named, among the participants, in the title or in the notes, the ones
+ * most surely with them and with the most of the words first, then the newest. Granola has no
+ * search, so its meetings for the days are listed and picked from here.
  */
 
 /** Days as 2026-10-14, both included; people by name or address; words of the title or topic. */
@@ -40,8 +40,9 @@ const LIMIT = 8;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-// The days searched when none are said: the last month, and tomorrow, so no time zone leaves out today.
-const DEFAULT_DAYS = 30;
+// The days searched when none are said: the last three months, a meeting with someone not seen
+// lately among them, and tomorrow, so no time zone leaves out today.
+const DEFAULT_DAYS = 90;
 
 function wordsOf(text: string): string[] {
 	return text
@@ -56,40 +57,85 @@ export function isParticipant(participants: string, person: string): boolean {
 	return wordsOf(person).every((word) => theirs.some((one) => one.startsWith(word)));
 }
 
-/** A meeting as it was listed, with its summary to rank it by. */
-type Listed = {meeting: FoundMeeting; summary: string};
+/** A meeting as it was listed, with what its notes say, when they were read, to rank it by. */
+type Listed = {meeting: FoundMeeting; notes: string};
 
-/** The meetings to offer: with every person named, the most words of the title and summary first, then as they came, newest first. */
-export function rankMeetings(listed: Listed[], search: MeetingSearch): FoundMeeting[] {
+type Scored = {meeting: FoundMeeting; score: number};
+
+/**
+ * How surely a meeting is with a person: among its participants, or named in its title, as "Pricing
+ * review with Dana" is when Granola knew of no one but its owner; less so only named in its notes;
+ * not at all.
+ */
+function personScore({meeting, notes}: Listed, person: string): number {
+	if (isParticipant(meeting.participants, person) || isParticipant(meeting.title, person)) {
+		return 2;
+	}
+	return isParticipant(notes, person) ? 1 : 0;
+}
+
+// The meetings with every person named somewhere, each scored by how surely it is with them and how
+// many of the words its title and notes have, the highest first, then as they came, newest first.
+function scoreMeetings(listed: Listed[], search: MeetingSearch): Scored[] {
 	const wanted = search.words.flatMap(wordsOf);
-	const score = ({meeting, summary}: Listed) => {
-		const theirs = new Set(wordsOf(`${meeting.title} ${summary}`));
-		return wanted.filter((word) => theirs.has(word)).length;
-	};
 	return listed
-		.filter(({meeting}) => search.people.every((person) => isParticipant(meeting.participants, person)))
-		.map((one) => ({meeting: one.meeting, score: score(one)}))
+		.map((one) => {
+			const people = search.people.map((person) => personScore(one, person));
+			const theirs = new Set(wordsOf(`${one.meeting.title} ${one.notes}`));
+			const words = wanted.filter((word) => theirs.has(word)).length;
+			return {meeting: one.meeting, people, score: people.reduce((sum, each) => sum + each, 0) + words};
+		})
+		.filter(({people}) => people.every((each) => each > 0))
 		.sort((a, b) => b.score - a.score)
-		.slice(0, LIMIT)
-		.map(({meeting}) => meeting);
+		.map(({meeting, score}) => ({meeting, score}));
 }
 
 function listed(connectionId: string, meeting: GranolaMeeting): Listed {
 	return {
 		meeting: {connectionId, id: meeting.id, title: meeting.title, date: meeting.date, participants: meeting.participants, link: meeting.url || null},
-		summary: meeting.summary,
+		notes: `${meeting.summary} ${meeting.privateNotes}`,
 	};
 }
 
+// How many of the newest meetings have their notes read when no title or participant says what was
+// searched for.
+const READ_NOTES = 25;
+
 // Granola is asked to the day after, as it may end before the last day it is given, and its
-// meetings outside the days are left out after.
+// meetings outside the days are left out after. A list has no notes, so when no title or
+// participant has what was searched for, the newest meetings' notes are read and searched too.
 const listGranola: MeetingsList = (source, search) =>
 	Do(async ($) => {
-		const meetings = $(await listGranolaMeetings(source, search.from, dayOf(Date.parse(search.to) + DAY_MS)));
-		return rankMeetings(
-			meetings.filter((meeting) => meeting.day === null || (meeting.day >= search.from && meeting.day <= search.to)).map((meeting) => listed(source.connection.id, meeting)),
+		const all = $(await listGranolaMeetings(source, search.from, dayOf(Date.parse(search.to) + DAY_MS)));
+		const meetings = all.filter((meeting) => meeting.day === null || (meeting.day >= search.from && meeting.day <= search.to));
+		const searched = search.people.length > 0 || search.words.length > 0;
+		const first = scoreMeetings(
+			meetings.map((meeting) => listed(source.connection.id, meeting)),
 			search,
 		);
+		if (!searched || meetings.length === 0) {
+			return first.slice(0, LIMIT).map(({meeting}) => meeting);
+		}
+		// Once one has something of what was searched for, those with nothing of it are left out.
+		if ((first[0]?.score ?? 0) > 0) {
+			return first
+				.filter(({score}) => score > 0)
+				.slice(0, LIMIT)
+				.map(({meeting}) => meeting);
+		}
+		const read = $(
+			await getGranolaMeetings(
+				source,
+				meetings.slice(0, READ_NOTES).map((meeting) => meeting.id),
+			),
+		);
+		return scoreMeetings(
+			read.map((meeting) => listed(source.connection.id, meeting)),
+			search,
+		)
+			.filter(({score}) => score > 0)
+			.slice(0, LIMIT)
+			.map(({meeting}) => meeting);
 	});
 
 const LISTS: Partial<Record<IntegrationId, MeetingsList>> = {granola: listGranola};

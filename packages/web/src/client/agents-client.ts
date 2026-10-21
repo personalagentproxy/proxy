@@ -1,6 +1,11 @@
 import type {AgentProviderId} from '@proxy/integrations';
 import {z} from 'zod';
-import {activitySummarySchema, agentSchema, auditEntrySchema} from '@/client/schemas';
+import {
+	activityLanesSchema,
+	activityTaskSchema,
+	agentSchema,
+	auditEntrySchema,
+} from '@/client/schemas';
 import {apiRequest, apiSend} from '@/client/request';
 
 export function listAgents() {
@@ -61,10 +66,9 @@ export function disconnectMcpClient(agentId: string, clientId: string) {
 export type ActivityFilter = {
 	agentId?: string;
 	connectionId?: string;
+	// One task's requests.
+	taskId?: string;
 	outcome?: 'allowed' | 'denied';
-	// Only what was made from `from` until before `to`, ISO instants.
-	from?: string;
-	to?: string;
 };
 
 export function listActivity(filter: ActivityFilter) {
@@ -75,15 +79,15 @@ export function listActivity(filter: ActivityFilter) {
 	return apiRequest(
 		'GET',
 		`/api/activity${suffix}`,
-		z.object({entries: z.array(auditEntrySchema)}),
+		z.object({entries: z.array(auditEntrySchema), tasks: z.array(activityTaskSchema)}),
 	);
 }
 
-/** The home page's graph: each day's requests on the browser's clock, and the past week's by action. */
-export function getActivitySummary(timeZone: string) {
+/** The home page's lanes: every task under way at some point since `from`, an ISO instant, with what was done for each. */
+export function getActivityLanes(from: string) {
 	return apiRequest(
 		'GET',
-		`/api/activity/summary?${new URLSearchParams({timeZone})}`,
-		activitySummarySchema,
+		`/api/activity/lanes?${new URLSearchParams({from})}`,
+		activityLanesSchema,
 	);
 }

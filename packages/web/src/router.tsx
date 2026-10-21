@@ -1,8 +1,14 @@
-import {Navigate, createBrowserRouter, redirect} from 'react-router';
-import {agentCollectionLoader, agentRecordLoader, agentSideLoader} from '@/agent-loaders';
+import {Navigate, Outlet, createBrowserRouter, redirect} from 'react-router';
+import {
+	agentCollectionLoader,
+	agentRecordLoader,
+	agentSideLoader,
+	agentTaskLoader,
+	agentTasksLoader,
+	shouldRevalidateAgentTask,
+} from '@/agent-loaders';
 import {getSignInMethods, type SignInMethods} from '@/client/auth-client';
 import {getMe} from '@/client/me-client';
-import {AgentSide} from '@/components/agent-side';
 import {HumanSide} from '@/components/human-side';
 import {RouteError} from '@/components/route-error';
 import {sanitizeCallbackUrl} from '@/lib/callback-url';
@@ -36,6 +42,7 @@ import {AgentHomePage} from '@/pages/agent/agent-home-page';
 import {AgentLoginPage} from '@/pages/agent/agent-login-page';
 import {AgentNewRecordPage} from '@/pages/agent/agent-new-record-page';
 import {AgentRecordPage} from '@/pages/agent/agent-record-page';
+import {AgentTaskPage} from '@/pages/agent/agent-task-page';
 import {AgentToolPage} from '@/pages/agent/agent-tool-page';
 import {ConnectAgentPage} from '@/pages/connect-agent-page';
 import {ConnectionPage} from '@/pages/connection-page';
@@ -160,23 +167,39 @@ export const router = createBrowserRouter([
 	{
 		id: 'agent',
 		loader: agentSideLoader,
-		element: <AgentSide />,
+		element: <Outlet />,
 		errorElement: <RouteError />,
 		children: [
-			{path: '/agent', element: <AgentHomePage />},
+			// The agent's tasks, to open one or start another: where it starts, and where it is sent
+			// without one.
+			{path: '/agent', loader: agentTasksLoader, element: <AgentTaskPage />},
 			{path: '/agent/feedback', element: <AgentFeedbackPage />},
-			// A custom MCP server's tool, which has no collection.
-			{path: '/agent/:connectionId/tool/:toolName', element: <AgentToolPage />},
+			// A task's pages, each making its requests for the task in its address.
 			{
-				path: '/agent/:connectionId/:collectionId',
-				loader: agentCollectionLoader,
-				element: <AgentCollectionPage />,
-			},
-			{path: '/agent/:connectionId/:collectionId/new', element: <AgentNewRecordPage />},
-			{
-				path: '/agent/:connectionId/:collectionId/:recordId',
-				loader: agentRecordLoader,
-				element: <AgentRecordPage />,
+				id: 'agent-task',
+				path: '/agent/:taskId',
+				loader: agentTaskLoader,
+				shouldRevalidate: shouldRevalidateAgentTask,
+				element: <Outlet />,
+				children: [
+					{index: true, element: <AgentHomePage />},
+					// A custom MCP server's tool, which has no collection.
+					{path: '/agent/:taskId/:connectionId/tool/:toolName', element: <AgentToolPage />},
+					{
+						path: '/agent/:taskId/:connectionId/:collectionId',
+						loader: agentCollectionLoader,
+						element: <AgentCollectionPage />,
+					},
+					{
+						path: '/agent/:taskId/:connectionId/:collectionId/new',
+						element: <AgentNewRecordPage />,
+					},
+					{
+						path: '/agent/:taskId/:connectionId/:collectionId/:recordId',
+						loader: agentRecordLoader,
+						element: <AgentRecordPage />,
+					},
+				],
 			},
 		],
 	},

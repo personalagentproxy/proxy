@@ -7,6 +7,7 @@ import {Section} from '@/components/section';
 import {useAgentMe} from '@/hooks/use-agent-target';
 import {allows, canStartNew, describeActions} from '@/lib/access';
 import {integrationOf, type Integration} from '@/lib/integrations';
+import {taskHome, useTaskId} from '@/lib/agent-task';
 import {noticeFromState} from '@/pages/agent/agent-collection-page';
 
 // Everything this login can do, connection by connection: what it is allowed, and the lists it can
@@ -14,6 +15,7 @@ import {noticeFromState} from '@/pages/agent/agent-collection-page';
 // cannot open. A custom MCP server's tools are the rows, each the agent may run.
 export function AgentHomePage() {
 	const connections = useAgentMe()?.connections ?? [];
+	const home = taskHome(useTaskId());
 	const notice = noticeFromState(useLocation().state);
 
 	return (
@@ -54,7 +56,7 @@ export function AgentHomePage() {
 									{tools.map((tool) => (
 										<Row
 											key={tool.name}
-											to={`/agent/${connection.id}/tool/${encodeURIComponent(tool.name)}`}
+											to={`${home}/${connection.id}/tool/${encodeURIComponent(tool.name)}`}
 											title={mcpToolTitle(tool)}
 											cells={
 												<span className="shrink-0 text-muted-foreground">
@@ -89,7 +91,7 @@ export function AgentHomePage() {
 							<RowList>
 								{collections.map((collection) => {
 									// One that can only add, as when sending without reading, opens on its form.
-									const base = `/agent/${connection.id}/${collection.id}`;
+									const base = `${home}/${connection.id}/${collection.id}`;
 									const readable = allows(collection, connection.actions, 'list');
 									return (
 										<Row

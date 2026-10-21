@@ -1,4 +1,5 @@
 import type {FetchError} from '@proxy/utils';
+import {isTaskRefusal} from '@/lib/agent-task';
 
 // What a failed change tells the agent, in words a model reading the page can act on.
 // The api's own words for a refusal, when it has them: a value a column doesn't take, a statement
@@ -11,6 +12,9 @@ export function apiMessage(body: unknown): string | null {
 }
 
 export function agentErrorMessage(error: FetchError): string {
+	if (isTaskRefusal(error)) {
+		return 'This task can’t be worked on anymore: it is finished, was left open over a day, or isn’t this login’s. Switch task, or start a new one.';
+	}
 	if (error.kind === 'http' && error.status === 403) {
 		return 'This login is not allowed to do that.';
 	}

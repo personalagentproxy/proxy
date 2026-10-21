@@ -1,7 +1,7 @@
 import {getSignInMethods} from '@/client/auth-client';
 import {
 	type ActivityFilter,
-	getActivitySummary,
+	getActivityLanes,
 	getAgent,
 	listActivity,
 	listAgents,
@@ -12,20 +12,20 @@ import {getMe} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {listRecords} from '@/client/records-client';
 import {VAULT_INTEGRATION_ID} from '@proxy/integrations';
-import {browserTimeZone, daySpan} from '@/lib/activity-graph';
+import {LOADED_MINUTES, windowStart} from '@/lib/agent-lanes';
 import {unwrapLoaderResult, unwrapOrNull} from '@/lib/loader-utils';
 import {redirect} from 'react-router';
 
 // The human side's pages, each loaded from the api on arrival and again after every change.
 
-// Home: what is connected, for the logos under its input, and what was done, for the graph under
-// them. The page works without them, so a list the api doesn't answer shows as empty, and a graph
-// it doesn't as none, rather than as an error.
+// Home: what is connected, for the logos under its input, and what the agents are doing, for the
+// lanes under them. The page works without them, so a list the api doesn't answer shows as empty,
+// and lanes it doesn't as none, rather than as an error.
 export async function homeLoader() {
 	const [connections, agents, activity] = await Promise.all([
 		listConnections(),
 		listAgents(),
-		getActivitySummary(browserTimeZone()),
+		getActivityLanes(windowStart(LOADED_MINUTES, new Date()).toISOString()),
 	]);
 	return {
 		connections: connections.map((answer) => answer.connections).unwrapOr([]),
@@ -61,11 +61,13 @@ export async function connectionLoader({params}: {params: {id?: string}}) {
 		listAgents(),
 		listActivity({connectionId: id}),
 	]);
+	const {entries, tasks} = unwrapLoaderResult(activity);
 	return {
 		connection: unwrapOrNull(connection),
 		connections: unwrapLoaderResult(connections).connections,
 		agents: unwrapLoaderResult(agents).agents,
-		entries: unwrapLoaderResult(activity).entries,
+		entries,
+		tasks,
 	};
 }
 
@@ -96,12 +98,14 @@ export async function agentLoader({params}: {params: {id?: string}}) {
 		listActivity({agentId: id}),
 		listMcpClients(id),
 	]);
+	const {entries, tasks} = unwrapLoaderResult(activity);
 	return {
 		agent: unwrapOrNull(agent),
 		mcpClients: unwrapLoaderResult(mcpClients).clients,
 		connections: unwrapLoaderResult(connections).connections,
 		agents: unwrapLoaderResult(agents).agents,
-		entries: unwrapLoaderResult(activity).entries,
+		entries,
+		tasks,
 	};
 }
 
@@ -115,17 +119,18 @@ export async function activityLoader({request}: {request: Request}) {
 	const filter: ActivityFilter = {
 		agentId: params.get('agent') ?? undefined,
 		connectionId: params.get('connection') ?? undefined,
+		taskId: params.get('task') ?? undefined,
 		outcome: outcome === 'allowed' || outcome === 'denied' ? outcome : undefined,
-		// A day of the home page's graph, on the browser's clock as the graph counts it.
-		...daySpan(params.get('day') ?? ''),
 	};
 	const [activity, connections, agents] = await Promise.all([
 		listActivity(filter),
 		listConnections(),
 		listAgents(),
 	]);
+	const {entries, tasks} = unwrapLoaderResult(activity);
 	return {
-		entries: unwrapLoaderResult(activity).entries,
+		entries,
+		tasks,
 		connections: unwrapLoaderResult(connections).connections,
 		agents: unwrapLoaderResult(agents).agents,
 	};
