@@ -78,6 +78,7 @@ describe('pickIntent', () => {
 			'show_calendar',
 			'find_person',
 			'write_email',
+			'reply_email',
 			'find_email',
 			'find_file',
 			'calculate',

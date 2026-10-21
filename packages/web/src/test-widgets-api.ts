@@ -167,6 +167,18 @@ const EMAILS = [
 	},
 ];
 
+const EMAIL_TEXT = [
+	'Hi Alex,',
+	'',
+	'Invoice #1042 for September is attached. Could you let me know once it is paid?',
+	'',
+	'Thanks,',
+	'Sam',
+	'',
+	'On Mon, Sep 14, 2026 at 9:12 AM Alex Kim <me@example.com> wrote:',
+	'> Thanks, paid.',
+].join('\n');
+
 const FILES = [
 	{
 		connectionId: 'google-1',
@@ -385,6 +397,14 @@ function transactions(url: URL) {
 
 export function widgetsAnswer(input: string, init?: RequestInit): Response | null {
 	const url = new URL(input, 'http://localhost');
+	// An email opened whole, as Reply to email shows what it answers.
+	if (url.pathname === '/api/connections/google-1/collections/emails/records/m1') {
+		return Response.json({
+			id: 'm1',
+			values: {subject: EMAILS[0]?.subject ?? '', body: EMAIL_TEXT},
+			updatedAt: '',
+		});
+	}
 	if (!url.pathname.startsWith('/api/widgets/')) {
 		return null;
 	}
@@ -408,6 +428,9 @@ export function widgetsAnswer(input: string, init?: RequestInit): Response | nul
 		return Response.json({sources: [google], emails: EMAILS, failed: []});
 	}
 	if (route === 'POST /api/widgets/emails') {
+		return Response.json({sent: true});
+	}
+	if (route === 'POST /api/widgets/emails/reply') {
 		return Response.json({sent: true});
 	}
 	if (route === 'GET /api/widgets/mailboxes') {

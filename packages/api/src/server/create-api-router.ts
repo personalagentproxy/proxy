@@ -48,7 +48,7 @@ import {handleAgendaRoute, handleFindEventsRoute} from '../widgets/agenda';
 import {handleAnswerRoute} from '../widgets/answer';
 import {handleBankAccountsRoute, handleBankTransactionsRoute} from '../widgets/bank';
 import {handleEditEventRoute} from '../widgets/edit-event';
-import {handleFindEmailsRoute, handleMailboxesRoute, handleWriteEmailRoute} from '../widgets/emails';
+import {handleFindEmailsRoute, handleMailboxesRoute, handleReplyEmailRoute, handleWriteEmailRoute} from '../widgets/emails';
 import {handleFindFilesRoute} from '../widgets/files';
 import {handleFindMeetingsRoute} from '../widgets/meetings';
 import {handleCreateEventRoute} from '../widgets/new-event';
@@ -149,6 +149,7 @@ export function createApiRouter(): express.Router {
 	router.put('/api/widgets/events', withAuthResult('Widget edit event route', handleEditEventRoute));
 	router.get('/api/widgets/emails', withAuthResult('Widget find emails route', handleFindEmailsRoute));
 	router.post('/api/widgets/emails', withAuthResult('Widget write email route', handleWriteEmailRoute));
+	router.post('/api/widgets/emails/reply', withAuthResult('Widget reply email route', handleReplyEmailRoute));
 	router.get('/api/widgets/mailboxes', withAuthResult('Widget mailboxes route', handleMailboxesRoute));
 	router.get('/api/widgets/files', withAuthResult('Widget find files route', handleFindFilesRoute));
 	router.get('/api/widgets/meetings', withAuthResult('Widget find meetings route', handleFindMeetingsRoute));

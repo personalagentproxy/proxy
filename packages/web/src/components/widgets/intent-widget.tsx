@@ -9,6 +9,7 @@ import {
 	MailIcon,
 	MessageCircleQuestionMarkIcon,
 	ReceiptTextIcon,
+	ReplyIcon,
 	UserRoundIcon,
 	type LucideIcon,
 } from 'lucide-react';
@@ -24,6 +25,7 @@ import {FindEmailWidget} from '@/components/widgets/find-email-widget';
 import {FindFileWidget} from '@/components/widgets/find-file-widget';
 import {MathWidget} from '@/components/widgets/math-widget';
 import {PersonWidget} from '@/components/widgets/person-widget';
+import {ReplyEmailWidget} from '@/components/widgets/reply-email-widget';
 import {TransactionsWidget} from '@/components/widgets/transactions-widget';
 import {WidgetFrame} from '@/components/widgets/widget-frame';
 import {WriteEmailWidget} from '@/components/widgets/write-email-widget';
@@ -57,6 +59,9 @@ export function IntentWidget({intent, typed, now, onAsk}: Props) {
 	if (id === 'write_email') {
 		return <WriteEmailWidget intent={intent} typed={typed} />;
 	}
+	if (id === 'reply_email') {
+		return <ReplyEmailWidget intent={intent} typed={typed} now={now} />;
+	}
 	if (id === 'find_email') {
 		return <FindEmailWidget intent={intent} typed={typed} now={now} />;
 	}
@@ -89,6 +94,7 @@ const FRAMES: Partial<Record<string, {icon: LucideIcon; name: string}>> = {
 	show_calendar: {icon: CalendarDaysIcon, name: 'Calendar'},
 	find_person: {icon: UserRoundIcon, name: 'Person'},
 	write_email: {icon: MailIcon, name: 'Write email'},
+	reply_email: {icon: ReplyIcon, name: 'Reply to email'},
 	find_email: {icon: InboxIcon, name: 'Find email'},
 	find_file: {icon: FileSearchIcon, name: 'Find file'},
 	ask: {icon: MessageCircleQuestionMarkIcon, name: 'Ask'},

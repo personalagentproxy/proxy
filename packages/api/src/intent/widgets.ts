@@ -102,7 +102,7 @@ export const WIDGETS: Widget[] = [
 	{
 		id: 'write_email',
 		name: 'Write email',
-		description: 'Write, draft or send a new email to someone',
+		description: 'Write, draft or send a new email to someone, rather than a reply to one received',
 		fields: [
 			{id: 'to', name: 'To', hint: 'each recipient, one per item, as written (a name or an email address)', many: true},
 			{id: 'subject', name: 'Subject', hint: 'a short subject from what the email is about, or null'},
@@ -110,6 +110,30 @@ export const WIDGETS: Widget[] = [
 				id: 'body',
 				name: 'Message',
 				hint: 'the email itself, written for the person in their voice from what they ask it to say, as short as they ask, greeting every recipient once by first name ("Hi Jon and Jacky,"), without a sign-off or placeholders such as [Your name]; null when they say nothing of what it says',
+			},
+		],
+	},
+	{
+		id: 'reply_email',
+		name: 'Reply to email',
+		description:
+			'Reply or respond to an email or thread already received, or answer what someone wrote ("reply to sam\'s email about the invoice saying it\'s paid", "respond to the offsite thread that I\'m in", "answer jacky\'s email about friday with a yes")',
+		fields: [
+			{
+				id: 'from',
+				name: 'From',
+				hint: 'who sent the email to reply to, by name or address, as written without \'s (a person or a company); null for one described rather than named, such as "my landlord"',
+			},
+			{
+				id: 'about',
+				name: 'About',
+				hint: 'what to search the email to reply to for, without the sender, any date or time, or what the reply says: a list of things it is about, all of which must be in it, each thing a list of other words for that same one thing, any of which will do; "reply to sam about the invoice saying it\'s paid" is [["invoice", "bill"]], "respond to the offsite thread" is [["offsite", "off-site", "retreat"]]; empty when only the sender or a time is said',
+				terms: true,
+			},
+			{
+				id: 'body',
+				name: 'Reply',
+				hint: 'the reply itself, written for the person in their voice from what they ask it to say, as short as they ask, greeting the sender once by first name ("Hi Sam,") when they are named, without a sign-off, a subject or placeholders such as [Your name]; null when they say nothing of what it says',
 			},
 		],
 	},

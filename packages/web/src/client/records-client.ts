@@ -16,6 +16,14 @@ export function listRecords(connectionId: string, collectionId: string) {
 	);
 }
 
+export function getRecord(connectionId: string, collectionId: string, recordId: string) {
+	return apiRequest(
+		'GET',
+		`${recordsPath(connectionId, collectionId)}/${encodeURIComponent(recordId)}`,
+		dataRecordSchema,
+	);
+}
+
 export function createRecord(
 	connectionId: string,
 	collectionId: string,

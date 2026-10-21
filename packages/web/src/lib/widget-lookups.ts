@@ -12,6 +12,7 @@ import {
 	getMailboxes,
 	getRates,
 } from '@/client/widgets-client';
+import {getRecord} from '@/client/records-client';
 import {lookup} from '@/lib/lookup';
 import {bestMatch, isAddress} from '@/lib/widget-values';
 
@@ -44,6 +45,11 @@ export const useAgenda = lookup((range: {from: string; to: string}) =>
 export const useEvents = lookup(findEvents);
 
 export const useEmails = lookup(findEmails);
+
+/** One email whole, with its text, as its mailbox opens it. */
+export const useEmail = lookup((email: {connectionId: string; id: string}) =>
+	getRecord(email.connectionId, 'emails', email.id),
+);
 
 export const useMailboxes = lookup((_all: true) => getMailboxes());
 

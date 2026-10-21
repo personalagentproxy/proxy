@@ -211,6 +211,20 @@ export function writeEmail(email: NewEmail) {
 	return apiRequest('POST', '/api/widgets/emails', z.object({sent: z.boolean()}), email);
 }
 
+export type EmailReply = {
+	// The mailbox the email was found in, which the reply goes out from.
+	connectionId: string;
+	// The email answered, as the search found it.
+	emailId: string;
+	body: string;
+	send: boolean;
+};
+
+/** Sends a reply to the email, in its thread, or saves it as a draft. */
+export function replyToEmail(reply: EmailReply) {
+	return apiRequest('POST', '/api/widgets/emails/reply', z.object({sent: z.boolean()}), reply);
+}
+
 const foundFileSchema = z.object({
 	connectionId: z.string(),
 	id: z.string(),

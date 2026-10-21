@@ -321,6 +321,46 @@ describe('IntentWidget', () => {
 		});
 	});
 
+	test('Reply to email: the email found, and the reply sent in its thread from its mailbox', async () => {
+		show(
+			intentWith('reply_email', {
+				from: ['sam'],
+				about: ['invoice | bill'],
+				body: ['Hi Sam,\n\nPaid this morning.'],
+			}),
+			"reply to sam's email about the invoice saying it's paid",
+		);
+
+		const widget = widgetNamed('Reply to email');
+		expect(
+			await within(widget).findByText('Sam Lee: Invoice #1042 for September · Oct 11'),
+		).toBeTruthy();
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/widgets/emails?from=sam&words=invoice+%7C+bill',
+			expect.anything(),
+		);
+		// What it says, without what it quotes of the email before.
+		const email = await within(widget).findByRole('blockquote', {name: 'Email'});
+		expect(email.textContent).toContain('Could you let me know once it is paid?');
+		expect(email.textContent).not.toContain('wrote:');
+		expect(within(widget).getByRole('textbox', {name: 'Reply'})).toHaveProperty(
+			'value',
+			'Hi Sam,\n\nPaid this morning.',
+		);
+
+		await waitFor(() =>
+			expect(within(widget).getByRole('button', {name: 'Send'})).toHaveProperty('disabled', false),
+		);
+		fireEvent.click(within(widget).getByRole('button', {name: 'Send'}));
+		expect(await within(widget).findByText('Sent')).toBeTruthy();
+		expect(sentTo('/api/widgets/emails/reply')).toEqual({
+			connectionId: 'google-1',
+			emailId: 'm1',
+			body: 'Hi Sam,\n\nPaid this morning.',
+			send: true,
+		});
+	});
+
 	test('Find email and Find file: what they search for, and what every source finds', async () => {
 		show(intentWith('find_email', {from: ['sam'], about: ['invoice']}));
 		const emails = widgetNamed('Find email');

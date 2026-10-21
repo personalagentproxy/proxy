@@ -3,9 +3,7 @@ import type {Intent} from '@/client/intent-client';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
 import {Missing, WidgetFrame} from '@/components/widgets/widget-frame';
 import {useEmails} from '@/lib/widget-lookups';
-import {emailQuery, senderName, shortDay, termsRead} from '@/lib/widget-values';
-
-const SHORT_DAY = new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric'});
+import {emailQuery, emailQueryRead, senderName, shortDay} from '@/lib/widget-values';
 
 // Find email: what it searches for, from the sender, the topic and the day it goes back to, and
 // the newest emails every mailbox finds, each opening where it can.
@@ -23,11 +21,7 @@ export function FindEmailWidget({intent, typed, now}: {intent: Intent; typed: st
 	}
 
 	const found = emails.data?.emails ?? [];
-	const described = [
-		...(query.from ? [`from ${query.from}`] : []),
-		...(query.words.length > 0 ? [`about ${termsRead(query.words)}`] : []),
-		...(query.since ? [`since ${SHORT_DAY.format(new Date(`${query.since}T00:00`))}`] : []),
-	];
+	const described = emailQueryRead(query);
 
 	return (
 		<WidgetFrame icon={InboxIcon} name="Find email" failed={emails.data?.failed}>
