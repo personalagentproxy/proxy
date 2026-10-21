@@ -33,7 +33,7 @@ function task(overrides: Partial<LaneTask>): LaneTask {
 	};
 }
 
-function agent(id: string, name: string, revokedAt: string | null = null): AgentLogin {
+function agent(id: string, name: string): AgentLogin {
 	return {
 		id,
 		providerId: 'claude',
@@ -41,7 +41,7 @@ function agent(id: string, name: string, revokedAt: string | null = null): Agent
 		username: id,
 		createdAt: '2026-10-01T00:00:00.000Z',
 		lastActiveAt: null,
-		revokedAt,
+		revokedAt: null,
 		grants: [],
 	};
 }
@@ -142,12 +142,11 @@ describe('buildLanes', () => {
 		],
 	};
 
-	test('a lane per login that isn’t revoked, idle ones too, and for any other agent with a task; the working first, the idle last', () => {
+	test('a lane per agent with a task in the window, deleted ones too, and none for the others; the working first, the idle last', () => {
 		const lanes = buildLanes(answer, 60, [
 			agent('a1', 'Claude'),
 			agent('a2', 'ChatGPT'),
 			agent('a3', 'Poke'),
-			agent('a4', 'Old', '2026-10-10T00:00:00Z'),
 		]);
 
 		expect(
@@ -156,7 +155,6 @@ describe('buildLanes', () => {
 			['Claude', 'working', 2, 1],
 			['Deleted agent', 'working', 0, 1],
 			['ChatGPT', 'idle', 0, 1],
-			['Poke', 'idle', 0, 0],
 		]);
 	});
 });

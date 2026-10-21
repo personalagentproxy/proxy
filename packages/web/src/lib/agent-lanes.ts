@@ -186,9 +186,8 @@ function lastActive(placed: PlacedTask[]): number {
 }
 
 /**
- * A lane for every agent login that isn't revoked, idle ones included, and for any other agent
- * with a task in the window, which is `minutes` long and ends at the answer's now; the busiest
- * first, then those that did something most recently, then the idle ones by name.
+ * A lane for every agent with a task in the window, which is `minutes` long and ends at the
+ * answer's now; the busiest first, then those that did something most recently, then by name.
  */
 export function buildLanes(answer: ActivityLanes, minutes: number, agents: AgentLogin[]): Lane[] {
 	const now = new Date(answer.now);
@@ -202,14 +201,9 @@ export function buildLanes(answer: ActivityLanes, minutes: number, agents: Agent
 		}
 		byAgent.set(task.agentId, [...(byAgent.get(task.agentId) ?? []), placeTask(task, from, now)]);
 	}
-	const ids = new Set([
-		...agents.filter((agent) => agent.revokedAt === null).map((agent) => agent.id),
-		...byAgent.keys(),
-	]);
-	return [...ids]
-		.map((agentId) => {
+	return [...byAgent.entries()]
+		.map(([agentId, placed]) => {
 			const agent = agents.find((candidate) => candidate.id === agentId);
-			const placed = byAgent.get(agentId) ?? [];
 			return {
 				agentId,
 				name: agent?.name ?? 'Deleted agent',
