@@ -34,7 +34,8 @@ export async function logAgentRequest(data: {
 	query: string | null;
 	outcome: AuditOutcome;
 	via: AuditVia;
-	taskId: string;
+	// PRE-TASK CLIENTS: null for a call of an MCP client from before tasks (api's mcp/pre-task-clients.ts).
+	taskId: string | null;
 }): Promise<Result<void, ApiError>> {
 	return wrapDb(async () => {
 		await db.$transaction([

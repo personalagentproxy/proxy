@@ -6,10 +6,11 @@ import type {SignedInAgent} from '@proxy/db/agent';
 import {findIntegration, INFO_INTEGRATION_ID, integrationFor, INTEGRATIONS, isOffered, type Tool} from '@proxy/integrations';
 
 import {sendAgentFeedback} from '../agent-side/feedback';
-import {finishAgentTask, requireOpenTask, startAgentTask} from '../agent-side/tasks';
+import {finishAgentTask, startAgentTask} from '../agent-side/tasks';
 import {listAgentConnections, listAgentTools, runAgentTool, type AgentConnection} from '../agent-side/tools';
 import {requireAppUrl} from '../oauth/oauth-config';
 import {log, serializeError} from '../observability/log';
+import {requireOpenTaskIfAny} from './pre-task-clients';
 
 /**
  * The MCP server's tools: seven that stay the same whatever an agent may do, so a client's tool
@@ -219,7 +220,8 @@ function errorMessage(error: ApiError, args: Record<string, unknown>): string {
 	return 'Something went wrong. Try again in a moment.';
 }
 
-function call(signedIn: SignedInAgent, name: string, args: Record<string, unknown>): Promise<Result<Record<string, unknown>, ApiError>> {
+// PRE-TASK CLIENTS: `preTask` is whether the call is a pre-task client's (pre-task-clients.ts).
+function call(signedIn: SignedInAgent, name: string, args: Record<string, unknown>, preTask: boolean): Promise<Result<Record<string, unknown>, ApiError>> {
 	return Do(async ($) => {
 		const caller = {agent: signedIn, via: 'mcp'} as const;
 		if (name === 'start_task') {
@@ -233,15 +235,16 @@ function call(signedIn: SignedInAgent, name: string, args: Record<string, unknow
 		}
 		// Every other call is for a task of the agent's that is still under way, checked beside the
 		// call's own reads.
-		const taskId = $(taskOf(args));
+		// PRE-TASK CLIENTS: a pre-task client's call is for none.
+		const taskId = preTask ? null : $(taskOf(args));
 		if (name === 'list_connections') {
-			const [task, listed] = await Promise.all([requireOpenTask(signedIn, taskId), listAgentConnections(signedIn)]);
+			const [task, listed] = await Promise.all([requireOpenTaskIfAny(signedIn, taskId), listAgentConnections(signedIn)]);
 			$(task);
 			return {connections: $(listed).connections.map(connectionSummary)};
 		}
 		if (name === 'list_tools') {
 			const {connection} = $(parseSchema(connectionArgs, args));
-			const [task, tools] = await Promise.all([requireOpenTask(signedIn, taskId), listAgentTools(signedIn, connection)]);
+			const [task, tools] = await Promise.all([requireOpenTaskIfAny(signedIn, taskId), listAgentTools(signedIn, connection)]);
 			$(task);
 			return {connection, tools: $(tools).map(toolSummary)};
 		}
@@ -254,8 +257,8 @@ function call(signedIn: SignedInAgent, name: string, args: Record<string, unknow
 }
 
 /** Calls one of the seven tools as the signed-in agent. */
-export async function callMcpTool(signedIn: SignedInAgent, name: string, args: Record<string, unknown>): Promise<McpToolResult> {
-	const result = await call(signedIn, name, args);
+export async function callMcpTool(signedIn: SignedInAgent, name: string, args: Record<string, unknown>, preTask: boolean): Promise<McpToolResult> {
+	const result = await call(signedIn, name, args, preTask);
 	if (result.isErr()) {
 		return {content: [{type: 'text', text: errorMessage(result.error, args)}], isError: true};
 	}

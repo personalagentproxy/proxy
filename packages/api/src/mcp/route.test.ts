@@ -67,6 +67,12 @@ async function post(body: unknown, headers: Record<string, string> = {authorizat
 	return res;
 }
 
+// The headers of a client on a session `initialize` began, as every client is once on tasks.
+async function onSession(): Promise<Record<string, string>> {
+	const initialized = await post(rpc('initialize', {protocolVersion: '2025-11-25'}));
+	return {authorization: 'Bearer token-1', 'mcp-session-id': initialized.headers['mcp-session-id'] ?? ''};
+}
+
 function rpc(method: string, params: Record<string, unknown> = {}, id = 1) {
 	return {jsonrpc: '2.0', id, method, params};
 }
@@ -155,7 +161,9 @@ describe('handleMcpRoute', () => {
 	});
 
 	test('a call without a task is refused, saying to start one; one for a task that is not the agent’s or is finished, as the agent side says', async () => {
-		const taskless = await post(rpc('tools/call', {name: 'list_connections', arguments: {}}));
+		const headers = await onSession();
+		listAgentConnections.mockClear();
+		const taskless = await post(rpc('tools/call', {name: 'list_connections', arguments: {}}), headers);
 		requireOpenTask.mockResolvedValue(Err(ApiErr.notFound('task', 'task-9')));
 		const unknown = await post(rpc('tools/call', {name: 'list_tools', arguments: {task: 'task-9', connection: 'mail-1'}}));
 		requireOpenTask.mockResolvedValue(Err(ApiErr.conflict('Task task-1 (Triage inbox) is finished. Start a new task for what you are doing now, and give its id as task.')));
@@ -174,7 +182,7 @@ describe('handleMcpRoute', () => {
 		runAgentTool.mockResolvedValue(Ok({record: null}));
 		await post(rpc('tools/call', {name: 'read', arguments: {task: 'task-1', connection: 'mail-1', tool: 'emails_list', params: {folder: 'Inbox'}}}));
 		await post(rpc('tools/call', {name: 'run', arguments: {task: 'task-1', connection: 'mail-1', tool: 'emails_archive', params: {id: 'inbox-1'}}}));
-		const taskless = await post(rpc('tools/call', {name: 'run', arguments: {connection: 'mail-1', tool: 'emails_archive', params: {id: 'inbox-1'}}}));
+		const taskless = await post(rpc('tools/call', {name: 'run', arguments: {connection: 'mail-1', tool: 'emails_archive', params: {id: 'inbox-1'}}}), await onSession());
 
 		expect(runAgentTool.mock.calls).toEqual([
 			[{agent: signedIn, via: 'mcp', taskId: 'task-1'}, 'mail-1', 'emails_list', {folder: 'Inbox'}, {readOnly: true}],
@@ -233,6 +241,23 @@ describe('handleMcpRoute', () => {
 		expect(fresh.body).toMatchObject({id: 1, result: {structuredContent: {task: 'task-1'}}});
 		expect(jsonOnly.body).toMatchObject({id: 1, result: {structuredContent: {task: 'task-1'}}});
 		expect(listing.body).toMatchObject({id: 1, result: {tools: expect.any(Array)}});
+	});
+
+	// PRE-TASK CLIENTS (pre-task-clients.ts)
+	test('a call without a task from a session begun before tasks runs for none, told the tool list changed', async () => {
+		runAgentTool.mockResolvedValue(Ok({record: null}));
+		const streams = {authorization: 'Bearer token-1', accept: 'application/json, text/event-stream'};
+		const listed = await post(rpc('tools/call', {name: 'list_connections', arguments: {}}), streams);
+		const ran = await post(rpc('tools/call', {name: 'run', arguments: {connection: 'mail-1', tool: 'emails_archive', params: {id: 'inbox-1'}}}), {authorization: 'Bearer token-1'});
+		const withTask = await post(rpc('tools/call', {name: 'list_connections', arguments: {task: 'task-1'}}), streams);
+
+		expect(listed.headers['content-type']).toBe('text/event-stream');
+		expect(String(listed.body)).toStartWith('event: message\ndata: {"jsonrpc":"2.0","method":"notifications/tools/list_changed"}\n\n');
+		expect(String(listed.body)).toContain('"connection":"mail-1"');
+		expect(runAgentTool).toHaveBeenCalledWith({agent: signedIn, via: 'mcp', taskId: null}, 'mail-1', 'emails_archive', {id: 'inbox-1'}, {readOnly: false});
+		expect(ran.body).toMatchObject({result: {structuredContent: {record: null}}});
+		expect(requireOpenTask.mock.calls).toEqual([[signedIn, 'task-1']]);
+		expect(withTask.body).toMatchObject({result: {structuredContent: {connections: [{connection: 'mail-1'}]}}});
 	});
 
 	test('an MCP-Protocol-Version it does not know is refused', async () => {

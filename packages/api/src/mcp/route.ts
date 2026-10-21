@@ -1,4 +1,5 @@
 import {createHash, randomUUID} from 'node:crypto';
+import type {IncomingHttpHeaders} from 'node:http';
 
 import type {Request, Response} from 'express';
 import {z} from 'zod';
@@ -8,6 +9,7 @@ import type {SignedInAgent} from '@proxy/db/agent';
 import {authenticateBearer, wwwAuthenticate} from '../oauth/authenticate';
 import {requireAppUrl} from '../oauth/oauth-config';
 import {log, serializeError} from '../observability/log';
+import {isPreTaskCall} from './pre-task-clients';
 import {callMcpTool, MCP_TOOLS, serverInstructions} from './tools';
 
 /**
@@ -60,7 +62,7 @@ async function initialize(signedIn: SignedInAgent, params: Record<string, unknow
 
 // The answer to one message: null for a notification, or for a client's answer to a request,
 // which this server never makes.
-async function answer(signedIn: SignedInAgent, message: unknown): Promise<JsonRpcResponse | null> {
+async function answer(signedIn: SignedInAgent, message: unknown, headers: IncomingHttpHeaders): Promise<JsonRpcResponse | null> {
 	const parsed = messageSchema.safeParse(message);
 	if (!parsed.success) {
 		return failure(null, -32600, 'Invalid request');
@@ -83,7 +85,10 @@ async function answer(signedIn: SignedInAgent, message: unknown): Promise<JsonRp
 		if (!call.success || !MCP_TOOLS.some((tool) => tool.name === call.data.name)) {
 			return failure(id, -32602, `Unknown tool. The tools are ${MCP_TOOLS.map((tool) => tool.name).join(', ')}.`);
 		}
-		return {jsonrpc: '2.0', id, result: await callMcpTool(signedIn, call.data.name, call.data.arguments ?? {})};
+		const args = call.data.arguments ?? {};
+		// PRE-TASK CLIENTS: whether the call is a pre-task client's (pre-task-clients.ts).
+		const preTask = isPreTaskCall(headers, call.data.name, args);
+		return {jsonrpc: '2.0', id, result: await callMcpTool(signedIn, call.data.name, args, preTask)};
 	}
 	return failure(id, -32601, `Method not found: ${method}`);
 }
@@ -116,7 +121,7 @@ export async function handleMcpRoute(req: Request, res: Response): Promise<void>
 	const messages: unknown[] = Array.isArray(body) ? body : [body];
 	const answers: JsonRpcResponse[] = [];
 	for (const message of messages) {
-		const reply = await answer(signedIn.value, message);
+		const reply = await answer(signedIn.value, message, req.headers);
 		if (reply) {
 			answers.push(reply);
 		}
@@ -128,7 +133,7 @@ export async function handleMcpRoute(req: Request, res: Response): Promise<void>
 		res.status(202).end();
 		return;
 	}
-	if (holdsOldTools(req) && messages.some((message) => isMethod(message, 'tools/call'))) {
+	if (holdsOldTools(req, messages)) {
 		res.setHeader('Content-Type', 'text/event-stream').setHeader('Cache-Control', 'no-cache');
 		res.end([LIST_CHANGED, ...answers].map((event) => `event: message\ndata: ${JSON.stringify(event)}\n\n`).join(''));
 		return;
@@ -140,15 +145,32 @@ function isMethod(message: unknown, method: string): boolean {
 	return messageSchema.safeParse(message).data?.method === method;
 }
 
-// Whether the client's session is from before the tool list last changed, and it can take a
-// stream to be told so. A client with no session, or one that only takes JSON, can't be told.
-function holdsOldTools(req: Request): boolean {
-	const session = req.headers['mcp-session-id'];
+function toolCalls(messages: unknown[]): Array<z.infer<typeof callParamsSchema>> {
+	return messages.flatMap((message) => {
+		const parsed = messageSchema.safeParse(message);
+		if (parsed.data?.method !== 'tools/call') {
+			return [];
+		}
+		const call = callParamsSchema.safeParse(parsed.data.params ?? {});
+		return call.success ? [call.data] : [];
+	});
+}
+
+// Whether the request calls a tool from a session from before the tool list last changed, and
+// the client can take a stream to be told so. A client with no session, or one that only takes
+// JSON, can't be told.
+function holdsOldTools(req: Request, messages: unknown[]): boolean {
+	const calls = toolCalls(messages);
 	const accept = req.headers.accept ?? '';
-	if (typeof session !== 'string' || !accept.includes('text/event-stream')) {
+	if (calls.length === 0 || !accept.includes('text/event-stream')) {
 		return false;
 	}
-	return !session.endsWith(`.${TOOLS_VERSION}`);
+	// PRE-TASK CLIENTS: a pre-task client's call is told too, so it fetches the list with start_task.
+	if (calls.some((call) => isPreTaskCall(req.headers, call.name, call.arguments ?? {}))) {
+		return true;
+	}
+	const session = req.headers['mcp-session-id'];
+	return typeof session === 'string' && !session.endsWith(`.${TOOLS_VERSION}`);
 }
 
 /** `GET` and `DELETE /mcp`: there is no stream to open and no session to end. */
