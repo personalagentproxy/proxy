@@ -13,7 +13,8 @@ import {log, serializeError} from '../observability/log';
 
 /**
  * The MCP server's tools: seven that stay the same whatever an agent may do, so a client's tool
- * list never goes stale. `start_task` is where an agent starts, saying what it is about to do for
+ * list doesn't go stale when its access changes; when the tools themselves change, the route tells
+ * the client. `start_task` is where an agent starts, saying what it is about to do for
  * the person; every other call but `finish_task` and `send_feedback` takes the task's id, so the
  * activity log can say which request was for what. `list_connections` gives the accounts the agent
  * can use; `list_tools` a connection's own tools, generated from the catalog, which `read` and

@@ -52,7 +52,10 @@ function makeRes() {
 			res.body = body;
 			return res;
 		}),
-		end: mock(() => res),
+		end: mock((body?: string) => {
+			res.body = body;
+			return res;
+		}),
 	};
 	return res;
 }
@@ -95,7 +98,7 @@ describe('handleMcpRoute', () => {
 
 		expect(result.protocolVersion).toBe('2025-06-18');
 		expect((unknown.body as {result: {protocolVersion: string}}).result.protocolVersion).toBe('2025-11-25');
-		expect(result.capabilities).toEqual({tools: {listChanged: false}});
+		expect(result.capabilities).toEqual({tools: {listChanged: true}});
 		expect(result.instructions).toStartWith('You are signed in to Personal Agent Proxy as Claude.');
 		expect(result.instructions).toContain('Start with start_task');
 		expect(result.instructions).toContain('Call finish_task when the task is done');
@@ -207,6 +210,29 @@ describe('handleMcpRoute', () => {
 		const res = await post([{jsonrpc: '2.0', method: 'notifications/initialized'}, rpc('ping', {}, 7)]);
 
 		expect(res.body).toEqual([{jsonrpc: '2.0', id: 7, result: {}}]);
+	});
+
+	test('a session from before the tool list changed is told so ahead of a tool call’s answer, as a stream', async () => {
+		const initialized = await post(rpc('initialize', {protocolVersion: '2025-11-25'}));
+		const current = initialized.headers['mcp-session-id'] ?? '';
+		const call = rpc('tools/call', {name: 'finish_task', arguments: {task: 'task-1'}});
+		const streams = {authorization: 'Bearer token-1', accept: 'application/json, text/event-stream'};
+
+		const stale = await post(call, {...streams, 'mcp-session-id': 'session-1.0123456789abcdef'});
+		const fresh = await post(call, {...streams, 'mcp-session-id': current});
+		const jsonOnly = await post(call, {authorization: 'Bearer token-1', accept: 'application/json', 'mcp-session-id': 'session-1.0123456789abcdef'});
+		const listing = await post(rpc('tools/list'), {...streams, 'mcp-session-id': 'session-1.0123456789abcdef'});
+
+		expect(current).toMatch(/^[\w-]+\.[0-9a-f]{16}$/);
+		expect(stale.headers['content-type']).toBe('text/event-stream');
+		const events = String(stale.body)
+			.split('\n\n')
+			.filter(Boolean)
+			.map((event) => JSON.parse(event.replace('event: message\ndata: ', '')));
+		expect(events).toEqual([{jsonrpc: '2.0', method: 'notifications/tools/list_changed'}, expect.objectContaining({id: 1, result: expect.objectContaining({structuredContent: expect.anything()})})]);
+		expect(fresh.body).toMatchObject({id: 1, result: {structuredContent: {task: 'task-1'}}});
+		expect(jsonOnly.body).toMatchObject({id: 1, result: {structuredContent: {task: 'task-1'}}});
+		expect(listing.body).toMatchObject({id: 1, result: {tools: expect.any(Array)}});
 	});
 
 	test('an MCP-Protocol-Version it does not know is refused', async () => {
