@@ -1,6 +1,7 @@
-import {ChevronRightIcon, MoonIcon, PlusIcon, SearchIcon, SendIcon} from 'lucide-react';
-import {type KeyboardEvent, useEffect, useRef, useState} from 'react';
+import {ArrowUpIcon, MoonIcon, PlusIcon, SearchIcon, WrenchIcon} from 'lucide-react';
+import {type FormEvent, type KeyboardEvent, useEffect, useRef, useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
+import {Result} from 'ts-results-es';
 import {
 	type ChatEntry,
 	type ChatThread,
@@ -11,9 +12,32 @@ import {
 	type ThreadLog,
 } from '@/client/harness-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
-import {Button} from '@proxy/ui/components/button';
+import {Bubble, BubbleContent} from '@proxy/ui/components/bubble';
 import {Input} from '@proxy/ui/components/input';
-import {Textarea} from '@proxy/ui/components/textarea';
+import {
+	InputGroup,
+	InputGroupAddon,
+	InputGroupButton,
+	InputGroupTextarea,
+} from '@proxy/ui/components/input-group';
+import {Message, MessageContent} from '@proxy/ui/components/message';
+import {
+	MessageScroller,
+	MessageScrollerButton,
+	MessageScrollerContent,
+	MessageScrollerItem,
+	MessageScrollerProvider,
+	MessageScrollerViewport,
+} from '@proxy/ui/components/message-scroller';
+import {
+	Trace,
+	TraceCollapsible,
+	TraceCollapsibleContent,
+	TraceCollapsibleTrigger,
+	TraceIcon,
+	TraceLine,
+	TraceTitle,
+} from '@proxy/ui/components/trace';
 import {cn} from '@proxy/ui/lib/utils';
 import {formatDateTime} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
@@ -24,102 +48,138 @@ import type {chatLoader} from '@/loaders';
 const BUSY_POLL_MS = 1000;
 const IDLE_POLL_MS = 4000;
 
-// How much of a call's arguments the card shows on its line.
-const ARGS_PREVIEW = 80;
-
-function preview(json: string): string {
-	const text = json.replace(/\s+/g, ' ');
-	return text.length > ARGS_PREVIEW ? `${text.slice(0, ARGS_PREVIEW - 1)}…` : text;
+// A call's arguments as the model wrote them; none where they aren't JSON.
+function parseArgs(json: string): Record<string, unknown> {
+	const parsed = Result.wrap((): unknown => JSON.parse(json));
+	if (parsed.isErr() || typeof parsed.value !== 'object' || parsed.value === null) {
+		return {};
+	}
+	return parsed.value as Record<string, unknown>;
 }
 
-// One call the agent made, with what it answered once it has: opened for the whole of both.
-function ToolCallCard({call, result}: {call: ChatToolCall; result: ChatEntry | undefined}) {
-	const [open, setOpen] = useState(false);
-	return (
-		<div
-			className={cn(
-				'overflow-hidden rounded-lg border text-sm',
-				result?.isError && 'border-destructive/50',
-			)}
-		>
-			<button
-				type="button"
-				onClick={() => setOpen((current) => !current)}
-				className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted/50"
-			>
-				<ChevronRightIcon
-					className={cn('size-4 shrink-0 transition-transform', open && 'rotate-90')}
-				/>
-				<span className="font-mono text-xs">{call.name}</span>
-				<span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
-					{preview(call.arguments)}
-				</span>
-				<span
-					className={cn(
-						'shrink-0 text-xs',
-						result
-							? result.isError
-								? 'text-destructive'
-								: 'text-muted-foreground'
-							: 'text-muted-foreground',
-					)}
-				>
-					{result ? (result.isError ? 'Failed' : 'Done') : 'Running…'}
-				</span>
-			</button>
-			{open && (
-				<div className="flex flex-col gap-2 border-t px-3 py-2 font-mono text-xs">
-					<pre className="whitespace-pre-wrap break-all">{call.arguments}</pre>
-					{result && (
-						<pre
-							className={cn(
-								'max-h-80 overflow-auto whitespace-pre-wrap break-all border-t pt-2',
-								result.isError && 'text-destructive',
-							)}
-						>
-							{result.text}
-						</pre>
-					)}
-				</div>
-			)}
-		</div>
+// JSON as it is shown: laid out where it parses, as written where it doesn't.
+function pretty(json: string): string {
+	return Result.wrap((): unknown => JSON.parse(json))
+		.map((value) => JSON.stringify(value, null, 2))
+		.unwrapOr(json);
+}
+
+type CallState = 'running' | 'done' | 'failed';
+
+// What a call did, in a few words, from its name and arguments, as it runs, once it has, and
+// where it failed: "Running entries_list", "Ran entries_list", "Failed to run entries_list".
+function callTitle(call: ChatToolCall, state: CallState): string {
+	const args = parseArgs(call.arguments);
+	const said = (verbs: [string, string, string], what: string) =>
+		`${verbs[state === 'running' ? 0 : state === 'done' ? 1 : 2]} ${what}`;
+	if (call.name === 'list_connections') {
+		return said(['Listing', 'Listed', 'Failed to list'], 'connections');
+	}
+	if (call.name === 'list_tools') {
+		return said(['Listing', 'Listed', 'Failed to list'], 'tools');
+	}
+	if (call.name === 'sleep_until') {
+		const until =
+			typeof args.until === 'string'
+				? formatDateTime(args.until)
+				: typeof args.seconds === 'number'
+					? `${args.seconds} seconds from now`
+					: 'later';
+		return said(['Sleeping until', 'Slept until', 'Failed to sleep until'], until);
+	}
+	if (call.name === 'send_feedback') {
+		return said(['Sending', 'Sent', 'Failed to send'], 'feedback');
+	}
+	return said(
+		['Running', 'Ran', 'Failed to run'],
+		typeof args.tool === 'string' ? args.tool : call.name,
 	);
 }
 
-// The log as a conversation: what the person said on the right, what the agent said on the left
-// with its calls under it, each call's answer folded into its card.
-function Log({entries}: {entries: ChatEntry[]}) {
-	const results = new Map(
-		entries.filter((entry) => entry.kind === 'tool_result').map((entry) => [entry.callId, entry]),
+// One call the agent made: a line that says what it did, opening to what it asked and what came back.
+function ToolCallTrace({call, result}: {call: ChatToolCall; result: ChatEntry | undefined}) {
+	const status = result === undefined ? 'running' : result.isError ? 'error' : undefined;
+	const title = callTitle(
+		call,
+		result === undefined ? 'running' : result.isError ? 'failed' : 'done',
 	);
 	return (
-		<ol className="flex flex-col gap-4">
-			{entries
-				.filter((entry) => entry.kind !== 'tool_result')
-				.map((entry) => (
-					<li
-						key={entry.id}
-						className={cn('flex flex-col gap-2', entry.kind === 'person' && 'items-end')}
-					>
-						{entry.text !== '' && (
-							<div
-								className={cn(
-									'max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2 text-sm',
-									entry.kind === 'person' ? 'bg-primary text-primary-foreground' : 'bg-muted',
-								)}
-							>
-								{entry.text}
-							</div>
+		<TraceCollapsible>
+			<TraceCollapsibleTrigger>
+				<TraceLine status={status}>
+					<TraceIcon>{call.name === 'sleep_until' ? <MoonIcon /> : <WrenchIcon />}</TraceIcon>
+					<TraceTitle>{title}</TraceTitle>
+				</TraceLine>
+			</TraceCollapsibleTrigger>
+			<TraceCollapsibleContent className="flex flex-col gap-2 font-mono text-xs">
+				<pre className="whitespace-pre-wrap break-all">{pretty(call.arguments)}</pre>
+				{result && (
+					<pre
+						className={cn(
+							'max-h-64 overflow-auto whitespace-pre-wrap break-all border-t pt-2',
+							result.isError && 'text-destructive',
 						)}
-						{entry.toolCalls?.map((call) => (
-							<div key={call.id} className="w-full max-w-[85%]">
-								<ToolCallCard call={call} result={results.get(call.id)} />
-							</div>
+					>
+						{pretty(result.text)}
+					</pre>
+				)}
+			</TraceCollapsibleContent>
+		</TraceCollapsible>
+	);
+}
+
+// One turn of the conversation: what the person said in a bubble on the right, or what the agent
+// said as plain text on the left, with the calls it made as lines above it.
+function Turn({entry, results}: {entry: ChatEntry; results: Map<string | null, ChatEntry>}) {
+	if (entry.kind === 'person') {
+		return (
+			<Message align="end">
+				<MessageContent>
+					<Bubble align="end" variant="muted">
+						<BubbleContent className="whitespace-pre-wrap">{entry.text}</BubbleContent>
+					</Bubble>
+				</MessageContent>
+			</Message>
+		);
+	}
+	const calls = entry.toolCalls ?? [];
+	return (
+		<Message>
+			<MessageContent className="gap-2">
+				{calls.length > 0 && (
+					<Trace>
+						{calls.map((call) => (
+							<ToolCallTrace key={call.id} call={call} result={results.get(call.id)} />
 						))}
-						<span className="text-xs text-muted-foreground">{formatDateTime(entry.at)}</span>
-					</li>
-				))}
-		</ol>
+					</Trace>
+				)}
+				{entry.text !== '' && (
+					<div className="whitespace-pre-wrap leading-relaxed wrap-break-word">{entry.text}</div>
+				)}
+			</MessageContent>
+		</Message>
+	);
+}
+
+// What the agent is up to when it isn't answering: at work, or asleep until a time.
+function Status({log}: {log: ThreadLog}) {
+	if (log.busy) {
+		return (
+			<TraceLine status="running">
+				<TraceTitle>Working</TraceTitle>
+			</TraceLine>
+		);
+	}
+	if (log.sleepingUntil === null) {
+		return null;
+	}
+	return (
+		<TraceLine>
+			<TraceIcon>
+				<MoonIcon />
+			</TraceIcon>
+			<TraceTitle>Asleep until {formatDateTime(log.sleepingUntil)}</TraceTitle>
+		</TraceLine>
 	);
 }
 
@@ -217,8 +277,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 	const [text, setText] = useState('');
 	const [sending, setSending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	// The log, which scrolls on its own; the input under it stays put.
-	const logView = useRef<HTMLDivElement>(null);
+	const form = useRef<HTMLFormElement>(null);
 	const threadId = loaded.log.thread.id;
 	// The thread as the list names it, which the log's own row doesn't.
 	const current = loaded.threads.find((thread) => thread.id === threadId) ?? loaded.log.thread;
@@ -239,11 +298,8 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		};
 	}, [threadId, log.busy]);
 
-	useEffect(() => {
-		logView.current?.scrollTo({top: logView.current.scrollHeight});
-	}, [log.entries.length, log.busy]);
-
-	const send = async () => {
+	const send = async (event: FormEvent) => {
+		event.preventDefault();
 		const message = text.trim();
 		if (message === '' || sending) {
 			return;
@@ -267,10 +323,11 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		}
 	};
 
+	// Enter sends; Shift+Enter breaks the line.
 	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
 		if (event.key === 'Enter' && !event.shiftKey) {
 			event.preventDefault();
-			void send();
+			form.current?.requestSubmit();
 		}
 	};
 
@@ -282,6 +339,14 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		}
 		void navigate(`/chat/${made.value.thread.id}`);
 	};
+
+	// Each call's result by the call, folded into the call's line rather than shown as a turn.
+	const results = new Map(
+		log.entries
+			.filter((entry) => entry.kind === 'tool_result')
+			.map((entry) => [entry.callId, entry]),
+	);
+	const turns = log.entries.filter((entry) => entry.kind !== 'tool_result');
 
 	return (
 		<AppShell
@@ -296,52 +361,76 @@ function Conversation({loaded}: {loaded: Loaded}) {
 			panelLabel="Conversations"
 			scroll="inside"
 		>
-			<div ref={logView} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-				<div className="page-column mx-auto flex w-full max-w-3xl flex-col gap-6 pt-6 pb-2">
-					{log.entries.length === 0 ? (
-						<p className="text-sm text-muted-foreground">
-							Say what you want done. The agent can use what you connected, as far as its access on
-							the Agents page allows, and every call it makes is in the activity log.
-						</p>
-					) : (
-						<Log entries={log.entries} />
-					)}
-					{log.busy && <p className="text-sm text-muted-foreground">Working…</p>}
-					{log.sleepingUntil && (
-						<p className="flex items-center gap-2 text-sm text-muted-foreground">
-							<MoonIcon className="size-4" />
-							Asleep until {formatDateTime(log.sleepingUntil)}
-						</p>
-					)}
-				</div>
-			</div>
-			<div className="page-column mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-2 pt-2 pb-4">
+			<MessageScrollerProvider autoScroll defaultScrollPosition="end">
+				<MessageScroller className="min-h-0 flex-1">
+					<MessageScrollerViewport aria-label="Conversation">
+						<MessageScrollerContent className="page-column mx-auto w-full max-w-3xl pt-6 pb-4">
+							{turns.length === 0 && (
+								<div className="flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
+									<p className="text-lg font-medium">What do you want done?</p>
+									<p className="max-w-md text-sm text-muted-foreground">
+										The agent can use what you connected, as far as its access on the Agents page
+										allows. Every call it makes is in the activity log.
+									</p>
+								</div>
+							)}
+							{turns.map((entry) => (
+								<MessageScrollerItem
+									key={entry.id}
+									messageId={entry.id}
+									scrollAnchor={entry.kind === 'person'}
+								>
+									<Turn entry={entry} results={results} />
+								</MessageScrollerItem>
+							))}
+							{(log.busy || log.sleepingUntil !== null) && (
+								<MessageScrollerItem messageId="status">
+									<Trace>
+										<Status log={log} />
+									</Trace>
+								</MessageScrollerItem>
+							)}
+						</MessageScrollerContent>
+					</MessageScrollerViewport>
+					<MessageScrollerButton />
+				</MessageScroller>
+			</MessageScrollerProvider>
+			<form
+				ref={form}
+				onSubmit={(event) => void send(event)}
+				className="page-column mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-2 pt-2 pb-4"
+			>
 				{error && <p className="text-sm text-destructive">{error}</p>}
-				<div className="flex items-end gap-2">
-					<Textarea
+				<InputGroup className="rounded-xl bg-background shadow-xs">
+					<InputGroupTextarea
 						value={text}
 						onChange={(event) => setText(event.target.value)}
 						onKeyDown={onKeyDown}
 						placeholder="Message the agent"
-						className="min-h-10"
+						aria-label="Message"
+						className="min-h-10 p-3"
 						rows={1}
 					/>
-					<Button
-						size="icon"
-						onClick={() => void send()}
-						disabled={sending || text.trim() === ''}
-						aria-label="Send"
-					>
-						<SendIcon />
-					</Button>
-				</div>
-				<Link
-					to={`/activity?task=${log.thread.taskId}`}
-					className="text-xs text-muted-foreground underline-offset-4 hover:underline"
-				>
-					Activity for this conversation
-				</Link>
-			</div>
+					<InputGroupAddon align="block-end">
+						<Link
+							to={`/activity?task=${log.thread.taskId}`}
+							className="text-xs font-normal underline-offset-4 hover:underline"
+						>
+							Activity for this conversation
+						</Link>
+						<InputGroupButton
+							type="submit"
+							size="icon-sm"
+							variant="default"
+							className="ml-auto rounded-full"
+							disabled={sending || text.trim() === ''}
+							aria-label="Send"
+						>
+							<ArrowUpIcon />
+						</InputGroupButton>
+					</InputGroupAddon>
+				</InputGroup>
+			</form>
 		</AppShell>
 	);
 }
