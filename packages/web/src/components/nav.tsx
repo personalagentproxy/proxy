@@ -32,8 +32,8 @@ type Destination = {to: string; label: string; icon: LucideIcon};
 const DESTINATIONS: Destination[] = [
 	{to: '', label: 'Home', icon: HomeIcon},
 	{to: '/connections', label: 'Connections', icon: PlugIcon},
-	{to: '/vault', label: 'Vault', icon: LibraryIcon},
 	{to: '/agents', label: 'Agents', icon: BotIcon},
+	{to: '/vault', label: 'Vault', icon: LibraryIcon},
 	{to: '/activity', label: 'Activity', icon: ScrollTextIcon},
 	{to: '/members', label: 'Members', icon: UsersIcon},
 ];
