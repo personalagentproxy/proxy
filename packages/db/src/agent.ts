@@ -94,14 +94,32 @@ export async function createAgent(data: {
 
 /**
  * Shares a member's agent with every member of its organization, for good: it reaches the shared
- * connections alone from now on, so its settings on the member's own connections go.
+ * connections alone from now on, so its settings on the member's own connections go. Its tasks
+ * and activity so far become everyone's with it, but for its requests on the member's own
+ * connections, which stay theirs: what it did in their mailbox is still theirs alone to see.
  */
 export async function shareAgent(agentId: string): Promise<Result<void, ApiError>> {
 	return wrapDb(async () => {
-		await db.$transaction([
-			db.agentGrant.deleteMany({where: {agentId, connection: {ownerUserId: {not: null}}}}),
-			db.agent.update({where: {id: agentId}, data: {ownerUserId: null}}),
-		]);
+		await db.$transaction(async (tx) => {
+			const agent = await tx.agent.findUnique({
+				where: {id: agentId},
+				select: {orgId: true, ownerUserId: true},
+			});
+			if (!agent || agent.ownerUserId === null) {
+				return;
+			}
+			const own = await tx.connection.findMany({
+				where: {orgId: agent.orgId, ownerUserId: agent.ownerUserId},
+				select: {id: true},
+			});
+			await tx.agentGrant.deleteMany({where: {agentId, connection: {ownerUserId: {not: null}}}});
+			await tx.agentTask.updateMany({where: {agentId}, data: {ownerUserId: null}});
+			await tx.auditEntry.updateMany({
+				where: {agentId, connectionId: {notIn: own.map((connection) => connection.id)}},
+				data: {ownerUserId: null},
+			});
+			await tx.agent.update({where: {id: agentId}, data: {ownerUserId: null}});
+		});
 	});
 }
 

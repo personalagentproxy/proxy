@@ -3,6 +3,7 @@ import {z} from 'zod';
 
 import {type ApiError, Do, parseSchema} from '@proxy/utils';
 import {listAuditEntries, summarizeTaskRequests} from '@proxy/db/audit';
+import {listMemberNames} from '@proxy/db/organization';
 import {type AgentTaskRow, listAgentTasks, listAgentTasksSince} from '@proxy/db/task';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
@@ -30,6 +31,11 @@ export type AuditEntryResponse = {
 	// How long the request took; none for entries from before it was kept, and for what Personal
 	// Agent Proxy did itself.
 	durationMs: number | null;
+	// The member who asked for what Personal Agent Proxy did itself, and their name or address while
+	// they are in the organization; null for an agent's request, and for entries from before it was
+	// kept.
+	userId: string | null;
+	userName: string | null;
 };
 
 /** What an agent set out to do, as it said when it started: what the entries made for it were for. */
@@ -80,9 +86,12 @@ export function handleListActivityRoute(request: AuthenticatedRequest): Promise<
 		};
 		const rows = $(await listAuditEntries(viewer, filter, MAX_ENTRIES));
 		const taskIds = new Set([...rows.flatMap((row) => (row.taskId === null ? [] : [row.taskId])), ...(taskId === undefined ? [] : [taskId])]);
+		const userIds = new Set(rows.flatMap((row) => (row.userId === null ? [] : [row.userId])));
 		const tasks = $(await listAgentTasks(viewer, [...taskIds]));
+		const names = $(await listMemberNames([...userIds].map((userId) => ({orgId: viewer.orgId, userId}))));
+		const nameOf = (userId: string | null) => names.find((member) => member.userId === userId)?.name ?? null;
 		return {
-			entries: rows.map(({createdAt, ...entry}) => ({...entry, at: createdAt.toISOString()})),
+			entries: rows.map(({createdAt, ...entry}) => ({...entry, at: createdAt.toISOString(), userName: nameOf(entry.userId)})),
 			tasks: tasks.map(toActivityTask),
 		};
 	});

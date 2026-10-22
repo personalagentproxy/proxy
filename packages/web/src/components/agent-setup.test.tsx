@@ -227,7 +227,15 @@ describe('AgentSetup', () => {
 		fetchMock.mockImplementation(() =>
 			Promise.resolve(
 				Response.json({
-					clients: [{id: 'grant-1', name: 'Cursor', connectedAt: '2026-10-01T00:00:00Z'}],
+					clients: [
+						{
+							id: 'grant-1',
+							name: 'Cursor',
+							connectedAt: '2026-10-01T00:00:00Z',
+							connectedBy: null,
+							mine: true,
+						},
+					],
 				}),
 			),
 		);

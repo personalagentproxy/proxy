@@ -61,27 +61,56 @@ import {VaultPage} from '@/pages/vault-page';
 import {WelcomeConnectionPage, WelcomePage} from '@/pages/welcome-page';
 
 // The app's root: no organization in the address, so the person's first opens, the one made at
-// sign-up until they join or make another. Without a session, /login.
+// sign-up until they join or make another. Without a session, /login. A person in no organization
+// at all, which deleting one guards against, is told so rather than sent to /login and back.
 async function rootLoader() {
 	const {orgs} = unwrapLoaderResult(await listOrgs());
 	const first = orgs[0];
 	if (!first) {
-		throw redirect('/login');
+		throw new Error('You are in no organization. Ask someone to invite you to theirs.');
 	}
 	throw redirect(`/${first.slug}`);
 }
 
+// The app's pages before every page was one organization's: a saved link to one opens it in the
+// person's first organization.
+const LEGACY_PAGES = new Map([
+	['connections', 'connections'],
+	['agents', 'agents'],
+	['activity', 'activity'],
+	['vault', 'vault'],
+	['info', 'vault'],
+	['settings', 'settings'],
+]);
+
+function legacyRedirect(slug: string, url: URL, first: string | undefined): string | null {
+	const page = LEGACY_PAGES.get(slug);
+	if (page === undefined || first === undefined) {
+		return null;
+	}
+	const rest = url.pathname.slice(`/${slug}`.length);
+	return `/${first}/${page}${rest}${url.search}`;
+}
+
 // The human side's guard, on every page in an organization (`/:org/…`): no session sends the user
-// to /login, and back here after; an organization that isn't theirs sends them to their first; one
-// that has not been through the welcome flow goes there first. With who is signed in, the
+// to /login, and back here after; an organization that isn't theirs sends them to their first, a
+// page from before organizations were in the address to that page there; one that has not been
+// through the welcome flow goes there first. With who is signed in, the
 // organization and the organizations they are in, for the switcher and every page that says which
 // is open.
-async function humanLoader({params}: {params: {org?: string}}): Promise<Human> {
+async function humanLoader({
+	params,
+	request,
+}: {
+	params: {org?: string};
+	request: Request;
+}): Promise<Human> {
 	const slug = params.org ?? '';
 	const [me, org, orgs] = await Promise.all([getMe(), getOrg(slug), listOrgs()]);
 	const signedIn = unwrapLoaderResult(me);
 	if (org.isErr() && isNotFoundError(org.error)) {
-		throw redirect('/');
+		const first = unwrapLoaderResult(orgs).orgs[0]?.slug;
+		throw redirect(legacyRedirect(slug, new URL(request.url), first) ?? '/');
 	}
 	const named = unwrapLoaderResult(org);
 	if (!named.onboarded) {
@@ -103,7 +132,7 @@ async function loginLoader({request}: {request: Request}): Promise<SignInMethods
 }
 
 export const router = createBrowserRouter([
-	{path: '/', loader: rootLoader, element: null},
+	{path: '/', loader: rootLoader, element: null, errorElement: <RouteError />},
 	{path: '/login', loader: loginLoader, element: <LoginPage />},
 	{path: '/agent/login', element: <AgentLoginPage />},
 	// An MCP client, such as Claude, signing in as one of the person's agents.

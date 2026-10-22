@@ -9,7 +9,7 @@ const listUserOrgs = mock();
 const removeMembership = mock();
 const listOrgConnectionsWithCredential = mock();
 const listOwnConnectionsWithCredential = mock();
-const beforeDisconnect = mock();
+const beforeDisconnectAll = mock();
 const clearSessionCookie = mock();
 
 mock.module('@proxy/db/user', () => ({
@@ -19,7 +19,7 @@ mock.module('@proxy/db/user', () => ({
 
 mock.module('@proxy/db/connection', () => ({listOrgConnectionsWithCredential, listOwnConnectionsWithCredential}));
 
-mock.module('../connections/disconnect', () => ({beforeDisconnect}));
+mock.module('../connections/disconnect', () => ({beforeDisconnectAll}));
 
 mock.module('../auth/session', () => ({clearSessionCookie}));
 
@@ -56,7 +56,7 @@ beforeEach(() => {
 	removeMembership.mockResolvedValue(Ok(undefined));
 	listOrgConnectionsWithCredential.mockResolvedValue(Ok([]));
 	listOwnConnectionsWithCredential.mockResolvedValue(Ok([]));
-	beforeDisconnect.mockResolvedValue(undefined);
+	beforeDisconnectAll.mockResolvedValue(undefined);
 	deleteUser.mockResolvedValue(Ok(undefined));
 });
 
@@ -108,8 +108,8 @@ describe('handleDeleteMeRoute', () => {
 	test('undoes every connection of an organization they own at its provider, then deletes the user, and signs out', async () => {
 		listOrgConnectionsWithCredential.mockResolvedValue(Ok([google, bank]));
 		const order: string[] = [];
-		beforeDisconnect.mockImplementation(async (connection: {id: string}) => {
-			order.push(connection.id);
+		beforeDisconnectAll.mockImplementation(async (connections: Array<{id: string}>) => {
+			order.push(...connections.map((connection) => connection.id));
 		});
 		deleteUser.mockImplementation(async () => {
 			order.push('user');
@@ -145,7 +145,7 @@ describe('handleDeleteMeRoute', () => {
 		const res = makeRes();
 		await handleDeleteMeRoute(makeRequest() as never, res as never);
 
-		expect(beforeDisconnect.mock.calls.map(([connection]) => connection)).toEqual([google, bank]);
+		expect(beforeDisconnectAll).toHaveBeenCalledWith([google, bank]);
 		expect(removeMembership).not.toHaveBeenCalled();
 		expect(deleteUser).toHaveBeenCalledWith('user-1');
 		expect(res.status).toHaveBeenCalledWith(204);

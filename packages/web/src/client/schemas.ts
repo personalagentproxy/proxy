@@ -72,6 +72,10 @@ export const auditEntrySchema = z.object({
 	// The agent's task it was made for, among the answer's tasks; none for entries from before
 	// tasks, and for what Personal Agent Proxy did itself.
 	taskId: z.string().nullable(),
+	// The member who asked for what Personal Agent Proxy did itself, and their name while they are
+	// in the organization; null for an agent's request, and for entries from before it was kept.
+	userId: z.string().nullable(),
+	userName: z.string().nullable(),
 });
 
 // What an agent set out to do, as it said when it started: what the entries made for it were for.

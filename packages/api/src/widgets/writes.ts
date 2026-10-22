@@ -8,7 +8,7 @@ import type {Source} from './sources';
 
 /**
  * What follows a widget's write: the activity log's entry, as done by Personal Agent Proxy for the
- * person rather than by an agent, and the place written to, which the widget starts on next time,
+ * person rather than by an agent, naming them, and the place written to, which the widget starts on next time,
  * unless `parent` is `undefined`, as for a change to something already there, which picks nowhere.
  * The write is done by then, so neither failing fails it; each is logged instead.
  */
@@ -17,7 +17,7 @@ export async function afterWrite(args: {orgId: string; userId: string; source: S
 	const connectionId = source.connection.id;
 	const collectionId = source.collection.id;
 	const [logged, saved] = await Promise.all([
-		logProxyAction({orgId, connectionId, collectionId, action, recordTitle: title || null, ownerUserId: source.connection.ownerUserId}),
+		logProxyAction({orgId, connectionId, collectionId, action, recordTitle: title || null, ownerUserId: source.connection.ownerUserId, userId}),
 		parent === undefined ? Ok(null) : saveWriteTarget({userId, collectionId, connectionId, parent}),
 	]);
 	if (logged.isErr()) {

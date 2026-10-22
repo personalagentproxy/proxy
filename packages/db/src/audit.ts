@@ -24,6 +24,9 @@ export type AuditEntryRow = {
 	// How long the request took, from when it came in to when it was logged; none for entries from
 	// before this was kept, and for what Personal Agent Proxy did itself.
 	durationMs: number | null;
+	// The member who asked for what Personal Agent Proxy did itself; none for an agent's request,
+	// and for entries from before it was kept.
+	userId: string | null;
 	createdAt: Date;
 };
 
@@ -57,7 +60,8 @@ export async function logAgentRequest(data: {
 /**
  * Logs one thing Personal Agent Proxy did itself for a person, such as making an event from the
  * home page: an entry without an agent, always allowed, since the person asked for it. Whose entry
- * it is (`ownerUserId`) is whose own the connection is: everyone's for a shared one.
+ * it is (`ownerUserId`) is whose own the connection is: everyone's for a shared one; who asked
+ * (`userId`) is kept either way.
  */
 export async function logProxyAction(data: {
 	orgId: string;
@@ -66,6 +70,7 @@ export async function logProxyAction(data: {
 	action: string;
 	recordTitle: string | null;
 	ownerUserId: string | null;
+	userId: string;
 }): Promise<Result<void, ApiError>> {
 	return wrapDb(async () => {
 		await db.auditEntry.create({
@@ -118,6 +123,7 @@ export async function listAuditEntries(
 				via: true,
 				taskId: true,
 				durationMs: true,
+				userId: true,
 				createdAt: true,
 			},
 		}),

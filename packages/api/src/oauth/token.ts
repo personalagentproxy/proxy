@@ -98,7 +98,7 @@ function exchangeCode(client: OAuthClientRow, body: Record<string, unknown>): Pr
 		}
 
 		const {tokens, stored: hashes} = newTokens();
-		$((await createOAuthGrant({...hashes, clientId: client.id, agentId: stored.agentId})).mapErr(serverError));
+		$((await createOAuthGrant({...hashes, clientId: client.id, agentId: stored.agentId, userId: stored.userId})).mapErr(serverError));
 		return tokens;
 	});
 }

@@ -183,7 +183,8 @@ function chooseAgent(viewer: MemberViewer, body: z.infer<typeof consentBodySchem
 
 /**
  * `POST /api/oauth/consent`: the person's answer. Allowing it as an agent makes a code for the
- * client, good once for a few minutes; either way the answer is where the browser goes next.
+ * client, good once for a few minutes, which keeps who allowed it; either way the answer is where
+ * the browser goes next.
  */
 export function handleConsentRoute(request: AuthenticatedRequest): Promise<Result<{redirectTo: string}, ApiError>> {
 	return Do(async ($) => {
@@ -198,7 +199,17 @@ export function handleConsentRoute(request: AuthenticatedRequest): Promise<Resul
 		const viewer = $(await consentViewer(request.user.userId, body.org));
 		const agentId = $(await chooseAgent(viewer, body));
 		const code = randomToken();
-		$(await createOAuthCode({codeHash: hashToken(code), clientId: client.id, agentId, redirectUri, codeChallenge: authorization.codeChallenge, expires: new Date(Date.now() + CODE_TTL_MS)}));
+		$(
+			await createOAuthCode({
+				codeHash: hashToken(code),
+				clientId: client.id,
+				agentId,
+				userId: viewer.userId,
+				redirectUri,
+				codeChallenge: authorization.codeChallenge,
+				expires: new Date(Date.now() + CODE_TTL_MS),
+			}),
+		);
 		return {redirectTo: withParams(redirectUri, {code, state, iss: appUrl})};
 	});
 }

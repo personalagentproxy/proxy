@@ -231,7 +231,7 @@ describe('handleConsentRoute', () => {
 		expect(`${to.origin}${to.pathname}`).toBe(REDIRECT);
 		expect(to.searchParams.get('state')).toBe('xyz');
 		expect(to.searchParams.get('iss')).toBe('https://app.example.com');
-		expect(createOAuthCode.mock.calls[0]?.[0]).toMatchObject({codeHash: sha256(code), clientId: 'client-1', agentId: 'agent-1', redirectUri: REDIRECT, codeChallenge: 'challenge'});
+		expect(createOAuthCode.mock.calls[0]?.[0]).toMatchObject({codeHash: sha256(code), clientId: 'client-1', agentId: 'agent-1', userId: 'user-1', redirectUri: REDIRECT, codeChallenge: 'challenge'});
 	});
 
 	test('can make a new login for a provider to work as', async () => {
@@ -272,7 +272,7 @@ describe('handleConsentRoute', () => {
 
 describe('handleTokenRoute', () => {
 	const verifier = 'verifier-with-enough-entropy-0123456789';
-	const storedCode = {clientId: 'client-1', agentId: 'agent-1', redirectUri: REDIRECT, codeChallenge: sha256(verifier, 'base64url'), expires: new Date(Date.now() + 60_000)};
+	const storedCode = {clientId: 'client-1', agentId: 'agent-1', userId: 'user-1', redirectUri: REDIRECT, codeChallenge: sha256(verifier, 'base64url'), expires: new Date(Date.now() + 60_000)};
 
 	async function token(body: Record<string, string>, headers: Record<string, string> = {}) {
 		const {handleTokenRoute} = await import('./token');
@@ -281,7 +281,7 @@ describe('handleTokenRoute', () => {
 		return res;
 	}
 
-	test('trades a code and its verifier for tokens, keeping only their hashes', async () => {
+	test('trades a code and its verifier for tokens, keeping only their hashes and who signed in', async () => {
 		takeOAuthCode.mockResolvedValue(Ok(storedCode));
 		const res = await token({grant_type: 'authorization_code', code: 'code-1', code_verifier: verifier, redirect_uri: REDIRECT, client_id: 'client-1'});
 		const body = res.body as {access_token: string; refresh_token: string; token_type: string};
@@ -289,7 +289,13 @@ describe('handleTokenRoute', () => {
 		expect(res.statusCode).toBe(200);
 		expect(body.token_type).toBe('Bearer');
 		expect(takeOAuthCode).toHaveBeenCalledWith(sha256('code-1'));
-		expect(createOAuthGrant.mock.calls[0]?.[0]).toMatchObject({clientId: 'client-1', agentId: 'agent-1', accessTokenHash: sha256(body.access_token), refreshTokenHash: sha256(body.refresh_token)});
+		expect(createOAuthGrant.mock.calls[0]?.[0]).toMatchObject({
+			clientId: 'client-1',
+			agentId: 'agent-1',
+			userId: 'user-1',
+			accessTokenHash: sha256(body.access_token),
+			refreshTokenHash: sha256(body.refresh_token),
+		});
 		expect(res.headers['cache-control']).toBe('no-store');
 	});
 

@@ -367,6 +367,10 @@ model AuditEntry {
   // Personal Agent Proxy did itself; null for a shared agent's or a shared connection's, which
   // everyone in the organization sees.
   ownerUserId  String?
+  // The member who asked for what Personal Agent Proxy did itself, as a plain id, so the entry
+  // stays when they are gone; null for an agent's request, and for entries from before it was
+  // kept.
+  userId       String?
 
   createdAt DateTime @default(now())
 
@@ -468,6 +472,8 @@ model OAuthCode {
   codeHash      String   @unique
   clientId      String
   agentId       String
+  // The member who signed the client in, as a plain id; null for a code from before it was kept.
+  userId        String?
   redirectUri   String
   codeChallenge String
   expires       DateTime
@@ -482,11 +488,16 @@ model OAuthCode {
 }
 
 // A client signed in as an agent: its access token and refresh token, by their SHA-256.
-// Refreshing replaces both. Disconnecting it, or revoking or deleting the agent, ends it.
+// Refreshing replaces both. Disconnecting it, revoking or deleting the agent, or the member who
+// signed it in leaving the organization, ends it.
 model OAuthGrant {
   id               String   @id @default(cuid())
   clientId         String
   agentId          String
+  // The member who signed the client in, as a plain id: they see and sign out their own clients
+  // on a shared agent, and leaving the organization signs them out. Null for a grant from before
+  // it was kept, which only whoever may change the agent sees.
+  userId           String?
   accessTokenHash  String   @unique
   accessExpires    DateTime
   refreshTokenHash String   @unique
@@ -500,4 +511,5 @@ model OAuthGrant {
 
   @@index([clientId])
   @@index([agentId])
+  @@index([userId])
 }

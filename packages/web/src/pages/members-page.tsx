@@ -202,7 +202,7 @@ export function MembersPage() {
 				title={pending ? `Remove ${nameOf(pending.member)}?` : ''}
 				description={
 					pending
-						? `${nameOf(pending.member)} loses ${org.name} at once: its connections, agents and activity are no longer theirs to see or use.`
+						? `${nameOf(pending.member)} loses ${org.name} at once: its connections, agents and activity are no longer theirs to see or use, and the apps they signed in as its shared agents are signed out. A shared agent's password they know keeps working until it is reset.`
 						: ''
 				}
 				confirmLabel="Remove"

@@ -96,7 +96,7 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	google.requests = [];
 	google.status = 200;
-	countSameAccountConnections.mockResolvedValue(Ok(1));
+	countSameAccountConnections.mockResolvedValue(Ok(0));
 	listConnectionsWithCredential.mockResolvedValue(Ok([emailRow]));
 	getConnectionWithCredential.mockResolvedValue(Ok(emailRow));
 	deleteConnection.mockResolvedValue(Ok(true));
@@ -234,13 +234,13 @@ describe('handleDeleteConnectionRoute', () => {
 
 	test('keeps the grant at Google while another connection, in any organization, is for the same account', async () => {
 		getConnectionWithCredential.mockResolvedValue(Ok(withoutDrive));
-		countSameAccountConnections.mockResolvedValue(Ok(2));
+		countSameAccountConnections.mockResolvedValue(Ok(1));
 
 		const {handleDeleteConnectionRoute} = await import('./route');
 		const result = await handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-2'}));
 
 		expect(result.isOk()).toBe(true);
-		expect(countSameAccountConnections).toHaveBeenCalledWith('conn-2');
+		expect(countSameAccountConnections).toHaveBeenCalledWith('conn-2', ['conn-2']);
 		expect(google.requests).toEqual([]);
 		expect(deleteConnection).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'conn-2');
 	});

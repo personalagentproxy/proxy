@@ -59,6 +59,8 @@ const entry: AuditEntry = {
 	action: 'archive',
 	recordTitle: 'Weekly digest',
 	query: null,
+	userId: null,
+	userName: null,
 	outcome: 'denied',
 	via: 'mcp',
 	taskId: task.id,
@@ -103,5 +105,43 @@ describe('AuditList', () => {
 		expect(within(dialog).getByText('Weekly digest')).toBeDefined();
 		expect(within(dialog).getByText('Archive')).toBeDefined();
 		expect(within(dialog).getByText('MCP')).toBeDefined();
+	});
+
+	test('what Personal Agent Proxy did itself from the home page says who asked', async () => {
+		const byDana: AuditEntry = {
+			...entry,
+			id: 'entry-2',
+			agentId: null,
+			action: 'sendNew',
+			outcome: 'allowed',
+			via: 'web',
+			taskId: null,
+			userId: 'user-2',
+			userName: 'Dana',
+		};
+		const router = createMemoryRouter(
+			[
+				{
+					path: '/:org/activity',
+					element: (
+						<TooltipProvider>
+							<AuditList
+								entries={[byDana, {...byDana, id: 'entry-3', userName: null}]}
+								agents={[agent]}
+								connections={[connection]}
+								tasks={[]}
+							/>
+						</TooltipProvider>
+					),
+				},
+			],
+			{initialEntries: ['/org-1/activity']},
+		);
+		render(<RouterProvider router={router} />);
+
+		expect(await screen.findByRole('img', {name: 'Personal Agent Proxy for Dana'})).toBeDefined();
+		expect(
+			screen.getByRole('img', {name: 'Personal Agent Proxy for a former member'}),
+		).toBeDefined();
 	});
 });

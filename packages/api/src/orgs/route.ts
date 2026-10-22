@@ -8,7 +8,7 @@ import {listOrgConnectionsWithCredential, listOwnConnectionsWithCredential} from
 import {createInvitation, deleteInvitation, listInvitations, type InvitationRow} from '@proxy/db/invitation';
 import {
 	createOrganization,
-	deleteOrganization,
+	deleteOwnedOrganization,
 	getMembership,
 	listMembers,
 	listUserOrgs,
@@ -24,7 +24,7 @@ import {getUserByEmail} from '@proxy/db/user';
 import {normalizeEmail} from '../auth/email-address';
 import {sendInvitation} from '../auth/mail';
 import {canSignUp, hashToken} from '../auth/session';
-import {beforeDisconnect} from '../connections/disconnect';
+import {beforeDisconnectAll} from '../connections/disconnect';
 import {log} from '../observability/log';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {env} from '../utils/env';
@@ -121,28 +121,29 @@ export function handleRenameOrgRoute(request: AuthenticatedRequest): Promise<Res
 export function handleDeleteOrgRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		const {orgId, userId} = $(await requireOwner(request));
+		const lastOwned = ApiErr.conflict('This is the only organization you own. Create another first, or delete your account instead.');
 		const owned = $(await listUserOrgs(userId)).filter((org) => org.role === 'owner');
 		if (owned.length <= 1) {
-			return $(Err(ApiErr.conflict('This is the only organization you own. Create another first, or delete your account instead.')));
+			return $(Err(lastOwned));
 		}
 		const connections = $(await listOrgConnectionsWithCredential(orgId));
-		for (const connection of connections) {
-			await beforeDisconnect(connection);
+		await beforeDisconnectAll(connections);
+		// Checked again as it is deleted: another deletion may have taken the one that stays.
+		if (!$(await deleteOwnedOrganization({orgId, ownerUserId: userId}))) {
+			return $(Err(lastOwned));
 		}
-		$(await deleteOrganization(orgId));
 		log.info('Deleted an organization', {orgId, connections: connections.length});
 	});
 }
 
 /**
- * Takes a member out: their own connections there are undone at their providers and deleted; the
- * shared ones stay. The caller has checked they aren't its owner.
+ * Takes a member out: their own connections there are undone at their providers and deleted, and
+ * so are their own agents and the MCP clients they signed in as a shared agent; the shared
+ * connections and agents stay. The caller has checked they aren't its owner.
  */
 function takeOut(orgId: string, userId: string): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		for (const connection of $(await listOwnConnectionsWithCredential({orgId, userId}))) {
-			await beforeDisconnect(connection);
-		}
+		await beforeDisconnectAll($(await listOwnConnectionsWithCredential({orgId, userId})));
 		$(await removeMembership({orgId, userId}));
 	});
 }

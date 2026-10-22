@@ -7,7 +7,7 @@ import {listUserOrgs, removeMembership} from '@proxy/db/organization';
 import {deleteUser, getUserFromId} from '@proxy/db/user';
 
 import {clearSessionCookie} from '../auth/session';
-import {beforeDisconnect} from '../connections/disconnect';
+import {beforeDisconnectAll} from '../connections/disconnect';
 import {log} from '../observability/log';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {sendApiError} from '../server/response';
@@ -43,9 +43,7 @@ function deleteAccount(userId: string): Promise<Result<void, ApiError>> {
 		for (const org of $(await listUserOrgs(userId))) {
 			const owned = org.role === 'owner';
 			const connections = owned ? $(await listOrgConnectionsWithCredential(org.id)) : $(await listOwnConnectionsWithCredential({orgId: org.id, userId}));
-			for (const connection of connections) {
-				await beforeDisconnect(connection);
-			}
+			await beforeDisconnectAll(connections);
 			undone += connections.length;
 			if (!owned) {
 				$(await removeMembership({orgId: org.id, userId}));

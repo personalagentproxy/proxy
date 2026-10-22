@@ -146,10 +146,11 @@ function AgentDetail({id}: {id: string}) {
 		>
 			<div className="flex flex-col gap-8">
 				{error && <p className="text-sm text-destructive">{error}</p>}
-				{manages && mcpClients.length > 0 && (
+				{mcpClients.length > 0 && (
 					<Section title="MCP">
 						<McpClients
 							clients={mcpClients}
+							manages={manages}
 							onDisconnect={(clientId) => void apply(disconnectMcpClient(org, agent.id, clientId))}
 						/>
 					</Section>
@@ -189,7 +190,7 @@ function AgentDetail({id}: {id: string}) {
 					]}
 					canShare={manages}
 					alone={!hasOtherPeople(activeOrg)}
-					confirmDescription={`Everyone in ${activeOrg.name} sees ${agent.name} and can give its login to their own tools. It reaches only the connections shared with everyone from then on, so its settings on your own connections are dropped. Whoever made it and the organization's owner change it. This can't be undone.`}
+					confirmDescription={`Everyone in ${activeOrg.name} sees ${agent.name} and can give its login to their own tools. It reaches only the connections shared with everyone from then on, so its settings on your own connections are dropped. Its tasks and activity so far become everyone's too, except what it did on your own connections, which stays yours. Whoever made it and the organization's owner change it. This can't be undone.`}
 					onShare={() => apply(shareAgent(org, agent.id))}
 				/>
 				<Section
@@ -263,14 +264,24 @@ function AgentDetail({id}: {id: string}) {
 	);
 }
 
-// The MCP clients, such as Claude, that signed in as this agent, each to be signed out on its own.
+// The MCP clients, such as Claude, that signed in as this agent: every one for whoever manages the
+// agent, with who signed each in; the person's own for anyone else. Each is signed out on its own,
+// by whoever manages the agent or signed it in.
 function McpClients({
 	clients,
+	manages,
 	onDisconnect,
 }: {
 	clients: McpClient[];
+	manages: boolean;
 	onDisconnect: (clientId: string) => void;
 }) {
+	const connectedBy = (client: McpClient) => {
+		if (client.mine) {
+			return 'by you';
+		}
+		return `by ${client.connectedBy ?? 'a former member'}`;
+	};
 	return (
 		<RowList>
 			{clients.map((client) => (
@@ -278,10 +289,13 @@ function McpClients({
 					<span className="min-w-0 flex-1 truncate">{client.name}</span>
 					<span className="shrink-0 text-muted-foreground">
 						connected {formatDate(client.connectedAt)}
+						{manages && ` ${connectedBy(client)}`}
 					</span>
-					<IconButton label={`Disconnect ${client.name}`} onClick={() => onDisconnect(client.id)}>
-						<UnplugIcon />
-					</IconButton>
+					{(manages || client.mine) && (
+						<IconButton label={`Disconnect ${client.name}`} onClick={() => onDisconnect(client.id)}>
+							<UnplugIcon />
+						</IconButton>
+					)}
 				</li>
 			))}
 		</RowList>

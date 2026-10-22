@@ -396,8 +396,9 @@ export function sharedVaultFor(data: {
 /**
  * Takes a person out of an organization: their own connections there go, with their defaults,
  * entries and every agent's settings on them, and so do their own agents there, with their logins
- * and MCP clients; the shared ones stay. The caller has undone the connections at their providers
- * first, and checked they aren't its owner.
+ * and MCP clients; the shared ones stay, but the MCP clients they signed in as a shared agent are
+ * signed out, so nothing of theirs keeps working there. The caller has undone the connections at
+ * their providers first, and checked they aren't its owner.
  */
 export async function removeMembership(data: {
 	orgId: string;
@@ -408,20 +409,54 @@ export async function removeMembership(data: {
 		await db.$transaction([
 			db.connection.deleteMany({where: {orgId, ownerUserId: userId}}),
 			db.agent.deleteMany({where: {orgId, ownerUserId: userId}}),
+			db.oAuthCode.deleteMany({where: {userId, agent: {orgId}}}),
+			db.oAuthGrant.deleteMany({where: {userId, agent: {orgId}}}),
 			db.orgMember.deleteMany({where: {orgId, userId}}),
 		]);
 	});
 }
 
 /**
- * Deletes an organization; the cascades take its memberships, connections, its vault and every
- * member's there, agents, invitations and activity. The caller has undone its connections at their
- * providers first.
+ * Deletes an organization its owner owns another of, so everyone always owns one: `Ok(false)`
+ * when it is the last one they own, which stays. Checked and deleted as one, serializable, so two
+ * deletions at once can't each take the other for the one that stays; one of the two then fails
+ * to serialize, which is a conflict to try again. The cascades take its memberships,
+ * connections, its vault and every member's there, agents, invitations and activity. The caller
+ * has undone its connections at their providers first.
  */
-export async function deleteOrganization(orgId: string): Promise<Result<void, ApiError>> {
-	return (await wrapDb(() => db.organization.deleteMany({where: {id: orgId}}))).map(
-		() => undefined,
+export async function deleteOwnedOrganization(data: {
+	orgId: string;
+	ownerUserId: string;
+}): Promise<Result<boolean, ApiError>> {
+	const {orgId, ownerUserId} = data;
+	const deleted = await wrapDb(() =>
+		db.$transaction(
+			async (tx) => {
+				const others = await tx.organization.count({
+					where: {ownerUserId, id: {not: orgId}},
+				});
+				if (others === 0) {
+					return false;
+				}
+				await tx.organization.deleteMany({where: {id: orgId, ownerUserId}});
+				return true;
+			},
+			{isolationLevel: Prisma.TransactionIsolationLevel.Serializable},
+		),
 	);
+	if (deleted.isErr() && isSerializationFailure(deleted.error)) {
+		return Err(ApiErr.conflict('Something else changed your organizations just now. Try again.'));
+	}
+	return deleted;
+}
+
+// Postgres refused to serialize the transaction beside another: Prisma's P2034.
+function isSerializationFailure(error: ApiError): boolean {
+	if (error.kind !== 'db_error') {
+		return false;
+	}
+	const cause = error.cause;
+	return cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === 'P2034';
 }
 
 /** Marks the welcome flow done, once: a second finish keeps the first time. */

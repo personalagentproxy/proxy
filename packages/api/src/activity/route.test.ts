@@ -4,7 +4,9 @@ import {Ok} from 'ts-results-es';
 const listAuditEntries = mock();
 const summarizeTaskRequests = mock();
 
-mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
+const listMemberNames = mock(async (): Promise<unknown> => Ok([]));
+
+mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames}));
 
 const requireViewer = mock(async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}));
 
@@ -107,7 +109,7 @@ describe('handleListActivityRoute', () => {
 		expect(listAuditEntries).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {agentId: null}, 500);
 	});
 
-	test('names the tasks the entries were made for, and the one asked for even without entries', async () => {
+	test('names the tasks the entries were made for, and the one asked for even without entries, and who asked for what Personal Agent Proxy did', async () => {
 		const entry = {
 			id: 'e1',
 			agentId: 'agent-1',
@@ -120,9 +122,11 @@ describe('handleListActivityRoute', () => {
 			via: 'mcp',
 			taskId: 'task-1',
 			durationMs: 340,
+			userId: null,
 			createdAt: new Date('2026-10-15T10:00:00Z'),
 		};
-		listAuditEntries.mockResolvedValue(Ok([entry, {...entry, id: 'e2', taskId: null, agentId: null, durationMs: null}]));
+		listMemberNames.mockResolvedValue(Ok([{orgId: 'org-1', userId: 'user-2', name: 'Dana'}]));
+		listAuditEntries.mockResolvedValue(Ok([entry, {...entry, id: 'e2', taskId: null, agentId: null, durationMs: null, userId: 'user-2'}]));
 		listAgentTasks.mockResolvedValue(
 			Ok([
 				{
@@ -157,6 +161,8 @@ describe('handleListActivityRoute', () => {
 					via: 'mcp',
 					taskId: 'task-1',
 					durationMs: 340,
+					userId: null,
+					userName: null,
 					at: '2026-10-15T10:00:00.000Z',
 				},
 				{
@@ -171,6 +177,8 @@ describe('handleListActivityRoute', () => {
 					via: 'mcp',
 					taskId: null,
 					durationMs: null,
+					userId: 'user-2',
+					userName: 'Dana',
 					at: '2026-10-15T10:00:00.000Z',
 				},
 			],

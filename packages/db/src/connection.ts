@@ -279,11 +279,13 @@ export async function updateConnectionName(data: {
 
 /**
  * How many connections, in every organization, are for the same account as this one, itself
- * included: those with the provider's id for it, or with its address, as one connected before ids
- * were kept is known by. Zero once the connection is gone.
+ * included unless in `except`: those with the provider's id for it, or with its address, as one
+ * connected before ids were kept is known by. Zero once the connection is gone.
  */
 export async function countSameAccountConnections(
 	connectionId: string,
+	// Connections not to count, as those being deleted together with this one.
+	except: string[] = [],
 ): Promise<Result<number, ApiError>> {
 	return wrapDb(async () => {
 		const connection = await db.connection.findUnique({
@@ -295,7 +297,7 @@ export async function countSameAccountConnections(
 		}
 		const {integrationId, account, providerAccountId} = connection;
 		const same = providerAccountId === null ? [{account}] : [{providerAccountId}, {account}];
-		return db.connection.count({where: {integrationId, OR: same}});
+		return db.connection.count({where: {integrationId, id: {notIn: except}, OR: same}});
 	});
 }
 

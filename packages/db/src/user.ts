@@ -122,6 +122,9 @@ export async function deleteUser(userId: string): Promise<Result<void, ApiError>
 			if (user) {
 				await tx.verificationToken.deleteMany({where: {identifier: user.email}});
 			}
+			// The clients they signed in as shared agents, which don't go with the user.
+			await tx.oAuthCode.deleteMany({where: {userId}});
+			await tx.oAuthGrant.deleteMany({where: {userId}});
 			await tx.user.delete({where: {id: userId}});
 		}),
 	);

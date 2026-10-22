@@ -37,10 +37,20 @@ mock.module('../utils/secret-crypto', () => ({
 
 const requireUserOrgId = mock();
 
+const owner = {orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []};
+// Someone else in the organization, who only uses what is shared.
+const member = {...owner, userId: 'user-2', role: 'member'};
+const requireViewer = mock(async (): Promise<unknown> => Ok(owner));
+
 mock.module('../utils/user-org', () => ({
-	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
+	requireViewer,
 	requireUserOrgId,
 }));
+
+const listAgentOAuthGrants = mock();
+const deleteOAuthGrant = mock();
+
+mock.module('@proxy/db/oauth', () => ({listAgentOAuthGrants, deleteOAuthGrant}));
 
 const agentRow = {
 	id: 'agent-1',
@@ -62,7 +72,10 @@ function makeRequest(params: Record<string, string> = {}, body: unknown = undefi
 
 beforeEach(() => {
 	mock.clearAllMocks();
+	requireViewer.mockResolvedValue(Ok(owner));
 	requireUserOrgId.mockResolvedValue(Ok('org-1'));
+	listAgentOAuthGrants.mockResolvedValue(Ok([]));
+	deleteOAuthGrant.mockResolvedValue(Ok(true));
 	getAgent.mockResolvedValue(Ok(agentRow));
 	createAgent.mockResolvedValue(Ok(agentRow));
 	updateAgent.mockResolvedValue(Ok(true));
@@ -261,5 +274,54 @@ describe('handleSetAgentGrantsRoute', () => {
 
 		expect(result.unwrapErr().kind).toBe('not_found');
 		expect(setAgentGrants).not.toHaveBeenCalled();
+	});
+});
+
+describe('MCP clients', () => {
+	const shared = {...agentRow, ownerUserId: null, createdById: 'user-1'};
+	const grants = [
+		{id: 'grant-1', clientName: 'Claude', userId: 'user-1', createdAt: new Date('2026-10-01T00:00:00Z')},
+		{id: 'grant-2', clientName: 'ChatGPT', userId: 'user-2', createdAt: new Date('2026-10-02T00:00:00Z')},
+	];
+
+	test('whoever may change the agent sees every client, with who signed each in, and signs out any', async () => {
+		getAgent.mockResolvedValue(Ok(shared));
+		listAgentOAuthGrants.mockResolvedValue(Ok(grants));
+		const {handleListMcpClientsRoute, handleDisconnectMcpClientRoute} = await import('./route');
+		const listed = await handleListMcpClientsRoute(makeRequest({agentId: 'agent-1'}));
+		const disconnected = await handleDisconnectMcpClientRoute(makeRequest({agentId: 'agent-1', grantId: 'grant-2'}));
+
+		expect(listAgentOAuthGrants).toHaveBeenCalledWith('org-1', 'agent-1', undefined);
+		expect(listed.unwrap().clients).toEqual([
+			{id: 'grant-1', name: 'Claude', connectedAt: '2026-10-01T00:00:00.000Z', connectedBy: null, mine: true},
+			{id: 'grant-2', name: 'ChatGPT', connectedAt: '2026-10-02T00:00:00.000Z', connectedBy: null, mine: false},
+		]);
+		expect(disconnected.isOk()).toBe(true);
+		expect(deleteOAuthGrant).toHaveBeenCalledWith('org-1', 'agent-1', 'grant-2', undefined);
+	});
+
+	test('a member who only uses a shared agent sees and signs out the clients they signed in themselves', async () => {
+		requireViewer.mockResolvedValue(Ok(member));
+		getAgent.mockResolvedValue(Ok(shared));
+		listAgentOAuthGrants.mockResolvedValue(Ok([grants[1]]));
+		deleteOAuthGrant.mockResolvedValue(Ok(false));
+		const {handleListMcpClientsRoute, handleDisconnectMcpClientRoute} = await import('./route');
+		const listed = await handleListMcpClientsRoute(makeRequest({agentId: 'agent-1'}));
+		const theirs = await handleDisconnectMcpClientRoute(makeRequest({agentId: 'agent-1', grantId: 'grant-1'}));
+
+		expect(listAgentOAuthGrants).toHaveBeenCalledWith('org-1', 'agent-1', 'user-2');
+		expect(listed.unwrap().clients).toEqual([expect.objectContaining({id: 'grant-2', mine: true})]);
+		expect(deleteOAuthGrant).toHaveBeenCalledWith('org-1', 'agent-1', 'grant-1', 'user-2');
+		expect(theirs.unwrapErr().kind).toBe('not_found');
+	});
+
+	test('a member who only uses a shared agent may not change it', async () => {
+		requireViewer.mockResolvedValue(Ok(member));
+		getAgent.mockResolvedValue(Ok(shared));
+		const {handleRenameAgentRoute} = await import('./route');
+		const result = await handleRenameAgentRoute(makeRequest({agentId: 'agent-1'}, {name: 'Theirs'}));
+
+		expect(result.unwrapErr().kind).toBe('forbidden');
+		expect(renameAgent).not.toHaveBeenCalled();
 	});
 });

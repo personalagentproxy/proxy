@@ -13,7 +13,7 @@ const listInvitations = mock();
 mock.module('@proxy/db/invitation', () => ({createInvitation, deleteInvitation, listInvitations}));
 
 const createOrganization = mock();
-const deleteOrganization = mock();
+const deleteOwnedOrganization = mock();
 const listMembers = mock();
 const listUserOrgs = mock();
 const markOrganizationOnboarded = mock();
@@ -24,7 +24,7 @@ const getMemberOrganization = mock();
 
 mock.module('@proxy/db/organization', () => ({
 	createOrganization,
-	deleteOrganization,
+	deleteOwnedOrganization,
 	listMembers,
 	listUserOrgs,
 	markOrganizationOnboarded,
@@ -46,9 +46,9 @@ const canSignUp = mock();
 
 mock.module('../auth/session', () => ({canSignUp, hashToken: (token: string) => `hashed:${token}`}));
 
-const beforeDisconnect = mock();
+const beforeDisconnectAll = mock();
 
-mock.module('../connections/disconnect', () => ({beforeDisconnect}));
+mock.module('../connections/disconnect', () => ({beforeDisconnectAll}));
 
 const info = mock();
 
@@ -92,9 +92,9 @@ beforeEach(() => {
 	listOwnConnectionsWithCredential.mockResolvedValue(Ok([]));
 	markOrganizationOnboarded.mockResolvedValue(Ok(undefined));
 	removeMembership.mockResolvedValue(Ok(undefined));
-	deleteOrganization.mockResolvedValue(Ok(undefined));
+	deleteOwnedOrganization.mockResolvedValue(Ok(true));
 	renameOrganization.mockResolvedValue(Ok(undefined));
-	beforeDisconnect.mockResolvedValue(undefined);
+	beforeDisconnectAll.mockResolvedValue(undefined);
 	getUserByEmail.mockResolvedValue(Ok(null));
 	canSignUp.mockReturnValue(true);
 	createInvitation.mockImplementation(async (data: {email: string; expires: Date}) => Ok({id: 'inv-1', email: data.email, invitedBy: 'Alex', expires: data.expires, createdAt: new Date()}));
@@ -182,12 +182,12 @@ describe('handleDeleteOrgRoute', () => {
 		const theirs = {id: 'conn-2', integrationId: 'email', credential: 'enc:m'};
 		listOrgConnectionsWithCredential.mockResolvedValue(Ok([shared, theirs]));
 		const order: string[] = [];
-		beforeDisconnect.mockImplementation(async (connection: {id: string}) => {
-			order.push(connection.id);
+		beforeDisconnectAll.mockImplementation(async (connections: Array<{id: string}>) => {
+			order.push(...connections.map((connection) => connection.id));
 		});
-		deleteOrganization.mockImplementation(async () => {
+		deleteOwnedOrganization.mockImplementation(async () => {
 			order.push('org');
-			return Ok(undefined);
+			return Ok(true);
 		});
 
 		const {handleDeleteOrgRoute} = await import('./route');
@@ -195,8 +195,9 @@ describe('handleDeleteOrgRoute', () => {
 
 		expect(result.isOk()).toBe(true);
 		expect(listOrgConnectionsWithCredential).toHaveBeenCalledWith('org-2');
+		expect(beforeDisconnectAll).toHaveBeenCalledWith([shared, theirs]);
 		expect(order).toEqual(['conn-1', 'conn-2', 'org']);
-		expect(deleteOrganization).toHaveBeenCalledWith('org-2');
+		expect(deleteOwnedOrganization).toHaveBeenCalledWith({orgId: 'org-2', ownerUserId: 'user-1'});
 	});
 
 	test('not the last one the person owns, and only by its owner', async () => {
@@ -209,7 +210,17 @@ describe('handleDeleteOrgRoute', () => {
 
 		expect(only.unwrapErr().kind).toBe('conflict');
 		expect(asMember.unwrapErr().kind).toBe('forbidden');
-		expect(deleteOrganization).not.toHaveBeenCalled();
+		expect(deleteOwnedOrganization).not.toHaveBeenCalled();
+		expect(beforeDisconnectAll).not.toHaveBeenCalled();
+	});
+
+	test('a conflict when it turned out to be the last one as it was deleted', async () => {
+		listOrgConnectionsWithCredential.mockResolvedValue(Ok([]));
+		deleteOwnedOrganization.mockResolvedValue(Ok(false));
+		const {handleDeleteOrgRoute} = await import('./route');
+		const result = await handleDeleteOrgRoute(makeRequest());
+
+		expect(result.unwrapErr().kind).toBe('conflict');
 	});
 });
 
@@ -224,7 +235,7 @@ describe('handleLeaveOrgRoute', () => {
 
 		expect(result.isOk()).toBe(true);
 		expect(listOwnConnectionsWithCredential).toHaveBeenCalledWith({orgId: 'org-2', userId: 'user-1'});
-		expect(beforeDisconnect).toHaveBeenCalledWith(workMail);
+		expect(beforeDisconnectAll).toHaveBeenCalledWith([workMail]);
 		expect(removeMembership).toHaveBeenCalledWith({orgId: 'org-2', userId: 'user-1'});
 	});
 
@@ -270,7 +281,7 @@ describe('handleRemoveMemberRoute', () => {
 		await handleRemoveMemberRoute(makeRequest({userId: 'maya-1'}));
 
 		expect(listOwnConnectionsWithCredential).toHaveBeenCalledWith({orgId: 'org-2', userId: 'maya-1'});
-		expect(beforeDisconnect).toHaveBeenCalledWith(theirs);
+		expect(beforeDisconnectAll).toHaveBeenCalledWith([theirs]);
 		expect(removeMembership).toHaveBeenCalledWith({orgId: 'org-2', userId: 'maya-1'});
 	});
 

@@ -32,6 +32,8 @@ export async function getOAuthClient(id: string): Promise<Result<OAuthClientRow 
 export type OAuthCodeRow = {
 	clientId: string;
 	agentId: string;
+	// The member who signed the client in; null for a code from before it was kept.
+	userId: string | null;
 	redirectUri: string;
 	codeChallenge: string;
 	expires: Date;
@@ -57,6 +59,7 @@ export async function takeOAuthCode(
 				id: true,
 				clientId: true,
 				agentId: true,
+				userId: true,
 				redirectUri: true,
 				codeChallenge: true,
 				expires: true,
@@ -72,6 +75,7 @@ export async function takeOAuthCode(
 		return {
 			clientId: code.clientId,
 			agentId: code.agentId,
+			userId: code.userId,
 			redirectUri: code.redirectUri,
 			codeChallenge: code.codeChallenge,
 			expires: code.expires,
@@ -86,9 +90,12 @@ export type OAuthTokens = {
 	refreshExpires: Date;
 };
 
-/** Signs a client in as an agent, and marks the client used, so it is never deleted as stale. */
+/**
+ * Signs a client in as an agent, for the member who signed it in, and marks the client used, so it
+ * is never deleted as stale.
+ */
 export async function createOAuthGrant(
-	data: OAuthTokens & {clientId: string; agentId: string},
+	data: OAuthTokens & {clientId: string; agentId: string; userId: string | null},
 ): Promise<Result<void, ApiError>> {
 	return wrapDb(async () => {
 		await db.$transaction([
@@ -192,33 +199,56 @@ export async function rotateOAuthGrant(
 	).map(({count}) => count > 0);
 }
 
-export type OAuthGrantRow = {id: string; clientName: string; createdAt: Date};
+export type OAuthGrantRow = {
+	id: string;
+	clientName: string;
+	// Who signed the client in; null for a grant from before it was kept.
+	userId: string | null;
+	createdAt: Date;
+};
 
-/** The clients signed in as an agent of the organization, newest first. */
+/**
+ * The clients signed in as an agent of the organization, newest first: every one, or with
+ * `userId`, only those a member signed in themselves.
+ */
 export async function listAgentOAuthGrants(
 	orgId: string,
 	agentId: string,
+	userId?: string,
 ): Promise<Result<OAuthGrantRow[], ApiError>> {
 	return (
 		await wrapDb(() =>
 			db.oAuthGrant.findMany({
-				where: {agentId, agent: {orgId}},
+				where: {agentId, agent: {orgId}, ...(userId === undefined ? {} : {userId})},
 				orderBy: {createdAt: 'desc'},
-				select: {id: true, createdAt: true, client: {select: {name: true}}},
+				select: {id: true, userId: true, createdAt: true, client: {select: {name: true}}},
 			}),
 		)
 	).map((grants) =>
-		grants.map(({id, createdAt, client}) => ({id, clientName: client.name, createdAt})),
+		grants.map(({id, userId: by, createdAt, client}) => ({
+			id,
+			clientName: client.name,
+			userId: by,
+			createdAt,
+		})),
 	);
 }
 
-/** Signs a client out of an agent. `Ok(false)` means no such grant for an agent of the organization. */
+/**
+ * Signs a client out of an agent: any client, or with `userId`, only one that member signed in
+ * themselves. `Ok(false)` means no such grant for an agent of the organization.
+ */
 export async function deleteOAuthGrant(
 	orgId: string,
 	agentId: string,
 	grantId: string,
+	userId?: string,
 ): Promise<Result<boolean, ApiError>> {
 	return (
-		await wrapDb(() => db.oAuthGrant.deleteMany({where: {id: grantId, agentId, agent: {orgId}}}))
+		await wrapDb(() =>
+			db.oAuthGrant.deleteMany({
+				where: {id: grantId, agentId, agent: {orgId}, ...(userId === undefined ? {} : {userId})},
+			}),
+		)
 	).map(({count}) => count > 0);
 }
