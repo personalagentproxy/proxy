@@ -7,7 +7,7 @@ import {findCollection} from '@proxy/integrations';
 import {askModel} from '../intent/open-router';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {env} from '../utils/env';
-import {requireUserOrgId} from '../utils/user-org';
+import {requireViewer} from '../utils/user-org';
 import {requireAskExperiment} from './ask-experiment';
 import {covers, requireReadable, type Source} from './sources';
 
@@ -174,13 +174,13 @@ const bodySchema = z.object({
 /** `POST /api/widgets/answer {question, connectionId, collectionId, id}`: what the meeting, file, email, page or issue says of the question. */
 export function handleAnswerRoute(request: AuthenticatedRequest): Promise<Result<Answer, ApiError>> {
 	return Do(async ($) => {
-		$(requireAskExperiment(request));
 		const body = $(parseSchema(bodySchema, request.body));
 		if (!env.OPENROUTER_KEY) {
 			return $(Err(ApiErr.unavailable('Ask is not set up: set `OPENROUTER_KEY`.')));
 		}
-		const orgId = $(await requireUserOrgId(request));
-		const source = $(await requireReadable(orgId, body.connectionId, body.collectionId));
+		const viewer = $(await requireViewer(request));
+		$(requireAskExperiment(viewer));
+		const source = $(await requireReadable(viewer, body.connectionId, body.collectionId));
 		const reading = $(await readerFor(source)(source, body.id));
 		const kind = KINDS[body.collectionId];
 		if (reading.text.trim() === '') {

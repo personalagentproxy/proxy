@@ -4,7 +4,7 @@ import {z} from 'zod';
 import {type ApiError, Do, parseSchema} from '@proxy/utils';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {requireUserOrgId} from '../utils/user-org';
+import {requireViewer} from '../utils/user-org';
 import {requireWritable} from './sources';
 import {afterWrite} from './writes';
 
@@ -29,12 +29,12 @@ export type MadeEvent = {title: string; link: string | null};
 export function handleCreateEventRoute(request: AuthenticatedRequest): Promise<Result<MadeEvent, ApiError>> {
 	return Do(async ($) => {
 		const body = $(parseSchema(bodySchema, request.body));
-		const orgId = $(await requireUserOrgId(request));
+		const viewer = $(await requireViewer(request));
 		const values = {title: body.title, start: body.start, end: body.end, location: body.location, guests: body.guests.join(', ')};
 		const written = Object.keys(values).filter((key) => key !== 'guests' || body.guests.length > 0);
-		const source = $(await requireWritable(orgId, body.connectionId, 'events', 'create', written));
+		const source = $(await requireWritable(viewer, body.connectionId, 'events', 'create', written));
 		const made = $(await source.connector.create(source, values, body.calendarId));
-		await afterWrite({orgId, userId: request.user.userId, source, action: 'create', title: made.values.title ?? body.title, parent: body.calendarId});
+		await afterWrite({viewer, source, action: 'create', title: made.values.title ?? body.title, parent: body.calendarId});
 		return {title: made.values.title ?? body.title, link: made.url ?? null};
 	});
 }

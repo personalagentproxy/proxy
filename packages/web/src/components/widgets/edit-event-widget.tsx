@@ -23,6 +23,7 @@ import {
 } from '@/lib/widget-values';
 import {useSuggested} from '@/lib/use-suggested';
 import {useWriteStatus, writeErrorMessage} from '@/lib/write-status';
+import {useOrgSlug} from '@/hooks/use-org';
 
 const TIME = new Intl.DateTimeFormat(undefined, {hour: 'numeric', minute: '2-digit'});
 const DAY = new Intl.DateTimeFormat(undefined, {weekday: 'short', month: 'short', day: 'numeric'});
@@ -47,6 +48,7 @@ function optionLabel(event: AgendaEvent): string {
 // change unless they pick another; what changes of it, its time, title, place and guests, each
 // beside what it was; and the day it moves to, with what it would clash with.
 export function EditEventWidget({intent, typed, now}: {intent: Intent; typed: string; now: Date}) {
+	const org = useOrgSlug();
 	const [name] = namesIn(intent, 'changeWith');
 	const [what] = fieldTexts(intent, 'changeEvent');
 	const [when] = fieldTexts(intent, 'changeFrom');
@@ -116,7 +118,7 @@ export function EditEventWidget({intent, typed, now}: {intent: Intent; typed: st
 			return;
 		}
 		setStatus({kind: 'saving'});
-		void editEvent({
+		void editEvent(org, {
 			connectionId: event.connectionId,
 			calendarId: event.calendarId,
 			eventId: event.id,

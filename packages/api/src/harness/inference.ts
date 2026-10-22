@@ -1,13 +1,12 @@
 import {Err, Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, Do} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {readyForInference, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
-import {appendSummary, completeInference, type EntryRow, finishIdleInference, finishJob, getJobThread, type JobRow, listEntries, requeueJob, type ThreadRow} from '@proxy/db/harness';
+import {appendSummary, completeInference, type EntryRow, finishIdleInference, finishJob, getJobThread, getThreadAgent, type JobRow, listEntries, requeueJob, type ThreadRow} from '@proxy/db/harness';
 
 import {agentInstructions} from '../mcp/tools';
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
-import {requireBuiltInAgent} from './built-in-agent';
 import {compactionCut, toMessages} from './context';
 import {askModel, type ModelTurn} from './model';
 import {ensureThreadTask} from './thread-task';
@@ -70,9 +69,11 @@ function answerWith(job: JobRow, workerId: string, text: string): Promise<Result
 	return completeInference(job.id, workerId, job.threadId, {text, toolCalls: [], inputTokens: 0, outputTokens: 0}, {});
 }
 
+// The system prompt: the instructions any agent with the login gets, for the agent as it acts in
+// the thread, as the member whose conversation it is.
 function systemPrompt(thread: ThreadRow, now: Date): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
-		const signedIn = $(await requireBuiltInAgent(thread.orgId));
+		const signedIn = $(requirePresent($(await getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
 		const instructions = $(await agentInstructions(signedIn, FLOW));
 		return `${instructions}\n\nThe time now is ${now.toISOString()}.`;
 	});

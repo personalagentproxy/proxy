@@ -1,60 +1,48 @@
 import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
-import {deleteConnection, getConnectionWithCredential, listConnectionsWithCredential, setConnectionDefaults, updateConnectionName, type ConnectionRow} from '@proxy/db/connection';
+import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
+import {deleteConnection, listConnectionsWithCredential, setConnectionDefaults, shareConnection, updateConnectionName} from '@proxy/db/connection';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {integrationOf, parseActionChanges, requireIntegration} from '../utils/connection-actions';
-import {requireUserOrgId} from '../utils/user-org';
-import {toConnectionResponse, type ConnectionResponse} from './connection-response';
+import {requireViewer} from '../utils/user-org';
+import {respond, respondAll, type ConnectionResponse} from './connection-response';
 import {beforeDisconnect} from './disconnect';
-import {needsSignIn, refuseUnavailable, unavailableActions} from './unavailable';
+import {requireConnection, requireManaged} from './managed';
+import {refuseUnavailable, unavailableActions} from './unavailable';
 
-type StoredConnectionRow = ConnectionRow & {credential: string | null};
-
-// The connection as the web app gets it, with the actions its sign-in didn't cover, read from its
-// credential on every request.
-function respond(row: StoredConnectionRow): ConnectionResponse {
-	return toConnectionResponse(row, unavailableActions(row), needsSignIn(row));
-}
-
-function requireConnection(orgId: string, connectionId: string): Promise<Result<StoredConnectionRow, ApiError>> {
-	return Do(async ($) => {
-		return $(requirePresent($(await getConnectionWithCredential(orgId, connectionId)), ApiErr.notFound('connection', connectionId)));
-	});
-}
-
+/** The connections the person sees in the organization they work in: its shared ones and their own. */
 export function handleListConnectionsRoute(request: AuthenticatedRequest): Promise<Result<{connections: ConnectionResponse[]}, ApiError>> {
 	return Do(async ($) => {
-		const orgId = $(await requireUserOrgId(request));
-		const rows = $(await listConnectionsWithCredential(orgId));
-		return {connections: rows.map(respond)};
+		const viewer = $(await requireViewer(request));
+		return {connections: $(await respondAll($(await listConnectionsWithCredential(viewer))))};
 	});
 }
 
 export function handleGetConnectionRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
 	return Do(async ($) => {
-		const orgId = $(await requireUserOrgId(request));
-		return respond($(await requireConnection(orgId, request.params.connectionId ?? '')));
+		const viewer = $(await requireViewer(request));
+		return $(await respond($(await requireConnection(viewer, request.params.connectionId ?? ''))));
 	});
 }
 
 /**
  * Agents lose the connection at once, and the provider's grant is revoked first where it has a way,
- * as Google does. The vault is built in and can't be disconnected.
+ * as Google does. The vault is built in and can't be disconnected. A shared connection is
+ * disconnected by whoever connected it or the organization's owner.
  */
 export function handleDeleteConnectionRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		const orgId = $(await requireUserOrgId(request));
+		const viewer = $(await requireViewer(request));
 		const connectionId = request.params.connectionId ?? '';
-		const row = $(await requireConnection(orgId, connectionId));
+		const row = $(await requireManaged(viewer, connectionId));
 		if (integrationOf(row)?.builtIn) {
 			return $(Err(ApiErr.forbidden()));
 		}
 
 		await beforeDisconnect(row);
-		const deleted = $(await deleteConnection(orgId, connectionId));
+		const deleted = $(await deleteConnection(viewer, connectionId));
 		if (!deleted) {
 			return $(Err(ApiErr.notFound('connection', connectionId)));
 		}
@@ -72,9 +60,9 @@ const renameBodySchema = z.object({name: z.string().trim().max(MAX_NAME_LENGTH, 
  */
 export function handleRenameConnectionRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
 	return Do(async ($) => {
-		const orgId = $(await requireUserOrgId(request));
+		const viewer = $(await requireViewer(request));
 		const connectionId = request.params.connectionId ?? '';
-		const row = $(await requireConnection(orgId, connectionId));
+		const row = $(await requireManaged(viewer, connectionId));
 		const integration = $(requireIntegration(row));
 		if (integration.builtIn) {
 			return $(Err(ApiErr.forbidden()));
@@ -85,7 +73,7 @@ export function handleRenameConnectionRoute(request: AuthenticatedRequest): Prom
 		}
 
 		$(await updateConnectionName({connectionId, name: name === '' ? null : name}));
-		return respond({...row, name: name === '' ? null : name});
+		return $(await respond({...row, name: name === '' ? null : name}));
 	});
 }
 
@@ -96,14 +84,32 @@ export function handleRenameConnectionRoute(request: AuthenticatedRequest): Prom
  */
 export function handleSetConnectionDefaultsRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
 	return Do(async ($) => {
-		const orgId = $(await requireUserOrgId(request));
+		const viewer = $(await requireViewer(request));
 		const connectionId = request.params.connectionId ?? '';
-		const row = $(await requireConnection(orgId, connectionId));
+		const row = $(await requireManaged(viewer, connectionId));
 		const integration = $(requireIntegration(row));
 		const actions = $(parseActionChanges(integration, z.boolean(), request.body));
 		$(refuseUnavailable(integration, unavailableActions(row), actions));
 
 		$(await setConnectionDefaults({connectionId, actions}));
-		return respond($(await requireConnection(orgId, connectionId)));
+		return $(await respond($(await requireConnection(viewer, connectionId))));
+	});
+}
+
+/**
+ * `POST /api/connections/:connectionId/share`: shares the person's own connection with every member
+ * of its organization, for good: to have it as their own again, they disconnect it and connect it
+ * again. The vault is each member's own and stays so: the organization has one shared from the start.
+ */
+export function handleShareConnectionRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireViewer(request));
+		const connectionId = request.params.connectionId ?? '';
+		const row = $(await requireManaged(viewer, connectionId));
+		if (integrationOf(row)?.builtIn) {
+			return $(Err(ApiErr.forbidden()));
+		}
+		$(await shareConnection(connectionId));
+		return $(await respond({...row, ownerUserId: null}));
 	});
 }

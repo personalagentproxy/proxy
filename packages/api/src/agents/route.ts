@@ -2,66 +2,110 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
-import {deleteAgent, getAgent, listAgents, setAgentGrants, updateAgent} from '@proxy/db/agent';
+import {deleteAgent, getAgent, listAgents, renameAgent, setAgentGrants, shareAgent, updateAgent, type AgentRow} from '@proxy/db/agent';
 import {getConnectionWithCredential} from '@proxy/db/connection';
 import {deleteOAuthGrant, listAgentOAuthGrants} from '@proxy/db/oauth';
+import {listMemberNames} from '@proxy/db/organization';
+import type {MemberViewer} from '@proxy/db/viewer';
 
 import {refuseUnavailable, unavailableActions} from '../connections/unavailable';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {parseActionChanges, requireIntegration} from '../utils/connection-actions';
-import {requireUserOrgId} from '../utils/user-org';
-import {toAgentResponse, type AgentResponse} from './agent-response';
-import {createAgentLogin} from './create-agent-login';
+import {manages} from '../utils/manages';
+import {requireViewer, type OrgViewer} from '../utils/user-org';
+import {respond, respondAll, type AgentResponse} from './agent-response';
+import {createAgentLogin, parseAgentName} from './create-agent-login';
 import {generatePassword} from './credentials';
+
+// An agent is a member's own, which nobody else in the organization sees, or shared with every
+// member of it. A shared one is changed, revoked, deleted and given its settings by whoever made it
+// and the organization's owner; everyone else sees it as it is.
 
 function agentIdOf(request: AuthenticatedRequest): string {
 	return request.params.agentId ?? '';
 }
 
-async function requireAgent(orgId: string, agentId: string): Promise<Result<AgentResponse, ApiError>> {
+/** An agent the viewer sees: not found for any other. */
+function requireAgent(viewer: MemberViewer, agentId: string): Promise<Result<AgentRow, ApiError>> {
 	return Do(async ($) => {
-		const row = $(await getAgent(orgId, agentId));
-		return toAgentResponse($(requirePresent(row, ApiErr.notFound('agent', agentId))));
+		return $(requirePresent($(await getAgent(viewer, agentId)), ApiErr.notFound('agent', agentId)));
 	});
 }
 
+// Whether the viewer may change an agent they see: their own, or a shared one they made or whose
+// organization they own (utils/manages.ts).
+function managesAgent(viewer: OrgViewer, row: AgentRow): boolean {
+	return manages(viewer, {ownerUserId: row.ownerUserId, byId: row.createdById});
+}
+
+/** An agent the viewer may change (`managesAgent`); forbidden for a shared one they only use. */
+function requireManagedAgent(viewer: OrgViewer, agentId: string): Promise<Result<AgentRow, ApiError>> {
+	return Do(async ($) => {
+		const row = $(await requireAgent(viewer, agentId));
+		if (!managesAgent(viewer, row)) {
+			return $(Err(ApiErr.forbidden()));
+		}
+		return row;
+	});
+}
+
+/** The agents the person sees in the organization they work in: its shared ones and their own. */
 export function handleListAgentsRoute(request: AuthenticatedRequest): Promise<Result<{agents: AgentResponse[]}, ApiError>> {
 	return Do(async ($) => {
-		const orgId = $(await requireUserOrgId(request));
-		return {agents: $(await listAgents(orgId)).map(toAgentResponse)};
+		const viewer = $(await requireViewer(request));
+		return {agents: $(await respondAll($(await listAgents(viewer))))};
 	});
 }
 
 export function handleGetAgentRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
 	return Do(async ($) => {
-		const orgId = $(await requireUserOrgId(request));
-		return $(await requireAgent(orgId, agentIdOf(request)));
+		const viewer = $(await requireViewer(request));
+		return $(await respond($(await requireAgent(viewer, agentIdOf(request)))));
 	});
 }
 
-// A custom agent's name is the person's; every other agent is named by its provider.
-const createAgentBodySchema = z.object({providerId: z.string(), name: z.string().optional()});
+// The agent's name, the person's, or else its provider's, which a custom agent has none of. `shared`
+// makes it every member's rather than the person's own.
+const createAgentBodySchema = z.object({providerId: z.string(), name: z.string().optional(), shared: z.boolean().optional()});
 
 /** The only time the password is sent; Personal Agent Proxy keeps its hash. A new agent follows every default. */
 export function handleCreateAgentRoute(request: AuthenticatedRequest): Promise<Result<{agent: AgentResponse; password: string}, ApiError>> {
 	return Do(async ($) => {
-		const {providerId, name} = $(parseSchema(createAgentBodySchema, request.body));
-		const orgId = $(await requireUserOrgId(request));
-		const {agent, password} = $(await createAgentLogin(orgId, providerId, name));
-		return {agent: toAgentResponse(agent), password};
+		const {providerId, name, shared} = $(parseSchema(createAgentBodySchema, request.body));
+		const viewer = $(await requireViewer(request));
+		const {agent, password} = $(await createAgentLogin(viewer, providerId, {name, shared}));
+		return {agent: $(await respond(agent)), password};
 	});
 }
 
 /** A new password, sent this once; the old one stops working. */
 export function handleResetAgentPasswordRoute(request: AuthenticatedRequest): Promise<Result<{password: string}, ApiError>> {
 	return Do(async ($) => {
-		const orgId = $(await requireUserOrgId(request));
+		const viewer = $(await requireViewer(request));
+		const agent = $(await requireManagedAgent(viewer, agentIdOf(request)));
 		const password = generatePassword();
-		const updated = $(await updateAgent(orgId, agentIdOf(request), {passwordHash: await Bun.password.hash(password)}));
+		const updated = $(await updateAgent(viewer.orgId, agent.id, {passwordHash: await Bun.password.hash(password)}));
 		if (!updated) {
-			return $(Err(ApiErr.notFound('agent', agentIdOf(request))));
+			return $(Err(ApiErr.notFound('agent', agent.id)));
 		}
 		return {password};
+	});
+}
+
+const renameBodySchema = z.object({name: z.string()});
+
+/** Renames an agent, `{name}`: what it is called here, in the activity log and to the agent itself. */
+export function handleRenameAgentRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
+	return Do(async ($) => {
+		const body = $(parseSchema(renameBodySchema, request.body));
+		const name = $(parseAgentName(body.name));
+		const viewer = $(await requireViewer(request));
+		const agent = $(await requireManagedAgent(viewer, agentIdOf(request)));
+		const renamed = $(await renameAgent(viewer.orgId, agent.id, name));
+		if (!renamed) {
+			return $(Err(ApiErr.notFound('agent', agent.id)));
+		}
+		return $(await respond({...agent, name}));
 	});
 }
 
@@ -71,63 +115,111 @@ const setRevokedBodySchema = z.object({revoked: z.boolean()});
 export function handleSetAgentRevokedRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
 	return Do(async ($) => {
 		const {revoked} = $(parseSchema(setRevokedBodySchema, request.body));
-		const orgId = $(await requireUserOrgId(request));
-		const updated = $(await updateAgent(orgId, agentIdOf(request), {revokedAt: revoked ? new Date() : null}));
+		const viewer = $(await requireViewer(request));
+		const agent = $(await requireManagedAgent(viewer, agentIdOf(request)));
+		const updated = $(await updateAgent(viewer.orgId, agent.id, {revokedAt: revoked ? new Date() : null}));
 		if (!updated) {
-			return $(Err(ApiErr.notFound('agent', agentIdOf(request))));
+			return $(Err(ApiErr.notFound('agent', agent.id)));
 		}
-		return $(await requireAgent(orgId, agentIdOf(request)));
+		return $(await respond($(await requireAgent(viewer, agent.id))));
 	});
 }
 
 export function handleDeleteAgentRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		const orgId = $(await requireUserOrgId(request));
-		const deleted = $(await deleteAgent(orgId, agentIdOf(request)));
+		const viewer = $(await requireViewer(request));
+		const agent = $(await requireManagedAgent(viewer, agentIdOf(request)));
+		const deleted = $(await deleteAgent(viewer.orgId, agent.id));
 		if (!deleted) {
-			return $(Err(ApiErr.notFound('agent', agentIdOf(request))));
+			return $(Err(ApiErr.notFound('agent', agent.id)));
 		}
+	});
+}
+
+/**
+ * `POST /api/agents/:agentId/share`: shares the person's own agent with every member of its
+ * organization, for good: it reaches the shared connections alone from then on, so its settings on
+ * the person's own connections go. What it did on the shared connections so far becomes everyone's
+ * with it; its requests on any other connection stay the person's, with the tasks they were made
+ * for (`shareAgent`).
+ */
+export function handleShareAgentRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireViewer(request));
+		const agent = $(await requireManagedAgent(viewer, agentIdOf(request)));
+		$(await shareAgent(agent.id));
+		return $(await respond($(await requireAgent(viewer, agent.id))));
 	});
 }
 
 /**
  * Sets the agent's own settings for actions of a connection, such as `{actions: {send: false}}`;
  * `null` returns an action to the connection's default. An action the integration doesn't have is
- * refused, and so is turning on one the connection's sign-in didn't cover.
+ * refused, and so is turning on one the connection's sign-in didn't cover. A shared agent reaches
+ * only shared connections, so a setting on one's own connection is refused for it.
  */
 export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
 	return Do(async ($) => {
-		const orgId = $(await requireUserOrgId(request));
+		const viewer = $(await requireViewer(request));
 		const agentId = agentIdOf(request);
 		const connectionId = request.params.connectionId ?? '';
-		$(await requireAgent(orgId, agentId));
-		const connection = $(requirePresent($(await getConnectionWithCredential(orgId, connectionId)), ApiErr.notFound('connection', connectionId)));
+		const agent = $(await requireManagedAgent(viewer, agentId));
+		const connection = $(requirePresent($(await getConnectionWithCredential(viewer, connectionId)), ApiErr.notFound('connection', connectionId)));
+		if (agent.ownerUserId === null && connection.ownerUserId !== null) {
+			return $(Err(ApiErr.validationError('A shared agent reaches only shared connections')));
+		}
 		const integration = $(requireIntegration(connection));
 		const actions = $(parseActionChanges(integration, z.boolean().nullable(), request.body));
 		$(refuseUnavailable(integration, unavailableActions(connection), actions));
 
 		$(await setAgentGrants({agentId, connectionId, actions}));
-		return $(await requireAgent(orgId, agentId));
+		return $(await respond($(await requireAgent(viewer, agentId))));
 	});
 }
 
-export type McpClientResponse = {id: string; name: string; connectedAt: string};
+export type McpClientResponse = {
+	id: string;
+	name: string;
+	connectedAt: string;
+	// Who signed it in, by their name or address while they are in the organization; null once they
+	// have left it.
+	connectedBy: string | null;
+	// Signed in by the person asking, who may sign it out whether or not they may change the agent.
+	mine: boolean;
+};
 
-/** The MCP clients signed in as the agent, such as Claude, newest first. */
+/**
+ * The MCP clients signed in as the agent, such as Claude, newest first: every one for whoever may
+ * change the agent, and the ones the person signed in themselves for anyone else who sees it.
+ */
 export function handleListMcpClientsRoute(request: AuthenticatedRequest): Promise<Result<{clients: McpClientResponse[]}, ApiError>> {
 	return Do(async ($) => {
-		const orgId = $(await requireUserOrgId(request));
-		const grants = $(await listAgentOAuthGrants(orgId, agentIdOf(request)));
-		return {clients: grants.map((grant) => ({id: grant.id, name: grant.clientName, connectedAt: grant.createdAt.toISOString()}))};
+		const viewer = $(await requireViewer(request));
+		const agent = $(await requireAgent(viewer, agentIdOf(request)));
+		const grants = $(await listAgentOAuthGrants(viewer.orgId, agent.id, managesAgent(viewer, agent) ? undefined : viewer.userId));
+		const names = $(await listMemberNames(grants.map((grant) => ({orgId: viewer.orgId, userId: grant.userId}))));
+		return {
+			clients: grants.map((grant) => ({
+				id: grant.id,
+				name: grant.clientName,
+				connectedAt: grant.createdAt.toISOString(),
+				connectedBy: names.find((member) => member.userId === grant.userId)?.name ?? null,
+				mine: grant.userId === viewer.userId,
+			})),
+		};
 	});
 }
 
-/** Signs one MCP client out of the agent; it has to be connected again. */
+/**
+ * Signs one MCP client out of the agent; it has to be connected again. Whoever may change the agent
+ * signs out any; anyone else who sees it, one they signed in themselves.
+ */
 export function handleDisconnectMcpClientRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		const orgId = $(await requireUserOrgId(request));
+		const viewer = $(await requireViewer(request));
+		const agent = $(await requireAgent(viewer, agentIdOf(request)));
 		const grantId = request.params.grantId ?? '';
-		const deleted = $(await deleteOAuthGrant(orgId, agentIdOf(request), grantId));
+		const deleted = $(await deleteOAuthGrant(viewer.orgId, agent.id, grantId, managesAgent(viewer, agent) ? undefined : viewer.userId));
 		if (!deleted) {
 			return $(Err(ApiErr.notFound('MCP client', grantId)));
 		}

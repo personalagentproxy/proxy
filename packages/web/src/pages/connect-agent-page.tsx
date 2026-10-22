@@ -1,31 +1,45 @@
-import {AGENT_PROVIDERS, CUSTOM_AGENT_NAME_MAX, findAgentProvider} from '@proxy/integrations';
+import {AGENT_PROVIDERS, AGENT_NAME_MAX, findAgentProvider} from '@proxy/integrations';
 import type {FetchError} from '@proxy/utils';
-import {useState, type ReactNode} from 'react';
+import {useRef, useState, type ReactNode} from 'react';
 import {useLoaderData} from 'react-router';
+import {listAgents} from '@/client/agents-client';
 import {answerAuthorizationRequest, type Consent} from '@/client/oauth-client';
+import type {Org} from '@/client/orgs-client';
 import {AgentLogo} from '@/components/brand-logo';
+import {OrgTile} from '@/components/org-switcher';
 import {Button} from '@proxy/ui/components/button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from '@proxy/ui/components/select';
 import {cn} from '@proxy/ui/lib/utils';
 import {apiMessage} from '@/lib/agent-errors';
+import {describeFetchError} from '@/lib/loader-utils';
+import {forgetPendingAgent} from '@/lib/pending-agent';
+import type {AgentLogin} from '@/lib/types';
 import type {ConnectAgentData, connectAgentLoader} from '@/loaders';
 
-// One choice on the page: an agent login the organization has, a new one for a provider without
-// one, or a new custom agent, which the person names.
+// One choice on the page: an agent login the organization has, or a new one for a provider, which
+// the person names.
 type Choice = {
 	key: string;
 	providerId: string;
 	label: string;
 	isNew: boolean;
 	detail: string;
-	consent: Consent;
 };
 
 // Where an MCP client such as Claude, ChatGPT or Poke signs in: the person chooses which of their
-// agents it works as, or makes a login for it, and the client gets that agent's access and nothing
-// more. Any other MCP client is a custom agent, named after the client unless the person names it
-// otherwise. Allowing or denying sends the browser back to the client.
+// agents it works as, in which of their organizations, and the client gets that agent's access and
+// nothing more. The agent being set up in this browser is chosen already. A client added without
+// setting an agent up first can have a login made for it here, named after its provider, or, for
+// a custom agent, after the client, unless the person names it otherwise. Allowing or denying
+// sends the browser back to the client.
 export function ConnectAgentPage() {
 	const loaded = useLoaderData<typeof connectAgentLoader>();
 	if (loaded.kind === 'error') {
@@ -37,7 +51,16 @@ export function ConnectAgentPage() {
 		);
 	}
 
-	return <Consent request={loaded.request} details={loaded.details} agents={loaded.agents} />;
+	return (
+		<Consent
+			request={loaded.request}
+			details={loaded.details}
+			orgs={loaded.orgs}
+			org={loaded.org}
+			agents={loaded.agents}
+			pendingAgentId={loaded.pendingAgentId}
+		/>
+	);
 }
 
 function Frame({children}: {children: ReactNode}) {
@@ -51,8 +74,33 @@ function Frame({children}: {children: ReactNode}) {
 function Consent({
 	request,
 	details,
-	agents,
+	orgs,
+	org,
+	agents: loaded,
+	pendingAgentId,
 }: Omit<Extract<ConnectAgentData, {kind: 'ok'}>, 'kind'>) {
+	// The organization the agent is in, the one the loader started in to start with, and its
+	// agents, read again as another is picked: none until they are, and an answer for one picked
+	// before left out.
+	const [orgSlug, setOrgSlug] = useState(org);
+	const picked = useRef(org);
+	const [agents, setAgents] = useState<AgentLogin[]>(loaded);
+	const pickOrg = async (slug: string) => {
+		picked.current = slug;
+		setOrgSlug(slug);
+		setChosen(null);
+		setAgents([]);
+		setError(null);
+		const result = await listAgents(slug);
+		if (picked.current !== slug) {
+			return;
+		}
+		if (result.isErr()) {
+			setError(describeFetchError(result.error));
+			return;
+		}
+		setAgents(result.value.agents);
+	};
 	const live = agents.filter((agent) => agent.revokedAt === null);
 	const choices: Choice[] = [
 		...live.map((agent) => ({
@@ -61,26 +109,30 @@ function Consent({
 			label: agent.name,
 			isNew: false,
 			detail: 'Its access as it is',
-			consent: {allow: true, agentId: agent.id} as const,
 		})),
-		...AGENT_PROVIDERS.filter(
-			(provider) => provider.custom || !agents.some((agent) => agent.providerId === provider.id),
-		).map((provider) => ({
-			key: `new-${provider.id}`,
-			providerId: provider.id,
-			label: provider.name,
-			isNew: true,
-			detail: 'A new login, with every connection’s defaults',
-			consent: {allow: true, providerId: provider.id} as const,
-		})),
+		// A product that signs in through another's account, as Claude Duet through Claude, gets a
+		// login of that provider's.
+		...AGENT_PROVIDERS.filter((provider) => provider.loginProviderId === undefined).map(
+			(provider) => ({
+				key: `new-${provider.id}`,
+				providerId: provider.id,
+				label: provider.name,
+				isNew: true,
+				detail: 'A new login, with every connection’s defaults',
+			}),
+		),
 	];
-	// The agent the client's name points at, else the custom agent of that name, else a new one.
-	const suggested = details.suggestedProviderId
-		? choices.find((choice) => choice.providerId === details.suggestedProviderId)
-		: (choices.find((choice) => !choice.isNew && choice.label === details.clientName) ??
-			choices.find((choice) => findAgentProvider(choice.providerId)?.custom && choice.isNew));
+	// The agent being set up in this browser, else the one the client's name points at, else the
+	// custom agent of that name, else a new one.
+	const suggested =
+		choices.find((choice) => choice.key === pendingAgentId) ??
+		(details.suggestedProviderId
+			? choices.find((choice) => choice.providerId === details.suggestedProviderId)
+			: (choices.find((choice) => !choice.isNew && choice.label === details.clientName) ??
+				choices.find((choice) => findAgentProvider(choice.providerId)?.custom && choice.isNew)));
 	const [chosen, setChosen] = useState<string | null>(suggested?.key ?? null);
-	const [name, setName] = useState(details.clientName.slice(0, CUSTOM_AGENT_NAME_MAX));
+	// The name the person gave a new login, null until they change it.
+	const [name, setName] = useState<string | null>(null);
 	const [sending, setSending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -92,10 +144,18 @@ function Consent({
 			setError(consentErrorMessage(result.error));
 			return;
 		}
+		if (consent.allow && 'agentId' in consent) {
+			forgetPendingAgent(consent.agentId);
+		}
 		window.location.assign(result.value.redirectTo);
 	};
 	const choice = choices.find((candidate) => candidate.key === chosen);
-	const naming = choice?.isNew === true && findAgentProvider(choice.providerId)?.custom === true;
+	const naming = choice?.isNew === true;
+	const shownName =
+		name ??
+		(findAgentProvider(choice?.providerId ?? '')?.custom
+			? details.clientName.slice(0, AGENT_NAME_MAX)
+			: (choice?.label ?? ''));
 
 	return (
 		<Frame>
@@ -105,6 +165,9 @@ function Consent({
 				is allowed, and nothing more; everything it does is in the activity log. It will come back
 				to {details.redirectHost}.
 			</p>
+			{orgs.length > 1 && (
+				<OrgPicker orgs={orgs} value={orgSlug} onChange={(slug) => void pickOrg(slug)} />
+			)}
 			<fieldset className="grid gap-1">
 				<legend className="pb-2 text-sm">Work as</legend>
 				{choices.map((option) => (
@@ -120,7 +183,10 @@ function Consent({
 							name="agent"
 							value={option.key}
 							checked={chosen === option.key}
-							onChange={() => setChosen(option.key)}
+							onChange={() => {
+								setChosen(option.key);
+								setName(null);
+							}}
 							className="accent-primary"
 						/>
 						<AgentLogo providerId={option.providerId} />
@@ -138,8 +204,8 @@ function Consent({
 					<Input
 						id="agent-name"
 						autoComplete="off"
-						maxLength={CUSTOM_AGENT_NAME_MAX}
-						value={name}
+						maxLength={AGENT_NAME_MAX}
+						value={shownName}
 						onChange={(event) => setName(event.target.value)}
 					/>
 				</div>
@@ -150,13 +216,13 @@ function Consent({
 					Deny
 				</Button>
 				<Button
-					disabled={sending || !choice || (naming && name.trim() === '')}
+					disabled={sending || !choice || (naming && shownName.trim() === '')}
 					onClick={() =>
 						choice &&
 						void answer(
 							naming
-								? {allow: true, providerId: choice.providerId, name: name.trim()}
-								: choice.consent,
+								? {allow: true, org: orgSlug, providerId: choice.providerId, name: shownName.trim()}
+								: {allow: true, org: orgSlug, agentId: choice.key},
 						)
 					}
 				>
@@ -164,6 +230,36 @@ function Consent({
 				</Button>
 			</div>
 		</Frame>
+	);
+}
+
+// In which of the person's organizations the agent is, where they are in more than one.
+function OrgPicker({
+	orgs,
+	value,
+	onChange,
+}: {
+	orgs: Org[];
+	value: string;
+	onChange: (slug: string) => void;
+}) {
+	return (
+		<div className="grid gap-2">
+			<Label htmlFor="consent-org">In</Label>
+			<Select value={value} onValueChange={(slug) => slug && onChange(slug)}>
+				<SelectTrigger id="consent-org">
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					{orgs.map((org) => (
+						<SelectItem key={org.id} value={org.slug}>
+							<OrgTile org={org} />
+							{org.name}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</div>
 	);
 }
 

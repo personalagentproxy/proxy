@@ -1,6 +1,6 @@
 import {Ok, Result} from 'ts-results-es';
 
-import {type ApiError, type Experiment, organizationExperiments, wrapDb} from '@proxy/utils';
+import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db, Prisma} from '.';
 
@@ -10,8 +10,6 @@ export type AuthenticatedSession = {
 		email: string;
 		name: string | null;
 	};
-	/** The experiments on for the user's organization. */
-	experiments: Experiment[];
 	expires: Date;
 };
 
@@ -28,12 +26,6 @@ export async function getAuthenticatedSessionDatabase(
 					select: {
 						name: true,
 						email: true,
-						// Their organization, the first they joined as getUserOrganization reads it.
-						orgMembers: {
-							select: {org: {select: {insider: true, experiments: true}}},
-							orderBy: {createdAt: 'asc'},
-							take: 1,
-						},
 					},
 				},
 				expires: true,
@@ -53,14 +45,12 @@ export async function getAuthenticatedSessionDatabase(
 		return Ok(null);
 	}
 
-	const organization = session.user.orgMembers[0]?.org;
 	return Ok({
 		userId: session.userId,
 		user: {
 			email: session.user.email,
 			name: session.user.name,
 		},
-		experiments: organization ? organizationExperiments(organization) : [],
 		expires: session.expires,
 	});
 }

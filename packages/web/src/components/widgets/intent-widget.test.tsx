@@ -2,7 +2,7 @@
 
 import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
-import {MemoryRouter} from 'react-router';
+import {MemoryRouter, Route, Routes} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import type {Intent} from '@/client/intent-client';
 import {IntentWidget} from '@/components/widgets/intent-widget';
@@ -38,10 +38,16 @@ function intentWith(widget: string, fields: Record<string, string[]>): Intent {
 const onAsk = mock((_text: string) => {});
 
 function show(intent: Intent, typed = '') {
+	// On the organization's home page, as in the app: its api calls and links name it.
 	return render(
-		<MemoryRouter>
+		<MemoryRouter initialEntries={['/org-1']}>
 			<TooltipProvider>
-				<IntentWidget intent={intent} typed={typed} now={now} onAsk={onAsk} />
+				<Routes>
+					<Route
+						path="/:org"
+						element={<IntentWidget intent={intent} typed={typed} now={now} onAsk={onAsk} />}
+					/>
+				</Routes>
 			</TooltipProvider>
 		</MemoryRouter>,
 	);
@@ -87,7 +93,7 @@ describe('IntentWidget', () => {
 		expect(within(widget).getByRole('link', {name: 'Open'}).getAttribute('href')).toBe(
 			'https://calendar.google.com/event?eid=1',
 		);
-		expect(sentTo('/api/widgets/events')).toEqual({
+		expect(sentTo('/api/orgs/org-1/widgets/events')).toEqual({
 			connectionId: 'google-1',
 			calendarId: 'me@example.com',
 			title: 'Hugo and me',
@@ -116,9 +122,9 @@ describe('IntentWidget', () => {
 		expect(within(widget).getByText(/^Tomorrow · Thu, Oct 15$/)).toBeTruthy();
 		expect(await within(widget).findByText('Focus time')).toBeTruthy();
 		expect(within(widget).getByText('1 event')).toBeTruthy();
-		expect(fetchMock.mock.calls.some(([input]) => input.startsWith('/api/widgets/events'))).toBe(
-			false,
-		);
+		expect(
+			fetchMock.mock.calls.some(([input]) => input.startsWith('/api/orgs/org-1/widgets/events')),
+		).toBe(false);
 	});
 
 	test('Calendar: when the person is meeting someone, their day with the meeting highlighted, the next a click away', async () => {
@@ -132,7 +138,7 @@ describe('IntentWidget', () => {
 		expect(within(widget).getByText(/^Tue, Oct 20$/)).toBeTruthy();
 		// Searched by his name and the address his contact has, from now on.
 		const searched = fetchMock.mock.calls.find(([input]) =>
-			input.startsWith('/api/widgets/events'),
+			input.startsWith('/api/orgs/org-1/widgets/events'),
 		);
 		const url = new URL(searched?.[0] ?? '', 'http://localhost');
 		expect(url.searchParams.getAll('search')).toEqual(['hugo', 'hugo.brandt@example.com']);
@@ -180,7 +186,7 @@ describe('IntentWidget', () => {
 		fireEvent.click(within(widget).getByRole('button', {name: 'Send update'}));
 		expect(await within(widget).findByText(/Update sent/)).toBeTruthy();
 		const call = fetchMock.mock.calls.find(
-			([input, init]) => input === '/api/widgets/events' && init?.method === 'PUT',
+			([input, init]) => input === '/api/orgs/org-1/widgets/events' && init?.method === 'PUT',
 		);
 		expect(JSON.parse(String(call?.[1]?.body))).toEqual({
 			connectionId: 'google-1',
@@ -219,7 +225,9 @@ describe('IntentWidget', () => {
 		show(intentWith('new_event', {}), 'meeting tomorrow at 2');
 
 		const connect = await screen.findByRole('link', {name: /Connect Google/});
-		expect(connect.getAttribute('href')).toBe('/api/connections/google/start?returnTo=home');
+		expect(connect.getAttribute('href')).toBe(
+			'/api/orgs/org-1/connections/google/start?returnTo=home',
+		);
 		expect(
 			screen.getByText('Connect a calendar to see your day and send invites from here.'),
 		).toBeTruthy();
@@ -312,11 +320,51 @@ describe('IntentWidget', () => {
 		);
 		fireEvent.click(within(widget).getByRole('button', {name: 'Send'}));
 		expect(await within(widget).findByText('Sent')).toBeTruthy();
-		expect(sentTo('/api/widgets/emails')).toEqual({
+		expect(sentTo('/api/orgs/org-1/widgets/emails')).toEqual({
 			connectionId: 'google-1',
 			to: ['hugo.brandt@example.com'],
 			subject: 'lunch next week',
 			body: 'Free on Tuesday?',
+			send: true,
+		});
+	});
+
+	test('Reply to email: the email found, and the reply sent in its thread from its mailbox', async () => {
+		show(
+			intentWith('reply_email', {
+				from: ['sam'],
+				about: ['invoice | bill'],
+				body: ['Hi Sam,\n\nPaid this morning.'],
+			}),
+			"reply to sam's email about the invoice saying it's paid",
+		);
+
+		const widget = widgetNamed('Reply to email');
+		expect(
+			await within(widget).findByText('Sam Lee: Invoice #1042 for September · Oct 11'),
+		).toBeTruthy();
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/orgs/org-1/widgets/emails?from=sam&words=invoice+%7C+bill',
+			expect.anything(),
+		);
+		// What it says, without what it quotes of the email before.
+		const email = await within(widget).findByRole('blockquote', {name: 'Email'});
+		expect(email.textContent).toContain('Could you let me know once it is paid?');
+		expect(email.textContent).not.toContain('wrote:');
+		expect(within(widget).getByRole('textbox', {name: 'Reply'})).toHaveProperty(
+			'value',
+			'Hi Sam,\n\nPaid this morning.',
+		);
+
+		await waitFor(() =>
+			expect(within(widget).getByRole('button', {name: 'Send'})).toHaveProperty('disabled', false),
+		);
+		fireEvent.click(within(widget).getByRole('button', {name: 'Send'}));
+		expect(await within(widget).findByText('Sent')).toBeTruthy();
+		expect(sentTo('/api/orgs/org-1/widgets/emails/reply')).toEqual({
+			connectionId: 'google-1',
+			emailId: 'm1',
+			body: 'Hi Sam,\n\nPaid this morning.',
 			send: true,
 		});
 	});
@@ -328,7 +376,7 @@ describe('IntentWidget', () => {
 		expect(await within(emails).findByText('Sam Lee')).toBeTruthy();
 		expect(within(emails).getByText('Invoice #1042 for September')).toBeTruthy();
 		expect(fetchMock).toHaveBeenCalledWith(
-			'/api/widgets/emails?from=sam&words=invoice',
+			'/api/orgs/org-1/widgets/emails?from=sam&words=invoice',
 			expect.anything(),
 		);
 		cleanup();
@@ -338,7 +386,7 @@ describe('IntentWidget', () => {
 		expect(await within(files).findByText('Pricing 2026')).toBeTruthy();
 		await waitFor(() =>
 			expect(fetchMock).toHaveBeenCalledWith(
-				'/api/widgets/files?words=pricing&kind=Spreadsheet&owner=paul.mercer%40example.com',
+				'/api/orgs/org-1/widgets/files?words=pricing&kind=Spreadsheet&owner=paul.mercer%40example.com',
 				expect.anything(),
 			),
 		);
@@ -355,10 +403,10 @@ describe('IntentWidget', () => {
 		).toBeTruthy();
 		expect(within(widget).getByText('“We should hire two more engineers.”')).toBeTruthy();
 		expect(fetchMock).toHaveBeenCalledWith(
-			'/api/widgets/meetings?from=2026-10-13&to=2026-10-13&with=hugo',
+			'/api/orgs/org-1/widgets/meetings?from=2026-10-13&to=2026-10-13&with=hugo',
 			expect.anything(),
 		);
-		expect(sentTo('/api/widgets/answer')).toEqual({
+		expect(sentTo('/api/orgs/org-1/widgets/answer')).toEqual({
 			question: 'what did I talk to hugo about yesterday',
 			connectionId: 'granola-1',
 			collectionId: 'notes',
@@ -400,11 +448,11 @@ describe('IntentWidget', () => {
 		const widget = widgetNamed('Ask');
 		expect(await within(widget).findByText('The file doesn’t say; it lists prices.')).toBeTruthy();
 		expect(fetchMock).toHaveBeenCalledWith(
-			'/api/widgets/files?words=pricing&kind=Spreadsheet',
+			'/api/orgs/org-1/widgets/files?words=pricing&kind=Spreadsheet',
 			expect.anything(),
 		);
 		expect(fetchMock).toHaveBeenCalledWith(
-			'/api/widgets/records?collection=pages&words=pricing',
+			'/api/orgs/org-1/widgets/records?collection=pages&words=pricing',
 			expect.anything(),
 		);
 		const which = within(widget).getByRole('combobox', {name: 'Which document'});
@@ -428,10 +476,13 @@ describe('IntentWidget', () => {
 		expect(await within(widget).findByText('The emails m1 says so.')).toBeTruthy();
 		expect(within(widget).getByText('Sam Lee: Invoice #1042 for September · Oct 11')).toBeTruthy();
 		expect(fetchMock).toHaveBeenCalledWith(
-			'/api/widgets/emails?from=sam&words=invoice&since=2026-10-07',
+			'/api/orgs/org-1/widgets/emails?from=sam&words=invoice&since=2026-10-07',
 			expect.anything(),
 		);
-		expect(sentTo('/api/widgets/answer')).toMatchObject({collectionId: 'emails', id: 'm1'});
+		expect(sentTo('/api/orgs/org-1/widgets/answer')).toMatchObject({
+			collectionId: 'emails',
+			id: 'm1',
+		});
 	});
 
 	test('Ask: an issue in Linear, by the words of its title', async () => {
@@ -443,7 +494,7 @@ describe('IntentWidget', () => {
 		expect(await within(widget).findByText('The issues ENG-12 says so.')).toBeTruthy();
 		expect(within(widget).getByText('Checkout fails on Safari · Oct 13')).toBeTruthy();
 		expect(fetchMock).toHaveBeenCalledWith(
-			'/api/widgets/records?collection=issues&words=checkout&words=bug',
+			'/api/orgs/org-1/widgets/records?collection=issues&words=checkout&words=bug',
 			expect.anything(),
 		);
 		expect(within(widget).getByRole('link', {name: 'Open in Linear'})).toBeTruthy();
@@ -571,7 +622,7 @@ describe('IntentWidget', () => {
 		expect(within(widget).getByText('Plaid Credit Card ••3333')).toBeTruthy();
 		// September 17 to October 14: this month and the 14 days before it, in one read.
 		expect(fetchMock).toHaveBeenCalledWith(
-			'/api/widgets/transactions?from=2026-09-17&to=2026-10-14',
+			'/api/orgs/org-1/widgets/transactions?from=2026-09-17&to=2026-10-14',
 			expect.anything(),
 		);
 		expect(within(widget).getByLabelText('In all').textContent).toBe(
@@ -642,7 +693,7 @@ describe('IntentWidget', () => {
 			await screen.findByText('Connect a bank to see your balances and spending from here.'),
 		).toBeTruthy();
 		expect(screen.getByRole('link', {name: /Connect Plaid/}).getAttribute('href')).toBe(
-			'/connections/new/plaid',
+			'/org-1/connections/new/plaid',
 		);
 		cleanup();
 

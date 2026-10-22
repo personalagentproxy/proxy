@@ -7,9 +7,15 @@ import {INTEGRATIONS} from '@proxy/integrations';
 import {integrationOf, logoOf} from './integrations';
 
 describe('integrationOf', () => {
-	test('uses the Personal Agent Proxy mark for a custom MCP connection', () => {
-		expect(integrationOf({integrationId: 'mcp', tools: []})?.logo).toEqual({
-			src: '/favicon.svg',
+	test("uses the icon of a custom MCP server's site, with the Personal Agent Proxy mark to fall back on", () => {
+		expect(
+			integrationOf({integrationId: 'mcp', account: 'mcp.example.com:8443/mcp', tools: []})?.logo,
+		).toEqual({src: '/api/favicons/mcp.example.com', fallback: '/favicon.svg'});
+	});
+
+	test('keeps the logo of every other integration', () => {
+		expect(integrationOf({integrationId: 'exa', account: 'Signed in'})?.logo).toEqual({
+			src: '/integrations/exa.svg',
 		});
 	});
 });

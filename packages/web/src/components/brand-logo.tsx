@@ -1,7 +1,6 @@
 import {findAgentProvider} from '@proxy/integrations';
-import {BotIcon} from 'lucide-react';
 import {cn} from '@proxy/ui/lib/utils';
-import type {ReactNode} from 'react';
+import {useState, type ReactNode} from 'react';
 import type {Integration} from '@/lib/integrations';
 
 // Logos sit on a white tile in both themes, so dark marks stay legible. They're decorative: the
@@ -20,13 +19,13 @@ function LogoTile({children, className}: {children: ReactNode; className?: strin
 	);
 }
 
-// A custom agent has no logo of its own, so it gets a robot.
+// A custom MCP agent is connected through Personal Agent Proxy, so it gets our mark.
 export function AgentLogo({providerId, className}: {providerId: string; className?: string}) {
 	const provider = findAgentProvider(providerId);
 	if (provider?.custom) {
 		return (
 			<LogoTile className={className}>
-				<BotIcon className="size-[60%] text-neutral-500" />
+				<img src="/favicon.svg" alt="" className="size-full object-contain p-[2px]" />
 			</LogoTile>
 		);
 	}
@@ -56,16 +55,18 @@ export function IntegrationLogo({
 	integration: Integration;
 	className?: string;
 }) {
+	const [failed, setFailed] = useState<string | null>(null);
 	if ('src' in integration.logo) {
+		const {src, fallback, fill} = integration.logo;
+		// A logo found on the internet that doesn't load, or that the api found none of, is our file.
+		const shown = failed === src && fallback ? fallback : src;
 		return (
 			<LogoTile className={className}>
 				<img
-					src={integration.logo.src}
+					src={shown}
 					alt=""
-					className={cn(
-						'size-full',
-						integration.logo.fill ? 'object-cover' : 'object-contain p-[2px]',
-					)}
+					onError={() => setFailed(src)}
+					className={cn('size-full', fill ? 'object-cover' : 'object-contain p-[2px]')}
 				/>
 			</LogoTile>
 		);

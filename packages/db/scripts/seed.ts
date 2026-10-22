@@ -72,8 +72,9 @@ function daysAgo(days: number): Date {
 
 const existing = await db.user.findUnique({where: {email: DEMO_EMAIL}, select: {id: true}});
 if (existing) {
+	// The organizations the demo user owns: one they were invited into is someone else's.
 	const orgs = await db.organization.findMany({
-		where: {members: {some: {userId: existing.id}}},
+		where: {ownerUserId: existing.id},
 		select: {id: true},
 	});
 	const orgIds = orgs.map((org) => org.id);
@@ -89,7 +90,13 @@ const user = await db.user.create({
 	data: {email: DEMO_EMAIL, name: 'Demo User', emailVerified: new Date(), createdAt: daysAgo(40)},
 });
 const org = await db.organization.create({
-	data: {name: ORG_NAME, slug: WORKSPACE_SLUG, onboardedAt: daysAgo(40), createdAt: daysAgo(40)},
+	data: {
+		name: ORG_NAME,
+		slug: WORKSPACE_SLUG,
+		ownerUserId: user.id,
+		onboardedAt: daysAgo(40),
+		createdAt: daysAgo(40),
+	},
 });
 await db.orgMember.create({data: {orgId: org.id, userId: user.id}});
 
@@ -104,10 +111,15 @@ async function connect(data: {
 	daysAgo: number;
 	// The actions agents get by default.
 	defaults: string[];
+	// Shared with everyone in the organization, as its vault is; the demo user's own otherwise, as
+	// everything else in an organization with one member is.
+	shared?: boolean;
 }): Promise<Connection> {
 	const connection = await db.connection.create({
 		data: {
 			orgId: org.id,
+			ownerUserId: data.shared ? null : user.id,
+			connectedById: user.id,
 			integrationId: data.integrationId,
 			account: data.account,
 			credential: data.credential,
@@ -142,6 +154,15 @@ const vault = await connect({
 	credential: null,
 	daysAgo: 40,
 	defaults: ['readEntries', 'writeEntries'],
+});
+// The organization's own, as every organization has one beside each member's.
+const sharedVault = await connect({
+	integrationId: VAULT_INTEGRATION_ID,
+	account: ORG_NAME,
+	credential: null,
+	daysAgo: 40,
+	defaults: ['readEntries', 'writeEntries'],
+	shared: true,
 });
 const personal = await connectMailbox('gmail', 'demo.user@gmail.com', {
 	daysAgo: 38,
@@ -277,14 +298,34 @@ const VAULT_ENTRIES: Array<{title: string; type: string; content: string}> = [
 	{title: 'Flights', type: 'Text', content: 'Prefers aisle seats, and morning flights.'},
 ];
 
-for (const values of VAULT_ENTRIES) {
-	await db.vaultEntry.create({
-		data: {
-			connectionId: vault.id,
-			collectionId: 'entries',
-			values: encrypt(JSON.stringify(values)),
-		},
-	});
+// What everyone's agents should know about the organization, in its shared vault.
+const SHARED_VAULT_ENTRIES: Array<{title: string; type: string; content: string}> = [
+	{
+		title: 'Office',
+		type: 'Address',
+		content: 'Acme Corp\n1 Market Street, Floor 12\n94105 San Francisco\nUnited States',
+	},
+	{title: 'Support inbox', type: 'Email', content: 'support@acme-corp.com'},
+	{
+		title: 'How we write',
+		type: 'Text',
+		content: 'Short sentences. No exclamation marks. Sign off with the team, not a person.',
+	},
+];
+
+for (const [connectionId, entries] of [
+	[vault.id, VAULT_ENTRIES],
+	[sharedVault.id, SHARED_VAULT_ENTRIES],
+] as const) {
+	for (const values of entries) {
+		await db.vaultEntry.create({
+			data: {
+				connectionId,
+				collectionId: 'entries',
+				values: encrypt(JSON.stringify(values)),
+			},
+		});
+	}
 }
 
 // ---- Agents and their own settings ----------------------------------------------------------
@@ -304,7 +345,6 @@ function grant(connection: Connection, actions: Record<string, boolean>): Grant[
 const AGENT_PASSWORD = 'demo-password';
 const passwordHash = await Bun.password.hash(AGENT_PASSWORD);
 
-// One login per provider, as the app allows.
 async function makeAgent(data: {
 	providerId: AgentProviderId;
 	name: string;
@@ -316,6 +356,9 @@ async function makeAgent(data: {
 	const agent = await db.agent.create({
 		data: {
 			orgId: org.id,
+			// The demo user's own, as everything in an organization with one member is.
+			ownerUserId: user.id,
+			createdById: user.id,
 			providerId: data.providerId,
 			name: data.name,
 			username: `${data.username}${USERNAME_SUFFIX}`,
@@ -345,6 +388,14 @@ const agents = [
 			grant(newsletters, {read: false}),
 			grant(googleAccount, {createFiles: true, editFiles: true}),
 		],
+	}),
+	// A second login of the same company, named by the person: reads, and nothing more.
+	await makeAgent({
+		providerId: 'dot',
+		name: 'Dots research',
+		username: 'dots-research-p4tn',
+		daysAgo: 30,
+		grants: [grant(work, {write: false}), grant(googleAccount, {readEmails: true})],
 	}),
 	// Files receipts; kept out of the work mailbox.
 	await makeAgent({
@@ -542,6 +593,28 @@ function isAllowed(agent: (typeof agents)[number], request: Request): boolean {
 	);
 }
 
+// Now and then the service fails an allowed request: too many requests, out of reach, or the
+// connection's sign-in turned down, as the api logs what went wrong.
+const FAILURES: [string, ...string[]] = [
+	'provider_unreachable 429',
+	'provider_unreachable 503',
+	'provider_unreachable',
+	'credentials_rejected',
+];
+
+function outcomeOf(
+	agent: (typeof agents)[number],
+	request: Request,
+): {outcome: 'allowed' | 'denied' | 'failed'; error: string | null} {
+	if (!isAllowed(agent, request)) {
+		return {outcome: 'denied', error: null};
+	}
+	if (random() < 0.05) {
+		return {outcome: 'failed', error: pick(FAILURES)};
+	}
+	return {outcome: 'allowed', error: null};
+}
+
 // What the agents set out to do: every request is made for a task, as the api logs them, a few
 // requests in a row to each.
 const TASKS: [{title: string; goal: string}, ...Array<{title: string; goal: string}>] = [
@@ -571,7 +644,35 @@ const TASKS: [{title: string; goal: string}, ...Array<{title: string; goal: stri
 	},
 ];
 
+// Parts of a task an agent handed to sub-agents of its own: each a sub-task of it, with what the
+// sub-agent handed back once done.
+const SUB_TASKS: [
+	{title: string; goal: string; outcome: string},
+	...Array<{title: string; goal: string; outcome: string}>,
+] = [
+	{
+		title: 'Check the calendar',
+		goal: 'List this week’s events and when the day is free.',
+		outcome: 'Four events this week, Tuesday and Thursday afternoons free.',
+	},
+	{
+		title: 'Find the open issues',
+		goal: 'List the open issues assigned to me, the ones due soonest first.',
+		outcome: 'Six issues open, two due this week.',
+	},
+	{
+		title: 'Pull the meeting notes',
+		goal: 'Find the notes from the last meeting and the decisions in them.',
+		outcome: 'Found the notes from last Thursday, three decisions and two open points.',
+	},
+];
+
 const MINUTE = 60 * 1000;
+
+// How long a request took: most well under a second, a few a good deal longer.
+function requestDuration(): number {
+	return Math.round(150 + random() ** 3 * 6000);
+}
 // A login still in use has this many tasks going at once in the past hours, the usual way agents
 // work, with this many requests spread over them.
 const CONCURRENT_TASKS = 5;
@@ -605,6 +706,7 @@ for (const agent of agents) {
 				const task = await db.agentTask.create({
 					data: {
 						orgId: org.id,
+						ownerUserId: user.id,
 						agentId: agent.id,
 						...pick(TASKS),
 						via: taskVia,
@@ -616,8 +718,37 @@ for (const agent of agents) {
 				return {id: task.id, via: taskVia, startedAt, endsAt: finishedAt ?? now};
 			}),
 		);
+		// The oldest task, done, and the newest, under way, were split among sub-agents: a sub-task
+		// each, the done one's with what it handed back.
+		const subTasks: typeof concurrent = [];
+		for (const parent of [concurrent[0], concurrent.at(-1)].flatMap((task) =>
+			task ? [task] : [],
+		)) {
+			const parentDone = parent.endsAt !== now;
+			for (const [index, part] of SUB_TASKS.entries()) {
+				const startedAt = parent.startedAt + (2 + index * 3 + random() * 2) * MINUTE;
+				const finishedAt =
+					parentDone || index === 0 ? startedAt + (4 + random() * 8) * MINUTE : null;
+				const task = await db.agentTask.create({
+					data: {
+						orgId: org.id,
+						agentId: agent.id,
+						parentId: parent.id,
+						title: part.title,
+						goal: part.goal,
+						via: parent.via,
+						createdAt: new Date(startedAt),
+						finishedAt: finishedAt === null ? null : new Date(finishedAt),
+						outcome: finishedAt === null ? null : part.outcome,
+					},
+				});
+				taskCount += 1;
+				subTasks.push({id: task.id, via: parent.via, startedAt, endsAt: finishedAt ?? now});
+			}
+		}
+		const pool = [...concurrent, ...subTasks];
 		for (const [index, {request: picked}] of recent.entries()) {
-			const task = concurrent[index % concurrent.length];
+			const task = pool[index % pool.length];
 			if (!task) {
 				continue;
 			}
@@ -630,15 +761,17 @@ for (const agent of agents) {
 			await db.auditEntry.create({
 				data: {
 					orgId: org.id,
+					ownerUserId: user.id,
 					agentId: agent.id,
 					connectionId: request.connection.id,
 					collectionId: request.collection.id,
 					action: request.action,
 					recordTitle: onOneRecord ? recordTitle(request.connection, request.collection.id) : null,
 					query: null,
-					outcome: isAllowed(agent, request) ? 'allowed' : 'denied',
+					...outcomeOf(agent, request),
 					via: task.via,
 					taskId: task.id,
+					durationMs: requestDuration(),
 					createdAt: new Date(createdAt),
 				},
 			});
@@ -658,6 +791,7 @@ for (const agent of agents) {
 			const task = await db.agentTask.create({
 				data: {
 					orgId: org.id,
+					ownerUserId: user.id,
 					agentId: agent.id,
 					...pick(TASKS),
 					via,
@@ -679,15 +813,17 @@ for (const agent of agents) {
 		await db.auditEntry.create({
 			data: {
 				orgId: org.id,
+				ownerUserId: user.id,
 				agentId: agent.id,
 				connectionId: request.connection.id,
 				collectionId,
 				action: request.action,
 				recordTitle: onOneRecord ? recordTitle(request.connection, collectionId) : null,
 				query: searched ? pick(SEARCHES) : null,
-				outcome: isAllowed(agent, request) ? 'allowed' : 'denied',
+				...outcomeOf(agent, request),
 				via,
 				taskId,
+				durationMs: requestDuration(),
 				createdAt: new Date(createdAt),
 			},
 		});
@@ -710,7 +846,11 @@ await db.verificationToken.create({
 	},
 });
 const apiUrl = process.env.VITE_PROXY_API_URL ?? 'http://localhost:4000';
-const query = new URLSearchParams({token, email: DEMO_EMAIL, callbackUrl: '/agents'});
+const query = new URLSearchParams({
+	token,
+	email: DEMO_EMAIL,
+	callbackUrl: `/${WORKSPACE_SLUG}/agents`,
+});
 
 console.log(
 	`[seed] ${connections.length} connections, ${agents.length} agents, ${taskCount} tasks and ${entryCount} activity entries for ${DEMO_EMAIL}.`,

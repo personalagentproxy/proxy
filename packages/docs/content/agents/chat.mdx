@@ -3,10 +3,18 @@ title: Chat with the built-in agent
 description: Talk to an agent Personal Agent Proxy runs itself, with the same access settings and activity log as any agent you connect.
 ---
 
-**Chat** in the sidebar is a conversation with an agent Personal Agent Proxy runs itself. It is an
-agent login like any other, named Personal Agent Proxy on the Agents page: what it may do with each
-connection is set there, as for Claude or ChatGPT, and every call it makes is in the activity log,
-by the conversation it was made for. It can use what you connected, and the vault as its memory.
+**Chat** in the sidebar is where you talk to agents Personal Agent Proxy runs itself. The
+organization's agents are everyone's, like coworkers: anyone makes one with **+**, giving it a name
+and a face, and whoever made it, or the organization's owner, renames or deletes it. Each is an
+agent login like any other on the Agents page, shared with everyone: what it may do with each
+shared connection is set there, as for Claude or ChatGPT, and every call it makes is in the activity
+log, by the conversation it was made for.
+
+Your conversation with an agent is yours alone, as a direct message is: nobody else in the
+organization sees it. In it, the agent acts as you, so it reaches what you see: the connections
+shared with everyone, the ones you connected yourself and your own vault, beside the
+organization's. On your own connections it follows their defaults, since a shared agent has no
+settings of its own there. What it does in your conversation is in your activity log alone.
 
 What it does differently from an agent you connect is where it runs: in Personal Agent Proxy, not
 on another company's servers. The model is Claude Sonnet 5.5, reached through OpenRouter with a
@@ -15,8 +23,8 @@ host that neither keeps prompts nor trains on them, so a self-hosted Personal Ag
 
 ## How a conversation runs
 
-Say what you want done. The agent answers, or makes calls first: each shows as a card under its
-message, with what it asked and, once it has it, what came back. A call it is not allowed is
+Say what you want done. The agent answers, or makes calls first: each shows as a line above its
+message, opening to what it asked and, once it has it, what came back. A call it is not allowed is
 refused and logged as blocked, as it would be for any agent. It keeps working after you leave the
 page, and the page shows the conversation as it is when you come back.
 

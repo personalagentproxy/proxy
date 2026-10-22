@@ -6,10 +6,10 @@ const getEntry = mock();
 const completeToolJob = mock(async () => Ok(true));
 const failJob = mock(async () => Ok(true));
 const finishJob = mock(async () => Ok(true));
-mock.module('@proxy/db/harness', () => ({getJobThread, getEntry, completeToolJob, failJob, finishJob}));
-
-const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'proxy', name: 'Personal Agent Proxy', experiments: []};
-mock.module('./built-in-agent', () => ({requireBuiltInAgent: mock(async () => Ok(signedIn))}));
+// The agent as it acts in the thread: signed in as the member whose conversation it is.
+const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: []};
+const getThreadAgent = mock(async () => Ok(signedIn));
+mock.module('@proxy/db/harness', () => ({getJobThread, getEntry, completeToolJob, failJob, finishJob, getThreadAgent}));
 
 const ensureThreadTask = mock(async () => Ok('task-2'));
 mock.module('./thread-task', () => ({ensureThreadTask}));
@@ -20,14 +20,27 @@ mock.module('../mcp/tools', () => ({callMcpTool}));
 mock.module('./tool-surface', () => ({isGateTool: (name: string) => ['read', 'run', 'list_connections', 'list_tools', 'send_feedback'].includes(name)}));
 
 const now = new Date('2026-10-21T10:00:00Z');
-const thread = {id: 'thread-1', orgId: 'org-1', agentId: 'agent-1', taskId: 'task-1', createdAt: now};
+const thread = {id: 'thread-1', orgId: 'org-1', agentId: 'agent-1', userId: 'user-1', taskId: 'task-1', createdAt: now};
 
 function job(callId: string, attempts = 1) {
 	return {id: 'job-1', threadId: 'thread-1', kind: 'tool' as const, status: 'running' as const, entryId: 'entry-1', callId, runAt: now, claimedBy: 'w1', attempts};
 }
 
 function entryWith(calls: Array<{id: string; name: string; arguments: string}>) {
-	return {id: 'entry-1', seq: 2, threadId: 'thread-1', kind: 'assistant' as const, text: '', toolCalls: calls, callId: null, isError: false, inputTokens: 1, outputTokens: 1, createdAt: now};
+	return {
+		id: 'entry-1',
+		seq: 2,
+		threadId: 'thread-1',
+		kind: 'assistant' as const,
+		text: '',
+		toolCalls: calls,
+		callId: null,
+		isError: false,
+		inputTokens: 1,
+		outputTokens: 1,
+		coversSeq: null,
+		createdAt: now,
+	};
 }
 
 beforeEach(() => {
@@ -84,7 +97,14 @@ describe('runToolJob', () => {
 
 	test('bad arguments, an unknown tool and a missing call are answered or failed, never thrown', async () => {
 		const {runToolJob} = await import('./tool-job');
-		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'read', arguments: 'not json'}, {id: 'c2', name: 'fly', arguments: '{}'}])));
+		getEntry.mockResolvedValue(
+			Ok(
+				entryWith([
+					{id: 'c1', name: 'read', arguments: 'not json'},
+					{id: 'c2', name: 'fly', arguments: '{}'},
+				]),
+			),
+		);
 
 		await runToolJob(job('c1'), 'w1', now);
 		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: 'The arguments were not a JSON object.', isError: true});

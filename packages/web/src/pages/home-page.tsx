@@ -1,8 +1,7 @@
 import type {FetchError} from '@proxy/utils';
 import {useEffect, useRef, useState} from 'react';
-import {useLoaderData, useRouteLoaderData} from 'react-router';
+import {useLoaderData} from 'react-router';
 import {fillIntent, type Intent, pickIntent} from '@/client/intent-client';
-import type {Me} from '@/client/me-client';
 import {AgentLanes} from '@/components/agent-lanes';
 import {AnimatedHeight} from '@/components/animated-height';
 import {ConnectedLogos} from '@/components/connected-logos';
@@ -11,7 +10,11 @@ import {FillingWidget, IntentWidget} from '@/components/widgets/intent-widget';
 import {UnsupportedWidget} from '@/components/widgets/unsupported-widget';
 import {Input} from '@proxy/ui/components/input';
 import {apiMessage} from '@/lib/agent-errors';
+import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import type {homeLoader} from '@/loaders';
+import {useOrgSlug} from '@/hooks/use-org';
+import {useHuman} from '@/hooks/use-human';
+import type {Human} from '@/lib/orgs';
 
 // How often what is typed is classified while typing goes on.
 const INTERVAL_MS = 300;
@@ -49,7 +52,7 @@ function intentErrorMessage(error: FetchError): string {
 	return 'Something went wrong. Try again.';
 }
 
-function greeting(me: Me | undefined, now: Date): string {
+function greeting(me: Human | null, now: Date): string {
 	const hour = now.getHours();
 	const part = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
 	const [first] = (me?.user.name ?? '').split(' ');
@@ -73,7 +76,8 @@ function saysUnsupported(answer: Answer, pausedOn: string): boolean {
 // picks the widget every 300 ms while typing goes on, and it shows at once, then fills in when its
 // fields come; Esc, or a click beside it, puts it back.
 export function HomePage() {
-	const me = useRouteLoaderData<Me>('human');
+	const org = useOrgSlug();
+	const me = useHuman();
 	const {connections, agents, activity} = useLoaderData<typeof homeLoader>();
 	// The time the page opened, for its greeting.
 	const [opened] = useState(() => new Date());
@@ -113,7 +117,7 @@ export function HomePage() {
 	// The fields of `widget`, picked for `words`, shown when it is still the widget on screen and no
 	// newer fields are.
 	const fill = (words: string, widget: string, request: number) => {
-		void fillIntent(words, widget).then((result) => {
+		void fillIntent(org, words, widget).then((result) => {
 			if (request <= filled.current) {
 				return;
 			}
@@ -146,7 +150,7 @@ export function HomePage() {
 		sent.current = words;
 		sequence.current += 1;
 		const request = sequence.current;
-		void pickIntent(words).then((result) => {
+		void pickIntent(org, words).then((result) => {
 			if (request <= shown.current) {
 				return;
 			}
@@ -266,11 +270,7 @@ export function HomePage() {
 						// (Bitwarden doesn't heed data-bwignore here), browsers suggest nothing, and the
 						// clear button search fields get is hidden, as Esc and the key beside it clear it.
 						type="search"
-						autoComplete="off"
-						data-bwignore
-						data-1p-ignore
-						data-lpignore="true"
-						data-form-type="other"
+						{...NO_PASSWORD_MANAGER}
 						aria-label="Quick actions"
 						value={text}
 						onChange={(event) => change(event.target.value)}

@@ -1,8 +1,9 @@
--- The built-in agent: a thread per conversation, shown as a persona with a name and an avatar,
--- with its log of entries (what the person said,
--- what the model answered with its tool calls, and what each call answered), and the jobs that
--- run it (the model on a log, one tool call), claimed by one api instance at a time with a lease.
--- Its requests come in a third way, `harness`, beside the agent pages and the MCP server.
+-- The built-in agents: agents of the organization with a face, each with a thread per member, the
+-- member's conversation with it, with its log of entries (what the person said, what the model
+-- answered with its tool calls, what each call answered, and summaries of the log once it has
+-- grown long), and the jobs that run it (the model on a log, one tool call), claimed by one api
+-- instance at a time with a lease. Their requests come in a third way, `harness`, beside the
+-- agent pages and the MCP server.
 
 -- CreateEnum
 CREATE TYPE "AgentEntryKind" AS ENUM ('person', 'assistant', 'tool_result', 'summary');
@@ -16,15 +17,17 @@ CREATE TYPE "AgentJobStatus" AS ENUM ('queued', 'running', 'done', 'failed');
 -- AlterEnum
 ALTER TYPE "AuditVia" ADD VALUE IF NOT EXISTS 'harness';
 
+-- AlterTable
+ALTER TABLE "Agent" ADD COLUMN     "color" TEXT,
+ADD COLUMN     "shape" TEXT;
+
 -- CreateTable
 CREATE TABLE "AgentThread" (
     "id" TEXT NOT NULL,
     "orgId" TEXT NOT NULL,
     "agentId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
     "taskId" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "shape" TEXT NOT NULL,
-    "color" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -67,6 +70,9 @@ CREATE TABLE "AgentJob" (
 
     CONSTRAINT "AgentJob_pkey" PRIMARY KEY ("id")
 );
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AgentThread_agentId_userId_key" ON "AgentThread"("agentId", "userId");
 
 -- CreateIndex
 CREATE INDEX "AgentThread_orgId_createdAt_idx" ON "AgentThread"("orgId", "createdAt");

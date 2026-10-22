@@ -5,7 +5,7 @@ import {z} from 'zod';
 import {type ApiError, Do, parseSchema} from '@proxy/utils';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {requireUserOrgId} from '../utils/user-org';
+import {requireViewer} from '../utils/user-org';
 import type {DataRecord} from '../records/connector';
 import {eachSource, type Failure} from './each-source';
 import {searchable} from './mail-searches';
@@ -200,9 +200,9 @@ function searchContacts(source: Source, name: string): Promise<Result<Person[], 
 export function handlePeopleRoute(request: AuthenticatedRequest): Promise<Result<PeopleAnswer, ApiError>> {
 	return Do(async ($) => {
 		const {name: names} = $(parseSchema(querySchema, request.query));
-		const orgId = $(await requireUserOrgId(request));
-		const books = $(await findSources(orgId, 'contacts', 'list'));
-		const mailboxes = searchable($(await findSources(orgId, 'emails', 'list')));
+		const viewer = $(await requireViewer(request));
+		const books = $(await findSources(viewer, 'contacts', 'list'));
+		const mailboxes = searchable($(await findSources(viewer, 'emails', 'list')));
 		const wanted = [...new Set(names)].slice(0, 10);
 		// Each mailbox is asked once for every name, over one sign-in, rather than once a name.
 		const searches = wanted.map((name) => ({from: null, involving: name, words: [], since: null}));

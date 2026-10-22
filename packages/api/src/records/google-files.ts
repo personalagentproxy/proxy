@@ -23,7 +23,7 @@ import {
 } from '../connections/google/drive-api';
 import {callGoogle, TOO_LARGE_TO_READ} from '../connections/google/google-client';
 import {appendRow, cellRange, columnLetters, getRanges, getSheets, renameSheet, rowsRange, updateCells, type Sheet} from '../connections/google/sheets-api';
-import type {CommandRunner, Crumb, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
+import {requireFirstPage, type CommandRunner, type Crumb, type DataRecord, type ListQuery, type RecordPage, type RecordTarget, type RecordValues} from './connector';
 import {readValueLines, valueLines} from './value-lines';
 
 /**
@@ -392,6 +392,9 @@ function listFile(drive: Drive, fileId: string, query: ListQuery): Promise<Resul
 		if (kind === 'Spreadsheet' && query.search !== null) {
 			return $(Err(ApiErr.validationError(NOT_SEARCHED)));
 		}
+		if (kind !== 'Folder') {
+			$(requireFirstPage(query));
+		}
 		const trail = $(await trailTo(drive, file));
 		if (kind === 'Folder') {
 			const params: Record<string, string> = file.driveId ? {corpora: 'drive', driveId: file.driveId} : {};
@@ -423,6 +426,7 @@ function listInside(drive: Drive, ref: FileRef, query: ListQuery): Promise<Resul
 	}
 	// A row holds nothing.
 	return Do(async ($) => {
+		$(requireFirstPage(query));
 		const {file, sheet} = $(await getSheet(drive, ref.fileId, ref.sheetId));
 		const trail = [...$(await trailTo(drive, file)), {id: sheetId(file, sheet), title: sheet.title}, {id: `row-${file.id}-${sheet.sheetId}-${ref.row}`, title: `Row ${ref.row}`}];
 		return {records: [], nextPage: null, trail};
@@ -439,6 +443,7 @@ export function listFilesTree(target: RecordTarget, query: ListQuery): Promise<R
 			if (query.search !== null) {
 				return $(await filesPage(drive, query, {terms: [], order: null, params: {corpora: 'allDrives'}}));
 			}
+			$(requireFirstPage(query));
 			return {records: PLACES.map(placeRecord), nextPage: null};
 		}),
 	);

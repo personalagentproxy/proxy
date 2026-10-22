@@ -5,7 +5,7 @@ import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import {requiredAction} from '@proxy/integrations';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {requireUserOrgId} from '../utils/user-org';
+import {requireViewer} from '../utils/user-org';
 import type {Connector, DataRecord, RecordPage, RecordTarget} from './connector';
 import {parseListQuery, requireListQuery, requireParent} from './list-query';
 import {parseRecordValues} from './record-values';
@@ -16,8 +16,8 @@ import {loadRecordTarget} from './target';
 
 function targetFor(request: AuthenticatedRequest): Promise<Result<RecordTarget & {connector: Connector}, ApiError>> {
 	return Do(async ($) => {
-		const orgId = $(await requireUserOrgId(request));
-		return $(await loadRecordTarget(orgId, request.params.connectionId ?? '', request.params.collectionId ?? ''));
+		const viewer = $(await requireViewer(request));
+		return $(await loadRecordTarget(viewer, request.params.connectionId ?? '', request.params.collectionId ?? ''));
 	});
 }
 

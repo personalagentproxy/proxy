@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {apiRequest} from '@/client/request';
+import {apiRequest, orgApi} from '@/client/request';
 
 // A widget's fields, each with what fills it: one value, or each of a list's.
 const fieldsSchema = z.array(
@@ -18,12 +18,12 @@ const filledSchema = z.object({fields: fieldsSchema, ms: z.number()});
 /** A widget and its fields, as the home page shows it. */
 export type Intent = {widget: string; fields: z.infer<typeof fieldsSchema>};
 
-/** Which widget fits what was typed (`POST /api/intent`). */
-export function pickIntent(text: string) {
-	return apiRequest('POST', '/api/intent', pickedSchema, {text});
+/** Which widget fits what was typed, in the organization `org` (`POST /api/orgs/:org/intent`). */
+export function pickIntent(org: string, text: string) {
+	return apiRequest('POST', `${orgApi(org)}/intent`, pickedSchema, {text});
 }
 
-/** The fields of the widget picked for what was typed, filled in (`POST /api/intent/fields`). */
-export function fillIntent(text: string, widget: string) {
-	return apiRequest('POST', '/api/intent/fields', filledSchema, {text, widget});
+/** The fields of the widget picked for what was typed, filled in (`POST /api/orgs/:org/intent/fields`). */
+export function fillIntent(org: string, text: string, widget: string) {
+	return apiRequest('POST', `${orgApi(org)}/intent/fields`, filledSchema, {text, widget});
 }

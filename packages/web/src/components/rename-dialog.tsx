@@ -19,6 +19,8 @@ type Props = {
 	initial: string;
 	// Whether an empty name is taken, as it is where a service's own name stands in.
 	allowEmpty: boolean;
+	// The longest name it can have.
+	maxLength?: number;
 	onClose: () => void;
 	// Saves the name; what went wrong, shown in the dialog, or null once saved.
 	onSave: (name: string) => Promise<string | null>;
@@ -32,6 +34,7 @@ export function RenameDialog({
 	description,
 	initial,
 	allowEmpty,
+	maxLength = 80,
 	onClose,
 	onSave,
 }: Props) {
@@ -77,7 +80,7 @@ export function RenameDialog({
 							id="rename-name"
 							autoFocus
 							autoComplete="off"
-							maxLength={80}
+							maxLength={maxLength}
 							value={name}
 							onChange={(event) => setName(event.target.value)}
 						/>

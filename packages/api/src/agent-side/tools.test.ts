@@ -4,9 +4,9 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {ApiErr, type ApiError} from '@proxy/utils';
 import {findIntegration, integrationFor, type Integration} from '@proxy/integrations';
 
-const getAgent = mock();
+const getAgentById = mock();
 
-mock.module('@proxy/db/agent', () => ({getAgent}));
+mock.module('@proxy/db/agent', () => ({getAgentById}));
 
 const logAgentRequest = mock();
 
@@ -42,15 +42,39 @@ function integration(id: string): Integration {
 	return found;
 }
 
-const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dots', experiments: []};
+const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'dot', name: 'Dots', orgSlug: 'org-1', experiments: []};
 const caller = {agent: signedIn, via: 'mcp' as const, taskId: 'task-1'};
 
 // The task every run here is for, under way.
 // Started a moment ago, so it is under way whenever the tests run.
 const task = {id: 'task-1', agentId: 'agent-1', title: 'Find the Visa', goal: 'Look up the card number', via: 'mcp', createdAt: new Date(), finishedAt: null};
 
-const vaultConnection = {id: 'vault-1', integrationId: 'vault', account: "Alex's Workspace", createdAt: new Date(), tools: null, name: null, defaults: [{actionId: 'readEntries'}], credential: null};
-const emailConnection = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), tools: null, name: null, defaults: [{actionId: 'read'}], credential: 'v1.x.y.z'};
+const vaultConnection = {
+	id: 'vault-1',
+	integrationId: 'vault',
+	orgId: 'org-1',
+	ownerUserId: 'user-1',
+	connectedById: 'user-1',
+	account: "Alex's Workspace",
+	createdAt: new Date(),
+	tools: null,
+	name: null,
+	defaults: [{actionId: 'readEntries'}],
+	credential: null,
+};
+const emailConnection = {
+	id: 'mail-1',
+	integrationId: 'email',
+	orgId: 'org-1',
+	ownerUserId: 'user-1',
+	connectedById: 'user-1',
+	account: 'alex@example.com',
+	createdAt: new Date(),
+	tools: null,
+	name: null,
+	defaults: [{actionId: 'read'}],
+	credential: 'v1.x.y.z',
+};
 const notionConnection = {
 	id: 'notion-1',
 	integrationId: 'notion',
@@ -66,6 +90,9 @@ const notionConnection = {
 const googleConnection = {
 	id: 'google-1',
 	integrationId: 'google',
+	orgId: 'org-1',
+	ownerUserId: 'user-1',
+	connectedById: 'user-1',
 	account: 'alex@example.com',
 	createdAt: new Date(),
 	defaults: [{actionId: 'readFiles'}],
@@ -104,7 +131,7 @@ function useConnection(connection: typeof vaultConnection | typeof emailConnecti
 
 beforeEach(() => {
 	mock.clearAllMocks();
-	getAgent.mockResolvedValue(Ok(agent));
+	getAgentById.mockResolvedValue(Ok(agent));
 	getAgentTask.mockResolvedValue(Ok(task));
 	logAgentRequest.mockResolvedValue(Ok(undefined));
 	listConnectionsWithCredential.mockResolvedValue(Ok([vaultConnection, emailConnection, googleConnection]));
@@ -120,14 +147,34 @@ describe('listAgentConnections', () => {
 
 		expect(result.unwrap()).toEqual({
 			agent: {id: 'agent-1', providerId: 'dot', name: 'Dots'},
-			connections: [{id: 'vault-1', integrationId: 'vault', account: "Alex's Workspace", actions: ['readEntries', 'writeEntries'], tools: null, name: null}],
+			connections: [{id: 'vault-1', integrationId: 'vault', account: "Alex's Workspace", shared: false, actions: ['readEntries', 'writeEntries'], tools: null, name: null}],
 		});
+	});
+
+	test("reaches the organization's shared connections and its owner's own; a shared agent the shared ones alone", async () => {
+		const {listAgentConnections} = await import('./tools');
+		await listAgentConnections(signedIn);
+		await listAgentConnections({...signedIn, ownerUserId: null});
+
+		expect(listConnectionsWithCredential.mock.calls.map((call) => call[0])).toEqual([
+			{orgId: 'org-1', userId: 'user-1'},
+			{orgId: 'org-1', userId: null},
+		]);
+	});
+
+	test('says which connections are shared with everyone in the organization', async () => {
+		listConnectionsWithCredential.mockResolvedValue(Ok([{...vaultConnection, id: 'vault-2', ownerUserId: null}]));
+
+		const {listAgentConnections} = await import('./tools');
+		const result = await listAgentConnections(signedIn);
+
+		expect(result.unwrap().connections).toEqual([expect.objectContaining({id: 'vault-2', shared: true})]);
 	});
 });
 
 describe("actions the connection's sign-in didn't cover", () => {
 	test('are not among what the agent can do, whatever is ticked', async () => {
-		getAgent.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'google-1', actionId: 'readFiles', allowed: true}]}));
+		getAgentById.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'google-1', actionId: 'readFiles', allowed: true}]}));
 
 		const {listAgentConnections} = await import('./tools');
 		const result = await listAgentConnections(signedIn);
@@ -156,7 +203,7 @@ describe("actions the connection's sign-in didn't cover", () => {
 	});
 
 	test("one the agent's own setting turns off anyway is plainly forbidden", async () => {
-		getAgent.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'google-1', actionId: 'readFiles', allowed: false}]}));
+		getAgentById.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'google-1', actionId: 'readFiles', allowed: false}]}));
 		useConnection(googleConnection);
 
 		const {runAgentTool} = await import('./tools');
@@ -169,7 +216,7 @@ describe("actions the connection's sign-in didn't cover", () => {
 describe('listAgentTools', () => {
 	test("the tools of the connection's actions the agent has", async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'mail-1', actionId: 'send', allowed: true}]}));
+		getAgentById.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'mail-1', actionId: 'send', allowed: true}]}));
 
 		const {listAgentTools} = await import('./tools');
 		const result = await listAgentTools(signedIn, 'mail-1');
@@ -187,6 +234,7 @@ describe('runAgentTool', () => {
 		expect(connector.get.mock.calls[0]?.[1]).toBe('rec-1');
 		expect(logAgentRequest).toHaveBeenCalledWith({
 			orgId: 'org-1',
+			ownerUserId: 'user-1',
 			agentId: 'agent-1',
 			connectionId: 'vault-1',
 			collectionId: 'entries',
@@ -196,6 +244,7 @@ describe('runAgentTool', () => {
 			outcome: 'allowed',
 			via: 'mcp',
 			taskId: 'task-1',
+			startedAt: expect.any(Number),
 		});
 		expect(getAgentTask).toHaveBeenCalledWith('org-1', 'agent-1', 'task-1');
 	});
@@ -225,7 +274,7 @@ describe('runAgentTool', () => {
 
 	test('a list passes the search, the filter field and the page on', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 
 		const {runAgentTool} = await import('./tools');
 		await runAgentTool(caller, 'mail-1', 'emails_list', {search: 'invoice', folder: 'Inbox', page: 'next'});
@@ -236,7 +285,7 @@ describe('runAgentTool', () => {
 
 	test('params the tool does not take are refused before anything runs', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 
 		const {runAgentTool} = await import('./tools');
 		const unknown = await runAgentTool(caller, 'mail-1', 'emails_list', {filter: 'Inbox'});
@@ -253,7 +302,7 @@ describe('runAgentTool', () => {
 
 	test('a select left unchosen, as a form sends it, is left out', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 
 		const {runAgentTool} = await import('./tools');
 		await runAgentTool(caller, 'mail-1', 'emails_list', {folder: ''});
@@ -286,7 +335,7 @@ describe('runAgentTool', () => {
 
 	test('an edit changes only the fields given', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 		connector.get.mockResolvedValue(Ok(draft));
 		connector.update.mockResolvedValue(Ok({...draft, values: {...draft.values, subject: 'Re: Q4 planning'}}));
 
@@ -300,7 +349,7 @@ describe('runAgentTool', () => {
 
 	test('an edit refuses the fields the provider sets', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 		connector.get.mockResolvedValue(Ok(draft));
 
 		const {runAgentTool} = await import('./tools');
@@ -312,7 +361,7 @@ describe('runAgentTool', () => {
 
 	test('only drafts can be edited, even with Write drafts', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 		connector.get.mockResolvedValue(Ok(inboxEmail));
 
 		const {runAgentTool} = await import('./tools');
@@ -324,7 +373,7 @@ describe('runAgentTool', () => {
 
 	test('runs a command on a record, logged with its title, and only where it applies', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 		connector.get.mockResolvedValue(Ok(inboxEmail));
 		archive.mockResolvedValue(Ok(null));
 
@@ -340,7 +389,7 @@ describe('runAgentTool', () => {
 
 	test('sends a new email with Send alone, and logs its subject', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'mail-1', actionId: 'send', allowed: true}]}));
+		getAgentById.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'mail-1', actionId: 'send', allowed: true}]}));
 		sendNew.mockResolvedValue(Ok(null));
 		const values = {to: 'sam@example.com', subject: 'Friday', body: 'See you then.'};
 
@@ -352,20 +401,46 @@ describe('runAgentTool', () => {
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'sendNew', recordTitle: 'Friday', outcome: 'allowed'});
 	});
 
-	test('a failed run is not logged as allowed, and a run that cannot be logged is not returned', async () => {
+	test('a run the provider fails is logged as failed with what went wrong, not as allowed, and passed on', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 		connector.get.mockResolvedValue(Ok(inboxEmail));
 		archive.mockResolvedValue(Err(ApiErr.notFound('folder', 'Archive')));
 
 		const {runAgentTool} = await import('./tools');
 		const failed = await runAgentTool(caller, 'mail-1', 'emails_archive', {id: inboxEmail.id});
 		expect(failed.unwrapErr().kind).toBe('not_found');
-		expect(logAgentRequest).not.toHaveBeenCalled();
+		expect(logAgentRequest).toHaveBeenCalledTimes(1);
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'archive', recordTitle: 'Invoice #20931', outcome: 'failed', error: 'not_found'});
+	});
 
+	test("a failure keeps the provider's HTTP status, and a read that failed before it had a record has no title", async () => {
+		const tooMany = ApiErr.providerUnreachable({kind: 'http', url: 'https://api.example.com', status: 429, body: 'Slow down, Alex'});
+		connector.get.mockResolvedValue(Err(tooMany));
+		connector.list.mockResolvedValue(Err(ApiErr.providerUnreachable({kind: 'network', url: 'https://api.example.com', cause: new Error('ECONNRESET')})));
+
+		const {runAgentTool} = await import('./tools');
+		expect((await runAgentTool(caller, 'vault-1', 'entries_get', {id: 'rec-1'})).unwrapErr()).toEqual(tooMany);
+		expect((await runAgentTool(caller, 'vault-1', 'entries_list', {search: 'passport'})).unwrapErr().kind).toBe('provider_unreachable');
+
+		expect(logAgentRequest.mock.calls.map(([logged]) => logged)).toMatchObject([
+			{action: 'view', recordTitle: null, query: null, outcome: 'failed', error: 'provider_unreachable 429'},
+			{action: 'list', recordTitle: null, query: 'passport', outcome: 'failed', error: 'provider_unreachable'},
+		]);
+	});
+
+	test('a run that cannot be logged is not returned', async () => {
+		useConnection(emailConnection);
+		getAgentById.mockResolvedValue(Ok(triage));
 		logAgentRequest.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
+
+		const {runAgentTool} = await import('./tools');
 		const unlogged = await runAgentTool(caller, 'mail-1', 'emails_list', {});
 		expect(unlogged.unwrapErr().kind).toBe('db_error');
+
+		connector.list.mockResolvedValue(Err(ApiErr.credentialsRejected()));
+		const failedUnlogged = await runAgentTool(caller, 'mail-1', 'emails_list', {});
+		expect(failedUnlogged.unwrapErr().kind).toBe('db_error');
 	});
 });
 
@@ -403,7 +478,7 @@ describe('nested collections', () => {
 
 	test('a collection that is not nested takes no parent', async () => {
 		useConnection(emailConnection);
-		getAgent.mockResolvedValue(Ok(triage));
+		getAgentById.mockResolvedValue(Ok(triage));
 		const {runAgentTool} = await import('./tools');
 		const listed = await runAgentTool(caller, 'mail-1', 'emails_list', {parent: 'inbox-1'});
 		const created = await runAgentTool(caller, 'mail-1', 'emails_create', {parent: 'inbox-1', subject: 'Hi'});
@@ -466,7 +541,7 @@ describe('a field that needs an action of its own', () => {
 	});
 
 	test('with Invite guests, both go through', async () => {
-		getAgent.mockResolvedValue(Ok(inviting));
+		getAgentById.mockResolvedValue(Ok(inviting));
 		connector.get.mockResolvedValue(Ok(meeting));
 
 		const {runAgentTool} = await import('./tools');
@@ -479,7 +554,7 @@ describe('a field that needs an action of its own', () => {
 
 	test("without Calendar's scopes, Invite guests is refused saying to sign in again", async () => {
 		useConnection({...calendarConnection, credential: googleConnection.credential});
-		getAgent.mockResolvedValue(Ok(inviting));
+		getAgentById.mockResolvedValue(Ok(inviting));
 
 		const {runAgentTool} = await import('./tools');
 		const result = await runAgentTool(caller, 'google-1', 'events_create', {title: 'Q4 planning', start: '2026-10-15T09:00', guests: 'sam@example.com'});
@@ -495,6 +570,9 @@ describe('custom MCP servers', () => {
 	const customConnection = {
 		id: 'mcp-1',
 		integrationId: 'mcp',
+		orgId: 'org-1',
+		ownerUserId: 'user-1',
+		connectedById: 'user-1',
 		account: 'mcp.example.com/mcp',
 		createdAt: new Date(),
 		tools: JSON.stringify([search, publish]),
@@ -513,7 +591,7 @@ describe('custom MCP servers', () => {
 		const {listAgentConnections, listAgentTools} = await import('./tools');
 
 		expect((await listAgentConnections(signedIn)).unwrap().connections).toEqual([
-			{id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', actions: ['search_docs'], tools: [search], name: null},
+			{id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', shared: false, actions: ['search_docs'], tools: [search], name: null},
 		]);
 		expect((await listAgentTools(signedIn, 'mcp-1')).unwrap().map((tool) => tool.name)).toEqual(['search_docs']);
 	});
@@ -546,12 +624,13 @@ describe('custom MCP servers', () => {
 		expect(logAgentRequest).toHaveBeenCalledTimes(1);
 	});
 
-	test('what the tool answered with is passed on, and a tool that failed is what the server said', async () => {
+	test('what the tool answered with is passed on, and a tool that failed is what the server said, logged as failed', async () => {
 		callCustomTool.mockResolvedValue(Err(ApiErr.validationError('query is required')));
 		const {runAgentTool} = await import('./tools');
 		const failed = (await runAgentTool(caller, 'mcp-1', 'search_docs', {})).unwrapErr();
 
 		expect(failed).toEqual(ApiErr.validationError('query is required'));
-		expect(logAgentRequest).not.toHaveBeenCalled();
+		expect(logAgentRequest).toHaveBeenCalledTimes(1);
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'tools', action: 'search_docs', query: null, outcome: 'failed', error: 'validation_error'});
 	});
 });

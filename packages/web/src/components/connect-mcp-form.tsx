@@ -6,7 +6,9 @@ import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {apiMessage} from '@/lib/agent-errors';
 import type {Connection} from '@/lib/types';
+import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
+import {useOrgSlug} from '@/hooks/use-org';
 
 function connectErrorMessage(error: FetchError): string {
 	if (error.kind === 'http' && error.status === 400) {
@@ -30,12 +32,16 @@ function connectErrorMessage(error: FetchError): string {
 export function ConnectMcpForm({
 	cancel,
 	returnTo,
+	shared,
 	onConnected,
 }: {
 	cancel?: ReactNode;
 	returnTo?: 'welcome';
+	// For every member of the organization rather than the person's own.
+	shared?: boolean;
 	onConnected: (connection: Connection) => void;
 }) {
+	const org = useOrgSlug();
 	const [name, setName] = useState('');
 	const [url, setUrl] = useState('');
 	const [token, setToken] = useState('');
@@ -52,11 +58,12 @@ export function ConnectMcpForm({
 				event.preventDefault();
 				setPending('connecting');
 				setError(null);
-				const result = await connectMcp({
+				const result = await connectMcp(org, {
 					name: name.trim(),
 					url: url.trim(),
 					...(token.trim() ? {token: token.trim()} : {}),
 					...(returnTo ? {returnTo} : {}),
+					...(shared ? {shared} : {}),
 				});
 				if (result.isErr()) {
 					setPending(null);
@@ -111,7 +118,7 @@ export function ConnectMcpForm({
 				<Input
 					id="mcp-token"
 					type="password"
-					autoComplete="off"
+					{...NO_PASSWORD_MANAGER}
 					value={token}
 					onChange={(event) => setToken(event.target.value)}
 				/>

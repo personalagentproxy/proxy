@@ -3,10 +3,11 @@ import {z} from 'zod';
 
 import {type ApiError, Do, parseSchema} from '@proxy/utils';
 import {listAuditEntries, summarizeTaskRequests} from '@proxy/db/audit';
+import {listMemberNames} from '@proxy/db/organization';
 import {type AgentTaskRow, listAgentTasks, listAgentTasksSince} from '@proxy/db/task';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {requireUserOrgId} from '../utils/user-org';
+import {requireViewer} from '../utils/user-org';
 
 const MAX_ENTRIES = 500;
 
@@ -21,24 +22,40 @@ export type AuditEntryResponse = {
 	action: string;
 	recordTitle: string | null;
 	query: string | null;
-	outcome: 'allowed' | 'denied';
+	outcome: 'allowed' | 'denied' | 'failed';
+	// What went wrong, for a failed request: the api's kind of error, with the provider's HTTP status
+	// where it answered with one, such as `provider_unreachable 429`; none for every other outcome.
+	error: string | null;
 	// The web app's agent pages, the MCP server, or the built-in agent's own loop.
 	via: 'web' | 'mcp' | 'harness';
 	// The agent's task the request was made for, among the answer's `tasks`; none for entries from
 	// before tasks, and for what Personal Agent Proxy did itself.
 	taskId: string | null;
+	// How long the request took; none for entries from before it was kept, and for what Personal
+	// Agent Proxy did itself.
+	durationMs: number | null;
+	// The member who asked for what Personal Agent Proxy did itself, and their name or address while
+	// they are in the organization; null for an agent's request, and for entries from before it was
+	// kept.
+	userId: string | null;
+	userName: string | null;
 };
 
 /** What an agent set out to do, as it said when it started: what the entries made for it were for. */
 export type ActivityTaskResponse = {
 	id: string;
 	agentId: string;
+	// The agent's task it is a sub-task of, where the agent handed part of that task to a sub-agent;
+	// null for a task started on its own. The parent may be missing from the answer.
+	parentId: string | null;
 	title: string;
 	goal: string;
 	via: 'web' | 'mcp' | 'harness';
 	startedAt: string;
 	// Null while the agent hasn't called it finished, abandoned (@proxy/utils/tasks) or not.
 	finishedAt: string | null;
+	// What was done or found, as the agent said when it finished; null where it said nothing.
+	outcome: string | null;
 };
 
 function toActivityTask({createdAt, finishedAt, ...task}: AgentTaskRow): ActivityTaskResponse {
@@ -52,28 +69,32 @@ const querySchema = z.object({
 	agentId: z.string().min(1).optional(),
 	connectionId: z.string().min(1).optional(),
 	taskId: z.string().min(1).optional(),
-	outcome: z.enum(['allowed', 'denied']).optional(),
+	outcome: z.enum(['allowed', 'denied', 'failed']).optional(),
 });
 
 /**
- * The organization's agent requests, newest first, the latest 500, and the tasks they were made
- * for; with `?taskId=`, that task too, even before any request was made for it.
+ * The requests the person sees in the organization, newest first, the latest 500: shared agents'
+ * and their own agents', on shared connections and their own; and the tasks they were made for;
+ * with `?taskId=`, that task too, even before any request was made for it.
  */
 export function handleListActivityRoute(request: AuthenticatedRequest): Promise<Result<{entries: AuditEntryResponse[]; tasks: ActivityTaskResponse[]}, ApiError>> {
 	return Do(async ($) => {
 		const {agentId, connectionId, taskId, outcome} = $(parseSchema(querySchema, request.query));
-		const orgId = $(await requireUserOrgId(request));
+		const viewer = $(await requireViewer(request));
 		const filter = {
 			...(agentId === undefined ? {} : {agentId: agentId === PROXY ? null : agentId}),
 			...(connectionId === undefined ? {} : {connectionId}),
 			...(taskId === undefined ? {} : {taskId}),
 			...(outcome === undefined ? {} : {outcome}),
 		};
-		const rows = $(await listAuditEntries(orgId, filter, MAX_ENTRIES));
+		const rows = $(await listAuditEntries(viewer, filter, MAX_ENTRIES));
 		const taskIds = new Set([...rows.flatMap((row) => (row.taskId === null ? [] : [row.taskId])), ...(taskId === undefined ? [] : [taskId])]);
-		const tasks = $(await listAgentTasks(orgId, [...taskIds]));
+		const userIds = new Set(rows.flatMap((row) => (row.userId === null ? [] : [row.userId])));
+		const tasks = $(await listAgentTasks(viewer, [...taskIds]));
+		const names = $(await listMemberNames([...userIds].map((userId) => ({orgId: viewer.orgId, userId}))));
+		const nameOf = (userId: string | null) => names.find((member) => member.userId === userId)?.name ?? null;
 		return {
-			entries: rows.map(({createdAt, ...entry}) => ({...entry, at: createdAt.toISOString()})),
+			entries: rows.map(({createdAt, ...entry}) => ({...entry, at: createdAt.toISOString(), userName: nameOf(entry.userId)})),
 			tasks: tasks.map(toActivityTask),
 		};
 	});
@@ -102,17 +123,17 @@ export type ActivityLanesResponse = {
 	tasks: LaneTaskResponse[];
 };
 
-/** The organization's tasks under way at some point since `?from=`, with what was done for each. */
+/** The tasks the person sees under way at some point since `?from=`, shared agents' and their own agents', with what was done for each. */
 export function handleActivityLanesRoute(request: AuthenticatedRequest): Promise<Result<ActivityLanesResponse, ApiError>> {
 	return Do(async ($) => {
 		const query = $(parseSchema(lanesQuerySchema, request.query));
-		const orgId = $(await requireUserOrgId(request));
+		const viewer = $(await requireViewer(request));
 		const now = new Date();
 		const from = new Date(Math.max(new Date(query.from).getTime(), now.getTime() - MAX_WINDOW_MS));
-		const rows = $(await listAgentTasksSince(orgId, from, MAX_TASKS));
+		const rows = $(await listAgentTasksSince(viewer, from, MAX_TASKS));
 		const requests = $(
 			await summarizeTaskRequests(
-				orgId,
+				viewer,
 				rows.map((row) => row.id),
 			),
 		);

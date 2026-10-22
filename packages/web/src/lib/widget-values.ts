@@ -399,6 +399,15 @@ export function termsRead(words: string[]): string {
 	return words.map((term) => term.split('|')[0]?.trim() ?? term).join(', ');
 }
 
+/** What a search of the mailboxes is for, a part each: "from sam", "about flight, SFO", "since Oct 7". */
+export function emailQueryRead(query: EmailQuery): string[] {
+	return [
+		...(query.from ? [`from ${query.from}`] : []),
+		...(query.words.length > 0 ? [`about ${termsRead(query.words)}`] : []),
+		...(query.since ? [`since ${shortDay(new Date(`${query.since}T00:00`))}`] : []),
+	];
+}
+
 const KIND_WORDS: [string, FileKind][] = [
 	['doc', 'Document'],
 	['docs', 'Document'],
@@ -490,6 +499,40 @@ export function askSearch(intent: Intent, typed: string, now: Date): AskSearch {
 		kind: kinds[0] ?? null,
 		days: meetingDays(typed, now),
 	};
+}
+
+// Where an email's text gives way to what it quotes of the one before: "On Mon, Oct 19, 2026 at
+// 10:00 AM Sam Lee <sam@…> wrote:", wrapped over two lines at times, Outlook's "-----Original
+// Message-----", or lines quoted with ">".
+const QUOTE_STARTS = [
+	/^\s*>/,
+	/^\s*-{2,}\s*Original Message\s*-{2,}\s*$/i,
+	/^\s*On\b.*\bwrote:\s*$/,
+];
+
+// Where the lines from `index` on are what an email quotes, the line before them included when
+// "On … wrote:" is wrapped over two.
+function quoteStart(lines: string[], index: number): number | null {
+	const line = lines[index] ?? '';
+	if (QUOTE_STARTS.some((pattern) => pattern.test(line))) {
+		return index;
+	}
+	if (/\bwrote:\s*$/.test(line) && /^\s*On\b/.test(lines[index - 1] ?? '')) {
+		return index - 1;
+	}
+	return null;
+}
+
+/** An email's own text, without what it quotes of the emails before it. */
+export function ownText(text: string): string {
+	const lines = text.split(/\r?\n/);
+	for (const [index] of lines.entries()) {
+		const start = quoteStart(lines, index);
+		if (start !== null) {
+			return lines.slice(0, start).join('\n').trim();
+		}
+	}
+	return text.trim();
 }
 
 /** The first address of an email's sender as a list shows it: "Sam Lee <sam@…>" is Sam Lee. */

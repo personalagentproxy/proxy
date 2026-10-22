@@ -9,10 +9,22 @@ const createAgent = mock();
 const updateAgent = mock();
 const deleteAgent = mock();
 const setAgentGrants = mock();
+const renameAgent = mock();
 const isUsernameConflict = mock(() => false);
-const isProviderConflict = mock(() => false);
 
-mock.module('@proxy/db/agent', () => ({listAgents, getAgent, createAgent, updateAgent, deleteAgent, setAgentGrants, isUsernameConflict, isProviderConflict}));
+mock.module('@proxy/db/agent', () => ({
+	listAgents,
+	getAgent,
+	createAgent,
+	updateAgent,
+	deleteAgent,
+	renameAgent,
+	setAgentGrants,
+	shareAgent: mock(async () => Ok(undefined)),
+	isUsernameConflict,
+}));
+
+mock.module('@proxy/db/organization', () => ({listMemberNames: mock(async () => Ok([]))}));
 
 const getConnectionWithCredential = mock();
 
@@ -23,12 +35,25 @@ mock.module('../utils/secret-crypto', () => ({
 	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
 }));
 
-const requireUserOrgId = mock();
+const owner = {orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []};
+// Someone else in the organization, who only uses what is shared.
+const member = {...owner, userId: 'user-2', role: 'member'};
+const requireViewer = mock(async (): Promise<unknown> => Ok(owner));
 
-mock.module('../utils/user-org', () => ({requireUserOrgId}));
+mock.module('../utils/user-org', () => ({
+	requireViewer,
+}));
+
+const listAgentOAuthGrants = mock();
+const deleteOAuthGrant = mock();
+
+mock.module('@proxy/db/oauth', () => ({listAgentOAuthGrants, deleteOAuthGrant}));
 
 const agentRow = {
 	id: 'agent-1',
+	orgId: 'org-1',
+	ownerUserId: 'user-1',
+	createdById: 'user-1',
 	providerId: 'dot',
 	name: 'Dots',
 	username: 'dots-k7q2',
@@ -44,16 +69,30 @@ function makeRequest(params: Record<string, string> = {}, body: unknown = undefi
 
 beforeEach(() => {
 	mock.clearAllMocks();
-	requireUserOrgId.mockResolvedValue(Ok('org-1'));
+	requireViewer.mockResolvedValue(Ok(owner));
+	listAgentOAuthGrants.mockResolvedValue(Ok([]));
+	deleteOAuthGrant.mockResolvedValue(Ok(true));
 	getAgent.mockResolvedValue(Ok(agentRow));
 	createAgent.mockResolvedValue(Ok(agentRow));
 	updateAgent.mockResolvedValue(Ok(true));
+	renameAgent.mockResolvedValue(Ok(true));
 	setAgentGrants.mockResolvedValue(Ok(undefined));
 	getConnectionWithCredential.mockResolvedValue(
-		Ok({id: 'conn-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), tools: null, name: null, defaults: [], credential: 'enc:{}'}),
+		Ok({
+			id: 'conn-1',
+			integrationId: 'email',
+			orgId: 'org-1',
+			ownerUserId: 'user-1',
+			connectedById: 'user-1',
+			account: 'alex@example.com',
+			createdAt: new Date(),
+			tools: null,
+			name: null,
+			defaults: [],
+			credential: 'enc:{}',
+		}),
 	);
 	isUsernameConflict.mockReturnValue(false);
-	isProviderConflict.mockReturnValue(false);
 });
 
 describe('handleCreateAgentRoute', () => {
@@ -92,6 +131,16 @@ describe('handleCreateAgentRoute', () => {
 		expect(result.unwrapErr().kind).toBe('parse_error');
 	});
 
+	test('stores Claude Duet under its shared Claude login', async () => {
+		const {handleCreateAgentRoute} = await import('./route');
+		await handleCreateAgentRoute(makeRequest({}, {providerId: 'claude-duet'}));
+
+		expect(createAgent.mock.calls[0]?.[0]).toMatchObject({
+			providerId: 'claude',
+			name: 'Claude',
+		});
+	});
+
 	test('names a custom agent as the person did, and any number of them', async () => {
 		const {handleCreateAgentRoute} = await import('./route');
 		await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: '  Cursor '}));
@@ -102,37 +151,38 @@ describe('handleCreateAgentRoute', () => {
 		expect(createAgent.mock.calls[1]?.[0]).toMatchObject({providerId: 'custom', name: 'Zed'});
 	});
 
-	test('needs a custom agent named, and a provider named by itself', async () => {
+	test('needs a custom agent named, and names any other after its provider unless the person does', async () => {
 		const {handleCreateAgentRoute} = await import('./route');
 		const unnamed = await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: ' '}));
 		const tooLong = await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: 'x'.repeat(61)}));
-		await handleCreateAgentRoute(makeRequest({}, {providerId: 'dot', name: 'Something else'}));
+		await handleCreateAgentRoute(makeRequest({}, {providerId: 'dot'}));
+		await handleCreateAgentRoute(makeRequest({}, {providerId: 'dot', name: 'Travel planner'}));
 
 		expect(unnamed.unwrapErr().kind).toBe('validation_error');
 		expect(tooLong.unwrapErr().kind).toBe('validation_error');
-		expect(createAgent).toHaveBeenCalledTimes(1);
+		expect(createAgent).toHaveBeenCalledTimes(2);
 		expect(createAgent.mock.calls[0]?.[0].name).toBe('Dots');
+		expect(createAgent.mock.calls[1]?.[0]).toMatchObject({providerId: 'dot', name: 'Travel planner'});
+	});
+});
+
+describe('handleRenameAgentRoute', () => {
+	test('renames the agent, trimmed', async () => {
+		const {handleRenameAgentRoute} = await import('./route');
+		const result = await handleRenameAgentRoute(makeRequest({agentId: 'agent-1'}, {name: ' Travel planner '}));
+
+		expect(renameAgent).toHaveBeenCalledWith('org-1', 'agent-1', 'Travel planner');
+		expect(result.unwrap().name).toBe('Travel planner');
 	});
 
-	test('refuses a custom agent named as one the organization has', async () => {
-		createAgent.mockResolvedValue(Err(ApiErr.dbError(new Error('P2002'))));
-		isProviderConflict.mockReturnValue(true);
+	test('needs a name, and not too long a one', async () => {
+		const {handleRenameAgentRoute} = await import('./route');
+		const empty = await handleRenameAgentRoute(makeRequest({agentId: 'agent-1'}, {name: ' '}));
+		const tooLong = await handleRenameAgentRoute(makeRequest({agentId: 'agent-1'}, {name: 'x'.repeat(61)}));
 
-		const {handleCreateAgentRoute} = await import('./route');
-		const result = await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: 'Cursor'}));
-
-		expect(result.unwrapErr()).toMatchObject({kind: 'conflict', message: 'An agent named Cursor already exists'});
-	});
-
-	test('refuses a second login for the same provider', async () => {
-		createAgent.mockResolvedValue(Err(ApiErr.dbError(new Error('P2002'))));
-		isProviderConflict.mockReturnValue(true);
-
-		const {handleCreateAgentRoute} = await import('./route');
-		const result = await handleCreateAgentRoute(makeRequest({}, {providerId: 'dot'}));
-
-		expect(result.unwrapErr().kind).toBe('conflict');
-		expect(createAgent).toHaveBeenCalledTimes(1);
+		expect(empty.unwrapErr().kind).toBe('validation_error');
+		expect(tooLong.unwrapErr().kind).toBe('validation_error');
+		expect(renameAgent).not.toHaveBeenCalled();
 	});
 });
 
@@ -189,7 +239,17 @@ describe('handleSetAgentGrantsRoute', () => {
 	test("refuses turning on an action the connection's sign-in didn't cover, but not turning it off", async () => {
 		const credential = {accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null, scopes: ['openid'], email: 'alex@example.com'};
 		getConnectionWithCredential.mockResolvedValue(
-			Ok({id: 'conn-1', integrationId: 'google', account: 'alex@example.com', createdAt: new Date(), defaults: [], credential: `enc:${JSON.stringify(credential)}`}),
+			Ok({
+				id: 'conn-1',
+				integrationId: 'google',
+				orgId: 'org-1',
+				ownerUserId: 'user-1',
+				connectedById: 'user-1',
+				account: 'alex@example.com',
+				createdAt: new Date(),
+				defaults: [],
+				credential: `enc:${JSON.stringify(credential)}`,
+			}),
 		);
 
 		const {handleSetAgentGrantsRoute} = await import('./route');
@@ -210,5 +270,120 @@ describe('handleSetAgentGrantsRoute', () => {
 
 		expect(result.unwrapErr().kind).toBe('not_found');
 		expect(setAgentGrants).not.toHaveBeenCalled();
+	});
+});
+
+describe('MCP clients', () => {
+	const shared = {...agentRow, ownerUserId: null, createdById: 'user-1'};
+	const grants = [
+		{id: 'grant-1', clientName: 'Claude', userId: 'user-1', createdAt: new Date('2026-10-01T00:00:00Z')},
+		{id: 'grant-2', clientName: 'ChatGPT', userId: 'user-2', createdAt: new Date('2026-10-02T00:00:00Z')},
+	];
+
+	test('whoever may change the agent sees every client, with who signed each in, and signs out any', async () => {
+		getAgent.mockResolvedValue(Ok(shared));
+		listAgentOAuthGrants.mockResolvedValue(Ok(grants));
+		const {handleListMcpClientsRoute, handleDisconnectMcpClientRoute} = await import('./route');
+		const listed = await handleListMcpClientsRoute(makeRequest({agentId: 'agent-1'}));
+		const disconnected = await handleDisconnectMcpClientRoute(makeRequest({agentId: 'agent-1', grantId: 'grant-2'}));
+
+		expect(listAgentOAuthGrants).toHaveBeenCalledWith('org-1', 'agent-1', undefined);
+		expect(listed.unwrap().clients).toEqual([
+			{id: 'grant-1', name: 'Claude', connectedAt: '2026-10-01T00:00:00.000Z', connectedBy: null, mine: true},
+			{id: 'grant-2', name: 'ChatGPT', connectedAt: '2026-10-02T00:00:00.000Z', connectedBy: null, mine: false},
+		]);
+		expect(disconnected.isOk()).toBe(true);
+		expect(deleteOAuthGrant).toHaveBeenCalledWith('org-1', 'agent-1', 'grant-2', undefined);
+	});
+
+	test('a member who only uses a shared agent sees and signs out the clients they signed in themselves', async () => {
+		requireViewer.mockResolvedValue(Ok(member));
+		getAgent.mockResolvedValue(Ok(shared));
+		listAgentOAuthGrants.mockResolvedValue(Ok([grants[1]]));
+		deleteOAuthGrant.mockResolvedValue(Ok(false));
+		const {handleListMcpClientsRoute, handleDisconnectMcpClientRoute} = await import('./route');
+		const listed = await handleListMcpClientsRoute(makeRequest({agentId: 'agent-1'}));
+		const theirs = await handleDisconnectMcpClientRoute(makeRequest({agentId: 'agent-1', grantId: 'grant-1'}));
+
+		expect(listAgentOAuthGrants).toHaveBeenCalledWith('org-1', 'agent-1', 'user-2');
+		expect(listed.unwrap().clients).toEqual([expect.objectContaining({id: 'grant-2', mine: true})]);
+		expect(deleteOAuthGrant).toHaveBeenCalledWith('org-1', 'agent-1', 'grant-1', 'user-2');
+		expect(theirs.unwrapErr().kind).toBe('not_found');
+	});
+});
+
+describe('who may change a shared agent', () => {
+	const shared = {...agentRow, ownerUserId: null, createdById: 'user-1'};
+	const params = {agentId: 'agent-1', connectionId: 'conn-1'};
+
+	test('a member who only uses it may not rename, reset, revoke, share or delete it, nor change its access', async () => {
+		requireViewer.mockResolvedValue(Ok(member));
+		getAgent.mockResolvedValue(Ok(shared));
+		const route = await import('./route');
+		const refused = await Promise.all([
+			route.handleRenameAgentRoute(makeRequest(params, {name: 'Theirs'})),
+			route.handleResetAgentPasswordRoute(makeRequest(params)),
+			route.handleSetAgentRevokedRoute(makeRequest(params, {revoked: true})),
+			route.handleShareAgentRoute(makeRequest(params)),
+			route.handleDeleteAgentRoute(makeRequest(params)),
+			route.handleSetAgentGrantsRoute(makeRequest(params, {actions: {read: true}})),
+		]);
+
+		expect(refused.map((result) => result.unwrapErr().kind)).toEqual(['forbidden', 'forbidden', 'forbidden', 'forbidden', 'forbidden', 'forbidden']);
+		expect(renameAgent).not.toHaveBeenCalled();
+		expect(updateAgent).not.toHaveBeenCalled();
+		expect(deleteAgent).not.toHaveBeenCalled();
+		expect(setAgentGrants).not.toHaveBeenCalled();
+	});
+
+	test('whoever made it changes it, member or not, and so does the organization’s owner', async () => {
+		getAgent.mockResolvedValue(Ok({...shared, createdById: 'user-2'}));
+		const {handleRenameAgentRoute} = await import('./route');
+		const byOwner = await handleRenameAgentRoute(makeRequest(params, {name: 'Ours'}));
+		requireViewer.mockResolvedValue(Ok(member));
+		const byMaker = await handleRenameAgentRoute(makeRequest(params, {name: 'Ours'}));
+
+		expect(byOwner.isOk()).toBe(true);
+		expect(byMaker.isOk()).toBe(true);
+		expect(renameAgent).toHaveBeenCalledTimes(2);
+	});
+
+	test('another member’s own agent is not found, even for the owner', async () => {
+		getAgent.mockResolvedValue(Ok(null));
+		const {handleGetAgentRoute, handleDeleteAgentRoute} = await import('./route');
+		const got = await handleGetAgentRoute(makeRequest(params));
+		const deleted = await handleDeleteAgentRoute(makeRequest(params));
+
+		expect(getAgent).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'agent-1');
+		expect(got.unwrapErr().kind).toBe('not_found');
+		expect(deleted.unwrapErr().kind).toBe('not_found');
+		expect(deleteAgent).not.toHaveBeenCalled();
+	});
+
+	test('a shared agent reaches only shared connections, so a setting on one’s own connection is refused', async () => {
+		getAgent.mockResolvedValue(Ok(shared));
+		const {handleSetAgentGrantsRoute} = await import('./route');
+		const own = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {read: true}}));
+		expect(own.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'A shared agent reaches only shared connections'});
+		expect(setAgentGrants).not.toHaveBeenCalled();
+
+		getConnectionWithCredential.mockResolvedValue(
+			Ok({
+				id: 'conn-1',
+				integrationId: 'email',
+				orgId: 'org-1',
+				ownerUserId: null,
+				connectedById: 'user-2',
+				account: 'team@example.com',
+				createdAt: new Date(),
+				tools: null,
+				name: null,
+				defaults: [],
+				credential: 'enc:{}',
+			}),
+		);
+		const sharedConnection = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {read: true}}));
+		expect(sharedConnection.isOk()).toBe(true);
+		expect(setAgentGrants).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', actions: {read: true}});
 	});
 });

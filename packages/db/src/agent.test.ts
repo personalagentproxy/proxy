@@ -3,7 +3,7 @@ import {describe, expect, test} from 'bun:test';
 import {Prisma} from '@prisma/client';
 import {ApiErr} from '@proxy/utils';
 
-import {isProviderConflict, isUsernameConflict} from './agent';
+import {isUsernameConflict} from './agent';
 import {toSignedInAgent} from './signed-in-agent';
 
 function uniqueViolation(target: string[]) {
@@ -17,15 +17,10 @@ function uniqueViolation(target: string[]) {
 }
 
 describe('agent unique conflicts', () => {
-	test('distinguishes provider and username constraints', () => {
-		const provider = uniqueViolation(['orgId', 'providerId']);
-		const username = uniqueViolation(['username']);
-
-		expect(isProviderConflict(provider)).toBe(true);
-		expect(isUsernameConflict(provider)).toBe(false);
-		expect(isUsernameConflict(username)).toBe(true);
-		expect(isProviderConflict(username)).toBe(false);
-		expect(isProviderConflict(ApiErr.forbidden())).toBe(false);
+	test('recognizes the username constraint alone', () => {
+		expect(isUsernameConflict(uniqueViolation(['username']))).toBe(true);
+		expect(isUsernameConflict(uniqueViolation(['id']))).toBe(false);
+		expect(isUsernameConflict(ApiErr.forbidden())).toBe(false);
 	});
 });
 
@@ -33,18 +28,21 @@ describe('toSignedInAgent', () => {
 	const agent = {
 		id: 'agent-1',
 		orgId: 'org-1',
+		ownerUserId: 'user-1',
 		providerId: 'claude',
 		name: 'Claude',
 		revokedAt: null,
-		org: {insider: false, experiments: ['shipped-long-ago']},
+		org: {slug: 'alexs-workspace', insider: false, experiments: ['shipped-long-ago']},
 	};
 
 	test("carries its organization's experiments, without ids that are no longer experiments", () => {
 		expect(toSignedInAgent(agent)).toEqual({
 			agentId: 'agent-1',
 			orgId: 'org-1',
+			ownerUserId: 'user-1',
 			providerId: 'claude',
 			name: 'Claude',
+			orgSlug: 'alexs-workspace',
 			experiments: [],
 		});
 	});

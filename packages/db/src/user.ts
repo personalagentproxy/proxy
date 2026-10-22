@@ -9,6 +9,8 @@ import {
 	isSlugUniqueConflict,
 	pickAvailableSlugDatabase,
 	planPersonalOrgIdentity,
+	ownVaultFor,
+	sharedVaultFor,
 } from './organization';
 
 export type CreatedUser = {id: string; email: string; name: string | null};
@@ -32,8 +34,8 @@ export async function getUserByEmail(email: string): Promise<Result<CreatedUser 
 }
 
 /**
- * Creates the user together with their personal organization, membership and the organization's
- * vault connection, in one transaction, so no user exists without them. Retries when a parallel sign-up took the slug.
+ * Creates the user together with their first organization, which they own, with its shared vault,
+ * their membership and their own vault there, in one transaction, so no user exists without them. Retries when a parallel sign-up took the slug.
  * Every sign-up comes through the sign-in page, past its notice of the terms, so the terms count as
  * accepted from the start.
  */
@@ -54,17 +56,10 @@ async function createUserWithPersonalOrg(data: {
 					select: createdUserSelect,
 				});
 				const slug = await pickAvailableSlugDatabase(tx, base);
-				const org = await tx.organization.create({data: {name, slug}});
+				const org = await tx.organization.create({data: {name, slug, ownerUserId: user.id}});
 				await tx.orgMember.create({data: {orgId: org.id, userId: user.id}});
-				// Agents read the vault and keep what they learn there, unless the person says otherwise.
-				await tx.connection.create({
-					data: {
-						orgId: org.id,
-						integrationId: 'vault',
-						account: name,
-						defaults: {create: [{actionId: 'readEntries'}, {actionId: 'writeEntries'}]},
-					},
-				});
+				await tx.connection.create({data: ownVaultFor({orgId: org.id, userId: user.id, name})});
+				await tx.connection.create({data: sharedVaultFor({orgId: org.id, userId: user.id, name})});
 				return user;
 			}),
 		);
@@ -114,10 +109,11 @@ export async function createUser(data: {
 }
 
 /**
- * Deletes the user and their organization; the cascades take their accounts, sessions,
- * membership and the organization's connections, vault, agents and activity. Sign-in links
- * still waiting for their address go too. Organizations have one member for now, so every
- * organization the user belongs to is theirs alone.
+ * Deletes the user; the cascades take their accounts, sessions, memberships, their own connections
+ * everywhere and the organizations they own, with those organizations' connections, vaults,
+ * agents, other members and activity. Sign-in links still waiting for their address go too. The
+ * caller has undone their connections at their providers and taken them out of every other
+ * organization first.
  */
 export async function deleteUser(userId: string): Promise<Result<void, ApiError>> {
 	return wrapDb(() =>
@@ -126,13 +122,9 @@ export async function deleteUser(userId: string): Promise<Result<void, ApiError>
 			if (user) {
 				await tx.verificationToken.deleteMany({where: {identifier: user.email}});
 			}
-			// By id: Prisma cascades to the memberships first, so filtering the delete itself by
-			// membership would match nothing.
-			const orgs = await tx.organization.findMany({
-				where: {members: {some: {userId}}},
-				select: {id: true},
-			});
-			await tx.organization.deleteMany({where: {id: {in: orgs.map((org) => org.id)}}});
+			// The clients they signed in as shared agents, which don't go with the user.
+			await tx.oAuthCode.deleteMany({where: {userId}});
+			await tx.oAuthGrant.deleteMany({where: {userId}});
 			await tx.user.delete({where: {id: userId}});
 		}),
 	);

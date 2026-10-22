@@ -1,6 +1,6 @@
-import {PERSONA_NAME_MAX} from '@proxy/utils/harness';
 import {useState} from 'react';
 import type {Persona} from '@/client/harness-client';
+import {AGENT_NAME_MAX} from '@proxy/integrations';
 import {Avatar, AvatarPicker} from '@/components/avatar';
 import {Button} from '@proxy/ui/components/button';
 import {
@@ -81,7 +81,7 @@ export function PersonaDialog({open, initial, onClose, onSave, onDelete}: Props)
 								id="persona-name"
 								autoFocus
 								autoComplete="off"
-								maxLength={PERSONA_NAME_MAX}
+								maxLength={AGENT_NAME_MAX}
 								placeholder="Finance"
 								value={persona.name}
 								onChange={(event) => setPersona({...persona, name: event.target.value})}

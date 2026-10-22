@@ -2,13 +2,14 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
-import {getConnectionWithCredential} from '@proxy/db/connection';
 
 import {log} from '../../observability/log';
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
-import {requireUserOrgId} from '../../utils/user-org';
+import {requireViewer} from '../../utils/user-org';
 import {saveConnection} from '../connect-flow';
-import {toConnectionResponse, type ConnectionResponse} from '../connection-response';
+import {respond, type ConnectionResponse} from '../connection-response';
+import {requireManaged, type ManagingViewer} from '../managed';
+import {shareBodySchema} from '../ownership';
 import {createLinkToken, exchangePublicToken, getAccounts, removeItem} from './plaid-api';
 import {readPlaidCredential, requirePlaidClient, type PlaidClient, type PlaidCredential} from './plaid-client';
 
@@ -25,11 +26,11 @@ import {readPlaidCredential, requirePlaidClient, type PlaidClient, type PlaidCre
 
 const linkTokenBodySchema = z.object({connectionId: z.string().min(1).optional()});
 
-// The access token of the organization's Plaid connection, for Link's update mode.
-function requirePlaidConnection(orgId: string, connectionId: string): Promise<Result<PlaidCredential, ApiError>> {
+// The access token of a Plaid connection the person may change, for Link's update mode.
+function requirePlaidConnection(viewer: ManagingViewer, connectionId: string): Promise<Result<PlaidCredential, ApiError>> {
 	return Do(async ($) => {
-		const row = $(await getConnectionWithCredential(orgId, connectionId));
-		if (!row || row.integrationId !== 'plaid') {
+		const row = $(await requireManaged(viewer, connectionId));
+		if (row.integrationId !== 'plaid') {
 			return $(Err(ApiErr.notFound('connection', connectionId)));
 		}
 		return $(readPlaidCredential(row.credential));
@@ -44,8 +45,8 @@ export function handleCreatePlaidLinkTokenRoute(request: AuthenticatedRequest): 
 	return Do(async ($) => {
 		const {connectionId} = $(parseSchema(linkTokenBodySchema, request.body ?? {}));
 		const client = $(requirePlaidClient());
-		const orgId = $(await requireUserOrgId(request));
-		const accessToken = connectionId === undefined ? null : $(await requirePlaidConnection(orgId, connectionId)).accessToken;
+		const viewer = $(await requireViewer(request));
+		const accessToken = connectionId === undefined ? null : $(await requirePlaidConnection(viewer, connectionId)).accessToken;
 		return {linkToken: $(await createLinkToken(client, {userId: request.user.userId, accessToken}))};
 	});
 }
@@ -57,25 +58,27 @@ async function removeUnsavedItem(client: PlaidClient, credential: PlaidCredentia
 	}
 }
 
-const connectBodySchema = z.object({publicToken: z.string().min(1)});
+const connectBodySchema = z.object({publicToken: z.string().min(1)}).extend(shareBodySchema.shape);
 
-/** `POST /api/connections/plaid` — the public token Link answered with, exchanged and saved as a connection named by its bank. */
+/**
+ * `POST /api/connections/plaid` with `{publicToken, shared?}` — the public token Link answered
+ * with, exchanged and saved as a connection named by its bank, the person's own or every member's.
+ */
 export function handleConnectPlaidRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
 	return Do(async ($) => {
 		const client = $(requirePlaidClient());
-		const {publicToken} = $(parseSchema(connectBodySchema, request.body));
-		const orgId = $(await requireUserOrgId(request));
+		const {publicToken, shared} = $(parseSchema(connectBodySchema, request.body));
+		const viewer = $(await requireViewer(request));
 		const credential = $(await exchangePublicToken(client, publicToken));
 		// The login is made at Plaid by now, and billed: it is saved even when its bank's name can't be read.
 		const institution = (await getAccounts(client, credential.accessToken)).map((answer) => answer.institution).unwrapOr(null);
-		const saved = await saveConnection(orgId, 'plaid', {account: institution ?? 'Bank', accountId: credential.itemId, credential, defaults: []});
+		const saved = await saveConnection(viewer, 'plaid', {account: institution ?? 'Bank', accountId: credential.itemId, credential, defaults: []}, {shared});
 		if (saved.isErr()) {
 			// A login no connection keeps couldn't be disconnected, and would be billed on: it is removed.
 			await removeUnsavedItem(client, credential);
 			return $(saved);
 		}
 		const {row} = saved.value;
-		// Plaid's login covers everything the integration does: every action is available.
-		return toConnectionResponse(row, []);
+		return $(await respond({...row, credential: JSON.stringify(credential)}));
 	});
 }

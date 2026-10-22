@@ -1,23 +1,22 @@
 import {AVATAR_COLORS, AVATAR_SHAPES} from '@proxy/utils/harness';
 import {z} from 'zod';
-import {apiRequest, apiSend} from '@/client/request';
+import {apiRequest, apiSend, orgApi} from '@/client/request';
 
-// The Chat page's api: the person's threads with the built-in agent, each a persona they named
-// and gave a face, a thread's log, and what they say in it.
+// The Chat page's api: the organization's built-in agents, each named and given a face, which
+// every member sees, the person's own conversation with each, its log, and what they say in it.
 
-// A persona as the person makes or changes it.
+// An agent's persona as the person makes or changes it.
 const personaSchema = z.object({
 	name: z.string(),
 	shape: z.enum(AVATAR_SHAPES),
 	color: z.enum(AVATAR_COLORS),
 });
 
-const threadSchema = personaSchema.extend({
+const agentSchema = personaSchema.extend({
 	id: z.string(),
-	createdAt: z.string(),
-	// The task every call in the thread is made for, which the activity log can be narrowed to.
-	taskId: z.string(),
-	// The last thing said in it, by the person or the agent, for the list; null before anything was.
+	// Whether the person may rename, reface or delete it: they made it, or own the organization.
+	mayChange: z.boolean(),
+	// The last thing said in the person's conversation with it, for the list; null before anything was.
 	lastMessage: z
 		.object({kind: z.enum(['person', 'assistant']), text: z.string(), at: z.string()})
 		.nullable(),
@@ -38,51 +37,51 @@ const entrySchema = z.object({
 });
 
 const threadLogSchema = z.object({
-	thread: threadSchema,
+	agent: agentSchema,
+	// The conversation, with the task every call in it is made for, which the activity log can be narrowed to.
+	thread: z.object({id: z.string(), taskId: z.string()}),
 	entries: z.array(entrySchema),
-	// Whether the agent is at work on the thread, or asleep until a time.
+	// Whether the agent is at work on the conversation, or asleep until a time.
 	busy: z.boolean(),
 	sleepingUntil: z.string().nullable(),
 });
 
 export type Persona = z.infer<typeof personaSchema>;
-export type ChatThread = z.infer<typeof threadSchema>;
+export type ChatAgent = z.infer<typeof agentSchema>;
 export type ChatEntry = z.infer<typeof entrySchema>;
 export type ChatToolCall = z.infer<typeof toolCallSchema>;
 export type ThreadLog = z.infer<typeof threadLogSchema>;
 
-export function listThreads() {
-	return apiRequest('GET', '/api/chat/threads', z.object({threads: z.array(threadSchema)}));
+export function listChatAgents(org: string) {
+	return apiRequest('GET', `${orgApi(org)}/chat/agents`, z.object({agents: z.array(agentSchema)}));
 }
 
-export function createThread(persona: Persona) {
-	return apiRequest('POST', '/api/chat/threads', z.object({thread: threadSchema}), persona);
+export function createChatAgent(org: string, persona: Persona) {
+	return apiRequest('POST', `${orgApi(org)}/chat/agents`, z.object({agent: agentSchema}), persona);
 }
 
-export function updateThread(threadId: string, persona: Persona) {
+export function updateChatAgent(org: string, agentId: string, persona: Persona) {
 	return apiRequest(
 		'PUT',
-		`/api/chat/threads/${threadId}`,
-		z.object({thread: threadSchema}),
+		`${orgApi(org)}/chat/agents/${agentId}`,
+		z.object({agent: agentSchema}),
 		persona,
 	);
 }
 
-export function deleteThread(threadId: string) {
-	return apiSend('DELETE', `/api/chat/threads/${threadId}`);
+export function deleteChatAgent(org: string, agentId: string) {
+	return apiSend('DELETE', `${orgApi(org)}/chat/agents/${agentId}`);
 }
 
-export function getThread(threadId: string) {
-	return apiRequest('GET', `/api/chat/threads/${threadId}`, threadLogSchema);
+export function getThread(org: string, agentId: string) {
+	return apiRequest('GET', `${orgApi(org)}/chat/agents/${agentId}/thread`, threadLogSchema);
 }
 
-export function postMessage(threadId: string, text: string) {
+export function postMessage(org: string, agentId: string, text: string) {
 	return apiRequest(
 		'POST',
-		`/api/chat/threads/${threadId}/messages`,
+		`${orgApi(org)}/chat/agents/${agentId}/messages`,
 		z.object({entry: entrySchema}),
-		{
-			text,
-		},
+		{text},
 	);
 }

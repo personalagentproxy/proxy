@@ -19,6 +19,7 @@ import {
 	type Need,
 } from '@/lib/integrations';
 import type {Connection} from '@/lib/types';
+import {useOrgSlug} from '@/hooks/use-org';
 
 // The integrations not connected by signing in to them are connected on a form of their own: a
 // mailbox with an app password, a database with a user's name and password, a custom MCP server by
@@ -45,6 +46,7 @@ export function IntegrationCatalog({
 	configured,
 	experiments,
 	returnTo,
+	shared = false,
 	onConnectForm,
 	onConnected,
 }: {
@@ -53,11 +55,14 @@ export function IntegrationCatalog({
 	// The experiments on for the organization.
 	experiments: Experiment[];
 	returnTo?: 'welcome';
+	// A new connection is for every member of the organization rather than the person's own.
+	shared?: boolean;
 	// The integration's form, by its id.
 	onConnectForm: (integrationId: IntegrationId) => void;
 	// A connection made here, with an API key.
 	onConnected: (connection: Connection) => void;
 }) {
+	const org = useOrgSlug();
 	const available = INTEGRATIONS.filter(
 		(integration) => !integration.builtIn && isOffered(integration, {experiments}),
 	);
@@ -69,6 +74,7 @@ export function IntegrationCatalog({
 			{keyFor && (
 				<ConnectWithKeyDialog
 					integrationId={keyFor}
+					shared={shared}
 					onClose={() => setKeyFor(null)}
 					onConnected={onConnected}
 				/>
@@ -78,7 +84,10 @@ export function IntegrationCatalog({
 					const count = connections.filter(
 						(connection) => connection.integrationId === integration.id,
 					).length;
-					const signIn = signInPath(integration.id, {returnTo});
+					const signIn = signInPath(org, integration.id, {
+						returnTo,
+						share: shared ? 'everyone' : undefined,
+					});
 					const unmet =
 						integration.needs && !configured[integration.needs] ? integration.needs : null;
 					const content = (

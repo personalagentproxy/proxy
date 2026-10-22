@@ -20,9 +20,9 @@ const getAgent = mock();
 
 mock.module('@proxy/db/agent', () => ({getAgent}));
 
-const getUserOrgId = mock();
+const getMemberOrganization = mock(async (): Promise<unknown> => Ok({id: 'org-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboardedAt: new Date(), experiments: []}));
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId}));
+mock.module('@proxy/db/organization', () => ({getMemberOrganization}));
 
 const createAgentLogin = mock();
 
@@ -86,7 +86,6 @@ beforeEach(() => {
 	createOAuthCode.mockResolvedValue(Ok(undefined));
 	createOAuthGrant.mockResolvedValue(Ok(undefined));
 	rotateOAuthGrant.mockResolvedValue(Ok(true));
-	getUserOrgId.mockResolvedValue(Ok('org-1'));
 	getAgent.mockResolvedValue(Ok({id: 'agent-1', name: 'Dots', revokedAt: null}));
 });
 
@@ -218,29 +217,29 @@ describe('handleConsentRoute', () => {
 	}
 
 	test('allowing it as an agent makes a code for it and goes back to the client', async () => {
-		const result = await consent({request: sealed(), allow: true, agentId: 'agent-1'});
+		const result = await consent({request: sealed(), allow: true, org: 'org-1', agentId: 'agent-1'});
 		const to = new URL(result.unwrap().redirectTo);
 		const code = to.searchParams.get('code') ?? '';
 
 		expect(`${to.origin}${to.pathname}`).toBe(REDIRECT);
 		expect(to.searchParams.get('state')).toBe('xyz');
 		expect(to.searchParams.get('iss')).toBe('https://app.example.com');
-		expect(createOAuthCode.mock.calls[0]?.[0]).toMatchObject({codeHash: sha256(code), clientId: 'client-1', agentId: 'agent-1', redirectUri: REDIRECT, codeChallenge: 'challenge'});
+		expect(createOAuthCode.mock.calls[0]?.[0]).toMatchObject({codeHash: sha256(code), clientId: 'client-1', agentId: 'agent-1', userId: 'user-1', redirectUri: REDIRECT, codeChallenge: 'challenge'});
 	});
 
 	test('can make a new login for a provider to work as', async () => {
 		createAgentLogin.mockResolvedValue(Ok({agent: {id: 'agent-new'}, password: 'unused'}));
-		await consent({request: sealed(), allow: true, providerId: 'claude'});
+		await consent({request: sealed(), allow: true, org: 'org-1', providerId: 'claude'});
 
-		expect(createAgentLogin).toHaveBeenCalledWith('org-1', 'claude', undefined);
+		expect(createAgentLogin).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'claude', {name: undefined});
 		expect(createOAuthCode.mock.calls[0]?.[0].agentId).toBe('agent-new');
 	});
 
 	test('can make a custom agent, named by the person, to work as', async () => {
 		createAgentLogin.mockResolvedValue(Ok({agent: {id: 'agent-new'}, password: 'unused'}));
-		await consent({request: sealed(), allow: true, providerId: 'custom', name: 'MCP Inspector'});
+		await consent({request: sealed(), allow: true, org: 'org-1', providerId: 'custom', name: 'MCP Inspector'});
 
-		expect(createAgentLogin).toHaveBeenCalledWith('org-1', 'custom', 'MCP Inspector');
+		expect(createAgentLogin).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'custom', {name: 'MCP Inspector'});
 		expect(createOAuthCode.mock.calls[0]?.[0].agentId).toBe('agent-new');
 	});
 
@@ -253,20 +252,32 @@ describe('handleConsentRoute', () => {
 
 	test('a revoked agent, an expired request or a forged one is refused', async () => {
 		getAgent.mockResolvedValue(Ok({id: 'agent-1', name: 'Dots', revokedAt: new Date()}));
-		const revoked = await consent({request: sealed(), allow: true, agentId: 'agent-1'});
-		const expired = await consent({request: sealed({expiresAt: Date.now() - 1}), allow: true, agentId: 'agent-1'});
-		const forged = await consent({request: 'not-sealed', allow: true, agentId: 'agent-1'});
+		const revoked = await consent({request: sealed(), allow: true, org: 'org-1', agentId: 'agent-1'});
+		const expired = await consent({request: sealed({expiresAt: Date.now() - 1}), allow: true, org: 'org-1', agentId: 'agent-1'});
+		const forged = await consent({request: 'not-sealed', allow: true, org: 'org-1', agentId: 'agent-1'});
 
 		expect(revoked.unwrapErr().kind).toBe('validation_error');
 		expect(expired.unwrapErr().kind).toBe('validation_error');
 		expect(forged.isErr()).toBe(true);
 		expect(createOAuthCode).not.toHaveBeenCalled();
 	});
+
+	test('an organization the person isn’t in is not found, and the agent is looked up as a member of the one named', async () => {
+		getMemberOrganization.mockResolvedValueOnce(Ok(null));
+		const elsewhere = await consent({request: sealed(), allow: true, org: 'acme', agentId: 'agent-1'});
+		const here = await consent({request: sealed(), allow: true, org: 'org-1', agentId: 'agent-1'});
+
+		expect(elsewhere.unwrapErr().kind).toBe('not_found');
+		expect(here.isOk()).toBe(true);
+		expect(getMemberOrganization).toHaveBeenCalledWith('user-1', 'acme');
+		expect(getAgent).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'agent-1');
+		expect(createOAuthCode).toHaveBeenCalledTimes(1);
+	});
 });
 
 describe('handleTokenRoute', () => {
 	const verifier = 'verifier-with-enough-entropy-0123456789';
-	const storedCode = {clientId: 'client-1', agentId: 'agent-1', redirectUri: REDIRECT, codeChallenge: sha256(verifier, 'base64url'), expires: new Date(Date.now() + 60_000)};
+	const storedCode = {clientId: 'client-1', agentId: 'agent-1', userId: 'user-1', redirectUri: REDIRECT, codeChallenge: sha256(verifier, 'base64url'), expires: new Date(Date.now() + 60_000)};
 
 	async function token(body: Record<string, string>, headers: Record<string, string> = {}) {
 		const {handleTokenRoute} = await import('./token');
@@ -275,7 +286,7 @@ describe('handleTokenRoute', () => {
 		return res;
 	}
 
-	test('trades a code and its verifier for tokens, keeping only their hashes', async () => {
+	test('trades a code and its verifier for tokens, keeping only their hashes and who signed in', async () => {
 		takeOAuthCode.mockResolvedValue(Ok(storedCode));
 		const res = await token({grant_type: 'authorization_code', code: 'code-1', code_verifier: verifier, redirect_uri: REDIRECT, client_id: 'client-1'});
 		const body = res.body as {access_token: string; refresh_token: string; token_type: string};
@@ -283,7 +294,13 @@ describe('handleTokenRoute', () => {
 		expect(res.statusCode).toBe(200);
 		expect(body.token_type).toBe('Bearer');
 		expect(takeOAuthCode).toHaveBeenCalledWith(sha256('code-1'));
-		expect(createOAuthGrant.mock.calls[0]?.[0]).toMatchObject({clientId: 'client-1', agentId: 'agent-1', accessTokenHash: sha256(body.access_token), refreshTokenHash: sha256(body.refresh_token)});
+		expect(createOAuthGrant.mock.calls[0]?.[0]).toMatchObject({
+			clientId: 'client-1',
+			agentId: 'agent-1',
+			userId: 'user-1',
+			accessTokenHash: sha256(body.access_token),
+			refreshTokenHash: sha256(body.refresh_token),
+		});
 		expect(res.headers['cache-control']).toBe('no-store');
 	});
 

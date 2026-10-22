@@ -9,7 +9,9 @@ mock.module('./sources', () => ({
 	findSources: async () => Ok([{connection: {id: 'google-1'}, integration: {id: 'google'}}]),
 	summarize: (source: {connection: {id: string}}) => ({connectionId: source.connection.id}),
 }));
-mock.module('../utils/user-org', () => ({requireUserOrgId: async () => Ok('org-1')}));
+mock.module('../utils/user-org', () => ({
+	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
+}));
 // As the Drive connector reads a file's type.
 mock.module('../records/google-files', () => ({kindOf: (mimeType: string) => (mimeType.endsWith('spreadsheet') ? 'Spreadsheet' : mimeType.endsWith('document') ? 'Document' : 'File')}));
 

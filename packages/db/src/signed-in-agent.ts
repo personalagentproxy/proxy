@@ -8,8 +8,13 @@ import {type Experiment, organizationExperiments} from '@proxy/utils';
 export type SignedInAgent = {
 	agentId: string;
 	orgId: string;
+	// The member whose own the agent is, whose connections it reaches beside the shared ones; null
+	// for a shared agent, which reaches the shared ones alone.
+	ownerUserId: string | null;
 	providerId: string;
 	name: string;
+	// The organization's slug, its address in the web app.
+	orgSlug: string;
 	/** The experiments on for the agent's organization. */
 	experiments: Experiment[];
 };
@@ -18,10 +23,11 @@ export type SignedInAgent = {
 export const signedInAgentSelect = {
 	id: true,
 	orgId: true,
+	ownerUserId: true,
 	providerId: true,
 	name: true,
 	revokedAt: true,
-	org: {select: {insider: true, experiments: true}},
+	org: {select: {slug: true, insider: true, experiments: true}},
 } satisfies Prisma.AgentSelect;
 
 /** `null` for a revoked agent. */
@@ -34,8 +40,10 @@ export function toSignedInAgent(
 	return {
 		agentId: agent.id,
 		orgId: agent.orgId,
+		ownerUserId: agent.ownerUserId,
 		providerId: agent.providerId,
 		name: agent.name,
+		orgSlug: agent.org.slug,
 		experiments: organizationExperiments(agent.org),
 	};
 }

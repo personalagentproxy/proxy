@@ -4,7 +4,7 @@ import {z} from 'zod';
 import {type ApiError, Do, parseSchema} from '@proxy/utils';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {requireUserOrgId} from '../utils/user-org';
+import {requireViewer} from '../utils/user-org';
 import {requireAskExperiment} from './ask-experiment';
 import {eachSource, type Failure} from './each-source';
 import {findSources, summarize, type Source, type SourceSummary} from './sources';
@@ -59,10 +59,10 @@ export type FoundRecords = {sources: SourceSummary[]; records: FoundRecord[]; fa
 /** `GET /api/widgets/records?collection=…&words=…`: the records each source's search finds. */
 export function handleFindRecordsRoute(request: AuthenticatedRequest): Promise<Result<FoundRecords, ApiError>> {
 	return Do(async ($) => {
-		$(requireAskExperiment(request));
 		const query = $(parseSchema(querySchema, request.query));
-		const orgId = $(await requireUserOrgId(request));
-		const sources = $(await findSources(orgId, query.collection, 'list')).filter((source) => source.collection.searchHint !== undefined);
+		const viewer = $(await requireViewer(request));
+		$(requireAskExperiment(viewer));
+		const sources = $(await findSources(viewer, query.collection, 'list')).filter((source) => source.collection.searchHint !== undefined);
 		const {found, failed} = await eachSource(sources, (source) => searchSource(source, query.words));
 		const records = found.flatMap(({value}) => value).slice(0, LIMIT);
 		return {sources: sources.map(summarize), records, failed};

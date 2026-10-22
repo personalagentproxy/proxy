@@ -24,6 +24,8 @@ const imap = {
 	fetches: 0,
 	searches: [] as Criteria[],
 	calls: [] as Array<[string, ...unknown[]]>,
+	// What each append saved, as its text.
+	appended: [] as string[],
 	message: null as null | {uid: number; flags: Set<string>; source: Buffer},
 };
 
@@ -112,8 +114,9 @@ class FakeImapFlow {
 	async messageDelete(uid: string) {
 		imap.calls.push(['delete', uid]);
 	}
-	async append(path: string) {
+	async append(path: string, raw: Buffer) {
 		imap.calls.push(['append', path]);
+		imap.appended.push(raw.toString('utf8'));
 		return {uid: 99};
 	}
 }
@@ -143,7 +146,19 @@ function emails(): Collection {
 }
 
 const target = {
-	connection: {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), tools: null, name: null, defaults: [], credential: 'v1.encrypted'},
+	connection: {
+		id: 'mail-1',
+		integrationId: 'email',
+		orgId: 'org-1',
+		ownerUserId: 'user-1',
+		connectedById: 'user-1',
+		account: 'alex@example.com',
+		createdAt: new Date(),
+		tools: null,
+		name: null,
+		defaults: [],
+		credential: 'v1.encrypted',
+	},
 	collection: emails(),
 };
 
@@ -173,6 +188,7 @@ beforeEach(() => {
 	imap.fetches = 0;
 	imap.searches = [];
 	imap.calls = [];
+	imap.appended = [];
 	imap.message = {uid: 12, flags: new Set(), source};
 	sendMail.mockReset();
 	sendMail.mockResolvedValue({messageId: '<sent@proxy>'});
@@ -449,4 +465,49 @@ test('a new email without a recipient is not sent', async () => {
 
 	expect(result?.unwrapErr().kind).toBe('validation_error');
 	expect(sendMail).not.toHaveBeenCalled();
+});
+
+describe('replyToInbox', () => {
+	const asked = Buffer.from(
+		'From: Sam Lee <sam@example.com>\r\nReply-To: Planning <planning@example.com>\r\nTo: alex@example.com\r\nSubject: Q3 planning\r\nMessage-ID: <q3@example.com>\r\nReferences: <agenda@example.com>\r\n\r\nCan you make Thursday?\r\n',
+	);
+
+	test('sends a reply from the connected address, to where the email asks, in its thread, and files it in Sent', async () => {
+		imap.message = {uid: 12, flags: new Set(), source: asked};
+		const {replyToInbox} = await import('./email-connector');
+		const headers = (await replyToInbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true})).unwrap();
+
+		expect(headers).toEqual({to: '"Planning" <planning@example.com>', subject: 'Re: Q3 planning', inReplyTo: '<q3@example.com>', references: '<agenda@example.com> <q3@example.com>'});
+		expect(sendMail.mock.calls[0]?.[0]).toMatchObject({
+			from: 'alex@example.com',
+			to: '"Planning" <planning@example.com>',
+			subject: 'Re: Q3 planning',
+			text: 'Thursday works.',
+			inReplyTo: '<q3@example.com>',
+			references: '<agenda@example.com> <q3@example.com>',
+		});
+		expect(imap.calls).toEqual([['append', 'Sent Items']]);
+		expect(imap.logins).toBe(1);
+	});
+
+	test('saves a reply in Drafts, keeping its thread', async () => {
+		imap.message = {uid: 12, flags: new Set(), source: asked};
+		const {replyToInbox} = await import('./email-connector');
+		(await replyToInbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: false})).unwrap();
+
+		expect(sendMail).not.toHaveBeenCalled();
+		expect(imap.calls).toEqual([['append', 'Drafts']]);
+		const draft = imap.appended[0]?.replace(/\r\n[ \t]+/g, ' ') ?? '';
+		expect(draft).toContain('Subject: Re: Q3 planning');
+		expect(draft).toContain('In-Reply-To: <q3@example.com>');
+		expect(draft).toContain('References: <agenda@example.com> <q3@example.com>');
+	});
+
+	test('replies only to an email in the inbox that is there', async () => {
+		const {replyToInbox} = await import('./email-connector');
+
+		expect((await replyToInbox(target, DRAFT, {body: 'x', send: true})).unwrapErr().kind).toBe('validation_error');
+		expect((await replyToInbox(target, `inbox-${UID_VALIDITY}-13`, {body: 'x', send: true})).unwrapErr().kind).toBe('not_found');
+		expect(sendMail).not.toHaveBeenCalled();
+	});
 });

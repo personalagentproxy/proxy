@@ -4,6 +4,7 @@ import type {Result} from 'ts-results-es';
 import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
+import {type Viewer, visibleTo} from './viewer';
 
 export type AuditEntryRow = {
 	id: string;
@@ -20,6 +21,14 @@ export type AuditEntryRow = {
 	// The agent's task it was for (task.ts); none for entries from before tasks, and for what
 	// Personal Agent Proxy did itself.
 	taskId: string | null;
+	// How long the request took, from when it came in to when it was logged; none for entries from
+	// before this was kept, and for what Personal Agent Proxy did itself.
+	durationMs: number | null;
+	// The member who asked for what Personal Agent Proxy did itself; none for an agent's request,
+	// and for entries from before it was kept.
+	userId: string | null;
+	// What went wrong, for a failed request (schema.prisma); none for every other outcome.
+	error: string | null;
 	createdAt: Date;
 };
 
@@ -36,10 +45,17 @@ export async function logAgentRequest(data: {
 	via: AuditVia;
 	// PRE-TASK CLIENTS: null for a call of an MCP client from before tasks (api's mcp/pre-task-clients.ts).
 	taskId: string | null;
+	// The member whose own the agent is, who alone sees the entry; null for a shared agent's.
+	ownerUserId: string | null;
+	// When the request came in, in ms since the epoch, so the entry says how long it took.
+	startedAt: number;
+	// What went wrong, for a failed request.
+	error?: string;
 }): Promise<Result<void, ApiError>> {
+	const {startedAt, ...entry} = data;
 	return wrapDb(async () => {
 		await db.$transaction([
-			db.auditEntry.create({data}),
+			db.auditEntry.create({data: {...entry, durationMs: Date.now() - startedAt}}),
 			db.agent.update({where: {id: data.agentId}, data: {lastActiveAt: new Date()}}),
 		]);
 	});
@@ -47,7 +63,9 @@ export async function logAgentRequest(data: {
 
 /**
  * Logs one thing Personal Agent Proxy did itself for a person, such as making an event from the
- * home page: an entry without an agent, always allowed, since the person asked for it.
+ * home page: an entry without an agent, always allowed, since the person asked for it. Whose entry
+ * it is (`ownerUserId`) is whose own the connection is: everyone's for a shared one; who asked
+ * (`userId`) is kept either way.
  */
 export async function logProxyAction(data: {
 	orgId: string;
@@ -55,20 +73,32 @@ export async function logProxyAction(data: {
 	collectionId: string;
 	action: string;
 	recordTitle: string | null;
+	ownerUserId: string | null;
+	userId: string;
 }): Promise<Result<void, ApiError>> {
 	return wrapDb(async () => {
 		await db.auditEntry.create({
-			data: {...data, agentId: null, query: null, outcome: 'allowed', taskId: null},
+			data: {
+				...data,
+				agentId: null,
+				query: null,
+				outcome: 'allowed',
+				taskId: null,
+				durationMs: null,
+				error: null,
+			},
 		});
 	});
 }
 
 /**
- * Newest first, optionally only one agent's or one connection's requests, only one task's, or only
- * allowed or denied ones; an `agentId` of null is what Personal Agent Proxy did itself.
+ * The entries the viewer sees, newest first: the organization's shared agents' and shared
+ * connections', and their own; optionally only one agent's or one connection's requests, only one
+ * task's, or only allowed, denied or failed ones; an `agentId` of null is what Personal Agent Proxy
+ * did itself.
  */
 export async function listAuditEntries(
-	orgId: string,
+	viewer: Viewer,
 	filter: {
 		agentId?: string | null;
 		connectionId?: string;
@@ -79,7 +109,7 @@ export async function listAuditEntries(
 ): Promise<Result<AuditEntryRow[], ApiError>> {
 	return wrapDb(() =>
 		db.auditEntry.findMany({
-			where: {orgId, ...filter},
+			where: {...visibleTo(viewer), ...filter},
 			orderBy: {createdAt: 'desc'},
 			take,
 			select: {
@@ -93,6 +123,9 @@ export async function listAuditEntries(
 				outcome: true,
 				via: true,
 				taskId: true,
+				durationMs: true,
+				userId: true,
+				error: true,
 				createdAt: true,
 			},
 		}),
@@ -108,9 +141,13 @@ export type TaskRequestSummary = {
 	first: Date;
 };
 
-/** The requests made for each of `taskIds`, counted by connection and outcome. */
+/**
+ * The requests the viewer sees among those made for each of `taskIds`, counted by connection and
+ * outcome: a shared agent's task keeps the requests its former owner made on their own connections
+ * to themselves.
+ */
 export async function summarizeTaskRequests(
-	orgId: string,
+	viewer: Viewer,
 	taskIds: string[],
 ): Promise<Result<TaskRequestSummary[], ApiError>> {
 	if (taskIds.length === 0) {
@@ -119,7 +156,7 @@ export async function summarizeTaskRequests(
 	const grouped = await wrapDb(() =>
 		db.auditEntry.groupBy({
 			by: ['taskId', 'connectionId', 'outcome'],
-			where: {orgId, taskId: {in: taskIds}},
+			where: {...visibleTo(viewer), taskId: {in: taskIds}},
 			_count: {_all: true},
 			_min: {createdAt: true},
 		}),

@@ -12,11 +12,13 @@
 		"./feedback": "./src/feedback.ts",
 		"./harness": "./src/harness.ts",
 		"./vault": "./src/vault.ts",
+		"./invitation": "./src/invitation.ts",
 		"./instance-meta": "./src/instance-meta.ts",
 		"./oauth": "./src/oauth.ts",
 		"./organization": "./src/organization.ts",
 		"./task": "./src/task.ts",
 		"./user": "./src/user.ts",
+		"./viewer": "./src/viewer.ts",
 		"./write-target": "./src/write-target.ts"
 	},
 	"scripts": {

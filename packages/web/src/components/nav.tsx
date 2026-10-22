@@ -7,12 +7,13 @@ import {
 	PlugIcon,
 	ScrollTextIcon,
 	SettingsIcon,
+	UsersIcon,
 	type LucideIcon,
 } from 'lucide-react';
 import type {Experiment} from '@proxy/utils';
-import {Link, useLocation, useRouteLoaderData} from 'react-router';
+import {Link, useLocation} from 'react-router';
 import {signOut} from '@/client/auth-client';
-import type {Me} from '@/client/me-client';
+import {OrgSwitcher} from '@/components/org-switcher';
 import {ThemeMenu} from '@/components/theme-menu';
 import {useExperiments} from '@/hooks/use-experiment';
 import {
@@ -20,37 +21,43 @@ import {
 	SidebarContent,
 	SidebarFooter,
 	SidebarGroup,
+	SidebarHeader,
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarMenuItem,
 	useSidebar,
 } from '@proxy/ui/components/sidebar';
+import {useHuman} from '@/hooks/use-human';
 
 // `experiment` is the experiment a destination is behind, shown only with it on.
 type Destination = {to: string; label: string; icon: LucideIcon; experiment?: Experiment};
 
+// The organization's, under the switcher, each under its slug.
 const DESTINATIONS: Destination[] = [
-	{to: '/', label: 'Home', icon: HomeIcon},
+	{to: '', label: 'Home', icon: HomeIcon},
 	{to: '/chat', label: 'Chat', icon: MessageSquareIcon, experiment: 'harness'},
 	{to: '/connections', label: 'Connections', icon: PlugIcon},
 	{to: '/vault', label: 'Vault', icon: LibraryIcon},
 	{to: '/agents', label: 'Agents', icon: BotIcon},
 	{to: '/activity', label: 'Activity', icon: ScrollTextIcon},
+	{to: '/members', label: 'Members', icon: UsersIcon},
 ];
 
-// Each destination is lit on its own pages too, as `/connections/:id`; Home only on itself, since
-// every path starts with `/`.
-function isActive(pathname: string, to: string): boolean {
-	return to === '/' ? pathname === '/' : pathname.startsWith(to);
+// Each destination is lit on its own pages too, as `/acme/connections/:id`; Home only on itself,
+// since every path in the organization starts with its slug.
+function isActive(pathname: string, path: string, home: string): boolean {
+	return path === home ? pathname === home : pathname.startsWith(path);
 }
 
 // The stock shadcn sidebar: a rail in icon mode on desktop, labels in tooltips and ⌘B to expand
-// it; a sheet from the left on phones, opened from the header and closed again on every pick.
+// it; a sheet from the left on phones, opened from the header and closed again on every pick. The
+// organization switcher sits at its top.
 export function AppSidebar() {
 	const {pathname} = useLocation();
-	const me = useRouteLoaderData<Me>('human');
+	const human = useHuman();
 	const experiments = useExperiments();
 	const {setOpenMobile} = useSidebar();
+	const home = `/${human?.org.slug ?? ''}`;
 	const destinations = DESTINATIONS.filter(
 		(destination) =>
 			destination.experiment === undefined || experiments.includes(destination.experiment),
@@ -58,15 +65,24 @@ export function AppSidebar() {
 
 	return (
 		<Sidebar collapsible="icon">
+			<SidebarHeader>
+				<SidebarMenu>
+					<SidebarMenuItem>
+						<OrgSwitcher />
+					</SidebarMenuItem>
+				</SidebarMenu>
+			</SidebarHeader>
 			<SidebarContent>
-				<SidebarGroup>
+				<SidebarGroup className="pt-0">
 					<SidebarMenu>
 						{destinations.map((destination) => (
 							<SidebarMenuItem key={destination.to}>
 								<SidebarMenuButton
-									isActive={isActive(pathname, destination.to)}
+									isActive={isActive(pathname, `${home}${destination.to}`, home)}
 									tooltip={destination.label}
-									render={<Link to={destination.to} onClick={() => setOpenMobile(false)} />}
+									render={
+										<Link to={`${home}${destination.to}`} onClick={() => setOpenMobile(false)} />
+									}
 								>
 									<destination.icon />
 									<span>{destination.label}</span>
@@ -80,9 +96,9 @@ export function AppSidebar() {
 				<SidebarMenu>
 					<SidebarMenuItem>
 						<SidebarMenuButton
-							isActive={pathname.startsWith('/settings')}
+							isActive={pathname.startsWith(`${home}/settings`)}
 							tooltip="Settings"
-							render={<Link to="/settings" onClick={() => setOpenMobile(false)} />}
+							render={<Link to={`${home}/settings`} onClick={() => setOpenMobile(false)} />}
 						>
 							<SettingsIcon />
 							<span>Settings</span>
@@ -93,7 +109,7 @@ export function AppSidebar() {
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton
-							tooltip={me ? `Sign out ${me.user.email}` : 'Sign out'}
+							tooltip={human ? `Sign out ${human.user.email}` : 'Sign out'}
 							onClick={() => void signOut()}
 						>
 							<LogOutIcon />

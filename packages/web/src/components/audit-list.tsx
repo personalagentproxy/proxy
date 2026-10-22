@@ -27,10 +27,10 @@ function NamedLogo({name, logo}: {name: string; logo: ReactNode}) {
 	);
 }
 
-// The agent an entry was made by, or Personal Agent Proxy for what it did itself.
-function EntryAgentLogo({agentId, agent}: {agentId: string | null; agent: AgentLogin | undefined}) {
-	if (agentId === null) {
-		return <NamedLogo name="Personal Agent Proxy" logo={<ProxyLogo />} />;
+// The agent an entry was made by, or Personal Agent Proxy for what it did itself, with who asked.
+function EntryAgentLogo({entry, agent}: {entry: AuditEntry; agent: AgentLogin | undefined}) {
+	if (entry.agentId === null) {
+		return <NamedLogo name={`Personal Agent Proxy${askedBy(entry)}`} logo={<ProxyLogo />} />;
 	}
 
 	return (
@@ -39,6 +39,14 @@ function EntryAgentLogo({agentId, agent}: {agentId: string | null; agent: AgentL
 			logo={agent && <AgentLogo providerId={agent.providerId} />}
 		/>
 	);
+}
+
+// " for Dana": who asked for what Personal Agent Proxy did itself; nothing for an agent's request.
+function askedBy(entry: AuditEntry): string {
+	if (entry.userId === null) {
+		return '';
+	}
+	return ` for ${entry.userName ?? 'a former member'}`;
 }
 
 type Props = {
@@ -83,7 +91,7 @@ export function AuditList({
 					const agent = agents.find((candidate) => candidate.id === entry.agentId);
 					const located = locateEntry(connections, entry);
 					const integration = located?.integration ?? null;
-					const denied = entry.outcome === 'denied';
+					const refusedOrFailed = entry.outcome !== 'allowed';
 					const task = tasks.find((candidate) => candidate.id === entry.taskId);
 					return (
 						<li key={entry.id} className="-mx-(--bleed)">
@@ -93,8 +101,10 @@ export function AuditList({
 								className="flex h-10 w-full items-center gap-3 px-(--bleed) text-left text-sm hover:bg-muted/50 active:bg-muted/50"
 							>
 								<span className={CELLS.at}>{formatDateTime(entry.at)}</span>
-								{showAgent && <EntryAgentLogo agentId={entry.agentId} agent={agent} />}
-								<span className={cn('min-w-0 flex-1 truncate', denied && 'text-destructive')}>
+								{showAgent && <EntryAgentLogo entry={entry} agent={agent} />}
+								<span
+									className={cn('min-w-0 flex-1 truncate', refusedOrFailed && 'text-destructive')}
+								>
 									{describeEntry(entry, located)}
 									{task && <span className="text-muted-foreground"> · for {task.title}</span>}
 									{entry.via === 'mcp' && (

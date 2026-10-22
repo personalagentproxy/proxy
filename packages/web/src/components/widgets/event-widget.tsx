@@ -14,6 +14,7 @@ import {eventTime, fieldTexts, guestsOf, namesIn, personKey, type Guest} from '@
 import {useSuggested} from '@/lib/use-suggested';
 import {useWriteStatus, writeErrorMessage} from '@/lib/write-status';
 import {useState} from 'react';
+import {useOrgSlug} from '@/hooks/use-org';
 
 const TIME = new Intl.DateTimeFormat(undefined, {hour: 'numeric', minute: '2-digit'});
 const DAY = new Intl.DateTimeFormat(undefined, {weekday: 'short', month: 'short', day: 'numeric'});
@@ -47,6 +48,7 @@ function calendarOptions(agenda: Agenda | null): CalendarOption[] {
 // New event: the title, when, who and where, the day it falls on with what is already in every
 // calendar, so a clash shows before the invite goes out, and the calendar it goes in.
 export function EventWidget({intent, typed, now}: {intent: Intent; typed: string; now: Date}) {
+	const org = useOrgSlug();
 	const names = namesIn(intent, 'attendees');
 	const people = usePeople(names.length > 0 ? names : null);
 	const [chosen, setChosen] = useState<Record<string, string>>({});
@@ -85,7 +87,7 @@ export function EventWidget({intent, typed, now}: {intent: Intent; typed: string
 			return;
 		}
 		setStatus({kind: 'saving'});
-		void createEvent({
+		void createEvent(org, {
 			connectionId: calendar.connectionId,
 			calendarId: calendar.calendarId,
 			title: edited.trim(),

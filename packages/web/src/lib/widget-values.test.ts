@@ -20,6 +20,7 @@ import {
 	meetingDays,
 	namesIn,
 	senderName,
+	ownText,
 	termsRead,
 } from '@/lib/widget-values';
 
@@ -247,6 +248,20 @@ describe('emails', () => {
 		expect(since('the email about the 3pm call')).toBeNull();
 		expect(since("the invite for monday's meeting")).toBeNull();
 		expect(since('the invite for friday’s offsite, sent yesterday')).toBe('2026-10-13');
+	});
+
+	test("keeps an email's own text, without what it quotes of the one before", () => {
+		const reply = (quote: string) => `Sounds good.\n\nSam\n\n${quote}\nThe old text`;
+
+		expect(
+			ownText(reply('On Mon, Oct 19, 2026 at 10:00 AM Alex Kim <alex@example.com> wrote:\n>')),
+		).toBe('Sounds good.\n\nSam');
+		expect(
+			ownText(reply('On Mon, Oct 19, 2026 at 10:00 AM Alex Kim <\nalex@example.com> wrote:')),
+		).toBe('Sounds good.\n\nSam');
+		expect(ownText(reply('-----Original Message-----'))).toBe('Sounds good.\n\nSam');
+		expect(ownText(reply('> quoted'))).toBe('Sounds good.\n\nSam');
+		expect(ownText('  Just this.\n')).toBe('Just this.');
 	});
 
 	test('searches everything without a sender, a topic or a day', () => {

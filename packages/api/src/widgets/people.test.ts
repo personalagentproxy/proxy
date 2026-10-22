@@ -4,12 +4,13 @@ import {Err, Ok} from 'ts-results-es';
 import {ApiErr} from '@proxy/utils';
 
 const findSources = mock();
-const requireUserOrgId = mock(async () => Ok('org-1'));
 
 mock.module('./sources', () => ({findSources, summarize: (source: {connection: {id: string}}) => ({connectionId: source.connection.id})}));
 // Every mailbox can be searched, with the search each fake mailbox has.
 mock.module('./mail-searches', () => ({searchable: (sources: Array<{search: unknown}>) => sources.map((source) => ({...source, find: source.search}))}));
-mock.module('../utils/user-org', () => ({requireUserOrgId}));
+mock.module('../utils/user-org', () => ({
+	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
+}));
 
 function contact(id: string, name: string, emails: string) {
 	return {
@@ -147,8 +148,8 @@ describe('handlePeopleRoute', () => {
 		const {handlePeopleRoute} = await import('./people');
 
 		const answer = (await handlePeopleRoute({user: {userId: 'user-1'}, query: {name: ['jacky', ' hugo ', 'jacky']}} as never)).unwrap();
-		expect(findSources).toHaveBeenCalledWith('org-1', 'contacts', 'list');
-		expect(findSources).toHaveBeenCalledWith('org-1', 'emails', 'list');
+		expect(findSources).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'contacts', 'list');
+		expect(findSources).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'emails', 'list');
 		// The mailbox is asked once, for every name.
 		expect(mailSearch).toHaveBeenCalledTimes(1);
 		expect(mailSearch).toHaveBeenCalledWith(

@@ -2,6 +2,7 @@ import {Err, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import {listConnectionsWithCredential} from '@proxy/db/connection';
+import type {Viewer} from '@proxy/db/viewer';
 import {findCollection, requiredAction, type Collection, type Integration} from '@proxy/integrations';
 
 import {unavailableActions, unavailableError} from '../connections/unavailable';
@@ -11,8 +12,8 @@ import {loadRecordTarget} from '../records/target';
 import {integrationOf} from '../utils/connection-actions';
 
 /**
- * Where the home page's widgets read and write: every connection of the organization with a
- * collection of the kind a widget is about, as the catalog names it (`events`, `contacts`,
+ * Where the home page's widgets read and write: every connection the person sees in the
+ * organization, its shared ones and their own, with a collection of the kind a widget is about, as the catalog names it (`events`, `contacts`,
  * `emails`, `files`). A collection's id is the contract: every integration with an `emails`
  * collection has the same fields, so a widget works with any of them, and connecting a new
  * integration with the collection lights the widget up. The person owns the connections, so
@@ -30,12 +31,12 @@ export function summarize(source: Source): SourceSummary {
 }
 
 /**
- * The organization's connections with the collection, where its sign-in covered `request`: `list`
+ * The connections the viewer sees with the collection, where its sign-in covered `request`: `list`
  * to read it, `create` to write to it, or a command's id, such as `sendNew`.
  */
-export function findSources(orgId: string, collectionId: string, request: string): Promise<Result<Source[], ApiError>> {
+export function findSources(viewer: Viewer, collectionId: string, request: string): Promise<Result<Source[], ApiError>> {
 	return Do(async ($) => {
-		const connections = $(await listConnectionsWithCredential(orgId));
+		const connections = $(await listConnectionsWithCredential(viewer));
 		return connections.flatMap((connection): Source[] => {
 			const integration = integrationOf(connection);
 			const collection = integration ? findCollection(integration, collectionId) : undefined;
@@ -59,18 +60,18 @@ export function covers(connection: {id: string; integrationId: string; credentia
  * as `sendNew`, and `fields` the fields written, some of which need an action of their own, as an
  * event's guests need Invite guests. One whose sign-in didn't cover them all is refused, saying so.
  */
-export function requireWritable(orgId: string, connectionId: string, collectionId: string, request: string, fields: string[]): Promise<Result<Source, ApiError>> {
-	return requireCovered(orgId, connectionId, collectionId, request, fields);
+export function requireWritable(viewer: Viewer, connectionId: string, collectionId: string, request: string, fields: string[]): Promise<Result<Source, ApiError>> {
+	return requireCovered(viewer, connectionId, collectionId, request, fields);
 }
 
 /** One connection to read, with the collection; one whose sign-in didn't cover reading it is refused, saying so. */
-export function requireReadable(orgId: string, connectionId: string, collectionId: string): Promise<Result<Source, ApiError>> {
-	return requireCovered(orgId, connectionId, collectionId, 'view', []);
+export function requireReadable(viewer: Viewer, connectionId: string, collectionId: string): Promise<Result<Source, ApiError>> {
+	return requireCovered(viewer, connectionId, collectionId, 'view', []);
 }
 
-function requireCovered(orgId: string, connectionId: string, collectionId: string, request: string, fields: string[]): Promise<Result<Source, ApiError>> {
+function requireCovered(viewer: Viewer, connectionId: string, collectionId: string, request: string, fields: string[]): Promise<Result<Source, ApiError>> {
 	return Do(async ($) => {
-		const target = $(await loadRecordTarget(orgId, connectionId, collectionId));
+		const target = $(await loadRecordTarget(viewer, connectionId, collectionId));
 		const integration = integrationOf(target.connection);
 		const action = requiredAction(target.collection, request);
 		if (!integration || action === null) {
