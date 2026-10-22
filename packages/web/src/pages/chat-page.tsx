@@ -3,16 +3,16 @@ import {type FormEvent, type KeyboardEvent, useEffect, useRef, useState} from 'r
 import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
 import {Result} from 'ts-results-es';
 import {
+	type ChatAgent,
 	type ChatEntry,
-	type ChatThread,
 	type ChatToolCall,
-	createThread,
-	deleteThread,
+	createChatAgent,
+	deleteChatAgent,
 	getThread,
 	type Persona,
 	postMessage,
 	type ThreadLog,
-	updateThread,
+	updateChatAgent,
 } from '@/client/harness-client';
 import {AppShell} from '@/components/app-shell';
 import {Avatar} from '@/components/avatar';
@@ -43,6 +43,7 @@ import {
 	TraceTitle,
 } from '@proxy/ui/components/trace';
 import {cn} from '@proxy/ui/lib/utils';
+import {useOrgSlug} from '@/hooks/use-org';
 import {formatAgo, formatDateTime} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {chatLoader} from '@/loaders';
@@ -187,8 +188,8 @@ function Status({log}: {log: ThreadLog}) {
 	);
 }
 
-// What a row shows under the name: the last thing said in the thread, the person's with "You:".
-function preview(last: ChatThread['lastMessage']): string {
+// What a row shows under the name: the last thing said in the conversation, the person's with "You:".
+function preview(last: ChatAgent['lastMessage']): string {
 	if (last === null) {
 		return 'Nothing yet';
 	}
@@ -196,7 +197,7 @@ function preview(last: ChatThread['lastMessage']): string {
 }
 
 // The last thing said in the open conversation, as the page has it, fresher than the list.
-function lastOf(log: ThreadLog): ChatThread['lastMessage'] {
+function lastOf(log: ThreadLog): ChatAgent['lastMessage'] {
 	const last = log.entries.findLast((entry) => entry.kind !== 'tool_result' && entry.text !== '');
 	if (!last || last.kind === 'tool_result') {
 		return null;
@@ -204,43 +205,44 @@ function lastOf(log: ThreadLog): ChatThread['lastMessage'] {
 	return {kind: last.kind, text: last.text, at: last.at};
 }
 
-// The personas in the second sidebar, each with its face, its name and the last thing said, the
-// open one lit, and a row at the bottom to make a new one.
-function PersonaList({
-	threads,
+// The organization's agents in the second sidebar, each with its face, its name and the last
+// thing said between it and the person, the open one lit, and a row at the bottom to make a new one.
+function AgentList({
+	agents,
 	current,
 	currentLog,
 	onNew,
 }: {
-	threads: ChatThread[];
+	agents: ChatAgent[];
 	current: string;
 	currentLog: ThreadLog;
 	onNew: () => void;
 }) {
+	const org = useOrgSlug();
 	return (
 		<div className="flex h-full min-h-0 flex-col">
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
-				{threads.length === 0 && (
+				{agents.length === 0 && (
 					<span className="px-2 py-1.5 text-sm text-muted-foreground">No agents yet.</span>
 				)}
 				<ul className="flex flex-col gap-0.5">
-					{threads.map((thread) => {
-						const last = thread.id === current ? lastOf(currentLog) : thread.lastMessage;
+					{agents.map((agent) => {
+						const last = agent.id === current ? lastOf(currentLog) : agent.lastMessage;
 						return (
-							<li key={thread.id}>
+							<li key={agent.id}>
 								<Link
-									to={`/chat/${thread.id}`}
-									aria-current={thread.id === current ? 'page' : undefined}
+									to={`/${org}/chat/${agent.id}`}
+									aria-current={agent.id === current ? 'page' : undefined}
 									className={cn(
 										'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-										thread.id === current && 'bg-sidebar-accent text-sidebar-accent-foreground',
+										agent.id === current && 'bg-sidebar-accent text-sidebar-accent-foreground',
 									)}
 								>
-									<Avatar shape={thread.shape} color={thread.color} size="md" />
+									<Avatar shape={agent.shape} color={agent.color} size="md" />
 									<span className="flex min-w-0 flex-1 flex-col">
 										<span className="flex items-baseline gap-2">
 											<span className="min-w-0 flex-1 truncate text-sm font-medium">
-												{thread.name}
+												{agent.name}
 											</span>
 											{last && (
 												<span className="shrink-0 text-xs text-muted-foreground">
@@ -272,34 +274,35 @@ function PersonaList({
 
 type Loaded = Awaited<ReturnType<typeof chatLoader>>;
 
-// The page: the conversation in its address, started over when the address changes, so what one
-// conversation showed never lingers on another.
+// The page: the conversation with the agent in its address, started over when the address
+// changes, so what one conversation showed never lingers on another.
 export function ChatPage() {
 	const loaded = useLoaderData<typeof chatLoader>();
-	return <Conversation key={loaded.log.thread.id} loaded={loaded} />;
+	return <Conversation key={loaded.log.agent.id} loaded={loaded} />;
 }
 
-// A conversation with the built-in agent: its log, read again as the agent works, and an input.
-// The agent's calls go through the same gate as any agent's, so its activity is in the log by the
-// conversation's task.
+// The person's conversation with one of the organization's agents: its log, read again as the
+// agent works, and an input. The agent acts as the person in it, and its calls go through the
+// same gate as any agent's, so its activity is in the log by the conversation's task.
 function Conversation({loaded}: {loaded: Loaded}) {
+	const org = useOrgSlug();
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
 	const [log, setLog] = useState<ThreadLog>(loaded.log);
 	const [text, setText] = useState('');
 	const [sending, setSending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	// The persona dialog: making a new one, or changing this one; closed as null.
+	// The agent dialog: making a new one, or changing this one; closed as null.
 	const [editing, setEditing] = useState<'new' | 'current' | null>(null);
 	const form = useRef<HTMLFormElement>(null);
-	const threadId = loaded.log.thread.id;
-	const current = loaded.log.thread;
+	const agentId = loaded.log.agent.id;
+	const current = loaded.log.agent;
 
 	// The log as it is now, while the page is open.
 	useEffect(() => {
 		let cancelled = false;
 		const refresh = async () => {
-			const result = await getThread(threadId);
+			const result = await getThread(org, agentId);
 			if (!cancelled && result.isOk()) {
 				setLog(result.value);
 			}
@@ -309,7 +312,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 			cancelled = true;
 			clearInterval(timer);
 		};
-	}, [threadId, log.busy]);
+	}, [org, agentId, log.busy]);
 
 	const send = async (event: FormEvent) => {
 		event.preventDefault();
@@ -319,14 +322,14 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		}
 		setSending(true);
 		setError(null);
-		const posted = await postMessage(threadId, message);
+		const posted = await postMessage(org, agentId, message);
 		setSending(false);
 		if (posted.isErr()) {
 			setError(describeFetchError(posted.error));
 			return;
 		}
 		setText('');
-		const refreshed = await getThread(threadId);
+		const refreshed = await getThread(org, agentId);
 		if (refreshed.isOk()) {
 			setLog(refreshed.value);
 		}
@@ -340,17 +343,17 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		}
 	};
 
-	// Saves the dialog's persona: a new thread, opened; or this one, renamed or refaced.
+	// Saves the dialog's persona: a new agent, opened; or this one, renamed or refaced.
 	const savePersona = async (persona: Persona): Promise<string | null> => {
 		if (editing === 'new') {
-			const made = await createThread(persona);
+			const made = await createChatAgent(org, persona);
 			if (made.isErr()) {
 				return describeFetchError(made.error);
 			}
-			void navigate(`/chat/${made.value.thread.id}`);
+			void navigate(`/${org}/chat/${made.value.agent.id}`);
 			return null;
 		}
-		const changed = await updateThread(threadId, persona);
+		const changed = await updateChatAgent(org, agentId, persona);
 		if (changed.isErr()) {
 			return describeFetchError(changed.error);
 		}
@@ -358,13 +361,13 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		return null;
 	};
 
-	// Deletes this persona with its conversation, and opens whichever is first.
-	const removePersona = async (): Promise<string | null> => {
-		const removed = await deleteThread(threadId);
+	// Deletes this agent with everyone's conversations with it, and opens whichever is first.
+	const removeAgent = async (): Promise<string | null> => {
+		const removed = await deleteChatAgent(org, agentId);
 		if (removed.isErr()) {
 			return describeFetchError(removed.error);
 		}
-		void navigate('/chat');
+		void navigate(`/${org}/chat`);
 		return null;
 	};
 
@@ -379,20 +382,27 @@ function Conversation({loaded}: {loaded: Loaded}) {
 	return (
 		<AppShell
 			title={
-				<button
-					type="button"
-					onClick={() => setEditing('current')}
-					className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-sm font-medium outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
-				>
-					<Avatar shape={current.shape} color={current.color} />
-					<span className="truncate">{current.name}</span>
-					<ChevronDownIcon className="size-4 text-muted-foreground" />
-				</button>
+				current.mayChange ? (
+					<button
+						type="button"
+						onClick={() => setEditing('current')}
+						className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-sm font-medium outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+					>
+						<Avatar shape={current.shape} color={current.color} />
+						<span className="truncate">{current.name}</span>
+						<ChevronDownIcon className="size-4 text-muted-foreground" />
+					</button>
+				) : (
+					<span className="flex min-w-0 items-center gap-2 px-1.5 py-1 text-sm font-medium">
+						<Avatar shape={current.shape} color={current.color} />
+						<span className="truncate">{current.name}</span>
+					</span>
+				)
 			}
 			panel={
-				<PersonaList
-					threads={loaded.threads}
-					current={threadId}
+				<AgentList
+					agents={loaded.agents}
+					current={agentId}
 					currentLog={log}
 					onNew={() => setEditing('new')}
 				/>
@@ -402,7 +412,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		>
 			{editing !== null && (
 				<PersonaDialog
-					key={editing === 'new' ? 'new' : threadId}
+					key={editing === 'new' ? 'new' : agentId}
 					open
 					initial={
 						editing === 'new'
@@ -411,7 +421,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 					}
 					onClose={() => setEditing(null)}
 					onSave={savePersona}
-					onDelete={editing === 'current' ? removePersona : undefined}
+					onDelete={editing === 'current' ? removeAgent : undefined}
 				/>
 			)}
 			<MessageScrollerProvider autoScroll defaultScrollPosition="end">
@@ -423,8 +433,9 @@ function Conversation({loaded}: {loaded: Loaded}) {
 									<Avatar shape={current.shape} color={current.color} size="lg" />
 									<p className="text-lg font-medium">What should {current.name} do?</p>
 									<p className="max-w-md text-sm text-muted-foreground">
-										The agent can use what you connected, as far as its access on the Agents page
-										allows. Every call it makes is in the activity log.
+										This conversation is yours alone. In it, {current.name} can use what is shared
+										with everyone and what you connected yourself, as far as its access allows.
+										Every call it makes is in the activity log.
 									</p>
 								</div>
 							)}
@@ -467,7 +478,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 					/>
 					<InputGroupAddon align="block-end">
 						<Link
-							to={`/activity?task=${log.thread.taskId}`}
+							to={`/${org}/activity?task=${log.thread.taskId}`}
 							className="text-xs font-normal underline-offset-4 hover:underline"
 						>
 							Activity for this conversation

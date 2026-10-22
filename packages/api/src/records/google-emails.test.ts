@@ -30,7 +30,19 @@ function emails(): Collection {
 const CREDENTIAL = {accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: new Date(Date.now() + 3_600_000).toISOString(), scopes: [], email: 'alex@example.com'};
 
 const target = {
-	connection: {id: 'google-1', integrationId: 'google', account: 'alex@example.com', createdAt: new Date(), tools: null, name: null, defaults: [], credential: `enc:${JSON.stringify(CREDENTIAL)}`},
+	connection: {
+		id: 'google-1',
+		integrationId: 'google',
+		orgId: 'org-1',
+		ownerUserId: 'user-1',
+		connectedById: 'user-1',
+		account: 'alex@example.com',
+		createdAt: new Date(),
+		tools: null,
+		name: null,
+		defaults: [],
+		credential: `enc:${JSON.stringify(CREDENTIAL)}`,
+	},
 	collection: emails(),
 };
 
@@ -453,5 +465,58 @@ describe('commands', () => {
 		expect(raw).toMatch(/Message-ID: <[0-9a-f-]+@proxy>/);
 		expect(raw).toContain('Line one');
 		expect((await c.newCommands?.sendNew?.(target, {to: ' ', subject: 'x', body: 'y'}))?.unwrapErr().kind).toBe('validation_error');
+	});
+});
+
+describe('replyToGmail', () => {
+	async function replyToGmail() {
+		return (await import('./google-emails')).replyToGmail;
+	}
+
+	function withHeaders(id: string, headers: Record<string, string>) {
+		const found = gmail.messages[id];
+		found?.payload.headers?.push(...Object.entries(headers).map(([name, value]) => ({name, value})));
+	}
+
+	test('sends a reply to the sender from the connection’s address, in the email’s thread', async () => {
+		withHeaders('m1', {'Message-ID': '<q3@example.com>', References: '<agenda@example.com>'});
+		const headers = (await (await replyToGmail())(target, 'm1', {body: 'Works for me.', send: true})).unwrap();
+
+		expect(headers).toEqual({to: '"Sam Lee" <sam@example.com>', subject: 'Re: Q3 planning', inReplyTo: '<q3@example.com>', references: '<agenda@example.com> <q3@example.com>'});
+		const [sent] = calls('POST', '/messages/send');
+		expect(sent?.body?.threadId).toBe('thread-m1');
+		const raw = rawText(sent?.body);
+		expect(raw).toContain('From: alex@example.com');
+		expect(raw).toContain('To: Sam Lee <sam@example.com>');
+		expect(raw).toContain('Subject: Re: Q3 planning');
+		expect(raw).toContain('In-Reply-To: <q3@example.com>');
+		expect(raw).toContain('References: <agenda@example.com> <q3@example.com>');
+		expect(raw).toContain('Works for me.');
+		expect(raw).not.toContain('Cc:');
+		expect(calls('POST', '/drafts')).toEqual([]);
+	});
+
+	test('saves a reply as a draft in the thread, to where the email asks replies to go', async () => {
+		withHeaders('m1', {'Reply-To': 'planning@example.com', 'Message-ID': '<q3@example.com>'});
+		(await (await replyToGmail())(target, 'm1', {body: 'Draft reply', send: false})).unwrap();
+
+		const message = calls('POST', '/drafts')[0]?.body?.message as Record<string, unknown>;
+		expect(message.threadId).toBe('thread-m1');
+		expect(rawText(message)).toContain('To: planning@example.com');
+		expect(calls('POST', '/messages/send')).toEqual([]);
+	});
+
+	test('a reply to an email sent goes to whom it went, under its subject as it is', async () => {
+		const headers = (await (await replyToGmail())(target, 'm2', {body: 'Running late', send: true})).unwrap();
+
+		expect(headers).toMatchObject({to: 'Robin <robin@example.com>', subject: 'Re: dinner'});
+	});
+
+	test('replies to no draft, and to no email Gmail doesn’t have', async () => {
+		const reply = await replyToGmail();
+
+		expect((await reply(target, 'draft-r1', {body: 'x', send: true})).unwrapErr().kind).toBe('validation_error');
+		expect((await reply(target, 'gone', {body: 'x', send: true})).unwrapErr().kind).toBe('not_found');
+		expect(calls('POST', '/messages/send')).toEqual([]);
 	});
 });

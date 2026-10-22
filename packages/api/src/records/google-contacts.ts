@@ -4,7 +4,7 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
 import {callGoogle} from '../connections/google/google-client';
 import {createContact, getContact, listContacts, searchContacts, updateContact, type Person, type PersonWrite, type ValueEntry} from '../connections/google/people-api';
-import type {Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
+import {requireFirstPage, type Connector, type DataRecord, type ListQuery, type RecordPage, type RecordTarget, type RecordValues} from './connector';
 
 /**
  * Google Contacts as the `contacts` collection, fetched live: the account's contacts, the most
@@ -90,6 +90,7 @@ function listContactsPage(target: RecordTarget, query: ListQuery): Promise<Resul
 	return callGoogle(target.connection, (token) =>
 		Do(async ($) => {
 			if (query.search !== null) {
+				$(requireFirstPage(query));
 				return {records: $(await searchContacts(token, query.search)).map(contactRecord), nextPage: null};
 			}
 			const page = $(await listContacts(token, query.page));

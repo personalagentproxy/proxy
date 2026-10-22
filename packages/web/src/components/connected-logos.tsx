@@ -2,6 +2,7 @@ import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tool
 import type {ReactNode} from 'react';
 import {Link} from 'react-router';
 import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
+import {useOrgSlug} from '@/hooks/use-org';
 import {connectionLabel} from '@/lib/access';
 import {counted} from '@/lib/format';
 import {integrationOf, type Integration} from '@/lib/integrations';
@@ -43,6 +44,7 @@ export function ConnectedLogos({
 	connections: Connection[];
 	agents: AgentLogin[];
 }) {
+	const org = useOrgSlug();
 	const sources = sourcesOf(connections);
 	const sourceCount = sources.reduce((count, source) => count + source.names.length, 0);
 	const active = agents.filter((agent) => agent.revokedAt === null);
@@ -50,7 +52,7 @@ export function ConnectedLogos({
 	return (
 		<div className="flex items-center justify-center gap-6 text-sm text-muted-foreground">
 			<Group
-				to={sourceCount > 0 ? '/connections' : '/connections/new'}
+				to={sourceCount > 0 ? `/${org}/connections` : `/${org}/connections/new`}
 				label={sourceCount > 0 ? counted(sourceCount, 'source') : 'Connect a source'}
 			>
 				{sources.slice(0, SHOWN).map(({integration, names}) => (
@@ -67,7 +69,7 @@ export function ConnectedLogos({
 				))}
 			</Group>
 			<Group
-				to={active.length > 0 ? '/agents' : '/agents/new'}
+				to={active.length > 0 ? `/${org}/agents` : `/${org}/agents/new`}
 				label={active.length > 0 ? counted(active.length, 'agent') : 'Add an agent'}
 			>
 				{active.slice(0, SHOWN).map((agent) => (

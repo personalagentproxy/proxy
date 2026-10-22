@@ -1,26 +1,22 @@
 import type {Response} from 'express';
 import {Err, type Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, Do, type Experiment, requirePresent} from '@proxy/utils';
-import {listConnectionsWithCredential} from '@proxy/db/connection';
-import {getUserOrganization, markOrganizationOnboarded} from '@proxy/db/organization';
+import {ApiErr, type ApiError, Do} from '@proxy/utils';
+import {listOrgConnectionsWithCredential, listOwnConnectionsWithCredential} from '@proxy/db/connection';
+import {listUserOrgs, removeMembership} from '@proxy/db/organization';
 import {deleteUser, getUserFromId} from '@proxy/db/user';
 
 import {clearSessionCookie} from '../auth/session';
-import {beforeDisconnect} from '../connections/disconnect';
+import {beforeDisconnectAll} from '../connections/disconnect';
 import {log} from '../observability/log';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {sendApiError} from '../server/response';
 
 export type MeResponse = {
 	user: {id: string; email: string; name: string | null; image: string | null};
-	/** False until the welcome flow is finished or skipped; the web app shows it instead of the app until then. */
-	onboarded: boolean;
-	/** The experiments on for the organization, for the web app's `useExperiment`. */
-	experiments: Experiment[];
 };
 
-/** Who is signed in. The web app's guard: 401 means "send them to /login". */
+/** Who is signed in. The web app's guard: 401 means "send them to /login". The organizations they are in are `GET /api/orgs`. */
 export function handleMeRoute(request: AuthenticatedRequest): Promise<Result<MeResponse, ApiError>> {
 	return Do(async ($) => {
 		const user = $(await getUserFromId(request.user.userId));
@@ -28,40 +24,33 @@ export function handleMeRoute(request: AuthenticatedRequest): Promise<Result<MeR
 			// The session row points at a deleted user — treat as signed out.
 			return $(Err(ApiErr.unauthenticated()));
 		}
-		const organization = $(requirePresent($(await getUserOrganization(user.id)), ApiErr.unauthenticated()));
 
-		return {
-			user: {id: user.id, email: user.email, name: user.name, image: user.image},
-			onboarded: organization.onboardedAt !== null,
-			experiments: request.user.experiments,
-		};
-	});
-}
-
-/** `POST /api/me/onboarded` — the welcome flow is done, or skipped; it is not shown again. */
-export function handleFinishOnboardingRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
-	return Do(async ($) => {
-		const organization = $(requirePresent($(await getUserOrganization(request.user.userId)), ApiErr.unauthenticated()));
-		$(await markOrganizationOnboarded(organization.id));
+		return {user: {id: user.id, email: user.email, name: user.name, image: user.image}};
 	});
 }
 
 /**
- * Deletes the signed-in person's account: each connection is undone at its provider first, as
- * disconnecting it does (Google's grant revoked, a bank's login removed at Plaid), then the user
- * and their organization, with its connections, information, agents, their logins and MCP
- * clients, and the activity log. A provider that can't be reached doesn't stop the deletion; it is
- * logged, as disconnecting logs it.
+ * Deletes the signed-in person's account. The organizations they own are deleted with everything
+ * in them, their other members losing them; they leave the others, their own connections there
+ * going, the shared ones staying. Every connection deleted is undone at its provider first, as
+ * disconnecting it does (Google's grant revoked, a bank's login removed at Plaid); a provider that
+ * can't be reached doesn't stop the deletion, and is logged, as disconnecting logs it. Then the
+ * user goes, with their agents, their logins and MCP clients, and the activity log.
  */
 function deleteAccount(userId: string): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		const organization = $(await getUserOrganization(userId));
-		const connections = organization ? $(await listConnectionsWithCredential(organization.id)) : [];
-		for (const connection of connections) {
-			await beforeDisconnect(connection);
+		let undone = 0;
+		for (const org of $(await listUserOrgs(userId))) {
+			const owned = org.role === 'owner';
+			const connections = owned ? $(await listOrgConnectionsWithCredential(org.id)) : $(await listOwnConnectionsWithCredential({orgId: org.id, userId}));
+			await beforeDisconnectAll(connections);
+			undone += connections.length;
+			if (!owned) {
+				$(await removeMembership({orgId: org.id, userId}));
+			}
 		}
 		$(await deleteUser(userId));
-		log.info('Deleted an account', {userId, connections: connections.length});
+		log.info('Deleted an account', {userId, connections: undone});
 	});
 }
 

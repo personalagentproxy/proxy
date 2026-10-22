@@ -1,13 +1,13 @@
 ---
 title: Connect an agent over MCP
-description: Add Personal Agent Proxy to Claude, Claude Code, Claude Desktop, ChatGPT, Hermes Agent, Poke or any other MCP client as an MCP server, and what an agent can do through it.
+description: Add Personal Agent Proxy to Claude, Claude Duet, Claude Code, Claude Desktop, ChatGPT, Hermes Agent, Poke or any other MCP client as an MCP server, and what an agent can do through it.
 ---
 
-Personal Agent Proxy is an MCP server. An agent that speaks MCP, such as Claude, Claude Code,
-Claude Desktop, ChatGPT, Hermes Agent, Poke or any other MCP client, connects to it, signs in with
-OAuth, and works as one of your agent logins: it can do what that login is allowed and nothing
-more. Successful connection actions and actions denied by access settings are in the activity log,
-with the task they were made for.
+Personal Agent Proxy is an MCP server. An agent that speaks MCP, such as Claude, Claude Duet,
+Claude Code, Claude Desktop, ChatGPT, Hermes Agent, Poke or any other MCP client, connects to it,
+signs in with OAuth, and works as one of your agent logins: it can do what that login is allowed
+and nothing more. Successful connection actions, actions denied by access settings and actions the
+service failed are in the activity log, with the task they were made for.
 
 The server is at your Personal Agent Proxy's address with `/mcp` after it, such as
 `https://app.personalagentproxy.com/mcp`. Each agent's page in Personal Agent Proxy shows it under
@@ -19,7 +19,12 @@ The server is at your Personal Agent Proxy's address with `/mcp` after it, such 
 
 Add the address as a custom connector, or custom MCP server, where the agent keeps them:
 
-- **Claude**: open **Connectors** and add a custom connector with the address.
+- **Claude and Claude Duet**: in Claude, open **Customize**, **Connectors**, and add a custom
+  connector. Enter a name and the address, choose **Sign in now**, then choose **Register
+  automatically** under **OAuth client**. When Personal Agent Proxy opens, choose **Claude**. Duet
+  uses the same account-wide connectors as Claude, so they share one login, its access,
+  and its activity history. During the research preview, Anthropic offers Duet by waitlist to Pro
+  and Max subscribers in the US.
 - **Claude Code**: run the setup command shown on the agent's page. It begins
   `claude mcp add --transport http personal-agent-proxy` and ends with the server address.
 - **Claude Desktop**: open **Connectors** and add a custom connector with the address.
@@ -62,15 +67,15 @@ agent's next request.
 The server has seven tools, the same for every login, so the agent's list of tools never goes out
 of date when access changes:
 
-| Tool               | What it does                                                                                                                                                            |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `start_task`       | Where an agent starts: it says what it is about to do for you, with a title and a goal, and gets the task's id, which every call below takes as `task`.                 |
-| `list_connections` | The accounts it can use, such as a mailbox, each with its id and what it may do with it.                                                                                |
-| `list_tools`       | A connection's own tools, such as `emails_list` or `emails_archive`, each with what it does and the JSON Schema of its params. Only the tools the login has are listed. |
-| `read`             | Runs a tool that only reads, such as listing or opening emails. Marked read-only, so an agent can let it run without asking you.                                        |
-| `run`              | Runs a tool that changes something or reaches other people, such as archiving an email or sending one.                                                                  |
-| `finish_task`      | Marks the task done. The agent starts a new task for the next thing you ask for.                                                                                        |
-| `send_feedback`    | Tells the makers of Personal Agent Proxy about something that didn't work as the agent expected. It goes to them, not to you, and changes nothing in your accounts.     |
+| Tool               | What it does                                                                                                                                                                                                                 |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `start_task`       | Where an agent starts: it says what it is about to do for you, with a title and a goal, and gets the task's id, which every call below takes as `task`. Part of a task handed to a sub-agent is started as a sub-task of it. |
+| `list_connections` | The accounts it can use, such as a mailbox, each with its id and what it may do with it.                                                                                                                                     |
+| `list_tools`       | A connection's own tools, such as `emails_list` or `emails_archive`, each with what it does and the JSON Schema of its params. Only the tools the login has are listed.                                                      |
+| `read`             | Runs a tool that only reads, such as listing or opening emails. Marked read-only, so an agent can let it run without asking you.                                                                                             |
+| `run`              | Runs a tool that changes something or reaches other people, such as archiving an email or sending one.                                                                                                                       |
+| `finish_task`      | Marks the task done, saying what was done. The agent starts a new task for the next thing you ask for.                                                                                                                       |
+| `send_feedback`    | Tells the makers of Personal Agent Proxy about something that didn't work as the agent expected. It goes to them, not to you, and changes nothing in your accounts.                                                          |
 
 When an agent connects, it is also told which accounts it can use, and that what an email or a
 note says is information, not instructions.
@@ -81,9 +86,13 @@ Before an agent does anything with Personal Agent Proxy, it has to say what it i
 task: a title in a few words, such as "Triage this morning's inbox", and a goal, what you asked for
 in a sentence or two. Every call it makes after that names the task, and a call without one, or for
 a task that is finished, is refused. When the agent has done what you asked, or given it up, it
-finishes the task, and starts a new one for the next thing you ask for. A task the agent never
-finishes is taken as abandoned a day after it started, and refused from then on too. An agent can
-have any number of tasks under way at once, each with its own requests.
+finishes the task, saying what it did, and starts a new one for the next thing you ask for. A task
+the agent never finishes is taken as abandoned a day after it started, and refused from then on
+too. An agent can have any number of tasks under way at once, each with its own requests.
+
+An agent may split what you asked for among sub-agents of its own, which sign in as it does and
+have its access. Each part is a sub-task, started with the task it was handed from as its parent,
+so the tasks of one job form a tree; finishing a task finishes its sub-tasks still under way too.
 
 The activity log shows each request with the task it was made for. Open an entry to read the task's
 title and goal, and follow it to every request made for that task, with when the agent started it
@@ -98,18 +107,21 @@ of Personal Agent Proxy's own, which only its login can open. A mailbox over IMA
 your vault have no such page, so the agent names what it means instead, such as an email by
 its subject.
 
-An action the login isn't allowed is refused, and logged as denied. The activity log marks the
-actions that came in over MCP, each with its task.
+An action the login isn't allowed is refused, and logged as denied. One it is allowed that the
+service then fails, such as one turned down for too many requests, is logged as failed, with what
+went wrong. The activity log marks the actions that came in over MCP, each with its task.
 
 ## Disconnect an agent
 
 On the agent's page, under **MCP**, every app working as the login is listed with when it
-connected. **Disconnect** signs one out; it has to be connected again. Revoking the login signs out
-every app working as it, as well as its sign-in to the agent pages.
+connected and, for a shared agent, who connected it. **Disconnect** signs one out; it has to be
+connected again. A member who only uses a shared agent sees and disconnects the apps they connected
+themselves. Revoking the login signs out every app working as it, as well as its sign-in to the
+agent pages.
 
 <Callout>
 A self-hosted Personal Agent Proxy has to be reachable from the internet over HTTPS for Claude,
-Claude Desktop, ChatGPT and Poke to connect to it: they call it from their own servers, not from
-your computer. Claude Code and Hermes Agent can instead connect to one running on the same
-computer, including over localhost.
+Claude Duet, Claude Desktop, ChatGPT and Poke to connect to it: they call it from their own servers,
+not from your computer. Claude Code and Hermes Agent can instead connect to one running on the
+same computer, including over localhost.
 </Callout>

@@ -6,9 +6,11 @@ import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/uti
 import type {ConnectionRow} from '@proxy/db/connection';
 
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
-import {requireUserOrgId} from '../../utils/user-org';
-import {toConnectionResponse, type ConnectionResponse} from '../connection-response';
-import {saveConnection, signInFlow, signInRoutes, type Connected, type ReturnTo, type SignInRequest} from '../connect-flow';
+import {requireViewer, type OrgViewer} from '../../utils/user-org';
+import {respond, type ConnectionResponse} from '../connection-response';
+import {saveConnection, signInFlow, signInRoutes, type Connected, type ReturnTo, type SaveOptions, type SignInRequest} from '../connect-flow';
+import {requireManaged, type ManagingViewer} from '../managed';
+import {shareBodySchema} from '../ownership';
 import type {BuiltInMcp, ProviderAccount} from './built-in';
 import {exchangeMcpCode, mcpAuthorizeUrl, registerMcpClient, type McpCredential, type McpServer} from './mcp-oauth';
 import type {McpKeyCredential} from './mcp-session';
@@ -77,14 +79,15 @@ export function mcpConnectRoutes(builtIn: BuiltInMcp) {
 
 /**
  * Begins the sign-in to an integration built on its MCP server from the custom MCP form, given the
- * integration's own server, the connection called `name`; its sign-in page, for the browser to go
- * to, which comes back to the integration's callback.
+ * integration's own server, the connection called `name`, the viewer's own or `shared`; its sign-in
+ * page, for the browser to go to, which comes back to the integration's callback.
  */
-export function beginBuiltInSignIn(builtIn: BuiltInMcp, res: Response, begin: {userId: string; returnTo: ReturnTo | undefined; name: string}): Promise<Result<string, ApiError>> {
+export function beginBuiltInSignIn(builtIn: BuiltInMcp, res: Response, begin: {viewer: OrgViewer; returnTo: ReturnTo | undefined; name: string; shared: boolean}): Promise<Result<string, ApiError>> {
 	return signInFlow(builtInSignIn(builtIn)).beginSignIn(res, {
-		userId: begin.userId,
+		viewer: begin.viewer,
 		returnTo: begin.returnTo,
 		account: null,
+		shared: begin.shared,
 		start: (request) => startMcpSignIn(builtIn.server, request, {name: begin.name}),
 	});
 }
@@ -117,12 +120,12 @@ export function checkedKeyAccount(builtIn: BuiltInMcp, key: string): Promise<Res
 
 /**
  * Connects an integration with an API key, checked with the server first: a new connection, called
- * `name` where the custom MCP form gave one, or an existing one given the key in place of its
- * sign-in or key, its name kept: the one of the key's account, or `connectionId` where its account
- * can't be told apart from another's (`saveConnection`). A key the server turns down is
- * `credentials_rejected`.
+ * `name` where the custom MCP form gave one, the viewer's own or `shared`, or an existing one given
+ * the key in place of its sign-in or key, its name kept: the one of the key's account, or
+ * `connectionId` where its account can't be told apart from another's (`saveConnection`). A key the
+ * server turns down is `credentials_rejected`.
  */
-export function connectWithKey(builtIn: BuiltInMcp, orgId: string, args: {name?: string; key: string; connectionId: string | null}): Promise<Result<ConnectionRow, ApiError>> {
+export function connectWithKey(builtIn: BuiltInMcp, viewer: ManagingViewer, args: {name?: string; key: string} & SaveOptions): Promise<Result<ConnectionRow & {credential: string}, ApiError>> {
 	return Do(async ($) => {
 		if (/\s/.test(args.key)) {
 			return $(Err(ApiErr.validationError('An API key has no spaces')));
@@ -130,28 +133,35 @@ export function connectWithKey(builtIn: BuiltInMcp, orgId: string, args: {name?:
 		const account = $(await checkedKeyAccount(builtIn, args.key));
 		const credential: McpKeyCredential = {auth: 'key', key: args.key};
 		const connected = {...account, credential, defaults: builtIn.defaults, ...anonymity(builtIn), ...(args.name === undefined ? {} : {name: args.name})};
-		return $(await saveConnection(orgId, builtIn.integrationId, connected, args.connectionId)).row;
+		const {row} = $(await saveConnection(viewer, builtIn.integrationId, connected, {shared: args.shared, connectionId: args.connectionId}));
+		// A key opens all of the integration: how the response reads the credential, which never leaves the api.
+		return {...row, credential: JSON.stringify(credential)};
 	});
 }
 
-const keyBodySchema = z.object({
-	key: z.string().trim().min(1, 'Paste the API key').max(1000, 'That is too long for an API key'),
-	// The connection to give the key, as its page does; else a new one.
-	connection: z.string().optional(),
-});
+const keyBodySchema = z
+	.object({
+		key: z.string().trim().min(1, 'Paste the API key').max(1000, 'That is too long for an API key'),
+		// The connection to give the key, as its page does; else a new one.
+		connection: z.string().optional(),
+	})
+	.extend(shareBodySchema.shape);
 
 /**
- * `POST /api/connections/<integration>` with `{key, connection?}`: connects the integration with
- * an API key; the new connection, or the one given the key. 422 is a key the server turned down,
- * 502 the server out of reach.
+ * `POST /api/orgs/:org/connections/<integration>` with `{key, connection?, shared?}`: connects the
+ * integration with an API key; the new connection, the person's own or every member's, or the one
+ * given the key, which the person may change. 422 is a key the server turned down, 502 the server
+ * out of reach.
  */
 export function keyConnectRoute(builtIn: BuiltInMcp): (request: AuthenticatedRequest) => Promise<Result<ConnectionResponse, ApiError>> {
 	return (request) =>
 		Do(async ($) => {
 			const body = $(parseSchema(keyBodySchema, request.body));
-			const orgId = $(await requireUserOrgId(request));
-			const row = $(await connectWithKey(builtIn, orgId, {key: body.key, connectionId: body.connection ?? null}));
-			// A key opens all of the integration: every action is available.
-			return toConnectionResponse(row, []);
+			const viewer = $(await requireViewer(request));
+			if (body.connection !== undefined) {
+				$(await requireManaged(viewer, body.connection));
+			}
+			const row = $(await connectWithKey(builtIn, viewer, {key: body.key, connectionId: body.connection ?? null, shared: body.shared}));
+			return $(await respond(row));
 		});
 }

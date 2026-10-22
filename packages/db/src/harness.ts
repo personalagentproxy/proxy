@@ -5,28 +5,31 @@ import {ApiErr, type ApiError, wrapDb} from '@proxy/utils';
 import {type LogEntry, pendingToolCalls, type ToolCall} from '@proxy/utils/harness';
 
 import {db} from '.';
+import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed-in-agent';
 
 /**
- * The built-in agent's threads, their logs and their jobs. Every change to a thread's log or its
- * jobs is made with the thread's row locked, so a result landing and the model being run on the
- * log never race: either the inference job sees the result, or the result sees no job and queues
- * one. A worker's write is fenced by its lease: it goes through only while the job is still its.
+ * The built-in agents, the organization's, each with a thread per member, the member's
+ * conversation with it, its log and its jobs. Every change to a thread's log or its jobs is made
+ * with the thread's row locked, so a result landing and the model being run on the log never
+ * race: either the inference job sees the result, or the result sees no job and queues one. A
+ * worker's write is fenced by its lease: it goes through only while the job is still its.
  */
 
 export type ThreadRow = {
 	id: string;
 	orgId: string;
 	agentId: string;
+	// The member whose conversation it is.
+	userId: string;
 	taskId: string;
-	// The persona the thread is shown as: its name, and its avatar's shape and color.
-	name: string;
-	shape: string;
-	color: string;
 	createdAt: Date;
 };
 
-/** What makes a thread a persona: its name and its avatar. */
+/** What a built-in agent is shown as: its name and its face, a shape and a color. */
 export type Persona = {name: string; shape: string; color: string};
+
+/** A built-in agent as the Chat page lists it, with who made it, who may change it beside the organization's owner. */
+export type ChatAgentRow = Persona & {id: string; createdById: string | null};
 
 export type EntryRow = LogEntry & {
 	id: string;
@@ -56,12 +59,35 @@ const threadSelect = {
 	id: true,
 	orgId: true,
 	agentId: true,
+	userId: true,
 	taskId: true,
+	createdAt: true,
+} as const;
+
+const chatAgentSelect = {
+	id: true,
 	name: true,
 	shape: true,
 	color: true,
-	createdAt: true,
+	createdById: true,
 } as const;
+
+// A built-in agent's face, as it was given one; a missing one, which shouldn't be, as plain as can be.
+function toChatAgent(agent: {
+	id: string;
+	name: string;
+	shape: string | null;
+	color: string | null;
+	createdById: string | null;
+}): ChatAgentRow {
+	return {
+		id: agent.id,
+		name: agent.name,
+		shape: agent.shape ?? 'circle',
+		color: agent.color ?? 'blue',
+		createdById: agent.createdById,
+	};
+}
 
 const entrySelect = {
 	id: true,
@@ -101,67 +127,39 @@ function toEntry(entry: EntryRecord): EntryRow {
 	};
 }
 
-/** A new thread for the person's organization, as the persona given, its calls made for `taskId`. */
-export async function createThread(
-	data: {orgId: string; agentId: string; taskId: string} & Persona,
-): Promise<Result<ThreadRow, ApiError>> {
-	return wrapDb(() => db.agentThread.create({data, select: threadSelect}));
-}
-
-/** Renames the thread's persona or changes its avatar; `Ok(null)` means no such thread in the organization. */
-export async function updateThread(
+/** The organization's built-in agents, those of `providerId`, oldest first, with the last thing said in the member's conversation with each. */
+export async function listChatAgents(
 	orgId: string,
-	threadId: string,
-	persona: Persona,
-): Promise<Result<ThreadRow | null, ApiError>> {
-	return wrapDb(async () => {
-		const {count} = await db.agentThread.updateMany({where: {id: threadId, orgId}, data: persona});
-		if (count === 0) {
-			return null;
-		}
-		return db.agentThread.findUnique({where: {id: threadId}, select: threadSelect});
-	});
-}
-
-/** Deletes the thread with its log and jobs; `Ok(false)` means no such thread in the organization. */
-export async function deleteThread(
-	orgId: string,
-	threadId: string,
-): Promise<Result<boolean, ApiError>> {
-	return (await wrapDb(() => db.agentThread.deleteMany({where: {id: threadId, orgId}}))).map(
-		({count}) => count > 0,
-	);
-}
-
-/** The last thing said in a thread, by the person or the agent: what the list shows under the name. */
-export type LastMessage = {kind: 'person' | 'assistant'; text: string; createdAt: Date};
-
-/** The organization's threads, in the order they were made, each with the last thing said in it. */
-export async function listThreads(
-	orgId: string,
-): Promise<Result<Array<ThreadRow & {lastMessage: LastMessage | null}>, ApiError>> {
+	userId: string,
+	providerId: string,
+): Promise<Result<Array<ChatAgentRow & {lastMessage: LastMessage | null}>, ApiError>> {
 	return (
 		await wrapDb(() =>
-			db.agentThread.findMany({
-				where: {orgId},
+			db.agent.findMany({
+				where: {orgId, providerId, revokedAt: null},
 				select: {
-					...threadSelect,
-					// The agent's turns that only made calls say nothing, so the last with words.
-					entries: {
-						where: {kind: {in: ['person', 'assistant']}, text: {not: ''}},
-						orderBy: {seq: 'desc'},
-						take: 1,
-						select: {kind: true, text: true, createdAt: true},
+					...chatAgentSelect,
+					threads: {
+						where: {userId},
+						select: {
+							// The agent's turns that only made calls say nothing, so the last with words.
+							entries: {
+								where: {kind: {in: ['person', 'assistant']}, text: {not: ''}},
+								orderBy: {seq: 'desc'},
+								take: 1,
+								select: {kind: true, text: true, createdAt: true},
+							},
+						},
 					},
 				},
 				orderBy: {createdAt: 'asc'},
 			}),
 		)
-	).map((threads) =>
-		threads.map(({entries, ...thread}) => {
-			const last = entries[0];
+	).map((agents) =>
+		agents.map(({threads, ...agent}) => {
+			const last = threads[0]?.entries[0];
 			return {
-				...thread,
+				...toChatAgent(agent),
 				lastMessage:
 					last && (last.kind === 'person' || last.kind === 'assistant')
 						? {kind: last.kind, text: last.text, createdAt: last.createdAt}
@@ -171,14 +169,83 @@ export async function listThreads(
 	);
 }
 
-/** `Ok(null)` means no such thread in the organization. */
-export async function getThread(
+/** One of the organization's built-in agents, those of `providerId`; `Ok(null)` for none. */
+export async function getChatAgent(
 	orgId: string,
-	threadId: string,
+	agentId: string,
+	providerId: string,
+): Promise<Result<ChatAgentRow | null, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agent.findFirst({
+				where: {id: agentId, orgId, providerId, revokedAt: null},
+				select: chatAgentSelect,
+			}),
+		)
+	).map((agent) => (agent ? toChatAgent(agent) : null));
+}
+
+/** Renames a built-in agent or changes its face; `Ok(false)` means no such agent in the organization. */
+export async function updateChatAgent(
+	orgId: string,
+	agentId: string,
+	persona: Persona,
+): Promise<Result<boolean, ApiError>> {
+	return (
+		await wrapDb(() => db.agent.updateMany({where: {id: agentId, orgId}, data: persona}))
+	).map(({count}) => count > 0);
+}
+
+/** The member's thread with the agent; `Ok(null)` before they have one. */
+export async function getMemberThread(
+	agentId: string,
+	userId: string,
 ): Promise<Result<ThreadRow | null, ApiError>> {
 	return wrapDb(() =>
-		db.agentThread.findFirst({where: {id: threadId, orgId}, select: threadSelect}),
+		db.agentThread.findUnique({where: {agentId_userId: {agentId, userId}}, select: threadSelect}),
 	);
+}
+
+/**
+ * The member's thread with the agent, made with its calls for `taskId` where they have none yet:
+ * the one there is otherwise, two first openings at once making one.
+ */
+export async function ensureMemberThread(data: {
+	orgId: string;
+	agentId: string;
+	userId: string;
+	taskId: string;
+}): Promise<Result<ThreadRow, ApiError>> {
+	const {agentId, userId} = data;
+	return wrapDb(() =>
+		db.agentThread.upsert({
+			where: {agentId_userId: {agentId, userId}},
+			create: data,
+			update: {},
+			select: threadSelect,
+		}),
+	);
+}
+
+/** The last thing said in a thread, by the person or the agent. */
+export type LastMessage = {kind: 'person' | 'assistant'; text: string; createdAt: Date};
+
+/**
+ * The thread's agent as it acts in the thread: signed in as the member whose conversation it is,
+ * so it reaches what they see, their own connections and vault beside the shared ones. `Ok(null)`
+ * when the agent is gone or revoked.
+ */
+export async function getThreadAgent(
+	thread: ThreadRow,
+): Promise<Result<SignedInAgent | null, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agent.findUnique({where: {id: thread.agentId}, select: signedInAgentSelect}),
+		)
+	).map((agent) => {
+		const signedIn = agent ? toSignedInAgent(agent) : null;
+		return signedIn ? {...signedIn, ownerUserId: thread.userId} : null;
+	});
 }
 
 /** The thread a job is for, by the job; `Ok(null)` when it is gone. */

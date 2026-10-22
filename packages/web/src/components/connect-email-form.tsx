@@ -14,7 +14,9 @@ import {
 	SelectValue,
 } from '@proxy/ui/components/select';
 import type {Connection} from '@/lib/types';
+import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
+import {useOrgSlug} from '@/hooks/use-org';
 
 const PROVIDER_ITEMS = EMAIL_PROVIDERS.map((provider) => ({
 	value: provider.id,
@@ -53,12 +55,16 @@ function connectErrorMessage(error: FetchError): string {
 export function ConnectEmailForm({
 	cancel,
 	continueLabel = 'Connect',
+	shared,
 	onConnected,
 }: {
 	cancel?: ReactNode;
 	continueLabel?: string;
+	// For every member of the organization rather than the person's own.
+	shared?: boolean;
 	onConnected: (connection: Connection) => void;
 }) {
+	const org = useOrgSlug();
 	const [providerId, setProviderId] = useState<EmailProvider['id']>('gmail');
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');
@@ -89,7 +95,7 @@ export function ConnectEmailForm({
 	const test = async () => {
 		setPending('test');
 		setError(null);
-		const result = await testEmail(input);
+		const result = await testEmail(org, input);
 		setPending(null);
 		if (result.isErr()) {
 			setError(connectErrorMessage(result.error));
@@ -106,7 +112,7 @@ export function ConnectEmailForm({
 				event.preventDefault();
 				setPending('connect');
 				setError(null);
-				const result = await connectEmail(input);
+				const result = await connectEmail(org, {...input, ...(shared ? {shared} : {})});
 				setPending(null);
 				if (result.isErr()) {
 					setError(connectErrorMessage(result.error));
@@ -143,7 +149,7 @@ export function ConnectEmailForm({
 				<Input
 					id="email-address"
 					type="email"
-					autoComplete="off"
+					{...NO_PASSWORD_MANAGER}
 					value={email}
 					onChange={(event) => setEmail(event.target.value)}
 				/>
@@ -153,7 +159,7 @@ export function ConnectEmailForm({
 				<Input
 					id="email-password"
 					type="password"
-					autoComplete="off"
+					{...NO_PASSWORD_MANAGER}
 					value={password}
 					onChange={(event) => setPassword(event.target.value)}
 				/>

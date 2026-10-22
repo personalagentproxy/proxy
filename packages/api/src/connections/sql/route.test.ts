@@ -8,9 +8,11 @@ const createConnection = mock();
 
 mock.module('@proxy/db/connection', () => ({listConnections, createConnection}));
 
-const getUserOrgId = mock();
+mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId}));
+const requireViewer = mock(async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}));
+
+mock.module('../../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 
 const checkDatabase = mock();
 
@@ -18,11 +20,14 @@ mock.module('./sql-client', () => ({checkDatabase}));
 
 const encryptSecret = mock((plaintext: string): Result<string, ApiError> => Ok(`encrypted:${plaintext}`));
 
-mock.module('../../utils/secret-crypto', () => ({encryptSecret}));
+mock.module('../../utils/secret-crypto', () => ({encryptSecret, decryptSecret: (stored: string) => Ok(stored)}));
 
 const createdRow = {
 	id: 'conn-1',
 	integrationId: 'postgres',
+	orgId: 'org-1',
+	ownerUserId: 'user-1',
+	connectedById: 'user-1',
 	account: 'reader@db.example.com/app',
 	createdAt: new Date('2026-10-01T00:00:00Z'),
 	defaults: [{actionId: 'read'}, {actionId: 'query'}],
@@ -36,7 +41,6 @@ function makeRequest(body: unknown) {
 
 beforeEach(() => {
 	mock.clearAllMocks();
-	getUserOrgId.mockResolvedValue(Ok('org-1'));
 	listConnections.mockResolvedValue(Ok([]));
 	createConnection.mockResolvedValue(Ok(createdRow));
 	checkDatabase.mockResolvedValue(Ok(undefined));
@@ -51,6 +55,8 @@ describe('sqlConnectRoutes', () => {
 		expect(checkDatabase).toHaveBeenCalledWith('postgres', credential);
 		expect(createConnection).toHaveBeenCalledWith({
 			orgId: 'org-1',
+			ownerUserId: 'user-1',
+			connectedById: 'user-1',
 			integrationId: 'postgres',
 			account: 'reader@DB.example.com/app',
 			credential: `encrypted:${JSON.stringify(credential)}`,

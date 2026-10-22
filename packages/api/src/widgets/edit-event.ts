@@ -4,7 +4,7 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {requireUserOrgId} from '../utils/user-org';
+import {requireViewer} from '../utils/user-org';
 import type {MadeEvent} from './new-event';
 import {requireWritable} from './sources';
 import {afterWrite} from './writes';
@@ -32,10 +32,10 @@ const bodySchema = z.object({
 export function handleEditEventRoute(request: AuthenticatedRequest): Promise<Result<MadeEvent, ApiError>> {
 	return Do(async ($) => {
 		const {connectionId, calendarId, eventId, guests, ...rest} = $(parseSchema(bodySchema, request.body));
-		const orgId = $(await requireUserOrgId(request));
+		const viewer = $(await requireViewer(request));
 		const changes = {...rest, ...(guests ? {guests: guests.join(', ')} : {})};
 		const written = Object.keys(changes);
-		const source = $(await requireWritable(orgId, connectionId, 'events', 'update', written));
+		const source = $(await requireWritable(viewer, connectionId, 'events', 'update', written));
 		const recordId = `${calendarId}:${eventId}`;
 		const before = $(await source.connector.get(source, recordId));
 		if (before.values.kind !== 'Event') {
@@ -46,12 +46,12 @@ export function handleEditEventRoute(request: AuthenticatedRequest): Promise<Res
 		}
 		// Changing an event with guests tells them, which needs Invite guests as writing them does.
 		if (!written.includes('guests') && (before.values.guests ?? '') !== '') {
-			$(await requireWritable(orgId, connectionId, 'events', 'update', ['guests']));
+			$(await requireWritable(viewer, connectionId, 'events', 'update', ['guests']));
 		}
 		const current = Object.fromEntries(source.collection.fields.filter((field) => !field.system).map((field) => [field.key, before.values[field.key] ?? '']));
 		const changed = $(await source.connector.update(source, recordId, {...current, ...changes}, before));
 		const title = changed.values.title ?? '';
-		await afterWrite({orgId, userId: request.user.userId, source, action: 'update', title, parent: undefined});
+		await afterWrite({viewer, source, action: 'update', title, parent: undefined});
 		return {title, link: changed.url ?? null};
 	});
 }

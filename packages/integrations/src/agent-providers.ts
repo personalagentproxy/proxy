@@ -5,6 +5,7 @@ export type AgentProviderId =
 	| 'dot'
 	| 'poke'
 	| 'claude'
+	| 'claude-duet'
 	| 'claude-code'
 	| 'claude-desktop'
 	| 'hermes'
@@ -16,6 +17,8 @@ export type AgentProvider = {
 	id: AgentProviderId;
 	name: string;
 	aliases?: string[];
+	/** A distinct product that uses another provider's account-wide agent login. */
+	loginProviderId?: AgentProviderId;
 	company: string;
 	/**
 	 * How the agent gets its access: `mcp` adds Personal Agent Proxy as a connector and signs in
@@ -43,9 +46,9 @@ export type AgentProvider = {
 };
 
 /**
- * The agent Personal Agent Proxy runs itself, on the Chat page: an agent login like any other for
- * its access and its activity, made by Personal Agent Proxy the first time the person chats, never
- * handed out, so it is not among the providers a person can make a login for.
+ * The agents Personal Agent Proxy runs itself, on the Chat page: agent logins like any other for
+ * their access and their activity, made on the Chat page, never handed out, so not among the
+ * products a person can make a login for.
  */
 export const BUILT_IN_AGENT_PROVIDER: AgentProvider = {
 	id: 'proxy',
@@ -56,7 +59,8 @@ export const BUILT_IN_AGENT_PROVIDER: AgentProvider = {
 	faviconUrl: '/favicon.svg',
 };
 
-// The agents an organization can make a login for: one each, and any number of custom ones.
+// The agent products a person can connect, any number of logins of each. A product with a
+// loginProviderId signs in through that provider's account, so its logins are that provider's.
 export const AGENT_PROVIDERS: AgentProvider[] = [
 	{
 		id: 'grok-bot',
@@ -109,6 +113,15 @@ export const AGENT_PROVIDERS: AgentProvider[] = [
 		faviconUrl: '/agent-providers/claude.png',
 	},
 	{
+		id: 'claude-duet',
+		name: 'Claude Duet',
+		loginProviderId: 'claude',
+		company: 'Anthropic',
+		connects: 'mcp',
+		local: false,
+		faviconUrl: '/agent-providers/claude-duet.png',
+	},
+	{
 		id: 'claude-code',
 		name: 'Claude Code',
 		company: 'Anthropic',
@@ -159,8 +172,13 @@ export function findAgentProvider(id: string): AgentProvider | undefined {
 	return AGENT_PROVIDERS.find((provider) => provider.id === id);
 }
 
-/** The longest name a custom agent can be given. */
-export const CUSTOM_AGENT_NAME_MAX = 60;
+/** The provider id stored for a product's login. Some products share one account-wide login. */
+export function loginProviderIdFor(provider: AgentProvider): AgentProviderId {
+	return provider.loginProviderId ?? provider.id;
+}
+
+/** The longest name an agent can be given. */
+export const AGENT_NAME_MAX = 60;
 
 /**
  * The provider an MCP client's registered name points at, such as "Claude" or "ChatGPT", so
@@ -182,5 +200,9 @@ export function suggestAgentProvider(clientName: string): AgentProvider | undefi
 			best = {provider, length: candidate.length};
 		}
 	}
-	return best?.provider;
+	if (!best) {
+		return undefined;
+	}
+
+	return findAgentProvider(loginProviderIdFor(best.provider));
 }

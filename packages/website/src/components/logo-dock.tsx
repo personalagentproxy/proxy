@@ -11,12 +11,13 @@ type Logo = {
 	darkSrc?: string;
 };
 
-// The agents a login can be made for (AGENT_PROVIDERS in @proxy/integrations), ordered so the
-// tiles' colours alternate.
+// The supported agents (AGENT_PROVIDERS in @proxy/integrations), ordered so the tiles' colours
+// alternate. Claude Duet shares Claude's account-wide connector and login.
 const AGENTS: Logo[] = [
 	{name: 'ChatGPT', src: '/logos/chatgpt.png', tile: '', lit: true},
 	{name: 'Claude', src: '/logos/claude.png', tile: ''},
 	{name: 'Grok Bot', src: '/logos/grok-bot.png', tile: '', lit: true},
+	{name: 'Claude Duet', src: '/logos/claude-duet.png', tile: ''},
 	{name: 'Muse', src: '/logos/muse.png', tile: '', lit: true},
 	{name: 'Poke', src: '/logos/poke.jpg', tile: '', lit: true},
 	{name: 'Hermes Agent', src: '/logos/hermes.png', tile: ''},
@@ -77,13 +78,7 @@ function LogoTile({logo}: {logo: Logo}) {
 // dock, so they disappear under its rounded edge; the window clips only top and bottom, so the
 // tiles' shadows show at the sides. The track is the logos three times over and scrolls through
 // the middle copy (`.logo-marquee` in globals.css), so there is always a logo above and below.
-function LogoMarquee({
-	logos,
-	reverse,
-}: {
-	logos: Logo[];
-	reverse: boolean;
-}) {
+function LogoMarquee({logos, reverse}: {logos: Logo[]; reverse: boolean}) {
 	return (
 		<div className="-my-3 h-20 overflow-x-visible overflow-y-clip py-3 sm:-my-4 sm:h-24 sm:py-4">
 			<div

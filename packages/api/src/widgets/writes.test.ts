@@ -5,6 +5,9 @@ import {ApiErr} from '@proxy/utils';
 import {findCollection, findIntegration} from '@proxy/integrations';
 
 const requireWritable = mock();
+const requireReadable = mock();
+const reply = mock();
+const replierFor = mock((): typeof reply | null => reply);
 const afterWrite = mock(async () => {});
 const create = mock();
 const sendNew = mock();
@@ -13,9 +16,12 @@ const update = mock();
 
 // The Google client and the mail connectors read the environment on import, which tests don't have.
 mock.module('../utils/env', () => ({env: {NODE_ENV: 'test'}}));
-mock.module('./sources', () => ({requireWritable, findSources: mock(), summarize: mock()}));
+mock.module('./sources', () => ({requireWritable, requireReadable, findSources: mock(), summarize: mock()}));
+mock.module('./mail-replies', () => ({replierFor}));
 mock.module('./writes', () => ({afterWrite}));
-mock.module('../utils/user-org', () => ({requireUserOrgId: async () => Ok('org-1')}));
+mock.module('../utils/user-org', () => ({
+	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
+}));
 
 const events = findCollection(findIntegration('google') ?? {collections: []}, 'events');
 const source = {connection: {id: 'work'}, collection: events, connector: {create, get, update, newCommands: {sendNew}}};
@@ -29,6 +35,8 @@ const event = {connectionId: 'work', calendarId: 'team', title: ' Lunch ', start
 beforeEach(() => {
 	mock.clearAllMocks();
 	requireWritable.mockResolvedValue(Ok(source));
+	requireReadable.mockResolvedValue(Ok(source));
+	reply.mockResolvedValue(Ok({to: 'Sam <sam@example.com>', subject: 'Re: Invoice', inReplyTo: '<a@example.com>', references: '<a@example.com>'}));
 	create.mockResolvedValue(Ok({id: 'team:e1', values: {title: 'Lunch'}, updatedAt: '', url: 'https://calendar.google.com/e1'}));
 	sendNew.mockResolvedValue(Ok(null));
 });
@@ -39,16 +47,16 @@ describe('handleCreateEventRoute', () => {
 
 		const made = await handleCreateEventRoute(request({...event, guests: ['jacky@example.com', 'sam@example.com']}));
 		expect(made.unwrap()).toEqual({title: 'Lunch', link: 'https://calendar.google.com/e1'});
-		expect(requireWritable).toHaveBeenCalledWith('org-1', 'work', 'events', 'create', ['title', 'start', 'end', 'location', 'guests']);
+		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'events', 'create', ['title', 'start', 'end', 'location', 'guests']);
 		expect(create).toHaveBeenCalledWith(source, {title: 'Lunch', start: event.start, end: event.end, location: 'Nopa', guests: 'jacky@example.com, sam@example.com'}, 'team');
-		expect(afterWrite).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1', source, action: 'create', title: 'Lunch', parent: 'team'});
+		expect(afterWrite).toHaveBeenCalledWith({viewer: expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), source, action: 'create', title: 'Lunch', parent: 'team'});
 	});
 
 	test("doesn't ask for Invite guests for an event without them", async () => {
 		const {handleCreateEventRoute} = await import('./new-event');
 
 		await handleCreateEventRoute(request(event));
-		expect(requireWritable).toHaveBeenCalledWith('org-1', 'work', 'events', 'create', ['title', 'start', 'end', 'location']);
+		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'events', 'create', ['title', 'start', 'end', 'location']);
 	});
 
 	test('writes nothing and logs nothing when refused', async () => {
@@ -76,7 +84,7 @@ describe('handleWriteEmailRoute', () => {
 		const {handleWriteEmailRoute} = await import('./emails');
 
 		expect((await handleWriteEmailRoute(request({...email, send: true}))).unwrap()).toEqual({sent: true});
-		expect(requireWritable).toHaveBeenCalledWith('org-1', 'work', 'emails', 'sendNew', ['to', 'subject', 'body']);
+		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails', 'sendNew', ['to', 'subject', 'body']);
 		expect(sendNew).toHaveBeenCalledWith(source, {to: 'jacky@example.com', subject: 'Lunch', body: 'Tuesday?'});
 		expect(create).not.toHaveBeenCalled();
 		expect(afterWrite).toHaveBeenCalledWith(expect.objectContaining({action: 'sendNew', title: 'Lunch', parent: null}));
@@ -86,7 +94,7 @@ describe('handleWriteEmailRoute', () => {
 		const {handleWriteEmailRoute} = await import('./emails');
 
 		expect((await handleWriteEmailRoute(request({...email, send: false}))).unwrap()).toEqual({sent: false});
-		expect(requireWritable).toHaveBeenCalledWith('org-1', 'work', 'emails', 'create', ['to', 'subject', 'body']);
+		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails', 'create', ['to', 'subject', 'body']);
 		expect(create).toHaveBeenCalledWith(source, {to: 'jacky@example.com', subject: 'Lunch', body: 'Tuesday?'}, null);
 		expect(sendNew).not.toHaveBeenCalled();
 	});
@@ -95,6 +103,40 @@ describe('handleWriteEmailRoute', () => {
 		const {handleWriteEmailRoute} = await import('./emails');
 
 		expect((await handleWriteEmailRoute(request({...email, to: [], send: true}))).unwrapErr().kind).toBe('parse_error');
+	});
+});
+
+describe('handleReplyEmailRoute', () => {
+	const answer = {connectionId: 'work', emailId: 'm1', body: 'Paid this morning.'};
+
+	test('sends a reply to the email through its mailbox, logged as sent under the reply’s subject', async () => {
+		const {handleReplyEmailRoute} = await import('./emails');
+
+		expect((await handleReplyEmailRoute(request({...answer, send: true}))).unwrap()).toEqual({sent: true});
+		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails', 'sendNew', ['to', 'subject', 'body']);
+		expect(requireReadable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails');
+		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: true});
+		// The mailbox is the email's, so none is picked for the next new email.
+		expect(afterWrite).toHaveBeenCalledWith({viewer: expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), source, action: 'sendNew', title: 'Re: Invoice', parent: undefined});
+	});
+
+	test('saves a reply as a draft as creating an email', async () => {
+		const {handleReplyEmailRoute} = await import('./emails');
+
+		expect((await handleReplyEmailRoute(request({...answer, send: false}))).unwrap()).toEqual({sent: false});
+		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails', 'create', ['to', 'subject', 'body']);
+		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: false});
+	});
+
+	test('replies through no mailbox it can’t read, nor one that can’t reply, and logs nothing then', async () => {
+		const {handleReplyEmailRoute} = await import('./emails');
+
+		requireReadable.mockResolvedValueOnce(Err(ApiErr.forbidden()));
+		expect((await handleReplyEmailRoute(request({...answer, send: true}))).unwrapErr().kind).toBe('forbidden');
+		replierFor.mockReturnValueOnce(null);
+		expect((await handleReplyEmailRoute(request({...answer, send: true}))).unwrapErr().kind).toBe('forbidden');
+		expect(reply).not.toHaveBeenCalled();
+		expect(afterWrite).not.toHaveBeenCalled();
 	});
 });
 
@@ -129,10 +171,10 @@ describe('handleEditEventRoute', () => {
 		expect(get).toHaveBeenCalledWith(source, 'team:e1');
 		expect(update).toHaveBeenCalledWith(source, 'team:e1', {title: 'Lunch', start: moved.start, end: moved.end, location: 'Nopa', guests: 'jacky@example.com', description: 'Agenda'}, lunch);
 		// Its guests are told, which needs Invite guests too.
-		expect(requireWritable).toHaveBeenCalledWith('org-1', 'work', 'events', 'update', ['start', 'end']);
-		expect(requireWritable).toHaveBeenCalledWith('org-1', 'work', 'events', 'update', ['guests']);
+		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'events', 'update', ['start', 'end']);
+		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'events', 'update', ['guests']);
 		// A change picks no calendar for the next new event.
-		expect(afterWrite).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1', source, action: 'update', title: 'Lunch', parent: undefined});
+		expect(afterWrite).toHaveBeenCalledWith({viewer: expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), source, action: 'update', title: 'Lunch', parent: undefined});
 	});
 
 	test('writes the guests as given', async () => {

@@ -16,6 +16,9 @@ const agent: AgentLogin = {
 	providerId: 'claude',
 	name: 'Claude',
 	username: 'claude-1',
+	shared: false,
+	createdById: 'user-1',
+	createdBy: null,
 	createdAt: '2026-10-01T00:00:00.000Z',
 	lastActiveAt: null,
 	revokedAt: null,
@@ -25,6 +28,9 @@ const agent: AgentLogin = {
 const connection: Connection = {
 	id: 'connection-1',
 	integrationId: 'email',
+	shared: false,
+	connectedById: 'user-1',
+	connectedBy: null,
 	account: 'me@example.com',
 	defaults: [],
 	tools: null,
@@ -52,32 +58,39 @@ const entry: AuditEntry = {
 	action: 'archive',
 	recordTitle: 'Weekly digest',
 	query: null,
+	userId: null,
+	userName: null,
 	outcome: 'denied',
+	error: null,
 	via: 'mcp',
 	taskId: task.id,
 };
 
+function renderList(entries: AuditEntry[]) {
+	const router = createMemoryRouter(
+		[
+			{
+				path: '/:org/activity',
+				element: (
+					<TooltipProvider>
+						<AuditList
+							entries={entries}
+							agents={[agent]}
+							connections={[connection]}
+							tasks={[task]}
+						/>
+					</TooltipProvider>
+				),
+			},
+		],
+		{initialEntries: ['/org-1/activity']},
+	);
+	render(<RouterProvider router={router} />);
+}
+
 describe('AuditList', () => {
 	test('opens an entry in full from its row', async () => {
-		const router = createMemoryRouter(
-			[
-				{
-					path: '/activity',
-					element: (
-						<TooltipProvider>
-							<AuditList
-								entries={[entry]}
-								agents={[agent]}
-								connections={[connection]}
-								tasks={[task]}
-							/>
-						</TooltipProvider>
-					),
-				},
-			],
-			{initialEntries: ['/activity']},
-		);
-		render(<RouterProvider router={router} />);
+		renderList([entry]);
 
 		const row = await screen.findByRole('button', {name: /Tried to archive email/});
 		expect(row.textContent).toContain('· for Triage inbox');
@@ -86,15 +99,49 @@ describe('AuditList', () => {
 		const dialog = await screen.findByRole('dialog');
 		expect(within(dialog).getByText('Denied')).toBeDefined();
 		expect(within(dialog).getByRole('link', {name: 'Triage inbox'}).getAttribute('href')).toBe(
-			'/activity?task=task-1',
+			'/org-1/activity?task=task-1',
 		);
 		expect(within(dialog).getByText('Archive the newsletters')).toBeDefined();
 		expect(within(dialog).getByRole('link', {name: 'Claude'}).getAttribute('href')).toBe(
-			'/agents/agent-1',
+			'/org-1/agents/agent-1',
 		);
 		expect(within(dialog).getByText('me@example.com')).toBeDefined();
 		expect(within(dialog).getByText('Weekly digest')).toBeDefined();
 		expect(within(dialog).getByText('Archive')).toBeDefined();
 		expect(within(dialog).getByText('MCP')).toBeDefined();
+	});
+
+	test('a failed request says so, and what went wrong', async () => {
+		renderList([{...entry, outcome: 'failed', error: 'provider_unreachable 429'}]);
+
+		fireEvent.click(
+			await screen.findByRole('button', {name: /Failed to archive email “Weekly digest”/}),
+		);
+
+		const dialog = await screen.findByRole('dialog');
+		expect(within(dialog).getByText('Failed')).toBeDefined();
+		expect(
+			within(dialog).getByText('The service turned it down for too many requests (HTTP 429)'),
+		).toBeDefined();
+	});
+
+	test('what Personal Agent Proxy did itself from the home page says who asked', async () => {
+		const byDana: AuditEntry = {
+			...entry,
+			id: 'entry-2',
+			agentId: null,
+			action: 'sendNew',
+			outcome: 'allowed',
+			via: 'web',
+			taskId: null,
+			userId: 'user-2',
+			userName: 'Dana',
+		};
+		renderList([byDana, {...byDana, id: 'entry-3', userName: null}]);
+
+		expect(await screen.findByRole('img', {name: 'Personal Agent Proxy for Dana'})).toBeDefined();
+		expect(
+			screen.getByRole('img', {name: 'Personal Agent Proxy for a former member'}),
+		).toBeDefined();
 	});
 });

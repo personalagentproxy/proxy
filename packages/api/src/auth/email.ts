@@ -7,6 +7,7 @@ import {createUserFromEmail, getUserByEmail, setUserEmailVerified} from '@proxy/
 
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
+import {normalizeEmail} from './email-address';
 import {sendMagicLink} from './mail';
 import {canSignUp, establishSessionAndRedirect, queryParam, redirectToLoginError, sanitizeCallbackUrl} from './session';
 
@@ -43,34 +44,6 @@ function getEmailAuthConfig(): EmailAuthConfig | null {
 
 function hashVerificationToken(token: string, secret: string): string {
 	return createHash('sha256').update(`${token}${secret}`).digest('hex');
-}
-
-/**
- * Trims, rejects multiple `@`s and quoted locals, lowercases, drops everything after the first
- * comma in the domain, and requires a dot in the domain. Null for anything else.
- */
-function normalizeEmail(raw: string): string | null {
-	const trimmed = raw.trim();
-	const atCount = (trimmed.match(/@/g) ?? []).length;
-	if (atCount !== 1) {
-		return null;
-	}
-
-	if (trimmed.includes('"')) {
-		return null;
-	}
-
-	const [local, domainRaw] = trimmed.toLowerCase().split('@');
-	if (!local || !domainRaw) {
-		return null;
-	}
-
-	const domain = domainRaw.split(',')[0];
-	if (!domain || !domain.includes('.')) {
-		return null;
-	}
-
-	return `${local}@${domain}`;
 }
 
 /**

@@ -48,10 +48,10 @@ export function askModel<T>(request: ModelRequest<T>): Promise<Result<T, ApiErro
 					reasoning: {effort: 'low'},
 					response_format: {type: 'json_schema', json_schema: {name: request.name, strict: true, schema: request.jsonSchema}},
 					// Cerebras first, Groq next, and any other host of the model after them, but only a
-					// host OpenRouter records as neither keeping prompts nor training on them: the
-					// text is what the person typed, their bank's name or a merchant's among it, or
-					// what their meetings and files say.
-					provider: {order: ['Cerebras', 'Groq'], allow_fallbacks: true, data_collection: 'deny'},
+					// host OpenRouter records as keeping nothing, not even for a while to check for
+					// abuse: the text is what the person typed, their bank's name or a merchant's among
+					// it, or what their meetings and files say. With no such host, no answer at all.
+					provider: {order: ['Cerebras', 'Groq'], allow_fallbacks: true, data_collection: 'deny', zdr: true},
 				}),
 			},
 			{schema: completionSchema, timeoutMs: request.timeoutMs},

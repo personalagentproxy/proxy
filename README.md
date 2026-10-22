@@ -58,24 +58,31 @@ log.
       <strong>Poke</strong>
     </td>
   </tr>
+</table>
+
+<table align="center">
   <tr>
-    <td align="center" width="20%">
+    <td align="center" width="16%">
       <img src="docs/assets/agents/claude.png" width="48" height="48" alt="Claude logo"><br>
       <strong>Claude</strong>
     </td>
-    <td align="center" width="20%">
+    <td align="center" width="16%">
+      <img src="docs/assets/agents/claude-duet.png" width="48" height="48" alt="Claude Duet logo"><br>
+      <strong>Claude&nbsp;Duet</strong>
+    </td>
+    <td align="center" width="16%">
       <img src="docs/assets/agents/claude-code.png" width="48" height="48" alt="Claude Code logo"><br>
       <strong>Claude&nbsp;Code</strong>
     </td>
-    <td align="center" width="20%">
+    <td align="center" width="16%">
       <img src="docs/assets/agents/claude-desktop.png" width="48" height="48" alt="Claude Desktop logo"><br>
       <strong>Claude&nbsp;Desktop</strong>
     </td>
-    <td align="center" width="20%">
+    <td align="center" width="16%">
       <img src="docs/assets/agents/chatgpt.png" width="48" height="48" alt="ChatGPT logo"><br>
       <strong>ChatGPT</strong>
     </td>
-    <td align="center" width="20%">
+    <td align="center" width="16%">
       <img src="docs/assets/agents/hermes-readme.svg" width="48" height="48" alt="Hermes Agent logo"><br>
       <strong>Hermes&nbsp;Agent</strong>
     </td>

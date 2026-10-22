@@ -6,9 +6,11 @@ import {
 	type IntegrationId,
 	type McpTool,
 } from '@proxy/integrations';
+import {orgApi} from '@/client/request';
 
-// A brand's own logo, `public/integrations/<id>.svg`, unless `LOGOS` says otherwise.
-type IntegrationLogoImage = {src: string; fill?: boolean};
+// A brand's own logo, `public/integrations/<id>.svg`, unless `LOGOS` says otherwise. One found on
+// the internet has a file of ours to show where it can't be loaded.
+type IntegrationLogoImage = {src: string; fill?: boolean; fallback?: string};
 
 export type Integration = CatalogIntegration & {
 	logo: LucideIcon | IntegrationLogoImage;
@@ -37,15 +39,17 @@ export const NEEDS: Record<Need, {variables: string[]; docsUrl: string}> = {
 
 const NEEDED_BY: Partial<Record<IntegrationId, Need>> = {google: 'google', plaid: 'plaid'};
 
+const MCP_MARK = '/favicon.svg';
+
 // The integrations whose logo isn't `public/integrations/<id>.svg` as it is: an icon for those
 // that are no one brand's, the vault being ours and Email any mailbox, and our mark for custom
-// MCP servers, since Personal Agent Proxy is the service connecting them; another kind of file;
+// MCP servers until a connection has its server's site's icon (`serverLogo`); another kind of file;
 // or a logo that is already a square tile, as Granola's and Linear's are, which fills the tile
 // edge to edge.
 const LOGOS: Partial<Record<IntegrationId, LucideIcon | IntegrationLogoImage>> = {
 	vault: LibraryIcon,
 	email: MailIcon,
-	mcp: {src: '/favicon.svg'},
+	mcp: {src: MCP_MARK},
 	granola: {src: '/integrations/granola.png', fill: true},
 	linear: {src: '/integrations/linear.svg', fill: true},
 };
@@ -66,16 +70,34 @@ export function findIntegration(id: string): Integration | undefined {
 	return INTEGRATIONS.find((integration) => integration.id === id);
 }
 
-/** The integration of a connection, a custom MCP server's with its own tools as actions; null for one the catalog no longer has. */
+/**
+ * A custom MCP server's logo, by its connection's account, which is its address,
+ * "mcp.sentry.dev/mcp": the icon of the server's site, which the api finds from the main domain of
+ * the address, with our mark where there is none.
+ */
+function serverLogo(account: string): IntegrationLogoImage {
+	const address = `https://${account}`;
+	if (!URL.canParse(address)) {
+		return {src: MCP_MARK};
+	}
+	return {
+		src: `/api/favicons/${encodeURIComponent(new URL(address).hostname)}`,
+		fallback: MCP_MARK,
+	};
+}
+
+/** The integration of a connection, a custom MCP server's with its own tools as actions and its site's icon; null for one the catalog no longer has. */
 export function integrationOf(connection: {
 	integrationId: string;
+	account: string;
 	tools?: McpTool[] | null;
 }): Integration | null {
 	const integration = integrationFor(connection);
 	if (!integration) {
 		return null;
 	}
-	return {...integration, logo: logoOf(integration.id)};
+	const logo = integration.id === 'mcp' ? serverLogo(connection.account) : logoOf(integration.id);
+	return {...integration, logo};
 }
 
 // The integrations connected by signing in to them, as the catalog marks them (`signIn`). Their
@@ -88,11 +110,18 @@ export function integrationOf(connection: {
 // where it can, and with `?connection=` the sign-in renews that connection where its account can't
 // be told apart from another's: the integration says nothing of who signed in (`anonymous`), or
 // the connection was never signed in to. Otherwise the connection of the account signed in to is
-// renewed, or a new one made.
-/** Where signing in to an integration starts, or null for one connected on a form of its own. */
+// renewed, or a new one made. With `?share=everyone`, a new connection is for every member of the
+// organization rather than the person's own.
+/** Where signing in to an integration starts, in the organization `org`, or null for one connected on a form of its own. */
 export function signInPath(
+	org: string,
 	integrationId: string,
-	query: {returnTo?: 'welcome' | 'home'; account?: string; connection?: string} = {},
+	query: {
+		returnTo?: 'welcome' | 'home';
+		account?: string;
+		connection?: string;
+		share?: 'everyone';
+	} = {},
 ): string | null {
 	if (!findIntegration(integrationId)?.signIn) {
 		return null;
@@ -101,7 +130,7 @@ export function signInPath(
 		Object.entries(query).flatMap(([key, value]) => (value === undefined ? [] : [[key, value]])),
 	);
 	const search = params.size > 0 ? `?${params.toString()}` : '';
-	return `/api/connections/${integrationId}/start${search}`;
+	return `${orgApi(org)}/connections/${integrationId}/start${search}`;
 }
 
 /** What the server lacked when a sign-in came back with `?error=<integration>-unconfigured`. */

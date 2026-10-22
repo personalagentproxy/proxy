@@ -5,9 +5,15 @@ import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
 import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed-in-agent';
+import {type MemberViewer, visibleTo} from './viewer';
 
 export type AgentRow = {
 	id: string;
+	orgId: string;
+	// The member whose agent it is; null when it is shared with every member.
+	ownerUserId: string | null;
+	// Who made it, kept once it is shared.
+	createdById: string | null;
 	providerId: string;
 	name: string;
 	username: string;
@@ -20,6 +26,9 @@ export type AgentRow = {
 // Never the password hash: only signing in reads it.
 const agentSelect = {
 	id: true,
+	orgId: true,
+	ownerUserId: true,
+	createdById: true,
 	providerId: true,
 	name: true,
 	username: true,
@@ -29,37 +38,99 @@ const agentSelect = {
 	grants: {select: {connectionId: true, actionId: true, allowed: true}},
 } as const;
 
-export async function listAgents(orgId: string): Promise<Result<AgentRow[], ApiError>> {
+/** The agents the viewer sees, newest first. */
+export async function listAgents(viewer: MemberViewer): Promise<Result<AgentRow[], ApiError>> {
 	return wrapDb(() =>
-		db.agent.findMany({where: {orgId}, select: agentSelect, orderBy: {createdAt: 'desc'}}),
+		db.agent.findMany({
+			where: visibleTo(viewer),
+			select: agentSelect,
+			orderBy: {createdAt: 'desc'},
+		}),
 	);
 }
 
-/** `Ok(null)` means no such agent in the organization. */
-export async function getAgent(
+/** An agent of the organization by its id, whoever's it is: the agent itself, signed in. `Ok(null)` for none. */
+export async function getAgentById(
 	orgId: string,
 	agentId: string,
 ): Promise<Result<AgentRow | null, ApiError>> {
 	return wrapDb(() => db.agent.findFirst({where: {id: agentId, orgId}, select: agentSelect}));
 }
 
-/** Fails with a `db_error` that `isUsernameConflict` recognizes when the username is taken. */
+/** `Ok(null)` means no such agent the viewer sees. */
+export async function getAgent(
+	viewer: MemberViewer,
+	agentId: string,
+): Promise<Result<AgentRow | null, ApiError>> {
+	return wrapDb(() =>
+		db.agent.findFirst({where: {id: agentId, ...visibleTo(viewer)}, select: agentSelect}),
+	);
+}
+
+/**
+ * A new agent, `ownerUserId`'s own or, null, shared with every member, made by `createdById`.
+ * Fails with a `db_error` that `isUsernameConflict` recognizes when the username is taken.
+ */
 export async function createAgent(data: {
 	orgId: string;
+	ownerUserId: string | null;
+	createdById: string;
 	providerId: string;
 	name: string;
 	username: string;
 	passwordHash: string;
+	// A built-in agent's face.
+	shape?: string;
+	color?: string;
 }): Promise<Result<AgentRow, ApiError>> {
 	return wrapDb(() => db.agent.create({data, select: agentSelect}));
 }
 
-export function isUsernameConflict(error: ApiError): boolean {
-	return isUniqueConflict(error, 'username');
+/**
+ * Shares a member's agent with every member of its organization, for good: it reaches the shared
+ * connections alone from now on, so its settings on the member's own connections go. What it did
+ * on the shared connections so far becomes everyone's with it, and so does every task it made no
+ * other request for; its requests on any other connection, the member's own or one since
+ * disconnected, stay the member's, with the tasks they were made for: what it did in their mailbox
+ * is still theirs alone to see.
+ */
+export async function shareAgent(agentId: string): Promise<Result<void, ApiError>> {
+	return wrapDb(async () => {
+		await db.$transaction(async (tx) => {
+			const agent = await tx.agent.findUnique({
+				where: {id: agentId},
+				select: {orgId: true, ownerUserId: true},
+			});
+			if (!agent || agent.ownerUserId === null) {
+				return;
+			}
+			const shared = await tx.connection.findMany({
+				where: {orgId: agent.orgId, ownerUserId: null},
+				select: {id: true},
+			});
+			const sharedIds = shared.map((connection) => connection.id);
+			const kept = await tx.auditEntry.findMany({
+				where: {agentId, connectionId: {notIn: sharedIds}, taskId: {not: null}},
+				select: {taskId: true},
+				distinct: ['taskId'],
+			});
+			const keptTaskIds = kept.flatMap((entry) => (entry.taskId === null ? [] : [entry.taskId]));
+			await tx.agentGrant.deleteMany({where: {agentId, connectionId: {notIn: sharedIds}}});
+			await tx.auditEntry.updateMany({
+				where: {agentId, connectionId: {in: sharedIds}},
+				data: {ownerUserId: null},
+			});
+			await tx.agentTask.updateMany({
+				where: {agentId, id: {notIn: keptTaskIds}},
+				data: {ownerUserId: null},
+			});
+			await tx.agent.update({where: {id: agentId}, data: {ownerUserId: null}});
+		});
+	});
 }
 
-export function isProviderConflict(error: ApiError): boolean {
-	return isUniqueConflict(error, 'orgId') && isUniqueConflict(error, 'providerId');
+export function isUsernameConflict(error: ApiError): boolean {
+	return isUniqueConflict(error, 'username');
 }
 
 function isUniqueConflict(error: ApiError, field: string): boolean {
@@ -78,7 +149,8 @@ function isUniqueConflict(error: ApiError, field: string): boolean {
 
 /**
  * `Ok(false)` means no such agent in the organization. A new password or a revocation also signs
- * the agent out everywhere; a revocation signs out its MCP clients too.
+ * the agent out everywhere; a revocation signs out its MCP clients too. The caller has checked the
+ * agent is theirs to change.
  */
 export async function updateAgent(
 	orgId: string,
@@ -101,7 +173,18 @@ export async function updateAgent(
 	);
 }
 
-/** `Ok(false)` means no such agent in the organization. Its own settings go with it. */
+/** `Ok(false)` means no such agent in the organization. The caller has checked the agent is theirs to change. */
+export async function renameAgent(
+	orgId: string,
+	agentId: string,
+	name: string,
+): Promise<Result<boolean, ApiError>> {
+	return (await wrapDb(() => db.agent.updateMany({where: {id: agentId, orgId}, data: {name}}))).map(
+		({count}) => count > 0,
+	);
+}
+
+/** `Ok(false)` means no such agent in the organization. Its own settings go with it. The caller has checked the agent is theirs to change. */
 export async function deleteAgent(
 	orgId: string,
 	agentId: string,
@@ -163,21 +246,6 @@ export async function createAgentSession(data: {
 }
 
 export type {SignedInAgent} from './signed-in-agent';
-
-/**
- * The organization's agent of one provider, as a signed-in agent would be read, for the built-in
- * agent, which signs in nowhere; `Ok(null)` for none, or one revoked.
- */
-export async function getSignedInAgentByProvider(
-	orgId: string,
-	providerId: string,
-): Promise<Result<SignedInAgent | null, ApiError>> {
-	return (
-		await wrapDb(() =>
-			db.agent.findFirst({where: {orgId, providerId}, select: signedInAgentSelect}),
-		)
-	).map((agent) => (agent ? toSignedInAgent(agent) : null));
-}
 
 /** `Ok(null)` means no live session: unknown, expired, or the agent has been revoked. */
 export async function getSignedInAgent(

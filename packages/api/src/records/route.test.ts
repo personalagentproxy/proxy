@@ -3,9 +3,9 @@ import {Ok} from 'ts-results-es';
 
 import {findCollection, findIntegration, type Collection} from '@proxy/integrations';
 
-const requireUserOrgId = mock();
-
-mock.module('../utils/user-org', () => ({requireUserOrgId}));
+mock.module('../utils/user-org', () => ({
+	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
+}));
 
 const loadRecordTarget = mock();
 
@@ -34,7 +34,6 @@ function useCollection(integrationId: string, collectionId: string) {
 
 beforeEach(() => {
 	mock.clearAllMocks();
-	requireUserOrgId.mockResolvedValue(Ok('org-1'));
 	useCollection('vault', 'entries');
 	connector.list.mockResolvedValue(Ok({records: [record], nextPage: null}));
 	connector.create.mockResolvedValue(Ok(record));
@@ -45,7 +44,7 @@ describe('records routes', () => {
 		const {handleListRecordsRoute} = await import('./route');
 		const result = await handleListRecordsRoute(makeRequest({connectionId: 'conn-1', collectionId: 'entries'}));
 
-		expect(loadRecordTarget).toHaveBeenCalledWith('org-1', 'conn-1', 'entries');
+		expect(loadRecordTarget).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'conn-1', 'entries');
 		expect(connector.list.mock.calls[0]?.[1]).toEqual({search: null, page: null, filter: null, parent: null});
 		expect(result.unwrap()).toEqual({records: [record], nextPage: null});
 	});

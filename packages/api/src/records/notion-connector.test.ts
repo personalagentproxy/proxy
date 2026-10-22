@@ -25,7 +25,19 @@ function pages(): Collection {
 }
 
 const target = {
-	connection: {id: 'notion-1', integrationId: 'notion', account: 'alex@example.com · Acme', createdAt: new Date(), tools: null, name: null, defaults: [], credential: 'v1.encrypted'},
+	connection: {
+		id: 'notion-1',
+		integrationId: 'notion',
+		orgId: 'org-1',
+		ownerUserId: 'user-1',
+		connectedById: 'user-1',
+		account: 'alex@example.com · Acme',
+		createdAt: new Date(),
+		tools: null,
+		name: null,
+		defaults: [],
+		credential: 'v1.encrypted',
+	},
 	collection: pages(),
 };
 
@@ -179,6 +191,16 @@ describe('notionConnector.list', () => {
 			{id: DATABASE, title: 'Companies'},
 			{id: VIEW_ID, title: 'Insolvencies'},
 		]);
+	});
+
+	test('a page of a list that is all on one page is refused', async () => {
+		const {notionConnector} = await import('./notion-connector');
+		const lists = [query({parent: PAGE, page: 'next'}), query({search: 'plan', page: 'next'})];
+
+		for (const paged of lists) {
+			const result = await notionConnector.list(target, paged);
+			expect(result.isErr() && result.error.kind).toBe('validation_error');
+		}
 	});
 
 	test('a search inside a page or database looks only there', async () => {

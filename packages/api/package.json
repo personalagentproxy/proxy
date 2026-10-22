@@ -23,6 +23,7 @@
 		"mailparser": "^3.9.36",
 		"nodemailer": "^10.0.15",
 		"resend": "^6.7.0",
+		"tldts": "^7.4.19",
 		"ts-results-es": "^7.1.0",
 		"zod": "^4.5.4"
 	},

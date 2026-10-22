@@ -1,4 +1,4 @@
-import {Err, type Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
 import type {ConnectionRow} from '@proxy/db/connection';
@@ -19,6 +19,17 @@ export type DataRecord = {id: string; values: RecordValues; updatedAt: string; u
  * list pointed at.
  */
 export type ListQuery = {search: string | null; page: string | null; filter: string | null; parent: string | null};
+
+/**
+ * A list that is all on one page, such as the vault's or a spreadsheet's tabs, gives no next page,
+ * so a page asked of it is refused rather than its one page listed again.
+ */
+export function requireFirstPage(query: ListQuery): Result<void, ApiError> {
+	if (query.page !== null) {
+		return Err(ApiErr.validationError('That page is not one a list gave: this list is all on one page'));
+	}
+	return Ok(undefined);
+}
 
 /** A record a list was opened in, or one above it. */
 export type Crumb = {id: string; title: string};

@@ -13,15 +13,18 @@ mock.module('@proxy/db/connection', () => ({
 	getConnectionWithCredential,
 	createConnection,
 	renewConnection,
+	shareConnection: mock(),
 	updateConnectionCredential: mock(),
 	getConnectionCredential: mock(async () => Ok(null)),
 	updateConnectionTools: mock(),
 	updateConnectionName: mock(),
 }));
 
-const getUserOrgId = mock();
+mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId}));
+const requireViewer = mock(async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}));
+
+mock.module('../../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 
 mock.module('../../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
@@ -110,7 +113,7 @@ const user = {userId: 'user-1', email: 'alex@example.com'};
 async function start(query: Record<string, string> = {}) {
 	const {handleStart} = await routes();
 	const res = makeRes();
-	await handleStart({user, query, headers: {}} as never, res as never);
+	await handleStart({user, params: {org: 'org-1'}, query, headers: {}} as never, res as never);
 	const cookie = res.cookies.find((candidate) => candidate.name === 'proxy.cloudflare-state');
 	const authorizeUrl = new URL(res.redirect.mock.calls[0]?.[0] as string);
 	return {cookie, authorizeUrl, state: authorizeUrl.searchParams.get('state') ?? ''};
@@ -119,14 +122,13 @@ async function start(query: Record<string, string> = {}) {
 async function callback(args: {cookie: string; query: Record<string, string>}) {
 	const {handleCallback} = await routes();
 	const res = makeRes();
-	await handleCallback({user, query: args.query, headers: {cookie: `proxy.cloudflare-state=${args.cookie}`}} as never, res as never);
+	await handleCallback({user, params: {org: 'org-1'}, query: args.query, headers: {cookie: `proxy.cloudflare-state=${args.cookie}`}} as never, res as never);
 	return res;
 }
 
 beforeEach(() => {
 	mock.clearAllMocks();
 	cloudflare.requests = [];
-	getUserOrgId.mockResolvedValue(Ok('org-1'));
 	findAccountConnection.mockResolvedValue(Ok(null));
 	createConnection.mockResolvedValue(Ok({id: 'conn-1'}));
 	renewConnection.mockResolvedValue(Ok(undefined));
@@ -154,7 +156,7 @@ describe('the sign-in', () => {
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'cloudflare', account: 'alex@example.com', defaults: ['read']});
 		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toMatchObject({clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1'});
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1?added');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-1?added');
 	});
 });
 
@@ -176,7 +178,7 @@ describe('keyConnectRoute', () => {
 
 		const calls = cloudflare.requests.filter((request) => request.url.pathname === '/mcp');
 		expect(calls.map((call) => JSON.parse(call.body).method)).toEqual(['tools/list', 'tools/call']);
-		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'cloudflare', account: 'Acme', providerAccountId: 'account:acc-1'});
+		expect(findAccountConnection).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {integrationId: 'cloudflare', account: 'Acme', providerAccountId: 'account:acc-1'});
 		expect(createConnection.mock.calls[0]?.[0]).toMatchObject({account: 'Acme', providerAccountId: 'account:acc-1'});
 		expect(JSON.parse(String(createConnection.mock.calls[0]?.[0].credential).replace(/^enc:/, ''))).toEqual({auth: 'key', key: 'account-token'});
 		expect(connection).toMatchObject({id: 'conn-1', account: 'Acme'});
@@ -186,7 +188,11 @@ describe('keyConnectRoute', () => {
 		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0'}));
 		await connectWithKey({key: 'user-token'});
 
-		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'cloudflare', account: 'alex@example.com', providerAccountId: 'user:user-1'});
+		expect(findAccountConnection).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {
+			integrationId: 'cloudflare',
+			account: 'alex@example.com',
+			providerAccountId: 'user:user-1',
+		});
 		expect(createConnection).not.toHaveBeenCalled();
 		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0'});
 	});

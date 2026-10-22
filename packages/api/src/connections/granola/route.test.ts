@@ -14,15 +14,18 @@ mock.module('@proxy/db/connection', () => ({
 	findAccountConnection,
 	createConnection,
 	renewConnection,
+	shareConnection: mock(),
 	updateConnectionCredential: mock(),
 	getConnectionCredential: mock(async () => Ok(null)),
 	updateConnectionTools: mock(),
 	updateConnectionName: mock(),
 }));
 
-const getUserOrgId = mock();
+mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId}));
+const requireViewer = mock(async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}));
+
+mock.module('../../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 
 mock.module('../../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
@@ -85,7 +88,7 @@ const user = {userId: 'user-1', email: 'alex@example.com'};
 async function start(query: Record<string, string> = {}) {
 	const {handleStart: handleStartGranolaRoute} = await routes();
 	const res = makeRes();
-	await handleStartGranolaRoute({user, query, headers: {}} as never, res as never);
+	await handleStartGranolaRoute({user, params: {org: 'org-1'}, query, headers: {}} as never, res as never);
 	const cookie = res.cookies.find((candidate) => candidate.name === 'proxy.granola-state');
 	const authorizeUrl = new URL(res.redirect.mock.calls[0]?.[0] as string);
 	return {res, cookie, authorizeUrl, state: authorizeUrl.searchParams.get('state') ?? ''};
@@ -101,7 +104,6 @@ async function callback(args: {cookie: string; query: Record<string, string>; us
 beforeEach(() => {
 	mock.clearAllMocks();
 	granola.requests = [];
-	getUserOrgId.mockResolvedValue(Ok('org-1'));
 	findAccountConnection.mockResolvedValue(Ok(null));
 	createConnection.mockResolvedValue(Ok({id: 'conn-1'}));
 	renewConnection.mockResolvedValue(Ok(undefined));
@@ -139,7 +141,7 @@ describe('handleGranolaCallbackRoute', () => {
 		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'granola', account: 'alex@example.com', defaults: ['readNotes', 'readTranscripts']});
 		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toMatchObject({clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1'});
 		expect(res.clearCookie).toHaveBeenCalled();
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1?added');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-1?added');
 	});
 
 	test('signing in to an account already connected gives that connection the new tokens', async () => {
@@ -148,9 +150,9 @@ describe('handleGranolaCallbackRoute', () => {
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
 		expect(createConnection).not.toHaveBeenCalled();
-		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'granola', account: 'alex@example.com', providerAccountId: null});
+		expect(findAccountConnection).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {integrationId: 'granola', account: 'alex@example.com', providerAccountId: null});
 		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-old'});
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-old');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-old');
 	});
 
 	test('a state that does not match, or another user, connects nothing', async () => {
@@ -158,8 +160,8 @@ describe('handleGranolaCallbackRoute', () => {
 		const forged = await callback({cookie: cookie?.value ?? '', query: {state: 'forged', code: 'code-1'}});
 		const otherUser = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}, userId: 'user-2'});
 
-		expect(forged.redirect).toHaveBeenCalledWith('https://app.example.com/connections/new?error=granola');
-		expect(otherUser.redirect).toHaveBeenCalledWith('https://app.example.com/connections/new?error=granola');
+		expect(forged.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/new?error=granola');
+		expect(otherUser.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/new?error=granola');
 		expect(granola.requests.some((request) => request.url.pathname === '/oauth2/token')).toBe(false);
 		expect(createConnection).not.toHaveBeenCalled();
 	});
@@ -168,7 +170,7 @@ describe('handleGranolaCallbackRoute', () => {
 		const {cookie, state} = await start();
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, error: 'access_denied'}});
 
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/new?error=granola');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/new?error=granola');
 		expect(createConnection).not.toHaveBeenCalled();
 	});
 
@@ -176,17 +178,17 @@ describe('handleGranolaCallbackRoute', () => {
 		const done = await start({returnTo: 'welcome'});
 		const finished = await callback({cookie: done.cookie?.value ?? '', query: {state: done.state, code: 'code-1'}});
 		expect(createConnection).toHaveBeenCalledTimes(1);
-		expect(finished.redirect).toHaveBeenCalledWith('https://app.example.com/welcome/connections/conn-1');
+		expect(finished.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/welcome/connections/conn-1');
 
 		const turnedDown = await start({returnTo: 'welcome'});
 		const failed = await callback({cookie: turnedDown.cookie?.value ?? '', query: {state: turnedDown.state, error: 'access_denied'}});
-		expect(failed.redirect).toHaveBeenCalledWith('https://app.example.com/welcome/connections?error=granola');
+		expect(failed.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/welcome/connections?error=granola');
 	});
 
 	test('an unknown returnTo is ignored', async () => {
 		const {cookie, state} = await start({returnTo: 'https://evil.example.com'});
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1?added');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-1?added');
 	});
 });

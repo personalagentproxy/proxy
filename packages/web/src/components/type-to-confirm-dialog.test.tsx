@@ -2,15 +2,23 @@
 
 import {afterEach, describe, expect, mock, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
-import {DeleteAccountDialog} from '@/components/delete-account-dialog';
+import {TypeToConfirmDialog} from '@/components/type-to-confirm-dialog';
 
 afterEach(() => {
 	cleanup();
 });
 
-function renderDialog(onDelete: () => Promise<string | null>) {
+function renderDialog(onConfirm: () => Promise<string | null>) {
 	render(
-		<DeleteAccountDialog open email="alex@example.com" onClose={mock()} onDelete={onDelete} />,
+		<TypeToConfirmDialog
+			open
+			title="Delete your account?"
+			description="This cannot be undone."
+			word="alex@example.com"
+			confirmLabel="Delete account"
+			onClose={mock()}
+			onConfirm={onConfirm}
+		/>,
 	);
 	return {
 		field: screen.getByLabelText('Type alex@example.com to confirm'),
@@ -18,10 +26,10 @@ function renderDialog(onDelete: () => Promise<string | null>) {
 	};
 }
 
-describe('DeleteAccountDialog', () => {
-	test('deletes only once the account’s address is typed, in any case', async () => {
-		const onDelete = mock(async () => null);
-		const {field, button} = renderDialog(onDelete);
+describe('TypeToConfirmDialog', () => {
+	test('confirms only once the word is typed, in any case', async () => {
+		const onConfirm = mock(async () => null);
+		const {field, button} = renderDialog(onConfirm);
 
 		expect(button.hasAttribute('disabled')).toBe(true);
 		fireEvent.change(field, {target: {value: 'alex@example'}});
@@ -29,10 +37,10 @@ describe('DeleteAccountDialog', () => {
 		fireEvent.change(field, {target: {value: ' Alex@Example.com '}});
 		fireEvent.click(button);
 
-		await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1));
+		await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
 	});
 
-	test('says what went wrong when the deletion fails', async () => {
+	test('says what went wrong when it fails', async () => {
 		const {field, button} = renderDialog(async () => 'Something went wrong. Try again.');
 
 		fireEvent.change(field, {target: {value: 'alex@example.com'}});

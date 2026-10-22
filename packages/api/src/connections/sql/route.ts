@@ -6,8 +6,9 @@ import {createConnection, listConnections} from '@proxy/db/connection';
 
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {encryptSecret} from '../../utils/secret-crypto';
-import {requireUserOrgId} from '../../utils/user-org';
-import {toConnectionResponse, type ConnectionResponse} from '../connection-response';
+import {requireViewer} from '../../utils/user-org';
+import {respond, type ConnectionResponse} from '../connection-response';
+import {ownership, shareBodySchema} from '../ownership';
 import {TLS_MODES, type SqlCredential, type SqlDialect} from './credential';
 import {checkDatabase} from './sql-client';
 
@@ -56,10 +57,11 @@ export function sqlConnectRoutes(dialect: SqlDialect): {
 		handleConnect: (request) =>
 			Do(async ($) => {
 				const credential = $(parseSchema(connectBodySchema, request.body));
+				const {shared = false} = $(parseSchema(shareBodySchema, request.body));
 				const account = accountOf(credential);
 
-				const orgId = $(await requireUserOrgId(request));
-				const existing = $(await listConnections(orgId));
+				const viewer = $(await requireViewer(request));
+				const existing = $(await listConnections(viewer));
 				if (existing.some((connection) => connection.integrationId === dialect && connection.account === account)) {
 					return $(Err(ApiErr.conflict('This database is already connected as this user')));
 				}
@@ -67,9 +69,8 @@ export function sqlConnectRoutes(dialect: SqlDialect): {
 				const encrypted = $(encryptSecret(JSON.stringify(credential)));
 				$(await checkDatabase(dialect, credential));
 
-				const row = $(await createConnection({orgId, integrationId: dialect, account, credential: encrypted, defaults: DEFAULTS}));
-				// A password signs in to all of it: every action is available.
-				return toConnectionResponse(row, []);
+				const row = $(await createConnection({...ownership(viewer, shared), integrationId: dialect, account, credential: encrypted, defaults: DEFAULTS}));
+				return $(await respond({...row, credential: encrypted}));
 			}),
 	};
 }

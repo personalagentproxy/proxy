@@ -30,7 +30,19 @@ function files(): Collection {
 const CREDENTIAL = {accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: new Date(Date.now() + 3_600_000).toISOString(), scopes: [], email: 'alex@example.com'};
 
 const target = {
-	connection: {id: 'google-1', integrationId: 'google', account: 'alex@example.com', createdAt: new Date(), tools: null, name: null, defaults: [], credential: `enc:${JSON.stringify(CREDENTIAL)}`},
+	connection: {
+		id: 'google-1',
+		integrationId: 'google',
+		orgId: 'org-1',
+		ownerUserId: 'user-1',
+		connectedById: 'user-1',
+		account: 'alex@example.com',
+		createdAt: new Date(),
+		tools: null,
+		name: null,
+		defaults: [],
+		credential: `enc:${JSON.stringify(CREDENTIAL)}`,
+	},
 	collection: files(),
 };
 
@@ -335,6 +347,16 @@ describe('googleConnector.list', () => {
 		expect(page.nextPage).toBeNull();
 		expect(page.trail?.at(-1)).toEqual({id: 'sheet-1Budget-0', title: 'Q1'});
 		expect(requested('/v4/spreadsheets/1Budget/values:batchGet')).toHaveLength(0);
+	});
+
+	test('a page of the places, or of a spreadsheet’s tabs, is refused, since each is all on one page', async () => {
+		const {googleConnector} = await import('./google-connector');
+		const lists = [query({page: 'next'}), query({parent: '1Budget', page: 'next'})];
+
+		for (const paged of lists) {
+			const result = await googleConnector.list(target, paged);
+			expect(result.isErr() && result.error.kind).toBe('validation_error');
+		}
 	});
 
 	test('a page of rows that is not a row number is refused', async () => {

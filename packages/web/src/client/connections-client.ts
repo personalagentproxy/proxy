@@ -1,47 +1,70 @@
 import type {EmailProvider, IntegrationId, MailServers} from '@proxy/integrations';
 import {z} from 'zod';
 import {connectionSchema} from '@/client/schemas';
-import {apiRequest, apiSend} from '@/client/request';
+import {apiRequest, apiSend, orgApi} from '@/client/request';
 
-export function listConnections() {
-	return apiRequest('GET', '/api/connections', z.object({connections: z.array(connectionSchema)}));
+// Every call is about one organization, by its slug (`org`), as its address in the app names it.
+
+/** The connections the person sees in the organization: its shared ones and their own. */
+export function listConnections(org: string) {
+	return apiRequest(
+		'GET',
+		`${orgApi(org)}/connections`,
+		z.object({connections: z.array(connectionSchema)}),
+	);
 }
 
-export function getConnection(connectionId: string) {
-	return apiRequest('GET', `/api/connections/${connectionId}`, connectionSchema);
+/** Shares one's own connection with every member of its organization, for good. */
+export function shareConnection(org: string, connectionId: string) {
+	return apiRequest('POST', `${orgApi(org)}/connections/${connectionId}/share`, connectionSchema);
 }
 
-export function deleteConnection(connectionId: string) {
-	return apiSend('DELETE', `/api/connections/${connectionId}`);
+export function getConnection(org: string, connectionId: string) {
+	return apiRequest('GET', `${orgApi(org)}/connections/${connectionId}`, connectionSchema);
+}
+
+export function deleteConnection(org: string, connectionId: string) {
+	return apiSend('DELETE', `${orgApi(org)}/connections/${connectionId}`);
 }
 
 /** Renames a connection; an empty name is none of its own, so it shows as its integration again. */
-export function renameConnection(connectionId: string, name: string) {
-	return apiRequest('PUT', `/api/connections/${connectionId}/name`, connectionSchema, {name});
-}
-
-/** Turns default actions of a connection on or off; actions left out stay as they are. */
-export function setConnectionDefaults(connectionId: string, actions: Record<string, boolean>) {
-	return apiRequest('PUT', `/api/connections/${connectionId}/defaults`, connectionSchema, {
-		actions,
+export function renameConnection(org: string, connectionId: string, name: string) {
+	return apiRequest('PUT', `${orgApi(org)}/connections/${connectionId}/name`, connectionSchema, {
+		name,
 	});
 }
 
+/** Turns default actions of a connection on or off; actions left out stay as they are. */
+export function setConnectionDefaults(
+	org: string,
+	connectionId: string,
+	actions: Record<string, boolean>,
+) {
+	return apiRequest(
+		'PUT',
+		`${orgApi(org)}/connections/${connectionId}/defaults`,
+		connectionSchema,
+		{actions},
+	);
+}
+
+// `shared`: for every member of the organization rather than the person's own.
 export type ConnectEmailInput = {
 	provider: EmailProvider['id'];
 	email: string;
 	password: string;
 	servers?: MailServers;
+	shared?: boolean;
 };
 
 /** Signs in to the mailbox first: 422 is a wrong password, 502 a server out of reach. */
-export function connectEmail(input: ConnectEmailInput) {
-	return apiRequest('POST', '/api/connections/email', connectionSchema, input);
+export function connectEmail(org: string, input: ConnectEmailInput) {
+	return apiRequest('POST', `${orgApi(org)}/connections/email`, connectionSchema, input);
 }
 
 /** Signs in to the mailbox and saves nothing: the Test connection button. Answers 204, or the same errors as connecting. */
-export function testEmail(input: ConnectEmailInput) {
-	return apiSend('POST', '/api/connections/email/test', input);
+export function testEmail(org: string, input: ConnectEmailInput) {
+	return apiSend('POST', `${orgApi(org)}/connections/email/test`, input);
 }
 
 export type DatabaseDialect = 'postgres' | 'mysql';
@@ -53,19 +76,30 @@ export type ConnectDatabaseInput = {
 	username: string;
 	password: string;
 	tls: 'verify' | 'require' | 'off';
+	shared?: boolean;
 };
 
 /** Signs in to the database first: 422 is a wrong password, 502 a server out of reach, 400 says what is wrong with the host. */
-export function connectDatabase(dialect: DatabaseDialect, input: ConnectDatabaseInput) {
-	return apiRequest('POST', `/api/connections/${dialect}`, connectionSchema, input);
+export function connectDatabase(
+	org: string,
+	dialect: DatabaseDialect,
+	input: ConnectDatabaseInput,
+) {
+	return apiRequest('POST', `${orgApi(org)}/connections/${dialect}`, connectionSchema, input);
 }
 
 /** Signs in to the database and saves nothing: the Test connection button. Answers 204, or the same errors as connecting. */
-export function testDatabase(dialect: DatabaseDialect, input: ConnectDatabaseInput) {
-	return apiSend('POST', `/api/connections/${dialect}/test`, input);
+export function testDatabase(org: string, dialect: DatabaseDialect, input: ConnectDatabaseInput) {
+	return apiSend('POST', `${orgApi(org)}/connections/${dialect}/test`, input);
 }
 
-export type ConnectMcpInput = {name: string; url: string; token?: string; returnTo?: 'welcome'};
+export type ConnectMcpInput = {
+	name: string;
+	url: string;
+	token?: string;
+	returnTo?: 'welcome';
+	shared?: boolean;
+};
 
 /**
  * Connects a custom MCP server by its address, with a token where the server takes one: the new
@@ -74,10 +108,10 @@ export type ConnectMcpInput = {name: string; url: string; token?: string; return
  * (`returnTo`). A 400 says what is wrong with the address, 422 that the token was turned down, 502
  * that the server could not be reached.
  */
-export function connectMcp(input: ConnectMcpInput) {
+export function connectMcp(org: string, input: ConnectMcpInput) {
 	return apiRequest(
 		'POST',
-		'/api/connections/mcp',
+		`${orgApi(org)}/connections/mcp`,
 		z.discriminatedUnion('kind', [
 			z.object({kind: z.literal('connected'), connection: connectionSchema}),
 			z.object({kind: z.literal('signIn'), url: z.string()}),
@@ -86,7 +120,7 @@ export function connectMcp(input: ConnectMcpInput) {
 	);
 }
 
-export type ConnectWithKeyInput = {key: string; connection?: string};
+export type ConnectWithKeyInput = {key: string; connection?: string; shared?: boolean};
 
 /**
  * Connects an integration that takes an API key, Cloudflare, Exa, Linear or Parallel, with one,
@@ -94,29 +128,36 @@ export type ConnectWithKeyInput = {key: string; connection?: string};
  * the key, its name kept. 422 is a key the service turned down, 502 the service out of reach, 400
  * says what is wrong with the key.
  */
-export function connectWithKey(integrationId: IntegrationId, input: ConnectWithKeyInput) {
-	return apiRequest('POST', `/api/connections/${integrationId}`, connectionSchema, input);
+export function connectWithKey(
+	org: string,
+	integrationId: IntegrationId,
+	input: ConnectWithKeyInput,
+) {
+	return apiRequest('POST', `${orgApi(org)}/connections/${integrationId}`, connectionSchema, input);
 }
 
 /** Asks a custom MCP server for its tools again and keeps the new list. */
-export function refreshMcpTools(connectionId: string) {
-	return apiRequest('POST', `/api/connections/${connectionId}/tools`, connectionSchema);
+export function refreshMcpTools(org: string, connectionId: string) {
+	return apiRequest('POST', `${orgApi(org)}/connections/${connectionId}/tools`, connectionSchema);
 }
 
 /**
  * A Link token for Plaid Link: a new bank, or, with `connectionId`, signing in again to the bank of
  * that connection. A 400 says Plaid isn't set up on the server, or what Plaid refused.
  */
-export function createPlaidLinkToken(connectionId?: string) {
+export function createPlaidLinkToken(org: string, connectionId?: string) {
 	return apiRequest(
 		'POST',
-		'/api/connections/plaid/link-token',
+		`${orgApi(org)}/connections/plaid/link-token`,
 		z.object({linkToken: z.string()}),
 		connectionId === undefined ? {} : {connectionId},
 	);
 }
 
-/** Connects the bank Plaid Link signed in to, by the public token it answered with. */
-export function connectPlaid(publicToken: string) {
-	return apiRequest('POST', '/api/connections/plaid', connectionSchema, {publicToken});
+/** Connects the bank Plaid Link signed in to, by the public token it answered with, the person's own or every member's. */
+export function connectPlaid(org: string, publicToken: string, shared = false) {
+	return apiRequest('POST', `${orgApi(org)}/connections/plaid`, connectionSchema, {
+		publicToken,
+		...(shared ? {shared} : {}),
+	});
 }

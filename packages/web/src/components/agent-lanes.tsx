@@ -28,6 +28,7 @@ import {
 } from '@/lib/agent-lanes';
 import {integrationOf} from '@/lib/integrations';
 import type {AgentLogin, Connection} from '@/lib/types';
+import {useOrgSlug} from '@/hooks/use-org';
 
 // How often the lanes are read again while the page is open, so a task under way moves along.
 const REFRESH_MS = 60 * 1000;
@@ -61,6 +62,7 @@ export function AgentLanes({
 	agents: AgentLogin[];
 	connections: Connection[];
 }) {
+	const org = useOrgSlug();
 	const [minutes, setMinutes] = useState(DEFAULT_MINUTES);
 	// The answer shown: the first came with the page. Zoomed out past what it covers, the older
 	// part arrives with the next reading; zoomed in, it has everything already.
@@ -71,6 +73,7 @@ export function AgentLanes({
 		let gone = false;
 		const read = async () => {
 			const result = await getActivityLanes(
+				org,
 				windowStart(Math.max(minutes, LOADED_MINUTES), new Date()).toISOString(),
 			);
 			if (gone || result.isErr()) {
@@ -93,7 +96,7 @@ export function AgentLanes({
 			}
 			clearInterval(timer);
 		};
-	}, [minutes]);
+	}, [org, minutes]);
 
 	// The wheel with Ctrl or Cmd held, which a pinch on a trackpad also sends, zooms rather than
 	// scrolls the page; listened to by hand, since React's wheel listener can't stop the scroll. On
@@ -235,6 +238,7 @@ const BAR_BLOCKED = {
 // refused, with a light sweeping along it while it is being worked on. Opens the task's requests
 // in the activity log; its title and goal are in the tooltip.
 function TaskBar({placed, connections}: {placed: PlacedTask; connections: Connection[]}) {
+	const org = useOrgSlug();
 	const {task, status} = placed;
 	const colors = task.denied > 0 ? BAR_BLOCKED : BAR_STATUS[status];
 	const logos = task.connectionIds
@@ -252,7 +256,7 @@ function TaskBar({placed, connections}: {placed: PlacedTask; connections: Connec
 			<TooltipTrigger
 				render={
 					<Link
-						to={`/activity?task=${encodeURIComponent(task.id)}`}
+						to={`/${org}/activity?task=${encodeURIComponent(task.id)}`}
 						// Anchored at its end, so a bar widened to its least width grows back from there
 						// and one still under way ends at now, in line with the others.
 						style={{

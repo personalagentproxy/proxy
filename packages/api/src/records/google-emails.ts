@@ -37,6 +37,7 @@ import {
 } from '../connections/google/gmail-api';
 import type {CommandRunner, Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
 import {gmailQuery, type EmailSearch} from './email-search';
+import {replyHeaders, type MailReply} from './email-reply';
 
 /**
  * Gmail as the `emails` collection, fetched live, the same email as any mailbox's: one list, 50 to
@@ -391,6 +392,36 @@ function sendNew(target: RecordTarget, values: RecordValues): Promise<Result<nul
 		}),
 	);
 }
+
+/**
+ * A reply to an email in Gmail, from the connection's address, in the email's thread, sent or
+ * saved as a draft there. A draft isn't replied to.
+ */
+export const replyToGmail: MailReply = (target, recordId, reply) =>
+	callGoogle(target.connection, (token) =>
+		Do(async ($) => {
+			const messageId = $(requireMessage(recordId));
+			const {payload, threadId} = $((await getMessage(token, messageId)).mapErr(notFoundAs(recordId)));
+			const headers = replyHeaders(target.connection.account, {
+				from: headerOf(payload, 'From'),
+				replyTo: headerOf(payload, 'Reply-To'),
+				to: headerOf(payload, 'To'),
+				subject: headerOf(payload, 'Subject'),
+				messageId: headerOf(payload, 'Message-ID'),
+				references: headerOf(payload, 'References'),
+			});
+			$(requireRecipient(headers.to, '', ''));
+			const kept = {cc: '', bcc: '', inReplyTo: headers.inReplyTo, references: headers.references};
+			const source = $(await compose(target.connection.account, {to: headers.to, subject: headers.subject, body: reply.body}, kept));
+			const message = rawMessage(source, threadId ?? null);
+			if (reply.send) {
+				$(await sendMessage(token, message));
+				return headers;
+			}
+			$(await createDraft(token, message));
+			return headers;
+		}),
+	);
 
 export const gmailConnector: Connector = {
 	list: listPage,

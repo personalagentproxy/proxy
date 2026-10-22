@@ -27,14 +27,15 @@ const OUTCOMES: Option[] = [
 	{value: ALL, label: 'All outcomes'},
 	{value: 'allowed', label: 'Allowed'},
 	{value: 'denied', label: 'Blocked'},
+	{value: 'failed', label: 'Failed'},
 ];
 
 // Every request an agent made, and what Personal Agent Proxy did itself from the home page,
 // newest first, narrowed by agent, connection and outcome, and to one agent's task. The filters
 // live in the URL, so the agent and connection pages, the home page's lanes and an entry's task can
 // link straight to their part of the log, and the api applies them (`?agent=proxy` for Personal
-// Agent Proxy's own, `?outcome=denied` for what was refused, `?task=` for the requests made for one
-// task).
+// Agent Proxy's own, `?outcome=denied` for what was refused, `?outcome=failed` for what the provider
+// failed, `?task=` for the requests made for one task).
 export function ActivityPage() {
 	const {
 		entries,

@@ -3,6 +3,7 @@ import {Link} from 'react-router';
 import {buttonVariants} from '@proxy/ui/components/button';
 import {WidgetFrame} from '@/components/widgets/widget-frame';
 import type {AgentLogin} from '@/lib/types';
+import {useOrgSlug} from '@/hooks/use-org';
 
 // "Claude", "Claude or Poke", and past two, "one of your agents".
 function whomToAsk(agents: AgentLogin[]): string {
@@ -16,6 +17,7 @@ function whomToAsk(agents: AgentLogin[]): string {
 // What is typed fits no widget: the input only does a few things, so it says which, and that the
 // rest is for the person's agent, or, with none yet, offers to add one.
 export function UnsupportedWidget({agents}: {agents: AgentLogin[]}) {
+	const org = useOrgSlug();
 	const active = agents.filter((agent) => agent.revokedAt === null);
 	return (
 		<WidgetFrame
@@ -23,7 +25,10 @@ export function UnsupportedWidget({agents}: {agents: AgentLogin[]}) {
 			name="Not a quick action (yet)"
 			actions={
 				active.length === 0 && (
-					<Link to="/agents/new" className={buttonVariants({size: 'sm', variant: 'outline'})}>
+					<Link
+						to={`/${org}/agents/new`}
+						className={buttonVariants({size: 'sm', variant: 'outline'})}
+					>
 						Add an agent
 					</Link>
 				)

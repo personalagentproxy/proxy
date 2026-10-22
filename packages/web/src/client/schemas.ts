@@ -7,6 +7,12 @@ export const connectionSchema = z.object({
 	id: z.string(),
 	integrationId: z.string(),
 	account: z.string(),
+	// Shared with every member of its organization, rather than one member's own.
+	shared: z.boolean(),
+	// Who connected it, kept once it is shared, and their name or address while they are still in
+	// its organization.
+	connectedById: z.string().nullable(),
+	connectedBy: z.string().nullable(),
 	// The actions agents get by default.
 	defaults: z.array(z.string()),
 	// A custom MCP server's tools, what its actions are; null for every other integration.
@@ -25,6 +31,12 @@ export const agentSchema = z.object({
 	providerId: z.string(),
 	name: z.string(),
 	username: z.string(),
+	// Shared with every member of its organization, rather than one member's own.
+	shared: z.boolean(),
+	// Who made it, kept once it is shared, and their name or address while they are still in its
+	// organization.
+	createdById: z.string().nullable(),
+	createdBy: z.string().nullable(),
 	createdAt: z.string(),
 	lastActiveAt: z.string().nullable(),
 	revokedAt: z.string().nullable(),
@@ -52,12 +64,19 @@ export const auditEntrySchema = z.object({
 	action: z.string(),
 	recordTitle: z.string().nullable(),
 	query: z.string().nullable(),
-	outcome: z.enum(['allowed', 'denied']),
+	outcome: z.enum(['allowed', 'denied', 'failed']),
+	// What went wrong, for a failed request: the api's kind of error, with the provider's HTTP
+	// status where it answered with one, such as `provider_unreachable 429`.
+	error: z.string().nullable(),
 	// The web app's agent pages, the MCP server, or the built-in agent's own loop.
 	via: z.enum(['web', 'mcp', 'harness']),
 	// The agent's task it was made for, among the answer's tasks; none for entries from before
 	// tasks, and for what Personal Agent Proxy did itself.
 	taskId: z.string().nullable(),
+	// The member who asked for what Personal Agent Proxy did itself, and their name while they are
+	// in the organization; null for an agent's request.
+	userId: z.string().nullable(),
+	userName: z.string().nullable(),
 });
 
 // What an agent set out to do, as it said when it started: what the entries made for it were for.

@@ -1,17 +1,17 @@
 import {Result} from 'ts-results-es';
 
-import {type ApiError, Do} from '@proxy/utils';
+import {type ApiError, ApiErr, Do, requirePresent} from '@proxy/utils';
 import {SLEEP_TOOL, sleepUntil} from '@proxy/utils/harness';
-import {completeToolJob, failJob, finishJob, getEntry, getJobThread, type JobRow, type ThreadRow} from '@proxy/db/harness';
+import {completeToolJob, failJob, finishJob, getEntry, getJobThread, getThreadAgent, type JobRow, type ThreadRow} from '@proxy/db/harness';
 
 import {callMcpTool} from '../mcp/tools';
-import {requireBuiltInAgent} from './built-in-agent';
 import {ensureThreadTask} from './thread-task';
 import {isGateTool} from './tool-surface';
 
 /**
  * A tool job: one call the model made, run and answered in the log. The MCP server's tools go
- * through the gate as the built-in agent, for the thread's task, logged like any agent's call. A
+ * through the gate as the thread's agent acting as its member, for the thread's task, logged like
+ * any agent's call. A
  * sleep answers with the time, since its job was due when the sleep ended. A call that changes
  * something is never run twice: a worker that was interrupted mid-call leaves the outcome unknown,
  * and the model is told so rather than the call being made again.
@@ -41,10 +41,10 @@ function cut(text: string): string {
 	return `${text.slice(0, MAX_RESULT_CHARS)}\n\n[Cut: the result was ${text.length} characters long.]`;
 }
 
-// Runs the call through the gate, for the thread's task.
+// Runs the call through the gate, as the agent acts in the thread, for the thread's task.
 function runGateTool(thread: ThreadRow, name: string, args: Record<string, unknown>, now: Date): Promise<Result<ToolAnswer, ApiError>> {
 	return Do(async ($) => {
-		const signedIn = $(await requireBuiltInAgent(thread.orgId));
+		const signedIn = $(requirePresent($(await getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
 		const taskId = $(await ensureThreadTask(thread, now));
 		const result = await callMcpTool(signedIn, name, {...args, task: taskId}, false, 'harness');
 		return {text: cut(result.content.map((part) => part.text).join('\n')), isError: result.isError === true};

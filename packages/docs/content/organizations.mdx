@@ -1,0 +1,79 @@
+---
+title: Organizations
+description: Work with other people in an organization, on one set of connections and agents.
+---
+
+Everything in Personal Agent Proxy is in an organization: its connections and agents, each shared
+with everyone in it or one member's own, its activity log, its vault and each member's own. Everyone
+starts with one of their own, and can make more, such as one for work beside a personal one, or
+join someone else's. Every page is one organization's, named first in its address
+(`/acme/connections`), so a link to a page is a link to it in that organization; the mark at the
+top of the sidebar is the one you are in: hover it to switch, or to create another. Your agents
+there reach what is connected there.
+
+## Your own or everyone's
+
+A connection is either yours or shared with everyone in the organization:
+
+- **Just me**: only you and your agents can use it. Nobody else in the organization sees it, its
+  owner included. Your mailbox belongs here, and so does your vault, which is yours in every
+  organization you are in.
+- **Everyone in the organization**: every member's agents can use it, with the permissions on its
+  page. Members see it listed, never its password or token. A team account, a shared mailbox or a
+  database user belongs here, and so does the organization's vault, which every organization has
+  from the start ([Vault](/connections/vault)).
+
+A shared connection acts as the account it was connected with. For a mailbox, a database, an API
+key or a custom MCP server that is the account itself; for a service you sign in to, such as
+Google, Granola, Notion or Linear, it is whoever signed in, so everyone's agents work as that
+person there. The connection's page says who it acts as and who connected it.
+
+Once anyone else is in the organization, or invited to it, **Add connection** asks who a new
+connection is for, and **Connections** lists the two apart. On the page of a connection of your own,
+**Share with everyone** under **Sharing** shares it. Sharing can't be undone: to have it as your own
+again, disconnect it and connect it again. A shared connection is renamed, disconnected, signed in
+to again and has its permissions changed by whoever connected it and the organization's owner;
+everyone else uses it as it is.
+
+## Agents
+
+An agent login is yours or shared with the organization, the same way a connection is:
+
+- **Just me**: only you see it. It reaches the connections shared with everyone and your own, with
+  the permissions you give it.
+- **Everyone in the organization**: every member sees it and can give its login to their own tools.
+  It reaches the connections shared with everyone, never anyone's own, so sharing an agent of yours
+  drops its settings on your own connections. Whoever made it and the organization's owner change
+  its access, revoke it, hand it a new password and delete it; everyone else sees it as it is.
+
+Once anyone else is in the organization, or invited to it, **New agent** asks who the agent is for,
+and **Agents** lists the two apart. On the page of an agent of your own, **Share with everyone**
+under **Sharing** shares it, for good. What it did on shared connections so far becomes everyone's
+with it; what it did on any other connection, your own or one since disconnected, stays yours,
+along with the tasks it did that for. A login made when an MCP client signs in is yours. The activity log shows what shared agents did on shared connections, and what
+your own agents did; another member's own agent's doings are theirs. What anyone did from the home
+page on a shared connection is logged with their name.
+
+## Members
+
+**Members** lists who is in the organization and who is invited. Every organization has one owner,
+whoever made it, for good; everyone else is a member. The owner invites people by email, removes
+members, renames the organization and deletes it. Members use everything in it and can leave.
+
+An invitation is a link that works for a week, for the address it was sent to: the person signs in,
+or creates an account, as that address to join. Inviting follows the same rules as signing up, so
+on a Personal Agent Proxy that limits who can sign up, an address it doesn't allow can't be
+invited unless it has an account already. Invitations are emailed as sign-in links are, or written to the log until sending email is
+set up ([Sign-in](/self-hosting/sign-in#sign-in-links)).
+
+## Leaving and deleting
+
+A member leaves an organization from **Members**; its owner can't, and deletes it from
+**Settings** instead, as long as it isn't the last one they own, so everyone always owns one.
+Leaving, or being removed, disconnects what you connected for yourself there and deletes your own
+agents there, and signs out the MCP clients you signed in as its shared agents; the shared
+connections and agents stay. A shared agent's password a former member knows keeps working until
+whoever manages the agent hands it a new one. Deleting an organization disconnects every
+connection in it, shared and every member's own, and deletes its vaults, every agent and its
+activity, for everyone in it. Deleting your account deletes every organization you own, with
+everyone else in them losing them too, and takes you out of the others.

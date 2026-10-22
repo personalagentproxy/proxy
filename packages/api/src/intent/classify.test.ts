@@ -45,7 +45,7 @@ function asked(): {model: string; state: string; questions: {widget: {type: stri
 function sent(): {
 	model: string;
 	messages: Array<{role: string; content: string}>;
-	provider: {order: string[]; data_collection: string};
+	provider: {order: string[]; data_collection: string; zdr: boolean};
 	response_format: {json_schema: {schema: {required: string[]; properties: Record<string, object>}}};
 } {
 	return calls('https://openrouter.ai/').at(-1)?.body;
@@ -78,6 +78,7 @@ describe('pickIntent', () => {
 			'show_calendar',
 			'find_person',
 			'write_email',
+			'reply_email',
 			'find_email',
 			'find_file',
 			'calculate',
@@ -135,6 +136,7 @@ describe('fillIntent', () => {
 		expect(body.model).toBe('openai/gpt-oss-120b');
 		expect(body.provider.order).toEqual(['Cerebras', 'Groq']);
 		expect(body.provider.data_collection).toBe('deny');
+		expect(body.provider.zdr).toBe(true);
 		expect(body.messages[1]).toEqual({role: 'user', content: text});
 		expect(body.messages[0]?.content).toContain('Fill in the fields of the New event widget');
 		expect(body.messages[0]?.content).toContain('- attendees (list): each person to invite');

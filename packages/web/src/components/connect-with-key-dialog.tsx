@@ -15,6 +15,8 @@ import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {apiMessage} from '@/lib/agent-errors';
 import type {Connection} from '@/lib/types';
+import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
+import {useOrgSlug} from '@/hooks/use-org';
 
 function connectErrorMessage(service: string, error: FetchError): string {
 	if (error.kind === 'http' && error.status === 400) {
@@ -33,6 +35,8 @@ type Props = {
 	integrationId: IntegrationId;
 	// The connection to give the key, as its page does; else a new one is made.
 	connectionId?: string;
+	// A new connection is for every member of the organization rather than the person's own.
+	shared?: boolean;
 	onClose: () => void;
 	onConnected: (connection: Connection) => void;
 };
@@ -41,7 +45,14 @@ type Props = {
 // dialog: the key, checked with the service before the connection is made, and where to get one.
 // The connection shows as the key's account, or its end where the service names none; it can be
 // renamed from the connections list.
-export function ConnectWithKeyDialog({integrationId, connectionId, onClose, onConnected}: Props) {
+export function ConnectWithKeyDialog({
+	integrationId,
+	connectionId,
+	shared,
+	onClose,
+	onConnected,
+}: Props) {
+	const org = useOrgSlug();
 	const integration = findIntegration(integrationId);
 	const [key, setKey] = useState('');
 	const [error, setError] = useState<string | null>(null);
@@ -73,9 +84,10 @@ export function ConnectWithKeyDialog({integrationId, connectionId, onClose, onCo
 						}
 						setPending(true);
 						setError(null);
-						const result = await connectWithKey(integrationId, {
+						const result = await connectWithKey(org, integrationId, {
 							key: key.trim(),
 							...(connectionId === undefined ? {} : {connection: connectionId}),
+							...(shared ? {shared} : {}),
 						});
 						setPending(false);
 						if (result.isErr()) {
@@ -103,7 +115,7 @@ export function ConnectWithKeyDialog({integrationId, connectionId, onClose, onCo
 							id="connect-key"
 							type="password"
 							autoFocus
-							autoComplete="off"
+							{...NO_PASSWORD_MANAGER}
 							value={key}
 							onChange={(event) => setKey(event.target.value)}
 						/>

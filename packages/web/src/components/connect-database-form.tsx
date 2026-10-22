@@ -19,7 +19,9 @@ import {
 import {SuccessLine} from '@/components/success-line';
 import {apiMessage} from '@/lib/agent-errors';
 import type {Connection} from '@/lib/types';
+import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
+import {useOrgSlug} from '@/hooks/use-org';
 
 const DEFAULT_PORT: Record<DatabaseDialect, string> = {postgres: '5432', mysql: '3306'};
 
@@ -58,13 +60,17 @@ export function ConnectDatabaseForm({
 	dialect,
 	cancel,
 	continueLabel = 'Connect',
+	shared,
 	onConnected,
 }: {
 	dialect: DatabaseDialect;
 	cancel?: ReactNode;
 	continueLabel?: string;
+	// For every member of the organization rather than the person's own.
+	shared?: boolean;
 	onConnected: (connection: Connection) => void;
 }) {
+	const org = useOrgSlug();
 	const [host, setHost] = useState('');
 	const [port, setPort] = useState(DEFAULT_PORT[dialect]);
 	const [database, setDatabase] = useState('');
@@ -90,7 +96,7 @@ export function ConnectDatabaseForm({
 	const test = async () => {
 		setPending('test');
 		setError(null);
-		const result = await testDatabase(dialect, input);
+		const result = await testDatabase(org, dialect, input);
 		setPending(null);
 		if (result.isErr()) {
 			setError(connectErrorMessage(result.error));
@@ -107,7 +113,7 @@ export function ConnectDatabaseForm({
 				event.preventDefault();
 				setPending('connect');
 				setError(null);
-				const result = await connectDatabase(dialect, input);
+				const result = await connectDatabase(org, dialect, {...input, ...(shared ? {shared} : {})});
 				setPending(null);
 				if (result.isErr()) {
 					setError(connectErrorMessage(result.error));
@@ -152,7 +158,7 @@ export function ConnectDatabaseForm({
 				<Label htmlFor="database-username">User</Label>
 				<Input
 					id="database-username"
-					autoComplete="off"
+					{...NO_PASSWORD_MANAGER}
 					value={username}
 					onChange={(event) => setUsername(event.target.value)}
 				/>
@@ -166,7 +172,7 @@ export function ConnectDatabaseForm({
 				<Input
 					id="database-password"
 					type="password"
-					autoComplete="off"
+					{...NO_PASSWORD_MANAGER}
 					value={password}
 					onChange={(event) => setPassword(event.target.value)}
 				/>

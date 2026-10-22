@@ -47,7 +47,7 @@ export function AgentHomePage() {
 										{connection.name ?? integration.name}
 									</>
 								}
-								detail={connection.account}
+								detail={connectionDetail(connection)}
 							>
 								<p className="text-sm text-muted-foreground">
 									The server's tools you may run, each with the params it takes.
@@ -83,7 +83,7 @@ export function AgentHomePage() {
 									{integration.name}
 								</>
 							}
-							detail={connection.account}
+							detail={connectionDetail(connection)}
 						>
 							<p className="text-sm text-muted-foreground">
 								You can: {describeActions(integration, connection.actions)}.
@@ -111,6 +111,15 @@ export function AgentHomePage() {
 }
 
 // An integration's logo in the run of a heading's text, centered on it, the space after it its own.
+// The account under a connection's name, and that it is everyone's where it is shared, as the
+// organization's vault is beside the person's own.
+function connectionDetail(connection: {account: string; shared: boolean}): string {
+	if (connection.shared) {
+		return `${connection.account}, shared with everyone`;
+	}
+	return connection.account;
+}
+
 function LogoBeforeTitle({integration}: {integration: Integration}) {
 	return (
 		<span className="inline-flex pr-2 align-middle">

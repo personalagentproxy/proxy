@@ -34,7 +34,22 @@ function target(integrationId: 'postgres' | 'mysql', collectionId: string): Reco
 	if (!collection) {
 		throw new Error(`No ${collectionId} in ${integrationId}`);
 	}
-	return {connection: {id: 'conn-1', integrationId, account: 'reader@db.example.com/app', createdAt: new Date(), tools: null, name: null, defaults: [], credential: 'stored'}, collection};
+	return {
+		connection: {
+			id: 'conn-1',
+			integrationId,
+			orgId: 'org-1',
+			ownerUserId: 'user-1',
+			connectedById: 'user-1',
+			account: 'reader@db.example.com/app',
+			createdAt: new Date(),
+			tools: null,
+			name: null,
+			defaults: [],
+			credential: 'stored',
+		},
+		collection,
+	};
 }
 
 const userColumns = [
@@ -77,6 +92,9 @@ describe('tables', () => {
 
 		const found = (await sqlConnector('postgres').list(target('postgres', 'tables'), {...noQuery, search: 'invoices paid'})).unwrap();
 		expect(found.records.map((record) => record.id)).toEqual(['public.paid_invoices']);
+
+		const paged = await sqlConnector('postgres').list(target('postgres', 'tables'), {...noQuery, page: '50'});
+		expect(paged.isErr() && paged.error.kind).toBe('validation_error');
 	});
 
 	test('opens a table with its columns, one a line', async () => {

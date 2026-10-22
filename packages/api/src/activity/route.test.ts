@@ -1,11 +1,16 @@
 import {afterEach, beforeEach, describe, expect, mock, setSystemTime, test} from 'bun:test';
 import {Ok} from 'ts-results-es';
 
-const getUserOrgId = mock();
 const listAuditEntries = mock();
 const summarizeTaskRequests = mock();
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId}));
+const listMemberNames = mock(async (): Promise<unknown> => Ok([]));
+
+mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames}));
+
+const requireViewer = mock(async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}));
+
+mock.module('../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 mock.module('@proxy/db/audit', () => ({listAuditEntries, summarizeTaskRequests}));
 
 const listAgentTasks = mock();
@@ -19,7 +24,6 @@ function makeRequest(query: Record<string, string>) {
 
 beforeEach(() => {
 	mock.clearAllMocks();
-	getUserOrgId.mockResolvedValue(Ok('org-1'));
 	listAuditEntries.mockResolvedValue(Ok([]));
 	listAgentTasks.mockResolvedValue(Ok([]));
 	listAgentTasksSince.mockResolvedValue(Ok([]));
@@ -33,7 +37,17 @@ afterEach(() => {
 
 describe('handleActivityLanesRoute', () => {
 	test('answers the tasks under way since the time asked for, with what was done for each', async () => {
-		const task = {id: 'task-1', agentId: 'agent-1', title: 'Triage inbox', goal: 'Archive the newsletters', via: 'mcp', createdAt: new Date('2026-10-15T20:00:00Z'), finishedAt: null};
+		const task = {
+			id: 'task-1',
+			agentId: 'agent-1',
+			parentId: null,
+			title: 'Triage inbox',
+			goal: 'Archive the newsletters',
+			via: 'mcp',
+			createdAt: new Date('2026-10-15T20:00:00Z'),
+			finishedAt: null,
+			outcome: null,
+		};
 		listAgentTasksSince.mockResolvedValue(Ok([task]));
 		summarizeTaskRequests.mockResolvedValue(
 			Ok([
@@ -45,8 +59,8 @@ describe('handleActivityLanesRoute', () => {
 		const {handleActivityLanesRoute} = await import('./route');
 		const result = await handleActivityLanesRoute(makeRequest({from: '2026-10-14T23:30:00Z'}) as never);
 
-		expect(listAgentTasksSince).toHaveBeenCalledWith('org-1', new Date('2026-10-14T23:30:00Z'), 200);
-		expect(summarizeTaskRequests).toHaveBeenCalledWith('org-1', ['task-1']);
+		expect(listAgentTasksSince).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), new Date('2026-10-14T23:30:00Z'), 200);
+		expect(summarizeTaskRequests).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), ['task-1']);
 		expect(result.unwrap()).toEqual({
 			now: '2026-10-15T23:30:00.000Z',
 			from: '2026-10-14T23:30:00.000Z',
@@ -54,11 +68,13 @@ describe('handleActivityLanesRoute', () => {
 				{
 					id: 'task-1',
 					agentId: 'agent-1',
+					parentId: null,
 					title: 'Triage inbox',
 					goal: 'Archive the newsletters',
 					via: 'mcp',
 					startedAt: '2026-10-15T20:00:00.000Z',
 					finishedAt: null,
+					outcome: null,
 					requests: 9,
 					denied: 1,
 					// Notion was used most, though the mailbox came first.
@@ -73,7 +89,7 @@ describe('handleActivityLanesRoute', () => {
 		await handleActivityLanesRoute(makeRequest({from: '2020-01-01T00:00:00Z'}) as never);
 		const bad = await handleActivityLanesRoute(makeRequest({from: 'yesterday'}) as never);
 
-		expect(listAgentTasksSince).toHaveBeenCalledWith('org-1', new Date('2026-09-14T23:30:00Z'), 200);
+		expect(listAgentTasksSince).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), new Date('2026-09-14T23:30:00Z'), 200);
 		expect(bad.unwrapErr().kind).toBe('parse_error');
 	});
 });
@@ -83,17 +99,17 @@ describe('handleListActivityRoute', () => {
 		const {handleListActivityRoute} = await import('./route');
 		await handleListActivityRoute(makeRequest({outcome: 'denied'}) as never);
 
-		expect(listAuditEntries).toHaveBeenCalledWith('org-1', {outcome: 'denied'}, 500);
+		expect(listAuditEntries).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {outcome: 'denied'}, 500);
 	});
 
 	test('what Personal Agent Proxy did itself is the entries without an agent', async () => {
 		const {handleListActivityRoute} = await import('./route');
 		await handleListActivityRoute(makeRequest({agentId: 'proxy'}) as never);
 
-		expect(listAuditEntries).toHaveBeenCalledWith('org-1', {agentId: null}, 500);
+		expect(listAuditEntries).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {agentId: null}, 500);
 	});
 
-	test('names the tasks the entries were made for, and the one asked for even without entries', async () => {
+	test('names the tasks the entries were made for, and the one asked for even without entries, and who asked for what Personal Agent Proxy did', async () => {
 		const entry = {
 			id: 'e1',
 			agentId: 'agent-1',
@@ -105,17 +121,33 @@ describe('handleListActivityRoute', () => {
 			outcome: 'allowed',
 			via: 'mcp',
 			taskId: 'task-1',
+			durationMs: 340,
+			userId: null,
+			error: null,
 			createdAt: new Date('2026-10-15T10:00:00Z'),
 		};
-		listAuditEntries.mockResolvedValue(Ok([entry, {...entry, id: 'e2', taskId: null, agentId: null}]));
+		listMemberNames.mockResolvedValue(Ok([{orgId: 'org-1', userId: 'user-2', name: 'Dana'}]));
+		listAuditEntries.mockResolvedValue(Ok([entry, {...entry, id: 'e2', taskId: null, agentId: null, durationMs: null, userId: 'user-2'}]));
 		listAgentTasks.mockResolvedValue(
-			Ok([{id: 'task-1', agentId: 'agent-1', title: 'Triage inbox', goal: 'Archive the newsletters', via: 'mcp', createdAt: new Date('2026-10-15T09:00:00Z'), finishedAt: null}]),
+			Ok([
+				{
+					id: 'task-1',
+					agentId: 'agent-1',
+					parentId: 'task-0',
+					title: 'Triage inbox',
+					goal: 'Archive the newsletters',
+					via: 'mcp',
+					createdAt: new Date('2026-10-15T09:00:00Z'),
+					finishedAt: new Date('2026-10-15T09:30:00Z'),
+					outcome: 'Archived 12 newsletters',
+				},
+			]),
 		);
 		const {handleListActivityRoute} = await import('./route');
 		const result = await handleListActivityRoute(makeRequest({taskId: 'task-2'}) as never);
 
-		expect(listAuditEntries).toHaveBeenCalledWith('org-1', {taskId: 'task-2'}, 500);
-		expect(listAgentTasks).toHaveBeenCalledWith('org-1', ['task-1', 'task-2']);
+		expect(listAuditEntries).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {taskId: 'task-2'}, 500);
+		expect(listAgentTasks).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), ['task-1', 'task-2']);
 		expect(result.unwrap()).toEqual({
 			entries: [
 				{
@@ -129,6 +161,10 @@ describe('handleListActivityRoute', () => {
 					outcome: 'allowed',
 					via: 'mcp',
 					taskId: 'task-1',
+					durationMs: 340,
+					userId: null,
+					userName: null,
+					error: null,
 					at: '2026-10-15T10:00:00.000Z',
 				},
 				{
@@ -142,10 +178,26 @@ describe('handleListActivityRoute', () => {
 					outcome: 'allowed',
 					via: 'mcp',
 					taskId: null,
+					durationMs: null,
+					userId: 'user-2',
+					userName: 'Dana',
+					error: null,
 					at: '2026-10-15T10:00:00.000Z',
 				},
 			],
-			tasks: [{id: 'task-1', agentId: 'agent-1', title: 'Triage inbox', goal: 'Archive the newsletters', via: 'mcp', startedAt: '2026-10-15T09:00:00.000Z', finishedAt: null}],
+			tasks: [
+				{
+					id: 'task-1',
+					agentId: 'agent-1',
+					parentId: 'task-0',
+					title: 'Triage inbox',
+					goal: 'Archive the newsletters',
+					via: 'mcp',
+					startedAt: '2026-10-15T09:00:00.000Z',
+					finishedAt: '2026-10-15T09:30:00.000Z',
+					outcome: 'Archived 12 newsletters',
+				},
+			],
 		});
 	});
 });

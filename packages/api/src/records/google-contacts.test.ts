@@ -37,7 +37,19 @@ function messageOf<T>(result: Result<T, ApiError> | undefined): string | null {
 const CREDENTIAL = {accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: new Date(Date.now() + 3_600_000).toISOString(), scopes: [], email: 'alex@example.com'};
 
 const target = {
-	connection: {id: 'google-1', integrationId: 'google', account: 'alex@example.com', createdAt: new Date(), tools: null, name: null, defaults: [], credential: `enc:${JSON.stringify(CREDENTIAL)}`},
+	connection: {
+		id: 'google-1',
+		integrationId: 'google',
+		orgId: 'org-1',
+		ownerUserId: 'user-1',
+		connectedById: 'user-1',
+		account: 'alex@example.com',
+		createdAt: new Date(),
+		tools: null,
+		name: null,
+		defaults: [],
+		credential: `enc:${JSON.stringify(CREDENTIAL)}`,
+	},
 	collection: contacts(),
 };
 
@@ -122,6 +134,9 @@ describe('listing', () => {
 		expect(google.requests.map((request) => request.url.searchParams.get('query'))).toEqual(['', 'sam']);
 		expect(page.records.map((record) => record.id)).toEqual(['c111']);
 		expect(page.nextPage).toBeNull();
+
+		const paged = await googleConnector.list(target, {...LIST, search: 'sam', page: 'page-2'});
+		expect(paged.isErr() && paged.error.kind).toBe('validation_error');
 	});
 });
 

@@ -13,10 +13,8 @@ const finishJob = mock(async () => Ok(true));
 const completeInference = mock(async () => Ok(true));
 const requeueJob = mock(async () => Ok(true));
 const appendSummary = mock(async () => Ok(true));
-mock.module('@proxy/db/harness', () => ({getJobThread, listEntries, finishIdleInference, finishJob, completeInference, requeueJob, appendSummary}));
-
-const requireBuiltInAgent = mock(async () => Ok({agentId: 'agent-1', orgId: 'org-1', providerId: 'proxy', name: 'Personal Agent Proxy', experiments: []}));
-mock.module('./built-in-agent', () => ({requireBuiltInAgent}));
+const getThreadAgent = mock(async () => Ok({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: []}));
+mock.module('@proxy/db/harness', () => ({getJobThread, listEntries, finishIdleInference, finishJob, completeInference, requeueJob, appendSummary, getThreadAgent}));
 
 const ensureThreadTask = mock(async () => Ok('task-1'));
 mock.module('./thread-task', () => ({ensureThreadTask}));
@@ -30,7 +28,7 @@ mock.module('./model', () => ({askModel}));
 mock.module('./tool-surface', () => ({MODEL_TOOLS: [{name: 'read', description: 'Reads', parameters: {}}]}));
 
 const now = new Date('2026-10-21T10:00:00Z');
-const thread = {id: 'thread-1', orgId: 'org-1', agentId: 'agent-1', taskId: 'task-1', createdAt: now};
+const thread = {id: 'thread-1', orgId: 'org-1', agentId: 'agent-1', userId: 'user-1', taskId: 'task-1', createdAt: now};
 const job = {id: 'job-1', threadId: 'thread-1', kind: 'inference' as const, status: 'running' as const, entryId: null, callId: null, runAt: now, claimedBy: 'w1', attempts: 1};
 
 let seq = 0;
@@ -87,6 +85,9 @@ describe('runInference', () => {
 
 		expect(result.isOk()).toBe(true);
 		expect(ensureThreadTask).toHaveBeenCalledWith(thread, now);
+		// The agent acts as the member whose conversation it is.
+		expect(getThreadAgent).toHaveBeenCalledWith(thread);
+		expect(agentInstructions).toHaveBeenCalledWith(expect.objectContaining({agentId: 'agent-1', ownerUserId: 'user-1'}), expect.any(String));
 		const request = askModel.mock.calls[0]?.[0] as {messages: Array<Record<string, unknown>>; tools: unknown[]};
 		expect(request.messages[0]).toMatchObject({role: 'system'});
 		expect(String(request.messages[0]?.content)).toContain('You are talking with the person directly');

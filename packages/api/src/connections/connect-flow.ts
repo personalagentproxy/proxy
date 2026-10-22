@@ -5,7 +5,17 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseCookieHeader, requirePresent} from '@proxy/utils';
-import {createConnection, findAccountConnection, getConnectionWithCredential, renewConnection, updateConnectionName, updateConnectionTools, type ConnectionRow} from '@proxy/db/connection';
+import {
+	createConnection,
+	findAccountConnection,
+	getConnectionWithCredential,
+	renewConnection,
+	shareConnection,
+	updateConnectionName,
+	updateConnectionTools,
+	type ConnectionRow,
+} from '@proxy/db/connection';
+import {getMembership} from '@proxy/db/organization';
 import type {IntegrationId, McpTool} from '@proxy/integrations';
 
 import {queryParam, timingSafeEqualString, useSecureCookies} from '../auth/session';
@@ -14,20 +24,23 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {env} from '../utils/env';
 import {encryptSecret} from '../utils/secret-crypto';
 import {readStoredJson} from '../utils/stored-json';
-import {requireUserOrgId} from '../utils/user-org';
+import {requireViewer, type OrgViewer} from '../utils/user-org';
+import {manages, requireManaged, type ManagingViewer} from './managed';
+import {ownership} from './ownership';
 
 /**
  * Connecting an integration by signing in to it with OAuth and PKCE, as Granola, Notion and Linear
  * are through their MCP servers, and a custom MCP server found from its address. A sign-in begins
  * on the api, which keeps the handshake in a short-lived encrypted cookie, and the browser goes to
  * the provider's sign-in page: from the start route, a top-level navigation under
- * `/api/connections/<integration>`, for a provider known in advance (`signInRoutes`), or from the
+ * `/api/orgs/:org/connections/<integration>`, for a provider known in advance (`signInRoutes`), or from the
  * answer of the route that found it, as a custom server's connect route (`signInFlow`). The
  * callback checks the provider's answer against the cookie, trades the code for tokens and makes
- * the connection, or gives an existing one its new tokens, which is how signing in again works:
- * the one of the same account, or, where the account can't be told apart (`connectionToRenew`),
- * the one the sign-in was begun from (`?connection=`), as a connection's page begins it, so only
- * that page renews it. The callback ends on the connection's page, or back on the catalog with
+ * the connection, in the organization the sign-in began in, the person's own or, `?share=everyone`,
+ * every member's, or gives an existing one its new tokens, which is how signing in again works:
+ * the one of the same account among those the person may change, or, where the account can't be
+ * told apart (`connectionToRenew`), the one the sign-in was begun from (`?connection=`), as a
+ * connection's page begins it, so only that page renews it. The callback ends on the connection's page, or back on the catalog with
  * `?error=<integration>` (with `?error=<integration>-unconfigured` when the server lacks what the
  * sign-in needs, such as Google's client); a sign-in begun from the welcome flow
  * (`returnTo: 'welcome'`) ends on its page for the connection, or its catalog, instead, and one
@@ -77,27 +90,29 @@ function makePkce(): {verifier: string; challenge: string} {
 	return {verifier, challenge: createHash('sha256').update(verifier).digest('base64url')};
 }
 
-// The one of the same account, if there is one: a sign-in to another account is a connection of
-// its own, never one agents were given for the first. A sign-in begun from a connection
-// (`?connection=`) renews that one, while it is still the organization's and the integration's,
+// The one of the same account among those the viewer sees and may change, if there is one: a
+// sign-in to another account is a connection of its own, never one agents were given for the first,
+// and another member's own connection of the account, or a shared one they only use, is theirs to
+// renew, so the sign-in makes a new connection beside it. A sign-in begun from a connection
+// (`?connection=`) renews that one, while it is still the integration's and the viewer's to change,
 // only where its account can't be told apart from another's: the provider said nothing of who
 // signed in (`anonymous`), or the connection was never signed in to, as one moved over from a
 // custom MCP server without a sign-in of the integration's (`take-over-custom.ts`), and no other
 // connection is the account's already, so an account is never connected twice.
 function connectionToRenew(
-	orgId: string,
+	viewer: ManagingViewer,
 	integrationId: IntegrationId,
 	connected: {account: string; providerAccountId: string | null; anonymous: boolean},
 	connectionId: string | null,
 ): Promise<Result<ConnectionRow | null, ApiError>> {
 	return Do(async ($) => {
 		const {account, providerAccountId} = connected;
-		const sameAccount = connected.anonymous ? null : $(await findAccountConnection({orgId, integrationId, account, providerAccountId}));
-		if (sameAccount) {
+		const sameAccount = connected.anonymous ? null : $(await findAccountConnection(viewer, {integrationId, account, providerAccountId}));
+		if (sameAccount && manages(viewer, sameAccount)) {
 			return sameAccount;
 		}
-		const begunFrom = connectionId === null ? null : $(await getConnectionWithCredential(orgId, connectionId));
-		if (begunFrom?.integrationId !== integrationId) {
+		const begunFrom = connectionId === null ? null : $(await getConnectionWithCredential(viewer, connectionId));
+		if (begunFrom?.integrationId !== integrationId || !manages(viewer, begunFrom)) {
 			return null;
 		}
 		if (!connected.anonymous && begunFrom.credential !== null) {
@@ -108,30 +123,45 @@ function connectionToRenew(
 	});
 }
 
+/** How a connection is saved: `shared` with every member of the organization rather than the viewer's own, and the connection a sign-in was begun from, to renew (`connectionToRenew`). */
+export type SaveOptions = {shared?: boolean; connectionId?: string | null};
+
 /**
- * Saves a connection: a new one, or an existing one (`connectionToRenew`), given the new credential
- * and the account as the provider names it now, such as an address changed since, and, for a
- * custom server, its tools and the name; `added` unless it was already there.
+ * Saves a connection: a new one, the viewer's own or every member's (`shared`), or an existing one
+ * (`connectionToRenew`), given the new credential and the account as the provider names it now,
+ * such as an address changed since, and, for a custom server, its tools and the name; `added`
+ * unless it was already there. An existing one that was the viewer's own is shared when they signed
+ * in for every member, as they asked, rather than the account connected a second time.
  */
 export function saveConnection<C>(
-	orgId: string,
+	viewer: ManagingViewer,
 	integrationId: IntegrationId,
 	connected: Connected<C>,
-	connectionId: string | null = null,
+	options: SaveOptions = {},
 ): Promise<Result<{row: ConnectionRow; added: boolean}, ApiError>> {
 	return Do(async ($) => {
 		const {account, tools} = connected;
 		const encrypted = $(encryptSecret(JSON.stringify(connected.credential)));
 		const providerAccountId = connected.accountId ?? null;
 		const name = connected.name === undefined ? {} : {name: connected.name};
-		const existing = $(await connectionToRenew(orgId, integrationId, {account, providerAccountId, anonymous: connected.anonymous === true}, connectionId));
+		const existing = $(await connectionToRenew(viewer, integrationId, {account, providerAccountId, anonymous: connected.anonymous === true}, options.connectionId ?? null));
 		if (!existing) {
 			const listed = tools === undefined ? {} : {tools: JSON.stringify(tools)};
-			return {row: $(await createConnection({orgId, integrationId, account, providerAccountId, credential: encrypted, defaults: connected.defaults, ...listed, ...name})), added: true};
+			return {
+				row: $(
+					await createConnection({...ownership(viewer, options.shared === true), integrationId, account, providerAccountId, credential: encrypted, defaults: connected.defaults, ...listed, ...name}),
+				),
+				added: true,
+			};
 		}
 		$(await renewConnection({connectionId: existing.id, account, providerAccountId, credential: encrypted}));
+		const shares = options.shared === true && existing.ownerUserId !== null;
+		if (shares) {
+			$(await shareConnection(existing.id));
+		}
+		const renewed = {...existing, account, ...(shares ? {ownerUserId: null} : {})};
 		if (tools === undefined) {
-			return {row: {...existing, account}, added: false};
+			return {row: renewed, added: false};
 		}
 		// A custom server added again is the same connection, with the server's tools as it lists
 		// them now and the name the person gave it this time.
@@ -140,16 +170,21 @@ export function saveConnection<C>(
 		}
 		const stored = JSON.stringify(tools);
 		$(await updateConnectionTools({connectionId: existing.id, tools: stored, actions: tools.map((tool) => tool.name)}));
-		return {row: {...existing, account, tools: stored, ...name}, added: false};
+		return {row: {...renewed, tools: stored, ...name}, added: false};
 	});
 }
 
-// Where the sign-in ends: the catalog, or the welcome flow's connections step it started from.
-function catalogUrl(appUrl: string, returnTo: ReturnTo | undefined): string {
-	if (returnTo === 'welcome') {
-		return `${appUrl}/welcome/connections`;
+// Where the sign-in ends: the organization's catalog, or the welcome flow's connections step it
+// started from; the app's root, which opens the person's first organization, when the sign-in
+// can't be read at all.
+function catalogUrl(appUrl: string, slug: string | null, returnTo: ReturnTo | undefined): string {
+	if (slug === null) {
+		return `${appUrl}/`;
 	}
-	return `${appUrl}/connections/new`;
+	if (returnTo === 'welcome') {
+		return `${appUrl}/${slug}/welcome/connections`;
+	}
+	return `${appUrl}/${slug}/connections/new`;
 }
 
 type SignInArgs<E, C> = {
@@ -172,9 +207,22 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 	const stateCookieName = `proxy.${integrationId}-state`;
 	// Only sent to these routes.
 	const basePath = `/api/connections/${integrationId}`;
-	const statePayloadSchema = z.object({state: z.string(), verifier: z.string(), userId: z.string(), returnTo: returnToSchema.optional(), connectionId: z.string().optional(), kept: args.keptSchema});
+	// `orgId` and `slug`: the organization it began in, where the connection is made and whose pages
+	// it comes back to. `shared`: the connection is for every member of it rather than the person's
+	// own. `connectionId`: the connection it was begun from, to renew.
+	const statePayloadSchema = z.object({
+		state: z.string(),
+		verifier: z.string(),
+		userId: z.string(),
+		orgId: z.string(),
+		slug: z.string(),
+		returnTo: returnToSchema.optional(),
+		shared: z.boolean().optional(),
+		connectionId: z.string().optional(),
+		kept: args.keptSchema,
+	});
 
-	type StatePayload = {state: string; verifier: string; userId: string; returnTo?: ReturnTo; connectionId?: string; kept: E};
+	type StatePayload = {state: string; verifier: string; userId: string; orgId: string; slug: string; returnTo?: ReturnTo; shared?: boolean; connectionId?: string; kept: E};
 
 	function redirectUri(appUrl: string): string {
 		return `${appUrl}${basePath}/callback`;
@@ -192,15 +240,19 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 		});
 	}
 
-	function redirectToConnectError(res: Response, appUrl: string, returnTo: ReturnTo | undefined, error: ApiError): void {
+	function redirectToConnectError(res: Response, appUrl: string, slug: string | null, returnTo: ReturnTo | undefined, error: ApiError): void {
 		log.warn(`Connecting ${name} failed`, {kind: error.kind, ...('message' in error ? {message: error.message} : {}), ...('cause' in error ? serializeError(error.cause) : {})});
-		res.redirect(`${catalogUrl(appUrl, returnTo)}?error=${integrationId}`);
+		res.redirect(`${catalogUrl(appUrl, slug, returnTo)}?error=${integrationId}`);
 	}
 
-	/** Keeps the handshake, and what `start` keeps beside it, in a cookie on `res`, and answers the provider's sign-in page, for the browser to go to. */
+	/**
+	 * Keeps the handshake, and what `start` keeps beside it, in a cookie on `res`, and answers the
+	 * provider's sign-in page, for the browser to go to: for a connection of the viewer's own, or
+	 * `shared` with every member, or renewing the one it was begun from (`connectionId`).
+	 */
 	function beginSignIn(
 		res: Response,
-		begin: {userId: string; returnTo: ReturnTo | undefined; account: string | null; connectionId?: string | null; start: SignInStart<E>},
+		begin: {viewer: OrgViewer; returnTo: ReturnTo | undefined; account: string | null; shared?: boolean; connectionId?: string | null; start: SignInStart<E>},
 	): Promise<Result<string, ApiError>> {
 		return Do(async ($) => {
 			const appUrl = $(requirePresent(env.APP_URL, ApiErr.internalError(new Error('APP_URL is not configured'))));
@@ -210,8 +262,11 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 			const payload: StatePayload = {
 				state,
 				verifier,
-				userId: begin.userId,
+				userId: begin.viewer.userId,
+				orgId: begin.viewer.orgId,
+				slug: begin.viewer.slug,
 				...(begin.returnTo ? {returnTo: begin.returnTo} : {}),
+				...(begin.shared ? {shared: true} : {}),
 				...(begin.connectionId ? {connectionId: begin.connectionId} : {}),
 				kept,
 			};
@@ -222,7 +277,8 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 	}
 
 	// The handshake the cookie holds, checked against the provider's answer, then the connection
-	// made, or given its new tokens when it was already there.
+	// made in the organization it began in, while the person is still in it, or given its new tokens
+	// when it was already there.
 	function finishConnect(request: AuthenticatedRequest, appUrl: string, payload: StatePayload): Promise<Result<{id: string; added: boolean}, ApiError>> {
 		return Do(async ($) => {
 			const state = queryParam(request, 'state') ?? '';
@@ -235,9 +291,10 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 				return $(Err(ApiErr.validationError(`${name} sign-in ended without a code: ${queryParam(request, 'error') ?? 'unknown'}`)));
 			}
 
+			const membership = $(requirePresent($(await getMembership(payload.userId, payload.orgId)), ApiErr.notFound('organization', payload.slug)));
+			const viewer: ManagingViewer = {orgId: payload.orgId, userId: payload.userId, role: membership.role};
 			const connected = $(await args.finish({redirectUri: redirectUri(appUrl), code, verifier: payload.verifier, kept: payload.kept}));
-			const orgId = $(await requireUserOrgId(request));
-			const {row, added} = $(await saveConnection(orgId, integrationId, connected, payload.connectionId ?? null));
+			const {row, added} = $(await saveConnection(viewer, integrationId, connected, {shared: payload.shared, connectionId: payload.connectionId ?? null}));
 			return {id: row.id, added};
 		});
 	}
@@ -258,21 +315,22 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 		res.clearCookie(stateCookieName, stateCookieOptions());
 		const payload = readStateCookie(request);
 		const returnTo = payload.isOk() ? payload.value.returnTo : undefined;
+		const slug = payload.isOk() ? payload.value.slug : null;
 		const finished = payload.isErr() ? Err(payload.error) : await finishConnect(request, appUrl, payload.value);
 		if (finished.isErr()) {
-			redirectToConnectError(res, appUrl, returnTo, finished.error);
+			redirectToConnectError(res, appUrl, slug, returnTo, finished.error);
 			return;
 		}
 		const {id, added} = finished.value;
 		if (returnTo === 'welcome') {
-			res.redirect(`${appUrl}/welcome/connections/${id}`);
+			res.redirect(`${appUrl}/${slug}/welcome/connections/${id}`);
 			return;
 		}
 		if (returnTo === 'home') {
-			res.redirect(`${appUrl}/`);
+			res.redirect(`${appUrl}/${slug}`);
 			return;
 		}
-		res.redirect(`${appUrl}/connections/${id}${added ? '?added' : ''}`);
+		res.redirect(`${appUrl}/${slug}/connections/${id}${added ? '?added' : ''}`);
 	}
 
 	return {beginSignIn, handleCallback, redirectToConnectError};
@@ -289,7 +347,7 @@ export function signInRoutes<E, C>(
 ): {handleStart: Route; handleCallback: Route} {
 	const flow = signInFlow(args);
 
-	/** `GET /api/connections/<integration>/start` — sends the browser to the provider's sign-in. */
+	/** `GET /api/orgs/:org/connections/<integration>/start` — sends the browser to the provider's sign-in. */
 	async function handleStart(request: AuthenticatedRequest, res: Response): Promise<void> {
 		const appUrl = env.APP_URL;
 		if (!appUrl) {
@@ -298,14 +356,24 @@ export function signInRoutes<E, C>(
 		}
 
 		const returnTo = returnToSchema.safeParse(queryParam(request, 'returnTo')).data;
+		const slug = request.params.org ?? null;
 		if (args.configured && !args.configured()) {
-			res.redirect(`${catalogUrl(appUrl, returnTo)}?error=${args.integrationId}-unconfigured`);
+			res.redirect(`${catalogUrl(appUrl, slug, returnTo)}?error=${args.integrationId}-unconfigured`);
 			return;
 		}
 
-		const begun = await flow.beginSignIn(res, {userId: request.user.userId, returnTo, account: queryParam(request, 'account'), connectionId: queryParam(request, 'connection'), start: args.start});
+		// `?share=everyone` connects it for every member of the organization; `?connection=` renews one
+		// of the integration's connections the person may change.
+		const begun = await Do<string, ApiError>(async ($) => {
+			const viewer = $(await requireViewer(request));
+			const connectionId = queryParam(request, 'connection');
+			if (connectionId !== null) {
+				$(await requireManaged(viewer, connectionId));
+			}
+			return $(await flow.beginSignIn(res, {viewer, returnTo, account: queryParam(request, 'account'), shared: queryParam(request, 'share') === 'everyone', connectionId, start: args.start}));
+		});
 		if (begun.isErr()) {
-			flow.redirectToConnectError(res, appUrl, returnTo, begun.error);
+			flow.redirectToConnectError(res, appUrl, slug, returnTo, begun.error);
 			return;
 		}
 		res.redirect(begun.value);

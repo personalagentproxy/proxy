@@ -7,8 +7,9 @@ import {EMAIL_PROVIDERS, type EmailProvider, type MailServers} from '@proxy/inte
 
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {encryptSecret} from '../../utils/secret-crypto';
-import {requireUserOrgId} from '../../utils/user-org';
-import {toConnectionResponse, type ConnectionResponse} from '../connection-response';
+import {requireViewer} from '../../utils/user-org';
+import {respond, type ConnectionResponse} from '../connection-response';
+import {ownership, shareBodySchema} from '../ownership';
 import type {EmailCredential} from './credential';
 import {checkMailbox} from './mail-check';
 
@@ -71,16 +72,18 @@ export function handleTestEmailRoute(request: AuthenticatedRequest): Promise<Res
 }
 
 /**
- * Connects a mailbox with an app password. Signs in over IMAP and SMTP first, so a wrong password
- * or server is reported now rather than on an agent's first request. A new connection gives agents
- * nothing until a default or an agent's own setting says otherwise.
+ * Connects a mailbox with an app password, the person's own or, `shared`, every member's. Signs in
+ * over IMAP and SMTP first, so a wrong password or server is reported now rather than on an agent's
+ * first request. A new connection gives agents nothing until a default or an agent's own setting
+ * says otherwise.
  */
 export function handleConnectEmailRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
 	return Do(async ($) => {
 		const {email, credential} = $(credentialFor(request.body));
+		const {shared = false} = $(parseSchema(shareBodySchema, request.body));
 
-		const orgId = $(await requireUserOrgId(request));
-		const existing = $(await listConnections(orgId));
+		const viewer = $(await requireViewer(request));
+		const existing = $(await listConnections(viewer));
 		if (existing.some((connection) => connection.integrationId === 'email' && connection.account === email)) {
 			return $(Err(ApiErr.conflict('This mailbox is already connected')));
 		}
@@ -88,8 +91,7 @@ export function handleConnectEmailRoute(request: AuthenticatedRequest): Promise<
 		const encrypted = $(encryptSecret(JSON.stringify(credential)));
 		$(await checkMailbox(credential));
 
-		const row = $(await createConnection({orgId, integrationId: 'email', account: email, credential: encrypted}));
-		// A password signs in to all of it: every action is available.
-		return toConnectionResponse(row, []);
+		const row = $(await createConnection({...ownership(viewer, shared), integrationId: 'email', account: email, credential: encrypted}));
+		return $(await respond({...row, credential: encrypted}));
 	});
 }

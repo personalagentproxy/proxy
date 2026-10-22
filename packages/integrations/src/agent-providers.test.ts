@@ -4,6 +4,7 @@ import {
 	AGENT_PROVIDERS,
 	BUILT_IN_AGENT_PROVIDER,
 	findAgentProvider,
+	loginProviderIdFor,
 	suggestAgentProvider,
 } from './agent-providers';
 
@@ -12,6 +13,20 @@ describe('agent providers', () => {
 		expect(new Set(AGENT_PROVIDERS.map((provider) => provider.id)).size).toBe(
 			AGENT_PROVIDERS.length,
 		);
+	});
+
+	test('shared login providers are direct, valid account logins', () => {
+		for (const product of AGENT_PROVIDERS) {
+			if (!product.loginProviderId) {
+				continue;
+			}
+
+			const loginProvider = findAgentProvider(product.loginProviderId);
+			expect(loginProvider).toBeDefined();
+			expect(loginProvider?.id).not.toBe(product.id);
+			expect(loginProvider?.custom).not.toBe(true);
+			expect(loginProvider?.loginProviderId).toBeUndefined();
+		}
 	});
 
 	test('each has its favicon bundled with the web app', async () => {
@@ -35,10 +50,31 @@ describe('agent providers', () => {
 		}
 	});
 
-	test('finds a provider by id, the built-in agent too, which is not on offer', () => {
-		expect(findAgentProvider('dot')?.name).toBe('Dots');
+	test('finds the built-in agent by id, which is not on offer', () => {
 		expect(findAgentProvider('proxy')).toBe(BUILT_IN_AGENT_PROVIDER);
 		expect(AGENT_PROVIDERS).not.toContain(BUILT_IN_AGENT_PROVIDER);
+	});
+
+	test('uses the same Claude Duet logo in the app, on the website and in the README', async () => {
+		const appLogo = await Bun.file(
+			new URL('../../web/public/agent-providers/claude-duet.png', import.meta.url),
+		).bytes();
+		const websiteLogo = await Bun.file(
+			new URL('../../website/public/logos/claude-duet.png', import.meta.url),
+		).bytes();
+		const readmeLogo = await Bun.file(
+			new URL('../../../docs/assets/agents/claude-duet.png', import.meta.url),
+		).bytes();
+
+		expect(appLogo).toEqual(readmeLogo);
+		expect(websiteLogo).toEqual(readmeLogo);
+	});
+
+	test('finds a provider by id', () => {
+		expect(findAgentProvider('dot')?.name).toBe('Dots');
+		const duet = findAgentProvider('claude-duet');
+		expect(duet?.name).toBe('Claude Duet');
+		expect(duet && loginProviderIdFor(duet)).toBe('claude');
 		expect(findAgentProvider('other')).toBeUndefined();
 	});
 
@@ -52,6 +88,7 @@ describe('agent providers', () => {
 
 	test("suggests the provider an MCP client's name points at", () => {
 		expect(suggestAgentProvider('Claude')?.id).toBe('claude');
+		expect(suggestAgentProvider('Claude Duet')?.id).toBe('claude');
 		expect(suggestAgentProvider('Claude Code')?.id).toBe('claude-code');
 		expect(suggestAgentProvider('Claude Desktop')?.id).toBe('claude-desktop');
 		expect(suggestAgentProvider('Hermes Agent')?.id).toBe('hermes');
