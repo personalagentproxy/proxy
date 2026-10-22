@@ -19,6 +19,7 @@ import {
 import {SuccessLine} from '@/components/success-line';
 import {apiMessage} from '@/lib/agent-errors';
 import type {Connection} from '@/lib/types';
+import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
 
 const DEFAULT_PORT: Record<DatabaseDialect, string> = {postgres: '5432', mysql: '3306'};
@@ -155,7 +156,7 @@ export function ConnectDatabaseForm({
 				<Label htmlFor="database-username">User</Label>
 				<Input
 					id="database-username"
-					autoComplete="off"
+					{...NO_PASSWORD_MANAGER}
 					value={username}
 					onChange={(event) => setUsername(event.target.value)}
 				/>
@@ -169,7 +170,7 @@ export function ConnectDatabaseForm({
 				<Input
 					id="database-password"
 					type="password"
-					autoComplete="off"
+					{...NO_PASSWORD_MANAGER}
 					value={password}
 					onChange={(event) => setPassword(event.target.value)}
 				/>

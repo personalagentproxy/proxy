@@ -11,6 +11,7 @@ import {FillingWidget, IntentWidget} from '@/components/widgets/intent-widget';
 import {UnsupportedWidget} from '@/components/widgets/unsupported-widget';
 import {Input} from '@proxy/ui/components/input';
 import {apiMessage} from '@/lib/agent-errors';
+import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import type {homeLoader} from '@/loaders';
 
 // How often what is typed is classified while typing goes on.
@@ -266,11 +267,7 @@ export function HomePage() {
 						// (Bitwarden doesn't heed data-bwignore here), browsers suggest nothing, and the
 						// clear button search fields get is hidden, as Esc and the key beside it clear it.
 						type="search"
-						autoComplete="off"
-						data-bwignore
-						data-1p-ignore
-						data-lpignore="true"
-						data-form-type="other"
+						{...NO_PASSWORD_MANAGER}
 						aria-label="Quick actions"
 						value={text}
 						onChange={(event) => change(event.target.value)}

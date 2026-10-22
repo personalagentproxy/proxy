@@ -14,6 +14,7 @@ import {
 	SelectValue,
 } from '@proxy/ui/components/select';
 import type {Connection} from '@/lib/types';
+import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
 
 const PROVIDER_ITEMS = EMAIL_PROVIDERS.map((provider) => ({
@@ -146,7 +147,7 @@ export function ConnectEmailForm({
 				<Input
 					id="email-address"
 					type="email"
-					autoComplete="off"
+					{...NO_PASSWORD_MANAGER}
 					value={email}
 					onChange={(event) => setEmail(event.target.value)}
 				/>
@@ -156,7 +157,7 @@ export function ConnectEmailForm({
 				<Input
 					id="email-password"
 					type="password"
-					autoComplete="off"
+					{...NO_PASSWORD_MANAGER}
 					value={password}
 					onChange={(event) => setPassword(event.target.value)}
 				/>

@@ -6,6 +6,7 @@ import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {apiMessage} from '@/lib/agent-errors';
 import type {Connection} from '@/lib/types';
+import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
 
 function connectErrorMessage(error: FetchError): string {
@@ -115,7 +116,7 @@ export function ConnectMcpForm({
 				<Input
 					id="mcp-token"
 					type="password"
-					autoComplete="off"
+					{...NO_PASSWORD_MANAGER}
 					value={token}
 					onChange={(event) => setToken(event.target.value)}
 				/>

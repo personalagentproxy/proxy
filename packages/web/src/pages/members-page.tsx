@@ -38,6 +38,7 @@ import {apiMessage} from '@/lib/agent-errors';
 import {formatDate} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
 import {activeOrgOf} from '@/lib/orgs';
+import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import type {membersLoader} from '@/loaders';
 
 // Widths and visibility shared by the header and every row, so the columns line up.
@@ -351,7 +352,7 @@ function InviteDialog({
 							id="invite-email"
 							type="email"
 							autoFocus
-							autoComplete="off"
+							{...NO_PASSWORD_MANAGER}
 							placeholder="name@company.com"
 							value={email}
 							onChange={(event) => setEmail(event.target.value)}

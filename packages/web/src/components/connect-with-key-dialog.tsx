@@ -15,6 +15,7 @@ import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {apiMessage} from '@/lib/agent-errors';
 import type {Connection} from '@/lib/types';
+import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 
 function connectErrorMessage(service: string, error: FetchError): string {
 	if (error.kind === 'http' && error.status === 400) {
@@ -112,7 +113,7 @@ export function ConnectWithKeyDialog({
 							id="connect-key"
 							type="password"
 							autoFocus
-							autoComplete="off"
+							{...NO_PASSWORD_MANAGER}
 							value={key}
 							onChange={(event) => setKey(event.target.value)}
 						/>
