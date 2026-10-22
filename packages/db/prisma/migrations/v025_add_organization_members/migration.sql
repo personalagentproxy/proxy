@@ -15,8 +15,36 @@ SET "ownerUserId" = (
     LIMIT 1
 );
 
--- One without a member has no one to belong to.
-DELETE FROM "Organization" WHERE "ownerUserId" IS NULL;
+-- One without a member has no one to belong to: it goes, and everything in it with it, its
+-- connections' credentials included. Nothing in the database takes those along (the schema's
+-- relations are Prisma's, `relationMode = "prisma"`), so each is deleted here, the organization
+-- last.
+CREATE TEMP TABLE "GoneOrg" AS
+SELECT "id" FROM "Organization" WHERE "ownerUserId" IS NULL;
+
+CREATE TEMP TABLE "GoneAgent" AS
+SELECT "id" FROM "Agent" WHERE "orgId" IN (SELECT "id" FROM "GoneOrg");
+
+CREATE TEMP TABLE "GoneConnection" AS
+SELECT "id" FROM "Connection" WHERE "orgId" IN (SELECT "id" FROM "GoneOrg");
+
+DELETE FROM "AgentGrant"
+WHERE "agentId" IN (SELECT "id" FROM "GoneAgent")
+   OR "connectionId" IN (SELECT "id" FROM "GoneConnection");
+DELETE FROM "AgentSession" WHERE "agentId" IN (SELECT "id" FROM "GoneAgent");
+DELETE FROM "OAuthCode" WHERE "agentId" IN (SELECT "id" FROM "GoneAgent");
+DELETE FROM "OAuthGrant" WHERE "agentId" IN (SELECT "id" FROM "GoneAgent");
+DELETE FROM "WriteTarget" WHERE "connectionId" IN (SELECT "id" FROM "GoneConnection");
+DELETE FROM "ConnectionDefault" WHERE "connectionId" IN (SELECT "id" FROM "GoneConnection");
+DELETE FROM "VaultEntry" WHERE "connectionId" IN (SELECT "id" FROM "GoneConnection");
+DELETE FROM "AuditEntry" WHERE "orgId" IN (SELECT "id" FROM "GoneOrg");
+DELETE FROM "AgentTask" WHERE "orgId" IN (SELECT "id" FROM "GoneOrg");
+DELETE FROM "AgentFeedback" WHERE "orgId" IN (SELECT "id" FROM "GoneOrg");
+DELETE FROM "Agent" WHERE "id" IN (SELECT "id" FROM "GoneAgent");
+DELETE FROM "Connection" WHERE "id" IN (SELECT "id" FROM "GoneConnection");
+DELETE FROM "Organization" WHERE "id" IN (SELECT "id" FROM "GoneOrg");
+
+DROP TABLE "GoneOrg", "GoneAgent", "GoneConnection";
 
 ALTER TABLE "Organization" ALTER COLUMN "ownerUserId" SET NOT NULL;
 
