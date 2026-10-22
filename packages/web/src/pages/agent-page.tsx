@@ -63,7 +63,10 @@ function AgentDetail({id}: {id: string}) {
 	}
 
 	const revoked = agent.revokedAt !== null;
-	const company = findAgentProvider(agent.providerId)?.company ?? agent.providerId;
+	const provider = findAgentProvider(agent.providerId);
+	const company = provider?.company ?? agent.providerId;
+	// The built-in agent has no login to hand out: it runs in Personal Agent Proxy itself.
+	const builtIn = provider?.connects === 'built-in';
 	const apply = async <T,>(change: Promise<Result<T, FetchError>>) => {
 		const result = await change;
 		if (result.isErr()) {
@@ -95,7 +98,7 @@ function AgentDetail({id}: {id: string}) {
 			}
 			actions={
 				<>
-					{!revoked && (
+					{!revoked && !builtIn && (
 						<IconButton label="Set up again" to={`/agents/${agent.id}/setup`}>
 							<KeyRoundIcon />
 						</IconButton>

@@ -108,6 +108,7 @@ model Organization {
   audit       AuditEntry[]
   feedback    AgentFeedback[]
   tasks       AgentTask[]
+  threads     AgentThread[]
 }
 
 model OrgMember {
@@ -280,10 +281,12 @@ enum AuditOutcome {
   denied
 }
 
-// How an agent came in: the web app's agent pages, or the MCP server.
+// How an agent came in: the web app's agent pages, the MCP server, or the built-in agent's own
+// loop (`harness`).
 enum AuditVia {
   web
   mcp
+  harness
 }
 
 // One request an agent made, allowed or denied, or one thing Personal Agent Proxy did itself for a
@@ -427,4 +430,103 @@ model OAuthGrant {
 
   @@index([clientId])
   @@index([agentId])
+}
+
+// The built-in agent's conversation with a person: one thread, holding its log of entries. Every
+// call made in it is for the thread's task, as any agent's calls are; a task abandoned a day on is
+// replaced by a new one. Everything that happens to the agent is an entry, and everything that
+// makes it do something is a job (AgentJob).
+model AgentThread {
+  id      String @id @default(cuid())
+  orgId   String
+  // The built-in agent of the organization, an Agent like any other, with grants of its own.
+  agentId String
+  taskId  String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  entries AgentEntry[]
+  jobs    AgentJob[]
+
+  @@index([orgId, createdAt])
+}
+
+// What an entry of a thread's log is: what the person said, what the model answered, with the tool
+// calls it made, or what one of those calls answered.
+enum AgentEntryKind {
+  person
+  assistant
+  tool_result
+}
+
+// One entry of a thread's log, in the order of `seq`. The log is the transcript the model reads:
+// an assistant entry carries its tool calls, and each gets a tool_result entry once run.
+model AgentEntry {
+  id       String         @id @default(cuid())
+  seq      Int            @unique @default(autoincrement())
+  threadId String
+  kind     AgentEntryKind
+  // What the person said, what the model said (maybe nothing beside its calls), or what a call
+  // answered.
+  text     String
+  // An assistant entry's tool calls as JSON (`@proxy/utils/harness` ToolCall[]); null otherwise.
+  toolCalls String?
+  // A tool_result entry's call, by the id the model gave it; null otherwise.
+  callId   String?
+  // A tool_result that is an error, in words the model can act on.
+  isError  Boolean        @default(false)
+  // An assistant entry's cost.
+  inputTokens  Int?
+  outputTokens Int?
+
+  createdAt DateTime @default(now())
+
+  thread AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, seq])
+}
+
+enum AgentJobKind {
+  inference
+  tool
+}
+
+enum AgentJobStatus {
+  queued
+  running
+  done
+  failed
+}
+
+// A unit of the built-in agent's work, claimed by one api instance at a time: run the model on a
+// thread's log (inference), or run one tool call of an assistant entry (tool). `runAt` is when it
+// may run, which is how a call to sleep is kept. A worker claims a job due with a lease, renews
+// the lease while it works, and finishes the job in the same transaction as the entries it writes,
+// only while it still holds the lease; a lease that runs out gives the job to the next worker.
+model AgentJob {
+  id       String         @id @default(cuid())
+  threadId String
+  kind     AgentJobKind
+  status   AgentJobStatus @default(queued)
+  // A tool job's call: the assistant entry it is in and the id the model gave it.
+  entryId  String?
+  callId   String?
+  runAt    DateTime       @default(now())
+  // Which worker holds it, and until when, while it is running.
+  claimedBy      String?
+  leaseExpiresAt DateTime?
+  attempts       Int       @default(0)
+  // Why it failed, where it did.
+  error    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  thread AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([entryId, callId])
+  @@index([status, runAt])
+  @@index([threadId])
 }

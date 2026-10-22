@@ -8,6 +8,9 @@
 export const EXPERIMENTS = {
 	// The Ask quick action: what a meeting, document, email or issue says, answered from reading it.
 	ask: 'Ask quick action',
+	// The built-in agent: a conversation with an agent Personal Agent Proxy runs itself, behind its
+	// own gate, on the Chat page.
+	harness: 'Built-in agent',
 } as const satisfies Record<string, string>;
 
 export type Experiment = keyof typeof EXPERIMENTS;

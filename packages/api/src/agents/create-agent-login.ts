@@ -32,6 +32,10 @@ function nameFor(provider: AgentProvider, name: string | undefined): Result<stri
 export function createAgentLogin(orgId: string, providerId: string, givenName?: string): Promise<Result<{agent: AgentRow; password: string}, ApiError>> {
 	return Do(async ($) => {
 		const provider = $(requirePresent(findAgentProvider(providerId), ApiErr.parseError(`Unknown agent ${providerId}`)));
+		// The built-in agent is made by Personal Agent Proxy itself (harness/built-in-agent.ts), never handed out.
+		if (provider.connects === 'built-in') {
+			return $(Err(ApiErr.parseError(`${provider.name} is not an agent a login is made for`)));
+		}
 		const name = $(nameFor(provider, givenName));
 		const password = generatePassword();
 		const passwordHash = await Bun.password.hash(password);

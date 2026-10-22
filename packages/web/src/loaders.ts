@@ -8,6 +8,7 @@ import {
 	listMcpClients,
 } from '@/client/agents-client';
 import {getConnection, listConnections} from '@/client/connections-client';
+import {createThread, getThread, listThreads} from '@/client/harness-client';
 import {getMe} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {listRecords} from '@/client/records-client';
@@ -69,6 +70,23 @@ export async function connectionLoader({params}: {params: {id?: string}}) {
 		entries,
 		tasks,
 	};
+}
+
+// Chat opens on the newest thread with the built-in agent, made where there is none yet.
+export async function chatIndexLoader() {
+	const {threads} = unwrapLoaderResult(await listThreads());
+	const newest = threads[0];
+	if (newest) {
+		throw redirect(`/chat/${newest.id}`);
+	}
+	const {thread} = unwrapLoaderResult(await createThread());
+	throw redirect(`/chat/${thread.id}`);
+}
+
+// A thread's log, and the threads to switch between.
+export async function chatLoader({params}: {params: {id?: string}}) {
+	const [log, threads] = await Promise.all([getThread(params.id ?? ''), listThreads()]);
+	return {log: unwrapLoaderResult(log), threads: unwrapLoaderResult(threads).threads};
 }
 
 // The vault is the one built-in connection; its entries are kept in Personal Agent Proxy.

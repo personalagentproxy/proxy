@@ -53,8 +53,8 @@ export const auditEntrySchema = z.object({
 	recordTitle: z.string().nullable(),
 	query: z.string().nullable(),
 	outcome: z.enum(['allowed', 'denied']),
-	// The web app's agent pages, or the MCP server.
-	via: z.enum(['web', 'mcp']),
+	// The web app's agent pages, the MCP server, or the built-in agent's own loop.
+	via: z.enum(['web', 'mcp', 'harness']),
 	// The agent's task it was made for, among the answer's tasks; none for entries from before
 	// tasks, and for what Personal Agent Proxy did itself.
 	taskId: z.string().nullable(),
@@ -66,7 +66,7 @@ export const activityTaskSchema = z.object({
 	agentId: z.string(),
 	title: z.string(),
 	goal: z.string(),
-	via: z.enum(['web', 'mcp']),
+	via: z.enum(['web', 'mcp', 'harness']),
 	startedAt: z.string(),
 	// Null while the agent hasn't called it finished.
 	finishedAt: z.string().nullable(),

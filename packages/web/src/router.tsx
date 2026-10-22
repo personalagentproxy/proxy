@@ -19,6 +19,8 @@ import {
 	agentLoader,
 	agentSetupLoader,
 	agentsLoader,
+	chatIndexLoader,
+	chatLoader,
 	connectAgentLoader,
 	connectionLoader,
 	connectionsLoader,
@@ -44,6 +46,7 @@ import {AgentNewRecordPage} from '@/pages/agent/agent-new-record-page';
 import {AgentRecordPage} from '@/pages/agent/agent-record-page';
 import {AgentTaskPage} from '@/pages/agent/agent-task-page';
 import {AgentToolPage} from '@/pages/agent/agent-tool-page';
+import {ChatPage} from '@/pages/chat-page';
 import {ConnectAgentPage} from '@/pages/connect-agent-page';
 import {ConnectionPage} from '@/pages/connection-page';
 import {ConnectionsPage} from '@/pages/connections-page';
@@ -154,6 +157,9 @@ export const router = createBrowserRouter([
 			{path: '/connections/new/mcp', element: <AddMcpPage />},
 			{path: '/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
 			{path: '/vault', loader: vaultLoader, element: <VaultPage />},
+			// The built-in agent, behind the `harness` experiment: the api refuses it otherwise.
+			{path: '/chat', loader: chatIndexLoader, element: <ChatPage />},
+			{path: '/chat/:id', loader: chatLoader, element: <ChatPage />},
 			// Where the vault was, as Information.
 			{path: '/info', element: <Navigate to="/vault" replace />},
 			{path: '/agents', loader: agentsLoader, element: <AgentsPage />},

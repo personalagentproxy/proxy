@@ -1,6 +1,11 @@
 import {describe, expect, test} from 'bun:test';
 
-import {AGENT_PROVIDERS, findAgentProvider, suggestAgentProvider} from './agent-providers';
+import {
+	AGENT_PROVIDERS,
+	BUILT_IN_AGENT_PROVIDER,
+	findAgentProvider,
+	suggestAgentProvider,
+} from './agent-providers';
 
 describe('agent providers', () => {
 	test('have unique ids', () => {
@@ -30,9 +35,19 @@ describe('agent providers', () => {
 		}
 	});
 
-	test('finds a provider by id', () => {
+	test('finds a provider by id, the built-in agent too, which is not on offer', () => {
 		expect(findAgentProvider('dot')?.name).toBe('Dots');
+		expect(findAgentProvider('proxy')).toBe(BUILT_IN_AGENT_PROVIDER);
+		expect(AGENT_PROVIDERS).not.toContain(BUILT_IN_AGENT_PROVIDER);
 		expect(findAgentProvider('other')).toBeUndefined();
+	});
+
+	test('the built-in agent uses the app’s own icon', async () => {
+		expect(
+			await Bun.file(
+				new URL(`../../web/public${BUILT_IN_AGENT_PROVIDER.faviconUrl}`, import.meta.url),
+			).exists(),
+		).toBe(true);
 	});
 
 	test("suggests the provider an MCP client's name points at", () => {

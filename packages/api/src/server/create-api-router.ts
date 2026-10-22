@@ -36,6 +36,7 @@ import {handleConnectMysqlRoute, handleTestMysqlRoute} from '../connections/mysq
 import {handleConnectPlaidRoute, handleCreatePlaidLinkTokenRoute} from '../connections/plaid/route';
 import {handleConnectPostgresRoute, handleTestPostgresRoute} from '../connections/postgres/route';
 import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleRenameConnectionRoute, handleSetConnectionDefaultsRoute} from '../connections/route';
+import {handleCreateThreadRoute, handleGetThreadRoute, handleListThreadsRoute, handlePostMessageRoute} from '../harness/route';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
 import {handleDeleteMeRoute, handleFinishOnboardingRoute, handleMeRoute} from '../me/route';
@@ -157,6 +158,14 @@ export function createApiRouter(): express.Router {
 	router.get('/api/widgets/rates', withAuthResult('Widget exchange rates route', handleRatesRoute));
 	router.get('/api/widgets/accounts', withAuthResult('Widget bank accounts route', handleBankAccountsRoute));
 	router.get('/api/widgets/transactions', withAuthResult('Widget bank transactions route', handleBankTransactionsRoute));
+
+	// The Chat page: the person's threads with the built-in agent, whose loop runs in the api
+	// (harness/worker.ts); a message queues its work.
+	router.use('/api/chat', requireBrowserOrigin);
+	router.get('/api/chat/threads', withAuthResult('List chat threads route', handleListThreadsRoute));
+	router.post('/api/chat/threads', withAuthResult('Create chat thread route', handleCreateThreadRoute));
+	router.get('/api/chat/threads/:threadId', withAuthResult('Get chat thread route', handleGetThreadRoute));
+	router.post('/api/chat/threads/:threadId/messages', withAuthResult('Post chat message route', handlePostMessageRoute));
 
 	// The agent side: its own sign-in and cookie, and every request made for one of the agent's
 	// tasks, checked against the agent's access and logged with the task.

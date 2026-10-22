@@ -3,15 +3,18 @@ import {
 	HomeIcon,
 	LibraryIcon,
 	LogOutIcon,
+	MessageSquareIcon,
 	PlugIcon,
 	ScrollTextIcon,
 	SettingsIcon,
 	type LucideIcon,
 } from 'lucide-react';
+import type {Experiment} from '@proxy/utils';
 import {Link, useLocation, useRouteLoaderData} from 'react-router';
 import {signOut} from '@/client/auth-client';
 import type {Me} from '@/client/me-client';
 import {ThemeMenu} from '@/components/theme-menu';
+import {useExperiments} from '@/hooks/use-experiment';
 import {
 	Sidebar,
 	SidebarContent,
@@ -23,10 +26,12 @@ import {
 	useSidebar,
 } from '@proxy/ui/components/sidebar';
 
-type Destination = {to: string; label: string; icon: LucideIcon};
+// `experiment` is the experiment a destination is behind, shown only with it on.
+type Destination = {to: string; label: string; icon: LucideIcon; experiment?: Experiment};
 
 const DESTINATIONS: Destination[] = [
 	{to: '/', label: 'Home', icon: HomeIcon},
+	{to: '/chat', label: 'Chat', icon: MessageSquareIcon, experiment: 'harness'},
 	{to: '/connections', label: 'Connections', icon: PlugIcon},
 	{to: '/vault', label: 'Vault', icon: LibraryIcon},
 	{to: '/agents', label: 'Agents', icon: BotIcon},
@@ -44,14 +49,19 @@ function isActive(pathname: string, to: string): boolean {
 export function AppSidebar() {
 	const {pathname} = useLocation();
 	const me = useRouteLoaderData<Me>('human');
+	const experiments = useExperiments();
 	const {setOpenMobile} = useSidebar();
+	const destinations = DESTINATIONS.filter(
+		(destination) =>
+			destination.experiment === undefined || experiments.includes(destination.experiment),
+	);
 
 	return (
 		<Sidebar collapsible="icon">
 			<SidebarContent>
 				<SidebarGroup>
 					<SidebarMenu>
-						{DESTINATIONS.map((destination) => (
+						{destinations.map((destination) => (
 							<SidebarMenuItem key={destination.to}>
 								<SidebarMenuButton
 									isActive={isActive(pathname, destination.to)}

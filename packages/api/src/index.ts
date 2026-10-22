@@ -5,6 +5,7 @@ import {Result} from 'ts-results-es';
 import {connectDb, disconnectDb} from '@proxy/db';
 
 import {takeOverCustomConnections} from './connections/take-over-custom';
+import {startHarnessWorker, type HarnessWorker} from './harness/worker';
 import {log, serializeError} from './observability/log';
 import {convertOldVaultRecords} from './records/vault-entries';
 import {createHttpApp} from './server/create-http-app';
@@ -25,6 +26,7 @@ async function startApiServer(): Promise<void> {
 		process.exit(1);
 	}
 	startTelemetry();
+	let worker: HarnessWorker | null = null;
 
 	const shutdown = async (signal: string): Promise<void> => {
 		if (isShuttingDown) {
@@ -42,6 +44,9 @@ async function startApiServer(): Promise<void> {
 		forceExit.unref();
 
 		server.close();
+		// The built-in agent's worker claims nothing more and finishes the job it is on; a job it
+		// can't finish in time goes to another instance when its lease runs out.
+		await worker?.stop();
 
 		const disconnectResult = await Result.wrapAsync(() => disconnectDb());
 		if (disconnectResult.isErr()) {
@@ -63,5 +68,6 @@ async function startApiServer(): Promise<void> {
 		// After listening, since signing in to a provider to name an account can take a while.
 		void takeOverCustomConnections();
 		void convertOldVaultRecords();
+		worker = startHarnessWorker();
 	});
 }

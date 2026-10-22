@@ -36,6 +36,9 @@ function formatMoment(iso: string): string {
 	});
 }
 
+// How the request came in, as the entry says.
+const THROUGH = {web: 'Agent web pages', mcp: 'MCP', harness: 'Built-in agent'} as const;
+
 function Detail({label, children}: {label: string; children: ReactNode}) {
 	return (
 		<div className="flex gap-3 py-2">
@@ -174,7 +177,7 @@ function AuditEntryContent({
 				<Detail label="Permission">
 					{action ? action.label : <span className="text-muted-foreground">Unknown</span>}
 				</Detail>
-				<Detail label="Through">{entry.via === 'mcp' ? 'MCP' : 'Agent web pages'}</Detail>
+				<Detail label="Through">{THROUGH[entry.via]}</Detail>
 			</dl>
 		</DialogContent>
 	);

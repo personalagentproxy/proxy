@@ -164,6 +164,21 @@ export async function createAgentSession(data: {
 
 export type {SignedInAgent} from './signed-in-agent';
 
+/**
+ * The organization's agent of one provider, as a signed-in agent would be read, for the built-in
+ * agent, which signs in nowhere; `Ok(null)` for none, or one revoked.
+ */
+export async function getSignedInAgentByProvider(
+	orgId: string,
+	providerId: string,
+): Promise<Result<SignedInAgent | null, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agent.findFirst({where: {orgId, providerId}, select: signedInAgentSelect}),
+		)
+	).map((agent) => (agent ? toSignedInAgent(agent) : null));
+}
+
 /** `Ok(null)` means no live session: unknown, expired, or the agent has been revoked. */
 export async function getSignedInAgent(
 	tokenHash: string,
