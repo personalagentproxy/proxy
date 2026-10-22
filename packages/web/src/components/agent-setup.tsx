@@ -409,9 +409,9 @@ function McpAgent({
 	const reachable = PUBLIC || provider.local;
 	const steps = MCP_STEPS[provider.id];
 	const command = steps?.command?.(serverUrl);
-	const clients = useMcpClients(org, agent.id, reachable);
-	const signedIn = clients?.[0] ?? null;
+	const signedIn = useNewMcpClient(org, agent.id, reachable);
 
+	// Until a client signs in, the sign-in page it opens in this browser has the agent chosen.
 	useEffect(() => {
 		if (signedIn) {
 			forgetPendingAgent(agent.id);
@@ -480,22 +480,31 @@ function McpAgent({
 	);
 }
 
-// The MCP clients signed in as the agent, asked for until one is; null until first known.
-function useMcpClients(org: string, agentId: string, asking: boolean): McpClient[] | null {
-	const [clients, setClients] = useState<McpClient[] | null>(null);
-	const signedIn = clients !== null && clients.length > 0;
+// The MCP client the person signed in as the agent since the setup opened, asked for until one
+// has; null until then. The clients there when the setup first asked, and anyone else's, aren't
+// this setup's: by their ids, so the browser's clock has no say.
+function useNewMcpClient(org: string, agentId: string, asking: boolean): McpClient | null {
+	const [client, setClient] = useState<McpClient | null>(null);
+	const signedIn = client !== null;
 
 	useEffect(() => {
 		if (!asking || signedIn) {
 			return;
 		}
 		let stopped = false;
+		let known: Set<string> | null = null;
 		const ask = async () => {
 			const result = await listMcpClients(org, agentId);
 			if (stopped || result.isErr()) {
 				return;
 			}
-			setClients(result.value.clients);
+			const {clients} = result.value;
+			if (known === null) {
+				known = new Set(clients.map((candidate) => candidate.id));
+				return;
+			}
+			const fresh = clients.find((candidate) => candidate.mine && !known?.has(candidate.id));
+			setClient(fresh ?? null);
 		};
 		void ask();
 		const timer = setInterval(() => void ask(), POLL_MS);
@@ -505,7 +514,7 @@ function useMcpClients(org: string, agentId: string, asking: boolean): McpClient
 		};
 	}, [org, agentId, asking, signedIn]);
 
-	return clients;
+	return client;
 }
 
 // The login, handed to the agent the way it takes one: as a message, or through its vault. Its

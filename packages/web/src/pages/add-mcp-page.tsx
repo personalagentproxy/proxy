@@ -3,7 +3,7 @@ import {AppShell, PageTitle} from '@/components/app-shell';
 import {BackButton} from '@/components/back-button';
 import {ConnectMcpForm} from '@/components/connect-mcp-form';
 import {ShareNote} from '@/components/share-choice';
-import {useShareChoice} from '@/lib/share-choice';
+import {useShareChoice} from '@/hooks/use-share-choice';
 import {useOrgSlug} from '@/hooks/use-org';
 
 // The custom MCP server form, from the catalog's plus. Connecting lands on the new connection's

@@ -1,4 +1,4 @@
-import {Navigate, Outlet, createBrowserRouter, redirect} from 'react-router';
+import {Outlet, createBrowserRouter, redirect} from 'react-router';
 import {
 	agentCollectionLoader,
 	agentRecordLoader,
@@ -72,8 +72,8 @@ async function rootLoader() {
 	throw redirect(`/${first.slug}`);
 }
 
-// The app's pages before every page was one organization's: a saved link to one opens it in the
-// person's first organization.
+// The app's pages before every page was one organization's: a saved link to one, or to a page
+// under it (`/connections/<id>`, `/agents/new`), opens it in the person's first organization.
 const LEGACY_PAGES = new Map([
 	['connections', 'connections'],
 	['agents', 'agents'],
@@ -83,18 +83,37 @@ const LEGACY_PAGES = new Map([
 	['settings', 'settings'],
 ]);
 
-function legacyRedirect(slug: string, url: URL, first: string | undefined): string | null {
+// The first part of an address's path: `connections` in `/connections/<id>`.
+function firstSegment(url: URL): string {
+	return url.pathname.split('/')[1] ?? '';
+}
+
+// Where an old link opens in the person's first organization; the root for any other address.
+function legacyRedirect(url: URL, first: string | undefined): string {
+	const slug = firstSegment(url);
 	const page = LEGACY_PAGES.get(slug);
 	if (page === undefined || first === undefined) {
-		return null;
+		return '/';
 	}
 	const rest = url.pathname.slice(`/${slug}`.length);
 	return `/${first}/${page}${rest}${url.search}`;
 }
 
+// Any address no route has: an old link to a page under one of the pages above, which no
+// organization's route matches, opens it in the person's first organization; anything else, the
+// root.
+async function unknownLoader({request}: {request: Request}) {
+	const url = new URL(request.url);
+	if (!LEGACY_PAGES.has(firstSegment(url))) {
+		throw redirect('/');
+	}
+	const first = unwrapLoaderResult(await listOrgs()).orgs[0]?.slug;
+	throw redirect(legacyRedirect(url, first));
+}
+
 // The human side's guard, on every page in an organization (`/:org/…`): no session sends the user
-// to /login, and back here after; an organization that isn't theirs sends them to their first, a
-// page from before organizations were in the address to that page there; one that has not been
+// to /login, and back here after; an organization that isn't theirs sends them to their first, an
+// old single-page link (`/connections`) to that page there; one that has not been
 // through the welcome flow goes there first. With who is signed in, the
 // organization and the organizations they are in, for the switcher and every page that says which
 // is open.
@@ -110,7 +129,7 @@ async function humanLoader({
 	const signedIn = unwrapLoaderResult(me);
 	if (org.isErr() && isNotFoundError(org.error)) {
 		const first = unwrapLoaderResult(orgs).orgs[0]?.slug;
-		throw redirect(legacyRedirect(slug, new URL(request.url), first) ?? '/');
+		throw redirect(legacyRedirect(new URL(request.url), first));
 	}
 	const named = unwrapLoaderResult(org);
 	if (!named.onboarded) {
@@ -271,5 +290,5 @@ export const router = createBrowserRouter([
 			},
 		],
 	},
-	{path: '*', element: <Navigate to="/" replace />},
+	{path: '*', loader: unknownLoader, element: null, errorElement: <RouteError />},
 ]);

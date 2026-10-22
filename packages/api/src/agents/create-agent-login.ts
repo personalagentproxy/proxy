@@ -1,7 +1,8 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
-import {createAgent, isUsernameConflict, type AgentRow, type AgentViewer} from '@proxy/db/agent';
+import {createAgent, isUsernameConflict, type AgentRow} from '@proxy/db/agent';
+import type {MemberViewer} from '@proxy/db/viewer';
 import {AGENT_NAME_MAX, findAgentProvider, loginProviderIdFor, type AgentProvider} from '@proxy/integrations';
 
 import {generatePassword, generateUsername} from './credentials';
@@ -37,7 +38,7 @@ function nameFor(provider: AgentProvider, name: string | undefined): Result<stri
  * generated username and password; only the password's hash is kept, so this is the one time it is
  * known. A new agent follows every default. There can be any number of logins of a provider.
  */
-export function createAgentLogin(viewer: AgentViewer, providerId: string, options: {name?: string; shared?: boolean} = {}): Promise<Result<{agent: AgentRow; password: string}, ApiError>> {
+export function createAgentLogin(viewer: MemberViewer, providerId: string, options: {name?: string; shared?: boolean} = {}): Promise<Result<{agent: AgentRow; password: string}, ApiError>> {
 	return Do(async ($) => {
 		const product = $(requirePresent(findAgentProvider(providerId), ApiErr.parseError(`Unknown agent ${providerId}`)));
 		const provider = $(requirePresent(findAgentProvider(loginProviderIdFor(product)), ApiErr.parseError(`Unknown login provider for ${providerId}`)));

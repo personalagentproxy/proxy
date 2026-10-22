@@ -2,10 +2,11 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
-import {deleteAgent, getAgent, listAgents, renameAgent, setAgentGrants, shareAgent, updateAgent, type AgentRow, type AgentViewer} from '@proxy/db/agent';
+import {deleteAgent, getAgent, listAgents, renameAgent, setAgentGrants, shareAgent, updateAgent, type AgentRow} from '@proxy/db/agent';
 import {getConnectionWithCredential} from '@proxy/db/connection';
 import {deleteOAuthGrant, listAgentOAuthGrants} from '@proxy/db/oauth';
 import {listMemberNames} from '@proxy/db/organization';
+import type {MemberViewer} from '@proxy/db/viewer';
 
 import {refuseUnavailable, unavailableActions} from '../connections/unavailable';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
@@ -25,7 +26,7 @@ function agentIdOf(request: AuthenticatedRequest): string {
 }
 
 /** An agent the viewer sees: not found for any other. */
-function requireAgent(viewer: AgentViewer, agentId: string): Promise<Result<AgentRow, ApiError>> {
+function requireAgent(viewer: MemberViewer, agentId: string): Promise<Result<AgentRow, ApiError>> {
 	return Do(async ($) => {
 		return $(requirePresent($(await getAgent(viewer, agentId)), ApiErr.notFound('agent', agentId)));
 	});
@@ -138,8 +139,9 @@ export function handleDeleteAgentRoute(request: AuthenticatedRequest): Promise<R
 /**
  * `POST /api/agents/:agentId/share`: shares the person's own agent with every member of its
  * organization, for good: it reaches the shared connections alone from then on, so its settings on
- * the person's own connections go, and its tasks and activity so far become everyone's, but for
- * its requests on the person's own connections.
+ * the person's own connections go. What it did on the shared connections so far becomes everyone's
+ * with it; its requests on any other connection stay the person's, with the tasks they were made
+ * for (`shareAgent`).
  */
 export function handleShareAgentRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
 	return Do(async ($) => {
@@ -179,8 +181,8 @@ export type McpClientResponse = {
 	id: string;
 	name: string;
 	connectedAt: string;
-	// Who signed it in, by their name or address while they are in the organization; null for one
-	// from before that was kept, or signed in by someone since gone.
+	// Who signed it in, by their name or address while they are in the organization; null once they
+	// have left it.
 	connectedBy: string | null;
 	// Signed in by the person asking, who may sign it out whether or not they may change the agent.
 	mine: boolean;
@@ -195,7 +197,7 @@ export function handleListMcpClientsRoute(request: AuthenticatedRequest): Promis
 		const viewer = $(await requireViewer(request));
 		const agent = $(await requireAgent(viewer, agentIdOf(request)));
 		const grants = $(await listAgentOAuthGrants(viewer.orgId, agent.id, managesAgent(viewer, agent) ? undefined : viewer.userId));
-		const names = $(await listMemberNames(grants.flatMap((grant) => (grant.userId === null ? [] : [{orgId: viewer.orgId, userId: grant.userId}]))));
+		const names = $(await listMemberNames(grants.map((grant) => ({orgId: viewer.orgId, userId: grant.userId}))));
 		return {
 			clients: grants.map((grant) => ({
 				id: grant.id,

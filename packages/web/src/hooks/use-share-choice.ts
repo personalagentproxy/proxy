@@ -7,15 +7,15 @@ import {hasOtherPeople} from '@/lib/orgs';
 // `?for=everyone` from Add connection on to the connection's form, which sends `shared`, and to a
 // service's sign-in as `?share=everyone`, which the api keeps through it. Just you by default.
 export function useShareChoice(): {
-	org: Org | null;
+	organization: Org | null;
 	asked: boolean;
 	shared: boolean;
 	query: string;
 } {
 	const [params] = useSearchParams();
 	const human = useHuman();
-	const org = human?.org ?? null;
-	const asked = org !== null && hasOtherPeople(org);
+	const organization = human?.org ?? null;
+	const asked = organization !== null && hasOtherPeople(organization);
 	const shared = asked && params.get('for') === 'everyone';
-	return {org, asked, shared, query: shared ? '?for=everyone' : ''};
+	return {organization, asked, shared, query: shared ? '?for=everyone' : ''};
 }

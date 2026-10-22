@@ -23,7 +23,7 @@ function contextOf(path: string): ContextName {
 		return 'anon';
 	}
 
-	if (path.includes('/welcome')) {
+	if (path.startsWith('/:org/welcome/')) {
 		return 'fresh';
 	}
 

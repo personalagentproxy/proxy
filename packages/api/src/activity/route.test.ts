@@ -60,7 +60,7 @@ describe('handleActivityLanesRoute', () => {
 		const result = await handleActivityLanesRoute(makeRequest({from: '2026-10-14T23:30:00Z'}) as never);
 
 		expect(listAgentTasksSince).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), new Date('2026-10-14T23:30:00Z'), 200);
-		expect(summarizeTaskRequests).toHaveBeenCalledWith('org-1', ['task-1']);
+		expect(summarizeTaskRequests).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), ['task-1']);
 		expect(result.unwrap()).toEqual({
 			now: '2026-10-15T23:30:00.000Z',
 			from: '2026-10-14T23:30:00.000Z',

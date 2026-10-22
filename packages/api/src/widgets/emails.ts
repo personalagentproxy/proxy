@@ -120,7 +120,7 @@ export function handleWriteEmailRoute(request: AuthenticatedRequest): Promise<Re
 			const sendNew = $(requirePresent(source.connector.newCommands?.sendNew, ApiErr.forbidden()));
 			$(await sendNew(source, values));
 		}
-		await afterWrite({orgId: viewer.orgId, userId: request.user.userId, source, action: write, title: body.subject, parent: null});
+		await afterWrite({viewer, source, action: write, title: body.subject, parent: null});
 		return {sent: body.send};
 	});
 }
@@ -144,7 +144,7 @@ export function handleReplyEmailRoute(request: AuthenticatedRequest): Promise<Re
 		$(await requireReadable(viewer, body.connectionId, 'emails'));
 		const reply = $(requirePresent(replierFor(source), ApiErr.forbidden()));
 		const written = $(await reply(source, body.emailId, {body: body.body, send: body.send}));
-		await afterWrite({orgId: viewer.orgId, userId: request.user.userId, source, action: write, title: written.subject, parent: undefined});
+		await afterWrite({viewer, source, action: write, title: written.subject, parent: undefined});
 		return {sent: body.send};
 	});
 }

@@ -1,6 +1,6 @@
 import {z} from 'zod';
 
-import type {MemberViewer} from '@proxy/db/connection';
+import type {MemberViewer} from '@proxy/db/viewer';
 
 // Whose a new connection is: the connecting member's own, or, `shared`, every member's of the
 // organization; either way it was connected by them.

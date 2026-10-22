@@ -13,8 +13,6 @@ type Props = {
 	what: string;
 	// What else to say of it: who it acts as, who connected or made it.
 	rows: Array<{label: string; value: string}>;
-	// Whether the person may share it: their own.
-	canShare: boolean;
 	// Nobody else is in the organization or invited: there is no one to share with yet.
 	alone: boolean;
 	// What sharing means, under the question.
@@ -29,16 +27,7 @@ const ROW = 'bleed flex h-10 items-center gap-3 text-sm';
 // can use it or only its owner, and what else there is to say of it. One's own has a Share button,
 // which asks first; sharing is for good, so a shared one says who can use it and nothing more.
 // Alone in the organization, it points to Members instead.
-export function Sharing({
-	orgName,
-	shared,
-	what,
-	rows,
-	canShare,
-	alone,
-	confirmDescription,
-	onShare,
-}: Props) {
+export function Sharing({orgName, shared, what, rows, alone, confirmDescription, onShare}: Props) {
 	const org = useOrgSlug();
 	const [confirming, setConfirming] = useState(false);
 
@@ -63,7 +52,7 @@ export function Sharing({
 					<span className="min-w-0 flex-1 truncate">
 						{shared ? `Everyone in ${orgName}` : 'Just you'}
 					</span>
-					{!shared && canShare && (
+					{!shared && (
 						<Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
 							Share with everyone
 						</Button>

@@ -1,4 +1,3 @@
-import type {FetchError} from '@proxy/utils';
 import {PencilIcon} from 'lucide-react';
 import {useState, type ReactNode} from 'react';
 import {Link, useNavigate, useRevalidator} from 'react-router';
@@ -13,34 +12,27 @@ import {Section} from '@/components/section';
 import {TypeToConfirmDialog} from '@/components/type-to-confirm-dialog';
 import {Button} from '@proxy/ui/components/button';
 import {useHuman} from '@/hooks/use-human';
-import {apiMessage} from '@/lib/agent-errors';
-import {describeFetchError} from '@/lib/loader-utils';
-import {hasOtherPeople, ownedOrgs} from '@/lib/orgs';
+import {describeApiError} from '@/lib/loader-utils';
+import {hasOtherPeople} from '@/lib/orgs';
 
 type Deleting = 'account' | 'org' | null;
-
-// What the api said went wrong, in its words where it has them.
-function failureOf(error: FetchError): string {
-	const said = error.kind === 'http' ? apiMessage(error.body) : null;
-	return said ?? describeFetchError(error);
-}
 
 // The account and the organization open in the switcher: who is signed in, the organization's
 // name and your place in it, and deleting either. An organization's owner renames and deletes it,
 // unless it is the last one they own; deleting the account deletes every one they own.
 export function SettingsPage() {
-	const me = useHuman();
+	const human = useHuman();
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
 	const [deleting, setDeleting] = useState<Deleting>(null);
 	const [renaming, setRenaming] = useState(false);
-	if (!me) {
+	if (!human) {
 		return null;
 	}
 
-	const org = me.org;
-	const owner = org.role === 'owner';
-	const owned = ownedOrgs(me.orgs);
+	const organization = human.org;
+	const owner = organization.role === 'owner';
+	const owned = human.orgs.filter((candidate) => candidate.role === 'owner');
 	const lastOwned = owned.length <= 1;
 	// The organizations deleted with the account that others are in or invited to.
 	const shared = owned.filter(hasOtherPeople);
@@ -50,8 +42,8 @@ export function SettingsPage() {
 			<div className="flex flex-col gap-8">
 				<Section title="Account">
 					<RowList>
-						<SettingRow label="Email">{me.user.email}</SettingRow>
-						{me.user.name && <SettingRow label="Name">{me.user.name}</SettingRow>}
+						<SettingRow label="Email">{human.user.email}</SettingRow>
+						{human.user.name && <SettingRow label="Name">{human.user.name}</SettingRow>}
 					</RowList>
 				</Section>
 				<Section title="Organization" detail="the one open in the switcher">
@@ -67,21 +59,21 @@ export function SettingsPage() {
 							}
 						>
 							<span className="flex items-center gap-2">
-								<OrgTile org={org} />
-								{org.name}
+								<OrgTile org={organization} />
+								{organization.name}
 							</span>
 						</SettingRow>
 						<SettingRow label="Your role">{owner ? 'Owner' : 'Member'}</SettingRow>
 						<SettingRow label="Members">
-							<Link to={`/${org.slug}/members`} className="underline underline-offset-4">
-								{org.memberCount} {org.memberCount === 1 ? 'member' : 'members'}
+							<Link to={`/${organization.slug}/members`} className="underline underline-offset-4">
+								{organization.memberCount} {organization.memberCount === 1 ? 'member' : 'members'}
 							</Link>
 						</SettingRow>
 					</RowList>
 				</Section>
 				{owner && (
 					<DangerCard
-						title={`Delete ${org.name}`}
+						title={`Delete ${organization.name}`}
 						description={
 							lastOwned
 								? 'This is the only organization you own. Create another first, or delete your account instead.'
@@ -101,17 +93,17 @@ export function SettingsPage() {
 			</div>
 			{renaming && (
 				<RenameDialog
-					key={org.id}
+					key={organization.id}
 					open
-					title={`Rename ${org.name}`}
+					title={`Rename ${organization.name}`}
 					description="What everyone in it sees, in the switcher and on Members."
-					initial={org.name}
+					initial={organization.name}
 					allowEmpty={false}
 					onClose={() => setRenaming(false)}
 					onSave={async (name) => {
-						const result = await renameOrg(org.slug, name);
+						const result = await renameOrg(organization.slug, name);
 						if (result.isErr()) {
-							return failureOf(result.error);
+							return describeApiError(result.error);
 						}
 						await revalidator.revalidate();
 						return null;
@@ -121,20 +113,23 @@ export function SettingsPage() {
 			<TypeToConfirmDialog
 				key={`org-${String(deleting === 'org')}`}
 				open={deleting === 'org'}
-				title={`Delete ${org.name}?`}
+				title={`Delete ${organization.name}?`}
 				description="Its connections are invalidated at the provider and deleted, with its vault, agents and activity. Everyone in it loses it. This cannot be undone."
-				word={org.name}
+				word={organization.name}
 				confirmLabel="Delete organization"
 				onClose={() => setDeleting(null)}
 				onConfirm={async () => {
-					const result = await deleteOrg(org.slug);
+					const result = await deleteOrg(organization.slug);
 					if (result.isErr()) {
-						return failureOf(result.error);
+						return describeApiError(result.error);
 					}
 					setDeleting(null);
 					// Gone, the person's first other organization: they own another, or it wouldn't go.
-					const next = me.orgs.find((candidate) => candidate.id !== org.id) ?? org;
-					await navigate(`/${next.slug}/connections?deleted=${encodeURIComponent(org.name)}`);
+					const next =
+						human.orgs.find((candidate) => candidate.id !== organization.id) ?? organization;
+					await navigate(
+						`/${next.slug}/connections?deleted=${encodeURIComponent(organization.name)}`,
+					);
 					return null;
 				}}
 			/>
@@ -143,13 +138,13 @@ export function SettingsPage() {
 				open={deleting === 'account'}
 				title="Delete your account?"
 				description={`${deletedWith(shared)} You leave the others. Every connection deleted is first invalidated at the provider (where possible), then deleted with its vault, agents and activity. This cannot be undone.`}
-				word={me.user.email}
+				word={human.user.email}
 				confirmLabel="Delete account"
 				onClose={() => setDeleting(null)}
 				onConfirm={async () => {
 					const result = await deleteAccount();
 					if (result.isErr()) {
-						return failureOf(result.error);
+						return describeApiError(result.error);
 					}
 					// A full load, so nothing of the account stays in memory; the login page is next.
 					window.location.assign('/login');
@@ -166,7 +161,7 @@ function deletedWith(shared: Org[]): string {
 	if (shared.length === 0) {
 		return 'The organizations you own are deleted with it.';
 	}
-	return `The organizations you own are deleted with it, everything in them included, for everyone in them: ${shared.map((org) => org.name).join(', ')}.`;
+	return `The organizations you own are deleted with it, everything in them included, for everyone in them: ${shared.map((candidate) => candidate.name).join(', ')}.`;
 }
 
 function SettingRow({

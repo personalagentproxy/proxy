@@ -10,7 +10,6 @@ mock.module('./google-calendars', () => ({googleCalendars}));
 mock.module('@proxy/db/write-target', () => ({getWriteTarget}));
 mock.module('../utils/user-org', () => ({
 	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
-	requireUserOrgId: async () => Ok('org-1'),
 }));
 
 const calendar = (connectionId: string, id: string, primary: boolean, writable: boolean) => ({connectionId, id, name: id, primary, writable, color: null});

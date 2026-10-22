@@ -24,8 +24,7 @@ import {Label} from '@proxy/ui/components/label';
 import {SidebarMenuButton, useSidebar} from '@proxy/ui/components/sidebar';
 import {cn} from '@proxy/ui/lib/utils';
 import {useHuman} from '@/hooks/use-human';
-import {apiMessage} from '@/lib/agent-errors';
-import {describeFetchError} from '@/lib/loader-utils';
+import {describeApiError} from '@/lib/loader-utils';
 
 // An organization's mark: its initial on a tile the size of an integration's logo.
 export function OrgTile({org, className}: {org: {name: string}; className?: string}) {
@@ -116,8 +115,7 @@ export function OrgSwitcher() {
 				onCreate={async (name) => {
 					const result = await createOrg(name);
 					if (result.isErr()) {
-						const said = result.error.kind === 'http' ? apiMessage(result.error.body) : null;
-						return said ?? describeFetchError(result.error);
+						return describeApiError(result.error);
 					}
 					await open(result.value.slug);
 					return null;

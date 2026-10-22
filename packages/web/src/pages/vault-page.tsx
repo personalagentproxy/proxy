@@ -1,5 +1,4 @@
 import {findCollection, VAULT_INTEGRATION_ID} from '@proxy/integrations';
-import type {FetchError} from '@proxy/utils';
 import {
 	CalendarIcon,
 	LinkIcon,
@@ -11,26 +10,28 @@ import {
 	type LucideIcon,
 } from 'lucide-react';
 import {useState} from 'react';
-import {useLoaderData, useRevalidator, useSearchParams} from 'react-router';
-import type {Result} from 'ts-results-es';
+import {useLoaderData} from 'react-router';
 import {createRecord, deleteRecord, updateRecord} from '@/client/records-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {RecordForm} from '@/components/record-form';
-import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
-import {ShareToggle} from '@/components/share-toggle';
+import {Row, RowHeader, RowList} from '@/components/row-list';
+import {SideEmpty, SideToggle} from '@/components/share-toggle';
 import {Badge} from '@proxy/ui/components/badge';
 import {Button} from '@proxy/ui/components/button';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@proxy/ui/components/dialog';
+import {useApply} from '@/hooks/use-apply';
 import {useHuman} from '@/hooks/use-human';
+import {useSide} from '@/hooks/use-side';
 import {recordTitle} from '@/lib/access';
 import {findIntegration} from '@/lib/integrations';
-import {describeFetchError} from '@/lib/loader-utils';
-import {hasOtherPeople} from '@/lib/orgs';
 import type {DataRecord} from '@/lib/types';
 import type {vaultLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 
 const ENTRIES = 'entries';
+
+const OWN_EMPTY =
+	'Nothing yet. Add what your agents should know about you, or let them keep what they learn.';
 
 // The table's columns after the title, the header's and the rows' alike: the content only on
 // screens wide enough for it.
@@ -60,7 +61,7 @@ function TypeBadge({type}: {type: string}) {
 }
 
 // An entry with the vault it is in, since the page lists the entries of two.
-type Listed = {entry: DataRecord; connectionId: string};
+type Listed = {entry: DataRecord; connectionId: string; shared: boolean};
 
 // Which entry the dialog is open on: a new one, in the vault shown, or one being edited.
 type Editing = {listed: Listed | null};
@@ -73,11 +74,13 @@ type Editing = {listed: Listed | null};
 export function VaultPage() {
 	const org = useOrgSlug();
 	const {own, shared} = useLoaderData<typeof vaultLoader>();
-	const revalidator = useRevalidator();
-	const [params, setParams] = useSearchParams();
 	const human = useHuman();
 	const [editing, setEditing] = useState<Editing | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const apply = useApply(setError);
+	const list = (kept: {connectionId: string; entries: DataRecord[]}, inShared: boolean): Listed[] =>
+		kept.entries.map((entry) => ({entry, connectionId: kept.connectionId, shared: inShared}));
+	const side = useSide([...list(own, false), ...list(shared, true)], {opensOnShared: false});
 	const vault = findIntegration(VAULT_INTEGRATION_ID);
 	const collection = vault && findCollection(vault, ENTRIES);
 	if (!collection || !human) {
@@ -85,27 +88,16 @@ export function VaultPage() {
 	}
 
 	const activeOrg = human.org;
-	const others = hasOtherPeople(activeOrg);
-	const showingShared = others && params.get('for') === 'everyone';
-	const list = (vault: {connectionId: string; entries: DataRecord[]}): Listed[] =>
-		vault.entries.map((entry) => ({entry, connectionId: vault.connectionId}));
-	const shown = showingShared ? shared : own;
-	const listed = others ? list(shown) : [...list(own), ...list(shared)];
+	const listed = side.shown;
+	// Where a new entry goes: the vault shown, the person's own when alone.
+	const shown = side.shared ? shared : own;
 
 	const open = (next: Editing | null) => {
 		setError(null);
 		setEditing(next);
 	};
 	// Closes the dialog once the change is saved; a failure keeps it open, saying what went wrong.
-	const apply = async <T,>(change: Promise<Result<T, FetchError>>) => {
-		const result = await change;
-		if (result.isErr()) {
-			setError(describeFetchError(result.error));
-			return;
-		}
-		open(null);
-		await revalidator.revalidate();
-	};
+	const close = () => setEditing(null);
 
 	return (
 		<AppShell
@@ -117,14 +109,7 @@ export function VaultPage() {
 				</Button>
 			}
 		>
-			{others && (
-				<ShareToggle
-					orgName={activeOrg.name}
-					shared={showingShared}
-					counts={{shared: shared.entries.length, yours: own.entries.length}}
-					onChange={(next) => setParams({for: next ? 'everyone' : 'me'}, {replace: true})}
-				/>
-			)}
+			<SideToggle side={side} orgName={activeOrg.name} />
 			<RowList
 				header={
 					<RowHeader>
@@ -134,17 +119,13 @@ export function VaultPage() {
 					</RowHeader>
 				}
 			>
-				{listed.length === 0 && !showingShared && (
-					<EmptyRows>
-						Nothing yet. Add what your agents should know about you, or let them keep what they
-						learn.
-					</EmptyRows>
-				)}
-				{listed.length === 0 && showingShared && (
-					<EmptyRows>
-						Nothing yet. Add what everyone's agents should know about {activeOrg.name}, or let them
-						keep what they learn.
-					</EmptyRows>
+				{listed.length === 0 && (
+					<SideEmpty
+						side={side}
+						alone={OWN_EMPTY}
+						shared={`Nothing yet. Add what everyone's agents should know about ${activeOrg.name}, or let them keep what they learn.`}
+						own={OWN_EMPTY}
+					/>
 				)}
 				{listed.map((item) => (
 					<Row
@@ -190,6 +171,7 @@ export function VaultPage() {
 									item
 										? updateRecord(org, item.connectionId, ENTRIES, item.entry.id, values)
 										: createRecord(org, shown.connectionId, ENTRIES, values),
+									close,
 								);
 							}}
 							extra={
@@ -200,7 +182,10 @@ export function VaultPage() {
 										onClick={() => {
 											const {listed: item} = editing;
 											if (item) {
-												void apply(deleteRecord(org, item.connectionId, ENTRIES, item.entry.id));
+												void apply(
+													deleteRecord(org, item.connectionId, ENTRIES, item.entry.id),
+													close,
+												);
 											}
 										}}
 									>

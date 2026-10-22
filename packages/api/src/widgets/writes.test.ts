@@ -21,7 +21,6 @@ mock.module('./mail-replies', () => ({replierFor}));
 mock.module('./writes', () => ({afterWrite}));
 mock.module('../utils/user-org', () => ({
 	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
-	requireUserOrgId: async () => Ok('org-1'),
 }));
 
 const events = findCollection(findIntegration('google') ?? {collections: []}, 'events');
@@ -50,7 +49,7 @@ describe('handleCreateEventRoute', () => {
 		expect(made.unwrap()).toEqual({title: 'Lunch', link: 'https://calendar.google.com/e1'});
 		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'events', 'create', ['title', 'start', 'end', 'location', 'guests']);
 		expect(create).toHaveBeenCalledWith(source, {title: 'Lunch', start: event.start, end: event.end, location: 'Nopa', guests: 'jacky@example.com, sam@example.com'}, 'team');
-		expect(afterWrite).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1', source, action: 'create', title: 'Lunch', parent: 'team'});
+		expect(afterWrite).toHaveBeenCalledWith({viewer: expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), source, action: 'create', title: 'Lunch', parent: 'team'});
 	});
 
 	test("doesn't ask for Invite guests for an event without them", async () => {
@@ -118,7 +117,7 @@ describe('handleReplyEmailRoute', () => {
 		expect(requireReadable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails');
 		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: true});
 		// The mailbox is the email's, so none is picked for the next new email.
-		expect(afterWrite).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1', source, action: 'sendNew', title: 'Re: Invoice', parent: undefined});
+		expect(afterWrite).toHaveBeenCalledWith({viewer: expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), source, action: 'sendNew', title: 'Re: Invoice', parent: undefined});
 	});
 
 	test('saves a reply as a draft as creating an email', async () => {
@@ -175,7 +174,7 @@ describe('handleEditEventRoute', () => {
 		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'events', 'update', ['start', 'end']);
 		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'events', 'update', ['guests']);
 		// A change picks no calendar for the next new event.
-		expect(afterWrite).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1', source, action: 'update', title: 'Lunch', parent: undefined});
+		expect(afterWrite).toHaveBeenCalledWith({viewer: expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), source, action: 'update', title: 'Lunch', parent: undefined});
 	});
 
 	test('writes the guests as given', async () => {

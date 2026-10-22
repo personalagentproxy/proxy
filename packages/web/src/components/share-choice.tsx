@@ -1,9 +1,9 @@
 import {useSearchParams} from 'react-router';
 import {ShareToggle} from '@/components/share-toggle';
-import {useShareChoice} from '@/lib/share-choice';
+import {useShareChoice} from '@/hooks/use-share-choice';
 
 // Who a new connection is for, in an organization with anyone else in it or invited, chosen above
-// the catalog and shown again on the connection's form (`lib/share-choice.ts`).
+// the catalog and shown again on the connection's form (`hooks/use-share-choice.ts`).
 
 // What a connection being shared or kept means, under the choice.
 const CONNECTION = {
@@ -19,8 +19,8 @@ export function SharePicker({
 	descriptions?: {shared: string; own: string};
 }) {
 	const [, setParams] = useSearchParams();
-	const {org, asked, shared} = useShareChoice();
-	if (!asked || !org) {
+	const {organization, asked, shared} = useShareChoice();
+	if (!asked || !organization) {
 		return null;
 	}
 
@@ -29,7 +29,7 @@ export function SharePicker({
 			<div className="flex items-center gap-2">
 				<span className="text-sm text-muted-foreground">For</span>
 				<ShareToggle
-					orgName={org.name}
+					orgName={organization.name}
 					shared={shared}
 					onChange={(next) => setParams(next ? {for: 'everyone'} : {}, {replace: true})}
 				/>
@@ -44,25 +44,25 @@ export function SharePicker({
 // On a connection's form: who it will be for, and a link that changes it there.
 export function ShareNote({actsAs}: {actsAs: string}) {
 	const [, setParams] = useSearchParams();
-	const {org, asked, shared} = useShareChoice();
-	if (!asked || !org) {
+	const {organization, asked, shared} = useShareChoice();
+	if (!asked || !organization) {
 		return null;
 	}
 
 	return (
 		<p className="text-sm text-muted-foreground">
 			<span className="text-foreground">
-				{shared ? `For everyone in ${org.name}` : 'Just for you'}
+				{shared ? `For everyone in ${organization.name}` : 'Just for you'}
 			</span>
 			{shared
 				? ` · every member's agents can use it, as ${actsAs}. `
-				: ` · nobody else in ${org.name} sees it. `}
+				: ` · nobody else in ${organization.name} sees it. `}
 			<button
 				type="button"
 				onClick={() => setParams(shared ? {} : {for: 'everyone'}, {replace: true})}
 				className="text-foreground underline underline-offset-4"
 			>
-				{shared ? 'Make it just mine' : `Share with everyone in ${org.name}`}
+				{shared ? 'Make it just mine' : `Share with everyone in ${organization.name}`}
 			</button>
 		</p>
 	);

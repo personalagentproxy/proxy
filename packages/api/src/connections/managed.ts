@@ -1,7 +1,8 @@
 import {Err, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
-import {getConnectionWithCredential, type ConnectionRow, type MemberViewer} from '@proxy/db/connection';
+import {getConnectionWithCredential, type ConnectionRow} from '@proxy/db/connection';
+import type {MemberViewer} from '@proxy/db/viewer';
 import type {OrgRole} from '@proxy/db/organization';
 
 import {manages as managesThing} from '../utils/manages';

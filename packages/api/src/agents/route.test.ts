@@ -24,7 +24,7 @@ mock.module('@proxy/db/agent', () => ({
 	isUsernameConflict,
 }));
 
-mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
+mock.module('@proxy/db/organization', () => ({listMemberNames: mock(async () => Ok([]))}));
 
 const getConnectionWithCredential = mock();
 
@@ -35,8 +35,6 @@ mock.module('../utils/secret-crypto', () => ({
 	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
 }));
 
-const requireUserOrgId = mock();
-
 const owner = {orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []};
 // Someone else in the organization, who only uses what is shared.
 const member = {...owner, userId: 'user-2', role: 'member'};
@@ -44,7 +42,6 @@ const requireViewer = mock(async (): Promise<unknown> => Ok(owner));
 
 mock.module('../utils/user-org', () => ({
 	requireViewer,
-	requireUserOrgId,
 }));
 
 const listAgentOAuthGrants = mock();
@@ -73,7 +70,6 @@ function makeRequest(params: Record<string, string> = {}, body: unknown = undefi
 beforeEach(() => {
 	mock.clearAllMocks();
 	requireViewer.mockResolvedValue(Ok(owner));
-	requireUserOrgId.mockResolvedValue(Ok('org-1'));
 	listAgentOAuthGrants.mockResolvedValue(Ok([]));
 	deleteOAuthGrant.mockResolvedValue(Ok(true));
 	getAgent.mockResolvedValue(Ok(agentRow));
@@ -314,14 +310,80 @@ describe('MCP clients', () => {
 		expect(deleteOAuthGrant).toHaveBeenCalledWith('org-1', 'agent-1', 'grant-1', 'user-2');
 		expect(theirs.unwrapErr().kind).toBe('not_found');
 	});
+});
 
-	test('a member who only uses a shared agent may not change it', async () => {
+describe('who may change a shared agent', () => {
+	const shared = {...agentRow, ownerUserId: null, createdById: 'user-1'};
+	const params = {agentId: 'agent-1', connectionId: 'conn-1'};
+
+	test('a member who only uses it may not rename, reset, revoke, share or delete it, nor change its access', async () => {
 		requireViewer.mockResolvedValue(Ok(member));
 		getAgent.mockResolvedValue(Ok(shared));
-		const {handleRenameAgentRoute} = await import('./route');
-		const result = await handleRenameAgentRoute(makeRequest({agentId: 'agent-1'}, {name: 'Theirs'}));
+		const route = await import('./route');
+		const refused = await Promise.all([
+			route.handleRenameAgentRoute(makeRequest(params, {name: 'Theirs'})),
+			route.handleResetAgentPasswordRoute(makeRequest(params)),
+			route.handleSetAgentRevokedRoute(makeRequest(params, {revoked: true})),
+			route.handleShareAgentRoute(makeRequest(params)),
+			route.handleDeleteAgentRoute(makeRequest(params)),
+			route.handleSetAgentGrantsRoute(makeRequest(params, {actions: {read: true}})),
+		]);
 
-		expect(result.unwrapErr().kind).toBe('forbidden');
+		expect(refused.map((result) => result.unwrapErr().kind)).toEqual(['forbidden', 'forbidden', 'forbidden', 'forbidden', 'forbidden', 'forbidden']);
 		expect(renameAgent).not.toHaveBeenCalled();
+		expect(updateAgent).not.toHaveBeenCalled();
+		expect(deleteAgent).not.toHaveBeenCalled();
+		expect(setAgentGrants).not.toHaveBeenCalled();
+	});
+
+	test('whoever made it changes it, member or not, and so does the organization’s owner', async () => {
+		getAgent.mockResolvedValue(Ok({...shared, createdById: 'user-2'}));
+		const {handleRenameAgentRoute} = await import('./route');
+		const byOwner = await handleRenameAgentRoute(makeRequest(params, {name: 'Ours'}));
+		requireViewer.mockResolvedValue(Ok(member));
+		const byMaker = await handleRenameAgentRoute(makeRequest(params, {name: 'Ours'}));
+
+		expect(byOwner.isOk()).toBe(true);
+		expect(byMaker.isOk()).toBe(true);
+		expect(renameAgent).toHaveBeenCalledTimes(2);
+	});
+
+	test('another member’s own agent is not found, even for the owner', async () => {
+		getAgent.mockResolvedValue(Ok(null));
+		const {handleGetAgentRoute, handleDeleteAgentRoute} = await import('./route');
+		const got = await handleGetAgentRoute(makeRequest(params));
+		const deleted = await handleDeleteAgentRoute(makeRequest(params));
+
+		expect(getAgent).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'agent-1');
+		expect(got.unwrapErr().kind).toBe('not_found');
+		expect(deleted.unwrapErr().kind).toBe('not_found');
+		expect(deleteAgent).not.toHaveBeenCalled();
+	});
+
+	test('a shared agent reaches only shared connections, so a setting on one’s own connection is refused', async () => {
+		getAgent.mockResolvedValue(Ok(shared));
+		const {handleSetAgentGrantsRoute} = await import('./route');
+		const own = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {read: true}}));
+		expect(own.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'A shared agent reaches only shared connections'});
+		expect(setAgentGrants).not.toHaveBeenCalled();
+
+		getConnectionWithCredential.mockResolvedValue(
+			Ok({
+				id: 'conn-1',
+				integrationId: 'email',
+				orgId: 'org-1',
+				ownerUserId: null,
+				connectedById: 'user-2',
+				account: 'team@example.com',
+				createdAt: new Date(),
+				tools: null,
+				name: null,
+				defaults: [],
+				credential: 'enc:{}',
+			}),
+		);
+		const sharedConnection = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {read: true}}));
+		expect(sharedConnection.isOk()).toBe(true);
+		expect(setAgentGrants).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', actions: {read: true}});
 	});
 });

@@ -5,8 +5,6 @@ import {z} from 'zod';
 
 export const connectionSchema = z.object({
 	id: z.string(),
-	// The organization it is in.
-	orgId: z.string(),
 	integrationId: z.string(),
 	account: z.string(),
 	// Shared with every member of its organization, rather than one member's own.
@@ -76,7 +74,7 @@ export const auditEntrySchema = z.object({
 	// tasks, and for what Personal Agent Proxy did itself.
 	taskId: z.string().nullable(),
 	// The member who asked for what Personal Agent Proxy did itself, and their name while they are
-	// in the organization; null for an agent's request, and for entries from before it was kept.
+	// in the organization; null for an agent's request.
 	userId: z.string().nullable(),
 	userName: z.string().nullable(),
 });

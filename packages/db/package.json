@@ -17,6 +17,7 @@
 		"./organization": "./src/organization.ts",
 		"./task": "./src/task.ts",
 		"./user": "./src/user.ts",
+		"./viewer": "./src/viewer.ts",
 		"./write-target": "./src/write-target.ts"
 	},
 	"scripts": {

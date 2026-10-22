@@ -96,7 +96,6 @@ export function revokeInvitation(org: string, invitationId: string) {
 }
 
 const invitationLinkSchema = z.object({
-	orgId: z.string(),
 	orgSlug: z.string(),
 	orgName: z.string(),
 	invitedBy: z.string().nullable(),
@@ -117,6 +116,6 @@ export function acceptInvitation(token: string) {
 	return apiRequest(
 		'POST',
 		`/api/invitations/${encodeURIComponent(token)}/accept`,
-		z.object({orgId: z.string(), orgSlug: z.string()}),
+		z.object({orgSlug: z.string()}),
 	);
 }

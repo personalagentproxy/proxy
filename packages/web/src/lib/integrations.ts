@@ -6,6 +6,7 @@ import {
 	type IntegrationId,
 	type McpTool,
 } from '@proxy/integrations';
+import {orgApi} from '@/client/request';
 
 // A brand's own logo, `public/integrations/<id>.svg`, unless `LOGOS` says otherwise. One found on
 // the internet has a file of ours to show where it can't be loaded.
@@ -129,7 +130,7 @@ export function signInPath(
 		Object.entries(query).flatMap(([key, value]) => (value === undefined ? [] : [[key, value]])),
 	);
 	const search = params.size > 0 ? `?${params.toString()}` : '';
-	return `/api/orgs/${encodeURIComponent(org)}/connections/${integrationId}/start${search}`;
+	return `${orgApi(org)}/connections/${integrationId}/start${search}`;
 }
 
 /** What the server lacked when a sign-in came back with `?error=<integration>-unconfigured`. */

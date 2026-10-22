@@ -4,8 +4,8 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {getAgent} from '@proxy/db/agent';
-import type {MemberViewer} from '@proxy/db/connection';
-import {getMemberOrganization, listUserOrgs} from '@proxy/db/organization';
+import type {MemberViewer} from '@proxy/db/viewer';
+import {getMemberOrganization} from '@proxy/db/organization';
 import {createOAuthCode, getOAuthClient, type OAuthClientRow} from '@proxy/db/oauth';
 import {suggestAgentProvider} from '@proxy/integrations';
 
@@ -143,23 +143,18 @@ export function handleGetAuthorizationRequestRoute(request: AuthenticatedRequest
 	});
 }
 
-// `org` is the slug of the organization the agent is in, or a new one goes in; the person's first
-// when left out.
+// `org` is the slug of the organization the agent is in, or a new one goes in.
 const consentBodySchema = z.union([
 	z.object({request: z.string(), allow: z.literal(false)}),
-	z.object({request: z.string(), allow: z.literal(true), org: z.string().optional(), agentId: z.string().min(1)}),
-	z.object({request: z.string(), allow: z.literal(true), org: z.string().optional(), providerId: z.string().min(1), name: z.string().optional()}),
+	z.object({request: z.string(), allow: z.literal(true), org: z.string(), agentId: z.string().min(1)}),
+	z.object({request: z.string(), allow: z.literal(true), org: z.string(), providerId: z.string().min(1), name: z.string().optional()}),
 ]);
 
-// The organization the consent is about, as a viewer of it: the one named, else the person's first.
-function consentViewer(userId: string, slug: string | undefined): Promise<Result<MemberViewer, ApiError>> {
+// The organization the consent is about, as a viewer of it: a member of it, or it is not found.
+function consentViewer(userId: string, slug: string): Promise<Result<MemberViewer, ApiError>> {
 	return Do(async ($) => {
-		if (slug !== undefined) {
-			const org = $(requirePresent($(await getMemberOrganization(userId, slug)), ApiErr.notFound('organization', slug)));
-			return {orgId: org.id, userId};
-		}
-		const first = $(requirePresent($(await listUserOrgs(userId))[0], ApiErr.unauthenticated()));
-		return {orgId: first.id, userId};
+		const org = $(requirePresent($(await getMemberOrganization(userId, slug)), ApiErr.notFound('organization', slug)));
+		return {orgId: org.id, userId};
 	});
 }
 

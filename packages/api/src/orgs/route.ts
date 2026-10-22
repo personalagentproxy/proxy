@@ -83,7 +83,7 @@ export function handleGetOrgRoute(request: AuthenticatedRequest): Promise<Result
 				ApiErr.notFound('organization', viewer.slug),
 			),
 		);
-		return toOrg({...row, name: viewer.name, role: viewer.role, onboarded: viewer.onboarded}, viewer.experiments);
+		return toOrg(row, viewer.experiments);
 	});
 }
 

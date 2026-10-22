@@ -32,10 +32,9 @@ import {
 	describeActions,
 } from '@/lib/access';
 import {useHuman} from '@/hooks/use-human';
-import {apiMessage} from '@/lib/agent-errors';
 import {signInPath} from '@/lib/integrations';
-import {describeFetchError} from '@/lib/loader-utils';
-import {actsAs, hasOtherPeople} from '@/lib/orgs';
+import {describeApiError, describeFetchError} from '@/lib/loader-utils';
+import {actsAs, connectedBy, hasOtherPeople, manages} from '@/lib/orgs';
 import type {AgentLogin} from '@/lib/types';
 import type {connectionLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -67,9 +66,8 @@ export function ConnectionPage() {
 	const activeOrg = human.org;
 	// One's own connection is one's to change; a shared one is whoever connected it's and the
 	// organization's owner's. Everyone else in the organization uses it as it is.
-	const mine = connection.connectedById === human.user.id;
-	const manages = !connection.shared || mine || human.org.role === 'owner';
-	const connectedBy = mine ? 'You' : (connection.connectedBy ?? 'A former member');
+	const mayChange = manages(human, connection);
+	const actingAs = actsAs(connection, human);
 	// Why the connection can be signed in to again from here: its sign-in left actions out, it has
 	// none, or its integration says nothing of who signed in, so only this page renews it.
 	const renewReason = connection.signInNeeded
@@ -80,7 +78,7 @@ export function ConnectionPage() {
 				? 'renew'
 				: null;
 	const renew =
-		renewReason === null || !manages
+		renewReason === null || !mayChange
 			? null
 			: signInPath(org, connection.integrationId, {
 					account: connection.account,
@@ -108,7 +106,7 @@ export function ConnectionPage() {
 			}
 			actions={
 				<>
-					{integration.custom && (
+					{integration.custom && mayChange && (
 						<IconButton
 							label={
 								refreshing
@@ -127,7 +125,7 @@ export function ConnectionPage() {
 							<ListRestartIcon className={refreshing ? 'motion-safe:animate-spin' : undefined} />
 						</IconButton>
 					)}
-					{!integration.builtIn && manages && (
+					{!integration.builtIn && mayChange && (
 						<IconButton label="Disconnect" onClick={() => setDisconnecting(true)}>
 							<UnplugIcon />
 						</IconButton>
@@ -139,7 +137,7 @@ export function ConnectionPage() {
 				{added && <SuccessLine>Connection added successfully</SuccessLine>}
 				<Section
 					title="Permissions"
-					detail={permissionsDetail(integration.custom === true, connection.shared, manages)}
+					detail={permissionsDetail(integration.custom === true, connection.shared, mayChange)}
 				>
 					{integration.disclosure && (
 						<p className="text-sm text-muted-foreground">{integration.disclosure}</p>
@@ -152,7 +150,7 @@ export function ConnectionPage() {
 						defaults={defaultActions(connection)}
 						unavailable={connection.unavailable}
 						signInNeeded={connection.signInNeeded}
-						readOnly={!manages}
+						readOnly={!mayChange}
 						differing={differingAgents(agents, connection.id)}
 						onChange={async (actions) => {
 							const result = await setConnectionDefaults(
@@ -182,7 +180,7 @@ export function ConnectionPage() {
 							}}
 						/>
 					)}
-					{connection.integrationId === 'plaid' && manages && (
+					{connection.integrationId === 'plaid' && mayChange && (
 						<SignInToBankAgain connectionId={connection.id} />
 					)}
 					{error && <p className="text-sm text-destructive">{error}</p>}
@@ -193,17 +191,15 @@ export function ConnectionPage() {
 						shared={connection.shared}
 						what="connection"
 						rows={[
-							{label: 'Acts as', value: actsAs(connection, mine ? 'you' : connectedBy)},
-							{label: 'Connected by', value: connectedBy},
+							{label: 'Acts as', value: actingAs},
+							{label: 'Connected by', value: connectedBy(connection, human)},
 						]}
-						canShare={manages}
 						alone={!hasOtherPeople(activeOrg)}
-						confirmDescription={`Every member's agents in ${activeOrg.name} can use it, as ${actsAs(connection, mine ? 'you' : connectedBy)}, with the permissions above. Members see it listed, never its password or token. This can't be undone: to have it as your own again, disconnect it and connect it again.`}
+						confirmDescription={`Every member's agents in ${activeOrg.name} can use it, as ${actingAs}, with the permissions above. Members see it listed, never its password or token. This can't be undone: to have it as your own again, disconnect it and connect it again.`}
 						onShare={async () => {
 							const result = await shareConnection(org, connection.id);
 							if (result.isErr()) {
-								const said = result.error.kind === 'http' ? apiMessage(result.error.body) : null;
-								setError(said ?? describeFetchError(result.error));
+								setError(describeApiError(result.error));
 								return;
 							}
 							setError(null);
@@ -296,8 +292,12 @@ function describeRefreshError(error: FetchError): string {
 
 // What Permissions is about: a custom server's tools, and on a shared connection whose defaults
 // they are, and who changes them.
-function permissionsDetail(custom: boolean, shared: boolean, manages: boolean): string | undefined {
-	if (shared && !manages) {
+function permissionsDetail(
+	custom: boolean,
+	shared: boolean,
+	mayChange: boolean,
+): string | undefined {
+	if (shared && !mayChange) {
 		return 'every member’s agents’ defaults, changed by whoever connected it and the owner';
 	}
 	if (shared) {

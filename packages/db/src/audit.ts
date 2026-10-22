@@ -4,7 +4,7 @@ import type {Result} from 'ts-results-es';
 import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
-import type {Viewer} from './connection';
+import {type Viewer, visibleTo} from './viewer';
 
 export type AuditEntryRow = {
 	id: string;
@@ -109,11 +109,7 @@ export async function listAuditEntries(
 ): Promise<Result<AuditEntryRow[], ApiError>> {
 	return wrapDb(() =>
 		db.auditEntry.findMany({
-			where: {
-				orgId: viewer.orgId,
-				OR: [{ownerUserId: null}, {ownerUserId: viewer.userId}],
-				...filter,
-			},
+			where: {...visibleTo(viewer), ...filter},
 			orderBy: {createdAt: 'desc'},
 			take,
 			select: {
@@ -145,9 +141,13 @@ export type TaskRequestSummary = {
 	first: Date;
 };
 
-/** The requests made for each of `taskIds`, counted by connection and outcome. */
+/**
+ * The requests the viewer sees among those made for each of `taskIds`, counted by connection and
+ * outcome: a shared agent's task keeps the requests its former owner made on their own connections
+ * to themselves.
+ */
 export async function summarizeTaskRequests(
-	orgId: string,
+	viewer: Viewer,
 	taskIds: string[],
 ): Promise<Result<TaskRequestSummary[], ApiError>> {
 	if (taskIds.length === 0) {
@@ -156,7 +156,7 @@ export async function summarizeTaskRequests(
 	const grouped = await wrapDb(() =>
 		db.auditEntry.groupBy({
 			by: ['taskId', 'connectionId', 'outcome'],
-			where: {orgId, taskId: {in: taskIds}},
+			where: {...visibleTo(viewer), taskId: {in: taskIds}},
 			_count: {_all: true},
 			_min: {createdAt: true},
 		}),

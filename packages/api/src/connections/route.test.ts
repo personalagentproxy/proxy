@@ -22,11 +22,13 @@ mock.module('@proxy/db/connection', () => ({
 }));
 
 mock.module('@proxy/db/organization', () => ({
-	getMembership: mock(async () => Ok({role: 'owner'})),
 	listMemberNames: mock(async () => Ok([{orgId: 'org-1', userId: 'user-1', name: 'Alex'}])),
 }));
 
-const requireViewer = mock(async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}));
+const owner = {orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []};
+// Someone else in the organization, who only uses what is shared.
+const member = {...owner, userId: 'user-2', role: 'member'};
+const requireViewer = mock(async (): Promise<unknown> => Ok(owner));
 
 mock.module('../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 
@@ -94,6 +96,7 @@ function makeRequest(params: Record<string, string> = {}, body: unknown = undefi
 
 beforeEach(() => {
 	mock.clearAllMocks();
+	requireViewer.mockResolvedValue(Ok(owner));
 	google.requests = [];
 	google.status = 200;
 	countSameAccountConnections.mockResolvedValue(Ok(0));
@@ -346,5 +349,52 @@ describe('handleSetConnectionDefaultsRoute', () => {
 		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {read: true}}));
 
 		expect(result.unwrapErr().kind).toBe('db_error');
+	});
+});
+
+describe('who may change a shared connection', () => {
+	const sharedRow = {...emailRow, ownerUserId: null, connectedById: 'user-1'};
+
+	test('a member who only uses it sees it, but may not rename, disconnect or share it, nor change its defaults', async () => {
+		requireViewer.mockResolvedValue(Ok(member));
+		getConnectionWithCredential.mockResolvedValue(Ok(sharedRow));
+		const route = await import('./route');
+		const seen = await route.handleGetConnectionRoute(makeRequest({connectionId: 'conn-1'}));
+		const refused = await Promise.all([
+			route.handleRenameConnectionRoute(makeRequest({connectionId: 'conn-1'}, {name: 'Theirs'})),
+			route.handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-1'})),
+			route.handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {read: false}})),
+			route.handleShareConnectionRoute(makeRequest({connectionId: 'conn-1'})),
+		]);
+
+		expect(seen.unwrap()).toMatchObject({id: 'conn-1', shared: true});
+		expect(refused.map((result) => result.unwrapErr().kind)).toEqual(['forbidden', 'forbidden', 'forbidden', 'forbidden']);
+		expect(updateConnectionName).not.toHaveBeenCalled();
+		expect(deleteConnection).not.toHaveBeenCalled();
+		expect(setConnectionDefaults).not.toHaveBeenCalled();
+	});
+
+	test('whoever connected it changes it, member or not, and so does the organization’s owner', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok({...sharedRow, connectedById: 'user-2'}));
+		const {handleSetConnectionDefaultsRoute} = await import('./route');
+		const byOwner = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {read: false}}));
+		requireViewer.mockResolvedValue(Ok(member));
+		const byConnector = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {read: false}}));
+
+		expect(byOwner.isOk()).toBe(true);
+		expect(byConnector.isOk()).toBe(true);
+		expect(setConnectionDefaults).toHaveBeenCalledTimes(2);
+	});
+
+	test('another member’s own connection is not found, even for the owner', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok(null));
+		const {handleGetConnectionRoute, handleDeleteConnectionRoute} = await import('./route');
+		const got = await handleGetConnectionRoute(makeRequest({connectionId: 'conn-9'}));
+		const deleted = await handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-9'}));
+
+		expect(getConnectionWithCredential).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'conn-9');
+		expect(got.unwrapErr().kind).toBe('not_found');
+		expect(deleted.unwrapErr().kind).toBe('not_found');
+		expect(deleteConnection).not.toHaveBeenCalled();
 	});
 });

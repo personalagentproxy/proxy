@@ -28,7 +28,6 @@ const agent: AgentLogin = {
 const connection: Connection = {
 	id: 'connection-1',
 	integrationId: 'email',
-	orgId: 'org-1',
 	shared: false,
 	connectedById: 'user-1',
 	connectedBy: null,

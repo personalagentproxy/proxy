@@ -51,7 +51,7 @@ export function handleEditEventRoute(request: AuthenticatedRequest): Promise<Res
 		const current = Object.fromEntries(source.collection.fields.filter((field) => !field.system).map((field) => [field.key, before.values[field.key] ?? '']));
 		const changed = $(await source.connector.update(source, recordId, {...current, ...changes}, before));
 		const title = changed.values.title ?? '';
-		await afterWrite({orgId: viewer.orgId, userId: request.user.userId, source, action: 'update', title, parent: undefined});
+		await afterWrite({viewer, source, action: 'update', title, parent: undefined});
 		return {title, link: changed.url ?? null};
 	});
 }

@@ -1,6 +1,6 @@
 import {AGENT_PROVIDERS, AGENT_NAME_MAX, findAgentProvider} from '@proxy/integrations';
 import type {FetchError} from '@proxy/utils';
-import {useState, type ReactNode} from 'react';
+import {useRef, useState, type ReactNode} from 'react';
 import {useLoaderData} from 'react-router';
 import {listAgents} from '@/client/agents-client';
 import {answerAuthorizationRequest, type Consent} from '@/client/oauth-client';
@@ -19,6 +19,7 @@ import {
 } from '@proxy/ui/components/select';
 import {cn} from '@proxy/ui/lib/utils';
 import {apiMessage} from '@/lib/agent-errors';
+import {describeFetchError} from '@/lib/loader-utils';
 import {forgetPendingAgent} from '@/lib/pending-agent';
 import type {AgentLogin} from '@/lib/types';
 import type {ConnectAgentData, connectAgentLoader} from '@/loaders';
@@ -79,14 +80,26 @@ function Consent({
 	pendingAgentId,
 }: Omit<Extract<ConnectAgentData, {kind: 'ok'}>, 'kind'>) {
 	// The organization the agent is in, the one the loader started in to start with, and its
-	// agents, read again as another is picked.
+	// agents, read again as another is picked: none until they are, and an answer for one picked
+	// before left out.
 	const [orgSlug, setOrgSlug] = useState(org);
+	const picked = useRef(org);
 	const [agents, setAgents] = useState<AgentLogin[]>(loaded);
 	const pickOrg = async (slug: string) => {
+		picked.current = slug;
 		setOrgSlug(slug);
 		setChosen(null);
+		setAgents([]);
+		setError(null);
 		const result = await listAgents(slug);
-		setAgents(result.map((answer) => answer.agents).unwrapOr([]));
+		if (picked.current !== slug) {
+			return;
+		}
+		if (result.isErr()) {
+			setError(describeFetchError(result.error));
+			return;
+		}
+		setAgents(result.value.agents);
 	};
 	const live = agents.filter((agent) => agent.revokedAt === null);
 	const choices: Choice[] = [

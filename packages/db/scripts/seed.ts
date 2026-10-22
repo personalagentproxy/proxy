@@ -72,8 +72,9 @@ function daysAgo(days: number): Date {
 
 const existing = await db.user.findUnique({where: {email: DEMO_EMAIL}, select: {id: true}});
 if (existing) {
+	// The organizations the demo user owns: one they were invited into is someone else's.
 	const orgs = await db.organization.findMany({
-		where: {members: {some: {userId: existing.id}}},
+		where: {ownerUserId: existing.id},
 		select: {id: true},
 	});
 	const orgIds = orgs.map((org) => org.id);

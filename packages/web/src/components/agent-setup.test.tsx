@@ -1,7 +1,7 @@
 /// <reference types="bun" />
 
 import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
-import {act, cleanup, fireEvent, render, screen} from '@testing-library/react';
+import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {AddAgent, AgentSetup} from '@/components/agent-setup';
@@ -224,34 +224,51 @@ describe('AgentSetup', () => {
 	});
 
 	test('waits for an MCP client to sign in as the agent, then says which did', async () => {
-		fetchMock.mockImplementation(() =>
-			Promise.resolve(
-				Response.json({
-					clients: [
-						{
-							id: 'grant-1',
-							name: 'Cursor',
-							connectedAt: '2026-10-01T00:00:00Z',
-							connectedBy: null,
-							mine: true,
-						},
-					],
-				}),
-			),
-		);
+		const client = (id: string, name: string, connectedAt: string, mine: boolean) => ({
+			id,
+			name,
+			connectedAt,
+			connectedBy: mine ? null : 'Dana',
+			mine,
+		});
+		// Signed in before the setup opened, and by someone else since: neither is this setup's.
+		const before = [
+			client('grant-1', 'Old Cursor', '2026-10-01T00:00:00Z', true),
+			client('grant-2', 'Dana’s Cursor', new Date(Date.now() + 60_000).toISOString(), false),
+		];
+		let clients = before;
+		fetchMock.mockImplementation(() => Promise.resolve(Response.json({clients})));
 		renderAgentSetup(agentLogin('agent-1', 'Coding agent'));
 
 		expect(screen.getByText('Add Personal Agent Proxy to Coding agent')).toBeDefined();
-		expect(await screen.findByText('Cursor is signed in as Coding agent.')).toBeDefined();
+		await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 		expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/orgs/acme/agents/agent-1/mcp-clients');
-		expect(pendingAgent()).toBeNull();
-	});
+		expect(screen.getByText('Waiting for Coding agent to sign in…')).toBeDefined();
+		expect(pendingAgent()).toEqual({org: 'acme', agentId: 'agent-1'});
 
-	test('sets a login up again with a new password', () => {
+		clients = [
+			client('grant-3', 'Cursor', new Date(Date.now() + 1000).toISOString(), true),
+			...before,
+		];
+		expect(
+			await screen.findByText('Cursor is signed in as Coding agent.', undefined, {timeout: 5000}),
+		).toBeDefined();
+		expect(pendingAgent()).toBeNull();
+	}, 10_000);
+
+	test('sets a login up again with a new password', async () => {
+		fetchMock.mockImplementation(() =>
+			Promise.resolve(Response.json({password: 'abcde-fghij-kmnop-qrstu'})),
+		);
 		renderAgentSetup(agentLogin('agent-1', 'Dots', 'dot'));
 
 		expect(screen.getByText(/Dots's login is dots-k7q2/)).toBeDefined();
-		expect(screen.getByRole('button', {name: 'New password'})).toBeDefined();
+		fireEvent.click(screen.getByRole('button', {name: 'New password'}));
+
+		expect(await screen.findByText(/Password: abcde-fghij-kmnop-qrstu/)).toBeDefined();
+		const [url, init] = fetchMock.mock.calls[0] ?? [];
+		expect(url).toBe('/api/orgs/acme/agents/agent-1/password');
+		expect(init?.method).toBe('POST');
 	});
 
 	test('continues with Command+Enter', () => {

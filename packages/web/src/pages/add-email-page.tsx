@@ -4,7 +4,7 @@ import {BackButton} from '@/components/back-button';
 import {ConnectEmailForm} from '@/components/connect-email-form';
 import {ShareNote} from '@/components/share-choice';
 import {EMAIL_FORM} from '@/lib/integrations';
-import {useShareChoice} from '@/lib/share-choice';
+import {useShareChoice} from '@/hooks/use-share-choice';
 import {useOrgSlug} from '@/hooks/use-org';
 
 // The mailbox form, from the catalog's plus. Connecting lands on the new connection's page, its

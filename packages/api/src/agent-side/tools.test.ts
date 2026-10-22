@@ -151,6 +151,17 @@ describe('listAgentConnections', () => {
 		});
 	});
 
+	test("reaches the organization's shared connections and its owner's own; a shared agent the shared ones alone", async () => {
+		const {listAgentConnections} = await import('./tools');
+		await listAgentConnections(signedIn);
+		await listAgentConnections({...signedIn, ownerUserId: null});
+
+		expect(listConnectionsWithCredential.mock.calls.map((call) => call[0])).toEqual([
+			{orgId: 'org-1', userId: 'user-1'},
+			{orgId: 'org-1', userId: null},
+		]);
+	});
+
 	test('says which connections are shared with everyone in the organization', async () => {
 		listConnectionsWithCredential.mockResolvedValue(Ok([{...vaultConnection, id: 'vault-2', ownerUserId: null}]));
 

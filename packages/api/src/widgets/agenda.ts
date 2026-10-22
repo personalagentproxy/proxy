@@ -1,8 +1,8 @@
-import type {Viewer} from '@proxy/db/connection';
 import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
+import type {Viewer} from '@proxy/db/viewer';
 import {getWriteTarget} from '@proxy/db/write-target';
 import type {IntegrationId} from '@proxy/integrations';
 

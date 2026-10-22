@@ -8,6 +8,7 @@ import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {HumanSide} from '@/components/human-side';
 import type {ActivityLanes} from '@/client/schemas';
 import {HomePage} from '@/pages/home-page';
+import {testHuman} from '@/test-org';
 import {clearWidgetLookups, widgetsAnswer} from '@/test-widgets-api';
 
 const intent = {
@@ -118,7 +119,7 @@ beforeEach(() => {
 		if (answer) {
 			return Promise.resolve(answer);
 		}
-		return input === '/api/orgs/org-1/intent/fields'
+		return input === '/api/orgs/acme/intent/fields'
 			? fieldsMock(input, init)
 			: fetchMock(input, init);
 	}) as typeof fetch;
@@ -130,33 +131,17 @@ afterEach(() => {
 	cleanup();
 });
 
-// The organization the address names, as the human side's loader answers it.
-const ORG = {
-	id: 'org-1',
-	slug: 'org-1',
-	name: 'Workspace',
-	role: 'owner',
-	onboarded: true,
-	experiments: [],
-	memberCount: 1,
-	invitationCount: 0,
-};
-
 function renderHomePage() {
 	const router = createMemoryRouter(
 		[
 			{
 				id: 'human',
-				loader: () => ({
-					user: {id: 'user-1', email: 'person@example.com', name: null, image: null},
-					org: ORG,
-					orgs: [ORG],
-				}),
+				loader: () => testHuman(),
 				element: <HumanSide />,
 				children: [{path: '/:org', loader: () => home, element: <HomePage />}],
 			},
 		],
-		{initialEntries: ['/org-1']},
+		{initialEntries: ['/acme']},
 	);
 
 	return render(
@@ -185,8 +170,8 @@ describe('HomePage', () => {
 		renderHomePage();
 
 		const sources = await screen.findByRole('link', {name: '3 sources'});
-		expect(sources.getAttribute('href')).toBe('/org-1/connections');
-		expect(screen.getByRole('link', {name: '1 agent'}).getAttribute('href')).toBe('/org-1/agents');
+		expect(sources.getAttribute('href')).toBe('/acme/connections');
+		expect(screen.getByRole('link', {name: '1 agent'}).getAttribute('href')).toBe('/acme/agents');
 	});
 
 	test('with nothing connected, leads to connecting a source and adding an agent', async () => {
@@ -195,10 +180,10 @@ describe('HomePage', () => {
 		renderHomePage();
 
 		expect((await screen.findByRole('link', {name: 'Connect a source'})).getAttribute('href')).toBe(
-			'/org-1/connections/new',
+			'/acme/connections/new',
 		);
 		expect(screen.getByRole('link', {name: 'Add an agent'}).getAttribute('href')).toBe(
-			'/org-1/agents/new',
+			'/acme/agents/new',
 		);
 		home = before;
 	});
@@ -207,7 +192,7 @@ describe('HomePage', () => {
 		renderHomePage();
 
 		const inbox = await screen.findByRole('link', {name: /Triage inbox/});
-		expect(inbox.getAttribute('href')).toBe('/org-1/activity?task=t1');
+		expect(inbox.getAttribute('href')).toBe('/acme/activity?task=t1');
 		expect(screen.getByRole('region', {name: 'Agents'})).toBeTruthy();
 		expect(screen.getByRole('link', {name: /Prepare for the Acme call/})).toBeTruthy();
 		// A revoked login gets no lane.
@@ -244,14 +229,14 @@ describe('HomePage', () => {
 		const widget = await screen.findByRole('region', {name: 'New event'});
 		expect(await within(widget).findByText(/jacky\.doe@example\.com/)).toBeTruthy();
 		expect(fetchMock).toHaveBeenCalledWith(
-			'/api/orgs/org-1/intent',
+			'/api/orgs/acme/intent',
 			expect.objectContaining({
 				method: 'POST',
 				body: JSON.stringify({text: 'lunch with Jacky Doe at Nopa'}),
 			}),
 		);
 		expect(fieldsMock).toHaveBeenCalledWith(
-			'/api/orgs/org-1/intent/fields',
+			'/api/orgs/acme/intent/fields',
 			expect.objectContaining({
 				method: 'POST',
 				body: JSON.stringify({text: 'lunch with Jacky Doe at Nopa', widget: 'new_event'}),
@@ -398,7 +383,7 @@ describe('HomePage', () => {
 		await typeInto('summarize my week');
 		const unsupported = await screen.findByRole('region', {name: 'Not a quick action (yet)'});
 		expect(within(unsupported).getByRole('link', {name: 'Add an agent'}).getAttribute('href')).toBe(
-			'/org-1/agents/new',
+			'/acme/agents/new',
 		);
 		home = before;
 	});
@@ -417,7 +402,7 @@ describe('HomePage', () => {
 		await typeInto(sentence);
 		await waitFor(() =>
 			expect(fetchMock).toHaveBeenLastCalledWith(
-				'/api/orgs/org-1/intent',
+				'/api/orgs/acme/intent',
 				expect.objectContaining({body: JSON.stringify({text: sentence})}),
 			),
 		);
@@ -493,7 +478,7 @@ describe('HomePage', () => {
 		expect(input).toHaveProperty('value', 'write an email to hugo.brandt@example.com');
 		await waitFor(() =>
 			expect(fetchMock).toHaveBeenLastCalledWith(
-				'/api/orgs/org-1/intent',
+				'/api/orgs/acme/intent',
 				expect.objectContaining({
 					body: JSON.stringify({text: 'write an email to hugo.brandt@example.com'}),
 				}),

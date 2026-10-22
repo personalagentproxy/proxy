@@ -6,8 +6,7 @@ import {acceptInvitation, type InvitationLink} from '@/client/orgs-client';
 import {OrgTile} from '@/components/org-switcher';
 import {StepHeading} from '@/components/step-heading';
 import {Button} from '@proxy/ui/components/button';
-import {apiMessage} from '@/lib/agent-errors';
-import {describeFetchError} from '@/lib/loader-utils';
+import {describeApiError} from '@/lib/loader-utils';
 import type {inviteLoader} from '@/loaders';
 
 // Where an invitation's link lands, signed in (the loader sends anyone signed out to sign in or up
@@ -84,7 +83,7 @@ function AlreadyIn({invitation}: {invitation: InvitationLink}) {
 	);
 }
 
-// What joining gives: the organization's connections, agents and activity, open in the switcher.
+// What joining gives: the organization's shared connections and agents, open in the switcher.
 function JoinStep({token, invitation}: {token: string; invitation: InvitationLink}) {
 	const navigate = useNavigate();
 	const [joining, setJoining] = useState(false);
@@ -95,9 +94,9 @@ function JoinStep({token, invitation}: {token: string; invitation: InvitationLin
 		<Frame>
 			<OrgTile org={org} className="size-10 rounded-lg text-base" />
 			<StepHeading title={`Join ${invitation.orgName}`}>
-				{invitation.invitedBy ?? 'Someone'} invited you. You work with what is connected in{' '}
-				{invitation.orgName} beside everyone else in it, and switch back to your own organization
-				from the top of the sidebar.
+				{invitation.invitedBy ?? 'Someone'} invited you. You work with the connections and agents
+				shared with everyone in {invitation.orgName}, and what you connect there stays yours unless
+				you share it. Switch back to your own organization from the top of the sidebar.
 			</StepHeading>
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<div className="flex gap-2">
@@ -108,8 +107,7 @@ function JoinStep({token, invitation}: {token: string; invitation: InvitationLin
 						const result = await acceptInvitation(token);
 						setJoining(false);
 						if (result.isErr()) {
-							const said = result.error.kind === 'http' ? apiMessage(result.error.body) : null;
-							setError(said ?? describeFetchError(result.error));
+							setError(describeApiError(result.error));
 							return;
 						}
 						await navigate(`/${result.value.orgSlug}`);

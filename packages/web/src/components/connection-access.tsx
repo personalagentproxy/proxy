@@ -23,7 +23,8 @@ type Props = {
 	unavailable?: string[];
 	// The connection has no sign-in at all yet, so none of its actions is covered.
 	signInNeeded?: boolean;
-	// Shown but not changed: a shared connection by a member who only uses it.
+	// Shown but not changed: on a connection's page, a shared connection the person only uses; on an
+	// agent's page, a shared agent they only see.
 	readOnly?: boolean;
 };
 

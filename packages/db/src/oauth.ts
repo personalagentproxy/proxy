@@ -32,8 +32,8 @@ export async function getOAuthClient(id: string): Promise<Result<OAuthClientRow 
 export type OAuthCodeRow = {
 	clientId: string;
 	agentId: string;
-	// The member who signed the client in; null for a code from before it was kept.
-	userId: string | null;
+	// The member who signed the client in.
+	userId: string;
 	redirectUri: string;
 	codeChallenge: string;
 	expires: Date;
@@ -95,7 +95,7 @@ export type OAuthTokens = {
  * is never deleted as stale.
  */
 export async function createOAuthGrant(
-	data: OAuthTokens & {clientId: string; agentId: string; userId: string | null},
+	data: OAuthTokens & {clientId: string; agentId: string; userId: string},
 ): Promise<Result<void, ApiError>> {
 	return wrapDb(async () => {
 		await db.$transaction([
@@ -202,8 +202,8 @@ export async function rotateOAuthGrant(
 export type OAuthGrantRow = {
 	id: string;
 	clientName: string;
-	// Who signed the client in; null for a grant from before it was kept.
-	userId: string | null;
+	// Who signed the client in.
+	userId: string;
 	createdAt: Date;
 };
 

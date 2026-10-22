@@ -1,21 +1,21 @@
 import {PencilIcon, PlusIcon, Trash2Icon} from 'lucide-react';
 import {useState} from 'react';
-import {Link, useLoaderData, useRevalidator, useSearchParams} from 'react-router';
+import {Link, useLoaderData, useRevalidator} from 'react-router';
 import {deleteConnection, renameConnection} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {OrgNotice} from '@/components/org-notice';
 import {RenameDialog} from '@/components/rename-dialog';
-import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
-import {ShareToggle} from '@/components/share-toggle';
+import {Row, RowHeader, RowList} from '@/components/row-list';
+import {SideEmpty, SideToggle} from '@/components/share-toggle';
 import {Button} from '@proxy/ui/components/button';
 import {ContextMenuItem} from '@proxy/ui/components/context-menu';
 import {useHuman} from '@/hooks/use-human';
+import {useSide} from '@/hooks/use-side';
 import {agentsWithAccess, integrationOf} from '@/lib/access';
-import {apiMessage} from '@/lib/agent-errors';
-import {describeFetchError} from '@/lib/loader-utils';
-import {actsAs, hasOtherPeople} from '@/lib/orgs';
+import {describeApiError, describeFetchError} from '@/lib/loader-utils';
+import {actsAs, manages} from '@/lib/orgs';
 import type {Connection} from '@/lib/types';
 import type {connectionsLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -47,25 +47,18 @@ export function ConnectionsPage() {
 	const org = useOrgSlug();
 	const {connections: all, agents} = useLoaderData<typeof connectionsLoader>();
 	const revalidator = useRevalidator();
-	const [params, setParams] = useSearchParams();
 	const human = useHuman();
 	const [pending, setPending] = useState<Pending | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const listed = all.filter((connection) => !integrationOf(connection)?.builtIn);
+	const side = useSide(listed, {opensOnShared: true});
 	if (!human) {
 		return null;
 	}
 
 	const activeOrg = human.org;
-	const others = hasOtherPeople(activeOrg);
-	const listed = all.filter((connection) => !integrationOf(connection)?.builtIn);
-	const sharedCount = listed.filter((connection) => connection.shared).length;
-	const chosen = params.get('for');
-	const showingShared = others && (chosen === 'everyone' || (chosen !== 'me' && sharedCount > 0));
-	const connections = others
-		? listed.filter((connection) => connection.shared === showingShared)
-		: listed;
-	const manages = (connection: Connection) =>
-		!connection.shared || connection.connectedById === human.user.id || human.org.role === 'owner';
+	const connections = side.shown;
+	const showingShared = side.shared;
 	const renaming = pending?.action === 'rename' ? pending.connection : null;
 	const deleting = pending?.action === 'delete' ? pending.connection : null;
 
@@ -90,14 +83,7 @@ export function ConnectionsPage() {
 			}
 		>
 			<OrgNotice />
-			{others && (
-				<ShareToggle
-					orgName={activeOrg.name}
-					shared={showingShared}
-					counts={{shared: sharedCount, yours: listed.length - sharedCount}}
-					onChange={(next) => setParams({for: next ? 'everyone' : 'me'}, {replace: true})}
-				/>
-			)}
+			<SideToggle side={side} orgName={activeOrg.name} />
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<RowList
 				header={
@@ -110,24 +96,25 @@ export function ConnectionsPage() {
 					</RowHeader>
 				}
 			>
-				{connections.length === 0 && !others && (
-					<EmptyRows>
-						Nothing connected yet.{' '}
-						<Link to={`/${org}/connections/new`} className={LINK}>
-							Add a connection
-						</Link>{' '}
-						or{' '}
-						<Link to={`/${org}/members`} className={LINK}>
-							invite people
-						</Link>{' '}
-						to share them with.
-					</EmptyRows>
-				)}
-				{connections.length === 0 && others && showingShared && (
-					<EmptyRows>Nothing shared with {activeOrg.name} yet.</EmptyRows>
-				)}
-				{connections.length === 0 && others && !showingShared && (
-					<EmptyRows>Nothing of your own in {activeOrg.name} yet.</EmptyRows>
+				{connections.length === 0 && (
+					<SideEmpty
+						side={side}
+						alone={
+							<>
+								Nothing connected yet.{' '}
+								<Link to={`/${org}/connections/new`} className={LINK}>
+									Add a connection
+								</Link>{' '}
+								or{' '}
+								<Link to={`/${org}/members`} className={LINK}>
+									invite people
+								</Link>{' '}
+								to share them with.
+							</>
+						}
+						shared={`Nothing shared with ${activeOrg.name} yet.`}
+						own={`Nothing of your own in ${activeOrg.name} yet.`}
+					/>
 				)}
 				{connections.map((connection) => {
 					const integration = integrationOf(connection);
@@ -141,9 +128,7 @@ export function ConnectionsPage() {
 								<>
 									<span className={CELLS.account}>{connection.account}</span>
 									{showingShared && (
-										<span className={CELLS.actsAs}>
-											{actsAs(connection, connection.connectedBy)}
-										</span>
+										<span className={CELLS.actsAs}>{actsAs(connection, human)}</span>
 									)}
 									<span className={CELLS.agents}>
 										{agentsWithAccess(agents, connection).length}
@@ -151,7 +136,7 @@ export function ConnectionsPage() {
 								</>
 							}
 							menu={
-								manages(connection) && (
+								manages(human, connection) && (
 									<>
 										<ContextMenuItem onClick={() => setPending({connection, action: 'rename'})}>
 											<PencilIcon />
@@ -187,8 +172,7 @@ export function ConnectionsPage() {
 					onSave={async (name) => {
 						const result = await renameConnection(org, renaming.id, name);
 						if (result.isErr()) {
-							const said = result.error.kind === 'http' ? apiMessage(result.error.body) : null;
-							return said ?? describeFetchError(result.error);
+							return describeApiError(result.error);
 						}
 						await revalidator.revalidate();
 						return null;

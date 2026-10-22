@@ -5,7 +5,7 @@ import {BackButton} from '@/components/back-button';
 import {ConnectDatabaseForm} from '@/components/connect-database-form';
 import {ShareNote} from '@/components/share-choice';
 import {describeDatabase} from '@/lib/integrations';
-import {useShareChoice} from '@/lib/share-choice';
+import {useShareChoice} from '@/hooks/use-share-choice';
 import {useOrgSlug} from '@/hooks/use-org';
 
 // The database form, from the catalog's plus. Connecting lands on the new connection's page, its

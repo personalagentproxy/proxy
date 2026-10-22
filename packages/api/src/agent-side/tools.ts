@@ -4,7 +4,8 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {getAgentById, type AgentRow, type SignedInAgent} from '@proxy/db/agent';
 import {logAgentRequest} from '@proxy/db/audit';
-import {listConnectionsWithCredential, type ConnectionRow, type Viewer} from '@proxy/db/connection';
+import {listConnectionsWithCredential, type ConnectionRow} from '@proxy/db/connection';
+import type {Viewer} from '@proxy/db/viewer';
 import {
 	allowedTools,
 	applies,

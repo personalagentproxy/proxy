@@ -37,13 +37,13 @@ import {Section} from '@/components/section';
 import {Sharing} from '@/components/sharing';
 import {Checkbox} from '@proxy/ui/components/checkbox';
 import {Input} from '@proxy/ui/components/input';
+import {useApply} from '@/hooks/use-apply';
 import {useHuman} from '@/hooks/use-human';
 import {connectionLabel, defaultActions, integrationOf, ownSettings} from '@/lib/access';
 import {cn} from '@proxy/ui/lib/utils';
 import {formatDate} from '@/lib/format';
-import {apiMessage} from '@/lib/agent-errors';
-import {describeFetchError} from '@/lib/loader-utils';
-import {hasOtherPeople} from '@/lib/orgs';
+import {describeApiError, describeFetchError} from '@/lib/loader-utils';
+import {hasOtherPeople, manages} from '@/lib/orgs';
 import type {AgentLogin, Connection} from '@/lib/types';
 import type {agentLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -70,6 +70,7 @@ function AgentDetail({id}: {id: string}) {
 	const [confirming, setConfirming] = useState<Confirming>(null);
 	const [renaming, setRenaming] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const apply = useApply(setError);
 	const human = useHuman();
 	if (!agent || agent.id !== id || !human) {
 		return <NotFound what="agent" back={`/${org}/agents`} backLabel="Back to agents" />;
@@ -77,23 +78,16 @@ function AgentDetail({id}: {id: string}) {
 
 	const revoked = agent.revokedAt !== null;
 	const activeOrg = human.org;
-	const mine = agent.createdById === human.user.id;
-	const manages = !agent.shared || mine || human.org.role === 'owner';
-	const createdBy = mine ? 'You' : (agent.createdBy ?? 'A former member');
+	const mayChange = manages(human, agent);
+	const createdBy =
+		!agent.shared || agent.createdById === human.user.id
+			? 'You'
+			: (agent.createdBy ?? 'A former member');
 	// A shared agent reaches the connections shared with everyone alone.
 	const reachable = agent.shared
 		? connections.filter((connection) => connection.shared)
 		: connections;
 	const company = findAgentProvider(agent.providerId)?.company ?? agent.providerId;
-	const apply = async <T,>(change: Promise<Result<T, FetchError>>) => {
-		const result = await change;
-		if (result.isErr()) {
-			setError(describeFetchError(result.error));
-			return;
-		}
-		setError(null);
-		await revalidator.revalidate();
-	};
 
 	return (
 		<AppShell
@@ -115,7 +109,7 @@ function AgentDetail({id}: {id: string}) {
 				</>
 			}
 			actions={
-				manages && (
+				mayChange && (
 					<>
 						<IconButton label="Rename agent" onClick={() => setRenaming(true)}>
 							<PencilIcon />
@@ -150,7 +144,7 @@ function AgentDetail({id}: {id: string}) {
 					<Section title="MCP">
 						<McpClients
 							clients={mcpClients}
-							manages={manages}
+							mayChange={mayChange}
 							onDisconnect={(clientId) => void apply(disconnectMcpClient(org, agent.id, clientId))}
 						/>
 					</Section>
@@ -158,7 +152,7 @@ function AgentDetail({id}: {id: string}) {
 				<Section
 					title="Access"
 					detail={
-						agent.shared && !manages
+						agent.shared && !mayChange
 							? 'changed by whoever made it and the owner'
 							: changedDetail(agent)
 					}
@@ -166,7 +160,8 @@ function AgentDetail({id}: {id: string}) {
 					<AccessGrid
 						agent={agent}
 						connections={reachable}
-						readOnly={!manages}
+						readOnly={!mayChange}
+						setsDefaults={(connection) => manages(human, connection)}
 						onChange={(connectionId, actions) =>
 							apply(setAgentGrants(org, agent.id, connectionId, actions))
 						}
@@ -188,7 +183,6 @@ function AgentDetail({id}: {id: string}) {
 						},
 						{label: 'Made by', value: createdBy},
 					]}
-					canShare={manages}
 					alone={!hasOtherPeople(activeOrg)}
 					confirmDescription={`Everyone in ${activeOrg.name} sees ${agent.name} and can give its login to their own tools. It reaches only the connections shared with everyone from then on, so its settings on your own connections are dropped. Its tasks and activity so far become everyone's too, except what it did on your own connections, which stays yours. Whoever made it and the organization's owner change it. This can't be undone.`}
 					onShare={() => apply(shareAgent(org, agent.id))}
@@ -227,8 +221,7 @@ function AgentDetail({id}: {id: string}) {
 					onSave={async (name) => {
 						const result = await renameAgent(org, agent.id, name);
 						if (result.isErr()) {
-							const said = result.error.kind === 'http' ? apiMessage(result.error.body) : null;
-							return said ?? describeFetchError(result.error);
+							return describeApiError(result.error);
 						}
 						await revalidator.revalidate();
 						return null;
@@ -269,11 +262,11 @@ function AgentDetail({id}: {id: string}) {
 // by whoever manages the agent or signed it in.
 function McpClients({
 	clients,
-	manages,
+	mayChange,
 	onDisconnect,
 }: {
 	clients: McpClient[];
-	manages: boolean;
+	mayChange: boolean;
 	onDisconnect: (clientId: string) => void;
 }) {
 	const connectedBy = (client: McpClient) => {
@@ -289,9 +282,9 @@ function McpClients({
 					<span className="min-w-0 flex-1 truncate">{client.name}</span>
 					<span className="shrink-0 text-muted-foreground">
 						connected {formatDate(client.connectedAt)}
-						{manages && ` ${connectedBy(client)}`}
+						{mayChange && ` ${connectedBy(client)}`}
 					</span>
-					{(manages || client.mine) && (
+					{(mayChange || client.mine) && (
 						<IconButton label={`Disconnect ${client.name}`} onClick={() => onDisconnect(client.id)}>
 							<UnplugIcon />
 						</IconButton>
@@ -333,6 +326,9 @@ type GridProps = {
 	connections: Connection[];
 	// Shown but not changed: a shared agent by a member who only sees it.
 	readOnly: boolean;
+	// Whether the person may change a connection's defaults, which making an agent's own setting
+	// the default does: the connection is theirs to change too.
+	setsDefaults: (connection: Connection) => boolean;
 	onChange: (connectionId: string, actions: Record<string, boolean | null>) => Promise<void>;
 	onMakeDefault: (connectionId: string, actionId: string, allowed: boolean) => Promise<void>;
 };
@@ -341,7 +337,14 @@ type GridProps = {
 // saying whether the agent follows its default or has changed something. A filter narrows them to
 // the connections, actions and groups of actions (Calendar) it names, and Changed only keeps the actions the agent has a setting of its own for; either opens
 // everything it keeps.
-function AccessGrid({agent, connections, readOnly, onChange, onMakeDefault}: GridProps) {
+function AccessGrid({
+	agent,
+	connections,
+	readOnly,
+	setsDefaults,
+	onChange,
+	onMakeDefault,
+}: GridProps) {
 	const [query, setQuery] = useState('');
 	const [changedOnly, setChangedOnly] = useState(false);
 	const [opened, setOpened] = useState<Set<string>>(() => new Set());
@@ -439,7 +442,7 @@ function AccessGrid({agent, connections, readOnly, onChange, onMakeDefault}: Gri
 									readOnly={readOnly}
 									onChange={(changes) => onChange(connection.id, changes)}
 									onMakeDefault={
-										readOnly
+										readOnly || !setsDefaults(connection)
 											? undefined
 											: (actionId, allowed) => onMakeDefault(connection.id, actionId, allowed)
 									}

@@ -3,7 +3,7 @@ import {AddAgent} from '@/components/agent-setup';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {BackButton} from '@/components/back-button';
 import {SharePicker} from '@/components/share-choice';
-import {useShareChoice} from '@/lib/share-choice';
+import {useShareChoice} from '@/hooks/use-share-choice';
 import type {agentsLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 

@@ -34,7 +34,7 @@ export function handleCreateEventRoute(request: AuthenticatedRequest): Promise<R
 		const written = Object.keys(values).filter((key) => key !== 'guests' || body.guests.length > 0);
 		const source = $(await requireWritable(viewer, body.connectionId, 'events', 'create', written));
 		const made = $(await source.connector.create(source, values, body.calendarId));
-		await afterWrite({orgId: viewer.orgId, userId: request.user.userId, source, action: 'create', title: made.values.title ?? body.title, parent: body.calendarId});
+		await afterWrite({viewer, source, action: 'create', title: made.values.title ?? body.title, parent: body.calendarId});
 		return {title: made.values.title ?? body.title, link: made.url ?? null};
 	});
 }

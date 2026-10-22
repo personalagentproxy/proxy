@@ -3,14 +3,7 @@ import {Ok, type Result} from 'ts-results-es';
 import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
-
-// Who is looking at an organization's connections: a member, who sees the ones shared with every
-// member of it and their own, never another member's, or a shared agent (`userId` null), which sees
-// the shared ones alone.
-export type Viewer = {orgId: string; userId: string | null};
-
-/** A member looking at the organization: a viewer with a user, who also connects, shares and changes things. */
-export type MemberViewer = {orgId: string; userId: string};
+import {type Viewer, visibleTo} from './viewer';
 
 export type ConnectionRow = {
 	id: string;
@@ -45,14 +38,6 @@ const connectionSelect = {
 	defaults: {select: {actionId: true}},
 } as const;
 
-// The connections a viewer sees: the organization's shared ones and their own.
-function visibleTo(viewer: Viewer) {
-	if (viewer.userId === null) {
-		return {orgId: viewer.orgId, ownerUserId: null};
-	}
-	return {orgId: viewer.orgId, OR: [{ownerUserId: null}, {ownerUserId: viewer.userId}]};
-}
-
 export async function listConnections(viewer: Viewer): Promise<Result<ConnectionRow[], ApiError>> {
 	return wrapDb(() =>
 		db.connection.findMany({
@@ -75,19 +60,6 @@ export async function listConnectionsWithCredential(
 			where: visibleTo(viewer),
 			select: {...connectionSelect, credential: true},
 			orderBy: {createdAt: 'asc'},
-		}),
-	);
-}
-
-/** `Ok(null)` means no such connection the viewer sees. */
-export async function getConnection(
-	viewer: Viewer,
-	connectionId: string,
-): Promise<Result<ConnectionRow | null, ApiError>> {
-	return wrapDb(() =>
-		db.connection.findFirst({
-			where: {id: connectionId, ...visibleTo(viewer)},
-			select: connectionSelect,
 		}),
 	);
 }

@@ -2,6 +2,7 @@ import type {FetchError} from '@proxy/utils';
 import {data, redirect} from 'react-router';
 import type {Result} from 'ts-results-es';
 import {isNotFoundError, isUnauthenticatedError} from '@/client/me-client';
+import {apiMessage} from '@/lib/agent-errors';
 
 export function unwrapLoaderResult<T>(result: Result<T, FetchError>): T {
 	if (result.isOk()) {
@@ -48,4 +49,10 @@ export function describeFetchError(error: FetchError): string {
 		return 'You have been signed out. Reload the page to sign in again.';
 	}
 	return 'Something went wrong. Try again.';
+}
+
+/** The same, in the api's own words where it has them, as a name already taken. */
+export function describeApiError(error: FetchError): string {
+	const said = error.kind === 'http' ? apiMessage(error.body) : null;
+	return said ?? describeFetchError(error);
 }

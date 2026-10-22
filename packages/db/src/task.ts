@@ -5,7 +5,7 @@ import {type ApiError, wrapDb} from '@proxy/utils';
 import {TASK_ABANDONED_AFTER_MS} from '@proxy/utils/tasks';
 
 import {db} from '.';
-import type {Viewer} from './connection';
+import {type Viewer, visibleTo} from './viewer';
 
 /** What an agent set out to do, as it named it when it started. */
 export type AgentTaskRow = {
@@ -174,8 +174,7 @@ export async function listAgentTasksSince(
 	return wrapDb(() =>
 		db.agentTask.findMany({
 			where: {
-				orgId: viewer.orgId,
-				AND: [{OR: [{ownerUserId: null}, {ownerUserId: viewer.userId}]}],
+				AND: [visibleTo(viewer)],
 				OR: [
 					{finishedAt: {gte: from}},
 					{finishedAt: null, createdAt: {gte: new Date(from.getTime() - TASK_ABANDONED_AFTER_MS)}},
@@ -198,11 +197,7 @@ export async function listAgentTasks(
 	}
 	return wrapDb(() =>
 		db.agentTask.findMany({
-			where: {
-				orgId: viewer.orgId,
-				id: {in: ids},
-				OR: [{ownerUserId: null}, {ownerUserId: viewer.userId}],
-			},
+			where: {...visibleTo(viewer), id: {in: ids}},
 			select: taskSelect,
 		}),
 	);

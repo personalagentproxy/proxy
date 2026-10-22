@@ -4,7 +4,7 @@ import {BackButton} from '@/components/back-button';
 import {IntegrationCatalog, SignInFailed} from '@/components/integration-catalog';
 import {SharePicker} from '@/components/share-choice';
 import {useExperiments} from '@/hooks/use-experiment';
-import {useShareChoice} from '@/lib/share-choice';
+import {useShareChoice} from '@/hooks/use-share-choice';
 import type {addConnectionLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 

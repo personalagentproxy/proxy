@@ -41,7 +41,7 @@ function EntryAgentLogo({entry, agent}: {entry: AuditEntry; agent: AgentLogin | 
 	);
 }
 
-// " for Dana": who asked for what Personal Agent Proxy did itself, where that was kept.
+// " for Dana": who asked for what Personal Agent Proxy did itself; nothing for an agent's request.
 function askedBy(entry: AuditEntry): string {
 	if (entry.userId === null) {
 		return '';

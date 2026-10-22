@@ -1,14 +1,14 @@
 import {PlusIcon} from 'lucide-react';
-import {Link, useLoaderData, useSearchParams} from 'react-router';
+import {Link, useLoaderData} from 'react-router';
 import {findAgentProvider} from '@proxy/integrations';
 import {AgentLogo} from '@/components/brand-logo';
 import {AppShell, PageTitle} from '@/components/app-shell';
-import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
-import {ShareToggle} from '@/components/share-toggle';
+import {Row, RowHeader, RowList} from '@/components/row-list';
+import {SideEmpty, SideToggle} from '@/components/share-toggle';
 import {Button} from '@proxy/ui/components/button';
 import {useHuman} from '@/hooks/use-human';
+import {useSide} from '@/hooks/use-side';
 import {formatAgo} from '@/lib/format';
-import {hasOtherPeople} from '@/lib/orgs';
 import {cn} from '@proxy/ui/lib/utils';
 import type {agentsLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -27,18 +27,14 @@ const CELLS = {
 export function AgentsPage() {
 	const org = useOrgSlug();
 	const {agents: all} = useLoaderData<typeof agentsLoader>();
-	const [params, setParams] = useSearchParams();
 	const human = useHuman();
+	const side = useSide(all, {opensOnShared: true});
 	if (!human) {
 		return null;
 	}
 
 	const activeOrg = human.org;
-	const others = hasOtherPeople(activeOrg);
-	const sharedCount = all.filter((agent) => agent.shared).length;
-	const chosen = params.get('for');
-	const showingShared = others && (chosen === 'everyone' || (chosen !== 'me' && sharedCount > 0));
-	const agents = others ? all.filter((agent) => agent.shared === showingShared) : all;
+	const agents = side.shown;
 	const active = all.filter((agent) => agent.revokedAt === null).length;
 
 	return (
@@ -49,7 +45,7 @@ export function AgentsPage() {
 					size="sm"
 					nativeButton={false}
 					render={
-						<Link to={showingShared ? `/${org}/agents/new?for=everyone` : `/${org}/agents/new`} />
+						<Link to={side.shared ? `/${org}/agents/new?for=everyone` : `/${org}/agents/new`} />
 					}
 				>
 					<PlusIcon data-icon="inline-start" />
@@ -57,14 +53,7 @@ export function AgentsPage() {
 				</Button>
 			}
 		>
-			{others && (
-				<ShareToggle
-					orgName={activeOrg.name}
-					shared={showingShared}
-					counts={{shared: sharedCount, yours: all.length - sharedCount}}
-					onChange={(next) => setParams({for: next ? 'everyone' : 'me'}, {replace: true})}
-				/>
-			)}
+			<SideToggle side={side} orgName={activeOrg.name} />
 			<RowList
 				header={
 					<RowHeader>
@@ -76,12 +65,13 @@ export function AgentsPage() {
 					</RowHeader>
 				}
 			>
-				{agents.length === 0 && !others && <EmptyRows>No agents yet.</EmptyRows>}
-				{agents.length === 0 && others && showingShared && (
-					<EmptyRows>No agent shared with {activeOrg.name} yet.</EmptyRows>
-				)}
-				{agents.length === 0 && others && !showingShared && (
-					<EmptyRows>No agent of your own in {activeOrg.name} yet.</EmptyRows>
+				{agents.length === 0 && (
+					<SideEmpty
+						side={side}
+						alone="No agents yet."
+						shared={`No agent shared with ${activeOrg.name} yet.`}
+						own={`No agent of your own in ${activeOrg.name} yet.`}
+					/>
 				)}
 				{agents.map((agent) => {
 					const revoked = agent.revokedAt !== null;

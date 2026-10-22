@@ -1,8 +1,6 @@
-import type {FetchError} from '@proxy/utils';
 import {EllipsisIcon, LogOutIcon, MailPlusIcon, Trash2Icon, XIcon} from 'lucide-react';
 import {useState} from 'react';
 import {useLoaderData, useNavigate, useRevalidator} from 'react-router';
-import type {Result} from 'ts-results-es';
 import {
 	inviteMember,
 	leaveOrg,
@@ -33,10 +31,10 @@ import {
 } from '@proxy/ui/components/dropdown-menu';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
+import {useApply} from '@/hooks/use-apply';
 import {useHuman} from '@/hooks/use-human';
-import {apiMessage} from '@/lib/agent-errors';
 import {formatDate} from '@/lib/format';
-import {describeFetchError} from '@/lib/loader-utils';
+import {describeApiError} from '@/lib/loader-utils';
 import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import type {membersLoader} from '@/loaders';
 
@@ -53,12 +51,6 @@ const ROW = 'bleed flex h-10 items-center gap-3 text-sm';
 // What a row's menu is about: the member, and whether they are being removed or are leaving.
 type Pending = {member: Member; action: 'remove' | 'leave'};
 
-// What the api said went wrong, in its words where it has them.
-function failureOf(error: FetchError): string {
-	const said = error.kind === 'http' ? apiMessage(error.body) : null;
-	return said ?? describeFetchError(error);
-}
-
 // The people in the organization open, and the invitations not taken up yet. Its owner, whoever
 // made it, invites and removes, and deletes it rather than leaving; members leave. Roles never
 // change.
@@ -70,30 +62,22 @@ export function MembersPage() {
 	const [inviting, setInviting] = useState(false);
 	const [pending, setPending] = useState<Pending | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const apply = useApply(setError);
 	if (!human) {
 		return null;
 	}
 
-	const org = human.org;
-	const owner = human.org.role === 'owner';
+	const organization = human.org;
+	const owner = organization.role === 'owner';
 	const nameOf = (member: Member) => member.name ?? member.email;
-	const apply = async (change: Promise<Result<unknown, FetchError>>) => {
-		const result = await change;
-		if (result.isErr()) {
-			setError(failureOf(result.error));
-			return;
-		}
-		setError(null);
-		await revalidator.revalidate();
-	};
 
 	return (
 		<AppShell
 			title={
 				<PageTitle detail={`${members.length} ${members.length === 1 ? 'member' : 'members'}`}>
 					<span className="flex items-center gap-2">
-						<OrgTile org={org} />
-						{org.name}
+						<OrgTile org={organization} />
+						{organization.name}
 					</span>
 				</PageTitle>
 			}
@@ -166,7 +150,7 @@ export function MembersPage() {
 									{owner ? (
 										<IconButton
 											label={`Revoke the invitation to ${invitation.email}`}
-											onClick={() => void apply(revokeInvitation(org.slug, invitation.id))}
+											onClick={() => void apply(revokeInvitation(organization.slug, invitation.id))}
 										>
 											<XIcon />
 										</IconButton>
@@ -179,19 +163,19 @@ export function MembersPage() {
 					</Section>
 				)}
 				<p className="text-sm text-muted-foreground">
-					Everyone in {org.name} works with its connections, agents and activity. Its owner invites
-					people and removes members.
+					Everyone in {organization.name} works with the connections and agents shared with it; each
+					member's own stay theirs alone. Its owner invites people and removes members.
 				</p>
 			</div>
 			<InviteDialog
 				key={String(inviting)}
 				open={inviting}
-				orgName={org.name}
+				orgName={organization.name}
 				onClose={() => setInviting(false)}
 				onInvite={async (email) => {
-					const result = await inviteMember(org.slug, email);
+					const result = await inviteMember(organization.slug, email);
 					if (result.isErr()) {
-						return failureOf(result.error);
+						return describeApiError(result.error);
 					}
 					await revalidator.revalidate();
 					return null;
@@ -202,7 +186,7 @@ export function MembersPage() {
 				title={pending ? `Remove ${nameOf(pending.member)}?` : ''}
 				description={
 					pending
-						? `${nameOf(pending.member)} loses ${org.name} at once: its connections, agents and activity are no longer theirs to see or use, and the apps they signed in as its shared agents are signed out. A shared agent's password they know keeps working until it is reset.`
+						? `${nameOf(pending.member)} loses ${organization.name} at once: its connections, agents and activity are no longer theirs to see or use, and the apps they signed in as its shared agents are signed out. A shared agent's password they know keeps working until it is reset.`
 						: ''
 				}
 				confirmLabel="Remove"
@@ -212,25 +196,26 @@ export function MembersPage() {
 					if (!pending) {
 						return;
 					}
-					void apply(removeMember(org.slug, pending.member.userId));
+					void apply(removeMember(organization.slug, pending.member.userId));
 				}}
 			/>
 			<ConfirmDialog
 				open={pending?.action === 'leave'}
-				title={`Leave ${org.name}?`}
-				description={`You lose ${org.name} at once: its connections, agents and activity are no longer yours to see or use. Its owner can invite you again.`}
+				title={`Leave ${organization.name}?`}
+				description={`You lose ${organization.name} at once: its connections, agents and activity are no longer yours to see or use. Its owner can invite you again.`}
 				confirmLabel="Leave"
 				destructive
 				onClose={() => setPending(null)}
 				onConfirm={async () => {
-					const result = await leaveOrg(org.slug);
+					const result = await leaveOrg(organization.slug);
 					if (result.isErr()) {
-						setError(failureOf(result.error));
+						setError(describeApiError(result.error));
 						return;
 					}
 					// Out of it, the person's first other organization: everyone owns one.
-					const next = human.orgs.find((candidate) => candidate.id !== org.id) ?? org;
-					await navigate(`/${next.slug}/connections?left=${encodeURIComponent(org.name)}`);
+					const next =
+						human.orgs.find((candidate) => candidate.id !== organization.id) ?? organization;
+					await navigate(`/${next.slug}/connections?left=${encodeURIComponent(organization.name)}`);
 				}}
 			/>
 		</AppShell>
@@ -343,7 +328,7 @@ function InviteDialog({
 						<DialogTitle>Invite to {orgName}</DialogTitle>
 						<DialogDescription>
 							They get a link by email that signs them in and adds them as a member, working with
-							everything connected in {orgName}.
+							the connections and agents shared with everyone in {orgName}. Your own stay yours.
 						</DialogDescription>
 					</DialogHeader>
 					<div className="grid gap-2">

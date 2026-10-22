@@ -371,8 +371,7 @@ model AuditEntry {
   // everyone in the organization sees.
   ownerUserId  String?
   // The member who asked for what Personal Agent Proxy did itself, as a plain id, so the entry
-  // stays when they are gone; null for an agent's request, and for entries from before it was
-  // kept.
+  // stays when they are gone; null for an agent's request.
   userId       String?
   // What went wrong, for a failed request: the api's kind of error, such as `credentials_rejected`,
   // and the provider's HTTP status after it where it answered with one, such as
@@ -479,8 +478,8 @@ model OAuthCode {
   codeHash      String   @unique
   clientId      String
   agentId       String
-  // The member who signed the client in, as a plain id; null for a code from before it was kept.
-  userId        String?
+  // The member who signed the client in, as a plain id.
+  userId        String
   redirectUri   String
   codeChallenge String
   expires       DateTime
@@ -501,10 +500,10 @@ model OAuthGrant {
   id               String   @id @default(cuid())
   clientId         String
   agentId          String
-  // The member who signed the client in, as a plain id: they see and sign out their own clients
-  // on a shared agent, and leaving the organization signs them out. Null for a grant from before
-  // it was kept, which only whoever may change the agent sees.
-  userId           String?
+  // The member who signed the client in, as a plain id, so the grant stays when they are gone:
+  // they see and sign out their own clients on a shared agent, and leaving the organization signs
+  // them out.
+  userId           String
   accessTokenHash  String   @unique
   accessExpires    DateTime
   refreshTokenHash String   @unique

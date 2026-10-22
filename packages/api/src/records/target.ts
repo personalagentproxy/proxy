@@ -1,7 +1,8 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
-import {getConnectionWithCredential, type Viewer} from '@proxy/db/connection';
+import {getConnectionWithCredential} from '@proxy/db/connection';
+import type {Viewer} from '@proxy/db/viewer';
 import {findCollection, type Integration} from '@proxy/integrations';
 
 import {integrationOf} from '../utils/connection-actions';

@@ -4,14 +4,12 @@ import {Err, Ok} from 'ts-results-es';
 import {ApiErr} from '@proxy/utils';
 
 const findSources = mock();
-const requireUserOrgId = mock(async () => Ok('org-1'));
 
 mock.module('./sources', () => ({findSources, summarize: (source: {connection: {id: string}}) => ({connectionId: source.connection.id})}));
 // Every mailbox can be searched, with the search each fake mailbox has.
 mock.module('./mail-searches', () => ({searchable: (sources: Array<{search: unknown}>) => sources.map((source) => ({...source, find: source.search}))}));
 mock.module('../utils/user-org', () => ({
 	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
-	requireUserOrgId,
 }));
 
 function contact(id: string, name: string, emails: string) {

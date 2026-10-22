@@ -11,7 +11,6 @@ mock.module('./sources', () => ({
 }));
 mock.module('../utils/user-org', () => ({
 	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
-	requireUserOrgId: async () => Ok('org-1'),
 }));
 // As the Drive connector reads a file's type.
 mock.module('../records/google-files', () => ({kindOf: (mimeType: string) => (mimeType.endsWith('spreadsheet') ? 'Spreadsheet' : mimeType.endsWith('document') ? 'Document' : 'File')}));

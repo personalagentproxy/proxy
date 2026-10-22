@@ -19,7 +19,6 @@ mock.module('./sources', () => ({
 mock.module('../utils/user-org', () => ({
 	requireViewer: async (request: {user: {experiments?: string[]}}) =>
 		Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: request.user.experiments ?? []}),
-	requireUserOrgId: async () => Ok('org-1'),
 }));
 
 function meeting(id: string, title: string, day: string, participants: string, summary = '', privateNotes = ''): GranolaMeeting {

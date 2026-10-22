@@ -68,9 +68,9 @@ export async function addConnectionLoader(args: OrgParams) {
 	};
 }
 
-export async function connectionLoader({params}: {params: {org?: string; id?: string}}) {
-	const org = params.org ?? '';
-	const id = params.id ?? '';
+export async function connectionLoader(args: {params: {org?: string; id?: string}}) {
+	const org = orgOf(args);
+	const id = args.params.id ?? '';
 	const [connection, connections, agents, activity] = await Promise.all([
 		getConnection(org, id),
 		listConnections(org),
@@ -116,9 +116,9 @@ export async function agentsLoader(args: OrgParams) {
 	return {agents: unwrapLoaderResult(await listAgents(orgOf(args))).agents};
 }
 
-export async function agentLoader({params}: {params: {org?: string; id?: string}}) {
-	const org = params.org ?? '';
-	const id = params.id ?? '';
+export async function agentLoader(args: {params: {org?: string; id?: string}}) {
+	const org = orgOf(args);
+	const id = args.params.id ?? '';
 	const [agent, connections, agents, activity, mcpClients] = await Promise.all([
 		getAgent(org, id),
 		listConnections(org),
@@ -127,10 +127,12 @@ export async function agentLoader({params}: {params: {org?: string; id?: string}
 		listMcpClients(org, id),
 	]);
 	const {entries, tasks} = unwrapLoaderResult(activity);
+	const found = unwrapOrNull(agent);
 	return {
-		agent: unwrapOrNull(agent),
-		// Only whoever may change the agent sees its MCP clients: none for anyone else.
-		mcpClients: mcpClients.map((answer) => answer.clients).unwrapOr([]),
+		agent: found,
+		// Every one for whoever may change the agent; anyone else, the ones they signed in
+		// themselves. None for an agent not found, which its page says so of.
+		mcpClients: found === null ? [] : unwrapLoaderResult(mcpClients).clients,
 		connections: unwrapLoaderResult(connections).connections,
 		agents: unwrapLoaderResult(agents).agents,
 		entries,
@@ -138,13 +140,13 @@ export async function agentLoader({params}: {params: {org?: string; id?: string}
 	};
 }
 
-export async function agentSetupLoader({params}: {params: {org?: string; id?: string}}) {
-	return {agent: unwrapOrNull(await getAgent(params.org ?? '', params.id ?? ''))};
+export async function agentSetupLoader(args: {params: {org?: string; id?: string}}) {
+	return {agent: unwrapOrNull(await getAgent(orgOf(args), args.params.id ?? ''))};
 }
 
-export async function activityLoader({params, request}: OrgParams & {request: Request}) {
-	const org = params.org ?? '';
-	const search = new URL(request.url).searchParams;
+export async function activityLoader(args: OrgParams & {request: Request}) {
+	const org = orgOf(args);
+	const search = new URL(args.request.url).searchParams;
 	const outcome = search.get('outcome');
 	const filter: ActivityFilter = {
 		agentId: search.get('agent') ?? undefined,
@@ -175,9 +177,6 @@ export async function connectAgentLoader({request}: {request: Request}) {
 	const sealed = new URL(request.url).searchParams.get('request') ?? '';
 	const [orgs, details] = await Promise.all([listOrgs(), getAuthorizationRequest(sealed)]);
 	const memberOf = unwrapLoaderResult(orgs).orgs;
-	const pending = pendingAgent();
-	const org = memberOf.find((candidate) => candidate.slug === pending?.org) ?? memberOf[0];
-	const agents = org ? unwrapLoaderResult(await listAgents(org.slug)).agents : [];
 	if (details.isErr()) {
 		return {
 			kind: 'error',
@@ -185,13 +184,22 @@ export async function connectAgentLoader({request}: {request: Request}) {
 				'The request from the app has expired, or it is not one Personal Agent Proxy made. Start connecting again from the app you came from.',
 		} as const;
 	}
+	const pending = pendingAgent();
+	const org = memberOf.find((candidate) => candidate.slug === pending?.org) ?? memberOf[0];
+	if (!org) {
+		return {
+			kind: 'error',
+			message:
+				'You are in no organization, so there is no agent to work as. Ask someone to invite you to theirs.',
+		} as const;
+	}
 	return {
 		kind: 'ok',
 		request: sealed,
 		details: details.value,
 		orgs: memberOf,
-		org: org?.slug ?? '',
-		agents,
+		org: org.slug,
+		agents: unwrapLoaderResult(await listAgents(org.slug)).agents,
 		pendingAgentId: pending?.agentId ?? null,
 	} as const;
 }

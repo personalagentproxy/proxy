@@ -4,12 +4,8 @@ import type {Result} from 'ts-results-es';
 import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
-import type {MemberViewer} from './connection';
 import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed-in-agent';
-
-// Who is looking at an organization's agents: a member, who sees the ones shared with every member
-// of it and their own, never another member's.
-export type AgentViewer = MemberViewer;
+import {type MemberViewer, visibleTo} from './viewer';
 
 export type AgentRow = {
 	id: string;
@@ -42,13 +38,8 @@ const agentSelect = {
 	grants: {select: {connectionId: true, actionId: true, allowed: true}},
 } as const;
 
-// The agents a viewer sees: the organization's shared ones and their own.
-function visibleTo(viewer: AgentViewer) {
-	return {orgId: viewer.orgId, OR: [{ownerUserId: null}, {ownerUserId: viewer.userId}]};
-}
-
 /** The agents the viewer sees, newest first. */
-export async function listAgents(viewer: AgentViewer): Promise<Result<AgentRow[], ApiError>> {
+export async function listAgents(viewer: MemberViewer): Promise<Result<AgentRow[], ApiError>> {
 	return wrapDb(() =>
 		db.agent.findMany({
 			where: visibleTo(viewer),
@@ -68,7 +59,7 @@ export async function getAgentById(
 
 /** `Ok(null)` means no such agent the viewer sees. */
 export async function getAgent(
-	viewer: AgentViewer,
+	viewer: MemberViewer,
 	agentId: string,
 ): Promise<Result<AgentRow | null, ApiError>> {
 	return wrapDb(() =>
@@ -94,9 +85,11 @@ export async function createAgent(data: {
 
 /**
  * Shares a member's agent with every member of its organization, for good: it reaches the shared
- * connections alone from now on, so its settings on the member's own connections go. Its tasks
- * and activity so far become everyone's with it, but for its requests on the member's own
- * connections, which stay theirs: what it did in their mailbox is still theirs alone to see.
+ * connections alone from now on, so its settings on the member's own connections go. What it did
+ * on the shared connections so far becomes everyone's with it, and so does every task it made no
+ * other request for; its requests on any other connection, the member's own or one since
+ * disconnected, stay the member's, with the tasks they were made for: what it did in their mailbox
+ * is still theirs alone to see.
  */
 export async function shareAgent(agentId: string): Promise<Result<void, ApiError>> {
 	return wrapDb(async () => {
@@ -108,14 +101,24 @@ export async function shareAgent(agentId: string): Promise<Result<void, ApiError
 			if (!agent || agent.ownerUserId === null) {
 				return;
 			}
-			const own = await tx.connection.findMany({
-				where: {orgId: agent.orgId, ownerUserId: agent.ownerUserId},
+			const shared = await tx.connection.findMany({
+				where: {orgId: agent.orgId, ownerUserId: null},
 				select: {id: true},
 			});
-			await tx.agentGrant.deleteMany({where: {agentId, connection: {ownerUserId: {not: null}}}});
-			await tx.agentTask.updateMany({where: {agentId}, data: {ownerUserId: null}});
+			const sharedIds = shared.map((connection) => connection.id);
+			const kept = await tx.auditEntry.findMany({
+				where: {agentId, connectionId: {notIn: sharedIds}, taskId: {not: null}},
+				select: {taskId: true},
+				distinct: ['taskId'],
+			});
+			const keptTaskIds = kept.flatMap((entry) => (entry.taskId === null ? [] : [entry.taskId]));
+			await tx.agentGrant.deleteMany({where: {agentId, connectionId: {notIn: sharedIds}}});
 			await tx.auditEntry.updateMany({
-				where: {agentId, connectionId: {notIn: own.map((connection) => connection.id)}},
+				where: {agentId, connectionId: {in: sharedIds}},
+				data: {ownerUserId: null},
+			});
+			await tx.agentTask.updateMany({
+				where: {agentId, id: {notIn: keptTaskIds}},
 				data: {ownerUserId: null},
 			});
 			await tx.agent.update({where: {id: agentId}, data: {ownerUserId: null}});

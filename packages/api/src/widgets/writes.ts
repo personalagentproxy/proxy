@@ -1,6 +1,7 @@
 import {Ok} from 'ts-results-es';
 
 import {logProxyAction} from '@proxy/db/audit';
+import type {MemberViewer} from '@proxy/db/viewer';
 import {saveWriteTarget} from '@proxy/db/write-target';
 
 import {log} from '../observability/log';
@@ -12,8 +13,9 @@ import type {Source} from './sources';
  * unless `parent` is `undefined`, as for a change to something already there, which picks nowhere.
  * The write is done by then, so neither failing fails it; each is logged instead.
  */
-export async function afterWrite(args: {orgId: string; userId: string; source: Source; action: string; title: string; parent: string | null | undefined}): Promise<void> {
-	const {orgId, userId, source, action, title, parent} = args;
+export async function afterWrite(args: {viewer: MemberViewer; source: Source; action: string; title: string; parent: string | null | undefined}): Promise<void> {
+	const {viewer, source, action, title, parent} = args;
+	const {orgId, userId} = viewer;
 	const connectionId = source.connection.id;
 	const collectionId = source.collection.id;
 	const [logged, saved] = await Promise.all([

@@ -16,7 +16,6 @@ mock.module('./sources', () => ({
 }));
 mock.module('../utils/user-org', () => ({
 	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
-	requireUserOrgId: async () => Ok('org-1'),
 }));
 
 const CHECKING = {

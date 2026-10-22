@@ -75,7 +75,7 @@ const mcpClientSchema = z.object({
 	id: z.string(),
 	name: z.string(),
 	connectedAt: z.string(),
-	// Who signed it in, while they are in the organization; null for one from before that was kept.
+	// Who signed it in, by their name or address; null once they have left the organization.
 	connectedBy: z.string().nullable(),
 	// Signed in by the person themselves, who may sign it out whether or not they manage the agent.
 	mine: z.boolean(),

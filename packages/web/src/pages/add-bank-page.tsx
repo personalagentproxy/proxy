@@ -4,7 +4,7 @@ import {BackButton} from '@/components/back-button';
 import {ConnectBankForm} from '@/components/connect-bank-form';
 import {ShareNote} from '@/components/share-choice';
 import {PLAID_FORM} from '@/lib/integrations';
-import {useShareChoice} from '@/lib/share-choice';
+import {useShareChoice} from '@/hooks/use-share-choice';
 import {useOrgSlug} from '@/hooks/use-org';
 
 // Connecting a bank through Plaid, from the catalog's plus. Connecting lands on the new

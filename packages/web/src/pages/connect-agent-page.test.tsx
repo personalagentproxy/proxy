@@ -3,24 +3,13 @@
 import {afterEach, describe, expect, test} from 'bun:test';
 import {cleanup, render, screen} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
-import type {Org} from '@/client/orgs-client';
 import type {AgentLogin} from '@/lib/types';
 import {ConnectAgentPage} from '@/pages/connect-agent-page';
+import {testOrg as org} from '@/test-org';
 
 afterEach(() => {
 	cleanup();
 });
-
-const org: Org = {
-	id: 'org-1',
-	slug: 'acme',
-	name: 'Acme',
-	role: 'owner',
-	onboarded: true,
-	experiments: [],
-	memberCount: 1,
-	invitationCount: 0,
-};
 
 const claude: AgentLogin = {
 	id: 'agent-1',

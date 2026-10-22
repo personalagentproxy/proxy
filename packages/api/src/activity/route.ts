@@ -133,7 +133,7 @@ export function handleActivityLanesRoute(request: AuthenticatedRequest): Promise
 		const rows = $(await listAgentTasksSince(viewer, from, MAX_TASKS));
 		const requests = $(
 			await summarizeTaskRequests(
-				viewer.orgId,
+				viewer,
 				rows.map((row) => row.id),
 			),
 		);

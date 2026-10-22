@@ -15,7 +15,7 @@ describe('afterWrite', () => {
 	test("logs the write as Personal Agent Proxy's, for the person who asked, and keeps where it went", async () => {
 		const {afterWrite} = await import('./writes');
 
-		await afterWrite({orgId: 'org-1', userId: 'user-1', source, action: 'create', title: 'Lunch', parent: 'team'});
+		await afterWrite({viewer: {orgId: 'org-1', userId: 'user-1'}, source, action: 'create', title: 'Lunch', parent: 'team'});
 		expect(logProxyAction).toHaveBeenCalledWith({orgId: 'org-1', connectionId: 'work', collectionId: 'events', action: 'create', recordTitle: 'Lunch', ownerUserId: 'user-1', userId: 'user-1'});
 		expect(saveWriteTarget).toHaveBeenCalledWith({userId: 'user-1', collectionId: 'events', connectionId: 'work', parent: 'team'});
 	});
@@ -25,6 +25,6 @@ describe('afterWrite', () => {
 		saveWriteTarget.mockResolvedValueOnce(Err(ApiErr.dbError(new Error('down'))));
 		const {afterWrite} = await import('./writes');
 
-		expect(await afterWrite({orgId: 'org-1', userId: 'user-1', source, action: 'sendNew', title: '', parent: null})).toBeUndefined();
+		expect(await afterWrite({viewer: {orgId: 'org-1', userId: 'user-1'}, source, action: 'sendNew', title: '', parent: null})).toBeUndefined();
 	});
 });

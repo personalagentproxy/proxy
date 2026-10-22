@@ -1,7 +1,8 @@
 import {Err, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
-import {listConnectionsWithCredential, type Viewer} from '@proxy/db/connection';
+import {listConnectionsWithCredential} from '@proxy/db/connection';
+import type {Viewer} from '@proxy/db/viewer';
 import {findCollection, requiredAction, type Collection, type Integration} from '@proxy/integrations';
 
 import {unavailableActions, unavailableError} from '../connections/unavailable';

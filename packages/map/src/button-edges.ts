@@ -7,6 +7,9 @@ export const BUTTON_EDGES: ReadonlyArray<{from: string; to: string; label: strin
 	{from: '/login', to: '/:org', label: 'Sign in'},
 	{from: '/login', to: '/:org/welcome/connections', label: 'Sign in, new organization'},
 	{from: '/invite/:token', to: '/:org', label: 'Join'},
+	// From the switcher atop every page of an organization, Home standing for them: another
+	// organization opens on its Home, the same screen, and a new one on its welcome flow.
+	{from: '/:org', to: '/:org/welcome/connections', label: 'Create organization'},
 	// Leaving or deleting an organization opens another of the person's.
 	{from: '/:org/members', to: '/:org/connections', label: 'Leave'},
 	{from: '/:org/settings', to: '/:org/connections', label: 'Delete organization'},

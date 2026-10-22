@@ -20,16 +20,9 @@ const getAgent = mock();
 
 mock.module('@proxy/db/agent', () => ({getAgent}));
 
-mock.module('@proxy/db/organization', () => ({
-	getMembership: mock(async () => Ok({role: 'owner'})),
-	listMemberNames: mock(async () => Ok([])),
-	listUserOrgs: mock(async () => Ok([{id: 'org-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, memberCount: 1, invitationCount: 0}])),
-	getMemberOrganization: mock(async () => Ok({id: 'org-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboardedAt: new Date(), experiments: []})),
-}));
+const getMemberOrganization = mock(async (): Promise<unknown> => Ok({id: 'org-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboardedAt: new Date(), experiments: []}));
 
-const requireViewer = mock(async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}));
-
-mock.module('../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
+mock.module('@proxy/db/organization', () => ({getMemberOrganization}));
 
 const createAgentLogin = mock();
 
@@ -224,7 +217,7 @@ describe('handleConsentRoute', () => {
 	}
 
 	test('allowing it as an agent makes a code for it and goes back to the client', async () => {
-		const result = await consent({request: sealed(), allow: true, agentId: 'agent-1'});
+		const result = await consent({request: sealed(), allow: true, org: 'org-1', agentId: 'agent-1'});
 		const to = new URL(result.unwrap().redirectTo);
 		const code = to.searchParams.get('code') ?? '';
 
@@ -236,7 +229,7 @@ describe('handleConsentRoute', () => {
 
 	test('can make a new login for a provider to work as', async () => {
 		createAgentLogin.mockResolvedValue(Ok({agent: {id: 'agent-new'}, password: 'unused'}));
-		await consent({request: sealed(), allow: true, providerId: 'claude'});
+		await consent({request: sealed(), allow: true, org: 'org-1', providerId: 'claude'});
 
 		expect(createAgentLogin).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'claude', {name: undefined});
 		expect(createOAuthCode.mock.calls[0]?.[0].agentId).toBe('agent-new');
@@ -244,7 +237,7 @@ describe('handleConsentRoute', () => {
 
 	test('can make a custom agent, named by the person, to work as', async () => {
 		createAgentLogin.mockResolvedValue(Ok({agent: {id: 'agent-new'}, password: 'unused'}));
-		await consent({request: sealed(), allow: true, providerId: 'custom', name: 'MCP Inspector'});
+		await consent({request: sealed(), allow: true, org: 'org-1', providerId: 'custom', name: 'MCP Inspector'});
 
 		expect(createAgentLogin).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'custom', {name: 'MCP Inspector'});
 		expect(createOAuthCode.mock.calls[0]?.[0].agentId).toBe('agent-new');
@@ -259,14 +252,26 @@ describe('handleConsentRoute', () => {
 
 	test('a revoked agent, an expired request or a forged one is refused', async () => {
 		getAgent.mockResolvedValue(Ok({id: 'agent-1', name: 'Dots', revokedAt: new Date()}));
-		const revoked = await consent({request: sealed(), allow: true, agentId: 'agent-1'});
-		const expired = await consent({request: sealed({expiresAt: Date.now() - 1}), allow: true, agentId: 'agent-1'});
-		const forged = await consent({request: 'not-sealed', allow: true, agentId: 'agent-1'});
+		const revoked = await consent({request: sealed(), allow: true, org: 'org-1', agentId: 'agent-1'});
+		const expired = await consent({request: sealed({expiresAt: Date.now() - 1}), allow: true, org: 'org-1', agentId: 'agent-1'});
+		const forged = await consent({request: 'not-sealed', allow: true, org: 'org-1', agentId: 'agent-1'});
 
 		expect(revoked.unwrapErr().kind).toBe('validation_error');
 		expect(expired.unwrapErr().kind).toBe('validation_error');
 		expect(forged.isErr()).toBe(true);
 		expect(createOAuthCode).not.toHaveBeenCalled();
+	});
+
+	test('an organization the person isn’t in is not found, and the agent is looked up as a member of the one named', async () => {
+		getMemberOrganization.mockResolvedValueOnce(Ok(null));
+		const elsewhere = await consent({request: sealed(), allow: true, org: 'acme', agentId: 'agent-1'});
+		const here = await consent({request: sealed(), allow: true, org: 'org-1', agentId: 'agent-1'});
+
+		expect(elsewhere.unwrapErr().kind).toBe('not_found');
+		expect(here.isOk()).toBe(true);
+		expect(getMemberOrganization).toHaveBeenCalledWith('user-1', 'acme');
+		expect(getAgent).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'agent-1');
+		expect(createOAuthCode).toHaveBeenCalledTimes(1);
 	});
 });
 
