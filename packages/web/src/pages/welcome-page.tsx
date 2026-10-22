@@ -1,10 +1,9 @@
-import {AGENT_PROVIDERS} from '@proxy/integrations';
 import type {Experiment} from '@proxy/utils';
 import {useState, type ReactNode} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
 import {setConnectionDefaults} from '@/client/connections-client';
 import {finishOnboarding} from '@/client/orgs-client';
-import {AgentSetup} from '@/components/agent-setup';
+import {AddAgent} from '@/components/agent-setup';
 import type {DatabaseDialect} from '@/client/connections-client';
 import {ConnectBankForm} from '@/components/connect-bank-form';
 import {ConnectDatabaseForm} from '@/components/connect-database-form';
@@ -44,7 +43,13 @@ export function WelcomePage({step}: {step: Step}) {
 	const navigate = useNavigate();
 	const [finishing, setFinishing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [params] = useSearchParams();
 	const agentName = agentNameOf(agents);
+	// Only the choice of agent can be skipped: naming one (`?provider=`) and setting it up
+	// (`?agent=`) go on with Finish or back to the choice.
+	const skippable =
+		step === 'connections' ||
+		(step === 'agent' && !params.has('provider') && !params.has('agent'));
 
 	const finish = async () => {
 		setFinishing(true);
@@ -89,16 +94,10 @@ export function WelcomePage({step}: {step: Step}) {
 				/>
 			)}
 			{step === 'agent' && (
-				<AgentSetup
-					agents={agents}
-					providers={AGENT_PROVIDERS}
-					resume
-					continueLabel="Finish"
-					onContinue={() => void finish()}
-				/>
+				<AddAgent agents={agents} continueLabel="Finish" onContinue={() => void finish()} />
 			)}
 			{error && <p className="text-sm text-destructive">{error}</p>}
-			{(step === 'connections' || step === 'agent') && (
+			{skippable && (
 				<button
 					type="button"
 					disabled={finishing}

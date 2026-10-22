@@ -1,15 +1,28 @@
 /// <reference types="bun" />
 
-import {afterEach, describe, expect, test} from 'bun:test';
+import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
 import {act, cleanup, fireEvent, render, screen} from '@testing-library/react';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {createMemoryRouter, RouterProvider} from 'react-router';
-import {AgentSetup} from '@/components/agent-setup';
-import {AGENT_PROVIDERS, findAgentProvider, type AgentProviderId} from '@proxy/integrations';
+import {AddAgent, AgentSetup} from '@/components/agent-setup';
+import type {AgentProviderId} from '@proxy/integrations';
+import {pendingAgent} from '@/lib/pending-agent';
 import type {AgentLogin} from '@/lib/types';
+
+const realFetch = globalThis.fetch;
+const fetchMock = mock<(input: string, init?: RequestInit) => Promise<Response>>();
+
+beforeEach(() => {
+	fetchMock.mockReset();
+	fetchMock.mockImplementation(() => Promise.resolve(Response.json({clients: []})));
+	globalThis.fetch = ((input: string, init?: RequestInit) =>
+		fetchMock(input, init)) as typeof fetch;
+	localStorage.clear();
+});
 
 afterEach(() => {
 	cleanup();
+	globalThis.fetch = realFetch;
 });
 
 function agentLogin(id: string, name: string, providerId: AgentProviderId = 'custom'): AgentLogin {
@@ -17,7 +30,7 @@ function agentLogin(id: string, name: string, providerId: AgentProviderId = 'cus
 		id,
 		providerId,
 		name,
-		username: `${name.toLowerCase()}-k7q2`,
+		username: `${name.toLowerCase().replace(/ /g, '-')}-k7q2`,
 		shared: false,
 		createdById: 'user-1',
 		createdBy: null,
@@ -28,32 +41,15 @@ function agentLogin(id: string, name: string, providerId: AgentProviderId = 'cus
 	};
 }
 
-function renderAgentSetup(
-	providerId: AgentProviderId,
-	agents: AgentLogin[] = [],
-	onContinue: (agent: AgentLogin | null) => void = () => undefined,
-) {
-	const provider = findAgentProvider(providerId);
-	if (!provider) {
-		throw new Error(`${providerId} provider is missing`);
-	}
-
+function renderAgentSetup(agent: AgentLogin, onContinue: () => void = () => undefined) {
 	const router = createMemoryRouter(
 		[
 			{
-				path: '/',
-				element: (
-					<AgentSetup
-						agents={agents}
-						providers={[provider]}
-						fixed={providerId}
-						continueLabel="Continue"
-						onContinue={onContinue}
-					/>
-				),
+				path: '/:org/agents/:id/setup',
+				element: <AgentSetup agent={agent} continueLabel="Continue" onContinue={onContinue} />,
 			},
 		],
-		{initialEntries: ['/']},
+		{initialEntries: [`/acme/agents/${agent.id}/setup`]},
 	);
 
 	return render(
@@ -63,23 +59,15 @@ function renderAgentSetup(
 	);
 }
 
-function renderAgentChoice(agents: AgentLogin[] = [], resume = false) {
+function renderAddAgent(agents: AgentLogin[] = []) {
 	const router = createMemoryRouter(
 		[
 			{
-				path: '/welcome',
-				element: (
-					<AgentSetup
-						agents={agents}
-						providers={AGENT_PROVIDERS}
-						resume={resume}
-						continueLabel="Continue"
-						onContinue={() => undefined}
-					/>
-				),
+				path: '/:org/welcome/agent',
+				element: <AddAgent agents={agents} continueLabel="Continue" onContinue={() => undefined} />,
 			},
 		],
-		{initialEntries: ['/welcome']},
+		{initialEntries: ['/acme/welcome/agent']},
 	);
 
 	render(
@@ -90,20 +78,79 @@ function renderAgentChoice(agents: AgentLogin[] = [], resume = false) {
 	return router;
 }
 
-describe('AgentSetup', () => {
+describe('AddAgent', () => {
 	test('goes back to the choice of agent with the browser', async () => {
-		const router = renderAgentChoice();
+		const router = renderAddAgent();
 
 		fireEvent.click(screen.getByRole('button', {name: /Claude Code/}));
-		expect(screen.getByText('Add Personal Agent Proxy to Claude Code')).toBeDefined();
-		expect(router.state.location.search).toBe('?agent=claude-code');
+		expect(screen.getByText('Name this Claude Code')).toBeDefined();
+		expect(router.state.location.search).toBe('?provider=claude-code');
 
 		await act(() => router.navigate(-1));
 		expect(screen.getByText('Which agent do you use?')).toBeDefined();
 	});
 
+	test('makes the agent by the name given, however many of its kind there are, and sets it up', async () => {
+		const made = agentLogin('agent-3', 'Claude Code at work', 'claude-code');
+		fetchMock.mockImplementation((_input, init) =>
+			Promise.resolve(
+				init?.method === 'POST'
+					? Response.json({agent: made, password: 'unused'})
+					: Response.json({clients: []}),
+			),
+		);
+		const router = renderAddAgent([
+			agentLogin('agent-1', 'Claude Code', 'claude-code'),
+			agentLogin('agent-2', 'Claude Code 2', 'claude-code'),
+		]);
+
+		fireEvent.click(screen.getByRole('button', {name: /Claude Code/}));
+		const name = screen.getByLabelText('Name') as HTMLInputElement;
+		expect(name.value).toBe('Claude Code');
+		fireEvent.change(name, {target: {value: ' Claude Code at work '}});
+		fireEvent.click(screen.getByRole('button', {name: 'Continue'}));
+
+		expect(await screen.findByText('Add Personal Agent Proxy to Claude Code')).toBeDefined();
+		expect(screen.getByText(/signed in as Claude Code at work/)).toBeDefined();
+		expect(router.state.location.search).toBe('?agent=agent-3');
+		const [url, init] = fetchMock.mock.calls[0] ?? [];
+		expect(url).toBe('/api/orgs/acme/agents');
+		expect(JSON.parse(String(init?.body))).toEqual({
+			providerId: 'claude-code',
+			name: 'Claude Code at work',
+		});
+		// The sign-in page Claude Code opens in this browser has it chosen.
+		expect(pendingAgent()).toEqual({org: 'acme', agentId: 'agent-3'});
+	});
+
+	test('needs a custom agent named', () => {
+		renderAddAgent();
+
+		fireEvent.click(screen.getByRole('button', {name: /Custom MCP agent/}));
+		expect(screen.getByText('Name your agent')).toBeDefined();
+		expect((screen.getByRole('button', {name: 'Continue'}) as HTMLButtonElement).disabled).toBe(
+			true,
+		);
+	});
+
+	test('hands a login just made over with its password', async () => {
+		const made = agentLogin('agent-1', 'Dots', 'dot');
+		fetchMock.mockImplementation(() =>
+			Promise.resolve(Response.json({agent: made, password: 'abcde-fghij-kmnop-qrstu'})),
+		);
+		const router = renderAddAgent();
+
+		await act(() => router.navigate('/acme/welcome/agent?provider=dot'));
+		fireEvent.click(screen.getByRole('button', {name: 'Continue'}));
+
+		expect(await screen.findByText('Hand Dots its login')).toBeDefined();
+		expect(screen.getByText(/Password: abcde-fghij-kmnop-qrstu/)).toBeDefined();
+	});
+});
+
+describe('AgentSetup', () => {
 	test('shows the complete Hermes Agent command and remote OAuth handoff', () => {
-		renderAgentSetup('hermes');
+		renderAgentSetup(agentLogin('agent-1', 'Hermes Agent', 'hermes'));
 
 		expect(
 			screen.getByText(
@@ -116,7 +163,7 @@ describe('AgentSetup', () => {
 	});
 
 	test('keeps the generic command-based setup steps for Claude Code', () => {
-		renderAgentSetup('claude-code');
+		renderAgentSetup(agentLogin('agent-1', 'Claude Code', 'claude-code'));
 
 		expect(
 			screen.getByText('claude mcp add --transport http personal-agent-proxy http://localhost/mcp'),
@@ -124,11 +171,15 @@ describe('AgentSetup', () => {
 		expect(
 			screen.getByText('In Claude Code, run /mcp and choose personal-agent-proxy to sign in.'),
 		).toBeDefined();
-		expect(screen.getByText(/Claude Code opens Personal Agent Proxy to sign in/)).toBeDefined();
+		expect(
+			screen.getByText(
+				'Claude Code opens Personal Agent Proxy to sign in. Allow it to work as Claude Code.',
+			),
+		).toBeDefined();
 	});
 
 	test('adds Claude and Claude Duet through their shared Claude account connector', () => {
-		renderAgentSetup('claude');
+		renderAgentSetup(agentLogin('agent-1', 'Claude', 'claude'));
 
 		expect(screen.getByText(/Claude Duet uses the same connectors as Claude/)).toBeDefined();
 		expect(screen.getByRole('link', {name: 'Open Claude'}).getAttribute('href')).toBe(
@@ -142,73 +193,35 @@ describe('AgentSetup', () => {
 		).toBeDefined();
 	});
 
-	test('adds a custom MCP agent, however many there are already', () => {
-		const router = renderAgentChoice([agentLogin('agent-1', 'Cursor')]);
-
-		fireEvent.click(screen.getByRole('button', {name: /Custom MCP agent/}));
-		expect(router.state.location.search).toBe('?agent=custom');
-		expect(screen.getByText('Add Personal Agent Proxy to your agent')).toBeDefined();
-		expect(screen.getByText('http://localhost/mcp')).toBeDefined();
-		expect(
-			screen.getByText(/Choose a new Custom MCP agent login and give it a name/),
-		).toBeDefined();
-		expect(screen.getByText('Waiting for your agent to sign in…')).toBeDefined();
-		expect(
-			screen.getByText(/This server address only works for an agent on this computer/),
-		).toBeDefined();
-	});
-
-	test('adds another login of a company that has some already', () => {
-		const router = renderAgentChoice([
-			agentLogin('agent-1', 'Hermes Agent', 'hermes'),
-			agentLogin('agent-2', 'Hermes Agent 2', 'hermes'),
-			agentLogin('agent-3', 'Claude Code', 'claude-code'),
-		]);
-
-		expect(screen.getByRole('button', {name: /Claude Code.*Connected/})).toBeDefined();
-		fireEvent.click(screen.getByRole('button', {name: /Hermes Agent.*2 logins/}));
-		expect(router.state.location.search).toBe('?agent=hermes');
-		expect(screen.getByText(/choose a new Hermes Agent login when asked/)).toBeDefined();
-		expect(screen.getByText('Waiting for Hermes Agent to sign in…')).toBeDefined();
-	});
-
-	test('in the welcome flow, shows the login set up last as it is', () => {
-		renderAgentChoice(
-			[
-				agentLogin('agent-2', 'Claude Code 2', 'claude-code'),
-				agentLogin('agent-1', 'Claude Code', 'claude-code'),
-			],
-			true,
+	test('waits for an MCP client to sign in as the agent, then says which did', async () => {
+		fetchMock.mockImplementation(() =>
+			Promise.resolve(
+				Response.json({
+					clients: [{id: 'grant-1', name: 'Cursor', connectedAt: '2026-10-01T00:00:00Z'}],
+				}),
+			),
 		);
+		renderAgentSetup(agentLogin('agent-1', 'Coding agent'));
 
-		expect(screen.getByText('Claude Code 2 is signed in as Claude Code 2.')).toBeDefined();
-		fireEvent.click(screen.getByRole('button', {name: 'Choose another agent'}));
-		expect(screen.getByText('Which agent do you use?')).toBeDefined();
+		expect(screen.getByText('Add Personal Agent Proxy to Coding agent')).toBeDefined();
+		expect(await screen.findByText('Cursor is signed in as Coding agent.')).toBeDefined();
+		expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/orgs/acme/agents/agent-1/mcp-clients');
+		expect(pendingAgent()).toBeNull();
 	});
 
-	test('sets a login up again as itself, by its own name', () => {
-		renderAgentSetup('claude-code', [agentLogin('agent-2', 'Claude Code 2', 'claude-code')]);
+	test('sets a login up again with a new password', () => {
+		renderAgentSetup(agentLogin('agent-1', 'Dots', 'dot'));
 
-		expect(
-			screen.getByText(/Choose Claude Code 2 when asked which agent it works as/),
-		).toBeDefined();
-		expect(screen.getByText('Claude Code 2 is signed in as Claude Code 2.')).toBeDefined();
+		expect(screen.getByText(/Dots's login is dots-k7q2/)).toBeDefined();
+		expect(screen.getByRole('button', {name: 'New password'})).toBeDefined();
 	});
 
-	test('sets a custom MCP agent up again by its own name', () => {
-		renderAgentSetup('custom', [agentLogin('agent-1', 'Cursor')]);
-
-		expect(screen.getByText('Add Personal Agent Proxy to Cursor')).toBeDefined();
-		expect(screen.getByText('Cursor is signed in as Cursor.')).toBeDefined();
-	});
-
-	test('continues with Command+Enter once an agent is ready', () => {
-		const agent = agentLogin('agent-1', 'Cursor');
-		const continued: Array<AgentLogin | null> = [];
-		renderAgentSetup('custom', [agent], (next) => continued.push(next));
+	test('continues with Command+Enter', () => {
+		let continued = 0;
+		renderAgentSetup(agentLogin('agent-1', 'Coding agent'), () => continued++);
 
 		fireEvent.keyDown(window, {key: 'Enter', metaKey: true});
 
-		expect(continued).toEqual([agent]);
+		expect(continued).toBe(1);
 	});
 });

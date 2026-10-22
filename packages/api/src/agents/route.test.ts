@@ -63,7 +63,6 @@ function makeRequest(params: Record<string, string> = {}, body: unknown = undefi
 beforeEach(() => {
 	mock.clearAllMocks();
 	requireUserOrgId.mockResolvedValue(Ok('org-1'));
-	listAgents.mockResolvedValue(Ok([]));
 	getAgent.mockResolvedValue(Ok(agentRow));
 	createAgent.mockResolvedValue(Ok(agentRow));
 	updateAgent.mockResolvedValue(Ok(true));
@@ -145,20 +144,6 @@ describe('handleCreateAgentRoute', () => {
 		expect(createAgent).toHaveBeenCalledTimes(2);
 		expect(createAgent.mock.calls[0]?.[0].name).toBe('Dots');
 		expect(createAgent.mock.calls[1]?.[0]).toMatchObject({providerId: 'dot', name: 'Travel planner'});
-	});
-
-	test('numbers a login named as one the person sees, so any number of a provider are told apart', async () => {
-		listAgents.mockResolvedValue(Ok([agentRow, {...agentRow, id: 'agent-2', name: 'Dots 2'}, {...agentRow, id: 'agent-3', name: 'Cursor'}, {...agentRow, id: 'agent-4', name: 'x'.repeat(60)}]));
-
-		const {handleCreateAgentRoute} = await import('./route');
-		await handleCreateAgentRoute(makeRequest({}, {providerId: 'dot'}));
-		await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: 'Cursor'}));
-		await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: 'x'.repeat(60)}));
-
-		expect(createAgent.mock.calls[0]?.[0]).toMatchObject({providerId: 'dot', name: 'Dots 3'});
-		expect(createAgent.mock.calls[0]?.[0].username).toMatch(/^dots-3-[a-z0-9]{4}$/);
-		expect(createAgent.mock.calls[1]?.[0].name).toBe('Cursor 2');
-		expect(createAgent.mock.calls[2]?.[0].name).toBe(`${'x'.repeat(58)} 2`);
 	});
 });
 

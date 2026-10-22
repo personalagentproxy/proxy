@@ -15,6 +15,7 @@ import {listRecords} from '@/client/records-client';
 import {VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import {LOADED_MINUTES, windowStart} from '@/lib/agent-lanes';
 import {unwrapLoaderResult, unwrapOrNull} from '@/lib/loader-utils';
+import {pendingAgent} from '@/lib/pending-agent';
 import {redirect} from 'react-router';
 
 // The human side's pages, each loaded from the api on arrival and again after every change. Every
@@ -156,15 +157,17 @@ export async function activityLoader({params, request}: OrgParams & {request: Re
 	};
 }
 
-// Connecting an MCP client: who is asking, the person's organizations, and the agents of the
-// first they can let it work as; the page loads another organization's as it is picked. Without a
-// session, signing in comes first and returns here.
+// Connecting an MCP client: who is asking, the person's organizations, and the agents of the one
+// it starts in, which they can let it work as: the agent being set up in this browser's, else the
+// first; the page loads another organization's as it is picked. Without a session, signing in
+// comes first and returns here.
 export async function connectAgentLoader({request}: {request: Request}) {
 	const sealed = new URL(request.url).searchParams.get('request') ?? '';
 	const [orgs, details] = await Promise.all([listOrgs(), getAuthorizationRequest(sealed)]);
 	const memberOf = unwrapLoaderResult(orgs).orgs;
-	const first = memberOf[0];
-	const agents = first ? unwrapLoaderResult(await listAgents(first.slug)).agents : [];
+	const pending = pendingAgent();
+	const org = memberOf.find((candidate) => candidate.slug === pending?.org) ?? memberOf[0];
+	const agents = org ? unwrapLoaderResult(await listAgents(org.slug)).agents : [];
 	if (details.isErr()) {
 		return {
 			kind: 'error',
@@ -172,7 +175,15 @@ export async function connectAgentLoader({request}: {request: Request}) {
 				'The request from the app has expired, or it is not one Personal Agent Proxy made. Start connecting again from the app you came from.',
 		} as const;
 	}
-	return {kind: 'ok', request: sealed, details: details.value, orgs: memberOf, agents} as const;
+	return {
+		kind: 'ok',
+		request: sealed,
+		details: details.value,
+		orgs: memberOf,
+		org: org?.slug ?? '',
+		agents,
+		pendingAgentId: pending?.agentId ?? null,
+	} as const;
 }
 
 export type ConnectAgentData = Awaited<ReturnType<typeof connectAgentLoader>>;

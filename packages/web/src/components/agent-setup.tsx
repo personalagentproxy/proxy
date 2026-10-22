@@ -1,15 +1,28 @@
-import {findAgentProvider, type AgentProvider, type AgentProviderId} from '@proxy/integrations';
+import {
+	AGENT_NAME_MAX,
+	AGENT_PROVIDERS,
+	findAgentProvider,
+	type AgentProvider,
+	type AgentProviderId,
+} from '@proxy/integrations';
 import {CheckIcon, LoaderCircleIcon} from 'lucide-react';
-import {useEffect, useState, type ReactNode} from 'react';
+import {useEffect, useState, type FormEvent, type ReactNode} from 'react';
 import {useRevalidator, useSearchParams} from 'react-router';
-import {createAgent, resetAgentPassword} from '@/client/agents-client';
+import {
+	createAgent,
+	listMcpClients,
+	resetAgentPassword,
+	type McpClient,
+} from '@/client/agents-client';
 import {AgentProviderTile} from '@/components/agent-provider-tile';
 import {CopyButton} from '@/components/copy-button';
 import {StepHeading} from '@/components/step-heading';
 import {Button} from '@proxy/ui/components/button';
 import {Card} from '@proxy/ui/components/card';
-import {cn} from '@proxy/ui/lib/utils';
+import {Input} from '@proxy/ui/components/input';
+import {Label} from '@proxy/ui/components/label';
 import {describeFetchError} from '@/lib/loader-utils';
+import {forgetPendingAgent, rememberPendingAgent} from '@/lib/pending-agent';
 import type {AgentLogin} from '@/lib/types';
 import {useCommandEnter} from '@/hooks/use-command-enter';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -25,194 +38,220 @@ const SELF_HOSTING_URL = 'https://docs.personalagentproxy.com/self-hosting/get-s
 
 type Login = {username: string; password: string};
 
-// Which agent, then what that agent needs to work through Personal Agent Proxy: an MCP client
-// adds the server and signs in, which makes its login; another is handed a login, made then and
-// there when it is chosen. The welcome flow, New agent and setting an agent up again all go
-// through here. Any agent can be added any number of times, so the login being set up is the one
-// made while this is open, whether made here or by signing in. With `resume`, the latest login
-// there already is shown as it is, so arriving back in the welcome flow after signing in from
-// Claude says Claude is connected. With `fixed`, it is that agent's alone, and `agents` that
-// agent's login alone. The agent chosen is in the address (`?agent=claude`), so the browser's back
-// button returns to the choice.
-export function AgentSetup({
+// Adding an agent, in the welcome flow and on New agent: which kind of agent, its name, which
+// makes its login, then what that agent needs to work through Personal Agent Proxy. Each step is
+// in the address (`?provider=claude`, then `?agent=<id>`), so the browser's back button returns to
+// the choice, and a reload stays on the agent being set up. There can be any number of agents of
+// a kind, each made here on purpose.
+export function AddAgent({
 	agents,
-	providers,
-	fixed,
 	shared = false,
-	resume = false,
 	continueLabel,
 	onContinue,
 }: {
+	// The organization's agents, among which the one being set up is found again after a reload.
 	agents: AgentLogin[];
-	providers: AgentProvider[];
-	fixed?: AgentProviderId;
-	// A new login is every member's rather than the person's own.
+	// A new agent is every member's rather than the person's own.
 	shared?: boolean;
-	resume?: boolean;
 	continueLabel: string;
-	onContinue: (agent: AgentLogin | null) => void;
+	onContinue: (agent: AgentLogin) => void;
 }) {
-	const org = useOrgSlug();
-	const live = agents.filter((agent) => agent.revokedAt === null);
-	const {revalidate} = useRevalidator();
 	const [params, setParams] = useSearchParams();
-	// The latest login set up already, so arriving back here after signing in from Claude shows
-	// Claude, until another is chosen.
-	const [arrival, setArrival] = useState<AgentLogin | null>(() =>
-		resume && !fixed && !params.has('agent')
-			? (live.find((agent) => providers.some((provider) => provider.id === agent.providerId)) ??
-				null)
-			: null,
-	);
-	// The logins there before, so the one added here is the one that signs in.
-	const [known] = useState(() => new Set(fixed ? [] : live.map((agent) => agent.id)));
-	const chosenId = fixed ?? findAgentProvider(params.get('agent') ?? '')?.id ?? arrival?.providerId;
-	const [login, setLogin] = useState<Login | null>(null);
-	const [pending, setPending] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const chosen = chosenId ? findAgentProvider(chosenId) : undefined;
-	const addedFor = (provider: AgentProvider) =>
-		live.find((agent) => agent.providerId === provider.id && !known.has(agent.id)) ?? null;
-	const existing = arrival ?? (chosen ? addedFor(chosen) : null);
-	useCommandEnter(
-		() => {
-			if (!chosen) {
-				return;
-			}
-			onContinue(existing);
-		},
-		chosen !== undefined && !pending,
-	);
-
-	const choose = async (provider: AgentProvider) => {
-		setArrival(null);
-		setParams((current) => {
-			current.set('agent', provider.id);
-			return current;
-		});
-		setLogin(null);
-		setError(null);
-		if (provider.connects !== 'login' || addedFor(provider) !== null) {
-			return;
-		}
-		setPending(true);
-		const result = await createAgent(org, provider.id, shared);
-		setPending(false);
-		if (result.isErr()) {
-			setError(describeFetchError(result.error));
-			return;
-		}
-		setLogin({username: result.value.agent.username, password: result.value.password});
-		void revalidate();
-	};
-
-	const chooseAnother = () => {
-		setArrival(null);
-		if (!params.has('agent')) {
-			return;
-		}
-		setParams((current) => {
-			current.delete('agent');
-			return current;
-		});
-	};
-
-	const reset = async (agent: AgentLogin) => {
-		setPending(true);
-		setError(null);
-		const result = await resetAgentPassword(org, agent.id);
-		setPending(false);
-		if (result.isErr()) {
-			setError(describeFetchError(result.error));
-			return;
-		}
-		setLogin({username: agent.username, password: result.value.password});
-	};
-
-	if (!chosen) {
-		// Over http, only an agent on this computer can reach Personal Agent Proxy: those first,
-		// the rest greyed out.
-		const choices = PUBLIC
-			? providers
-			: [...providers].sort((a, b) => Number(b.local) - Number(a.local));
-		return (
-			<>
-				<StepHeading title="Which agent do you use?">
-					Personal Agent Proxy gives it your connections and information, with every request it
-					makes in the activity log.
-				</StepHeading>
-				{!PUBLIC && <NotPublicCallout />}
-				<div className="grid gap-2 sm:grid-cols-2">
-					{choices.map((provider) => {
-						const usable = PUBLIC || provider.local;
-						return (
-							<AgentProviderTile
-								key={provider.id}
-								provider={provider}
-								chosen={false}
-								disabled={!usable}
-								detail={
-									provider.custom
-										? 'Any agent that speaks MCP'
-										: usable
-											? loginsDetail(live.filter((agent) => agent.providerId === provider.id))
-											: 'Needs a public https address'
-								}
-								onChoose={() => void choose(provider)}
-							/>
-						);
-					})}
-				</div>
-			</>
+	const {revalidate} = useRevalidator();
+	// The agent made here, with its password, shown this once.
+	const [made, setMade] = useState<{agent: AgentLogin; password: string} | null>(null);
+	const agentId = params.get('agent');
+	const agent =
+		made && made.agent.id === agentId
+			? made.agent
+			: agents.find((candidate) => candidate.id === agentId);
+	const provider = findAgentProvider(params.get('provider') ?? '');
+	const show = (step: {provider?: string; agent?: string}, replace = false) =>
+		setParams(
+			(current) => {
+				current.delete('provider');
+				current.delete('agent');
+				for (const [key, value] of Object.entries(step)) {
+					current.set(key, value);
+				}
+				return current;
+			},
+			{replace},
 		);
-	}
-
-	const actions = (
-		<div className={cn('flex gap-2', fixed ? 'justify-end' : 'justify-between')}>
-			{!fixed && (
-				<Button variant="outline" disabled={pending} onClick={chooseAnother}>
-					Choose another agent
-				</Button>
-			)}
-			<Button disabled={pending} onClick={() => onContinue(existing)}>
-				{continueLabel}
-			</Button>
-		</div>
+	const chooseAnother = (
+		<Button variant="outline" onClick={() => show({})}>
+			Choose another agent
+		</Button>
 	);
-	if (chosen.connects === 'mcp') {
+
+	if (agent) {
 		return (
-			<McpAgent
-				provider={chosen}
-				name={chosen.custom && !fixed ? null : (existing?.name ?? chosen.name)}
-				// Which login to choose when signing in: this one, being set up again, or a new one.
-				signsInAs={fixed && existing ? existing.name : `a new ${chosen.name} login`}
-				existing={existing}
-				actions={actions}
+			<AgentSetup
+				agent={agent}
+				password={made?.agent.id === agent.id ? made.password : undefined}
+				back={chooseAnother}
+				continueLabel={continueLabel}
+				onContinue={() => onContinue(agent)}
 			/>
 		);
 	}
+	if (provider) {
+		return (
+			<NameAgent
+				provider={provider}
+				shared={shared}
+				back={chooseAnother}
+				onMade={(next) => {
+					setMade(next);
+					// Back from the setup returns to the choice, not to making another.
+					show({agent: next.agent.id}, true);
+					void revalidate();
+				}}
+			/>
+		);
+	}
+	return <AgentPicker onChoose={(next) => show({provider: next.id})} />;
+}
+
+// Which kind of agent. Over http, only an agent on this computer can reach Personal Agent Proxy:
+// those first, the rest greyed out.
+function AgentPicker({onChoose}: {onChoose: (provider: AgentProvider) => void}) {
+	const choices = PUBLIC
+		? AGENT_PROVIDERS
+		: [...AGENT_PROVIDERS].sort((a, b) => Number(b.local) - Number(a.local));
 	return (
-		<LoginAgent
-			provider={chosen}
-			existing={existing}
-			login={login}
-			pending={pending}
-			error={error}
-			actions={actions}
-			onReset={() => existing && void reset(existing)}
-		/>
+		<>
+			<StepHeading title="Which agent do you use?">
+				Personal Agent Proxy gives it your connections and information, with every request it makes
+				in the activity log.
+			</StepHeading>
+			{!PUBLIC && <NotPublicCallout />}
+			<div className="grid gap-2 sm:grid-cols-2">
+				{choices.map((provider) => {
+					const usable = PUBLIC || provider.local;
+					return (
+						<AgentProviderTile
+							key={provider.id}
+							provider={provider}
+							chosen={false}
+							disabled={!usable}
+							detail={
+								provider.custom
+									? 'Any agent that speaks MCP'
+									: usable
+										? undefined
+										: 'Needs a public https address'
+							}
+							onChoose={() => onChoose(provider)}
+						/>
+					);
+				})}
+			</div>
+		</>
 	);
 }
 
-// How many logins of a provider there are already, as a tile says it: none says nothing.
-function loginsDetail(logins: AgentLogin[]): string | undefined {
-	if (logins.length === 0) {
-		return undefined;
+// The new agent's name, its provider's to start with, and making it: its login is made then.
+function NameAgent({
+	provider,
+	shared,
+	back,
+	onMade,
+}: {
+	provider: AgentProvider;
+	shared: boolean;
+	back: ReactNode;
+	onMade: (made: {agent: AgentLogin; password: string}) => void;
+}) {
+	const org = useOrgSlug();
+	const [name, setName] = useState(provider.custom ? '' : provider.name);
+	const [pending, setPending] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const ready = name.trim() !== '' && !pending;
+
+	const make = async (event: FormEvent) => {
+		event.preventDefault();
+		if (!ready) {
+			return;
+		}
+		setPending(true);
+		setError(null);
+		const result = await createAgent(org, provider.id, {name: name.trim(), shared});
+		setPending(false);
+		if (result.isErr()) {
+			setError(describeFetchError(result.error));
+			return;
+		}
+		onMade(result.value);
+	};
+
+	return (
+		<form className="grid gap-4" onSubmit={(event) => void make(event)}>
+			<StepHeading title={provider.custom ? 'Name your agent' : `Name this ${provider.name}`}>
+				What it is called here and in the activity log, to tell it apart from your other agents. You
+				can change it later.
+			</StepHeading>
+			<div className="grid gap-2">
+				<Label htmlFor="agent-name">Name</Label>
+				<Input
+					id="agent-name"
+					autoFocus
+					autoComplete="off"
+					maxLength={AGENT_NAME_MAX}
+					value={name}
+					onChange={(event) => setName(event.target.value)}
+				/>
+			</div>
+			{error && <p className="text-sm text-destructive">{error}</p>}
+			<div className="flex justify-between gap-2">
+				{back}
+				<Button type="submit" disabled={!ready}>
+					{pending ? 'Making…' : 'Continue'}
+				</Button>
+			</div>
+		</form>
+	);
+}
+
+// What one agent needs to work through Personal Agent Proxy: an MCP client adds the server and
+// signs in as it; another is handed its login, with `password` when it was just made, or a new
+// password otherwise. Setting an agent up again goes through here too.
+export function AgentSetup({
+	agent,
+	password,
+	back,
+	continueLabel,
+	onContinue,
+}: {
+	agent: AgentLogin;
+	password?: string;
+	back?: ReactNode;
+	continueLabel: string;
+	onContinue: () => void;
+}) {
+	const provider = findAgentProvider(agent.providerId);
+	useCommandEnter(onContinue, provider !== undefined);
+	if (!provider) {
+		return null;
 	}
-	if (logins.length === 1) {
-		return 'Connected';
+
+	const actions = (
+		<div className={back ? 'flex justify-between gap-2' : 'flex justify-end gap-2'}>
+			{back}
+			<Button onClick={onContinue}>{continueLabel}</Button>
+		</div>
+	);
+	if (provider.connects === 'mcp') {
+		return <McpAgent provider={provider} agent={agent} actions={actions} />;
 	}
-	return `${logins.length} logins`;
+	return (
+		<LoginAgent
+			provider={provider}
+			agent={agent}
+			initial={password ? {username: agent.username, password} : null}
+			actions={actions}
+		/>
+	);
 }
 
 // What a Personal Agent Proxy on an http address, such as a development machine, is told: only
@@ -274,8 +313,8 @@ const MCP_STEPS: Partial<
 			openLabel?: string;
 			command?: (serverUrl: string) => string;
 			afterAdd?: string;
-			// What to do on the sign-in page, choosing `login`, such as "a new Claude login".
-			authorize?: (login: string) => string;
+			// What to do on the sign-in page, for the agent named `name`.
+			authorize?: (name: string) => string;
 		}
 	>
 > = {
@@ -286,8 +325,8 @@ const MCP_STEPS: Partial<
 		openLabel: 'Claude',
 		afterAdd:
 			'Name the connector, paste the server address, and continue. Choose Sign in now, then choose Register automatically under OAuth client.',
-		authorize: (login) =>
-			`Claude opens Personal Agent Proxy to sign in. Choose ${login} when asked which agent it works as. That login gives Claude and Claude Duet the same access and activity history.`,
+		authorize: (name) =>
+			`Claude opens Personal Agent Proxy to sign in. Allow it to work as ${name}. That login gives Claude and Claude Duet the same access and activity history.`,
 	},
 	'claude-code': {
 		where: 'Run the command above in a terminal.',
@@ -301,8 +340,8 @@ const MCP_STEPS: Partial<
 		command: (serverUrl) =>
 			`hermes mcp add personal-agent-proxy --url '${serverUrl}' --auth oauth --connect-timeout 300`,
 		afterAdd: 'Hermes Agent opens a browser when it can, or prints a sign-in link.',
-		authorize: (login) =>
-			`In the browser, sign in and choose ${login} when asked which agent it works as. If Hermes Agent is on a remote host, copy the full redirect URL from the browser back into its prompt.`,
+		authorize: (name) =>
+			`In the browser, sign in and allow it to work as ${name}. If Hermes Agent is on a remote host, copy the full redirect URL from the browser back into its prompt.`,
 	},
 	chatgpt: {
 		where:
@@ -318,49 +357,46 @@ const MCP_STEPS: Partial<
 			'In your agent, add a custom connector or remote MCP server, as it calls them, over Streamable HTTP.',
 		afterAdd:
 			'Paste the server address and add it. It signs in with OAuth, so leave any API key or token empty.',
-		authorize: (login) =>
-			`Your agent opens Personal Agent Proxy to sign in. Choose ${login} and give it a name.`,
+		authorize: (name) =>
+			`Your agent opens Personal Agent Proxy to sign in. Allow it to work as ${name}.`,
 	},
 };
 
-// The server's address to add, and a wait for the client to sign in: when it has, the login it
-// made is here, which it chooses on signing in as `signsInAs`. An MCP client reaches the server over the internet, at an https address, so a
-// server that isn't one, such as a development machine, is told to move first. A custom agent
-// is "your agent" until it has a name.
+// The server's address to add, and a wait for the client to sign in as the agent, which the
+// sign-in page has chosen already when it opens in this browser. An MCP client reaches the server
+// over the internet, at an https address, so a server that isn't one, such as a development
+// machine, is told to move first.
 function McpAgent({
 	provider,
-	name,
-	signsInAs,
-	existing,
+	agent,
 	actions,
 }: {
 	provider: AgentProvider;
-	name: string | null;
-	signsInAs: string;
-	existing: AgentLogin | null;
+	agent: AgentLogin;
 	actions: ReactNode;
 }) {
-	const subject = name ?? 'Your agent';
+	const org = useOrgSlug();
+	// A custom agent is the person's to name, so it is called that; any other by its app.
+	const app = provider.custom ? agent.name : provider.name;
 	const serverUrl = `${window.location.origin}/mcp`;
 	const reachable = PUBLIC || provider.local;
 	const steps = MCP_STEPS[provider.id];
 	const command = steps?.command?.(serverUrl);
-	const {revalidate} = useRevalidator();
-	const connected = existing !== null;
+	const clients = useMcpClients(org, agent.id, reachable);
+	const signedIn = clients?.[0] ?? null;
 
 	useEffect(() => {
-		if (connected || !reachable) {
+		if (signedIn) {
+			forgetPendingAgent(agent.id);
 			return;
 		}
-		const timer = setInterval(() => void revalidate(), POLL_MS);
-		return () => clearInterval(timer);
-	}, [connected, reachable, revalidate]);
+		rememberPendingAgent({org, agentId: agent.id});
+	}, [org, agent.id, signedIn]);
 
 	return (
 		<>
-			<StepHeading title={`Add Personal Agent Proxy to ${name ?? 'your agent'}`}>
-				{provider.custom && !name ? 'Any agent that speaks MCP' : subject} works through Personal
-				Agent Proxy as a connector, signed in with its own login.
+			<StepHeading title={`Add Personal Agent Proxy to ${app}`}>
+				{app} works through Personal Agent Proxy as a connector, signed in as {agent.name}.
 			</StepHeading>
 			{!reachable && <NotPublicCallout />}
 			{!PUBLIC && provider.custom && <NotPublicCallout custom />}
@@ -390,21 +426,21 @@ function McpAgent({
 							: 'Paste the server address and add it.')}
 				</li>
 				<li>
-					{steps?.authorize?.(signsInAs) ??
-						`${provider.name} opens Personal Agent Proxy to sign in. Choose ${signsInAs} when asked which agent it works as.`}
+					{steps?.authorize?.(agent.name) ??
+						`${provider.name} opens Personal Agent Proxy to sign in. Allow it to work as ${agent.name}.`}
 				</li>
 			</ol>
 			{reachable && (
 				<p className="flex items-center gap-2 text-sm text-muted-foreground">
-					{connected ? (
+					{signedIn ? (
 						<>
 							<CheckIcon className="size-4" />
-							{subject} is signed in as {existing.name}.
+							{signedIn.name} is signed in as {agent.name}.
 						</>
 					) : (
 						<>
 							<LoaderCircleIcon className="size-4 animate-spin" />
-							Waiting for {name ?? 'your agent'} to sign in…
+							Waiting for {app} to sign in…
 						</>
 					)}
 				</p>
@@ -414,34 +450,73 @@ function McpAgent({
 	);
 }
 
-// The login, handed to the agent the way it takes one: as a message, or through its vault. One
-// that exists already keeps its password, unless a new one is asked for here.
+// The MCP clients signed in as the agent, asked for until one is; null until first known.
+function useMcpClients(org: string, agentId: string, asking: boolean): McpClient[] | null {
+	const [clients, setClients] = useState<McpClient[] | null>(null);
+	const signedIn = clients !== null && clients.length > 0;
+
+	useEffect(() => {
+		if (!asking || signedIn) {
+			return;
+		}
+		let stopped = false;
+		const ask = async () => {
+			const result = await listMcpClients(org, agentId);
+			if (stopped || result.isErr()) {
+				return;
+			}
+			setClients(result.value.clients);
+		};
+		void ask();
+		const timer = setInterval(() => void ask(), POLL_MS);
+		return () => {
+			stopped = true;
+			clearInterval(timer);
+		};
+	}, [org, agentId, asking, signedIn]);
+
+	return clients;
+}
+
+// The login, handed to the agent the way it takes one: as a message, or through its vault. Its
+// password is shown once, when it is made, unless a new one is asked for here.
 function LoginAgent({
 	provider,
-	existing,
-	login,
-	pending,
-	error,
+	agent,
+	initial,
 	actions,
-	onReset,
 }: {
 	provider: AgentProvider;
-	existing: AgentLogin | null;
-	login: Login | null;
-	pending: boolean;
-	error: string | null;
+	agent: AgentLogin;
+	initial: Login | null;
 	actions: ReactNode;
-	onReset: () => void;
 }) {
+	const org = useOrgSlug();
+	const [login, setLogin] = useState<Login | null>(initial);
+	const [pending, setPending] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	const reset = async () => {
+		setPending(true);
+		setError(null);
+		const result = await resetAgentPassword(org, agent.id);
+		setPending(false);
+		if (result.isErr()) {
+			setError(describeFetchError(result.error));
+			return;
+		}
+		setLogin({username: agent.username, password: result.value.password});
+	};
+
 	return (
 		<>
 			{provider.vault ? (
-				<StepHeading title={`Put ${provider.name}'s login in its vault`}>
+				<StepHeading title={`Put ${agent.name}'s login in its vault`}>
 					{provider.name} signs in to Personal Agent Proxy with a login of its own, kept in its
 					vault rather than in your chat.
 				</StepHeading>
 			) : (
-				<StepHeading title={`Hand ${provider.name} its login`}>
+				<StepHeading title={`Hand ${agent.name} its login`}>
 					{provider.name} signs in to Personal Agent Proxy with a login of its own. Send it this
 					message, and it can get started.
 				</StepHeading>
@@ -450,27 +525,18 @@ function LoginAgent({
 			{login && !provider.vault && <HandoverMessage login={login} />}
 			{!login && (
 				<Card className="grid gap-3 text-sm">
-					{pending && (
-						<p className="flex items-center gap-2 text-muted-foreground">
-							<LoaderCircleIcon className="size-4 animate-spin" />
-							Making the login…
-						</p>
-					)}
-					{!pending && existing && (
-						<>
-							<p className="text-muted-foreground">
-								{provider.name} already has a login, {existing.username}. Its password was shown
-								once, when it was made. To hand it over again, make a new one; the current one stops
-								working at once.
-							</p>
-							<Button variant="outline" className="justify-self-start" onClick={onReset}>
-								New password
-							</Button>
-						</>
-					)}
-					{!pending && !existing && !error && (
-						<p className="text-muted-foreground">The login could not be made.</p>
-					)}
+					<p className="text-muted-foreground">
+						{agent.name}&apos;s login is {agent.username}. Its password was shown once, when it was
+						made. To hand it over again, make a new one; the current one stops working at once.
+					</p>
+					<Button
+						variant="outline"
+						className="justify-self-start"
+						disabled={pending}
+						onClick={() => void reset()}
+					>
+						{pending ? 'Making…' : 'New password'}
+					</Button>
 				</Card>
 			)}
 			{error && <p className="text-sm text-destructive">{error}</p>}

@@ -1,4 +1,3 @@
-import {AGENT_PROVIDERS, findAgentProvider} from '@proxy/integrations';
 import {useLoaderData, useNavigate} from 'react-router';
 import {AgentSetup} from '@/components/agent-setup';
 import {AppShell, PageTitle} from '@/components/app-shell';
@@ -13,8 +12,7 @@ export function AgentSetupPage() {
 	const org = useOrgSlug();
 	const {agent} = useLoaderData<typeof agentSetupLoader>();
 	const navigate = useNavigate();
-	const provider = agent && findAgentProvider(agent.providerId);
-	if (!agent || !provider) {
+	if (!agent) {
 		return <NotFound what="agent" back={`/${org}/agents`} backLabel="Back to agents" />;
 	}
 
@@ -29,10 +27,7 @@ export function AgentSetupPage() {
 		>
 			{agent.revokedAt === null ? (
 				<AgentSetup
-					// Its own login alone, so a custom agent is set up as itself and not as another.
-					agents={[agent]}
-					providers={AGENT_PROVIDERS}
-					fixed={provider.id}
+					agent={agent}
 					continueLabel="Done"
 					onContinue={() => navigate(`/${org}/agents/${agent.id}`)}
 				/>

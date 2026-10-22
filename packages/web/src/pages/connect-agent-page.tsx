@@ -19,6 +19,7 @@ import {
 } from '@proxy/ui/components/select';
 import {cn} from '@proxy/ui/lib/utils';
 import {apiMessage} from '@/lib/agent-errors';
+import {forgetPendingAgent} from '@/lib/pending-agent';
 import type {AgentLogin} from '@/lib/types';
 import type {ConnectAgentData, connectAgentLoader} from '@/loaders';
 
@@ -33,10 +34,11 @@ type Choice = {
 };
 
 // Where an MCP client such as Claude, ChatGPT or Poke signs in: the person chooses which of their
-// agents it works as, in which of their organizations, or makes a login for it there, and the
-// client gets that agent's access and nothing more. A new login is named after its provider, or,
-// for any other MCP client, a custom agent, after the client, unless the person names it otherwise. Allowing or denying sends the browser
-// back to the client.
+// agents it works as, in which of their organizations, and the client gets that agent's access and
+// nothing more. The agent being set up in this browser is chosen already. A client added without
+// setting an agent up first can have a login made for it here, named after its provider, or, for
+// a custom agent, after the client, unless the person names it otherwise. Allowing or denying
+// sends the browser back to the client.
 export function ConnectAgentPage() {
 	const loaded = useLoaderData<typeof connectAgentLoader>();
 	if (loaded.kind === 'error') {
@@ -53,7 +55,9 @@ export function ConnectAgentPage() {
 			request={loaded.request}
 			details={loaded.details}
 			orgs={loaded.orgs}
+			org={loaded.org}
 			agents={loaded.agents}
+			pendingAgentId={loaded.pendingAgentId}
 		/>
 	);
 }
@@ -70,11 +74,13 @@ function Consent({
 	request,
 	details,
 	orgs,
+	org,
 	agents: loaded,
+	pendingAgentId,
 }: Omit<Extract<ConnectAgentData, {kind: 'ok'}>, 'kind'>) {
-	// The organization the agent is in, the person's first to start with, and its agents, read
-	// again as another is picked.
-	const [orgSlug, setOrgSlug] = useState(orgs[0]?.slug ?? '');
+	// The organization the agent is in, the one the loader started in to start with, and its
+	// agents, read again as another is picked.
+	const [orgSlug, setOrgSlug] = useState(org);
 	const [agents, setAgents] = useState<AgentLogin[]>(loaded);
 	const pickOrg = async (slug: string) => {
 		setOrgSlug(slug);
@@ -99,11 +105,14 @@ function Consent({
 			detail: 'A new login, with every connection’s defaults',
 		})),
 	];
-	// The agent the client's name points at, else the custom agent of that name, else a new one.
-	const suggested = details.suggestedProviderId
-		? choices.find((choice) => choice.providerId === details.suggestedProviderId)
-		: (choices.find((choice) => !choice.isNew && choice.label === details.clientName) ??
-			choices.find((choice) => findAgentProvider(choice.providerId)?.custom && choice.isNew));
+	// The agent being set up in this browser, else the one the client's name points at, else the
+	// custom agent of that name, else a new one.
+	const suggested =
+		choices.find((choice) => choice.key === pendingAgentId) ??
+		(details.suggestedProviderId
+			? choices.find((choice) => choice.providerId === details.suggestedProviderId)
+			: (choices.find((choice) => !choice.isNew && choice.label === details.clientName) ??
+				choices.find((choice) => findAgentProvider(choice.providerId)?.custom && choice.isNew)));
 	const [chosen, setChosen] = useState<string | null>(suggested?.key ?? null);
 	// The name the person gave a new login, null until they change it.
 	const [name, setName] = useState<string | null>(null);
@@ -117,6 +126,9 @@ function Consent({
 			setSending(false);
 			setError(consentErrorMessage(result.error));
 			return;
+		}
+		if (consent.allow && 'agentId' in consent) {
+			forgetPendingAgent(consent.agentId);
 		}
 		window.location.assign(result.value.redirectTo);
 	};

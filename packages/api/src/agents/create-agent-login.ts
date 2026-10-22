@@ -1,7 +1,7 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
-import {createAgent, isUsernameConflict, listAgents, type AgentRow, type AgentViewer} from '@proxy/db/agent';
+import {createAgent, isUsernameConflict, type AgentRow, type AgentViewer} from '@proxy/db/agent';
 import {AGENT_NAME_MAX, findAgentProvider, type AgentProvider} from '@proxy/integrations';
 
 import {generatePassword, generateUsername} from './credentials';
@@ -32,32 +32,15 @@ function nameFor(provider: AgentProvider, name: string | undefined): Result<stri
 	return Ok(provider.name);
 }
 
-// "Claude", or "Claude 2" when the person sees a Claude already, so logins of one provider are told
-// apart; within the longest name an agent can have.
-function distinctName(name: string, taken: Set<string>): string {
-	if (!taken.has(name)) {
-		return name;
-	}
-	for (let number = 2; ; number++) {
-		const suffix = ` ${number}`;
-		const candidate = `${name.slice(0, AGENT_NAME_MAX - suffix.length)}${suffix}`;
-		if (!taken.has(candidate)) {
-			return candidate;
-		}
-	}
-}
-
 /**
  * A new agent login for one of the providers, the viewer's own or, `shared`, every member's, with a
  * generated username and password; only the password's hash is kept, so this is the one time it is
- * known. A new agent follows every default. There can be any number of logins of a provider; one
- * named as another the person sees is numbered, as "Claude 2".
+ * known. A new agent follows every default. There can be any number of logins of a provider.
  */
 export function createAgentLogin(viewer: AgentViewer, providerId: string, options: {name?: string; shared?: boolean} = {}): Promise<Result<{agent: AgentRow; password: string}, ApiError>> {
 	return Do(async ($) => {
 		const provider = $(requirePresent(findAgentProvider(providerId), ApiErr.parseError(`Unknown agent ${providerId}`)));
-		const taken = new Set($(await listAgents(viewer)).map((agent) => agent.name));
-		const name = distinctName($(nameFor(provider, options.name)), taken);
+		const name = $(nameFor(provider, options.name));
 		const password = generatePassword();
 		const passwordHash = await Bun.password.hash(password);
 
