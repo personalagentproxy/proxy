@@ -7,7 +7,6 @@ import {IntegrationLogo} from '@/components/brand-logo';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {RenameDialog} from '@/components/rename-dialog';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
-import {Badge} from '@proxy/ui/components/badge';
 import {Button} from '@proxy/ui/components/button';
 import {ContextMenuItem} from '@proxy/ui/components/context-menu';
 import {agentsWithAccess, integrationOf} from '@/lib/access';
@@ -18,9 +17,8 @@ import type {connectionsLoader} from '@/loaders';
 
 // Widths and visibility shared by the header and every row, so the columns line up.
 const CELLS = {
-	account:
-		'flex min-w-0 max-w-48 flex-1 items-center justify-end gap-1.5 text-right text-muted-foreground md:w-48 md:flex-none',
-	agents: 'hidden w-20 shrink-0 text-right text-muted-foreground tabular-nums sm:block',
+	account: 'hidden w-48 shrink-0 truncate text-right text-muted-foreground md:block',
+	agents: 'w-20 shrink-0 text-right text-muted-foreground tabular-nums',
 };
 
 // What a row's context menu is about: the connection, and whether it is being renamed or deleted.
@@ -31,33 +29,6 @@ function titleOf(connection: Connection): string {
 	return connection.name ?? integrationOf(connection)?.name ?? connection.integrationId;
 }
 
-// Built-in integrations are one service even when several accounts are connected. Each custom MCP
-// server is a service of its own, despite sharing the catalog's `mcp` integration id.
-function groupOf(connection: Connection): string {
-	return integrationOf(connection)?.custom ? connection.id : connection.integrationId;
-}
-
-// One connection's account, followed by how many other accounts use the same service. The tooltip
-// spells every account out while the row itself still opens this particular connection.
-function AccountCell({connection, siblings}: {connection: Connection; siblings: Connection[]}) {
-	if (siblings.length < 2) {
-		return (
-			<span className={CELLS.account}>
-				<span className="truncate">{connection.account}</span>
-			</span>
-		);
-	}
-
-	return (
-		<span className={CELLS.account}>
-			<span className="min-w-0 truncate">{connection.account}</span>
-			<Badge variant="secondary" className="shrink-0 font-normal tabular-nums">
-				+{siblings.length - 1}
-			</Badge>
-		</span>
-	);
-}
-
 // The services connected to Personal Agent Proxy. The vault is kept on a page of its own. A
 // right click on a row renames or deletes the connection.
 export function ConnectionsPage() {
@@ -66,17 +37,6 @@ export function ConnectionsPage() {
 	const [pending, setPending] = useState<Pending | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const connections = all.filter((connection) => !integrationOf(connection)?.builtIn);
-	const connectionsByIntegration = new Map<string, Connection[]>();
-	for (const connection of connections) {
-		const group = groupOf(connection);
-		const siblings = connectionsByIntegration.get(group);
-		if (siblings) {
-			siblings.push(connection);
-			continue;
-		}
-
-		connectionsByIntegration.set(group, [connection]);
-	}
 	const renaming = pending?.action === 'rename' ? pending.connection : null;
 	const deleting = pending?.action === 'delete' ? pending.connection : null;
 
@@ -104,35 +64,15 @@ export function ConnectionsPage() {
 				{connections.length === 0 && <EmptyRows>Nothing connected yet.</EmptyRows>}
 				{connections.map((connection) => {
 					const integration = integrationOf(connection);
-					const siblings = connectionsByIntegration.get(groupOf(connection)) ?? [connection];
 					return (
 						<Row
 							key={connection.id}
 							to={`/connections/${connection.id}`}
-							tooltip={
-								siblings.length > 1 && (
-									<span className="flex flex-col items-start gap-0.5">
-										{siblings.map((sibling) => (
-											<span key={sibling.id}>{sibling.account}</span>
-										))}
-									</span>
-								)
-							}
 							icon={integration && <IntegrationLogo integration={integration} />}
-							title={
-								<span className="flex min-w-0 items-baseline gap-2">
-									<span className="truncate">{titleOf(connection)}</span>
-									{siblings.length > 1 && (
-										<Badge variant="secondary" className="shrink-0 font-normal tabular-nums">
-											<span className="sm:hidden">{siblings.length}</span>
-											<span className="hidden sm:inline">{siblings.length} connections</span>
-										</Badge>
-									)}
-								</span>
-							}
+							title={titleOf(connection)}
 							cells={
 								<>
-									<AccountCell connection={connection} siblings={siblings} />
+									<span className={CELLS.account}>{connection.account}</span>
 									<span className={CELLS.agents}>
 										{agentsWithAccess(agents, connection).length}
 									</span>
