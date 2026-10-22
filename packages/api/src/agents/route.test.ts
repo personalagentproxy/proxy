@@ -9,8 +9,8 @@ const createAgent = mock();
 const updateAgent = mock();
 const deleteAgent = mock();
 const setAgentGrants = mock();
+const renameAgent = mock();
 const isUsernameConflict = mock(() => false);
-const isProviderConflict = mock(() => false);
 
 mock.module('@proxy/db/agent', () => ({
 	listAgents,
@@ -18,10 +18,10 @@ mock.module('@proxy/db/agent', () => ({
 	createAgent,
 	updateAgent,
 	deleteAgent,
+	renameAgent,
 	setAgentGrants,
 	shareAgent: mock(async () => Ok(undefined)),
 	isUsernameConflict,
-	isProviderConflict,
 }));
 
 mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
@@ -63,9 +63,11 @@ function makeRequest(params: Record<string, string> = {}, body: unknown = undefi
 beforeEach(() => {
 	mock.clearAllMocks();
 	requireUserOrgId.mockResolvedValue(Ok('org-1'));
+	listAgents.mockResolvedValue(Ok([]));
 	getAgent.mockResolvedValue(Ok(agentRow));
 	createAgent.mockResolvedValue(Ok(agentRow));
 	updateAgent.mockResolvedValue(Ok(true));
+	renameAgent.mockResolvedValue(Ok(true));
 	setAgentGrants.mockResolvedValue(Ok(undefined));
 	getConnectionWithCredential.mockResolvedValue(
 		Ok({
@@ -83,7 +85,6 @@ beforeEach(() => {
 		}),
 	);
 	isUsernameConflict.mockReturnValue(false);
-	isProviderConflict.mockReturnValue(false);
 });
 
 describe('handleCreateAgentRoute', () => {
@@ -132,37 +133,52 @@ describe('handleCreateAgentRoute', () => {
 		expect(createAgent.mock.calls[1]?.[0]).toMatchObject({providerId: 'custom', name: 'Zed'});
 	});
 
-	test('needs a custom agent named, and a provider named by itself', async () => {
+	test('needs a custom agent named, and names any other after its provider unless the person does', async () => {
 		const {handleCreateAgentRoute} = await import('./route');
 		const unnamed = await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: ' '}));
 		const tooLong = await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: 'x'.repeat(61)}));
-		await handleCreateAgentRoute(makeRequest({}, {providerId: 'dot', name: 'Something else'}));
+		await handleCreateAgentRoute(makeRequest({}, {providerId: 'dot'}));
+		await handleCreateAgentRoute(makeRequest({}, {providerId: 'dot', name: 'Travel planner'}));
 
 		expect(unnamed.unwrapErr().kind).toBe('validation_error');
 		expect(tooLong.unwrapErr().kind).toBe('validation_error');
-		expect(createAgent).toHaveBeenCalledTimes(1);
+		expect(createAgent).toHaveBeenCalledTimes(2);
 		expect(createAgent.mock.calls[0]?.[0].name).toBe('Dots');
+		expect(createAgent.mock.calls[1]?.[0]).toMatchObject({providerId: 'dot', name: 'Travel planner'});
 	});
 
-	test('refuses a custom agent named as one the organization has', async () => {
-		createAgent.mockResolvedValue(Err(ApiErr.dbError(new Error('P2002'))));
-		isProviderConflict.mockReturnValue(true);
+	test('numbers a login named as one the person sees, so any number of a provider are told apart', async () => {
+		listAgents.mockResolvedValue(Ok([agentRow, {...agentRow, id: 'agent-2', name: 'Dots 2'}, {...agentRow, id: 'agent-3', name: 'Cursor'}, {...agentRow, id: 'agent-4', name: 'x'.repeat(60)}]));
 
 		const {handleCreateAgentRoute} = await import('./route');
-		const result = await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: 'Cursor'}));
+		await handleCreateAgentRoute(makeRequest({}, {providerId: 'dot'}));
+		await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: 'Cursor'}));
+		await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: 'x'.repeat(60)}));
 
-		expect(result.unwrapErr()).toMatchObject({kind: 'conflict', message: 'An agent named Cursor already exists'});
+		expect(createAgent.mock.calls[0]?.[0]).toMatchObject({providerId: 'dot', name: 'Dots 3'});
+		expect(createAgent.mock.calls[0]?.[0].username).toMatch(/^dots-3-[a-z0-9]{4}$/);
+		expect(createAgent.mock.calls[1]?.[0].name).toBe('Cursor 2');
+		expect(createAgent.mock.calls[2]?.[0].name).toBe(`${'x'.repeat(58)} 2`);
+	});
+});
+
+describe('handleRenameAgentRoute', () => {
+	test('renames the agent, trimmed', async () => {
+		const {handleRenameAgentRoute} = await import('./route');
+		const result = await handleRenameAgentRoute(makeRequest({agentId: 'agent-1'}, {name: ' Travel planner '}));
+
+		expect(renameAgent).toHaveBeenCalledWith('org-1', 'agent-1', 'Travel planner');
+		expect(result.unwrap().name).toBe('Travel planner');
 	});
 
-	test('refuses a second login for the same provider', async () => {
-		createAgent.mockResolvedValue(Err(ApiErr.dbError(new Error('P2002'))));
-		isProviderConflict.mockReturnValue(true);
+	test('needs a name, and not too long a one', async () => {
+		const {handleRenameAgentRoute} = await import('./route');
+		const empty = await handleRenameAgentRoute(makeRequest({agentId: 'agent-1'}, {name: ' '}));
+		const tooLong = await handleRenameAgentRoute(makeRequest({agentId: 'agent-1'}, {name: 'x'.repeat(61)}));
 
-		const {handleCreateAgentRoute} = await import('./route');
-		const result = await handleCreateAgentRoute(makeRequest({}, {providerId: 'dot'}));
-
-		expect(result.unwrapErr().kind).toBe('conflict');
-		expect(createAgent).toHaveBeenCalledTimes(1);
+		expect(empty.unwrapErr().kind).toBe('validation_error');
+		expect(tooLong.unwrapErr().kind).toBe('validation_error');
+		expect(renameAgent).not.toHaveBeenCalled();
 	});
 });
 

@@ -140,8 +140,8 @@ export function findAgentProvider(id: string): AgentProvider | undefined {
 	return AGENT_PROVIDERS.find((provider) => provider.id === id);
 }
 
-/** The longest name a custom agent can be given. */
-export const CUSTOM_AGENT_NAME_MAX = 60;
+/** The longest name an agent can be given. */
+export const AGENT_NAME_MAX = 60;
 
 /**
  * The provider an MCP client's registered name points at, such as "Claude" or "ChatGPT", so

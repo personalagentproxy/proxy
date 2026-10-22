@@ -8,20 +8,15 @@ import {useShareChoice} from '@/lib/share-choice';
 import type {agentsLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 
-// A new agent, set up as in the welcome flow: chosen from the companies without a login yet, or a
-// custom MCP agent, then handed its login or added as a connector, and on to its page. With anyone
-// else in the organization or invited, it asks first who the agent is for (`?for=everyone`): the
-// companies without a login are those without one of that kind.
+// A new agent, set up as in the welcome flow: chosen from the companies, any of which can have
+// any number of logins, or a custom MCP agent, then handed its login or added as a connector, and
+// on to its page. With anyone else in the organization or invited, it asks first who the agent is
+// for (`?for=everyone`).
 export function NewAgentPage() {
 	const org = useOrgSlug();
 	const {agents} = useLoaderData<typeof agentsLoader>();
 	const navigate = useNavigate();
 	const {shared} = useShareChoice();
-	const providers = AGENT_PROVIDERS.filter(
-		(provider) =>
-			provider.custom ||
-			!agents.some((agent) => agent.providerId === provider.id && agent.shared === shared),
-	);
 
 	return (
 		<AppShell
@@ -41,10 +36,10 @@ export function NewAgentPage() {
 			/>
 			<AgentSetup
 				agents={agents.filter((agent) => agent.shared === shared)}
-				providers={providers}
+				providers={AGENT_PROVIDERS}
 				shared={shared}
 				continueLabel="Done"
-				onContinue={(agent) => navigate(agent ? `/agents/${agent.id}` : '/agents')}
+				onContinue={(agent) => navigate(agent ? `/${org}/agents/${agent.id}` : `/${org}/agents`)}
 			/>
 		</AppShell>
 	);

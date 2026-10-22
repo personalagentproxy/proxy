@@ -3,7 +3,7 @@ import {describe, expect, test} from 'bun:test';
 import {Prisma} from '@prisma/client';
 import {ApiErr} from '@proxy/utils';
 
-import {isProviderConflict, isUsernameConflict} from './agent';
+import {isUsernameConflict} from './agent';
 import {toSignedInAgent} from './signed-in-agent';
 
 function uniqueViolation(target: string[]) {
@@ -17,15 +17,10 @@ function uniqueViolation(target: string[]) {
 }
 
 describe('agent unique conflicts', () => {
-	test('distinguishes provider and username constraints', () => {
-		const provider = uniqueViolation(['orgId', 'providerId']);
-		const username = uniqueViolation(['username']);
-
-		expect(isProviderConflict(provider)).toBe(true);
-		expect(isUsernameConflict(provider)).toBe(false);
-		expect(isUsernameConflict(username)).toBe(true);
-		expect(isProviderConflict(username)).toBe(false);
-		expect(isProviderConflict(ApiErr.forbidden())).toBe(false);
+	test('recognizes the username constraint alone', () => {
+		expect(isUsernameConflict(uniqueViolation(['username']))).toBe(true);
+		expect(isUsernameConflict(uniqueViolation(['id']))).toBe(false);
+		expect(isUsernameConflict(ApiErr.forbidden())).toBe(false);
 	});
 });
 

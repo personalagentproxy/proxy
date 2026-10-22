@@ -34,6 +34,11 @@ export function shareAgent(org: string, agentId: string) {
 	return apiRequest('POST', `${orgApi(org)}/agents/${agentId}/share`, agentSchema);
 }
 
+/** Renames an agent: what it is called here, in the activity log and to the agent itself. */
+export function renameAgent(org: string, agentId: string, name: string) {
+	return apiRequest('PUT', `${orgApi(org)}/agents/${agentId}/name`, agentSchema, {name});
+}
+
 export function resetAgentPassword(org: string, agentId: string) {
 	return apiRequest(
 		'POST',

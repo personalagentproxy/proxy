@@ -2,7 +2,7 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
-import {deleteAgent, getAgent, listAgents, setAgentGrants, shareAgent, updateAgent, type AgentRow, type AgentViewer} from '@proxy/db/agent';
+import {deleteAgent, getAgent, listAgents, renameAgent, setAgentGrants, shareAgent, updateAgent, type AgentRow, type AgentViewer} from '@proxy/db/agent';
 import {getConnectionWithCredential} from '@proxy/db/connection';
 import {deleteOAuthGrant, listAgentOAuthGrants} from '@proxy/db/oauth';
 
@@ -11,7 +11,7 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {parseActionChanges, requireIntegration} from '../utils/connection-actions';
 import {requireViewer, type OrgViewer} from '../utils/user-org';
 import {respond, respondAll, type AgentResponse} from './agent-response';
-import {createAgentLogin} from './create-agent-login';
+import {createAgentLogin, parseAgentName} from './create-agent-login';
 import {generatePassword} from './credentials';
 
 // An agent is a member's own, which nobody else in the organization sees, or shared with every
@@ -55,8 +55,8 @@ export function handleGetAgentRoute(request: AuthenticatedRequest): Promise<Resu
 	});
 }
 
-// A custom agent's name is the person's; every other agent is named by its provider. `shared` makes
-// it every member's rather than the person's own.
+// The agent's name, the person's, or else its provider's, which a custom agent has none of. `shared`
+// makes it every member's rather than the person's own.
 const createAgentBodySchema = z.object({providerId: z.string(), name: z.string().optional(), shared: z.boolean().optional()});
 
 /** The only time the password is sent; Personal Agent Proxy keeps its hash. A new agent follows every default. */
@@ -80,6 +80,23 @@ export function handleResetAgentPasswordRoute(request: AuthenticatedRequest): Pr
 			return $(Err(ApiErr.notFound('agent', agent.id)));
 		}
 		return {password};
+	});
+}
+
+const renameBodySchema = z.object({name: z.string()});
+
+/** Renames an agent, `{name}`: what it is called here, in the activity log and to the agent itself. */
+export function handleRenameAgentRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
+	return Do(async ($) => {
+		const body = $(parseSchema(renameBodySchema, request.body));
+		const name = $(parseAgentName(body.name));
+		const viewer = $(await requireViewer(request));
+		const agent = $(await requireManagedAgent(viewer, agentIdOf(request)));
+		const renamed = $(await renameAgent(viewer.orgId, agent.id, name));
+		if (!renamed) {
+			return $(Err(ApiErr.notFound('agent', agent.id)));
+		}
+		return $(await respond({...agent, name}));
 	});
 }
 

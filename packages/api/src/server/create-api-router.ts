@@ -19,6 +19,7 @@ import {
 	handleGetAgentRoute,
 	handleListAgentsRoute,
 	handleListMcpClientsRoute,
+	handleRenameAgentRoute,
 	handleResetAgentPasswordRoute,
 	handleSetAgentGrantsRoute,
 	handleSetAgentRevokedRoute,
@@ -175,6 +176,7 @@ export function createApiRouter(): express.Router {
 	org.get('/agents/:agentId', withAuthResult('Get agent route', handleGetAgentRoute));
 	org.delete('/agents/:agentId', withAuthResult('Delete agent route', handleDeleteAgentRoute));
 	org.post('/agents/:agentId/password', withAuthResult('Reset agent password route', handleResetAgentPasswordRoute));
+	org.put('/agents/:agentId/name', withAuthResult('Rename agent route', handleRenameAgentRoute));
 	org.put('/agents/:agentId/revoked', withAuthResult('Set agent revoked route', handleSetAgentRevokedRoute));
 	org.post('/agents/:agentId/share', withAuthResult('Share agent route', handleShareAgentRoute));
 	org.put('/agents/:agentId/grants/:connectionId', withAuthResult('Set agent grants route', handleSetAgentGrantsRoute));

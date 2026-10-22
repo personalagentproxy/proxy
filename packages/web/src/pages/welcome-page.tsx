@@ -92,6 +92,7 @@ export function WelcomePage({step}: {step: Step}) {
 				<AgentSetup
 					agents={agents}
 					providers={AGENT_PROVIDERS}
+					resume
 					continueLabel="Finish"
 					onContinue={() => void finish()}
 				/>

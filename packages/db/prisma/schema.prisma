@@ -264,9 +264,8 @@ model VaultEntry {
 model Agent {
   id           String    @id @default(cuid())
   orgId        String
-  // One of the catalog's AGENT_PROVIDERS. A provider's login is named by the provider, so a member
-  // has one per provider in an organization, and the organization one shared; custom agents are
-  // named by the person, one per name.
+  // One of the catalog's AGENT_PROVIDERS, of which there can be any number of logins, each named by
+  // the person or after the provider.
   providerId   String
   name         String
   username     String    @unique
@@ -290,9 +289,6 @@ model Agent {
   oauthCodes  OAuthCode[]
   oauthGrants OAuthGrant[]
 
-  // Postgres tells nulls apart in a unique index, so two shared logins of a provider would pass it:
-  // `createAgent` checks for one first.
-  @@unique([orgId, ownerUserId, providerId, name])
   @@index([orgId])
   @@index([ownerUserId])
 }

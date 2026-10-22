@@ -313,7 +313,6 @@ function grant(connection: Connection, actions: Record<string, boolean>): Grant[
 const AGENT_PASSWORD = 'demo-password';
 const passwordHash = await Bun.password.hash(AGENT_PASSWORD);
 
-// One login per provider, as the app allows.
 async function makeAgent(data: {
 	providerId: AgentProviderId;
 	name: string;
@@ -357,6 +356,14 @@ const agents = [
 			grant(newsletters, {read: false}),
 			grant(googleAccount, {createFiles: true, editFiles: true}),
 		],
+	}),
+	// A second login of the same company, named by the person: reads, and nothing more.
+	await makeAgent({
+		providerId: 'dot',
+		name: 'Dots research',
+		username: 'dots-research-p4tn',
+		daysAgo: 30,
+		grants: [grant(work, {write: false}), grant(googleAccount, {readEmails: true})],
 	}),
 	// Files receipts; kept out of the work mailbox.
 	await makeAgent({

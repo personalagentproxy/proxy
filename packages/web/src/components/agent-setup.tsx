@@ -28,16 +28,18 @@ type Login = {username: string; password: string};
 // Which agent, then what that agent needs to work through Personal Agent Proxy: an MCP client
 // adds the server and signs in, which makes its login; another is handed a login, made then and
 // there when it is chosen. The welcome flow, New agent and setting an agent up again all go
-// through here. An agent that has a login already is shown as it is, so arriving here after
-// signing in from Claude says Claude is connected. With `fixed`, it is that agent's alone, and
-// `agents` that agent's login alone. The agent chosen is in the address (`?agent=claude`), so the
-// browser's back button returns to the choice. A custom MCP agent can be added any number of
-// times, so the one being added is the one that signs in while this is open.
+// through here. Any agent can be added any number of times, so the login being set up is the one
+// made while this is open, whether made here or by signing in. With `resume`, the latest login
+// there already is shown as it is, so arriving back in the welcome flow after signing in from
+// Claude says Claude is connected. With `fixed`, it is that agent's alone, and `agents` that
+// agent's login alone. The agent chosen is in the address (`?agent=claude`), so the browser's back
+// button returns to the choice.
 export function AgentSetup({
 	agents,
 	providers,
 	fixed,
 	shared = false,
+	resume = false,
 	continueLabel,
 	onContinue,
 }: {
@@ -46,6 +48,7 @@ export function AgentSetup({
 	fixed?: AgentProviderId;
 	// A new login is every member's rather than the person's own.
 	shared?: boolean;
+	resume?: boolean;
 	continueLabel: string;
 	onContinue: (agent: AgentLogin | null) => void;
 }) {
@@ -53,33 +56,24 @@ export function AgentSetup({
 	const live = agents.filter((agent) => agent.revokedAt === null);
 	const {revalidate} = useRevalidator();
 	const [params, setParams] = useSearchParams();
-	// The agent already set up, so arriving back here after signing in from Claude shows Claude,
-	// until another is chosen. A custom agent could be any of several, so it isn't one.
-	const [arrival, setArrival] = useState<AgentProviderId | null>(
-		() =>
-			providers.find(
-				(provider) => !provider.custom && live.some((agent) => agent.providerId === provider.id),
-			)?.id ?? null,
+	// The latest login set up already, so arriving back here after signing in from Claude shows
+	// Claude, until another is chosen.
+	const [arrival, setArrival] = useState<AgentLogin | null>(() =>
+		resume && !fixed && !params.has('agent')
+			? (live.find((agent) => providers.some((provider) => provider.id === agent.providerId)) ??
+				null)
+			: null,
 	);
-	// The custom agents there before, so the one added here is the one that signs in.
-	const [known] = useState(
-		() =>
-			new Set(
-				fixed
-					? []
-					: live
-							.filter((agent) => findAgentProvider(agent.providerId)?.custom)
-							.map((agent) => agent.id),
-			),
-	);
-	const chosenId = fixed ?? findAgentProvider(params.get('agent') ?? '')?.id ?? arrival;
+	// The logins there before, so the one added here is the one that signs in.
+	const [known] = useState(() => new Set(fixed ? [] : live.map((agent) => agent.id)));
+	const chosenId = fixed ?? findAgentProvider(params.get('agent') ?? '')?.id ?? arrival?.providerId;
 	const [login, setLogin] = useState<Login | null>(null);
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const chosen = chosenId ? findAgentProvider(chosenId) : undefined;
-	const existingFor = (provider: AgentProvider) =>
+	const addedFor = (provider: AgentProvider) =>
 		live.find((agent) => agent.providerId === provider.id && !known.has(agent.id)) ?? null;
-	const existing = chosen ? existingFor(chosen) : null;
+	const existing = arrival ?? (chosen ? addedFor(chosen) : null);
 	useCommandEnter(
 		() => {
 			if (!chosen) {
@@ -98,7 +92,7 @@ export function AgentSetup({
 		});
 		setLogin(null);
 		setError(null);
-		if (provider.connects !== 'login' || existingFor(provider) !== null) {
+		if (provider.connects !== 'login' || addedFor(provider) !== null) {
 			return;
 		}
 		setPending(true);
@@ -160,11 +154,9 @@ export function AgentSetup({
 								detail={
 									provider.custom
 										? 'Any agent that speaks MCP'
-										: existingFor(provider)
-											? 'Connected'
-											: usable
-												? undefined
-												: 'Needs a public https address'
+										: usable
+											? loginsDetail(live.filter((agent) => agent.providerId === provider.id))
+											: 'Needs a public https address'
 								}
 								onChoose={() => void choose(provider)}
 							/>
@@ -192,6 +184,8 @@ export function AgentSetup({
 			<McpAgent
 				provider={chosen}
 				name={chosen.custom && !fixed ? null : (existing?.name ?? chosen.name)}
+				// Which login to choose when signing in: this one, being set up again, or a new one.
+				signsInAs={fixed && existing ? existing.name : `a new ${chosen.name} login`}
 				existing={existing}
 				actions={actions}
 			/>
@@ -208,6 +202,17 @@ export function AgentSetup({
 			onReset={() => existing && void reset(existing)}
 		/>
 	);
+}
+
+// How many logins of a provider there are already, as a tile says it: none says nothing.
+function loginsDetail(logins: AgentLogin[]): string | undefined {
+	if (logins.length === 0) {
+		return undefined;
+	}
+	if (logins.length === 1) {
+		return 'Connected';
+	}
+	return `${logins.length} logins`;
 }
 
 // What a Personal Agent Proxy on an http address, such as a development machine, is told: only
@@ -269,7 +274,8 @@ const MCP_STEPS: Partial<
 			openLabel?: string;
 			command?: (serverUrl: string) => string;
 			afterAdd?: string;
-			authorize?: string;
+			// What to do on the sign-in page, choosing `login`, such as "a new Claude login".
+			authorize?: (login: string) => string;
 		}
 	>
 > = {
@@ -280,8 +286,8 @@ const MCP_STEPS: Partial<
 		openLabel: 'Claude',
 		afterAdd:
 			'Name the connector, paste the server address, and continue. Choose Sign in now, then choose Register automatically under OAuth client.',
-		authorize:
-			'Claude opens Personal Agent Proxy to sign in. Choose Claude when asked which agent it works as. That login gives Claude and Claude Duet the same access and activity history.',
+		authorize: (login) =>
+			`Claude opens Personal Agent Proxy to sign in. Choose ${login} when asked which agent it works as. That login gives Claude and Claude Duet the same access and activity history.`,
 	},
 	'claude-code': {
 		where: 'Run the command above in a terminal.',
@@ -295,8 +301,8 @@ const MCP_STEPS: Partial<
 		command: (serverUrl) =>
 			`hermes mcp add personal-agent-proxy --url '${serverUrl}' --auth oauth --connect-timeout 300`,
 		afterAdd: 'Hermes Agent opens a browser when it can, or prints a sign-in link.',
-		authorize:
-			'In the browser, sign in and choose Hermes Agent when asked which agent it works as. If Hermes Agent is on a remote host, copy the full redirect URL from the browser back into its prompt.',
+		authorize: (login) =>
+			`In the browser, sign in and choose ${login} when asked which agent it works as. If Hermes Agent is on a remote host, copy the full redirect URL from the browser back into its prompt.`,
 	},
 	chatgpt: {
 		where:
@@ -312,23 +318,25 @@ const MCP_STEPS: Partial<
 			'In your agent, add a custom connector or remote MCP server, as it calls them, over Streamable HTTP.',
 		afterAdd:
 			'Paste the server address and add it. It signs in with OAuth, so leave any API key or token empty.',
-		authorize:
-			'Your agent opens Personal Agent Proxy to sign in. Choose Custom MCP agent and give it a name, or choose the agent it already works as.',
+		authorize: (login) =>
+			`Your agent opens Personal Agent Proxy to sign in. Choose ${login} and give it a name.`,
 	},
 };
 
 // The server's address to add, and a wait for the client to sign in: when it has, the login it
-// made is here. An MCP client reaches the server over the internet, at an https address, so a
+// made is here, which it chooses on signing in as `signsInAs`. An MCP client reaches the server over the internet, at an https address, so a
 // server that isn't one, such as a development machine, is told to move first. A custom agent
 // is "your agent" until it has a name.
 function McpAgent({
 	provider,
 	name,
+	signsInAs,
 	existing,
 	actions,
 }: {
 	provider: AgentProvider;
 	name: string | null;
+	signsInAs: string;
 	existing: AgentLogin | null;
 	actions: ReactNode;
 }) {
@@ -382,12 +390,8 @@ function McpAgent({
 							: 'Paste the server address and add it.')}
 				</li>
 				<li>
-					{steps?.authorize ?? (
-						<>
-							{provider.name} opens Personal Agent Proxy to sign in. Choose {provider.name} when
-							asked which agent it works as.
-						</>
-					)}
+					{steps?.authorize?.(signsInAs) ??
+						`${provider.name} opens Personal Agent Proxy to sign in. Choose ${signsInAs} when asked which agent it works as.`}
 				</li>
 			</ol>
 			{reachable && (

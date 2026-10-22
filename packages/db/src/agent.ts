@@ -1,7 +1,7 @@
 import {Prisma} from '@prisma/client';
-import {Err, type Result} from 'ts-results-es';
+import type {Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, wrapDb} from '@proxy/utils';
+import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
 import type {MemberViewer} from './connection';
@@ -78,9 +78,7 @@ export async function getAgent(
 
 /**
  * A new agent, `ownerUserId`'s own or, null, shared with every member, made by `createdById`.
- * Fails with a `db_error` that `isUsernameConflict` recognizes when the username is taken, and one
- * `isProviderConflict` recognizes, or a conflict, when the provider or name is taken among the
- * owner's agents, or among the shared ones.
+ * Fails with a `db_error` that `isUsernameConflict` recognizes when the username is taken.
  */
 export async function createAgent(data: {
 	orgId: string;
@@ -91,21 +89,6 @@ export async function createAgent(data: {
 	username: string;
 	passwordHash: string;
 }): Promise<Result<AgentRow, ApiError>> {
-	if (data.ownerUserId === null) {
-		// Nulls are distinct in the unique index, so a shared double is caught here.
-		const taken = await wrapDb(() =>
-			db.agent.findFirst({
-				where: {orgId: data.orgId, ownerUserId: null, providerId: data.providerId, name: data.name},
-				select: {id: true},
-			}),
-		);
-		if (taken.isErr()) {
-			return taken;
-		}
-		if (taken.value) {
-			return Err(ApiErr.conflict('taken'));
-		}
-	}
 	return wrapDb(() => db.agent.create({data, select: agentSelect}));
 }
 
@@ -124,10 +107,6 @@ export async function shareAgent(agentId: string): Promise<Result<void, ApiError
 
 export function isUsernameConflict(error: ApiError): boolean {
 	return isUniqueConflict(error, 'username');
-}
-
-export function isProviderConflict(error: ApiError): boolean {
-	return isUniqueConflict(error, 'orgId') && isUniqueConflict(error, 'providerId');
 }
 
 function isUniqueConflict(error: ApiError, field: string): boolean {
@@ -167,6 +146,17 @@ export async function updateAgent(
 			}
 			return count > 0;
 		}),
+	);
+}
+
+/** `Ok(false)` means no such agent in the organization. The caller has checked the agent is theirs to change. */
+export async function renameAgent(
+	orgId: string,
+	agentId: string,
+	name: string,
+): Promise<Result<boolean, ApiError>> {
+	return (await wrapDb(() => db.agent.updateMany({where: {id: agentId, orgId}, data: {name}}))).map(
+		({count}) => count > 0,
 	);
 }
 

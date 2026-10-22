@@ -1,9 +1,10 @@
-import {findAgentProvider} from '@proxy/integrations';
+import {AGENT_NAME_MAX, findAgentProvider} from '@proxy/integrations';
 import type {FetchError} from '@proxy/utils';
 import {
 	BanIcon,
 	ChevronRightIcon,
 	KeyRoundIcon,
+	PencilIcon,
 	RotateCcwIcon,
 	SearchIcon,
 	Trash2Icon,
@@ -15,6 +16,7 @@ import type {Result} from 'ts-results-es';
 import {
 	deleteAgent,
 	disconnectMcpClient,
+	renameAgent,
 	setAgentGrants,
 	setAgentRevoked,
 	shareAgent,
@@ -29,6 +31,7 @@ import {ConfirmDialog} from '@/components/confirm-dialog';
 import {ConnectionAccess} from '@/components/connection-access';
 import {IconButton} from '@/components/icon-button';
 import {NotFound} from '@/components/not-found';
+import {RenameDialog} from '@/components/rename-dialog';
 import {EmptyRows, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {Sharing} from '@/components/sharing';
@@ -38,6 +41,7 @@ import {useHuman} from '@/hooks/use-human';
 import {connectionLabel, defaultActions, integrationOf, ownSettings} from '@/lib/access';
 import {cn} from '@proxy/ui/lib/utils';
 import {formatDate} from '@/lib/format';
+import {apiMessage} from '@/lib/agent-errors';
 import {describeFetchError} from '@/lib/loader-utils';
 import {hasOtherPeople} from '@/lib/orgs';
 import type {AgentLogin, Connection} from '@/lib/types';
@@ -64,6 +68,7 @@ function AgentDetail({id}: {id: string}) {
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
 	const [confirming, setConfirming] = useState<Confirming>(null);
+	const [renaming, setRenaming] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const human = useHuman();
 	if (!agent || agent.id !== id || !human) {
@@ -112,6 +117,9 @@ function AgentDetail({id}: {id: string}) {
 			actions={
 				manages && (
 					<>
+						<IconButton label="Rename agent" onClick={() => setRenaming(true)}>
+							<PencilIcon />
+						</IconButton>
 						{!revoked && (
 							<IconButton label="Set up again" to={`/${org}/agents/${agent.id}/setup`}>
 								<KeyRoundIcon />
@@ -206,6 +214,26 @@ function AgentDetail({id}: {id: string}) {
 					/>
 				</Section>
 			</div>
+			{renaming && (
+				<RenameDialog
+					open
+					title={`Rename ${agent.name}`}
+					description="What this agent is called here, in the activity log and to the agent itself."
+					initial={agent.name}
+					allowEmpty={false}
+					maxLength={AGENT_NAME_MAX}
+					onClose={() => setRenaming(false)}
+					onSave={async (name) => {
+						const result = await renameAgent(org, agent.id, name);
+						if (result.isErr()) {
+							const said = result.error.kind === 'http' ? apiMessage(result.error.body) : null;
+							return said ?? describeFetchError(result.error);
+						}
+						await revalidator.revalidate();
+						return null;
+					}}
+				/>
+			)}
 			<ConfirmDialog
 				open={confirming === 'revoke'}
 				title={`Revoke ${agent.name}?`}

@@ -1,4 +1,4 @@
-import {AGENT_PROVIDERS, CUSTOM_AGENT_NAME_MAX, findAgentProvider} from '@proxy/integrations';
+import {AGENT_PROVIDERS, AGENT_NAME_MAX, findAgentProvider} from '@proxy/integrations';
 import type {FetchError} from '@proxy/utils';
 import {useState, type ReactNode} from 'react';
 import {useLoaderData} from 'react-router';
@@ -22,21 +22,20 @@ import {apiMessage} from '@/lib/agent-errors';
 import type {AgentLogin} from '@/lib/types';
 import type {ConnectAgentData, connectAgentLoader} from '@/loaders';
 
-// One choice on the page: an agent login the organization has, a new one for a provider without
-// one, or a new custom agent, which the person names.
+// One choice on the page: an agent login the organization has, or a new one for a provider, which
+// the person names.
 type Choice = {
 	key: string;
 	providerId: string;
 	label: string;
 	isNew: boolean;
 	detail: string;
-	consent: Exclude<Consent, {allow: false}>;
 };
 
 // Where an MCP client such as Claude, ChatGPT or Poke signs in: the person chooses which of their
 // agents it works as, in which of their organizations, or makes a login for it there, and the
-// client gets that agent's access and nothing more. Any other MCP client is a custom agent, named
-// after the client unless the person names it otherwise. Allowing or denying sends the browser
+// client gets that agent's access and nothing more. A new login is named after its provider, or,
+// for any other MCP client, a custom agent, after the client, unless the person names it otherwise. Allowing or denying sends the browser
 // back to the client.
 export function ConnectAgentPage() {
 	const loaded = useLoaderData<typeof connectAgentLoader>();
@@ -91,17 +90,13 @@ function Consent({
 			label: agent.name,
 			isNew: false,
 			detail: 'Its access as it is',
-			consent: {allow: true, org: orgSlug, agentId: agent.id} as const,
 		})),
-		...AGENT_PROVIDERS.filter(
-			(provider) => provider.custom || !agents.some((agent) => agent.providerId === provider.id),
-		).map((provider) => ({
+		...AGENT_PROVIDERS.map((provider) => ({
 			key: `new-${provider.id}`,
 			providerId: provider.id,
 			label: provider.name,
 			isNew: true,
 			detail: 'A new login, with every connection’s defaults',
-			consent: {allow: true, org: orgSlug, providerId: provider.id} as const,
 		})),
 	];
 	// The agent the client's name points at, else the custom agent of that name, else a new one.
@@ -110,7 +105,8 @@ function Consent({
 		: (choices.find((choice) => !choice.isNew && choice.label === details.clientName) ??
 			choices.find((choice) => findAgentProvider(choice.providerId)?.custom && choice.isNew));
 	const [chosen, setChosen] = useState<string | null>(suggested?.key ?? null);
-	const [name, setName] = useState(details.clientName.slice(0, CUSTOM_AGENT_NAME_MAX));
+	// The name the person gave a new login, null until they change it.
+	const [name, setName] = useState<string | null>(null);
 	const [sending, setSending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -125,7 +121,12 @@ function Consent({
 		window.location.assign(result.value.redirectTo);
 	};
 	const choice = choices.find((candidate) => candidate.key === chosen);
-	const naming = choice?.isNew === true && findAgentProvider(choice.providerId)?.custom === true;
+	const naming = choice?.isNew === true;
+	const shownName =
+		name ??
+		(findAgentProvider(choice?.providerId ?? '')?.custom
+			? details.clientName.slice(0, AGENT_NAME_MAX)
+			: (choice?.label ?? ''));
 
 	return (
 		<Frame>
@@ -153,7 +154,10 @@ function Consent({
 							name="agent"
 							value={option.key}
 							checked={chosen === option.key}
-							onChange={() => setChosen(option.key)}
+							onChange={() => {
+								setChosen(option.key);
+								setName(null);
+							}}
 							className="accent-primary"
 						/>
 						<AgentLogo providerId={option.providerId} />
@@ -171,8 +175,8 @@ function Consent({
 					<Input
 						id="agent-name"
 						autoComplete="off"
-						maxLength={CUSTOM_AGENT_NAME_MAX}
-						value={name}
+						maxLength={AGENT_NAME_MAX}
+						value={shownName}
 						onChange={(event) => setName(event.target.value)}
 					/>
 				</div>
@@ -183,13 +187,13 @@ function Consent({
 					Deny
 				</Button>
 				<Button
-					disabled={sending || !choice || (naming && name.trim() === '')}
+					disabled={sending || !choice || (naming && shownName.trim() === '')}
 					onClick={() =>
 						choice &&
 						void answer(
 							naming
-								? {allow: true, org: orgSlug, providerId: choice.providerId, name: name.trim()}
-								: choice.consent,
+								? {allow: true, org: orgSlug, providerId: choice.providerId, name: shownName.trim()}
+								: {allow: true, org: orgSlug, agentId: choice.key},
 						)
 					}
 				>
