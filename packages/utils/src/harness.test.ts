@@ -1,6 +1,15 @@
 import {describe, expect, test} from 'bun:test';
 
-import {type LogEntry, pendingToolCalls, readyForInference, sleepUntil} from './harness';
+import {
+	AVATAR_COLORS,
+	AVATAR_SHAPES,
+	isAvatarColor,
+	isAvatarShape,
+	type LogEntry,
+	pendingToolCalls,
+	readyForInference,
+	sleepUntil,
+} from './harness';
 
 const person = (text: string): LogEntry => ({kind: 'person', text, toolCalls: null, callId: null});
 const assistant = (text: string, calls: Array<{id: string; name: string}> = []): LogEntry => ({
@@ -64,5 +73,16 @@ describe('sleepUntil', () => {
 		expect(sleepUntil({until: 'tomorrow'}, now)).toBeNull();
 		expect(sleepUntil({}, now)).toBeNull();
 		expect(sleepUntil('soon', now)).toBeNull();
+	});
+});
+
+describe('avatars', () => {
+	test('are four shapes and eight colors, told from anything else', () => {
+		expect(AVATAR_SHAPES).toHaveLength(4);
+		expect(AVATAR_COLORS).toHaveLength(8);
+		expect(isAvatarShape('circle')).toBe(true);
+		expect(isAvatarShape('star')).toBe(false);
+		expect(isAvatarColor('blue')).toBe(true);
+		expect(isAvatarColor('brown')).toBe(false);
 	});
 });

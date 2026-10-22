@@ -72,14 +72,16 @@ export async function connectionLoader({params}: {params: {id?: string}}) {
 	};
 }
 
-// Chat opens on the newest thread with the built-in agent, made where there is none yet.
+// Chat opens on the first persona, a General one made where there is none yet.
 export async function chatIndexLoader() {
 	const {threads} = unwrapLoaderResult(await listThreads());
-	const newest = threads[0];
-	if (newest) {
-		throw redirect(`/chat/${newest.id}`);
+	const first = threads[0];
+	if (first) {
+		throw redirect(`/chat/${first.id}`);
 	}
-	const {thread} = unwrapLoaderResult(await createThread());
+	const {thread} = unwrapLoaderResult(
+		await createThread({name: 'General', shape: 'circle', color: 'blue'}),
+	);
 	throw redirect(`/chat/${thread.id}`);
 }
 

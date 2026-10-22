@@ -432,16 +432,21 @@ model OAuthGrant {
   @@index([agentId])
 }
 
-// The built-in agent's conversation with a person: one thread, holding its log of entries. Every
-// call made in it is for the thread's task, as any agent's calls are; a task abandoned a day on is
-// replaced by a new one. Everything that happens to the agent is an entry, and everything that
-// makes it do something is a job (AgentJob).
+// The built-in agent's conversation with a person: one thread, holding its log of entries, shown
+// as a persona the person named and gave a face, such as Finance or Outreach. Every call made in
+// it is for the thread's task, as any agent's calls are; a task abandoned a day on is replaced by
+// a new one. Everything that happens to the agent is an entry, and everything that makes it do
+// something is a job (AgentJob).
 model AgentThread {
   id      String @id @default(cuid())
   orgId   String
   // The built-in agent of the organization, an Agent like any other, with grants of its own.
   agentId String
   taskId  String
+  // The persona: its name, and its avatar as a shape and a color (`@proxy/utils/harness`).
+  name    String
+  shape   String
+  color   String
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

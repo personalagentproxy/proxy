@@ -18,8 +18,15 @@ export type ThreadRow = {
 	orgId: string;
 	agentId: string;
 	taskId: string;
+	// The persona the thread is shown as: its name, and its avatar's shape and color.
+	name: string;
+	shape: string;
+	color: string;
 	createdAt: Date;
 };
+
+/** What makes a thread a persona: its name and its avatar. */
+export type Persona = {name: string; shape: string; color: string};
 
 export type EntryRow = LogEntry & {
 	id: string;
@@ -43,7 +50,16 @@ export type JobRow = {
 	attempts: number;
 };
 
-const threadSelect = {id: true, orgId: true, agentId: true, taskId: true, createdAt: true} as const;
+const threadSelect = {
+	id: true,
+	orgId: true,
+	agentId: true,
+	taskId: true,
+	name: true,
+	shape: true,
+	color: true,
+	createdAt: true,
+} as const;
 
 const entrySelect = {
 	id: true,
@@ -82,32 +98,73 @@ function toEntry(entry: EntryRecord): EntryRow {
 	};
 }
 
-/** A new thread for the person's organization, its calls made for `taskId`. */
-export async function createThread(data: {
-	orgId: string;
-	agentId: string;
-	taskId: string;
-}): Promise<Result<ThreadRow, ApiError>> {
+/** A new thread for the person's organization, as the persona given, its calls made for `taskId`. */
+export async function createThread(
+	data: {orgId: string; agentId: string; taskId: string} & Persona,
+): Promise<Result<ThreadRow, ApiError>> {
 	return wrapDb(() => db.agentThread.create({data, select: threadSelect}));
 }
 
-/** The organization's threads, newest first, each with what the person first said, as its title. */
+/** Renames the thread's persona or changes its avatar; `Ok(null)` means no such thread in the organization. */
+export async function updateThread(
+	orgId: string,
+	threadId: string,
+	persona: Persona,
+): Promise<Result<ThreadRow | null, ApiError>> {
+	return wrapDb(async () => {
+		const {count} = await db.agentThread.updateMany({where: {id: threadId, orgId}, data: persona});
+		if (count === 0) {
+			return null;
+		}
+		return db.agentThread.findUnique({where: {id: threadId}, select: threadSelect});
+	});
+}
+
+/** Deletes the thread with its log and jobs; `Ok(false)` means no such thread in the organization. */
+export async function deleteThread(
+	orgId: string,
+	threadId: string,
+): Promise<Result<boolean, ApiError>> {
+	return (await wrapDb(() => db.agentThread.deleteMany({where: {id: threadId, orgId}}))).map(
+		({count}) => count > 0,
+	);
+}
+
+/** The last thing said in a thread, by the person or the agent: what the list shows under the name. */
+export type LastMessage = {kind: 'person' | 'assistant'; text: string; createdAt: Date};
+
+/** The organization's threads, in the order they were made, each with the last thing said in it. */
 export async function listThreads(
 	orgId: string,
-): Promise<Result<Array<ThreadRow & {title: string | null}>, ApiError>> {
+): Promise<Result<Array<ThreadRow & {lastMessage: LastMessage | null}>, ApiError>> {
 	return (
 		await wrapDb(() =>
 			db.agentThread.findMany({
 				where: {orgId},
 				select: {
 					...threadSelect,
-					entries: {where: {kind: 'person'}, orderBy: {seq: 'asc'}, take: 1, select: {text: true}},
+					// The agent's turns that only made calls say nothing, so the last with words.
+					entries: {
+						where: {kind: {in: ['person', 'assistant']}, text: {not: ''}},
+						orderBy: {seq: 'desc'},
+						take: 1,
+						select: {kind: true, text: true, createdAt: true},
+					},
 				},
-				orderBy: {createdAt: 'desc'},
+				orderBy: {createdAt: 'asc'},
 			}),
 		)
 	).map((threads) =>
-		threads.map(({entries, ...thread}) => ({...thread, title: entries[0]?.text ?? null})),
+		threads.map(({entries, ...thread}) => {
+			const last = entries[0];
+			return {
+				...thread,
+				lastMessage:
+					last && last.kind !== 'tool_result'
+						? {kind: last.kind, text: last.text, createdAt: last.createdAt}
+						: null,
+			};
+		}),
 	);
 }
 

@@ -55,6 +55,14 @@
 	--color-sidebar-primary: var(--sidebar-primary);
 	--color-sidebar-foreground: var(--sidebar-foreground);
 	--color-sidebar: var(--sidebar);
+	--color-avatar-red: var(--avatar-red);
+	--color-avatar-orange: var(--avatar-orange);
+	--color-avatar-yellow: var(--avatar-yellow);
+	--color-avatar-green: var(--avatar-green);
+	--color-avatar-blue: var(--avatar-blue);
+	--color-avatar-purple: var(--avatar-purple);
+	--color-avatar-teal: var(--avatar-teal);
+	--color-avatar-pink: var(--avatar-pink);
 	--color-chart-5: var(--chart-5);
 	--color-chart-4: var(--chart-4);
 	--color-chart-3: var(--chart-3);
@@ -120,6 +128,15 @@
 	--sidebar-accent-foreground: oklch(0.205 0 0);
 	--sidebar-border: oklch(0.922 0 0);
 	--sidebar-ring: oklch(0.708 0 0);
+	/* A persona's avatar colors (@proxy/utils/harness AVATAR_COLORS), one hue each. */
+	--avatar-red: oklch(0.64 0.21 25);
+	--avatar-orange: oklch(0.72 0.17 55);
+	--avatar-yellow: oklch(0.8 0.16 90);
+	--avatar-green: oklch(0.68 0.17 150);
+	--avatar-blue: oklch(0.62 0.19 255);
+	--avatar-purple: oklch(0.62 0.2 300);
+	--avatar-teal: oklch(0.7 0.13 195);
+	--avatar-pink: oklch(0.7 0.19 350);
 }
 
 .dark {
@@ -154,6 +171,14 @@
 	--sidebar-accent-foreground: oklch(0.985 0 0);
 	--sidebar-border: oklch(1 0 0 / 10%);
 	--sidebar-ring: oklch(0.556 0 0);
+	--avatar-red: oklch(0.7 0.19 25);
+	--avatar-orange: oklch(0.76 0.16 55);
+	--avatar-yellow: oklch(0.84 0.15 90);
+	--avatar-green: oklch(0.74 0.16 150);
+	--avatar-blue: oklch(0.7 0.17 255);
+	--avatar-purple: oklch(0.7 0.18 300);
+	--avatar-teal: oklch(0.76 0.12 195);
+	--avatar-pink: oklch(0.75 0.17 350);
 }
 
 @layer base {

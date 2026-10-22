@@ -72,3 +72,33 @@ export function sleepUntil(args: unknown, now: Date): Date | null {
 	const earliest = Math.max(requested.getTime(), now.getTime());
 	return new Date(Math.min(earliest, now.getTime() + MAX_SLEEP_MS));
 }
+
+/**
+ * A persona's avatar, one of four shapes in one of eight colors, which is all the person picks: a thread with the built-in
+ * agent is shown as a persona, named and faced by the person, such as Finance or Outreach.
+ */
+export const AVATAR_SHAPES = ['circle', 'square', 'triangle', 'diamond'] as const;
+export const AVATAR_COLORS = [
+	'red',
+	'orange',
+	'yellow',
+	'green',
+	'teal',
+	'blue',
+	'purple',
+	'pink',
+] as const;
+
+export type AvatarShape = (typeof AVATAR_SHAPES)[number];
+export type AvatarColor = (typeof AVATAR_COLORS)[number];
+
+export function isAvatarShape(value: string): value is AvatarShape {
+	return (AVATAR_SHAPES as readonly string[]).includes(value);
+}
+
+export function isAvatarColor(value: string): value is AvatarColor {
+	return (AVATAR_COLORS as readonly string[]).includes(value);
+}
+
+/** The name a persona can be given at most. */
+export const PERSONA_NAME_MAX = 40;

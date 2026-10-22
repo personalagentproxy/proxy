@@ -36,7 +36,7 @@ import {handleConnectMysqlRoute, handleTestMysqlRoute} from '../connections/mysq
 import {handleConnectPlaidRoute, handleCreatePlaidLinkTokenRoute} from '../connections/plaid/route';
 import {handleConnectPostgresRoute, handleTestPostgresRoute} from '../connections/postgres/route';
 import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleRenameConnectionRoute, handleSetConnectionDefaultsRoute} from '../connections/route';
-import {handleCreateThreadRoute, handleGetThreadRoute, handleListThreadsRoute, handlePostMessageRoute} from '../harness/route';
+import {handleCreateThreadRoute, handleDeleteThreadRoute, handleGetThreadRoute, handleListThreadsRoute, handlePostMessageRoute, handleUpdateThreadRoute} from '../harness/route';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
 import {handleDeleteMeRoute, handleFinishOnboardingRoute, handleMeRoute} from '../me/route';
@@ -165,6 +165,8 @@ export function createApiRouter(): express.Router {
 	router.get('/api/chat/threads', withAuthResult('List chat threads route', handleListThreadsRoute));
 	router.post('/api/chat/threads', withAuthResult('Create chat thread route', handleCreateThreadRoute));
 	router.get('/api/chat/threads/:threadId', withAuthResult('Get chat thread route', handleGetThreadRoute));
+	router.put('/api/chat/threads/:threadId', withAuthResult('Update chat thread route', handleUpdateThreadRoute));
+	router.delete('/api/chat/threads/:threadId', withAuthResult('Delete chat thread route', handleDeleteThreadRoute));
 	router.post('/api/chat/threads/:threadId/messages', withAuthResult('Post chat message route', handlePostMessageRoute));
 
 	// The agent side: its own sign-in and cookie, and every request made for one of the agent's
