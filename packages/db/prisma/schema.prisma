@@ -64,13 +64,10 @@ model Account {
 // A signed-in browser. The session cookie holds a random token; only its hash is stored, as for
 // agents' sessions, so a leaked table signs no one in.
 model Session {
-  id          String   @id @default(cuid())
-  tokenHash   String   @unique
-  userId      String
-  expires     DateTime
-  // The organization the human side works in, picked in the switcher. A plain id, checked against
-  // the user's memberships on every request; the first one joined when it is none of theirs.
-  activeOrgId String?
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expires   DateTime
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -94,7 +91,9 @@ model VerificationToken {
 
 // People working together: every user gets one at sign-up and can make more or be invited into
 // others'. Each has one owner, whoever made it, for good, who is also one of its members; it goes
-// with their account, and the last one they own can't go before it, so everyone owns one.
+// with their account, and the last one they own can't go before it, so everyone owns one. Its
+// `slug` is its address in the web app and the api (`/acme/connections`, `/api/orgs/acme/…`),
+// fixed when it is made.
 model Organization {
   id          String    @id @default(cuid())
   name        String

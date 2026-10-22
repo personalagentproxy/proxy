@@ -8,9 +8,10 @@ import {ShareToggle} from '@/components/share-toggle';
 import {Button} from '@proxy/ui/components/button';
 import {useHuman} from '@/hooks/use-human';
 import {formatAgo} from '@/lib/format';
-import {activeOrgOf, hasOtherPeople} from '@/lib/orgs';
+import {hasOtherPeople} from '@/lib/orgs';
 import {cn} from '@proxy/ui/lib/utils';
 import type {agentsLoader} from '@/loaders';
+import {useOrgSlug} from '@/hooks/use-org';
 
 // Widths and visibility shared by the header and every row, so the columns line up.
 const CELLS = {
@@ -24,6 +25,7 @@ const CELLS = {
 // address as `?for=me` or `?for=everyone`, opening on the shared one unless only the person's own
 // has any. A revoked one stays listed, muted, until it is deleted.
 export function AgentsPage() {
+	const org = useOrgSlug();
 	const {agents: all} = useLoaderData<typeof agentsLoader>();
 	const [params, setParams] = useSearchParams();
 	const human = useHuman();
@@ -31,7 +33,7 @@ export function AgentsPage() {
 		return null;
 	}
 
-	const activeOrg = activeOrgOf(human);
+	const activeOrg = human.org;
 	const others = hasOtherPeople(activeOrg);
 	const sharedCount = all.filter((agent) => agent.shared).length;
 	const chosen = params.get('for');
@@ -46,7 +48,9 @@ export function AgentsPage() {
 				<Button
 					size="sm"
 					nativeButton={false}
-					render={<Link to={showingShared ? '/agents/new?for=everyone' : '/agents/new'} />}
+					render={
+						<Link to={showingShared ? `/${org}/agents/new?for=everyone` : `/${org}/agents/new`} />
+					}
 				>
 					<PlusIcon data-icon="inline-start" />
 					New agent
@@ -84,7 +88,7 @@ export function AgentsPage() {
 					return (
 						<Row
 							key={agent.id}
-							to={`/agents/${agent.id}`}
+							to={`/${org}/agents/${agent.id}`}
 							icon={<AgentLogo providerId={agent.providerId} />}
 							title={
 								<span className={cn(revoked && 'text-muted-foreground')}>

@@ -37,7 +37,7 @@ describe('toSignedInAgent', () => {
 		providerId: 'claude',
 		name: 'Claude',
 		revokedAt: null,
-		org: {insider: false, experiments: ['shipped-long-ago']},
+		org: {slug: 'alexs-workspace', insider: false, experiments: ['shipped-long-ago']},
 	};
 
 	test("carries its organization's experiments, without ids that are no longer experiments", () => {
@@ -47,6 +47,7 @@ describe('toSignedInAgent', () => {
 			ownerUserId: 'user-1',
 			providerId: 'claude',
 			name: 'Claude',
+			orgSlug: 'alexs-workspace',
 			experiments: [],
 		});
 	});

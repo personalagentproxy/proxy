@@ -21,13 +21,14 @@ mock.module('@proxy/db/connection', () => ({
 	countSameAccountConnections,
 }));
 
-const getUserOrgId = mock();
-
 mock.module('@proxy/db/organization', () => ({
-	getUserOrgId,
 	getMembership: mock(async () => Ok({role: 'owner'})),
 	listMemberNames: mock(async () => Ok([{orgId: 'org-1', userId: 'user-1', name: 'Alex'}])),
 }));
+
+const requireViewer = mock(async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}));
+
+mock.module('../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 
 const warn = mock();
 
@@ -96,7 +97,6 @@ beforeEach(() => {
 	google.requests = [];
 	google.status = 200;
 	countSameAccountConnections.mockResolvedValue(Ok(1));
-	getUserOrgId.mockResolvedValue(Ok('org-1'));
 	listConnectionsWithCredential.mockResolvedValue(Ok([emailRow]));
 	getConnectionWithCredential.mockResolvedValue(Ok(emailRow));
 	deleteConnection.mockResolvedValue(Ok(true));
@@ -108,7 +108,7 @@ describe('handleListConnectionsRoute', () => {
 		const {handleListConnectionsRoute} = await import('./route');
 		const result = await handleListConnectionsRoute(makeRequest());
 
-		expect(listConnectionsWithCredential).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'});
+		expect(listConnectionsWithCredential).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}));
 		const [connection] = result.unwrap().connections;
 		expect(connection).toMatchObject({id: 'conn-1', integrationId: 'email', account: 'alex@example.com'});
 		expect(connection?.defaults).toEqual(['read']);
@@ -158,13 +158,13 @@ describe('handleListConnectionsRoute', () => {
 		expect(connection).toMatchObject({integrationId: 'linear', unavailable: ['read', 'create', 'edit'], signInNeeded: true});
 	});
 
-	test('a user without an organization is signed out', async () => {
-		getUserOrgId.mockResolvedValue(Ok(null));
+	test('an organization the person isn’t in is not found', async () => {
+		requireViewer.mockResolvedValueOnce(Err(ApiErr.notFound('organization', 'elsewhere')) as never);
 
 		const {handleListConnectionsRoute} = await import('./route');
 		const result = await handleListConnectionsRoute(makeRequest());
 
-		expect(result.unwrapErr().kind).toBe('unauthenticated');
+		expect(result.unwrapErr().kind).toBe('not_found');
 	});
 });
 
@@ -173,7 +173,7 @@ describe('handleGetConnectionRoute', () => {
 		const {handleGetConnectionRoute} = await import('./route');
 		const result = await handleGetConnectionRoute(makeRequest({connectionId: 'conn-1'}));
 
-		expect(getConnectionWithCredential).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'conn-1');
+		expect(getConnectionWithCredential).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'conn-1');
 		expect(result.unwrap().id).toBe('conn-1');
 	});
 
@@ -217,7 +217,7 @@ describe('handleDeleteConnectionRoute', () => {
 		const {handleDeleteConnectionRoute} = await import('./route');
 		const result = await handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-1'}));
 
-		expect(deleteConnection).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'conn-1');
+		expect(deleteConnection).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'conn-1');
 		expect(result.isOk()).toBe(true);
 	});
 
@@ -229,7 +229,7 @@ describe('handleDeleteConnectionRoute', () => {
 
 		expect(result.isOk()).toBe(true);
 		expect(google.requests.map(({url, body}) => [url, body.get('token')])).toEqual([['https://oauth2.googleapis.com/revoke', 'refresh-1']]);
-		expect(deleteConnection).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'conn-2');
+		expect(deleteConnection).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'conn-2');
 	});
 
 	test('keeps the grant at Google while another connection, in any organization, is for the same account', async () => {
@@ -242,7 +242,7 @@ describe('handleDeleteConnectionRoute', () => {
 		expect(result.isOk()).toBe(true);
 		expect(countSameAccountConnections).toHaveBeenCalledWith('conn-2');
 		expect(google.requests).toEqual([]);
-		expect(deleteConnection).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'conn-2');
+		expect(deleteConnection).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'conn-2');
 	});
 
 	test('deletes a Google connection even when Google turns the revoke down', async () => {
@@ -254,7 +254,7 @@ describe('handleDeleteConnectionRoute', () => {
 
 		expect(result.isOk()).toBe(true);
 		expect(warn).toHaveBeenCalledTimes(1);
-		expect(deleteConnection).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'conn-2');
+		expect(deleteConnection).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'conn-2');
 	});
 
 	test('removes a bank login at Plaid first, which ends what Plaid bills for it', async () => {
@@ -265,7 +265,7 @@ describe('handleDeleteConnectionRoute', () => {
 
 		expect(result.isOk()).toBe(true);
 		expect(google.requests.map(({url, text}) => [url, JSON.parse(text)])).toEqual([['https://sandbox.plaid.com/item/remove', {access_token: 'access-sandbox-1'}]]);
-		expect(deleteConnection).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'conn-3');
+		expect(deleteConnection).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'conn-3');
 	});
 
 	test('asks nothing of the provider for any other connection', async () => {

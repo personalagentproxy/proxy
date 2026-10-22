@@ -2,9 +2,12 @@ import {Err, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {getConnectionWithCredential, type ConnectionRow, type MemberViewer} from '@proxy/db/connection';
-import {getMembership} from '@proxy/db/organization';
+import type {OrgRole} from '@proxy/db/organization';
 
 export type StoredConnectionRow = ConnectionRow & {credential: string | null};
+
+/** A member with their role, which says what they may change beside their own. */
+export type ManagingViewer = MemberViewer & {role: OrgRole};
 
 /** A connection the viewer sees: not found for any other. */
 export function requireConnection(viewer: MemberViewer, connectionId: string): Promise<Result<StoredConnectionRow, ApiError>> {
@@ -17,20 +20,15 @@ export function requireConnection(viewer: MemberViewer, connectionId: string): P
  * Whether the viewer may change a connection they see: their own, or a shared one they connected
  * or whose organization they own. Anyone else in it uses a shared connection without changing it.
  */
-export function manages(viewer: MemberViewer, row: ConnectionRow): Promise<Result<boolean, ApiError>> {
-	return Do(async ($) => {
-		if (row.ownerUserId !== null || row.connectedById === viewer.userId) {
-			return true;
-		}
-		return $(await getMembership(viewer.userId, viewer.orgId))?.role === 'owner';
-	});
+export function manages(viewer: ManagingViewer, row: ConnectionRow): boolean {
+	return row.ownerUserId !== null || row.connectedById === viewer.userId || viewer.role === 'owner';
 }
 
 /** A connection the viewer may change (`manages`); forbidden for a shared one they only use. */
-export function requireManaged(viewer: MemberViewer, connectionId: string): Promise<Result<StoredConnectionRow, ApiError>> {
+export function requireManaged(viewer: ManagingViewer, connectionId: string): Promise<Result<StoredConnectionRow, ApiError>> {
 	return Do(async ($) => {
 		const row = $(await requireConnection(viewer, connectionId));
-		if (!$(await manages(viewer, row))) {
+		if (!manages(viewer, row)) {
 			return $(Err(ApiErr.forbidden()));
 		}
 		return row;

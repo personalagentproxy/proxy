@@ -1,4 +1,4 @@
-import {httpRequest, isExperiment, type FetchError} from '@proxy/utils';
+import {httpRequest, type FetchError} from '@proxy/utils';
 import {z} from 'zod';
 import {apiSend} from '@/client/request';
 
@@ -9,12 +9,6 @@ const meSchema = z.object({
 		name: z.string().nullable(),
 		image: z.string().nullable(),
 	}),
-	// The organization open in the switcher, and the person's role there.
-	org: z.object({id: z.string(), name: z.string(), role: z.enum(['owner', 'member'])}),
-	// False until the welcome flow is finished or skipped; the human side shows it until then.
-	onboarded: z.boolean(),
-	// The experiments on for the organization; read them with useExperiments.
-	experiments: z.array(z.string()).transform((ids) => ids.filter(isExperiment)),
 });
 
 export type Me = z.infer<typeof meSchema>;
@@ -29,14 +23,9 @@ export function isNotFoundError(error: FetchError): boolean {
 	return error.kind === 'http' && error.status === 404;
 }
 
-/** Who is signed in (`GET /api/me`). A 401 means "redirect to /login". */
+/** Who is signed in (`GET /api/me`). A 401 means "redirect to /login". The organizations they are in are `listOrgs`. */
 export function getMe() {
 	return httpRequest('/api/me', {method: 'GET'}, {schema: meSchema});
-}
-
-/** The welcome flow is done, or skipped: the human side opens on the app from now on. */
-export function finishOnboarding() {
-	return apiSend('POST', '/api/me/onboarded');
 }
 
 /**

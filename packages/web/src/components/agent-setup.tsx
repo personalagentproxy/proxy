@@ -12,6 +12,7 @@ import {cn} from '@proxy/ui/lib/utils';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin} from '@/lib/types';
 import {useCommandEnter} from '@/hooks/use-command-enter';
+import {useOrgSlug} from '@/hooks/use-org';
 
 // How often the setup asks whether the MCP client has signed in yet.
 const POLL_MS = 3000;
@@ -48,6 +49,7 @@ export function AgentSetup({
 	continueLabel: string;
 	onContinue: (agent: AgentLogin | null) => void;
 }) {
+	const org = useOrgSlug();
 	const live = agents.filter((agent) => agent.revokedAt === null);
 	const {revalidate} = useRevalidator();
 	const [params, setParams] = useSearchParams();
@@ -100,7 +102,7 @@ export function AgentSetup({
 			return;
 		}
 		setPending(true);
-		const result = await createAgent(provider.id, shared);
+		const result = await createAgent(org, provider.id, shared);
 		setPending(false);
 		if (result.isErr()) {
 			setError(describeFetchError(result.error));
@@ -124,7 +126,7 @@ export function AgentSetup({
 	const reset = async (agent: AgentLogin) => {
 		setPending(true);
 		setError(null);
-		const result = await resetAgentPassword(agent.id);
+		const result = await resetAgentPassword(org, agent.id);
 		setPending(false);
 		if (result.isErr()) {
 			setError(describeFetchError(result.error));

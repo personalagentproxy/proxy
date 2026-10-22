@@ -5,12 +5,11 @@ import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/uti
 import {deleteAgent, getAgent, listAgents, setAgentGrants, shareAgent, updateAgent, type AgentRow, type AgentViewer} from '@proxy/db/agent';
 import {getConnectionWithCredential} from '@proxy/db/connection';
 import {deleteOAuthGrant, listAgentOAuthGrants} from '@proxy/db/oauth';
-import {getMembership} from '@proxy/db/organization';
 
 import {refuseUnavailable, unavailableActions} from '../connections/unavailable';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {parseActionChanges, requireIntegration} from '../utils/connection-actions';
-import {requireViewer} from '../utils/user-org';
+import {requireViewer, type OrgViewer} from '../utils/user-org';
 import {respond, respondAll, type AgentResponse} from './agent-response';
 import {createAgentLogin} from './create-agent-login';
 import {generatePassword} from './credentials';
@@ -31,16 +30,13 @@ function requireAgent(viewer: AgentViewer, agentId: string): Promise<Result<Agen
 }
 
 /** An agent the viewer may change: their own, or a shared one they made or whose organization they own. */
-function requireManagedAgent(viewer: AgentViewer, agentId: string): Promise<Result<AgentRow, ApiError>> {
+function requireManagedAgent(viewer: OrgViewer, agentId: string): Promise<Result<AgentRow, ApiError>> {
 	return Do(async ($) => {
 		const row = $(await requireAgent(viewer, agentId));
-		if (row.ownerUserId !== null || row.createdById === viewer.userId) {
+		if (row.ownerUserId !== null || row.createdById === viewer.userId || viewer.role === 'owner') {
 			return row;
 		}
-		if ($(await getMembership(viewer.userId, viewer.orgId))?.role !== 'owner') {
-			return $(Err(ApiErr.forbidden()));
-		}
-		return row;
+		return $(Err(ApiErr.forbidden()));
 	});
 }
 

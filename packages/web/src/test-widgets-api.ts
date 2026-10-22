@@ -396,7 +396,8 @@ function transactions(url: URL) {
 }
 
 export function widgetsAnswer(input: string, init?: RequestInit): Response | null {
-	const url = new URL(input, 'http://localhost');
+	// The routes are under the organization the address names (`/api/orgs/:org/…`), whichever it is.
+	const url = new URL(input.replace(/^\/api\/orgs\/[^/]+\//, '/api/'), 'http://localhost');
 	// An email opened whole, as Reply to email shows what it answers.
 	if (url.pathname === '/api/connections/google-1/collections/emails/records/m1') {
 		return Response.json({

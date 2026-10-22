@@ -8,6 +8,7 @@ import {apiMessage} from '@/lib/agent-errors';
 import type {Connection} from '@/lib/types';
 import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
+import {useOrgSlug} from '@/hooks/use-org';
 
 function connectErrorMessage(error: FetchError): string {
 	if (error.kind === 'http' && error.status === 400) {
@@ -40,6 +41,7 @@ export function ConnectMcpForm({
 	shared?: boolean;
 	onConnected: (connection: Connection) => void;
 }) {
+	const org = useOrgSlug();
 	const [name, setName] = useState('');
 	const [url, setUrl] = useState('');
 	const [token, setToken] = useState('');
@@ -56,7 +58,7 @@ export function ConnectMcpForm({
 				event.preventDefault();
 				setPending('connecting');
 				setError(null);
-				const result = await connectMcp({
+				const result = await connectMcp(org, {
 					name: name.trim(),
 					url: url.trim(),
 					...(token.trim() ? {token: token.trim()} : {}),

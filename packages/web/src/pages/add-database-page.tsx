@@ -6,10 +6,12 @@ import {ConnectDatabaseForm} from '@/components/connect-database-form';
 import {ShareNote} from '@/components/share-choice';
 import {describeDatabase} from '@/lib/integrations';
 import {useShareChoice} from '@/lib/share-choice';
+import {useOrgSlug} from '@/hooks/use-org';
 
 // The database form, from the catalog's plus. Connecting lands on the new connection's page, its
 // permissions first.
 export function AddDatabasePage({dialect}: {dialect: DatabaseDialect}) {
+	const org = useOrgSlug();
 	const navigate = useNavigate();
 	const {shared, query} = useShareChoice();
 	const {title, intro} = describeDatabase(dialect);
@@ -18,7 +20,7 @@ export function AddDatabasePage({dialect}: {dialect: DatabaseDialect}) {
 		<AppShell
 			title={
 				<>
-					<BackButton to={`/connections/new${query}`} label="Back to the catalog" />
+					<BackButton to={`/${org}/connections/new${query}`} label="Back to the catalog" />
 					<PageTitle>{title}</PageTitle>
 				</>
 			}
@@ -30,7 +32,7 @@ export function AddDatabasePage({dialect}: {dialect: DatabaseDialect}) {
 					key={dialect}
 					dialect={dialect}
 					shared={shared}
-					onConnected={(connection) => navigate(`/connections/${connection.id}?added`)}
+					onConnected={(connection) => navigate(`/${org}/connections/${connection.id}?added`)}
 				/>
 			</div>
 		</AppShell>

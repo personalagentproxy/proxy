@@ -5,7 +5,7 @@ const saveAgentFeedback = mock();
 
 mock.module('@proxy/db/feedback', () => ({saveAgentFeedback}));
 
-const agent = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', experiments: []};
+const agent = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', orgSlug: 'org-1', experiments: []};
 
 beforeEach(() => {
 	mock.clearAllMocks();

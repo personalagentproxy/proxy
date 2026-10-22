@@ -47,11 +47,13 @@ import {
 import {handleFaviconRoute} from '../favicons/route';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
-import {handleDeleteMeRoute, handleFinishOnboardingRoute, handleMeRoute} from '../me/route';
+import {handleDeleteMeRoute, handleMeRoute} from '../me/route';
 import {handleAcceptInvitationRoute, handleGetInvitationRoute} from '../orgs/invitation-link';
 import {
 	handleCreateOrgRoute,
 	handleDeleteOrgRoute,
+	handleFinishOnboardingRoute,
+	handleGetOrgRoute,
 	handleInviteRoute,
 	handleLeaveOrgRoute,
 	handleListMembersRoute,
@@ -59,7 +61,6 @@ import {
 	handleRemoveMemberRoute,
 	handleRenameOrgRoute,
 	handleRevokeInvitationRoute,
-	handleSetActiveOrgRoute,
 } from '../orgs/route';
 import {handleAuthorizeRoute, handleConsentRoute, handleGetAuthorizationRequestRoute} from '../oauth/authorize';
 import {handleAuthorizationServerMetadataRoute, handleProtectedResourceMetadataRoute} from '../oauth/metadata';
@@ -102,105 +103,108 @@ export function createApiRouter(): express.Router {
 
 	router.use('/api/me', requireBrowserOrigin);
 	router.get('/api/me', withAuthResult('Me route', handleMeRoute));
-	router.post('/api/me/onboarded', withAuthResult('Finish onboarding route', handleFinishOnboardingRoute));
 	router.delete('/api/me', withAuth('Delete account route', handleDeleteMeRoute));
-	router.post('/api/me/active-org', withAuthResult('Set active organization route', handleSetActiveOrgRoute));
 
 	router.use('/api/orgs', requireBrowserOrigin);
 	router.get('/api/orgs', withAuthResult('List organizations route', handleListOrgsRoute));
 	router.post('/api/orgs', withAuthResult('Create organization route', handleCreateOrgRoute));
-	router.patch('/api/orgs/:orgId', withAuthResult('Rename organization route', handleRenameOrgRoute));
-	router.delete('/api/orgs/:orgId', withAuthResult('Delete organization route', handleDeleteOrgRoute));
-	router.post('/api/orgs/:orgId/leave', withAuthResult('Leave organization route', handleLeaveOrgRoute));
-	router.get('/api/orgs/:orgId/members', withAuthResult('List members route', handleListMembersRoute));
-	router.delete('/api/orgs/:orgId/members/:userId', withAuthResult('Remove member route', handleRemoveMemberRoute));
-	router.post('/api/orgs/:orgId/invitations', withAuthResult('Invite route', handleInviteRoute));
-	router.delete('/api/orgs/:orgId/invitations/:invitationId', withAuthResult('Revoke invitation route', handleRevokeInvitationRoute));
 
 	router.use('/api/invitations', requireBrowserOrigin);
 	router.get('/api/invitations/:token', withAuthResult('Get invitation route', handleGetInvitationRoute));
 	router.post('/api/invitations/:token/accept', withAuthResult('Accept invitation route', handleAcceptInvitationRoute));
 
+	// Everything in an organization is under its slug, `/api/orgs/:org/…`, which every route reads
+	// as the organization the request is about (`requireViewer`), for a member of it. A sign-in's
+	// callback is the one address a provider knows, outside it, and reads the organization from the
+	// handshake it kept.
+	const org = express.Router({mergeParams: true});
+	router.use('/api/orgs/:org', org);
+	org.get('/', withAuthResult('Get organization route', handleGetOrgRoute));
+	org.post('/onboarded', withAuthResult('Finish onboarding route', handleFinishOnboardingRoute));
+	org.patch('/', withAuthResult('Rename organization route', handleRenameOrgRoute));
+	org.delete('/', withAuthResult('Delete organization route', handleDeleteOrgRoute));
+	org.post('/leave', withAuthResult('Leave organization route', handleLeaveOrgRoute));
+	org.get('/members', withAuthResult('List members route', handleListMembersRoute));
+	org.delete('/members/:userId', withAuthResult('Remove member route', handleRemoveMemberRoute));
+	org.post('/invitations', withAuthResult('Invite route', handleInviteRoute));
+	org.delete('/invitations/:invitationId', withAuthResult('Revoke invitation route', handleRevokeInvitationRoute));
+
+	org.get('/connections', withAuthResult('List connections route', handleListConnectionsRoute));
+	org.post('/connections/email', withAuthResult('Connect email route', handleConnectEmailRoute));
+	org.post('/connections/email/test', withAuthResult('Test email route', handleTestEmailRoute));
+	org.get('/connections/google/start', withAuth('Start Google sign-in route', handleStartGoogleRoute));
 	router.use('/api/connections', requireBrowserOrigin);
-	router.get('/api/connections', withAuthResult('List connections route', handleListConnectionsRoute));
-	router.post('/api/connections/email', withAuthResult('Connect email route', handleConnectEmailRoute));
-	router.post('/api/connections/email/test', withAuthResult('Test email route', handleTestEmailRoute));
-	router.get('/api/connections/google/start', withAuth('Start Google sign-in route', handleStartGoogleRoute));
 	router.get('/api/connections/google/callback', withAuth('Google sign-in callback route', handleConnectGoogleCallbackRoute));
 	// Every integration built on its MCP server signs in the same way, from its declaration, and
 	// takes an API key the same way where its server does.
 	for (const builtIn of BUILT_IN_MCP) {
 		const {handleStart, handleCallback} = mcpConnectRoutes(builtIn);
 		const {integrationId, server} = builtIn;
-		router.get(`/api/connections/${integrationId}/start`, withAuth(`Start ${server.name} sign-in route`, handleStart));
+		org.get(`/connections/${integrationId}/start`, withAuth(`Start ${server.name} sign-in route`, handleStart));
 		router.get(`/api/connections/${integrationId}/callback`, withAuth(`${server.name} sign-in callback route`, handleCallback));
 		if (builtIn.apiKey) {
-			router.post(`/api/connections/${integrationId}`, withAuthResult(`Connect ${server.name} with an API key route`, keyConnectRoute(builtIn)));
+			org.post(`/connections/${integrationId}`, withAuthResult(`Connect ${server.name} with an API key route`, keyConnectRoute(builtIn)));
 		}
 	}
-	router.post('/api/connections/plaid', withAuthResult('Connect Plaid route', handleConnectPlaidRoute));
-	router.post('/api/connections/plaid/link-token', withAuthResult('Create Plaid Link token route', handleCreatePlaidLinkTokenRoute));
-	router.post('/api/connections/postgres', withAuthResult('Connect Postgres route', handleConnectPostgresRoute));
-	router.post('/api/connections/postgres/test', withAuthResult('Test Postgres route', handleTestPostgresRoute));
-	router.post('/api/connections/mysql', withAuthResult('Connect MySQL route', handleConnectMysqlRoute));
-	router.post('/api/connections/mysql/test', withAuthResult('Test MySQL route', handleTestMysqlRoute));
-	router.post('/api/connections/mcp', withAuth('Connect custom MCP server route', handleConnectCustomMcpRoute));
+	org.post('/connections/plaid', withAuthResult('Connect Plaid route', handleConnectPlaidRoute));
+	org.post('/connections/plaid/link-token', withAuthResult('Create Plaid Link token route', handleCreatePlaidLinkTokenRoute));
+	org.post('/connections/postgres', withAuthResult('Connect Postgres route', handleConnectPostgresRoute));
+	org.post('/connections/postgres/test', withAuthResult('Test Postgres route', handleTestPostgresRoute));
+	org.post('/connections/mysql', withAuthResult('Connect MySQL route', handleConnectMysqlRoute));
+	org.post('/connections/mysql/test', withAuthResult('Test MySQL route', handleTestMysqlRoute));
+	org.post('/connections/mcp', withAuth('Connect custom MCP server route', handleConnectCustomMcpRoute));
 	router.get('/api/connections/mcp/callback', withAuth('Custom MCP server sign-in callback route', handleCustomMcpCallbackRoute));
-	router.get('/api/connections/:connectionId', withAuthResult('Get connection route', handleGetConnectionRoute));
-	router.delete('/api/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
-	router.put('/api/connections/:connectionId/defaults', withAuthResult('Set connection defaults route', handleSetConnectionDefaultsRoute));
-	router.put('/api/connections/:connectionId/name', withAuthResult('Rename connection route', handleRenameConnectionRoute));
-	router.post('/api/connections/:connectionId/share', withAuthResult('Share connection route', handleShareConnectionRoute));
-	router.post('/api/connections/:connectionId/tools', withAuthResult('Refresh custom MCP server tools route', handleRefreshCustomMcpToolsRoute));
-	const records = '/api/connections/:connectionId/collections/:collectionId/records';
-	router.get(records, withAuthResult('List records route', handleListRecordsRoute));
-	router.post(records, withAuthResult('Create record route', handleCreateRecordRoute));
-	router.get(`${records}/:recordId`, withAuthResult('Get record route', handleGetRecordRoute));
-	router.put(`${records}/:recordId`, withAuthResult('Update record route', handleUpdateRecordRoute));
-	router.delete(`${records}/:recordId`, withAuthResult('Delete record route', handleDeleteRecordRoute));
+	org.get('/connections/:connectionId', withAuthResult('Get connection route', handleGetConnectionRoute));
+	org.delete('/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
+	org.put('/connections/:connectionId/defaults', withAuthResult('Set connection defaults route', handleSetConnectionDefaultsRoute));
+	org.put('/connections/:connectionId/name', withAuthResult('Rename connection route', handleRenameConnectionRoute));
+	org.post('/connections/:connectionId/share', withAuthResult('Share connection route', handleShareConnectionRoute));
+	org.post('/connections/:connectionId/tools', withAuthResult('Refresh custom MCP server tools route', handleRefreshCustomMcpToolsRoute));
+	const records = '/connections/:connectionId/collections/:collectionId/records';
+	org.get(records, withAuthResult('List records route', handleListRecordsRoute));
+	org.post(records, withAuthResult('Create record route', handleCreateRecordRoute));
+	org.get(`${records}/:recordId`, withAuthResult('Get record route', handleGetRecordRoute));
+	org.put(`${records}/:recordId`, withAuthResult('Update record route', handleUpdateRecordRoute));
+	org.delete(`${records}/:recordId`, withAuthResult('Delete record route', handleDeleteRecordRoute));
 
 	// A custom MCP server's logo, the icon of its site, for the person's pages and the agent's alike.
 	router.get('/api/favicons/:host', wrapAsyncRoute('Favicon route', handleFaviconRoute));
 
-	router.use('/api/agents', requireBrowserOrigin);
-	router.get('/api/agents', withAuthResult('List agents route', handleListAgentsRoute));
-	router.post('/api/agents', withAuthResult('Create agent route', handleCreateAgentRoute));
-	router.get('/api/agents/:agentId', withAuthResult('Get agent route', handleGetAgentRoute));
-	router.delete('/api/agents/:agentId', withAuthResult('Delete agent route', handleDeleteAgentRoute));
-	router.post('/api/agents/:agentId/password', withAuthResult('Reset agent password route', handleResetAgentPasswordRoute));
-	router.put('/api/agents/:agentId/revoked', withAuthResult('Set agent revoked route', handleSetAgentRevokedRoute));
-	router.post('/api/agents/:agentId/share', withAuthResult('Share agent route', handleShareAgentRoute));
-	router.put('/api/agents/:agentId/grants/:connectionId', withAuthResult('Set agent grants route', handleSetAgentGrantsRoute));
-	router.get('/api/agents/:agentId/mcp-clients', withAuthResult('List MCP clients route', handleListMcpClientsRoute));
-	router.delete('/api/agents/:agentId/mcp-clients/:grantId', withAuthResult('Disconnect MCP client route', handleDisconnectMcpClientRoute));
+	org.get('/agents', withAuthResult('List agents route', handleListAgentsRoute));
+	org.post('/agents', withAuthResult('Create agent route', handleCreateAgentRoute));
+	org.get('/agents/:agentId', withAuthResult('Get agent route', handleGetAgentRoute));
+	org.delete('/agents/:agentId', withAuthResult('Delete agent route', handleDeleteAgentRoute));
+	org.post('/agents/:agentId/password', withAuthResult('Reset agent password route', handleResetAgentPasswordRoute));
+	org.put('/agents/:agentId/revoked', withAuthResult('Set agent revoked route', handleSetAgentRevokedRoute));
+	org.post('/agents/:agentId/share', withAuthResult('Share agent route', handleShareAgentRoute));
+	org.put('/agents/:agentId/grants/:connectionId', withAuthResult('Set agent grants route', handleSetAgentGrantsRoute));
+	org.get('/agents/:agentId/mcp-clients', withAuthResult('List MCP clients route', handleListMcpClientsRoute));
+	org.delete('/agents/:agentId/mcp-clients/:grantId', withAuthResult('Disconnect MCP client route', handleDisconnectMcpClientRoute));
 
-	router.use('/api/activity', requireBrowserOrigin);
-	router.get('/api/activity', withAuthResult('List activity route', handleListActivityRoute));
-	router.get('/api/activity/lanes', withAuthResult('Activity lanes route', handleActivityLanesRoute));
+	org.get('/activity', withAuthResult('List activity route', handleListActivityRoute));
+	org.get('/activity/lanes', withAuthResult('Activity lanes route', handleActivityLanesRoute));
 
 	// The home page: which widget fits what the person types, then its fields filled in.
-	router.use('/api/intent', requireBrowserOrigin);
-	router.post('/api/intent', withAuthResult('Pick intent route', handlePickIntentRoute));
-	router.post('/api/intent/fields', withAuthResult('Fill intent route', handleFillIntentRoute));
+	org.post('/intent', withAuthResult('Pick intent route', handlePickIntentRoute));
+	org.post('/intent/fields', withAuthResult('Fill intent route', handleFillIntentRoute));
 	// Its widgets: every connection with the collection a widget is about, read at once, and
 	// written to as the person picks.
-	router.use('/api/widgets', requireBrowserOrigin);
-	router.get('/api/widgets/people', withAuthResult('Widget people route', handlePeopleRoute));
-	router.get('/api/widgets/agenda', withAuthResult('Widget agenda route', handleAgendaRoute));
-	router.get('/api/widgets/events', withAuthResult('Widget find events route', handleFindEventsRoute));
-	router.post('/api/widgets/events', withAuthResult('Widget create event route', handleCreateEventRoute));
-	router.put('/api/widgets/events', withAuthResult('Widget edit event route', handleEditEventRoute));
-	router.get('/api/widgets/emails', withAuthResult('Widget find emails route', handleFindEmailsRoute));
-	router.post('/api/widgets/emails', withAuthResult('Widget write email route', handleWriteEmailRoute));
-	router.post('/api/widgets/emails/reply', withAuthResult('Widget reply email route', handleReplyEmailRoute));
-	router.get('/api/widgets/mailboxes', withAuthResult('Widget mailboxes route', handleMailboxesRoute));
-	router.get('/api/widgets/files', withAuthResult('Widget find files route', handleFindFilesRoute));
-	router.get('/api/widgets/meetings', withAuthResult('Widget find meetings route', handleFindMeetingsRoute));
-	router.get('/api/widgets/records', withAuthResult('Widget find records route', handleFindRecordsRoute));
-	router.post('/api/widgets/answer', withAuthResult('Widget answer route', handleAnswerRoute));
-	router.get('/api/widgets/rates', withAuthResult('Widget exchange rates route', handleRatesRoute));
-	router.get('/api/widgets/accounts', withAuthResult('Widget bank accounts route', handleBankAccountsRoute));
-	router.get('/api/widgets/transactions', withAuthResult('Widget bank transactions route', handleBankTransactionsRoute));
+	org.get('/widgets/people', withAuthResult('Widget people route', handlePeopleRoute));
+	org.get('/widgets/agenda', withAuthResult('Widget agenda route', handleAgendaRoute));
+	org.get('/widgets/events', withAuthResult('Widget find events route', handleFindEventsRoute));
+	org.post('/widgets/events', withAuthResult('Widget create event route', handleCreateEventRoute));
+	org.put('/widgets/events', withAuthResult('Widget edit event route', handleEditEventRoute));
+	org.get('/widgets/emails', withAuthResult('Widget find emails route', handleFindEmailsRoute));
+	org.post('/widgets/emails', withAuthResult('Widget write email route', handleWriteEmailRoute));
+	org.post('/widgets/emails/reply', withAuthResult('Widget reply email route', handleReplyEmailRoute));
+	org.get('/widgets/mailboxes', withAuthResult('Widget mailboxes route', handleMailboxesRoute));
+	org.get('/widgets/files', withAuthResult('Widget find files route', handleFindFilesRoute));
+	org.get('/widgets/meetings', withAuthResult('Widget find meetings route', handleFindMeetingsRoute));
+	org.get('/widgets/records', withAuthResult('Widget find records route', handleFindRecordsRoute));
+	org.post('/widgets/answer', withAuthResult('Widget answer route', handleAnswerRoute));
+	org.get('/widgets/rates', withAuthResult('Widget exchange rates route', handleRatesRoute));
+	org.get('/widgets/accounts', withAuthResult('Widget bank accounts route', handleBankAccountsRoute));
+	org.get('/widgets/transactions', withAuthResult('Widget bank transactions route', handleBankTransactionsRoute));
 
 	// The agent side: its own sign-in and cookie, and every request made for one of the agent's
 	// tasks, checked against the agent's access and logged with the task.

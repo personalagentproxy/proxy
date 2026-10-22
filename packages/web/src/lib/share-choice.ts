@@ -1,7 +1,7 @@
 import {useSearchParams} from 'react-router';
 import type {Org} from '@/client/orgs-client';
 import {useHuman} from '@/hooks/use-human';
-import {activeOrgOf, hasOtherPeople} from '@/lib/orgs';
+import {hasOtherPeople} from '@/lib/orgs';
 
 // Who a new connection is for, in an organization with anyone else in it or invited:
 // `?for=everyone` from Add connection on to the connection's form, which sends `shared`, and to a
@@ -14,7 +14,7 @@ export function useShareChoice(): {
 } {
 	const [params] = useSearchParams();
 	const human = useHuman();
-	const org = human ? activeOrgOf(human) : null;
+	const org = human?.org ?? null;
 	const asked = org !== null && hasOtherPeople(org);
 	const shared = asked && params.get('for') === 'everyone';
 	return {org, asked, shared, query: shared ? '?for=everyone' : ''};

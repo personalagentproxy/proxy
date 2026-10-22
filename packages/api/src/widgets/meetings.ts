@@ -164,11 +164,11 @@ export type FoundMeetings = {sources: SourceSummary[]; meetings: FoundMeeting[];
 /** `GET /api/widgets/meetings?from=…&to=…&with=…&words=…`: the meetings each notetaker finds. */
 export function handleFindMeetingsRoute(request: AuthenticatedRequest): Promise<Result<FoundMeetings, ApiError>> {
 	return Do(async ($) => {
-		$(requireAskExperiment(request));
 		const query = $(parseSchema(querySchema, request.query));
 		const to = query.to ?? dayOf(Date.now() + DAY_MS);
 		const search: MeetingSearch = {from: query.from ?? dayOf(Date.parse(to) - DEFAULT_DAYS * DAY_MS), to, people: query.with, words: query.words};
 		const viewer = $(await requireViewer(request));
+		$(requireAskExperiment(viewer));
 		const sources = $(await findSources(viewer, 'notes', 'list')).flatMap((source) => {
 			const list = LISTS[source.integration.id];
 			return list ? [{...source, list}] : [];

@@ -8,9 +8,11 @@ const createConnection = mock();
 
 mock.module('@proxy/db/connection', () => ({listConnections, createConnection}));
 
-const getUserOrgId = mock();
+mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId, getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
+const requireViewer = mock(async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}));
+
+mock.module('../../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 
 const checkDatabase = mock();
 
@@ -39,7 +41,6 @@ function makeRequest(body: unknown) {
 
 beforeEach(() => {
 	mock.clearAllMocks();
-	getUserOrgId.mockResolvedValue(Ok('org-1'));
 	listConnections.mockResolvedValue(Ok([]));
 	createConnection.mockResolvedValue(Ok(createdRow));
 	checkDatabase.mockResolvedValue(Ok(undefined));

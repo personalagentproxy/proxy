@@ -2,6 +2,7 @@
 
 import {afterEach, describe, expect, mock, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, within} from '@testing-library/react';
+import {createMemoryRouter, RouterProvider} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {IntegrationCatalog, SignInFailed} from '@/components/integration-catalog';
 import type {Connection} from '@/lib/types';
@@ -34,17 +35,27 @@ function renderCatalog(args: {
 	name?: string;
 	onConnectForm?: (integrationId: string) => void;
 }) {
-	render(
-		<TooltipProvider>
-			<IntegrationCatalog
-				connections={args.connections ?? []}
-				configured={{google: args.google ?? true, plaid: args.plaid ?? true}}
-				experiments={[]}
-				onConnectForm={args.onConnectForm ?? mock()}
-				onConnected={mock()}
-			/>
-		</TooltipProvider>,
+	// In the organization the address names, where the sign-ins start and the forms are.
+	const router = createMemoryRouter(
+		[
+			{
+				path: '/:org/connections/new',
+				element: (
+					<TooltipProvider>
+						<IntegrationCatalog
+							connections={args.connections ?? []}
+							configured={{google: args.google ?? true, plaid: args.plaid ?? true}}
+							experiments={[]}
+							onConnectForm={args.onConnectForm ?? mock()}
+							onConnected={mock()}
+						/>
+					</TooltipProvider>
+				),
+			},
+		],
+		{initialEntries: ['/org-1/connections/new']},
 	);
+	render(<RouterProvider router={router} />);
 	const name = args.name ?? 'Google';
 	const row = screen.getByText(name).closest('li');
 	if (!row) {
@@ -74,17 +85,21 @@ describe('IntegrationCatalog', () => {
 	test('Google with its client on the server is signed in to with the whole row', () => {
 		const row = renderCatalog({google: true});
 
-		expect(row.getByRole('link').getAttribute('href')).toBe('/api/connections/google/start');
+		expect(row.getByRole('link').getAttribute('href')).toBe(
+			'/api/orgs/org-1/connections/google/start',
+		);
 		expect(row.queryByText(/GOOGLE_CLIENT_ID/)).toBeNull();
 	});
 
 	test('Exa is signed in to with the row, and its key opens the API key dialog', () => {
 		const row = renderCatalog({name: 'Exa'});
 
-		expect(row.getByRole('link').getAttribute('href')).toBe('/api/connections/exa/start');
+		expect(row.getByRole('link').getAttribute('href')).toBe(
+			'/api/orgs/org-1/connections/exa/start',
+		);
 		// Its plus is a link of its own, since the key sits before it.
 		expect(row.getByRole('button', {name: 'Sign in with Exa'}).getAttribute('href')).toBe(
-			'/api/connections/exa/start',
+			'/api/orgs/org-1/connections/exa/start',
 		);
 		fireEvent.click(row.getByRole('button', {name: 'Connect Exa with an API key'}));
 		expect(screen.getByRole('dialog').textContent).toContain('Connect Exa with an API key');

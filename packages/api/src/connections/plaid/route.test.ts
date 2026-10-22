@@ -16,9 +16,11 @@ mock.module('@proxy/db/connection', () => ({
 	updateConnectionName: mock(),
 }));
 
-const getUserOrgId = mock();
+mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId, getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
+const requireViewer = mock(async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}));
+
+mock.module('../../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 
 const env: {PLAID_CLIENT_ID?: string; PLAID_SECRET?: string; PLAID_ENV: string} = {PLAID_ENV: 'sandbox'};
 
@@ -76,7 +78,6 @@ beforeEach(() => {
 	plaid.accountsStatus = 200;
 	env.PLAID_CLIENT_ID = 'plaid-client';
 	env.PLAID_SECRET = 'plaid-secret';
-	getUserOrgId.mockResolvedValue(Ok('org-1'));
 	findAccountConnection.mockResolvedValue(Ok(null));
 	createConnection.mockImplementation(async (data: {account: string}) => Ok({...bankRow, account: data.account}));
 	getConnectionWithCredential.mockResolvedValue(Ok(bankRow));
@@ -107,7 +108,7 @@ describe('handleCreatePlaidLinkTokenRoute', () => {
 		const {handleCreatePlaidLinkTokenRoute} = await import('./route');
 		await handleCreatePlaidLinkTokenRoute(makeRequest({connectionId: 'bank-1'}));
 
-		expect(getConnectionWithCredential).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'bank-1');
+		expect(getConnectionWithCredential).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'bank-1');
 		expect(plaid.requests[0]?.body).toMatchObject({access_token: 'access-sandbox-1', update: {account_selection_enabled: true}});
 		expect(plaid.requests[0]?.body).not.toHaveProperty('products');
 	});

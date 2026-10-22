@@ -33,9 +33,11 @@ mock.module('@proxy/db/connection', () => ({
 	getConnectionCredential: mock(async () => Ok(null)),
 }));
 
-const getUserOrgId = mock();
+mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId, getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
+const requireViewer = mock(async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}));
+
+mock.module('../../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 
 mock.module('../../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
@@ -134,7 +136,6 @@ async function connect(body: unknown) {
 
 beforeEach(() => {
 	mock.clearAllMocks();
-	getUserOrgId.mockResolvedValue(Ok('org-1'));
 	findAccountConnection.mockResolvedValue(Ok(null));
 	createConnection.mockImplementation(async (data: {account: string; tools: string; defaults: string[]; name?: string}) =>
 		Ok({...row, account: data.account, tools: data.tools, name: data.name ?? null, defaults: data.defaults.map((actionId) => ({actionId}))}),
@@ -217,7 +218,7 @@ describe('handleConnectCustomMcpRoute', () => {
 
 		expect(createConnection).not.toHaveBeenCalled();
 		expect(updateConnectionName).toHaveBeenCalledWith({connectionId: 'mcp-1', name: 'Docs again'});
-		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, {integrationId: 'mcp', account: 'mcp.example.com/mcp', providerAccountId: null});
+		expect(findAccountConnection).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {integrationId: 'mcp', account: 'mcp.example.com/mcp', providerAccountId: null});
 		expect(renewConnection).toHaveBeenCalledWith({
 			connectionId: 'mcp-1',
 			account: 'mcp.example.com/mcp',
@@ -343,7 +344,7 @@ describe('handleCustomMcpCallbackRoute', () => {
 		const created = createConnection.mock.calls[0]?.[0] as {credential: string};
 		expect(created).toMatchObject({account: 'mcp.example.com/mcp', providerAccountId: null, defaults: ['search_docs'], tools: JSON.stringify([search, publish]), name: 'Docs'});
 		expect(JSON.parse(created.credential.replace(/^enc:/, ''))).toEqual({auth: 'oauth', url: 'https://mcp.example.com/mcp', server: endpoints, ...tokens});
-		expect(res.redirectedTo).toBe('https://app.example.com/connections/mcp-1?added');
+		expect(res.redirectedTo).toBe('https://app.example.com/org-1/connections/mcp-1?added');
 	});
 });
 

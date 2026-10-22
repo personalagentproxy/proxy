@@ -37,7 +37,10 @@ mock.module('../utils/secret-crypto', () => ({
 
 const requireUserOrgId = mock();
 
-mock.module('../utils/user-org', () => ({requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1'}), requireUserOrgId}));
+mock.module('../utils/user-org', () => ({
+	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
+	requireUserOrgId,
+}));
 
 const agentRow = {
 	id: 'agent-1',

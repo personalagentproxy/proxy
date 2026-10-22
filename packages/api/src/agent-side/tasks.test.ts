@@ -8,7 +8,7 @@ const listOpenAgentTasks = mock();
 
 mock.module('@proxy/db/task', () => ({createAgentTask, getAgentTask, finishAgentTask, listOpenAgentTasks}));
 
-const agent = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', experiments: []};
+const agent = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', orgSlug: 'org-1', experiments: []};
 const caller = {agent, via: 'mcp' as const};
 const row = {
 	id: 'task-1',

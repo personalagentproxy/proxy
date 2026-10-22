@@ -18,9 +18,11 @@ mock.module('@proxy/db/connection', () => ({
 	updateConnectionName: mock(),
 }));
 
-const getUserOrgId = mock();
+mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId, getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
+const requireViewer = mock(async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}));
+
+mock.module('../../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 
 mock.module('../../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
@@ -85,7 +87,7 @@ const user = {userId: 'user-1', email: 'alex@example.com'};
 async function start() {
 	const {handleStart: handleStartNotionRoute} = await routes();
 	const res = makeRes();
-	await handleStartNotionRoute({user, query: {}, headers: {}} as never, res as never);
+	await handleStartNotionRoute({user, params: {org: 'org-1'}, query: {}, headers: {}} as never, res as never);
 	const cookie = res.cookies.find((candidate) => candidate.name === 'proxy.notion-state');
 	const authorizeUrl = new URL(res.redirect.mock.calls[0]?.[0] as string);
 	return {cookie, authorizeUrl, state: authorizeUrl.searchParams.get('state') ?? ''};
@@ -94,7 +96,7 @@ async function start() {
 async function callback(args: {cookie: string; query: Record<string, string>}) {
 	const {handleCallback: handleNotionCallbackRoute} = await routes();
 	const res = makeRes();
-	await handleNotionCallbackRoute({user, query: args.query, headers: {cookie: `proxy.notion-state=${args.cookie}`}} as never, res as never);
+	await handleNotionCallbackRoute({user, params: {org: 'org-1'}, query: args.query, headers: {cookie: `proxy.notion-state=${args.cookie}`}} as never, res as never);
 	return res;
 }
 
@@ -102,7 +104,6 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	notion.requests = [];
 	notion.self = SELF;
-	getUserOrgId.mockResolvedValue(Ok('org-1'));
 	findAccountConnection.mockResolvedValue(Ok(null));
 	createConnection.mockResolvedValue(Ok({id: 'conn-1'}));
 	renewConnection.mockResolvedValue(Ok(undefined));
@@ -133,7 +134,7 @@ describe('handleNotionCallbackRoute', () => {
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'notion', account: 'alex@example.com · Acme', defaults: ['read']});
 		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toMatchObject({clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1'});
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1?added');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-1?added');
 	});
 
 	test('a sign-in Notion names no workspace for is named by who signed in alone', async () => {
@@ -148,7 +149,7 @@ describe('handleNotionCallbackRoute', () => {
 		const {cookie, state} = await start();
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, error: 'access_denied'}});
 
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/new?error=notion');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/new?error=notion');
 		expect(createConnection).not.toHaveBeenCalled();
 	});
 });

@@ -42,7 +42,7 @@ function integration(id: string): Integration {
 	return found;
 }
 
-const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'dot', name: 'Dots', experiments: []};
+const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'dot', name: 'Dots', orgSlug: 'org-1', experiments: []};
 const caller = {agent: signedIn, via: 'mcp' as const, taskId: 'task-1'};
 
 // The task every run here is for, under way.

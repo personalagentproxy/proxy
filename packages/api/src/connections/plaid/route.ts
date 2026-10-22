@@ -2,14 +2,13 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
-import type {MemberViewer} from '@proxy/db/connection';
 
 import {log} from '../../observability/log';
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {requireViewer} from '../../utils/user-org';
 import {saveConnection} from '../connect-flow';
 import {respond, type ConnectionResponse} from '../connection-response';
-import {requireManaged} from '../managed';
+import {requireManaged, type ManagingViewer} from '../managed';
 import {shareBodySchema} from '../ownership';
 import {createLinkToken, exchangePublicToken, getAccounts, removeItem} from './plaid-api';
 import {readPlaidCredential, requirePlaidClient, type PlaidClient, type PlaidCredential} from './plaid-client';
@@ -28,7 +27,7 @@ import {readPlaidCredential, requirePlaidClient, type PlaidClient, type PlaidCre
 const linkTokenBodySchema = z.object({connectionId: z.string().min(1).optional()});
 
 // The access token of a Plaid connection the person may change, for Link's update mode.
-function requirePlaidConnection(viewer: MemberViewer, connectionId: string): Promise<Result<PlaidCredential, ApiError>> {
+function requirePlaidConnection(viewer: ManagingViewer, connectionId: string): Promise<Result<PlaidCredential, ApiError>> {
 	return Do(async ($) => {
 		const row = $(await requireManaged(viewer, connectionId));
 		if (row.integrationId !== 'plaid') {

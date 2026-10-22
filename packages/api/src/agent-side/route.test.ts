@@ -18,7 +18,7 @@ const getAgentOpenTask = mock();
 
 mock.module('./tasks', () => ({startAgentTask, finishAgentTask, listAgentOpenTasks, getAgentOpenTask}));
 
-const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'dot', name: 'Dots', experiments: []};
+const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'dot', name: 'Dots', orgSlug: 'org-1', experiments: []};
 
 function makeRequest(params: Record<string, string>, body: unknown = undefined) {
 	return {agent: signedIn, params, body, query: {}} as never;

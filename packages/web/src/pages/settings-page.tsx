@@ -15,7 +15,7 @@ import {Button} from '@proxy/ui/components/button';
 import {useHuman} from '@/hooks/use-human';
 import {apiMessage} from '@/lib/agent-errors';
 import {describeFetchError} from '@/lib/loader-utils';
-import {activeOrgOf, hasOtherPeople, ownedOrgs} from '@/lib/orgs';
+import {hasOtherPeople, ownedOrgs} from '@/lib/orgs';
 
 type Deleting = 'account' | 'org' | null;
 
@@ -38,7 +38,7 @@ export function SettingsPage() {
 		return null;
 	}
 
-	const org = activeOrgOf(me);
+	const org = me.org;
 	const owner = org.role === 'owner';
 	const owned = ownedOrgs(me.orgs);
 	const lastOwned = owned.length <= 1;
@@ -73,7 +73,7 @@ export function SettingsPage() {
 						</SettingRow>
 						<SettingRow label="Your role">{owner ? 'Owner' : 'Member'}</SettingRow>
 						<SettingRow label="Members">
-							<Link to="/members" className="underline underline-offset-4">
+							<Link to={`/${org.slug}/members`} className="underline underline-offset-4">
 								{org.memberCount} {org.memberCount === 1 ? 'member' : 'members'}
 							</Link>
 						</SettingRow>
@@ -109,7 +109,7 @@ export function SettingsPage() {
 					allowEmpty={false}
 					onClose={() => setRenaming(false)}
 					onSave={async (name) => {
-						const result = await renameOrg(org.id, name);
+						const result = await renameOrg(org.slug, name);
 						if (result.isErr()) {
 							return failureOf(result.error);
 						}
@@ -127,13 +127,14 @@ export function SettingsPage() {
 				confirmLabel="Delete organization"
 				onClose={() => setDeleting(null)}
 				onConfirm={async () => {
-					const result = await deleteOrg(org.id);
+					const result = await deleteOrg(org.slug);
 					if (result.isErr()) {
 						return failureOf(result.error);
 					}
 					setDeleting(null);
-					await navigate(`/connections?deleted=${encodeURIComponent(org.name)}`);
-					await revalidator.revalidate();
+					// Gone, the person's first other organization: they own another, or it wouldn't go.
+					const next = me.orgs.find((candidate) => candidate.id !== org.id) ?? org;
+					await navigate(`/${next.slug}/connections?deleted=${encodeURIComponent(org.name)}`);
 					return null;
 				}}
 			/>

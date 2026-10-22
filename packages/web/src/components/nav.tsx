@@ -9,9 +9,8 @@ import {
 	UsersIcon,
 	type LucideIcon,
 } from 'lucide-react';
-import {Link, useLocation, useRouteLoaderData} from 'react-router';
+import {Link, useLocation} from 'react-router';
 import {signOut} from '@/client/auth-client';
-import type {Me} from '@/client/me-client';
 import {OrgSwitcher} from '@/components/org-switcher';
 import {ThemeMenu} from '@/components/theme-menu';
 import {
@@ -25,12 +24,13 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from '@proxy/ui/components/sidebar';
+import {useHuman} from '@/hooks/use-human';
 
 type Destination = {to: string; label: string; icon: LucideIcon};
 
-// The open organization's, under the switcher.
+// The organization's, under the switcher, each under its slug.
 const DESTINATIONS: Destination[] = [
-	{to: '/', label: 'Home', icon: HomeIcon},
+	{to: '', label: 'Home', icon: HomeIcon},
 	{to: '/connections', label: 'Connections', icon: PlugIcon},
 	{to: '/vault', label: 'Vault', icon: LibraryIcon},
 	{to: '/agents', label: 'Agents', icon: BotIcon},
@@ -38,10 +38,10 @@ const DESTINATIONS: Destination[] = [
 	{to: '/members', label: 'Members', icon: UsersIcon},
 ];
 
-// Each destination is lit on its own pages too, as `/connections/:id`; Home only on itself, since
-// every path starts with `/`.
-function isActive(pathname: string, to: string): boolean {
-	return to === '/' ? pathname === '/' : pathname.startsWith(to);
+// Each destination is lit on its own pages too, as `/acme/connections/:id`; Home only on itself,
+// since every path in the organization starts with its slug.
+function isActive(pathname: string, path: string, home: string): boolean {
+	return path === home ? pathname === home : pathname.startsWith(path);
 }
 
 // The stock shadcn sidebar: a rail in icon mode on desktop, labels in tooltips and ⌘B to expand
@@ -49,8 +49,9 @@ function isActive(pathname: string, to: string): boolean {
 // organization switcher sits at its top.
 export function AppSidebar() {
 	const {pathname} = useLocation();
-	const me = useRouteLoaderData<Me>('human');
+	const human = useHuman();
 	const {setOpenMobile} = useSidebar();
+	const home = `/${human?.org.slug ?? ''}`;
 
 	return (
 		<Sidebar collapsible="icon">
@@ -67,9 +68,11 @@ export function AppSidebar() {
 						{DESTINATIONS.map((destination) => (
 							<SidebarMenuItem key={destination.to}>
 								<SidebarMenuButton
-									isActive={isActive(pathname, destination.to)}
+									isActive={isActive(pathname, `${home}${destination.to}`, home)}
 									tooltip={destination.label}
-									render={<Link to={destination.to} onClick={() => setOpenMobile(false)} />}
+									render={
+										<Link to={`${home}${destination.to}`} onClick={() => setOpenMobile(false)} />
+									}
 								>
 									<destination.icon />
 									<span>{destination.label}</span>
@@ -83,9 +86,9 @@ export function AppSidebar() {
 				<SidebarMenu>
 					<SidebarMenuItem>
 						<SidebarMenuButton
-							isActive={pathname.startsWith('/settings')}
+							isActive={pathname.startsWith(`${home}/settings`)}
 							tooltip="Settings"
-							render={<Link to="/settings" onClick={() => setOpenMobile(false)} />}
+							render={<Link to={`${home}/settings`} onClick={() => setOpenMobile(false)} />}
 						>
 							<SettingsIcon />
 							<span>Settings</span>
@@ -96,7 +99,7 @@ export function AppSidebar() {
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton
-							tooltip={me ? `Sign out ${me.user.email}` : 'Sign out'}
+							tooltip={human ? `Sign out ${human.user.email}` : 'Sign out'}
 							onClick={() => void signOut()}
 						>
 							<LogOutIcon />

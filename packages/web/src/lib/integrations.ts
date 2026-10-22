@@ -111,8 +111,9 @@ export function integrationOf(connection: {
 // the connection was never signed in to. Otherwise the connection of the account signed in to is
 // renewed, or a new one made. With `?share=everyone`, a new connection is for every member of the
 // organization rather than the person's own.
-/** Where signing in to an integration starts, or null for one connected on a form of its own. */
+/** Where signing in to an integration starts, in the organization `org`, or null for one connected on a form of its own. */
 export function signInPath(
+	org: string,
 	integrationId: string,
 	query: {
 		returnTo?: 'welcome' | 'home';
@@ -128,7 +129,7 @@ export function signInPath(
 		Object.entries(query).flatMap(([key, value]) => (value === undefined ? [] : [[key, value]])),
 	);
 	const search = params.size > 0 ? `?${params.toString()}` : '';
-	return `/api/connections/${integrationId}/start${search}`;
+	return `/api/orgs/${encodeURIComponent(org)}/connections/${integrationId}/start${search}`;
 }
 
 /** What the server lacked when a sign-in came back with `?error=<integration>-unconfigured`. */

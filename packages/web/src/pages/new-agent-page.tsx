@@ -6,12 +6,14 @@ import {BackButton} from '@/components/back-button';
 import {SharePicker} from '@/components/share-choice';
 import {useShareChoice} from '@/lib/share-choice';
 import type {agentsLoader} from '@/loaders';
+import {useOrgSlug} from '@/hooks/use-org';
 
 // A new agent, set up as in the welcome flow: chosen from the companies without a login yet, or a
 // custom MCP agent, then handed its login or added as a connector, and on to its page. With anyone
 // else in the organization or invited, it asks first who the agent is for (`?for=everyone`): the
 // companies without a login are those without one of that kind.
 export function NewAgentPage() {
+	const org = useOrgSlug();
 	const {agents} = useLoaderData<typeof agentsLoader>();
 	const navigate = useNavigate();
 	const {shared} = useShareChoice();
@@ -25,7 +27,7 @@ export function NewAgentPage() {
 		<AppShell
 			title={
 				<>
-					<BackButton to="/agents" label="Back to agents" />
+					<BackButton to={`/${org}/agents`} label="Back to agents" />
 					<PageTitle>New agent</PageTitle>
 				</>
 			}

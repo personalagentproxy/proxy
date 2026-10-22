@@ -59,9 +59,9 @@ export type FoundRecords = {sources: SourceSummary[]; records: FoundRecord[]; fa
 /** `GET /api/widgets/records?collection=…&words=…`: the records each source's search finds. */
 export function handleFindRecordsRoute(request: AuthenticatedRequest): Promise<Result<FoundRecords, ApiError>> {
 	return Do(async ($) => {
-		$(requireAskExperiment(request));
 		const query = $(parseSchema(querySchema, request.query));
 		const viewer = $(await requireViewer(request));
+		$(requireAskExperiment(viewer));
 		const sources = $(await findSources(viewer, query.collection, 'list')).filter((source) => source.collection.searchHint !== undefined);
 		const {found, failed} = await eachSource(sources, (source) => searchSource(source, query.words));
 		const records = found.flatMap(({value}) => value).slice(0, LIMIT);

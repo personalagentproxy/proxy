@@ -74,7 +74,7 @@ export type InvitationForLink = {
 	id: string;
 	email: string;
 	expires: Date;
-	org: {id: string; name: string};
+	org: {id: string; slug: string; name: string};
 	invitedBy: string | null;
 };
 
@@ -90,7 +90,7 @@ export async function getInvitationByTokenHash(
 				email: true,
 				expires: true,
 				invitedById: true,
-				org: {select: {id: true, name: true}},
+				org: {select: {id: true, slug: true, name: true}},
 			},
 		});
 		if (!invitation) {

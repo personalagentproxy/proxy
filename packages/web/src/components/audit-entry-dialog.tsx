@@ -12,6 +12,7 @@ import {
 import {AgentLogo, IntegrationLogo, ProxyLogo} from '@/components/brand-logo';
 import {describeEntry, entryAction, locateEntry} from '@/lib/access';
 import type {ActivityTask, AgentLogin, AuditEntry, Connection} from '@/lib/types';
+import {useOrgSlug} from '@/hooks/use-org';
 
 type Props = {
 	// The entry shown, or null while the dialog is closed.
@@ -77,6 +78,7 @@ function AuditEntryContent({
 	connections: Connection[];
 	tasks: ActivityTask[];
 }) {
+	const org = useOrgSlug();
 	const agent = agents.find((candidate) => candidate.id === entry.agentId);
 	const task = tasks.find((candidate) => candidate.id === entry.taskId);
 	const located = locateEntry(connections, entry);
@@ -110,7 +112,7 @@ function AuditEntryContent({
 					{entry.agentId !== null && agent && (
 						<>
 							<AgentLogo providerId={agent.providerId} />
-							<Link to={`/agents/${agent.id}`} className="min-w-0 truncate hover:underline">
+							<Link to={`/${org}/agents/${agent.id}`} className="min-w-0 truncate hover:underline">
 								{agent.name}
 							</Link>
 						</>
@@ -124,7 +126,7 @@ function AuditEntryContent({
 						{task ? (
 							<span className="flex min-w-0 flex-col gap-0.5">
 								<Link
-									to={`/activity?task=${encodeURIComponent(task.id)}`}
+									to={`/${org}/activity?task=${encodeURIComponent(task.id)}`}
 									className="min-w-0 break-words hover:underline"
 								>
 									{task.title}
@@ -141,7 +143,7 @@ function AuditEntryContent({
 						<>
 							<IntegrationLogo integration={located.integration} />
 							<Link
-								to={`/connections/${located.connection.id}`}
+								to={`/${org}/connections/${located.connection.id}`}
 								className="max-w-1/2 shrink-0 truncate hover:underline"
 							>
 								{located.connection.name ?? located.integration.name}

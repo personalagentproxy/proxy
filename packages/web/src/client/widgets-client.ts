@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {apiRequest} from '@/client/request';
+import {apiRequest, orgApi} from '@/client/request';
 
 // The home page's widgets' reads and writes (`packages/api/src/widgets/`): every connection with
 // the collection a widget is about, read at once, each answer saying which connections it read
@@ -56,8 +56,8 @@ function query(params: Record<string, string | string[] | null>): string {
 }
 
 /** The people each name finds in every contact book, the closest first. */
-export function findPeople(names: string[]) {
-	return apiRequest('GET', `/api/widgets/people${query({name: names})}`, peopleSchema);
+export function findPeople(org: string, names: string[]) {
+	return apiRequest('GET', `${orgApi(org)}/widgets/people${query({name: names})}`, peopleSchema);
 }
 
 const calendarSchema = z.object({
@@ -96,10 +96,10 @@ export type AgendaEvent = z.infer<typeof agendaEventSchema>;
 export type Agenda = z.infer<typeof agendaSchema>;
 
 /** Every calendar's events between two times, and the calendars a new event can go in. */
-export function getAgenda(from: Date, to: Date) {
+export function getAgenda(org: string, from: Date, to: Date) {
 	return apiRequest(
 		'GET',
-		`/api/widgets/agenda${query({from: from.toISOString(), to: to.toISOString()})}`,
+		`${orgApi(org)}/widgets/agenda${query({from: from.toISOString(), to: to.toISOString()})}`,
 		agendaSchema,
 	);
 }
@@ -115,10 +115,10 @@ export type FoundEvents = z.infer<typeof foundEventsSchema>;
 export type EventSearch = {from: string; searches: string[]};
 
 /** The events from a time on that any of the searches finds in every calendar, soonest first. */
-export function findEvents(search: EventSearch) {
+export function findEvents(org: string, search: EventSearch) {
 	return apiRequest(
 		'GET',
-		`/api/widgets/events${query({from: search.from, search: search.searches})}`,
+		`${orgApi(org)}/widgets/events${query({from: search.from, search: search.searches})}`,
 		foundEventsSchema,
 	);
 }
@@ -136,8 +136,8 @@ export type NewEvent = {
 const madeEventSchema = z.object({title: z.string(), link: z.string().nullable()});
 
 /** Makes the event; the calendar's provider invites its guests. */
-export function createEvent(event: NewEvent) {
-	return apiRequest('POST', '/api/widgets/events', madeEventSchema, event);
+export function createEvent(org: string, event: NewEvent) {
+	return apiRequest('POST', `${orgApi(org)}/widgets/events`, madeEventSchema, event);
 }
 
 /** What changes of an event: only what is given, guests as they are to be once it is changed. */
@@ -153,8 +153,8 @@ export type EventChange = {
 };
 
 /** Changes an event the person organizes, its guests told. */
-export function editEvent(change: EventChange) {
-	return apiRequest('PUT', '/api/widgets/events', madeEventSchema, change);
+export function editEvent(org: string, change: EventChange) {
+	return apiRequest('PUT', `${orgApi(org)}/widgets/events`, madeEventSchema, change);
 }
 
 const foundEmailSchema = z.object({
@@ -181,10 +181,10 @@ export type FoundEmails = z.infer<typeof foundEmailsSchema>;
 export type EmailQuery = {from: string | null; words: string[]; since: string | null};
 
 /** The newest emails every mailbox finds: from someone, about the terms, since a day (2026-10-07). */
-export function findEmails(search: EmailQuery) {
+export function findEmails(org: string, search: EmailQuery) {
 	return apiRequest(
 		'GET',
-		`/api/widgets/emails${query({from: search.from, words: search.words, since: search.since})}`,
+		`${orgApi(org)}/widgets/emails${query({from: search.from, words: search.words, since: search.since})}`,
 		foundEmailsSchema,
 	);
 }
@@ -194,8 +194,8 @@ const mailboxesSchema = z.object({sources: z.array(sourceSchema), target: z.stri
 export type Mailboxes = z.infer<typeof mailboxesSchema>;
 
 /** The mailboxes email can go out from, and the one last written from. */
-export function getMailboxes() {
-	return apiRequest('GET', '/api/widgets/mailboxes', mailboxesSchema);
+export function getMailboxes(org: string) {
+	return apiRequest('GET', `${orgApi(org)}/widgets/mailboxes`, mailboxesSchema);
 }
 
 export type NewEmail = {
@@ -207,8 +207,8 @@ export type NewEmail = {
 };
 
 /** Sends the email, or saves it as a draft. */
-export function writeEmail(email: NewEmail) {
-	return apiRequest('POST', '/api/widgets/emails', z.object({sent: z.boolean()}), email);
+export function writeEmail(org: string, email: NewEmail) {
+	return apiRequest('POST', `${orgApi(org)}/widgets/emails`, z.object({sent: z.boolean()}), email);
 }
 
 export type EmailReply = {
@@ -221,8 +221,13 @@ export type EmailReply = {
 };
 
 /** Sends a reply to the email, in its thread, or saves it as a draft. */
-export function replyToEmail(reply: EmailReply) {
-	return apiRequest('POST', '/api/widgets/emails/reply', z.object({sent: z.boolean()}), reply);
+export function replyToEmail(org: string, reply: EmailReply) {
+	return apiRequest(
+		'POST',
+		`${orgApi(org)}/widgets/emails/reply`,
+		z.object({sent: z.boolean()}),
+		reply,
+	);
 }
 
 const foundFileSchema = z.object({
@@ -251,10 +256,10 @@ export type FileKind = 'Document' | 'Spreadsheet' | 'Presentation' | 'Folder';
 export type FileQuery = {words: string[]; kind: FileKind | null; owner: string | null};
 
 /** The files every file store finds: words of the name, a kind, an owner's address. */
-export function findFiles(search: FileQuery) {
+export function findFiles(org: string, search: FileQuery) {
 	return apiRequest(
 		'GET',
-		`/api/widgets/files${query({words: search.words, kind: search.kind, owner: search.owner})}`,
+		`${orgApi(org)}/widgets/files${query({words: search.words, kind: search.kind, owner: search.owner})}`,
 		foundFilesSchema,
 	);
 }
@@ -287,10 +292,10 @@ export type MeetingQuery = {
 };
 
 /** The meetings every notetaker has between two days with every person, those about the words first. */
-export function findMeetings(search: MeetingQuery) {
+export function findMeetings(org: string, search: MeetingQuery) {
 	return apiRequest(
 		'GET',
-		`/api/widgets/meetings${query({from: search.from, to: search.to, with: search.with, words: search.words})}`,
+		`${orgApi(org)}/widgets/meetings${query({from: search.from, to: search.to, with: search.with, words: search.words})}`,
 		foundMeetingsSchema,
 	);
 }
@@ -316,10 +321,10 @@ export type FoundRecords = z.infer<typeof foundRecordsSchema>;
 export type RecordQuery = {collection: 'pages' | 'issues'; words: string[]};
 
 /** What every source's own search finds in the collection for the words, in its order. */
-export function findRecords(search: RecordQuery) {
+export function findRecords(org: string, search: RecordQuery) {
 	return apiRequest(
 		'GET',
-		`/api/widgets/records${query({collection: search.collection, words: search.words})}`,
+		`${orgApi(org)}/widgets/records${query({collection: search.collection, words: search.words})}`,
 		foundRecordsSchema,
 	);
 }
@@ -349,8 +354,8 @@ export type AskQuery = {
 };
 
 /** What the meeting, file, email, page or issue says of the question, read whole. */
-export function askAbout(ask: AskQuery) {
-	return apiRequest('POST', '/api/widgets/answer', answerSchema, ask);
+export function askAbout(org: string, ask: AskQuery) {
+	return apiRequest('POST', `${orgApi(org)}/widgets/answer`, answerSchema, ask);
 }
 
 const ratesSchema = z.object({date: z.string(), rates: z.record(z.string(), z.number())});
@@ -358,8 +363,8 @@ const ratesSchema = z.object({date: z.string(), rates: z.record(z.string(), z.nu
 export type DayRates = z.infer<typeof ratesSchema>;
 
 /** What one euro is worth in each currency today, the European Central Bank's, by code. */
-export function getRates() {
-	return apiRequest('GET', '/api/widgets/rates', ratesSchema);
+export function getRates(org: string) {
+	return apiRequest('GET', `${orgApi(org)}/widgets/rates`, ratesSchema);
 }
 
 const bankAccountSchema = z.object({
@@ -388,8 +393,8 @@ export type BankAccount = z.infer<typeof bankAccountSchema>;
 export type BankAccounts = z.infer<typeof bankAccountsSchema>;
 
 /** Every bank's accounts with their balances. */
-export function getAccounts() {
-	return apiRequest('GET', '/api/widgets/accounts', bankAccountsSchema);
+export function getAccounts(org: string) {
+	return apiRequest('GET', `${orgApi(org)}/widgets/accounts`, bankAccountsSchema);
 }
 
 const bankTransactionSchema = z.object({
@@ -425,10 +430,10 @@ export type BankTransactions = z.infer<typeof bankTransactionsSchema>;
 export type DayRange = {from: string; to: string};
 
 /** Every bank's transactions between two days, newest first, with the accounts they are on. */
-export function findTransactions(range: DayRange) {
+export function findTransactions(org: string, range: DayRange) {
 	return apiRequest(
 		'GET',
-		`/api/widgets/transactions${query({from: range.from, to: range.to})}`,
+		`${orgApi(org)}/widgets/transactions${query({from: range.from, to: range.to})}`,
 		bankTransactionsSchema,
 	);
 }

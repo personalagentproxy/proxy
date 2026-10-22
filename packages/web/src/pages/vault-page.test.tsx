@@ -12,6 +12,18 @@ afterEach(() => {
 	cleanup();
 });
 
+// The organization the address names, as the human side's loader answers it.
+const ORG = {
+	id: 'org-1',
+	slug: 'org-1',
+	name: 'Workspace',
+	role: 'owner',
+	onboarded: true,
+	experiments: [],
+	memberCount: 1,
+	invitationCount: 0,
+};
+
 function renderVaultPage(entries: Array<{id: string; values: Record<string, string>}>) {
 	const router = createMemoryRouter(
 		[
@@ -19,17 +31,13 @@ function renderVaultPage(entries: Array<{id: string; values: Record<string, stri
 				id: 'human',
 				loader: () => ({
 					user: {id: 'user-1', email: 'person@example.com', name: null, image: null},
-					org: {id: 'org-1', name: 'Workspace', role: 'owner'},
-					onboarded: true,
-					experiments: [],
-					orgs: [
-						{id: 'org-1', name: 'Workspace', role: 'owner', memberCount: 1, invitationCount: 0},
-					],
+					org: ORG,
+					orgs: [ORG],
 				}),
 				element: <HumanSide />,
 				children: [
 					{
-						path: '/vault',
+						path: '/:org/vault',
 						loader: () => ({
 							connectionId: 'vault-1',
 							entries: entries.map((entry) => ({...entry, updatedAt: '2026-10-21T00:00:00.000Z'})),
@@ -39,7 +47,7 @@ function renderVaultPage(entries: Array<{id: string; values: Record<string, stri
 				],
 			},
 		],
-		{initialEntries: ['/vault']},
+		{initialEntries: ['/org-1/vault']},
 	);
 
 	return render(

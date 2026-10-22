@@ -5,8 +5,6 @@ import {ApiErr} from '@proxy/utils';
 
 const getUserFromId = mock();
 const deleteUser = mock();
-const getUserOrganization = mock();
-const markOrganizationOnboarded = mock();
 const listUserOrgs = mock();
 const removeMembership = mock();
 const listOrgConnectionsWithCredential = mock();
@@ -31,8 +29,6 @@ mock.module('../observability/log', () => ({
 }));
 
 mock.module('@proxy/db/organization', () => ({
-	getUserOrganization,
-	markOrganizationOnboarded,
 	listUserOrgs,
 	removeMembership,
 }));
@@ -45,19 +41,17 @@ const user = {
 	emailVerified: new Date('2026-01-01T00:00:00Z'),
 };
 
-function makeRequest(activeOrgId: string | null = 'org-2') {
+function makeRequest() {
 	return {
-		user: {userId: 'user-1', email: 'test@example.com', name: 'Test User', activeOrgId, experiments: []},
+		user: {userId: 'user-1', email: 'test@example.com', name: 'Test User'},
 	};
 }
 
-const mine = {id: 'org-1', name: "Test's Workspace", role: 'owner', memberCount: 1, invitationCount: 0};
+const mine = {id: 'org-1', slug: 'tests-workspace', name: "Test's Workspace", role: 'owner', onboarded: true, memberCount: 1, invitationCount: 0};
 
 beforeEach(() => {
 	mock.clearAllMocks();
 	getUserFromId.mockResolvedValue(Ok(user));
-	getUserOrganization.mockResolvedValue(Ok({id: 'org-2', name: 'Acme', role: 'member', onboardedAt: new Date('2026-02-01T00:00:00Z')}));
-	markOrganizationOnboarded.mockResolvedValue(Ok(undefined));
 	listUserOrgs.mockResolvedValue(Ok([mine]));
 	removeMembership.mockResolvedValue(Ok(undefined));
 	listOrgConnectionsWithCredential.mockResolvedValue(Ok([]));
@@ -67,7 +61,7 @@ beforeEach(() => {
 });
 
 describe('handleMeRoute', () => {
-	test('returns the signed-in user, only the public fields, and the organization open in the switcher', async () => {
+	test('returns the signed-in user, only the public fields', async () => {
 		const {handleMeRoute} = await import('./route');
 		const result = await handleMeRoute(makeRequest() as never);
 
@@ -78,42 +72,12 @@ describe('handleMeRoute', () => {
 				name: 'Test User',
 				image: 'https://example.com/avatar.png',
 			},
-			org: {id: 'org-2', name: 'Acme', role: 'member'},
-			onboarded: true,
-			experiments: [],
 		});
 		expect(getUserFromId).toHaveBeenCalledWith('user-1');
-		expect(getUserOrganization).toHaveBeenCalledWith('user-1', 'org-2');
-	});
-
-	test('without one open, works in the first one they joined', async () => {
-		const {handleMeRoute} = await import('./route');
-		await handleMeRoute(makeRequest(null) as never);
-
-		expect(getUserOrganization).toHaveBeenCalledWith('user-1', null);
-	});
-
-	test('a new organization is not onboarded', async () => {
-		getUserOrganization.mockResolvedValue(Ok({id: 'org-1', name: 'Mine', role: 'owner', onboardedAt: null}));
-
-		const {handleMeRoute} = await import('./route');
-		const result = await handleMeRoute(makeRequest() as never);
-
-		expect(result.unwrap().onboarded).toBe(false);
 	});
 
 	test('returns unauthenticated when the session user no longer exists', async () => {
 		getUserFromId.mockResolvedValue(Ok(null));
-
-		const {handleMeRoute} = await import('./route');
-		const result = await handleMeRoute(makeRequest() as never);
-
-		expect(result.isErr()).toBe(true);
-		expect(result.unwrapErr().kind).toBe('unauthenticated');
-	});
-
-	test('returns unauthenticated when the user has no organization', async () => {
-		getUserOrganization.mockResolvedValue(Ok(null));
 
 		const {handleMeRoute} = await import('./route');
 		const result = await handleMeRoute(makeRequest() as never);
@@ -127,28 +91,7 @@ describe('handleMeRoute', () => {
 		const {handleMeRoute} = await import('./route');
 		const result = await handleMeRoute(makeRequest() as never);
 
-		expect(result.isErr()).toBe(true);
 		expect(result.unwrapErr().kind).toBe('db_error');
-	});
-});
-
-describe('handleFinishOnboardingRoute', () => {
-	test('marks the organization open onboarded', async () => {
-		const {handleFinishOnboardingRoute} = await import('./route');
-		const result = await handleFinishOnboardingRoute(makeRequest() as never);
-
-		expect(result.isOk()).toBe(true);
-		expect(markOrganizationOnboarded).toHaveBeenCalledWith('org-2');
-	});
-
-	test('returns unauthenticated when the user has no organization', async () => {
-		getUserOrganization.mockResolvedValue(Ok(null));
-
-		const {handleFinishOnboardingRoute} = await import('./route');
-		const result = await handleFinishOnboardingRoute(makeRequest() as never);
-
-		expect(result.unwrapErr().kind).toBe('unauthenticated');
-		expect(markOrganizationOnboarded).not.toHaveBeenCalled();
 	});
 });
 
@@ -185,7 +128,7 @@ describe('handleDeleteMeRoute', () => {
 	});
 
 	test('leaves an organization someone else owns, its connections untouched', async () => {
-		listUserOrgs.mockResolvedValue(Ok([mine, {id: 'org-2', name: 'Acme', role: 'member', memberCount: 2, invitationCount: 0}]));
+		listUserOrgs.mockResolvedValue(Ok([mine, {id: 'org-2', slug: 'acme', name: 'Acme', role: 'member', onboarded: true, memberCount: 2, invitationCount: 0}]));
 		const {handleDeleteMeRoute} = await import('./route');
 		await handleDeleteMeRoute(makeRequest() as never, makeRes() as never);
 
@@ -196,7 +139,7 @@ describe('handleDeleteMeRoute', () => {
 	});
 
 	test('deletes an organization they own with others in it, every connection there undone first', async () => {
-		listUserOrgs.mockResolvedValue(Ok([{id: 'org-2', name: 'Acme', role: 'owner', memberCount: 2, invitationCount: 0}]));
+		listUserOrgs.mockResolvedValue(Ok([{id: 'org-2', slug: 'acme', name: 'Acme', role: 'owner', onboarded: true, memberCount: 2, invitationCount: 0}]));
 		listOrgConnectionsWithCredential.mockResolvedValue(Ok([google, bank]));
 		const {handleDeleteMeRoute} = await import('./route');
 		const res = makeRes();

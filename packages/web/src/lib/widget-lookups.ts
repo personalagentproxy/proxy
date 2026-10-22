@@ -1,3 +1,5 @@
+import type {FetchError} from '@proxy/utils';
+import type {Result} from 'ts-results-es';
 import {
 	askAbout,
 	findEmails,
@@ -13,13 +15,25 @@ import {
 	getRates,
 } from '@/client/widgets-client';
 import {getRecord} from '@/client/records-client';
-import {lookup} from '@/lib/lookup';
+import {useOrgSlug} from '@/hooks/use-org';
+import {lookup, type Lookup} from '@/lib/lookup';
 import {bestMatch, isAddress} from '@/lib/widget-values';
 
-// What the home page's widgets read, each kept by what it asked, so typing on doesn't ask again
-// for what it already has.
+// What the home page's widgets read, each kept by what it asked and the organization it asked
+// in, so typing on doesn't ask again for what it already has.
 
-export const usePeople = lookup(findPeople);
+// A lookup in the organization the address names: the hook reads it there, so a widget asks as it
+// did before, and an answer is kept by the organization beside what was asked.
+function orgLookup<A, T>(load: (org: string, args: A) => Promise<Result<T, FetchError>>) {
+	const read = lookup((keyed: {org: string; args: A}) => load(keyed.org, keyed.args));
+	function useOrgLookup(args: A | null): Lookup<T> {
+		const org = useOrgSlug();
+		return read(args === null ? null : {org, args});
+	}
+	return Object.assign(useOrgLookup, {clear: read.clear});
+}
+
+export const usePeople = orgLookup(findPeople);
 
 /**
  * The address a name stands for: the name when it is one, else the closest contact's. `looking`
@@ -38,31 +52,31 @@ export function useAddress(name: string | null): {address: string | null; lookin
 	return {address, looking: !address && people.loading};
 }
 
-export const useAgenda = lookup((range: {from: string; to: string}) =>
-	getAgenda(new Date(range.from), new Date(range.to)),
+export const useAgenda = orgLookup((org: string, range: {from: string; to: string}) =>
+	getAgenda(org, new Date(range.from), new Date(range.to)),
 );
 
-export const useEvents = lookup(findEvents);
+export const useEvents = orgLookup(findEvents);
 
-export const useEmails = lookup(findEmails);
+export const useEmails = orgLookup(findEmails);
 
 /** One email whole, with its text, as its mailbox opens it. */
-export const useEmail = lookup((email: {connectionId: string; id: string}) =>
-	getRecord(email.connectionId, 'emails', email.id),
+export const useEmail = orgLookup((org: string, email: {connectionId: string; id: string}) =>
+	getRecord(org, email.connectionId, 'emails', email.id),
 );
 
-export const useMailboxes = lookup((_all: true) => getMailboxes());
+export const useMailboxes = orgLookup((org: string, _all: true) => getMailboxes(org));
 
-export const useFiles = lookup(findFiles);
+export const useFiles = orgLookup(findFiles);
 
-export const useRates = lookup((_today: true) => getRates());
+export const useRates = orgLookup((org: string, _today: true) => getRates(org));
 
-export const useAccounts = lookup((_all: true) => getAccounts());
+export const useAccounts = orgLookup((org: string, _all: true) => getAccounts(org));
 
-export const useTransactions = lookup(findTransactions);
+export const useTransactions = orgLookup(findTransactions);
 
-export const useMeetings = lookup(findMeetings);
+export const useMeetings = orgLookup(findMeetings);
 
-export const useRecords = lookup(findRecords);
+export const useRecords = orgLookup(findRecords);
 
-export const useAnswer = lookup(askAbout);
+export const useAnswer = orgLookup(askAbout);

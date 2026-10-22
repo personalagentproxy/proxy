@@ -5,10 +5,12 @@ import {ConnectEmailForm} from '@/components/connect-email-form';
 import {ShareNote} from '@/components/share-choice';
 import {EMAIL_FORM} from '@/lib/integrations';
 import {useShareChoice} from '@/lib/share-choice';
+import {useOrgSlug} from '@/hooks/use-org';
 
 // The mailbox form, from the catalog's plus. Connecting lands on the new connection's page, its
 // permissions first.
 export function AddEmailPage() {
+	const org = useOrgSlug();
 	const navigate = useNavigate();
 	const {shared, query} = useShareChoice();
 
@@ -16,7 +18,7 @@ export function AddEmailPage() {
 		<AppShell
 			title={
 				<>
-					<BackButton to={`/connections/new${query}`} label="Back to the catalog" />
+					<BackButton to={`/${org}/connections/new${query}`} label="Back to the catalog" />
 					<PageTitle>{EMAIL_FORM.title}</PageTitle>
 				</>
 			}
@@ -26,7 +28,7 @@ export function AddEmailPage() {
 				<p className="text-sm text-muted-foreground">{EMAIL_FORM.intro}</p>
 				<ConnectEmailForm
 					shared={shared}
-					onConnected={(connection) => navigate(`/connections/${connection.id}?added`)}
+					onConnected={(connection) => navigate(`/${org}/connections/${connection.id}?added`)}
 				/>
 			</div>
 		</AppShell>

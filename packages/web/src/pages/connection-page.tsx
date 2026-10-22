@@ -35,13 +35,15 @@ import {useHuman} from '@/hooks/use-human';
 import {apiMessage} from '@/lib/agent-errors';
 import {signInPath} from '@/lib/integrations';
 import {describeFetchError} from '@/lib/loader-utils';
-import {activeOrgOf, actsAs, hasOtherPeople} from '@/lib/orgs';
+import {actsAs, hasOtherPeople} from '@/lib/orgs';
 import type {AgentLogin} from '@/lib/types';
 import type {connectionLoader} from '@/loaders';
+import {useOrgSlug} from '@/hooks/use-org';
 
 const RECENT = 10;
 
 export function ConnectionPage() {
+	const org = useOrgSlug();
 	const {connection, connections, agents, entries, tasks} =
 		useLoaderData<typeof connectionLoader>();
 	const navigate = useNavigate();
@@ -56,11 +58,13 @@ export function ConnectionPage() {
 	const human = useHuman();
 	const integration = connection && integrationOf(connection);
 	if (!connection || !integration || !human) {
-		return <NotFound what="connection" back="/connections" backLabel="Back to connections" />;
+		return (
+			<NotFound what="connection" back={`/${org}/connections`} backLabel="Back to connections" />
+		);
 	}
 
 	const withAccess = agentsWithAccess(agents, connection);
-	const activeOrg = activeOrgOf(human);
+	const activeOrg = human.org;
 	// One's own connection is one's to change; a shared one is whoever connected it's and the
 	// organization's owner's. Everyone else in the organization uses it as it is.
 	const mine = connection.connectedById === human.user.id;
@@ -78,7 +82,7 @@ export function ConnectionPage() {
 	const renew =
 		renewReason === null || !manages
 			? null
-			: signInPath(connection.integrationId, {
+			: signInPath(org, connection.integrationId, {
 					account: connection.account,
 					connection: connection.id,
 				});
@@ -87,7 +91,7 @@ export function ConnectionPage() {
 		<AppShell
 			title={
 				<>
-					<BackButton to="/connections" label="Back to connections" />
+					<BackButton to={`/${org}/connections`} label="Back to connections" />
 					<PageTitle
 						detail={
 							connection.name === null
@@ -114,7 +118,7 @@ export function ConnectionPage() {
 							disabled={refreshing}
 							onClick={async () => {
 								setRefreshing(true);
-								const result = await refreshMcpTools(connection.id);
+								const result = await refreshMcpTools(org, connection.id);
 								setRefreshing(false);
 								setError(result.isErr() ? describeRefreshError(result.error) : null);
 								await revalidator.revalidate();
@@ -151,7 +155,11 @@ export function ConnectionPage() {
 						readOnly={!manages}
 						differing={differingAgents(agents, connection.id)}
 						onChange={async (actions) => {
-							const result = await setConnectionDefaults(connection.id, defaultsOnOrOff(actions));
+							const result = await setConnectionDefaults(
+								org,
+								connection.id,
+								defaultsOnOrOff(actions),
+							);
 							setError(result.isErr() ? describeFetchError(result.error) : null);
 							await revalidator.revalidate();
 						}}
@@ -192,7 +200,7 @@ export function ConnectionPage() {
 						alone={!hasOtherPeople(activeOrg)}
 						confirmDescription={`Every member's agents in ${activeOrg.name} can use it, as ${actsAs(connection, mine ? 'you' : connectedBy)}, with the permissions above. Members see it listed, never its password or token. This can't be undone: to have it as your own again, disconnect it and connect it again.`}
 						onShare={async () => {
-							const result = await shareConnection(connection.id);
+							const result = await shareConnection(org, connection.id);
 							if (result.isErr()) {
 								const said = result.error.kind === 'http' ? apiMessage(result.error.body) : null;
 								setError(said ?? describeFetchError(result.error));
@@ -209,7 +217,7 @@ export function ConnectionPage() {
 						{withAccess.map((agent) => (
 							<Row
 								key={agent.id}
-								to={`/agents/${agent.id}`}
+								to={`/${org}/agents/${agent.id}`}
 								icon={<AgentLogo providerId={agent.providerId} />}
 								title={agent.name}
 								cells={
@@ -238,7 +246,7 @@ export function ConnectionPage() {
 					detail={
 						entries.length > RECENT ? (
 							<Link
-								to={`/activity?connection=${connection.id}`}
+								to={`/${org}/activity?connection=${connection.id}`}
 								className="underline-offset-4 hover:text-foreground hover:underline"
 							>
 								Go to all activity
@@ -263,12 +271,12 @@ export function ConnectionPage() {
 				destructive
 				onClose={() => setDisconnecting(false)}
 				onConfirm={async () => {
-					const result = await deleteConnection(connection.id);
+					const result = await deleteConnection(org, connection.id);
 					if (result.isErr()) {
 						setError(describeFetchError(result.error));
 						return;
 					}
-					navigate('/connections');
+					navigate(`/${org}/connections`);
 				}}
 			/>
 		</AppShell>

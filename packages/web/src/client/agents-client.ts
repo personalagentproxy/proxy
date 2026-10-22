@@ -6,48 +6,58 @@ import {
 	agentSchema,
 	auditEntrySchema,
 } from '@/client/schemas';
-import {apiRequest, apiSend} from '@/client/request';
+import {apiRequest, apiSend, orgApi} from '@/client/request';
 
-export function listAgents() {
-	return apiRequest('GET', '/api/agents', z.object({agents: z.array(agentSchema)}));
+// Every call is about one organization, by its slug (`org`), as its address in the app names it.
+
+/** The agents the person sees in the organization: its shared ones and their own. */
+export function listAgents(org: string) {
+	return apiRequest('GET', `${orgApi(org)}/agents`, z.object({agents: z.array(agentSchema)}));
 }
 
-export function getAgent(agentId: string) {
-	return apiRequest('GET', `/api/agents/${agentId}`, agentSchema);
+export function getAgent(org: string, agentId: string) {
+	return apiRequest('GET', `${orgApi(org)}/agents/${agentId}`, agentSchema);
 }
 
 /** The only time the password is sent; the api keeps its hash. `shared` makes the agent every member's rather than the person's own. */
-export function createAgent(providerId: AgentProviderId, shared = false) {
-	return apiRequest('POST', '/api/agents', z.object({agent: agentSchema, password: z.string()}), {
-		providerId,
-		...(shared ? {shared} : {}),
-	});
+export function createAgent(org: string, providerId: AgentProviderId, shared = false) {
+	return apiRequest(
+		'POST',
+		`${orgApi(org)}/agents`,
+		z.object({agent: agentSchema, password: z.string()}),
+		{providerId, ...(shared ? {shared} : {})},
+	);
 }
 
 /** Shares one's own agent with every member of its organization, for good. */
-export function shareAgent(agentId: string) {
-	return apiRequest('POST', `/api/agents/${agentId}/share`, agentSchema);
+export function shareAgent(org: string, agentId: string) {
+	return apiRequest('POST', `${orgApi(org)}/agents/${agentId}/share`, agentSchema);
 }
 
-export function resetAgentPassword(agentId: string) {
-	return apiRequest('POST', `/api/agents/${agentId}/password`, z.object({password: z.string()}));
+export function resetAgentPassword(org: string, agentId: string) {
+	return apiRequest(
+		'POST',
+		`${orgApi(org)}/agents/${agentId}/password`,
+		z.object({password: z.string()}),
+	);
 }
 
-export function setAgentRevoked(agentId: string, revoked: boolean) {
-	return apiRequest('PUT', `/api/agents/${agentId}/revoked`, agentSchema, {revoked});
+export function setAgentRevoked(org: string, agentId: string, revoked: boolean) {
+	return apiRequest('PUT', `${orgApi(org)}/agents/${agentId}/revoked`, agentSchema, {revoked});
 }
 
-export function deleteAgent(agentId: string) {
-	return apiSend('DELETE', `/api/agents/${agentId}`);
+export function deleteAgent(org: string, agentId: string) {
+	return apiSend('DELETE', `${orgApi(org)}/agents/${agentId}`);
 }
 
 /** Sets the agent's own settings per action; `null` returns an action to the connection's default. */
 export function setAgentGrants(
+	org: string,
 	agentId: string,
 	connectionId: string,
 	actions: Record<string, boolean | null>,
 ) {
-	return apiRequest('PUT', `/api/agents/${agentId}/grants/${connectionId}`, agentSchema, {
+	return apiRequest('PUT', `${orgApi(org)}/agents/${agentId}/grants/${connectionId}`, agentSchema, {
 		actions,
 	});
 }
@@ -57,16 +67,16 @@ const mcpClientSchema = z.object({id: z.string(), name: z.string(), connectedAt:
 export type McpClient = z.infer<typeof mcpClientSchema>;
 
 /** The MCP clients, such as Claude, signed in as the agent. */
-export function listMcpClients(agentId: string) {
+export function listMcpClients(org: string, agentId: string) {
 	return apiRequest(
 		'GET',
-		`/api/agents/${agentId}/mcp-clients`,
+		`${orgApi(org)}/agents/${agentId}/mcp-clients`,
 		z.object({clients: z.array(mcpClientSchema)}),
 	);
 }
 
-export function disconnectMcpClient(agentId: string, clientId: string) {
-	return apiSend('DELETE', `/api/agents/${agentId}/mcp-clients/${clientId}`);
+export function disconnectMcpClient(org: string, agentId: string, clientId: string) {
+	return apiSend('DELETE', `${orgApi(org)}/agents/${agentId}/mcp-clients/${clientId}`);
 }
 
 export type ActivityFilter = {
@@ -77,23 +87,23 @@ export type ActivityFilter = {
 	outcome?: 'allowed' | 'denied';
 };
 
-export function listActivity(filter: ActivityFilter) {
+export function listActivity(org: string, filter: ActivityFilter) {
 	const query = new URLSearchParams(
 		Object.entries(filter).filter((entry): entry is [string, string] => entry[1] !== undefined),
 	);
 	const suffix = query.size > 0 ? `?${query}` : '';
 	return apiRequest(
 		'GET',
-		`/api/activity${suffix}`,
+		`${orgApi(org)}/activity${suffix}`,
 		z.object({entries: z.array(auditEntrySchema), tasks: z.array(activityTaskSchema)}),
 	);
 }
 
 /** The home page's lanes: every task under way at some point since `from`, an ISO instant, with what was done for each. */
-export function getActivityLanes(from: string) {
+export function getActivityLanes(org: string, from: string) {
 	return apiRequest(
 		'GET',
-		`/api/activity/lanes?${new URLSearchParams({from})}`,
+		`${orgApi(org)}/activity/lanes?${new URLSearchParams({from})}`,
 		activityLanesSchema,
 	);
 }

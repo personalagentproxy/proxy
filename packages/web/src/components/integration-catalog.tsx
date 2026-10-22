@@ -19,6 +19,7 @@ import {
 	type Need,
 } from '@/lib/integrations';
 import type {Connection} from '@/lib/types';
+import {useOrgSlug} from '@/hooks/use-org';
 
 // The integrations not connected by signing in to them are connected on a form of their own: a
 // mailbox with an app password, a database with a user's name and password, a custom MCP server by
@@ -61,6 +62,7 @@ export function IntegrationCatalog({
 	// A connection made here, with an API key.
 	onConnected: (connection: Connection) => void;
 }) {
+	const org = useOrgSlug();
 	const available = INTEGRATIONS.filter(
 		(integration) => !integration.builtIn && isOffered(integration, {experiments}),
 	);
@@ -82,7 +84,7 @@ export function IntegrationCatalog({
 					const count = connections.filter(
 						(connection) => connection.integrationId === integration.id,
 					).length;
-					const signIn = signInPath(integration.id, {
+					const signIn = signInPath(org, integration.id, {
 						returnTo,
 						share: shared ? 'everyone' : undefined,
 					});

@@ -37,7 +37,6 @@ import {useHuman} from '@/hooks/use-human';
 import {apiMessage} from '@/lib/agent-errors';
 import {formatDate} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
-import {activeOrgOf} from '@/lib/orgs';
 import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import type {membersLoader} from '@/loaders';
 
@@ -75,7 +74,7 @@ export function MembersPage() {
 		return null;
 	}
 
-	const org = activeOrgOf(human);
+	const org = human.org;
 	const owner = human.org.role === 'owner';
 	const nameOf = (member: Member) => member.name ?? member.email;
 	const apply = async (change: Promise<Result<unknown, FetchError>>) => {
@@ -167,7 +166,7 @@ export function MembersPage() {
 									{owner ? (
 										<IconButton
 											label={`Revoke the invitation to ${invitation.email}`}
-											onClick={() => void apply(revokeInvitation(org.id, invitation.id))}
+											onClick={() => void apply(revokeInvitation(org.slug, invitation.id))}
 										>
 											<XIcon />
 										</IconButton>
@@ -190,7 +189,7 @@ export function MembersPage() {
 				orgName={org.name}
 				onClose={() => setInviting(false)}
 				onInvite={async (email) => {
-					const result = await inviteMember(org.id, email);
+					const result = await inviteMember(org.slug, email);
 					if (result.isErr()) {
 						return failureOf(result.error);
 					}
@@ -213,7 +212,7 @@ export function MembersPage() {
 					if (!pending) {
 						return;
 					}
-					void apply(removeMember(org.id, pending.member.userId));
+					void apply(removeMember(org.slug, pending.member.userId));
 				}}
 			/>
 			<ConfirmDialog
@@ -224,13 +223,14 @@ export function MembersPage() {
 				destructive
 				onClose={() => setPending(null)}
 				onConfirm={async () => {
-					const result = await leaveOrg(org.id);
+					const result = await leaveOrg(org.slug);
 					if (result.isErr()) {
 						setError(failureOf(result.error));
 						return;
 					}
-					await navigate(`/connections?left=${encodeURIComponent(org.name)}`);
-					await revalidator.revalidate();
+					// Out of it, the person's first other organization: everyone owns one.
+					const next = human.orgs.find((candidate) => candidate.id !== org.id) ?? org;
+					await navigate(`/${next.slug}/connections?left=${encodeURIComponent(org.name)}`);
 				}}
 			/>
 		</AppShell>

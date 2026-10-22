@@ -4,6 +4,7 @@ import {ConfirmDialog} from '@/components/confirm-dialog';
 import {RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {Button} from '@proxy/ui/components/button';
+import {useOrgSlug} from '@/hooks/use-org';
 
 type Props = {
 	orgName: string;
@@ -38,13 +39,14 @@ export function Sharing({
 	confirmDescription,
 	onShare,
 }: Props) {
+	const org = useOrgSlug();
 	const [confirming, setConfirming] = useState(false);
 
 	if (alone) {
 		return (
 			<Section title="Sharing">
 				<p className="text-sm text-muted-foreground">
-					<Link to="/members" className="text-foreground underline underline-offset-4">
+					<Link to={`/${org}/members`} className="text-foreground underline underline-offset-4">
 						Invite people
 					</Link>{' '}
 					to {orgName} to share {what}s with them.

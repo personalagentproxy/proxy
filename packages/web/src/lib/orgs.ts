@@ -3,21 +3,11 @@ import type {Me} from '@/client/me-client';
 import type {Org} from '@/client/orgs-client';
 import type {Connection} from '@/lib/types';
 
-// The human side's organizations: the one open in the switcher, and who else is in each.
+// The human side's organizations: the one in the address, and who else is in each.
 
-// What the human side's route loads: who is signed in and the organizations they are in.
-export type Human = Me & {orgs: Org[]};
-
-/** The organization open in the switcher, as the list has it, with its counts. */
-export function activeOrgOf(human: Human): Org {
-	return (
-		human.orgs.find((org) => org.id === human.org.id) ?? {
-			...human.org,
-			memberCount: 1,
-			invitationCount: 0,
-		}
-	);
-}
+// What the human side's route loads: who is signed in, the organization the address names, and
+// the organizations they are in, for the switcher.
+export type Human = Me & {org: Org; orgs: Org[]};
 
 /** Whether anyone else is in the organization or invited to it. */
 export function hasOtherPeople(org: Org): boolean {

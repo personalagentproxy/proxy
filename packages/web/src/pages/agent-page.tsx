@@ -39,9 +39,10 @@ import {connectionLabel, defaultActions, integrationOf, ownSettings} from '@/lib
 import {cn} from '@proxy/ui/lib/utils';
 import {formatDate} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
-import {activeOrgOf, hasOtherPeople} from '@/lib/orgs';
+import {hasOtherPeople} from '@/lib/orgs';
 import type {AgentLogin, Connection} from '@/lib/types';
 import type {agentLoader} from '@/loaders';
+import {useOrgSlug} from '@/hooks/use-org';
 
 const RECENT = 10;
 
@@ -57,6 +58,7 @@ export function AgentPage() {
 }
 
 function AgentDetail({id}: {id: string}) {
+	const org = useOrgSlug();
 	const {agent, connections, agents, entries, tasks, mcpClients} =
 		useLoaderData<typeof agentLoader>();
 	const navigate = useNavigate();
@@ -65,11 +67,11 @@ function AgentDetail({id}: {id: string}) {
 	const [error, setError] = useState<string | null>(null);
 	const human = useHuman();
 	if (!agent || agent.id !== id || !human) {
-		return <NotFound what="agent" back="/agents" backLabel="Back to agents" />;
+		return <NotFound what="agent" back={`/${org}/agents`} backLabel="Back to agents" />;
 	}
 
 	const revoked = agent.revokedAt !== null;
-	const activeOrg = activeOrgOf(human);
+	const activeOrg = human.org;
 	const mine = agent.createdById === human.user.id;
 	const manages = !agent.shared || mine || human.org.role === 'owner';
 	const createdBy = mine ? 'You' : (agent.createdBy ?? 'A former member');
@@ -92,7 +94,7 @@ function AgentDetail({id}: {id: string}) {
 		<AppShell
 			title={
 				<>
-					<BackButton to="/agents" label="Back to agents" />
+					<BackButton to={`/${org}/agents`} label="Back to agents" />
 					<PageTitle
 						detail={
 							revoked
@@ -111,14 +113,14 @@ function AgentDetail({id}: {id: string}) {
 				manages && (
 					<>
 						{!revoked && (
-							<IconButton label="Set up again" to={`/agents/${agent.id}/setup`}>
+							<IconButton label="Set up again" to={`/${org}/agents/${agent.id}/setup`}>
 								<KeyRoundIcon />
 							</IconButton>
 						)}
 						{revoked ? (
 							<IconButton
 								label="Restore login"
-								onClick={() => void apply(setAgentRevoked(agent.id, false))}
+								onClick={() => void apply(setAgentRevoked(org, agent.id, false))}
 							>
 								<RotateCcwIcon />
 							</IconButton>
@@ -140,7 +142,7 @@ function AgentDetail({id}: {id: string}) {
 					<Section title="MCP">
 						<McpClients
 							clients={mcpClients}
-							onDisconnect={(clientId) => void apply(disconnectMcpClient(agent.id, clientId))}
+							onDisconnect={(clientId) => void apply(disconnectMcpClient(org, agent.id, clientId))}
 						/>
 					</Section>
 				)}
@@ -157,10 +159,10 @@ function AgentDetail({id}: {id: string}) {
 						connections={reachable}
 						readOnly={!manages}
 						onChange={(connectionId, actions) =>
-							apply(setAgentGrants(agent.id, connectionId, actions))
+							apply(setAgentGrants(org, agent.id, connectionId, actions))
 						}
 						onMakeDefault={(connectionId, actionId, allowed) =>
-							apply(makeDefault(agent.id, connectionId, actionId, allowed))
+							apply(makeDefault(org, agent.id, connectionId, actionId, allowed))
 						}
 					/>
 				</Section>
@@ -180,14 +182,14 @@ function AgentDetail({id}: {id: string}) {
 					canShare={manages}
 					alone={!hasOtherPeople(activeOrg)}
 					confirmDescription={`Everyone in ${activeOrg.name} sees ${agent.name} and can give its login to their own tools. It reaches only the connections shared with everyone from then on, so its settings on your own connections are dropped. Whoever made it and the organization's owner change it. This can't be undone.`}
-					onShare={() => apply(shareAgent(agent.id))}
+					onShare={() => apply(shareAgent(org, agent.id))}
 				/>
 				<Section
 					title="Recent activity"
 					detail={
 						entries.length > RECENT ? (
 							<Link
-								to={`/activity?agent=${agent.id}`}
+								to={`/${org}/activity?agent=${agent.id}`}
 								className="underline-offset-4 hover:text-foreground hover:underline"
 							>
 								Go to all activity
@@ -211,7 +213,7 @@ function AgentDetail({id}: {id: string}) {
 				confirmLabel="Revoke"
 				destructive
 				onClose={() => setConfirming(null)}
-				onConfirm={() => void apply(setAgentRevoked(agent.id, true))}
+				onConfirm={() => void apply(setAgentRevoked(org, agent.id, true))}
 			/>
 			<ConfirmDialog
 				open={confirming === 'delete'}
@@ -221,12 +223,12 @@ function AgentDetail({id}: {id: string}) {
 				destructive
 				onClose={() => setConfirming(null)}
 				onConfirm={async () => {
-					const result = await deleteAgent(agent.id);
+					const result = await deleteAgent(org, agent.id);
 					if (result.isErr()) {
 						setError(describeFetchError(result.error));
 						return;
 					}
-					navigate('/agents');
+					navigate(`/${org}/agents`);
 				}}
 			/>
 		</AppShell>
@@ -261,16 +263,19 @@ function McpClients({
 // Makes an agent's own setting the connection's default, for every agent without one of its own,
 // and drops it, since it now matches the default.
 async function makeDefault(
+	org: string,
 	agentId: string,
 	connectionId: string,
 	actionId: string,
 	allowed: boolean,
 ): Promise<Result<void, FetchError>> {
-	const defaults = await setConnectionDefaults(connectionId, {[actionId]: allowed});
+	const defaults = await setConnectionDefaults(org, connectionId, {[actionId]: allowed});
 	if (defaults.isErr()) {
 		return defaults.map(() => undefined);
 	}
-	return (await setAgentGrants(agentId, connectionId, {[actionId]: null})).map(() => undefined);
+	return (await setAgentGrants(org, agentId, connectionId, {[actionId]: null})).map(
+		() => undefined,
+	);
 }
 
 // "3 changed": how many actions the agent has a setting of its own for.

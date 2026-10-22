@@ -23,7 +23,7 @@ function contextOf(path: string): ContextName {
 		return 'anon';
 	}
 
-	if (path.startsWith('/welcome')) {
+	if (path.includes('/welcome')) {
 		return 'fresh';
 	}
 
@@ -101,37 +101,55 @@ async function postJson(context: BrowserContext, path: string, data?: object): P
 	return response.json();
 }
 
-async function signInHuman(signInPath: string): Promise<BrowserContext> {
+// The slug of the person's first organization, which every address of theirs starts with.
+async function orgSlugOf(context: BrowserContext): Promise<string> {
+	const {orgs} = await getJson<{orgs: Array<{slug: string}>}>(context, '/api/orgs');
+	const slug = orgs[0]?.slug;
+	if (!slug) {
+		fail('The person signed in is in no organization.');
+	}
+	return slug;
+}
+
+async function signInHuman(signInPath: string): Promise<{context: BrowserContext; slug: string}> {
 	const context = await newContext();
 	const page = await context.newPage();
 	await page.goto(signInPath);
 	await page.close();
-	await getJson(context, '/api/me');
-	return context;
+	return {context, slug: await orgSlugOf(context)};
 }
 
 // A throwaway person whose organization still has the welcome flow ahead of it.
-async function signInFresh(): Promise<{context: BrowserContext; connectionId: string}> {
+async function signInFresh(): Promise<{
+	context: BrowserContext;
+	slug: string;
+	connectionId: string;
+}> {
 	const context = await newContext();
 	await postJson(context, '/auth/dev/login', {fresh: true});
+	const slug = await orgSlugOf(context);
 	const {connections} = await getJson<{connections: Array<{id: string}>}>(
 		context,
-		'/api/connections',
+		`/api/orgs/${slug}/connections`,
 	);
 	const connectionId = connections[0]?.id;
 	if (!connectionId) {
 		fail('The new organization has no connection to show the welcome flow with.');
 	}
-	return {context, connectionId};
+	return {context, slug, connectionId};
 }
 
 // The first agent login that can read the vault, whose entries live in the database and so
 // show without a live account, as a mailbox's or an MCP server's would need; else the first
 // login that is not revoked.
-async function signInAgent(human: BrowserContext, password: string): Promise<BrowserContext> {
+async function signInAgent(
+	human: BrowserContext,
+	slug: string,
+	password: string,
+): Promise<BrowserContext> {
 	const {agents} = await getJson<{agents: Array<{username: string; revokedAt: string | null}>}>(
 		human,
-		'/api/agents',
+		`/api/orgs/${slug}/agents`,
 	);
 	let fallback: BrowserContext | null = null;
 	for (const agent of agents) {
@@ -195,13 +213,18 @@ await requireApp();
 const patterns = routePaths(await readFile(WEB_ROUTER_FILE, 'utf8'));
 const routeObjects = patterns.map((path) => ({path}));
 
-// Which route a link leads to, the most specific one, as the router itself picks it.
+const {signInPath, agentPassword} = await seed();
+const human = await signInHuman(signInPath);
+const fresh = await signInFresh();
+
+// Which route a link leads to, the most specific one, as the router itself picks it. `/` opens
+// the person's first organization, the demo workspace.
 function matchLink(href: string): {pattern: string; url: string} | null {
 	const url = URL.parse(href, APP_URL);
 	if (!url || url.origin !== new URL(APP_URL).origin) {
 		return null;
 	}
-	const pathname = url.pathname === '/' ? '/connections' : url.pathname;
+	const pathname = url.pathname === '/' ? `/${human.slug}` : url.pathname;
 	const pattern = matchRoutes(routeObjects, pathname)?.[0]?.route.path;
 	if (!pattern) {
 		return null;
@@ -209,14 +232,11 @@ function matchLink(href: string): {pattern: string; url: string} | null {
 	return {pattern, url: `${pathname}${url.search}`};
 }
 
-const {signInPath, agentPassword} = await seed();
-const human = await signInHuman(signInPath);
-const fresh = await signInFresh();
 const contexts: Record<ContextName, BrowserContext> = {
 	anon: await newContext(),
-	human,
+	human: human.context,
 	fresh: fresh.context,
-	agent: await signInAgent(human, agentPassword),
+	agent: await signInAgent(human.context, human.slug, agentPassword),
 };
 const taskId = await startTask(contexts.agent);
 
@@ -227,8 +247,9 @@ for (const file of await readdir(OUT_DIR)) {
 }
 
 // One address per route, the one its screenshot is taken at: the first link found to it, or the
-// route itself where it has no parameters. Every other link to it is kept, in case the page at
-// the first leads nowhere: a list with nothing in it has no record to open.
+// route itself where its only parameter is the organization, filled in with the one its context
+// is in. Every other link to it is kept, in case the page at the first leads nowhere: a list with
+// nothing in it has no record to open.
 const urls = new Map<string, string>();
 const candidates = new Map<string, string[]>();
 const queue: string[] = [];
@@ -244,14 +265,19 @@ function discover(pattern: string, url: string): void {
 	queue.push(pattern);
 }
 
-discover('/welcome/connections/:id', `/welcome/connections/${fresh.connectionId}`);
-discover('/connect-agent', await connectAgentPath(human));
+discover(
+	'/:org/welcome/connections/:id',
+	`/${fresh.slug}/welcome/connections/${fresh.connectionId}`,
+);
+discover('/connect-agent', await connectAgentPath(human.context));
 discover('/agent/:taskId', `/agent/${taskId}`);
 // No page links to an invitation: the one a token nobody was sent opens.
 discover('/invite/:token', '/invite/not-a-token');
 for (const pattern of patterns) {
-	if (!pattern.includes(':')) {
-		discover(pattern, pattern);
+	const slug = contextOf(pattern) === 'fresh' ? fresh.slug : human.slug;
+	const url = pattern.replace('/:org', `/${slug}`);
+	if (!url.includes(':')) {
+		discover(pattern, url);
 	}
 }
 

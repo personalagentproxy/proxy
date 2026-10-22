@@ -16,6 +16,7 @@ import {Label} from '@proxy/ui/components/label';
 import {apiMessage} from '@/lib/agent-errors';
 import type {Connection} from '@/lib/types';
 import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
+import {useOrgSlug} from '@/hooks/use-org';
 
 function connectErrorMessage(service: string, error: FetchError): string {
 	if (error.kind === 'http' && error.status === 400) {
@@ -51,6 +52,7 @@ export function ConnectWithKeyDialog({
 	onClose,
 	onConnected,
 }: Props) {
+	const org = useOrgSlug();
 	const integration = findIntegration(integrationId);
 	const [key, setKey] = useState('');
 	const [error, setError] = useState<string | null>(null);
@@ -82,7 +84,7 @@ export function ConnectWithKeyDialog({
 						}
 						setPending(true);
 						setError(null);
-						const result = await connectWithKey(integrationId, {
+						const result = await connectWithKey(org, integrationId, {
 							key: key.trim(),
 							...(connectionId === undefined ? {} : {connection: connectionId}),
 							...(shared ? {shared} : {}),

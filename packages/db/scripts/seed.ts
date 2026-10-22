@@ -785,7 +785,11 @@ await db.verificationToken.create({
 	},
 });
 const apiUrl = process.env.VITE_PROXY_API_URL ?? 'http://localhost:4000';
-const query = new URLSearchParams({token, email: DEMO_EMAIL, callbackUrl: '/agents'});
+const query = new URLSearchParams({
+	token,
+	email: DEMO_EMAIL,
+	callbackUrl: `/${WORKSPACE_SLUG}/agents`,
+});
 
 console.log(
 	`[seed] ${connections.length} connections, ${agents.length} agents, ${taskCount} tasks and ${entryCount} activity entries for ${DEMO_EMAIL}.`,

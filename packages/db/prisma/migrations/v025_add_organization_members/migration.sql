@@ -1,7 +1,6 @@
 -- Organizations with members: each has one owner, whoever made it, kept on the organization so
--- there can't be two or none; one membership per person per organization; the human side works
--- in the organization the session has open; and people are invited by email, the invitation
--- keeping only its token's hash.
+-- there can't be two or none; one membership per person per organization; and people are invited
+-- by email, the invitation keeping only its token's hash.
 
 ALTER TABLE "Organization" ADD COLUMN "ownerUserId" TEXT;
 
@@ -31,8 +30,6 @@ WHERE later."orgId" = earlier."orgId"
   AND (later."createdAt", later."id") > (earlier."createdAt", earlier."id");
 
 CREATE UNIQUE INDEX "OrgMember_orgId_userId_key" ON "OrgMember"("orgId", "userId");
-
-ALTER TABLE "Session" ADD COLUMN "activeOrgId" TEXT;
 
 CREATE TABLE "Invitation" (
     "id" TEXT NOT NULL,

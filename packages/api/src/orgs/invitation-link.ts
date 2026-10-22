@@ -1,7 +1,6 @@
 import {Err, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
-import {setSessionActiveOrg} from '@proxy/db/auth';
 import {acceptInvitation, getInvitationByTokenHash, type InvitationForLink} from '@proxy/db/invitation';
 import {getMembership} from '@proxy/db/organization';
 
@@ -13,6 +12,8 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 
 export type InvitationLinkResponse = {
 	orgId: string;
+	// The organization's slug, its address in the web app.
+	orgSlug: string;
 	orgName: string;
 	invitedBy: string | null;
 	// The address it was sent to.
@@ -39,6 +40,7 @@ export function handleGetInvitationRoute(request: AuthenticatedRequest): Promise
 		const member = $(await getMembership(request.user.userId, invitation.org.id)) !== null;
 		return {
 			orgId: invitation.org.id,
+			orgSlug: invitation.org.slug,
 			orgName: invitation.org.name,
 			invitedBy: invitation.invitedBy,
 			email: invitation.email,
@@ -50,9 +52,9 @@ export function handleGetInvitationRoute(request: AuthenticatedRequest): Promise
 
 /**
  * `POST /api/invitations/:token/accept`: the signed-in person, at the address it was sent to,
- * becomes a member, with their own vault there, and the organization opens in their switcher.
+ * becomes a member, with their own vault there; the organization's slug is where to go next.
  */
-export function handleAcceptInvitationRoute(request: AuthenticatedRequest): Promise<Result<{orgId: string}, ApiError>> {
+export function handleAcceptInvitationRoute(request: AuthenticatedRequest): Promise<Result<{orgId: string; orgSlug: string}, ApiError>> {
 	return Do(async ($) => {
 		const invitation = $(await requireInvitation(request));
 		if (invitation.expires <= new Date()) {
@@ -62,7 +64,6 @@ export function handleAcceptInvitationRoute(request: AuthenticatedRequest): Prom
 			return $(Err(ApiErr.forbidden()));
 		}
 		$(await acceptInvitation({invitationId: invitation.id, orgId: invitation.org.id, userId: request.user.userId, vaultName: invitation.org.name}));
-		$(await setSessionActiveOrg(request.user.sessionTokenHash, invitation.org.id));
-		return {orgId: invitation.org.id};
+		return {orgId: invitation.org.id, orgSlug: invitation.org.slug};
 	});
 }

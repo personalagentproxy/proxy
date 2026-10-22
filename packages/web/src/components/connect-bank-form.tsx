@@ -6,6 +6,7 @@ import {connectPlaid, createPlaidLinkToken} from '@/client/connections-client';
 import {SuccessLine} from '@/components/success-line';
 import {apiMessage} from '@/lib/agent-errors';
 import type {Connection} from '@/lib/types';
+import {useOrgSlug} from '@/hooks/use-org';
 
 function plaidErrorMessage(error: FetchError): string {
 	if (error.kind === 'http' && error.status === 400) {
@@ -57,6 +58,7 @@ function usePlaidLinkFlow({
 	connectionId?: string;
 	onLinked: (publicToken: string | null) => Promise<string | null>;
 }) {
+	const org = useOrgSlug();
 	const [token, setToken] = useState<string | null>(null);
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -64,7 +66,7 @@ function usePlaidLinkFlow({
 	const start = async () => {
 		setPending(true);
 		setError(null);
-		const result = await createPlaidLinkToken(connectionId);
+		const result = await createPlaidLinkToken(org, connectionId);
 		if (result.isErr()) {
 			setPending(false);
 			setError(plaidErrorMessage(result.error));
@@ -104,12 +106,13 @@ export function ConnectBankForm({
 	shared?: boolean;
 	onConnected: (connection: Connection) => void;
 }) {
+	const org = useOrgSlug();
 	const {start, pending, error, link} = usePlaidLinkFlow({
 		onLinked: async (publicToken) => {
 			if (publicToken === null) {
 				return 'Plaid didn’t answer with the bank’s login. Try again.';
 			}
-			const result = await connectPlaid(publicToken, shared);
+			const result = await connectPlaid(org, publicToken, shared);
 			if (result.isErr()) {
 				return plaidErrorMessage(result.error);
 			}

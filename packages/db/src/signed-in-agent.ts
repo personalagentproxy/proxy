@@ -13,6 +13,8 @@ export type SignedInAgent = {
 	ownerUserId: string | null;
 	providerId: string;
 	name: string;
+	// The organization's slug, its address in the web app.
+	orgSlug: string;
 	/** The experiments on for the agent's organization. */
 	experiments: Experiment[];
 };
@@ -25,7 +27,7 @@ export const signedInAgentSelect = {
 	providerId: true,
 	name: true,
 	revokedAt: true,
-	org: {select: {insider: true, experiments: true}},
+	org: {select: {slug: true, insider: true, experiments: true}},
 } satisfies Prisma.AgentSelect;
 
 /** `null` for a revoked agent. */
@@ -41,6 +43,7 @@ export function toSignedInAgent(
 		ownerUserId: agent.ownerUserId,
 		providerId: agent.providerId,
 		name: agent.name,
+		orgSlug: agent.org.slug,
 		experiments: organizationExperiments(agent.org),
 	};
 }

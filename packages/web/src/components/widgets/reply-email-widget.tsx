@@ -20,6 +20,7 @@ import {
 	shortDay,
 } from '@/lib/widget-values';
 import {useWriteStatus, writeErrorMessage} from '@/lib/write-status';
+import {useOrgSlug} from '@/hooks/use-org';
 
 const NAME = 'Reply to email';
 
@@ -36,6 +37,7 @@ function emailLabel(email: FoundEmail): string {
 // back to, the newest first and the others found to choose from, what it says, and the reply, sent
 // or saved as a draft in the email's thread from the mailbox it is in.
 export function ReplyEmailWidget({intent, typed, now}: {intent: Intent; typed: string; now: Date}) {
+	const org = useOrgSlug();
 	const query = emailQuery(intent, typed, now);
 	const emails = useEmails(query);
 	const mailboxes = useMailboxes(true);
@@ -67,15 +69,18 @@ export function ReplyEmailWidget({intent, typed, now}: {intent: Intent; typed: s
 			return;
 		}
 		setStatus({kind: 'saving'});
-		void replyToEmail({connectionId: picked.connectionId, emailId: picked.id, body, send}).then(
-			(result) => {
-				if (result.isErr()) {
-					setStatus({kind: 'failed', message: writeErrorMessage(result.error)});
-					return;
-				}
-				setStatus({kind: 'done', message: send ? 'Sent' : 'Saved as a draft', link: null});
-			},
-		);
+		void replyToEmail(org, {
+			connectionId: picked.connectionId,
+			emailId: picked.id,
+			body,
+			send,
+		}).then((result) => {
+			if (result.isErr()) {
+				setStatus({kind: 'failed', message: writeErrorMessage(result.error)});
+				return;
+			}
+			setStatus({kind: 'done', message: send ? 'Sent' : 'Saved as a draft', link: null});
+		});
 	};
 
 	return (

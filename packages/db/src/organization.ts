@@ -2,7 +2,13 @@ import {Prisma} from '@prisma/client';
 
 import {Err, Ok, type Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, wrapDb} from '@proxy/utils';
+import {
+	ApiErr,
+	type ApiError,
+	type Experiment,
+	organizationExperiments,
+	wrapDb,
+} from '@proxy/utils';
 
 import {db} from '.';
 
@@ -88,54 +94,54 @@ function roleOf(userId: string, org: {ownerUserId: string}): OrgRole {
 	return org.ownerUserId === userId ? 'owner' : 'member';
 }
 
-// The membership a user works in: `preferred`, the organization their session has open, while they
-// are a member of it, else the first one they joined.
-async function workingMembership<S extends Prisma.OrgMemberSelect>(
-	userId: string,
-	preferred: string | null,
-	select: S,
-) {
-	const open = preferred
-		? await db.orgMember.findFirst({where: {userId, orgId: preferred}, select})
-		: null;
-	return open ?? db.orgMember.findFirst({where: {userId}, select, orderBy: {createdAt: 'asc'}});
-}
+export type MemberOrganization = {
+	id: string;
+	slug: string;
+	name: string;
+	role: OrgRole;
+	onboardedAt: Date | null;
+	// The experiments on for it.
+	experiments: Experiment[];
+};
 
 /**
- * The organization a user works in: `preferred`, the one their session has open, while they are a
- * member of it, else the first one they joined. `Ok(null)` means they are in none: the user is gone.
+ * An organization by its slug, as the web app's and the api's addresses name it, for a member of
+ * it: `Ok(null)` when there is none, or the person isn't in it, which is told apart from no such
+ * organization nowhere, so nothing says which organizations exist.
  */
-export async function getUserOrgId(
+export async function getMemberOrganization(
 	userId: string,
-	preferred: string | null = null,
-): Promise<Result<string | null, ApiError>> {
-	return (await wrapDb(() => workingMembership(userId, preferred, {orgId: true}))).map(
-		(member) => member?.orgId ?? null,
-	);
-}
-
-export type UserOrganization = {id: string; name: string; role: OrgRole; onboardedAt: Date | null};
-
-/**
- * The organization a user works in, as `getUserOrgId` picks it, with their role there and whether
- * it has been through the welcome flow; `Ok(null)` means they are in none.
- */
-export async function getUserOrganization(
-	userId: string,
-	preferred: string | null = null,
-): Promise<Result<UserOrganization | null, ApiError>> {
+	slug: string,
+): Promise<Result<MemberOrganization | null, ApiError>> {
 	return (
 		await wrapDb(() =>
-			workingMembership(userId, preferred, {
-				org: {select: {id: true, name: true, onboardedAt: true, ownerUserId: true}},
+			db.orgMember.findFirst({
+				where: {userId, org: {slug}},
+				select: {
+					org: {
+						select: {
+							id: true,
+							slug: true,
+							name: true,
+							onboardedAt: true,
+							ownerUserId: true,
+							insider: true,
+							experiments: true,
+						},
+					},
+				},
 			}),
 		)
 	).map((member) => {
 		if (!member) {
 			return null;
 		}
-		const {ownerUserId, ...org} = member.org;
-		return {...org, role: roleOf(userId, {ownerUserId})};
+		const {ownerUserId, insider, experiments, ...org} = member.org;
+		return {
+			...org,
+			role: roleOf(userId, {ownerUserId}),
+			experiments: organizationExperiments({insider, experiments}),
+		};
 	});
 }
 
@@ -156,8 +162,11 @@ export async function getMembership(
 
 export type UserOrgRow = {
 	id: string;
+	slug: string;
 	name: string;
 	role: OrgRole;
+	// Whether it has been through the welcome flow.
+	onboarded: boolean;
 	memberCount: number;
 	// Invitations not taken up yet, expired ones included.
 	invitationCount: number;
@@ -177,7 +186,9 @@ export async function listUserOrgs(userId: string): Promise<Result<UserOrgRow[],
 					org: {
 						select: {
 							id: true,
+							slug: true,
 							name: true,
+							onboardedAt: true,
 							ownerUserId: true,
 							_count: {select: {members: true, invitations: true}},
 						},
@@ -188,8 +199,10 @@ export async function listUserOrgs(userId: string): Promise<Result<UserOrgRow[],
 	).map((memberships) =>
 		memberships.map(({org}) => ({
 			id: org.id,
+			slug: org.slug,
 			name: org.name,
 			role: roleOf(userId, org),
+			onboarded: org.onboardedAt !== null,
 			memberCount: org._count.members,
 			invitationCount: org._count.invitations,
 		})),
@@ -206,7 +219,7 @@ const MAX_SLUG_ATTEMPTS = 5;
 export async function createOrganization(data: {
 	userId: string;
 	name: string;
-}): Promise<Result<{id: string; name: string}, ApiError>> {
+}): Promise<Result<{id: string; slug: string; name: string}, ApiError>> {
 	const {userId, name} = data;
 	const base = buildBaseSlug(name);
 	for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
@@ -215,7 +228,7 @@ export async function createOrganization(data: {
 				const slug = await pickAvailableSlugDatabase(tx, base);
 				const org = await tx.organization.create({
 					data: {name, slug, ownerUserId: userId, onboardedAt: new Date()},
-					select: {id: true, name: true},
+					select: {id: true, slug: true, name: true},
 				});
 				await tx.orgMember.create({data: {orgId: org.id, userId}});
 				await tx.connection.create({data: vaultFor({orgId: org.id, userId, name})});

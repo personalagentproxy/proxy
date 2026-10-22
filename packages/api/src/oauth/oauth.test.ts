@@ -20,9 +20,16 @@ const getAgent = mock();
 
 mock.module('@proxy/db/agent', () => ({getAgent}));
 
-const getUserOrgId = mock();
+mock.module('@proxy/db/organization', () => ({
+	getMembership: mock(async () => Ok({role: 'owner'})),
+	listMemberNames: mock(async () => Ok([])),
+	listUserOrgs: mock(async () => Ok([{id: 'org-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, memberCount: 1, invitationCount: 0}])),
+	getMemberOrganization: mock(async () => Ok({id: 'org-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboardedAt: new Date(), experiments: []})),
+}));
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId, getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
+const requireViewer = mock(async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}));
+
+mock.module('../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 
 const createAgentLogin = mock();
 
@@ -86,7 +93,6 @@ beforeEach(() => {
 	createOAuthCode.mockResolvedValue(Ok(undefined));
 	createOAuthGrant.mockResolvedValue(Ok(undefined));
 	rotateOAuthGrant.mockResolvedValue(Ok(true));
-	getUserOrgId.mockResolvedValue(Ok('org-1'));
 	getAgent.mockResolvedValue(Ok({id: 'agent-1', name: 'Dots', revokedAt: null}));
 });
 

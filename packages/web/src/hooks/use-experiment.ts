@@ -1,10 +1,9 @@
 import type {Experiment} from '@proxy/utils';
-import {useRouteLoaderData} from 'react-router';
-import type {Me} from '@/client/me-client';
+import {useHuman} from '@/hooks/use-human';
 
-// Every experiment on for the signed-in person's organization, from the human side's loader; none
-// outside it, as in the welcome flow. Hiding something here is only for looks: the api checks the
-// experiment itself.
+// Every experiment on for the organization the address names, from the human side's loader; none
+// outside it, as in the welcome flow, which loads them itself. Hiding something here is only for
+// looks: the api checks the experiment itself.
 export function useExperiments(): Experiment[] {
-	return useRouteLoaderData<Me>('human')?.experiments ?? [];
+	return useHuman()?.org.experiments ?? [];
 }

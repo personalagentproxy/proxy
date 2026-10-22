@@ -5,6 +5,7 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {getAgent} from '@proxy/db/agent';
 import type {MemberViewer} from '@proxy/db/connection';
+import {getMemberOrganization, listUserOrgs} from '@proxy/db/organization';
 import {createOAuthCode, getOAuthClient, type OAuthClientRow} from '@proxy/db/oauth';
 import {suggestAgentProvider} from '@proxy/integrations';
 
@@ -13,7 +14,6 @@ import {hashToken, queryParam} from '../auth/session';
 import {log, serializeError} from '../observability/log';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {decryptSecret, encryptSecret} from '../utils/secret-crypto';
-import {requireUserOrgId, requireViewer} from '../utils/user-org';
 import {CODE_TTL_MS, mcpResourceUrl, randomToken, requireAppUrl, withParams} from './oauth-config';
 
 /**
@@ -137,18 +137,31 @@ export type AuthorizationRequestResponse = {
 /** `GET /api/oauth/request?request=…`: who is asking, for the consent page. */
 export function handleGetAuthorizationRequestRoute(request: AuthenticatedRequest): Promise<Result<AuthorizationRequestResponse, ApiError>> {
 	return Do(async ($) => {
-		$(await requireUserOrgId(request));
 		const {request: authorization, client} = $(await loadRequest(request.query.request));
 		const redirect = new URL(authorization.redirectUri);
 		return {clientName: client.name, redirectHost: redirect.host || redirect.protocol, suggestedProviderId: suggestAgentProvider(client.name)?.id ?? null};
 	});
 }
 
+// `org` is the slug of the organization the agent is in, or a new one goes in; the person's first
+// when left out.
 const consentBodySchema = z.union([
 	z.object({request: z.string(), allow: z.literal(false)}),
-	z.object({request: z.string(), allow: z.literal(true), agentId: z.string().min(1)}),
-	z.object({request: z.string(), allow: z.literal(true), providerId: z.string().min(1), name: z.string().optional()}),
+	z.object({request: z.string(), allow: z.literal(true), org: z.string().optional(), agentId: z.string().min(1)}),
+	z.object({request: z.string(), allow: z.literal(true), org: z.string().optional(), providerId: z.string().min(1), name: z.string().optional()}),
 ]);
+
+// The organization the consent is about, as a viewer of it: the one named, else the person's first.
+function consentViewer(userId: string, slug: string | undefined): Promise<Result<MemberViewer, ApiError>> {
+	return Do(async ($) => {
+		if (slug !== undefined) {
+			const org = $(requirePresent($(await getMemberOrganization(userId, slug)), ApiErr.notFound('organization', slug)));
+			return {orgId: org.id, userId};
+		}
+		const first = $(requirePresent($(await listUserOrgs(userId))[0], ApiErr.unauthenticated()));
+		return {orgId: first.id, userId};
+	});
+}
 
 // The agent login the client works as: one the person sees, their own or shared, not revoked, or a
 // new one of their own, which for a custom agent is named by the person.
@@ -182,7 +195,7 @@ export function handleConsentRoute(request: AuthenticatedRequest): Promise<Resul
 			return {redirectTo: withParams(redirectUri, {error: 'access_denied', error_description: 'The person declined', state, iss: appUrl})};
 		}
 
-		const viewer = $(await requireViewer(request));
+		const viewer = $(await consentViewer(request.user.userId, body.org));
 		const agentId = $(await chooseAgent(viewer, body));
 		const code = randomToken();
 		$(await createOAuthCode({codeHash: hashToken(code), clientId: client.id, agentId, redirectUri, codeChallenge: authorization.codeChallenge, expires: new Date(Date.now() + CODE_TTL_MS)}));

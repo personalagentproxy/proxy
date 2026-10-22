@@ -35,6 +35,18 @@ function connection(
 	};
 }
 
+// The organization the address names, as the human side's loader answers it.
+const ORG = {
+	id: 'org-1',
+	slug: 'org-1',
+	name: 'Workspace',
+	role: 'owner',
+	onboarded: true,
+	experiments: [],
+	memberCount: 1,
+	invitationCount: 0,
+};
+
 function renderConnectionsPage(connections: Connection[]) {
 	const router = createMemoryRouter(
 		[
@@ -42,24 +54,20 @@ function renderConnectionsPage(connections: Connection[]) {
 				id: 'human',
 				loader: () => ({
 					user: {id: 'user-1', email: 'person@example.com', name: null, image: null},
-					org: {id: 'org-1', name: 'Workspace', role: 'owner'},
-					onboarded: true,
-					experiments: [],
-					orgs: [
-						{id: 'org-1', name: 'Workspace', role: 'owner', memberCount: 1, invitationCount: 0},
-					],
+					org: ORG,
+					orgs: [ORG],
 				}),
 				element: <HumanSide />,
 				children: [
 					{
-						path: '/connections',
+						path: '/:org/connections',
 						loader: () => ({connections, agents: []}),
 						element: <ConnectionsPage />,
 					},
 				],
 			},
 		],
-		{initialEntries: ['/connections']},
+		{initialEntries: ['/org-1/connections']},
 	);
 
 	return render(

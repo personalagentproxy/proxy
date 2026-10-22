@@ -21,9 +21,11 @@ mock.module('@proxy/db/connection', () => ({
 	updateConnectionName,
 }));
 
-const getUserOrgId = mock();
+mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId, getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
+const requireViewer = mock(async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}));
+
+mock.module('../../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 
 mock.module('../../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
@@ -89,7 +91,7 @@ const user = {userId: 'user-1', email: 'alex@example.com'};
 async function start(query: Record<string, string> = {}) {
 	const {handleStart: handleStartParallelRoute} = await routes();
 	const res = makeRes();
-	await handleStartParallelRoute({user, query, headers: {}} as never, res as never);
+	await handleStartParallelRoute({user, params: {org: 'org-1'}, query, headers: {}} as never, res as never);
 	const cookie = res.cookies.find((candidate) => candidate.name === 'proxy.parallel-state');
 	const authorizeUrl = new URL(res.redirect.mock.calls[0]?.[0] as string);
 	return {cookie, authorizeUrl, state: authorizeUrl.searchParams.get('state') ?? ''};
@@ -98,7 +100,7 @@ async function start(query: Record<string, string> = {}) {
 async function callback(args: {cookie: string; query: Record<string, string>}) {
 	const {handleCallback: handleParallelCallbackRoute} = await routes();
 	const res = makeRes();
-	await handleParallelCallbackRoute({user, query: args.query, headers: {cookie: `proxy.parallel-state=${args.cookie}`}} as never, res as never);
+	await handleParallelCallbackRoute({user, params: {org: 'org-1'}, query: args.query, headers: {cookie: `proxy.parallel-state=${args.cookie}`}} as never, res as never);
 	return res;
 }
 
@@ -126,7 +128,6 @@ const existing = {
 beforeEach(() => {
 	mock.clearAllMocks();
 	parallel.requests = [];
-	getUserOrgId.mockResolvedValue(Ok('org-1'));
 	findAccountConnection.mockResolvedValue(Ok(null));
 	createConnection.mockImplementation(async (data: {integrationId: string; account: string; defaults: string[]; name?: string}) =>
 		Ok({id: 'conn-1', integrationId: data.integrationId, account: data.account, createdAt: new Date(), tools: null, name: data.name ?? null, defaults: data.defaults.map((actionId) => ({actionId}))}),
@@ -159,7 +160,7 @@ describe('handleParallelCallbackRoute', () => {
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'parallel', account: 'Signed in', defaults: ['search', 'fetch']});
 		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toMatchObject({clientId: 'client-1', refreshToken: null, expiresAt: null});
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1?added');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-1?added');
 	});
 
 	test('signing in from the catalog again makes another connection, since Parallel says nothing of who signed in', async () => {
@@ -175,18 +176,18 @@ describe('handleParallelCallbackRoute', () => {
 		const {cookie, state} = await start({connection: 'conn-0'});
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
-		expect(getConnectionWithCredential).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'conn-0');
+		expect(getConnectionWithCredential).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'conn-0');
 		expect(createConnection).not.toHaveBeenCalled();
 		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0', account: 'Signed in'});
 		expect(updateConnectionName).not.toHaveBeenCalled();
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-0');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-0');
 	});
 
 	test('a sign-in turned down at Parallel goes back to the catalog', async () => {
 		const {cookie, state} = await start();
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, error: 'access_denied'}});
 
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/new?error=parallel');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/new?error=parallel');
 		expect(createConnection).not.toHaveBeenCalled();
 	});
 });

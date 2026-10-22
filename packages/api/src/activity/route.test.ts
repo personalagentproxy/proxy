@@ -1,11 +1,14 @@
 import {afterEach, beforeEach, describe, expect, mock, setSystemTime, test} from 'bun:test';
 import {Ok} from 'ts-results-es';
 
-const getUserOrgId = mock();
 const listAuditEntries = mock();
 const summarizeTaskRequests = mock();
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId, getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
+mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
+
+const requireViewer = mock(async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}));
+
+mock.module('../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 mock.module('@proxy/db/audit', () => ({listAuditEntries, summarizeTaskRequests}));
 
 const listAgentTasks = mock();
@@ -19,7 +22,6 @@ function makeRequest(query: Record<string, string>) {
 
 beforeEach(() => {
 	mock.clearAllMocks();
-	getUserOrgId.mockResolvedValue(Ok('org-1'));
 	listAuditEntries.mockResolvedValue(Ok([]));
 	listAgentTasks.mockResolvedValue(Ok([]));
 	listAgentTasksSince.mockResolvedValue(Ok([]));
@@ -55,7 +57,7 @@ describe('handleActivityLanesRoute', () => {
 		const {handleActivityLanesRoute} = await import('./route');
 		const result = await handleActivityLanesRoute(makeRequest({from: '2026-10-14T23:30:00Z'}) as never);
 
-		expect(listAgentTasksSince).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, new Date('2026-10-14T23:30:00Z'), 200);
+		expect(listAgentTasksSince).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), new Date('2026-10-14T23:30:00Z'), 200);
 		expect(summarizeTaskRequests).toHaveBeenCalledWith('org-1', ['task-1']);
 		expect(result.unwrap()).toEqual({
 			now: '2026-10-15T23:30:00.000Z',
@@ -85,7 +87,7 @@ describe('handleActivityLanesRoute', () => {
 		await handleActivityLanesRoute(makeRequest({from: '2020-01-01T00:00:00Z'}) as never);
 		const bad = await handleActivityLanesRoute(makeRequest({from: 'yesterday'}) as never);
 
-		expect(listAgentTasksSince).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, new Date('2026-09-14T23:30:00Z'), 200);
+		expect(listAgentTasksSince).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), new Date('2026-09-14T23:30:00Z'), 200);
 		expect(bad.unwrapErr().kind).toBe('parse_error');
 	});
 });
@@ -95,14 +97,14 @@ describe('handleListActivityRoute', () => {
 		const {handleListActivityRoute} = await import('./route');
 		await handleListActivityRoute(makeRequest({outcome: 'denied'}) as never);
 
-		expect(listAuditEntries).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, {outcome: 'denied'}, 500);
+		expect(listAuditEntries).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {outcome: 'denied'}, 500);
 	});
 
 	test('what Personal Agent Proxy did itself is the entries without an agent', async () => {
 		const {handleListActivityRoute} = await import('./route');
 		await handleListActivityRoute(makeRequest({agentId: 'proxy'}) as never);
 
-		expect(listAuditEntries).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, {agentId: null}, 500);
+		expect(listAuditEntries).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {agentId: null}, 500);
 	});
 
 	test('names the tasks the entries were made for, and the one asked for even without entries', async () => {
@@ -139,8 +141,8 @@ describe('handleListActivityRoute', () => {
 		const {handleListActivityRoute} = await import('./route');
 		const result = await handleListActivityRoute(makeRequest({taskId: 'task-2'}) as never);
 
-		expect(listAuditEntries).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, {taskId: 'task-2'}, 500);
-		expect(listAgentTasks).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, ['task-1', 'task-2']);
+		expect(listAuditEntries).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {taskId: 'task-2'}, 500);
+		expect(listAgentTasks).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), ['task-1', 'task-2']);
 		expect(result.unwrap()).toEqual({
 			entries: [
 				{

@@ -19,9 +19,11 @@ mock.module('@proxy/db/connection', () => ({
 	updateConnectionName: mock(),
 }));
 
-const getUserOrgId = mock();
+mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
-mock.module('@proxy/db/organization', () => ({getUserOrgId, getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
+const requireViewer = mock(async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}));
+
+mock.module('../../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 
 mock.module('../../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
@@ -100,7 +102,7 @@ const user = {userId: 'user-1', email: 'alex@example.com'};
 async function start(query: Record<string, string> = {}) {
 	const {handleStart: handleStartLinearRoute} = await routes();
 	const res = makeRes();
-	await handleStartLinearRoute({user, query, headers: {}} as never, res as never);
+	await handleStartLinearRoute({user, params: {org: 'org-1'}, query, headers: {}} as never, res as never);
 	const cookie = res.cookies.find((candidate) => candidate.name === 'proxy.linear-state');
 	const authorizeUrl = new URL(res.redirect.mock.calls[0]?.[0] as string);
 	return {cookie, authorizeUrl, state: authorizeUrl.searchParams.get('state') ?? ''};
@@ -109,14 +111,13 @@ async function start(query: Record<string, string> = {}) {
 async function callback(args: {cookie: string; query: Record<string, string>}) {
 	const {handleCallback: handleLinearCallbackRoute} = await routes();
 	const res = makeRes();
-	await handleLinearCallbackRoute({user, query: args.query, headers: {cookie: `proxy.linear-state=${args.cookie}`}} as never, res as never);
+	await handleLinearCallbackRoute({user, params: {org: 'org-1'}, query: args.query, headers: {cookie: `proxy.linear-state=${args.cookie}`}} as never, res as never);
 	return res;
 }
 
 beforeEach(() => {
 	mock.clearAllMocks();
 	linear.requests = [];
-	getUserOrgId.mockResolvedValue(Ok('org-1'));
 	findAccountConnection.mockResolvedValue(Ok(null));
 	createConnection.mockResolvedValue(Ok({id: 'conn-1'}));
 	renewConnection.mockResolvedValue(Ok(undefined));
@@ -151,7 +152,7 @@ describe('handleLinearCallbackRoute', () => {
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'linear', account: 'alex@example.com · Acme', defaults: ['read']});
 		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toMatchObject({clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1'});
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1?added');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-1?added');
 	});
 
 	test('signing in to the same workspace again gives its connection the new tokens', async () => {
@@ -161,7 +162,7 @@ describe('handleLinearCallbackRoute', () => {
 
 		expect(createConnection).not.toHaveBeenCalled();
 		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0'});
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-0');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-0');
 	});
 
 	test('signing in from a connection never signed in to, as one moved over without a sign-in, gives that one the new tokens', async () => {
@@ -169,9 +170,9 @@ describe('handleLinearCallbackRoute', () => {
 		const {cookie, state} = await start({connection: 'conn-0'});
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
-		expect(getConnectionWithCredential).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'conn-0');
+		expect(getConnectionWithCredential).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'conn-0');
 		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0', account: 'alex@example.com · Acme'});
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-0');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-0');
 	});
 
 	test('signing in from a connection never signed in to, as an account connected since, gives that account its connection the new tokens, never a second one', async () => {
@@ -180,10 +181,14 @@ describe('handleLinearCallbackRoute', () => {
 		const {cookie, state} = await start({connection: 'conn-0'});
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
-		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, {integrationId: 'linear', account: 'alex@example.com · Acme', providerAccountId: null});
+		expect(findAccountConnection).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {
+			integrationId: 'linear',
+			account: 'alex@example.com · Acme',
+			providerAccountId: null,
+		});
 		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-5'});
 		expect(createConnection).not.toHaveBeenCalled();
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-5');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-5');
 	});
 
 	test('signing in to another workspace from a signed-in connection makes a connection of its own, the first kept', async () => {
@@ -191,10 +196,14 @@ describe('handleLinearCallbackRoute', () => {
 		const {cookie, state} = await start({connection: 'conn-0'});
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
-		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, {integrationId: 'linear', account: 'alex@example.com · Acme', providerAccountId: null});
+		expect(findAccountConnection).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {
+			integrationId: 'linear',
+			account: 'alex@example.com · Acme',
+			providerAccountId: null,
+		});
 		expect(renewConnection).not.toHaveBeenCalled();
 		expect(createConnection.mock.calls[0]?.[0]).toMatchObject({integrationId: 'linear', account: 'alex@example.com · Acme'});
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-1?added');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-1?added');
 	});
 
 	test('a connection of another integration, or gone, is no connection to sign in again', async () => {
@@ -210,7 +219,7 @@ describe('handleLinearCallbackRoute', () => {
 		const {cookie, state} = await start();
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, error: 'access_denied'}});
 
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/new?error=linear');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/new?error=linear');
 		expect(createConnection).not.toHaveBeenCalled();
 	});
 });
@@ -232,7 +241,11 @@ describe('keyConnectRoute', () => {
 		expect(calls.map((call) => call.headers.get('authorization'))).toEqual(['Bearer lin_api_1234', 'Bearer lin_api_1234', 'Bearer lin_api_1234']);
 		expect(calls.map((call) => JSON.parse(call.body).method)).toEqual(['tools/list', 'tools/call', 'tools/call']);
 		// The same account a sign-in would find: a key for it renews its connection.
-		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, {integrationId: 'linear', account: 'alex@example.com · Acme', providerAccountId: null});
+		expect(findAccountConnection).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {
+			integrationId: 'linear',
+			account: 'alex@example.com · Acme',
+			providerAccountId: null,
+		});
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(created).toMatchObject({integrationId: 'linear', account: 'alex@example.com · Acme', defaults: ['read']});
 		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toEqual({auth: 'key', key: 'lin_api_1234'});

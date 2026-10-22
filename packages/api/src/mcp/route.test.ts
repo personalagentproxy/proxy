@@ -30,7 +30,7 @@ mock.module('../observability/log', () => ({
 
 mock.module('../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com'}}));
 
-const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', experiments: []};
+const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', orgSlug: 'org-1', experiments: []};
 const mailbox = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', actions: ['read', 'archive'], tools: null, name: null};
 const task = {
 	id: 'task-1',
@@ -122,7 +122,7 @@ describe('handleMcpRoute', () => {
 		expect(result.instructions).toContain('- Email (alex@example.com), connection mail-1: Read, Archive');
 		expect(result.instructions).toContain('check Personal Agent Proxy first');
 		expect(result.instructions).toContain('Personal Agent Proxy connects Email, Google, Granola, Notion, Linear, Cloudflare, Exa, Parallel, Plaid, PostgreSQL, MySQL and any custom MCP server');
-		expect(result.instructions).toContain('https://app.example.com/connections/new');
+		expect(result.instructions).toContain('https://app.example.com/org-1/connections/new');
 		expect(result.instructions).toContain('give them its url');
 		expect(result.instructions).toContain('send_feedback');
 	});

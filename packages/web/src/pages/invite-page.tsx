@@ -2,7 +2,7 @@ import type {ReactNode} from 'react';
 import {useState} from 'react';
 import {Link, useLoaderData, useNavigate, useParams} from 'react-router';
 import {signOut} from '@/client/auth-client';
-import {acceptInvitation, setActiveOrg, type InvitationLink} from '@/client/orgs-client';
+import {acceptInvitation, type InvitationLink} from '@/client/orgs-client';
 import {OrgTile} from '@/components/org-switcher';
 import {StepHeading} from '@/components/step-heading';
 import {Button} from '@proxy/ui/components/button';
@@ -76,12 +76,7 @@ function AlreadyIn({invitation}: {invitation: InvitationLink}) {
 				You’re already a member, so there is nothing to join.
 			</StepHeading>
 			<div>
-				<Button
-					onClick={async () => {
-						await setActiveOrg(invitation.orgId);
-						await navigate('/');
-					}}
-				>
+				<Button onClick={() => void navigate(`/${invitation.orgSlug}`)}>
 					Open {invitation.orgName}
 				</Button>
 			</div>
@@ -117,7 +112,7 @@ function JoinStep({token, invitation}: {token: string; invitation: InvitationLin
 							setError(said ?? describeFetchError(result.error));
 							return;
 						}
-						await navigate('/');
+						await navigate(`/${result.value.orgSlug}`);
 					}}
 				>
 					{joining ? 'Joining…' : `Join ${invitation.orgName}`}

@@ -174,12 +174,12 @@ const bodySchema = z.object({
 /** `POST /api/widgets/answer {question, connectionId, collectionId, id}`: what the meeting, file, email, page or issue says of the question. */
 export function handleAnswerRoute(request: AuthenticatedRequest): Promise<Result<Answer, ApiError>> {
 	return Do(async ($) => {
-		$(requireAskExperiment(request));
 		const body = $(parseSchema(bodySchema, request.body));
 		if (!env.OPENROUTER_KEY) {
 			return $(Err(ApiErr.unavailable('Ask is not set up: set `OPENROUTER_KEY`.')));
 		}
 		const viewer = $(await requireViewer(request));
+		$(requireAskExperiment(viewer));
 		const source = $(await requireReadable(viewer, body.connectionId, body.collectionId));
 		const reading = $(await readerFor(source)(source, body.id));
 		const kind = KINDS[body.collectionId];

@@ -25,6 +25,7 @@ import {findIntegration} from '@/lib/integrations';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {DataRecord} from '@/lib/types';
 import type {vaultLoader} from '@/loaders';
+import {useOrgSlug} from '@/hooks/use-org';
 
 const ENTRIES = 'entries';
 
@@ -61,6 +62,7 @@ type Editing = {entry: DataRecord | null};
 // What the person's agents should know about them, kept by the person or by the agents: a table of
 // the entries, each opened for editing.
 export function VaultPage() {
+	const org = useOrgSlug();
 	const {connectionId, entries} = useLoaderData<typeof vaultLoader>();
 	const revalidator = useRevalidator();
 	const [editing, setEditing] = useState<Editing | null>(null);
@@ -153,8 +155,8 @@ export function VaultPage() {
 								const {entry} = editing;
 								void apply(
 									entry
-										? updateRecord(connectionId, ENTRIES, entry.id, values)
-										: createRecord(connectionId, ENTRIES, values),
+										? updateRecord(org, connectionId, ENTRIES, entry.id, values)
+										: createRecord(org, connectionId, ENTRIES, values),
 								);
 							}}
 							extra={
@@ -165,7 +167,7 @@ export function VaultPage() {
 										onClick={() => {
 											const {entry} = editing;
 											if (entry) {
-												void apply(deleteRecord(connectionId, ENTRIES, entry.id));
+												void apply(deleteRecord(org, connectionId, ENTRIES, entry.id));
 											}
 										}}
 									>

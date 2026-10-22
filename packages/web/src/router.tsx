@@ -8,8 +8,8 @@ import {
 	shouldRevalidateAgentTask,
 } from '@/agent-loaders';
 import {getSignInMethods, type SignInMethods} from '@/client/auth-client';
-import {getMe} from '@/client/me-client';
-import {listOrgs} from '@/client/orgs-client';
+import {getMe, isNotFoundError} from '@/client/me-client';
+import {getOrg, listOrgs} from '@/client/orgs-client';
 import {HumanSide} from '@/components/human-side';
 import {RouteError} from '@/components/route-error';
 import {sanitizeCallbackUrl} from '@/lib/callback-url';
@@ -60,16 +60,34 @@ import {SettingsPage} from '@/pages/settings-page';
 import {VaultPage} from '@/pages/vault-page';
 import {WelcomeConnectionPage, WelcomePage} from '@/pages/welcome-page';
 
-// The human side's guard: no session sends the user to /login, and back here after. An
-// organization that has not been through the welcome flow goes there first. With who is signed in,
-// the organizations they are in, for the switcher and every page that says which is open.
-async function humanLoader(): Promise<Human> {
-	const [me, orgs] = await Promise.all([getMe(), listOrgs()]);
-	const signedIn = unwrapLoaderResult(me);
-	if (!signedIn.onboarded) {
-		throw redirect('/welcome/connections');
+// The app's root: no organization in the address, so the person's first opens, the one made at
+// sign-up until they join or make another. Without a session, /login.
+async function rootLoader() {
+	const {orgs} = unwrapLoaderResult(await listOrgs());
+	const first = orgs[0];
+	if (!first) {
+		throw redirect('/login');
 	}
-	return {...signedIn, orgs: unwrapLoaderResult(orgs).orgs};
+	throw redirect(`/${first.slug}`);
+}
+
+// The human side's guard, on every page in an organization (`/:org/…`): no session sends the user
+// to /login, and back here after; an organization that isn't theirs sends them to their first; one
+// that has not been through the welcome flow goes there first. With who is signed in, the
+// organization and the organizations they are in, for the switcher and every page that says which
+// is open.
+async function humanLoader({params}: {params: {org?: string}}): Promise<Human> {
+	const slug = params.org ?? '';
+	const [me, org, orgs] = await Promise.all([getMe(), getOrg(slug), listOrgs()]);
+	const signedIn = unwrapLoaderResult(me);
+	if (org.isErr() && isNotFoundError(org.error)) {
+		throw redirect('/');
+	}
+	const named = unwrapLoaderResult(org);
+	if (!named.onboarded) {
+		throw redirect(`/${slug}/welcome/connections`);
+	}
+	return {...signedIn, org: named, orgs: unwrapLoaderResult(orgs).orgs};
 }
 
 // A signed-in user has no business on the login page; anything else, an api outage included,
@@ -85,6 +103,7 @@ async function loginLoader({request}: {request: Request}): Promise<SignInMethods
 }
 
 export const router = createBrowserRouter([
+	{path: '/', loader: rootLoader, element: null},
 	{path: '/login', loader: loginLoader, element: <LoginPage />},
 	{path: '/agent/login', element: <AgentLoginPage />},
 	// An MCP client, such as Claude, signing in as one of the person's agents.
@@ -94,92 +113,94 @@ export const router = createBrowserRouter([
 		element: <ConnectAgentPage />,
 		errorElement: <RouteError />,
 	},
-	// An invitation's link, outside the human side's layout like the welcome flow.
+	// An invitation's link, outside any organization like the welcome flow.
 	{
 		path: '/invite/:token',
 		loader: inviteLoader,
 		element: <InvitePage />,
 		errorElement: <RouteError />,
 	},
-	// The welcome flow: the person's connections, then their agent, before the app itself. A
-	// connection made in it gets a page of its own, for its permissions.
+	// The welcome flow of a new organization: the person's connections, then their agent, before
+	// the app itself. A connection made in it gets a page of its own, for its permissions.
 	{
-		path: '/welcome/connections',
+		path: '/:org/welcome/connections',
 		loader: welcomeLoader,
 		element: <WelcomePage step="connections" />,
 		errorElement: <RouteError />,
 	},
 	{
-		path: '/welcome/connections/email',
+		path: '/:org/welcome/connections/email',
 		loader: welcomeLoader,
 		element: <WelcomePage step="email" />,
 		errorElement: <RouteError />,
 	},
 	{
-		path: '/welcome/connections/postgres',
+		path: '/:org/welcome/connections/postgres',
 		loader: welcomeLoader,
 		element: <WelcomePage step="postgres" />,
 		errorElement: <RouteError />,
 	},
 	{
-		path: '/welcome/connections/mysql',
+		path: '/:org/welcome/connections/mysql',
 		loader: welcomeLoader,
 		element: <WelcomePage step="mysql" />,
 		errorElement: <RouteError />,
 	},
 	{
-		path: '/welcome/connections/plaid',
+		path: '/:org/welcome/connections/plaid',
 		loader: welcomeLoader,
 		element: <WelcomePage step="plaid" />,
 		errorElement: <RouteError />,
 	},
 	{
-		path: '/welcome/connections/mcp',
+		path: '/:org/welcome/connections/mcp',
 		loader: welcomeLoader,
 		element: <WelcomePage step="mcp" />,
 		errorElement: <RouteError />,
 	},
 	{
-		path: '/welcome/connections/:id',
+		path: '/:org/welcome/connections/:id',
 		loader: welcomeConnectionLoader,
 		element: <WelcomeConnectionPage />,
 		errorElement: <RouteError />,
 	},
 	{
-		path: '/welcome/agent',
+		path: '/:org/welcome/agent',
 		loader: welcomeLoader,
 		element: <WelcomePage step="agent" />,
 		errorElement: <RouteError />,
 	},
+	// Everything in an organization, under its slug: the address says which, so a link, a bookmark
+	// or another tab stands on its own.
 	{
 		id: 'human',
+		path: '/:org',
 		loader: humanLoader,
-		// The session is checked on arrival, not on every click: only a page revalidating after a
-		// change (the address the same), as switching or renaming an organization, or inviting someone,
-		// loads the organizations again.
-		shouldRevalidate: ({currentUrl, nextUrl}) => currentUrl.href === nextUrl.href,
+		// The session is checked on arrival, not on every click: only another organization, or a
+		// page revalidating after a change (the address the same), as renaming an organization or
+		// inviting someone, loads the organizations again.
+		shouldRevalidate: ({currentUrl, nextUrl, currentParams, nextParams}) =>
+			currentParams.org !== nextParams.org || currentUrl.href === nextUrl.href,
 		element: <HumanSide />,
 		errorElement: <RouteError />,
 		children: [
-			{path: '/', loader: homeLoader, element: <HomePage />},
-			{path: '/connections', loader: connectionsLoader, element: <ConnectionsPage />},
-			{path: '/connections/new', loader: addConnectionLoader, element: <AddConnectionPage />},
-			{path: '/connections/new/email', element: <AddEmailPage />},
-			{path: '/connections/new/postgres', element: <AddDatabasePage dialect="postgres" />},
-			{path: '/connections/new/mysql', element: <AddDatabasePage dialect="mysql" />},
-			{path: '/connections/new/plaid', element: <AddBankPage />},
-			{path: '/connections/new/mcp', element: <AddMcpPage />},
-			{path: '/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
-			{path: '/vault', loader: vaultLoader, element: <VaultPage />},
-			// Where the vault was, as Information.
-			{path: '/info', element: <Navigate to="/vault" replace />},
-			{path: '/agents', loader: agentsLoader, element: <AgentsPage />},
-			{path: '/agents/new', loader: agentsLoader, element: <NewAgentPage />},
-			{path: '/agents/:id', loader: agentLoader, element: <AgentPage />},
-			{path: '/agents/:id/setup', loader: agentSetupLoader, element: <AgentSetupPage />},
-			{path: '/activity', loader: activityLoader, element: <ActivityPage />},
-			{path: '/members', loader: membersLoader, element: <MembersPage />},
-			{path: '/settings', element: <SettingsPage />},
+			{index: true, loader: homeLoader, element: <HomePage />},
+			{path: '/:org/connections', loader: connectionsLoader, element: <ConnectionsPage />},
+			{path: '/:org/connections/new', loader: addConnectionLoader, element: <AddConnectionPage />},
+			{path: '/:org/connections/new/email', element: <AddEmailPage />},
+			{path: '/:org/connections/new/postgres', element: <AddDatabasePage dialect="postgres" />},
+			{path: '/:org/connections/new/mysql', element: <AddDatabasePage dialect="mysql" />},
+			{path: '/:org/connections/new/plaid', element: <AddBankPage />},
+			{path: '/:org/connections/new/mcp', element: <AddMcpPage />},
+			{path: '/:org/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
+			{path: '/:org/vault', loader: vaultLoader, element: <VaultPage />},
+			{path: '/:org/agents', loader: agentsLoader, element: <AgentsPage />},
+			{path: '/:org/agents/new', loader: agentsLoader, element: <NewAgentPage />},
+			{path: '/:org/agents/:id', loader: agentLoader, element: <AgentPage />},
+			{path: '/:org/agents/:id/setup', loader: agentSetupLoader, element: <AgentSetupPage />},
+			{path: '/:org/activity', loader: activityLoader, element: <ActivityPage />},
+			{path: '/:org/members', loader: membersLoader, element: <MembersPage />},
+			{path: '/:org/settings', element: <SettingsPage />},
 		],
 	},
 	{

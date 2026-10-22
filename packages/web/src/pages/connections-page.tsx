@@ -16,9 +16,10 @@ import {useHuman} from '@/hooks/use-human';
 import {agentsWithAccess, integrationOf} from '@/lib/access';
 import {apiMessage} from '@/lib/agent-errors';
 import {describeFetchError} from '@/lib/loader-utils';
-import {activeOrgOf, actsAs, hasOtherPeople} from '@/lib/orgs';
+import {actsAs, hasOtherPeople} from '@/lib/orgs';
 import type {Connection} from '@/lib/types';
 import type {connectionsLoader} from '@/loaders';
+import {useOrgSlug} from '@/hooks/use-org';
 
 // Widths and visibility shared by the header and every row, so the columns line up.
 const CELLS = {
@@ -72,6 +73,7 @@ function AccountCell({connection, siblings}: {connection: Connection; siblings: 
 // its own. A right click on a row renames or deletes a connection the person may change: their own,
 // or a shared one they connected or whose organization they own.
 export function ConnectionsPage() {
+	const org = useOrgSlug();
 	const {connections: all, agents} = useLoaderData<typeof connectionsLoader>();
 	const revalidator = useRevalidator();
 	const [params, setParams] = useSearchParams();
@@ -82,7 +84,7 @@ export function ConnectionsPage() {
 		return null;
 	}
 
-	const activeOrg = activeOrgOf(human);
+	const activeOrg = human.org;
 	const others = hasOtherPeople(activeOrg);
 	const listed = all.filter((connection) => !integrationOf(connection)?.builtIn);
 	const sharedCount = listed.filter((connection) => connection.shared).length;
@@ -115,7 +117,11 @@ export function ConnectionsPage() {
 					size="sm"
 					nativeButton={false}
 					render={
-						<Link to={showingShared ? '/connections/new?for=everyone' : '/connections/new'} />
+						<Link
+							to={
+								showingShared ? `/${org}/connections/new?for=everyone` : `/${org}/connections/new`
+							}
+						/>
 					}
 				>
 					<PlusIcon data-icon="inline-start" />
@@ -147,11 +153,11 @@ export function ConnectionsPage() {
 				{connections.length === 0 && !others && (
 					<EmptyRows>
 						Nothing connected yet.{' '}
-						<Link to="/connections/new" className={LINK}>
+						<Link to={`/${org}/connections/new`} className={LINK}>
 							Add a connection
 						</Link>{' '}
 						or{' '}
-						<Link to="/members" className={LINK}>
+						<Link to={`/${org}/members`} className={LINK}>
 							invite people
 						</Link>{' '}
 						to share them with.
@@ -169,7 +175,7 @@ export function ConnectionsPage() {
 					return (
 						<Row
 							key={connection.id}
-							to={`/connections/${connection.id}`}
+							to={`/${org}/connections/${connection.id}`}
 							tooltip={
 								siblings.length > 1 && (
 									<span className="flex flex-col items-start gap-0.5">
@@ -239,7 +245,7 @@ export function ConnectionsPage() {
 					allowEmpty={!integrationOf(renaming)?.custom}
 					onClose={() => setPending(null)}
 					onSave={async (name) => {
-						const result = await renameConnection(renaming.id, name);
+						const result = await renameConnection(org, renaming.id, name);
 						if (result.isErr()) {
 							const said = result.error.kind === 'http' ? apiMessage(result.error.body) : null;
 							return said ?? describeFetchError(result.error);
@@ -264,7 +270,7 @@ export function ConnectionsPage() {
 					if (!deleting) {
 						return;
 					}
-					const result = await deleteConnection(deleting.id);
+					const result = await deleteConnection(org, deleting.id);
 					setError(result.isErr() ? describeFetchError(result.error) : null);
 					await revalidator.revalidate();
 				}}

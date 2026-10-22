@@ -4,10 +4,12 @@ import {BackButton} from '@/components/back-button';
 import {ConnectMcpForm} from '@/components/connect-mcp-form';
 import {ShareNote} from '@/components/share-choice';
 import {useShareChoice} from '@/lib/share-choice';
+import {useOrgSlug} from '@/hooks/use-org';
 
 // The custom MCP server form, from the catalog's plus. Connecting lands on the new connection's
 // page, its tools first.
 export function AddMcpPage() {
+	const org = useOrgSlug();
 	const navigate = useNavigate();
 	const {shared, query} = useShareChoice();
 
@@ -15,7 +17,7 @@ export function AddMcpPage() {
 		<AppShell
 			title={
 				<>
-					<BackButton to={`/connections/new${query}`} label="Back to the catalog" />
+					<BackButton to={`/${org}/connections/new${query}`} label="Back to the catalog" />
 					<PageTitle>Connect an MCP server</PageTitle>
 				</>
 			}
@@ -28,7 +30,7 @@ export function AddMcpPage() {
 				</p>
 				<ConnectMcpForm
 					shared={shared}
-					onConnected={(connection) => navigate(`/connections/${connection.id}?added`)}
+					onConnected={(connection) => navigate(`/${org}/connections/${connection.id}?added`)}
 				/>
 			</div>
 		</AppShell>

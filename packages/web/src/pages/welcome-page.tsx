@@ -3,7 +3,7 @@ import type {Experiment} from '@proxy/utils';
 import {useState, type ReactNode} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
 import {setConnectionDefaults} from '@/client/connections-client';
-import {finishOnboarding} from '@/client/me-client';
+import {finishOnboarding} from '@/client/orgs-client';
 import {AgentSetup} from '@/components/agent-setup';
 import type {DatabaseDialect} from '@/client/connections-client';
 import {ConnectBankForm} from '@/components/connect-bank-form';
@@ -28,6 +28,7 @@ import {
 import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin, Connection} from '@/lib/types';
 import type {welcomeConnectionLoader, welcomeLoader} from '@/loaders';
+import {useOrgSlug} from '@/hooks/use-org';
 
 // Step one is the catalog, the mailbox, bank, database and MCP server forms, and (on its own page,
 // `WelcomeConnectionPage`) a new connection's permissions; step two is the agent.
@@ -38,6 +39,7 @@ type Step = 'connections' | 'email' | 'plaid' | 'mcp' | DatabaseDialect | 'agent
 // client adds the server and signs in; another is handed a login). Done, or skipped, it is not
 // shown again.
 export function WelcomePage({step}: {step: Step}) {
+	const org = useOrgSlug();
 	const {agents, connections, configured, experiments} = useLoaderData<typeof welcomeLoader>();
 	const navigate = useNavigate();
 	const [finishing, setFinishing] = useState(false);
@@ -46,13 +48,13 @@ export function WelcomePage({step}: {step: Step}) {
 
 	const finish = async () => {
 		setFinishing(true);
-		const result = await finishOnboarding();
+		const result = await finishOnboarding(org);
 		if (result.isErr()) {
 			setFinishing(false);
 			setError(describeFetchError(result.error));
 			return;
 		}
-		navigate('/connections');
+		navigate(`/${org}/connections`);
 	};
 
 	return (
@@ -66,19 +68,25 @@ export function WelcomePage({step}: {step: Step}) {
 				/>
 			)}
 			{step === 'email' && (
-				<EmailStep onContinue={(connection) => navigate(`/welcome/connections/${connection.id}`)} />
+				<EmailStep
+					onContinue={(connection) => navigate(`/${org}/welcome/connections/${connection.id}`)}
+				/>
 			)}
 			{step === 'plaid' && (
-				<BankStep onContinue={(connection) => navigate(`/welcome/connections/${connection.id}`)} />
+				<BankStep
+					onContinue={(connection) => navigate(`/${org}/welcome/connections/${connection.id}`)}
+				/>
 			)}
 			{(step === 'postgres' || step === 'mysql') && (
 				<DatabaseStep
 					dialect={step}
-					onContinue={(connection) => navigate(`/welcome/connections/${connection.id}`)}
+					onContinue={(connection) => navigate(`/${org}/welcome/connections/${connection.id}`)}
 				/>
 			)}
 			{step === 'mcp' && (
-				<McpStep onContinue={(connection) => navigate(`/welcome/connections/${connection.id}`)} />
+				<McpStep
+					onContinue={(connection) => navigate(`/${org}/welcome/connections/${connection.id}`)}
+				/>
 			)}
 			{step === 'agent' && (
 				<AgentSetup
@@ -105,6 +113,7 @@ export function WelcomePage({step}: {step: Step}) {
 
 // A connection just made in the flow: what the agent may do with it, confirmed before going on.
 export function WelcomeConnectionPage() {
+	const org = useOrgSlug();
 	const {agents, connection} = useLoaderData<typeof welcomeConnectionLoader>();
 	const integration = connection && integrationOf(connection);
 	if (!connection || !integration) {
@@ -115,7 +124,7 @@ export function WelcomeConnectionPage() {
 					variant="outline"
 					className="justify-self-start"
 					nativeButton={false}
-					render={<Link to="/welcome/connections" />}
+					render={<Link to={`/${org}/welcome/connections`} />}
 				>
 					Back
 				</Button>
@@ -163,6 +172,7 @@ function ConnectionsStep({
 	configured: Configured;
 	experiments: Experiment[];
 }) {
+	const org = useOrgSlug();
 	const navigate = useNavigate();
 	const [params] = useSearchParams();
 
@@ -178,11 +188,11 @@ function ConnectionsStep({
 				configured={configured}
 				experiments={experiments}
 				returnTo="welcome"
-				onConnectForm={(integrationId) => navigate(`/welcome/connections/${integrationId}`)}
-				onConnected={(connection) => navigate(`/welcome/connections/${connection.id}`)}
+				onConnectForm={(integrationId) => navigate(`/${org}/welcome/connections/${integrationId}`)}
+				onConnected={(connection) => navigate(`/${org}/welcome/connections/${connection.id}`)}
 			/>
 			<div className="flex justify-end">
-				<Button nativeButton={false} render={<Link to="/welcome/agent" />}>
+				<Button nativeButton={false} render={<Link to={`/${org}/welcome/agent`} />}>
 					Continue
 				</Button>
 			</div>
@@ -193,6 +203,7 @@ function ConnectionsStep({
 // The mailbox form. Test connection signs in without saving; Continue makes the connection and
 // goes on to its permissions.
 function EmailStep({onContinue}: {onContinue: (connection: Connection) => void}) {
+	const org = useOrgSlug();
 	return (
 		<>
 			<StepHeading title={EMAIL_FORM.title}>{EMAIL_FORM.intro}</StepHeading>
@@ -201,7 +212,7 @@ function EmailStep({onContinue}: {onContinue: (connection: Connection) => void})
 					<Button
 						variant="outline"
 						nativeButton={false}
-						render={<Link to="/welcome/connections" />}
+						render={<Link to={`/${org}/welcome/connections`} />}
 					>
 						Back
 					</Button>
@@ -215,6 +226,7 @@ function EmailStep({onContinue}: {onContinue: (connection: Connection) => void})
 
 // Connecting a bank through Plaid, which goes on to the new connection's permissions.
 function BankStep({onContinue}: {onContinue: (connection: Connection) => void}) {
+	const org = useOrgSlug();
 	return (
 		<>
 			<StepHeading title={PLAID_FORM.title}>{PLAID_FORM.intro}</StepHeading>
@@ -223,7 +235,7 @@ function BankStep({onContinue}: {onContinue: (connection: Connection) => void}) 
 					<Button
 						variant="outline"
 						nativeButton={false}
-						render={<Link to="/welcome/connections" />}
+						render={<Link to={`/${org}/welcome/connections`} />}
 					>
 						Back
 					</Button>
@@ -243,6 +255,7 @@ function DatabaseStep({
 	dialect: DatabaseDialect;
 	onContinue: (connection: Connection) => void;
 }) {
+	const org = useOrgSlug();
 	const {title, intro} = describeDatabase(dialect);
 	return (
 		<>
@@ -254,7 +267,7 @@ function DatabaseStep({
 					<Button
 						variant="outline"
 						nativeButton={false}
-						render={<Link to="/welcome/connections" />}
+						render={<Link to={`/${org}/welcome/connections`} />}
 					>
 						Back
 					</Button>
@@ -269,6 +282,7 @@ function DatabaseStep({
 // The custom MCP server form. Connect makes the connection, or opens the server's sign-in, which
 // comes back to the connection's permissions.
 function McpStep({onContinue}: {onContinue: (connection: Connection) => void}) {
+	const org = useOrgSlug();
 	return (
 		<>
 			<StepHeading title="Connect an MCP server">
@@ -279,7 +293,7 @@ function McpStep({onContinue}: {onContinue: (connection: Connection) => void}) {
 					<Button
 						variant="outline"
 						nativeButton={false}
-						render={<Link to="/welcome/connections" />}
+						render={<Link to={`/${org}/welcome/connections`} />}
 					>
 						Back
 					</Button>
@@ -302,13 +316,14 @@ function ConnectionStep({
 	connection: Connection;
 	integration: Integration;
 }) {
+	const org = useOrgSlug();
 	const navigate = useNavigate();
 	const {revalidate} = useRevalidator();
 	const [error, setError] = useState<string | null>(null);
 	const defaults = defaultActions(connection);
 	const signInAgain =
 		connection.unavailable.length > 0
-			? signInPath(connection.integrationId, {
+			? signInPath(org, connection.integrationId, {
 					returnTo: 'welcome',
 					account: connection.account,
 					connection: connection.id,
@@ -334,7 +349,11 @@ function ConnectionStep({
 					unavailable={connection.unavailable}
 					signInNeeded={connection.signInNeeded}
 					onChange={async (changes) => {
-						const result = await setConnectionDefaults(connection.id, defaultsOnOrOff(changes));
+						const result = await setConnectionDefaults(
+							org,
+							connection.id,
+							defaultsOnOrOff(changes),
+						);
 						setError(result.isErr() ? describeFetchError(result.error) : null);
 						await revalidate();
 					}}
@@ -353,7 +372,7 @@ function ConnectionStep({
 			)}
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<div className="flex justify-end">
-				<Button onClick={() => navigate('/welcome/connections')}>Confirm</Button>
+				<Button onClick={() => navigate(`/${org}/welcome/connections`)}>Confirm</Button>
 			</div>
 		</>
 	);

@@ -69,7 +69,7 @@ describe('AuditList', () => {
 		const router = createMemoryRouter(
 			[
 				{
-					path: '/activity',
+					path: '/:org/activity',
 					element: (
 						<TooltipProvider>
 							<AuditList
@@ -82,7 +82,7 @@ describe('AuditList', () => {
 					),
 				},
 			],
-			{initialEntries: ['/activity']},
+			{initialEntries: ['/org-1/activity']},
 		);
 		render(<RouterProvider router={router} />);
 
@@ -93,11 +93,11 @@ describe('AuditList', () => {
 		const dialog = await screen.findByRole('dialog');
 		expect(within(dialog).getByText('Denied')).toBeDefined();
 		expect(within(dialog).getByRole('link', {name: 'Triage inbox'}).getAttribute('href')).toBe(
-			'/activity?task=task-1',
+			'/org-1/activity?task=task-1',
 		);
 		expect(within(dialog).getByText('Archive the newsletters')).toBeDefined();
 		expect(within(dialog).getByRole('link', {name: 'Claude'}).getAttribute('href')).toBe(
-			'/agents/agent-1',
+			'/org-1/agents/agent-1',
 		);
 		expect(within(dialog).getByText('me@example.com')).toBeDefined();
 		expect(within(dialog).getByText('Weekly digest')).toBeDefined();

@@ -14,10 +14,12 @@ import {useSuggested} from '@/lib/use-suggested';
 import {useMailboxes, usePeople} from '@/lib/widget-lookups';
 import {aboutPhrase, bestMatch, fieldTexts, isAddress, namesIn} from '@/lib/widget-values';
 import {useWriteStatus, writeErrorMessage} from '@/lib/write-status';
+import {useOrgSlug} from '@/hooks/use-org';
 
 // Write email: the recipients found among the contacts, the subject, and a body to write, sent
 // or saved as a draft from the mailbox picked, the one last written from first.
 export function WriteEmailWidget({intent, typed}: {intent: Intent; typed: string}) {
+	const org = useOrgSlug();
 	const names = namesIn(intent, 'to');
 	const people = usePeople(names.length > 0 ? names : null);
 	const mailboxes = useMailboxes(true);
@@ -53,13 +55,15 @@ export function WriteEmailWidget({intent, typed}: {intent: Intent; typed: string
 			return;
 		}
 		setStatus({kind: 'saving'});
-		void writeEmail({connectionId: from.connectionId, to, subject, body, send}).then((result) => {
-			if (result.isErr()) {
-				setStatus({kind: 'failed', message: writeErrorMessage(result.error)});
-				return;
-			}
-			setStatus({kind: 'done', message: send ? 'Sent' : 'Saved as a draft', link: null});
-		});
+		void writeEmail(org, {connectionId: from.connectionId, to, subject, body, send}).then(
+			(result) => {
+				if (result.isErr()) {
+					setStatus({kind: 'failed', message: writeErrorMessage(result.error)});
+					return;
+				}
+				setStatus({kind: 'done', message: send ? 'Sent' : 'Saved as a draft', link: null});
+			},
+		);
 	};
 
 	return (

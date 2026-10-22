@@ -7,7 +7,11 @@ const list = mock();
 const findSources = mock();
 
 mock.module('./sources', () => ({findSources, summarize: (source: {connection: {id: string}}) => ({connectionId: source.connection.id})}));
-mock.module('../utils/user-org', () => ({requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1'}), requireUserOrgId: async () => Ok('org-1')}));
+mock.module('../utils/user-org', () => ({
+	requireViewer: async (request: {user: {experiments?: string[]}}) =>
+		Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: request.user.experiments ?? []}),
+	requireUserOrgId: async () => Ok('org-1'),
+}));
 
 function source(integrationId: string, collectionId: string) {
 	const integration = findIntegration(integrationId);
@@ -37,7 +41,7 @@ describe('handleFindRecordsRoute', () => {
 		);
 		const {handleFindRecordsRoute} = await import('./records');
 		const found = (await handleFindRecordsRoute(request({collection: 'pages', words: ['pricing', 'faq']}))).unwrap();
-		expect(findSources).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'pages', 'list');
+		expect(findSources).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'pages', 'list');
 		expect(list.mock.calls[0]?.[1]).toEqual({search: 'pricing faq', page: null, filter: null, parent: null});
 		expect(found.records).toEqual([{connectionId: 'notion-1', id: 'p1', title: 'Pricing FAQ', updated: '2026-10-02', link: 'https://www.notion.so/p1'}]);
 	});

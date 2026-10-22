@@ -5,16 +5,7 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseCookieHeader, requirePresent} from '@proxy/utils';
-import {
-	createConnection,
-	findAccountConnection,
-	getConnectionWithCredential,
-	renewConnection,
-	updateConnectionName,
-	updateConnectionTools,
-	type ConnectionRow,
-	type MemberViewer,
-} from '@proxy/db/connection';
+import {createConnection, findAccountConnection, getConnectionWithCredential, renewConnection, updateConnectionName, updateConnectionTools, type ConnectionRow} from '@proxy/db/connection';
 import {getMembership} from '@proxy/db/organization';
 import type {IntegrationId, McpTool} from '@proxy/integrations';
 
@@ -24,8 +15,8 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {env} from '../utils/env';
 import {encryptSecret} from '../utils/secret-crypto';
 import {readStoredJson} from '../utils/stored-json';
-import {requireViewer} from '../utils/user-org';
-import {manages, requireManaged} from './managed';
+import {requireViewer, type OrgViewer} from '../utils/user-org';
+import {manages, requireManaged, type ManagingViewer} from './managed';
 import {ownership} from './ownership';
 
 /**
@@ -33,7 +24,7 @@ import {ownership} from './ownership';
  * are through their MCP servers, and a custom MCP server found from its address. A sign-in begins
  * on the api, which keeps the handshake in a short-lived encrypted cookie, and the browser goes to
  * the provider's sign-in page: from the start route, a top-level navigation under
- * `/api/connections/<integration>`, for a provider known in advance (`signInRoutes`), or from the
+ * `/api/orgs/:org/connections/<integration>`, for a provider known in advance (`signInRoutes`), or from the
  * answer of the route that found it, as a custom server's connect route (`signInFlow`). The
  * callback checks the provider's answer against the cookie, trades the code for tokens and makes
  * the connection, in the organization the sign-in began in, the person's own or, `?share=everyone`,
@@ -100,7 +91,7 @@ function makePkce(): {verifier: string; challenge: string} {
 // custom MCP server without a sign-in of the integration's (`take-over-custom.ts`), and no other
 // connection is the account's already, so an account is never connected twice.
 function connectionToRenew(
-	viewer: MemberViewer,
+	viewer: ManagingViewer,
 	integrationId: IntegrationId,
 	connected: {account: string; providerAccountId: string | null; anonymous: boolean},
 	connectionId: string | null,
@@ -108,11 +99,11 @@ function connectionToRenew(
 	return Do(async ($) => {
 		const {account, providerAccountId} = connected;
 		const sameAccount = connected.anonymous ? null : $(await findAccountConnection(viewer, {integrationId, account, providerAccountId}));
-		if (sameAccount && $(await manages(viewer, sameAccount))) {
+		if (sameAccount && manages(viewer, sameAccount)) {
 			return sameAccount;
 		}
 		const begunFrom = connectionId === null ? null : $(await getConnectionWithCredential(viewer, connectionId));
-		if (begunFrom?.integrationId !== integrationId || !$(await manages(viewer, begunFrom))) {
+		if (begunFrom?.integrationId !== integrationId || !manages(viewer, begunFrom)) {
 			return null;
 		}
 		if (!connected.anonymous && begunFrom.credential !== null) {
@@ -133,7 +124,7 @@ export type SaveOptions = {shared?: boolean; connectionId?: string | null};
  * unless it was already there.
  */
 export function saveConnection<C>(
-	viewer: MemberViewer,
+	viewer: ManagingViewer,
 	integrationId: IntegrationId,
 	connected: Connected<C>,
 	options: SaveOptions = {},
@@ -168,12 +159,17 @@ export function saveConnection<C>(
 	});
 }
 
-// Where the sign-in ends: the catalog, or the welcome flow's connections step it started from.
-function catalogUrl(appUrl: string, returnTo: ReturnTo | undefined): string {
-	if (returnTo === 'welcome') {
-		return `${appUrl}/welcome/connections`;
+// Where the sign-in ends: the organization's catalog, or the welcome flow's connections step it
+// started from; the app's root, which opens the person's first organization, when the sign-in
+// can't be read at all.
+function catalogUrl(appUrl: string, slug: string | null, returnTo: ReturnTo | undefined): string {
+	if (slug === null) {
+		return `${appUrl}/`;
 	}
-	return `${appUrl}/connections/new`;
+	if (returnTo === 'welcome') {
+		return `${appUrl}/${slug}/welcome/connections`;
+	}
+	return `${appUrl}/${slug}/connections/new`;
 }
 
 type SignInArgs<E, C> = {
@@ -196,21 +192,22 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 	const stateCookieName = `proxy.${integrationId}-state`;
 	// Only sent to these routes.
 	const basePath = `/api/connections/${integrationId}`;
-	// `orgId`: the organization it began in, where the connection is made, whichever is open when it
-	// comes back. `shared`: the connection is for every member of it rather than the person's own.
-	// `connectionId`: the connection it was begun from, to renew.
+	// `orgId` and `slug`: the organization it began in, where the connection is made and whose pages
+	// it comes back to. `shared`: the connection is for every member of it rather than the person's
+	// own. `connectionId`: the connection it was begun from, to renew.
 	const statePayloadSchema = z.object({
 		state: z.string(),
 		verifier: z.string(),
 		userId: z.string(),
 		orgId: z.string(),
+		slug: z.string(),
 		returnTo: returnToSchema.optional(),
 		shared: z.boolean().optional(),
 		connectionId: z.string().optional(),
 		kept: args.keptSchema,
 	});
 
-	type StatePayload = {state: string; verifier: string; userId: string; orgId: string; returnTo?: ReturnTo; shared?: boolean; connectionId?: string; kept: E};
+	type StatePayload = {state: string; verifier: string; userId: string; orgId: string; slug: string; returnTo?: ReturnTo; shared?: boolean; connectionId?: string; kept: E};
 
 	function redirectUri(appUrl: string): string {
 		return `${appUrl}${basePath}/callback`;
@@ -228,9 +225,9 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 		});
 	}
 
-	function redirectToConnectError(res: Response, appUrl: string, returnTo: ReturnTo | undefined, error: ApiError): void {
+	function redirectToConnectError(res: Response, appUrl: string, slug: string | null, returnTo: ReturnTo | undefined, error: ApiError): void {
 		log.warn(`Connecting ${name} failed`, {kind: error.kind, ...('message' in error ? {message: error.message} : {}), ...('cause' in error ? serializeError(error.cause) : {})});
-		res.redirect(`${catalogUrl(appUrl, returnTo)}?error=${integrationId}`);
+		res.redirect(`${catalogUrl(appUrl, slug, returnTo)}?error=${integrationId}`);
 	}
 
 	/**
@@ -240,7 +237,7 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 	 */
 	function beginSignIn(
 		res: Response,
-		begin: {viewer: MemberViewer; returnTo: ReturnTo | undefined; account: string | null; shared?: boolean; connectionId?: string | null; start: SignInStart<E>},
+		begin: {viewer: OrgViewer; returnTo: ReturnTo | undefined; account: string | null; shared?: boolean; connectionId?: string | null; start: SignInStart<E>},
 	): Promise<Result<string, ApiError>> {
 		return Do(async ($) => {
 			const appUrl = $(requirePresent(env.APP_URL, ApiErr.internalError(new Error('APP_URL is not configured'))));
@@ -252,6 +249,7 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 				verifier,
 				userId: begin.viewer.userId,
 				orgId: begin.viewer.orgId,
+				slug: begin.viewer.slug,
 				...(begin.returnTo ? {returnTo: begin.returnTo} : {}),
 				...(begin.shared ? {shared: true} : {}),
 				...(begin.connectionId ? {connectionId: begin.connectionId} : {}),
@@ -278,8 +276,8 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 				return $(Err(ApiErr.validationError(`${name} sign-in ended without a code: ${queryParam(request, 'error') ?? 'unknown'}`)));
 			}
 
-			const viewer = {orgId: payload.orgId, userId: payload.userId};
-			$(requirePresent($(await getMembership(viewer.userId, viewer.orgId)), ApiErr.notFound('organization', viewer.orgId)));
+			const membership = $(requirePresent($(await getMembership(payload.userId, payload.orgId)), ApiErr.notFound('organization', payload.slug)));
+			const viewer: ManagingViewer = {orgId: payload.orgId, userId: payload.userId, role: membership.role};
 			const connected = $(await args.finish({redirectUri: redirectUri(appUrl), code, verifier: payload.verifier, kept: payload.kept}));
 			const {row, added} = $(await saveConnection(viewer, integrationId, connected, {shared: payload.shared, connectionId: payload.connectionId ?? null}));
 			return {id: row.id, added};
@@ -302,21 +300,22 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 		res.clearCookie(stateCookieName, stateCookieOptions());
 		const payload = readStateCookie(request);
 		const returnTo = payload.isOk() ? payload.value.returnTo : undefined;
+		const slug = payload.isOk() ? payload.value.slug : null;
 		const finished = payload.isErr() ? Err(payload.error) : await finishConnect(request, appUrl, payload.value);
 		if (finished.isErr()) {
-			redirectToConnectError(res, appUrl, returnTo, finished.error);
+			redirectToConnectError(res, appUrl, slug, returnTo, finished.error);
 			return;
 		}
 		const {id, added} = finished.value;
 		if (returnTo === 'welcome') {
-			res.redirect(`${appUrl}/welcome/connections/${id}`);
+			res.redirect(`${appUrl}/${slug}/welcome/connections/${id}`);
 			return;
 		}
 		if (returnTo === 'home') {
-			res.redirect(`${appUrl}/`);
+			res.redirect(`${appUrl}/${slug}`);
 			return;
 		}
-		res.redirect(`${appUrl}/connections/${id}${added ? '?added' : ''}`);
+		res.redirect(`${appUrl}/${slug}/connections/${id}${added ? '?added' : ''}`);
 	}
 
 	return {beginSignIn, handleCallback, redirectToConnectError};
@@ -333,7 +332,7 @@ export function signInRoutes<E, C>(
 ): {handleStart: Route; handleCallback: Route} {
 	const flow = signInFlow(args);
 
-	/** `GET /api/connections/<integration>/start` — sends the browser to the provider's sign-in. */
+	/** `GET /api/orgs/:org/connections/<integration>/start` — sends the browser to the provider's sign-in. */
 	async function handleStart(request: AuthenticatedRequest, res: Response): Promise<void> {
 		const appUrl = env.APP_URL;
 		if (!appUrl) {
@@ -342,8 +341,9 @@ export function signInRoutes<E, C>(
 		}
 
 		const returnTo = returnToSchema.safeParse(queryParam(request, 'returnTo')).data;
+		const slug = request.params.org ?? null;
 		if (args.configured && !args.configured()) {
-			res.redirect(`${catalogUrl(appUrl, returnTo)}?error=${args.integrationId}-unconfigured`);
+			res.redirect(`${catalogUrl(appUrl, slug, returnTo)}?error=${args.integrationId}-unconfigured`);
 			return;
 		}
 
@@ -358,7 +358,7 @@ export function signInRoutes<E, C>(
 			return $(await flow.beginSignIn(res, {viewer, returnTo, account: queryParam(request, 'account'), shared: queryParam(request, 'share') === 'everyone', connectionId, start: args.start}));
 		});
 		if (begun.isErr()) {
-			flow.redirectToConnectError(res, appUrl, returnTo, begun.error);
+			flow.redirectToConnectError(res, appUrl, slug, returnTo, begun.error);
 			return;
 		}
 		res.redirect(begun.value);

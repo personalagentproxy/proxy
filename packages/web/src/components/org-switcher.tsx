@@ -1,7 +1,7 @@
 import {CheckIcon, ChevronsUpDownIcon, PlusIcon} from 'lucide-react';
 import {useState} from 'react';
-import {useNavigate, useRevalidator} from 'react-router';
-import {createOrg, setActiveOrg} from '@/client/orgs-client';
+import {useNavigate} from 'react-router';
+import {createOrg} from '@/client/orgs-client';
 import {Button} from '@proxy/ui/components/button';
 import {
 	Dialog,
@@ -26,7 +26,6 @@ import {cn} from '@proxy/ui/lib/utils';
 import {useHuman} from '@/hooks/use-human';
 import {apiMessage} from '@/lib/agent-errors';
 import {describeFetchError} from '@/lib/loader-utils';
-import {activeOrgOf} from '@/lib/orgs';
 
 // An organization's mark: its initial on a tile the size of an integration's logo.
 export function OrgTile({org, className}: {org: {name: string}; className?: string}) {
@@ -43,27 +42,22 @@ export function OrgTile({org, className}: {org: {name: string}; className?: stri
 	);
 }
 
-// The top of the sidebar's rail: the organization the human side works in, as its mark. Hovering
-// it, or clicking it on a touch screen, opens the switcher beside the rail. Everything on the human
-// side is the open organization's; switching opens Home, every page's data loaded again for it.
+// The top of the sidebar's rail: the organization the address names, as its mark. Hovering it, or
+// clicking it on a touch screen, opens the switcher beside the rail. Everything on the human side
+// is that organization's; switching goes to another's address, its Home.
 export function OrgSwitcher() {
 	const human = useHuman();
 	const {isMobile, setOpenMobile} = useSidebar();
 	const navigate = useNavigate();
-	const revalidator = useRevalidator();
 	const [creating, setCreating] = useState(false);
 	if (!human) {
 		return null;
 	}
 
-	const activeOrg = activeOrgOf(human);
-	const open = async (orgId: string) => {
+	const activeOrg = human.org;
+	const open = async (slug: string) => {
 		setOpenMobile(false);
-		if (orgId !== activeOrg.id) {
-			await setActiveOrg(orgId);
-		}
-		await navigate('/');
-		await revalidator.revalidate();
+		await navigate(`/${slug}`);
 	};
 
 	return (
@@ -95,7 +89,7 @@ export function OrgSwitcher() {
 				>
 					<DropdownMenuGroup>
 						{human.orgs.map((org) => (
-							<DropdownMenuItem key={org.id} onClick={() => void open(org.id)}>
+							<DropdownMenuItem key={org.id} onClick={() => void open(org.slug)}>
 								<OrgTile org={org} />
 								<span className="min-w-0 flex-1 truncate">{org.name}</span>
 								{org.id === activeOrg.id ? (
@@ -125,7 +119,7 @@ export function OrgSwitcher() {
 						const said = result.error.kind === 'http' ? apiMessage(result.error.body) : null;
 						return said ?? describeFetchError(result.error);
 					}
-					await open(result.value.id);
+					await open(result.value.slug);
 					return null;
 				}}
 			/>

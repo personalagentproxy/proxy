@@ -1,10 +1,6 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Ok} from 'ts-results-es';
 
-const setSessionActiveOrg = mock();
-
-mock.module('@proxy/db/auth', () => ({setSessionActiveOrg}));
-
 const listOrgConnectionsWithCredential = mock();
 const listOwnConnectionsWithCredential = mock();
 
@@ -20,12 +16,23 @@ const createOrganization = mock();
 const deleteOrganization = mock();
 const listMembers = mock();
 const listUserOrgs = mock();
+const markOrganizationOnboarded = mock();
 const removeMembership = mock();
 const renameOrganization = mock();
 const getMembership = mock();
-const getUserOrgId = mock();
+const getMemberOrganization = mock();
 
-mock.module('@proxy/db/organization', () => ({createOrganization, deleteOrganization, listMembers, listUserOrgs, removeMembership, renameOrganization, getMembership, getUserOrgId}));
+mock.module('@proxy/db/organization', () => ({
+	createOrganization,
+	deleteOrganization,
+	listMembers,
+	listUserOrgs,
+	markOrganizationOnboarded,
+	removeMembership,
+	renameOrganization,
+	getMembership,
+	getMemberOrganization,
+}));
 
 const getUserByEmail = mock();
 
@@ -54,28 +61,36 @@ const env: {NODE_ENV: string; APP_URL: string; RESEND_KEY?: string} = {NODE_ENV:
 
 mock.module('../utils/env', () => ({env}));
 
+// The organizations as the database answers them: the person's first, their own, and Acme, which
+// they own too and others are in.
+const mine = {id: 'org-1', slug: 'alexs-workspace', name: "Alex's Workspace", role: 'owner' as const, onboarded: true, memberCount: 1, invitationCount: 0};
+const acme = {id: 'org-2', slug: 'acme', name: 'Acme', role: 'owner' as const, onboarded: true, memberCount: 3, invitationCount: 1};
+
+// A request about an organization, by its slug in the address.
 function makeRequest(params: Record<string, string> = {}, body: unknown = undefined) {
-	return {user: {userId: 'user-1', email: 'alex@example.com', name: 'Alex', sessionTokenHash: 'session-1', activeOrgId: 'org-1'}, params, body} as never;
+	return {user: {userId: 'user-1', email: 'alex@example.com', name: 'Alex'}, params: {org: 'acme', ...params}, body} as never;
 }
 
 function member(userId: string, role: 'owner' | 'member', email = `${userId}@example.com`) {
 	return {userId, name: null, email, image: null, role, joinedAt: new Date('2026-10-01T00:00:00Z')};
 }
 
-const acme = {id: 'org-2', name: 'Acme', role: 'owner' as const, memberCount: 3, invitationCount: 1};
-const mine = {id: 'org-1', name: "Alex's Workspace", role: 'owner' as const, memberCount: 1, invitationCount: 0};
+// What a member sees of an organization by its slug, as `requireViewer` reads it.
+function membership(role: 'owner' | 'member') {
+	return {id: 'org-2', slug: 'acme', name: 'Acme', role, onboardedAt: new Date('2026-09-01T00:00:00Z'), experiments: []};
+}
 
 beforeEach(() => {
 	mock.clearAllMocks();
 	env.NODE_ENV = 'production';
 	env.RESEND_KEY = 'key';
-	setSessionActiveOrg.mockResolvedValue(Ok(undefined));
-	getUserOrgId.mockResolvedValue(Ok('org-1'));
+	getMemberOrganization.mockResolvedValue(Ok(membership('owner')));
 	getMembership.mockResolvedValue(Ok({role: 'owner'}));
 	listUserOrgs.mockResolvedValue(Ok([mine, acme]));
 	listMembers.mockResolvedValue(Ok([member('user-1', 'owner', 'alex@example.com'), member('maya-1', 'member'), member('jonas-1', 'member')]));
 	listOrgConnectionsWithCredential.mockResolvedValue(Ok([]));
 	listOwnConnectionsWithCredential.mockResolvedValue(Ok([]));
+	markOrganizationOnboarded.mockResolvedValue(Ok(undefined));
 	removeMembership.mockResolvedValue(Ok(undefined));
 	deleteOrganization.mockResolvedValue(Ok(undefined));
 	renameOrganization.mockResolvedValue(Ok(undefined));
@@ -89,25 +104,44 @@ beforeEach(() => {
 });
 
 describe('handleListOrgsRoute', () => {
-	test('lists the person’s organizations and the one open', async () => {
+	test('lists the person’s organizations by their slugs', async () => {
 		const {handleListOrgsRoute} = await import('./route');
 		const result = await handleListOrgsRoute(makeRequest());
 
-		expect(result.unwrap()).toEqual({orgs: [mine, acme], activeOrgId: 'org-1'});
-		expect(getUserOrgId).toHaveBeenCalledWith('user-1', 'org-1');
+		expect(result.unwrap().orgs.map((org) => [org.slug, org.role, org.onboarded])).toEqual([
+			['alexs-workspace', 'owner', true],
+			['acme', 'owner', true],
+		]);
+	});
+});
+
+describe('handleGetOrgRoute', () => {
+	test('answers the organization in the address, with the person’s role and its experiments', async () => {
+		getMemberOrganization.mockResolvedValue(Ok({...membership('member'), experiments: ['ask']}));
+		const {handleGetOrgRoute} = await import('./route');
+		const result = await handleGetOrgRoute(makeRequest());
+
+		expect(getMemberOrganization).toHaveBeenCalledWith('user-1', 'acme');
+		expect(result.unwrap()).toEqual({...acme, role: 'member', experiments: ['ask']});
+	});
+
+	test('one the person isn’t in is not found, as is one that doesn’t exist', async () => {
+		getMemberOrganization.mockResolvedValue(Ok(null));
+		const {handleGetOrgRoute} = await import('./route');
+
+		expect((await handleGetOrgRoute(makeRequest({org: 'elsewhere'}))).unwrapErr().kind).toBe('not_found');
 	});
 });
 
 describe('handleCreateOrgRoute', () => {
-	test('makes one, the person its owner, and opens it', async () => {
-		createOrganization.mockResolvedValue(Ok({id: 'org-3', name: 'Lab'}));
+	test('makes one, the person its owner, answering with its slug', async () => {
+		createOrganization.mockResolvedValue(Ok({id: 'org-3', slug: 'lab', name: 'Lab'}));
 
 		const {handleCreateOrgRoute} = await import('./route');
 		const result = await handleCreateOrgRoute(makeRequest({}, {name: '  Lab '}));
 
 		expect(createOrganization).toHaveBeenCalledWith({userId: 'user-1', name: 'Lab'});
-		expect(setSessionActiveOrg).toHaveBeenCalledWith('session-1', 'org-3');
-		expect(result.unwrap()).toEqual({id: 'org-3', name: 'Lab', role: 'owner', memberCount: 1, invitationCount: 0});
+		expect(result.unwrap()).toEqual({id: 'org-3', slug: 'lab', name: 'Lab', role: 'owner', onboarded: true, experiments: [], memberCount: 1, invitationCount: 0});
 	});
 
 	test('needs a name', async () => {
@@ -119,25 +153,22 @@ describe('handleCreateOrgRoute', () => {
 	});
 });
 
-describe('handleSetActiveOrgRoute', () => {
-	test('opens one of the person’s organizations, and no one else’s', async () => {
-		const {handleSetActiveOrgRoute} = await import('./route');
-		await handleSetActiveOrgRoute(makeRequest({}, {orgId: 'org-2'}));
-		getMembership.mockResolvedValue(Ok(null));
-		const elsewhere = await handleSetActiveOrgRoute(makeRequest({}, {orgId: 'org-9'}));
+describe('handleFinishOnboardingRoute', () => {
+	test('marks the organization in the address onboarded', async () => {
+		const {handleFinishOnboardingRoute} = await import('./route');
+		const result = await handleFinishOnboardingRoute(makeRequest());
 
-		expect(setSessionActiveOrg).toHaveBeenCalledTimes(1);
-		expect(setSessionActiveOrg).toHaveBeenCalledWith('session-1', 'org-2');
-		expect(elsewhere.unwrapErr().kind).toBe('not_found');
+		expect(result.isOk()).toBe(true);
+		expect(markOrganizationOnboarded).toHaveBeenCalledWith('org-2');
 	});
 });
 
 describe('handleRenameOrgRoute', () => {
 	test('its owner renames it; members can’t', async () => {
 		const {handleRenameOrgRoute} = await import('./route');
-		await handleRenameOrgRoute(makeRequest({orgId: 'org-2'}, {name: 'Acme Inc'}));
-		getMembership.mockResolvedValue(Ok({role: 'member'}));
-		const asMember = await handleRenameOrgRoute(makeRequest({orgId: 'org-2'}, {name: 'Mine now'}));
+		await handleRenameOrgRoute(makeRequest({}, {name: 'Acme Inc'}));
+		getMemberOrganization.mockResolvedValue(Ok(membership('member')));
+		const asMember = await handleRenameOrgRoute(makeRequest({}, {name: 'Mine now'}));
 
 		expect(renameOrganization).toHaveBeenCalledTimes(1);
 		expect(renameOrganization).toHaveBeenCalledWith('org-2', 'Acme Inc');
@@ -147,9 +178,9 @@ describe('handleRenameOrgRoute', () => {
 
 describe('handleDeleteOrgRoute', () => {
 	test('undoes every connection in it at its provider, then deletes it', async () => {
-		const google = {id: 'conn-1', integrationId: 'google', credential: 'enc:g'};
-		const mailbox = {id: 'conn-2', integrationId: 'email', credential: 'enc:m'};
-		listOrgConnectionsWithCredential.mockResolvedValue(Ok([google, mailbox]));
+		const shared = {id: 'conn-1', integrationId: 'google', credential: 'enc:g'};
+		const theirs = {id: 'conn-2', integrationId: 'email', credential: 'enc:m'};
+		listOrgConnectionsWithCredential.mockResolvedValue(Ok([shared, theirs]));
 		const order: string[] = [];
 		beforeDisconnect.mockImplementation(async (connection: {id: string}) => {
 			order.push(connection.id);
@@ -160,7 +191,7 @@ describe('handleDeleteOrgRoute', () => {
 		});
 
 		const {handleDeleteOrgRoute} = await import('./route');
-		const result = await handleDeleteOrgRoute(makeRequest({orgId: 'org-2'}));
+		const result = await handleDeleteOrgRoute(makeRequest());
 
 		expect(result.isOk()).toBe(true);
 		expect(listOrgConnectionsWithCredential).toHaveBeenCalledWith('org-2');
@@ -171,10 +202,10 @@ describe('handleDeleteOrgRoute', () => {
 	test('not the last one the person owns, and only by its owner', async () => {
 		listUserOrgs.mockResolvedValue(Ok([{...mine, role: 'member' as const}, acme]));
 		const {handleDeleteOrgRoute} = await import('./route');
-		const only = await handleDeleteOrgRoute(makeRequest({orgId: 'org-2'}));
+		const only = await handleDeleteOrgRoute(makeRequest());
 		listUserOrgs.mockResolvedValue(Ok([mine, acme]));
-		getMembership.mockResolvedValue(Ok({role: 'member'}));
-		const asMember = await handleDeleteOrgRoute(makeRequest({orgId: 'org-2'}));
+		getMemberOrganization.mockResolvedValue(Ok(membership('member')));
+		const asMember = await handleDeleteOrgRoute(makeRequest());
 
 		expect(only.unwrapErr().kind).toBe('conflict');
 		expect(asMember.unwrapErr().kind).toBe('forbidden');
@@ -183,19 +214,23 @@ describe('handleDeleteOrgRoute', () => {
 });
 
 describe('handleLeaveOrgRoute', () => {
-	test('a member leaves', async () => {
-		getMembership.mockResolvedValue(Ok({role: 'member'}));
+	test('undoes a member’s own connections there, then takes them out', async () => {
+		getMemberOrganization.mockResolvedValue(Ok(membership('member')));
+		const workMail = {id: 'conn-3', integrationId: 'email', credential: 'enc:m'};
+		listOwnConnectionsWithCredential.mockResolvedValue(Ok([workMail]));
 
 		const {handleLeaveOrgRoute} = await import('./route');
-		const result = await handleLeaveOrgRoute(makeRequest({orgId: 'org-2'}));
+		const result = await handleLeaveOrgRoute(makeRequest());
 
 		expect(result.isOk()).toBe(true);
+		expect(listOwnConnectionsWithCredential).toHaveBeenCalledWith({orgId: 'org-2', userId: 'user-1'});
+		expect(beforeDisconnect).toHaveBeenCalledWith(workMail);
 		expect(removeMembership).toHaveBeenCalledWith({orgId: 'org-2', userId: 'user-1'});
 	});
 
 	test('its owner stays, and deletes it instead', async () => {
 		const {handleLeaveOrgRoute} = await import('./route');
-		const owner = await handleLeaveOrgRoute(makeRequest({orgId: 'org-2'}));
+		const owner = await handleLeaveOrgRoute(makeRequest());
 
 		expect(owner.unwrapErr().kind).toBe('conflict');
 		expect(removeMembership).not.toHaveBeenCalled();
@@ -204,11 +239,11 @@ describe('handleLeaveOrgRoute', () => {
 
 describe('handleListMembersRoute', () => {
 	test('anyone in it sees its members and invitations', async () => {
-		getMembership.mockResolvedValue(Ok({role: 'member'}));
+		getMemberOrganization.mockResolvedValue(Ok(membership('member')));
 		listInvitations.mockResolvedValue(Ok([{id: 'inv-1', email: 'sam@acme.com', invitedBy: 'Maya', expires: new Date('2026-10-21T00:00:00Z'), createdAt: new Date()}]));
 
 		const {handleListMembersRoute} = await import('./route');
-		const {members, invitations} = (await handleListMembersRoute(makeRequest({orgId: 'org-2'}))).unwrap();
+		const {members, invitations} = (await handleListMembersRoute(makeRequest())).unwrap();
 
 		expect(members.map((one) => [one.userId, one.role])).toEqual([
 			['user-1', 'owner'],
@@ -219,29 +254,33 @@ describe('handleListMembersRoute', () => {
 	});
 
 	test('someone not in it sees nothing', async () => {
-		getMembership.mockResolvedValue(Ok(null));
+		getMemberOrganization.mockResolvedValue(Ok(null));
 		const {handleListMembersRoute} = await import('./route');
 
-		expect((await handleListMembersRoute(makeRequest({orgId: 'org-2'}))).unwrapErr().kind).toBe('not_found');
+		expect((await handleListMembersRoute(makeRequest())).unwrapErr().kind).toBe('not_found');
 	});
 });
 
 describe('handleRemoveMemberRoute', () => {
-	test('its owner removes a member', async () => {
-		const {handleRemoveMemberRoute} = await import('./route');
-		const result = await handleRemoveMemberRoute(makeRequest({orgId: 'org-2', userId: 'maya-1'}));
+	test('its owner removes a member, their own connections undone first', async () => {
+		const theirs = {id: 'conn-4', integrationId: 'email', credential: 'enc:m'};
+		listOwnConnectionsWithCredential.mockResolvedValue(Ok([theirs]));
 
-		expect(result.isOk()).toBe(true);
+		const {handleRemoveMemberRoute} = await import('./route');
+		await handleRemoveMemberRoute(makeRequest({userId: 'maya-1'}));
+
+		expect(listOwnConnectionsWithCredential).toHaveBeenCalledWith({orgId: 'org-2', userId: 'maya-1'});
+		expect(beforeDisconnect).toHaveBeenCalledWith(theirs);
 		expect(removeMembership).toHaveBeenCalledWith({orgId: 'org-2', userId: 'maya-1'});
 	});
 
 	test('not its owner, not someone outside it, and not by a member', async () => {
 		const {handleRemoveMemberRoute} = await import('./route');
-		const self = await handleRemoveMemberRoute(makeRequest({orgId: 'org-2', userId: 'user-1'}));
-		getMembership.mockImplementation(async (userId: string) => Ok(userId === 'user-1' ? {role: 'owner'} : null));
-		const outside = await handleRemoveMemberRoute(makeRequest({orgId: 'org-2', userId: 'sam-1'}));
-		getMembership.mockResolvedValue(Ok({role: 'member'}));
-		const asMember = await handleRemoveMemberRoute(makeRequest({orgId: 'org-2', userId: 'maya-1'}));
+		const self = await handleRemoveMemberRoute(makeRequest({userId: 'user-1'}));
+		getMembership.mockResolvedValue(Ok(null));
+		const outside = await handleRemoveMemberRoute(makeRequest({userId: 'sam-1'}));
+		getMemberOrganization.mockResolvedValue(Ok(membership('member')));
+		const asMember = await handleRemoveMemberRoute(makeRequest({userId: 'maya-1'}));
 
 		expect(self.unwrapErr().kind).toBe('validation_error');
 		expect(outside.unwrapErr().kind).toBe('not_found');
@@ -253,7 +292,7 @@ describe('handleRemoveMemberRoute', () => {
 describe('handleInviteRoute', () => {
 	test('emails a link that works for a week, keeping only its token’s hash', async () => {
 		const {handleInviteRoute} = await import('./route');
-		const result = await handleInviteRoute(makeRequest({orgId: 'org-2'}, {email: ' Sam@Acme.com '}));
+		const result = await handleInviteRoute(makeRequest({}, {email: ' Sam@Acme.com '}));
 
 		const data = createInvitation.mock.calls[0]?.[0];
 		expect(data).toMatchObject({orgId: 'org-2', email: 'sam@acme.com', invitedById: 'user-1'});
@@ -268,7 +307,7 @@ describe('handleInviteRoute', () => {
 	test('in development, or without RESEND_KEY, prints the link instead', async () => {
 		env.NODE_ENV = 'development';
 		const {handleInviteRoute} = await import('./route');
-		await handleInviteRoute(makeRequest({orgId: 'org-2'}, {email: 'sam@acme.com'}));
+		await handleInviteRoute(makeRequest({}, {email: 'sam@acme.com'}));
 
 		expect(sendInvitation).not.toHaveBeenCalled();
 		expect(info.mock.calls[0]?.[0]).toContain('https://app.example.com/invite/');
@@ -277,12 +316,12 @@ describe('handleInviteRoute', () => {
 	test('refuses an address that can’t sign up here, someone already in it, and a member inviting', async () => {
 		const {handleInviteRoute} = await import('./route');
 		canSignUp.mockReturnValue(false);
-		const notAllowed = await handleInviteRoute(makeRequest({orgId: 'org-2'}, {email: 'sam@elsewhere.com'}));
+		const notAllowed = await handleInviteRoute(makeRequest({}, {email: 'sam@elsewhere.com'}));
 		canSignUp.mockReturnValue(true);
-		const already = await handleInviteRoute(makeRequest({orgId: 'org-2'}, {email: 'maya-1@example.com'}));
-		const notEmail = await handleInviteRoute(makeRequest({orgId: 'org-2'}, {email: 'sam'}));
-		getMembership.mockResolvedValue(Ok({role: 'member'}));
-		const asMember = await handleInviteRoute(makeRequest({orgId: 'org-2'}, {email: 'sam@acme.com'}));
+		const already = await handleInviteRoute(makeRequest({}, {email: 'maya-1@example.com'}));
+		const notEmail = await handleInviteRoute(makeRequest({}, {email: 'sam'}));
+		getMemberOrganization.mockResolvedValue(Ok(membership('member')));
+		const asMember = await handleInviteRoute(makeRequest({}, {email: 'sam@acme.com'}));
 
 		expect(notAllowed.unwrapErr().kind).toBe('validation_error');
 		expect(already.unwrapErr().kind).toBe('conflict');
@@ -296,16 +335,16 @@ describe('handleInviteRoute', () => {
 		getUserByEmail.mockResolvedValue(Ok({id: 'sam-1', email: 'sam@elsewhere.com', name: 'Sam'}));
 		const {handleInviteRoute} = await import('./route');
 
-		expect((await handleInviteRoute(makeRequest({orgId: 'org-2'}, {email: 'sam@elsewhere.com'}))).isOk()).toBe(true);
+		expect((await handleInviteRoute(makeRequest({}, {email: 'sam@elsewhere.com'}))).isOk()).toBe(true);
 	});
 });
 
 describe('handleRevokeInvitationRoute', () => {
 	test('its owner takes an invitation back', async () => {
 		const {handleRevokeInvitationRoute} = await import('./route');
-		await handleRevokeInvitationRoute(makeRequest({orgId: 'org-2', invitationId: 'inv-1'}));
+		await handleRevokeInvitationRoute(makeRequest({invitationId: 'inv-1'}));
 		deleteInvitation.mockResolvedValue(Ok(false));
-		const gone = await handleRevokeInvitationRoute(makeRequest({orgId: 'org-2', invitationId: 'inv-9'}));
+		const gone = await handleRevokeInvitationRoute(makeRequest({invitationId: 'inv-9'}));
 
 		expect(deleteInvitation).toHaveBeenCalledWith('org-2', 'inv-1');
 		expect(gone.unwrapErr().kind).toBe('not_found');
