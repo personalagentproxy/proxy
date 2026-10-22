@@ -1,15 +1,16 @@
 /**
  * The built-in agent's log, as the api writes it and the web app reads it: what is shared between
  * them. The log is the transcript: the person's messages, the model's answers with the tool calls
- * it made, and what each call answered. A call is pending until its result is in the log, and the
- * model is run again only once none is.
+ * it made, what each call answered, and, once it has grown long, summaries of it up to a point,
+ * which the model reads in place of what they cover. A call is pending until its result is in the
+ * log, and the model is run again only once none is.
  */
 
 /** A tool call the model made, as the model API gives it: its arguments are the JSON it wrote. */
 export type ToolCall = {id: string; name: string; arguments: string};
 
 export type LogEntry = {
-	kind: 'person' | 'assistant' | 'tool_result';
+	kind: 'person' | 'assistant' | 'tool_result' | 'summary';
 	text: string;
 	toolCalls: ToolCall[] | null;
 	callId: string | null;

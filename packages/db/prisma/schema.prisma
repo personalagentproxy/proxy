@@ -459,11 +459,13 @@ model AgentThread {
 }
 
 // What an entry of a thread's log is: what the person said, what the model answered, with the tool
-// calls it made, or what one of those calls answered.
+// calls it made, what one of those calls answered, or a summary of the log up to a point, which
+// the model reads in place of what it covers once the log has grown long.
 enum AgentEntryKind {
   person
   assistant
   tool_result
+  summary
 }
 
 // One entry of a thread's log, in the order of `seq`. The log is the transcript the model reads:
@@ -485,6 +487,8 @@ model AgentEntry {
   // An assistant entry's cost.
   inputTokens  Int?
   outputTokens Int?
+  // A summary entry's reach: the `seq` of the last entry it stands for; null otherwise.
+  coversSeq Int?
 
   createdAt DateTime @default(now())
 
