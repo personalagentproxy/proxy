@@ -23,7 +23,7 @@ import {
 	type NotionView,
 } from '../connections/notion/notion-mcp';
 import {notionValues, propertyLines, shapeOfType, shapeOfValue, type NotionValue, type PropertyShape} from '../connections/notion/notion-properties';
-import type {Connector, Crumb, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
+import {requireFirstPage, type Connector, type Crumb, type DataRecord, type ListQuery, type RecordPage, type RecordTarget, type RecordValues} from './connector';
 import {readValueLines} from './value-lines';
 
 /**
@@ -184,6 +184,7 @@ function listInside(target: RecordTarget, parent: string, query: ListQuery): Pro
 	return Do(async ($) => {
 		const fetched = $(await fetchRecord(target, parent));
 		if (fetched.kind === 'Page') {
+			$(requireFirstPage(query));
 			const trail = [...fetched.trail, {id: fetched.id, title: fetched.title}];
 			const page = query.search === null ? await childrenOf(target, fetched) : $(await search(target, query.search, {page_url: fetched.id}));
 			return withTrail(page, trail);
@@ -193,12 +194,14 @@ function listInside(target: RecordTarget, parent: string, query: ListQuery): Pro
 			const trail = [...fetched.trail, {id: fetched.id, title: fetched.title}];
 			const [dataSource] = fetched.dataSources;
 			if (query.search !== null) {
+				$(requireFirstPage(query));
 				return withTrail($(await search(target, query.search, dataSource ? {data_source_url: `collection://${dashedId(dataSource.id)}`} : {})), trail);
 			}
 			const [only, ...others] = fetched.views;
 			if (only && others.length === 0) {
 				return withTrail($(await viewRows(target, only.id, dataSource, query.page)), trail);
 			}
+			$(requireFirstPage(query));
 			const views = fetched.views.map((view): NotionNode => ({id: view.id, kind: 'View', title: view.title, url: '', path: '', day: null}));
 			return withTrail({records: views.map(nodeRecord), nextPage: null}, trail);
 		}
@@ -208,6 +211,7 @@ function listInside(target: RecordTarget, parent: string, query: ListQuery): Pro
 		const above = database.kind === 'Database' ? [...database.trail, {id: database.id, title: database.title}] : [];
 		const trail = [...above, {id: fetched.id, title: fetched.title}];
 		if (query.search !== null) {
+			$(requireFirstPage(query));
 			return withTrail($(await search(target, query.search, {data_source_url: `collection://${dashedId(dataSource.id)}`})), trail);
 		}
 		return withTrail($(await viewRows(target, fetched.id, dataSource, query.page)), trail);
@@ -220,6 +224,7 @@ function list(target: RecordTarget, query: ListQuery): Promise<Result<RecordPage
 			return $(await listInside(target, query.parent, query));
 		}
 		if (query.search !== null) {
+			$(requireFirstPage(query));
 			return $(await search(target, query.search));
 		}
 		const text = $(await callNotion(target, 'notion-list-recent-pages', {limit: PAGE_SIZE, ...(query.page ? {cursor: query.page} : {})}));

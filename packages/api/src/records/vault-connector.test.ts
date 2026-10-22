@@ -79,6 +79,33 @@ describe('vaultConnector', () => {
 		expect(found.unwrap().records.map((record) => record.values.title)).toEqual(['Sizes']);
 	});
 
+	test('a page is refused, since every entry is on the one page', async () => {
+		const {vaultConnector} = await import('./vault-connector');
+		const result = await vaultConnector.list(target, {search: null, page: 'next', filter: null, parent: null});
+
+		expect(result.unwrapErr().kind).toBe('validation_error');
+		expect(listVaultEntries).not.toHaveBeenCalled();
+	});
+
+	test('a new entry needs a title or content', async () => {
+		const {vaultConnector} = await import('./vault-connector');
+		const result = await vaultConnector.create(target, {title: ' ', type: 'Email', content: ''}, null);
+
+		expect(result.unwrapErr().kind).toBe('validation_error');
+		expect(createVaultEntry).not.toHaveBeenCalled();
+	});
+
+	test('an entry without a type is Text', async () => {
+		updateVaultEntry.mockImplementation((_collection: unknown, id: string, values: string) => Promise.resolve(Ok({id, values, updatedAt})));
+
+		const {vaultConnector} = await import('./vault-connector');
+		const created = await vaultConnector.create(target, {title: 'Sizes', type: '', content: ''}, null);
+		const updated = await vaultConnector.update(target, 'rec-1', {title: 'Sizes', type: '', content: 'Shoes: EU 43'});
+
+		expect(created.unwrap().values.type).toBe('Text');
+		expect(updated.unwrap().values.type).toBe('Text');
+	});
+
 	test('a missing record is not found', async () => {
 		getVaultEntry.mockResolvedValue(Ok(null));
 

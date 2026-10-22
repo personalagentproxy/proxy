@@ -134,6 +134,9 @@ describe('listing', () => {
 		expect(google.requests.map((request) => request.url.searchParams.get('query'))).toEqual(['', 'sam']);
 		expect(page.records.map((record) => record.id)).toEqual(['c111']);
 		expect(page.nextPage).toBeNull();
+
+		const paged = await googleConnector.list(target, {...LIST, search: 'sam', page: 'page-2'});
+		expect(paged.isErr() && paged.error.kind).toBe('validation_error');
 	});
 });
 

@@ -583,7 +583,35 @@ const TASKS: [{title: string; goal: string}, ...Array<{title: string; goal: stri
 	},
 ];
 
+// Parts of a task an agent handed to sub-agents of its own: each a sub-task of it, with what the
+// sub-agent handed back once done.
+const SUB_TASKS: [
+	{title: string; goal: string; outcome: string},
+	...Array<{title: string; goal: string; outcome: string}>,
+] = [
+	{
+		title: 'Check the calendar',
+		goal: 'List this week’s events and when the day is free.',
+		outcome: 'Four events this week, Tuesday and Thursday afternoons free.',
+	},
+	{
+		title: 'Find the open issues',
+		goal: 'List the open issues assigned to me, the ones due soonest first.',
+		outcome: 'Six issues open, two due this week.',
+	},
+	{
+		title: 'Pull the meeting notes',
+		goal: 'Find the notes from the last meeting and the decisions in them.',
+		outcome: 'Found the notes from last Thursday, three decisions and two open points.',
+	},
+];
+
 const MINUTE = 60 * 1000;
+
+// How long a request took: most well under a second, a few a good deal longer.
+function requestDuration(): number {
+	return Math.round(150 + random() ** 3 * 6000);
+}
 // A login still in use has this many tasks going at once in the past hours, the usual way agents
 // work, with this many requests spread over them.
 const CONCURRENT_TASKS = 5;
@@ -629,8 +657,37 @@ for (const agent of agents) {
 				return {id: task.id, via: taskVia, startedAt, endsAt: finishedAt ?? now};
 			}),
 		);
+		// The oldest task, done, and the newest, under way, were split among sub-agents: a sub-task
+		// each, the done one's with what it handed back.
+		const subTasks: typeof concurrent = [];
+		for (const parent of [concurrent[0], concurrent.at(-1)].flatMap((task) =>
+			task ? [task] : [],
+		)) {
+			const parentDone = parent.endsAt !== now;
+			for (const [index, part] of SUB_TASKS.entries()) {
+				const startedAt = parent.startedAt + (2 + index * 3 + random() * 2) * MINUTE;
+				const finishedAt =
+					parentDone || index === 0 ? startedAt + (4 + random() * 8) * MINUTE : null;
+				const task = await db.agentTask.create({
+					data: {
+						orgId: org.id,
+						agentId: agent.id,
+						parentId: parent.id,
+						title: part.title,
+						goal: part.goal,
+						via: parent.via,
+						createdAt: new Date(startedAt),
+						finishedAt: finishedAt === null ? null : new Date(finishedAt),
+						outcome: finishedAt === null ? null : part.outcome,
+					},
+				});
+				taskCount += 1;
+				subTasks.push({id: task.id, via: parent.via, startedAt, endsAt: finishedAt ?? now});
+			}
+		}
+		const pool = [...concurrent, ...subTasks];
 		for (const [index, {request: picked}] of recent.entries()) {
-			const task = concurrent[index % concurrent.length];
+			const task = pool[index % pool.length];
 			if (!task) {
 				continue;
 			}
@@ -653,6 +710,7 @@ for (const agent of agents) {
 					outcome: isAllowed(agent, request) ? 'allowed' : 'denied',
 					via: task.via,
 					taskId: task.id,
+					durationMs: requestDuration(),
 					createdAt: new Date(createdAt),
 				},
 			});
@@ -704,6 +762,7 @@ for (const agent of agents) {
 				outcome: isAllowed(agent, request) ? 'allowed' : 'denied',
 				via,
 				taskId,
+				durationMs: requestDuration(),
 				createdAt: new Date(createdAt),
 			},
 		});

@@ -364,6 +364,10 @@ model AuditEntry {
   // The agent's task the request was made for (AgentTask); none for entries from before tasks,
   // and for what Personal Agent Proxy did itself.
   taskId       String?
+  // How long the request took to run, from when it came in to when it was logged, as it was for
+  // every entry logged since this was kept; none for the entries from before, and for what
+  // Personal Agent Proxy did itself.
+  durationMs   Int?
   // Whose log it is: the member whose own the agent is, or whose own the connection was for what
   // Personal Agent Proxy did itself; null for a shared agent's or a shared connection's, which
   // everyone in the organization sees.
@@ -379,18 +383,27 @@ model AuditEntry {
 
 // What an agent set out to do with Personal Agent Proxy: an agent starts a task, naming it and
 // saying what the person asked for, makes its requests for it, each logged with the task, and
-// finishes it. Plain ids, like the activity log, so it stays when the agent is gone.
+// finishes it. Part of a task an agent hands to one of its sub-agents is a sub-task of it, so the
+// tasks of one job form a tree. Plain ids, like the activity log, so it stays when the agent is
+// gone.
 model AgentTask {
   id         String    @id @default(cuid())
   orgId      String
   agentId    String
+  // The agent's task this one was started for, as a sub-task (AgentTask); none for a task started
+  // on its own.
+  parentId   String?
   // A few words, as a heading.
   title      String
   // What the person asked for, in a sentence or two.
   goal       String
   via        AuditVia
-  // Set once the agent calls the task finished; null while it is under way.
+  // Set once the agent calls the task finished; null while it is under way. Finishing a task
+  // finishes its sub-tasks still under way too.
   finishedAt DateTime?
+  // What was done or found, as the agent said when it finished, where it said; what a sub-task
+  // handed back.
+  outcome    String?
   // The member whose own the agent is, who alone sees the task; null for a shared agent's, which
   // everyone in the organization sees.
   ownerUserId String?
@@ -401,6 +414,7 @@ model AgentTask {
 
   @@index([orgId, createdAt])
   @@index([agentId])
+  @@index([parentId])
 }
 
 // What an agent told the makers of Personal Agent Proxy, such as a tool that didn't work as it

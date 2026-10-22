@@ -224,6 +224,7 @@ describe('runAgentTool', () => {
 			outcome: 'allowed',
 			via: 'mcp',
 			taskId: 'task-1',
+			startedAt: expect.any(Number),
 		});
 		expect(getAgentTask).toHaveBeenCalledWith('org-1', 'agent-1', 'task-1');
 	});

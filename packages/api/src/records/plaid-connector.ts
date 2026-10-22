@@ -5,7 +5,7 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
 import {getAccounts, getTransactions, type PlaidAccount, type PlaidTransaction} from '../connections/plaid/plaid-api';
 import {callPlaid, type PlaidClient} from '../connections/plaid/plaid-client';
-import type {Connector, DataRecord, ListQuery, RecordPage, RecordTarget} from './connector';
+import {requireFirstPage, type Connector, type DataRecord, type ListQuery, type RecordPage, type RecordTarget} from './connector';
 import {readPageToken, writePageToken} from './page-token';
 
 /**
@@ -248,9 +248,10 @@ function getTransactionsRecord(target: RecordTarget, recordId: string): Promise<
 	);
 }
 
-function listBalances(target: RecordTarget): Promise<Result<RecordPage, ApiError>> {
+function listBalances(target: RecordTarget, query: ListQuery): Promise<Result<RecordPage, ApiError>> {
 	return callPlaid(target.connection, (client, accessToken) =>
 		Do(async ($) => {
+			$(requireFirstPage(query));
 			const {accounts} = $(await getAccounts(client, accessToken));
 			return {records: accounts.map(balanceRecord), nextPage: null};
 		}),
@@ -271,7 +272,7 @@ function readOnly<T>(): Promise<Result<T, ApiError>> {
 }
 
 export const plaidConnector: Connector = {
-	list: (target, query) => (target.collection.id === 'accounts' ? listBalances(target) : listTransactionsTree(target, query)),
+	list: (target, query) => (target.collection.id === 'accounts' ? listBalances(target, query) : listTransactionsTree(target, query)),
 	get: (target, recordId) => (target.collection.id === 'accounts' ? getBalance(target, recordId) : getTransactionsRecord(target, recordId)),
 	create: () => readOnly(),
 	update: () => readOnly(),

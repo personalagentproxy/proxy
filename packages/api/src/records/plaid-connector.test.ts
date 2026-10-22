@@ -150,6 +150,9 @@ describe('accounts', () => {
 		expect(request?.body).toEqual({access_token: 'access-sandbox-1'});
 		expect(request?.headers.get('plaid-client-id')).toBe('plaid-client');
 		expect(request?.headers.get('plaid-secret')).toBe('plaid-secret');
+
+		const paged = await plaidConnector.list(accounts, {...LIST, page: 'next'});
+		expect(paged.isErr() && paged.error.kind).toBe('validation_error');
 	});
 
 	test('opens one account, and an account the bank login doesn’t have is not found', async () => {

@@ -7,8 +7,9 @@ import {
 	type McpTool,
 } from '@proxy/integrations';
 
-// A brand's own logo, `public/integrations/<id>.svg`, unless `LOGOS` says otherwise.
-type IntegrationLogoImage = {src: string; fill?: boolean};
+// A brand's own logo, `public/integrations/<id>.svg`, unless `LOGOS` says otherwise. One found on
+// the internet has a file of ours to show where it can't be loaded.
+type IntegrationLogoImage = {src: string; fill?: boolean; fallback?: string};
 
 export type Integration = CatalogIntegration & {
 	logo: LucideIcon | IntegrationLogoImage;
@@ -37,15 +38,17 @@ export const NEEDS: Record<Need, {variables: string[]; docsUrl: string}> = {
 
 const NEEDED_BY: Partial<Record<IntegrationId, Need>> = {google: 'google', plaid: 'plaid'};
 
+const MCP_MARK = '/favicon.svg';
+
 // The integrations whose logo isn't `public/integrations/<id>.svg` as it is: an icon for those
 // that are no one brand's, the vault being ours and Email any mailbox, and our mark for custom
-// MCP servers, since Personal Agent Proxy is the service connecting them; another kind of file;
+// MCP servers until a connection has its server's site's icon (`serverLogo`); another kind of file;
 // or a logo that is already a square tile, as Granola's and Linear's are, which fills the tile
 // edge to edge.
 const LOGOS: Partial<Record<IntegrationId, LucideIcon | IntegrationLogoImage>> = {
 	vault: LibraryIcon,
 	email: MailIcon,
-	mcp: {src: '/favicon.svg'},
+	mcp: {src: MCP_MARK},
 	granola: {src: '/integrations/granola.png', fill: true},
 	linear: {src: '/integrations/linear.svg', fill: true},
 };
@@ -66,16 +69,34 @@ export function findIntegration(id: string): Integration | undefined {
 	return INTEGRATIONS.find((integration) => integration.id === id);
 }
 
-/** The integration of a connection, a custom MCP server's with its own tools as actions; null for one the catalog no longer has. */
+/**
+ * A custom MCP server's logo, by its connection's account, which is its address,
+ * "mcp.sentry.dev/mcp": the icon of the server's site, which the api finds from the main domain of
+ * the address, with our mark where there is none.
+ */
+function serverLogo(account: string): IntegrationLogoImage {
+	const address = `https://${account}`;
+	if (!URL.canParse(address)) {
+		return {src: MCP_MARK};
+	}
+	return {
+		src: `/api/favicons/${encodeURIComponent(new URL(address).hostname)}`,
+		fallback: MCP_MARK,
+	};
+}
+
+/** The integration of a connection, a custom MCP server's with its own tools as actions and its site's icon; null for one the catalog no longer has. */
 export function integrationOf(connection: {
 	integrationId: string;
+	account: string;
 	tools?: McpTool[] | null;
 }): Integration | null {
 	const integration = integrationFor(connection);
 	if (!integration) {
 		return null;
 	}
-	return {...integration, logo: logoOf(integration.id)};
+	const logo = integration.id === 'mcp' ? serverLogo(connection.account) : logoOf(integration.id);
+	return {...integration, logo};
 }
 
 // The integrations connected by signing in to them, as the catalog marks them (`signIn`). Their

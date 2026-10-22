@@ -154,6 +154,9 @@ describe('listing', () => {
 			['team@group.calendar.google.com', 'Acme team', true],
 		]);
 		expect(page.nextPage).toBeNull();
+
+		const paged = await googleConnector.list(target, {...LIST, page: 'next'});
+		expect(paged.isErr() && paged.error.kind).toBe('validation_error');
 	});
 
 	test("inside a calendar are its events from now on, soonest first, every time a repeating one comes round, and the calendar's name in the trail", async () => {

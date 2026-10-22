@@ -9,7 +9,8 @@ import {checkUrl} from './host-check';
  * A request to an address that came from outside: a custom MCP server's, its metadata's, or its
  * authorization server's, wherever that server said they are. The address is checked as a
  * database's host is (`host-check.ts`) before every request, so nothing the api is pointed at
- * reaches its own network, and no request follows a redirect, since one could lead there too.
+ * reaches its own network, and no request follows a redirect, since one could lead there too: a
+ * caller that asks for `redirect: 'manual'` gets the redirect back, to check where it leads itself.
  * An address the check refuses is the server out of reach (`network`), the refusal its cause.
  */
 export function checkedRequest<S extends z.ZodType>(
@@ -31,7 +32,7 @@ export async function checkedRequest(
 	if (checked.isErr()) {
 		return Err<FetchError>({kind: 'network', url, cause: new Error('message' in checked.error ? checked.error.message : checked.error.kind)});
 	}
-	const request = {...init, redirect: 'error' as const};
+	const request = {...init, redirect: init.redirect === 'manual' ? ('manual' as const) : ('error' as const)};
 	const {schema, parse, ...base} = opts;
 	if (schema) {
 		return httpRequest(url, request, {...base, schema});

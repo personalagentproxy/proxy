@@ -32,8 +32,18 @@ mock.module('../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'http
 
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', experiments: []};
 const mailbox = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', actions: ['read', 'archive'], tools: null, name: null};
-const task = {id: 'task-1', agentId: 'agent-1', title: 'Triage inbox', goal: 'Archive the newsletters', via: 'mcp', createdAt: new Date('2026-10-16T09:00:00Z'), finishedAt: null};
-const started = {task: 'task-1', title: 'Triage inbox', goal: 'Archive the newsletters', startedAt: '2026-10-16T09:00:00.000Z', finishedAt: null};
+const task = {
+	id: 'task-1',
+	agentId: 'agent-1',
+	parentId: null,
+	title: 'Triage inbox',
+	goal: 'Archive the newsletters',
+	via: 'mcp',
+	createdAt: new Date('2026-10-16T09:00:00Z'),
+	finishedAt: null,
+	outcome: null,
+};
+const started = {task: 'task-1', parent: null, title: 'Triage inbox', goal: 'Archive the newsletters', startedAt: '2026-10-16T09:00:00.000Z', finishedAt: null, outcome: null};
 
 function makeRes() {
 	const res = {

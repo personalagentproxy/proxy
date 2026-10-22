@@ -1,11 +1,11 @@
-import {Result} from 'ts-results-es';
+import {Err, Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {createVaultEntry, deleteVaultEntry, getVaultEntry, listVaultEntries, updateVaultEntry, type VaultEntryRow} from '@proxy/db/vault';
 
 import {decryptSecret, encryptSecret} from '../utils/secret-crypto';
-import type {Connector, DataRecord, RecordTarget, RecordValues} from './connector';
+import {requireFirstPage, type Connector, type DataRecord, type RecordTarget, type RecordValues} from './connector';
 
 const storedValuesSchema = z.record(z.string(), z.string());
 
@@ -25,6 +25,19 @@ export function decryptValues(stored: string): Result<RecordValues, ApiError> {
 	});
 }
 
+// An entry without a type is Text, as its row shows it.
+function withType(values: RecordValues): RecordValues {
+	return {...values, type: values.type || 'Text'};
+}
+
+// A new entry needs something written in it: a type chosen alone is nothing, as the vault's own form has it.
+function requireWritten(values: RecordValues): Result<void, ApiError> {
+	if ([values.title, values.content].some((value) => (value ?? '').trim() !== '')) {
+		return Ok(undefined);
+	}
+	return Err(ApiErr.validationError('An entry needs a title or content'));
+}
+
 function toRecord(row: VaultEntryRow): Result<DataRecord, ApiError> {
 	return decryptValues(row.values).map((values) => ({id: row.id, values, updatedAt: row.updatedAt.toISOString()}));
 }
@@ -34,6 +47,7 @@ export const vaultConnector: Connector = {
 	// Few enough to search in memory, after decrypting, and to list on one page.
 	list: (target, query) =>
 		Do(async ($) => {
+			$(requireFirstPage(query));
 			const rows = $(await listVaultEntries(vaultCollection(target)));
 			const records = rows.map((row) => $(toRecord(row)));
 			const search = query.search?.toLowerCase();
@@ -47,12 +61,13 @@ export const vaultConnector: Connector = {
 		}),
 	create: (target, values) =>
 		Do(async ($) => {
-			const row = $(await createVaultEntry(vaultCollection(target), $(encryptValues(values))));
+			$(requireWritten(values));
+			const row = $(await createVaultEntry(vaultCollection(target), $(encryptValues(withType(values)))));
 			return $(toRecord(row));
 		}),
 	update: (target, recordId, values) =>
 		Do(async ($) => {
-			const row = $(await updateVaultEntry(vaultCollection(target), recordId, $(encryptValues(values))));
+			const row = $(await updateVaultEntry(vaultCollection(target), recordId, $(encryptValues(withType(values)))));
 			return $(toRecord(row));
 		}),
 	remove: (target, recordId) => deleteVaultEntry(vaultCollection(target), recordId),

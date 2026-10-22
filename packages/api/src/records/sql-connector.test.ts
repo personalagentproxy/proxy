@@ -92,6 +92,9 @@ describe('tables', () => {
 
 		const found = (await sqlConnector('postgres').list(target('postgres', 'tables'), {...noQuery, search: 'invoices paid'})).unwrap();
 		expect(found.records.map((record) => record.id)).toEqual(['public.paid_invoices']);
+
+		const paged = await sqlConnector('postgres').list(target('postgres', 'tables'), {...noQuery, page: '50'});
+		expect(paged.isErr() && paged.error.kind).toBe('validation_error');
 	});
 
 	test('opens a table with its columns, one a line', async () => {

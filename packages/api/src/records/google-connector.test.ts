@@ -349,6 +349,16 @@ describe('googleConnector.list', () => {
 		expect(requested('/v4/spreadsheets/1Budget/values:batchGet')).toHaveLength(0);
 	});
 
+	test('a page of the places, or of a spreadsheet’s tabs, is refused, since each is all on one page', async () => {
+		const {googleConnector} = await import('./google-connector');
+		const lists = [query({page: 'next'}), query({parent: '1Budget', page: 'next'})];
+
+		for (const paged of lists) {
+			const result = await googleConnector.list(target, paged);
+			expect(result.isErr() && result.error.kind).toBe('validation_error');
+		}
+	});
+
 	test('a page of rows that is not a row number is refused', async () => {
 		const {googleConnector} = await import('./google-connector');
 		const result = await googleConnector.list(target, query({parent: 'sheet-1Budget-0', page: 'A1'}));

@@ -18,7 +18,7 @@ import {
 	type GoogleEvent,
 } from '../connections/google/calendar-api';
 import {callGoogle} from '../connections/google/google-client';
-import type {CommandRunner, Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
+import {requireFirstPage, type CommandRunner, type Connector, type DataRecord, type ListQuery, type RecordPage, type RecordTarget, type RecordValues} from './connector';
 import {readPageToken, writePageToken} from './page-token';
 
 /**
@@ -370,6 +370,7 @@ function listEventsTree(target: RecordTarget, query: ListQuery): Promise<Result<
 	return callGoogle(target.connection, (token) =>
 		Do(async ($) => {
 			if (query.parent === null && query.search === null) {
+				$(requireFirstPage(query));
 				const calendars = $(await listCalendars(token));
 				return {records: primaryFirst(calendars).map(calendarRecord), nextPage: null};
 			}

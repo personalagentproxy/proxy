@@ -193,6 +193,16 @@ describe('notionConnector.list', () => {
 		]);
 	});
 
+	test('a page of a list that is all on one page is refused', async () => {
+		const {notionConnector} = await import('./notion-connector');
+		const lists = [query({parent: PAGE, page: 'next'}), query({search: 'plan', page: 'next'})];
+
+		for (const paged of lists) {
+			const result = await notionConnector.list(target, paged);
+			expect(result.isErr() && result.error.kind).toBe('validation_error');
+		}
+	});
+
 	test('a search inside a page or database looks only there', async () => {
 		const {notionConnector} = await import('./notion-connector');
 		await notionConnector.list(target, query({parent: PAGE, search: 'plan'}));

@@ -6,7 +6,7 @@ import {sqlCredentialSchema, type SqlCredential, type SqlDialect} from '../conne
 import {withSql, type SqlRun} from '../connections/sql/sql-client';
 import {checkStatement} from '../connections/sql/sql-statement';
 import {decryptSecret} from '../utils/secret-crypto';
-import type {Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
+import {requireFirstPage, type Connector, type DataRecord, type ListQuery, type RecordPage, type RecordTarget, type RecordValues} from './connector';
 import {dialectOf, type Column, type Dialect, type TableInfo, type TableRef} from './sql-dialect';
 import {readValueLines, valueLines} from './value-lines';
 
@@ -298,6 +298,7 @@ export function sqlConnector(id: SqlDialect): Connector {
 			connect(dialect, target, (run) =>
 				Do(async ($) => {
 					if (query.parent === null) {
+						$(requireFirstPage(query));
 						const tables = $(await dialect.listTables(run));
 						const words = (query.search ?? '')
 							.toLowerCase()
