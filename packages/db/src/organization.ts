@@ -51,18 +51,44 @@ export function planPersonalOrgIdentity(identity: {name?: string | null; email: 
 	return {name, slugSource};
 }
 
+// An organization's address is `/<slug>`, so no slug can be a top-level path of the web app
+// (`/login`, `/agent`, …), of the api it serves on the same origin (`/api`, `/mcp`, …), or of the
+// web app's files (`/assets`, …).
+const RESERVED_SLUGS = new Set([
+	'agent',
+	'agent-auth',
+	'agent-providers',
+	'api',
+	'assets',
+	'auth',
+	'connect-agent',
+	'health',
+	'integrations',
+	'invite',
+	'login',
+	'mcp',
+	'oauth',
+]);
+
+/** The base slug, else the base numbered (`acme-2`), whichever no organization has and no path is. */
 export async function pickAvailableSlugDatabase(
-	tx: Pick<typeof db, 'organization'>,
+	tx: {
+		organization: {
+			findUnique: (args: {
+				where: {slug: string};
+				select: {id: true};
+			}) => Promise<{id: string} | null>;
+		};
+	},
 	base: string,
 ): Promise<string> {
 	let candidate = base;
 	let suffix = 1;
 	while (suffix < 100) {
-		const existing = await tx.organization.findUnique({
-			where: {slug: candidate},
-			select: {id: true},
-		});
-		if (!existing) {
+		const taken =
+			RESERVED_SLUGS.has(candidate) ||
+			(await tx.organization.findUnique({where: {slug: candidate}, select: {id: true}})) !== null;
+		if (!taken) {
 			return candidate;
 		}
 		suffix += 1;

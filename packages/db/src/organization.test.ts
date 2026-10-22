@@ -3,7 +3,12 @@ import {describe, expect, it} from 'bun:test';
 import {Prisma} from '@prisma/client';
 import {ApiErr} from '@proxy/utils';
 
-import {buildBaseSlug, isSlugUniqueConflict, planPersonalOrgIdentity} from './organization';
+import {
+	buildBaseSlug,
+	isSlugUniqueConflict,
+	pickAvailableSlugDatabase,
+	planPersonalOrgIdentity,
+} from './organization';
 
 function uniqueViolation(target: string[]) {
 	return ApiErr.dbError(
@@ -61,5 +66,28 @@ describe('isSlugUniqueConflict', () => {
 	it('is false for a unique violation on anything else, such as the email', () => {
 		expect(isSlugUniqueConflict(uniqueViolation(['email']))).toBe(false);
 		expect(isSlugUniqueConflict(ApiErr.forbidden())).toBe(false);
+	});
+});
+
+describe('pickAvailableSlugDatabase', () => {
+	// Organizations by slug, as the database has them.
+	function withSlugs(slugs: string[]) {
+		return {
+			organization: {
+				findUnique: async ({where}: {where: {slug: string}}) =>
+					slugs.includes(where.slug) ? {id: `org-${where.slug}`} : null,
+			},
+		};
+	}
+
+	it('takes the base when it is free, else numbers it', async () => {
+		expect(await pickAvailableSlugDatabase(withSlugs([]), 'acme')).toBe('acme');
+		expect(await pickAvailableSlugDatabase(withSlugs(['acme', 'acme-2']), 'acme')).toBe('acme-3');
+	});
+
+	it('never takes a top-level path of the app or the api', async () => {
+		for (const path of ['api', 'mcp', 'login', 'invite', 'agent', 'oauth', 'assets']) {
+			expect(await pickAvailableSlugDatabase(withSlugs([]), path)).toBe(`${path}-2`);
+		}
 	});
 });
