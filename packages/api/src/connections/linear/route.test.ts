@@ -7,12 +7,14 @@ const findAccountConnection = mock();
 const getConnectionWithCredential = mock();
 const createConnection = mock();
 const renewConnection = mock();
+const shareConnection = mock();
 
 mock.module('@proxy/db/connection', () => ({
 	findAccountConnection,
 	getConnectionWithCredential,
 	createConnection,
 	renewConnection,
+	shareConnection,
 	updateConnectionCredential: mock(),
 	getConnectionCredential: mock(async () => Ok(null)),
 	updateConnectionTools: mock(),
@@ -121,6 +123,7 @@ beforeEach(() => {
 	findAccountConnection.mockResolvedValue(Ok(null));
 	createConnection.mockResolvedValue(Ok({id: 'conn-1'}));
 	renewConnection.mockResolvedValue(Ok(undefined));
+	shareConnection.mockResolvedValue(Ok(undefined));
 });
 
 describe('handleStartLinearRoute', () => {
@@ -163,6 +166,28 @@ describe('handleLinearCallbackRoute', () => {
 		expect(createConnection).not.toHaveBeenCalled();
 		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0'});
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-0');
+	});
+
+	test("signing in for everyone to a workspace that is the person's own shares its connection, never connecting it twice", async () => {
+		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0', ownerUserId: 'user-1'}));
+		const {cookie, state} = await start({share: 'everyone'});
+		await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
+
+		expect(createConnection).not.toHaveBeenCalled();
+		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0'});
+		expect(shareConnection).toHaveBeenCalledWith('conn-0');
+	});
+
+	test('signing in again for oneself, or to a shared connection, shares nothing', async () => {
+		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0', ownerUserId: 'user-1'}));
+		const own = await start();
+		await callback({cookie: own.cookie?.value ?? '', query: {state: own.state, code: 'code-1'}});
+		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0', ownerUserId: null}));
+		const shared = await start({share: 'everyone'});
+		await callback({cookie: shared.cookie?.value ?? '', query: {state: shared.state, code: 'code-1'}});
+
+		expect(renewConnection).toHaveBeenCalledTimes(2);
+		expect(shareConnection).not.toHaveBeenCalled();
 	});
 
 	test('signing in from a connection never signed in to, as one moved over without a sign-in, gives that one the new tokens', async () => {

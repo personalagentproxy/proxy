@@ -12,6 +12,7 @@ mock.module('@proxy/db/connection', () => ({
 	findAccountConnection,
 	createConnection,
 	renewConnection,
+	shareConnection: mock(),
 	updateConnectionCredential: mock(),
 	getConnectionCredential: mock(async () => Ok(null)),
 	updateConnectionTools: mock(),

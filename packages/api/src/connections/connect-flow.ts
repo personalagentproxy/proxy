@@ -5,7 +5,16 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseCookieHeader, requirePresent} from '@proxy/utils';
-import {createConnection, findAccountConnection, getConnectionWithCredential, renewConnection, updateConnectionName, updateConnectionTools, type ConnectionRow} from '@proxy/db/connection';
+import {
+	createConnection,
+	findAccountConnection,
+	getConnectionWithCredential,
+	renewConnection,
+	shareConnection,
+	updateConnectionName,
+	updateConnectionTools,
+	type ConnectionRow,
+} from '@proxy/db/connection';
 import {getMembership} from '@proxy/db/organization';
 import type {IntegrationId, McpTool} from '@proxy/integrations';
 
@@ -121,7 +130,8 @@ export type SaveOptions = {shared?: boolean; connectionId?: string | null};
  * Saves a connection: a new one, the viewer's own or every member's (`shared`), or an existing one
  * (`connectionToRenew`), given the new credential and the account as the provider names it now,
  * such as an address changed since, and, for a custom server, its tools and the name; `added`
- * unless it was already there.
+ * unless it was already there. An existing one that was the viewer's own is shared when they signed
+ * in for every member, as they asked, rather than the account connected a second time.
  */
 export function saveConnection<C>(
 	viewer: ManagingViewer,
@@ -145,8 +155,13 @@ export function saveConnection<C>(
 			};
 		}
 		$(await renewConnection({connectionId: existing.id, account, providerAccountId, credential: encrypted}));
+		const shares = options.shared === true && existing.ownerUserId !== null;
+		if (shares) {
+			$(await shareConnection(existing.id));
+		}
+		const renewed = {...existing, account, ...(shares ? {ownerUserId: null} : {})};
 		if (tools === undefined) {
-			return {row: {...existing, account}, added: false};
+			return {row: renewed, added: false};
 		}
 		// A custom server added again is the same connection, with the server's tools as it lists
 		// them now and the name the person gave it this time.
@@ -155,7 +170,7 @@ export function saveConnection<C>(
 		}
 		const stored = JSON.stringify(tools);
 		$(await updateConnectionTools({connectionId: existing.id, tools: stored, actions: tools.map((tool) => tool.name)}));
-		return {row: {...existing, account, tools: stored, ...name}, added: false};
+		return {row: {...renewed, tools: stored, ...name}, added: false};
 	});
 }
 
