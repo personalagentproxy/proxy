@@ -347,10 +347,14 @@ function InviteDialog({
 						</DialogDescription>
 					</DialogHeader>
 					<div className="grid gap-2">
-						<Label htmlFor="invite-email">Email</Label>
+						<Label htmlFor="invite-recipient">Who to invite</Label>
+						{/* Bitwarden fills any field it reads as an email, by its type and the words in its
+						    id and label, whatever the marks say, so this one is a plain text field, named
+						    without them, with the email keyboard on phones. The api checks the address. */}
 						<Input
-							id="invite-email"
-							type="email"
+							id="invite-recipient"
+							type="text"
+							inputMode="email"
 							autoFocus
 							{...NO_PASSWORD_MANAGER}
 							placeholder="name@company.com"
