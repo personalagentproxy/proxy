@@ -139,19 +139,24 @@ const ACTION_VERBS: Partial<Record<string, string>> = {
 };
 
 // A custom MCP server's tool, run as it is: "Ran Search docs with {"query":"invoices"}", "Tried to
-// run Search docs"; by the tool's name once the server is disconnected.
+// run Search docs", "Failed to run Search docs"; by the tool's name once the server is
+// disconnected.
 function describeToolRun(entry: AuditEntry, integration: Integration | undefined): string {
 	const title =
 		integration?.actions.find((action) => action.id === entry.action)?.label ?? entry.action;
 	if (entry.outcome === 'denied') {
 		return `Tried to run ${title}`;
 	}
+	if (entry.outcome === 'failed') {
+		return `Failed to run ${title}`;
+	}
 	return entry.query ? `Ran ${title} with ${entry.query}` : `Ran ${title}`;
 }
 
 // "Viewed email “Thursday sync moved?”", "Listed Entries", "Searched Email for “invoice”",
-// "Listed Pages in “Companies”", "Tried to list Contacts", and a command's own words: "Sent email
-// “Re: Q3”", "Tried to send email". A list's record title is the record it was opened in.
+// "Listed Pages in “Companies”", "Tried to list Contacts", "Failed to view issue", and a command's
+// own words: "Sent email “Re: Q3”", "Tried to send email", "Failed to send email “Re: Q3”". A list's
+// record title is the record it was opened in.
 export function describeEntry(entry: AuditEntry, located: LocatedEntry | null): string {
 	if (located?.integration.custom || entry.collectionId === TOOLS_COLLECTION_ID) {
 		return describeToolRun(entry, located?.integration);
@@ -166,21 +171,52 @@ export function describeEntry(entry: AuditEntry, located: LocatedEntry | null): 
 		if (denied) {
 			return `Tried to ${what}`;
 		}
+		if (entry.outcome === 'failed') {
+			return `Failed to ${what}`;
+		}
 		return entry.query ? `Searched ${where} for “${entry.query}”` : `Listed ${where}`;
 	}
 
 	const record = entry.recordTitle ? `${singular} “${entry.recordTitle}”` : singular;
 	const command = collection?.commands?.find((candidate) => candidate.id === entry.action);
+	if (command && denied) {
+		return `Tried to ${command.tried.replace('{}', singular)}`;
+	}
+	if (command && entry.outcome === 'failed') {
+		return `Failed to ${command.tried.replace('{}', record)}`;
+	}
 	if (command) {
-		return denied
-			? `Tried to ${command.tried.replace('{}', singular)}`
-			: command.done.replace('{}', record);
+		return command.done.replace('{}', record);
 	}
 
 	if (denied) {
 		return `Tried to ${entry.action} ${singular}`;
 	}
+	if (entry.outcome === 'failed') {
+		return `Failed to ${entry.action} ${record}`;
+	}
 	return `${ACTION_VERBS[entry.action] ?? entry.action} ${record}`;
+}
+
+const FAILURES: Partial<Record<string, string>> = {
+	credentials_rejected: 'The service turned the connection’s sign-in down',
+	provider_unreachable: 'The service couldn’t be reached',
+	not_found: 'The service didn’t find it',
+	validation_error: 'The service turned the request down',
+	conflict: 'The service turned the request down',
+	unavailable: 'The service turned the request down',
+};
+
+// What went wrong with a failed request, from the kind of error the api logged and the service's
+// HTTP status where it answered with one: "The service couldn’t be reached (HTTP 503)", and too
+// many requests in words of their own.
+export function describeFailure(error: string | null): string {
+	const [kind = '', status] = (error ?? '').split(' ');
+	if (status === '429') {
+		return 'The service turned it down for too many requests (HTTP 429)';
+	}
+	const words = FAILURES[kind] ?? 'Something went wrong';
+	return status ? `${words} (HTTP ${status})` : words;
 }
 
 // The action the request needed: a custom server's tool is its own, anything else the one its

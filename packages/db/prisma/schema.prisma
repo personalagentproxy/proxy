@@ -275,9 +275,12 @@ model AgentSession {
   @@index([agentId])
 }
 
+// Allowed and done, refused by the agent's access, or allowed but failed: the provider turned it
+// down, or couldn't be reached.
 enum AuditOutcome {
   allowed
   denied
+  failed
 }
 
 // How an agent came in: the web app's agent pages, or the MCP server.
@@ -286,9 +289,9 @@ enum AuditVia {
   mcp
 }
 
-// One request an agent made, allowed or denied, or one thing Personal Agent Proxy did itself for a
-// person, as the home page's widgets write. Plain ids rather than relations, so the entry stays
-// when the agent or the connection is gone.
+// One request an agent made, allowed, denied or failed, or one thing Personal Agent Proxy did
+// itself for a person, as the home page's widgets write. Plain ids rather than relations, so the
+// entry stays when the agent or the connection is gone.
 model AuditEntry {
   id           String       @id @default(cuid())
   orgId        String
@@ -311,6 +314,10 @@ model AuditEntry {
   // every entry logged since this was kept; none for the entries from before, and for what
   // Personal Agent Proxy did itself.
   durationMs   Int?
+  // What went wrong, for a failed request: the api's kind of error, such as `credentials_rejected`,
+  // and the provider's HTTP status after it where it answered with one, such as
+  // `provider_unreachable 429`. None for every other outcome.
+  error        String?
 
   createdAt DateTime @default(now())
 

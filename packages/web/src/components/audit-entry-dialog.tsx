@@ -10,7 +10,7 @@ import {
 	DialogTitle,
 } from '@proxy/ui/components/dialog';
 import {AgentLogo, IntegrationLogo, ProxyLogo} from '@/components/brand-logo';
-import {describeEntry, entryAction, locateEntry} from '@/lib/access';
+import {describeEntry, describeFailure, entryAction, locateEntry} from '@/lib/access';
 import type {ActivityTask, AgentLogin, AuditEntry, Connection} from '@/lib/types';
 
 type Props = {
@@ -81,7 +81,6 @@ function AuditEntryContent({
 	const task = tasks.find((candidate) => candidate.id === entry.taskId);
 	const located = locateEntry(connections, entry);
 	const action = entryAction(entry, located);
-	const denied = entry.outcome === 'denied';
 	const toolRun = located?.integration.custom || entry.collectionId === TOOLS_COLLECTION_ID;
 
 	return (
@@ -94,12 +93,15 @@ function AuditEntryContent({
 			</DialogHeader>
 			<dl className="divide-y text-sm">
 				<Detail label="Outcome">
-					{denied ? (
-						<Badge variant="destructive">Denied</Badge>
-					) : (
-						<Badge variant="secondary">Allowed</Badge>
-					)}
+					{entry.outcome === 'allowed' && <Badge variant="secondary">Allowed</Badge>}
+					{entry.outcome === 'denied' && <Badge variant="destructive">Denied</Badge>}
+					{entry.outcome === 'failed' && <Badge variant="destructive">Failed</Badge>}
 				</Detail>
+				{entry.outcome === 'failed' && (
+					<Detail label="Error">
+						<span className="min-w-0 break-words">{describeFailure(entry.error)}</span>
+					</Detail>
+				)}
 				<Detail label="Agent">
 					{entry.agentId === null && (
 						<>

@@ -118,6 +118,7 @@ describe('handleListActivityRoute', () => {
 			via: 'mcp',
 			taskId: 'task-1',
 			durationMs: 340,
+			error: null,
 			createdAt: new Date('2026-10-15T10:00:00Z'),
 		};
 		listAuditEntries.mockResolvedValue(Ok([entry, {...entry, id: 'e2', taskId: null, agentId: null, durationMs: null}]));
@@ -155,6 +156,7 @@ describe('handleListActivityRoute', () => {
 					via: 'mcp',
 					taskId: 'task-1',
 					durationMs: 340,
+					error: null,
 					at: '2026-10-15T10:00:00.000Z',
 				},
 				{
@@ -169,6 +171,7 @@ describe('handleListActivityRoute', () => {
 					via: 'mcp',
 					taskId: null,
 					durationMs: null,
+					error: null,
 					at: '2026-10-15T10:00:00.000Z',
 				},
 			],

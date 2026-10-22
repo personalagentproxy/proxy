@@ -1,4 +1,5 @@
 import {Err, Ok, type Result} from 'ts-results-es';
+import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {getAgent, type AgentRow, type SignedInAgent} from '@proxy/db/agent';
@@ -33,8 +34,8 @@ import {isPlainObject, parseToolParams} from './tool-params';
 /**
  * The agent side, whichever way an agent comes in: the connections it can use, the tools it has
  * with each, and running one. Every run is made for one of the agent's tasks (tasks.ts), checked
- * against the agent's access as it is now and logged with the task, a refused one too; one that
- * can't be logged fails rather than go unrecorded.
+ * against the agent's access as it is now and logged with the task, a refused one too, and one the
+ * provider fails; one that can't be logged fails rather than go unrecorded.
  */
 
 export type AgentConnection = {
@@ -125,8 +126,10 @@ function recordTitle(collection: Collection, values: RecordValues): string | nul
 	return values[collection.titleField]?.trim() || null;
 }
 
-// `query` is what a list searched for.
-function log(run: ToolRun, outcome: 'allowed' | 'denied', title: string | null, query: string | null = null): Promise<Result<void, ApiError>> {
+type Outcome = 'allowed' | 'denied' | 'failed';
+
+// `query` is what a list searched for, and `error` what went wrong, for a failed run.
+function log(run: ToolRun, outcome: Outcome, title: string | null, query: string | null = null, error?: string): Promise<Result<void, ApiError>> {
 	return logAgentRequest({
 		orgId: run.caller.agent.orgId,
 		agentId: run.caller.agent.agentId,
@@ -139,6 +142,28 @@ function log(run: ToolRun, outcome: 'allowed' | 'denied', title: string | null, 
 		via: run.caller.via,
 		taskId: run.caller.taskId,
 		startedAt: run.startedAt,
+		error,
+	});
+}
+
+const httpCauseSchema = z.object({kind: z.literal('http'), status: z.number()});
+
+// What the activity log keeps of what went wrong: the error's kind, with the provider's HTTP status
+// where it answered with one, as `provider_unreachable 429`; never the provider's words, which can
+// hold the person's data.
+function failureOf(error: ApiError): string {
+	const cause = 'cause' in error ? httpCauseSchema.safeParse(error.cause) : null;
+	return cause?.success ? `${error.kind} ${cause.data.status}` : error.kind;
+}
+
+// What a call to the provider answered; one that failed is logged as failed first, with `title`
+// and `query` as an allowed one would have been.
+function logFailure<T>(run: ToolRun, answer: Result<T, ApiError>, title: string | null, query: string | null = null): Promise<Result<T, ApiError>> {
+	return Do(async ($) => {
+		if (answer.isErr()) {
+			$(await log(run, 'failed', title, query, failureOf(answer.error)));
+		}
+		return $(answer);
 	});
 }
 
@@ -147,7 +172,8 @@ function log(run: ToolRun, outcome: 'allowed' | 'denied', title: string | null, 
  * caller's task, which has to be one of the agent's and still under way; a run without one is
  * refused, unlogged. A connection outside the organization, or a tool its integration doesn't have,
  * is not found and not logged; a tool whose action the agent doesn't have is refused and logged as
- * denied, saying how to allow it where the connection's sign-in didn't cover the action.
+ * denied, saying how to allow it where the connection's sign-in didn't cover the action. A run the
+ * provider fails, turning it down or out of reach, is logged as failed, with what went wrong.
  * `readOnly` limits the run to tools that only read, or only to those that change something, as
  * the MCP server's `read` and `run` do; any other is refused, unlogged.
  */
@@ -221,7 +247,7 @@ function loggedParams(args: Record<string, unknown>): string | null {
 
 // A custom server's tool, called as it is: its params go to the server as given, which checks
 // them against its own schema, and its answer comes back as text. Logged by the tool's name, with
-// its params, allowed or denied.
+// its params, allowed, denied or failed.
 function runServerTool(
 	caller: TaskCaller,
 	agent: AgentRow,
@@ -237,7 +263,7 @@ function runServerTool(
 			return $(Err(ApiErr.validationError(`${tool.name} takes an object of params`)));
 		}
 		const logged = loggedParams(args);
-		const logRun = (outcome: 'allowed' | 'denied') =>
+		const logRun = (outcome: Outcome, error?: string) =>
 			logAgentRequest({
 				orgId: caller.agent.orgId,
 				agentId: caller.agent.agentId,
@@ -250,12 +276,17 @@ function runServerTool(
 				via: caller.via,
 				taskId: caller.taskId,
 				startedAt,
+				error,
 			});
 		if (!actionsOf(agent, connection, integration, unavailableActions(connection)).includes(tool.action)) {
 			$(await logRun('denied'));
 			return $(Err(ApiErr.forbidden()));
 		}
-		const text = $(await callCustomTool(connection, tool.name, args));
+		const answer = await callCustomTool(connection, tool.name, args);
+		if (answer.isErr()) {
+			$(await logRun('failed', failureOf(answer.error)));
+		}
+		const text = $(answer);
 		$(await logRun('allowed'));
 		return {text};
 	});
@@ -303,7 +334,7 @@ function list(run: ToolRun, params: Record<string, string>): Promise<Result<Tool
 	return Do(async ($) => {
 		const {filterField} = run.target.collection;
 		const query = {search: searchOf(params), page: params.page ?? null, filter: filterField ? (params[filterField] ?? null) : null, parent: params.parent ?? null};
-		const page = $(await run.connector.list(run.target, query));
+		const page = $(await logFailure(run, await run.connector.list(run.target, query), null, query.search));
 		$(await log(run, 'allowed', page.trail?.at(-1)?.title ?? null, query.search));
 		return page;
 	});
@@ -311,7 +342,7 @@ function list(run: ToolRun, params: Record<string, string>): Promise<Result<Tool
 
 function get(run: ToolRun, recordId: string): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
-		const record = $(await run.connector.get(run.target, recordId));
+		const record = $(await logFailure(run, await run.connector.get(run.target, recordId), null));
 		$(await log(run, 'allowed', recordTitle(run.target.collection, record.values)));
 		return {record};
 	});
@@ -337,7 +368,7 @@ function create(run: ToolRun, params: Record<string, string>): Promise<Result<To
 	return Do(async ($) => {
 		const values = $(parseRecordValues(run.target.collection, fieldsOf(params)));
 		$(await requireFieldActions(run, values));
-		const record = $(await run.connector.create(run.target, values, params.parent ?? null));
+		const record = $(await logFailure(run, await run.connector.create(run.target, values, params.parent ?? null), recordTitle(run.target.collection, values)));
 		$(await log(run, 'allowed', recordTitle(run.target.collection, record.values)));
 		return {record};
 	});
@@ -348,12 +379,12 @@ function update(run: ToolRun, params: Record<string, string>): Promise<Result<To
 	return Do(async ($) => {
 		const {collection} = run.target;
 		const recordId = params.id ?? '';
-		const before = $(await run.connector.get(run.target, recordId));
+		const before = $(await logFailure(run, await run.connector.get(run.target, recordId), null));
 		$(requireApplies(run.tool.where, before));
 		const current = Object.fromEntries(collection.fields.filter((field) => !field.system).map((field) => [field.key, before.values[field.key] ?? '']));
 		const values = $(parseRecordValues(collection, {...current, ...fieldsOf(params)}));
 		$(await requireFieldActions(run, values, before.values));
-		const record = $(await run.connector.update(run.target, recordId, values, before));
+		const record = $(await logFailure(run, await run.connector.update(run.target, recordId, values, before), recordTitle(collection, values)));
 		$(await log(run, 'allowed', recordTitle(collection, record.values)));
 		return {record};
 	});
@@ -361,9 +392,9 @@ function update(run: ToolRun, params: Record<string, string>): Promise<Result<To
 
 function remove(run: ToolRun, recordId: string): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
-		const before = $(await run.connector.get(run.target, recordId));
+		const before = $(await logFailure(run, await run.connector.get(run.target, recordId), null));
 		$(requireApplies(run.tool.where, before));
-		$(await run.connector.remove(run.target, recordId));
+		$(await logFailure(run, await run.connector.remove(run.target, recordId), recordTitle(run.target.collection, before.values)));
 		$(await log(run, 'allowed', recordTitle(run.target.collection, before.values)));
 		return {record: null};
 	});
@@ -372,9 +403,9 @@ function remove(run: ToolRun, recordId: string): Promise<Result<ToolResult, ApiE
 function command(run: ToolRun, recordId: string): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
 		const runner = $(requirePresent(run.connector.commands?.[run.tool.operation], ApiErr.notFound('tool', run.tool.name)));
-		const before = $(await run.connector.get(run.target, recordId));
+		const before = $(await logFailure(run, await run.connector.get(run.target, recordId), null));
 		$(requireApplies(run.tool.where, before));
-		const record = $(await runner(run.target, recordId));
+		const record = $(await logFailure(run, await runner(run.target, recordId), recordTitle(run.target.collection, before.values)));
 		$(await log(run, 'allowed', recordTitle(run.target.collection, before.values)));
 		return {record};
 	});
@@ -384,7 +415,7 @@ function newCommand(run: ToolRun, params: Record<string, string>): Promise<Resul
 	return Do(async ($) => {
 		const runner = $(requirePresent(run.connector.newCommands?.[run.tool.operation], ApiErr.notFound('tool', run.tool.name)));
 		const values = $(parseRecordValues(run.target.collection, params));
-		const record = $(await runner(run.target, values));
+		const record = $(await logFailure(run, await runner(run.target, values), recordTitle(run.target.collection, values)));
 		$(await log(run, 'allowed', recordTitle(run.target.collection, values)));
 		return {record};
 	});

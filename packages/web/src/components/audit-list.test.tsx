@@ -53,31 +53,36 @@ const entry: AuditEntry = {
 	recordTitle: 'Weekly digest',
 	query: null,
 	outcome: 'denied',
+	error: null,
 	via: 'mcp',
 	taskId: task.id,
 };
 
+function renderList(entries: AuditEntry[]) {
+	const router = createMemoryRouter(
+		[
+			{
+				path: '/activity',
+				element: (
+					<TooltipProvider>
+						<AuditList
+							entries={entries}
+							agents={[agent]}
+							connections={[connection]}
+							tasks={[task]}
+						/>
+					</TooltipProvider>
+				),
+			},
+		],
+		{initialEntries: ['/activity']},
+	);
+	render(<RouterProvider router={router} />);
+}
+
 describe('AuditList', () => {
 	test('opens an entry in full from its row', async () => {
-		const router = createMemoryRouter(
-			[
-				{
-					path: '/activity',
-					element: (
-						<TooltipProvider>
-							<AuditList
-								entries={[entry]}
-								agents={[agent]}
-								connections={[connection]}
-								tasks={[task]}
-							/>
-						</TooltipProvider>
-					),
-				},
-			],
-			{initialEntries: ['/activity']},
-		);
-		render(<RouterProvider router={router} />);
+		renderList([entry]);
 
 		const row = await screen.findByRole('button', {name: /Tried to archive email/});
 		expect(row.textContent).toContain('· for Triage inbox');
@@ -96,5 +101,19 @@ describe('AuditList', () => {
 		expect(within(dialog).getByText('Weekly digest')).toBeDefined();
 		expect(within(dialog).getByText('Archive')).toBeDefined();
 		expect(within(dialog).getByText('MCP')).toBeDefined();
+	});
+
+	test('a failed request says so, and what went wrong', async () => {
+		renderList([{...entry, outcome: 'failed', error: 'provider_unreachable 429'}]);
+
+		fireEvent.click(
+			await screen.findByRole('button', {name: /Failed to archive email “Weekly digest”/}),
+		);
+
+		const dialog = await screen.findByRole('dialog');
+		expect(within(dialog).getByText('Failed')).toBeDefined();
+		expect(
+			within(dialog).getByText('The service turned it down for too many requests (HTTP 429)'),
+		).toBeDefined();
 	});
 });

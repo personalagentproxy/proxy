@@ -68,7 +68,7 @@ export type ActivityFilter = {
 	connectionId?: string;
 	// One task's requests.
 	taskId?: string;
-	outcome?: 'allowed' | 'denied';
+	outcome?: 'allowed' | 'denied' | 'failed';
 };
 
 export function listActivity(filter: ActivityFilter) {
