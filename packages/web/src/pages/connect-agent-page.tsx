@@ -97,13 +97,17 @@ function Consent({
 			isNew: false,
 			detail: 'Its access as it is',
 		})),
-		...AGENT_PROVIDERS.map((provider) => ({
-			key: `new-${provider.id}`,
-			providerId: provider.id,
-			label: provider.name,
-			isNew: true,
-			detail: 'A new login, with every connection’s defaults',
-		})),
+		// A product that signs in through another's account, as Claude Duet through Claude, gets a
+		// login of that provider's.
+		...AGENT_PROVIDERS.filter((provider) => provider.loginProviderId === undefined).map(
+			(provider) => ({
+				key: `new-${provider.id}`,
+				providerId: provider.id,
+				label: provider.name,
+				isNew: true,
+				detail: 'A new login, with every connection’s defaults',
+			}),
+		),
 	];
 	// The agent being set up in this browser, else the one the client's name points at, else the
 	// custom agent of that name, else a new one.

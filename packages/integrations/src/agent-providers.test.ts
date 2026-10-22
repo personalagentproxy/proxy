@@ -1,12 +1,31 @@
 import {describe, expect, test} from 'bun:test';
 
-import {AGENT_PROVIDERS, findAgentProvider, suggestAgentProvider} from './agent-providers';
+import {
+	AGENT_PROVIDERS,
+	findAgentProvider,
+	loginProviderIdFor,
+	suggestAgentProvider,
+} from './agent-providers';
 
 describe('agent providers', () => {
 	test('have unique ids', () => {
 		expect(new Set(AGENT_PROVIDERS.map((provider) => provider.id)).size).toBe(
 			AGENT_PROVIDERS.length,
 		);
+	});
+
+	test('shared login providers are direct, valid account logins', () => {
+		for (const product of AGENT_PROVIDERS) {
+			if (!product.loginProviderId) {
+				continue;
+			}
+
+			const loginProvider = findAgentProvider(product.loginProviderId);
+			expect(loginProvider).toBeDefined();
+			expect(loginProvider?.id).not.toBe(product.id);
+			expect(loginProvider?.custom).not.toBe(true);
+			expect(loginProvider?.loginProviderId).toBeUndefined();
+		}
 	});
 
 	test('each has its favicon bundled with the web app', async () => {
@@ -30,7 +49,10 @@ describe('agent providers', () => {
 		}
 	});
 
-	test('uses the same Claude Duet logo on the website and in the README', async () => {
+	test('uses the same Claude Duet logo in the app, on the website and in the README', async () => {
+		const appLogo = await Bun.file(
+			new URL('../../web/public/agent-providers/claude-duet.png', import.meta.url),
+		).bytes();
 		const websiteLogo = await Bun.file(
 			new URL('../../website/public/logos/claude-duet.png', import.meta.url),
 		).bytes();
@@ -38,11 +60,15 @@ describe('agent providers', () => {
 			new URL('../../../docs/assets/agents/claude-duet.png', import.meta.url),
 		).bytes();
 
+		expect(appLogo).toEqual(readmeLogo);
 		expect(websiteLogo).toEqual(readmeLogo);
 	});
 
 	test('finds a provider by id', () => {
 		expect(findAgentProvider('dot')?.name).toBe('Dots');
+		const duet = findAgentProvider('claude-duet');
+		expect(duet?.name).toBe('Claude Duet');
+		expect(duet && loginProviderIdFor(duet)).toBe('claude');
 		expect(findAgentProvider('other')).toBeUndefined();
 	});
 

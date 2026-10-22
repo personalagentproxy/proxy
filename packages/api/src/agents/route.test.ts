@@ -122,6 +122,16 @@ describe('handleCreateAgentRoute', () => {
 		expect(result.unwrapErr().kind).toBe('parse_error');
 	});
 
+	test('stores Claude Duet under its shared Claude login', async () => {
+		const {handleCreateAgentRoute} = await import('./route');
+		await handleCreateAgentRoute(makeRequest({}, {providerId: 'claude-duet'}));
+
+		expect(createAgent.mock.calls[0]?.[0]).toMatchObject({
+			providerId: 'claude',
+			name: 'Claude',
+		});
+	});
+
 	test('names a custom agent as the person did, and any number of them', async () => {
 		const {handleCreateAgentRoute} = await import('./route');
 		await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: '  Cursor '}));

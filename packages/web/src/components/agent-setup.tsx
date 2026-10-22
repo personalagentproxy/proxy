@@ -2,6 +2,7 @@ import {
 	AGENT_NAME_MAX,
 	AGENT_PROVIDERS,
 	findAgentProvider,
+	loginProviderIdFor,
 	type AgentProvider,
 	type AgentProviderId,
 } from '@proxy/integrations';
@@ -88,6 +89,9 @@ export function AddAgent({
 		return (
 			<AgentSetup
 				agent={agent}
+				product={
+					provider && loginProviderIdFor(provider) === agent.providerId ? provider : undefined
+				}
 				password={made?.agent.id === agent.id ? made.password : undefined}
 				back={chooseAnother}
 				continueLabel={continueLabel}
@@ -103,8 +107,14 @@ export function AddAgent({
 				back={chooseAnother}
 				onMade={(next) => {
 					setMade(next);
-					// Back from the setup returns to the choice, not to making another.
-					show({agent: next.agent.id}, true);
+					// Back from the setup returns to the choice, not to making another. A product that
+					// signs in through another's account, as Claude Duet, stays in the address, for its steps.
+					show(
+						provider.loginProviderId
+							? {agent: next.agent.id, provider: provider.id}
+							: {agent: next.agent.id},
+						true,
+					);
 					void revalidate();
 				}}
 			/>
@@ -151,7 +161,8 @@ function AgentPicker({onChoose}: {onChoose: (provider: AgentProvider) => void}) 
 	);
 }
 
-// The new agent's name, its provider's to start with, and making it: its login is made then.
+// The new agent's name, its provider's to start with, and making it: its login is made then. A
+// product that signs in through another's account, as Claude Duet, makes a login of that one's.
 function NameAgent({
 	provider,
 	shared,
@@ -164,7 +175,8 @@ function NameAgent({
 	onMade: (made: {agent: AgentLogin; password: string}) => void;
 }) {
 	const org = useOrgSlug();
-	const [name, setName] = useState(provider.custom ? '' : provider.name);
+	const account = findAgentProvider(loginProviderIdFor(provider)) ?? provider;
+	const [name, setName] = useState(provider.custom ? '' : account.name);
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const ready = name.trim() !== '' && !pending;
@@ -190,6 +202,8 @@ function NameAgent({
 			<StepHeading title={provider.custom ? 'Name your agent' : `Name this ${provider.name}`}>
 				What it is called here and in the activity log, to tell it apart from your other agents. You
 				can change it later.
+				{account !== provider &&
+					` ${provider.name} signs in through your ${account.name} account, so this is a ${account.name} login, which ${account.name} uses too.`}
 			</StepHeading>
 			<div className="grid gap-2">
 				<Label htmlFor="agent-name">Name</Label>
@@ -215,21 +229,25 @@ function NameAgent({
 
 // What one agent needs to work through Personal Agent Proxy: an MCP client adds the server and
 // signs in as it; another is handed its login, with `password` when it was just made, or a new
-// password otherwise. Setting an agent up again goes through here too.
+// password otherwise. `product` is what is set up where it isn't the agent's provider but signs in
+// through its account, as Claude Duet through Claude. Setting an agent up again goes through here
+// too.
 export function AgentSetup({
 	agent,
+	product,
 	password,
 	back,
 	continueLabel,
 	onContinue,
 }: {
 	agent: AgentLogin;
+	product?: AgentProvider;
 	password?: string;
 	back?: ReactNode;
 	continueLabel: string;
 	onContinue: () => void;
 }) {
-	const provider = findAgentProvider(agent.providerId);
+	const provider = product ?? findAgentProvider(agent.providerId);
 	useCommandEnter(onContinue, provider !== undefined);
 	if (!provider) {
 		return null;
@@ -319,14 +337,23 @@ const MCP_STEPS: Partial<
 	>
 > = {
 	claude: {
-		where:
-			'In Claude, open Customize, then Connectors, and choose Add custom connector. Claude Duet uses the same connectors as Claude.',
+		where: 'In Claude, open Customize, then Connectors, and choose Add custom connector.',
 		url: 'https://claude.ai/customize/connectors',
 		openLabel: 'Claude',
 		afterAdd:
 			'Name the connector, paste the server address, and continue. Choose Sign in now, then choose Register automatically under OAuth client.',
 		authorize: (name) =>
-			`Claude opens Personal Agent Proxy to sign in. Allow it to work as ${name}. That login gives Claude and Claude Duet the same access and activity history.`,
+			`Claude opens Personal Agent Proxy to sign in. Allow it to work as ${name}.`,
+	},
+	'claude-duet': {
+		where:
+			'Claude Duet uses the connectors in your Claude account. In Claude, open Customize, then Connectors, and choose Add custom connector.',
+		url: 'https://claude.ai/customize/connectors',
+		openLabel: 'Claude',
+		afterAdd:
+			'Name the connector, paste the server address, and continue. Choose Sign in now, then choose Register automatically under OAuth client.',
+		authorize: (name) =>
+			`Claude opens Personal Agent Proxy to sign in. Allow it to work as ${name}. Claude Duet shares that login, its access, and its activity history.`,
 	},
 	'claude-code': {
 		where: 'Run the command above in a terminal.',
@@ -396,7 +423,10 @@ function McpAgent({
 	return (
 		<>
 			<StepHeading title={`Add Personal Agent Proxy to ${app}`}>
-				{app} works through Personal Agent Proxy as a connector, signed in as {agent.name}.
+				{app} works through Personal Agent Proxy as a connector, signed in as {agent.name}
+				{provider.loginProviderId
+					? `, a login of your ${findAgentProvider(provider.loginProviderId)?.name ?? 'account'} account.`
+					: '.'}
 			</StepHeading>
 			{!reachable && <NotPublicCallout />}
 			{!PUBLIC && provider.custom && <NotPublicCallout custom />}

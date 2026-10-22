@@ -2,6 +2,7 @@ export {
 	AGENT_PROVIDERS,
 	AGENT_NAME_MAX,
 	findAgentProvider,
+	loginProviderIdFor,
 	suggestAgentProvider,
 } from './agent-providers';
 export type {AgentProvider, AgentProviderId} from './agent-providers';

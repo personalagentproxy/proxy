@@ -146,6 +146,41 @@ describe('AddAgent', () => {
 		expect(await screen.findByText('Hand Dots its login')).toBeDefined();
 		expect(screen.getByText(/Password: abcde-fghij-kmnop-qrstu/)).toBeDefined();
 	});
+	test('offers Claude and Claude Duet as separate products', () => {
+		renderAddAgent();
+
+		expect(screen.getByRole('button', {name: 'Claude Needs a public https address'})).toBeDefined();
+		expect(
+			screen.getByRole('button', {name: 'Claude Duet Needs a public https address'}),
+		).toBeDefined();
+	});
+
+	test('makes Claude Duet a Claude login, and sets it up as Claude Duet', async () => {
+		const made = agentLogin('agent-1', 'Claude', 'claude');
+		fetchMock.mockImplementation((_input, init) =>
+			Promise.resolve(
+				init?.method === 'POST'
+					? Response.json({agent: made, password: 'unused'})
+					: Response.json({clients: []}),
+			),
+		);
+		const router = renderAddAgent();
+
+		await act(() => router.navigate('/acme/welcome/agent?provider=claude-duet'));
+		expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Claude');
+		fireEvent.click(screen.getByRole('button', {name: 'Continue'}));
+
+		expect(await screen.findByText('Add Personal Agent Proxy to Claude Duet')).toBeDefined();
+		expect(
+			screen.getByText(/Claude Duet uses the connectors in your Claude account/),
+		).toBeDefined();
+		expect(screen.getByText(/Claude Duet shares that login/)).toBeDefined();
+		expect(router.state.location.search).toBe('?agent=agent-1&provider=claude-duet');
+		expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+			providerId: 'claude-duet',
+			name: 'Claude',
+		});
+	});
 });
 
 describe('AgentSetup', () => {
@@ -178,19 +213,14 @@ describe('AgentSetup', () => {
 		).toBeDefined();
 	});
 
-	test('adds Claude and Claude Duet through their shared Claude account connector', () => {
+	test('adds Claude through its Claude account connector', () => {
 		renderAgentSetup(agentLogin('agent-1', 'Claude', 'claude'));
 
-		expect(screen.getByText(/Claude Duet uses the same connectors as Claude/)).toBeDefined();
 		expect(screen.getByRole('link', {name: 'Open Claude'}).getAttribute('href')).toBe(
 			'https://claude.ai/customize/connectors',
 		);
 		expect(screen.getByText(/choose Register automatically under OAuth client/)).toBeDefined();
-		expect(
-			screen.getByText(
-				/That login gives Claude and Claude Duet the same access and activity history/,
-			),
-		).toBeDefined();
+		expect(screen.getByText(/Allow it to work as Claude\./)).toBeDefined();
 	});
 
 	test('waits for an MCP client to sign in as the agent, then says which did', async () => {
