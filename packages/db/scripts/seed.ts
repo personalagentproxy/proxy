@@ -592,6 +592,28 @@ function isAllowed(agent: (typeof agents)[number], request: Request): boolean {
 	);
 }
 
+// Now and then the service fails an allowed request: too many requests, out of reach, or the
+// connection's sign-in turned down, as the api logs what went wrong.
+const FAILURES: [string, ...string[]] = [
+	'provider_unreachable 429',
+	'provider_unreachable 503',
+	'provider_unreachable',
+	'credentials_rejected',
+];
+
+function outcomeOf(
+	agent: (typeof agents)[number],
+	request: Request,
+): {outcome: 'allowed' | 'denied' | 'failed'; error: string | null} {
+	if (!isAllowed(agent, request)) {
+		return {outcome: 'denied', error: null};
+	}
+	if (random() < 0.05) {
+		return {outcome: 'failed', error: pick(FAILURES)};
+	}
+	return {outcome: 'allowed', error: null};
+}
+
 // What the agents set out to do: every request is made for a task, as the api logs them, a few
 // requests in a row to each.
 const TASKS: [{title: string; goal: string}, ...Array<{title: string; goal: string}>] = [
@@ -745,7 +767,7 @@ for (const agent of agents) {
 					action: request.action,
 					recordTitle: onOneRecord ? recordTitle(request.connection, request.collection.id) : null,
 					query: null,
-					outcome: isAllowed(agent, request) ? 'allowed' : 'denied',
+					...outcomeOf(agent, request),
 					via: task.via,
 					taskId: task.id,
 					durationMs: requestDuration(),
@@ -797,7 +819,7 @@ for (const agent of agents) {
 				action: request.action,
 				recordTitle: onOneRecord ? recordTitle(request.connection, collectionId) : null,
 				query: searched ? pick(SEARCHES) : null,
-				outcome: isAllowed(agent, request) ? 'allowed' : 'denied',
+				...outcomeOf(agent, request),
 				via,
 				taskId,
 				durationMs: requestDuration(),

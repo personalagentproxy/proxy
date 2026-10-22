@@ -27,6 +27,8 @@ export type AuditEntryRow = {
 	// The member who asked for what Personal Agent Proxy did itself; none for an agent's request,
 	// and for entries from before it was kept.
 	userId: string | null;
+	// What went wrong, for a failed request (schema.prisma); none for every other outcome.
+	error: string | null;
 	createdAt: Date;
 };
 
@@ -47,6 +49,8 @@ export async function logAgentRequest(data: {
 	ownerUserId: string | null;
 	// When the request came in, in ms since the epoch, so the entry says how long it took.
 	startedAt: number;
+	// What went wrong, for a failed request.
+	error?: string;
 }): Promise<Result<void, ApiError>> {
 	const {startedAt, ...entry} = data;
 	return wrapDb(async () => {
@@ -81,6 +85,7 @@ export async function logProxyAction(data: {
 				outcome: 'allowed',
 				taskId: null,
 				durationMs: null,
+				error: null,
 			},
 		});
 	});
@@ -89,8 +94,8 @@ export async function logProxyAction(data: {
 /**
  * The entries the viewer sees, newest first: the organization's shared agents' and shared
  * connections', and their own; optionally only one agent's or one connection's requests, only one
- * task's, or only allowed or denied ones; an `agentId` of null is what Personal Agent Proxy did
- * itself.
+ * task's, or only allowed, denied or failed ones; an `agentId` of null is what Personal Agent Proxy
+ * did itself.
  */
 export async function listAuditEntries(
 	viewer: Viewer,
@@ -124,6 +129,7 @@ export async function listAuditEntries(
 				taskId: true,
 				durationMs: true,
 				userId: true,
+				error: true,
 				createdAt: true,
 			},
 		}),

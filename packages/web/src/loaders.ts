@@ -150,7 +150,8 @@ export async function activityLoader({params, request}: OrgParams & {request: Re
 		agentId: search.get('agent') ?? undefined,
 		connectionId: search.get('connection') ?? undefined,
 		taskId: search.get('task') ?? undefined,
-		outcome: outcome === 'allowed' || outcome === 'denied' ? outcome : undefined,
+		outcome:
+			outcome === 'allowed' || outcome === 'denied' || outcome === 'failed' ? outcome : undefined,
 	};
 	const [activity, connections, agents] = await Promise.all([
 		listActivity(org, filter),

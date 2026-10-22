@@ -66,7 +66,10 @@ export const auditEntrySchema = z.object({
 	action: z.string(),
 	recordTitle: z.string().nullable(),
 	query: z.string().nullable(),
-	outcome: z.enum(['allowed', 'denied']),
+	outcome: z.enum(['allowed', 'denied', 'failed']),
+	// What went wrong, for a failed request: the api's kind of error, with the provider's HTTP
+	// status where it answered with one, such as `provider_unreachable 429`.
+	error: z.string().nullable(),
 	// The web app's agent pages, or the MCP server.
 	via: z.enum(['web', 'mcp']),
 	// The agent's task it was made for, among the answer's tasks; none for entries from before

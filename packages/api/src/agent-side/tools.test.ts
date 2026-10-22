@@ -390,7 +390,7 @@ describe('runAgentTool', () => {
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'sendNew', recordTitle: 'Friday', outcome: 'allowed'});
 	});
 
-	test('a failed run is not logged as allowed, and a run that cannot be logged is not returned', async () => {
+	test('a run the provider fails is logged as failed with what went wrong, not as allowed, and passed on', async () => {
 		useConnection(emailConnection);
 		getAgentById.mockResolvedValue(Ok(triage));
 		connector.get.mockResolvedValue(Ok(inboxEmail));
@@ -399,11 +399,37 @@ describe('runAgentTool', () => {
 		const {runAgentTool} = await import('./tools');
 		const failed = await runAgentTool(caller, 'mail-1', 'emails_archive', {id: inboxEmail.id});
 		expect(failed.unwrapErr().kind).toBe('not_found');
-		expect(logAgentRequest).not.toHaveBeenCalled();
+		expect(logAgentRequest).toHaveBeenCalledTimes(1);
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'archive', recordTitle: 'Invoice #20931', outcome: 'failed', error: 'not_found'});
+	});
 
+	test("a failure keeps the provider's HTTP status, and a read that failed before it had a record has no title", async () => {
+		const tooMany = ApiErr.providerUnreachable({kind: 'http', url: 'https://api.example.com', status: 429, body: 'Slow down, Alex'});
+		connector.get.mockResolvedValue(Err(tooMany));
+		connector.list.mockResolvedValue(Err(ApiErr.providerUnreachable({kind: 'network', url: 'https://api.example.com', cause: new Error('ECONNRESET')})));
+
+		const {runAgentTool} = await import('./tools');
+		expect((await runAgentTool(caller, 'vault-1', 'entries_get', {id: 'rec-1'})).unwrapErr()).toEqual(tooMany);
+		expect((await runAgentTool(caller, 'vault-1', 'entries_list', {search: 'passport'})).unwrapErr().kind).toBe('provider_unreachable');
+
+		expect(logAgentRequest.mock.calls.map(([logged]) => logged)).toMatchObject([
+			{action: 'view', recordTitle: null, query: null, outcome: 'failed', error: 'provider_unreachable 429'},
+			{action: 'list', recordTitle: null, query: 'passport', outcome: 'failed', error: 'provider_unreachable'},
+		]);
+	});
+
+	test('a run that cannot be logged is not returned', async () => {
+		useConnection(emailConnection);
+		getAgentById.mockResolvedValue(Ok(triage));
 		logAgentRequest.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
+
+		const {runAgentTool} = await import('./tools');
 		const unlogged = await runAgentTool(caller, 'mail-1', 'emails_list', {});
 		expect(unlogged.unwrapErr().kind).toBe('db_error');
+
+		connector.list.mockResolvedValue(Err(ApiErr.credentialsRejected()));
+		const failedUnlogged = await runAgentTool(caller, 'mail-1', 'emails_list', {});
+		expect(failedUnlogged.unwrapErr().kind).toBe('db_error');
 	});
 });
 
@@ -587,12 +613,13 @@ describe('custom MCP servers', () => {
 		expect(logAgentRequest).toHaveBeenCalledTimes(1);
 	});
 
-	test('what the tool answered with is passed on, and a tool that failed is what the server said', async () => {
+	test('what the tool answered with is passed on, and a tool that failed is what the server said, logged as failed', async () => {
 		callCustomTool.mockResolvedValue(Err(ApiErr.validationError('query is required')));
 		const {runAgentTool} = await import('./tools');
 		const failed = (await runAgentTool(caller, 'mcp-1', 'search_docs', {})).unwrapErr();
 
 		expect(failed).toEqual(ApiErr.validationError('query is required'));
-		expect(logAgentRequest).not.toHaveBeenCalled();
+		expect(logAgentRequest).toHaveBeenCalledTimes(1);
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'tools', action: 'search_docs', query: null, outcome: 'failed', error: 'validation_error'});
 	});
 });

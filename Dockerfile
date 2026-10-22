@@ -1,10 +1,14 @@
 # One image for all of Personal Agent Proxy: the api, serving the web app's build on the same
 # origin, and the database migrations it runs before starting. See
 # packages/docs/content/self-hosting.
+#
+# Bun is pinned, never `1-slim`, so a build can't reuse an older one from the cache: before 1.4.4
+# its Brotli decoder writes out of bounds on a crafted answer to `fetch` (CVE-2026-111497), which a
+# custom MCP server could send. A new version goes here and in render.yaml's BUN_VERSION.
 
 # Builds the web app, with only its own dependencies. Static files are the same on every platform,
 # so this runs on the builder's own, not emulated.
-FROM --platform=$BUILDPLATFORM oven/bun:1-slim AS build
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.4-slim AS build
 WORKDIR /app
 COPY . .
 RUN bun install --frozen-lockfile --filter web
@@ -12,7 +16,7 @@ RUN bun run --cwd packages/web build
 
 # Only the api's production dependencies, which include the Prisma CLI for the migrations. Every
 # workspace's package.json is copied so the lockfile still matches.
-FROM oven/bun:1-slim AS runtime
+FROM oven/bun:1.4.4-slim AS runtime
 WORKDIR /app
 
 # Prisma's engines need OpenSSL.

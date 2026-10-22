@@ -6,8 +6,8 @@ description: Add Personal Agent Proxy to Claude, Claude Duet, Claude Code, Claud
 Personal Agent Proxy is an MCP server. An agent that speaks MCP, such as Claude, Claude Duet,
 Claude Code, Claude Desktop, ChatGPT, Hermes Agent, Poke or any other MCP client, connects to it,
 signs in with OAuth, and works as one of your agent logins: it can do what that login is allowed
-and nothing more. Successful connection actions and actions denied by access settings are in the
-activity log, with the task they were made for.
+and nothing more. Successful connection actions, actions denied by access settings and actions the
+service failed are in the activity log, with the task they were made for.
 
 The server is at your Personal Agent Proxy's address with `/mcp` after it, such as
 `https://app.personalagentproxy.com/mcp`. Each agent's page in Personal Agent Proxy shows it under
@@ -107,8 +107,9 @@ of Personal Agent Proxy's own, which only its login can open. A mailbox over IMA
 your vault have no such page, so the agent names what it means instead, such as an email by
 its subject.
 
-An action the login isn't allowed is refused, and logged as denied. The activity log marks the
-actions that came in over MCP, each with its task.
+An action the login isn't allowed is refused, and logged as denied. One it is allowed that the
+service then fails, such as one turned down for too many requests, is logged as failed, with what
+went wrong. The activity log marks the actions that came in over MCP, each with its task.
 
 ## Disconnect an agent
 

@@ -91,7 +91,7 @@ export function AuditList({
 					const agent = agents.find((candidate) => candidate.id === entry.agentId);
 					const located = locateEntry(connections, entry);
 					const integration = located?.integration ?? null;
-					const denied = entry.outcome === 'denied';
+					const refusedOrFailed = entry.outcome !== 'allowed';
 					const task = tasks.find((candidate) => candidate.id === entry.taskId);
 					return (
 						<li key={entry.id} className="-mx-(--bleed)">
@@ -102,7 +102,9 @@ export function AuditList({
 							>
 								<span className={CELLS.at}>{formatDateTime(entry.at)}</span>
 								{showAgent && <EntryAgentLogo entry={entry} agent={agent} />}
-								<span className={cn('min-w-0 flex-1 truncate', denied && 'text-destructive')}>
+								<span
+									className={cn('min-w-0 flex-1 truncate', refusedOrFailed && 'text-destructive')}
+								>
 									{describeEntry(entry, located)}
 									{task && <span className="text-muted-foreground"> · for {task.title}</span>}
 									{entry.via === 'mcp' && (

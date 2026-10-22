@@ -123,6 +123,7 @@ describe('handleListActivityRoute', () => {
 			taskId: 'task-1',
 			durationMs: 340,
 			userId: null,
+			error: null,
 			createdAt: new Date('2026-10-15T10:00:00Z'),
 		};
 		listMemberNames.mockResolvedValue(Ok([{orgId: 'org-1', userId: 'user-2', name: 'Dana'}]));
@@ -163,6 +164,7 @@ describe('handleListActivityRoute', () => {
 					durationMs: 340,
 					userId: null,
 					userName: null,
+					error: null,
 					at: '2026-10-15T10:00:00.000Z',
 				},
 				{
@@ -179,6 +181,7 @@ describe('handleListActivityRoute', () => {
 					durationMs: null,
 					userId: 'user-2',
 					userName: 'Dana',
+					error: null,
 					at: '2026-10-15T10:00:00.000Z',
 				},
 			],

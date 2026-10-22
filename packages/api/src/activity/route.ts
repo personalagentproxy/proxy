@@ -22,7 +22,10 @@ export type AuditEntryResponse = {
 	action: string;
 	recordTitle: string | null;
 	query: string | null;
-	outcome: 'allowed' | 'denied';
+	outcome: 'allowed' | 'denied' | 'failed';
+	// What went wrong, for a failed request: the api's kind of error, with the provider's HTTP status
+	// where it answered with one, such as `provider_unreachable 429`; none for every other outcome.
+	error: string | null;
 	// The web app's agent pages, or the MCP server.
 	via: 'web' | 'mcp';
 	// The agent's task the request was made for, among the answer's `tasks`; none for entries from
@@ -66,7 +69,7 @@ const querySchema = z.object({
 	agentId: z.string().min(1).optional(),
 	connectionId: z.string().min(1).optional(),
 	taskId: z.string().min(1).optional(),
-	outcome: z.enum(['allowed', 'denied']).optional(),
+	outcome: z.enum(['allowed', 'denied', 'failed']).optional(),
 });
 
 /**
