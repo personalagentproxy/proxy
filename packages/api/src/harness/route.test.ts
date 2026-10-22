@@ -35,11 +35,27 @@ beforeEach(() => {
 	deleteThread.mockResolvedValue(Ok(true));
 	getThread.mockResolvedValue(Ok(thread));
 	listEntries.mockResolvedValue(
-		Ok([{id: 'e1', seq: 1, threadId: 'thread-1', kind: 'person', text: 'Hi', toolCalls: null, callId: null, isError: false, inputTokens: null, outputTokens: null, createdAt: now}]),
+		Ok([
+			{id: 'e1', seq: 1, threadId: 'thread-1', kind: 'person', text: 'Hi', toolCalls: null, callId: null, isError: false, inputTokens: null, outputTokens: null, coversSeq: null, createdAt: now},
+			{
+				id: 'e2',
+				seq: 2,
+				threadId: 'thread-1',
+				kind: 'summary',
+				text: 'The person said hi.',
+				toolCalls: null,
+				callId: null,
+				isError: false,
+				inputTokens: 90_000,
+				outputTokens: 10,
+				coversSeq: 1,
+				createdAt: now,
+			},
+		]),
 	);
 	listOpenJobs.mockResolvedValue(Ok([]));
 	appendPersonMessage.mockResolvedValue(
-		Ok({id: 'e2', seq: 2, threadId: 'thread-1', kind: 'person', text: 'Hello', toolCalls: null, callId: null, isError: false, inputTokens: null, outputTokens: null, createdAt: now}),
+		Ok({id: 'e3', seq: 3, threadId: 'thread-1', kind: 'person', text: 'Hello', toolCalls: null, callId: null, isError: false, inputTokens: null, outputTokens: null, coversSeq: null, createdAt: now}),
 	);
 });
 
@@ -96,7 +112,7 @@ describe('the chat routes', () => {
 		expect((await handleDeleteThreadRoute(request({threadId: 'nope'}))).unwrapErr()).toMatchObject({kind: 'not_found'});
 	});
 
-	test('give the log with whether the agent is busy or asleep', async () => {
+	test('give the log without its summaries, with whether the agent is busy or asleep', async () => {
 		const {handleGetThreadRoute} = await import('./route');
 		const soon = new Date(Date.now() + 60_000);
 		const base = {id: 'j1', threadId: 'thread-1', kind: 'tool' as const, status: 'queued' as const, entryId: 'e1', callId: 'c1', claimedBy: null, attempts: 0};
@@ -120,7 +136,7 @@ describe('the chat routes', () => {
 
 		const posted = await handlePostMessageRoute(request({threadId: 'thread-1'}, {text: '  Hello \n'}));
 		expect(appendPersonMessage).toHaveBeenCalledWith('thread-1', 'Hello');
-		expect(posted.unwrap().entry).toMatchObject({id: 'e2', kind: 'person', text: 'Hello'});
+		expect(posted.unwrap().entry).toMatchObject({id: 'e3', kind: 'person', text: 'Hello'});
 
 		expect((await handlePostMessageRoute(request({threadId: 'thread-1'}, {text: '   '}))).unwrapErr().kind).toBe('parse_error');
 		expect((await handlePostMessageRoute(request({threadId: 'thread-1'}, {text: 'x'.repeat(20_001)}))).unwrapErr().kind).toBe('parse_error');

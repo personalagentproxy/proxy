@@ -50,7 +50,12 @@ const personaSchema = z.object({
 	color: z.enum(AVATAR_COLORS),
 });
 
-function toEntry(entry: EntryRow): EntryResponse {
+// The entries the person sees: the conversation, not the summaries the model reads it as.
+function isShown(entry: EntryRow): entry is EntryRow & {kind: EntryResponse['kind']} {
+	return entry.kind !== 'summary';
+}
+
+function toEntry(entry: EntryRow & {kind: EntryResponse['kind']}): EntryResponse {
 	return {id: entry.id, kind: entry.kind, text: entry.text, toolCalls: entry.toolCalls, callId: entry.callId, isError: entry.isError, at: entry.createdAt.toISOString()};
 }
 
@@ -119,7 +124,7 @@ export function handleGetThreadRoute(request: AuthenticatedRequest): Promise<Res
 		const first = later.map((job) => job.runAt.getTime()).sort((a, b) => a - b)[0];
 		return {
 			thread: toThread(thread),
-			entries: $(entries).map(toEntry),
+			entries: $(entries).filter(isShown).map(toEntry),
 			busy: open.length > 0 && !asleep,
 			sleepingUntil: asleep && first !== undefined ? new Date(first).toISOString() : null,
 		};
@@ -136,6 +141,6 @@ export function handlePostMessageRoute(request: AuthenticatedRequest): Promise<R
 		const threadId = request.params.threadId ?? '';
 		$(requirePresent($(await getThread(orgId, threadId)), ApiErr.notFound('thread', threadId)));
 		const entry = $(requirePresent($(await appendPersonMessage(threadId, text)), ApiErr.notFound('thread', threadId)));
-		return {entry: toEntry(entry)};
+		return {entry: toEntry({...entry, kind: 'person'})};
 	});
 }

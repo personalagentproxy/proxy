@@ -35,6 +35,8 @@ export type EntryRow = LogEntry & {
 	isError: boolean;
 	inputTokens: number | null;
 	outputTokens: number | null;
+	// A summary entry's reach: the seq of the last entry it stands for.
+	coversSeq: number | null;
 	createdAt: Date;
 };
 
@@ -72,6 +74,7 @@ const entrySelect = {
 	isError: true,
 	inputTokens: true,
 	outputTokens: true,
+	coversSeq: true,
 	createdAt: true,
 } as const;
 
@@ -160,7 +163,7 @@ export async function listThreads(
 			return {
 				...thread,
 				lastMessage:
-					last && last.kind !== 'tool_result'
+					last && (last.kind === 'person' || last.kind === 'assistant')
 						? {kind: last.kind, text: last.text, createdAt: last.createdAt}
 						: null,
 			};
@@ -323,6 +326,14 @@ async function fence(
 	return count > 0;
 }
 
+// Whether the job is still the worker's to write for. With the thread locked.
+async function held(tx: Tx, jobId: string, workerId: string): Promise<boolean> {
+	const count = await tx.agentJob.count({
+		where: {id: jobId, claimedBy: workerId, status: 'running'},
+	});
+	return count > 0;
+}
+
 // Gives the job back to the queue, to run at `runAt`; false when it is no longer the worker's.
 async function requeue(tx: Tx, jobId: string, workerId: string, runAt: Date): Promise<boolean> {
 	const {count} = await tx.agentJob.updateMany({
@@ -365,6 +376,40 @@ export type AssistantTurn = {
 	inputTokens: number;
 	outputTokens: number;
 };
+
+/**
+ * Appends a summary of the log through `coversSeq`, from the inference job that made it on its
+ * way to answering; the job goes on. `Ok(false)` when the job was no longer the worker's, and
+ * nothing is written.
+ */
+export async function appendSummary(
+	jobId: string,
+	workerId: string,
+	threadId: string,
+	summary: {text: string; inputTokens: number; outputTokens: number},
+	coversSeq: number,
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			await lockThread(tx, threadId);
+			if (!(await held(tx, jobId, workerId))) {
+				return false;
+			}
+			await tx.agentEntry.create({
+				data: {
+					threadId,
+					kind: 'summary' satisfies AgentEntryKind,
+					text: summary.text,
+					inputTokens: summary.inputTokens,
+					outputTokens: summary.outputTokens,
+					coversSeq,
+				},
+				select: {id: true},
+			});
+			return true;
+		}),
+	);
+}
 
 /**
  * Finishes an inference job with the model's answer: the assistant entry, and a tool job for each

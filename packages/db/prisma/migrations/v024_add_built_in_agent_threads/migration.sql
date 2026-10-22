@@ -5,7 +5,7 @@
 -- Its requests come in a third way, `harness`, beside the agent pages and the MCP server.
 
 -- CreateEnum
-CREATE TYPE "AgentEntryKind" AS ENUM ('person', 'assistant', 'tool_result');
+CREATE TYPE "AgentEntryKind" AS ENUM ('person', 'assistant', 'tool_result', 'summary');
 
 -- CreateEnum
 CREATE TYPE "AgentJobKind" AS ENUM ('inference', 'tool');
@@ -43,6 +43,7 @@ CREATE TABLE "AgentEntry" (
     "isError" BOOLEAN NOT NULL DEFAULT false,
     "inputTokens" INTEGER,
     "outputTokens" INTEGER,
+    "coversSeq" INTEGER,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "AgentEntry_pkey" PRIMARY KEY ("id")

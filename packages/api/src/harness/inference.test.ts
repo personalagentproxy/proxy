@@ -12,7 +12,8 @@ const finishIdleInference = mock(async () => Ok(true));
 const finishJob = mock(async () => Ok(true));
 const completeInference = mock(async () => Ok(true));
 const requeueJob = mock(async () => Ok(true));
-mock.module('@proxy/db/harness', () => ({getJobThread, listEntries, finishIdleInference, finishJob, completeInference, requeueJob}));
+const appendSummary = mock(async () => Ok(true));
+mock.module('@proxy/db/harness', () => ({getJobThread, listEntries, finishIdleInference, finishJob, completeInference, requeueJob, appendSummary}));
 
 const requireBuiltInAgent = mock(async () => Ok({agentId: 'agent-1', orgId: 'org-1', providerId: 'proxy', name: 'Personal Agent Proxy', experiments: []}));
 mock.module('./built-in-agent', () => ({requireBuiltInAgent}));
@@ -32,8 +33,28 @@ const now = new Date('2026-10-21T10:00:00Z');
 const thread = {id: 'thread-1', orgId: 'org-1', agentId: 'agent-1', taskId: 'task-1', createdAt: now};
 const job = {id: 'job-1', threadId: 'thread-1', kind: 'inference' as const, status: 'running' as const, entryId: null, callId: null, runAt: now, claimedBy: 'w1', attempts: 1};
 
-function entry(kind: 'person' | 'assistant' | 'tool_result', text: string, extra: Partial<{toolCalls: Array<{id: string; name: string; arguments: string}>; callId: string}> = {}) {
-	return {id: `e-${text}`, seq: 1, threadId: 'thread-1', kind, text, toolCalls: extra.toolCalls ?? null, callId: extra.callId ?? null, isError: false, inputTokens: null, outputTokens: null, createdAt: now};
+let seq = 0;
+
+function entry(
+	kind: 'person' | 'assistant' | 'tool_result' | 'summary',
+	text: string,
+	extra: Partial<{toolCalls: Array<{id: string; name: string; arguments: string}>; callId: string; inputTokens: number; coversSeq: number}> = {},
+) {
+	seq += 1;
+	return {
+		id: `e-${text}`,
+		seq,
+		threadId: 'thread-1',
+		kind,
+		text,
+		toolCalls: extra.toolCalls ?? null,
+		callId: extra.callId ?? null,
+		isError: false,
+		inputTokens: extra.inputTokens ?? null,
+		outputTokens: null,
+		coversSeq: extra.coversSeq ?? null,
+		createdAt: now,
+	};
 }
 
 beforeEach(() => {
@@ -48,13 +69,19 @@ describe('runInference', () => {
 	test('runs the model on the log, as the chat form, and writes its answer with a job per call', async () => {
 		const {runInference} = await import('./inference');
 		listEntries.mockResolvedValue(
-			Ok([
-				entry('person', 'Hi'),
-				entry('assistant', '', {toolCalls: [{id: 'c1', name: 'read', arguments: '{}'}]}),
-				entry('tool_result', '{"records":[]}', {callId: 'c1'}),
-			]),
+			Ok([entry('person', 'Hi'), entry('assistant', '', {toolCalls: [{id: 'c1', name: 'read', arguments: '{}'}]}), entry('tool_result', '{"records":[]}', {callId: 'c1'})]),
 		);
-		askModel.mockResolvedValue(Ok({text: '', toolCalls: [{id: 'c2', name: 'sleep_until', arguments: '{"seconds":60}'}, {id: 'c3', name: 'read', arguments: '{}'}], inputTokens: 10, outputTokens: 2}));
+		askModel.mockResolvedValue(
+			Ok({
+				text: '',
+				toolCalls: [
+					{id: 'c2', name: 'sleep_until', arguments: '{"seconds":60}'},
+					{id: 'c3', name: 'read', arguments: '{}'},
+				],
+				inputTokens: 10,
+				outputTokens: 2,
+			}),
+		);
 
 		const result = await runInference(job, 'w1', now);
 
@@ -74,7 +101,15 @@ describe('runInference', () => {
 			'job-1',
 			'w1',
 			'thread-1',
-			{text: '', toolCalls: [{id: 'c2', name: 'sleep_until', arguments: '{"seconds":60}'}, {id: 'c3', name: 'read', arguments: '{}'}], inputTokens: 10, outputTokens: 2},
+			{
+				text: '',
+				toolCalls: [
+					{id: 'c2', name: 'sleep_until', arguments: '{"seconds":60}'},
+					{id: 'c3', name: 'read', arguments: '{}'},
+				],
+				inputTokens: 10,
+				outputTokens: 2,
+			},
 			{c2: new Date('2026-10-21T10:01:00Z')},
 		);
 	});
@@ -111,6 +146,38 @@ describe('runInference', () => {
 
 		await runInference({...job, attempts: 3}, 'w1', now);
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('could not be reached')}), {});
+	});
+
+	test('a log grown long is summarized first, and the model reads the summary in place of what it covers', async () => {
+		const {runInference} = await import('./inference');
+		const {COMPACT_AT_TOKENS} = await import('./context');
+		const long = [
+			entry('person', 'One'),
+			entry('assistant', '', {toolCalls: [{id: 'c1', name: 'read', arguments: '{}'}], inputTokens: 10}),
+			entry('tool_result', 'rows one', {callId: 'c1'}),
+			entry('assistant', 'Done one', {inputTokens: 10}),
+			entry('person', 'Two'),
+			entry('assistant', 'Done two', {inputTokens: 10}),
+			entry('person', 'Three'),
+			entry('assistant', '', {toolCalls: [{id: 'c3', name: 'read', arguments: '{}'}], inputTokens: COMPACT_AT_TOKENS}),
+			entry('tool_result', 'rows three', {callId: 'c3'}),
+		];
+		const summary = entry('summary', 'The person asked for one; it was done.', {coversSeq: long[3]?.seq});
+		listEntries.mockResolvedValueOnce(Ok(long)).mockResolvedValueOnce(Ok([...long, summary]));
+		askModel
+			.mockResolvedValueOnce(Ok({text: 'The person asked for one; it was done.', toolCalls: [], inputTokens: 90_000, outputTokens: 300}))
+			.mockResolvedValueOnce(Ok({text: 'Three is done too.', toolCalls: [], inputTokens: 2000, outputTokens: 20}));
+
+		const result = await runInference(job, 'w1', now);
+
+		expect(result.isOk()).toBe(true);
+		const asked = askModel.mock.calls.map((call) => call[0] as {messages: Array<{role: string; content: string | null}>; tools: unknown[]});
+		expect(asked[0]?.tools).toEqual([]);
+		expect(asked[0]?.messages[0]).toMatchObject({role: 'system', content: expect.stringContaining('summarizing a conversation')});
+		expect(asked[0]?.messages.slice(1).map((message) => message.content)).toEqual(['One', null, 'rows one', 'Done one', 'Write the summary now.']);
+		expect(appendSummary).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', {text: 'The person asked for one; it was done.', toolCalls: [], inputTokens: 90_000, outputTokens: 300}, long[3]?.seq);
+		expect(asked[1]?.messages.slice(1).map((message) => message.content)).toEqual([expect.stringContaining('The person asked for one; it was done.'), 'Two', 'Done two', 'Three', null, 'rows three']);
+		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: 'Three is done too.'}), {});
 	});
 
 	test('after thirty answers without the person, it stops and says so', async () => {
