@@ -99,7 +99,7 @@ export function handleSetConnectionDefaultsRoute(request: AuthenticatedRequest):
 /**
  * `POST /api/connections/:connectionId/share`: shares the person's own connection with every member
  * of its organization, for good: to have it as their own again, they disconnect it and connect it
- * again. The vault is each member's own and stays so.
+ * again. The vault is each member's own and stays so: the organization has one shared from the start.
  */
 export function handleShareConnectionRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
 	return Do(async ($) => {

@@ -238,9 +238,9 @@ export async function listUserOrgs(userId: string): Promise<Result<UserOrgRow[],
 const MAX_SLUG_ATTEMPTS = 5;
 
 /**
- * A new organization, the person its owner with their own vault there, as every member of an
- * organization has. It has been through the welcome flow from the start: that is the first
- * organization's. Retries when a parallel creation took the slug.
+ * A new organization, with its shared vault, the person its owner with their own vault there, as
+ * every member of an organization has. It has been through the welcome flow from the start: that
+ * is the first organization's. Retries when a parallel creation took the slug.
  */
 export async function createOrganization(data: {
 	userId: string;
@@ -257,7 +257,8 @@ export async function createOrganization(data: {
 					select: {id: true, slug: true, name: true},
 				});
 				await tx.orgMember.create({data: {orgId: org.id, userId}});
-				await tx.connection.create({data: vaultFor({orgId: org.id, userId, name})});
+				await tx.connection.create({data: ownVaultFor({orgId: org.id, userId, name})});
+				await tx.connection.create({data: sharedVaultFor({orgId: org.id, userId, name})});
 				return org;
 			}),
 		);
@@ -268,13 +269,17 @@ export async function createOrganization(data: {
 	return Err(ApiErr.dbError(new Error(`Slug conflict retries exhausted for base "${base}"`)));
 }
 
+/** Renames an organization, and its vaults with it, which are called by its name. */
 export async function renameOrganization(
 	orgId: string,
 	name: string,
 ): Promise<Result<void, ApiError>> {
 	return (
 		await wrapDb(() =>
-			db.organization.update({where: {id: orgId}, data: {name}, select: {id: true}}),
+			db.$transaction([
+				db.organization.update({where: {id: orgId}, data: {name}, select: {id: true}}),
+				db.connection.updateMany({where: {orgId, integrationId: 'vault'}, data: {account: name}}),
+			]),
 		)
 	).map(() => undefined);
 }
@@ -336,23 +341,56 @@ export async function listMemberNames(
 	);
 }
 
-/**
- * A member's own vault in an organization, as they get one on joining it: agents read it and keep
- * what they learn there, unless the member says otherwise.
- */
-export function vaultFor(data: {
+// A vault, as the organization's name: agents read it and keep what they learn there, unless told
+// otherwise.
+function vaultFor(data: {
 	orgId: string;
-	userId: string;
+	ownerUserId: string | null;
+	connectedById: string;
 	name: string;
 }): Prisma.ConnectionUncheckedCreateInput {
 	return {
 		orgId: data.orgId,
-		ownerUserId: data.userId,
-		connectedById: data.userId,
+		ownerUserId: data.ownerUserId,
+		connectedById: data.connectedById,
 		integrationId: 'vault',
 		account: data.name,
 		defaults: {create: [{actionId: 'readEntries'}, {actionId: 'writeEntries'}]},
 	};
+}
+
+/**
+ * A member's own vault in an organization, as they get one on joining it: what their own agents
+ * should know about them, which nobody else in the organization sees.
+ */
+export function ownVaultFor(data: {
+	orgId: string;
+	userId: string;
+	name: string;
+}): Prisma.ConnectionUncheckedCreateInput {
+	return vaultFor({
+		orgId: data.orgId,
+		ownerUserId: data.userId,
+		connectedById: data.userId,
+		name: data.name,
+	});
+}
+
+/**
+ * The organization's vault, made with it by whoever made the organization: what every member's
+ * agents should know about it, shared with everyone in it, the shared agents included.
+ */
+export function sharedVaultFor(data: {
+	orgId: string;
+	userId: string;
+	name: string;
+}): Prisma.ConnectionUncheckedCreateInput {
+	return vaultFor({
+		orgId: data.orgId,
+		ownerUserId: null,
+		connectedById: data.userId,
+		name: data.name,
+	});
 }
 
 /**
@@ -376,8 +414,8 @@ export async function removeMembership(data: {
 }
 
 /**
- * Deletes an organization; the cascades take its memberships, connections, every member's vault
- * there, agents, invitations and activity. The caller has undone its connections at their
+ * Deletes an organization; the cascades take its memberships, connections, its vault and every
+ * member's there, agents, invitations and activity. The caller has undone its connections at their
  * providers first.
  */
 export async function deleteOrganization(orgId: string): Promise<Result<void, ApiError>> {

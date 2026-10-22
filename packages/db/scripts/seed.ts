@@ -110,12 +110,14 @@ async function connect(data: {
 	daysAgo: number;
 	// The actions agents get by default.
 	defaults: string[];
+	// Shared with everyone in the organization, as its vault is; the demo user's own otherwise, as
+	// everything else in an organization with one member is.
+	shared?: boolean;
 }): Promise<Connection> {
 	const connection = await db.connection.create({
 		data: {
 			orgId: org.id,
-			// The demo user's own, as everything in an organization with one member is.
-			ownerUserId: user.id,
+			ownerUserId: data.shared ? null : user.id,
 			connectedById: user.id,
 			integrationId: data.integrationId,
 			account: data.account,
@@ -151,6 +153,15 @@ const vault = await connect({
 	credential: null,
 	daysAgo: 40,
 	defaults: ['readEntries', 'writeEntries'],
+});
+// The organization's own, as every organization has one beside each member's.
+const sharedVault = await connect({
+	integrationId: VAULT_INTEGRATION_ID,
+	account: ORG_NAME,
+	credential: null,
+	daysAgo: 40,
+	defaults: ['readEntries', 'writeEntries'],
+	shared: true,
 });
 const personal = await connectMailbox('gmail', 'demo.user@gmail.com', {
 	daysAgo: 38,
@@ -286,14 +297,34 @@ const VAULT_ENTRIES: Array<{title: string; type: string; content: string}> = [
 	{title: 'Flights', type: 'Text', content: 'Prefers aisle seats, and morning flights.'},
 ];
 
-for (const values of VAULT_ENTRIES) {
-	await db.vaultEntry.create({
-		data: {
-			connectionId: vault.id,
-			collectionId: 'entries',
-			values: encrypt(JSON.stringify(values)),
-		},
-	});
+// What everyone's agents should know about the organization, in its shared vault.
+const SHARED_VAULT_ENTRIES: Array<{title: string; type: string; content: string}> = [
+	{
+		title: 'Office',
+		type: 'Address',
+		content: 'Acme Corp\n1 Market Street, Floor 12\n94105 San Francisco\nUnited States',
+	},
+	{title: 'Support inbox', type: 'Email', content: 'support@acme-corp.com'},
+	{
+		title: 'How we write',
+		type: 'Text',
+		content: 'Short sentences. No exclamation marks. Sign off with the team, not a person.',
+	},
+];
+
+for (const [connectionId, entries] of [
+	[vault.id, VAULT_ENTRIES],
+	[sharedVault.id, SHARED_VAULT_ENTRIES],
+] as const) {
+	for (const values of entries) {
+		await db.vaultEntry.create({
+			data: {
+				connectionId,
+				collectionId: 'entries',
+				values: encrypt(JSON.stringify(values)),
+			},
+		});
+	}
 }
 
 // ---- Agents and their own settings ----------------------------------------------------------

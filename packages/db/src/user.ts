@@ -9,7 +9,8 @@ import {
 	isSlugUniqueConflict,
 	pickAvailableSlugDatabase,
 	planPersonalOrgIdentity,
-	vaultFor,
+	ownVaultFor,
+	sharedVaultFor,
 } from './organization';
 
 export type CreatedUser = {id: string; email: string; name: string | null};
@@ -33,8 +34,8 @@ export async function getUserByEmail(email: string): Promise<Result<CreatedUser 
 }
 
 /**
- * Creates the user together with their first organization, which they own, their membership and
- * their own vault there, in one transaction, so no user exists without them. Retries when a parallel sign-up took the slug.
+ * Creates the user together with their first organization, which they own, with its shared vault,
+ * their membership and their own vault there, in one transaction, so no user exists without them. Retries when a parallel sign-up took the slug.
  * Every sign-up comes through the sign-in page, past its notice of the terms, so the terms count as
  * accepted from the start.
  */
@@ -57,7 +58,8 @@ async function createUserWithPersonalOrg(data: {
 				const slug = await pickAvailableSlugDatabase(tx, base);
 				const org = await tx.organization.create({data: {name, slug, ownerUserId: user.id}});
 				await tx.orgMember.create({data: {orgId: org.id, userId: user.id}});
-				await tx.connection.create({data: vaultFor({orgId: org.id, userId: user.id, name})});
+				await tx.connection.create({data: ownVaultFor({orgId: org.id, userId: user.id, name})});
+				await tx.connection.create({data: sharedVaultFor({orgId: org.id, userId: user.id, name})});
 				return user;
 			}),
 		);

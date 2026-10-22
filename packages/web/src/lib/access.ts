@@ -16,7 +16,8 @@ import type {AgentLogin, AuditEntry, Connection, DataRecord} from '@/lib/types';
 export {integrationOf};
 
 // The name the person gave the connection, else the integration's name, and the account too once
-// the integration is connected more than once.
+// the integration is connected more than once; and whose it is once the same account is, as the
+// organization's vault is beside the person's own.
 export function connectionLabel(connections: Connection[], connection: Connection): string {
 	if (connection.name !== null) {
 		return connection.name;
@@ -28,7 +29,11 @@ export function connectionLabel(connections: Connection[], connection: Connectio
 	if (siblings.length < 2) {
 		return name;
 	}
-	return `${name} (${connection.account})`;
+	const sameAccount = siblings.filter((candidate) => candidate.account === connection.account);
+	if (sameAccount.length < 2) {
+		return `${name} (${connection.account})`;
+	}
+	return `${name} (${connection.account}, ${connection.shared ? 'everyone’s' : 'yours'})`;
 }
 
 // The actions an agent without settings of its own gets.

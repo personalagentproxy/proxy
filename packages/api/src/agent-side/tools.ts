@@ -41,6 +41,8 @@ export type AgentConnection = {
 	id: string;
 	integrationId: string;
 	account: string;
+	// Shared with everyone in the organization, rather than the agent's owner's own.
+	shared: boolean;
 	// The actions the agent can take with the connection.
 	actions: string[];
 	// A custom MCP server's tools the agent may run, as the server describes them; null for every
@@ -98,6 +100,7 @@ export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<{a
 						id: connection.id,
 						integrationId: connection.integrationId,
 						account: connection.account,
+						shared: connection.ownerUserId === null,
 						actions,
 						tools: integration.mcpTools?.filter((tool) => actions.includes(tool.name)) ?? null,
 						name: connection.name,

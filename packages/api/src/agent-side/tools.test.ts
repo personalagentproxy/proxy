@@ -147,8 +147,17 @@ describe('listAgentConnections', () => {
 
 		expect(result.unwrap()).toEqual({
 			agent: {id: 'agent-1', providerId: 'dot', name: 'Dots'},
-			connections: [{id: 'vault-1', integrationId: 'vault', account: "Alex's Workspace", actions: ['readEntries', 'writeEntries'], tools: null, name: null}],
+			connections: [{id: 'vault-1', integrationId: 'vault', account: "Alex's Workspace", shared: false, actions: ['readEntries', 'writeEntries'], tools: null, name: null}],
 		});
+	});
+
+	test('says which connections are shared with everyone in the organization', async () => {
+		listConnectionsWithCredential.mockResolvedValue(Ok([{...vaultConnection, id: 'vault-2', ownerUserId: null}]));
+
+		const {listAgentConnections} = await import('./tools');
+		const result = await listAgentConnections(signedIn);
+
+		expect(result.unwrap().connections).toEqual([expect.objectContaining({id: 'vault-2', shared: true})]);
 	});
 });
 
@@ -545,7 +554,7 @@ describe('custom MCP servers', () => {
 		const {listAgentConnections, listAgentTools} = await import('./tools');
 
 		expect((await listAgentConnections(signedIn)).unwrap().connections).toEqual([
-			{id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', actions: ['search_docs'], tools: [search], name: null},
+			{id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', shared: false, actions: ['search_docs'], tools: [search], name: null},
 		]);
 		expect((await listAgentTools(signedIn, 'mcp-1')).unwrap().map((tool) => tool.name)).toEqual(['search_docs']);
 	});

@@ -31,7 +31,7 @@ mock.module('../observability/log', () => ({
 mock.module('../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com'}}));
 
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', orgSlug: 'org-1', experiments: []};
-const mailbox = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', actions: ['read', 'archive'], tools: null, name: null};
+const mailbox = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', shared: false, actions: ['read', 'archive'], tools: null, name: null};
 const task = {
 	id: 'task-1',
 	agentId: 'agent-1',
@@ -128,7 +128,7 @@ describe('handleMcpRoute', () => {
 	});
 
 	test("the vault is the agent's memory, to search before asking and to save to where it may", async () => {
-		const vault = {id: 'vault-1', integrationId: 'vault', account: 'Alex', actions: ['readEntries'], tools: null, name: null};
+		const vault = {id: 'vault-1', integrationId: 'vault', account: 'Alex', shared: false, actions: ['readEntries'], tools: null, name: null};
 		const instructions = async () => ((await post(rpc('initialize', {protocolVersion: '2025-06-18'}))).body as {result: {instructions: string}}).result.instructions;
 
 		expect(await instructions()).not.toContain('memory');
@@ -144,6 +144,28 @@ describe('handleMcpRoute', () => {
 		const saving = await instructions();
 		expect(saving).toContain('save it there with entries_create');
 		expect(saving).toContain('edit that entry rather than adding another');
+	});
+
+	test("the organization's vault is everyone's memory, the one a shared agent has, and beside the person's own says what goes where", async () => {
+		const own = {id: 'vault-1', integrationId: 'vault', account: 'Acme', shared: false, actions: ['readEntries', 'writeEntries'], tools: null, name: null};
+		const shared = {...own, id: 'vault-2', shared: true};
+		const instructions = async () => ((await post(rpc('initialize', {protocolVersion: '2025-06-18'}))).body as {result: {instructions: string}}).result.instructions;
+
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [shared, {...mailbox, shared: true}]}));
+		const alone = await instructions();
+		expect(alone).toContain('- Vault (Acme), connection vault-2, shared with everyone in the organization: Read entries, Edit entries');
+		expect(alone).toContain('- Email (alex@example.com), connection mail-1, shared with everyone in the organization: Read, Archive');
+		expect(alone).toContain('The organization’s vault, connection vault-2, is the memory everyone in the organization and their agents share');
+		expect(alone).toContain('save it in the organization’s vault with entries_create');
+		expect(alone).not.toContain('memory of the person');
+		expect(alone).not.toContain('belongs in their own vault');
+
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [own, {...shared, actions: ['readEntries']}]}));
+		const both = await instructions();
+		expect(both).toContain('The vault, connection vault-1, is your memory of the person');
+		expect(both).toContain('What is about the person alone belongs in their own vault, what everyone there should know in the organization’s.');
+		expect(both).toContain('suggest adding it to the organization’s vault');
+		expect(both).not.toContain('save it in the organization’s vault');
 	});
 
 	test('lists the seven tools, read-only ones marked so, every call but starting, finishing and feedback taking the task', async () => {
@@ -185,7 +207,7 @@ describe('handleMcpRoute', () => {
 
 		expect(requireOpenTask).toHaveBeenCalledWith(signedIn, 'task-1');
 		expect((res.body as {result: unknown}).result).toMatchObject({
-			structuredContent: {connections: [{connection: 'mail-1', integration: 'Email', account: 'alex@example.com', can: 'Read, Archive'}]},
+			structuredContent: {connections: [{connection: 'mail-1', integration: 'Email', account: 'alex@example.com', shared: false, can: 'Read, Archive'}]},
 		});
 	});
 

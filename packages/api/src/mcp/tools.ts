@@ -73,7 +73,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
 		name: 'list_connections',
 		title: 'List connections',
 		description:
-			'Call this before telling the person a service isn’t connected: their email, meeting notes, documents or issues may well be here. The accounts and information you can use, such as a mailbox or the person’s vault, each with its id and what you may do with it. Takes the `task` from start_task.',
+			'Call this before telling the person a service isn’t connected: their email, meeting notes, documents or issues may well be here. The accounts and information you can use, such as a mailbox, the person’s vault or the organization’s, each with its id, whether it is shared with everyone in the organization and what you may do with it. Takes the `task` from start_task.',
 		inputSchema: {type: 'object', properties: {task: TASK}, required: ['task'], additionalProperties: false},
 		annotations: readOnlyAnnotations('List connections'),
 	},
@@ -145,6 +145,7 @@ function connectionSummary(connection: AgentConnection) {
 		integration: findIntegration(connection.integrationId)?.name ?? connection.integrationId,
 		...(connection.name === null ? {} : {name: connection.name}),
 		account: connection.account,
+		shared: connection.shared,
 		can: describeActions(connection),
 	};
 }
@@ -161,21 +162,47 @@ function connectableServices(signedIn: SignedInAgent): string {
 	return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 }
 
-// The vault as the agent's memory of the person, as far as it may use it: none without reading it.
-function vaultInstructions(connections: AgentConnection[]): string[] {
-	const vault = connections.find((connection) => connection.integrationId === VAULT_INTEGRATION_ID);
-	if (!vault?.actions.includes('readEntries')) {
-		return [];
-	}
+// What the agent is told of a vault it can read: what it is the memory of, and whether it may save
+// there, as `reading`, `saving` and `readOnly` say.
+type VaultWording = {reading: string; saving: string; readOnly: string};
 
-	const reading = `The vault, connection ${vault.id}, is your memory of the person, shared with every agent they use: what they or their agents chose to keep, such as their address, their phone number or how they like things done. Before asking them something about themselves, search it with entries_list.`;
+function vaultParagraph(vault: AgentConnection, {reading, saving, readOnly}: VaultWording): string {
 	if (!vault.actions.includes('writeEntries')) {
-		return [`${reading} You may only read it: when they tell you something worth keeping for next time, suggest they add it to their vault.`];
+		return `${reading} ${readOnly}`;
 	}
+	return `${reading} ${saving}`;
+}
 
-	return [
-		`${reading} When you learn something about them that would help next time, save it there with entries_create: a short title, its type and the content. When something kept there has changed, edit that entry rather than adding another.`,
-	];
+// The vaults as the agent's memory, as far as it may use each: none without reading it. The
+// person's own, for an agent of their own, and the organization's, shared with everyone in it,
+// which a shared agent has alone; with both, what is whose goes where.
+function vaultInstructions(connections: AgentConnection[]): string[] {
+	const vaults = connections.filter((connection) => connection.integrationId === VAULT_INTEGRATION_ID && connection.actions.includes('readEntries'));
+	const own = vaults.find((vault) => !vault.shared);
+	const shared = vaults.find((vault) => vault.shared);
+	const paragraphs: string[] = [];
+	if (own) {
+		paragraphs.push(
+			vaultParagraph(own, {
+				reading: `The vault, connection ${own.id}, is your memory of the person, shared with every agent they use: what they or their agents chose to keep, such as their address, their phone number or how they like things done. Before asking them something about themselves, search it with entries_list.`,
+				saving:
+					'When you learn something about them that would help next time, save it there with entries_create: a short title, its type and the content. When something kept there has changed, edit that entry rather than adding another.',
+				readOnly: 'You may only read it: when they tell you something worth keeping for next time, suggest they add it to their vault.',
+			}),
+		);
+	}
+	if (shared) {
+		const whose = own ? ' What is about the person alone belongs in their own vault, what everyone there should know in the organization’s.' : '';
+		paragraphs.push(
+			vaultParagraph(shared, {
+				reading: `The organization’s vault, connection ${shared.id}, is the memory everyone in the organization and their agents share: what any of them chose to keep for all, such as the office address, how the team does things or who handles what. Before asking about the organization, search it with entries_list.${whose}`,
+				saving:
+					'When you learn something that would help everyone there next time, save it in the organization’s vault with entries_create: a short title, its type and the content. When something kept there has changed, edit that entry rather than adding another.',
+				readOnly: 'You may only read it: when you are told something everyone there should know, suggest adding it to the organization’s vault.',
+			}),
+		);
+	}
+	return paragraphs;
 }
 
 /** The server's instructions for this agent, given when a client connects. */
@@ -186,7 +213,8 @@ export function serverInstructions(signedIn: SignedInAgent): Promise<Result<stri
 		const lines = connections.map((connection) => {
 			const {integration, account, can} = connectionSummary(connection);
 			const called = connection.name === null ? `${integration} (${account})` : `${connection.name} (${integration}, ${account})`;
-			return `- ${called}, connection ${connection.id}: ${can}`;
+			const whose = connection.shared ? ', shared with everyone in the organization' : '';
+			return `- ${called}, connection ${connection.id}${whose}: ${can}`;
 		});
 		return [
 			`You are signed in to Personal Agent Proxy as ${signedIn.name}. It holds the accounts and information a person gave you to work with, and lets you do only what they allowed.`,

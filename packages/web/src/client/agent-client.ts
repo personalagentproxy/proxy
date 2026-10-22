@@ -14,6 +14,8 @@ const agentMeSchema = z.object({
 			id: z.string(),
 			integrationId: z.string(),
 			account: z.string(),
+			// Shared with everyone in the organization, rather than the agent's owner's own.
+			shared: z.boolean(),
 			// The actions the agent can take with the connection.
 			actions: z.array(z.string()),
 			// A custom MCP server's tools the agent may run; null for every other integration.

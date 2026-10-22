@@ -3,7 +3,7 @@ import type {Result} from 'ts-results-es';
 import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
-import {vaultFor} from './organization';
+import {ownVaultFor} from './organization';
 
 export type InvitationRow = {
 	id: string;
@@ -129,7 +129,7 @@ export async function acceptInvitation(data: {
 			});
 			if (!member) {
 				await tx.orgMember.create({data: {orgId, userId}});
-				await tx.connection.create({data: vaultFor({orgId, userId, name: vaultName})});
+				await tx.connection.create({data: ownVaultFor({orgId, userId, name: vaultName})});
 			}
 			await tx.invitation.deleteMany({where: {id: invitationId}});
 		}),

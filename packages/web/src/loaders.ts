@@ -87,20 +87,29 @@ export async function connectionLoader({params}: {params: {org?: string; id?: st
 	};
 }
 
-// The vault is the one built-in connection, the person's own in the organization; its entries
-// are kept in Personal Agent Proxy.
+// The vault is the one built-in connection, which every organization has twice: the person's own
+// there and the organization's, shared with everyone in it. The entries of each are kept in
+// Personal Agent Proxy.
 export async function vaultLoader(args: OrgParams) {
 	const org = orgOf(args);
 	const {connections} = unwrapLoaderResult(await listConnections(org));
-	const connection = connections.find(
+	const vaults = connections.filter(
 		(candidate) => candidate.integrationId === VAULT_INTEGRATION_ID,
 	);
-	if (!connection) {
+	const own = vaults.find((candidate) => !candidate.shared);
+	const shared = vaults.find((candidate) => candidate.shared);
+	if (!own || !shared) {
 		throw new Error('The organization has no vault');
 	}
 
-	const {records} = unwrapLoaderResult(await listRecords(org, connection.id, 'entries'));
-	return {connectionId: connection.id, entries: records};
+	const [ownEntries, sharedEntries] = await Promise.all([
+		listRecords(org, own.id, 'entries'),
+		listRecords(org, shared.id, 'entries'),
+	]);
+	return {
+		own: {connectionId: own.id, entries: unwrapLoaderResult(ownEntries).records},
+		shared: {connectionId: shared.id, entries: unwrapLoaderResult(sharedEntries).records},
+	};
 }
 
 export async function agentsLoader(args: OrgParams) {

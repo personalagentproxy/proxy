@@ -9,7 +9,8 @@ export type AgentTarget = {
 	collection: Collection;
 	// The actions the agent can take with the connection.
 	actions: string[];
-	// What the breadcrumbs call the connection: the mailbox's address, or Vault.
+	// What the breadcrumbs call the connection: the mailbox's address, or Vault, the organization's
+	// told from the person's own.
 	place: string;
 };
 
@@ -24,6 +25,14 @@ export function useAgentTask(): AgentTask | null {
 	return useRouteLoaderData<AgentTask>('agent-task') ?? null;
 }
 
+// A built-in connection, which every organization has twice: everyone's and the person's own.
+function builtInPlace(name: string, shared: boolean): string {
+	if (shared) {
+		return `${name} (everyone’s)`;
+	}
+	return name;
+}
+
 // The connection and collection an agent page's URL points at, among those the agent can reach;
 // null for anything else, which the api then refuses or doesn't find.
 export function useAgentTarget(): AgentTarget | null {
@@ -36,6 +45,8 @@ export function useAgentTarget(): AgentTarget | null {
 		return null;
 	}
 
-	const place = integration.builtIn ? integration.name : connection.account;
+	const place = integration.builtIn
+		? builtInPlace(integration.name, connection.shared)
+		: connection.account;
 	return {connection, integration, collection, actions: connection.actions, place};
 }

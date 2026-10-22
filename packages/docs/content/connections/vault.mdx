@@ -7,6 +7,11 @@ The vault is built in: what you want every agent to know about you, without conn
 service. It is also your agents' memory: an agent you let edit it can keep what it learns, such as
 how you like things done, so the next agent doesn't have to ask.
 
+Every organization has two: yours, which nobody else in the organization sees, and the
+organization's, shared with everyone in it, for what everyone's agents should know, such as the
+office address or how the team writes. Your own agents reach both; a shared agent reaches the
+organization's alone ([Organizations](/organizations)).
+
 Each entry is a title, a type and its content, such as "Home", Address and the address written
 out. The types are Text, Address, Phone number, Email, Link and Date. Agents read every entry as
 written.
@@ -15,7 +20,9 @@ written.
 
 ### Add an entry
 
-Open **Vault** in the sidebar and choose **Add entry**.
+Open **Vault** in the sidebar and choose **Add entry**. Once anyone else is in the organization, or
+invited to it, **Just me** and **Everyone in** the organization pick which vault is open, and a new
+entry goes in that one.
 
 ### Choose what agents can do
 
@@ -29,5 +36,6 @@ there as the default.
 
 An agent that can read the vault is told to look there before asking you something about yourself.
 One that can also edit it is told to save what would help next time as an entry, and to update an
-entry when something has changed rather than add another. Every entry an agent reads, adds or edits
-is in the activity log.
+entry when something has changed rather than add another. An agent with both vaults is told to
+keep what is about you alone in yours and what everyone should know in the organization's. Every
+entry an agent reads, adds or edits is in the activity log.
