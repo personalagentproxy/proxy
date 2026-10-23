@@ -5,63 +5,16 @@ import {ApiErr, type ApiError} from '@proxy/utils';
 /**
  * What an agent's query may be: one statement that only reads. A read-only transaction stops
  * writes once it runs, but not everything: MySQL lets a DDL statement commit it and go ahead, and
- * a second statement after a semicolon would run too. So the statement is checked first: one
- * alone, starting with a word that only reads.
+ * a second statement after a semicolon would run too, a COMMIT first ending the transaction. So
+ * the statement is checked first: one alone, with no semicolon but at its end, starting with a
+ * word that only reads. A semicolon in a string or a comment is refused too: telling one apart
+ * means reading quotes and comments as each database does (Postgres's `$tag$` strings and its
+ * backslashes, which escape nothing; MySQL's `#` comments), and getting that wrong runs a write.
  */
 
 const READS = ['select', 'with', 'show', 'explain', 'describe', 'desc', 'table', 'values'];
 
 export type Statement = {sql: string; keyword: string};
-
-// Where the statement ends and another would begin: a semicolon outside quotes and comments.
-function hasSecondStatement(sql: string): boolean {
-	let i = 0;
-	while (i < sql.length) {
-		const char = sql[i];
-		const next = sql[i + 1];
-		if (char === '-' && next === '-') {
-			const end = sql.indexOf('\n', i);
-			i = end === -1 ? sql.length : end + 1;
-			continue;
-		}
-		if (char === '/' && next === '*') {
-			const end = sql.indexOf('*/', i + 2);
-			i = end === -1 ? sql.length : end + 2;
-			continue;
-		}
-		if (char === "'" || char === '"' || char === '`') {
-			i = closingQuote(sql, i, char);
-			continue;
-		}
-		if (char === ';') {
-			return true;
-		}
-		i += 1;
-	}
-	return false;
-}
-
-// Past the quote that closes the one at `start`: a doubled quote, or one after a backslash, is
-// part of the text.
-function closingQuote(sql: string, start: number, quote: string): number {
-	let i = start + 1;
-	while (i < sql.length) {
-		const char = sql[i];
-		if (char === '\\') {
-			i += 2;
-			continue;
-		}
-		if (char === quote && sql[i + 1] === quote) {
-			i += 2;
-			continue;
-		}
-		if (char === quote) {
-			return i + 1;
-		}
-		i += 1;
-	}
-	return sql.length;
-}
 
 /** The statement a query runs, when it is one statement that reads; the agent is told what it may be otherwise. */
 export function checkStatement(text: string): Result<Statement, ApiError> {
@@ -70,8 +23,8 @@ export function checkStatement(text: string): Result<Statement, ApiError> {
 	if (sql === '') {
 		return Err(ApiErr.validationError('Write the SQL to run'));
 	}
-	if (hasSecondStatement(sql)) {
-		return Err(ApiErr.validationError('One statement at a time'));
+	if (sql.includes(';')) {
+		return Err(ApiErr.validationError('One statement at a time, with no semicolon inside it'));
 	}
 	// Past any comments to the first word.
 	const keyword = sql

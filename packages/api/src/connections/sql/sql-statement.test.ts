@@ -21,17 +21,26 @@ describe('checkStatement', () => {
 		expect(checkStatement('; delete from users').unwrapErr()).toMatchObject({kind: 'validation_error'});
 	});
 
-	test('refuses a second statement after a semicolon, wherever it hides', () => {
-		expect(checkStatement('select 1; delete from users').unwrapErr()).toMatchObject({kind: 'validation_error', message: 'One statement at a time'});
-		expect(checkStatement('select 1;; select 2').unwrapErr()).toMatchObject({kind: 'validation_error', message: 'One statement at a time'});
-		expect(checkStatement("select 'a'; drop table users").unwrapErr()).toMatchObject({kind: 'validation_error', message: 'One statement at a time'});
-		expect(checkStatement("select 'a'--;\n; drop table users").unwrapErr()).toMatchObject({kind: 'validation_error', message: 'One statement at a time'});
-	});
-
-	test('lets a semicolon in a string, an identifier or a comment through', () => {
-		expect(checkStatement("select 'a;b', 'it''s; fine', 'back\\'; slash' from users").isOk()).toBe(true);
-		expect(checkStatement('select "a;b" from `t;x`').isOk()).toBe(true);
-		expect(checkStatement('select 1 -- a; comment\nfrom users').isOk()).toBe(true);
-		expect(checkStatement('select 1 /* a; comment */ from users').isOk()).toBe(true);
+	test('refuses a semicolon anywhere but at the end, wherever it hides', () => {
+		const statements = [
+			'select 1; delete from users',
+			'select 1;; select 2',
+			"select 'a'; drop table users",
+			"select 'a'--;\n; drop table users",
+			// Postgres: a dollar-quoted string, and a backslash that escapes nothing, close where a
+			// reading of quotes that doesn't know them wouldn't.
+			"SELECT $a$'$a$; COMMIT; DELETE FROM users; --'",
+			"SELECT 'x\\'; COMMIT; DELETE FROM users; --'",
+			// MySQL: a `#` comment hides the quote that would otherwise open a string.
+			"SELECT 1 # '\n; COMMIT; DROP TABLE users; -- '",
+			// Inside a string, an identifier or a comment, too.
+			"select 'a;b' from users",
+			'select "a;b" from users',
+			'select 1 -- a; comment\nfrom users',
+			'select 1 /* a; comment */ from users',
+		];
+		for (const sql of statements) {
+			expect(checkStatement(sql).unwrapErr(), sql).toMatchObject({kind: 'validation_error', message: 'One statement at a time, with no semicolon inside it'});
+		}
 	});
 });
