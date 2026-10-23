@@ -1,5 +1,6 @@
 import {
 	BotIcon,
+	CircleUserIcon,
 	HomeIcon,
 	LibraryIcon,
 	LogOutIcon,
@@ -36,6 +37,7 @@ const DESTINATIONS: Destination[] = [
 	{to: '/vault', label: 'Vault', icon: LibraryIcon},
 	{to: '/activity', label: 'Activity', icon: ScrollTextIcon},
 	{to: '/members', label: 'Members', icon: UsersIcon},
+	{to: '/settings', label: 'Settings', icon: SettingsIcon},
 ];
 
 // Each destination is lit on its own pages too, as `/acme/connections/:id`; Home only on itself,
@@ -46,7 +48,8 @@ function isActive(pathname: string, path: string, home: string): boolean {
 
 // The stock shadcn sidebar: a rail in icon mode on desktop, labels in tooltips and ⌘B to expand
 // it; a sheet from the left on phones, opened from the header and closed again on every pick. The
-// organization switcher sits at its top.
+// organization switcher sits at its top, with the organization's pages under it; the person's own,
+// their account, theme and signing out, at its foot.
 export function AppSidebar() {
 	const {pathname} = useLocation();
 	const human = useHuman();
@@ -86,12 +89,12 @@ export function AppSidebar() {
 				<SidebarMenu>
 					<SidebarMenuItem>
 						<SidebarMenuButton
-							isActive={pathname.startsWith(`${home}/settings`)}
-							tooltip="Settings"
-							render={<Link to={`${home}/settings`} onClick={() => setOpenMobile(false)} />}
+							isActive={pathname === '/account'}
+							tooltip="Account"
+							render={<Link to="/account" onClick={() => setOpenMobile(false)} />}
 						>
-							<SettingsIcon />
-							<span>Settings</span>
+							<CircleUserIcon />
+							<span>Account</span>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 					<SidebarMenuItem>

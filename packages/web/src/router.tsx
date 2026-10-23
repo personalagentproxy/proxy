@@ -9,7 +9,7 @@ import {
 } from '@/agent-loaders';
 import {getSignInMethods, type SignInMethods} from '@/client/auth-client';
 import {getMe, isNotFoundError} from '@/client/me-client';
-import {getOrg, listOrgs} from '@/client/orgs-client';
+import {getOrg, listOrgs, type Org} from '@/client/orgs-client';
 import {HumanSide} from '@/components/human-side';
 import {RouteError} from '@/components/route-error';
 import {sanitizeCallbackUrl} from '@/lib/callback-url';
@@ -37,6 +37,7 @@ import {AddConnectionPage} from '@/pages/add-connection-page';
 import {AddDatabasePage} from '@/pages/add-database-page';
 import {AddEmailPage} from '@/pages/add-email-page';
 import {AddMcpPage} from '@/pages/add-mcp-page';
+import {AccountPage} from '@/pages/account-page';
 import {AgentPage} from '@/pages/agent-page';
 import {AgentSetupPage} from '@/pages/agent-setup-page';
 import {AgentsPage} from '@/pages/agents-page';
@@ -56,20 +57,26 @@ import {InvitePage} from '@/pages/invite-page';
 import {LoginPage} from '@/pages/login-page';
 import {MembersPage} from '@/pages/members-page';
 import {NewAgentPage} from '@/pages/new-agent-page';
-import {SettingsPage} from '@/pages/settings-page';
+import {OrgSettingsPage} from '@/pages/org-settings-page';
 import {VaultPage} from '@/pages/vault-page';
 import {WelcomeConnectionPage, WelcomePage} from '@/pages/welcome-page';
 
-// The app's root: no organization in the address, so the person's first opens, the one made at
-// sign-up until they join or make another. Without a session, /login. A person in no organization
-// at all, which deleting one guards against, is told so rather than sent to /login and back.
-async function rootLoader() {
-	const {orgs} = unwrapLoaderResult(await listOrgs());
+// The person's first organization, the one made at sign-up until they join or make another. A
+// person in no organization at all, which deleting one guards against, is told so rather than sent
+// to /login and back.
+function firstOrg(orgs: Org[]): Org {
 	const first = orgs[0];
 	if (!first) {
 		throw new Error('You are in no organization. Ask someone to invite you to theirs.');
 	}
-	throw redirect(`/${first.slug}`);
+	return first;
+}
+
+// The app's root: no organization in the address, so the person's first opens. Without a session,
+// /login.
+async function rootLoader() {
+	const {orgs} = unwrapLoaderResult(await listOrgs());
+	throw redirect(`/${firstOrg(orgs).slug}`);
 }
 
 // The app's pages before every page was one organization's: a saved link to one, or to a page
@@ -111,12 +118,11 @@ async function unknownLoader({request}: {request: Request}) {
 	throw redirect(legacyRedirect(url, first));
 }
 
-// The human side's guard, on every page in an organization (`/:org/…`): no session sends the user
-// to /login, and back here after; an organization that isn't theirs sends them to their first, an
-// old single-page link (`/connections`) to that page there; one that has not been
-// through the welcome flow goes there first. With who is signed in, the
+// The human side's guard, on every page in an organization (`/:org/…`) and the person's account: no session sends the user to /login, and back here after; an organization that isn't
+// theirs sends them to their first, an old single-page link (`/connections`) to that page there;
+// one that has not been through the welcome flow goes there first. With who is signed in, the
 // organization and the organizations they are in, for the switcher and every page that says which
-// is open.
+// is open. The account names none, so the sidebar shows their first.
 async function humanLoader({
 	params,
 	request,
@@ -124,7 +130,14 @@ async function humanLoader({
 	params: {org?: string};
 	request: Request;
 }): Promise<Human> {
-	const slug = params.org ?? '';
+	if (params.org === undefined) {
+		const [me, orgs] = await Promise.all([getMe(), listOrgs()]);
+		const signedIn = unwrapLoaderResult(me);
+		const all = unwrapLoaderResult(orgs).orgs;
+		return {...signedIn, org: firstOrg(all), orgs: all};
+	}
+
+	const slug = params.org;
 	const [me, org, orgs] = await Promise.all([getMe(), getOrg(slug), listOrgs()]);
 	const signedIn = unwrapLoaderResult(me);
 	if (org.isErr() && isNotFoundError(org.error)) {
@@ -219,10 +232,9 @@ export const router = createBrowserRouter([
 		errorElement: <RouteError />,
 	},
 	// Everything in an organization, under its slug: the address says which, so a link, a bookmark
-	// or another tab stands on its own.
+	// or another tab stands on its own. The person's account, in none, shares its frame.
 	{
 		id: 'human',
-		path: '/:org',
 		loader: humanLoader,
 		// The session is checked on arrival, not on every click: only another organization, or a
 		// page revalidating after a change (the address the same), as renaming an organization or
@@ -232,7 +244,8 @@ export const router = createBrowserRouter([
 		element: <HumanSide />,
 		errorElement: <RouteError />,
 		children: [
-			{index: true, loader: homeLoader, element: <HomePage />},
+			{path: '/account', element: <AccountPage />},
+			{path: '/:org', loader: homeLoader, element: <HomePage />},
 			{path: '/:org/connections', loader: connectionsLoader, element: <ConnectionsPage />},
 			{path: '/:org/connections/new', loader: addConnectionLoader, element: <AddConnectionPage />},
 			{path: '/:org/connections/new/email', element: <AddEmailPage />},
@@ -248,7 +261,7 @@ export const router = createBrowserRouter([
 			{path: '/:org/agents/:id/setup', loader: agentSetupLoader, element: <AgentSetupPage />},
 			{path: '/:org/activity', loader: activityLoader, element: <ActivityPage />},
 			{path: '/:org/members', loader: membersLoader, element: <MembersPage />},
-			{path: '/:org/settings', element: <SettingsPage />},
+			{path: '/:org/settings', element: <OrgSettingsPage />},
 		],
 	},
 	{

@@ -12,6 +12,7 @@ export const BUTTON_EDGES: ReadonlyArray<{from: string; to: string; label: strin
 	{from: '/:org', to: '/:org/welcome/connections', label: 'Create organization'},
 	// Leaving or deleting an organization opens another of the person's.
 	{from: '/:org/members', to: '/:org/connections', label: 'Leave'},
+	{from: '/:org/settings', to: '/:org/connections', label: 'Leave organization'},
 	{from: '/:org/settings', to: '/:org/connections', label: 'Delete organization'},
 	// The agent lands on its tasks, to open one or start another.
 	{from: '/agent/login', to: '/agent', label: 'Sign in'},

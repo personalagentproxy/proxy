@@ -86,7 +86,7 @@ describe('pickAvailableSlugDatabase', () => {
 	});
 
 	it('never takes a top-level path of the app or the api', async () => {
-		for (const path of ['api', 'mcp', 'login', 'invite', 'agent', 'oauth', 'assets']) {
+		for (const path of ['api', 'mcp', 'login', 'invite', 'agent', 'oauth', 'assets', 'account']) {
 			expect(await pickAvailableSlugDatabase(withSlugs([]), path)).toBe(`${path}-2`);
 		}
 	});

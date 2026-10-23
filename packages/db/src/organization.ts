@@ -55,6 +55,7 @@ export function planPersonalOrgIdentity(identity: {name?: string | null; email: 
 // (`/login`, `/agent`, …), of the api it serves on the same origin (`/api`, `/mcp`, …), or of the
 // web app's files (`/assets`, …).
 const RESERVED_SLUGS = new Set([
+	'account',
 	'agent',
 	'agent-auth',
 	'agent-providers',
