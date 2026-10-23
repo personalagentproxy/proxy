@@ -136,13 +136,13 @@ describe('handleMcpRoute', () => {
 		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [vault, mailbox]}));
 		const reading = await instructions();
 		expect(reading).toContain('The vault, connection vault-1, is your memory of the person');
-		expect(reading).toContain('search it with entries_list');
+		expect(reading).toContain('read entries_list with a few words as `search`');
 		expect(reading).toContain('suggest they add it to their vault');
 		expect(reading).not.toContain('entries_create');
 
 		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...vault, actions: ['readEntries', 'writeEntries']}]}));
 		const saving = await instructions();
-		expect(saving).toContain('save it there with entries_create');
+		expect(saving).toContain('save it there: run entries_create with `title`, a few words, `type`, one of Text, Address, Phone number, Email, Link or Date, and `content`.');
 		expect(saving).toContain('edit that entry rather than adding another');
 	});
 
@@ -156,7 +156,7 @@ describe('handleMcpRoute', () => {
 		expect(alone).toContain('- Vault (Acme), connection vault-2, shared with everyone in the organization: Read entries, Edit entries');
 		expect(alone).toContain('- Email (alex@example.com), connection mail-1, shared with everyone in the organization: Read, Archive');
 		expect(alone).toContain('The organization’s vault, connection vault-2, is the memory everyone in the organization and their agents share');
-		expect(alone).toContain('save it in the organization’s vault with entries_create');
+		expect(alone).toContain('save it in the organization’s vault: run entries_create with `title`');
 		expect(alone).not.toContain('memory of the person');
 		expect(alone).not.toContain('belongs in their own vault');
 

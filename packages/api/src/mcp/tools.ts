@@ -3,7 +3,7 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import type {SignedInAgent} from '@proxy/db/agent';
-import {findIntegration, integrationFor, INTEGRATIONS, isOffered, VAULT_INTEGRATION_ID, type Tool} from '@proxy/integrations';
+import {findIntegration, integrationFor, INTEGRATIONS, isOffered, VAULT_ENTRY_TYPES, VAULT_INTEGRATION_ID, type Tool} from '@proxy/integrations';
 
 import {sendAgentFeedback} from '../agent-side/feedback';
 import {finishAgentTask, startAgentTask} from '../agent-side/tasks';
@@ -173,6 +173,9 @@ function vaultParagraph(vault: AgentConnection, {reading, saving, readOnly}: Vau
 	return `${reading} ${saving}`;
 }
 
+// What entries_create takes, so an agent told to save there needn't list the vault's tools first.
+const ENTRY_PARAMS = `\`title\`, a few words, \`type\`, one of ${VAULT_ENTRY_TYPES.slice(0, -1).join(', ')} or ${VAULT_ENTRY_TYPES.at(-1)}, and \`content\`.`;
+
 // The vaults as the agent's memory, as far as it may use each: none without reading it. The
 // person's own, for an agent of their own, and the organization's, shared with everyone in it,
 // which a shared agent has alone; with both, what is whose goes where.
@@ -184,9 +187,8 @@ function vaultInstructions(connections: AgentConnection[]): string[] {
 	if (own) {
 		paragraphs.push(
 			vaultParagraph(own, {
-				reading: `The vault, connection ${own.id}, is your memory of the person, shared with every agent they use: what they or their agents chose to keep, such as their address, their phone number or how they like things done. Before asking them something about themselves, search it with entries_list.`,
-				saving:
-					'When you learn something about them that would help next time, save it there with entries_create: a short title, its type and the content. When something kept there has changed, edit that entry rather than adding another.',
+				reading: `The vault, connection ${own.id}, is your memory of the person, shared with every agent they use: what they or their agents chose to keep, such as their address, their phone number or how they like things done. Before asking them something about themselves, search it: read entries_list with a few words as \`search\`.`,
+				saving: `When you learn something about them that would help next time, save it there: run entries_create with ${ENTRY_PARAMS} When something kept there has changed, edit that entry rather than adding another.`,
 				readOnly: 'You may only read it: when they tell you something worth keeping for next time, suggest they add it to their vault.',
 			}),
 		);
@@ -195,9 +197,8 @@ function vaultInstructions(connections: AgentConnection[]): string[] {
 		const whose = own ? ' What is about the person alone belongs in their own vault, what everyone there should know in the organization’s.' : '';
 		paragraphs.push(
 			vaultParagraph(shared, {
-				reading: `The organization’s vault, connection ${shared.id}, is the memory everyone in the organization and their agents share: what any of them chose to keep for all, such as the office address, how the team does things or who handles what. Before asking about the organization, search it with entries_list.${whose}`,
-				saving:
-					'When you learn something that would help everyone there next time, save it in the organization’s vault with entries_create: a short title, its type and the content. When something kept there has changed, edit that entry rather than adding another.',
+				reading: `The organization’s vault, connection ${shared.id}, is the memory everyone in the organization and their agents share: what any of them chose to keep for all, such as the office address, how the team does things or who handles what. Before asking about the organization, search it: read entries_list with a few words as \`search\`.${whose}`,
+				saving: `When you learn something that would help everyone there next time, save it in the organization’s vault: run entries_create with ${ENTRY_PARAMS} When something kept there has changed, edit that entry rather than adding another.`,
 				readOnly: 'You may only read it: when you are told something everyone there should know, suggest adding it to the organization’s vault.',
 			}),
 		);
@@ -207,7 +208,7 @@ function vaultInstructions(connections: AgentConnection[]): string[] {
 
 // How an MCP client is to go about it: tasks first, then its connections and their tools.
 const MCP_FLOW =
-	'Start with start_task: say what you are about to do for the person, with a title and the goal, and give the id it answers with as `task` in every other call. Then list_connections lists the accounts you can use and what you may do with each. list_tools with a connection gives that connection’s tools and their params. read runs the tools that only read; run runs the ones that change something or reach other people. Call finish_task when the task is done, saying what was done as outcome, and start a new task for the next thing the person asks for. When you hand part of a task to a sub-agent, start a sub-task for it first, with your task as parent, and give the sub-agent its id to use as task; when you are a sub-agent and were given a task id that way, use it, and don’t start a task of your own.';
+	'Start with start_task: say what you are about to do for the person, with a title and the goal, and give the id it answers with as `task` in every other call. Then list_connections lists the accounts you can use and what you may do with each. list_tools with a connection gives that connection’s tools and the params each takes. Don’t guess a tool’s params: where these instructions don’t give them, call list_tools for the connection before you first read or run one of its tools. read runs the tools that only read; run runs the ones that change something or reach other people. Call finish_task when the task is done, saying what was done as outcome, and start a new task for the next thing the person asks for. When you hand part of a task to a sub-agent, start a sub-task for it first, with your task as parent, and give the sub-agent its id to use as task; when you are a sub-agent and were given a task id that way, use it, and don’t start a task of your own.';
 
 /** The server's instructions for this agent, given when a client connects. */
 export function serverInstructions(signedIn: SignedInAgent): Promise<Result<string, ApiError>> {
