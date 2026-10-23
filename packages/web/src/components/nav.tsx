@@ -4,16 +4,19 @@ import {
 	HomeIcon,
 	LibraryIcon,
 	LogOutIcon,
+	MessageSquareIcon,
 	PlugIcon,
 	ScrollTextIcon,
 	SettingsIcon,
 	UsersIcon,
 	type LucideIcon,
 } from 'lucide-react';
+import type {Experiment} from '@proxy/utils';
 import {Link, useLocation} from 'react-router';
 import {signOut} from '@/client/auth-client';
 import {OrgSwitcher} from '@/components/org-switcher';
 import {ThemeMenu} from '@/components/theme-menu';
+import {useExperiments} from '@/hooks/use-experiment';
 import {
 	Sidebar,
 	SidebarContent,
@@ -27,11 +30,13 @@ import {
 } from '@proxy/ui/components/sidebar';
 import {useHuman} from '@/hooks/use-human';
 
-type Destination = {to: string; label: string; icon: LucideIcon};
+// `experiment` is the experiment a destination is behind, shown only with it on.
+type Destination = {to: string; label: string; icon: LucideIcon; experiment?: Experiment};
 
 // The organization's, under the switcher, each under its slug.
 const DESTINATIONS: Destination[] = [
 	{to: '', label: 'Home', icon: HomeIcon},
+	{to: '/chat', label: 'Chat', icon: MessageSquareIcon, experiment: 'harness'},
 	{to: '/connections', label: 'Connections', icon: PlugIcon},
 	{to: '/agents', label: 'Agents', icon: BotIcon},
 	{to: '/vault', label: 'Vault', icon: LibraryIcon},
@@ -53,8 +58,13 @@ function isActive(pathname: string, path: string, home: string): boolean {
 export function AppSidebar() {
 	const {pathname} = useLocation();
 	const human = useHuman();
+	const experiments = useExperiments();
 	const {setOpenMobile} = useSidebar();
 	const home = `/${human?.org.slug ?? ''}`;
+	const destinations = DESTINATIONS.filter(
+		(destination) =>
+			destination.experiment === undefined || experiments.includes(destination.experiment),
+	);
 
 	return (
 		<Sidebar collapsible="icon">
@@ -68,7 +78,7 @@ export function AppSidebar() {
 			<SidebarContent>
 				<SidebarGroup className="pt-0">
 					<SidebarMenu>
-						{DESTINATIONS.map((destination) => (
+						{destinations.map((destination) => (
 							<SidebarMenuItem key={destination.to}>
 								<SidebarMenuButton
 									isActive={isActive(pathname, `${home}${destination.to}`, home)}

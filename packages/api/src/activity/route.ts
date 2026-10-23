@@ -26,8 +26,8 @@ export type AuditEntryResponse = {
 	// What went wrong, for a failed request: the api's kind of error, with the provider's HTTP status
 	// where it answered with one, such as `provider_unreachable 429`; none for every other outcome.
 	error: string | null;
-	// The web app's agent pages, or the MCP server.
-	via: 'web' | 'mcp';
+	// The web app's agent pages, the MCP server, or the built-in agent's own loop.
+	via: 'web' | 'mcp' | 'harness';
 	// The agent's task the request was made for, among the answer's `tasks`; none for entries from
 	// before tasks, and for what Personal Agent Proxy did itself.
 	taskId: string | null;
@@ -50,7 +50,7 @@ export type ActivityTaskResponse = {
 	parentId: string | null;
 	title: string;
 	goal: string;
-	via: 'web' | 'mcp';
+	via: 'web' | 'mcp' | 'harness';
 	startedAt: string;
 	// Null while the agent hasn't called it finished, abandoned (@proxy/utils/tasks) or not.
 	finishedAt: string | null;

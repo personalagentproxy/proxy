@@ -397,8 +397,9 @@ export function sharedVaultFor(data: {
 /**
  * Takes a person out of an organization: their own connections there go, with their defaults,
  * entries and every agent's settings on them, and so do their own agents there, with their logins
- * and MCP clients; the shared ones stay, but the MCP clients they signed in as a shared agent are
- * signed out, so nothing of theirs keeps working there. The caller has undone the connections at
+ * and MCP clients, and their conversations with its built-in agents; the shared ones stay, but
+ * the MCP clients they signed in as a shared agent are signed out, so nothing of theirs keeps
+ * working there. The caller has undone the connections at
  * their providers first, and checked they aren't its owner.
  */
 export async function removeMembership(data: {
@@ -410,6 +411,7 @@ export async function removeMembership(data: {
 		await db.$transaction([
 			db.connection.deleteMany({where: {orgId, ownerUserId: userId}}),
 			db.agent.deleteMany({where: {orgId, ownerUserId: userId}}),
+			db.agentThread.deleteMany({where: {orgId, userId}}),
 			db.oAuthCode.deleteMany({where: {userId, agent: {orgId}}}),
 			db.oAuthGrant.deleteMany({where: {userId, agent: {orgId}}}),
 			db.orgMember.deleteMany({where: {orgId, userId}}),

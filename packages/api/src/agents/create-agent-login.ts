@@ -41,6 +41,10 @@ function nameFor(provider: AgentProvider, name: string | undefined): Result<stri
 export function createAgentLogin(viewer: MemberViewer, providerId: string, options: {name?: string; shared?: boolean} = {}): Promise<Result<{agent: AgentRow; password: string}, ApiError>> {
 	return Do(async ($) => {
 		const product = $(requirePresent(findAgentProvider(providerId), ApiErr.parseError(`Unknown agent ${providerId}`)));
+		// The built-in agents are made on the Chat page (harness/built-in-agent.ts), never handed out.
+		if (product.connects === 'built-in') {
+			return $(Err(ApiErr.parseError(`${product.name} is not an agent a login is made for`)));
+		}
 		const provider = $(requirePresent(findAgentProvider(loginProviderIdFor(product)), ApiErr.parseError(`Unknown login provider for ${providerId}`)));
 		const name = $(nameFor(provider, options.name));
 		const password = generatePassword();

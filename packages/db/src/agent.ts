@@ -79,6 +79,9 @@ export async function createAgent(data: {
 	name: string;
 	username: string;
 	passwordHash: string;
+	// A built-in agent's face.
+	shape?: string;
+	color?: string;
 }): Promise<Result<AgentRow, ApiError>> {
 	return wrapDb(() => db.agent.create({data, select: agentSelect}));
 }

@@ -46,6 +46,7 @@ import {
 	handleShareConnectionRoute,
 } from '../connections/route';
 import {handleFaviconRoute} from '../favicons/route';
+import {handleCreateChatAgentRoute, handleDeleteChatAgentRoute, handleGetThreadRoute, handleListChatAgentsRoute, handlePostMessageRoute, handleUpdateChatAgentRoute} from '../harness/route';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
 import {handleDeleteMeRoute, handleMeRoute} from '../me/route';
@@ -207,6 +208,16 @@ export function createApiRouter(): express.Router {
 	org.get('/widgets/rates', withAuthResult('Widget exchange rates route', handleRatesRoute));
 	org.get('/widgets/accounts', withAuthResult('Widget bank accounts route', handleBankAccountsRoute));
 	org.get('/widgets/transactions', withAuthResult('Widget bank transactions route', handleBankTransactionsRoute));
+
+	// The Chat page: the organization's built-in agents and the member's conversations with them.
+	// Nothing here runs the model: the worker in each api instance does (harness/worker.ts); a
+	// message queues its work.
+	org.get('/chat/agents', withAuthResult('List chat agents route', handleListChatAgentsRoute));
+	org.post('/chat/agents', withAuthResult('Create chat agent route', handleCreateChatAgentRoute));
+	org.put('/chat/agents/:agentId', withAuthResult('Update chat agent route', handleUpdateChatAgentRoute));
+	org.delete('/chat/agents/:agentId', withAuthResult('Delete chat agent route', handleDeleteChatAgentRoute));
+	org.get('/chat/agents/:agentId/thread', withAuthResult('Get chat thread route', handleGetThreadRoute));
+	org.post('/chat/agents/:agentId/messages', withAuthResult('Post chat message route', handlePostMessageRoute));
 
 	// The agent side: its own sign-in and cookie, and every request made for one of the agent's
 	// tasks, checked against the agent's access and logged with the task.

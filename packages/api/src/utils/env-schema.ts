@@ -107,7 +107,7 @@ export const envSchema = z.object({
 	OPENROUTER_KEY: documented(z.string().min(1).optional(), {
 		group: 'Core',
 		description:
-			'An OpenRouter API key, for the model that fills in the fields of the widget Jev picks on the home page (gpt-oss-120b, on Cerebras or Groq). What is typed there is sent to it. Without it, or without `TYPESAFE_API_KEY`, the home page says it is not set up; everything else works as before.',
+			'An OpenRouter API key, for the model that fills in the fields of the widget Jev picks on the home page (gpt-oss-120b, on Cerebras or Groq), and for the built-in agent on the Chat page (Claude Sonnet 5.5). What is typed there is sent to it. Without it, or without `TYPESAFE_API_KEY`, the home page says it is not set up, and without it the Chat page does; everything else works as before.',
 	}),
 
 	NODE_ENV: documented(z.enum(['development', 'test', 'production']).default('production'), {

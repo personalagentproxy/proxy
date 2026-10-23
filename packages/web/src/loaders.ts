@@ -8,6 +8,7 @@ import {
 	listMcpClients,
 } from '@/client/agents-client';
 import {getConnection, listConnections} from '@/client/connections-client';
+import {createChatAgent, getThread, listChatAgents} from '@/client/harness-client';
 import {getMe} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {getInvitation, getOrg, listMembers, listOrgs} from '@/client/orgs-client';
@@ -85,6 +86,30 @@ export async function connectionLoader(args: {params: {org?: string; id?: string
 		entries,
 		tasks,
 	};
+}
+
+// Chat opens on the organization's first agent, a General one made where it has none yet.
+export async function chatIndexLoader(args: OrgParams) {
+	const org = orgOf(args);
+	const {agents} = unwrapLoaderResult(await listChatAgents(org));
+	const first = agents[0];
+	if (first) {
+		throw redirect(`/${org}/chat/${first.id}`);
+	}
+	const {agent} = unwrapLoaderResult(
+		await createChatAgent(org, {name: 'General', shape: 'circle', color: 'blue'}),
+	);
+	throw redirect(`/${org}/chat/${agent.id}`);
+}
+
+// The person's conversation with an agent, and the agents to switch between.
+export async function chatLoader(args: OrgParams & {params: {id?: string}}) {
+	const org = orgOf(args);
+	const [log, agents] = await Promise.all([
+		getThread(org, args.params.id ?? ''),
+		listChatAgents(org),
+	]);
+	return {log: unwrapLoaderResult(log), agents: unwrapLoaderResult(agents).agents};
 }
 
 // The vault is the one built-in connection, which every organization has twice: the person's own

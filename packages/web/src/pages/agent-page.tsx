@@ -87,7 +87,10 @@ function AgentDetail({id}: {id: string}) {
 	const reachable = agent.shared
 		? connections.filter((connection) => connection.shared)
 		: connections;
-	const company = findAgentProvider(agent.providerId)?.company ?? agent.providerId;
+	const provider = findAgentProvider(agent.providerId);
+	const company = provider?.company ?? agent.providerId;
+	// A built-in agent has no login to hand out: it runs in Personal Agent Proxy itself.
+	const builtIn = provider?.connects === 'built-in';
 
 	return (
 		<AppShell
@@ -114,7 +117,7 @@ function AgentDetail({id}: {id: string}) {
 						<IconButton label="Rename agent" onClick={() => setRenaming(true)}>
 							<PencilIcon />
 						</IconButton>
-						{!revoked && (
+						{!revoked && !builtIn && (
 							<IconButton label="Set up again" to={`/${org}/agents/${agent.id}/setup`}>
 								<KeyRoundIcon />
 							</IconButton>

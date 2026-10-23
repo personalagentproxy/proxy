@@ -2,6 +2,7 @@ import {describe, expect, test} from 'bun:test';
 
 import {
 	AGENT_PROVIDERS,
+	BUILT_IN_AGENT_PROVIDER,
 	findAgentProvider,
 	loginProviderIdFor,
 	suggestAgentProvider,
@@ -49,6 +50,11 @@ describe('agent providers', () => {
 		}
 	});
 
+	test('finds the built-in agent by id, which is not on offer', () => {
+		expect(findAgentProvider('proxy')).toBe(BUILT_IN_AGENT_PROVIDER);
+		expect(AGENT_PROVIDERS).not.toContain(BUILT_IN_AGENT_PROVIDER);
+	});
+
 	test('uses the same Claude Duet logo in the app, on the website and in the README', async () => {
 		const appLogo = await Bun.file(
 			new URL('../../web/public/agent-providers/claude-duet.png', import.meta.url),
@@ -70,6 +76,14 @@ describe('agent providers', () => {
 		expect(duet?.name).toBe('Claude Duet');
 		expect(duet && loginProviderIdFor(duet)).toBe('claude');
 		expect(findAgentProvider('other')).toBeUndefined();
+	});
+
+	test('the built-in agent uses the app’s own icon', async () => {
+		expect(
+			await Bun.file(
+				new URL(`../../web/public${BUILT_IN_AGENT_PROVIDER.faviconUrl}`, import.meta.url),
+			).exists(),
+		).toBe(true);
 	});
 
 	test("suggests the provider an MCP client's name points at", () => {
