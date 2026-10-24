@@ -47,7 +47,7 @@ const caller = {agent: signedIn, via: 'mcp' as const, taskId: 'task-1'};
 
 // The task every run here is for, under way.
 // Started a moment ago, so it is under way whenever the tests run.
-const task = {id: 'task-1', agentId: 'agent-1', title: 'Find the Visa', goal: 'Look up the card number', via: 'mcp', createdAt: new Date(), finishedAt: null};
+const task = {id: 'task-1', agentId: 'agent-1', title: 'Find the Visa', goal: 'Look up the card number', via: 'mcp', createdAt: new Date(), finishedAt: null, lastStartedAt: new Date()};
 
 const vaultConnection = {
 	id: 'vault-1',

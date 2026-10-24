@@ -1,16 +1,1 @@
 @import '@proxy/ui/styles.css';
-
-/* The home page's lanes: a light sweeping along a task that is being worked on. */
-@theme {
-	--animate-lanes-shimmer: lanes-shimmer 2.4s ease-in-out infinite;
-
-	@keyframes lanes-shimmer {
-		0% {
-			transform: translateX(-100%);
-		}
-		60%,
-		100% {
-			transform: translateX(100%);
-		}
-	}
-}

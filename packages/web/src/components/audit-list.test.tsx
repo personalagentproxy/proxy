@@ -46,7 +46,10 @@ const task: ActivityTask = {
 	goal: 'Archive the newsletters',
 	via: 'mcp',
 	startedAt: '2026-10-14T21:00:00.000Z',
+	lastStartedAt: '2026-10-14T21:00:00.000Z',
 	finishedAt: null,
+	parentId: null,
+	outcome: null,
 };
 
 const entry: AuditEntry = {
@@ -64,6 +67,7 @@ const entry: AuditEntry = {
 	error: null,
 	via: 'mcp',
 	taskId: task.id,
+	durationMs: 640,
 };
 
 function renderList(entries: AuditEntry[]) {

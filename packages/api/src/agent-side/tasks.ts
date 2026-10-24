@@ -106,7 +106,9 @@ export function finishAgentTask(caller: AgentCaller, args: unknown): Promise<Res
 		}
 		const task = $(requirePresent($(await markAgentTaskFinished(caller.agent.orgId, caller.agent.agentId, taskId, outcome)), ApiErr.notFound('task', taskId)));
 		if (task.finishedAt === null) {
-			return $(Err(ApiErr.conflict(`Task ${taskId} (${task.title}) was started over a day ago and never finished, so it is taken as abandoned, and ended then.`)));
+			return $(
+				Err(ApiErr.conflict(`Task ${taskId} (${task.title}) was never finished, and neither it nor any of its sub-tasks was started in the last day, so it is taken as abandoned, and ended then.`)),
+			);
 		}
 		return toResponse(task);
 	});
@@ -123,11 +125,11 @@ export function requireOpenTask(agent: SignedInAgent, taskId: string): Promise<R
 		if (task.finishedAt !== null) {
 			return $(Err(ApiErr.conflict(`Task ${taskId} (${task.title}) is finished. Start a new task for what you are doing now, and give its id as task.`)));
 		}
-		if (taskEndedAt({startedAt: task.createdAt, finishedAt: null}, new Date()) !== null) {
+		if (taskEndedAt({lastStartedAt: task.lastStartedAt, finishedAt: null}, new Date()) !== null) {
 			return $(
 				Err(
 					ApiErr.conflict(
-						`Task ${taskId} (${task.title}) was started over a day ago and never finished, so it is taken as abandoned. Start a new task for what you are doing now, and give its id as task.`,
+						`Task ${taskId} (${task.title}) was never finished, and neither it nor any of its sub-tasks was started in the last day, so it is taken as abandoned. Start a new task for what you are doing now, and give its id as task.`,
 					),
 				),
 			);

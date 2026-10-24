@@ -27,11 +27,14 @@ import {
 	homeLoader,
 	inviteLoader,
 	membersLoader,
+	shouldRevalidateHome,
+	taskLoader,
 	vaultLoader,
 	welcomeConnectionLoader,
 	welcomeLoader,
 } from '@/loaders';
 import {ActivityPage} from '@/pages/activity-page';
+import {TaskPage} from '@/pages/task-page';
 import {AddBankPage} from '@/pages/add-bank-page';
 import {AddConnectionPage} from '@/pages/add-connection-page';
 import {AddDatabasePage} from '@/pages/add-database-page';
@@ -245,7 +248,12 @@ export const router = createBrowserRouter([
 		errorElement: <RouteError />,
 		children: [
 			{path: '/account', element: <AccountPage />},
-			{path: '/:org', loader: homeLoader, element: <HomePage />},
+			{
+				path: '/:org',
+				loader: homeLoader,
+				shouldRevalidate: shouldRevalidateHome,
+				element: <HomePage />,
+			},
 			{path: '/:org/connections', loader: connectionsLoader, element: <ConnectionsPage />},
 			{path: '/:org/connections/new', loader: addConnectionLoader, element: <AddConnectionPage />},
 			{path: '/:org/connections/new/email', element: <AddEmailPage />},
@@ -260,6 +268,7 @@ export const router = createBrowserRouter([
 			{path: '/:org/agents/:id', loader: agentLoader, element: <AgentPage />},
 			{path: '/:org/agents/:id/setup', loader: agentSetupLoader, element: <AgentSetupPage />},
 			{path: '/:org/activity', loader: activityLoader, element: <ActivityPage />},
+			{path: '/:org/activity/tasks/:taskId', loader: taskLoader, element: <TaskPage />},
 			{path: '/:org/members', loader: membersLoader, element: <MembersPage />},
 			{path: '/:org/settings', element: <OrgSettingsPage />},
 		],

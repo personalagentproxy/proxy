@@ -56,3 +56,15 @@ export function counted(count: number, singular: string): string {
 	}
 	return `${count.toLocaleString('en-US')} ${singular}s`;
 }
+
+// Made once: making a formatter is what costs, and a timeline formats a time for every request.
+const TIME_FORMAT = new Intl.DateTimeFormat('en-US', {
+	hour: 'numeric',
+	minute: '2-digit',
+	second: '2-digit',
+});
+
+// "2:03:45 PM": a moment within a day, to the second.
+export function formatTime(iso: string): string {
+	return TIME_FORMAT.format(new Date(iso));
+}

@@ -2,7 +2,7 @@ import type {FetchError} from '@proxy/utils';
 import {useEffect, useRef, useState} from 'react';
 import {useLoaderData} from 'react-router';
 import {fillIntent, type Intent, pickIntent} from '@/client/intent-client';
-import {AgentLanes} from '@/components/agent-lanes';
+import {AgentTimeline} from '@/components/agent-timeline';
 import {AnimatedHeight} from '@/components/animated-height';
 import {ConnectedLogos} from '@/components/connected-logos';
 import {AppShell} from '@/components/app-shell';
@@ -298,7 +298,7 @@ export function HomePage() {
 				<ConnectedLogos connections={connections} agents={agents} />
 				{activity && (
 					<div className="flex w-full justify-center pt-[6vh]">
-						<AgentLanes initial={activity} agents={agents} connections={connections} />
+						<AgentTimeline initial={activity} agents={agents} connections={connections} />
 					</div>
 				)}
 			</div>

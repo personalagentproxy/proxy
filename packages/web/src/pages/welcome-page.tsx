@@ -48,8 +48,7 @@ export function WelcomePage({step}: {step: Step}) {
 	// Only the choice of agent can be skipped: naming one (`?provider=`) and setting it up
 	// (`?agent=`) go on with Finish or back to the choice.
 	const skippable =
-		step === 'connections' ||
-		(step === 'agent' && !params.has('provider') && !params.has('agent'));
+		step === 'connections' || (step === 'agent' && !params.has('provider') && !params.has('agent'));
 
 	const finish = async () => {
 		setFinishing(true);

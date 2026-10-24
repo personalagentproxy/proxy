@@ -21,6 +21,9 @@ export type AgentTaskRow = {
 	finishedAt: Date | null;
 	// What was done or found, as the agent said when it finished; null where it said nothing.
 	outcome: string | null;
+	// When it, or the last of its sub-tasks at any depth, was started: one never finished is taken
+	// as abandoned a day after (@proxy/utils/tasks).
+	lastStartedAt: Date;
 };
 
 const taskSelect = {
@@ -33,14 +36,17 @@ const taskSelect = {
 	createdAt: true,
 	finishedAt: true,
 	outcome: true,
+	lastStartedAt: true,
 } as const;
 
 /**
  * Starts a task for the agent: what it is called and what the person asked for, and the agent's
- * task it is a sub-task of, where it is one. The parent is locked while the sub-task is made, so it
- * can't be finished in between and leave the sub-task open; `Ok(null)` means it is no longer under
- * way, finished or abandoned (@proxy/utils/tasks). `ownerUserId` is the member whose own the agent
- * is, who alone sees the task; null for a shared agent's.
+ * task it is a sub-task of, where it is one. The parent and every task above it are locked while
+ * the sub-task is made, so none can be finished in between and leave the sub-task open, and each
+ * takes the sub-task's start as the last of its own (`lastStartedAt`), so none is abandoned before
+ * it; `Ok(null)` means the parent is no longer under way, finished or abandoned (@proxy/utils/tasks).
+ * `ownerUserId` is the member whose own the agent is, who alone sees the task; null for a shared
+ * agent's.
  */
 export async function createAgentTask(data: {
 	orgId: string;
@@ -53,20 +59,52 @@ export async function createAgentTask(data: {
 }): Promise<Result<AgentTaskRow | null, ApiError>> {
 	const {orgId, agentId, parentId} = data;
 	if (parentId === null) {
-		return wrapDb(() => db.agentTask.create({data, select: taskSelect}));
+		return wrapDb(() => {
+			const now = new Date();
+			return db.agentTask.create({
+				data: {...data, createdAt: now, lastStartedAt: now},
+				select: taskSelect,
+			});
+		});
 	}
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
-			const abandonedBefore = new Date(Date.now() - TASK_ABANDONED_AFTER_MS);
-			const parent = await tx.$queryRaw<Array<{id: string}>>`
-				SELECT "id" FROM "AgentTask"
-				WHERE "id" = ${parentId} AND "orgId" = ${orgId} AND "agentId" = ${agentId}
-					AND "finishedAt" IS NULL AND "createdAt" > ${abandonedBefore}
-				FOR UPDATE`;
-			if (parent.length === 0) {
+			// Locked from the top down, the order finishing a task locks its sub-tasks in
+			// (finishSubTasks), so the two can't wait on each other.
+			const above = await tx.$queryRaw<
+				Array<{id: string; finishedAt: Date | null; lastStartedAt: Date}>
+			>`
+				WITH RECURSIVE "line" AS (
+					SELECT "id", "parentId", 0 AS "depth" FROM "AgentTask"
+					WHERE "id" = ${parentId} AND "orgId" = ${orgId} AND "agentId" = ${agentId}
+					UNION ALL
+					SELECT "task"."id", "task"."parentId", "line"."depth" + 1
+					FROM "AgentTask" AS "task"
+					JOIN "line" ON "task"."id" = "line"."parentId"
+				)
+				SELECT "task"."id", "task"."finishedAt", "task"."lastStartedAt"
+				FROM "AgentTask" AS "task"
+				JOIN "line" ON "task"."id" = "line"."id"
+				ORDER BY "line"."depth" DESC
+				FOR UPDATE OF "task"`;
+			const now = new Date();
+			const parent = above.find((task) => task.id === parentId);
+			if (
+				!parent ||
+				parent.finishedAt !== null ||
+				parent.lastStartedAt.getTime() <= now.getTime() - TASK_ABANDONED_AFTER_MS
+			) {
 				return null;
 			}
-			return tx.agentTask.create({data, select: taskSelect});
+			// Where another instance's clock is ahead, one may have set a later start already.
+			await tx.agentTask.updateMany({
+				where: {id: {in: above.map((task) => task.id)}, lastStartedAt: {lt: now}},
+				data: {lastStartedAt: now},
+			});
+			return tx.agentTask.create({
+				data: {...data, createdAt: now, lastStartedAt: now},
+				select: taskSelect,
+			});
 		}),
 	);
 }
@@ -100,7 +138,13 @@ export async function finishAgentTask(
 			const finishedAt = new Date();
 			const abandonedBefore = new Date(finishedAt.getTime() - TASK_ABANDONED_AFTER_MS);
 			const {count} = await tx.agentTask.updateMany({
-				where: {id: taskId, orgId, agentId, finishedAt: null, createdAt: {gt: abandonedBefore}},
+				where: {
+					id: taskId,
+					orgId,
+					agentId,
+					finishedAt: null,
+					lastStartedAt: {gt: abandonedBefore},
+				},
 				data: {finishedAt, outcome},
 			});
 			if (count > 0) {
@@ -119,8 +163,8 @@ export async function finishAgentTask(
 
 // Finishes the sub-tasks of `parentIds` still under way, level by level down the tree. Each level
 // is read after the one above is updated, which waits for a sub-task being made under it
-// (createAgentTask), so none is left open. An abandoned sub-task keeps when it ended, but its own
-// sub-tasks, started before it was abandoned, may still be under way.
+// (createAgentTask), so none is left open. One abandoned keeps when it ended, as do its own
+// sub-tasks, abandoned no later than it.
 async function finishSubTasks(
 	tx: Prisma.TransactionClient,
 	at: {orgId: string; agentId: string; finishedAt: Date; abandonedBefore: Date},
@@ -136,7 +180,7 @@ async function finishSubTasks(
 	const ids = open.map((task) => task.id);
 	// Not one finished since it was read, which keeps its own time and outcome.
 	await tx.agentTask.updateMany({
-		where: {id: {in: ids}, finishedAt: null, createdAt: {gt: at.abandonedBefore}},
+		where: {id: {in: ids}, finishedAt: null, lastStartedAt: {gt: at.abandonedBefore}},
 		data: {finishedAt: at.finishedAt},
 	});
 	await finishSubTasks(tx, at, ids);
@@ -153,7 +197,7 @@ export async function listOpenAgentTasks(
 				orgId,
 				agentId,
 				finishedAt: null,
-				createdAt: {gt: new Date(Date.now() - TASK_ABANDONED_AFTER_MS)},
+				lastStartedAt: {gt: new Date(Date.now() - TASK_ABANDONED_AFTER_MS)},
 			},
 			select: taskSelect,
 			orderBy: {createdAt: 'desc'},
@@ -162,22 +206,29 @@ export async function listOpenAgentTasks(
 }
 
 /**
- * The tasks the viewer sees, shared agents' and their own agents', under way at some point since
- * `from`: started before now and not finished before `from`, nor abandoned before it, a day after
- * it started; the newest `take` of them, newest first.
+ * The tasks the viewer sees, shared agents' and their own agents', under way at some point between
+ * `from` and `to`: started by `to` and not finished before `from`, nor abandoned before it, a day
+ * after it or the last of its sub-tasks started. Of those, the newest `take` started on their own,
+ * newest first; a sub-task ends no later than its parent, which is under way then too, so the rest
+ * are sub-tasks of these (listSubTasks).
  */
-export async function listAgentTasksSince(
+export async function listAgentTasksBetween(
 	viewer: Viewer,
 	from: Date,
+	to: Date,
 	take: number,
 ): Promise<Result<AgentTaskRow[], ApiError>> {
+	const startedSince = new Date(from.getTime() - TASK_ABANDONED_AFTER_MS);
 	return wrapDb(() =>
 		db.agentTask.findMany({
 			where: {
-				AND: [visibleTo(viewer)],
-				OR: [
-					{finishedAt: {gte: from}},
-					{finishedAt: null, createdAt: {gte: new Date(from.getTime() - TASK_ABANDONED_AFTER_MS)}},
+				...visibleTo(viewer),
+				parentId: null,
+				createdAt: {lte: to},
+				AND: [
+					{
+						OR: [{finishedAt: {gte: from}}, {finishedAt: null, lastStartedAt: {gte: startedSince}}],
+					},
 				],
 			},
 			select: taskSelect,
@@ -201,4 +252,33 @@ export async function listAgentTasks(
 			select: taskSelect,
 		}),
 	);
+}
+
+/**
+ * The sub-tasks of the tasks `taskIds`, at every depth, that the viewer sees, in the order started:
+ * `take` of them at most, level by level, so a task with more under it than that shows what it
+ * handed on itself before what those handed on in turn; of each level, the first started, or with
+ * `newest`, the last, for where the newest of `taskIds` matter most.
+ */
+export async function listSubTasks(
+	viewer: Viewer,
+	taskIds: string[],
+	take: number,
+	{newest = false}: {newest?: boolean} = {},
+): Promise<Result<AgentTaskRow[], ApiError>> {
+	return wrapDb(async () => {
+		const found: AgentTaskRow[] = [];
+		let parentIds = taskIds;
+		while (parentIds.length > 0 && found.length < take) {
+			const level: AgentTaskRow[] = await db.agentTask.findMany({
+				where: {...visibleTo(viewer), parentId: {in: parentIds}},
+				select: taskSelect,
+				orderBy: {createdAt: newest ? 'desc' : 'asc'},
+				take: take - found.length,
+			});
+			found.push(...level);
+			parentIds = level.map((task) => task.id);
+		}
+		return found.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+	});
 }

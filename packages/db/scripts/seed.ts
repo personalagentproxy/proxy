@@ -680,6 +680,164 @@ const RECENT_REQUESTS = 14;
 
 let entryCount = 0;
 let taskCount = 0;
+
+// One job split among sub-agents as an agent at work splits one, for a task's timeline to show:
+// the task, the parts handed on, one handed on again, each with requests a few seconds apart and as
+// long as they took, a refusal and a failure among them. Minutes from when the job started.
+type JobPart = {
+	title: string;
+	goal: string;
+	outcome: string;
+	from: number;
+	to: number;
+	// Where its requests ran, as minutes from the start, a few seconds apart.
+	busy: Array<[number, number]>;
+	parts?: JobPart[];
+};
+
+const JOB: JobPart = {
+	title: 'Prepare the board update',
+	goal: 'Gather the quarter’s numbers, what customers said on their calls and what is still open, and draft the board update.',
+	outcome:
+		'Drafted the board update with revenue up 12%, three customer themes and the two issues at risk.',
+	from: 0,
+	to: 13,
+	busy: [
+		[0.05, 0.6],
+		[7.4, 12.6],
+	],
+	parts: [
+		{
+			title: 'Gather the quarter’s numbers',
+			goal: 'Collect revenue, churn and new customers for the quarter.',
+			outcome: 'Revenue up 12% on last quarter, churn down to 2.1%, 38 new customers.',
+			from: 0.7,
+			to: 5.6,
+			busy: [
+				[0.8, 1.1],
+				[3.5, 5.4],
+			],
+			parts: [
+				{
+					title: 'Pull the revenue sheet',
+					goal: 'Find the quarter’s revenue sheet and read the totals.',
+					outcome: 'Read the totals from the Q3 revenue sheet.',
+					from: 1.2,
+					to: 3.3,
+					busy: [[1.3, 3.1]],
+				},
+			],
+		},
+		{
+			title: 'Summarize the customer calls',
+			goal: 'Read the notes from this quarter’s customer calls and the themes in them.',
+			outcome:
+				'Three themes: onboarding takes too long, the reports export, and pricing for small teams.',
+			from: 0.8,
+			to: 7.1,
+			busy: [[0.9, 6.9]],
+		},
+		{
+			title: 'Check the open issues',
+			goal: 'List the open issues and which of them put the quarter’s goals at risk.',
+			outcome: 'Fourteen issues open, two of them at risk of slipping past the quarter.',
+			from: 0.9,
+			to: 4.2,
+			busy: [[1.0, 4.0]],
+		},
+	],
+};
+
+// When the part, or the last of the parts it handed on at any depth, started, in minutes.
+function lastStart(part: JobPart): number {
+	return Math.max(part.from, ...(part.parts ?? []).map(lastStart));
+}
+
+async function seedJob(agent: (typeof agents)[number], startedAt: number): Promise<number> {
+	let last = startedAt;
+	let refused = false;
+	let failed = false;
+	const at = (minutes: number) => startedAt + minutes * MINUTE;
+	const seedPart = async (part: JobPart, parentId: string | null) => {
+		const via = 'mcp' as const;
+		const task = await db.agentTask.create({
+			data: {
+				orgId: org.id,
+				ownerUserId: user.id,
+				agentId: agent.id,
+				parentId,
+				title: part.title,
+				goal: part.goal,
+				via,
+				createdAt: new Date(at(part.from)),
+				lastStartedAt: new Date(at(lastStart(part))),
+				finishedAt: new Date(at(part.to)),
+				outcome: part.outcome,
+			},
+		});
+		taskCount += 1;
+		for (const [from, to] of part.busy) {
+			for (let time = at(from); time < at(to); time += (4 + random() * 14) * 1000) {
+				const fallback = randomRequest();
+				if (!fallback) {
+					continue;
+				}
+				const picked = allowedRequest(agent, fallback);
+				const durationMs = requestDuration();
+				const done = time + durationMs;
+				// One refusal in the job and one failure, where the agent has something it may not do.
+				const refusal = !refused && parentId !== null && random() < 0.08;
+				const request = refusal ? (deniedRequest(agent) ?? picked) : picked;
+				const outcome = isAllowed(agent, request) ? 'allowed' : 'denied';
+				const failure = !failed && outcome === 'allowed' && random() < 0.04;
+				refused ||= outcome === 'denied';
+				failed ||= failure;
+				const onOneRecord = request.action !== 'list' && request.action !== 'create';
+				await db.auditEntry.create({
+					data: {
+						orgId: org.id,
+						ownerUserId: user.id,
+						agentId: agent.id,
+						connectionId: request.connection.id,
+						collectionId: request.collection.id,
+						action: request.action,
+						recordTitle: onOneRecord
+							? recordTitle(request.connection, request.collection.id)
+							: null,
+						query: null,
+						outcome: failure ? 'failed' : outcome,
+						error: failure ? pick(FAILURES) : null,
+						via,
+						taskId: task.id,
+						durationMs,
+						createdAt: new Date(done),
+					},
+				});
+				entryCount += 1;
+				last = Math.max(last, done);
+				time = done;
+			}
+		}
+		for (const child of part.parts ?? []) {
+			await seedPart(child, task.id);
+		}
+	};
+	await seedPart(JOB, null);
+	return last;
+}
+
+// A request the agent may not make, where there is one.
+function deniedRequest(agent: (typeof agents)[number]): Request | null {
+	for (let attempt = 0; attempt < 40; attempt++) {
+		const candidate = randomRequest();
+		if (candidate && !isAllowed(agent, candidate)) {
+			return candidate;
+		}
+	}
+	return null;
+}
+
+let jobSeeded = false;
 for (const agent of agents) {
 	const start = agent.createdAt.getTime();
 	const end = agent.revokedAt?.getTime() ?? now;
@@ -711,6 +869,7 @@ for (const agent of agents) {
 						...pick(TASKS),
 						via: taskVia,
 						createdAt: new Date(startedAt),
+						lastStartedAt: new Date(startedAt),
 						finishedAt: finishedAt === null ? null : new Date(finishedAt),
 					},
 				});
@@ -725,6 +884,7 @@ for (const agent of agents) {
 			task ? [task] : [],
 		)) {
 			const parentDone = parent.endsAt !== now;
+			let lastStartedAt = parent.startedAt;
 			for (const [index, part] of SUB_TASKS.entries()) {
 				const startedAt = parent.startedAt + (2 + index * 3 + random() * 2) * MINUTE;
 				const finishedAt =
@@ -732,19 +892,26 @@ for (const agent of agents) {
 				const task = await db.agentTask.create({
 					data: {
 						orgId: org.id,
+						ownerUserId: user.id,
 						agentId: agent.id,
 						parentId: parent.id,
 						title: part.title,
 						goal: part.goal,
 						via: parent.via,
 						createdAt: new Date(startedAt),
+						lastStartedAt: new Date(startedAt),
 						finishedAt: finishedAt === null ? null : new Date(finishedAt),
 						outcome: finishedAt === null ? null : part.outcome,
 					},
 				});
 				taskCount += 1;
 				subTasks.push({id: task.id, via: parent.via, startedAt, endsAt: finishedAt ?? now});
+				lastStartedAt = Math.max(lastStartedAt, startedAt);
 			}
+			await db.agentTask.update({
+				where: {id: parent.id},
+				data: {lastStartedAt: new Date(lastStartedAt)},
+			});
 		}
 		const pool = [...concurrent, ...subTasks];
 		for (const [index, {request: picked}] of recent.entries()) {
@@ -779,6 +946,12 @@ for (const agent of agents) {
 		}
 	}
 
+	// The first login in use with settings of its own did the job, finished a quarter hour ago.
+	if (!jobSeeded && recent.length > 0 && agent.grants.length > 0) {
+		jobSeeded = true;
+		lastActiveAt = Math.max(lastActiveAt, await seedJob(agent, now - 28 * MINUTE));
+	}
+
 	let taskId: string | null = null;
 	let via: 'web' | 'mcp' = 'web';
 	let leftInTask = 0;
@@ -796,6 +969,7 @@ for (const agent of agents) {
 					...pick(TASKS),
 					via,
 					createdAt: new Date(createdAt - MINUTE),
+					lastStartedAt: new Date(createdAt - MINUTE),
 					finishedAt: new Date((requests[lastIndex]?.createdAt ?? createdAt) + MINUTE),
 				},
 			});
