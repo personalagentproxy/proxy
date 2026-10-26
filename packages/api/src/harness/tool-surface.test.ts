@@ -1,7 +1,10 @@
-import {describe, expect, test} from 'bun:test';
+import {describe, expect, mock, test} from 'bun:test';
 
-import {MCP_TOOLS} from '../mcp/tools';
-import {isGateTool, MODEL_TOOLS} from './tool-surface';
+// The catalog's modules read the api's env as they load, and ci has no .env: so the env is mocked,
+// and the modules imported after, since a static import would load before the mock.
+mock.module('../utils/env', () => ({env: {NODE_ENV: 'test', APP_URL: 'http://localhost:5173'}}));
+const {MCP_TOOLS} = await import('../mcp/tools');
+const {isGateTool, MODEL_TOOLS} = await import('./tool-surface');
 
 type Params = {properties: Record<string, unknown>; required: string[]};
 
