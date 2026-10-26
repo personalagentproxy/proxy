@@ -42,6 +42,7 @@ const task = {
 	createdAt: new Date('2026-10-16T09:00:00Z'),
 	finishedAt: null,
 	outcome: null,
+	lastStartedAt: new Date('2026-10-16T09:00:00Z'),
 };
 const started = {task: 'task-1', parent: null, title: 'Triage inbox', goal: 'Archive the newsletters', startedAt: '2026-10-16T09:00:00.000Z', finishedAt: null, outcome: null};
 
@@ -240,6 +241,16 @@ describe('handleMcpRoute', () => {
 			[{agent: signedIn, via: 'mcp', taskId: 'task-1'}, 'mail-1', 'emails_archive', {id: 'inbox-1'}, {readOnly: false}],
 		]);
 		expect(JSON.stringify(taskless.body)).toContain('Call start_task first');
+	});
+
+	test("read and run turn down a tool's params given anywhere but params, rather than run the tool without them", async () => {
+		const input = await post(rpc('tools/call', {name: 'read', arguments: {task: 'task-1', connection: 'web-1', tool: 'searches_run', input: {query: 'bun test mocks'}}}));
+
+		expect((input.body as {result: unknown}).result).toEqual({
+			content: [{type: 'text', text: 'read takes task, connection, tool and params, not `input`: put the tool’s own params, as list_tools describes them, in params.'}],
+			isError: true,
+		});
+		expect(runAgentTool).not.toHaveBeenCalled();
 	});
 
 	test('a refused call is a tool error in words a model can act on', async () => {

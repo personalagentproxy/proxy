@@ -7,7 +7,8 @@ import {parseToolJson} from '../mcp/mcp-client';
 import type {McpServer} from '../mcp/mcp-oauth';
 
 /**
- * Parallel's MCP server and what its tools answer: JSON, a search's results each a page's address,
+ * Parallel's MCP server, at the address that takes a sign-in or an API key (its keyless one is
+ * `/mcp` beside it), and what its tools answer: JSON, a search's results each a page's address,
  * title, publish date and the passages that fit, and a page read in full its text as Markdown, or
  * why it couldn't be read. Results are written out as Exa writes its own, so an agent reads both
  * the same.
@@ -17,7 +18,7 @@ const AUTH_BASE = 'https://platform.parallel.ai/getKeys';
 
 export const PARALLEL: McpServer = {
 	name: 'Parallel',
-	url: 'https://search-mcp.parallel.ai/mcp',
+	url: 'https://search.parallel.ai/mcp-oauth',
 	registerUrl: `${AUTH_BASE}/register`,
 	authorizeUrl: `${AUTH_BASE}/authorize`,
 	tokenUrl: `${AUTH_BASE}/token`,

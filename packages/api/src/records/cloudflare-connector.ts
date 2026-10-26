@@ -14,6 +14,21 @@ import {onlyRun, type Connector, type DataRecord, type NewCommandRunner, type Re
  * and GraphQL analytics queries, Send POST, PUT and PATCH, and Delete DELETE.
  */
 
+// The most of an answer passed on, as of a web page: Cloudflare's server is asked for its answers
+// whole, so a long one is cut here, saying so where nothing could take the note for an answer's own.
+const MAX_RESPONSE_CHARACTERS = 100_000;
+
+// An answer, whole, or its start and a line after it saying how much was left out and how to ask
+// for less, which leaves cut JSON plainly unfinished rather than a list that looks complete.
+function passedOn(answer: string): string {
+	if (answer.length <= MAX_RESPONSE_CHARACTERS) {
+		return answer;
+	}
+	const total = answer.length.toLocaleString('en-US');
+	const kept = MAX_RESPONSE_CHARACTERS.toLocaleString('en-US');
+	return `${answer.slice(0, MAX_RESPONSE_CHARACTERS)}\n\n[Cut short: Cloudflare answered with ${total} characters, of which these are the first ${kept}. Ask for less at once, such as a page at a time with ?page=1&per_page=20, or a narrower filter.]`;
+}
+
 // What each request command sends: the methods it takes, the one a request without a method is
 // sent with, and what to tell an agent that asked it for another.
 type Sends = {methods: string[]; method: string; refused: string};
@@ -76,7 +91,7 @@ function sendRequest(sends: Sends): NewCommandRunner {
 		Do(async ($): Promise<DataRecord> => {
 			const request = $(cloudflareRequest(sends, values));
 			const account = (values.account ?? '').trim();
-			const response = $(await callMcpToolFor(CLOUDFLARE, target.connection, 'execute', {code: requestCode(request), ...(account ? {account_id: account} : {})}));
+			const response = passedOn($(await callMcpToolFor(CLOUDFLARE, target.connection, 'execute', {code: requestCode(request), ...(account ? {account_id: account} : {})})));
 			const sent: RecordValues = {method: request.method, path: request.path};
 			const body = (values.body ?? '').trim();
 			if (body) {
@@ -101,7 +116,7 @@ export const cloudflareConnector: Connector = {
 				if (!search) {
 					return $(Err(ApiErr.validationError('Say what to look up: words, such as "dns records", or one endpoint, such as "POST /zones/{zone_id}/dns_records"')));
 				}
-				const endpoints = $(await callMcpToolFor(CLOUDFLARE, target.connection, 'search', {code: endpointsCode(search)}));
+				const endpoints = passedOn($(await callMcpToolFor(CLOUDFLARE, target.connection, 'search', {code: endpointsCode(search)})));
 				return {id: 'endpoints', values: {search, endpoints}, updatedAt: new Date().toISOString()};
 			}),
 		run: (target, values) =>
@@ -110,7 +125,7 @@ export const cloudflareConnector: Connector = {
 				if (!query) {
 					return $(Err(ApiErr.validationError('Say what to search the docs for')));
 				}
-				const results = $(await callMcpToolFor(CLOUDFLARE, target.connection, 'docs', {query}));
+				const results = passedOn($(await callMcpToolFor(CLOUDFLARE, target.connection, 'docs', {query})));
 				return {id: 'docs', values: {query, results}, updatedAt: new Date().toISOString()};
 			}),
 	},

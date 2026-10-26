@@ -73,6 +73,9 @@ export const auditEntrySchema = z.object({
 	// The agent's task it was made for, among the answer's tasks; none for entries from before
 	// tasks, and for what Personal Agent Proxy did itself.
 	taskId: z.string().nullable(),
+	// How long the request took; none for entries from before it was kept, and for what Personal
+	// Agent Proxy did itself.
+	durationMs: z.number().nullable(),
 	// The member who asked for what Personal Agent Proxy did itself, and their name while they are
 	// in the organization; null for an agent's request.
 	userId: z.string().nullable(),
@@ -83,31 +86,51 @@ export const auditEntrySchema = z.object({
 export const activityTaskSchema = z.object({
 	id: z.string(),
 	agentId: z.string(),
+	// The agent's task it is a sub-task of, handed to one of its sub-agents; null for one started
+	// on its own.
+	parentId: z.string().nullable(),
 	title: z.string(),
 	goal: z.string(),
 	via: z.enum(['web', 'mcp', 'harness']),
 	startedAt: z.string(),
 	// Null while the agent hasn't called it finished.
 	finishedAt: z.string().nullable(),
+	// What was done or found, as the agent said when it finished; null where it said nothing.
+	outcome: z.string().nullable(),
+	// When it, or the last of its sub-tasks at any depth, was started: one never finished is taken
+	// as abandoned a day after (@proxy/utils/tasks).
+	lastStartedAt: z.string(),
 });
 
-// A task as the home page's lanes draw it: when it ran, and what was done for it.
-export const laneTaskSchema = activityTaskSchema.extend({
-	// How many requests were made for it, and how many of them were refused.
-	requests: z.number(),
-	denied: z.number(),
-	// The connections its requests used, the most used first.
-	connectionIds: z.array(z.string()),
-});
-
-export type LaneTask = z.infer<typeof laneTaskSchema>;
-
-export const activityLanesSchema = z.object({
-	// When the answer was made: the right edge of the lanes.
+// The home page's timeline: every task under way at some point between `from` and `to`, with its
+// sub-tasks, and the requests made for them.
+export const activityTimelineSchema = z.object({
+	// When the answer was made: the right edge of the timeline.
 	now: z.string(),
 	from: z.string(),
-	// Every task under way at some point since `from`, newest first.
-	tasks: z.array(laneTaskSchema),
+	// `now`, where the stretch read runs up to it.
+	to: z.string(),
+	// Newest first.
+	tasks: z.array(activityTaskSchema),
+	// Those since `from`, in the order they were made.
+	entries: z.array(auditEntrySchema),
 });
 
-export type ActivityLanes = z.infer<typeof activityLanesSchema>;
+export type ActivityTimeline = z.infer<typeof activityTimelineSchema>;
+
+// A task's page: the task, every task handed on from it, and every request made for them.
+export const taskRunSchema = z.object({
+	// When the answer was made: where a task still under way has got to.
+	now: z.string(),
+	// The task the page is about, first among `tasks`.
+	task: z.string(),
+	agentId: z.string(),
+	// The task it is a sub-task of, where it is one the person sees.
+	parent: activityTaskSchema.nullable(),
+	// The task and its sub-tasks at every depth, in the order started.
+	tasks: z.array(activityTaskSchema),
+	// In the order they were made.
+	entries: z.array(auditEntrySchema),
+});
+
+export type TaskRun = z.infer<typeof taskRunSchema>;

@@ -42,6 +42,16 @@ describe('secret crypto', () => {
 		expect(decryptSecret(forged).unwrapErr().kind).toBe('internal_error');
 	});
 
+	test('fails with a shortened tag, though it is the start of the right one', async () => {
+		const {encryptSecret, decryptSecret} = await import('./secret-crypto');
+		const [version, iv, tag, ciphertext] = encryptSecret('secret').unwrap().split('.');
+		const shortTag = Buffer.from(tag ?? '', 'base64url')
+			.subarray(0, 4)
+			.toString('base64url');
+
+		expect(decryptSecret([version, iv, shortTag, ciphertext].join('.')).unwrapErr().kind).toBe('internal_error');
+	});
+
 	test('fails without a key', async () => {
 		mockEnv.ENCRYPTION_KEY = undefined;
 		const {encryptSecret} = await import('./secret-crypto');

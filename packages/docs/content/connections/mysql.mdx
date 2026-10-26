@@ -49,8 +49,8 @@ write.
   reads as one `column: value` line per column; a value that reads empty is NULL.
 - **Run queries** runs one statement that reads, SELECT, WITH, SHOW, EXPLAIN or DESCRIBE, in a
   read-only transaction with a 30 second limit, and answers up to 200 rows as one JSON object a
-  line. A second statement after a semicolon, or one that writes, is refused before it reaches the
-  database. MySQL lets a `CREATE`, `ALTER` or `DROP` through a read-only transaction, which is why
+  line. A semicolon anywhere but at the end, even in a string, or a statement that writes, is
+  refused before it reaches the database. MySQL lets a `CREATE`, `ALTER` or `DROP` through a read-only transaction, which is why
   only statements that read are sent, and why a user that can only read is worth making.
 - **Add rows** inserts a row into a table, from the `column: value` lines written; a column left
   out takes its default.

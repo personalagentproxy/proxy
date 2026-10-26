@@ -55,7 +55,7 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 	if (url.pathname === '/getKeys/register') {
 		return Response.json({client_id: 'client-1'}, {status: 201});
 	}
-	if (url.host === 'search-mcp.parallel.ai') {
+	if (url.href === 'https://search.parallel.ai/mcp-oauth') {
 		// Parallel's server turns a bad key down at the door.
 		if (new Headers(init?.headers).get('authorization') === 'Bearer bad-key') {
 			return new Response('Unauthorized', {status: 401});
@@ -147,7 +147,7 @@ describe('handleStartParallelRoute', () => {
 		expect(authorizeUrl.searchParams.get('client_id')).toBe('client-1');
 		expect(authorizeUrl.searchParams.get('scope')).toBe('key:read');
 		expect(authorizeUrl.searchParams.get('code_challenge_method')).toBe('S256');
-		expect(authorizeUrl.searchParams.get('resource')).toBe('https://search-mcp.parallel.ai/mcp');
+		expect(authorizeUrl.searchParams.get('resource')).toBe('https://search.parallel.ai/mcp-oauth');
 		expect(cookie?.options).toMatchObject({httpOnly: true, path: '/api/connections/parallel'});
 	});
 });
@@ -197,7 +197,7 @@ describe('keyConnectRoute', () => {
 	test('connects with an API key, checked by listing the tools with it: the key its credential, its end its account', async () => {
 		const connection = (await connectWithKey({key: 'pk-1234'})).unwrap();
 
-		expect(parallel.requests.at(-1)?.url.href).toBe('https://search-mcp.parallel.ai/mcp');
+		expect(parallel.requests.at(-1)?.url.href).toBe('https://search.parallel.ai/mcp-oauth');
 		expect(JSON.parse(parallel.requests.at(-1)?.body ?? '{}')).toMatchObject({method: 'tools/list'});
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'parallel', account: 'API key ending 1234', defaults: ['search', 'fetch']});

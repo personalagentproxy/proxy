@@ -6,7 +6,7 @@ import {createMemoryRouter, RouterProvider} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {HumanSide} from '@/components/human-side';
-import type {ActivityLanes} from '@/client/schemas';
+import type {ActivityTimeline} from '@/client/schemas';
 import {HomePage} from '@/pages/home-page';
 import {testHuman} from '@/test-org';
 import {clearWidgetLookups, widgetsAnswer} from '@/test-widgets-api';
@@ -44,11 +44,11 @@ const agent = (id: string, providerId: string, name: string, revokedAt: string |
 	grants: [],
 });
 
-// The past day's lanes: Claude working on the inbox, with two requests refused, and a task it
-// finished in Notion earlier.
-const activity: ActivityLanes = {
+// The past day's timeline: Claude working on the inbox, and a task it finished earlier.
+const activity: ActivityTimeline = {
 	now: '2026-10-16T12:00:00.000Z',
 	from: '2026-10-15T12:00:00.000Z',
+	to: '2026-10-16T12:00:00.000Z',
 	tasks: [
 		{
 			id: 't1',
@@ -57,10 +57,10 @@ const activity: ActivityLanes = {
 			goal: 'Archive the newsletters and flag what needs an answer',
 			via: 'mcp',
 			startedAt: '2026-10-16T11:00:00.000Z',
+			lastStartedAt: '2026-10-16T11:00:00.000Z',
 			finishedAt: null,
-			requests: 9,
-			denied: 2,
-			connectionIds: ['google-1'],
+			parentId: null,
+			outcome: null,
 		},
 		{
 			id: 't2',
@@ -69,20 +69,21 @@ const activity: ActivityLanes = {
 			goal: 'Pull the notes and draft an agenda',
 			via: 'web',
 			startedAt: '2026-10-16T08:00:00.000Z',
+			lastStartedAt: '2026-10-16T08:00:00.000Z',
 			finishedAt: '2026-10-16T08:30:00.000Z',
-			requests: 4,
-			denied: 0,
-			connectionIds: ['notion-1'],
+			parentId: null,
+			outcome: null,
 		},
 	],
+	entries: [],
 };
 
 // What the home route's loader answers: the connections and agent logins, for the logos, and
-// what the agents are doing, for the lanes.
+// what the agents are doing, for the timeline.
 let home: {
 	connections: ReturnType<typeof connection>[];
 	agents: ReturnType<typeof agent>[];
-	activity: ActivityLanes | null;
+	activity: ActivityTimeline | null;
 } = {
 	connections: [
 		connection('vault-1', 'vault', 'Acme'),
@@ -188,18 +189,24 @@ describe('HomePage', () => {
 		home = before;
 	});
 
-	test('shows who is doing what, each task leading to its requests in the log', async () => {
+	test('shows who is doing what: every agent’s row, with a bar for each of its tasks leading to its page', async () => {
 		renderHomePage();
 
-		const inbox = await screen.findByRole('link', {name: /Triage inbox/});
-		expect(inbox.getAttribute('href')).toBe('/acme/activity?task=t1');
-		expect(screen.getByRole('region', {name: 'Agents'})).toBeTruthy();
-		expect(screen.getByRole('link', {name: /Prepare for the Acme call/})).toBeTruthy();
-		// A revoked login gets no lane.
+		expect(await screen.findByRole('region', {name: 'Agents'})).toBeTruthy();
+		// The agent's row is named by the agent, opening its page.
+		expect(screen.getByRole('link', {name: /Claude/}).getAttribute('href')).toBe('/acme/agents/a1');
+		// Each task's bar leads to its page.
+		expect(screen.getByRole('link', {name: 'Triage inbox'}).getAttribute('href')).toBe(
+			'/acme/activity/tasks/t1',
+		);
+		expect(screen.getByRole('link', {name: 'Prepare for the Acme call'}).getAttribute('href')).toBe(
+			'/acme/activity/tasks/t2',
+		);
+		// A revoked login with no task in the window gets no row.
 		expect(screen.queryByText('ChatGPT')).toBeNull();
 	});
 
-	test('shows no lanes before there is any task', async () => {
+	test('shows no timeline before there is any task', async () => {
 		const before = home;
 		home = {...home, activity: {...activity, tasks: []}};
 		renderHomePage();

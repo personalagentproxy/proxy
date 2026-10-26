@@ -7,6 +7,9 @@ import {findCollection, findIntegration} from '@proxy/integrations';
 type Call = {name: string; args: Record<string, string>};
 const tools = {calls: [] as Call[]};
 
+// An answer longer than is passed on: every Worker of a big account.
+const LONG = JSON.stringify({success: true, result: Array.from({length: 2000}, (_, index) => ({id: `worker-${index}`, created_on: '2026-10-01T00:00:00Z', usage_model: 'standard'}))});
+
 mock.module('../connections/mcp/mcp-session', () => ({
 	callMcpToolFor: async (_server: unknown, _connection: unknown, name: string, args: Record<string, string>) => {
 		tools.calls.push({name, args});
@@ -15,6 +18,9 @@ mock.module('../connections/mcp/mcp-session', () => ({
 		}
 		if (name === 'search') {
 			return Ok('GET /zones List Zones');
+		}
+		if (args.code?.includes('/workers/scripts')) {
+			return Ok(LONG);
 		}
 		return Ok('{\n  "success": true,\n  "result": []\n}');
 	},
@@ -58,6 +64,17 @@ describe('requests', () => {
 
 		expect(tools.calls).toEqual([{name: 'execute', args: {code: requestCode({method: 'GET', path: '/zones?name=example.com'})}}]);
 		expect(record?.values).toEqual({method: 'GET', path: '/zones?name=example.com', response: '{\n  "success": true,\n  "result": []\n}'});
+	});
+
+	test('an answer too long to pass on is cut, saying so after it, so a list never looks whole when it isn’t', async () => {
+		const record = (await run('read', {path: '/accounts/{account_id}/workers/scripts'})).unwrap();
+		const response = record?.values.response ?? '';
+
+		expect(LONG.length).toBeGreaterThan(100_000);
+		expect(response.startsWith(LONG.slice(0, 100_000))).toBe(true);
+		expect(response.slice(100_000)).toBe(
+			`\n\n[Cut short: Cloudflare answered with ${LONG.length.toLocaleString('en-US')} characters, of which these are the first 100,000. Ask for less at once, such as a page at a time with ?page=1&per_page=20, or a narrower filter.]`,
+		);
 	});
 
 	test('sends a body as JSON, in the account given', async () => {

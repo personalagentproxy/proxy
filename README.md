@@ -35,56 +35,47 @@ log.
 
 ## Designed to work across
 
-<table align="center">
+<table align="center" width="75%">
   <tr>
-    <td align="center" width="20%">
+    <td align="center" width="33%">
       <img src="docs/assets/agents/dot.png" width="48" height="48" alt="Dots logo"><br>
       <strong>Dots</strong>
     </td>
-    <td align="center" width="20%">
+    <td align="center" width="33%">
       <img src="docs/assets/agents/grok-bot.png" width="48" height="48" alt="Grok Bot logo"><br>
-      <strong>Grok&nbsp;Bot</strong>
+      <strong>Grok Bot</strong>
     </td>
-    <td align="center" width="20%">
+    <td align="center" width="33%">
       <img src="docs/assets/agents/muse.png" width="48" height="48" alt="Muse logo"><br>
       <strong>Muse</strong>
     </td>
-    <td align="center" width="20%">
+  </tr>
+  <tr>
+    <td align="center" width="33%">
       <img src="docs/assets/agents/instinct.png" width="48" height="48" alt="Instinct logo"><br>
       <strong>Instinct</strong>
     </td>
-    <td align="center" width="20%">
+    <td align="center" width="33%">
       <img src="docs/assets/agents/poke.png" width="48" height="48" alt="Poke logo"><br>
       <strong>Poke</strong>
     </td>
-  </tr>
-</table>
-
-<table align="center">
-  <tr>
-    <td align="center" width="16%">
-      <img src="docs/assets/agents/claude.png" width="48" height="48" alt="Claude logo"><br>
-      <strong>Claude</strong>
-    </td>
-    <td align="center" width="16%">
+    <td align="center" width="33%">
       <img src="docs/assets/agents/claude-duet.png" width="48" height="48" alt="Claude Duet logo"><br>
-      <strong>Claude&nbsp;Duet</strong>
+      <strong>Claude Duet</strong>
     </td>
-    <td align="center" width="16%">
+  </tr>
+  <tr>
+    <td align="center" width="33%">
       <img src="docs/assets/agents/claude-code.png" width="48" height="48" alt="Claude Code logo"><br>
-      <strong>Claude&nbsp;Code</strong>
+      <strong>Claude Code</strong>
     </td>
-    <td align="center" width="16%">
-      <img src="docs/assets/agents/claude-desktop.png" width="48" height="48" alt="Claude Desktop logo"><br>
-      <strong>Claude&nbsp;Desktop</strong>
-    </td>
-    <td align="center" width="16%">
+    <td align="center" width="33%">
       <img src="docs/assets/agents/chatgpt.png" width="48" height="48" alt="ChatGPT logo"><br>
       <strong>ChatGPT</strong>
     </td>
-    <td align="center" width="16%">
+    <td align="center" width="33%">
       <img src="docs/assets/agents/hermes-readme.svg" width="48" height="48" alt="Hermes Agent logo"><br>
-      <strong>Hermes&nbsp;Agent</strong>
+      <strong>Hermes Agent</strong>
     </td>
   </tr>
 </table>

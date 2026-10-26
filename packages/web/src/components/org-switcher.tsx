@@ -31,6 +31,7 @@ export function OrgTile({org, className}: {org: {name: string}; className?: stri
 	return (
 		<span
 			aria-hidden
+			data-preserve-color
 			className={cn(
 				'flex size-5 shrink-0 items-center justify-center rounded-md bg-primary text-xs font-medium text-primary-foreground',
 				className,

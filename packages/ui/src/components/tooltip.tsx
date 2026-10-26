@@ -7,13 +7,18 @@ function TooltipProvider({delay = 0, ...props}: TooltipPrimitive.Provider.Props)
 	return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />;
 }
 
-function Tooltip({...props}: TooltipPrimitive.Root.Props) {
-	return <TooltipPrimitive.Root data-slot="tooltip" {...props} />;
+function Tooltip<Payload>({...props}: TooltipPrimitive.Root.Props<Payload>) {
+	return <TooltipPrimitive.Root<Payload> data-slot="tooltip" {...props} />;
 }
 
-function TooltipTrigger({...props}: TooltipPrimitive.Trigger.Props) {
-	return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
+function TooltipTrigger<Payload>({...props}: TooltipPrimitive.Trigger.Props<Payload>) {
+	return <TooltipPrimitive.Trigger<Payload> data-slot="tooltip-trigger" {...props} />;
 }
+
+// One tooltip for many triggers, each passing what it shows as its payload: for where there are
+// too many triggers for a tooltip each.
+const createTooltipHandle = TooltipPrimitive.createHandle;
+type TooltipHandle<Payload> = TooltipPrimitive.Handle<Payload>;
 
 function TooltipContent({
 	className,
@@ -50,4 +55,5 @@ function TooltipContent({
 	);
 }
 
-export {Tooltip, TooltipTrigger, TooltipContent, TooltipProvider};
+export {Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, createTooltipHandle};
+export type {TooltipHandle};

@@ -1,6 +1,6 @@
 import express from 'express';
 
-import {handleActivityLanesRoute, handleListActivityRoute} from '../activity/route';
+import {handleActivityTimelineRoute, handleListActivityRoute, handleTaskRunRoute} from '../activity/route';
 import {handleAgentLoginRoute, handleAgentLogoutRoute} from '../agent-auth/session';
 import {
 	handleAgentFeedbackRoute,
@@ -185,7 +185,8 @@ export function createApiRouter(): express.Router {
 	org.delete('/agents/:agentId/mcp-clients/:grantId', withAuthResult('Disconnect MCP client route', handleDisconnectMcpClientRoute));
 
 	org.get('/activity', withAuthResult('List activity route', handleListActivityRoute));
-	org.get('/activity/lanes', withAuthResult('Activity lanes route', handleActivityLanesRoute));
+	org.get('/activity/timeline', withAuthResult('Activity timeline route', handleActivityTimelineRoute));
+	org.get('/activity/tasks/:taskId', withAuthResult('Task run route', handleTaskRunRoute));
 
 	// The home page: which widget fits what the person types, then its fields filled in.
 	org.post('/intent', withAuthResult('Pick intent route', handlePickIntentRoute));

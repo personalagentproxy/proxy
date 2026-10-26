@@ -41,7 +41,7 @@ export function createThreadTask(thread: {orgId: string; agentId: string; userId
 export function ensureThreadTask(thread: ThreadRow, now: Date): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const task = $(await getAgentTask(thread.orgId, thread.agentId, thread.taskId));
-		if (task && taskEndedAt({startedAt: task.createdAt, finishedAt: task.finishedAt}, now) === null) {
+		if (task && taskEndedAt({lastStartedAt: task.lastStartedAt, finishedAt: task.finishedAt}, now) === null) {
 			return task.id;
 		}
 		const entries = $(await listEntries(thread.id));
