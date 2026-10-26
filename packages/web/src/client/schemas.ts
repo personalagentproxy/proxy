@@ -97,9 +97,9 @@ export const activityTaskSchema = z.object({
 	finishedAt: z.string().nullable(),
 	// What was done or found, as the agent said when it finished; null where it said nothing.
 	outcome: z.string().nullable(),
-	// When it, or the last of its sub-tasks at any depth, was started: one never finished is taken
-	// as abandoned a day after (@proxy/utils/tasks).
-	lastStartedAt: z.string(),
+	// When it, or one of its sub-tasks at any depth, was last started or had a request made for it:
+	// one never finished is taken as left open 20 minutes after (@proxy/utils/tasks).
+	lastActiveAt: z.string(),
 });
 
 // The home page's timeline: every task under way at some point between `from` and `to`, with its

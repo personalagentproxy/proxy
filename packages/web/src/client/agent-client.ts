@@ -56,7 +56,7 @@ export function listAgentTasks() {
 	return apiRequest('GET', '/api/agent/tasks', z.object({tasks: z.array(agentTaskSchema)}));
 }
 
-/** The task while it is under way: 404 for one unknown, 409 for one finished or abandoned. */
+/** The task while it is under way: 404 for one unknown, 409 for one finished or left open. */
 export function getAgentTask(taskId: string) {
 	return apiRequest('GET', `/api/agent/tasks/${encodeURIComponent(taskId)}`, agentTaskSchema);
 }

@@ -30,7 +30,7 @@ export type ActivityBar = Span & {
 	tasks: ActivityTask[];
 	// Where each task runs.
 	members: Span[];
-	// The task's, or, for several, under way if any is, else abandoned if every one was.
+	// The task's, or, for several, under way if any is, else left open if every one was.
 	status: TaskStatus;
 	// From when the first started to when the last ended, or to now, in milliseconds since the epoch.
 	fromMs: number;

@@ -770,7 +770,7 @@ async function seedJob(agent: (typeof agents)[number], startedAt: number): Promi
 				goal: part.goal,
 				via,
 				createdAt: new Date(at(part.from)),
-				lastStartedAt: new Date(at(lastStart(part))),
+				lastActiveAt: new Date(at(lastStart(part))),
 				finishedAt: new Date(at(part.to)),
 				outcome: part.outcome,
 			},
@@ -858,8 +858,9 @@ for (const agent of agents) {
 		const concurrent = await Promise.all(
 			Array.from({length: CONCURRENT_TASKS}, async (_, index) => {
 				const startedAt = now - (110 - index * 20) * MINUTE - random() * 15 * MINUTE;
-				// The first two are done; the rest are under way.
+				// The first two are done; the rest are under way, with something done for them lately.
 				const finishedAt = index < 2 ? startedAt + (25 + random() * 30) * MINUTE : null;
+				const lastActiveAt = finishedAt === null ? now - random() * 5 * MINUTE : startedAt;
 				const taskVia: 'web' | 'mcp' = random() < 0.7 ? 'mcp' : 'web';
 				const task = await db.agentTask.create({
 					data: {
@@ -869,7 +870,7 @@ for (const agent of agents) {
 						...pick(TASKS),
 						via: taskVia,
 						createdAt: new Date(startedAt),
-						lastStartedAt: new Date(startedAt),
+						lastActiveAt: new Date(lastActiveAt),
 						finishedAt: finishedAt === null ? null : new Date(finishedAt),
 					},
 				});
@@ -884,11 +885,12 @@ for (const agent of agents) {
 			task ? [task] : [],
 		)) {
 			const parentDone = parent.endsAt !== now;
-			let lastStartedAt = parent.startedAt;
+			let parentActiveAt = parent.startedAt;
 			for (const [index, part] of SUB_TASKS.entries()) {
 				const startedAt = parent.startedAt + (2 + index * 3 + random() * 2) * MINUTE;
 				const finishedAt =
 					parentDone || index === 0 ? startedAt + (4 + random() * 8) * MINUTE : null;
+				const lastActiveAt = finishedAt === null ? now - random() * 5 * MINUTE : startedAt;
 				const task = await db.agentTask.create({
 					data: {
 						orgId: org.id,
@@ -899,18 +901,18 @@ for (const agent of agents) {
 						goal: part.goal,
 						via: parent.via,
 						createdAt: new Date(startedAt),
-						lastStartedAt: new Date(startedAt),
+						lastActiveAt: new Date(lastActiveAt),
 						finishedAt: finishedAt === null ? null : new Date(finishedAt),
 						outcome: finishedAt === null ? null : part.outcome,
 					},
 				});
 				taskCount += 1;
 				subTasks.push({id: task.id, via: parent.via, startedAt, endsAt: finishedAt ?? now});
-				lastStartedAt = Math.max(lastStartedAt, startedAt);
+				parentActiveAt = Math.max(parentActiveAt, lastActiveAt);
 			}
-			await db.agentTask.update({
-				where: {id: parent.id},
-				data: {lastStartedAt: new Date(lastStartedAt)},
+			await db.agentTask.updateMany({
+				where: {id: parent.id, lastActiveAt: {lt: new Date(parentActiveAt)}},
+				data: {lastActiveAt: new Date(parentActiveAt)},
 			});
 		}
 		const pool = [...concurrent, ...subTasks];
@@ -969,7 +971,7 @@ for (const agent of agents) {
 					...pick(TASKS),
 					via,
 					createdAt: new Date(createdAt - MINUTE),
-					lastStartedAt: new Date(createdAt - MINUTE),
+					lastActiveAt: new Date(createdAt - MINUTE),
 					finishedAt: new Date((requests[lastIndex]?.createdAt ?? createdAt) + MINUTE),
 				},
 			});
@@ -1006,6 +1008,26 @@ for (const agent of agents) {
 
 	await db.agent.update({where: {id: agent.id}, data: {lastActiveAt: new Date(lastActiveAt)}});
 }
+
+// Each task's last activity is no earlier than the last request made for it or its sub-tasks at any
+// depth, as the api keeps it.
+await db.$executeRaw`
+	WITH RECURSIVE "below" AS (
+		SELECT "id" AS "taskId", "id" FROM "AgentTask" WHERE "orgId" = ${org.id}
+		UNION ALL
+		SELECT "below"."taskId", "task"."id"
+		FROM "AgentTask" AS "task"
+		JOIN "below" ON "task"."parentId" = "below"."id"
+	)
+	UPDATE "AgentTask"
+	SET "lastActiveAt" = "latest"."at"
+	FROM (
+		SELECT "below"."taskId", MAX("entry"."createdAt") AS "at"
+		FROM "below"
+		JOIN "AuditEntry" AS "entry" ON "entry"."taskId" = "below"."id"
+		GROUP BY "below"."taskId"
+	) AS "latest"
+	WHERE "AgentTask"."id" = "latest"."taskId" AND "latest"."at" > "AgentTask"."lastActiveAt"`;
 
 // ---- A sign-in link -------------------------------------------------------------------------
 

@@ -46,7 +46,7 @@ const task: ActivityTask = {
 	goal: 'Archive the newsletters',
 	via: 'mcp',
 	startedAt: '2026-10-14T21:00:00.000Z',
-	lastStartedAt: '2026-10-14T21:00:00.000Z',
+	lastActiveAt: '2026-10-14T21:00:00.000Z',
 	finishedAt: null,
 	parentId: null,
 	outcome: null,

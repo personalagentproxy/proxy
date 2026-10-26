@@ -24,8 +24,8 @@ function task(overrides: Partial<ActivityTask>): ActivityTask {
 		startedAt: '2026-10-16T09:00:00Z',
 		finishedAt: null,
 		outcome: null,
-		// No sub-task started after it, unless a test gives one.
-		lastStartedAt: overrides.startedAt ?? '2026-10-16T09:00:00Z',
+		// Nothing done for it after it started, unless a test gives a time.
+		lastActiveAt: overrides.startedAt ?? '2026-10-16T09:00:00Z',
 		...overrides,
 	};
 }
@@ -291,11 +291,11 @@ describe('buildRunTimeline', () => {
 		expect(again.map((row) => row.id)).toEqual(['parent', groupId(burst)]);
 	});
 
-	test('a group of tasks given up on is not handed back', () => {
+	test('a group of tasks left open is not handed back', () => {
 		const parent = task({
 			id: 'parent',
 			startedAt: '2026-10-14T09:00:00Z',
-			lastStartedAt: '2026-10-14T09:02:00Z',
+			lastActiveAt: '2026-10-14T09:02:00Z',
 		});
 		const burst = ['a', 'b'].map((id, index) =>
 			task({
@@ -312,7 +312,7 @@ describe('buildRunTimeline', () => {
 			expanded: new Set(['parent']),
 		}).rows;
 		const group = rows.find((row) => row.kind === 'group');
-		expect(group?.status).toBe('abandoned');
+		expect(group?.status).toBe('leftOpen');
 		expect(group?.handedBack).toBe(false);
 	});
 
@@ -326,11 +326,11 @@ describe('buildRunTimeline', () => {
 		expect(row?.durationMs).toBe(5 * MINUTE);
 	});
 
-	test('a task given up on runs until the last thing done for it or what it handed on', () => {
+	test('a task left open runs until the last thing done for it or what it handed on', () => {
 		const parent = task({
 			id: 'parent',
 			startedAt: '2026-10-15T07:00:00Z',
-			lastStartedAt: '2026-10-15T08:00:00Z',
+			lastActiveAt: '2026-10-15T08:00:00Z',
 		});
 		const sub = task({id: 'sub', parentId: 'parent', startedAt: '2026-10-15T08:00:00Z'});
 		const timeline = buildRunTimeline(
@@ -343,7 +343,7 @@ describe('buildRunTimeline', () => {
 			WIDTH,
 		);
 		const row = timeline.rows.find((candidate) => candidate.id === 'parent');
-		expect(row?.status).toBe('abandoned');
+		expect(row?.status).toBe('leftOpen');
 		expect(row?.durationMs).toBe(90 * MINUTE);
 		expect(row?.end).toBe(WIDTH);
 	});

@@ -25,8 +25,8 @@ function task(overrides: Partial<ActivityTask>): ActivityTask {
 		startedAt: '2026-10-16T11:00:00Z',
 		finishedAt: null,
 		outcome: null,
-		// No sub-task started after it, unless a test gives one.
-		lastStartedAt: overrides.startedAt ?? '2026-10-16T11:00:00Z',
+		// Nothing done for it after it started, unless a test gives a time.
+		lastActiveAt: overrides.startedAt ?? '2026-10-16T11:00:00Z',
 		...overrides,
 	};
 }
@@ -72,7 +72,8 @@ function build(
 }
 
 describe('layActivityTimeline', () => {
-	const inbox = task({});
+	// Under way, a request made for it five minutes ago.
+	const inbox = task({lastActiveAt: '2026-10-16T11:55:00Z'});
 	const call = task({
 		id: 't2',
 		title: 'Prepare for the Acme call',
@@ -88,7 +89,11 @@ describe('layActivityTimeline', () => {
 	});
 
 	test('every agent’s row, those with a task under way first; tasks one after another share a lane, overlapping ones each take one', () => {
-		const overlapping = task({id: 't4', startedAt: '2026-10-16T11:30:00Z'});
+		const overlapping = task({
+			id: 't4',
+			startedAt: '2026-10-16T11:30:00Z',
+			lastActiveAt: '2026-10-16T11:50:00Z',
+		});
 		const timeline = build([report, inbox, call, overlapping], [], now, window, WIDTH);
 		expect(timeline.rows.map((row) => row.agentId)).toEqual(['a1', 'a2']);
 		expect(timeline.rows[0]?.working).toBe(2);
@@ -144,7 +149,7 @@ describe('layActivityTimeline', () => {
 		]);
 	});
 
-	test('a task given up on ends at its last request, not a day after it started', () => {
+	test('a task left open ends at its last request, not 20 minutes after it', () => {
 		const stale = task({id: 'stale', startedAt: '2026-10-15T09:00:00Z'});
 		const timeline = build(
 			[stale],
@@ -154,7 +159,7 @@ describe('layActivityTimeline', () => {
 			WIDTH,
 		);
 		const bar = timeline.rows[0]?.lanes[0]?.[0];
-		expect(bar?.status).toBe('abandoned');
+		expect(bar?.status).toBe('leftOpen');
 		expect(bar?.members).toEqual([{start: 0, end: 100}]);
 	});
 
@@ -275,7 +280,11 @@ describe('layActivityTimeline', () => {
 			['t1'],
 		]);
 		// Another task that overlaps goes to the first lane that is free, the empty one.
-		const overlapping = task({id: 't4', startedAt: '2026-10-16T11:30:00Z'});
+		const overlapping = task({
+			id: 't4',
+			startedAt: '2026-10-16T11:30:00Z',
+			lastActiveAt: '2026-10-16T11:50:00Z',
+		});
 		const both = build([inbox, overlapping], [], now, window, WIDTH, new Map([['t1', 1]]));
 		expect(laneAssignments(both)).toEqual(
 			new Map([
@@ -284,7 +293,11 @@ describe('layActivityTimeline', () => {
 			]),
 		);
 		// A task new to the window, though it started earlier, doesn't take a kept lane.
-		const earlier = task({id: 't5', startedAt: '2026-10-16T10:30:00Z'});
+		const earlier = task({
+			id: 't5',
+			startedAt: '2026-10-16T10:30:00Z',
+			lastActiveAt: '2026-10-16T11:45:00Z',
+		});
 		const newcomer = build([inbox, earlier], [], now, window, WIDTH, new Map([['t1', 0]]));
 		expect(laneAssignments(newcomer)).toEqual(
 			new Map([

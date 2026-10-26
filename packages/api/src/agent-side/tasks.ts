@@ -4,7 +4,7 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {taskEndedAt} from '@proxy/utils/tasks';
 import type {SignedInAgent} from '@proxy/db/agent';
-import {type AgentTaskRow, createAgentTask, finishAgentTask as markAgentTaskFinished, getAgentTask, listOpenAgentTasks} from '@proxy/db/task';
+import {type AgentTaskRow, createAgentTask, finishAgentTask as markAgentTaskFinished, getAgentTask, listOpenAgentTasks, touchAgentTask} from '@proxy/db/task';
 
 import type {AgentCaller} from './tools';
 
@@ -24,6 +24,11 @@ import type {AgentCaller} from './tools';
 const MAX_TITLE = 120;
 const MAX_GOAL = 2000;
 const MAX_OUTCOME = 2000;
+// How stale a task's last activity may be before a call made for it writes it again: so a call is
+// not a write each, and a task is left open 19 to 20 minutes after the last call made for it.
+const TOUCH_AFTER_MS = 60 * 1000;
+// Why a task never finished can't be worked on any more (@proxy/utils/tasks).
+const leftOpen = (taskId: string, title: string) => `Task ${taskId} (${title}) was never finished, and nothing was done for it or its sub-tasks in the last 20 minutes, so it is taken as left open`;
 
 const startSchema = z.object({title: z.string(), goal: z.string(), parent: z.string().optional()});
 const finishSchema = z.object({task: z.string(), outcome: z.string().optional()});
@@ -72,7 +77,7 @@ export function startAgentTask(caller: AgentCaller, args: unknown): Promise<Resu
 			$(await requireOpenTask(caller.agent, parentId));
 		}
 		const task = $(await createAgentTask({orgId: caller.agent.orgId, agentId: caller.agent.agentId, ownerUserId: caller.agent.ownerUserId, parentId, title, goal, via: caller.via}));
-		// Only where the parent was finished, or abandoned, since it was checked above.
+		// Only where the parent was finished, or left open, since it was checked above.
 		if (task === null) {
 			return $(Err(ApiErr.conflict(`Task ${parentId} is no longer under way. Start a new task for what you are doing now, and give its id as task.`)));
 		}
@@ -94,7 +99,7 @@ export function getAgentOpenTask(agent: SignedInAgent, taskId: string): Promise<
  * Marks the agent's task `{task}` finished, with `outcome`, what was done or found, where the
  * agent gives one; its sub-tasks still under way are finished with it. One finished already keeps
  * when it was, taking the outcome only where it has none, such as a sub-task finished with its
- * parent; one abandoned (@proxy/utils/tasks) can't be finished any more, and is refused as a
+ * parent; one left open (@proxy/utils/tasks) can't be finished any more, and is refused as a
  * conflict.
  */
 export function finishAgentTask(caller: AgentCaller, args: unknown): Promise<Result<AgentTaskResponse, ApiError>> {
@@ -106,9 +111,7 @@ export function finishAgentTask(caller: AgentCaller, args: unknown): Promise<Res
 		}
 		const task = $(requirePresent($(await markAgentTaskFinished(caller.agent.orgId, caller.agent.agentId, taskId, outcome)), ApiErr.notFound('task', taskId)));
 		if (task.finishedAt === null) {
-			return $(
-				Err(ApiErr.conflict(`Task ${taskId} (${task.title}) was never finished, and neither it nor any of its sub-tasks was started in the last day, so it is taken as abandoned, and ended then.`)),
-			);
+			return $(Err(ApiErr.conflict(`${leftOpen(taskId, task.title)}, and ended then.`)));
 		}
 		return toResponse(task);
 	});
@@ -116,8 +119,9 @@ export function finishAgentTask(caller: AgentCaller, args: unknown): Promise<Res
 
 /**
  * The agent's task `taskId` for a call made for it; unknown, or another agent's, is not found. One
- * finished already, or abandoned (@proxy/utils/tasks), is refused as a conflict, saying to start a
- * new one, so the agent pages can tell it from any other refusal of the call.
+ * finished already, or left open (@proxy/utils/tasks), is refused as a conflict, saying to start a
+ * new one, so the agent pages can tell it from any other refusal of the call. The call counts as
+ * something done for the task and every task above it, so none is left open while it is worked on.
  */
 export function requireOpenTask(agent: SignedInAgent, taskId: string): Promise<Result<AgentTaskRow, ApiError>> {
 	return Do(async ($) => {
@@ -125,14 +129,17 @@ export function requireOpenTask(agent: SignedInAgent, taskId: string): Promise<R
 		if (task.finishedAt !== null) {
 			return $(Err(ApiErr.conflict(`Task ${taskId} (${task.title}) is finished. Start a new task for what you are doing now, and give its id as task.`)));
 		}
-		if (taskEndedAt({lastStartedAt: task.lastStartedAt, finishedAt: null}, new Date()) !== null) {
-			return $(
-				Err(
-					ApiErr.conflict(
-						`Task ${taskId} (${task.title}) was never finished, and neither it nor any of its sub-tasks was started in the last day, so it is taken as abandoned. Start a new task for what you are doing now, and give its id as task.`,
-					),
-				),
-			);
+		const refused = ApiErr.conflict(`${leftOpen(taskId, task.title)}. Start a new task for what you are doing now, and give its id as task.`);
+		const now = new Date();
+		if (taskEndedAt({lastActiveAt: task.lastActiveAt, finishedAt: null}, now) !== null) {
+			return $(Err(refused));
+		}
+		if (now.getTime() - task.lastActiveAt.getTime() < TOUCH_AFTER_MS) {
+			return task;
+		}
+		// False only where it was finished, or left open, since it was read.
+		if (!$(await touchAgentTask(agent.orgId, agent.agentId, taskId))) {
+			return $(Err(refused));
 		}
 		return task;
 	});

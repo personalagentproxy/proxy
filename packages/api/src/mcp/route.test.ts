@@ -42,7 +42,7 @@ const task = {
 	createdAt: new Date('2026-10-16T09:00:00Z'),
 	finishedAt: null,
 	outcome: null,
-	lastStartedAt: new Date('2026-10-16T09:00:00Z'),
+	lastActiveAt: new Date('2026-10-16T09:00:00Z'),
 };
 const started = {task: 'task-1', parent: null, title: 'Triage inbox', goal: 'Archive the newsletters', startedAt: '2026-10-16T09:00:00.000Z', finishedAt: null, outcome: null};
 

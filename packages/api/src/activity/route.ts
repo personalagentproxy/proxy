@@ -53,17 +53,17 @@ export type ActivityTaskResponse = {
 	goal: string;
 	via: 'web' | 'mcp';
 	startedAt: string;
-	// Null while the agent hasn't called it finished, abandoned (@proxy/utils/tasks) or not.
+	// Null while the agent hasn't called it finished, left open (@proxy/utils/tasks) or not.
 	finishedAt: string | null;
 	// What was done or found, as the agent said when it finished; null where it said nothing.
 	outcome: string | null;
-	// When it, or the last of its sub-tasks at any depth, was started: one never finished is taken
-	// as abandoned a day after (@proxy/utils/tasks).
-	lastStartedAt: string;
+	// When it, or one of its sub-tasks at any depth, was last started or had a request made for it:
+	// one never finished is taken as left open 20 minutes after (@proxy/utils/tasks).
+	lastActiveAt: string;
 };
 
-function toActivityTask({createdAt, finishedAt, lastStartedAt, ...task}: AgentTaskRow): ActivityTaskResponse {
-	return {...task, startedAt: createdAt.toISOString(), finishedAt: finishedAt?.toISOString() ?? null, lastStartedAt: lastStartedAt.toISOString()};
+function toActivityTask({createdAt, finishedAt, lastActiveAt, ...task}: AgentTaskRow): ActivityTaskResponse {
+	return {...task, startedAt: createdAt.toISOString(), finishedAt: finishedAt?.toISOString() ?? null, lastActiveAt: lastActiveAt.toISOString()};
 }
 
 // `?agentId=proxy` is what Personal Agent Proxy did itself.
@@ -208,7 +208,7 @@ export function handleActivityTimelineRoute(request: AuthenticatedRequest): Prom
 		const ids = tasks.map((task) => task.id);
 		// Only the stretch read shares out the most requests, so none goes to what came after it.
 		const rows = $(await listTaskEntries(viewer, ids, MAX_TIMELINE_ENTRIES, {from, to}));
-		// Read back from before now, a task given up on may have had requests made after the stretch:
+		// Read back from before now, a task left open may have had requests made after the stretch:
 		// the last of them says when it ended (@/lib/timeline-window's endsOf in the web app).
 		const later = to < now ? $(await listLastTaskEntries(viewer, ids, to)) : [];
 		return {

@@ -3,7 +3,7 @@ import {requestTimes} from '@/lib/timeline';
 import type {ActivityTask, AuditEntry} from '@/lib/types';
 
 // The home page's timeline looks back over a window of time ending now, chosen from a few on offer
-// or zoomed to any length; and a task, there and on its page, is under way, finished or abandoned.
+// or zoomed to any length; and a task, there and on its page, is under way, finished or left open.
 
 // The windows on offer, each a stretch of time ending now. Zooming goes between and beyond them.
 export const WINDOWS = [
@@ -90,35 +90,35 @@ function describeMinutes(minutes: number): string {
 	return hours % 24 === 0 ? `${days}d` : `${days}d ${hours % 24}h`;
 }
 
-// A task is running until the agent calls it finished, or until a day after it or the last of its
-// sub-tasks started, when one never finished is taken as abandoned (@proxy/utils/tasks).
-export type TaskStatus = 'running' | 'finished' | 'abandoned';
+// A task is running until the agent calls it finished, or until 20 minutes after anything was last
+// done for it or its sub-tasks, when one never finished is taken as left open (@proxy/utils/tasks).
+export type TaskStatus = 'running' | 'finished' | 'leftOpen';
 
 export const STATUS_LABEL: Record<TaskStatus, string> = {
 	running: 'Under way',
 	finished: 'Finished',
-	abandoned: 'Abandoned',
+	leftOpen: 'Left open',
 };
 
-// When it and the last of its sub-tasks were started and when it was finished, all a task's status
-// needs.
-type TaskTimes = Pick<ActivityTask, 'startedAt' | 'lastStartedAt' | 'finishedAt'>;
+// When it started, when anything was last done for it or its sub-tasks and when it was finished,
+// all a task's status needs.
+type TaskTimes = Pick<ActivityTask, 'startedAt' | 'lastActiveAt' | 'finishedAt'>;
 
-// When the task was given up on, if it has been by `now`: a day after it or the last of its
-// sub-tasks started, never finished (@proxy/utils/tasks); null while it is under way, or where it
-// was finished.
-function abandonedAt(task: TaskTimes, now: Date): Date | null {
+// When the task was taken as left open, if it has been by `now`: 20 minutes after anything was
+// last done for it or its sub-tasks, never finished (@proxy/utils/tasks); null while it is under
+// way, or where it was finished.
+function leftOpenAt(task: TaskTimes, now: Date): Date | null {
 	if (task.finishedAt !== null) {
 		return null;
 	}
-	return taskEndedAt({lastStartedAt: new Date(task.lastStartedAt), finishedAt: null}, now);
+	return taskEndedAt({lastActiveAt: new Date(task.lastActiveAt), finishedAt: null}, now);
 }
 
 // A task with what it was handed on from, all its end needs.
 type TaskInTree = TaskTimes & Pick<ActivityTask, 'id' | 'parentId'>;
 
 /**
- * When each of `tasks` ended, if it has by `now`: when it was finished; or, given up on, when the
+ * When each of `tasks` ended, if it has by `now`: when it was finished; or, left open, when the
  * last of `entries` made for it was done or the last of its sub-tasks ended, or when it started
  * where there was neither, since nothing was done for it after. Null while it is under way.
  */
@@ -160,11 +160,11 @@ export function endsOf(
 		if (task.finishedAt !== null) {
 			return new Date(task.finishedAt);
 		}
-		if (abandonedAt(task, now) === null) {
+		if (leftOpenAt(task, now) === null) {
 			return null;
 		}
 		const started = new Date(task.startedAt).getTime();
-		// A sub-task is abandoned no later than its parent (@proxy/utils/tasks), so each has ended.
+		// A sub-task is left open no later than its parent (@proxy/utils/tasks), so each has ended.
 		return new Date(
 			Math.max(
 				started,
@@ -183,15 +183,15 @@ export function taskStatus(task: TaskTimes, now: Date): TaskStatus {
 	if (task.finishedAt !== null) {
 		return 'finished';
 	}
-	return abandonedAt(task, now) === null ? 'running' : 'abandoned';
+	return leftOpenAt(task, now) === null ? 'running' : 'leftOpen';
 }
 
-/** The status of several tasks drawn as one: under way if any is, else abandoned if every one was. */
+/** The status of several tasks drawn as one: under way if any is, else left open if every one was. */
 export function combinedStatus(statuses: TaskStatus[]): TaskStatus {
 	if (statuses.includes('running')) {
 		return 'running';
 	}
-	return statuses.every((status) => status === 'abandoned') ? 'abandoned' : 'finished';
+	return statuses.every((status) => status === 'leftOpen') ? 'leftOpen' : 'finished';
 }
 
 // The stretches of time a window is marked off in: the windows on offer each have their own, a

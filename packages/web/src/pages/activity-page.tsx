@@ -164,17 +164,17 @@ function TaskCard({
 	);
 }
 
-// Finished once the agent says so; one it never finished is taken as given up a day after it or the
-// last of its sub-tasks started (@proxy/utils/tasks).
+// Finished once the agent says so; one it never finished is taken as left open 20 minutes after
+// anything was last done for it or its sub-tasks (@proxy/utils/tasks).
 function TaskBadge({task}: {task: ActivityTask}) {
 	// When the page was opened, as the log's entries are.
 	const [now] = useState(() => new Date());
 	if (task.finishedAt) {
 		return <Badge variant="secondary">Finished</Badge>;
 	}
-	const ended = taskEndedAt({lastStartedAt: new Date(task.lastStartedAt), finishedAt: null}, now);
+	const ended = taskEndedAt({lastActiveAt: new Date(task.lastActiveAt), finishedAt: null}, now);
 	if (ended) {
-		return <Badge variant="secondary">Abandoned</Badge>;
+		return <Badge variant="secondary">Left open</Badge>;
 	}
 	return <Badge variant="outline">Under way</Badge>;
 }

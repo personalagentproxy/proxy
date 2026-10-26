@@ -52,7 +52,7 @@ describe('handleActivityTimelineRoute', () => {
 			createdAt: new Date('2026-10-15T20:00:00Z'),
 			finishedAt: null,
 			outcome: null,
-			lastStartedAt: new Date('2026-10-15T20:00:00Z'),
+			lastActiveAt: new Date('2026-10-15T20:00:00Z'),
 		};
 		const entry = {
 			id: 'entry-1',
@@ -97,7 +97,7 @@ describe('handleActivityTimelineRoute', () => {
 					startedAt: '2026-10-15T20:00:00.000Z',
 					finishedAt: null,
 					outcome: null,
-					lastStartedAt: '2026-10-15T20:00:00.000Z',
+					lastActiveAt: '2026-10-15T20:00:00.000Z',
 				},
 			],
 			entries: [{...fields, at: createdAt.toISOString(), userName: null}],
@@ -125,7 +125,7 @@ describe('handleActivityTimelineRoute', () => {
 			createdAt: new Date(createdAt),
 			finishedAt: null,
 			outcome: null,
-			lastStartedAt: new Date(createdAt),
+			lastActiveAt: new Date(createdAt),
 		});
 		const notes = task('notes', null, '2026-10-01T10:00:00Z');
 		const pricing = task('pricing', null, '2026-10-01T10:20:00Z');
@@ -212,7 +212,7 @@ describe('handleListActivityRoute', () => {
 					createdAt: new Date('2026-10-15T09:00:00Z'),
 					finishedAt: new Date('2026-10-15T09:30:00Z'),
 					outcome: 'Archived 12 newsletters',
-					lastStartedAt: new Date('2026-10-15T09:00:00Z'),
+					lastActiveAt: new Date('2026-10-15T09:00:00Z'),
 				},
 			]),
 		);
@@ -269,7 +269,7 @@ describe('handleListActivityRoute', () => {
 					startedAt: '2026-10-15T09:00:00.000Z',
 					finishedAt: '2026-10-15T09:30:00.000Z',
 					outcome: 'Archived 12 newsletters',
-					lastStartedAt: '2026-10-15T09:00:00.000Z',
+					lastActiveAt: '2026-10-15T09:00:00.000Z',
 				},
 			],
 		});
@@ -287,7 +287,7 @@ describe('handleTaskRunRoute', () => {
 		createdAt: new Date(start),
 		finishedAt: finish === null ? null : new Date(finish),
 		outcome: null,
-		lastStartedAt: new Date(start),
+		lastActiveAt: new Date(start),
 	});
 	// Notes, with a sub-task and one under that; calendar, handed on from a task the person does not see.
 	const notes = task('notes', '2026-10-15T20:11:00Z', null);

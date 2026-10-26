@@ -25,24 +25,23 @@ function task(overrides: Partial<ActivityTask>): ActivityTask {
 		finishedAt: null,
 		parentId: null,
 		outcome: null,
-		// No sub-task started after it, unless a test gives one.
-		lastStartedAt: overrides.startedAt ?? '2026-10-16T11:30:00Z',
+		// Nothing done for it after it started, unless a test gives a time.
+		lastActiveAt: overrides.startedAt ?? '2026-10-16T11:30:00Z',
 		...overrides,
 	};
 }
 
 describe('taskStatus', () => {
-	test('a task is running until it is finished, or a day after it started, abandoned', () => {
-		expect(taskStatus(task({}), now)).toBe('running');
+	test('a task is running until it is finished, or 20 minutes after it started, left open', () => {
 		expect(taskStatus(task({finishedAt: '2026-10-16T11:58:00Z'}), now)).toBe('finished');
-		expect(taskStatus(task({startedAt: '2026-10-15T12:00:01Z'}), now)).toBe('running');
-		expect(taskStatus(task({startedAt: '2026-10-15T12:00:00Z'}), now)).toBe('abandoned');
+		expect(taskStatus(task({startedAt: '2026-10-16T11:40:01Z'}), now)).toBe('running');
+		expect(taskStatus(task({startedAt: '2026-10-16T11:40:00Z'}), now)).toBe('leftOpen');
 	});
 
-	test('a task started over a day ago runs on while a sub-task of it started within the day', () => {
-		const parent = {startedAt: '2026-10-15T09:00:00Z', lastStartedAt: '2026-10-15T14:00:00Z'};
+	test('a task started long ago runs on while something was done for it in the last 20 minutes', () => {
+		const parent = {startedAt: '2026-10-16T09:00:00Z', lastActiveAt: '2026-10-16T11:50:00Z'};
 		expect(taskStatus(task(parent), now)).toBe('running');
-		expect(taskStatus(task(parent), new Date('2026-10-16T14:00:00Z'))).toBe('abandoned');
+		expect(taskStatus(task(parent), new Date('2026-10-16T12:10:00Z'))).toBe('leftOpen');
 	});
 });
 
@@ -67,23 +66,24 @@ describe('endsOf', () => {
 
 	test('a finished task ended when it was finished, and one under way has not ended', () => {
 		const finished = task({id: 'done', finishedAt: '2026-10-16T11:58:00Z'});
-		const ends = endsOf([finished, task({})], [request('2026-10-16T11:30:00Z')], now);
+		const open = task({lastActiveAt: '2026-10-16T11:50:00Z'});
+		const ends = endsOf([finished, open], [request('2026-10-16T11:30:00Z')], now);
 		expect(ends.get('done')).toEqual(new Date('2026-10-16T11:58:00Z'));
 		expect(ends.get('t1')).toBeNull();
 	});
 
-	test('an abandoned task ended when its last request was done, or when it started with none', () => {
-		const abandoned = task({startedAt: '2026-10-15T09:00:00Z'});
+	test('a task left open ended when its last request was done, or when it started with none', () => {
+		const leftOpen = task({startedAt: '2026-10-15T09:00:00Z'});
 		const requests = [request('2026-10-15T09:10:00Z'), request('2026-10-15T09:40:00Z')];
-		expect(endsOf([abandoned], requests, now).get('t1')).toEqual(new Date('2026-10-15T09:40:00Z'));
-		expect(endsOf([abandoned], [], now).get('t1')).toEqual(new Date('2026-10-15T09:00:00Z'));
+		expect(endsOf([leftOpen], requests, now).get('t1')).toEqual(new Date('2026-10-15T09:40:00Z'));
+		expect(endsOf([leftOpen], [], now).get('t1')).toEqual(new Date('2026-10-15T09:00:00Z'));
 	});
 
-	test('an abandoned task ended no earlier than the last of its sub-tasks, at any depth', () => {
+	test('a task left open ended no earlier than the last of its sub-tasks, at any depth', () => {
 		const parent = task({
 			id: 'groceries',
 			startedAt: '2026-10-15T07:00:00Z',
-			lastStartedAt: '2026-10-15T10:00:00Z',
+			lastActiveAt: '2026-10-15T10:00:00Z',
 		});
 		const compare = task({
 			id: 'compare',
@@ -95,7 +95,7 @@ describe('endsOf', () => {
 			id: 'slot',
 			parentId: 'groceries',
 			startedAt: '2026-10-15T09:00:00Z',
-			lastStartedAt: '2026-10-15T10:00:00Z',
+			lastActiveAt: '2026-10-15T10:00:00Z',
 		});
 		const calendar = task({id: 'calendar', parentId: 'slot', startedAt: '2026-10-15T10:00:00Z'});
 		const ends = endsOf(

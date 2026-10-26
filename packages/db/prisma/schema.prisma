@@ -412,11 +412,11 @@ model AgentTask {
   // The member whose own the agent is, who alone sees the task; null for a shared agent's, which
   // everyone in the organization sees.
   ownerUserId String?
-  // When it, or the last of its sub-tasks at any depth, was started: one never finished is taken
-  // as abandoned a day after (@proxy/utils/tasks). Never before any of its sub-tasks', so a parent
-  // is never abandoned while one is under way. Set with createdAt, and on every task above a
-  // sub-task when it starts.
-  lastStartedAt DateTime
+  // When it, or the last of its sub-tasks at any depth, was started or had a request made for it:
+  // one never finished is taken as left open 20 minutes after (@proxy/utils/tasks). Never before
+  // any of its sub-tasks', so a parent is never left open while one is under way. Set with
+  // createdAt, and on it and every task above it when a sub-task starts or a request is made.
+  lastActiveAt DateTime
 
   createdAt DateTime @default(now())
 

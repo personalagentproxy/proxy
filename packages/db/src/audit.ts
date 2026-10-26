@@ -187,7 +187,7 @@ export async function listTaskEntries(
 
 /**
  * The last request the viewer sees made for each of `taskIds` after `after`, where one was, in the
- * order they were made: for a stretch of time read that ends before now, when a task given up on
+ * order they were made: for a stretch of time read that ends before now, when a task left open
  * last had anything done for it, which is when the web app shows it as having ended.
  */
 export async function listLastTaskEntries(

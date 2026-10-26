@@ -5,7 +5,7 @@ import type {Back} from '@/lib/back';
 import {connectionLabel, describeEntry, locateEntry} from '@/lib/access';
 import {formatTime} from '@/lib/format';
 import {
-	ABANDONED_OPACITY,
+	LEFT_OPEN_OPACITY,
 	formatDuration,
 	merged,
 	MIN_TRACK_PX,
@@ -598,7 +598,7 @@ export function ChartLegend({rows}: {rows: LegendRow[]}) {
 	const any = (test: (row: LegendRow) => boolean) => rows.some(test);
 	const waiting = any((row) => (row.waiting ?? []).length > 0);
 	const running = any((row) => row.status === 'running');
-	const abandoned = any((row) => row.status === 'abandoned');
+	const leftOpen = any((row) => row.status === 'leftOpen');
 	const blocked = any((row) => row.requests.some((request) => request.entry.outcome === 'denied'));
 	const failed = any((row) => row.requests.some((request) => request.entry.outcome === 'failed'));
 	return (
@@ -606,7 +606,7 @@ export function ChartLegend({rows}: {rows: LegendRow[]}) {
 			<Key swatch={<TrackSwatch requests />}>Task and its requests</Key>
 			{waiting && <Key swatch={<TrackSwatch hatched />}>Waiting on sub-tasks</Key>}
 			{running && <Key swatch={<TrackSwatch running />}>Under way</Key>}
-			{abandoned && <Key swatch={<TrackSwatch abandoned />}>Given up</Key>}
+			{leftOpen && <Key swatch={<TrackSwatch leftOpen />}>Left open</Key>}
 			{blocked && <Key swatch={<TrackSwatch outcome="denied" />}>Blocked</Key>}
 			{failed && <Key swatch={<TrackSwatch outcome="failed" />}>Failed</Key>}
 		</div>
@@ -623,20 +623,20 @@ function Key({swatch, children}: {swatch: ReactNode; children: ReactNode}) {
 }
 
 /**
- * A swatch of a task's track, for the legend: with requests on it, hatched, under way, given up, or
+ * A swatch of a task's track, for the legend: with requests on it, hatched, under way, left open, or
  * with a request blocked or failed.
  */
 function TrackSwatch({
 	requests = false,
 	hatched = false,
 	running = false,
-	abandoned = false,
+	leftOpen = false,
 	outcome,
 }: {
 	requests?: boolean;
 	hatched?: boolean;
 	running?: boolean;
-	abandoned?: boolean;
+	leftOpen?: boolean;
 	outcome?: 'denied' | 'failed';
 }) {
 	return (
@@ -646,8 +646,8 @@ function TrackSwatch({
 				span={{start: 0, end: 24}}
 				y={1}
 				height={10}
-				opacity={abandoned ? ABANDONED_OPACITY : undefined}
-				dashed={abandoned}
+				opacity={leftOpen ? LEFT_OPEN_OPACITY : undefined}
+				dashed={leftOpen}
 			/>
 			{requests && <rect x="3" y="1" width="7" height="10" rx="2" fill="currentColor" />}
 			{requests && <rect x="14" y="1" width="4" height="10" rx="2" fill="currentColor" />}

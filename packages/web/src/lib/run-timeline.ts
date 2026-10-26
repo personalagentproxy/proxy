@@ -33,7 +33,7 @@ export type RunRow = {
 	parentRow: number | null;
 	// The task, or the group's members, in the order started.
 	tasks: ActivityTask[];
-	// The task's, or, for a group, under way if any member is, else abandoned if every member was.
+	// The task's, or, for a group, under way if any member is, else left open if every member was.
 	status: TaskStatus;
 	// Where its track runs, in pixels from the chart's left edge.
 	start: number;
@@ -343,7 +343,7 @@ export function buildRunTimeline(
 			task.finishedAt === parent.finishedAt
 		);
 	};
-	// Every one of them finished, and one or more by its agent saying so: one given up on was
+	// Every one of them finished, and one or more by its agent saying so: one left open was
 	// handed back to nothing.
 	const handedBack = (of: ActivityTask[]) =>
 		of.every((task) => taskStatus(task, now) === 'finished') &&

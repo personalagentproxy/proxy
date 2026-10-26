@@ -30,7 +30,7 @@ import {
 	prepareActivityTimeline,
 	type Window,
 } from '@/lib/activity-timeline';
-import {ABANDONED_OPACITY, MIN_TRACK_PX, TASK_COLOR_CLASS} from '@/lib/timeline';
+import {LEFT_OPEN_OPACITY, MIN_TRACK_PX, TASK_COLOR_CLASS} from '@/lib/timeline';
 import {zoomedOn} from '@/lib/timeline-window';
 import type {ActivityTask, AgentLogin, AuditEntry, Connection} from '@/lib/types';
 import {cn} from '@proxy/ui/lib/utils';
@@ -199,8 +199,8 @@ export function ActivityTimeline({
 													height={BAR_H}
 													clippedStart={bar.clippedStart}
 													clippedEnd={bar.clippedEnd}
-													opacity={bar.status === 'abandoned' ? ABANDONED_OPACITY : undefined}
-													dashed={bar.status === 'abandoned'}
+													opacity={bar.status === 'leftOpen' ? LEFT_OPEN_OPACITY : undefined}
+													dashed={bar.status === 'leftOpen'}
 												/>
 												{bar.status === 'running' && (
 													<Shimmer

@@ -96,7 +96,7 @@ function TaskRunPage({
 	const status = taskStatus(task, now);
 	const agent = agents.find((candidate) => candidate.id === run.agentId);
 	const own = run.entries.filter((entry) => entry.taskId === task.id);
-	// Given up on, it ended no earlier than what it handed on.
+	// Left open, it ended no earlier than what it handed on.
 	const ended = endsOf(run.tasks, run.entries, now).get(task.id) ?? now;
 	const summary = [
 		formatDuration(ended.getTime() - new Date(task.startedAt).getTime()),

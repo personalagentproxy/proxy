@@ -29,7 +29,7 @@ export function handleAgentListTasksRoute(request: AgentRequest): Promise<Result
 
 /**
  * `GET /api/agent/tasks/:taskId`: the task while it is under way, as the agent pages open it from
- * their address; unknown is 404, finished or abandoned 409, as a run for it would be.
+ * their address; unknown is 404, finished or left open 409, as a run for it would be.
  */
 export function handleAgentGetTaskRoute(request: AgentRequest): Promise<Result<AgentTaskResponse, ApiError>> {
 	return getAgentOpenTask(request.agent, request.params.taskId ?? '');

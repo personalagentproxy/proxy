@@ -26,7 +26,7 @@ export function useTaskId(): string {
 
 /**
  * The api refused a run for its task, not for anything else about it: the task is unknown (404 for
- * a `task`), or finished or abandoned (409). The pages send the agent back to its tasks.
+ * a `task`), or finished or left open (409). The pages send the agent back to its tasks.
  */
 export function isTaskRefusal(error: FetchError): boolean {
 	if (error.kind !== 'http') {

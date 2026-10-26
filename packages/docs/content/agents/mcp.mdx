@@ -86,10 +86,10 @@ Before an agent does anything with Personal Agent Proxy, it has to say what it i
 task: a title in a few words, such as "Triage this morning's inbox", and a goal, what you asked for
 in a sentence or two. Every call it makes after that names the task, and a call without one, or for
 a task that is finished, is refused. When the agent has done what you asked, or given it up, it
-finishes the task, saying what it did, and starts a new one for the next thing you ask for. A task
-the agent never finishes is taken as abandoned a day after it, or the last of its sub-tasks,
-started, and refused from then on too. An agent can have any number of tasks under way at once,
-each with its own requests.
+finishes the task, saying what it did, and starts a new one for the next thing you ask for. Agents
+don't always say so: a task the agent never finishes is taken as left open once 20 minutes pass
+with nothing done for it or its sub-tasks, and refused from then on too. An agent can have any
+number of tasks under way at once, each with its own requests.
 
 An agent may split what you asked for among sub-agents of its own, which sign in as it does and
 have its access. Each part is a sub-task, started with the task it was handed from as its parent,

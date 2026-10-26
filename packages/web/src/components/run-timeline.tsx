@@ -29,7 +29,7 @@ import {
 	type RunTimeline as RunLayout,
 } from '@/lib/run-timeline';
 import {
-	ABANDONED_OPACITY,
+	LEFT_OPEN_OPACITY,
 	formatDuration,
 	MIN_TRACK_PX,
 	roughDuration,
@@ -156,7 +156,7 @@ export function RunTimeline({tasks, entries, now, connections, onOpenEntry}: Pro
 											span={row}
 											y={TRACK_TOP}
 											height={TRACK_H}
-											opacity={row.status === 'abandoned' ? ABANDONED_OPACITY / 2 : 0.08}
+											opacity={row.status === 'leftOpen' ? LEFT_OPEN_OPACITY / 2 : 0.08}
 										/>
 									)}
 									{row.members.map((member, memberIndex) => (
@@ -166,8 +166,8 @@ export function RunTimeline({tasks, entries, now, connections, onOpenEntry}: Pro
 											y={TRACK_TOP}
 											height={TRACK_H}
 											clippedEnd={row.status === 'running' && member.end >= width - 1}
-											opacity={row.status === 'abandoned' ? ABANDONED_OPACITY : undefined}
-											dashed={row.status === 'abandoned'}
+											opacity={row.status === 'leftOpen' ? LEFT_OPEN_OPACITY : undefined}
+											dashed={row.status === 'leftOpen'}
 										/>
 									))}
 									{row.status === 'running' && (
