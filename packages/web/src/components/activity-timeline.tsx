@@ -9,6 +9,7 @@ import {
 	RequestMarks,
 	RequestTargets,
 	RequestTooltip,
+	TasksMenu,
 	TasksTooltip,
 	TaskTooltip,
 	Track,
@@ -30,6 +31,7 @@ import {
 	type Window,
 } from '@/lib/activity-timeline';
 import {ABANDONED_OPACITY, MIN_TRACK_PX, TASK_COLOR_CLASS} from '@/lib/timeline';
+import {zoomedOn} from '@/lib/timeline-window';
 import type {ActivityTask, AgentLogin, AuditEntry, Connection} from '@/lib/types';
 import {cn} from '@proxy/ui/lib/utils';
 
@@ -83,7 +85,8 @@ type Props = {
 // time, a bar for every task it was given, named where there is room, the requests made for it
 // along the bar's bottom as long as each took, blocked ones amber and failed ones red. Tasks under
 // way at once each take a lane of the row; short ones close together are one bar, which zooms in on
-// them. A bar says more on hover and opens the task's page; a request opens in full; an agent's
+// them, or, where zooming in would make the window no shorter, lists them to open one. A bar says
+// more on hover and opens the task's page; a request opens in full; an agent's
 // name opens the agent's page. As the window moves, a row or lane that comes into need grows in at
 // once, while bars keep their lanes and rows their order, and zooming in on a bar, rows make room
 // for the whole way at once; a second after the window comes to rest, bars settle into the lowest
@@ -242,6 +245,7 @@ export function ActivityTimeline({
 											<BarTarget
 												bar={bar}
 												top={barTop(laneIndex)}
+												windowMs={window.to.getTime() - window.from.getTime()}
 												onZoom={onZoom}
 												backTo={backTo}
 											/>
@@ -487,15 +491,18 @@ function AgentLabel({
 }
 
 // The target over a bar: a task's opens its page, and says on hover what it was for and how it
-// went; one of several tasks zooms the window in on them, and says on hover which they are.
+// went; one of several tasks zooms the window in on them, or, where the window is as short as
+// zooming in on them would make it, lists them to open one; and says on hover which they are.
 function BarTarget({
 	bar,
 	top,
+	windowMs,
 	onZoom,
 	backTo,
 }: {
 	bar: ActivityBar;
 	top: number;
+	windowMs: number;
 	onZoom: (from: number, to: number) => void;
 	backTo: string;
 }) {
@@ -508,10 +515,14 @@ function BarTarget({
 		height: BAR_H,
 	};
 	const className = cn(MOVES, 'hover:bg-foreground/5');
+	const pageOf = (one: ActivityTask) => ({
+		to: `/${org}/activity/tasks/${encodeURIComponent(one.id)}`,
+		state: {back: backTo, then: null},
+	});
 	if (!task) {
 		return null;
 	}
-	if (bar.tasks.length > 1) {
+	if (bar.tasks.length > 1 && zoomedOn(bar.fromMs, bar.toMs) < windowMs) {
 		return (
 			<ChartTarget
 				action={{onClick: () => onZoom(bar.fromMs, bar.toMs)}}
@@ -530,16 +541,38 @@ function BarTarget({
 			</ChartTarget>
 		);
 	}
+	if (bar.tasks.length > 1) {
+		return (
+			<ChartTarget
+				action={{
+					menu: (
+						<TasksMenu
+							heading={`${bar.tasks.length} tasks close together`}
+							status={bar.status}
+							durationMs={bar.durationMs}
+							requests={bar.requests}
+							tasks={bar.tasks}
+							pageOf={pageOf}
+						/>
+					),
+				}}
+				label={`Choose one of ${bar.tasks.length} tasks`}
+				className={className}
+				style={style}
+			>
+				<TasksTooltip
+					heading={`${bar.tasks.length} tasks close together`}
+					status={bar.status}
+					durationMs={bar.durationMs}
+					requests={bar.requests}
+					tasks={bar.tasks}
+					hint="Click to choose one"
+				/>
+			</ChartTarget>
+		);
+	}
 	return (
-		<ChartTarget
-			action={{
-				to: `/${org}/activity/tasks/${encodeURIComponent(task.id)}`,
-				state: {back: backTo, then: null},
-			}}
-			label={task.title}
-			className={className}
-			style={style}
-		>
+		<ChartTarget action={pageOf(task)} label={task.title} className={className} style={style}>
 			<TaskTooltip
 				task={task}
 				status={bar.status}

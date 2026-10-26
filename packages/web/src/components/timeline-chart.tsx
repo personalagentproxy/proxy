@@ -1,4 +1,4 @@
-import {type CSSProperties, memo, type ReactNode, useId} from 'react';
+import {type CSSProperties, memo, type ReactNode, useId, useState} from 'react';
 import {Link} from 'react-router';
 import type {RequestTooltipHandle} from '@/hooks/use-request-tooltip';
 import type {Back} from '@/lib/back';
@@ -17,6 +17,15 @@ import {
 } from '@/lib/timeline';
 import {STATUS_LABEL, type TaskStatus} from '@/lib/timeline-window';
 import type {ActivityTask, AuditEntry, Connection} from '@/lib/types';
+import {
+	DropdownMenu,
+	DropdownMenuArrow,
+	DropdownMenuContent,
+	DropdownMenuGroup,
+	DropdownMenuLabel,
+	DropdownMenuLinkItem,
+	DropdownMenuTrigger,
+} from '@proxy/ui/components/dropdown-menu';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
 
@@ -236,6 +245,14 @@ export function TaskTooltip({
 	);
 }
 
+// How several tasks drawn as one went, and the requests made for them.
+function tasksSummary(status: TaskStatus, durationMs: number, requests: TimelineRequest[]): string {
+	return [
+		`${STATUS_LABEL[status]} · ${formatDuration(durationMs)}`,
+		...requestSummary(requests),
+	].join(' · ');
+}
+
 /**
  * What a bar or row of several tasks says on hover, worked out only once it is open: how many, how
  * they went and which they are, and what clicking it does.
@@ -258,12 +275,7 @@ export function TasksTooltip({
 	return (
 		<span className="flex flex-col gap-1">
 			<span className="font-medium">{heading}</span>
-			<span className="opacity-80">
-				{[
-					`${STATUS_LABEL[status]} · ${formatDuration(durationMs)}`,
-					...requestSummary(requests),
-				].join(' · ')}
-			</span>
+			<span className="opacity-80">{tasksSummary(status, durationMs, requests)}</span>
 			<TaskNames tasks={tasks} />
 			{hint && <span>{hint}</span>}
 		</span>
@@ -271,9 +283,53 @@ export function TasksTooltip({
 }
 
 /**
+ * What a bar of several tasks opens, in a target's menu (ChartTarget): what its tooltip says, every
+ * task a link to its page, with when it started to tell tasks of one name apart.
+ */
+export function TasksMenu({
+	heading,
+	status,
+	durationMs,
+	requests,
+	tasks,
+	pageOf,
+}: {
+	heading: string;
+	status: TaskStatus;
+	durationMs: number;
+	requests: TimelineRequest[];
+	tasks: ActivityTask[];
+	pageOf: (task: ActivityTask) => {to: string; state: Back};
+}) {
+	return (
+		<DropdownMenuGroup className="flex flex-col gap-1">
+			<DropdownMenuLabel className="px-1.5 py-0 text-xs font-medium text-background">
+				{heading}
+			</DropdownMenuLabel>
+			<span className="px-1.5 opacity-80">{tasksSummary(status, durationMs, requests)}</span>
+			<span className="flex max-h-64 flex-col overflow-y-auto">
+				{tasks.map((task) => (
+					<DropdownMenuLinkItem
+						key={task.id}
+						render={<Link {...pageOf(task)} preventScrollReset />}
+						className="rounded-sm px-1.5 py-0.5 text-xs focus:bg-background/15 focus:text-background focus:**:text-background"
+					>
+						<span className="min-w-0 flex-1 truncate">{task.title}</span>
+						<span className="shrink-0 pl-3 tabular-nums opacity-60">
+							{formatTime(task.startedAt)}
+						</span>
+					</DropdownMenuLinkItem>
+				))}
+			</span>
+		</DropdownMenuGroup>
+	);
+}
+
+/**
  * A hit target over a track, in the layer over the chart, saying more on hover or focus: a link to
- * a task's page, coming back the way `state` says (lib/back.ts); a button; or, where it opens
- * nothing, a stop for the keyboard all the same, so what it says can be reached.
+ * a task's page, coming back the way `state` says (lib/back.ts); a button; a menu, opening where
+ * the tooltip would, the tooltip kept shut while it is open; or, where it opens nothing, a stop
+ * for the keyboard all the same, so what it says can be reached.
  */
 export function ChartTarget({
 	action,
@@ -283,13 +339,16 @@ export function ChartTarget({
 	onHover,
 	children,
 }: {
-	action: {to: string; state: Back} | {onClick: () => void} | null;
+	action: {to: string; state: Back} | {onClick: () => void} | {menu: ReactNode} | null;
 	label: string;
 	className?: string;
 	style: CSSProperties;
 	onHover?: (over: boolean) => void;
 	children: ReactNode;
 }) {
+	// Held here rather than by the tooltip, as a target can turn from a button into a menu and back.
+	const [tooltipOpen, setTooltipOpen] = useState(false);
+	const [menuOpen, setMenuOpen] = useState(false);
 	const shared = {
 		'aria-label': label,
 		className: cn(
@@ -307,13 +366,33 @@ export function ChartTarget({
 		if ('to' in action) {
 			return <Link to={action.to} state={action.state} preventScrollReset {...shared} />;
 		}
+		if ('menu' in action) {
+			return <DropdownMenuTrigger render={<button type="button" {...shared} />} />;
+		}
 		return <button type="button" onClick={action.onClick} {...shared} />;
 	};
-	return (
-		<Tooltip disableHoverablePopup>
+	const tooltip = (
+		<Tooltip open={tooltipOpen && !menuOpen} onOpenChange={setTooltipOpen} disableHoverablePopup>
 			<TooltipTrigger render={trigger()} />
 			<TooltipContent className="pointer-events-none max-w-xs">{children}</TooltipContent>
 		</Tooltip>
+	);
+	if (action === null || !('menu' in action)) {
+		return tooltip;
+	}
+	return (
+		<DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+			{tooltip}
+			{/* Drawn as the tooltip is, in its place, so opening it reads as the tooltip taking clicks. */}
+			<DropdownMenuContent
+				side="top"
+				align="center"
+				className="w-fit max-w-xs min-w-0 overflow-visible rounded-md bg-foreground px-1.5 py-1.5 text-xs text-background shadow-none ring-0"
+			>
+				{action.menu}
+				<DropdownMenuArrow className="z-50 size-2.5 translate-y-[calc(-50%-2px)] rotate-45 rounded-[2px] bg-foreground fill-foreground data-[side=bottom]:top-1 data-[side=top]:-bottom-2.5" />
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 

@@ -17,6 +17,7 @@ import {
 	WINDOWS,
 	windowStart,
 	zoomed,
+	zoomedOn,
 } from '@/lib/timeline-window';
 import {zoomPath} from '@/lib/zoom-path';
 import type {AgentLogin, AuditEntry, Connection} from '@/lib/types';
@@ -236,7 +237,7 @@ export function AgentTimeline({
 		const now = latest.current;
 		const least = MIN_MINUTES * MINUTE_MS;
 		const most = MAX_MINUTES * MINUTE_MS;
-		const padded = Math.min(Math.max(Math.max(to - from, least) * 1.25, least), most);
+		const padded = zoomedOn(from, to);
 		const middle = (from + to) / 2;
 		const startWidth = minutes * MINUTE_MS;
 		const startEnd = Math.min(end ?? now, now);

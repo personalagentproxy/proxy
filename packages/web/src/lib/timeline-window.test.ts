@@ -8,6 +8,7 @@ import {
 	windowLabel,
 	windowStart,
 	zoomed,
+	zoomedOn,
 } from './timeline-window';
 
 const now = new Date('2026-10-16T12:00:00Z');
@@ -163,6 +164,15 @@ describe('the window', () => {
 		expect(zoomed(360, -200)).toBeLessThan(360);
 		expect(zoomed(20, -5000)).toBe(15);
 		expect(zoomed(20000, 5000)).toBe(31 * 24 * 60);
+	});
+
+	test('zoomed in on a stretch, is a little longer than it, and never shorter than the least', () => {
+		const minute = 60 * 1000;
+		expect(zoomedOn(0, 60 * minute)).toBe(75 * minute);
+		// Not the least and a quarter again: zoomed in on a few seconds, it is as short as it goes.
+		expect(zoomedOn(0, 30 * 1000)).toBe(15 * minute);
+		expect(zoomedOn(0, 13 * minute)).toBe(16.25 * minute);
+		expect(zoomedOn(0, 60 * 24 * 60 * minute)).toBe(31 * 24 * 60 * minute);
 	});
 
 	test('small turns, as a pinch sends, add up rather than each rounding back', () => {
