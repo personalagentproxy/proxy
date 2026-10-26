@@ -274,7 +274,7 @@ describe('cloudflare', () => {
 describe('google', () => {
 	const google = integration('google');
 
-	test('email has the same tools as any mailbox’s, files are never deleted, only moved to Trash, ranges are only run, and events and contacts are never deleted', () => {
+	test('email has the same tools as any mailbox’s, files are never deleted, only moved to Trash, ranges and availability are only run, other contacts are only read and saved, and events, contacts and tasks are never deleted', () => {
 		expect(integrationTools(google).map((tool) => tool.name)).toEqual([
 			...integrationTools(email).map((tool) => tool.name),
 			'events_list',
@@ -284,6 +284,7 @@ describe('google', () => {
 			'events_accept',
 			'events_decline',
 			'events_maybe',
+			'availability_check',
 			'files_list',
 			'files_get',
 			'files_create',
@@ -295,7 +296,65 @@ describe('google', () => {
 			'contacts_get',
 			'contacts_create',
 			'contacts_update',
+			'other_contacts_list',
+			'other_contacts_get',
+			'other_contacts_save',
+			'tasks_list',
+			'tasks_get',
+			'tasks_create',
+			'tasks_update',
+			'tasks_complete',
+			'tasks_reopen',
 		]);
+	});
+
+	test('checking availability is a read with an action of its own, taking the people and the times', () => {
+		const check = integrationTools(google).find((tool) => tool.name === 'availability_check');
+
+		expect(check).toMatchObject({kind: 'newCommand', action: 'readAvailability', readOnly: true});
+		expect(Object.keys(check?.inputSchema.properties ?? {})).toEqual(['people', 'from', 'to']);
+	});
+
+	test('other contacts are read with an action of their own, and saving one needs Add and edit contacts', () => {
+		const tools = integrationTools(google).filter((tool) =>
+			tool.name.startsWith('other_contacts_'),
+		);
+
+		expect(tools.map((tool) => [tool.name, tool.action, tool.readOnly])).toEqual([
+			['other_contacts_list', 'readOtherContacts', true],
+			['other_contacts_get', 'readOtherContacts', true],
+			['other_contacts_save', 'writeContacts', false],
+		]);
+	});
+
+	test('a task is made inside a list, narrowed by its status, and completed or reopened only where it fits', () => {
+		const tools = integrationTools(google).filter((tool) => tool.name.startsWith('tasks_'));
+		const named = (name: string) => tools.find((tool) => tool.name === name);
+
+		expect(Object.keys(named('tasks_list')?.inputSchema.properties ?? {})).toEqual([
+			'parent',
+			'status',
+			'page',
+		]);
+		expect(Object.keys(named('tasks_create')?.inputSchema.properties ?? {})).toEqual([
+			'parent',
+			'title',
+			'notes',
+			'due',
+			'list',
+		]);
+		expect(named('tasks_update')).toMatchObject({
+			action: 'writeTasks',
+			where: {field: 'kind', values: ['Task']},
+		});
+		expect(named('tasks_complete')).toMatchObject({
+			action: 'writeTasks',
+			where: {field: 'status', values: ['Needs action']},
+		});
+		expect(named('tasks_reopen')).toMatchObject({
+			action: 'writeTasks',
+			where: {field: 'status', values: ['Done']},
+		});
 	});
 
 	test('an event is made inside a calendar, its guests need Invite guests, and only events are edited', () => {

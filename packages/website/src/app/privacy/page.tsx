@@ -59,15 +59,17 @@ export default function PrivacyPage() {
 					other financial account, a database or any other service that speaks MCP, we collect the
 					credentials needed to reach it and, depending on the permissions you give your agents,
 					information from that service, which may include: emails and other messages, with their
-					attachments; calendars, events and invitations, with their guests and responses; contacts;
-					files, folders, documents, spreadsheets, presentations and pages; notes, meeting notes and
-					transcripts; issues, tasks, projects and comments; database tables, rows and query
-					results; financial accounts, with their names, types, the last digits of their numbers,
-					balances and limits, and their transactions, with amounts, dates, merchants, categories
-					and locations; anything else a connected service returns to your agents; the metadata of
-					all of these; and the results of the actions your agents take. Some of this may be
-					sensitive, such as private communications, financial information or health information,
-					depending on what you connect and what you let your agents do.
+					attachments; calendars, events and invitations, with their guests and responses, and when
+					the people you name are busy; contacts, and the people a service keeps on its own because
+					you exchanged messages with them; files, folders, documents, spreadsheets, presentations
+					and pages; notes, meeting notes and transcripts; tasks and to-do lists; issues, projects
+					and comments; database tables, rows and query results; financial accounts, with their
+					names, types, the last digits of their numbers, balances and limits, and their
+					transactions, with amounts, dates, merchants, categories and locations; anything else a
+					connected service returns to your agents; the metadata of all of these; and the results of
+					the actions your agents take. Some of this may be sensitive, such as private
+					communications, financial information or health information, depending on what you connect
+					and what you let your agents do.
 				</p>
 				<p>
 					<span className="text-foreground">Information about your agents&apos; activity.</span> We
@@ -128,11 +130,13 @@ export default function PrivacyPage() {
 					When you connect a Google account, Google asks you to grant the Services access to parts
 					of that account. Depending on what you grant, the Services may access your Google account
 					email address and information in the Google services you grant access to, such as Gmail,
-					Google Calendar, Google Drive, Google Docs, Google Sheets, Google Slides and Google
-					Contacts, including the content and metadata of what is in them, and may act on it for
-					your agents within the permissions you set, such as sending email, creating and changing
-					documents and events, or moving items to Trash. Google&apos;s consent screen lets you
-					decline any of these.
+					Google Calendar, Google Drive, Google Docs, Google Sheets, Google Slides, Google Contacts
+					and Google Tasks, including the content and metadata of what is in them, when the people
+					you name are free or busy in Google Calendar, and the names, email addresses and phone
+					numbers of the people Google keeps under Other contacts because you exchanged email with
+					them, and may act on it for your agents within the permissions you set, such as sending
+					email, creating and changing documents, events and tasks, or moving items to Trash.
+					Google&apos;s consent screen lets you decline any of these.
 				</p>
 				<p>
 					We use information received from Google Workspace APIs only to provide and improve the

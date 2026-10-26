@@ -10,4 +10,4 @@ export const LEGAL = {
 };
 
 // The day both pages took effect; a change to either moves it.
-export const LEGAL_EFFECTIVE_DATE = 'October 15, 2026';
+export const LEGAL_EFFECTIVE_DATE = 'October 26, 2026';

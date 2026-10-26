@@ -70,7 +70,7 @@ export const envSchema = z.object({
 	GOOGLE_CLIENT_ID: documented(z.string().min(1).optional(), {
 		group: 'Sign-in',
 		description:
-			'Turns on Google sign-in, with `GOOGLE_CLIENT_SECRET`, and connecting a Google account (Gmail, Calendar, Drive, Docs, Sheets, Slides and Contacts). Register `<APP_URL>/auth/google/callback` and `<APP_URL>/api/connections/google/callback` as redirect URIs, enable the Gmail, Calendar, Drive, Docs, Sheets, Slides and People APIs in the client’s Cloud project, and set the app’s publishing status to In production: in Testing, Google ends a connection’s sign-in after 7 days.',
+			'Turns on Google sign-in, with `GOOGLE_CLIENT_SECRET`, and connecting a Google account (Gmail, Calendar, Drive, Docs, Sheets, Slides, Contacts and Tasks). Register `<APP_URL>/auth/google/callback` and `<APP_URL>/api/connections/google/callback` as redirect URIs, enable the Gmail, Calendar, Drive, Sheets, People and Tasks APIs in the client’s Cloud project, and set the app’s publishing status to In production: in Testing, Google ends a connection’s sign-in after 7 days.',
 	}),
 	GOOGLE_CLIENT_SECRET: documented(z.string().min(1).optional(), {
 		group: 'Sign-in',

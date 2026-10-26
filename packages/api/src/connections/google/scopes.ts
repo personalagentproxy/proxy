@@ -20,11 +20,20 @@ const GMAIL = [[scope('gmail.modify')]];
 // read for their names and time zones, `calendar.calendarlist.readonly`.
 const CALENDAR = [[scope('calendar.events'), scope('calendar.calendarlist.readonly')]];
 
+// Who is free takes `calendar.events.freebusy`, and the primary calendar's time zone, which times
+// without an offset are on, `calendar.calendarlist.readonly`.
+const AVAILABILITY = [[scope('calendar.events.freebusy'), scope('calendar.calendarlist.readonly')]];
+
 // Drive's export and uploads and the Sheets API take `drive` for reading and writing alike, so it
-// alone covers every file action.
+// alone covers every file action; the Docs, Sheets and Slides scopes would add nothing to it.
 const DRIVE = [[scope('drive')]];
 
 const CONTACTS = [[scope('contacts')]];
+
+// The people Gmail keeps under Other contacts are read with a scope of their own, only ever read.
+const OTHER_CONTACTS = [[scope('contacts.other.readonly')]];
+
+const TASKS = [[scope('tasks')]];
 
 /** Every scope a sign-in asks for beyond the account's address, in the order Google shows them. */
 export const PRODUCT_SCOPES = [
@@ -32,11 +41,11 @@ export const PRODUCT_SCOPES = [
 	scope('gmail.send'),
 	scope('calendar.events'),
 	scope('calendar.calendarlist.readonly'),
+	scope('calendar.events.freebusy'),
 	scope('drive'),
-	scope('documents'),
-	scope('spreadsheets'),
-	scope('presentations'),
 	scope('contacts'),
+	scope('contacts.other.readonly'),
+	scope('tasks'),
 ];
 
 const ACTION_SCOPES: Partial<Record<string, string[][]>> = {
@@ -48,6 +57,7 @@ const ACTION_SCOPES: Partial<Record<string, string[][]>> = {
 	trashEmails: GMAIL,
 	sendEmails: [[scope('gmail.send')], [scope('gmail.modify')]],
 	readEvents: CALENDAR,
+	readAvailability: AVAILABILITY,
 	writeEvents: CALENDAR,
 	respondEvents: CALENDAR,
 	inviteGuests: CALENDAR,
@@ -57,6 +67,9 @@ const ACTION_SCOPES: Partial<Record<string, string[][]>> = {
 	trashFiles: DRIVE,
 	readContacts: CONTACTS,
 	writeContacts: CONTACTS,
+	readOtherContacts: OTHER_CONTACTS,
+	readTasks: TASKS,
+	writeTasks: TASKS,
 };
 
 /** The actions a Google sign-in didn't cover, in the catalog's order; one the map leaves out is never covered. */

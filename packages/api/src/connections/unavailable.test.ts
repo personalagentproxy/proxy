@@ -22,11 +22,11 @@ const ALL_SCOPES = [
 	'https://www.googleapis.com/auth/gmail.send',
 	'https://www.googleapis.com/auth/calendar.events',
 	'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+	'https://www.googleapis.com/auth/calendar.events.freebusy',
 	'https://www.googleapis.com/auth/drive',
-	'https://www.googleapis.com/auth/documents',
-	'https://www.googleapis.com/auth/spreadsheets',
-	'https://www.googleapis.com/auth/presentations',
 	'https://www.googleapis.com/auth/contacts',
+	'https://www.googleapis.com/auth/contacts.other.readonly',
+	'https://www.googleapis.com/auth/tasks',
 ];
 
 function google(scopes: string[]) {
@@ -57,17 +57,55 @@ describe('unavailableActions', () => {
 
 	test('Calendar needs both its scopes, its events and the list of calendars holding them', async () => {
 		const {unavailableActions} = await import('./unavailable');
-		const calendar = ['readEvents', 'writeEvents', 'respondEvents', 'inviteGuests'];
+		const events = ['readEvents', 'writeEvents', 'respondEvents', 'inviteGuests'];
 
-		expect(unavailableActions(google(ALL_SCOPES.filter((scope) => !scope.endsWith('/calendar.events'))))).toEqual(calendar);
-		expect(unavailableActions(google(ALL_SCOPES.filter((scope) => !scope.endsWith('/calendar.calendarlist.readonly'))))).toEqual(calendar);
+		expect(unavailableActions(google(ALL_SCOPES.filter((scope) => !scope.endsWith('/calendar.events'))))).toEqual(events);
+		expect(unavailableActions(google(ALL_SCOPES.filter((scope) => !scope.endsWith('/calendar.calendarlist.readonly'))))).toEqual([
+			'readEvents',
+			'readAvailability',
+			'writeEvents',
+			'respondEvents',
+			'inviteGuests',
+		]);
 	});
 
-	test('a Google sign-in from before Calendar and Contacts joined leaves their actions out', async () => {
+	test('who is free, other contacts and tasks each need a scope of their own', async () => {
 		const {unavailableActions} = await import('./unavailable');
-		const before = ALL_SCOPES.filter((scope) => !/\/(calendar\.|contacts)/.test(scope));
+		const without = (name: string) => google(ALL_SCOPES.filter((scope) => !scope.endsWith(`/${name}`)));
 
-		expect(unavailableActions(google(before))).toEqual(['readEvents', 'writeEvents', 'respondEvents', 'inviteGuests', 'readContacts', 'writeContacts']);
+		expect(unavailableActions(without('calendar.events.freebusy'))).toEqual(['readAvailability']);
+		expect(unavailableActions(without('contacts.other.readonly'))).toEqual(['readOtherContacts']);
+		expect(unavailableActions(without('tasks'))).toEqual(['readTasks', 'writeTasks']);
+	});
+
+	test('a Google sign-in from before Calendar, Contacts and Tasks joined leaves their actions out', async () => {
+		const {unavailableActions} = await import('./unavailable');
+		const before = ALL_SCOPES.filter((scope) => !/\/(calendar\.|contacts|tasks)/.test(scope));
+
+		expect(unavailableActions(google(before))).toEqual([
+			'readEvents',
+			'readAvailability',
+			'writeEvents',
+			'respondEvents',
+			'inviteGuests',
+			'readContacts',
+			'readOtherContacts',
+			'writeContacts',
+			'readTasks',
+			'writeTasks',
+		]);
+	});
+
+	test('a Google sign-in from before who is free, other contacts and tasks joined leaves only those out, whatever else it granted', async () => {
+		const {unavailableActions} = await import('./unavailable');
+		const before = [
+			...ALL_SCOPES.filter((scope) => !/\/(calendar\.events\.freebusy|contacts\.other\.readonly|tasks)$/.test(scope)),
+			'https://www.googleapis.com/auth/documents',
+			'https://www.googleapis.com/auth/spreadsheets',
+			'https://www.googleapis.com/auth/presentations',
+		];
+
+		expect(unavailableActions(google(before))).toEqual(['readAvailability', 'readOtherContacts', 'readTasks', 'writeTasks']);
 	});
 
 	test('every other integration covers all its actions, whatever its credential', async () => {

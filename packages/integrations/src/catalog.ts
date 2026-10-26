@@ -824,7 +824,7 @@ const INVITED: Condition = {
 const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet', 'Row', 'File'];
 
 // A Google account, signed in to once for everything Personal Agent Proxy reads and writes there:
-// Gmail, Calendar, Drive, Docs, Sheets, Slides and Contacts. One connection holds every product, so
+// Gmail, Calendar, Drive, Docs, Sheets, Slides, Contacts and Tasks. One connection holds every product, so
 // action ids carry the product, such as `readEmails` and `sendEmails`, and each action
 // names its product as its group. Gmail is the same email as any mailbox's, its labels as folders:
 // all mail but Spam and Trash in one list, narrowed to the inbox, drafts, sent mail, the archive,
@@ -834,13 +834,16 @@ const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet'
 // holding its tabs and a tab its rows. Documents read as Markdown, presentations as text, rows as
 // "Header: value" lines; new documents are written as Markdown and new spreadsheets as CSV, which
 // Drive converts, and a spreadsheet's ranges are read and written in A1 notation as CSV. Files are
-// moved to Trash, never deleted, and neither are events or contacts. Nothing is copied: every
+// moved to Trash, never deleted, and neither are events, contacts or tasks. Who is free is asked
+// of Google for the people named, and the people Gmail keeps under Other contacts are only read.
+// Tasks are one tree: the task lists at the top, each holding its tasks. Nothing is copied: every
 // request goes to Google.
 const google: Integration = {
 	id: 'google',
 	signIn: true,
 	name: 'Google',
-	description: 'Gmail, Calendar, Drive, Docs, Sheets, Slides and Contacts for one Google account',
+	description:
+		'Gmail, Calendar, Drive, Docs, Sheets, Slides, Contacts and Tasks for one Google account',
 	// Google's Limited Use policy asks for what happens with its data to be said where access is given.
 	disclosure: 'What is ticked here is what your agents can read and do with this Google account.',
 	actions: [
@@ -903,6 +906,13 @@ const google: Integration = {
 			id: 'readEvents',
 			label: 'Read events',
 			description: 'See your calendars, and list, search and open their events',
+			risk: 'low',
+			group: 'Calendar',
+		},
+		{
+			id: 'readAvailability',
+			label: 'See when people are free',
+			description: 'See when you and the people you name are busy, without what they are doing',
 			risk: 'low',
 			group: 'Calendar',
 		},
@@ -974,12 +984,34 @@ const google: Integration = {
 			group: 'Contacts',
 		},
 		{
+			id: 'readOtherContacts',
+			label: 'Read other contacts',
+			description: 'List and search the people you emailed, whom Gmail keeps under Other contacts',
+			risk: 'low',
+			group: 'Contacts',
+		},
+		{
 			id: 'writeContacts',
 			label: 'Add and edit contacts',
 			description: 'Add contacts and change their details',
 			risk: 'medium',
 			requires: 'readContacts',
 			group: 'Contacts',
+		},
+		{
+			id: 'readTasks',
+			label: 'Read tasks',
+			description: 'See your task lists and the tasks in them',
+			risk: 'low',
+			group: 'Tasks',
+		},
+		{
+			id: 'writeTasks',
+			label: 'Add and edit tasks',
+			description: 'Add tasks, change them, move them to another list, and complete or reopen them',
+			risk: 'medium',
+			requires: 'readTasks',
+			group: 'Tasks',
 		},
 	],
 	collections: [
@@ -1075,6 +1107,42 @@ const google: Integration = {
 				{key: 'repeats', label: 'Repeats', type: 'text', system: true},
 				// The video call's address, where the event has one.
 				{key: 'meeting', label: 'Video call', type: 'text', system: true},
+			],
+		},
+		// When the account and the people named are busy, as Google's free/busy says, without what
+		// they are doing, and the times all of them are free. Never listed or opened, only checked. A
+		// time is written as an event's is, on the primary calendar's clock or with an offset, and a
+		// day alone is the whole day; times are answered on the primary calendar's clock.
+		{
+			id: 'availability',
+			name: 'Availability',
+			singular: 'availability',
+			titleField: 'people',
+			writes: {},
+			commands: [
+				{
+					id: 'check',
+					on: 'new',
+					label: 'Check',
+					action: 'readAvailability',
+					readOnly: true,
+					done: 'Checked {}',
+					tried: 'check {}',
+				},
+			],
+			fields: [
+				// Whom to check beside the account itself, which is always checked, by their addresses.
+				{key: 'people', label: 'People', type: 'email'},
+				// From now where left out.
+				{key: 'from', label: 'From', type: 'text'},
+				// A week after From where left out.
+				{key: 'to', label: 'To', type: 'text'},
+				// The primary calendar's time zone, which the busy and free times are on.
+				{key: 'timeZone', label: 'Time zone', type: 'text', system: true},
+				// Each person's busy times, one person a line, or that their calendar can't be seen.
+				{key: 'busy', label: 'Busy', type: 'longtext', system: true},
+				// The times everyone whose calendar could be seen is free, one a line, nights included.
+				{key: 'free', label: 'Free', type: 'longtext', system: true},
 			],
 		},
 		{
@@ -1193,6 +1261,93 @@ const google: Integration = {
 				{key: 'addresses', label: 'Addresses', type: 'longtext'},
 				{key: 'birthday', label: 'Birthday', type: 'text'},
 				{key: 'notes', label: 'Notes', type: 'longtext'},
+			],
+		},
+		// The people Gmail keeps under Other contacts: those the account emailed or was emailed by but
+		// never saved, by their names, addresses and numbers, only read. Saving one makes a contact of
+		// it in Google Contacts, which needs Add and edit contacts.
+		{
+			id: 'otherContacts',
+			name: 'Other contacts',
+			singular: 'other contact',
+			titleField: 'name',
+			summaryField: 'emails',
+			searchHint:
+				'The start of a name, email address or phone number, as Google Contacts matches them: sam, sam@, +44.',
+			read: 'readOtherContacts',
+			writes: {},
+			commands: [
+				{
+					id: 'save',
+					on: 'record',
+					label: 'Save to contacts',
+					action: 'writeContacts',
+					done: 'Saved {} to contacts',
+					tried: 'save {} to contacts',
+				},
+			],
+			fields: [
+				{key: 'name', label: 'Name', type: 'text', system: true},
+				{key: 'emails', label: 'Emails', type: 'email', system: true},
+				{key: 'phones', label: 'Phone numbers', type: 'text', system: true},
+			],
+		},
+		// The account's task lists in Google Tasks, each holding its tasks in Google's own order,
+		// subtasks among them. A due date is a day alone, 2026-10-15, as Google Tasks keeps it. A task
+		// is completed or reopened, and moved to another list by writing that list's name; tasks and
+		// lists are never deleted here.
+		{
+			id: 'tasks',
+			name: 'Tasks',
+			singular: 'task',
+			titleField: 'title',
+			summaryField: 'due',
+			filterField: 'status',
+			nested: true,
+			openIn: 'Google Tasks',
+			read: 'readTasks',
+			writes: {create: 'writeTasks', update: 'writeTasks'},
+			// Lists are only read.
+			editable: {field: 'kind', values: ['Task']},
+			commands: [
+				{
+					id: 'complete',
+					on: 'record',
+					label: 'Complete',
+					action: 'writeTasks',
+					where: {field: 'status', values: ['Needs action']},
+					done: 'Completed {}',
+					tried: 'complete {}',
+				},
+				{
+					id: 'reopen',
+					on: 'record',
+					label: 'Reopen',
+					action: 'writeTasks',
+					where: {field: 'status', values: ['Done']},
+					done: 'Reopened {}',
+					tried: 'reopen {}',
+				},
+			],
+			fields: [
+				{key: 'title', label: 'Title', type: 'text'},
+				{key: 'kind', label: 'Kind', type: 'select', options: ['List', 'Task'], system: true},
+				{key: 'notes', label: 'Notes', type: 'longtext'},
+				{key: 'due', label: 'Due', type: 'date'},
+				// The list a task is in; writing another list's name moves the task there.
+				{key: 'list', label: 'List', type: 'text'},
+				{
+					key: 'status',
+					label: 'Status',
+					type: 'select',
+					options: ['Needs action', 'Done'],
+					system: true,
+				},
+				{key: 'completed', label: 'Completed', type: 'datetime', system: true},
+				// The title of the task a subtask is under.
+				{key: 'subtaskOf', label: 'Subtask of', type: 'text', system: true},
+				// What a task was made from, such as an email in Gmail, by its link.
+				{key: 'source', label: 'Made from', type: 'text', system: true},
 			],
 		},
 	],

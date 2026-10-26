@@ -83,7 +83,10 @@ const withoutDrive = googleRow([
 	'https://www.googleapis.com/auth/gmail.modify',
 	'https://www.googleapis.com/auth/calendar.events',
 	'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+	'https://www.googleapis.com/auth/calendar.events.freebusy',
 	'https://www.googleapis.com/auth/contacts',
+	'https://www.googleapis.com/auth/contacts.other.readonly',
+	'https://www.googleapis.com/auth/tasks',
 ]);
 
 function makeRequest(params: Record<string, string> = {}, body: unknown = undefined) {

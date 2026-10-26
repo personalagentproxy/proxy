@@ -6,9 +6,9 @@ import type {ApiError} from '@proxy/utils';
 import {googleRequest, googleWrite} from './google-client';
 
 /**
- * The Calendar v3 calls the `events` collection makes, and the reading of their answers: the
- * calendars the account has in its list, and their events, each time a repeating event comes round
- * its own, as Google Calendar shows them.
+ * The Calendar v3 calls the `events` and `availability` collections make, and the reading of their
+ * answers: the calendars the account has in its list, and their events, each time a repeating event
+ * comes round its own, as Google Calendar shows them; and when calendars are busy.
  */
 
 const CALENDAR = 'https://www.googleapis.com/calendar/v3';
@@ -150,4 +150,25 @@ export function insertEvent(accessToken: string, calendarId: string, event: Even
 /** Changes what is given of an event, the rest as it is; a list given, such as the guests, replaces the event's. */
 export function patchEvent(accessToken: string, calendarId: string, eventId: string, event: EventWrite, sendUpdates: 'all' | 'none'): Promise<Result<GoogleEvent, ApiError>> {
 	return googleWrite(accessToken, 'PATCH', eventUrl(calendarId, eventId, sendUpdates), event, eventSchema);
+}
+
+const freeBusySchema = z.object({
+	calendars: z
+		.record(
+			z.string(),
+			z.object({
+				busy: z.array(z.object({start: z.string(), end: z.string()})).optional(),
+				// Why a calendar wasn't answered for, such as `notFound` for one the account can't see.
+				errors: z.array(z.object({reason: z.string().optional()})).optional(),
+			}),
+		)
+		.optional(),
+});
+
+export type FreeBusy = z.infer<typeof freeBusySchema>;
+
+/** When each calendar given is busy between `from` and `to`, instants with their offsets, by the calendar's id as given. */
+export function queryFreeBusy(accessToken: string, args: {from: string; to: string; calendars: string[]}): Promise<Result<FreeBusy, ApiError>> {
+	const body = {timeMin: args.from, timeMax: args.to, items: args.calendars.map((id) => ({id}))};
+	return googleWrite(accessToken, 'POST', new URL(`${CALENDAR}/freeBusy`), body, freeBusySchema);
 }

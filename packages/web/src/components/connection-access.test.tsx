@@ -570,11 +570,13 @@ describe('ConnectionAccess with what the sign-in covered', () => {
 			'Calendar',
 			'Drive',
 			'Contacts',
+			'Tasks',
 		]);
 		expect(sections.map((section) => section.querySelector('h3 + span')?.textContent)).toEqual([
 			'1 of 7 on',
 			'None on',
 			'2 of 4 on',
+			'None on',
 			'None on',
 		]);
 		expect(
