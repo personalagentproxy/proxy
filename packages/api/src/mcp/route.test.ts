@@ -243,6 +243,16 @@ describe('handleMcpRoute', () => {
 		expect(JSON.stringify(taskless.body)).toContain('Call start_task first');
 	});
 
+	test("read and run turn down a tool's params given anywhere but params, rather than run the tool without them", async () => {
+		const input = await post(rpc('tools/call', {name: 'read', arguments: {task: 'task-1', connection: 'web-1', tool: 'searches_run', input: {query: 'bun test mocks'}}}));
+
+		expect((input.body as {result: unknown}).result).toEqual({
+			content: [{type: 'text', text: 'read takes task, connection, tool and params, not `input`: put the tool’s own params, as list_tools describes them, in params.'}],
+			isError: true,
+		});
+		expect(runAgentTool).not.toHaveBeenCalled();
+	});
+
 	test('a refused call is a tool error in words a model can act on', async () => {
 		runAgentTool.mockResolvedValue(Err(ApiErr.forbidden()));
 		const forbidden = await post(rpc('tools/call', {name: 'run', arguments: {task: 'task-1', connection: 'mail-1', tool: 'emails_send', params: {id: 'drafts-1'}}}));

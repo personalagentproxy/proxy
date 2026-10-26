@@ -40,7 +40,7 @@ const OUTCOME = {
 } as const;
 const CONNECTION = {type: 'string', description: 'A connection’s id, from list_connections'} as const;
 const TOOL = {type: 'string', description: 'A tool’s name, from list_tools for the connection'} as const;
-const PARAMS = {type: 'object', description: 'The tool’s params, as list_tools describes them; left out for none'} as const;
+const PARAMS = {type: 'object', description: 'The tool’s own params, such as {"query": "…"}, as list_tools describes them; left out for none'} as const;
 
 function readOnlyAnnotations(title: string): Annotations {
 	return {title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false};
@@ -88,7 +88,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
 	{
 		name: 'read',
 		title: 'Read',
-		description: 'Runs a tool that only reads, such as listing or opening emails: never changes anything. Take `task` from start_task, `connection` from list_connections and `tool` from list_tools.',
+		description:
+			'Runs a tool that only reads, such as listing or opening emails: never changes anything. Take `task` from start_task, `connection` from list_connections and `tool` from list_tools, and give the tool’s own params as `params`.',
 		inputSchema: {type: 'object', properties: {task: TASK, connection: CONNECTION, tool: TOOL, params: PARAMS}, required: ['task', 'connection', 'tool'], additionalProperties: false},
 		annotations: readOnlyAnnotations('Read'),
 	},
@@ -96,7 +97,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
 		name: 'run',
 		title: 'Run',
 		description:
-			'Runs a tool that changes something or reaches other people, such as archiving an email, saving a draft or sending one. Take `task` from start_task, `connection` from list_connections and `tool` from list_tools.',
+			'Runs a tool that changes something or reaches other people, such as archiving an email, saving a draft or sending one. Take `task` from start_task, `connection` from list_connections and `tool` from list_tools, and give the tool’s own params as `params`.',
 		inputSchema: {type: 'object', properties: {task: TASK, connection: CONNECTION, tool: TOOL, params: PARAMS}, required: ['task', 'connection', 'tool'], additionalProperties: false},
 		annotations: {title: 'Run', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true},
 	},
@@ -232,6 +233,19 @@ export function serverInstructions(signedIn: SignedInAgent): Promise<Result<stri
 const connectionArgs = z.object({connection: z.string().min(1)});
 const runArgs = z.object({connection: z.string().min(1), tool: z.string().min(1), params: z.record(z.string(), z.unknown()).optional()});
 
+const RUN_KEYS = ['task', 'connection', 'tool', 'params'];
+
+// A tool's params put anywhere but `params`, as `input`, would otherwise be dropped unseen, the
+// tool run without them and failing for something else, such as a search without a query.
+function requireRunKeys(name: string, args: Record<string, unknown>): Result<void, ApiError> {
+	const extra = Object.keys(args).filter((key) => !RUN_KEYS.includes(key));
+	if (extra.length === 0) {
+		return Ok(undefined);
+	}
+	const named = extra.map((key) => `\`${key}\``).join(', ');
+	return Err(ApiErr.validationError(`${name} takes task, connection, tool and params, not ${named}: put the tool’s own params, as list_tools describes them, in params.`));
+}
+
 // The task a call is for, by its id; a call without one is told how to get one.
 function taskOf(args: Record<string, unknown>): Result<string, ApiError> {
 	if (typeof args.task === 'string' && args.task !== '') {
@@ -304,6 +318,7 @@ function call(signedIn: SignedInAgent, name: string, args: Record<string, unknow
 			return {connection, tools: $(tools).map(toolSummary)};
 		}
 		if (name === 'read' || name === 'run') {
+			$(requireRunKeys(name, args));
 			const {connection, tool, params} = $(parseSchema(runArgs, args));
 			return $(await runAgentTool({...caller, taskId}, connection, tool, params, {readOnly: name === 'read'}));
 		}

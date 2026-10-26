@@ -44,7 +44,7 @@ export function named(get: (accessToken: string) => Promise<Result<string, ApiEr
 export type BuiltInMcp = {
 	integrationId: IntegrationId;
 	server: McpServer;
-	// Hosts beyond the server's own that are the same service, as Parallel's keyless server.
+	// Hosts beyond the server's own that are the same service, as Parallel's old server.
 	otherHosts?: string[];
 	// The account a sign-in or a key is for, asked with its access token or the key, as the
 	// connection shows it, and the provider's own id for it where it gives one: two sign-ins to the

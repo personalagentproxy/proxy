@@ -12,8 +12,11 @@ import type {McpServer} from '../mcp/mcp-oauth';
  * `execute` runs a JavaScript function calling `cloudflare.request()` with the connection's token,
  * and `search` one reading Cloudflare's OpenAPI document (`spec`). Agents never write that code:
  * each request is one Personal Agent Proxy writes from the request's method, path and body, so a
- * request does only what its method says. Both answer with what the function returned, as JSON
- * cut to about 6,000 tokens; `docs` searches developers.cloudflare.com. A tool that fails says
+ * request does only what its method says. Both answer with what the function returned, as JSON;
+ * `docs` searches developers.cloudflare.com. The server would cut an answer to about 6,000 tokens,
+ * a list's last items turned into a "--- TRUNCATED --- 13 more items" item, which reads as the
+ * whole list, so it is asked not to (`truncateToolResult=false`), and Personal Agent Proxy turns
+ * down an answer too long to pass on instead (`MAX_RESPONSE_CHARACTERS`). A tool that fails says
  * why in words: "Error: Cloudflare API error: GET /zones returned HTTP 403: …".
  */
 
@@ -68,13 +71,17 @@ const SCOPES = [
 	'ai.write',
 	'workers-ci.read',
 	'workers-ci.write',
+	'containers.read',
+	'containers.write',
 ];
 
 const ERROR_PREFIX = /^Error:\s*/;
 
 export const CLOUDFLARE: McpServer = {
 	name: 'Cloudflare',
-	url: `${BASE}/mcp`,
+	url: `${BASE}/mcp?truncateToolResult=false`,
+	// A token for the endpoint is good for its address with a query of the server's own.
+	resource: `${BASE}/mcp`,
 	registerUrl: `${BASE}/register`,
 	authorizeUrl: `${BASE}/authorize`,
 	tokenUrl: `${BASE}/token`,

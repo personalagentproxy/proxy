@@ -18,7 +18,8 @@ import {checkedRequest} from '../../utils/checked-request';
 export type McpEndpoint = {
 	// Its name in errors and logs: "Granola".
 	name: string;
-	// The server's MCP endpoint, also the resource its tokens are for.
+	// The server's MCP endpoint, also the resource its tokens are for unless the server's `resource`
+	// says otherwise.
 	url: string;
 	// Initializes a session before each call, as the spec asks, for a server that may keep one. The
 	// built-in servers answer without.
@@ -29,6 +30,9 @@ export type McpEndpoint = {
 
 /** An MCP server and the authorization server its tokens come from. */
 export type McpServer = McpEndpoint & {
+	// The resource its tokens are for, where it isn't `url`: an endpoint whose address carries a
+	// query of the server's own, as Cloudflare's does, has its tokens for the address without it.
+	resource?: string;
 	registerUrl: string;
 	authorizeUrl: string;
 	tokenUrl: string;
@@ -119,7 +123,7 @@ export function mcpAuthorizeUrl(server: McpServer, args: {clientId: string; redi
 	url.searchParams.set('state', args.state);
 	url.searchParams.set('code_challenge', args.challenge);
 	url.searchParams.set('code_challenge_method', 'S256');
-	url.searchParams.set('resource', server.url);
+	url.searchParams.set('resource', server.resource ?? server.url);
 	return url.toString();
 }
 
@@ -129,7 +133,7 @@ async function requestTokens(server: McpServer, clientId: string, params: Record
 		{
 			method: 'POST',
 			headers: {'content-type': 'application/x-www-form-urlencoded'},
-			body: new URLSearchParams({...params, client_id: clientId, resource: server.url}).toString(),
+			body: new URLSearchParams({...params, client_id: clientId, resource: server.resource ?? server.url}).toString(),
 		},
 		{schema: tokensSchema, timeoutMs: TIMEOUT_MS},
 	);

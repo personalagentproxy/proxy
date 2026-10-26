@@ -480,7 +480,7 @@ const cloudflare: Integration = {
 			id: 'write',
 			label: 'Create and change',
 			description:
-				'Send POST, PUT and PATCH requests, such as adding a DNS record, deploying a Worker, running a D1 query or changing a setting, which apply to live sites at once',
+				'Send POST, PUT and PATCH requests, such as adding a DNS record, deploying a Worker, running a D1 query or changing a setting, which apply to live sites at once. Cloudflare still allows only what the sign-in or API token was granted: a request beyond it is turned down, naming the permission it needs',
 			risk: 'high',
 			requires: 'read',
 		},
@@ -488,7 +488,7 @@ const cloudflare: Integration = {
 			id: 'delete',
 			label: 'Delete',
 			description:
-				'Send DELETE requests, such as removing a DNS record, a Worker or a bucket, for good',
+				'Send DELETE requests, such as removing a DNS record, a Worker or a bucket, for good. Cloudflare still allows only what the sign-in or API token was granted: a request beyond it is turned down, naming the permission it needs',
 			risk: 'high',
 			requires: 'read',
 		},
@@ -538,7 +538,7 @@ const cloudflare: Integration = {
 				{key: 'body', label: 'Body', type: 'longtext'},
 				// The account `{account_id}` is, where the sign-in or token has more than one.
 				{key: 'account', label: 'Account ID', type: 'text'},
-				// Cloudflare's answer as JSON, cut where it runs long.
+				// Cloudflare's answer as JSON, whole, or where it runs long its start and a line saying it was cut.
 				{key: 'response', label: 'Response', type: 'longtext', system: true},
 			],
 		},

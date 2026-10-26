@@ -141,7 +141,9 @@ describe('the sign-in', () => {
 		expect(cloudflare.requests[0]?.url.href).toBe('https://mcp.cloudflare.com/register');
 		expect(JSON.parse(cloudflare.requests[0]?.body ?? '{}')).toMatchObject({redirect_uris: [CALLBACK], token_endpoint_auth_method: 'none'});
 		expect(authorizeUrl.origin + authorizeUrl.pathname).toBe('https://mcp.cloudflare.com/authorize');
-		expect(authorizeUrl.searchParams.get('scope')?.split(' ')).toEqual(expect.arrayContaining(['user:read', 'account:read', 'offline_access', 'zone.read', 'dns.write', 'workers-scripts.write']));
+		expect(authorizeUrl.searchParams.get('scope')?.split(' ')).toEqual(
+			expect.arrayContaining(['user:read', 'account:read', 'offline_access', 'zone.read', 'dns.write', 'workers-scripts.write', 'containers.write']),
+		);
 		expect(authorizeUrl.searchParams.get('resource')).toBe('https://mcp.cloudflare.com/mcp');
 		expect(cookie?.options).toMatchObject({httpOnly: true, path: '/api/connections/cloudflare'});
 	});
@@ -152,6 +154,9 @@ describe('the sign-in', () => {
 
 		const toolCalls = cloudflare.requests.filter((request) => request.url.pathname === '/mcp');
 		expect(toolCalls.map((call) => JSON.parse(call.body).params)).toEqual([{name: 'whoami', arguments: {}}]);
+		// Its answers whole, with the tokens for the endpoint's address without the query.
+		expect(toolCalls[0]?.url.href).toBe('https://mcp.cloudflare.com/mcp?truncateToolResult=false');
+		expect(new URLSearchParams(cloudflare.requests.find((request) => request.url.pathname === '/token')?.body).get('resource')).toBe('https://mcp.cloudflare.com/mcp');
 		expect(toolCalls[0]?.headers.get('authorization')).toBe('Bearer access-1');
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'cloudflare', account: 'alex@example.com', defaults: ['read']});
