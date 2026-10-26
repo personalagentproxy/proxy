@@ -17,3 +17,34 @@ jobs:
       - run: bun run typecheck
       - run: bun run test
       - run: bun run build
+
+  # Claude and Codex are never credited in a commit (AGENTS.md). A squash merge carries every
+  # commit's message into main, trailers and all, so each commit of the pull request is checked.
+  no-agent-credit:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - shell: bash
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          pattern='co-authored-by:.*(claude|anthropic|codex|openai)|generated (with|by) .*(claude|codex)|@anthropic\.com|@openai\.com'
+          found=0
+          for sha in $(git rev-list "$BASE..$HEAD"); do
+            lines=$(git log -1 --format='Author: %an <%ae>%nCommitter: %cn <%ce>%n%B' "$sha" | grep -iE "$pattern" || true)
+            if [[ -z "$lines" ]]; then
+              continue
+            fi
+            found=1
+            echo "::error::$(git log -1 --format='%h %s' "$sha") credits an agent:"
+            echo "$lines" | sed 's/^/    /'
+          done
+          if [[ "$found" == 1 ]]; then
+            echo "Reword these commits without the credit, then force-push."
+            exit 1
+          fi
+          echo "No commit credits an agent."
