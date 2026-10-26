@@ -51,6 +51,20 @@ export function zoomed(minutes: number, deltaY: number): number {
 	return Math.min(Math.max(next, MIN_MINUTES), MAX_MINUTES);
 }
 
+// Zoomed in on a stretch of time, the window is this much longer than it, so it isn't up against
+// either edge.
+const ZOOM_ROOM = 1.25;
+
+/**
+ * How long the window is, in milliseconds, zoomed in on the stretch from `from` to `to`: a little
+ * longer than it, kept between the least and the most it can be. Zoomed in on a stretch already
+ * shorter than the least, it is the least, which may be no shorter than the window was.
+ */
+export function zoomedOn(from: number, to: number): number {
+	const width = (to - from) * ZOOM_ROOM;
+	return Math.min(Math.max(width, MIN_MINUTES * MINUTE_MS), MAX_MINUTES * MINUTE_MS);
+}
+
 /**
  * "Last 6 hours" for a window on offer, "Last 2h 15m" for one zoomed to; scrolled back from now,
  * when it isn't the last anything, just "6 hours" or "2h 15m".
