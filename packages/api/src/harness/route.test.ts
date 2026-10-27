@@ -183,7 +183,6 @@ describe('the chat routes', () => {
 
 		const idle = (await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap();
 		expect(idle.persona).toEqual(personaResponse);
-		expect(idle.thread).toEqual({id: 'thread-1'});
 		expect(idle.entries).toEqual([{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00.000Z'}]);
 		expect(idle).toMatchObject({busy: false, sleepingUntil: null});
 		expect(ensureMemberThread).not.toHaveBeenCalled();

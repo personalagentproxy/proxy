@@ -36,7 +36,8 @@ function parseArgs(call: ToolCall): Record<string, unknown> | null {
 	return args as Record<string, unknown>;
 }
 
-function cut(text: string): string {
+// A result cut to what the log keeps, saying so at its end, so the model knows there was more.
+function cutResult(text: string): string {
 	if (text.length <= MAX_RESULT_CHARS) {
 		return text;
 	}
@@ -49,7 +50,7 @@ function runGateTool(thread: ThreadRow, name: string, args: Record<string, unkno
 		const signedIn = $(requirePresent($(await getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
 		const taskId = $(await ensureThreadTask(thread, now));
 		const result = await callMcpTool(signedIn, name, {...args, task: taskId}, false, 'harness');
-		return {text: cut(result.content.map((part) => part.text).join('\n')), isError: result.isError === true};
+		return {text: cutResult(result.content.map((part) => part.text).join('\n')), isError: result.isError === true};
 	});
 }
 

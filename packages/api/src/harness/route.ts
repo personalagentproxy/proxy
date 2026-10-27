@@ -43,8 +43,8 @@ export type PersonaResponse = {id: string; name: string; look: Look; color: stri
 /** A turn of the conversation as the page shows it: what the person said, or what the persona answered, which is what went wrong where its turn failed. What the persona did in between is in the activity log, not here. */
 export type EntryResponse = {id: string; kind: 'person' | 'assistant'; text: string; isError: boolean; at: string};
 
-/** The member's conversation with a persona: the persona, the thread, its turns, and what the persona is up to: busy on it, asleep until a time, or waiting for the person. */
-export type ThreadLogResponse = {persona: PersonaResponse; thread: {id: string}; entries: EntryResponse[]; busy: boolean; sleepingUntil: string | null};
+/** The member's conversation with a persona: the persona, its turns, and what the persona is up to: busy on it, asleep until a time, or waiting for the person. */
+export type ThreadLogResponse = {persona: PersonaResponse; entries: EntryResponse[]; busy: boolean; sleepingUntil: string | null};
 
 // Whether the viewer may rename, reface or delete the persona: whoever made it, or the organization's owner (utils/manages.ts).
 function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
@@ -185,7 +185,6 @@ export function handleGetThreadRoute(request: AuthenticatedRequest): Promise<Res
 		const first = sleeping.map((job) => job.runAt.getTime()).sort((a, b) => a - b)[0];
 		return {
 			persona: toPersona(viewer, persona),
-			thread: {id: thread.id},
 			entries: $(entries).filter(isShown).map(toEntry),
 			busy: open.length > 0 && !asleep,
 			sleepingUntil: asleep && first !== undefined ? new Date(first).toISOString() : null,

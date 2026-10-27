@@ -40,7 +40,8 @@ const SUMMARIZE =
 const SUMMARIZE_NOW = 'Write the summary now.';
 
 // How many answers the model may give in a row without the person saying anything, calls,
-// reports and wake-ups included, before it stops and waits for them.
+// reports and wake-ups included, before it stops and waits for them; a report that comes after
+// the stop is acted on, and the count starts over.
 const MAX_TURNS_ALONE = 30;
 
 // How often a model that can't be reached is tried, and how long to wait between tries.
@@ -57,10 +58,18 @@ const TOO_LONG_SUB = `I took ${MAX_TURNS_ALONE} steps without finishing, so I st
 const NOTHING = 'I had nothing to say to that. Say something to go on.';
 const NOTHING_SUB = 'I finished without a report.';
 
-// How many answers the model has given since the person last spoke.
+// Whether the answer is the model stopping for the person, at the cap: the count starts over
+// from it, so a report that comes after the stop is acted on rather than answered with the stop
+// again, once per report.
+function isStop(entry: EntryRow): boolean {
+	return entry.kind === 'assistant' && (entry.text === TOO_LONG || entry.text === TOO_LONG_SUB);
+}
+
+// How many answers the model has given since the person last spoke, or since it last stopped for
+// them.
 function turnsAlone(entries: EntryRow[]): number {
-	const lastPerson = entries.findLastIndex((entry) => entry.kind === 'person');
-	return entries.slice(lastPerson + 1).filter((entry) => entry.kind === 'assistant').length;
+	const since = entries.findLastIndex((entry) => entry.kind === 'person' || isStop(entry));
+	return entries.slice(since + 1).filter((entry) => entry.kind === 'assistant').length;
 }
 
 // What a delegation is answered with at once, the report to come as an event.

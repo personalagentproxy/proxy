@@ -1,3 +1,4 @@
+import {Result} from 'ts-results-es';
 import {type AvatarColor, isAvatarColor, type Look} from '@proxy/utils/harness';
 
 /**
@@ -67,8 +68,7 @@ function hues(color: string): [number, number, number] {
 	return HUES[isAvatarColor(color) ? color : 'blue'];
 }
 
-/** The head's color as a hex, for anything drawn beside it. */
-export function hexOf(color: string): string {
+function hexOf(color: string): string {
 	return oklchToHex(...hues(color));
 }
 
@@ -102,40 +102,43 @@ async function build(): Promise<Stage | null> {
 		return null;
 	}
 	const three = await import('three');
-	try {
-		const renderer = new three.WebGLRenderer({
-			antialias: true,
-			alpha: true,
-			preserveDrawingBuffer: true,
-		});
-		renderer.setClearColor(0, 0);
-		const sphere = new three.SphereGeometry(1, 96, 64);
-		const camera = new three.PerspectiveCamera(35, 1, 0.1, 100);
-		camera.position.z = 7;
-		const scene = new three.Scene();
-		const head = new three.Mesh(sphere, new three.MeshBasicMaterial());
-		const nose = new three.Mesh(sphere, new three.MeshBasicMaterial());
-		const group = new three.Group();
-		group.add(head);
-		group.add(nose);
-		const outer = new three.Group();
-		outer.add(group);
-		scene.add(outer);
-		return {
-			three,
-			renderer,
-			scene,
-			camera,
-			head,
-			nose,
-			group,
-			outer,
-			textures: new Map(),
-			rendered: new Map(),
-		};
-	} catch {
+	// The renderer throws where WebGL is there but can't be had, as with a context lost.
+	const renderer = Result.wrap(
+		() =>
+			new three.WebGLRenderer({
+				antialias: true,
+				alpha: true,
+				preserveDrawingBuffer: true,
+			}),
+	);
+	if (renderer.isErr()) {
 		return null;
 	}
+	renderer.value.setClearColor(0, 0);
+	const sphere = new three.SphereGeometry(1, 96, 64);
+	const camera = new three.PerspectiveCamera(35, 1, 0.1, 100);
+	camera.position.z = 7;
+	const scene = new three.Scene();
+	const head = new three.Mesh(sphere, new three.MeshBasicMaterial());
+	const nose = new three.Mesh(sphere, new three.MeshBasicMaterial());
+	const group = new three.Group();
+	group.add(head);
+	group.add(nose);
+	const outer = new three.Group();
+	outer.add(group);
+	scene.add(outer);
+	return {
+		three,
+		renderer: renderer.value,
+		scene,
+		camera,
+		head,
+		nose,
+		group,
+		outer,
+		textures: new Map(),
+		rendered: new Map(),
+	};
 }
 
 /** The stage every head is drawn on, loaded the first time; null where heads can't be drawn. */

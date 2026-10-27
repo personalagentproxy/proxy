@@ -67,11 +67,16 @@ const FOLLOW = 0.15;
 
 // Where the pointer last was on the page, from any move or press since the app loaded, so a head
 // that appears, as in a dialog opened by a click, looks at it from its first frame rather than
-// waiting for the pointer to move again.
+// waiting for the pointer to move again; and the live heads on the page, each set going again as
+// it moves.
 let pointer: {x: number; y: number} | null = null;
+const wakers = new Set<() => void>();
 if (typeof window !== 'undefined') {
 	const note = (event: PointerEvent) => {
 		pointer = {x: event.clientX, y: event.clientY};
+		for (const wake of wakers) {
+			wake();
+		}
 	};
 	window.addEventListener('pointermove', note, {passive: true});
 	window.addEventListener('pointerdown', note, {passive: true});
@@ -96,8 +101,9 @@ function toward(canvas: HTMLCanvasElement): Pose {
 
 /**
  * A head that looks at the cursor while `watching`: facing you, turning toward the pointer
- * wherever it goes on the page; not watching, it settles back to rest and stays, drawn no more
- * until there is something to follow again.
+ * wherever it goes on the page; not watching, it settles back to rest. Either way it is drawn
+ * only while it has somewhere to go: once it is where it should look, it stays, drawn no more
+ * until the pointer moves, or it is to look elsewhere.
  */
 export function LiveHead({
 	look,
@@ -114,7 +120,8 @@ export function LiveHead({
 }) {
 	const ref = useRef<HTMLCanvasElement>(null);
 	// The look, color and whether to watch as they are now, read each frame, so a change shows
-	// without restarting; and the loop, to set going again once it has settled.
+	// without restarting; and the loop, to set going again once it has settled: as these change,
+	// and as the pointer moves.
 	const spec = useRef({look, color});
 	const watch = useRef(watching);
 	const wake = useRef<(() => void) | null>(null);
@@ -144,7 +151,6 @@ export function LiveHead({
 				}
 				const target = watch.current ? toward(canvas) : REST;
 				const settled =
-					!watch.current &&
 					Math.abs(target.rotX - pose.rotX) < 0.05 &&
 					Math.abs(target.rotY - pose.rotY) < 0.05 &&
 					Math.abs(target.rotZ - pose.rotZ) < 0.05;
@@ -168,12 +174,16 @@ export function LiveHead({
 					return;
 				}
 				running = true;
-				tick();
+				frame = requestAnimationFrame(tick);
 			};
+			wakers.add(wake.current);
 			wake.current();
 		});
 		return () => {
 			current = false;
+			if (wake.current) {
+				wakers.delete(wake.current);
+			}
 			wake.current = null;
 			cancelAnimationFrame(frame);
 		};

@@ -35,7 +35,6 @@ const entrySchema = z.object({
 
 const threadLogSchema = z.object({
 	persona: chatPersonaSchema,
-	thread: z.object({id: z.string()}),
 	entries: z.array(entrySchema),
 	// Whether the persona is at work on the conversation, sub-agents included, or asleep until a time.
 	busy: z.boolean(),

@@ -8,6 +8,7 @@ import {
 	type Look,
 	type LogEntry,
 	parseLook,
+	pendingToolCalls,
 	readyForInference,
 	type ToolCall,
 } from '@proxy/utils/harness';
@@ -22,8 +23,9 @@ import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed
  * jobs. Every persona acts through the organization's one built-in agent login, whose grants and
  * activity log are every persona's. Every change to a thread's log or its jobs is made with the
  * thread's row locked. The model is run on a log only once it is ready, and nothing lands in
- * the log while it runs: what comes meanwhile, the person speaking or a sub-agent reporting, is
- * pending until the job ends, then takes its place after the answer, and wakes the agent again.
+ * the log while it runs, or while a call it made is still open: what comes meanwhile, the person
+ * speaking or a sub-agent reporting, is pending until the job ends and every call has its result,
+ * then takes its place after them, and wakes the agent again.
  * A worker's write is fenced by its lease: it goes through only while the job is still its. A
  * sub-agent's thread ends with its report, which lands in the thread it was started from as the
  * answer to the call that started it; a sub-agent's thread is locked before its parent's, never
@@ -455,51 +457,45 @@ async function queueInference(tx: Tx, thread: ThreadRow): Promise<void> {
 	await tx.agentJob.create({data: {threadId: thread.id, kind: 'inference'}});
 }
 
-// Queues an inference job where the log is ready for one: whether it is shows in the log from
-// the model's last answer on, so only that much is read. With the thread locked.
-async function wakeIfReady(tx: Tx, thread: ThreadRow): Promise<void> {
+// The log from the model's last answer on, without what is pending: whether the log is ready for
+// the model, and whether its calls are answered, show in that much. With the thread locked.
+async function tailOf(tx: Tx, thread: ThreadRow): Promise<EntryRow[]> {
 	const lastAnswer = await tx.agentEntry.findFirst({
 		where: {threadId: thread.id, pending: false, kind: 'assistant'},
 		select: {seq: true},
 		orderBy: {seq: 'desc'},
 	});
-	const tail = (
+	return (
 		await tx.agentEntry.findMany({
 			where: {threadId: thread.id, pending: false, seq: {gte: lastAnswer?.seq ?? 0}},
 			select: entrySelect,
 			orderBy: {seq: 'asc'},
 		})
 	).map(toEntry);
-	if (readyForInference(tail)) {
-		await queueInference(tx, thread);
-	}
 }
 
-// Lands an entry in the thread: in the log, waking the agent where the log is then ready, or,
-// while an inference job runs on the thread, pending until the job ends (`release`). With the
-// thread locked.
-async function appendEntry(
-	tx: Tx,
-	thread: ThreadRow,
-	data: {kind: AgentEntryKind; text: string; callId?: string; isError?: boolean},
-): Promise<EntryRow> {
+// Whether what lands now has to wait: an inference job runs on the thread, whose answer comes
+// first, or the model's last answer has calls without their results yet, which have to follow it
+// directly, as the model reads them; anything between them and it is refused. With the thread
+// locked.
+async function holding(tx: Tx, thread: ThreadRow): Promise<boolean> {
 	const running = await tx.agentJob.count({
 		where: {threadId: thread.id, kind: 'inference', status: 'running'},
 	});
-	const entry = await tx.agentEntry.create({
-		data: {threadId: thread.id, ...data, pending: running > 0},
-		select: entrySelect,
-	});
-	if (running === 0) {
-		await wakeIfReady(tx, thread);
+	if (running > 0) {
+		return true;
 	}
-	return toEntry(entry);
+	return pendingToolCalls(await tailOf(tx, thread)).length > 0;
 }
 
-// Gives the thread's pending entries their place in the log, after what the job that just ended
-// wrote, in the order they landed, and wakes the agent where the log is then ready. With the
-// thread locked, as an inference job ends.
+// Gives the thread's pending entries their place in the log, in the order they landed, once
+// nothing holds them any more: after what the inference job that just ended wrote, or after the
+// result of the last call still open; and queues an inference job where the log is then ready
+// for one. With the thread locked.
 async function release(tx: Tx, thread: ThreadRow): Promise<void> {
+	if (await holding(tx, thread)) {
+		return;
+	}
 	const pending = await tx.agentEntry.findMany({
 		where: {threadId: thread.id, pending: true},
 		select: {id: true},
@@ -508,7 +504,29 @@ async function release(tx: Tx, thread: ThreadRow): Promise<void> {
 	for (const {id} of pending) {
 		await tx.$executeRaw`UPDATE "AgentEntry" SET "seq" = nextval(pg_get_serial_sequence('"AgentEntry"', 'seq')), "pending" = false WHERE "id" = ${id}`;
 	}
-	await wakeIfReady(tx, thread);
+	if (readyForInference(await tailOf(tx, thread))) {
+		await queueInference(tx, thread);
+	}
+}
+
+// Lands an entry in the thread: a call's result in the log, directly after the answer that made
+// the call; anything else in the log too where nothing holds it, or pending until what holds it
+// ends (`release`). What lands in the log releases what was pending where it can, and wakes the
+// agent where the log is then ready. With the thread locked.
+async function appendEntry(
+	tx: Tx,
+	thread: ThreadRow,
+	data: {kind: AgentEntryKind; text: string; callId?: string; isError?: boolean},
+): Promise<EntryRow> {
+	const pending = data.kind !== 'tool_result' && (await holding(tx, thread));
+	const entry = await tx.agentEntry.create({
+		data: {threadId: thread.id, ...data, pending},
+		select: entrySelect,
+	});
+	if (!pending) {
+		await release(tx, thread);
+	}
+	return toEntry(entry);
 }
 
 // Answers a call of the thread's log, as its result or, for one answered at once as started, as
@@ -582,6 +600,9 @@ export async function claimJob(
 	workerId: string,
 	leaseMs: number,
 ): Promise<Result<JobRow | null, ApiError>> {
+	// Prisma writes a DateTime as the UTC wall clock, in a column without a time zone; now() has
+	// one, and would be read in the server's, so its UTC wall clock is what is compared and
+	// written.
 	return (
 		await wrapDb(
 			() =>
@@ -589,13 +610,13 @@ export async function claimJob(
 				UPDATE "AgentJob" SET
 					"status" = 'running',
 					"claimedBy" = ${workerId},
-					"leaseExpiresAt" = now() + make_interval(secs => ${leaseMs / 1000}),
+					"leaseExpiresAt" = (now() AT TIME ZONE 'UTC') + make_interval(secs => ${leaseMs / 1000}),
 					"attempts" = "attempts" + 1,
-					"updatedAt" = now()
+					"updatedAt" = now() AT TIME ZONE 'UTC'
 				WHERE "id" = (
 					SELECT "id" FROM "AgentJob"
-					WHERE ("status" = 'queued' AND "runAt" <= now())
-						OR ("status" = 'running' AND "leaseExpiresAt" < now())
+					WHERE ("status" = 'queued' AND "runAt" <= now() AT TIME ZONE 'UTC')
+						OR ("status" = 'running' AND "leaseExpiresAt" < now() AT TIME ZONE 'UTC')
 					ORDER BY "runAt" ASC
 					LIMIT 1
 					FOR UPDATE SKIP LOCKED
@@ -614,7 +635,7 @@ export async function renewLease(
 	return (
 		await wrapDb(
 			() => db.$executeRaw`
-				UPDATE "AgentJob" SET "leaseExpiresAt" = now() + make_interval(secs => ${leaseMs / 1000}), "updatedAt" = now()
+				UPDATE "AgentJob" SET "leaseExpiresAt" = (now() AT TIME ZONE 'UTC') + make_interval(secs => ${leaseMs / 1000}), "updatedAt" = now() AT TIME ZONE 'UTC'
 				WHERE "id" = ${jobId} AND "claimedBy" = ${workerId} AND "status" = 'running'`,
 		)
 	).map((count) => count > 0);

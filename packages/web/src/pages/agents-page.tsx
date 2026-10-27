@@ -76,6 +76,8 @@ export function AgentsPage() {
 				)}
 				{agents.map((agent) => {
 					const revoked = agent.revokedAt !== null;
+					const provider = findAgentProvider(agent.providerId);
+					const builtIn = provider?.connects === 'built-in';
 					return (
 						<Row
 							key={agent.id}
@@ -92,17 +94,13 @@ export function AgentsPage() {
 										{agent.name}
 										{revoked && ' · Revoked'}
 									</span>
-									{findAgentProvider(agent.providerId)?.connects === 'built-in' && (
-										<Badge variant="secondary">Built in</Badge>
-									)}
+									{builtIn && <Badge variant="secondary">Built in</Badge>}
 								</span>
 							}
 							cells={
 								<>
-									<span className={CELLS.company}>
-										{findAgentProvider(agent.providerId)?.company ?? agent.providerId}
-									</span>
-									{findAgentProvider(agent.providerId)?.connects === 'built-in' ? (
+									<span className={CELLS.company}>{provider?.company ?? agent.providerId}</span>
+									{builtIn ? (
 										<span className={cn(CELLS.username, 'font-sans')}>
 											The agents on the Chat page
 										</span>

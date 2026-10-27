@@ -270,4 +270,17 @@ describe('runInference', () => {
 		await runInference({...job, threadId: 'thread-2'}, 'w1', now);
 		expect(completeInference).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-2', expect.objectContaining({text: expect.stringContaining('not a complete report')}), {});
 	});
+
+	test('a report that comes after it stopped is acted on, not answered with the stop again', async () => {
+		const {runInference} = await import('./inference');
+		const alone = [entry('person', 'Go'), ...Array.from({length: 30}, (_, i) => entry('assistant', `step ${i}`))];
+		const stopped = entry('assistant', 'I have taken 30 steps without hearing from you, so I have stopped. Tell me to go on if you want me to.');
+		listEntries.mockResolvedValue(Ok([...alone, stopped, entry('event', 'Found three rows.', {callId: 'c1'})]));
+		askModel.mockResolvedValue(Ok({text: 'There are three rows.', toolCalls: [], inputTokens: 10, outputTokens: 2}));
+
+		await runInference(job, 'w1', now);
+
+		expect(askModel).toHaveBeenCalledTimes(1);
+		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: 'There are three rows.'}), {});
+	});
 });
