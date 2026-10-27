@@ -10,7 +10,6 @@ const getMemberThread = mock();
 const ensureMemberThread = mock();
 const listEntries = mock();
 const listOpenJobs = mock();
-const listSubAgents = mock();
 const appendPersonMessage = mock();
 mock.module('@proxy/db/harness', () => ({
 	listPersonas,
@@ -22,7 +21,6 @@ mock.module('@proxy/db/harness', () => ({
 	ensureMemberThread,
 	listEntries,
 	listOpenJobs,
-	listSubAgents,
 	appendPersonMessage,
 }));
 
@@ -84,7 +82,6 @@ beforeEach(() => {
 		]),
 	);
 	listOpenJobs.mockResolvedValue(Ok([]));
-	listSubAgents.mockResolvedValue(Ok([{id: 'thread-2', parentCallId: 'c1', title: 'Find the invoices', taskId: 'task-2', finishedAt: now}]));
 	appendPersonMessage.mockResolvedValue(
 		Ok({id: 'e3', seq: 3, threadId: 'thread-1', kind: 'person', text: 'Hello', toolCalls: null, callId: null, isError: false, inputTokens: null, outputTokens: null, coversSeq: null, createdAt: now}),
 	);
@@ -160,7 +157,7 @@ describe('the chat routes', () => {
 		expect((await handleDeletePersonaRoute(request({personaId: 'nope'}))).unwrapErr()).toMatchObject({kind: 'not_found'});
 	});
 
-	test('give the viewer’s conversation with the persona, begun through the built-in login where there was none, without its summaries, with its sub-agents and whether the persona is busy or asleep', async () => {
+	test('give the viewer’s conversation with the persona, begun through the built-in login where there was none, as turns alone, with whether the persona is busy or asleep', async () => {
 		const {handleGetThreadRoute} = await import('./route');
 		const soon = new Date(Date.now() + 60_000);
 		const base = {id: 'j1', threadId: 'thread-1', kind: 'tool' as const, status: 'queued' as const, entryId: 'e1', callId: 'c1', claimedBy: null, attempts: 0};
@@ -168,8 +165,7 @@ describe('the chat routes', () => {
 		const idle = (await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap();
 		expect(idle.persona).toEqual(personaResponse);
 		expect(idle.thread).toEqual({id: 'thread-1'});
-		expect(idle.entries).toEqual([{id: 'e1', kind: 'person', text: 'Hi', toolCalls: null, callId: null, isError: false, at: '2026-10-21T10:00:00.000Z'}]);
-		expect(idle.subAgents).toEqual([{callId: 'c1', title: 'Find the invoices', taskId: 'task-2', finishedAt: '2026-10-21T10:00:00.000Z'}]);
+		expect(idle.entries).toEqual([{id: 'e1', kind: 'person', text: 'Hi', at: '2026-10-21T10:00:00.000Z'}]);
 		expect(idle).toMatchObject({busy: false, sleepingUntil: null});
 		expect(ensureMemberThread).not.toHaveBeenCalled();
 		expect(ensureBuiltInAgent).not.toHaveBeenCalled();

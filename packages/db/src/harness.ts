@@ -78,15 +78,6 @@ export type JobRow = {
 	attempts: number;
 };
 
-/** A sub-agent of a thread, for the page: the call that started it, its title, its task, and when it was done. */
-export type SubAgentRow = {
-	id: string;
-	parentCallId: string;
-	title: string;
-	taskId: string;
-	finishedAt: Date | null;
-};
-
 /** What is to happen with a call the model made: when its job may run, and, for a delegation, what it is answered at once with, since the report comes later as an event. */
 export type CallPlan = {runAt: Date; placeholder: string | null};
 
@@ -315,28 +306,6 @@ export async function ensureMemberThread(data: {
 				return existing;
 			}
 			return tx.agentThread.create({data, select: threadSelect});
-		}),
-	);
-}
-
-/** The sub-agents started from a thread, oldest first. */
-export async function listSubAgents(threadId: string): Promise<Result<SubAgentRow[], ApiError>> {
-	return (
-		await wrapDb(() =>
-			db.agentThread.findMany({
-				where: {parentThreadId: threadId},
-				select: {id: true, parentCallId: true, title: true, taskId: true, finishedAt: true},
-				orderBy: {createdAt: 'asc'},
-			}),
-		)
-	).map((threads) =>
-		threads.flatMap((thread) => {
-			if (thread.parentCallId === null || thread.title === null || thread.taskId === null) {
-				return [];
-			}
-			return [
-				{...thread, parentCallId: thread.parentCallId, title: thread.title, taskId: thread.taskId},
-			];
 		}),
 	);
 }

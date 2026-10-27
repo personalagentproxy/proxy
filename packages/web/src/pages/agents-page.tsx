@@ -82,14 +82,19 @@ export function AgentsPage() {
 							to={`/${org}/agents/${agent.id}`}
 							icon={<AgentLogo providerId={agent.providerId} />}
 							title={
-								<span className={cn(revoked && 'text-muted-foreground')}>
-									{agent.name}
-									{findAgentProvider(agent.providerId)?.connects === 'built-in' && (
-										<Badge variant="secondary" className="ml-2 align-middle">
-											Built in
-										</Badge>
+								<span
+									className={cn(
+										'inline-flex items-center gap-2',
+										revoked && 'text-muted-foreground',
 									)}
-									{revoked && ' · Revoked'}
+								>
+									<span>
+										{agent.name}
+										{revoked && ' · Revoked'}
+									</span>
+									{findAgentProvider(agent.providerId)?.connects === 'built-in' && (
+										<Badge variant="secondary">Built in</Badge>
+									)}
 								</span>
 							}
 							cells={

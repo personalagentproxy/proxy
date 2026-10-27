@@ -3,8 +3,7 @@ import {z} from 'zod';
 import {apiRequest, apiSend, orgApi} from '@/client/request';
 
 // The Chat page's api: the organization's personas, each named and given a head, which every
-// member sees, the person's own conversation with each, its log, the sub-agents started from it,
-// and what they say in it.
+// member sees, the person's own conversation with each, its turns, and what they say in it.
 
 // A persona as the person makes or changes it: its name and its head, a look in a color.
 const personaSchema = z.object({
@@ -23,36 +22,20 @@ const chatPersonaSchema = personaSchema.extend({
 		.nullable(),
 });
 
-const toolCallSchema = z.object({id: z.string(), name: z.string(), arguments: z.string()});
-
+// A turn of the conversation: what the person said, or what the persona answered. What the
+// persona did in between is in the activity log, not here.
 const entrySchema = z.object({
 	id: z.string(),
-	// An event is a sub-agent's report, which came after its call was answered as started.
-	kind: z.enum(['person', 'assistant', 'tool_result', 'event']),
+	kind: z.enum(['person', 'assistant']),
 	text: z.string(),
-	// An assistant entry's calls; null otherwise.
-	toolCalls: z.array(toolCallSchema).nullable(),
-	// A tool result's or an event's call; null otherwise.
-	callId: z.string().nullable(),
-	isError: z.boolean(),
 	at: z.string(),
-});
-
-// A sub-agent started from the conversation: by which call, its title, the task its calls are
-// made for, which the activity log can be narrowed to, and when it was done.
-const subAgentSchema = z.object({
-	callId: z.string(),
-	title: z.string(),
-	taskId: z.string(),
-	finishedAt: z.string().nullable(),
 });
 
 const threadLogSchema = z.object({
 	persona: chatPersonaSchema,
 	thread: z.object({id: z.string()}),
 	entries: z.array(entrySchema),
-	subAgents: z.array(subAgentSchema),
-	// Whether the agent is at work on the conversation, sub-agents included, or asleep until a time.
+	// Whether the persona is at work on the conversation, sub-agents included, or asleep until a time.
 	busy: z.boolean(),
 	sleepingUntil: z.string().nullable(),
 });
@@ -60,8 +43,6 @@ const threadLogSchema = z.object({
 export type Persona = z.infer<typeof personaSchema>;
 export type ChatPersona = z.infer<typeof chatPersonaSchema>;
 export type ChatEntry = z.infer<typeof entrySchema>;
-export type ChatToolCall = z.infer<typeof toolCallSchema>;
-export type ChatSubAgent = z.infer<typeof subAgentSchema>;
 export type ThreadLog = z.infer<typeof threadLogSchema>;
 
 export function listPersonas(org: string) {

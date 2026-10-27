@@ -1,12 +1,9 @@
-import {ArrowUpIcon, BotIcon, ChevronDownIcon, MoonIcon, PlusIcon, WrenchIcon} from 'lucide-react';
+import {ArrowUpIcon, ChevronDownIcon, MoonIcon, PlusIcon} from 'lucide-react';
 import {type FormEvent, type KeyboardEvent, useEffect, useRef, useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
-import {Result} from 'ts-results-es';
 import {
 	type ChatEntry,
 	type ChatPersona,
-	type ChatSubAgent,
-	type ChatToolCall,
 	createPersona,
 	deletePersona,
 	getThread,
@@ -34,15 +31,7 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from '@proxy/ui/components/message-scroller';
-import {
-	Trace,
-	TraceCollapsible,
-	TraceCollapsibleContent,
-	TraceCollapsibleTrigger,
-	TraceIcon,
-	TraceLine,
-	TraceTitle,
-} from '@proxy/ui/components/trace';
+import {Trace, TraceIcon, TraceLine, TraceTitle} from '@proxy/ui/components/trace';
 import {cn} from '@proxy/ui/lib/utils';
 import {useOrgSlug} from '@/hooks/use-org';
 import {formatAgo, formatDateTime} from '@/lib/format';
@@ -54,131 +43,10 @@ import type {chatLoader} from '@/loaders';
 const BUSY_POLL_MS = 1000;
 const IDLE_POLL_MS = 4000;
 
-// A call's arguments as the model wrote them; none where they aren't JSON.
-function parseArgs(json: string): Record<string, unknown> {
-	const parsed = Result.wrap((): unknown => JSON.parse(json));
-	if (parsed.isErr() || typeof parsed.value !== 'object' || parsed.value === null) {
-		return {};
-	}
-	return parsed.value as Record<string, unknown>;
-}
-
-// JSON as it is shown: laid out where it parses, as written where it doesn't.
-function pretty(json: string): string {
-	return Result.wrap((): unknown => JSON.parse(json))
-		.map((value) => JSON.stringify(value, null, 2))
-		.unwrapOr(json);
-}
-
-type CallState = 'running' | 'done' | 'failed';
-
-// What a call did, in a few words, from its name and arguments, as it runs, once it has, and
-// where it failed: "Running entries_list", "Ran entries_list", "Failed to run entries_list"; a
-// delegation by the sub-agent's title.
-function callTitle(call: ChatToolCall, state: CallState): string {
-	const args = parseArgs(call.arguments);
-	const said = (verbs: [string, string, string], what: string) =>
-		`${verbs[state === 'running' ? 0 : state === 'done' ? 1 : 2]} ${what}`;
-	if (call.name === 'delegate') {
-		const title = typeof args.title === 'string' ? args.title : 'a sub-agent';
-		return said(['Working on', 'Done with', 'Failed'], title);
-	}
-	if (call.name === 'list_connections') {
-		return said(['Listing', 'Listed', 'Failed to list'], 'connections');
-	}
-	if (call.name === 'list_tools') {
-		return said(['Listing', 'Listed', 'Failed to list'], 'tools');
-	}
-	if (call.name === 'sleep_until') {
-		const until =
-			typeof args.until === 'string'
-				? formatDateTime(args.until)
-				: typeof args.seconds === 'number'
-					? `${args.seconds} seconds from now`
-					: 'later';
-		return said(['Sleeping until', 'Slept until', 'Failed to sleep until'], until);
-	}
-	if (call.name === 'send_feedback') {
-		return said(['Sending', 'Sent', 'Failed to send'], 'feedback');
-	}
-	return said(
-		['Running', 'Ran', 'Failed to run'],
-		typeof args.tool === 'string' ? args.tool : call.name,
-	);
-}
-
-// One call the agent made: a line that says what it did, opening to what it asked and what came
-// back. A delegation opens to the sub-agent's brief and its report, with a way to its activity.
-function ToolCallTrace({
-	call,
-	result,
-	subAgent,
-}: {
-	call: ChatToolCall;
-	result: ChatEntry | undefined;
-	subAgent: ChatSubAgent | undefined;
-}) {
-	const org = useOrgSlug();
-	const status = result === undefined ? 'running' : result.isError ? 'error' : undefined;
-	const title = callTitle(
-		call,
-		result === undefined ? 'running' : result.isError ? 'failed' : 'done',
-	);
-	const args = parseArgs(call.arguments);
-	const delegated = call.name === 'delegate';
-	return (
-		<TraceCollapsible>
-			<TraceCollapsibleTrigger>
-				<TraceLine status={status}>
-					<TraceIcon>
-						{delegated ? <BotIcon /> : call.name === 'sleep_until' ? <MoonIcon /> : <WrenchIcon />}
-					</TraceIcon>
-					<TraceTitle>{title}</TraceTitle>
-				</TraceLine>
-			</TraceCollapsibleTrigger>
-			<TraceCollapsibleContent className="flex flex-col gap-2 text-xs">
-				{delegated ? (
-					<p className="whitespace-pre-wrap text-muted-foreground">
-						{typeof args.brief === 'string' ? args.brief : pretty(call.arguments)}
-					</p>
-				) : (
-					<pre className="whitespace-pre-wrap break-all font-mono">{pretty(call.arguments)}</pre>
-				)}
-				{result && (
-					<pre
-						className={cn(
-							'max-h-64 overflow-auto whitespace-pre-wrap break-all border-t pt-2',
-							!delegated && 'font-mono',
-							result.isError && 'text-destructive',
-						)}
-					>
-						{delegated ? result.text : pretty(result.text)}
-					</pre>
-				)}
-				{subAgent && (
-					<Link
-						to={`/${org}/activity?task=${subAgent.taskId}`}
-						className="w-fit underline-offset-4 hover:underline"
-					>
-						Activity of this sub-agent
-					</Link>
-				)}
-			</TraceCollapsibleContent>
-		</TraceCollapsible>
-	);
-}
-
-// One turn of the conversation: what the person said in a bubble on the right, or what the agent
-// said as plain text on the left, with the calls it made as lines above it.
-function Turn({
-	entry,
-	results,
-	subAgents,
-}: {
-	entry: ChatEntry;
-	results: Map<string | null, ChatEntry>;
-	subAgents: Map<string, ChatSubAgent>;
-}) {
+// One turn of the conversation: what the person said in a bubble on the right, or what the
+// persona answered in an outlined one on the left. What it did in between, the sub-agents it
+// started and what they found, is in the activity log, not here: this is a conversation.
+function Turn({entry}: {entry: ChatEntry}) {
 	if (entry.kind === 'person') {
 		return (
 			<Message align="end">
@@ -190,25 +58,12 @@ function Turn({
 			</Message>
 		);
 	}
-	const calls = entry.toolCalls ?? [];
 	return (
 		<Message>
-			<MessageContent className="gap-2">
-				{calls.length > 0 && (
-					<Trace>
-						{calls.map((call) => (
-							<ToolCallTrace
-								key={call.id}
-								call={call}
-								result={results.get(call.id)}
-								subAgent={subAgents.get(call.id)}
-							/>
-						))}
-					</Trace>
-				)}
-				{entry.text !== '' && (
-					<div className="whitespace-pre-wrap leading-relaxed wrap-break-word">{entry.text}</div>
-				)}
+			<MessageContent>
+				<Bubble variant="outline">
+					<BubbleContent className="whitespace-pre-wrap">{entry.text}</BubbleContent>
+				</Bubble>
 			</MessageContent>
 		</Message>
 	);
@@ -246,13 +101,8 @@ function preview(last: ChatPersona['lastMessage']): string {
 
 // The last thing said in the open conversation, as the page has it, fresher than the list.
 function lastOf(log: ThreadLog): ChatPersona['lastMessage'] {
-	const last = log.entries.findLast(
-		(entry) => (entry.kind === 'person' || entry.kind === 'assistant') && entry.text !== '',
-	);
-	if (!last || (last.kind !== 'person' && last.kind !== 'assistant')) {
-		return null;
-	}
-	return {kind: last.kind, text: last.text, at: last.at};
+	const last = log.entries.at(-1);
+	return last ? {kind: last.kind, text: last.text, at: last.at} : null;
 }
 
 // The organization's personas in the second sidebar, each with its head, its name and the last
@@ -437,27 +287,15 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		return null;
 	};
 
-	// Each call's result by the call, folded into the call's line rather than shown as a turn. A
-	// delegation's is the sub-agent's report, an event, which comes after the call was answered as
-	// started: until then the call is under way, so that answer is left out, unless it refused.
-	const delegations = new Set(
-		log.entries.flatMap((entry) =>
-			(entry.toolCalls ?? []).filter((call) => call.name === 'delegate').map((call) => call.id),
-		),
-	);
-	const results = new Map(
-		log.entries
-			.filter(
-				(entry) =>
-					entry.kind === 'event' ||
-					(entry.kind === 'tool_result' && (entry.isError || !delegations.has(entry.callId ?? ''))),
-			)
-			.map((entry) => [entry.callId, entry]),
-	);
-	const subAgents = new Map(log.subAgents.map((sub) => [sub.callId, sub]));
-	const turns = log.entries.filter(
-		(entry) => entry.kind === 'person' || entry.kind === 'assistant',
-	);
+	// Turns in a row from the same side sit closer together than the sides do.
+	const runs = log.entries.reduce<ChatEntry[][]>((grouped, entry) => {
+		const last = grouped.at(-1);
+		if (last && last[0]?.kind === entry.kind) {
+			last.push(entry);
+			return grouped;
+		}
+		return [...grouped, [entry]];
+	}, []);
 
 	return (
 		<AppShell
@@ -506,7 +344,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 				<MessageScroller className="min-h-0 flex-1">
 					<MessageScrollerViewport aria-label="Conversation">
 						<MessageScrollerContent className="page-column mx-auto w-full max-w-3xl pt-6 pb-4">
-							{turns.length === 0 && (
+							{runs.length === 0 && (
 								<div className="flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
 									<Head look={current.look} color={current.color} size={64} />
 									<p className="text-lg font-medium">What should {current.name} do?</p>
@@ -517,13 +355,17 @@ function Conversation({loaded}: {loaded: Loaded}) {
 									</p>
 								</div>
 							)}
-							{turns.map((entry) => (
+							{runs.map((run) => (
 								<MessageScrollerItem
-									key={entry.id}
-									messageId={entry.id}
-									scrollAnchor={entry.kind === 'person'}
+									key={run[0]?.id}
+									messageId={run[0]?.id ?? ''}
+									scrollAnchor={run[0]?.kind === 'person'}
 								>
-									<Turn entry={entry} results={results} subAgents={subAgents} />
+									<div className="flex flex-col gap-2">
+										{run.map((entry) => (
+											<Turn key={entry.id} entry={entry} />
+										))}
+									</div>
 								</MessageScrollerItem>
 							))}
 							{(log.busy || log.sleepingUntil !== null) && (

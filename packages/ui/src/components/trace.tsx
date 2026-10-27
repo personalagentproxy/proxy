@@ -1,13 +1,6 @@
 import * as React from 'react';
 import {cn} from 'cn';
 
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from '@proxy/ui/components/collapsible';
-import {ChevronRightIcon} from 'lucide-react';
-
 function Trace({className, ...props}: React.ComponentProps<'div'>) {
 	return (
 		<div
@@ -65,89 +58,4 @@ function TraceTitle({className, ...props}: React.ComponentProps<'span'>) {
 	);
 }
 
-function TraceDescription({className, ...props}: React.ComponentProps<'span'>) {
-	return (
-		<span
-			data-slot="trace-description"
-			className={cn('shrink-0 text-muted-foreground/70 tabular-nums', className)}
-			{...props}
-		/>
-	);
-}
-
-function TraceCollapsible({
-	className,
-	...props
-}: Omit<React.ComponentProps<typeof Collapsible>, 'open'> &
-	(
-		| {open?: undefined}
-		| {
-				open: boolean;
-				onOpenChange: NonNullable<React.ComponentProps<typeof Collapsible>['onOpenChange']>;
-		  }
-	)) {
-	return (
-		<Collapsible
-			data-slot="trace-collapsible"
-			className={cn('flex w-full min-w-0 flex-col', className)}
-			{...props}
-		/>
-	);
-}
-
-function TraceCollapsibleTrigger({
-	className,
-	children,
-	...props
-}: React.ComponentProps<typeof CollapsibleTrigger>) {
-	return (
-		<CollapsibleTrigger
-			data-slot="trace-collapsible-trigger"
-			className={cn(
-				'group/trace-collapsible-trigger flex w-fit max-w-full min-w-0 cursor-pointer items-center gap-1 rounded-md text-left text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 has-[[data-status=error]]:text-destructive',
-				className,
-			)}
-			{...props}
-		>
-			{children}
-			<TraceIcon className="transition-transform group-aria-expanded/trace-collapsible-trigger:rotate-90">
-				<ChevronRightIcon />
-			</TraceIcon>
-		</CollapsibleTrigger>
-	);
-}
-
-function TraceCollapsibleContent({
-	className,
-	children,
-	...props
-}: React.ComponentProps<typeof CollapsibleContent>) {
-	return (
-		<CollapsibleContent
-			data-slot="trace-collapsible-content"
-			className="h-(--collapsible-panel-height) min-w-0 overflow-hidden transition-[height] duration-200 data-ending-style:h-0 data-starting-style:h-0"
-			{...props}
-		>
-			<div
-				data-slot="trace-collapsible-content-inner"
-				className={cn(
-					'mt-2 mb-1 ml-[calc(--spacing(2)-1px)] min-w-0 border-l pr-1 pl-4 leading-relaxed wrap-break-word text-muted-foreground',
-					className,
-				)}
-			>
-				{children}
-			</div>
-		</CollapsibleContent>
-	);
-}
-
-export {
-	Trace,
-	TraceLine,
-	TraceIcon,
-	TraceTitle,
-	TraceDescription,
-	TraceCollapsible,
-	TraceCollapsibleTrigger,
-	TraceCollapsibleContent,
-};
+export {Trace, TraceLine, TraceIcon, TraceTitle};

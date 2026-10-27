@@ -2,7 +2,7 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, hasExperiment, parseSchema, requirePresent} from '@proxy/utils';
-import {AVATAR_COLORS, type Look, lookSchema, type ToolCall} from '@proxy/utils/harness';
+import {AVATAR_COLORS, type Look, lookSchema} from '@proxy/utils/harness';
 import {
 	appendPersonMessage,
 	createPersona,
@@ -15,7 +15,6 @@ import {
 	listEntries,
 	listOpenJobs,
 	listPersonas,
-	listSubAgents,
 	type PersonaRow,
 	type ThreadRow,
 	updatePersona,
@@ -40,13 +39,11 @@ const MAX_MESSAGE = 20_000;
 /** A persona as the page lists it, whether the viewer may change it, and the last thing said in their conversation with it, cut to a line; null before anything was said. */
 export type PersonaResponse = {id: string; name: string; look: Look; color: string; mayChange: boolean; lastMessage: {kind: 'person' | 'assistant'; text: string; at: string} | null};
 
-export type EntryResponse = {id: string; kind: 'person' | 'assistant' | 'tool_result' | 'event'; text: string; toolCalls: ToolCall[] | null; callId: string | null; isError: boolean; at: string};
+/** A turn of the conversation as the page shows it: what the person said, or what the persona answered. What the persona did in between is in the activity log, not here. */
+export type EntryResponse = {id: string; kind: 'person' | 'assistant'; text: string; at: string};
 
-/** A sub-agent started from the conversation: the call that started it, its title, the task its calls are made for, which the activity log can be narrowed to, and when it was done. */
-export type SubAgentResponse = {callId: string; title: string; taskId: string; finishedAt: string | null};
-
-/** The member's conversation with a persona: the persona, the thread, its log, the sub-agents started from it, and what the persona is up to: busy on it, asleep until a time, or waiting for the person. */
-export type ThreadLogResponse = {persona: PersonaResponse; thread: {id: string}; entries: EntryResponse[]; subAgents: SubAgentResponse[]; busy: boolean; sleepingUntil: string | null};
+/** The member's conversation with a persona: the persona, the thread, its turns, and what the persona is up to: busy on it, asleep until a time, or waiting for the person. */
+export type ThreadLogResponse = {persona: PersonaResponse; thread: {id: string}; entries: EntryResponse[]; busy: boolean; sleepingUntil: string | null};
 
 // How much of the last message the list shows.
 const PREVIEW_CHARS = 120;
@@ -75,13 +72,14 @@ const personaSchema = z.object({
 	color: z.enum(AVATAR_COLORS),
 });
 
-// The entries the person sees: the conversation, not the summaries the model reads it as.
+// The entries the person sees: the conversation, what they said and what the persona answered,
+// not the calls, their results, the reports or the summaries the model reads.
 function isShown(entry: EntryRow): entry is EntryRow & {kind: EntryResponse['kind']} {
-	return entry.kind !== 'summary';
+	return entry.kind === 'person' || (entry.kind === 'assistant' && entry.text !== '');
 }
 
 function toEntry(entry: EntryRow & {kind: EntryResponse['kind']}): EntryResponse {
-	return {id: entry.id, kind: entry.kind, text: entry.text, toolCalls: entry.toolCalls, callId: entry.callId, isError: entry.isError, at: entry.createdAt.toISOString()};
+	return {id: entry.id, kind: entry.kind, text: entry.text, at: entry.createdAt.toISOString()};
 }
 
 function requireChat(request: AuthenticatedRequest): Promise<Result<OrgViewer, ApiError>> {
@@ -170,13 +168,13 @@ export function handleDeletePersonaRoute(request: AuthenticatedRequest): Promise
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas/:personaId/thread`: the viewer's conversation with the persona, begun where there was none, its sub-agents, and whether the persona is busy on it, sub-agents included. */
+/** `GET /api/orgs/:org/chat/personas/:personaId/thread`: the viewer's conversation with the persona, begun where there was none, and whether the persona is busy on it, its sub-agents included. */
 export function handleGetThreadRoute(request: AuthenticatedRequest): Promise<Result<ThreadLogResponse, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const persona = $(await requirePersona(viewer, request));
 		const thread = $(await requireThread(viewer, persona));
-		const [entries, jobs, subAgents] = await Promise.all([listEntries(thread.id), listOpenJobs(thread.id), listSubAgents(thread.id)]);
+		const [entries, jobs] = await Promise.all([listEntries(thread.id), listOpenJobs(thread.id)]);
 		const open = $(jobs);
 		const now = Date.now();
 		// Asleep when every open job is a tool job due later; the first to be due is when it wakes.
@@ -187,7 +185,6 @@ export function handleGetThreadRoute(request: AuthenticatedRequest): Promise<Res
 			persona: toPersona(viewer, persona),
 			thread: {id: thread.id},
 			entries: $(entries).filter(isShown).map(toEntry),
-			subAgents: $(subAgents).map((sub) => ({callId: sub.parentCallId, title: sub.title, taskId: sub.taskId, finishedAt: sub.finishedAt?.toISOString() ?? null})),
 			busy: open.length > 0 && !asleep,
 			sleepingUntil: asleep && first !== undefined ? new Date(first).toISOString() : null,
 		};
