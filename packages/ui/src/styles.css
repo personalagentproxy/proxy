@@ -195,3 +195,10 @@
 		@apply font-sans;
 	}
 }
+
+/* The message scroller's viewport fades its bottom only while there is more below
+   (message-scroller.tsx). A browser that drives the fade from the scroll position itself
+   (shadcn's scroll-fade) animates over this; one that can't gets the fade lifted at the end. */
+[data-slot='message-scroller-viewport'][data-scrollable-end='false'] {
+	--scroll-fade-b: 0px;
+}

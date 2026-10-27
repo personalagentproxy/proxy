@@ -34,13 +34,18 @@ function MessageScroller({
 	);
 }
 
+// The viewport fades out at its bottom while there is more below. A browser that can drive the
+// fade from the scroll position does (shadcn's scroll-fade); for one that can't, the viewport
+// says whether it is scrolled to the end, and the stylesheet lifts the fade there.
 function MessageScrollerViewport({
 	className,
 	...props
 }: React.ComponentProps<typeof MessageScrollerPrimitive.Viewport>) {
+	const scrollable = useMessageScrollerScrollable();
 	return (
 		<MessageScrollerPrimitive.Viewport
 			data-slot="message-scroller-viewport"
+			data-scrollable-end={scrollable.end}
 			className={cn(
 				'size-full min-h-0 min-w-0 scroll-fade-b scrollbar-thin scrollbar-gutter-stable overflow-y-auto overscroll-contain contain-content data-autoscrolling:scrollbar-thumb-transparent data-autoscrolling:scrollbar-track-transparent data-pending-scroll:invisible',
 				className,

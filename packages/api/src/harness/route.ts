@@ -48,6 +48,19 @@ export type ThreadLogResponse = {persona: PersonaResponse; thread: {id: string};
 // How much of the last message the list shows.
 const PREVIEW_CHARS = 120;
 
+// The last message as a line of words: its Markdown marks dropped, its whitespace folded.
+function preview(text: string): string {
+	return text
+		.replace(/```[\s\S]*?```/g, ' ')
+		.replace(/^\s*(?:[-*+]|\d+\.|#{1,6}|>)\s+/gm, '')
+		.replace(/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$/gm, '')
+		.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+		.replace(/[*_`~|]+/g, '')
+		.replace(/\s+/g, ' ')
+		.trim()
+		.slice(0, PREVIEW_CHARS);
+}
+
 // Whether the viewer may rename, reface or delete the persona: whoever made it, or the organization's owner (utils/manages.ts).
 function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
 	return manages(viewer, {ownerUserId: null, byId: persona.createdById});
@@ -61,7 +74,7 @@ function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastM
 		look: persona.look,
 		color: persona.color,
 		mayChange: managesPersona(viewer, persona),
-		lastMessage: last && {kind: last.kind, text: last.text.replace(/\s+/g, ' ').trim().slice(0, PREVIEW_CHARS), at: last.createdAt.toISOString()},
+		lastMessage: last && {kind: last.kind, text: preview(last.text), at: last.createdAt.toISOString()},
 	};
 }
 

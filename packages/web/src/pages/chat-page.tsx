@@ -14,6 +14,7 @@ import {
 } from '@/client/harness-client';
 import {AppShell} from '@/components/app-shell';
 import {Head, LiveHead} from '@/components/head';
+import {Markdown} from '@/components/markdown';
 import {PersonaDialog} from '@/components/persona-dialog';
 import {Bubble, BubbleContent} from '@proxy/ui/components/bubble';
 import {
@@ -43,8 +44,8 @@ import type {chatLoader} from '@/loaders';
 const BUSY_POLL_MS = 1000;
 const IDLE_POLL_MS = 4000;
 
-// One turn of the conversation: what the person said in a bubble on the right, or what the
-// persona answered in an outlined one on the left. What it did in between, the sub-agents it
+// One turn of the conversation: what the person said in a bubble on the right, as they typed it,
+// or what the persona answered in an outlined one on the left, as Markdown. What it did in between, the sub-agents it
 // started and what they found, is in the activity log, not here: this is a conversation.
 function Turn({entry}: {entry: ChatEntry}) {
 	if (entry.kind === 'person') {
@@ -62,7 +63,9 @@ function Turn({entry}: {entry: ChatEntry}) {
 		<Message>
 			<MessageContent>
 				<Bubble variant="outline">
-					<BubbleContent className="whitespace-pre-wrap">{entry.text}</BubbleContent>
+					<BubbleContent>
+						<Markdown text={entry.text} />
+					</BubbleContent>
 				</Bubble>
 			</MessageContent>
 		</Message>

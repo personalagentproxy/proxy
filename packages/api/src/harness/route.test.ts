@@ -103,6 +103,11 @@ describe('the chat routes', () => {
 			Ok([
 				{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}},
 				{...persona, id: 'persona-3', createdById: 'user-2', lastMessage: null},
+				{
+					...persona,
+					id: 'persona-4',
+					lastMessage: {kind: 'assistant', text: '## Found\n\n- **Three** invoices, see [the list](https://x.test)\n\n| Who | Sum |\n| --- | --- |\n| Dana | 40 |\n\n```\ncode\n```', createdAt: now},
+				},
 			]),
 		);
 
@@ -113,6 +118,7 @@ describe('the chat routes', () => {
 			personas: [
 				{...personaResponse, lastMessage: {kind: 'assistant', text: 'Your vault has one entry.', at: '2026-10-21T10:00:00.000Z'}},
 				{...personaResponse, id: 'persona-3', mayChange: false},
+				{...personaResponse, id: 'persona-4', lastMessage: {kind: 'assistant', text: 'Found Three invoices, see the list Who Sum Dana 40', at: '2026-10-21T10:00:00.000Z'}},
 			],
 		});
 	});
