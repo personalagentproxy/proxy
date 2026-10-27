@@ -70,7 +70,7 @@ export const envSchema = z.object({
 	GOOGLE_CLIENT_ID: documented(z.string().min(1).optional(), {
 		group: 'Sign-in',
 		description:
-			'Turns on Google sign-in, with `GOOGLE_CLIENT_SECRET`, and connecting a Google account (Gmail, Calendar, Drive, Docs, Sheets, Slides and Contacts). Register `<APP_URL>/auth/google/callback` and `<APP_URL>/api/connections/google/callback` as redirect URIs, enable the Gmail, Calendar, Drive, Docs, Sheets, Slides and People APIs in the client’s Cloud project, and set the app’s publishing status to In production: in Testing, Google ends a connection’s sign-in after 7 days.',
+			'Turns on Google sign-in, with `GOOGLE_CLIENT_SECRET`, and connecting a Google account (Gmail, Calendar, Drive, Docs, Sheets, Slides, Contacts and Tasks). Register `<APP_URL>/auth/google/callback` and `<APP_URL>/api/connections/google/callback` as redirect URIs, enable the Gmail, Calendar, Drive, Sheets, People and Tasks APIs in the client’s Cloud project, and set the app’s publishing status to In production: in Testing, Google ends a connection’s sign-in after 7 days.',
 	}),
 	GOOGLE_CLIENT_SECRET: documented(z.string().min(1).optional(), {
 		group: 'Sign-in',
@@ -107,7 +107,7 @@ export const envSchema = z.object({
 	OPENROUTER_KEY: documented(z.string().min(1).optional(), {
 		group: 'Core',
 		description:
-			'An OpenRouter API key, for the model that fills in the fields of the widget Jev picks on the home page (gpt-oss-120b, on Cerebras or Groq). What is typed there is sent to it. Without it, or without `TYPESAFE_API_KEY`, the home page says it is not set up; everything else works as before.',
+			'An OpenRouter API key, for the model that fills in the fields of the widget Jev picks on the home page (gpt-oss-120b, on Cerebras or Groq), and for the built-in agent on the Chat page (Claude Sonnet 5.5). What is typed there is sent to it. Without it, or without `TYPESAFE_API_KEY`, the home page says it is not set up, and without it the Chat page does; everything else works as before.',
 	}),
 
 	NODE_ENV: documented(z.enum(['development', 'test', 'production']).default('production'), {

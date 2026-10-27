@@ -123,8 +123,9 @@ export function listAgentTools(signedIn: SignedInAgent, connectionId: string): P
 	});
 }
 
-// Who calls and which way it came in: the web app's agent pages, or the MCP server.
-export type AgentCaller = {agent: SignedInAgent; via: 'web' | 'mcp'};
+// Who calls and which way it came in: the web app's agent pages, the MCP server, or the built-in
+// agent's own loop.
+export type AgentCaller = {agent: SignedInAgent; via: 'web' | 'mcp' | 'harness'};
 
 /** Who runs a tool, and the task it is run for, by its id. */
 // PRE-TASK CLIENTS: null for a pre-task client's call (mcp/pre-task-clients.ts).

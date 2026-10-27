@@ -12,6 +12,7 @@ import {AppShell, PageTitle} from '@/components/app-shell';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
 import {OrgTile} from '@/components/org-switcher';
+import {PersonAvatar} from '@/components/person-avatar';
 import {RowHeader, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {Button} from '@proxy/ui/components/button';
@@ -96,7 +97,7 @@ export function MembersPage() {
 					<RowList
 						header={
 							<RowHeader>
-								<span className="size-5 shrink-0" />
+								<span className="size-7 shrink-0" />
 								<span className="min-w-0 flex-1">Name</span>
 								<span className={CELLS.email}>Email</span>
 								<span className={CELLS.role}>Role</span>
@@ -109,7 +110,7 @@ export function MembersPage() {
 							const you = member.userId === human.user.id;
 							return (
 								<li key={member.userId} className={ROW}>
-									<Initial name={nameOf(member)} />
+									<PersonAvatar person={member} />
 									<span className="min-w-0 flex-1 truncate">
 										{nameOf(member)}
 										{you && <span className="text-muted-foreground"> · You</span>}
@@ -143,7 +144,7 @@ export function MembersPage() {
 						>
 							{invitations.map((invitation) => (
 								<li key={invitation.id} className={ROW}>
-									<Initial name={invitation.email} muted />
+									<InvitationInitial name={invitation.email} />
 									<span className="min-w-0 flex-1 truncate">{invitation.email}</span>
 									<span className={CELLS.email}>{invitation.invitedBy ?? 'A former member'}</span>
 									<span className={CELLS.date}>{formatDate(invitation.expiresAt)}</span>
@@ -264,16 +265,12 @@ function MemberMenu({
 	);
 }
 
-// A person's mark: the first letter of their name, on a round tile the size of a logo.
-function Initial({name, muted = false}: {name: string; muted?: boolean}) {
+// An invitation has no account or profile photo yet, so its mark is always its first letter.
+function InvitationInitial({name}: {name: string}) {
 	return (
 		<span
 			aria-hidden
-			className={
-				muted
-					? 'flex size-5 shrink-0 items-center justify-center rounded-full border border-dashed text-xs text-muted-foreground'
-					: 'flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs'
-			}
+			className="flex size-5 shrink-0 items-center justify-center rounded-full border border-dashed text-xs text-muted-foreground"
 		>
 			{name.slice(0, 1).toUpperCase()}
 		</span>

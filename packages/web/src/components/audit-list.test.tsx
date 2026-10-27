@@ -48,6 +48,7 @@ const task: ActivityTask = {
 	startedAt: '2026-10-14T21:00:00.000Z',
 	lastActiveAt: '2026-10-14T21:00:00.000Z',
 	finishedAt: null,
+	persona: null,
 	parentId: null,
 	outcome: null,
 };

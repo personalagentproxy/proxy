@@ -1,0 +1,287 @@
+<!doctype html>
+<!-- The head lab: a playground for the persona heads, two spheres and painted eyes, drawn flat.
+     Open this file in a browser; it loads three.js from unpkg, so it needs the network. Every setting
+     is in the URL, and the Settings box holds them as JSON; saved ones live in looks/. -->
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<title>Head lab</title>
+		<style>
+			:root{--bg:#f4f4f5;--fg:#18181b;--muted:#71717a;--card:#fff;--line:#e4e4e7}
+			html[data-theme=dark]{--bg:#09090b;--fg:#fafafa;--muted:#a1a1aa;--card:#18181b;--line:#27272a}
+			*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;display:grid;grid-template-columns:1fr 320px;min-height:100vh}
+			main{padding:24px;display:flex;flex-direction:column;gap:20px}
+			aside{border-left:1px solid var(--line);padding:16px;overflow:auto;height:100vh;position:sticky;top:0;background:var(--card)}
+			h1{font-size:15px;margin:0 0 2px}h2{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:18px 0 8px}
+			.stage{display:flex;gap:20px;align-items:flex-start}
+			#view{width:520px;height:520px;background:var(--card);border-radius:20px;cursor:grab;touch-action:none}
+			#view:active{cursor:grabbing}
+			.small{display:flex;flex-direction:column;gap:10px}
+			.tile{background:var(--card);border-radius:14px;padding:12px;display:flex;align-items:center;gap:10px;width:300px}
+			.tile .n{font-weight:500}.tile .l{color:var(--muted);font-size:12px}
+			.tile canvas{border-radius:6px}
+			.gallery{background:var(--card);border-radius:20px;padding:18px 20px;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+			.gallery canvas{display:block}
+			.poses{background:var(--card);border-radius:20px;padding:12px 20px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+			.poses .cell{text-align:center;color:var(--muted);font-size:11px;cursor:pointer}
+			label.r{display:grid;grid-template-columns:1fr 56px;align-items:center;gap:8px;margin:5px 0}
+			label.r span{display:flex;justify-content:space-between}label.r span b{font-weight:400;color:var(--muted);font-variant-numeric:tabular-nums}
+			input[type=range]{width:100%;grid-column:1/3;margin:0;accent-color:var(--fg)}
+			.swatches{display:flex;gap:6px;flex-wrap:wrap}.sw{width:26px;height:26px;border-radius:50%;border:2px solid transparent;cursor:pointer}.sw.on{border-color:var(--fg)}
+			.btns{display:flex;gap:6px;flex-wrap:wrap}button{font:inherit;padding:5px 9px;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:8px;cursor:pointer}button:hover{background:var(--bg)}
+			button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+			.note{color:var(--muted);font-size:12px;margin:4px 0 0}
+			textarea{width:100%;height:120px;font:11px ui-monospace,monospace;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px}
+			.seg{display:flex;gap:4px}.seg button{flex:1}
+		</style>
+	</head>
+	<body>
+		<main>
+			<div class="stage">
+				<canvas id="view" width="1040" height="1040"></canvas>
+				<div class="small" id="small"></div>
+			</div>
+			<div>
+				<h2 style="margin-top:0">The family: every color with these settings</h2>
+				<div class="gallery" id="gallery"></div>
+			</div>
+			<div>
+				<h2>Poses: click one to take it</h2>
+				<div class="poses" id="poses"></div>
+			</div>
+		</main>
+		<aside>
+			<h1>Head lab</h1>
+			<div class="note">
+				Drag the head to turn it. Everything is in the URL, so a look can be shared by copying it.
+			</div>
+
+			<h2>Color</h2>
+			<div class="swatches" id="swatches"></div>
+			<label class="r"
+				><span>Custom <b id="customv"></b></span><input type="color" id="custom"
+			/></label>
+			<label class="r"
+				><span>Nose darker by <b data-v="noseDark"></b></span
+				><input type="range" data-k="noseDark" min="0.08" max="0.4" step="0.01"
+			/></label>
+			<div class="seg" id="eyeSeg">
+				<button data-eye="white">Eye white</button><button data-eye="page">Eye = page</button>
+			</div>
+			<div class="seg" style="margin-top:6px" id="eyesSeg">
+				<button data-eyes="2">Two eyes</button><button data-eyes="1">One eye</button>
+			</div>
+
+			<h2>Shape</h2>
+			<label class="r"
+				><span>Nose size <b data-v="nose"></b></span
+				><input type="range" data-k="nose" min="0.36" max="0.6" step="0.005"
+			/></label>
+			<label class="r"
+				><span>Nose out <b data-v="noseOut"></b></span
+				><input type="range" data-k="noseOut" min="0.1" max="0.7" step="0.01"
+			/></label>
+			<label class="r"
+				><span>Eye size <b data-v="eye"></b></span
+				><input type="range" data-k="eye" min="18" max="36" step="0.5"
+			/></label>
+			<label class="r"
+				><span>Eye from nose <b data-v="eyeTheta"></b></span
+				><input type="range" data-k="eyeTheta" min="40" max="75" step="1"
+			/></label>
+			<label class="r"
+				><span>Eye height <b data-v="eyeLat"></b></span
+				><input type="range" data-k="eyeLat" min="-12" max="24" step="1"
+			/></label>
+
+			<h2>Rotation</h2>
+			<label class="r"
+				><span>Turn (y) <b data-v="rotY"></b></span
+				><input type="range" data-k="rotY" min="-180" max="180" step="1"
+			/></label>
+			<label class="r"
+				><span>Nod (x) <b data-v="rotX"></b></span
+				><input type="range" data-k="rotX" min="-60" max="60" step="1"
+			/></label>
+			<label class="r"
+				><span>Tilt (z) <b data-v="rotZ"></b></span
+				><input type="range" data-k="rotZ" min="-60" max="60" step="1"
+			/></label>
+			<div class="btns">
+				<button id="flip">Mirror</button><button id="spin">Spin</button
+				><button id="nod">Nod</button>
+			</div>
+
+			<h2>Scene</h2>
+			<div class="seg" id="themeSeg">
+				<button data-theme="light">Light</button><button data-theme="dark">Dark</button>
+			</div>
+			<div class="seg" style="margin-top:6px" id="camSeg">
+				<button data-cam="persp">Perspective</button><button data-cam="ortho">Orthographic</button>
+			</div>
+
+			<h2>Looks</h2>
+			<div class="btns" id="presets"></div>
+			<div class="btns" style="margin-top:8px">
+				<button id="shuffle">Shuffle the family</button><button id="reset">Reset</button
+				><button id="png">PNG</button><button id="copy">Copy URL</button>
+			</div>
+			<h2>Settings</h2>
+			<textarea id="json" spellcheck="false"></textarea>
+			<div class="btns" style="margin-top:6px"><button id="apply">Apply JSON</button></div>
+		</aside>
+		<script type="importmap">
+			{"imports":{"three":"https://unpkg.com/three@0.170.0/build/three.module.js"}}
+		</script>
+		<script type="module">
+			import * as THREE from 'three';
+			const DEG=Math.PI/180;
+			const AV={red:[0.64,0.21,25],orange:[0.72,0.17,55],yellow:[0.8,0.16,90],green:[0.68,0.17,150],teal:[0.7,0.13,195],blue:[0.62,0.19,255],purple:[0.62,0.2,300],pink:[0.7,0.19,350]};
+			function oklchToHex(L,C,h){const a=C*Math.cos(h*DEG),b=C*Math.sin(h*DEG);
+			  const l_=L+0.3963377774*a+0.2158037573*b,m_=L-0.1055613458*a-0.0638541728*b,s_=L-0.0894841775*a-1.2914855480*b;
+			  const l=l_**3,m=m_**3,s=s_**3;
+			  const r=4.0767416621*l-3.3077115913*m+0.2309699292*s,g=-1.2684380046*l+2.6097574011*m-0.3413193965*s,bb=-0.0041960863*l-0.7034186147*m+1.7076147010*s;
+			  const gam=x=>{x=Math.max(0,Math.min(1,x));return x<=0.0031308?12.92*x:1.055*Math.pow(x,1/2.4)-0.055};
+			  return '#'+[r,g,bb].map(x=>Math.round(gam(x)*255).toString(16).padStart(2,'0')).join('');}
+			function hexToOklch(hex){const c=new THREE.Color(hex);const lin=[c.r,c.g,c.b];
+			  const l=0.4122214708*lin[0]+0.5363325363*lin[1]+0.0514459929*lin[2],m=0.2119034982*lin[0]+0.6806995451*lin[1]+0.1073969566*lin[2],s=0.0883024619*lin[0]+0.2817188376*lin[1]+0.6299787005*lin[2];
+			  const l_=Math.cbrt(l),m_=Math.cbrt(m),s_=Math.cbrt(s);
+			  const L=0.2104542553*l_+0.7936177850*m_-0.0040720468*s_,a=1.9779984951*l_-2.4285922050*m_+0.4505937099*s_,b=0.0259040371*l_+0.7827717662*m_-0.8086757660*s_;
+			  return [L,Math.hypot(a,b),(Math.atan2(b,a)/DEG+360)%360];}
+			const noseOf=(hex,dark)=>{const [L,C,h]=hexToOklch(hex);return oklchToHex(L-dark,C*0.9,h);};
+
+			// --- State ---------------------------------------------------------------
+			// The look the lab opens with: looks/2026-10-27-blue.json.
+			const DEFAULT={color:'#1d84f5',noseDark:0.22,eyeColor:'white',eyes:2,nose:0.48,noseOut:0.35,eye:27,eyeTheta:55,eyeLat:8,rotX:-3,rotY:-65,rotZ:-12,flip:false,theme:'dark',cam:'persp'};
+			const PRESETS={
+			  'The logo':{rotX:0,rotY:24,rotZ:-14,eye:34,eyeTheta:62,nose:0.56,noseOut:0.55},
+			  'Rest':{rotX:0,rotY:14,rotZ:-12},
+			  'Facing you':{rotX:0,rotY:-90,rotZ:0},
+			  'Listening':{rotX:0,rotY:-50,rotZ:-12},
+			  'Profile':{rotX:0,rotY:0,rotZ:-12},
+			  'Looking up':{rotX:0,rotY:14,rotZ:-40},
+			  'Looking down':{rotX:0,rotY:14,rotZ:18},
+			};
+			const NUM=['eyes','noseDark','nose','noseOut','eye','eyeTheta','eyeLat','rotX','rotY','rotZ'];
+			function fromUrl(){const q=new URLSearchParams(location.search),s={...DEFAULT};for(const [k,v] of q){if(!(k in s))continue;s[k]=NUM.includes(k)?parseFloat(v):k==='flip'?v==='1':v;}return s;}
+			let S=fromUrl();
+			let family=null; // per-color shape overrides from shuffle
+			function toUrl(){const q=new URLSearchParams();for(const k of Object.keys(DEFAULT)){if(S[k]!==DEFAULT[k])q.set(k,k==='flip'?(S[k]?'1':'0'):String(S[k]));}history.replaceState(null,'','?'+q.toString());}
+
+			// --- Renderer ------------------------------------------------------------
+			const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});
+			renderer.setClearColor(0,0);
+			const sphere=new THREE.SphereGeometry(1,96,64);
+			const persp=new THREE.PerspectiveCamera(35,1,0.1,100);persp.position.z=7;
+			const ortho=new THREE.OrthographicCamera(-2.2,2.2,2.2,-2.2,0.1,100);ortho.position.z=7;
+			const texCache=new Map();
+			function headTexture(p,pageColor){
+			  const eyeColor=p.eyeColor==='page'?pageColor:'#ffffff';
+			  const key=[p.color,eyeColor,p.eye,p.eyeTheta,p.eyeLat,p.eyes].join('|');
+			  if(texCache.has(key))return texCache.get(key);
+			  const W=2048,H=1024,c=document.createElement('canvas');c.width=W;c.height=H;const g=c.getContext('2d');
+			  g.fillStyle=p.color;g.fillRect(0,0,W,H);
+			  const v=0.5+p.eyeLat*DEG/Math.PI,r=H/Math.PI*p.eye*DEG;
+			  const sides=p.eyes===1?[-1]:[-1,1];
+			  for(const side of sides){const phi=Math.PI+side*p.eyeTheta*DEG,u=phi/(2*Math.PI);
+			    g.fillStyle=eyeColor;g.beginPath();g.ellipse(u*W,(1-v)*H,r/Math.cos(p.eyeLat*DEG),r,0,0,Math.PI*2);g.fill();}
+			  const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=8;
+			  if(texCache.size>200)texCache.clear();
+			  texCache.set(key,t);return t;
+			}
+			const scene=new THREE.Scene();
+			const head=new THREE.Mesh(sphere,new THREE.MeshBasicMaterial());
+			const nose=new THREE.Mesh(sphere,new THREE.MeshBasicMaterial());
+			const g=new THREE.Group();g.add(head);g.add(nose);const outer=new THREE.Group();outer.add(g);scene.add(outer);
+			function pageColor(){return getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();}
+			function pose(p,zoom){
+			  head.material.map=headTexture(p,pageColor());head.material.needsUpdate=true;
+			  nose.material.color.set(noseOf(p.color,p.noseDark));nose.scale.setScalar(p.nose);nose.position.set(1+p.noseOut*p.nose,0,0);
+			  g.rotation.set(p.rotX*DEG,p.rotY*DEG,p.rotZ*DEG);
+			  outer.scale.set(zoom*(p.flip?-1:1),zoom,zoom);
+			}
+			function draw(target,p,size,zoom=1.25){
+			  renderer.setSize(size,size,false);pose(p,zoom);renderer.render(scene,p.cam==='ortho'?ortho:persp);
+			  const ctx=target.getContext('2d');target.width=size;target.height=size;ctx.clearRect(0,0,size,size);ctx.drawImage(renderer.domElement,0,0);
+			}
+
+			// --- Views ---------------------------------------------------------------
+			const view=document.getElementById('view');
+			const smallEl=document.getElementById('small');
+			const SMALL=[['Scout','Found 3 flights under 400, holding the 7:40.',36],['Ledger','Reconciled October. Two charges look doubled.',28],['Mailroom','Drafted the reply to Dana, waiting for you.',20]];
+			smallEl.innerHTML=SMALL.map(([n,l,px])=>`<div class="tile"><canvas style="width:${px}px;height:${px}px"></canvas><div><div class="n">${n}</div><div class="l">${l}</div></div></div>`).join('');
+			const smallCanvases=[...smallEl.querySelectorAll('canvas')];
+			const gallery=document.getElementById('gallery');
+			const colors=Object.keys(AV);
+			gallery.innerHTML=colors.map(()=>`<canvas style="width:112px;height:112px"></canvas>`).join('')+'<div style="flex-basis:100%;height:6px"></div>'+colors.map(()=>`<canvas style="width:28px;height:28px;margin:0 8px"></canvas>`).join('')+'<div style="width:24px"></div>'+colors.map(()=>`<canvas style="width:20px;height:20px;margin:0 6px"></canvas>`).join('');
+			const galleryCanvases=[...gallery.querySelectorAll('canvas')];
+			const posesEl=document.getElementById('poses');
+			posesEl.innerHTML=Object.keys(PRESETS).map(k=>`<div class="cell" data-p="${k}"><canvas style="width:96px;height:96px"></canvas><div>${k}</div></div>`).join('');
+			const poseCanvases=[...posesEl.querySelectorAll('canvas')];
+
+			function render(){
+			  document.documentElement.dataset.theme=S.theme;
+			  draw(view,S,1040);
+			  SMALL.forEach(([,,px],i)=>draw(smallCanvases[i],S,px*2));
+			  colors.forEach((c,i)=>{const p={...S,color:oklchToHex(...AV[c]),...(family?.[c]??{})};draw(galleryCanvases[i],p,224);draw(galleryCanvases[8+i],p,56);draw(galleryCanvases[16+i],p,40);});
+			  Object.keys(PRESETS).forEach((k,i)=>draw(poseCanvases[i],{...S,...PRESETS[k]},192));
+			  for(const el of document.querySelectorAll('[data-v]'))el.textContent=String(S[el.dataset.v]);
+			  for(const el of document.querySelectorAll('input[data-k]'))el.value=S[el.dataset.k];
+			  for(const el of document.querySelectorAll('.sw'))el.classList.toggle('on',el.dataset.c===S.color);
+			  document.getElementById('custom').value=S.color;document.getElementById('customv').textContent=S.color;
+			  for(const el of document.querySelectorAll('[data-eye]'))el.classList.toggle('on',el.dataset.eye===S.eyeColor);
+			  for(const el of document.querySelectorAll('[data-eyes]'))el.classList.toggle('on',parseInt(el.dataset.eyes)===S.eyes);
+			  for(const el of document.querySelectorAll('[data-theme]'))el.classList.toggle('on',el.dataset.theme===S.theme);
+			  for(const el of document.querySelectorAll('[data-cam]'))el.classList.toggle('on',el.dataset.cam===S.cam);
+			  document.getElementById('flip').classList.toggle('on',S.flip);
+			  const j=document.getElementById('json');if(document.activeElement!==j)j.value=JSON.stringify(S,null,1);
+			  toUrl();
+			}
+			function set(partial){Object.assign(S,partial);render();}
+
+			// --- Controls ------------------------------------------------------------
+			document.getElementById('swatches').innerHTML=colors.map(c=>`<div class="sw" data-c="${oklchToHex(...AV[c])}" style="background:${oklchToHex(...AV[c])}" title="${c}"></div>`).join('');
+			document.getElementById('swatches').addEventListener('click',e=>{const sw=e.target.closest('.sw');if(sw)set({color:sw.dataset.c});});
+			document.getElementById('custom').addEventListener('input',e=>set({color:e.target.value}));
+			for(const el of document.querySelectorAll('input[data-k]'))el.addEventListener('input',e=>set({[el.dataset.k]:parseFloat(e.target.value)}));
+			document.getElementById('eyesSeg').addEventListener('click',e=>{const b=e.target.closest('[data-eyes]');if(b)set({eyes:parseInt(b.dataset.eyes)});});
+			document.getElementById('eyeSeg').addEventListener('click',e=>{const b=e.target.closest('[data-eye]');if(b)set({eyeColor:b.dataset.eye});});
+			document.getElementById('themeSeg').addEventListener('click',e=>{const b=e.target.closest('[data-theme]');if(b){texCache.clear();set({theme:b.dataset.theme});}});
+			document.getElementById('camSeg').addEventListener('click',e=>{const b=e.target.closest('[data-cam]');if(b)set({cam:b.dataset.cam});});
+			document.getElementById('flip').addEventListener('click',()=>set({flip:!S.flip}));
+			document.getElementById('presets').innerHTML=Object.keys(PRESETS).map(k=>`<button data-p="${k}">${k}</button>`).join('');
+			document.getElementById('presets').addEventListener('click',e=>{const b=e.target.closest('[data-p]');if(b)set(PRESETS[b.dataset.p]);});
+			posesEl.addEventListener('click',e=>{const c=e.target.closest('[data-p]');if(c)set(PRESETS[c.dataset.p]);});
+			document.getElementById('reset').addEventListener('click',()=>{S={...DEFAULT};family=null;render();});
+			const rnd=(a,b)=>a+Math.random()*(b-a);
+			document.getElementById('shuffle').addEventListener('click',()=>{family={};for(const c of colors)family[c]={nose:+rnd(0.4,0.58).toFixed(3),noseOut:+rnd(0.2,0.6).toFixed(2),eye:+rnd(22,34).toFixed(1),eyeTheta:Math.round(rnd(45,70)),eyeLat:Math.round(rnd(-8,20))};render();});
+			document.getElementById('png').addEventListener('click',()=>{const a=document.createElement('a');a.download='head.png';a.href=view.toDataURL('image/png');a.click();});
+			document.getElementById('copy').addEventListener('click',()=>navigator.clipboard.writeText(location.href));
+			document.getElementById('apply').addEventListener('click',()=>{try{set(JSON.parse(document.getElementById('json').value));}catch(e){alert(e.message);}});
+
+			// Drag to turn: horizontal is a turn about y, vertical a nod about x.
+			let drag=null;
+			view.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,rotY:S.rotY,rotX:S.rotX};view.setPointerCapture(e.pointerId);});
+			view.addEventListener('pointermove',e=>{if(!drag)return;set({rotY:((Math.round(drag.rotY+(e.clientX-drag.x)*0.5)+540)%360)-180,rotX:Math.max(-60,Math.min(60,Math.round(drag.rotX+(e.clientY-drag.y)*0.5)))});});
+			view.addEventListener('pointerup',()=>{drag=null;});
+
+			// Spin and nod, to watch poses go by.
+			let anim=null;
+			function animate(kind){
+			  if(anim){cancelAnimationFrame(anim.id);const was=anim.kind;anim=null;document.getElementById('spin').classList.remove('on');document.getElementById('nod').classList.remove('on');if(was===kind)return;}
+			  const start=performance.now(),base={rotY:S.rotY,rotX:S.rotX};
+			  document.getElementById(kind).classList.add('on');
+			  const step=now=>{const t=(now-start)/1000;
+			    if(kind==='spin')set({rotY:((Math.round(base.rotY+t*60)+540)%360)-180});
+			    if(kind==='nod')set({rotX:Math.round(base.rotX+12*Math.sin(t*2.4))});
+			    anim.id=requestAnimationFrame(step);};
+			  anim={kind,id:requestAnimationFrame(step)};
+			}
+			document.getElementById('spin').addEventListener('click',()=>animate('spin'));
+			document.getElementById('nod').addEventListener('click',()=>animate('nod'));
+
+			render();
+			document.title='Head lab';
+		</script>
+	</body>
+</html>

@@ -1,11 +1,11 @@
 ---
 title: Google
-description: Connect a Google account for agents to work with Gmail, Calendar, Drive, Docs, Sheets, Slides and Contacts.
+description: Connect a Google account for agents to work with Gmail, Calendar, Drive, Docs, Sheets, Slides, Contacts and Tasks.
 ---
 
-Agents work with the account's email, calendars, files and contacts, as the person who signs in.
-Every request goes to Google live; nothing is copied. One sign-in covers Gmail, Calendar, Drive,
-Docs, Sheets, Slides and Contacts, and one connection holds them all. Gmail needs no app password, so it works for accounts
+Agents work with the account's email, calendars, files, contacts and tasks, as the person who signs
+in. Every request goes to Google live; nothing is copied. One sign-in covers Gmail, Calendar, Drive,
+Docs, Sheets, Slides, Contacts and Tasks, and one connection holds them all. Gmail needs no app password, so it works for accounts
 that can't make one.
 
 ## Before you start: a Google Cloud OAuth client
@@ -37,9 +37,10 @@ address, such as `http://192.168.1.20` or `http://nas.lan`, won't register.
 
 ### Enable the APIs
 
-Enable the Gmail API, Google Calendar API, Google Drive API, Google Docs API, Google Sheets API,
-Google Slides API and People API in the client's project. [This link](https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com,calendar-json.googleapis.com,drive.googleapis.com,docs.googleapis.com,sheets.googleapis.com,slides.googleapis.com,people.googleapis.com)
-asks for the project and enables all seven.
+Enable the Gmail API, Google Calendar API, Google Drive API, Google Sheets API, People API and
+Google Tasks API in the client's project. [This link](https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com,calendar-json.googleapis.com,drive.googleapis.com,sheets.googleapis.com,people.googleapis.com,tasks.googleapis.com)
+asks for the project and enables all six. Documents and presentations are read and written through
+Drive, so the Docs and Slides APIs aren't needed.
 
 ### Add the scopes
 
@@ -53,11 +54,11 @@ https://www.googleapis.com/auth/gmail.modify
 https://www.googleapis.com/auth/gmail.send
 https://www.googleapis.com/auth/calendar.events
 https://www.googleapis.com/auth/calendar.calendarlist.readonly
+https://www.googleapis.com/auth/calendar.events.freebusy
 https://www.googleapis.com/auth/drive
-https://www.googleapis.com/auth/documents
-https://www.googleapis.com/auth/spreadsheets
-https://www.googleapis.com/auth/presentations
 https://www.googleapis.com/auth/contacts
+https://www.googleapis.com/auth/contacts.other.readonly
+https://www.googleapis.com/auth/tasks
 ```
 
 ### Choose the audience
@@ -114,13 +115,13 @@ connection new tokens and keeps its settings.
 Google's consent screen lists every permission Personal Agent Proxy asks for, and the person can
 untick some. An action whose permission was unticked is unavailable to every agent, marked "Not
 allowed at sign-in", until the person signs in again from the connection's page. A connection made
-before Calendar and Contacts joined has their actions marked the same way, until it is signed in
-again.
+before an action joined, such as Calendar, Contacts, who is free, other contacts or Tasks, has that
+action marked the same way, until it is signed in again.
 
 ### Review the defaults
 
 A new connection gives agents nothing, as a new mailbox gives agents no access to its email. The
-connection's page shows the actions under Gmail, Calendar, Drive and Contacts, each saying how many
+connection's page shows the actions under Gmail, Calendar, Drive, Contacts and Tasks, each saying how many
 are on, with **Enable all** above them, or **Disable all** once every one is on. Turn actions on or
 off for every agent there, or only for one agent on the agent's page. A line above the permissions
 says what that means for the account: what is ticked is what agents can read and do with it.
@@ -155,6 +156,13 @@ with their offset, `2026-10-15T14:00:00+02:00`, and an all-day event as its firs
 
 - **Read events** lists, searches and opens events: their times, location, description, guests
   and their answers, the organizer, the video call and whether they repeat.
+- **See when people are free** checks when the account and the people named, by their addresses,
+  are busy, as Google's free/busy says, without what they are doing, and answers the times all of
+  them are free, nights included. It doesn't require Read events. It checks from the time given
+  to the time given, from now and for a week where they are left out; a time is written as an
+  event's is, and a day alone is the whole day. Every time is answered on the primary calendar's
+  clock. Someone whose calendar the account can't see, as is usual outside a Google Workspace
+  organization, is said to be so rather than free, and the free times say they leave them out.
 - **Create and edit events** makes events in a calendar the account can edit, the primary one
   unless another is named, and changes their title, times, location and description, and requires
   Read events. A time is written as `2026-10-15T14:00`, on the calendar's clock, or with an offset;
@@ -210,11 +218,30 @@ number or company, and answers the first 30 it finds. Emails and phone numbers a
 addresses one a line, and a birthday is `1990-04-12`, or `04-12` without the year.
 
 - **Read contacts** lists, searches and opens contacts.
+- **Read other contacts** lists, searches and opens the people Gmail keeps on its own under Other
+  contacts: those the account emailed or was emailed by but never saved. Google keeps only their
+  names, email addresses and phone numbers, and they are only read. With Add and edit contacts as
+  well, an agent can save one, which copies it into Google Contacts as a contact of its own.
 - **Add and edit contacts** adds contacts and changes their details, and requires Read contacts.
   An edit changes only the fields written differently, and an email, number or address still
   there keeps its label, such as work or home.
 
-Contacts are never deleted. The people Gmail saves on its own, under Other contacts, aren't listed.
+Contacts are never deleted.
+
+For Tasks, agents see the account's task lists, and inside each its tasks in Google's own order,
+subtasks and tasks assigned from Docs and Chat among them, 50 to a page: all of them, or only those
+still to do or done. Tasks completed in Google Tasks, which it hides there, are listed as done. A due date is a day
+alone, `2026-10-15`, as Google Tasks keeps no time of day.
+
+- **Read tasks** lists and opens task lists and tasks: their title, notes, due day, list, whether
+  they are done and when, the task a subtask is under, and the email a task was made from in
+  Gmail.
+- **Add and edit tasks** adds a task at the top of a list, the default list unless another is
+  named, changes its title, notes and due day, moves it to another list when that list's name is
+  written, and completes or reopens it, and requires Read tasks. A subtask moved to another list
+  goes to its top level; Google doesn't move a repeating task to another list.
+
+Tasks and task lists are never deleted, and lists are only read.
 
 ## Troubleshooting
 

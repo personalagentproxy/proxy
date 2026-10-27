@@ -1,0 +1,17 @@
+{
+	"color": "#1d84f5",
+	"noseDark": 0.22,
+	"eyeColor": "white",
+	"eyes": 2,
+	"nose": 0.48,
+	"noseOut": 0.35,
+	"eye": 27,
+	"eyeTheta": 55,
+	"eyeLat": 8,
+	"rotX": -3,
+	"rotY": -65,
+	"rotZ": -12,
+	"flip": false,
+	"theme": "dark",
+	"cam": "persp"
+}

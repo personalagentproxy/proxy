@@ -6,9 +6,10 @@ import {type ApiError, Do} from '@proxy/utils';
 import {googleRequest, googleWrite} from './google-client';
 
 /**
- * The People v1 calls the `contacts` collection makes, and the reading of their answers: the
- * account's contacts in Google Contacts, newest changed first, Google's search of them, and making
- * and changing one, a field at a time.
+ * The People v1 calls the `contacts` and `otherContacts` collections make, and the reading of their
+ * answers: the account's contacts in Google Contacts, newest changed first, Google's search of them,
+ * and making and changing one, a field at a time; and the people Gmail keeps under Other contacts,
+ * listed, searched and copied into the contacts.
  */
 
 const PEOPLE = 'https://people.googleapis.com/v1';
@@ -55,6 +56,12 @@ export type PersonWrite = {
 	birthdays?: Array<{date: {year?: number; month: number; day: number}}>;
 	biographies?: Array<{value: string; contentType: 'TEXT_PLAIN'}>;
 };
+
+/** The fields an other contact is read with: all Google keeps of one. */
+const OTHER_FIELDS = 'names,emailAddresses,phoneNumbers,metadata';
+
+/** The most other contacts a page of Google's list holds. */
+export const OTHER_CONTACTS_MAX_PAGE = 1000;
 
 const connectionsSchema = z.object({connections: z.array(personSchema).optional(), nextPageToken: z.string().optional()});
 
@@ -119,4 +126,41 @@ export function updateContact(accessToken: string, before: Person, person: Perso
 	url.searchParams.set('personFields', PERSON_FIELDS);
 	const sources = (before.metadata?.sources ?? []).filter((source) => source.type === 'CONTACT');
 	return googleWrite(accessToken, 'PATCH', url, {...person, etag: before.etag, metadata: {sources}}, personSchema);
+}
+
+const otherContactsSchema = z.object({otherContacts: z.array(personSchema).optional(), nextPageToken: z.string().optional()});
+
+/** A page of the account's other contacts, in Google's own order. */
+export async function listOtherContacts(accessToken: string, page: string | null, pageSize = CONTACTS_PAGE_SIZE): Promise<Result<{people: Person[]; nextPage: string | null}, ApiError>> {
+	const url = new URL(`${PEOPLE}/otherContacts`);
+	url.searchParams.set('readMask', OTHER_FIELDS);
+	url.searchParams.set('pageSize', String(pageSize));
+	if (page) {
+		url.searchParams.set('pageToken', page);
+	}
+	const answer = await googleRequest(accessToken, url, otherContactsSchema);
+	return answer.map(({otherContacts = [], nextPageToken}) => ({people: otherContacts, nextPage: nextPageToken ?? null}));
+}
+
+function otherSearchUrl(query: string): URL {
+	const url = new URL(`${PEOPLE}/otherContacts:search`);
+	url.searchParams.set('query', query);
+	url.searchParams.set('readMask', OTHER_FIELDS);
+	url.searchParams.set('pageSize', String(SEARCH_SIZE));
+	return url;
+}
+
+/** The other contacts whose names, addresses or numbers begin with the words searched for, after the empty search Google asks for first. */
+export function searchOtherContacts(accessToken: string, query: string): Promise<Result<Person[], ApiError>> {
+	return Do(async ($) => {
+		$(await googleRequest(accessToken, otherSearchUrl(''), searchSchema));
+		const answer = $(await googleRequest(accessToken, otherSearchUrl(query), searchSchema));
+		return (answer.results ?? []).map(({person}) => person);
+	});
+}
+
+/** Copies an other contact's names, addresses and numbers into a new contact in Google Contacts. */
+export function copyOtherContact(accessToken: string, resourceName: string): Promise<Result<Person, ApiError>> {
+	const body = {copyMask: 'names,emailAddresses,phoneNumbers', readMask: PERSON_FIELDS};
+	return googleWrite(accessToken, 'POST', new URL(`${PEOPLE}/${resourceName}:copyOtherContactToMyContactsGroup`), body, personSchema);
 }

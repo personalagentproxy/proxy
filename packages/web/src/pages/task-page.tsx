@@ -7,6 +7,7 @@ import {AuditEntryDialog} from '@/components/audit-entry-dialog';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
 import {AgentLogo} from '@/components/brand-logo';
+import {Head} from '@/components/head';
 import {type ShownText, TextPanel, TextSwitch} from '@/components/goal-and-outcome';
 import {NotFound} from '@/components/not-found';
 import {RunTimeline} from '@/components/run-timeline';
@@ -128,11 +129,22 @@ function TaskRunPage({
 						</div>
 						<Tooltip>
 							<TooltipTrigger
-								render={<span role="img" aria-label={agent?.name ?? 'Deleted agent'} />}
+								render={
+									<span
+										role="img"
+										aria-label={task.persona?.name ?? agent?.name ?? 'Deleted agent'}
+									/>
+								}
 							>
-								<AgentLogo providerId={agent?.providerId ?? ''} />
+								{task.persona ? (
+									<Head look={task.persona.look} color={task.persona.color} size={20} />
+								) : (
+									<AgentLogo providerId={agent?.providerId ?? ''} />
+								)}
 							</TooltipTrigger>
-							<TooltipContent>{agent?.name ?? 'Deleted agent'}</TooltipContent>
+							<TooltipContent>
+								{task.persona?.name ?? agent?.name ?? 'Deleted agent'}
+							</TooltipContent>
 						</Tooltip>
 					</div>
 					<p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">

@@ -100,6 +100,20 @@ export async function setUserEmailVerified(userId: string): Promise<Result<Creat
 	);
 }
 
+/** Refreshes the public profile claims when an existing user signs in with Google again. */
+export async function updateUserFromOAuthProfile(
+	userId: string,
+	profile: {name: string | null; image: string | null},
+): Promise<Result<CreatedUser, ApiError>> {
+	return wrapDb(() =>
+		db.user.update({
+			where: {id: userId},
+			data: profile,
+			select: createdUserSelect,
+		}),
+	);
+}
+
 export async function createUser(data: {
 	email: string;
 	name: string;

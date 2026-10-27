@@ -10,7 +10,8 @@ export type AgentProviderId =
 	| 'claude-desktop'
 	| 'hermes'
 	| 'chatgpt'
-	| 'custom';
+	| 'custom'
+	| 'proxy';
 
 export type AgentProvider = {
 	id: AgentProviderId;
@@ -21,9 +22,10 @@ export type AgentProvider = {
 	company: string;
 	/**
 	 * How the agent gets its access: `mcp` adds Personal Agent Proxy as a connector and signs in
-	 * over OAuth, which makes its login; `login` is handed a username and password.
+	 * over OAuth, which makes its login; `login` is handed a username and password; `built-in` is
+	 * Personal Agent Proxy's own agent, which needs neither.
 	 */
-	connects: 'mcp' | 'login';
+	connects: 'mcp' | 'login' | 'built-in';
 	/**
 	 * Runs on the person's own computer, so it reaches a Personal Agent Proxy there, such as one
 	 * in development at `http://localhost`. Every other agent needs a public https address.
@@ -41,6 +43,20 @@ export type AgentProvider = {
 	custom?: boolean;
 	/** Bundled with the web app, under `packages/web/public`. A custom agent has none. */
 	faviconUrl?: string;
+};
+
+/**
+ * The agents Personal Agent Proxy runs itself, on the Chat page: agent logins like any other for
+ * their access and their activity, made on the Chat page, never handed out, so not among the
+ * products a person can make a login for.
+ */
+export const BUILT_IN_AGENT_PROVIDER: AgentProvider = {
+	id: 'proxy',
+	name: 'Personal Agent Proxy',
+	company: 'Personal Agent Proxy',
+	connects: 'built-in',
+	local: true,
+	faviconUrl: '/favicon.svg',
 };
 
 // The agent products a person can connect, any number of logins of each. A product with a
@@ -148,7 +164,11 @@ export const AGENT_PROVIDERS: AgentProvider[] = [
 	},
 ];
 
+/** A provider by id, the built-in agent's among them. */
 export function findAgentProvider(id: string): AgentProvider | undefined {
+	if (id === BUILT_IN_AGENT_PROVIDER.id) {
+		return BUILT_IN_AGENT_PROVIDER;
+	}
 	return AGENT_PROVIDERS.find((provider) => provider.id === id);
 }
 

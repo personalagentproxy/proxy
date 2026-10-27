@@ -9,6 +9,7 @@ import {
 	listMcpClients,
 } from '@/client/agents-client';
 import {getConnection, listConnections} from '@/client/connections-client';
+import {getThread, listPersonas} from '@/client/harness-client';
 import {getMe} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {getInvitation, getOrg, listMembers, listOrgs} from '@/client/orgs-client';
@@ -108,6 +109,27 @@ export async function connectionLoader(args: {params: {org?: string; id?: string
 		entries,
 		tasks,
 	};
+}
+
+// Chat opens on the organization's first persona, which the api makes where it has none yet.
+export async function chatIndexLoader(args: OrgParams) {
+	const org = orgOf(args);
+	const {personas} = unwrapLoaderResult(await listPersonas(org));
+	const first = personas[0];
+	if (!first) {
+		throw redirect(`/${org}`);
+	}
+	throw redirect(`/${org}/chat/${first.id}`);
+}
+
+// The person's conversation with an agent, and the agents to switch between.
+export async function chatLoader(args: OrgParams & {params: {id?: string}}) {
+	const org = orgOf(args);
+	const [log, personas] = await Promise.all([
+		getThread(org, args.params.id ?? ''),
+		listPersonas(org),
+	]);
+	return {log: unwrapLoaderResult(log), personas: unwrapLoaderResult(personas).personas};
 }
 
 // The vault is the one built-in connection, which every organization has twice: the person's own

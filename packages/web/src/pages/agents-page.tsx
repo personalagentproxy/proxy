@@ -2,6 +2,7 @@ import {PlusIcon} from 'lucide-react';
 import {Link, useLoaderData} from 'react-router';
 import {findAgentProvider} from '@proxy/integrations';
 import {AgentLogo} from '@/components/brand-logo';
+import {Badge} from '@proxy/ui/components/badge';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {Row, RowHeader, RowList} from '@/components/row-list';
 import {SideEmpty, SideToggle} from '@/components/share-toggle';
@@ -39,7 +40,7 @@ export function AgentsPage() {
 
 	return (
 		<AppShell
-			title={<PageTitle detail={`${active} active`}>Agents</PageTitle>}
+			title={<PageTitle detail={`${active} active`}>Agent permissions</PageTitle>}
 			actions={
 				<Button
 					size="sm"
@@ -75,23 +76,37 @@ export function AgentsPage() {
 				)}
 				{agents.map((agent) => {
 					const revoked = agent.revokedAt !== null;
+					const provider = findAgentProvider(agent.providerId);
+					const builtIn = provider?.connects === 'built-in';
 					return (
 						<Row
 							key={agent.id}
 							to={`/${org}/agents/${agent.id}`}
 							icon={<AgentLogo providerId={agent.providerId} />}
 							title={
-								<span className={cn(revoked && 'text-muted-foreground')}>
-									{agent.name}
-									{revoked && ' · Revoked'}
+								<span
+									className={cn(
+										'inline-flex items-center gap-2',
+										revoked && 'text-muted-foreground',
+									)}
+								>
+									<span>
+										{agent.name}
+										{revoked && ' · Revoked'}
+									</span>
+									{builtIn && <Badge variant="secondary">Built in</Badge>}
 								</span>
 							}
 							cells={
 								<>
-									<span className={CELLS.company}>
-										{findAgentProvider(agent.providerId)?.company ?? agent.providerId}
-									</span>
-									<span className={CELLS.username}>{agent.username}</span>
+									<span className={CELLS.company}>{provider?.company ?? agent.providerId}</span>
+									{builtIn ? (
+										<span className={cn(CELLS.username, 'font-sans')}>
+											The agents on the Chat page
+										</span>
+									) : (
+										<span className={CELLS.username}>{agent.username}</span>
+									)}
 									<span className={CELLS.active}>
 										{agent.lastActiveAt ? formatAgo(agent.lastActiveAt) : 'Never'}
 									</span>

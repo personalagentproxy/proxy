@@ -11,6 +11,8 @@ import {type Viewer, visibleTo} from './viewer';
 export type AgentTaskRow = {
 	id: string;
 	agentId: string;
+	// The persona a Chat page sub-agent ran it as; null for every other task.
+	personaId: string | null;
 	// The task this one is a sub-task of; null for one started on its own.
 	parentId: string | null;
 	title: string;
@@ -29,6 +31,7 @@ export type AgentTaskRow = {
 const taskSelect = {
 	id: true,
 	agentId: true,
+	personaId: true,
 	parentId: true,
 	title: true,
 	goal: true,
@@ -52,6 +55,8 @@ export async function createAgentTask(data: {
 	orgId: string;
 	agentId: string;
 	ownerUserId: string | null;
+	// The persona a Chat page sub-agent runs it as; null for every other task.
+	personaId?: string | null;
 	parentId: string | null;
 	title: string;
 	goal: string;
@@ -236,9 +241,9 @@ export async function listOpenAgentTasks(
 /**
  * The tasks the viewer sees, shared agents' and their own agents', under way at some point between
  * `from` and `to`: started by `to` and not finished before `from`, nor left open before it, 20
- * minutes after anything was last done for it or its sub-tasks. Of those, the newest `take` started on their own,
- * newest first; a sub-task ends no later than its parent, which is under way then too, so the rest
- * are sub-tasks of these (listSubTasks).
+ * minutes after anything was last done for it or its sub-tasks. Of those, the newest `take`
+ * started on their own, newest first; a sub-task ends no later than its parent, which is under way
+ * then too, so the rest are sub-tasks of these (listSubTasks).
  */
 export async function listAgentTasksBetween(
 	viewer: Viewer,

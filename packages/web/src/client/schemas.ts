@@ -1,4 +1,5 @@
 import {mcpToolSchema} from '@proxy/integrations';
+import {AVATAR_COLORS, lookSchema} from '@proxy/utils/harness';
 import {z} from 'zod';
 
 // The api's response shapes, shared by the human side's and the agent side's clients.
@@ -68,8 +69,8 @@ export const auditEntrySchema = z.object({
 	// What went wrong, for a failed request: the api's kind of error, with the provider's HTTP
 	// status where it answered with one, such as `provider_unreachable 429`.
 	error: z.string().nullable(),
-	// The web app's agent pages, or the MCP server.
-	via: z.enum(['web', 'mcp']),
+	// The web app's agent pages, the MCP server, or the built-in agent's own loop.
+	via: z.enum(['web', 'mcp', 'harness']),
 	// The agent's task it was made for, among the answer's tasks; none for entries from before
 	// tasks, and for what Personal Agent Proxy did itself.
 	taskId: z.string().nullable(),
@@ -86,12 +87,16 @@ export const auditEntrySchema = z.object({
 export const activityTaskSchema = z.object({
 	id: z.string(),
 	agentId: z.string(),
+	// The persona of the Chat page a sub-agent ran it as, with its head; null for every other task.
+	persona: z
+		.object({id: z.string(), name: z.string(), look: lookSchema, color: z.enum(AVATAR_COLORS)})
+		.nullable(),
 	// The agent's task it is a sub-task of, handed to one of its sub-agents; null for one started
 	// on its own.
 	parentId: z.string().nullable(),
 	title: z.string(),
 	goal: z.string(),
-	via: z.enum(['web', 'mcp']),
+	via: z.enum(['web', 'mcp', 'harness']),
 	startedAt: z.string(),
 	// Null while the agent hasn't called it finished.
 	finishedAt: z.string().nullable(),

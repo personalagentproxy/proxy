@@ -34,7 +34,7 @@ const ROWS = 'flex flex-col gap-4';
 
 // A connection's access, the way an editor shows its settings: one checkbox per action, the only
 // control for it, under the name of the part of the provider it belongs to where the integration
-// groups them, as Google's are Gmail's, Calendar's, Drive's and Contacts', each saying how many are
+// groups them, as Google's are Gmail's, Calendar's, Drive's, Contacts' and Tasks', each saying how many are
 // on, and one button above them all turning every action on, or off once all are. On an agent's
 // page every action starts on the connection's default; one the agent has its own setting for is
 // marked with a bar, a button that makes it the default for every agent, and one that resets it to

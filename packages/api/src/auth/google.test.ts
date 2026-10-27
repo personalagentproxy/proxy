@@ -24,12 +24,14 @@ const getUserByEmail = mock();
 const getUserFromId = mock();
 const createUserFromOAuthProfile = mock();
 const deleteUser = mock();
+const updateUserFromOAuthProfile = mock();
 
 mock.module('@proxy/db/user', () => ({
 	getUserByEmail,
 	getUserFromId,
 	createUserFromOAuthProfile,
 	deleteUser,
+	updateUserFromOAuthProfile,
 }));
 
 mock.module('../observability/log', () => ({
@@ -157,6 +159,13 @@ beforeEach(() => {
 	createUserFromOAuthProfile.mockResolvedValue(Ok({id: 'user-new', email: googleProfile.email, name: googleProfile.name}));
 	createOAuthAccount.mockResolvedValue(Ok(undefined));
 	deleteUser.mockResolvedValue(Ok(undefined));
+	updateUserFromOAuthProfile.mockResolvedValue(
+		Ok({
+			id: 'user-1',
+			email: googleProfile.email,
+			name: googleProfile.name,
+		}),
+	);
 	createSession.mockResolvedValue(Ok(undefined));
 });
 
@@ -247,9 +256,9 @@ describe('handleGoogleStartRoute', () => {
 });
 
 describe('handleGoogleCallbackRoute', () => {
-	test('signs in an existing linked account: no user creation, session + cookie', async () => {
+	test('signs in an existing linked account and refreshes its Google profile', async () => {
 		getAccountByProvider.mockResolvedValue(Ok({userId: 'user-1'}));
-		getUserFromId.mockResolvedValue(Ok({id: 'user-1', email: googleProfile.email, name: 'Existing User'}));
+		getUserFromId.mockResolvedValue(Ok({id: 'user-1', email: googleProfile.email, name: 'Existing User', image: null}));
 
 		const {handleGoogleCallbackRoute} = await importRoutes();
 		const flow = await startFlow();
@@ -258,6 +267,10 @@ describe('handleGoogleCallbackRoute', () => {
 
 		expect(getAccountByProvider).toHaveBeenCalledWith('google', googleProfile.sub);
 		expect(getUserFromId).toHaveBeenCalledWith('user-1');
+		expect(updateUserFromOAuthProfile).toHaveBeenCalledWith('user-1', {
+			name: googleProfile.name,
+			image: googleProfile.picture,
+		});
 		expect(createUserFromOAuthProfile).not.toHaveBeenCalled();
 		expect(createOAuthAccount).not.toHaveBeenCalled();
 
@@ -279,6 +292,20 @@ describe('handleGoogleCallbackRoute', () => {
 		});
 
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/projects/abc');
+	});
+
+	test('profile refresh failure stops an existing linked-account sign-in', async () => {
+		getAccountByProvider.mockResolvedValue(Ok({userId: 'user-1'}));
+		getUserFromId.mockResolvedValue(Ok({id: 'user-1', email: googleProfile.email, name: 'Existing User', image: null}));
+		updateUserFromOAuthProfile.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
+
+		const {handleGoogleCallbackRoute} = await importRoutes();
+		const flow = await startFlow();
+		const res = makeRes();
+		await handleGoogleCallbackRoute(makeCallbackRequest(flow) as never, res as never);
+
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/login?error=Callback');
+		expect(createSession).not.toHaveBeenCalled();
 	});
 
 	test('signs up a new user: user + account created, redirect honored', async () => {

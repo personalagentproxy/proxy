@@ -24,7 +24,7 @@ const TIMEOUT_MS = 15_000;
 // Refreshed a minute early, so a token doesn't run out between the check and the call.
 const EXPIRY_MARGIN_MS = 60_000;
 
-/** Every scope a sign-in asks for: the account's address, then Gmail, Calendar, Drive, Docs, Sheets, Slides and Contacts. */
+/** Every scope a sign-in asks for: the account's address, then Gmail, Calendar, Drive, Contacts and Tasks. */
 export const GOOGLE_SCOPES = ['openid', 'https://www.googleapis.com/auth/userinfo.email', ...PRODUCT_SCOPES];
 
 /** What a Google connection stores, encrypted: its tokens, the scopes Google granted, and the account. */

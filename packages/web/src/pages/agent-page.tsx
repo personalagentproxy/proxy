@@ -87,7 +87,10 @@ function AgentDetail({id}: {id: string}) {
 	const reachable = agent.shared
 		? connections.filter((connection) => connection.shared)
 		: connections;
-	const company = findAgentProvider(agent.providerId)?.company ?? agent.providerId;
+	const provider = findAgentProvider(agent.providerId);
+	const company = provider?.company ?? agent.providerId;
+	// A built-in agent has no login to hand out: it runs in Personal Agent Proxy itself.
+	const builtIn = provider?.connects === 'built-in';
 
 	return (
 		<AppShell
@@ -96,9 +99,11 @@ function AgentDetail({id}: {id: string}) {
 					<BackButton to={`/${org}/agents`} label="Back to agents" />
 					<PageTitle
 						detail={
-							revoked
-								? `${company} · revoked ${formatDate(agent.revokedAt ?? '')}`
-								: `${company} · added ${formatDate(agent.createdAt)}`
+							builtIn
+								? 'Built in · the agents on the Chat page act through it, with its access'
+								: revoked
+									? `${company} · revoked ${formatDate(agent.revokedAt ?? '')}`
+									: `${company} · added ${formatDate(agent.createdAt)}`
 						}
 					>
 						<span className="flex items-center gap-2">
@@ -114,12 +119,12 @@ function AgentDetail({id}: {id: string}) {
 						<IconButton label="Rename agent" onClick={() => setRenaming(true)}>
 							<PencilIcon />
 						</IconButton>
-						{!revoked && (
+						{!revoked && !builtIn && (
 							<IconButton label="Set up again" to={`/${org}/agents/${agent.id}/setup`}>
 								<KeyRoundIcon />
 							</IconButton>
 						)}
-						{revoked ? (
+						{builtIn ? null : revoked ? (
 							<IconButton
 								label="Restore login"
 								onClick={() => void apply(setAgentRevoked(org, agent.id, false))}
@@ -131,9 +136,11 @@ function AgentDetail({id}: {id: string}) {
 								<BanIcon />
 							</IconButton>
 						)}
-						<IconButton label="Delete agent" onClick={() => setConfirming('delete')}>
-							<Trash2Icon />
-						</IconButton>
+						{!builtIn && (
+							<IconButton label="Delete agent" onClick={() => setConfirming('delete')}>
+								<Trash2Icon />
+							</IconButton>
+						)}
 					</>
 				)
 			}

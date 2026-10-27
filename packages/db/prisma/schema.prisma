@@ -40,6 +40,7 @@ model User {
   ownedOrgs    Organization[]
   connections  Connection[]
   agents       Agent[]
+  threads      AgentThread[]
   writeTargets WriteTarget[]
 }
 
@@ -117,6 +118,8 @@ model Organization {
   audit       AuditEntry[]
   feedback    AgentFeedback[]
   tasks       AgentTask[]
+  threads     AgentThread[]
+  personas    Persona[]
 
   @@index([ownerUserId])
 }
@@ -288,6 +291,7 @@ model Agent {
   sessions    AgentSession[]
   oauthCodes  OAuthCode[]
   oauthGrants OAuthGrant[]
+  threads     AgentThread[]
 
   @@index([orgId])
   @@index([ownerUserId])
@@ -335,10 +339,12 @@ enum AuditOutcome {
   failed
 }
 
-// How an agent came in: the web app's agent pages, or the MCP server.
+// How an agent came in: the web app's agent pages, the MCP server, or the built-in agent's own
+// loop (`harness`).
 enum AuditVia {
   web
   mcp
+  harness
 }
 
 // One request an agent made, allowed, denied or failed, or one thing Personal Agent Proxy did
@@ -412,6 +418,9 @@ model AgentTask {
   // The member whose own the agent is, who alone sees the task; null for a shared agent's, which
   // everyone in the organization sees.
   ownerUserId String?
+  // The persona a sub-agent of the Chat page ran the task as (Persona), for the activity log to
+  // say whose it was; null for every other task. As a column, as the agent is.
+  personaId String?
   // When it, or the last of its sub-tasks at any depth, was started or had a request made for it:
   // one never finished is taken as left open 20 minutes after (@proxy/utils/tasks). Never before
   // any of its sub-tasks', so a parent is never left open while one is under way. Set with
@@ -523,4 +532,199 @@ model OAuthGrant {
   @@index([clientId])
   @@index([agentId])
   @@index([userId])
+}
+
+// A persona of the Chat page: an agent Personal Agent Proxy runs itself, as the organization's
+// members see it, named and given a head, one of any number. Every persona acts through the
+// organization's one built-in agent login (Agent, provider `proxy`), whose grants are every
+// persona's: a persona is who did the work, the login is what it may do.
+model Persona {
+  id    String @id @default(cuid())
+  orgId String
+  name  String
+  // Its head: the look as JSON (`@proxy/utils/harness` Look), in one of the colors.
+  look  String
+  color String
+  // Who made it, who may change it beside the organization's owner.
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  threads AgentThread[]
+
+  @@index([orgId, createdAt])
+}
+
+// A thread of the built-in agent, holding its log of entries: a member's conversation with a
+// persona, or a sub-agent started from it. Every call a sub-agent makes is for its thread's task,
+// as any agent's calls are; a task left open, 20 minutes on with nothing done for it, is replaced
+// by a new one. A conversation has no task: its agent makes no calls but to delegate. Everything
+// that happens to the agent is an entry (AgentEntry), and everything that makes it do something
+// is a job (AgentJob).
+model AgentThread {
+  id      String @id @default(cuid())
+  orgId   String
+  // The organization's built-in agent login, which the persona acts through: its grants, its
+  // activity log.
+  agentId String
+  // The persona the conversation is with, or the sub-agent works as.
+  personaId String
+  // The member whose conversation with the agent it is, or, for a sub-agent's thread, whose
+  // conversation it was started from: the agent acts as them in it, reaching what they see, and
+  // nobody else sees it.
+  userId  String
+  // A sub-agent's thread: the thread whose agent delegated to it (AgentThread; as a column, as a
+  // task's parent is, since its agent, member and organization are the same, and go with them),
+  // and the call in that thread's log it was started by, which its report answers. Null for a
+  // member's conversation, of which there is one per member and agent.
+  parentThreadId String?
+  parentCallId   String?
+  // A sub-agent's title, as the agent that delegated to it gave it; null for a conversation.
+  title   String?
+  // The task a sub-agent's calls are made for, the sub-agent's own; a conversation has none: its
+  // agent makes no calls but to delegate.
+  taskId  String?
+  // When a sub-agent reported, or failed: its work is done, and nothing more runs on its thread.
+  finishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  agent   Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  persona Persona      @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries   AgentEntry[]
+  jobs      AgentJob[]
+  jobEvents AgentJobEvent[]
+
+  @@index([personaId, userId])
+  @@index([agentId])
+  @@index([parentThreadId])
+  @@index([orgId, createdAt])
+}
+
+// What an entry of a thread's log is: what the person said (a sub-agent's brief, in its thread),
+// what the model answered, with the tool calls it made, what one of those calls answered, an
+// event that came since (what a call run in the background came to, a sub-agent's report), or a
+// summary of the log up to a point, which the model reads in place of what it covers once the log
+// has grown long.
+enum AgentEntryKind {
+  person
+  assistant
+  tool_result
+  event
+  summary
+}
+
+// One entry of a thread's log, in the order of `seq`. The log is the transcript the model reads:
+// an assistant entry carries its tool calls, and each gets a tool_result entry once run. An entry
+// that lands while the model is answering on the log is pending: it is not in the log yet, and
+// gets its place, a new `seq` after the answer, once the answer is written.
+model AgentEntry {
+  id       String         @id @default(cuid())
+  seq      Int            @unique @default(autoincrement())
+  threadId String
+  kind     AgentEntryKind
+  pending  Boolean        @default(false)
+  // What the person said, what the model said (maybe nothing beside its calls), or what a call
+  // answered.
+  text     String
+  // An assistant entry's tool calls as JSON (`@proxy/utils/harness` ToolCall[]); null otherwise.
+  toolCalls String?
+  // A tool_result or event entry's call, by the id the model gave it; null otherwise.
+  callId   String?
+  // A tool_result or event that is an error, in words the model can act on.
+  isError  Boolean        @default(false)
+  // An assistant entry's cost.
+  inputTokens  Int?
+  outputTokens Int?
+  // A summary entry's reach: the `seq` of the last entry it stands for; null otherwise.
+  coversSeq Int?
+  // An assistant entry's system prompt, as the model was sent it: built from the login's grants
+  // as they were then, which nothing else keeps. Null where the model wasn't run for the answer.
+  system   String?
+  // The job that wrote the entry (AgentJob; as a column: the two live and die with the thread),
+  // with its attempts and its error; null for what the person wrote.
+  jobId    String?
+
+  createdAt DateTime @default(now())
+
+  thread AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, seq])
+}
+
+enum AgentJobKind {
+  inference
+  tool
+}
+
+enum AgentJobStatus {
+  queued
+  running
+  done
+  failed
+}
+
+// A unit of the built-in agent's work, claimed by one api instance at a time: run the model on a
+// thread's log (inference), or run one tool call of an assistant entry (tool). `runAt` is when it
+// may run, which is how a call to sleep is kept. A worker claims a job due with a lease, renews
+// the lease while it works, and finishes the job in the same transaction as the entries it writes,
+// only while it still holds the lease; a lease that runs out gives the job to the next worker.
+model AgentJob {
+  id       String         @id @default(cuid())
+  threadId String
+  kind     AgentJobKind
+  status   AgentJobStatus @default(queued)
+  // A tool job's call: the assistant entry it is in and the id the model gave it.
+  entryId  String?
+  callId   String?
+  runAt    DateTime       @default(now())
+  // Which worker holds it, and until when, while it is running.
+  claimedBy      String?
+  leaseExpiresAt DateTime?
+  attempts       Int       @default(0)
+  // Why it failed, where it did.
+  error    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  thread AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([entryId, callId])
+  @@index([status, runAt])
+  @@index([threadId])
+}
+
+enum AgentJobEventKind {
+  claimed
+  requeued
+  done
+  failed
+}
+
+// What happened to a job, one row per happening, written once: a job's row is the queue's lock,
+// overwritten on every claim, so it keeps only its last attempt; this keeps every claim, who
+// made it and when, each failure and why, and each time it was put back. A claim's `at` is when
+// the worker took the job, so near when its turn was prepared.
+model AgentJobEvent {
+  id       String            @id @default(cuid())
+  jobId    String
+  // The job's thread, so a thread's history is one query.
+  threadId String
+  kind     AgentJobEventKind
+  // The worker, on claimed, done and failed.
+  workerId String?
+  // Why, on failed, and on requeued: why it is to be tried again.
+  error    String?
+  at       DateTime          @default(now())
+
+  thread AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, at])
+  @@index([threadId, at])
 }

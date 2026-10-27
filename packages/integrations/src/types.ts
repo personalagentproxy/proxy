@@ -30,8 +30,8 @@ export type Action = {
 	requires?: string;
 	// Reaches people beyond the account, as sending email does.
 	reachesOthers?: true;
-	// The part of the provider it belongs to, as Google's actions are Gmail's, Calendar's, Drive's or
-	// Contacts': a connection's permissions show each group's actions under its name.
+	// The part of the provider it belongs to, as Google's actions are Gmail's, Calendar's, Drive's,
+	// Contacts' or Tasks': a connection's permissions show each group's actions under its name.
 	group?: string;
 };
 

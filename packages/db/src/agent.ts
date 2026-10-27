@@ -57,6 +57,35 @@ export async function getAgentById(
 	return wrapDb(() => db.agent.findFirst({where: {id: agentId, orgId}, select: agentSelect}));
 }
 
+/**
+ * The organization's one shared agent of a provider, such as its built-in login, made by nobody
+ * in particular with what `make` gives where there is none yet: the organization's row is locked
+ * meanwhile, so two first uses make one.
+ */
+export async function ensureSharedAgent(
+	orgId: string,
+	providerId: string,
+	make: () => Promise<{name: string; username: string; passwordHash: string}>,
+): Promise<Result<AgentRow, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			await tx.$queryRaw`SELECT "id" FROM "Organization" WHERE "id" = ${orgId} FOR UPDATE`;
+			const existing = await tx.agent.findFirst({
+				where: {orgId, providerId, ownerUserId: null},
+				select: agentSelect,
+				orderBy: {createdAt: 'asc'},
+			});
+			if (existing) {
+				return existing;
+			}
+			return tx.agent.create({
+				data: {orgId, providerId, ownerUserId: null, createdById: null, ...(await make())},
+				select: agentSelect,
+			});
+		}),
+	);
+}
+
 /** `Ok(null)` means no such agent the viewer sees. */
 export async function getAgent(
 	viewer: MemberViewer,
@@ -74,7 +103,8 @@ export async function getAgent(
 export async function createAgent(data: {
 	orgId: string;
 	ownerUserId: string | null;
-	createdById: string;
+	// Who made it; null for the organization's built-in login, made by nobody in particular.
+	createdById: string | null;
 	providerId: string;
 	name: string;
 	username: string;

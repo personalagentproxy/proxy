@@ -18,6 +18,7 @@ function task(overrides: Partial<ActivityTask>): ActivityTask {
 	return {
 		id: 't1',
 		agentId: 'a1',
+		persona: null,
 		parentId: null,
 		title: 'Triage inbox',
 		goal: 'Archive the newsletters',

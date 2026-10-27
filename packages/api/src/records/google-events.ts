@@ -1,4 +1,4 @@
-import {Err, Ok, Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
@@ -18,6 +18,7 @@ import {
 	type GoogleEvent,
 } from '../connections/google/calendar-api';
 import {callGoogle} from '../connections/google/google-client';
+import {readTime, realDay, zonedInstant, type Written} from './calendar-time';
 import {requireFirstPage, type CommandRunner, type Connector, type DataRecord, type ListQuery, type RecordPage, type RecordTarget, type RecordValues} from './connector';
 import {readPageToken, writePageToken} from './page-token';
 
@@ -186,34 +187,16 @@ function eventRecord(calendarId: string, event: GoogleEvent): DataRecord {
 	return {id: eventRecordId(calendarId, event.id), values: eventValues(event), updatedAt: event.updated ?? NEVER, ...(event.htmlLink ? {url: event.htmlLink} : {})};
 }
 
-// A time as written: a day for an all-day event, or a time, with its offset or on the calendar's clock.
-type Written = {kind: 'day'; date: string} | {kind: 'time'; dateTime: string; offset: boolean};
-
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
-const TIME = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/i;
-
-function realDay(day: string): boolean {
-	return DAY.test(day) && new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) === day;
-}
-
 function parseTime(label: string, text: string): Result<Written, ApiError> {
-	const trimmed = text.trim();
-	const refusal = ApiErr.validationError(
-		`Write ${label} as a time, 2026-10-15T14:00, on the calendar’s clock or with an offset such as +02:00, or as a day, 2026-10-15, for an all-day event, not “${trimmed}”`,
-	);
-	if (realDay(trimmed)) {
-		return Ok({kind: 'day', date: trimmed});
+	const time = readTime(text);
+	if (!time) {
+		return Err(
+			ApiErr.validationError(
+				`Write ${label} as a time, 2026-10-15T14:00, on the calendar’s clock or with an offset such as +02:00, or as a day, 2026-10-15, for an all-day event, not “${text.trim()}”`,
+			),
+		);
 	}
-	const [, day = '', hours = '', minutes = '', seconds = '00', offset] = TIME.exec(trimmed) ?? [];
-	if (!realDay(day) || Number(hours) > 23 || Number(minutes) > 59 || Number(seconds) > 59) {
-		return Err(refusal);
-	}
-	const dateTime = `${day}T${hours}:${minutes}:${seconds}`;
-	if (offset === undefined) {
-		return Ok({kind: 'time', dateTime, offset: false});
-	}
-	const zone = offset.toUpperCase() === 'Z' ? 'Z' : `${offset.slice(0, 3)}:${offset.slice(-2)}`;
-	return Ok({kind: 'time', dateTime: `${dateTime}${zone}`, offset: true});
+	return Ok(time);
 }
 
 const HOUR_MS = 3_600_000;
@@ -333,25 +316,9 @@ function readPage(page: string | null): Result<z.infer<typeof pageSchema> | null
 	return readPageToken(pageSchema, page);
 }
 
-// How far ahead of UTC a time zone's clock is at an instant.
-function offsetMs(instant: number, timeZone: string): number {
-	const parts = new Intl.DateTimeFormat('en-US', {timeZone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric'}).formatToParts(
-		instant,
-	);
-	const part = (type: string) => Number(parts.find((one) => one.type === type)?.value ?? 0);
-	const clock = Date.UTC(part('year'), part('month') - 1, part('day'), part('hour'), part('minute'), part('second'));
-	return clock - Math.floor(instant / 1000) * 1000;
-}
-
 // The instant a day begins in a time zone, UTC's where the calendar has none Intl knows.
 function dayStart(day: string, timeZone: string | undefined): string {
-	const midnight = Date.parse(`${day}T00:00:00Z`);
-	const shifted = Result.wrap(() => {
-		const zone = timeZone ?? 'UTC';
-		const guess = midnight - offsetMs(midnight, zone);
-		return midnight - offsetMs(guess, zone);
-	});
-	return new Date(shifted.unwrapOr(midnight)).toISOString();
+	return zonedInstant(`${day}T00:00:00`, timeZone);
 }
 
 // A search that begins with a day lists from that day on, its words searched for after it.

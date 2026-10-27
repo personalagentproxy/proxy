@@ -5,7 +5,7 @@ import {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {createOAuthAccount, getAccountByProvider} from '@proxy/db/auth';
-import {createUserFromOAuthProfile, deleteUser, getUserByEmail, getUserFromId} from '@proxy/db/user';
+import {createUserFromOAuthProfile, deleteUser, getUserByEmail, getUserFromId, updateUserFromOAuthProfile} from '@proxy/db/user';
 import {formatFetchError, httpRequest, parseCookieHeader} from '@proxy/utils';
 
 import {plaidClient} from '../connections/plaid/plaid-client';
@@ -297,6 +297,16 @@ export async function handleGoogleCallbackRoute(req: Request, res: Response): Pr
 			log.error('Google OAuth account points at a missing user', {userId: accountResult.value.userId});
 			redirectToLoginError(res, config.appUrl, 'Callback');
 			return;
+		}
+
+		const currentProfile = {name: profile.name ?? null, image: profile.picture ?? null};
+		if (userResult.value.name !== currentProfile.name || userResult.value.image !== currentProfile.image) {
+			const updateResult = await updateUserFromOAuthProfile(userResult.value.id, currentProfile);
+			if (updateResult.isErr()) {
+				log.error('Google OAuth profile refresh failed', serializeError(updateResult.error));
+				redirectToLoginError(res, config.appUrl, 'Callback');
+				return;
+			}
 		}
 
 		await establishSessionAndRedirect(res, {appUrl: config.appUrl, callbackUrl, userId: userResult.value.id});

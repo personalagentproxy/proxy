@@ -4,6 +4,8 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import {type AuditEntryRow, listAuditEntries, listLastTaskEntries, listTaskEntries} from '@proxy/db/audit';
 import {listMemberNames} from '@proxy/db/organization';
+import type {Look} from '@proxy/utils/harness';
+import {listPersonasById} from '@proxy/db/harness';
 import {type AgentTaskRow, listAgentTasks, listAgentTasksBetween, listSubTasks} from '@proxy/db/task';
 import type {Viewer} from '@proxy/db/viewer';
 
@@ -27,8 +29,8 @@ export type AuditEntryResponse = {
 	// What went wrong, for a failed request: the api's kind of error, with the provider's HTTP status
 	// where it answered with one, such as `provider_unreachable 429`; none for every other outcome.
 	error: string | null;
-	// The web app's agent pages, or the MCP server.
-	via: 'web' | 'mcp';
+	// The web app's agent pages, the MCP server, or the built-in agent's own loop.
+	via: 'web' | 'mcp' | 'harness';
 	// The agent's task the request was made for, among the answer's `tasks`; none for entries from
 	// before tasks, and for what Personal Agent Proxy did itself.
 	taskId: string | null;
@@ -46,12 +48,15 @@ export type AuditEntryResponse = {
 export type ActivityTaskResponse = {
 	id: string;
 	agentId: string;
+	// The persona of the Chat page a sub-agent ran it as, with its head; null for every other task,
+	// and for one whose persona is gone.
+	persona: {id: string; name: string; look: Look; color: string} | null;
 	// The agent's task it is a sub-task of, where the agent handed part of that task to a sub-agent;
 	// null for a task started on its own. The parent may be missing from the answer.
 	parentId: string | null;
 	title: string;
 	goal: string;
-	via: 'web' | 'mcp';
+	via: 'web' | 'mcp' | 'harness';
 	startedAt: string;
 	// Null while the agent hasn't called it finished, left open (@proxy/utils/tasks) or not.
 	finishedAt: string | null;
@@ -62,8 +67,22 @@ export type ActivityTaskResponse = {
 	lastActiveAt: string;
 };
 
-function toActivityTask({createdAt, finishedAt, lastActiveAt, ...task}: AgentTaskRow): ActivityTaskResponse {
-	return {...task, startedAt: createdAt.toISOString(), finishedAt: finishedAt?.toISOString() ?? null, lastActiveAt: lastActiveAt.toISOString()};
+// The tasks as the web app reads them, each with the persona it was run as, where it was.
+function toActivityTasks(viewer: Viewer, rows: AgentTaskRow[]): Promise<Result<ActivityTaskResponse[], ApiError>> {
+	return Do(async ($) => {
+		const personaIds = new Set(rows.flatMap((row) => (row.personaId === null ? [] : [row.personaId])));
+		const personas = $(await listPersonasById(viewer.orgId, [...personaIds]));
+		return rows.map(({createdAt, finishedAt, lastActiveAt, personaId, ...task}) => {
+			const persona = personas.find((candidate) => candidate.id === personaId);
+			return {
+				...task,
+				persona: persona ? {id: persona.id, name: persona.name, look: persona.look, color: persona.color} : null,
+				startedAt: createdAt.toISOString(),
+				finishedAt: finishedAt?.toISOString() ?? null,
+				lastActiveAt: lastActiveAt.toISOString(),
+			};
+		});
+	});
 }
 
 // `?agentId=proxy` is what Personal Agent Proxy did itself.
@@ -94,7 +113,7 @@ export function handleListActivityRoute(request: AuthenticatedRequest): Promise<
 		const rows = $(await listAuditEntries(viewer, filter, MAX_ENTRIES));
 		const taskIds = new Set([...rows.flatMap((row) => (row.taskId === null ? [] : [row.taskId])), ...(taskId === undefined ? [] : [taskId])]);
 		const tasks = $(await listAgentTasks(viewer, [...taskIds]));
-		return {entries: $(await toEntries(viewer, rows)), tasks: tasks.map(toActivityTask)};
+		return {entries: $(await toEntries(viewer, rows)), tasks: $(await toActivityTasks(viewer, tasks))};
 	});
 }
 
@@ -151,8 +170,8 @@ export function handleTaskRunRoute(request: AuthenticatedRequest): Promise<Resul
 			now: now.toISOString(),
 			task: task.id,
 			agentId: task.agentId,
-			parent: parent === undefined ? null : toActivityTask(parent),
-			tasks: tasks.map(toActivityTask),
+			parent: parent === undefined ? null : ($(await toActivityTasks(viewer, [parent]))[0] ?? null),
+			tasks: $(await toActivityTasks(viewer, tasks)),
 			entries: $(await toEntries(viewer, rows)),
 		};
 	});
@@ -215,7 +234,7 @@ export function handleActivityTimelineRoute(request: AuthenticatedRequest): Prom
 			now: now.toISOString(),
 			from: from.toISOString(),
 			to: to.toISOString(),
-			tasks: tasks.map(toActivityTask),
+			tasks: $(await toActivityTasks(viewer, tasks)),
 			entries: $(await toEntries(viewer, [...rows, ...later])),
 		};
 	});

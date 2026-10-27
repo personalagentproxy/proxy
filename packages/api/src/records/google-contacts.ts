@@ -54,7 +54,7 @@ function birthdayOf(person: Person): string {
 	return birthday?.text ?? '';
 }
 
-function contactValues(person: Person): RecordValues {
+export function contactValues(person: Person): RecordValues {
 	const organization = person.organizations?.[0];
 	const name = person.names?.[0];
 	return {

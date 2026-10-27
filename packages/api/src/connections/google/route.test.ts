@@ -49,11 +49,11 @@ const SCOPES = [
 	'https://www.googleapis.com/auth/gmail.send',
 	'https://www.googleapis.com/auth/calendar.events',
 	'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+	'https://www.googleapis.com/auth/calendar.events.freebusy',
 	'https://www.googleapis.com/auth/drive',
-	'https://www.googleapis.com/auth/documents',
-	'https://www.googleapis.com/auth/spreadsheets',
-	'https://www.googleapis.com/auth/presentations',
 	'https://www.googleapis.com/auth/contacts',
+	'https://www.googleapis.com/auth/contacts.other.readonly',
+	'https://www.googleapis.com/auth/tasks',
 ];
 
 function base64url(value: object): string {
@@ -80,7 +80,7 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 		refresh_token: 'refresh-1',
 		expires_in: 3599,
 		token_type: 'Bearer',
-		scope: 'openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents',
+		scope: 'openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/tasks',
 		id_token: google.idToken,
 	});
 }) as typeof fetch);
@@ -196,7 +196,7 @@ describe('handleGoogleCallbackRoute', () => {
 			accessToken: 'access-1',
 			refreshToken: 'refresh-1',
 			expiresAt: expect.any(String),
-			scopes: ['openid', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/documents'],
+			scopes: ['openid', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/tasks'],
 			email: 'alex@example.com',
 		});
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-1?added');
