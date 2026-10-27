@@ -74,7 +74,7 @@ export function ConnectedLogos({
 			>
 				{active.slice(0, SHOWN).map((agent) => (
 					<Logo key={agent.id} name={agent.name}>
-						<AgentLogo providerId={agent.providerId} className={TILE} />
+						<AgentLogo providerId={agent.providerId} face={agent.face} className={TILE} />
 					</Logo>
 				))}
 			</Group>

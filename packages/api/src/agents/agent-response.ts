@@ -9,6 +9,8 @@ export type AgentResponse = {
 	providerId: string;
 	name: string;
 	username: string;
+	// A built-in agent's face, shown in place of a logo; null for every other agent.
+	face: {shape: string; color: string} | null;
 	// Shared with every member of its organization, rather than one member's own.
 	shared: boolean;
 	// Who made it, kept once it is shared; null for one from before it was kept.
@@ -29,6 +31,7 @@ function toAgentResponse(row: AgentRow, createdBy: string | null): AgentResponse
 		providerId: row.providerId,
 		name: row.name,
 		username: row.username,
+		face: row.shape !== null && row.color !== null ? {shape: row.shape, color: row.color} : null,
 		shared: row.ownerUserId === null,
 		createdById: row.createdById,
 		createdBy,

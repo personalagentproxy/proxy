@@ -17,6 +17,9 @@ export type AgentRow = {
 	providerId: string;
 	name: string;
 	username: string;
+	// A built-in agent's face (@proxy/utils/harness avatars); null for every other agent.
+	shape: string | null;
+	color: string | null;
 	createdAt: Date;
 	lastActiveAt: Date | null;
 	revokedAt: Date | null;
@@ -32,6 +35,8 @@ const agentSelect = {
 	providerId: true,
 	name: true,
 	username: true,
+	shape: true,
+	color: true,
 	createdAt: true,
 	lastActiveAt: true,
 	revokedAt: true,

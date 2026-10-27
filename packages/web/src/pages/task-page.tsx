@@ -130,7 +130,7 @@ function TaskRunPage({
 							<TooltipTrigger
 								render={<span role="img" aria-label={agent?.name ?? 'Deleted agent'} />}
 							>
-								<AgentLogo providerId={agent?.providerId ?? ''} />
+								<AgentLogo providerId={agent?.providerId ?? ''} face={agent?.face} />
 							</TooltipTrigger>
 							<TooltipContent>{agent?.name ?? 'Deleted agent'}</TooltipContent>
 						</Tooltip>

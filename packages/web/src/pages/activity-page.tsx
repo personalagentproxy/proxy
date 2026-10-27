@@ -140,7 +140,7 @@ function TaskCard({
 			<p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
 				{agent && (
 					<span className="inline-flex items-center gap-1.5">
-						<AgentLogo providerId={agent.providerId} />
+						<AgentLogo providerId={agent.providerId} face={agent.face} />
 						{agent.name}
 					</span>
 				)}

@@ -35,6 +35,7 @@ const agent = (id: string, providerId: string, name: string, revokedAt: string |
 	providerId,
 	name,
 	username: id,
+	face: null,
 	shared: false,
 	createdById: 'user-1',
 	createdBy: null,

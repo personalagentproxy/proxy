@@ -79,7 +79,7 @@ export function AgentsPage() {
 						<Row
 							key={agent.id}
 							to={`/${org}/agents/${agent.id}`}
-							icon={<AgentLogo providerId={agent.providerId} />}
+							icon={<AgentLogo providerId={agent.providerId} face={agent.face} />}
 							title={
 								<span className={cn(revoked && 'text-muted-foreground')}>
 									{agent.name}

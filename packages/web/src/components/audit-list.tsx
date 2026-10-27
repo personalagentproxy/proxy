@@ -36,7 +36,7 @@ function EntryAgentLogo({entry, agent}: {entry: AuditEntry; agent: AgentLogin | 
 	return (
 		<NamedLogo
 			name={agent?.name ?? 'Deleted agent'}
-			logo={agent && <AgentLogo providerId={agent.providerId} />}
+			logo={agent && <AgentLogo providerId={agent.providerId} face={agent.face} />}
 		/>
 	);
 }

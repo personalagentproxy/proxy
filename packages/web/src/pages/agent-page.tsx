@@ -105,7 +105,7 @@ function AgentDetail({id}: {id: string}) {
 						}
 					>
 						<span className="flex items-center gap-2">
-							<AgentLogo providerId={agent.providerId} />
+							<AgentLogo providerId={agent.providerId} face={agent.face} />
 							{agent.name}
 						</span>
 					</PageTitle>

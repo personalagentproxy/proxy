@@ -1,4 +1,5 @@
 import {mcpToolSchema} from '@proxy/integrations';
+import {AVATAR_COLORS, AVATAR_SHAPES} from '@proxy/utils/harness';
 import {z} from 'zod';
 
 // The api's response shapes, shared by the human side's and the agent side's clients.
@@ -31,6 +32,8 @@ export const agentSchema = z.object({
 	providerId: z.string(),
 	name: z.string(),
 	username: z.string(),
+	// A built-in agent's face, shown in place of a logo; null for every other agent.
+	face: z.object({shape: z.enum(AVATAR_SHAPES), color: z.enum(AVATAR_COLORS)}).nullable(),
 	// Shared with every member of its organization, rather than one member's own.
 	shared: z.boolean(),
 	// Who made it, kept once it is shared, and their name or address while they are still in its
