@@ -8,7 +8,7 @@ const updatePersona = mock();
 const deletePersona = mock(async () => Ok(true));
 const getMemberThread = mock();
 const ensureMemberThread = mock();
-const listEntries = mock();
+const listEntriesWithPending = mock();
 const listOpenJobs = mock();
 const appendPersonMessage = mock();
 mock.module('@proxy/db/harness', () => ({
@@ -19,7 +19,7 @@ mock.module('@proxy/db/harness', () => ({
 	deletePersona,
 	getMemberThread,
 	ensureMemberThread,
-	listEntries,
+	listEntriesWithPending,
 	listOpenJobs,
 	appendPersonMessage,
 }));
@@ -62,7 +62,7 @@ beforeEach(() => {
 	updatePersona.mockResolvedValue(Ok(true));
 	getMemberThread.mockResolvedValue(Ok(thread));
 	ensureMemberThread.mockResolvedValue(Ok(thread));
-	listEntries.mockResolvedValue(
+	listEntriesWithPending.mockResolvedValue(
 		Ok([
 			{id: 'e1', seq: 1, threadId: 'thread-1', kind: 'person', text: 'Hi', toolCalls: null, callId: null, isError: false, inputTokens: null, outputTokens: null, coversSeq: null, createdAt: now},
 			{
@@ -171,7 +171,7 @@ describe('the chat routes', () => {
 		const idle = (await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap();
 		expect(idle.persona).toEqual(personaResponse);
 		expect(idle.thread).toEqual({id: 'thread-1'});
-		expect(idle.entries).toEqual([{id: 'e1', kind: 'person', text: 'Hi', at: '2026-10-21T10:00:00.000Z'}]);
+		expect(idle.entries).toEqual([{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00.000Z'}]);
 		expect(idle).toMatchObject({busy: false, sleepingUntil: null});
 		expect(ensureMemberThread).not.toHaveBeenCalled();
 		expect(ensureBuiltInAgent).not.toHaveBeenCalled();

@@ -22,12 +22,14 @@ const chatPersonaSchema = personaSchema.extend({
 		.nullable(),
 });
 
-// A turn of the conversation: what the person said, or what the persona answered. What the
-// persona did in between is in the activity log, not here.
+// A turn of the conversation: what the person said, or what the persona answered, which is what
+// went wrong where its turn failed. What the persona did in between is in the activity log, not
+// here.
 const entrySchema = z.object({
 	id: z.string(),
 	kind: z.enum(['person', 'assistant']),
 	text: z.string(),
+	isError: z.boolean(),
 	at: z.string(),
 });
 

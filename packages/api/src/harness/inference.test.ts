@@ -8,13 +8,12 @@ mock.module('../utils/env', () => ({env: mockEnv}));
 
 const getJobThread = mock();
 const listEntries = mock();
-const finishIdleInference = mock(async () => Ok(true));
 const finishJob = mock(async () => Ok(true));
 const completeInference = mock(async () => Ok(true));
 const requeueJob = mock(async () => Ok(true));
 const appendSummary = mock(async () => Ok(true));
 const getThreadAgent = mock(async () => Ok({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: []}));
-mock.module('@proxy/db/harness', () => ({getJobThread, listEntries, finishIdleInference, finishJob, completeInference, requeueJob, appendSummary, getThreadAgent}));
+mock.module('@proxy/db/harness', () => ({getJobThread, listEntries, finishJob, completeInference, requeueJob, appendSummary, getThreadAgent}));
 
 const agentInstructions = mock(async (_agent: unknown, flow: string) => Ok(`You are signed in.\n\n${flow}`));
 mock.module('../mcp/tools', () => ({agentInstructions, MCP_TOOLS: []}));
@@ -45,6 +44,7 @@ function entry(
 		seq,
 		threadId: 'thread-1',
 		kind,
+		pending: false,
 		text,
 		toolCalls: extra.toolCalls ?? null,
 		callId: extra.callId ?? null,
@@ -67,14 +67,13 @@ beforeEach(() => {
 describe('runInference', () => {
 	test('runs the model on the conversation, as the chat form, with the one tool to delegate, and answers a delegation as started', async () => {
 		const {runInference} = await import('./inference');
-		listEntries.mockResolvedValue(
-			Ok([
-				entry('person', 'Find my invoices'),
-				entry('assistant', 'Looking.', {toolCalls: [{id: 'c1', name: 'delegate', arguments: '{"title":"Find the invoices","brief":"Search the mailbox."}'}]}),
-				entry('tool_result', 'Started the sub-agent “Find the invoices”.', {callId: 'c1'}),
-				entry('event', 'Three invoices from Dana.', {callId: 'c1'}),
-			]),
-		);
+		const log = [
+			entry('person', 'Find my invoices'),
+			entry('assistant', 'Looking.', {toolCalls: [{id: 'c1', name: 'delegate', arguments: '{"title":"Find the invoices","brief":"Search the mailbox."}'}]}),
+			entry('tool_result', 'Started the sub-agent “Find the invoices”.', {callId: 'c1'}),
+			entry('event', 'Three invoices from Dana.', {callId: 'c1'}),
+		];
+		listEntries.mockResolvedValue(Ok(log));
 		askModel.mockResolvedValue(
 			Ok({
 				text: 'Three invoices; I’ll have them filed.',
@@ -158,6 +157,23 @@ describe('runInference', () => {
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.anything(), {c2: {runAt: now, placeholder: null}});
 	});
 
+	test('a job that was no longer the worker’s by the time the answer came is a conflict', async () => {
+		const {runInference} = await import('./inference');
+		completeInference.mockResolvedValueOnce(Ok(false));
+		expect((await runInference(job, 'w1', now)).unwrapErr().kind).toBe('conflict');
+	});
+
+	test('a model that refused the request, or turned the key down, fails the job with why, and is not tried again', async () => {
+		const {runInference} = await import('./inference');
+		askModel.mockResolvedValue(Err(ApiErr.unavailable('OpenRouter turned the server’s key down (401): bad key')));
+
+		const result = await runInference(job, 'w1', now);
+
+		expect(result.unwrapErr()).toMatchObject({kind: 'unavailable', message: expect.stringContaining('401')});
+		expect(requeueJob).not.toHaveBeenCalled();
+		expect(completeInference).not.toHaveBeenCalled();
+	});
+
 	test('a sub-agent that is done, or a thread that is gone, ends the job', async () => {
 		const {runInference} = await import('./inference');
 		getJobThread.mockResolvedValue(Ok({...sub, finishedAt: now}));
@@ -166,16 +182,12 @@ describe('runInference', () => {
 		expect(askModel).not.toHaveBeenCalled();
 	});
 
-	test('a log with a call still running is left alone, and a thread that is gone ends the job', async () => {
+	test('a thread that is gone ends the job', async () => {
 		const {runInference} = await import('./inference');
-		listEntries.mockResolvedValue(Ok([entry('person', 'Hi'), entry('assistant', '', {toolCalls: [{id: 'c1', name: 'read', arguments: '{}'}]})]));
-		await runInference(job, 'w1', now);
-		expect(finishIdleInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1');
-		expect(askModel).not.toHaveBeenCalled();
-
 		getJobThread.mockResolvedValue(Ok(null));
 		await runInference(job, 'w1', now);
 		expect(finishJob).toHaveBeenCalledWith('job-1', 'w1');
+		expect(askModel).not.toHaveBeenCalled();
 	});
 
 	test('without a key, the person is told the server is not set up', async () => {
@@ -193,7 +205,7 @@ describe('runInference', () => {
 		askModel.mockResolvedValue(Err(ApiErr.providerUnreachable(new Error('down'))));
 
 		await runInference(job, 'w1', now);
-		expect(requeueJob).toHaveBeenCalledWith('job-1', 'w1', new Date('2026-10-21T10:00:05Z'));
+		expect(requeueJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', new Date('2026-10-21T10:00:05Z'));
 		expect(completeInference).not.toHaveBeenCalled();
 
 		await runInference({...job, attempts: 3}, 'w1', now);
@@ -224,9 +236,10 @@ describe('runInference', () => {
 
 		expect(result.isOk()).toBe(true);
 		const asked = askModel.mock.calls.map((call) => call[0] as {messages: Array<{role: string; content: string | null}>; tools: unknown[]});
+		// The log to summarize goes as text, calls written out, since turns with calls need the tools sent along.
 		expect(asked[0]?.tools).toEqual([]);
 		expect(asked[0]?.messages[0]).toMatchObject({role: 'system', content: expect.stringContaining('summarizing a conversation')});
-		expect(asked[0]?.messages.slice(1).map((message) => message.content)).toEqual(['One', null, 'rows one', 'Done one', 'Write the summary now.']);
+		expect(asked[0]?.messages.slice(1)).toEqual([{role: 'user', content: 'Person:\nOne\n\nAgent called read with {}\n\nread answered:\nrows one\n\nAgent:\nDone one\n\nWrite the summary now.'}]);
 		expect(appendSummary).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', {text: 'The person asked for one; it was done.', toolCalls: [], inputTokens: 90_000, outputTokens: 300}, long[3]?.seq);
 		expect(asked[1]?.messages.slice(1).map((message) => message.content)).toEqual([expect.stringContaining('The person asked for one; it was done.'), 'Two', 'Done two', 'Three', null, 'rows three']);
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: 'Three is done too.'}), {});

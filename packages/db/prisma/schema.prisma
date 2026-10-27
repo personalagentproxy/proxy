@@ -618,12 +618,15 @@ enum AgentEntryKind {
 }
 
 // One entry of a thread's log, in the order of `seq`. The log is the transcript the model reads:
-// an assistant entry carries its tool calls, and each gets a tool_result entry once run.
+// an assistant entry carries its tool calls, and each gets a tool_result entry once run. An entry
+// that lands while the model is answering on the log is pending: it is not in the log yet, and
+// gets its place, a new `seq` after the answer, once the answer is written.
 model AgentEntry {
   id       String         @id @default(cuid())
   seq      Int            @unique @default(autoincrement())
   threadId String
   kind     AgentEntryKind
+  pending  Boolean        @default(false)
   // What the person said, what the model said (maybe nothing beside its calls), or what a call
   // answered.
   text     String

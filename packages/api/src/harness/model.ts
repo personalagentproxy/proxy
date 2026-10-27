@@ -1,14 +1,43 @@
 import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, httpRequest} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, type FetchError, httpRequest} from '@proxy/utils';
 import type {ToolCall} from '@proxy/utils/harness';
 
 /**
  * The built-in agent's model: Claude Sonnet 5.5 over OpenRouter, answering a conversation with
  * text, tool calls, or both, in the chat completions form. One call per turn; the loop
- * (inference.ts) runs the calls and asks again.
+ * (inference.ts) runs the calls and asks again. What goes wrong is told apart: a model that
+ * can't be reached, or answered with something that isn't an answer, is worth trying again; one
+ * that turned the server's key down, or has no credit left, is not set up right; and one that
+ * refused the request was sent something wrong, which no retry mends.
  */
+
+// How much of what OpenRouter said went wrong is kept.
+const MAX_SAID = 500;
+
+const errorBodySchema = z.object({error: z.object({message: z.string()})});
+
+// What OpenRouter said went wrong, from the body of its answer.
+function said(body: unknown): string {
+	const parsed = errorBodySchema.safeParse(body);
+	const message = parsed.success ? parsed.data.error.message : typeof body === 'string' ? body : JSON.stringify(body ?? '');
+	return message.slice(0, MAX_SAID);
+}
+
+// The failure as this server's error, by what it means for the next try.
+function toApiError(error: FetchError): ApiError {
+	if (error.kind !== 'http') {
+		return ApiErr.providerUnreachable(error);
+	}
+	if (error.status === 401 || error.status === 402 || error.status === 403) {
+		return ApiErr.unavailable(`OpenRouter turned the server’s key down (${error.status}): ${said(error.body)}`);
+	}
+	if (error.status === 408 || error.status === 429 || error.status >= 500) {
+		return ApiErr.providerUnreachable(error);
+	}
+	return ApiErr.internalError(new Error(`OpenRouter refused the request (${error.status}): ${said(error.body)}`));
+}
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -70,7 +99,7 @@ export function askModel(request: ModelRequest): Promise<Result<ModelTurn, ApiEr
 			{schema: completionSchema, timeoutMs: request.timeoutMs},
 		);
 		if (answered.isErr()) {
-			return $(Err(ApiErr.providerUnreachable(answered.error)));
+			return $(Err(toApiError(answered.error)));
 		}
 		const {message} = answered.value.choices[0] ?? {};
 		return {

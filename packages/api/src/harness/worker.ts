@@ -4,6 +4,7 @@ import {setTimeout as sleep} from 'node:timers/promises';
 
 import {Result} from 'ts-results-es';
 
+import type {ApiError} from '@proxy/utils';
 import {claimJob, failJob, type JobRow, renewLease} from '@proxy/db/harness';
 
 import {log, serializeError} from '../observability/log';
@@ -37,11 +38,25 @@ function workerName(): string {
 	return `${hostname()}-${process.pid}-${randomBytes(3).toString('hex')}`;
 }
 
-function run(job: JobRow, workerId: string): Promise<Result<void, unknown>> {
+function run(job: JobRow, workerId: string): Promise<Result<void, ApiError>> {
 	if (job.kind === 'inference') {
 		return runInference(job, workerId);
 	}
 	return runToolJob(job, workerId);
+}
+
+// The failure in words, for the job's record and whoever is told of it.
+function describe(failure: ApiError): string {
+	if ('message' in failure) {
+		return failure.message;
+	}
+	if (failure.kind === 'not_found') {
+		return `There is no ${failure.resource}${failure.id ? ` ${failure.id}` : ''}`;
+	}
+	if ('cause' in failure) {
+		return failure.cause instanceof Error ? failure.cause.message : `${failure.kind}: ${JSON.stringify(failure.cause)}`;
+	}
+	return failure.kind;
 }
 
 // Runs the job with its lease kept, and marks it failed where it throws or fails.
@@ -55,12 +70,13 @@ async function runClaimed(job: JobRow, workerId: string): Promise<void> {
 	}, RENEW_MS);
 	const result = await Result.wrapAsync(() => run(job, workerId));
 	clearInterval(renewal);
-	const failure = result.isErr() ? result.error : result.value.isErr() ? result.value.error : null;
-	if (failure === null) {
+	const thrown = result.isErr() ? result.error : null;
+	const failed = result.isOk() && result.value.isErr() ? result.value.error : null;
+	if (thrown === null && failed === null) {
 		return;
 	}
-	log.error('Built-in agent job failed', {jobId: job.id, kind: job.kind, attempt: job.attempts, ...serializeError(failure)});
-	const message = failure instanceof Error ? failure.message : JSON.stringify(failure);
+	log.error('Built-in agent job failed', {jobId: job.id, kind: job.kind, attempt: job.attempts, ...serializeError(failed ?? thrown)});
+	const message = failed ? describe(failed) : thrown instanceof Error ? thrown.message : String(thrown);
 	await failJob(job.id, workerId, message.slice(0, 1000));
 }
 

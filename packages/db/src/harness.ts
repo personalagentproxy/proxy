@@ -18,13 +18,14 @@ import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed
  * The Chat page: the organization's personas, each with a thread per member, the member's
  * conversation with it, and a thread per sub-agent started from it, each with its log and its
  * jobs. Every persona acts through the organization's one built-in agent login, whose grants and
- * activity log are every persona's. Every change to a thread's log or its jobs is made with the thread's row locked, so a
- * result landing and the model being run on the log never race: either the inference job sees
- * the result, or the result sees no job and queues one. A worker's write is fenced by its lease:
- * it goes through only while the job is still its. A sub-agent's thread ends with its report,
- * which lands in the thread it was started from as the answer to the call that started it; a
- * sub-agent's thread is locked before its parent's, never the other way, so two can't wait on
- * each other.
+ * activity log are every persona's. Every change to a thread's log or its jobs is made with the
+ * thread's row locked. The model is run on a log only once it is ready, and nothing lands in
+ * the log while it runs: what comes meanwhile, the person speaking or a sub-agent reporting, is
+ * pending until the job ends, then takes its place after the answer, and wakes the agent again.
+ * A worker's write is fenced by its lease: it goes through only while the job is still its. A
+ * sub-agent's thread ends with its report, which lands in the thread it was started from as the
+ * answer to the call that started it; a sub-agent's thread is locked before its parent's, never
+ * the other way, so two can't wait on each other.
  */
 
 export type ThreadRow = {
@@ -58,6 +59,8 @@ export type EntryRow = LogEntry & {
 	id: string;
 	seq: number;
 	threadId: string;
+	// Landed while the model was answering: not in the log until the answer is.
+	pending: boolean;
 	isError: boolean;
 	inputTokens: number | null;
 	outputTokens: number | null;
@@ -121,6 +124,7 @@ const entrySelect = {
 	seq: true,
 	threadId: true,
 	kind: true,
+	pending: true,
 	text: true,
 	toolCalls: true,
 	callId: true,
@@ -336,11 +340,30 @@ export async function getJobThread(threadId: string): Promise<Result<ThreadRow |
 	return wrapDb(() => db.agentThread.findUnique({where: {id: threadId}, select: threadSelect}));
 }
 
-/** The thread's log, in order. */
+/** The thread's log, in order: what the model reads, without what is pending. */
 export async function listEntries(threadId: string): Promise<Result<EntryRow[], ApiError>> {
 	return (
 		await wrapDb(() =>
-			db.agentEntry.findMany({where: {threadId}, select: entrySelect, orderBy: {seq: 'asc'}}),
+			db.agentEntry.findMany({
+				where: {threadId, pending: false},
+				select: entrySelect,
+				orderBy: {seq: 'asc'},
+			}),
+		)
+	).map((entries) => entries.map(toEntry));
+}
+
+/** The thread's entries as the person sees them: the log, then what is pending, each in order. */
+export async function listEntriesWithPending(
+	threadId: string,
+): Promise<Result<EntryRow[], ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentEntry.findMany({
+				where: {threadId},
+				select: entrySelect,
+				orderBy: [{pending: 'asc'}, {seq: 'asc'}],
+			}),
 		)
 	).map((entries) => entries.map(toEntry));
 }
@@ -403,7 +426,7 @@ async function queueInference(tx: Tx, thread: ThreadRow): Promise<void> {
 async function wakeIfReady(tx: Tx, thread: ThreadRow): Promise<void> {
 	const entries = (
 		await tx.agentEntry.findMany({
-			where: {threadId: thread.id},
+			where: {threadId: thread.id, pending: false},
 			select: entrySelect,
 			orderBy: {seq: 'asc'},
 		})
@@ -413,24 +436,51 @@ async function wakeIfReady(tx: Tx, thread: ThreadRow): Promise<void> {
 	}
 }
 
+// Lands an entry in the thread: in the log, waking the agent where the log is then ready, or,
+// while an inference job runs on the thread, pending until the job ends (`release`). With the
+// thread locked.
+async function appendEntry(
+	tx: Tx,
+	thread: ThreadRow,
+	data: {kind: AgentEntryKind; text: string; callId?: string; isError?: boolean},
+): Promise<EntryRow> {
+	const running = await tx.agentJob.count({
+		where: {threadId: thread.id, kind: 'inference', status: 'running'},
+	});
+	const entry = await tx.agentEntry.create({
+		data: {threadId: thread.id, ...data, pending: running > 0},
+		select: entrySelect,
+	});
+	if (running === 0) {
+		await wakeIfReady(tx, thread);
+	}
+	return toEntry(entry);
+}
+
+// Gives the thread's pending entries their place in the log, after what the job that just ended
+// wrote, in the order they landed, and wakes the agent where the log is then ready. With the
+// thread locked, as an inference job ends.
+async function release(tx: Tx, thread: ThreadRow): Promise<void> {
+	const pending = await tx.agentEntry.findMany({
+		where: {threadId: thread.id, pending: true},
+		select: {id: true},
+		orderBy: {seq: 'asc'},
+	});
+	for (const {id} of pending) {
+		await tx.$executeRaw`UPDATE "AgentEntry" SET "seq" = nextval(pg_get_serial_sequence('"AgentEntry"', 'seq')), "pending" = false WHERE "id" = ${id}`;
+	}
+	await wakeIfReady(tx, thread);
+}
+
 // Answers a call of the thread's log, as its result or, for one answered at once as started, as
-// an event, and wakes the agent where the log is then ready. With the thread locked.
+// an event. With the thread locked.
 async function answerCall(
 	tx: Tx,
 	thread: ThreadRow,
 	kind: 'tool_result' | 'event',
 	answer: {callId: string; text: string; isError: boolean},
 ): Promise<void> {
-	await tx.agentEntry.create({
-		data: {
-			threadId: thread.id,
-			kind,
-			text: answer.text,
-			callId: answer.callId,
-			isError: answer.isError,
-		},
-	});
-	await wakeIfReady(tx, thread);
+	await appendEntry(tx, thread, {kind, ...answer});
 }
 
 // Ends a sub-agent's work with its report: its thread is done, its task finished with the report
@@ -468,7 +518,7 @@ async function endSubAgent(
 	await answerCall(tx, parent, 'event', {callId: thread.parentCallId, ...report});
 }
 
-/** Appends what the person said and wakes the agent. `Ok(null)` means no such thread. */
+/** Lands what the person said, and wakes the agent. `Ok(null)` means no such thread. */
 export async function appendPersonMessage(
 	threadId: string,
 	text: string,
@@ -479,12 +529,7 @@ export async function appendPersonMessage(
 			if (!thread) {
 				return null;
 			}
-			const entry = await tx.agentEntry.create({
-				data: {threadId, kind: 'person' satisfies AgentEntryKind, text},
-				select: entrySelect,
-			});
-			await queueInference(tx, thread);
-			return toEntry(entry);
+			return appendEntry(tx, thread, {kind: 'person', text});
 		}),
 	);
 }
@@ -570,9 +615,10 @@ export async function finishJob(
 
 /**
  * Marks the worker's job failed, saying why, and keeps the thread going: a tool job's call is
- * answered with the failure, so the agent isn't left waiting for it, and a sub-agent whose turn
- * failed reports the failure, so neither is whoever delegated to it. `Ok(false)` when the job was
- * no longer the worker's.
+ * answered with the failure, so the agent isn't left waiting for it; a turn that failed in the
+ * member's conversation is answered with the failure, so the person sees it and can go on; and
+ * a sub-agent whose turn failed reports the failure, so neither is whoever delegated to it.
+ * `Ok(false)` when the job was no longer the worker's.
  */
 export async function failJob(
 	jobId: string,
@@ -600,27 +646,51 @@ export async function failJob(
 				});
 				return true;
 			}
-			if (job.kind === 'inference') {
-				await endSubAgent(tx, thread, {text: `The sub-agent failed: ${error}`, isError: true});
+			if (job.kind !== 'inference') {
+				return true;
 			}
+			if (thread.parentThreadId !== null) {
+				await endSubAgent(tx, thread, {text: `The sub-agent failed: ${error}`, isError: true});
+				return true;
+			}
+			await tx.agentEntry.create({
+				data: {
+					threadId: thread.id,
+					kind: 'assistant' satisfies AgentEntryKind,
+					text: `Something went wrong on my side, so I could not answer: ${error.replace(/\.$/, '')}. Say something to try again.`,
+					isError: true,
+				},
+			});
+			await release(tx, thread);
 			return true;
 		}),
 	);
 }
 
-/** Puts the worker's job back in the queue for later; `Ok(false)` when it was no longer the worker's. */
+/**
+ * Puts the worker's job back in the queue for later, and what landed meanwhile in the log, for
+ * it to read then; `Ok(false)` when it was no longer the worker's.
+ */
 export async function requeueJob(
 	jobId: string,
 	workerId: string,
+	threadId: string,
 	runAt: Date,
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
+			const thread = await lockThread(tx, threadId);
 			const {count} = await tx.agentJob.updateMany({
 				where: {id: jobId, claimedBy: workerId, status: 'running'},
 				data: {status: 'queued', runAt, claimedBy: null, leaseExpiresAt: null},
 			});
-			return count > 0;
+			if (count === 0) {
+				return false;
+			}
+			if (thread) {
+				await release(tx, thread);
+			}
+			return true;
 		}),
 	);
 }
@@ -671,8 +741,9 @@ export async function appendSummary(
  * Finishes an inference job with the model's answer: the assistant entry, and a tool job for each
  * of its calls, due when its plan says; a call with a placeholder in its plan, a delegation, is
  * answered with it at once, and what it comes to lands as an event. A sub-agent's answer with no
- * calls is its report, which ends its work and answers the call that started it. `Ok(false)` when
- * the job was no longer the worker's, and nothing is written.
+ * calls is its report, which ends its work and answers the call that started it. What landed
+ * meanwhile takes its place in the log after the answer, and wakes the agent where the log is
+ * then ready. `Ok(false)` when the job was no longer the worker's, and nothing is written.
  */
 export async function completeInference(
 	jobId: string,
@@ -698,8 +769,12 @@ export async function completeInference(
 				},
 				select: {id: true},
 			});
-			if (turn.toolCalls.length === 0) {
+			if (turn.toolCalls.length === 0 && thread.parentThreadId !== null) {
 				await endSubAgent(tx, thread, {text: turn.text, isError: false});
+				return true;
+			}
+			if (turn.toolCalls.length === 0) {
+				await release(tx, thread);
 				return true;
 			}
 			await tx.agentJob.createMany({
@@ -720,8 +795,8 @@ export async function completeInference(
 			});
 			if (started.length > 0) {
 				await tx.agentEntry.createMany({data: started});
-				await wakeIfReady(tx, thread);
 			}
+			await release(tx, thread);
 			return true;
 		}),
 	);
@@ -802,23 +877,6 @@ export async function startSubAgent(
 			});
 			await tx.agentJob.create({data: {threadId: thread.id, kind: 'inference'}});
 			return true;
-		}),
-	);
-}
-
-/**
- * Finishes an inference job that found nothing to do, with the thread locked, so a result landing
- * meanwhile queues the next one. `Ok(false)` when the job was no longer the worker's.
- */
-export async function finishIdleInference(
-	jobId: string,
-	workerId: string,
-	threadId: string,
-): Promise<Result<boolean, ApiError>> {
-	return wrapDb(() =>
-		db.$transaction(async (tx) => {
-			await lockThread(tx, threadId);
-			return fence(tx, jobId, workerId, 'done');
 		}),
 	);
 }

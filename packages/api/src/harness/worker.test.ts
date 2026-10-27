@@ -47,21 +47,23 @@ describe('the worker', () => {
 
 	test('a job that fails, or throws, is marked failed with why, and one claimed too often is given up', async () => {
 		const {startHarnessWorker} = await import('./worker');
-		runInference.mockResolvedValueOnce(Err(ApiErr.conflict('no longer mine')));
+		runInference.mockResolvedValueOnce(Err(ApiErr.conflict('no longer mine'))).mockResolvedValueOnce(Err(ApiErr.internalError(new Error('OpenRouter refused the request (400): too long'))));
 		runToolJob.mockRejectedValueOnce(new Error('boom'));
 		claimJob
 			.mockResolvedValueOnce(Ok(inference))
 			.mockResolvedValueOnce(Ok(tool))
 			.mockResolvedValueOnce(Ok({...inference, id: 'j3', attempts: 5}))
+			.mockResolvedValueOnce(Ok({...inference, id: 'j4'}))
 			.mockResolvedValue(Ok(null));
 
 		const worker = startHarnessWorker();
 		await settle();
 		await worker.stop();
 
-		expect(failJob).toHaveBeenCalledWith('j1', expect.any(String), expect.stringContaining('no longer mine'));
+		expect(failJob).toHaveBeenCalledWith('j1', expect.any(String), 'no longer mine');
 		expect(failJob).toHaveBeenCalledWith('j2', expect.any(String), 'boom');
 		expect(failJob).toHaveBeenCalledWith('j3', expect.any(String), 'Given up after 4 attempts');
-		expect(runInference).toHaveBeenCalledTimes(1);
+		expect(failJob).toHaveBeenCalledWith('j4', expect.any(String), 'OpenRouter refused the request (400): too long');
+		expect(runInference).toHaveBeenCalledTimes(2);
 	});
 });

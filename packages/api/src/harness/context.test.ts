@@ -2,7 +2,7 @@ import {describe, expect, test} from 'bun:test';
 
 import type {EntryRow} from '@proxy/db/harness';
 
-import {COMPACT_AT_TOKENS, compactionCut, toMessages} from './context';
+import {COMPACT_AT_TOKENS, compactionCut, toMessages, toTranscript} from './context';
 
 const now = new Date('2026-10-21T10:00:00Z');
 
@@ -14,6 +14,7 @@ function entry(seq: number, kind: Kind, text: string, extra: Partial<Pick<EntryR
 		seq,
 		threadId: 'thread-1',
 		kind,
+		pending: false,
 		text,
 		toolCalls: extra.toolCalls ?? null,
 		callId: extra.callId ?? null,
@@ -152,5 +153,48 @@ describe('compactionCut', () => {
 			entry(16, 'person', 'Five'),
 		];
 		expect(compactionCut(grown)).toBe(13);
+	});
+
+	test('covers a log with one turn of the person, a sub-agent’s brief, before the model’s last three steps', () => {
+		const log = [
+			entry(1, 'person', 'Search the mailbox.'),
+			read(2, 'c1'),
+			result(3, 'c1'),
+			read(4, 'c2'),
+			result(5, 'c2'),
+			read(6, 'c3'),
+			result(7, 'c3'),
+			read(8, 'c4', COMPACT_AT_TOKENS),
+			result(9, 'c4'),
+		];
+		expect(compactionCut(log)).toBe(3);
+
+		const summarized = [...log, entry(10, 'summary', 'Two reads so far.', {coversSeq: 3}), read(11, 'c5', COMPACT_AT_TOKENS), result(12, 'c5')];
+		expect(compactionCut(summarized)).toBe(5);
+	});
+});
+
+describe('toTranscript', () => {
+	test('writes the log out as text from its last summary on, the calls, their answers and the reports with whose they are', () => {
+		const delegated = entry(1, 'person', 'Find my invoices');
+		const call = entry(2, 'assistant', 'Looking.', {toolCalls: [{id: 'd1', name: 'delegate', arguments: '{"title":"Find the invoices","brief":"Search the mailbox."}'}], inputTokens: 10});
+		const started = entry(3, 'tool_result', 'Started.', {callId: 'd1'});
+		const report = entry(4, 'event', 'Three invoices from Dana.', {callId: 'd1'});
+		const failed = {...entry(5, 'tool_result', 'No such tool.', {callId: 'x9'}), isError: true};
+
+		expect(toTranscript([delegated, call, started, report, failed])).toBe(
+			[
+				'Person:\nFind my invoices',
+				'Agent:\nLooking.\nAgent called delegate with {"title":"Find the invoices","brief":"Search the mailbox."}',
+				'delegate answered:\nStarted.',
+				'The report of the sub-agent “Find the invoices”. The person did not write this; it is for you to act on or tell them of.\nThree invoices from Dana.',
+				'The call answered with an error:\nNo such tool.',
+			].join('\n\n'),
+		);
+
+		const transcript = toTranscript([...long, entry(12, 'summary', 'The person asked for one.', {coversSeq: 4})]);
+		expect(transcript.startsWith('What came before in this conversation')).toBe(true);
+		expect(transcript).toContain('The person asked for one.\n\nPerson:\nTwo');
+		expect(transcript).not.toContain('rows one');
 	});
 });

@@ -1,37 +1,25 @@
 import {Err, Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
-import {DELEGATE_TOOL, delegateArgs, readyForInference, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
-import {
-	appendSummary,
-	type CallPlan,
-	completeInference,
-	type EntryRow,
-	finishIdleInference,
-	finishJob,
-	getJobThread,
-	getThreadAgent,
-	type JobRow,
-	listEntries,
-	requeueJob,
-	type ThreadRow,
-} from '@proxy/db/harness';
+import {DELEGATE_TOOL, delegateArgs, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
+import {appendSummary, type CallPlan, completeInference, type EntryRow, finishJob, getJobThread, getThreadAgent, type JobRow, listEntries, requeueJob, type ThreadRow} from '@proxy/db/harness';
 
 import {agentInstructions} from '../mcp/tools';
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
-import {compactionCut, toMessages} from './context';
+import {compactionCut, toMessages, toTranscript} from './context';
 import {askModel, type ModelTurn} from './model';
 import {toolsFor} from './tool-surface';
 
 /**
- * An inference job: the model, run once on a thread's log. Its answer goes in the log as an
- * assistant entry, with a tool job for each call it made; a sleep's job is due when the sleep
- * ends, and a delegation is answered at once as started, its report to come as an event. The log
- * not ready, as when the person spoke while a call was still running, is left for the job the
- * last result queues. A log that has grown long is first summarized, in a summary entry the model
- * reads in place of what it covers. A model that can't be reached is tried again a few times,
- * then the person is told. A sub-agent's answer with no calls is its report, and ends its work.
+ * An inference job: the model, run once on a thread's log, which is ready for it, every call
+ * answered, and changes under it only by what the job itself writes (db/harness). Its answer goes
+ * in the log as an assistant entry, with a tool job for each call it made; a sleep's job is due
+ * when the sleep ends, and a delegation is answered at once as started, its report to come as an
+ * event. A log that has grown long is first summarized, in a summary entry the model reads in
+ * place of what it covers. A model that can't be reached is tried again a few times, then the
+ * person is told; any other failure fails the job, which tells them too (db/harness failJob). A
+ * sub-agent's answer with no calls is its report, and ends its work.
  */
 
 // How the agent talking with the person is to go about it: it does nothing itself, and hands
@@ -43,9 +31,10 @@ const MAIN_FLOW =
 const SUB_FLOW =
 	'You are a sub-agent of the agent talking with the person on the Chat page of Personal Agent Proxy. The first message is your brief from it; nothing you write is read until you are done, and nobody answers questions, so ask none: do what the brief says with what you have, and where you can’t, say so in your report. list_connections lists the accounts you can use and what you may do with each. list_tools with a connection gives that connection’s tools and the params each takes. Don’t guess a tool’s params: where these instructions don’t give them, call list_tools for the connection before you first read or run one of its tools. read runs the tools that only read; run runs the ones that change something or reach other people. Every call is made for your task, filled in for you: there is nothing to start or finish. When you have called sleep_until, you are woken at that time with nothing but this log, so say in your message what you will do then. Your first message without a tool call is your report, handed back as it is, and ends your work: say what you did and found, with the names, ids, dates and numbers that matter, and what you could not do; nothing else. A long log is summarized for you as it goes: take a summary as what happened.';
 
-// How a long conversation is summarized, by the same model, for itself.
+// How a long log is summarized, by the same model, for itself: a conversation's, or a
+// sub-agent's, whose one message from the person is its brief.
 const SUMMARIZE =
-	'You are summarizing a conversation between a person and their agent, so that the agent can go on from the summary in place of the conversation so far. Write what the agent needs to go on as if it remembered: what the person asked for and what they said they want in general; what was done and found, with the names, ids, dates and numbers that matter; what the person was told; what is still open, promised or planned, such as what to do after a sleep or when a sub-agent reports. Leave out what no longer matters. Plain prose, from the agent’s side, no title.';
+	'You are summarizing a conversation between a person and their agent, written out below with the calls the agent made and what they answered, so that the agent can go on from the summary in place of the conversation so far. Write what the agent needs to go on as if it remembered: what the person asked for and what they said they want in general; what was done and found, with the names, ids, dates and numbers that matter; what the person was told; what is still open, promised or planned, such as what to do after a sleep or when a sub-agent reports. Leave out what no longer matters. Plain prose, from the agent’s side, no title.';
 const SUMMARIZE_NOW = 'Write the summary now.';
 
 // How many answers the model may give in a row without the person saying anything, calls,
@@ -91,9 +80,18 @@ function plans(thread: ThreadRow, calls: ToolCall[], now: Date): Record<string, 
 	);
 }
 
+// Writes the answer back; a job no longer the worker's is a conflict.
+function writeBack(job: JobRow, workerId: string, turn: ModelTurn, callPlans: Record<string, CallPlan>): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		if (!$(await completeInference(job.id, workerId, job.threadId, turn, callPlans))) {
+			return $(Err(ApiErr.conflict('The job was no longer this worker’s')));
+		}
+	});
+}
+
 // Answers the person with `text` alone, as the model would, when the model can't be run.
-function answerWith(job: JobRow, workerId: string, text: string): Promise<Result<boolean, ApiError>> {
-	return completeInference(job.id, workerId, job.threadId, {text, toolCalls: [], inputTokens: 0, outputTokens: 0}, {});
+function answerWith(job: JobRow, workerId: string, text: string): Promise<Result<void, ApiError>> {
+	return writeBack(job, workerId, {text, toolCalls: [], inputTokens: 0, outputTokens: 0}, {});
 }
 
 // The system prompt: the instructions any agent with the login gets, for the agent as it acts in
@@ -107,7 +105,8 @@ function systemPrompt(thread: ThreadRow, now: Date): Promise<Result<string, ApiE
 }
 
 // Summarizes the log where it has grown long, into a summary entry the model reads in place of
-// what it covers; the log then, as it is.
+// what it covers; the log then, as it is. The model gets the log as text, not as the turns it
+// made, which would need the tools sent along: a request with calls in it and no tools is refused.
 function compact(job: JobRow, workerId: string, entries: EntryRow[], key: string): Promise<Result<EntryRow[], ApiError>> {
 	return Do(async ($) => {
 		const cut = compactionCut(entries);
@@ -118,7 +117,10 @@ function compact(job: JobRow, workerId: string, entries: EntryRow[], key: string
 		const summary = $(
 			await askModel({
 				key,
-				messages: [{role: 'system', content: SUMMARIZE}, ...toMessages(entries.slice(0, cut), {clearOld: false}), {role: 'user', content: SUMMARIZE_NOW}],
+				messages: [
+					{role: 'system', content: SUMMARIZE},
+					{role: 'user', content: `${toTranscript(entries.slice(0, cut))}\n\n${SUMMARIZE_NOW}`},
+				],
 				tools: [],
 				maxTokens: MAX_TOKENS,
 				timeoutMs: TIMEOUT_MS,
@@ -141,7 +143,7 @@ function askOnLog(job: JobRow, workerId: string, thread: ThreadRow, entries: Ent
 	});
 }
 
-/** Runs the job: one turn of the model on its thread's log, written back; nothing when the log isn't ready, or the thread is done. */
+/** Runs the job: one turn of the model on its thread's log, written back; nothing when the thread is done, or gone. */
 export function runInference(job: JobRow, workerId: string, now = new Date()): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		const thread = $(await getJobThread(job.threadId));
@@ -150,10 +152,6 @@ export function runInference(job: JobRow, workerId: string, now = new Date()): P
 			return;
 		}
 		const entries = $(await listEntries(thread.id));
-		if (!readyForInference(entries)) {
-			$(await finishIdleInference(job.id, workerId, thread.id));
-			return;
-		}
 		if (turnsAlone(entries) >= MAX_TURNS_ALONE) {
 			$(await answerWith(job, workerId, thread.parentThreadId === null ? TOO_LONG : TOO_LONG_SUB));
 			return;
@@ -170,15 +168,12 @@ export function runInference(job: JobRow, workerId: string, now = new Date()): P
 		if (turn.isErr()) {
 			log.warn('The built-in agent’s model could not be reached', {attempt: job.attempts, ...serializeError('cause' in turn.error ? turn.error.cause : turn.error)});
 			if (job.attempts < MAX_MODEL_ATTEMPTS) {
-				$(await requeueJob(job.id, workerId, new Date(now.getTime() + RETRY_MS * job.attempts)));
+				$(await requeueJob(job.id, workerId, thread.id, new Date(now.getTime() + RETRY_MS * job.attempts)));
 				return;
 			}
 			$(await answerWith(job, workerId, UNREACHABLE));
 			return;
 		}
-		const written = $(await completeInference(job.id, workerId, thread.id, turn.value, plans(thread, turn.value.toolCalls, now)));
-		if (!written) {
-			return $(Err(ApiErr.conflict('The job was no longer this worker’s')));
-		}
+		$(await writeBack(job, workerId, turn.value, plans(thread, turn.value.toolCalls, now)));
 	});
 }

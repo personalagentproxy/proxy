@@ -56,10 +56,27 @@ describe('askModel', () => {
 		expect(turn.unwrap()).toEqual({text: '', toolCalls: [{id: 'call-1', name: 'read', arguments: '{"connection":"c1"}'}], inputTokens: 120, outputTokens: 8});
 	});
 
-	test('a provider that answers with an error is unreachable', async () => {
+	test('a provider that is down, or too busy, is unreachable, which is worth trying again', async () => {
 		status = 502;
-		const turn = await askModel(request);
+		expect((await askModel(request)).unwrapErr().kind).toBe('provider_unreachable');
 
-		expect(turn.unwrapErr().kind).toBe('provider_unreachable');
+		status = 429;
+		expect((await askModel(request)).unwrapErr().kind).toBe('provider_unreachable');
+	});
+
+	test('a key turned down, or out of credit, means the server is not set up right, and says what OpenRouter said', async () => {
+		status = 401;
+		expect((await askModel(request)).unwrapErr()).toEqual({kind: 'unavailable', statusCode: 503, message: 'OpenRouter turned the server’s key down (401): down'});
+
+		status = 402;
+		expect((await askModel(request)).unwrapErr()).toMatchObject({kind: 'unavailable', message: expect.stringContaining('(402)')});
+	});
+
+	test('a request refused is an error of ours, which no retry mends', async () => {
+		status = 400;
+		const error = (await askModel(request)).unwrapErr();
+
+		expect(error.kind).toBe('internal_error');
+		expect(error.kind === 'internal_error' && error.cause instanceof Error ? error.cause.message : '').toBe('OpenRouter refused the request (400): down');
 	});
 });

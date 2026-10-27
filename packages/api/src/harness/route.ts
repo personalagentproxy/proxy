@@ -12,7 +12,7 @@ import {
 	getMemberThread,
 	getPersona,
 	type LastMessage,
-	listEntries,
+	listEntriesWithPending,
 	listOpenJobs,
 	listPersonas,
 	type PersonaRow,
@@ -39,8 +39,8 @@ const MAX_MESSAGE = 20_000;
 /** A persona as the page lists it, whether the viewer may change it, and the last thing said in their conversation with it, cut to a line; null before anything was said. */
 export type PersonaResponse = {id: string; name: string; look: Look; color: string; mayChange: boolean; lastMessage: {kind: 'person' | 'assistant'; text: string; at: string} | null};
 
-/** A turn of the conversation as the page shows it: what the person said, or what the persona answered. What the persona did in between is in the activity log, not here. */
-export type EntryResponse = {id: string; kind: 'person' | 'assistant'; text: string; at: string};
+/** A turn of the conversation as the page shows it: what the person said, or what the persona answered, which is what went wrong where its turn failed. What the persona did in between is in the activity log, not here. */
+export type EntryResponse = {id: string; kind: 'person' | 'assistant'; text: string; isError: boolean; at: string};
 
 /** The member's conversation with a persona: the persona, the thread, its turns, and what the persona is up to: busy on it, asleep until a time, or waiting for the person. */
 export type ThreadLogResponse = {persona: PersonaResponse; thread: {id: string}; entries: EntryResponse[]; busy: boolean; sleepingUntil: string | null};
@@ -92,7 +92,7 @@ function isShown(entry: EntryRow): entry is EntryRow & {kind: EntryResponse['kin
 }
 
 function toEntry(entry: EntryRow & {kind: EntryResponse['kind']}): EntryResponse {
-	return {id: entry.id, kind: entry.kind, text: entry.text, at: entry.createdAt.toISOString()};
+	return {id: entry.id, kind: entry.kind, text: entry.text, isError: entry.isError, at: entry.createdAt.toISOString()};
 }
 
 function requireChat(request: AuthenticatedRequest): Promise<Result<OrgViewer, ApiError>> {
@@ -181,13 +181,13 @@ export function handleDeletePersonaRoute(request: AuthenticatedRequest): Promise
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas/:personaId/thread`: the viewer's conversation with the persona, begun where there was none, and whether the persona is busy on it, its sub-agents included. */
+/** `GET /api/orgs/:org/chat/personas/:personaId/thread`: the viewer's conversation with the persona, begun where there was none, what they said while it was answering at the end, and whether the persona is busy on it, its sub-agents included. */
 export function handleGetThreadRoute(request: AuthenticatedRequest): Promise<Result<ThreadLogResponse, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const persona = $(await requirePersona(viewer, request));
 		const thread = $(await requireThread(viewer, persona));
-		const [entries, jobs] = await Promise.all([listEntries(thread.id), listOpenJobs(thread.id)]);
+		const [entries, jobs] = await Promise.all([listEntriesWithPending(thread.id), listOpenJobs(thread.id)]);
 		const open = $(jobs);
 		const now = Date.now();
 		// Asleep when every open job is a tool job due later; the first to be due is when it wakes.
