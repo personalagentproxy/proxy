@@ -2,7 +2,20 @@ import {Err, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {callArguments, DELEGATE_TOOL, delegateArgs, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
-import {appendSummary, type CallPlan, completeInference, type EntryRow, finishJob, getJobThread, getThreadAgent, type JobRow, listEntries, requeueJob, type ThreadRow} from '@proxy/db/harness';
+import {
+	appendSummary,
+	type AssistantTurn,
+	type CallPlan,
+	completeInference,
+	type EntryRow,
+	finishJob,
+	getJobThread,
+	getThreadAgent,
+	type JobRow,
+	listEntries,
+	requeueJob,
+	type ThreadRow,
+} from '@proxy/db/harness';
 
 import {agentInstructions} from '../mcp/tools';
 import {log, serializeError} from '../observability/log';
@@ -21,7 +34,9 @@ import {toolsFor} from './tool-surface';
  * person is told; any other failure fails the job, which tells them too (db/harness failJob). A
  * sub-agent's answer with no calls is its report, and ends its work. An answer of nothing, no
  * words and no calls, is written as that said: the person would otherwise see nothing, and the
- * model refuses a log with an empty turn in it.
+ * model refuses a log with an empty turn in it. The answer is written with the system prompt the
+ * model was sent, which is built from the login's grants as they are then, so that what the model
+ * read can be told later; the rest of the request is rebuilt from the log.
  */
 
 // How the agent talking with the person is to go about it: it does nothing itself, and hands
@@ -101,7 +116,7 @@ function said(thread: ThreadRow, turn: ModelTurn): ModelTurn {
 }
 
 // Writes the answer back; a job no longer the worker's is a conflict.
-function writeBack(job: JobRow, workerId: string, turn: ModelTurn, callPlans: Record<string, CallPlan>): Promise<Result<void, ApiError>> {
+function writeBack(job: JobRow, workerId: string, turn: AssistantTurn, callPlans: Record<string, CallPlan>): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		if (!$(await completeInference(job.id, workerId, job.threadId, turn, callPlans))) {
 			return $(Err(ApiErr.conflict('The job was no longer this worker’s')));
@@ -109,9 +124,16 @@ function writeBack(job: JobRow, workerId: string, turn: ModelTurn, callPlans: Re
 	});
 }
 
-// Answers the person with `text` alone, as the model would, when the model can't be run.
+// Answers the person with `text` alone, as the model would, when the model can't be run: no
+// prompt was built.
 function answerWith(job: JobRow, workerId: string, text: string): Promise<Result<void, ApiError>> {
-	return writeBack(job, workerId, {text, toolCalls: [], inputTokens: 0, outputTokens: 0}, {});
+	return writeBack(job, workerId, {text, toolCalls: [], inputTokens: 0, outputTokens: 0, system: null}, {});
+}
+
+// Why the model couldn't be reached, for the job's record.
+function unreachable(failure: ApiError): string {
+	const cause = 'cause' in failure ? failure.cause : null;
+	return `The model could not be reached${cause instanceof Error ? `: ${cause.message}` : ''}`;
 }
 
 // The system prompt: the instructions any agent with the login gets, for the agent as it acts in
@@ -154,12 +176,16 @@ function compact(job: JobRow, workerId: string, entries: EntryRow[], key: string
 	});
 }
 
-// The model's turn on the log, summarized first where it has grown long.
-function askOnLog(job: JobRow, workerId: string, thread: ThreadRow, entries: EntryRow[], key: string, now: Date): Promise<Result<ModelTurn, ApiError>> {
+// The model's turn on the log, summarized first where it has grown long, with the system prompt
+// it was sent.
+function askOnLog(job: JobRow, workerId: string, thread: ThreadRow, entries: EntryRow[], key: string, now: Date): Promise<Result<{turn: ModelTurn; system: string}, ApiError>> {
 	return Do(async ($) => {
 		const current = $(await compact(job, workerId, entries, key));
 		const system = $(await systemPrompt(thread, now));
-		return $(await askModel({key, messages: [{role: 'system', content: system}, ...toMessages(current, {clearOld: true})], tools: toolsFor(thread), maxTokens: MAX_TOKENS, timeoutMs: TIMEOUT_MS}));
+		const turn = $(
+			await askModel({key, messages: [{role: 'system', content: system}, ...toMessages(current, {clearOld: true})], tools: toolsFor(thread), maxTokens: MAX_TOKENS, timeoutMs: TIMEOUT_MS}),
+		);
+		return {turn, system};
 	});
 }
 
@@ -181,19 +207,20 @@ export function runInference(job: JobRow, workerId: string, now = new Date()): P
 			$(await answerWith(job, workerId, NOT_SET_UP));
 			return;
 		}
-		const turn = await askOnLog(job, workerId, thread, entries, key, now);
-		if (turn.isErr() && turn.error.kind !== 'provider_unreachable') {
-			return $(Err(turn.error));
+		const asked = await askOnLog(job, workerId, thread, entries, key, now);
+		if (asked.isErr() && asked.error.kind !== 'provider_unreachable') {
+			return $(Err(asked.error));
 		}
-		if (turn.isErr()) {
-			log.warn('The built-in agent’s model could not be reached', {attempt: job.attempts, ...serializeError('cause' in turn.error ? turn.error.cause : turn.error)});
+		if (asked.isErr()) {
+			log.warn('The built-in agent’s model could not be reached', {attempt: job.attempts, ...serializeError('cause' in asked.error ? asked.error.cause : asked.error)});
 			if (job.attempts < MAX_MODEL_ATTEMPTS) {
-				$(await requeueJob(job.id, workerId, thread.id, new Date(now.getTime() + RETRY_MS * job.attempts)));
+				$(await requeueJob(job.id, workerId, thread.id, new Date(now.getTime() + RETRY_MS * job.attempts), unreachable(asked.error)));
 				return;
 			}
 			$(await answerWith(job, workerId, UNREACHABLE));
 			return;
 		}
-		$(await writeBack(job, workerId, said(thread, turn.value), plans(thread, turn.value.toolCalls, now)));
+		const {turn, system} = asked.value;
+		$(await writeBack(job, workerId, {...said(thread, turn), system}, plans(thread, turn.toolCalls, now)));
 	});
 }

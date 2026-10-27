@@ -595,8 +595,9 @@ model AgentThread {
   agent   Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
   persona Persona      @relation(fields: [personaId], references: [id], onDelete: Cascade)
   user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  entries AgentEntry[]
-  jobs    AgentJob[]
+  entries   AgentEntry[]
+  jobs      AgentJob[]
+  jobEvents AgentJobEvent[]
 
   @@index([personaId, userId])
   @@index([agentId])
@@ -641,6 +642,12 @@ model AgentEntry {
   outputTokens Int?
   // A summary entry's reach: the `seq` of the last entry it stands for; null otherwise.
   coversSeq Int?
+  // An assistant entry's system prompt, as the model was sent it: built from the login's grants
+  // as they were then, which nothing else keeps. Null where the model wasn't run for the answer.
+  system   String?
+  // The job that wrote the entry (AgentJob; as a column: the two live and die with the thread),
+  // with its attempts and its error; null for what the person wrote.
+  jobId    String?
 
   createdAt DateTime @default(now())
 
@@ -690,4 +697,33 @@ model AgentJob {
   @@unique([entryId, callId])
   @@index([status, runAt])
   @@index([threadId])
+}
+
+enum AgentJobEventKind {
+  claimed
+  requeued
+  done
+  failed
+}
+
+// What happened to a job, one row per happening, written once: a job's row is the queue's lock,
+// overwritten on every claim, so it keeps only its last attempt; this keeps every claim, who
+// made it and when, each failure and why, and each time it was put back. A claim's `at` is when
+// the worker took the job, so near when its turn was prepared.
+model AgentJobEvent {
+  id       String            @id @default(cuid())
+  jobId    String
+  // The job's thread, so a thread's history is one query.
+  threadId String
+  kind     AgentJobEventKind
+  // The worker, on claimed, done and failed.
+  workerId String?
+  // Why, on failed, and on requeued: why it is to be tried again.
+  error    String?
+  at       DateTime          @default(now())
+
+  thread AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, at])
+  @@index([threadId, at])
 }

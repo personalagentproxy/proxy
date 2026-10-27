@@ -66,7 +66,22 @@ beforeEach(() => {
 	ensureMemberThread.mockResolvedValue(Ok(thread));
 	listShownEntries.mockResolvedValue(
 		Ok([
-			{id: 'e1', seq: 1, threadId: 'thread-1', kind: 'person', text: 'Hi', toolCalls: null, callId: null, isError: false, inputTokens: null, outputTokens: null, coversSeq: null, createdAt: now},
+			{
+				id: 'e1',
+				seq: 1,
+				threadId: 'thread-1',
+				kind: 'person',
+				text: 'Hi',
+				toolCalls: null,
+				callId: null,
+				isError: false,
+				inputTokens: null,
+				outputTokens: null,
+				coversSeq: null,
+				system: null,
+				jobId: null,
+				createdAt: now,
+			},
 			{
 				id: 'e2',
 				seq: 2,
@@ -85,7 +100,22 @@ beforeEach(() => {
 	);
 	listOpenJobs.mockResolvedValue(Ok([]));
 	appendPersonMessage.mockResolvedValue(
-		Ok({id: 'e3', seq: 3, threadId: 'thread-1', kind: 'person', text: 'Hello', toolCalls: null, callId: null, isError: false, inputTokens: null, outputTokens: null, coversSeq: null, createdAt: now}),
+		Ok({
+			id: 'e3',
+			seq: 3,
+			threadId: 'thread-1',
+			kind: 'person',
+			text: 'Hello',
+			toolCalls: null,
+			callId: null,
+			isError: false,
+			inputTokens: null,
+			outputTokens: null,
+			coversSeq: null,
+			system: null,
+			jobId: null,
+			createdAt: now,
+		}),
 	);
 });
 

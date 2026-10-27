@@ -22,6 +22,8 @@ function entry(seq: number, kind: Kind, text: string, extra: Partial<Pick<EntryR
 		inputTokens: extra.inputTokens ?? null,
 		outputTokens: null,
 		coversSeq: extra.coversSeq ?? null,
+		system: null,
+		jobId: null,
 		createdAt: now,
 	};
 }

@@ -53,6 +53,8 @@ function entryWith(calls: Array<{id: string; name: string; arguments: string}>) 
 		inputTokens: 1,
 		outputTokens: 1,
 		coversSeq: null,
+		system: null,
+		jobId: null,
 		createdAt: now,
 	};
 }

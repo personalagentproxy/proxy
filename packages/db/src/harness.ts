@@ -1,4 +1,10 @@
-import type {AgentEntryKind, AgentJobKind, AgentJobStatus, Prisma} from '@prisma/client';
+import type {
+	AgentEntryKind,
+	AgentJobEventKind,
+	AgentJobKind,
+	AgentJobStatus,
+	Prisma,
+} from '@prisma/client';
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, wrapDb} from '@proxy/utils';
@@ -70,6 +76,10 @@ export type EntryRow = LogEntry & {
 	outputTokens: number | null;
 	// A summary entry's reach: the seq of the last entry it stands for.
 	coversSeq: number | null;
+	// An assistant entry's system prompt, as the model was sent it; null where it wasn't run.
+	system: string | null;
+	// The job that wrote the entry; null for what the person wrote.
+	jobId: string | null;
 	createdAt: Date;
 };
 
@@ -83,6 +93,17 @@ export type JobRow = {
 	runAt: Date;
 	claimedBy: string | null;
 	attempts: number;
+};
+
+/** What happened to a job: claimed by a worker, put back to be tried again (why in `error`), done, or failed (why in `error`). */
+export type JobEventRow = {
+	id: string;
+	jobId: string;
+	threadId: string;
+	kind: AgentJobEventKind;
+	workerId: string | null;
+	error: string | null;
+	at: Date;
 };
 
 /** What is to happen with a call the model made: when its job may run, and, for a delegation, what it is answered at once with, since the report comes later as an event. */
@@ -136,6 +157,8 @@ const entrySelect = {
 	inputTokens: true,
 	outputTokens: true,
 	coversSeq: true,
+	system: true,
+	jobId: true,
 	createdAt: true,
 } as const;
 
@@ -149,6 +172,16 @@ const jobSelect = {
 	runAt: true,
 	claimedBy: true,
 	attempts: true,
+} as const;
+
+const jobEventSelect = {
+	id: true,
+	jobId: true,
+	threadId: true,
+	kind: true,
+	workerId: true,
+	error: true,
+	at: true,
 } as const;
 
 type EntryRecord = Prisma.AgentEntryGetPayload<{select: typeof entrySelect}>;
@@ -420,6 +453,17 @@ export async function listOpenJobs(threadId: string): Promise<Result<JobRow[], A
 	);
 }
 
+/** What happened to the thread's jobs, in order: every claim, requeue, finish and failure. */
+export async function listJobEvents(threadId: string): Promise<Result<JobEventRow[], ApiError>> {
+	return wrapDb(() =>
+		db.agentJobEvent.findMany({
+			where: {threadId},
+			select: jobEventSelect,
+			orderBy: {at: 'asc'},
+		}),
+	);
+}
+
 /** A new task for a sub-agent's calls, once the one before was abandoned. */
 export async function setThreadTask(
 	threadId: string,
@@ -516,7 +560,7 @@ async function release(tx: Tx, thread: ThreadRow): Promise<void> {
 async function appendEntry(
 	tx: Tx,
 	thread: ThreadRow,
-	data: {kind: AgentEntryKind; text: string; callId?: string; isError?: boolean},
+	data: {kind: AgentEntryKind; text: string; callId?: string; isError?: boolean; jobId?: string},
 ): Promise<EntryRow> {
 	const pending = data.kind !== 'tool_result' && (await holding(tx, thread));
 	const entry = await tx.agentEntry.create({
@@ -530,24 +574,26 @@ async function appendEntry(
 }
 
 // Answers a call of the thread's log, as its result or, for one answered at once as started, as
-// an event. With the thread locked.
+// an event, from the job that has the answer. With the thread locked.
 async function answerCall(
 	tx: Tx,
 	thread: ThreadRow,
 	kind: 'tool_result' | 'event',
 	answer: {callId: string; text: string; isError: boolean},
+	jobId: string,
 ): Promise<void> {
-	await appendEntry(tx, thread, {kind, ...answer});
+	await appendEntry(tx, thread, {kind, ...answer, jobId});
 }
 
 // Ends a sub-agent's work with its report: its thread is done, its task finished with the report
 // as the outcome (unless abandoned meanwhile, as a task is a day after its last start), and the
-// report answers the call that started it, in the thread it was started from. With the sub-agent's
-// thread locked; its parent's is locked here, after.
+// report answers the call that started it, in the thread it was started from, from the sub-agent's
+// job that ended with it. With the sub-agent's thread locked; its parent's is locked here, after.
 async function endSubAgent(
 	tx: Tx,
 	thread: ThreadRow,
 	report: {text: string; isError: boolean},
+	jobId: string,
 ): Promise<void> {
 	if (
 		thread.finishedAt !== null ||
@@ -572,7 +618,7 @@ async function endSubAgent(
 	if (!parent) {
 		return;
 	}
-	await answerCall(tx, parent, 'event', {callId: thread.parentCallId, ...report});
+	await answerCall(tx, parent, 'event', {callId: thread.parentCallId, ...report}, jobId);
 }
 
 /** Lands what the person said, and wakes the agent. `Ok(null)` means no such thread. */
@@ -602,11 +648,10 @@ export async function claimJob(
 ): Promise<Result<JobRow | null, ApiError>> {
 	// Prisma writes a DateTime as the UTC wall clock, in a column without a time zone; now() has
 	// one, and would be read in the server's, so its UTC wall clock is what is compared and
-	// written.
-	return (
-		await wrapDb(
-			() =>
-				db.$queryRaw<Array<JobRow>>`
+	// written. The claim is noted as an event in the same transaction.
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const rows = await tx.$queryRaw<Array<JobRow>>`
 				UPDATE "AgentJob" SET
 					"status" = 'running',
 					"claimedBy" = ${workerId},
@@ -621,9 +666,17 @@ export async function claimJob(
 					LIMIT 1
 					FOR UPDATE SKIP LOCKED
 				)
-				RETURNING "id", "threadId", "kind", "status", "entryId", "callId", "runAt", "claimedBy", "attempts"`,
-		)
-	).map((rows) => rows[0] ?? null);
+				RETURNING "id", "threadId", "kind", "status", "entryId", "callId", "runAt", "claimedBy", "attempts"`;
+			const job = rows[0];
+			if (!job) {
+				return null;
+			}
+			await tx.agentJobEvent.create({
+				data: {jobId: job.id, threadId: job.threadId, kind: 'claimed', workerId},
+			});
+			return job;
+		}),
+	);
 }
 
 /** Keeps the worker's claim on the job; `Ok(false)` when the job is no longer its. */
@@ -641,20 +694,29 @@ export async function renewLease(
 	).map((count) => count > 0);
 }
 
-// Marks the worker's running job as `status`; false when the job is no longer the worker's, in
-// which case nothing else of the transaction should go through.
+// Marks the worker's running job as `status`, done or failed, and notes it as an event; false when
+// the job is no longer the worker's, in which case nothing else of the transaction should go
+// through.
 async function fence(
 	tx: Tx,
 	jobId: string,
 	workerId: string,
-	status: AgentJobStatus,
+	status: 'done' | 'failed',
 	error: string | null = null,
 ): Promise<boolean> {
 	const {count} = await tx.agentJob.updateMany({
 		where: {id: jobId, claimedBy: workerId, status: 'running'},
 		data: {status, error, claimedBy: null, leaseExpiresAt: null},
 	});
-	return count > 0;
+	if (count === 0) {
+		return false;
+	}
+	const {threadId} = await tx.agentJob.findUniqueOrThrow({
+		where: {id: jobId},
+		select: {threadId: true},
+	});
+	await tx.agentJobEvent.create({data: {jobId, threadId, kind: status, workerId, error}});
+	return true;
 }
 
 // Whether the job is still the worker's to write for. With the thread locked.
@@ -703,18 +765,29 @@ export async function failJob(
 				const answered = await tx.agentEntry.count({
 					where: {threadId: thread.id, kind: 'tool_result', callId: job.callId},
 				});
-				await answerCall(tx, thread, answered > 0 ? 'event' : 'tool_result', {
-					callId: job.callId,
-					text: `This call could not be run: ${error}`,
-					isError: true,
-				});
+				await answerCall(
+					tx,
+					thread,
+					answered > 0 ? 'event' : 'tool_result',
+					{
+						callId: job.callId,
+						text: `This call could not be run: ${error}`,
+						isError: true,
+					},
+					job.id,
+				);
 				return true;
 			}
 			if (job.kind !== 'inference') {
 				return true;
 			}
 			if (thread.parentThreadId !== null) {
-				await endSubAgent(tx, thread, {text: `The sub-agent failed: ${error}`, isError: true});
+				await endSubAgent(
+					tx,
+					thread,
+					{text: `The sub-agent failed: ${error}`, isError: true},
+					job.id,
+				);
 				return true;
 			}
 			await tx.agentEntry.create({
@@ -723,6 +796,7 @@ export async function failJob(
 					kind: 'assistant' satisfies AgentEntryKind,
 					text: `Something went wrong on my side, so I could not answer: ${error.replace(/\.$/, '')}. Say something to try again.`,
 					isError: true,
+					jobId: job.id,
 				},
 			});
 			await release(tx, thread);
@@ -732,14 +806,15 @@ export async function failJob(
 }
 
 /**
- * Puts the worker's job back in the queue for later, and what landed meanwhile in the log, for
- * it to read then; `Ok(false)` when it was no longer the worker's.
+ * Puts the worker's job back in the queue for later, saying why, and what landed meanwhile in the
+ * log, for it to read then; `Ok(false)` when it was no longer the worker's.
  */
 export async function requeueJob(
 	jobId: string,
 	workerId: string,
 	threadId: string,
 	runAt: Date,
+	why: string,
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
@@ -751,6 +826,9 @@ export async function requeueJob(
 			if (count === 0) {
 				return false;
 			}
+			await tx.agentJobEvent.create({
+				data: {jobId, threadId, kind: 'requeued', workerId, error: why},
+			});
 			if (thread) {
 				await release(tx, thread);
 			}
@@ -759,12 +837,13 @@ export async function requeueJob(
 	);
 }
 
-/** What the model answered: its text, its tool calls, and what they cost. */
+/** What the model answered: its text, its tool calls, what they cost, and the system prompt it was sent; null where it wasn't run for the answer. */
 export type AssistantTurn = {
 	text: string;
 	toolCalls: ToolCall[];
 	inputTokens: number;
 	outputTokens: number;
+	system: string | null;
 };
 
 /**
@@ -793,6 +872,7 @@ export async function appendSummary(
 					inputTokens: summary.inputTokens,
 					outputTokens: summary.outputTokens,
 					coversSeq,
+					jobId,
 				},
 				select: {id: true},
 			});
@@ -830,11 +910,13 @@ export async function completeInference(
 					toolCalls: turn.toolCalls.length === 0 ? null : JSON.stringify(turn.toolCalls),
 					inputTokens: turn.inputTokens,
 					outputTokens: turn.outputTokens,
+					system: turn.system,
+					jobId,
 				},
 				select: {id: true},
 			});
 			if (turn.toolCalls.length === 0 && thread.parentThreadId !== null) {
-				await endSubAgent(tx, thread, {text: turn.text, isError: false});
+				await endSubAgent(tx, thread, {text: turn.text, isError: false}, jobId);
 				return true;
 			}
 			if (turn.toolCalls.length === 0) {
@@ -855,7 +937,7 @@ export async function completeInference(
 				if (placeholder === null || placeholder === undefined) {
 					return [];
 				}
-				return [{threadId, kind: 'tool_result', text: placeholder, callId: call.id}];
+				return [{threadId, kind: 'tool_result', text: placeholder, callId: call.id, jobId}];
 			});
 			if (started.length > 0) {
 				await tx.agentEntry.createMany({data: started});
@@ -883,7 +965,7 @@ export async function completeToolJob(
 			if (!thread || !(await fence(tx, jobId, workerId, 'done'))) {
 				return false;
 			}
-			await answerCall(tx, thread, 'tool_result', result);
+			await answerCall(tx, thread, 'tool_result', result, jobId);
 			return true;
 		}),
 	);

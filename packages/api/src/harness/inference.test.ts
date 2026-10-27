@@ -52,6 +52,8 @@ function entry(
 		inputTokens: extra.inputTokens ?? null,
 		outputTokens: null,
 		coversSeq: extra.coversSeq ?? null,
+		system: null,
+		jobId: null,
 		createdAt: now,
 	};
 }
@@ -108,6 +110,7 @@ describe('runInference', () => {
 				toolCalls: [{id: 'c2', name: 'delegate', arguments: '{"title":"File the invoices","brief":"Save the three invoices from Dana to the vault."}'}],
 				inputTokens: 10,
 				outputTokens: 2,
+				system: expect.stringContaining('You are signed in.'),
 			},
 			{c2: {runAt: now, placeholder: expect.stringContaining('Started the sub-agent “File the invoices”')}},
 		);
@@ -217,7 +220,7 @@ describe('runInference', () => {
 		askModel.mockResolvedValue(Err(ApiErr.providerUnreachable(new Error('down'))));
 
 		await runInference(job, 'w1', now);
-		expect(requeueJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', new Date('2026-10-21T10:00:05Z'));
+		expect(requeueJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', new Date('2026-10-21T10:00:05Z'), expect.stringContaining('The model could not be reached'));
 		expect(completeInference).not.toHaveBeenCalled();
 
 		await runInference({...job, attempts: 3}, 'w1', now);
@@ -269,6 +272,19 @@ describe('runInference', () => {
 		getJobThread.mockResolvedValue(Ok(sub));
 		await runInference({...job, threadId: 'thread-2'}, 'w1', now);
 		expect(completeInference).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-2', expect.objectContaining({text: expect.stringContaining('not a complete report')}), {});
+	});
+
+	test('the answer is written with the system prompt the model was sent; an answer given without the model, with none', async () => {
+		const {runInference} = await import('./inference');
+		listEntries.mockResolvedValue(Ok([entry('person', 'Hi')]));
+
+		await runInference(job, 'w1', now);
+		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: 'Hello', system: expect.stringContaining('You are signed in.')}), {});
+
+		completeInference.mockClear();
+		listEntries.mockResolvedValue(Ok([entry('person', 'Go'), ...Array.from({length: 30}, (_, i) => entry('assistant', `step ${i}`)), entry('event', 'done', {callId: 'c1'})]));
+		await runInference(job, 'w1', now);
+		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({system: null}), {});
 	});
 
 	test('a report that comes after it stopped is acted on, not answered with the stop again', async () => {
