@@ -198,3 +198,19 @@ export function shuffleLook(random: () => number = Math.random): Look {
 		eyes: 2,
 	};
 }
+
+// How much of a message a preview of it shows.
+const PREVIEW_CHARS = 120;
+
+/** A message as a line of words, for a list: its Markdown marks dropped, its whitespace folded, cut to a line. */
+export function preview(text: string): string {
+	return text
+		.replace(/```[\s\S]*?```/g, ' ')
+		.replace(/^\s*(?:[-*+]|\d+\.|#{1,6}|>)\s+/gm, '')
+		.replace(/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$/gm, '')
+		.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+		.replace(/[*_`~|]+/g, '')
+		.replace(/\s+/g, ' ')
+		.trim()
+		.slice(0, PREVIEW_CHARS);
+}

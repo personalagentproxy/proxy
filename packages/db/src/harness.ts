@@ -3,6 +3,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, wrapDb} from '@proxy/utils';
 import {
+	DEFAULT_LOOK,
 	type Look,
 	type LogEntry,
 	parseLook,
@@ -201,6 +202,39 @@ export async function listPersonas(
 			};
 		}),
 	);
+}
+
+/**
+ * The organization's first persona, General, made by nobody in particular where it has none: the
+ * organization's row is locked meanwhile, so two first openings of Chat make one. The one there
+ * is otherwise, which is the oldest.
+ */
+export async function ensureFirstPersona(orgId: string): Promise<Result<PersonaRow, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.$transaction(async (tx) => {
+				await tx.$queryRaw`SELECT "id" FROM "Organization" WHERE "id" = ${orgId} FOR UPDATE`;
+				const existing = await tx.persona.findFirst({
+					where: {orgId},
+					select: personaSelect,
+					orderBy: {createdAt: 'asc'},
+				});
+				if (existing) {
+					return existing;
+				}
+				return tx.persona.create({
+					data: {
+						orgId,
+						createdById: null,
+						name: 'General',
+						look: JSON.stringify(DEFAULT_LOOK),
+						color: 'blue',
+					},
+					select: personaSelect,
+				});
+			}),
+		)
+	).map(toPersona);
 }
 
 /** Personas by id, those of the organization among `ids`, for what names them. */

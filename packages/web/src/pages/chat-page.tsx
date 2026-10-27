@@ -33,6 +33,7 @@ import {
 	MessageScrollerViewport,
 } from '@proxy/ui/components/message-scroller';
 import {Trace, TraceIcon, TraceLine, TraceTitle} from '@proxy/ui/components/trace';
+import {preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
 import {useOrgSlug} from '@/hooks/use-org';
 import {formatAgo, formatDateTime} from '@/lib/format';
@@ -96,17 +97,18 @@ function Status({log}: {log: ThreadLog}) {
 }
 
 // What a row shows under the name: the last thing said in the conversation, the person's with "You:".
-function preview(last: ChatPersona['lastMessage']): string {
+function subtitle(last: ChatPersona['lastMessage']): string {
 	if (last === null) {
 		return 'Nothing yet';
 	}
 	return last.kind === 'person' ? `You: ${last.text}` : last.text;
 }
 
-// The last thing said in the open conversation, as the page has it, fresher than the list.
+// The last thing said in the open conversation, as the page has it, fresher than the list, cut
+// to a line as the list has it.
 function lastOf(log: ThreadLog): ChatPersona['lastMessage'] {
 	const last = log.entries.at(-1);
-	return last ? {kind: last.kind, text: last.text, at: last.at} : null;
+	return last ? {kind: last.kind, text: preview(last.text), at: last.at} : null;
 }
 
 // The organization's personas in the second sidebar, each with its head, its name and the last
@@ -169,7 +171,7 @@ function PersonaList({
 												</span>
 											)}
 										</span>
-										<span className="truncate text-xs text-muted-foreground">{preview(last)}</span>
+										<span className="truncate text-xs text-muted-foreground">{subtitle(last)}</span>
 									</span>
 								</Link>
 							</li>

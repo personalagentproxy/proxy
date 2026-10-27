@@ -2,6 +2,7 @@ import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Ok} from 'ts-results-es';
 
 const listPersonas = mock();
+const ensureFirstPersona = mock();
 const getPersona = mock();
 const createPersona = mock();
 const updatePersona = mock();
@@ -13,6 +14,7 @@ const listOpenJobs = mock();
 const appendPersonMessage = mock();
 mock.module('@proxy/db/harness', () => ({
 	listPersonas,
+	ensureFirstPersona,
 	getPersona,
 	createPersona,
 	updatePersona,
@@ -121,6 +123,17 @@ describe('the chat routes', () => {
 				{...personaResponse, id: 'persona-4', lastMessage: {kind: 'assistant', text: 'Found Three invoices, see the list Who Sum Dana 40', at: '2026-10-21T10:00:00.000Z'}},
 			],
 		});
+	});
+
+	test('an organization without a persona gets a General one, nobody’s, on its first listing', async () => {
+		const {handleListPersonasRoute} = await import('./route');
+		listPersonas.mockResolvedValue(Ok([]));
+		ensureFirstPersona.mockResolvedValue(Ok({...persona, id: 'persona-9', name: 'General', createdById: null}));
+
+		const listed = (await handleListPersonasRoute(request())).unwrap();
+
+		expect(ensureFirstPersona).toHaveBeenCalledWith('org-1');
+		expect(listed).toEqual({personas: [{...personaResponse, id: 'persona-9', name: 'General', mayChange: false}]});
 	});
 
 	test('make a persona as given, for everyone in the organization, with the organization’s built-in login where there is none', async () => {

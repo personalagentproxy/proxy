@@ -1,4 +1,3 @@
-import {DEFAULT_LOOK} from '@proxy/utils/harness';
 import {getSignInMethods} from '@/client/auth-client';
 import {
 	type ActivityFilter,
@@ -10,7 +9,7 @@ import {
 	listMcpClients,
 } from '@/client/agents-client';
 import {getConnection, listConnections} from '@/client/connections-client';
-import {createPersona, getThread, listPersonas} from '@/client/harness-client';
+import {getThread, listPersonas} from '@/client/harness-client';
 import {getMe} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {getInvitation, getOrg, listMembers, listOrgs} from '@/client/orgs-client';
@@ -112,18 +111,15 @@ export async function connectionLoader(args: {params: {org?: string; id?: string
 	};
 }
 
-// Chat opens on the organization's first persona, a General one made where it has none yet.
+// Chat opens on the organization's first persona, which the api makes where it has none yet.
 export async function chatIndexLoader(args: OrgParams) {
 	const org = orgOf(args);
 	const {personas} = unwrapLoaderResult(await listPersonas(org));
 	const first = personas[0];
-	if (first) {
-		throw redirect(`/${org}/chat/${first.id}`);
+	if (!first) {
+		throw redirect(`/${org}`);
 	}
-	const {persona} = unwrapLoaderResult(
-		await createPersona(org, {name: 'General', look: DEFAULT_LOOK, color: 'blue'}),
-	);
-	throw redirect(`/${org}/chat/${persona.id}`);
+	throw redirect(`/${org}/chat/${first.id}`);
 }
 
 // The person's conversation with an agent, and the agents to switch between.

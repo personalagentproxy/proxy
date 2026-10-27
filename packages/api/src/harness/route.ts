@@ -2,11 +2,12 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, hasExperiment, parseSchema, requirePresent} from '@proxy/utils';
-import {AVATAR_COLORS, type Look, lookSchema} from '@proxy/utils/harness';
+import {AVATAR_COLORS, type Look, lookSchema, preview} from '@proxy/utils/harness';
 import {
 	appendPersonMessage,
 	createPersona,
 	deletePersona,
+	ensureFirstPersona,
 	ensureMemberThread,
 	type EntryRow,
 	getMemberThread,
@@ -44,22 +45,6 @@ export type EntryResponse = {id: string; kind: 'person' | 'assistant'; text: str
 
 /** The member's conversation with a persona: the persona, the thread, its turns, and what the persona is up to: busy on it, asleep until a time, or waiting for the person. */
 export type ThreadLogResponse = {persona: PersonaResponse; thread: {id: string}; entries: EntryResponse[]; busy: boolean; sleepingUntil: string | null};
-
-// How much of the last message the list shows.
-const PREVIEW_CHARS = 120;
-
-// The last message as a line of words: its Markdown marks dropped, its whitespace folded.
-function preview(text: string): string {
-	return text
-		.replace(/```[\s\S]*?```/g, ' ')
-		.replace(/^\s*(?:[-*+]|\d+\.|#{1,6}|>)\s+/gm, '')
-		.replace(/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$/gm, '')
-		.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-		.replace(/[*_`~|]+/g, '')
-		.replace(/\s+/g, ' ')
-		.trim()
-		.slice(0, PREVIEW_CHARS);
-}
 
 // Whether the viewer may rename, reface or delete the persona: whoever made it, or the organization's owner (utils/manages.ts).
 function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
@@ -137,12 +122,16 @@ function requireThread(viewer: OrgViewer, persona: PersonaRow): Promise<Result<T
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas`: the organization's personas, in the order they were made, with the viewer's conversations. */
+/** `GET /api/orgs/:org/chat/personas`: the organization's personas, in the order they were made, with the viewer's conversations; a General one is made where it has none. */
 export function handleListPersonasRoute(request: AuthenticatedRequest): Promise<Result<{personas: PersonaResponse[]}, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const personas = $(await listPersonas(viewer.orgId, viewer.userId));
-		return {personas: personas.map((persona) => toPersona(viewer, persona))};
+		if (personas.length > 0) {
+			return {personas: personas.map((persona) => toPersona(viewer, persona))};
+		}
+		const first = $(await ensureFirstPersona(viewer.orgId));
+		return {personas: [toPersona(viewer, first)]};
 	});
 }
 
