@@ -3,6 +3,7 @@ import {describe, expect, test} from 'bun:test';
 import {
 	AVATAR_COLORS,
 	AVATAR_SHAPES,
+	delegateArgs,
 	isAvatarColor,
 	isAvatarShape,
 	type LogEntry,
@@ -21,6 +22,12 @@ const assistant = (text: string, calls: Array<{id: string; name: string}> = []):
 const result = (callId: string): LogEntry => ({
 	kind: 'tool_result',
 	text: 'ok',
+	toolCalls: null,
+	callId,
+});
+const event = (callId: string): LogEntry => ({
+	kind: 'event',
+	text: 'report',
 	toolCalls: null,
 	callId,
 });
@@ -54,6 +61,38 @@ describe('readyForInference', () => {
 		const calling = [person('hi'), assistant('', [{id: 'a', name: 'read'}])];
 		expect(readyForInference(calling)).toBe(false);
 		expect(readyForInference([...calling, result('a')])).toBe(true);
+	});
+
+	test('after an event, as after the person, but not while a call is still unanswered', () => {
+		const delegated = [
+			person('hi'),
+			assistant('', [{id: 'd', name: 'delegate'}]),
+			result('d'),
+			assistant('Started.'),
+		];
+		expect(readyForInference(delegated)).toBe(false);
+		expect(readyForInference([...delegated, event('d')])).toBe(true);
+		expect(
+			readyForInference([
+				...delegated,
+				person('and?'),
+				assistant('', [{id: 'e', name: 'delegate'}]),
+				event('d'),
+			]),
+		).toBe(false);
+	});
+});
+
+describe('delegateArgs', () => {
+	test('are a title, trimmed and cut to a task’s, and a brief, or nothing', () => {
+		expect(delegateArgs({title: ' Find the invoices ', brief: ' Search the mailbox. '})).toEqual({
+			title: 'Find the invoices',
+			brief: 'Search the mailbox.',
+		});
+		expect(delegateArgs({title: 'x'.repeat(130), brief: 'Go'})?.title).toHaveLength(120);
+		expect(delegateArgs({title: 'Find', brief: ' '})).toBeNull();
+		expect(delegateArgs({brief: 'Go'})).toBeNull();
+		expect(delegateArgs('go')).toBeNull();
 	});
 });
 

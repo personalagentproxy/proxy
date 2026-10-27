@@ -11,20 +11,23 @@ import {runInference} from './inference';
 import {runToolJob} from './tool-job';
 
 /**
- * The worker that runs the built-in agent's jobs, one at a time, in each api instance: it claims
- * the next job due, keeps its lease while the job runs, and claims the next as soon as it is done,
- * so a turn's calls and the next turn follow each other without waiting; nothing due, it looks
- * again in a moment. The queue is the database, so instances need nothing of each other: one that
- * goes down mid-job loses its lease, and another picks the job up. Stopping, as for a deploy, the
- * worker claims nothing more and finishes the job it is on, up to a point.
+ * The worker that runs the built-in agents' jobs, a few at a time, in each api instance: it
+ * claims the next job due while it has room, keeps each job's lease while it runs, and claims
+ * the next as soon as one is done, so a turn's calls, the sub-agents started side by side and the
+ * next turn follow each other without waiting; nothing due, it looks again in a moment. The queue
+ * is the database, so instances need nothing of each other: one that goes down mid-job loses its
+ * lease, and another picks the job up. Stopping, as for a deploy, the worker claims nothing more
+ * and finishes the jobs it is on, up to a point.
  */
 
 const POLL_MS = 500;
 const LEASE_MS = 120_000;
 const RENEW_MS = 30_000;
+// How many jobs a worker runs at once.
+const CONCURRENCY = 4;
 // After this many claims, a job that keeps failing is given up.
 const MAX_ATTEMPTS = 4;
-// How long stopping waits for the job under way.
+// How long stopping waits for the jobs under way.
 const STOP_MS = 8_000;
 
 export type HarnessWorker = {stop: () => Promise<void>};
@@ -65,10 +68,14 @@ async function runClaimed(job: JobRow, workerId: string): Promise<void> {
 export function startHarnessWorker(): HarnessWorker {
 	const workerId = workerName();
 	let stopping = false;
-	let current: Promise<void> = Promise.resolve();
+	const running = new Set<Promise<void>>();
 
 	const loop = async (): Promise<void> => {
 		while (!stopping) {
+			if (running.size >= CONCURRENCY) {
+				await Promise.race(running);
+				continue;
+			}
 			const claimed = await claimJob(workerId, LEASE_MS);
 			if (claimed.isErr()) {
 				log.error('Built-in agent worker could not claim a job', serializeError(claimed.error));
@@ -79,8 +86,8 @@ export function startHarnessWorker(): HarnessWorker {
 				await sleep(POLL_MS);
 				continue;
 			}
-			current = runClaimed(claimed.value, workerId);
-			await current;
+			const job: Promise<void> = runClaimed(claimed.value, workerId).finally(() => running.delete(job));
+			running.add(job);
 		}
 	};
 	void loop();
@@ -89,7 +96,7 @@ export function startHarnessWorker(): HarnessWorker {
 	return {
 		stop: async () => {
 			stopping = true;
-			await Promise.race([current, sleep(STOP_MS)]);
+			await Promise.race([Promise.all(running), sleep(STOP_MS)]);
 		},
 	};
 }

@@ -72,6 +72,33 @@ describe('toMessages', () => {
 		expect(toMessages(log, {clearOld: false})[3]).toEqual({role: 'tool', tool_call_id: 'c2', content: 'rows two'});
 	});
 
+	test('reads a sub-agent’s report as a message, led in with whose it is, and clears old ones too', () => {
+		const delegated = entry(1, 'person', 'Find my invoices');
+		const call = entry(2, 'assistant', 'Looking.', {toolCalls: [{id: 'd1', name: 'delegate', arguments: '{"title":"Find the invoices","brief":"Search the mailbox."}'}], inputTokens: 10});
+		const started = entry(3, 'tool_result', 'Started.', {callId: 'd1'});
+		const report = entry(4, 'event', 'Three invoices from Dana.', {callId: 'd1'});
+		const failed = {...entry(5, 'event', 'The sub-agent failed: boom', {callId: 'd1'}), isError: true};
+
+		const messages = toMessages([delegated, call, started, report, failed], {clearOld: true});
+
+		expect(messages[3]).toEqual({role: 'user', content: expect.stringContaining('The report of the sub-agent “Find the invoices”')});
+		expect(String(messages[3]?.content)).toContain('Three invoices from Dana.');
+		expect(messages[4]).toEqual({role: 'user', content: expect.stringContaining('What the sub-agent “Find the invoices” failed with')});
+
+		const later = [
+			delegated,
+			call,
+			started,
+			report,
+			entry(6, 'assistant', 'Three invoices.', {inputTokens: 10}),
+			entry(7, 'person', 'Thanks'),
+			entry(8, 'summary', 'Invoices were found.', {coversSeq: 1}),
+		];
+		const cleared = toMessages(later, {clearOld: true});
+		expect(String(cleared[3]?.content)).toContain('cleared');
+		expect(String(cleared[3]?.content)).not.toContain('Dana');
+	});
+
 	test('with summaries on summaries, only the last counts', () => {
 		const log = [...long, entry(12, 'summary', 'First.', {coversSeq: 4}), entry(13, 'summary', 'Second.', {coversSeq: 8})];
 

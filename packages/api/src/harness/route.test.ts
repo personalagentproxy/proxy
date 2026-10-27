@@ -8,8 +8,9 @@ const getMemberThread = mock();
 const ensureMemberThread = mock();
 const listEntries = mock();
 const listOpenJobs = mock();
+const listSubAgents = mock();
 const appendPersonMessage = mock();
-mock.module('@proxy/db/harness', () => ({listChatAgents, getChatAgent, updateChatAgent, getMemberThread, ensureMemberThread, listEntries, listOpenJobs, appendPersonMessage}));
+mock.module('@proxy/db/harness', () => ({listChatAgents, getChatAgent, updateChatAgent, getMemberThread, ensureMemberThread, listEntries, listOpenJobs, listSubAgents, appendPersonMessage}));
 
 const deleteAgent = mock(async () => Ok(true));
 mock.module('@proxy/db/agent', () => ({deleteAgent}));
@@ -21,13 +22,10 @@ mock.module('../utils/user-org', () => ({requireViewer}));
 const createBuiltInAgent = mock(async () => Ok({id: 'agent-2', createdById: 'user-1'}));
 mock.module('./built-in-agent', () => ({createBuiltInAgent}));
 
-const createThreadTask = mock(async () => Ok('task-1'));
-mock.module('./thread-task', () => ({createThreadTask}));
-
 const now = new Date('2026-10-21T10:00:00Z');
 const agent = {id: 'agent-1', name: 'Finance', shape: 'circle', color: 'blue', createdById: 'user-1'};
 const agentResponse = {id: 'agent-1', name: 'Finance', shape: 'circle', color: 'blue', mayChange: true, lastMessage: null};
-const thread = {id: 'thread-1', orgId: 'org-1', agentId: 'agent-1', userId: 'user-1', taskId: 'task-1', createdAt: now};
+const thread = {id: 'thread-1', orgId: 'org-1', agentId: 'agent-1', userId: 'user-1', parentThreadId: null, parentCallId: null, title: null, taskId: null, finishedAt: null, createdAt: now};
 
 function request(params: Record<string, string> = {}, body: unknown = undefined) {
 	return {user: {userId: 'user-1', email: 'a@example.com'}, params, body} as never;
@@ -61,6 +59,7 @@ beforeEach(() => {
 		]),
 	);
 	listOpenJobs.mockResolvedValue(Ok([]));
+	listSubAgents.mockResolvedValue(Ok([{id: 'thread-2', parentCallId: 'c1', title: 'Find the invoices', taskId: 'task-2', finishedAt: now}]));
 	appendPersonMessage.mockResolvedValue(
 		Ok({id: 'e3', seq: 3, threadId: 'thread-1', kind: 'person', text: 'Hello', toolCalls: null, callId: null, isError: false, inputTokens: null, outputTokens: null, coversSeq: null, createdAt: now}),
 	);
@@ -135,23 +134,23 @@ describe('the chat routes', () => {
 		expect((await handleDeleteChatAgentRoute(request({agentId: 'nope'}))).unwrapErr()).toMatchObject({kind: 'not_found'});
 	});
 
-	test('give the viewer’s conversation with the agent, begun with a task where there was none, without its summaries, with whether the agent is busy or asleep', async () => {
+	test('give the viewer’s conversation with the agent, begun where there was none, without its summaries, with its sub-agents and whether the agent is busy or asleep', async () => {
 		const {handleGetThreadRoute} = await import('./route');
 		const soon = new Date(Date.now() + 60_000);
 		const base = {id: 'j1', threadId: 'thread-1', kind: 'tool' as const, status: 'queued' as const, entryId: 'e1', callId: 'c1', claimedBy: null, attempts: 0};
 
 		const idle = (await handleGetThreadRoute(request({agentId: 'agent-1'}))).unwrap();
 		expect(idle.agent).toEqual(agentResponse);
-		expect(idle.thread).toEqual({id: 'thread-1', taskId: 'task-1'});
+		expect(idle.thread).toEqual({id: 'thread-1'});
 		expect(idle.entries).toEqual([{id: 'e1', kind: 'person', text: 'Hi', toolCalls: null, callId: null, isError: false, at: '2026-10-21T10:00:00.000Z'}]);
+		expect(idle.subAgents).toEqual([{callId: 'c1', title: 'Find the invoices', taskId: 'task-2', finishedAt: '2026-10-21T10:00:00.000Z'}]);
 		expect(idle).toMatchObject({busy: false, sleepingUntil: null});
-		expect(createThreadTask).not.toHaveBeenCalled();
+		expect(ensureMemberThread).not.toHaveBeenCalled();
 
 		getMemberThread.mockResolvedValue(Ok(null));
 		listOpenJobs.mockResolvedValue(Ok([{...base, runAt: new Date(Date.now() - 1000)}]));
 		expect((await handleGetThreadRoute(request({agentId: 'agent-1'}))).unwrap()).toMatchObject({busy: true, sleepingUntil: null});
-		expect(createThreadTask).toHaveBeenCalledWith({orgId: 'org-1', agentId: 'agent-1', userId: 'user-1'});
-		expect(ensureMemberThread).toHaveBeenCalledWith({orgId: 'org-1', agentId: 'agent-1', userId: 'user-1', taskId: 'task-1'});
+		expect(ensureMemberThread).toHaveBeenCalledWith({orgId: 'org-1', agentId: 'agent-1', userId: 'user-1'});
 
 		listOpenJobs.mockResolvedValue(Ok([{...base, runAt: soon}]));
 		expect((await handleGetThreadRoute(request({agentId: 'agent-1'}))).unwrap()).toMatchObject({busy: false, sleepingUntil: soon.toISOString()});

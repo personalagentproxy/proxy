@@ -3,7 +3,8 @@ import {z} from 'zod';
 import {apiRequest, apiSend, orgApi} from '@/client/request';
 
 // The Chat page's api: the organization's built-in agents, each named and given a face, which
-// every member sees, the person's own conversation with each, its log, and what they say in it.
+// every member sees, the person's own conversation with each, its log, the sub-agents started from
+// it, and what they say in it.
 
 // An agent's persona as the person makes or changes it.
 const personaSchema = z.object({
@@ -26,22 +27,32 @@ const toolCallSchema = z.object({id: z.string(), name: z.string(), arguments: z.
 
 const entrySchema = z.object({
 	id: z.string(),
-	kind: z.enum(['person', 'assistant', 'tool_result']),
+	// An event is a sub-agent's report, which came after its call was answered as started.
+	kind: z.enum(['person', 'assistant', 'tool_result', 'event']),
 	text: z.string(),
 	// An assistant entry's calls; null otherwise.
 	toolCalls: z.array(toolCallSchema).nullable(),
-	// A tool result's call; null otherwise.
+	// A tool result's or an event's call; null otherwise.
 	callId: z.string().nullable(),
 	isError: z.boolean(),
 	at: z.string(),
 });
 
+// A sub-agent started from the conversation: by which call, its title, the task its calls are
+// made for, which the activity log can be narrowed to, and when it was done.
+const subAgentSchema = z.object({
+	callId: z.string(),
+	title: z.string(),
+	taskId: z.string(),
+	finishedAt: z.string().nullable(),
+});
+
 const threadLogSchema = z.object({
 	agent: agentSchema,
-	// The conversation, with the task every call in it is made for, which the activity log can be narrowed to.
-	thread: z.object({id: z.string(), taskId: z.string()}),
+	thread: z.object({id: z.string()}),
 	entries: z.array(entrySchema),
-	// Whether the agent is at work on the conversation, or asleep until a time.
+	subAgents: z.array(subAgentSchema),
+	// Whether the agent is at work on the conversation, sub-agents included, or asleep until a time.
 	busy: z.boolean(),
 	sleepingUntil: z.string().nullable(),
 });
@@ -50,6 +61,7 @@ export type Persona = z.infer<typeof personaSchema>;
 export type ChatAgent = z.infer<typeof agentSchema>;
 export type ChatEntry = z.infer<typeof entrySchema>;
 export type ChatToolCall = z.infer<typeof toolCallSchema>;
+export type ChatSubAgent = z.infer<typeof subAgentSchema>;
 export type ThreadLog = z.infer<typeof threadLogSchema>;
 
 export function listChatAgents(org: string) {

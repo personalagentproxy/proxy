@@ -1,12 +1,13 @@
 -- The built-in agents: agents of the organization with a face, each with a thread per member, the
--- member's conversation with it, with its log of entries (what the person said, what the model
--- answered with its tool calls, what each call answered, and summaries of the log once it has
--- grown long), and the jobs that run it (the model on a log, one tool call), claimed by one api
--- instance at a time with a lease. Their requests come in a third way, `harness`, beside the
--- agent pages and the MCP server.
+-- member's conversation with it, and a thread per sub-agent started from it, each with its log of
+-- entries (what the person said, what the model answered with its tool calls, what each call
+-- answered, events that came since, and summaries of the log once it has grown long), and the
+-- jobs that run them (the model on a log, one tool call), claimed by one api instance at a time
+-- with a lease. Their requests come in a third way, `harness`, beside the agent pages and the MCP
+-- server.
 
 -- CreateEnum
-CREATE TYPE "AgentEntryKind" AS ENUM ('person', 'assistant', 'tool_result', 'summary');
+CREATE TYPE "AgentEntryKind" AS ENUM ('person', 'assistant', 'tool_result', 'event', 'summary');
 
 -- CreateEnum
 CREATE TYPE "AgentJobKind" AS ENUM ('inference', 'tool');
@@ -27,7 +28,11 @@ CREATE TABLE "AgentThread" (
     "orgId" TEXT NOT NULL,
     "agentId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "taskId" TEXT NOT NULL,
+    "parentThreadId" TEXT,
+    "parentCallId" TEXT,
+    "title" TEXT,
+    "taskId" TEXT,
+    "finishedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -72,7 +77,10 @@ CREATE TABLE "AgentJob" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "AgentThread_agentId_userId_key" ON "AgentThread"("agentId", "userId");
+CREATE INDEX "AgentThread_agentId_userId_idx" ON "AgentThread"("agentId", "userId");
+
+-- CreateIndex
+CREATE INDEX "AgentThread_parentThreadId_idx" ON "AgentThread"("parentThreadId");
 
 -- CreateIndex
 CREATE INDEX "AgentThread_orgId_createdAt_idx" ON "AgentThread"("orgId", "createdAt");

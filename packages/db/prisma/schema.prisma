@@ -545,11 +545,23 @@ model AgentThread {
   // One of the organization's built-in agents, shared with every member of it, an Agent like any
   // other, with grants of its own.
   agentId String
-  // The member whose conversation with the agent it is: the agent acts as them in it, reaching
-  // what they see, and nobody else sees it.
+  // The member whose conversation with the agent it is, or, for a sub-agent's thread, whose
+  // conversation it was started from: the agent acts as them in it, reaching what they see, and
+  // nobody else sees it.
   userId  String
-  // The task its calls are made for.
-  taskId  String
+  // A sub-agent's thread: the thread whose agent delegated to it (AgentThread; as a column, as a
+  // task's parent is, since its agent, member and organization are the same, and go with them),
+  // and the call in that thread's log it was started by, which its report answers. Null for a
+  // member's conversation, of which there is one per member and agent.
+  parentThreadId String?
+  parentCallId   String?
+  // A sub-agent's title, as the agent that delegated to it gave it; null for a conversation.
+  title   String?
+  // The task a sub-agent's calls are made for, the sub-agent's own; a conversation has none: its
+  // agent makes no calls but to delegate.
+  taskId  String?
+  // When a sub-agent reported, or failed: its work is done, and nothing more runs on its thread.
+  finishedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -560,17 +572,21 @@ model AgentThread {
   entries AgentEntry[]
   jobs    AgentJob[]
 
-  @@unique([agentId, userId])
+  @@index([agentId, userId])
+  @@index([parentThreadId])
   @@index([orgId, createdAt])
 }
 
-// What an entry of a thread's log is: what the person said, what the model answered, with the tool
-// calls it made, what one of those calls answered, or a summary of the log up to a point, which
-// the model reads in place of what it covers once the log has grown long.
+// What an entry of a thread's log is: what the person said (a sub-agent's brief, in its thread),
+// what the model answered, with the tool calls it made, what one of those calls answered, an
+// event that came since (what a call run in the background came to, a sub-agent's report), or a
+// summary of the log up to a point, which the model reads in place of what it covers once the log
+// has grown long.
 enum AgentEntryKind {
   person
   assistant
   tool_result
+  event
   summary
 }
 
@@ -586,9 +602,9 @@ model AgentEntry {
   text     String
   // An assistant entry's tool calls as JSON (`@proxy/utils/harness` ToolCall[]); null otherwise.
   toolCalls String?
-  // A tool_result entry's call, by the id the model gave it; null otherwise.
+  // A tool_result or event entry's call, by the id the model gave it; null otherwise.
   callId   String?
-  // A tool_result that is an error, in words the model can act on.
+  // A tool_result or event that is an error, in words the model can act on.
   isError  Boolean        @default(false)
   // An assistant entry's cost.
   inputTokens  Int?

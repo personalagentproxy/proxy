@@ -9,7 +9,8 @@ const finishJob = mock(async () => Ok(true));
 // The agent as it acts in the thread: signed in as the member whose conversation it is.
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: []};
 const getThreadAgent = mock(async () => Ok(signedIn));
-mock.module('@proxy/db/harness', () => ({getJobThread, getEntry, completeToolJob, failJob, finishJob, getThreadAgent}));
+const startSubAgent = mock(async () => Ok(true));
+mock.module('@proxy/db/harness', () => ({getJobThread, getEntry, completeToolJob, failJob, finishJob, getThreadAgent, startSubAgent}));
 
 const ensureThreadTask = mock(async () => Ok('task-2'));
 mock.module('./thread-task', () => ({ensureThreadTask}));
@@ -20,7 +21,20 @@ mock.module('../mcp/tools', () => ({callMcpTool}));
 mock.module('./tool-surface', () => ({isGateTool: (name: string) => ['read', 'run', 'list_connections', 'list_tools', 'send_feedback'].includes(name)}));
 
 const now = new Date('2026-10-21T10:00:00Z');
-const thread = {id: 'thread-1', orgId: 'org-1', agentId: 'agent-1', userId: 'user-1', taskId: 'task-1', createdAt: now};
+// A sub-agent's thread, and the member's conversation it was started from.
+const thread = {
+	id: 'thread-1',
+	orgId: 'org-1',
+	agentId: 'agent-1',
+	userId: 'user-1',
+	parentThreadId: 'thread-0',
+	parentCallId: 'c0',
+	title: 'Find the invoices',
+	taskId: 'task-1',
+	finishedAt: null,
+	createdAt: now,
+};
+const conversation = {...thread, id: 'thread-0', parentThreadId: null, parentCallId: null, title: null, taskId: null};
 
 function job(callId: string, attempts = 1) {
 	return {id: 'job-1', threadId: 'thread-1', kind: 'tool' as const, status: 'running' as const, entryId: 'entry-1', callId, runAt: now, claimedBy: 'w1', attempts};
@@ -51,7 +65,7 @@ beforeEach(() => {
 });
 
 describe('runToolJob', () => {
-	test('runs a gate tool through the MCP dispatch as the built-in agent, for the thread’s task', async () => {
+	test('runs a gate tool through the MCP dispatch as the built-in agent, for the sub-agent’s task', async () => {
 		const {runToolJob} = await import('./tool-job');
 
 		const result = await runToolJob(job('c1'), 'w1', now);
@@ -59,6 +73,47 @@ describe('runToolJob', () => {
 		expect(result.isOk()).toBe(true);
 		expect(callMcpTool).toHaveBeenCalledWith(signedIn, 'read', {connection: 'mail-1', tool: 'emails_list', task: 'task-2'}, false, 'harness');
 		expect(completeToolJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: '{"records":[]}', isError: false});
+	});
+
+	test('a delegation from the conversation starts the sub-agent on its title and brief, and answers nothing: the report will', async () => {
+		const {runToolJob} = await import('./tool-job');
+		getJobThread.mockResolvedValue(Ok(conversation));
+		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'delegate', arguments: '{"title":" Find the invoices ","brief":"Search the mailbox for invoices from Dana."}'}])));
+
+		const result = await runToolJob(job('c1'), 'w1', now);
+
+		expect(result.isOk()).toBe(true);
+		expect(startSubAgent).toHaveBeenCalledWith('job-1', 'w1', conversation, {id: 'c1', title: 'Find the invoices', brief: 'Search the mailbox for invoices from Dana.'});
+		expect(completeToolJob).not.toHaveBeenCalled();
+		expect(callMcpTool).not.toHaveBeenCalled();
+
+		startSubAgent.mockResolvedValueOnce(Ok(false));
+		expect((await runToolJob(job('c1'), 'w1', now)).unwrapErr().kind).toBe('conflict');
+	});
+
+	test('the conversation’s agent has no other tool, and a sub-agent can’t delegate', async () => {
+		const {runToolJob} = await import('./tool-job');
+		getJobThread.mockResolvedValue(Ok(conversation));
+		getEntry.mockResolvedValue(
+			Ok(
+				entryWith([
+					{id: 'c1', name: 'delegate', arguments: '{"title":"Find"}'},
+					{id: 'c2', name: 'read', arguments: '{}'},
+				]),
+			),
+		);
+
+		await runToolJob(job('c1'), 'w1', now);
+		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-0', {callId: 'c1', text: expect.stringContaining('Give title'), isError: true});
+		await runToolJob(job('c2'), 'w1', now);
+		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-0', {callId: 'c2', text: 'There is no tool read.', isError: true});
+		expect(callMcpTool).not.toHaveBeenCalled();
+
+		getJobThread.mockResolvedValue(Ok(thread));
+		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'delegate', arguments: '{"title":"Find","brief":"Search."}'}])));
+		await runToolJob(job('c1'), 'w1', now);
+		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: 'There is no tool delegate.', isError: true});
+		expect(startSubAgent).not.toHaveBeenCalled();
 	});
 
 	test('a refused call is answered as an error, in the gate’s words', async () => {

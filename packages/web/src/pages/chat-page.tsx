@@ -1,10 +1,11 @@
-import {ArrowUpIcon, ChevronDownIcon, MoonIcon, PlusIcon, WrenchIcon} from 'lucide-react';
+import {ArrowUpIcon, BotIcon, ChevronDownIcon, MoonIcon, PlusIcon, WrenchIcon} from 'lucide-react';
 import {type FormEvent, type KeyboardEvent, useEffect, useRef, useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
 import {Result} from 'ts-results-es';
 import {
 	type ChatAgent,
 	type ChatEntry,
+	type ChatSubAgent,
 	type ChatToolCall,
 	createChatAgent,
 	deleteChatAgent,
@@ -72,11 +73,16 @@ function pretty(json: string): string {
 type CallState = 'running' | 'done' | 'failed';
 
 // What a call did, in a few words, from its name and arguments, as it runs, once it has, and
-// where it failed: "Running entries_list", "Ran entries_list", "Failed to run entries_list".
+// where it failed: "Running entries_list", "Ran entries_list", "Failed to run entries_list"; a
+// delegation by the sub-agent's title.
 function callTitle(call: ChatToolCall, state: CallState): string {
 	const args = parseArgs(call.arguments);
 	const said = (verbs: [string, string, string], what: string) =>
 		`${verbs[state === 'running' ? 0 : state === 'done' ? 1 : 2]} ${what}`;
+	if (call.name === 'delegate') {
+		const title = typeof args.title === 'string' ? args.title : 'a sub-agent';
+		return said(['Working on', 'Done with', 'Failed'], title);
+	}
 	if (call.name === 'list_connections') {
 		return said(['Listing', 'Listed', 'Failed to list'], 'connections');
 	}
@@ -101,32 +107,61 @@ function callTitle(call: ChatToolCall, state: CallState): string {
 	);
 }
 
-// One call the agent made: a line that says what it did, opening to what it asked and what came back.
-function ToolCallTrace({call, result}: {call: ChatToolCall; result: ChatEntry | undefined}) {
+// One call the agent made: a line that says what it did, opening to what it asked and what came
+// back. A delegation opens to the sub-agent's brief and its report, with a way to its activity.
+function ToolCallTrace({
+	call,
+	result,
+	subAgent,
+}: {
+	call: ChatToolCall;
+	result: ChatEntry | undefined;
+	subAgent: ChatSubAgent | undefined;
+}) {
+	const org = useOrgSlug();
 	const status = result === undefined ? 'running' : result.isError ? 'error' : undefined;
 	const title = callTitle(
 		call,
 		result === undefined ? 'running' : result.isError ? 'failed' : 'done',
 	);
+	const args = parseArgs(call.arguments);
+	const delegated = call.name === 'delegate';
 	return (
 		<TraceCollapsible>
 			<TraceCollapsibleTrigger>
 				<TraceLine status={status}>
-					<TraceIcon>{call.name === 'sleep_until' ? <MoonIcon /> : <WrenchIcon />}</TraceIcon>
+					<TraceIcon>
+						{delegated ? <BotIcon /> : call.name === 'sleep_until' ? <MoonIcon /> : <WrenchIcon />}
+					</TraceIcon>
 					<TraceTitle>{title}</TraceTitle>
 				</TraceLine>
 			</TraceCollapsibleTrigger>
-			<TraceCollapsibleContent className="flex flex-col gap-2 font-mono text-xs">
-				<pre className="whitespace-pre-wrap break-all">{pretty(call.arguments)}</pre>
+			<TraceCollapsibleContent className="flex flex-col gap-2 text-xs">
+				{delegated ? (
+					<p className="whitespace-pre-wrap text-muted-foreground">
+						{typeof args.brief === 'string' ? args.brief : pretty(call.arguments)}
+					</p>
+				) : (
+					<pre className="whitespace-pre-wrap break-all font-mono">{pretty(call.arguments)}</pre>
+				)}
 				{result && (
 					<pre
 						className={cn(
 							'max-h-64 overflow-auto whitespace-pre-wrap break-all border-t pt-2',
+							!delegated && 'font-mono',
 							result.isError && 'text-destructive',
 						)}
 					>
-						{pretty(result.text)}
+						{delegated ? result.text : pretty(result.text)}
 					</pre>
+				)}
+				{subAgent && (
+					<Link
+						to={`/${org}/activity?task=${subAgent.taskId}`}
+						className="w-fit underline-offset-4 hover:underline"
+					>
+						Activity of this sub-agent
+					</Link>
 				)}
 			</TraceCollapsibleContent>
 		</TraceCollapsible>
@@ -135,7 +170,15 @@ function ToolCallTrace({call, result}: {call: ChatToolCall; result: ChatEntry | 
 
 // One turn of the conversation: what the person said in a bubble on the right, or what the agent
 // said as plain text on the left, with the calls it made as lines above it.
-function Turn({entry, results}: {entry: ChatEntry; results: Map<string | null, ChatEntry>}) {
+function Turn({
+	entry,
+	results,
+	subAgents,
+}: {
+	entry: ChatEntry;
+	results: Map<string | null, ChatEntry>;
+	subAgents: Map<string, ChatSubAgent>;
+}) {
 	if (entry.kind === 'person') {
 		return (
 			<Message align="end">
@@ -154,7 +197,12 @@ function Turn({entry, results}: {entry: ChatEntry; results: Map<string | null, C
 				{calls.length > 0 && (
 					<Trace>
 						{calls.map((call) => (
-							<ToolCallTrace key={call.id} call={call} result={results.get(call.id)} />
+							<ToolCallTrace
+								key={call.id}
+								call={call}
+								result={results.get(call.id)}
+								subAgent={subAgents.get(call.id)}
+							/>
 						))}
 					</Trace>
 				)}
@@ -198,8 +246,10 @@ function preview(last: ChatAgent['lastMessage']): string {
 
 // The last thing said in the open conversation, as the page has it, fresher than the list.
 function lastOf(log: ThreadLog): ChatAgent['lastMessage'] {
-	const last = log.entries.findLast((entry) => entry.kind !== 'tool_result' && entry.text !== '');
-	if (!last || last.kind === 'tool_result') {
+	const last = log.entries.findLast(
+		(entry) => (entry.kind === 'person' || entry.kind === 'assistant') && entry.text !== '',
+	);
+	if (!last || (last.kind !== 'person' && last.kind !== 'assistant')) {
 		return null;
 	}
 	return {kind: last.kind, text: last.text, at: last.at};
@@ -282,8 +332,9 @@ export function ChatPage() {
 }
 
 // The person's conversation with one of the organization's agents: its log, read again as the
-// agent works, and an input. The agent acts as the person in it, and its calls go through the
-// same gate as any agent's, so its activity is in the log by the conversation's task.
+// agent works, and an input. The agent hands each piece of work to a sub-agent, which acts as the
+// person and whose calls go through the same gate as any agent's, so its activity is in the log
+// by the sub-agent's task.
 function Conversation({loaded}: {loaded: Loaded}) {
 	const org = useOrgSlug();
 	const navigate = useNavigate();
@@ -371,13 +422,27 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		return null;
 	};
 
-	// Each call's result by the call, folded into the call's line rather than shown as a turn.
+	// Each call's result by the call, folded into the call's line rather than shown as a turn. A
+	// delegation's is the sub-agent's report, an event, which comes after the call was answered as
+	// started: until then the call is under way, so that answer is left out, unless it refused.
+	const delegations = new Set(
+		log.entries.flatMap((entry) =>
+			(entry.toolCalls ?? []).filter((call) => call.name === 'delegate').map((call) => call.id),
+		),
+	);
 	const results = new Map(
 		log.entries
-			.filter((entry) => entry.kind === 'tool_result')
+			.filter(
+				(entry) =>
+					entry.kind === 'event' ||
+					(entry.kind === 'tool_result' && (entry.isError || !delegations.has(entry.callId ?? ''))),
+			)
 			.map((entry) => [entry.callId, entry]),
 	);
-	const turns = log.entries.filter((entry) => entry.kind !== 'tool_result');
+	const subAgents = new Map(log.subAgents.map((sub) => [sub.callId, sub]));
+	const turns = log.entries.filter(
+		(entry) => entry.kind === 'person' || entry.kind === 'assistant',
+	);
 
 	return (
 		<AppShell
@@ -433,9 +498,9 @@ function Conversation({loaded}: {loaded: Loaded}) {
 									<Avatar shape={current.shape} color={current.color} size="lg" />
 									<p className="text-lg font-medium">What should {current.name} do?</p>
 									<p className="max-w-md text-sm text-muted-foreground">
-										This conversation is yours alone. In it, {current.name} can use what is shared
-										with everyone and what you connected yourself, as far as its access allows.
-										Every call it makes is in the activity log.
+										This conversation is yours alone. {current.name} hands each piece of work to a
+										sub-agent, which can use what is shared with everyone and what you connected
+										yourself, as far as its access allows. Every call is in the activity log.
 									</p>
 								</div>
 							)}
@@ -445,7 +510,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 									messageId={entry.id}
 									scrollAnchor={entry.kind === 'person'}
 								>
-									<Turn entry={entry} results={results} />
+									<Turn entry={entry} results={results} subAgents={subAgents} />
 								</MessageScrollerItem>
 							))}
 							{(log.busy || log.sleepingUntil !== null) && (
@@ -478,10 +543,10 @@ function Conversation({loaded}: {loaded: Loaded}) {
 					/>
 					<InputGroupAddon align="block-end">
 						<Link
-							to={`/${org}/activity?task=${log.thread.taskId}`}
+							to={`/${org}/activity?agent=${agentId}`}
 							className="text-xs font-normal underline-offset-4 hover:underline"
 						>
-							Activity for this conversation
+							Activity of this agent
 						</Link>
 						<InputGroupButton
 							type="submit"

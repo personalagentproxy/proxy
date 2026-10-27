@@ -15,6 +15,7 @@ import {
 	listChatAgents,
 	listEntries,
 	listOpenJobs,
+	listSubAgents,
 	type ThreadRow,
 	updateChatAgent,
 } from '@proxy/db/harness';
@@ -24,13 +25,13 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {manages} from '../utils/manages';
 import {type OrgViewer, requireViewer} from '../utils/user-org';
 import {createBuiltInAgent} from './built-in-agent';
-import {createThreadTask} from './thread-task';
 
 /**
  * The Chat page's routes, under the organization: its built-in agents, which every member sees,
- * each named and given a face, and the member's own conversation with each, its log and what they
- * say in it. Behind the `harness` experiment. Nothing here runs the model: a message queues a job,
- * and the worker (worker.ts) does the rest; the page reads the log again as it goes.
+ * each named and given a face, and the member's own conversation with each, its log, the
+ * sub-agents started from it, and what they say in it. Behind the `harness` experiment. Nothing
+ * here runs the model: a message queues a job, and the worker (worker.ts) does the rest; the page
+ * reads the log again as it goes.
  */
 
 const MAX_MESSAGE = 20_000;
@@ -38,10 +39,13 @@ const MAX_MESSAGE = 20_000;
 /** A built-in agent as the page lists it: its persona, whether the viewer may change it, and the last thing said in their conversation with it, cut to a line; null before anything was said. */
 export type ChatAgentResponse = {id: string; name: string; shape: string; color: string; mayChange: boolean; lastMessage: {kind: 'person' | 'assistant'; text: string; at: string} | null};
 
-export type EntryResponse = {id: string; kind: 'person' | 'assistant' | 'tool_result'; text: string; toolCalls: ToolCall[] | null; callId: string | null; isError: boolean; at: string};
+export type EntryResponse = {id: string; kind: 'person' | 'assistant' | 'tool_result' | 'event'; text: string; toolCalls: ToolCall[] | null; callId: string | null; isError: boolean; at: string};
 
-/** The member's conversation with an agent: the agent, the thread with the task its calls are made for, its log, and what the agent is up to: busy on it, asleep until a time, or waiting for the person. */
-export type ThreadLogResponse = {agent: ChatAgentResponse; thread: {id: string; taskId: string}; entries: EntryResponse[]; busy: boolean; sleepingUntil: string | null};
+/** A sub-agent started from the conversation: the call that started it, its title, the task its calls are made for, which the activity log can be narrowed to, and when it was done. */
+export type SubAgentResponse = {callId: string; title: string; taskId: string; finishedAt: string | null};
+
+/** The member's conversation with an agent: the agent, the thread, its log, the sub-agents started from it, and what the agent is up to: busy on it, asleep until a time, or waiting for the person. */
+export type ThreadLogResponse = {agent: ChatAgentResponse; thread: {id: string}; entries: EntryResponse[]; subAgents: SubAgentResponse[]; busy: boolean; sleepingUntil: string | null};
 
 // How much of the last message the list shows.
 const PREVIEW_CHARS = 120;
@@ -108,16 +112,14 @@ function requireManagedAgent(viewer: OrgViewer, request: AuthenticatedRequest): 
 	});
 }
 
-// The viewer's thread with the agent, made the first time, with a task for its calls.
+// The viewer's conversation with the agent, begun the first time.
 function requireThread(viewer: OrgViewer, agent: ChatAgentRow): Promise<Result<ThreadRow, ApiError>> {
 	return Do(async ($) => {
 		const existing = $(await getMemberThread(agent.id, viewer.userId));
 		if (existing) {
 			return existing;
 		}
-		const made = {orgId: viewer.orgId, agentId: agent.id, userId: viewer.userId};
-		const taskId = $(await createThreadTask(made));
-		return $(await ensureMemberThread({...made, taskId}));
+		return $(await ensureMemberThread({orgId: viewer.orgId, agentId: agent.id, userId: viewer.userId}));
 	});
 }
 
@@ -164,13 +166,13 @@ export function handleDeleteChatAgentRoute(request: AuthenticatedRequest): Promi
 	});
 }
 
-/** `GET /api/orgs/:org/chat/agents/:agentId/thread`: the viewer's conversation with the agent, begun where there was none, and whether the agent is busy on it. */
+/** `GET /api/orgs/:org/chat/agents/:agentId/thread`: the viewer's conversation with the agent, begun where there was none, its sub-agents, and whether the agent is busy on it, sub-agents included. */
 export function handleGetThreadRoute(request: AuthenticatedRequest): Promise<Result<ThreadLogResponse, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const agent = $(await requireAgent(viewer, request));
 		const thread = $(await requireThread(viewer, agent));
-		const [entries, jobs] = await Promise.all([listEntries(thread.id), listOpenJobs(thread.id)]);
+		const [entries, jobs, subAgents] = await Promise.all([listEntries(thread.id), listOpenJobs(thread.id), listSubAgents(thread.id)]);
 		const open = $(jobs);
 		const now = Date.now();
 		// Asleep when every open job is a tool job due later; the first to be due is when it wakes.
@@ -179,8 +181,9 @@ export function handleGetThreadRoute(request: AuthenticatedRequest): Promise<Res
 		const first = later.map((job) => job.runAt.getTime()).sort((a, b) => a - b)[0];
 		return {
 			agent: toAgent(viewer, agent),
-			thread: {id: thread.id, taskId: thread.taskId},
+			thread: {id: thread.id},
 			entries: $(entries).filter(isShown).map(toEntry),
+			subAgents: $(subAgents).map((sub) => ({callId: sub.parentCallId, title: sub.title, taskId: sub.taskId, finishedAt: sub.finishedAt?.toISOString() ?? null})),
 			busy: open.length > 0 && !asleep,
 			sleepingUntil: asleep && first !== undefined ? new Date(first).toISOString() : null,
 		};

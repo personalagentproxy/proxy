@@ -1,20 +1,21 @@
-import {Result} from 'ts-results-es';
+import {Err, Result} from 'ts-results-es';
 
 import {type ApiError, ApiErr, Do, requirePresent} from '@proxy/utils';
-import {SLEEP_TOOL, sleepUntil} from '@proxy/utils/harness';
-import {completeToolJob, failJob, finishJob, getEntry, getJobThread, getThreadAgent, type JobRow, type ThreadRow} from '@proxy/db/harness';
+import {DELEGATE_TOOL, delegateArgs, SLEEP_TOOL, sleepUntil} from '@proxy/utils/harness';
+import {completeToolJob, failJob, finishJob, getEntry, getJobThread, getThreadAgent, type JobRow, startSubAgent, type ThreadRow} from '@proxy/db/harness';
 
 import {callMcpTool} from '../mcp/tools';
 import {ensureThreadTask} from './thread-task';
 import {isGateTool} from './tool-surface';
 
 /**
- * A tool job: one call the model made, run and answered in the log. The MCP server's tools go
- * through the gate as the thread's agent acting as its member, for the thread's task, logged like
- * any agent's call. A
- * sleep answers with the time, since its job was due when the sleep ended. A call that changes
- * something is never run twice: a worker that was interrupted mid-call leaves the outcome unknown,
- * and the model is told so rather than the call being made again.
+ * A tool job: one call the model made, run and answered in the log. A delegation starts the
+ * sub-agent, whose report answers the call later; the call was answered as started when it was
+ * made (inference.ts). The MCP server's tools go through the gate as the sub-agent acting as the
+ * member, for its task, logged like any agent's call. A sleep answers with the time, since its job
+ * was due when the sleep ended. A call that changes something is never run twice: a worker that
+ * was interrupted mid-call leaves the outcome unknown, and the model is told so rather than the
+ * call being made again.
  */
 
 // How much of a result the log keeps, and the model reads.
@@ -41,7 +42,7 @@ function cut(text: string): string {
 	return `${text.slice(0, MAX_RESULT_CHARS)}\n\n[Cut: the result was ${text.length} characters long.]`;
 }
 
-// Runs the call through the gate, as the agent acts in the thread, for the thread's task.
+// Runs the call through the gate, as the sub-agent acts in the thread, for its task.
 function runGateTool(thread: ThreadRow, name: string, args: Record<string, unknown>, now: Date): Promise<Result<ToolAnswer, ApiError>> {
 	return Do(async ($) => {
 		const signedIn = $(requirePresent($(await getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
@@ -51,19 +52,30 @@ function runGateTool(thread: ThreadRow, name: string, args: Record<string, unkno
 	});
 }
 
+// Whether the call is a delegation the thread's agent may make, with the title and brief it gave.
+function delegation(thread: ThreadRow, call: {name: string; arguments: string}): {title: string; brief: string} | null {
+	if (call.name !== DELEGATE_TOOL || thread.parentThreadId !== null) {
+		return null;
+	}
+	return delegateArgs(parseArgs(call.arguments));
+}
+
 function answer(thread: ThreadRow, job: JobRow, call: {name: string; arguments: string}, now: Date): Promise<Result<ToolAnswer, ApiError>> {
 	return Do(async ($) => {
 		const args = parseArgs(call.arguments);
 		if (args === null) {
 			return error('The arguments were not a JSON object.');
 		}
-		if (call.name === SLEEP_TOOL) {
+		if (call.name === DELEGATE_TOOL && thread.parentThreadId === null) {
+			return error('Give title, a few words, and brief, what to do.');
+		}
+		if (call.name === SLEEP_TOOL && thread.parentThreadId !== null) {
 			if (sleepUntil(args, now) === null) {
 				return error('Give until, a time in ISO 8601, or seconds from now.');
 			}
 			return {text: `You slept, and it is now ${now.toISOString()}.`, isError: false};
 		}
-		if (!isGateTool(call.name)) {
+		if (!isGateTool(call.name) || thread.parentThreadId === null) {
 			return error(`There is no tool ${call.name}.`);
 		}
 		// A write run by a worker that lost the job mid-call may have gone through.
@@ -74,7 +86,7 @@ function answer(thread: ThreadRow, job: JobRow, call: {name: string; arguments: 
 	});
 }
 
-/** Runs the job: the call it is for, its answer written to the log, and the model woken once every call is answered. */
+/** Runs the job: the call it is for, its answer written to the log, and the model woken once every call is answered; a delegation starts the sub-agent instead. */
 export function runToolJob(job: JobRow, workerId: string, now = new Date()): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		const thread = $(await getJobThread(job.threadId));
@@ -86,6 +98,13 @@ export function runToolJob(job: JobRow, workerId: string, now = new Date()): Pro
 		const call = entry.toolCalls?.find((candidate) => candidate.id === job.callId);
 		if (!call) {
 			$(await failJob(job.id, workerId, `No call ${job.callId ?? ''} in entry ${entry.id}`));
+			return;
+		}
+		const delegated = delegation(thread, call);
+		if (delegated) {
+			if (!$(await startSubAgent(job.id, workerId, thread, {id: call.id, ...delegated}))) {
+				return $(Err(ApiErr.conflict('The job was no longer this worker’s')));
+			}
 			return;
 		}
 		const answered = $(await answer(thread, job, call, now));

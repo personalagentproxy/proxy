@@ -16,6 +16,11 @@ shared with everyone, the ones you connected yourself and your own vault, beside
 organization's. On your own connections it follows their defaults, since a shared agent has no
 settings of its own there. What it does in your conversation is in your activity log alone.
 
+The agent you talk with does nothing to your accounts itself. It hands each piece of work to a
+sub-agent: a short-lived agent with the same access, started on a brief, which does the work and
+reports back. Each sub-agent is a task in the activity log, titled as the agent titled it, with
+every call it made under it and its report as the outcome.
+
 What it does differently from an agent you connect is where it runs: in Personal Agent Proxy, not
 on another company's servers. The model is Claude Sonnet 5.5, reached through OpenRouter with a
 host that neither keeps prompts nor trains on them, so a self-hosted Personal Agent Proxy needs an
@@ -23,21 +28,24 @@ host that neither keeps prompts nor trains on them, so a self-hosted Personal Ag
 
 ## How a conversation runs
 
-Say what you want done. The agent answers, or makes calls first: each shows as a line above its
-message, opening to what it asked and, once it has it, what came back. A call it is not allowed is
-refused and logged as blocked, as it would be for any agent. It keeps working after you leave the
-page, and the page shows the conversation as it is when you come back.
+Say what you want done. The agent answers, or starts sub-agents first: each shows as a line above
+its message, with its title, opening to the brief it was given and, once it is done, its report,
+and a way to its activity. Sub-agents started together run side by side. The agent is free while
+they work: you can say more, and it answers; a report comes to it as a message when the sub-agent
+is done, and it tells you what matters of it or starts the next piece. A call a sub-agent is not
+allowed is refused and logged as blocked, as it would be for any agent. Everything keeps running
+after you leave the page, and the page shows the conversation as it is when you come back.
 
-It can also wait: asked to check on something later, or to do something at a time, it sleeps until
-then, and the page says until when. It wakes with the conversation and nothing else, so it says
-what it will do before it sleeps.
+A sub-agent can also wait: asked to check on something later, or to do something at a time, it
+sleeps until then, and the page says until when. It wakes with its own log and nothing else, so it
+says what it will do before it sleeps.
 
 A conversation can go on for as long as you like. Once it has grown long, the agent reads a
 summary of the earlier part in place of it, and keeps the last turns as they were; the page shows
 the whole conversation as before.
 
-**Activity for this conversation** under the input opens the activity log narrowed to the
-conversation's task.
+**Activity of this agent** under the input opens the activity log narrowed to the agent, and each
+sub-agent's line opens to the activity of its task.
 
 <Callout>
 Chat is being tried out with some organizations first, so it is only offered to an organization
