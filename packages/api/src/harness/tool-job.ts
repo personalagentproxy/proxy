@@ -1,7 +1,7 @@
-import {Err, Result} from 'ts-results-es';
+import {Err, type Result} from 'ts-results-es';
 
 import {type ApiError, ApiErr, Do, requirePresent} from '@proxy/utils';
-import {DELEGATE_TOOL, delegateArgs, SLEEP_TOOL, sleepUntil} from '@proxy/utils/harness';
+import {callArguments, DELEGATE_TOOL, delegateArgs, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
 import {completeToolJob, failJob, finishJob, getEntry, getJobThread, getThreadAgent, type JobRow, startSubAgent, type ThreadRow} from '@proxy/db/harness';
 
 import {callMcpTool} from '../mcp/tools';
@@ -27,12 +27,13 @@ function error(text: string): ToolAnswer {
 	return {text, isError: true};
 }
 
-function parseArgs(json: string): Record<string, unknown> | null {
-	const parsed = Result.wrap((): unknown => JSON.parse(json));
-	if (parsed.isErr() || typeof parsed.value !== 'object' || parsed.value === null || Array.isArray(parsed.value)) {
+// The call's arguments where they are a JSON object, as a tool takes them.
+function parseArgs(call: ToolCall): Record<string, unknown> | null {
+	const args = callArguments(call);
+	if (typeof args !== 'object' || args === null || Array.isArray(args)) {
 		return null;
 	}
-	return parsed.value as Record<string, unknown>;
+	return args as Record<string, unknown>;
 }
 
 function cut(text: string): string {
@@ -53,16 +54,16 @@ function runGateTool(thread: ThreadRow, name: string, args: Record<string, unkno
 }
 
 // Whether the call is a delegation the thread's agent may make, with the title and brief it gave.
-function delegation(thread: ThreadRow, call: {name: string; arguments: string}): {title: string; brief: string} | null {
+function delegation(thread: ThreadRow, call: ToolCall): {title: string; brief: string} | null {
 	if (call.name !== DELEGATE_TOOL || thread.parentThreadId !== null) {
 		return null;
 	}
-	return delegateArgs(parseArgs(call.arguments));
+	return delegateArgs(parseArgs(call));
 }
 
-function answer(thread: ThreadRow, job: JobRow, call: {name: string; arguments: string}, now: Date): Promise<Result<ToolAnswer, ApiError>> {
+function answer(thread: ThreadRow, job: JobRow, call: ToolCall, now: Date): Promise<Result<ToolAnswer, ApiError>> {
 	return Do(async ($) => {
-		const args = parseArgs(call.arguments);
+		const args = parseArgs(call);
 		if (args === null) {
 			return error('The arguments were not a JSON object.');
 		}

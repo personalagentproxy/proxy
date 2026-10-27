@@ -9,7 +9,7 @@ const updatePersona = mock();
 const deletePersona = mock(async () => Ok(true));
 const getMemberThread = mock();
 const ensureMemberThread = mock();
-const listEntriesWithPending = mock();
+const listShownEntries = mock();
 const listOpenJobs = mock();
 const appendPersonMessage = mock();
 mock.module('@proxy/db/harness', () => ({
@@ -21,7 +21,7 @@ mock.module('@proxy/db/harness', () => ({
 	deletePersona,
 	getMemberThread,
 	ensureMemberThread,
-	listEntriesWithPending,
+	listShownEntries,
 	listOpenJobs,
 	appendPersonMessage,
 }));
@@ -64,7 +64,7 @@ beforeEach(() => {
 	updatePersona.mockResolvedValue(Ok(true));
 	getMemberThread.mockResolvedValue(Ok(thread));
 	ensureMemberThread.mockResolvedValue(Ok(thread));
-	listEntriesWithPending.mockResolvedValue(
+	listShownEntries.mockResolvedValue(
 		Ok([
 			{id: 'e1', seq: 1, threadId: 'thread-1', kind: 'person', text: 'Hi', toolCalls: null, callId: null, isError: false, inputTokens: null, outputTokens: null, coversSeq: null, createdAt: now},
 			{
@@ -197,6 +197,10 @@ describe('the chat routes', () => {
 
 		listOpenJobs.mockResolvedValue(Ok([{...base, runAt: soon}]));
 		expect((await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap()).toMatchObject({busy: false, sleepingUntil: soon.toISOString()});
+
+		// A turn of the model to be tried again in a moment is work under way, not sleep.
+		listOpenJobs.mockResolvedValue(Ok([{...base, kind: 'inference' as const, entryId: null, callId: null, runAt: soon}]));
+		expect((await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap()).toMatchObject({busy: true, sleepingUntil: null});
 
 		getPersona.mockResolvedValue(Ok(null));
 		expect((await handleGetThreadRoute(request({personaId: 'nope'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'persona'});

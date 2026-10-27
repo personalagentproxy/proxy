@@ -1,7 +1,7 @@
-import {Err, Result} from 'ts-results-es';
+import {Err, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
-import {DELEGATE_TOOL, delegateArgs, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
+import {callArguments, DELEGATE_TOOL, delegateArgs, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
 import {appendSummary, type CallPlan, completeInference, type EntryRow, finishJob, getJobThread, getThreadAgent, type JobRow, listEntries, requeueJob, type ThreadRow} from '@proxy/db/harness';
 
 import {agentInstructions} from '../mcp/tools';
@@ -19,7 +19,9 @@ import {toolsFor} from './tool-surface';
  * event. A log that has grown long is first summarized, in a summary entry the model reads in
  * place of what it covers. A model that can't be reached is tried again a few times, then the
  * person is told; any other failure fails the job, which tells them too (db/harness failJob). A
- * sub-agent's answer with no calls is its report, and ends its work.
+ * sub-agent's answer with no calls is its report, and ends its work. An answer of nothing, no
+ * words and no calls, is written as that said: the person would otherwise see nothing, and the
+ * model refuses a log with an empty turn in it.
  */
 
 // How the agent talking with the person is to go about it: it does nothing itself, and hands
@@ -52,6 +54,8 @@ const NOT_SET_UP = 'Chat is not set up on this server: it needs an OpenRouter ke
 const UNREACHABLE = 'The model could not be reached. Say something to try again.';
 const TOO_LONG = `I have taken ${MAX_TURNS_ALONE} steps without hearing from you, so I have stopped. Tell me to go on if you want me to.`;
 const TOO_LONG_SUB = `I took ${MAX_TURNS_ALONE} steps without finishing, so I stopped. This is not a complete report.`;
+const NOTHING = 'I had nothing to say to that. Say something to go on.';
+const NOTHING_SUB = 'I finished without a report.';
 
 // How many answers the model has given since the person last spoke.
 function turnsAlone(entries: EntryRow[]): number {
@@ -69,8 +73,7 @@ function started(title: string): string {
 function plans(thread: ThreadRow, calls: ToolCall[], now: Date): Record<string, CallPlan> {
 	return Object.fromEntries(
 		calls.map((call) => {
-			const parsed = Result.wrap((): unknown => JSON.parse(call.arguments));
-			const args = parsed.isOk() ? parsed.value : null;
+			const args = callArguments(call);
 			if (call.name === SLEEP_TOOL && thread.parentThreadId !== null) {
 				return [call.id, {runAt: sleepUntil(args, now) ?? now, placeholder: null}];
 			}
@@ -78,6 +81,14 @@ function plans(thread: ThreadRow, calls: ToolCall[], now: Date): Record<string, 
 			return [call.id, {runAt: now, placeholder: delegated ? started(delegated.title) : null}];
 		}),
 	);
+}
+
+// The answer as it goes in the log: an answer of nothing says so.
+function said(thread: ThreadRow, turn: ModelTurn): ModelTurn {
+	if (turn.text.trim() !== '' || turn.toolCalls.length > 0) {
+		return turn;
+	}
+	return {...turn, text: thread.parentThreadId === null ? NOTHING : NOTHING_SUB};
 }
 
 // Writes the answer back; a job no longer the worker's is a conflict.
@@ -174,6 +185,6 @@ export function runInference(job: JobRow, workerId: string, now = new Date()): P
 			$(await answerWith(job, workerId, UNREACHABLE));
 			return;
 		}
-		$(await writeBack(job, workerId, turn.value, plans(thread, turn.value.toolCalls, now)));
+		$(await writeBack(job, workerId, said(thread, turn.value), plans(thread, turn.value.toolCalls, now)));
 	});
 }

@@ -13,9 +13,9 @@ import {
 	getMemberThread,
 	getPersona,
 	type LastMessage,
-	listEntriesWithPending,
 	listOpenJobs,
 	listPersonas,
+	listShownEntries,
 	type PersonaRow,
 	type ThreadRow,
 	updatePersona,
@@ -70,8 +70,7 @@ const personaSchema = z.object({
 	color: z.enum(AVATAR_COLORS),
 });
 
-// The entries the person sees: the conversation, what they said and what the persona answered,
-// not the calls, their results, the reports or the summaries the model reads.
+// The entries the person sees (db/harness listShownEntries), as their kinds, for the response.
 function isShown(entry: EntryRow): entry is EntryRow & {kind: EntryResponse['kind']} {
 	return entry.kind === 'person' || (entry.kind === 'assistant' && entry.text !== '');
 }
@@ -176,13 +175,14 @@ export function handleGetThreadRoute(request: AuthenticatedRequest): Promise<Res
 		const viewer = $(await requireChat(request));
 		const persona = $(await requirePersona(viewer, request));
 		const thread = $(await requireThread(viewer, persona));
-		const [entries, jobs] = await Promise.all([listEntriesWithPending(thread.id), listOpenJobs(thread.id)]);
+		const [entries, jobs] = await Promise.all([listShownEntries(thread.id), listOpenJobs(thread.id)]);
 		const open = $(jobs);
 		const now = Date.now();
-		// Asleep when every open job is a tool job due later; the first to be due is when it wakes.
-		const later = open.filter((job) => job.runAt.getTime() > now);
-		const asleep = open.length > 0 && later.length === open.length;
-		const first = later.map((job) => job.runAt.getTime()).sort((a, b) => a - b)[0];
+		// Asleep when every open job is a sleep, a tool job due later; the first to be due is when
+		// it wakes. A turn of the model to be tried again later is work under way, not sleep.
+		const sleeping = open.filter((job) => job.kind === 'tool' && job.runAt.getTime() > now);
+		const asleep = open.length > 0 && sleeping.length === open.length;
+		const first = sleeping.map((job) => job.runAt.getTime()).sort((a, b) => a - b)[0];
 		return {
 			persona: toPersona(viewer, persona),
 			thread: {id: thread.id},

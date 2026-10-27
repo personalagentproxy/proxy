@@ -14,6 +14,17 @@ import {z} from 'zod';
 /** A tool call the model made, as the model API gives it: its arguments are the JSON it wrote. */
 export type ToolCall = {id: string; name: string; arguments: string};
 
+/** A call's arguments as the model wrote them, parsed; null where they aren't JSON. */
+export function callArguments(call: ToolCall): unknown {
+	const parsed = Result.wrap((): unknown => JSON.parse(call.arguments));
+	return parsed.isOk() ? parsed.value : null;
+}
+
+/** The text cut to `max` characters, the last of them an ellipsis where it was longer. */
+export function cut(text: string, max: number): string {
+	return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
 export type LogEntry = {
 	kind: 'person' | 'assistant' | 'tool_result' | 'event' | 'summary';
 	text: string;
@@ -75,11 +86,7 @@ export function delegateArgs(args: unknown): {title: string; brief: string} | nu
 	) {
 		return null;
 	}
-	const trimmed = title.trim();
-	return {
-		title: trimmed.length > MAX_TITLE ? `${trimmed.slice(0, MAX_TITLE - 1)}…` : trimmed,
-		brief: brief.trim(),
-	};
+	return {title: cut(title.trim(), MAX_TITLE), brief: brief.trim()};
 }
 
 // How long a sleep may be at most.

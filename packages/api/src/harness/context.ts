@@ -1,4 +1,4 @@
-import {DELEGATE_TOOL, delegateArgs, pendingToolCalls, type ToolCall} from '@proxy/utils/harness';
+import {callArguments, DELEGATE_TOOL, delegateArgs, pendingToolCalls, type ToolCall} from '@proxy/utils/harness';
 import type {EntryRow} from '@proxy/db/harness';
 
 import type {ModelMessage} from './model';
@@ -36,7 +36,7 @@ function callOf(entries: EntryRow[], callId: string | null): ToolCall | undefine
 // How an event is led in: whose report it is, by the call it answers, found in the log.
 function eventLead(entries: EntryRow[], event: EntryRow): string {
 	const call = callOf(entries, event.callId);
-	const parsed = call?.name === DELEGATE_TOOL ? delegateArgs(JSON.parse(call.arguments)) : null;
+	const parsed = call?.name === DELEGATE_TOOL ? delegateArgs(callArguments(call)) : null;
 	const who = parsed ? `the sub-agent “${parsed.title}”` : `your call ${event.callId ?? ''}`;
 	if (event.isError) {
 		return `What ${who} failed with. The person did not write this.`;

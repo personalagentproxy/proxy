@@ -84,6 +84,7 @@ export function handleResetAgentPasswordRoute(request: AuthenticatedRequest): Pr
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const agent = $(await requireManagedAgent(viewer, agentIdOf(request)));
+		$(requireNotBuiltIn(agent));
 		const password = generatePassword();
 		const updated = $(await updateAgent(viewer.orgId, agent.id, {passwordHash: await Bun.password.hash(password)}));
 		if (!updated) {
@@ -113,7 +114,8 @@ export function handleRenameAgentRoute(request: AuthenticatedRequest): Promise<R
 const setRevokedBodySchema = z.object({revoked: z.boolean()});
 
 // The built-in login, which every persona of the Chat page acts through, is neither revoked nor
-// deleted: that would silence them all; a persona is deleted on the Chat page.
+// deleted, which would silence them all (a persona is deleted on the Chat page), nor given a
+// password: nothing signs in with it.
 function requireNotBuiltIn(agent: {providerId: string}): Result<void, ApiError> {
 	if (findAgentProvider(agent.providerId)?.connects === 'built-in') {
 		return Err(ApiErr.forbidden());

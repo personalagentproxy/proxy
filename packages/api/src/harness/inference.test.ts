@@ -157,6 +157,18 @@ describe('runInference', () => {
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.anything(), {c2: {runAt: now, placeholder: null}});
 	});
 
+	test('an answer of nothing, no words and no calls, is written as that said, so the person sees something and the log keeps no empty turn', async () => {
+		const {runInference} = await import('./inference');
+		askModel.mockResolvedValue(Ok({text: ' ', toolCalls: [], inputTokens: 10, outputTokens: 0}));
+
+		await runInference(job, 'w1', now);
+		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('nothing to say'), toolCalls: [], inputTokens: 10}), {});
+
+		getJobThread.mockResolvedValue(Ok(sub));
+		await runInference({...job, threadId: 'thread-2'}, 'w1', now);
+		expect(completeInference).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-2', expect.objectContaining({text: expect.stringContaining('without a report')}), {});
+	});
+
 	test('a job that was no longer the worker’s by the time the answer came is a conflict', async () => {
 		const {runInference} = await import('./inference');
 		completeInference.mockResolvedValueOnce(Ok(false));

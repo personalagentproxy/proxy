@@ -3,6 +3,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, wrapDb} from '@proxy/utils';
 import {
+	cut,
 	DEFAULT_LOOK,
 	type Look,
 	type LogEntry,
@@ -157,10 +158,6 @@ function toEntry(entry: EntryRecord): EntryRow {
 		...entry,
 		toolCalls: entry.toolCalls === null ? null : (JSON.parse(entry.toolCalls) as ToolCall[]),
 	};
-}
-
-function cut(text: string, max: number): string {
-	return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
 /** The organization's personas, oldest first, with the last thing said in the member's conversation with each. */
@@ -387,14 +384,16 @@ export async function listEntries(threadId: string): Promise<Result<EntryRow[], 
 	).map((entries) => entries.map(toEntry));
 }
 
-/** The thread's entries as the person sees them: the log, then what is pending, each in order. */
-export async function listEntriesWithPending(
-	threadId: string,
-): Promise<Result<EntryRow[], ApiError>> {
+/**
+ * The thread's turns as the person sees them, what they said and what the persona answered in
+ * words, not the calls, their results, the reports or the summaries: the log's, then what is
+ * pending, each in order.
+ */
+export async function listShownEntries(threadId: string): Promise<Result<EntryRow[], ApiError>> {
 	return (
 		await wrapDb(() =>
 			db.agentEntry.findMany({
-				where: {threadId},
+				where: {threadId, OR: [{kind: 'person'}, {kind: 'assistant', text: {not: ''}}]},
 				select: entrySelect,
 				orderBy: [{pending: 'asc'}, {seq: 'asc'}],
 			}),
@@ -456,16 +455,22 @@ async function queueInference(tx: Tx, thread: ThreadRow): Promise<void> {
 	await tx.agentJob.create({data: {threadId: thread.id, kind: 'inference'}});
 }
 
-// Queues an inference job where the log is ready for one. With the thread locked.
+// Queues an inference job where the log is ready for one: whether it is shows in the log from
+// the model's last answer on, so only that much is read. With the thread locked.
 async function wakeIfReady(tx: Tx, thread: ThreadRow): Promise<void> {
-	const entries = (
+	const lastAnswer = await tx.agentEntry.findFirst({
+		where: {threadId: thread.id, pending: false, kind: 'assistant'},
+		select: {seq: true},
+		orderBy: {seq: 'desc'},
+	});
+	const tail = (
 		await tx.agentEntry.findMany({
-			where: {threadId: thread.id, pending: false},
+			where: {threadId: thread.id, pending: false, seq: {gte: lastAnswer?.seq ?? 0}},
 			select: entrySelect,
 			orderBy: {seq: 'asc'},
 		})
 	).map(toEntry);
-	if (readyForInference(entries)) {
+	if (readyForInference(tail)) {
 		await queueInference(tx, thread);
 	}
 }
@@ -649,10 +654,11 @@ export async function finishJob(
 
 /**
  * Marks the worker's job failed, saying why, and keeps the thread going: a tool job's call is
- * answered with the failure, so the agent isn't left waiting for it; a turn that failed in the
- * member's conversation is answered with the failure, so the person sees it and can go on; and
- * a sub-agent whose turn failed reports the failure, so neither is whoever delegated to it.
- * `Ok(false)` when the job was no longer the worker's.
+ * answered with the failure, so the agent isn't left waiting for it, or, where the call was
+ * answered as started already, a delegation, the failure comes as an event, as its report would
+ * have; a turn that failed in the member's conversation is answered with the failure, so the
+ * person sees it and can go on; and a sub-agent whose turn failed reports the failure, so neither
+ * is whoever delegated to it. `Ok(false)` when the job was no longer the worker's.
  */
 export async function failJob(
 	jobId: string,
@@ -673,7 +679,10 @@ export async function failJob(
 				return true;
 			}
 			if (job.kind === 'tool' && job.callId !== null) {
-				await answerCall(tx, thread, 'tool_result', {
+				const answered = await tx.agentEntry.count({
+					where: {threadId: thread.id, kind: 'tool_result', callId: job.callId},
+				});
+				await answerCall(tx, thread, answered > 0 ? 'event' : 'tool_result', {
 					callId: job.callId,
 					text: `This call could not be run: ${error}`,
 					isError: true,

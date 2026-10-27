@@ -100,6 +100,12 @@ describe('toMessages', () => {
 		expect(String(cleared[3]?.content)).not.toContain('Dana');
 	});
 
+	test('leads a report in by the call where the delegation’s arguments were not JSON', () => {
+		const call = entry(2, 'assistant', '', {toolCalls: [{id: 'd1', name: 'delegate', arguments: '{"title":'}], inputTokens: 10});
+		const messages = toMessages([entry(1, 'person', 'Go'), call, entry(3, 'tool_result', 'Started.', {callId: 'd1'}), entry(4, 'event', 'Done.', {callId: 'd1'})], {clearOld: true});
+		expect(messages[3]).toEqual({role: 'user', content: expect.stringContaining('The report of your call d1')});
+	});
+
 	test('with summaries on summaries, only the last counts', () => {
 		const log = [...long, entry(12, 'summary', 'First.', {coversSeq: 4}), entry(13, 'summary', 'Second.', {coversSeq: 8})];
 

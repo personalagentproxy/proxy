@@ -2,6 +2,8 @@ import {describe, expect, test} from 'bun:test';
 
 import {
 	AVATAR_COLORS,
+	callArguments,
+	cut,
 	DEFAULT_LOOK,
 	delegateArgs,
 	isAvatarColor,
@@ -81,6 +83,23 @@ describe('readyForInference', () => {
 				event('d'),
 			]),
 		).toBe(false);
+	});
+});
+
+describe('callArguments', () => {
+	test('are what the model wrote, parsed, or null where that was not JSON', () => {
+		expect(callArguments({id: 'c1', name: 'read', arguments: '{"tool":"list"}'})).toEqual({
+			tool: 'list',
+		});
+		expect(callArguments({id: 'c1', name: 'read', arguments: '{"tool":'})).toBeNull();
+	});
+});
+
+describe('cut', () => {
+	test('keeps a text within the limit as it is, and ends a longer one with an ellipsis at the limit', () => {
+		expect(cut('short', 10)).toBe('short');
+		expect(cut('x'.repeat(10), 10)).toBe('x'.repeat(10));
+		expect(cut('x'.repeat(11), 10)).toBe(`${'x'.repeat(9)}…`);
 	});
 });
 

@@ -1,5 +1,5 @@
 import {ArrowUpIcon, ChevronDownIcon, MoonIcon, PlusIcon} from 'lucide-react';
-import {type FormEvent, type KeyboardEvent, useEffect, useRef, useState} from 'react';
+import {type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
 import {
 	type ChatEntry,
@@ -220,21 +220,26 @@ function Conversation({loaded}: {loaded: Loaded}) {
 	const personaId = loaded.log.persona.id;
 	const current = loaded.log.persona;
 
+	// Which read of the log was asked for last: one asked for before it that answers after it is
+	// dropped, so a poll begun before a send can't put back the log as it was without the message.
+	const latestRead = useRef(0);
+	const readLog = useCallback(async () => {
+		latestRead.current += 1;
+		const read = latestRead.current;
+		const result = await getThread(org, personaId);
+		if (read !== latestRead.current || result.isErr()) {
+			return;
+		}
+		setLog(result.value);
+	}, [org, personaId]);
+
 	// The log as it is now, while the page is open.
 	useEffect(() => {
-		let cancelled = false;
-		const refresh = async () => {
-			const result = await getThread(org, personaId);
-			if (!cancelled && result.isOk()) {
-				setLog(result.value);
-			}
-		};
-		const timer = setInterval(() => void refresh(), log.busy ? BUSY_POLL_MS : IDLE_POLL_MS);
+		const timer = setInterval(() => void readLog(), log.busy ? BUSY_POLL_MS : IDLE_POLL_MS);
 		return () => {
-			cancelled = true;
 			clearInterval(timer);
 		};
-	}, [org, personaId, log.busy]);
+	}, [readLog, log.busy]);
 
 	const send = async (event: FormEvent) => {
 		event.preventDefault();
@@ -251,10 +256,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 			return;
 		}
 		setText('');
-		const refreshed = await getThread(org, personaId);
-		if (refreshed.isOk()) {
-			setLog(refreshed.value);
-		}
+		await readLog();
 	};
 
 	// Enter sends; Shift+Enter breaks the line.
