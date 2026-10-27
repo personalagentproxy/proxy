@@ -16,7 +16,7 @@ import {
 	updateChatAgent,
 } from '@/client/harness-client';
 import {AppShell} from '@/components/app-shell';
-import {Avatar} from '@/components/avatar';
+import {Head, LiveHead} from '@/components/head';
 import {PersonaDialog} from '@/components/persona-dialog';
 import {Bubble, BubbleContent} from '@proxy/ui/components/bubble';
 import {
@@ -255,8 +255,9 @@ function lastOf(log: ThreadLog): ChatAgent['lastMessage'] {
 	return {kind: last.kind, text: last.text, at: last.at};
 }
 
-// The organization's agents in the second sidebar, each with its face, its name and the last
-// thing said between it and the person, the open one lit, and a row at the bottom to make a new one.
+// The organization's agents in the second sidebar, each with its head, its name and the last
+// thing said between it and the person, the open one lit, its head watching the pointer while it
+// is over the sidebar, and a row at the bottom to make a new one.
 function AgentList({
 	agents,
 	current,
@@ -269,8 +270,13 @@ function AgentList({
 	onNew: () => void;
 }) {
 	const org = useOrgSlug();
+	const [watching, setWatching] = useState(false);
 	return (
-		<div className="flex h-full min-h-0 flex-col">
+		<div
+			className="flex h-full min-h-0 flex-col"
+			onPointerEnter={() => setWatching(true)}
+			onPointerLeave={() => setWatching(false)}
+		>
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
 				{agents.length === 0 && (
 					<span className="px-2 py-1.5 text-sm text-muted-foreground">No agents yet.</span>
@@ -288,7 +294,11 @@ function AgentList({
 										agent.id === current && 'bg-sidebar-accent text-sidebar-accent-foreground',
 									)}
 								>
-									<Avatar shape={agent.shape} color={agent.color} size="md" />
+									{agent.id === current ? (
+										<LiveHead look={agent.look} color={agent.color} size={40} watching={watching} />
+									) : (
+										<Head look={agent.look} color={agent.color} size={40} />
+									)}
 									<span className="flex min-w-0 flex-1 flex-col">
 										<span className="flex items-baseline gap-2">
 											<span className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -453,13 +463,11 @@ function Conversation({loaded}: {loaded: Loaded}) {
 						onClick={() => setEditing('current')}
 						className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-sm font-medium outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
 					>
-						<Avatar shape={current.shape} color={current.color} />
 						<span className="truncate">{current.name}</span>
 						<ChevronDownIcon className="size-4 text-muted-foreground" />
 					</button>
 				) : (
-					<span className="flex min-w-0 items-center gap-2 px-1.5 py-1 text-sm font-medium">
-						<Avatar shape={current.shape} color={current.color} />
+					<span className="flex min-w-0 items-center px-1.5 py-1 text-sm font-medium">
 						<span className="truncate">{current.name}</span>
 					</span>
 				)
@@ -482,7 +490,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 					initial={
 						editing === 'new'
 							? null
-							: {name: current.name, shape: current.shape, color: current.color}
+							: {name: current.name, look: current.look, color: current.color}
 					}
 					onClose={() => setEditing(null)}
 					onSave={savePersona}
@@ -495,7 +503,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 						<MessageScrollerContent className="page-column mx-auto w-full max-w-3xl pt-6 pb-4">
 							{turns.length === 0 && (
 								<div className="flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
-									<Avatar shape={current.shape} color={current.color} size="lg" />
+									<Head look={current.look} color={current.color} size={64} />
 									<p className="text-lg font-medium">What should {current.name} do?</p>
 									<p className="max-w-md text-sm text-muted-foreground">
 										This conversation is yours alone. {current.name} hands each piece of work to a

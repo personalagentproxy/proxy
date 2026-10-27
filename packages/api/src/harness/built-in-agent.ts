@@ -21,7 +21,7 @@ export async function createBuiltInAgent(viewer: MemberViewer, persona: Persona)
 		createdById: viewer.userId,
 		providerId: BUILT_IN_AGENT_PROVIDER.id,
 		name: persona.name,
-		shape: persona.shape,
+		look: JSON.stringify(persona.look),
 		color: persona.color,
 		username: `proxy-${randomBytes(6).toString('hex')}`,
 		passwordHash: await Bun.password.hash(randomBytes(32).toString('base64url')),

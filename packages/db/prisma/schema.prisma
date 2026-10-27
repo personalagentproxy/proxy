@@ -280,9 +280,9 @@ model Agent {
   // Who made it, kept once it is shared: who may change it beside the organization's owner. A plain
   // id rather than a relation, so a shared agent stays when they are gone.
   createdById  String?
-  // A built-in agent's face on the Chat page: a shape and a color (`@proxy/utils/harness`); none
-  // for an agent that connects from outside.
-  shape        String?
+  // A built-in agent's head on the Chat page: its look, as JSON (`@proxy/utils/harness` Look), and
+  // its color; none for an agent that connects from outside.
+  look         String?
   color        String?
 
   createdAt DateTime @default(now())

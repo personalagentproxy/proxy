@@ -1,4 +1,4 @@
-import {AVATAR_COLORS, AVATAR_SHAPES} from '@proxy/utils/harness';
+import {AVATAR_COLORS, lookSchema} from '@proxy/utils/harness';
 import {z} from 'zod';
 import {apiRequest, apiSend, orgApi} from '@/client/request';
 
@@ -6,10 +6,10 @@ import {apiRequest, apiSend, orgApi} from '@/client/request';
 // every member sees, the person's own conversation with each, its log, the sub-agents started from
 // it, and what they say in it.
 
-// An agent's persona as the person makes or changes it.
+// An agent's persona as the person makes or changes it: its name and its head, a look in a color.
 const personaSchema = z.object({
 	name: z.string(),
-	shape: z.enum(AVATAR_SHAPES),
+	look: lookSchema,
 	color: z.enum(AVATAR_COLORS),
 });
 

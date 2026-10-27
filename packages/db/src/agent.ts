@@ -17,8 +17,9 @@ export type AgentRow = {
 	providerId: string;
 	name: string;
 	username: string;
-	// A built-in agent's face (@proxy/utils/harness avatars); null for every other agent.
-	shape: string | null;
+	// A built-in agent's head: its look as JSON (@proxy/utils/harness Look) and its color; null for
+	// every other agent.
+	look: string | null;
 	color: string | null;
 	createdAt: Date;
 	lastActiveAt: Date | null;
@@ -35,7 +36,7 @@ const agentSelect = {
 	providerId: true,
 	name: true,
 	username: true,
-	shape: true,
+	look: true,
 	color: true,
 	createdAt: true,
 	lastActiveAt: true,
@@ -85,7 +86,7 @@ export async function createAgent(data: {
 	username: string;
 	passwordHash: string;
 	// A built-in agent's face.
-	shape?: string;
+	look?: string;
 	color?: string;
 }): Promise<Result<AgentRow, ApiError>> {
 	return wrapDb(() => db.agent.create({data, select: agentSelect}));

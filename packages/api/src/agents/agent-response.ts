@@ -1,16 +1,19 @@
 import type {Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
+import {type Look, parseLook} from '@proxy/utils/harness';
 import type {AgentRow} from '@proxy/db/agent';
 import {listMemberNames} from '@proxy/db/organization';
+import {BUILT_IN_AGENT_PROVIDER} from '@proxy/integrations';
 
 export type AgentResponse = {
 	id: string;
 	providerId: string;
 	name: string;
 	username: string;
-	// A built-in agent's face, shown in place of a logo; null for every other agent.
-	face: {shape: string; color: string} | null;
+	// A built-in agent's head, shown in place of a logo, the lab's first where it was never given
+	// one; null for every other agent.
+	face: {look: Look; color: string} | null;
 	// Shared with every member of its organization, rather than one member's own.
 	shared: boolean;
 	// Who made it, kept once it is shared; null for one from before it was kept.
@@ -31,7 +34,7 @@ function toAgentResponse(row: AgentRow, createdBy: string | null): AgentResponse
 		providerId: row.providerId,
 		name: row.name,
 		username: row.username,
-		face: row.shape !== null && row.color !== null ? {shape: row.shape, color: row.color} : null,
+		face: row.providerId === BUILT_IN_AGENT_PROVIDER.id ? {look: parseLook(row.look), color: row.color ?? 'blue'} : null,
 		shared: row.ownerUserId === null,
 		createdById: row.createdById,
 		createdBy,

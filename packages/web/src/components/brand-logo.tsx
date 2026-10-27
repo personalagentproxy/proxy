@@ -1,7 +1,7 @@
 import {findAgentProvider} from '@proxy/integrations';
 import {cn} from '@proxy/ui/lib/utils';
 import {useState, type ReactNode} from 'react';
-import {Avatar} from '@/components/avatar';
+import {Head} from '@/components/head';
 import type {Integration} from '@/lib/integrations';
 import type {AgentLogin} from '@/lib/types';
 
@@ -21,7 +21,7 @@ function LogoTile({children, className}: {children: ReactNode; className?: strin
 	);
 }
 
-// A built-in agent has a face in place of a logo, the one it has on the Chat page. A custom MCP
+// A built-in agent has its head in place of a logo, the one it has on the Chat page. A custom MCP
 // agent is connected through Personal Agent Proxy, so it gets our mark.
 export function AgentLogo({
 	providerId,
@@ -34,7 +34,7 @@ export function AgentLogo({
 }) {
 	const provider = findAgentProvider(providerId);
 	if (face) {
-		return <Avatar shape={face.shape} color={face.color} className={className} />;
+		return <Head look={face.look} color={face.color} size={20} className={className} />;
 	}
 	if (provider?.custom) {
 		return (

@@ -2,7 +2,7 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, hasExperiment, parseSchema, requirePresent} from '@proxy/utils';
-import {AVATAR_COLORS, AVATAR_SHAPES, type ToolCall} from '@proxy/utils/harness';
+import {AVATAR_COLORS, type Look, lookSchema, type ToolCall} from '@proxy/utils/harness';
 import {deleteAgent} from '@proxy/db/agent';
 import {
 	appendPersonMessage,
@@ -37,7 +37,7 @@ import {createBuiltInAgent} from './built-in-agent';
 const MAX_MESSAGE = 20_000;
 
 /** A built-in agent as the page lists it: its persona, whether the viewer may change it, and the last thing said in their conversation with it, cut to a line; null before anything was said. */
-export type ChatAgentResponse = {id: string; name: string; shape: string; color: string; mayChange: boolean; lastMessage: {kind: 'person' | 'assistant'; text: string; at: string} | null};
+export type ChatAgentResponse = {id: string; name: string; look: Look; color: string; mayChange: boolean; lastMessage: {kind: 'person' | 'assistant'; text: string; at: string} | null};
 
 export type EntryResponse = {id: string; kind: 'person' | 'assistant' | 'tool_result' | 'event'; text: string; toolCalls: ToolCall[] | null; callId: string | null; isError: boolean; at: string};
 
@@ -60,17 +60,18 @@ function toAgent(viewer: OrgViewer, agent: ChatAgentRow & {lastMessage?: LastMes
 	return {
 		id: agent.id,
 		name: agent.name,
-		shape: agent.shape,
+		look: agent.look,
 		color: agent.color,
 		mayChange: managesAgent(viewer, agent),
 		lastMessage: last && {kind: last.kind, text: last.text.replace(/\s+/g, ' ').trim().slice(0, PREVIEW_CHARS), at: last.createdAt.toISOString()},
 	};
 }
 
-// An agent's persona as the person makes or changes it: a name, and a face from the catalog.
+// An agent's persona as the person makes or changes it: a name, and a head, a look in one of the
+// colors.
 const personaSchema = z.object({
 	name: z.string().trim().pipe(z.string().min(1).max(AGENT_NAME_MAX)),
-	shape: z.enum(AVATAR_SHAPES),
+	look: lookSchema,
 	color: z.enum(AVATAR_COLORS),
 });
 
@@ -132,7 +133,7 @@ export function handleListChatAgentsRoute(request: AuthenticatedRequest): Promis
 	});
 }
 
-/** `POST /api/orgs/:org/chat/agents` with `{name, shape, color}`: a new built-in agent, every member's. */
+/** `POST /api/orgs/:org/chat/agents` with `{name, look, color}`: a new built-in agent, every member's. */
 export function handleCreateChatAgentRoute(request: AuthenticatedRequest): Promise<Result<{agent: ChatAgentResponse}, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
@@ -142,7 +143,7 @@ export function handleCreateChatAgentRoute(request: AuthenticatedRequest): Promi
 	});
 }
 
-/** `PUT /api/orgs/:org/chat/agents/:agentId` with `{name, shape, color}`: the agent renamed, or with another face. */
+/** `PUT /api/orgs/:org/chat/agents/:agentId` with `{name, look, color}`: the agent renamed, or with another head. */
 export function handleUpdateChatAgentRoute(request: AuthenticatedRequest): Promise<Result<{agent: ChatAgentResponse}, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));

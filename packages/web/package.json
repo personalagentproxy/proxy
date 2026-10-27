@@ -23,6 +23,7 @@
 		"react-plaid-link": "^5.0.0",
 		"react-router": "^8.3.1",
 		"tailwindcss": "^4.3.3",
+		"three": "0.170.0",
 		"ts-results-es": "^7.1.0",
 		"zod": "^4.5.4"
 	},
@@ -32,6 +33,7 @@
 		"@types/node": "^24.13.3",
 		"@types/react": "^19.2.18",
 		"@types/react-dom": "^19.2.4",
+		"@types/three": "0.170.0",
 		"@vitejs/plugin-react": "^6.1.0",
 		"happy-dom": "^20.14.5",
 		"oxlint": "^1.79.0",

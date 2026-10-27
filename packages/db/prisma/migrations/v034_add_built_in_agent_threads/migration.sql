@@ -20,7 +20,7 @@ ALTER TYPE "AuditVia" ADD VALUE IF NOT EXISTS 'harness';
 
 -- AlterTable
 ALTER TABLE "Agent" ADD COLUMN     "color" TEXT,
-ADD COLUMN     "shape" TEXT;
+ADD COLUMN     "look" TEXT;
 
 -- CreateTable
 CREATE TABLE "AgentThread" (

@@ -2,13 +2,14 @@ import {describe, expect, test} from 'bun:test';
 
 import {
 	AVATAR_COLORS,
-	AVATAR_SHAPES,
+	DEFAULT_LOOK,
 	delegateArgs,
 	isAvatarColor,
-	isAvatarShape,
 	type LogEntry,
+	parseLook,
 	pendingToolCalls,
 	readyForInference,
+	shuffleLook,
 	sleepUntil,
 } from './harness';
 
@@ -115,13 +116,26 @@ describe('sleepUntil', () => {
 	});
 });
 
-describe('avatars', () => {
-	test('are four shapes and eight colors, told from anything else', () => {
-		expect(AVATAR_SHAPES).toHaveLength(4);
+describe('heads', () => {
+	test('are one of eight colors, told from anything else', () => {
 		expect(AVATAR_COLORS).toHaveLength(8);
-		expect(isAvatarShape('circle')).toBe(true);
-		expect(isAvatarShape('star')).toBe(false);
 		expect(isAvatarColor('blue')).toBe(true);
 		expect(isAvatarColor('brown')).toBe(false);
+	});
+
+	test('a look is read from its JSON, and the default stands in for none or nonsense', () => {
+		const look = {nose: 0.5, noseOut: 0.3, eye: 30, eyeTheta: 60, eyeLat: 4, eyes: 1 as const};
+		expect(parseLook(JSON.stringify(look))).toEqual(look);
+		expect(parseLook(null)).toEqual(DEFAULT_LOOK);
+		expect(parseLook('{"nose":9}')).toEqual(DEFAULT_LOOK);
+		expect(parseLook('not json')).toEqual(DEFAULT_LOOK);
+	});
+
+	test('a shuffled look is within the family’s range, rounded as the lab rounds, with two eyes', () => {
+		const low = shuffleLook(() => 0);
+		const high = shuffleLook(() => 0.999999);
+		expect(low).toEqual({nose: 0.4, noseOut: 0.2, eye: 22, eyeTheta: 45, eyeLat: -8, eyes: 2});
+		expect(high).toEqual({nose: 0.58, noseOut: 0.6, eye: 34, eyeTheta: 70, eyeLat: 20, eyes: 2});
+		expect(parseLook(JSON.stringify(shuffleLook()))).not.toEqual(DEFAULT_LOOK);
 	});
 });

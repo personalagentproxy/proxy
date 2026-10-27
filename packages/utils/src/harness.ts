@@ -1,3 +1,6 @@
+import {Result} from 'ts-results-es';
+import {z} from 'zod';
+
 /**
  * The built-in agent's log, as the api writes it and the web app reads it: what is shared between
  * them. The log is the transcript: the person's messages, the model's answers with the tool calls
@@ -105,10 +108,11 @@ export function sleepUntil(args: unknown, now: Date): Date | null {
 }
 
 /**
- * A built-in agent's avatar, one of four shapes in one of eight colors, which is all the person
- * picks beside its name, such as Finance or Outreach.
+ * A built-in agent's head, as the head lab (design/head-lab) makes it: a sphere in one of eight
+ * colors, with painted eyes and a darker nose sphere. A look is what the person keeps beside its
+ * name: the shape of its features, in the lab's units; the color is kept beside it. How it is
+ * turned is not part of a look: the app poses a head as the moment asks.
  */
-export const AVATAR_SHAPES = ['circle', 'square', 'triangle', 'diamond'] as const;
 export const AVATAR_COLORS = [
 	'red',
 	'orange',
@@ -120,13 +124,77 @@ export const AVATAR_COLORS = [
 	'pink',
 ] as const;
 
-export type AvatarShape = (typeof AVATAR_SHAPES)[number];
 export type AvatarColor = (typeof AVATAR_COLORS)[number];
-
-export function isAvatarShape(value: string): value is AvatarShape {
-	return (AVATAR_SHAPES as readonly string[]).includes(value);
-}
 
 export function isAvatarColor(value: string): value is AvatarColor {
 	return (AVATAR_COLORS as readonly string[]).includes(value);
+}
+
+/** A head's features: the nose's size as a share of the head and how far it sits out, the eyes' size and place in degrees, and how many eyes. */
+export type Look = {
+	nose: number;
+	noseOut: number;
+	eye: number;
+	eyeTheta: number;
+	eyeLat: number;
+	eyes: 1 | 2;
+};
+
+// What the lab's sliders allow of each.
+const LOOK_RANGES: Record<Exclude<keyof Look, 'eyes'>, [number, number]> = {
+	nose: [0.36, 0.6],
+	noseOut: [0.1, 0.7],
+	eye: [18, 36],
+	eyeTheta: [40, 75],
+	eyeLat: [-12, 24],
+};
+
+/** The lab's first look (design/head-lab/looks/2026-10-27-blue.json), which a head without one gets. */
+export const DEFAULT_LOOK: Look = {
+	nose: 0.48,
+	noseOut: 0.35,
+	eye: 27,
+	eyeTheta: 55,
+	eyeLat: 8,
+	eyes: 2,
+};
+
+/** The look as the api takes it and the web app reads it: the lab's units, within what its sliders allow. */
+export const lookSchema = z.object({
+	nose: z.number().min(LOOK_RANGES.nose[0]).max(LOOK_RANGES.nose[1]),
+	noseOut: z.number().min(LOOK_RANGES.noseOut[0]).max(LOOK_RANGES.noseOut[1]),
+	eye: z.number().min(LOOK_RANGES.eye[0]).max(LOOK_RANGES.eye[1]),
+	eyeTheta: z.number().min(LOOK_RANGES.eyeTheta[0]).max(LOOK_RANGES.eyeTheta[1]),
+	eyeLat: z.number().min(LOOK_RANGES.eyeLat[0]).max(LOOK_RANGES.eyeLat[1]),
+	eyes: z.union([z.literal(1), z.literal(2)]),
+});
+
+/** A look from the JSON it is kept as; the default where there is none, or it isn't one. */
+export function parseLook(json: string | null): Look {
+	if (json === null) {
+		return DEFAULT_LOOK;
+	}
+	const parsed = Result.wrap((): unknown => JSON.parse(json));
+	if (parsed.isErr()) {
+		return DEFAULT_LOOK;
+	}
+	const look = lookSchema.safeParse(parsed.value);
+	return look.success ? look.data : DEFAULT_LOOK;
+}
+
+// Rounded to what the lab's shuffle gives, so looks read the same in both.
+function between(random: () => number, low: number, high: number, decimals: number): number {
+	return Number((low + random() * (high - low)).toFixed(decimals));
+}
+
+/** A new look, as the lab's shuffle makes one: features within the family's range, two eyes. */
+export function shuffleLook(random: () => number = Math.random): Look {
+	return {
+		nose: between(random, 0.4, 0.58, 3),
+		noseOut: between(random, 0.2, 0.6, 2),
+		eye: between(random, 22, 34, 1),
+		eyeTheta: Math.round(between(random, 45, 70, 0)),
+		eyeLat: Math.round(between(random, -8, 20, 0)),
+		eyes: 2,
+	};
 }

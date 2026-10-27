@@ -23,8 +23,9 @@ const createBuiltInAgent = mock(async () => Ok({id: 'agent-2', createdById: 'use
 mock.module('./built-in-agent', () => ({createBuiltInAgent}));
 
 const now = new Date('2026-10-21T10:00:00Z');
-const agent = {id: 'agent-1', name: 'Finance', shape: 'circle', color: 'blue', createdById: 'user-1'};
-const agentResponse = {id: 'agent-1', name: 'Finance', shape: 'circle', color: 'blue', mayChange: true, lastMessage: null};
+const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
+const agent = {id: 'agent-1', name: 'Finance', look, color: 'blue', createdById: 'user-1'};
+const agentResponse = {id: 'agent-1', name: 'Finance', look, color: 'blue', mayChange: true, lastMessage: null};
 const thread = {id: 'thread-1', orgId: 'org-1', agentId: 'agent-1', userId: 'user-1', parentThreadId: null, parentCallId: null, title: null, taskId: null, finishedAt: null, createdAt: now};
 
 function request(params: Record<string, string> = {}, body: unknown = undefined) {
@@ -98,24 +99,24 @@ describe('the chat routes', () => {
 	test('make an agent as the persona given, for everyone in the organization', async () => {
 		const {handleCreateChatAgentRoute} = await import('./route');
 
-		const made = await handleCreateChatAgentRoute(request({}, {name: ' Finance ', shape: 'circle', color: 'blue'}));
+		const made = await handleCreateChatAgentRoute(request({}, {name: ' Finance ', look, color: 'blue'}));
 
-		expect(createBuiltInAgent).toHaveBeenCalledWith(viewer, {name: 'Finance', shape: 'circle', color: 'blue'});
+		expect(createBuiltInAgent).toHaveBeenCalledWith(viewer, {name: 'Finance', look, color: 'blue'});
 		expect(made.unwrap().agent).toEqual({...agentResponse, id: 'agent-2'});
 	});
 
-	test('refuse a persona without a name, or with a shape or color outside the catalog', async () => {
+	test('refuse a persona without a name, with a look outside the lab’s range, or a color outside the catalog', async () => {
 		const {handleCreateChatAgentRoute} = await import('./route');
 
-		expect((await handleCreateChatAgentRoute(request({}, {name: ' ', shape: 'circle', color: 'blue'}))).unwrapErr().kind).toBe('parse_error');
-		expect((await handleCreateChatAgentRoute(request({}, {name: 'Finance', shape: 'star', color: 'blue'}))).unwrapErr().kind).toBe('parse_error');
-		expect((await handleCreateChatAgentRoute(request({}, {name: 'Finance', shape: 'circle', color: 'brown'}))).unwrapErr().kind).toBe('parse_error');
+		expect((await handleCreateChatAgentRoute(request({}, {name: ' ', look, color: 'blue'}))).unwrapErr().kind).toBe('parse_error');
+		expect((await handleCreateChatAgentRoute(request({}, {name: 'Finance', look: {...look, nose: 2}, color: 'blue'}))).unwrapErr().kind).toBe('parse_error');
+		expect((await handleCreateChatAgentRoute(request({}, {name: 'Finance', look, color: 'brown'}))).unwrapErr().kind).toBe('parse_error');
 		expect(createBuiltInAgent).not.toHaveBeenCalled();
 	});
 
 	test('rename an agent or change its face, and delete one with every conversation, for whoever made it or owns the organization', async () => {
 		const {handleDeleteChatAgentRoute, handleUpdateChatAgentRoute} = await import('./route');
-		const persona = {name: 'Money', shape: 'diamond', color: 'green'};
+		const persona = {name: 'Money', look: {...look, eyes: 1 as const}, color: 'green'};
 
 		const updated = await handleUpdateChatAgentRoute(request({agentId: 'agent-1'}, persona));
 		expect(updateChatAgent).toHaveBeenCalledWith('org-1', 'agent-1', persona);

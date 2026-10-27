@@ -1,3 +1,4 @@
+import {DEFAULT_LOOK} from '@proxy/utils/harness';
 import {getSignInMethods} from '@/client/auth-client';
 import {
 	type ActivityFilter,
@@ -120,7 +121,7 @@ export async function chatIndexLoader(args: OrgParams) {
 		throw redirect(`/${org}/chat/${first.id}`);
 	}
 	const {agent} = unwrapLoaderResult(
-		await createChatAgent(org, {name: 'General', shape: 'circle', color: 'blue'}),
+		await createChatAgent(org, {name: 'General', look: DEFAULT_LOOK, color: 'blue'}),
 	);
 	throw redirect(`/${org}/chat/${agent.id}`);
 }

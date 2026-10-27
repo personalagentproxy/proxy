@@ -2,7 +2,13 @@ import type {AgentEntryKind, AgentJobKind, AgentJobStatus, Prisma} from '@prisma
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, wrapDb} from '@proxy/utils';
-import {type LogEntry, readyForInference, type ToolCall} from '@proxy/utils/harness';
+import {
+	type Look,
+	type LogEntry,
+	parseLook,
+	readyForInference,
+	type ToolCall,
+} from '@proxy/utils/harness';
 import {TASK_ABANDONED_AFTER_MS} from '@proxy/utils/tasks';
 
 import {db} from '.';
@@ -38,8 +44,8 @@ export type ThreadRow = {
 	createdAt: Date;
 };
 
-/** What a built-in agent is shown as: its name and its face, a shape and a color. */
-export type Persona = {name: string; shape: string; color: string};
+/** What a built-in agent is shown as: its name and its head, a look and a color. */
+export type Persona = {name: string; look: Look; color: string};
 
 /** A built-in agent as the Chat page lists it, with who made it, who may change it beside the organization's owner. */
 export type ChatAgentRow = Persona & {id: string; createdById: string | null};
@@ -99,23 +105,23 @@ const threadSelect = {
 const chatAgentSelect = {
 	id: true,
 	name: true,
-	shape: true,
+	look: true,
 	color: true,
 	createdById: true,
 } as const;
 
-// A built-in agent's face, as it was given one; a missing one, which shouldn't be, as plain as can be.
+// A built-in agent's head, as it was given one; a missing one, which shouldn't be, the lab's first.
 function toChatAgent(agent: {
 	id: string;
 	name: string;
-	shape: string | null;
+	look: string | null;
 	color: string | null;
 	createdById: string | null;
 }): ChatAgentRow {
 	return {
 		id: agent.id,
 		name: agent.name,
-		shape: agent.shape ?? 'circle',
+		look: parseLook(agent.look),
 		color: agent.color ?? 'blue',
 		createdById: agent.createdById,
 	};
@@ -221,14 +227,19 @@ export async function getChatAgent(
 	).map((agent) => (agent ? toChatAgent(agent) : null));
 }
 
-/** Renames a built-in agent or changes its face; `Ok(false)` means no such agent in the organization. */
+/** Renames a built-in agent or changes its head; `Ok(false)` means no such agent in the organization. */
 export async function updateChatAgent(
 	orgId: string,
 	agentId: string,
 	persona: Persona,
 ): Promise<Result<boolean, ApiError>> {
 	return (
-		await wrapDb(() => db.agent.updateMany({where: {id: agentId, orgId}, data: persona}))
+		await wrapDb(() =>
+			db.agent.updateMany({
+				where: {id: agentId, orgId},
+				data: {name: persona.name, look: JSON.stringify(persona.look), color: persona.color},
+			}),
+		)
 	).map(({count}) => count > 0);
 }
 
