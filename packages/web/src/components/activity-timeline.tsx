@@ -483,7 +483,7 @@ function AgentLabel({
 			className={cn(className, 'hover:bg-muted')}
 			style={style}
 		>
-			<AgentLogo providerId={agent.providerId} face={agent.face} />
+			<AgentLogo providerId={agent.providerId} />
 			<span className="truncate font-medium">{agent.name}</span>
 			{aside}
 		</Link>

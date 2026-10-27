@@ -15,9 +15,10 @@ import {db} from '.';
 import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed-in-agent';
 
 /**
- * The built-in agents, the organization's, each with a thread per member, the member's
+ * The Chat page: the organization's personas, each with a thread per member, the member's
  * conversation with it, and a thread per sub-agent started from it, each with its log and its
- * jobs. Every change to a thread's log or its jobs is made with the thread's row locked, so a
+ * jobs. Every persona acts through the organization's one built-in agent login, whose grants and
+ * activity log are every persona's. Every change to a thread's log or its jobs is made with the thread's row locked, so a
  * result landing and the model being run on the log never race: either the inference job sees
  * the result, or the result sees no job and queues one. A worker's write is fenced by its lease:
  * it goes through only while the job is still its. A sub-agent's thread ends with its report,
@@ -29,7 +30,10 @@ import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed
 export type ThreadRow = {
 	id: string;
 	orgId: string;
+	// The organization's built-in agent login, which the persona acts through.
 	agentId: string;
+	// The persona the conversation is with, or the sub-agent works as.
+	personaId: string;
 	// The member whose conversation it is, or was started from.
 	userId: string;
 	// A sub-agent's thread: the thread it was delegated from, and the call that started it.
@@ -44,11 +48,11 @@ export type ThreadRow = {
 	createdAt: Date;
 };
 
-/** What a built-in agent is shown as: its name and its head, a look and a color. */
+/** What a persona is: its name and its head, a look and a color. */
 export type Persona = {name: string; look: Look; color: string};
 
-/** A built-in agent as the Chat page lists it, with who made it, who may change it beside the organization's owner. */
-export type ChatAgentRow = Persona & {id: string; createdById: string | null};
+/** A persona as the Chat page lists it, with who made it, who may change it beside the organization's owner. */
+export type PersonaRow = Persona & {id: string; createdById: string | null};
 
 export type EntryRow = LogEntry & {
 	id: string;
@@ -93,6 +97,7 @@ const threadSelect = {
 	id: true,
 	orgId: true,
 	agentId: true,
+	personaId: true,
 	userId: true,
 	parentThreadId: true,
 	parentCallId: true,
@@ -102,7 +107,7 @@ const threadSelect = {
 	createdAt: true,
 } as const;
 
-const chatAgentSelect = {
+const personaSelect = {
 	id: true,
 	name: true,
 	look: true,
@@ -110,21 +115,14 @@ const chatAgentSelect = {
 	createdById: true,
 } as const;
 
-// A built-in agent's head, as it was given one; a missing one, which shouldn't be, the lab's first.
-function toChatAgent(agent: {
+function toPersona(persona: {
 	id: string;
 	name: string;
-	look: string | null;
-	color: string | null;
+	look: string;
+	color: string;
 	createdById: string | null;
-}): ChatAgentRow {
-	return {
-		id: agent.id,
-		name: agent.name,
-		look: parseLook(agent.look),
-		color: agent.color ?? 'blue',
-		createdById: agent.createdById,
-	};
+}): PersonaRow {
+	return {...persona, look: parseLook(persona.look)};
 }
 
 const entrySelect = {
@@ -169,18 +167,17 @@ function cut(text: string, max: number): string {
 	return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-/** The organization's built-in agents, those of `providerId`, oldest first, with the last thing said in the member's conversation with each. */
-export async function listChatAgents(
+/** The organization's personas, oldest first, with the last thing said in the member's conversation with each. */
+export async function listPersonas(
 	orgId: string,
 	userId: string,
-	providerId: string,
-): Promise<Result<Array<ChatAgentRow & {lastMessage: LastMessage | null}>, ApiError>> {
+): Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null}>, ApiError>> {
 	return (
 		await wrapDb(() =>
-			db.agent.findMany({
-				where: {orgId, providerId, revokedAt: null},
+			db.persona.findMany({
+				where: {orgId},
 				select: {
-					...chatAgentSelect,
+					...personaSelect,
 					threads: {
 						where: {userId, parentThreadId: null},
 						select: {
@@ -197,11 +194,11 @@ export async function listChatAgents(
 				orderBy: {createdAt: 'asc'},
 			}),
 		)
-	).map((agents) =>
-		agents.map(({threads, ...agent}) => {
+	).map((personas) =>
+		personas.map(({threads, ...persona}) => {
 			const last = threads[0]?.entries[0];
 			return {
-				...toChatAgent(agent),
+				...toPersona(persona),
 				lastMessage:
 					last && (last.kind === 'person' || last.kind === 'assistant')
 						? {kind: last.kind, text: last.text, createdAt: last.createdAt}
@@ -211,66 +208,107 @@ export async function listChatAgents(
 	);
 }
 
-/** One of the organization's built-in agents, those of `providerId`; `Ok(null)` for none. */
-export async function getChatAgent(
+/** Personas by id, those of the organization among `ids`, for what names them. */
+export async function listPersonasById(
 	orgId: string,
-	agentId: string,
-	providerId: string,
-): Promise<Result<ChatAgentRow | null, ApiError>> {
+	ids: string[],
+): Promise<Result<PersonaRow[], ApiError>> {
+	if (ids.length === 0) {
+		return Ok([]);
+	}
 	return (
-		await wrapDb(() =>
-			db.agent.findFirst({
-				where: {id: agentId, orgId, providerId, revokedAt: null},
-				select: chatAgentSelect,
-			}),
-		)
-	).map((agent) => (agent ? toChatAgent(agent) : null));
+		await wrapDb(() => db.persona.findMany({where: {orgId, id: {in: ids}}, select: personaSelect}))
+	).map((personas) => personas.map(toPersona));
 }
 
-/** Renames a built-in agent or changes its head; `Ok(false)` means no such agent in the organization. */
-export async function updateChatAgent(
+/** One of the organization's personas; `Ok(null)` for none. */
+export async function getPersona(
 	orgId: string,
-	agentId: string,
+	personaId: string,
+): Promise<Result<PersonaRow | null, ApiError>> {
+	return (
+		await wrapDb(() => db.persona.findFirst({where: {id: personaId, orgId}, select: personaSelect}))
+	).map((persona) => (persona ? toPersona(persona) : null));
+}
+
+/** A new persona of the organization, made by the member. */
+export async function createPersona(
+	orgId: string,
+	createdById: string,
+	persona: Persona,
+): Promise<Result<PersonaRow, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.persona.create({
+				data: {
+					orgId,
+					createdById,
+					name: persona.name,
+					look: JSON.stringify(persona.look),
+					color: persona.color,
+				},
+				select: personaSelect,
+			}),
+		)
+	).map(toPersona);
+}
+
+/** Renames a persona or changes its head; `Ok(false)` means no such persona in the organization. */
+export async function updatePersona(
+	orgId: string,
+	personaId: string,
 	persona: Persona,
 ): Promise<Result<boolean, ApiError>> {
 	return (
 		await wrapDb(() =>
-			db.agent.updateMany({
-				where: {id: agentId, orgId},
+			db.persona.updateMany({
+				where: {id: personaId, orgId},
 				data: {name: persona.name, look: JSON.stringify(persona.look), color: persona.color},
 			}),
 		)
 	).map(({count}) => count > 0);
 }
 
-/** The member's conversation with the agent; `Ok(null)` before they have one. */
+/** Deletes a persona with every member's conversation with it; `Ok(false)` means no such persona in the organization. */
+export async function deletePersona(
+	orgId: string,
+	personaId: string,
+): Promise<Result<boolean, ApiError>> {
+	return (await wrapDb(() => db.persona.deleteMany({where: {id: personaId, orgId}}))).map(
+		({count}) => count > 0,
+	);
+}
+
+/** The member's conversation with the persona; `Ok(null)` before they have one. */
 export async function getMemberThread(
-	agentId: string,
+	personaId: string,
 	userId: string,
 ): Promise<Result<ThreadRow | null, ApiError>> {
 	return wrapDb(() =>
 		db.agentThread.findFirst({
-			where: {agentId, userId, parentThreadId: null},
+			where: {personaId, userId, parentThreadId: null},
 			select: threadSelect,
 		}),
 	);
 }
 
 /**
- * The member's conversation with the agent, made where they have none yet: the one there is
- * otherwise, two first openings at once making one, since the agent's row is locked meanwhile.
+ * The member's conversation with the persona, made where they have none yet, through the
+ * organization's built-in login `agentId`: the one there is otherwise, two first openings at once
+ * making one, since the persona's row is locked meanwhile.
  */
 export async function ensureMemberThread(data: {
 	orgId: string;
 	agentId: string;
+	personaId: string;
 	userId: string;
 }): Promise<Result<ThreadRow, ApiError>> {
-	const {agentId, userId} = data;
+	const {personaId, userId} = data;
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
-			await tx.$queryRaw`SELECT "id" FROM "Agent" WHERE "id" = ${agentId} FOR UPDATE`;
+			await tx.$queryRaw`SELECT "id" FROM "Persona" WHERE "id" = ${personaId} FOR UPDATE`;
 			const existing = await tx.agentThread.findFirst({
-				where: {agentId, userId, parentThreadId: null},
+				where: {personaId, userId, parentThreadId: null},
 				select: threadSelect,
 			});
 			if (existing) {
@@ -744,8 +782,8 @@ export async function completeToolJob(
 }
 
 /**
- * Finishes a delegate call's tool job by starting the sub-agent: its task, its thread with the
- * brief as the first thing said in it, and its first turn queued. The call was answered as the
+ * Finishes a delegate call's tool job by starting the sub-agent: its task, run as the persona, its
+ * thread with the brief as the first thing said in it, and its first turn queued. The call was answered as the
  * turn was written; the report lands as an event. `Ok(false)` when the job was no longer the
  * worker's, and nothing is made.
  */
@@ -767,6 +805,7 @@ export async function startSubAgent(
 					orgId: parent.orgId,
 					agentId: parent.agentId,
 					ownerUserId: parent.userId,
+					personaId: parent.personaId,
 					parentId: null,
 					title: call.title,
 					goal: cut(call.brief, MAX_TASK_TEXT),
@@ -780,6 +819,7 @@ export async function startSubAgent(
 				data: {
 					orgId: parent.orgId,
 					agentId: parent.agentId,
+					personaId: parent.personaId,
 					userId: parent.userId,
 					parentThreadId: parent.id,
 					parentCallId: call.id,

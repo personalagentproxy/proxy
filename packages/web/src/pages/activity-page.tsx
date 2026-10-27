@@ -13,6 +13,7 @@ import {
 } from '@proxy/ui/components/select';
 import {Button} from '@proxy/ui/components/button';
 import {AgentLogo} from '@/components/brand-logo';
+import {Head} from '@/components/head';
 import {Badge} from '@proxy/ui/components/badge';
 import {useOrgSlug} from '@/hooks/use-org';
 import {connectionLabel} from '@/lib/access';
@@ -138,13 +139,19 @@ function TaskCard({
 			</div>
 			<p className="text-muted-foreground">{task.goal}</p>
 			<p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
-				{agent && (
+				{task.persona && (
 					<span className="inline-flex items-center gap-1.5">
-						<AgentLogo providerId={agent.providerId} face={agent.face} />
+						<Head look={task.persona.look} color={task.persona.color} size={20} />
+						{task.persona.name}
+					</span>
+				)}
+				{!task.persona && agent && (
+					<span className="inline-flex items-center gap-1.5">
+						<AgentLogo providerId={agent.providerId} />
 						{agent.name}
 					</span>
 				)}
-				{!agent && <span>Deleted agent</span>}
+				{!task.persona && !agent && <span>Deleted agent</span>}
 				<span aria-hidden>·</span>
 				<span>Started {formatDateTime(task.startedAt)}</span>
 				{task.finishedAt && (

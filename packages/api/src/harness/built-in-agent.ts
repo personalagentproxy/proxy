@@ -2,28 +2,35 @@ import {randomBytes} from 'node:crypto';
 
 import type {Result} from 'ts-results-es';
 
-import type {ApiError} from '@proxy/utils';
-import {type AgentRow, createAgent} from '@proxy/db/agent';
-import type {Persona} from '@proxy/db/harness';
-import type {MemberViewer} from '@proxy/db/viewer';
+import {type ApiError, Do} from '@proxy/utils';
+import {type AgentRow, createAgent, getSharedAgentByProvider} from '@proxy/db/agent';
 import {BUILT_IN_AGENT_PROVIDER} from '@proxy/integrations';
 
 /**
- * A new built-in agent of the organization, shared with every member of it, made by the viewer:
- * an Agent like any other, with grants and an activity log of its own, so what it may do on the
- * shared connections is set where it is set for Claude. It has a password nobody knows, since it
- * never signs in: its loop runs in the api, and in each member's conversation it acts as them.
+ * The organization's one built-in agent login, which every persona of the Chat page acts through,
+ * named Chat for that: an Agent like any other, shared with every member, with grants and an
+ * activity log of its own,
+ * so what the personas may do on the shared connections is set where it is set for Claude. Made
+ * the first time Chat is used, by nobody in particular, so only the organization's owner changes
+ * its grants. It has a password nobody knows, since it never signs in: its loop runs in the api,
+ * and in each member's conversation it acts as them.
  */
-export async function createBuiltInAgent(viewer: MemberViewer, persona: Persona): Promise<Result<AgentRow, ApiError>> {
-	return createAgent({
-		orgId: viewer.orgId,
-		ownerUserId: null,
-		createdById: viewer.userId,
-		providerId: BUILT_IN_AGENT_PROVIDER.id,
-		name: persona.name,
-		look: JSON.stringify(persona.look),
-		color: persona.color,
-		username: `proxy-${randomBytes(6).toString('hex')}`,
-		passwordHash: await Bun.password.hash(randomBytes(32).toString('base64url')),
+export function ensureBuiltInAgent(orgId: string): Promise<Result<AgentRow, ApiError>> {
+	return Do(async ($) => {
+		const existing = $(await getSharedAgentByProvider(orgId, BUILT_IN_AGENT_PROVIDER.id));
+		if (existing) {
+			return existing;
+		}
+		return $(
+			await createAgent({
+				orgId,
+				ownerUserId: null,
+				createdById: null,
+				providerId: BUILT_IN_AGENT_PROVIDER.id,
+				name: 'Chat',
+				username: `proxy-${randomBytes(6).toString('hex')}`,
+				passwordHash: await Bun.password.hash(randomBytes(32).toString('base64url')),
+			}),
+		);
 	});
 }

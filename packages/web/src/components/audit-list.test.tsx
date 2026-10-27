@@ -16,7 +16,6 @@ const agent: AgentLogin = {
 	providerId: 'claude',
 	name: 'Claude',
 	username: 'claude-1',
-	face: null,
 	shared: false,
 	createdById: 'user-1',
 	createdBy: null,
@@ -49,6 +48,7 @@ const task: ActivityTask = {
 	startedAt: '2026-10-14T21:00:00.000Z',
 	lastStartedAt: '2026-10-14T21:00:00.000Z',
 	finishedAt: null,
+	persona: null,
 	parentId: null,
 	outcome: null,
 };

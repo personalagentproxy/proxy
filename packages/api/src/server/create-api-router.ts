@@ -46,7 +46,7 @@ import {
 	handleShareConnectionRoute,
 } from '../connections/route';
 import {handleFaviconRoute} from '../favicons/route';
-import {handleCreateChatAgentRoute, handleDeleteChatAgentRoute, handleGetThreadRoute, handleListChatAgentsRoute, handlePostMessageRoute, handleUpdateChatAgentRoute} from '../harness/route';
+import {handleCreatePersonaRoute, handleDeletePersonaRoute, handleGetThreadRoute, handleListPersonasRoute, handlePostMessageRoute, handleUpdatePersonaRoute} from '../harness/route';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
 import {handleDeleteMeRoute, handleMeRoute} from '../me/route';
@@ -213,12 +213,12 @@ export function createApiRouter(): express.Router {
 	// The Chat page: the organization's built-in agents and the member's conversations with them.
 	// Nothing here runs the model: the worker in each api instance does (harness/worker.ts); a
 	// message queues its work.
-	org.get('/chat/agents', withAuthResult('List chat agents route', handleListChatAgentsRoute));
-	org.post('/chat/agents', withAuthResult('Create chat agent route', handleCreateChatAgentRoute));
-	org.put('/chat/agents/:agentId', withAuthResult('Update chat agent route', handleUpdateChatAgentRoute));
-	org.delete('/chat/agents/:agentId', withAuthResult('Delete chat agent route', handleDeleteChatAgentRoute));
-	org.get('/chat/agents/:agentId/thread', withAuthResult('Get chat thread route', handleGetThreadRoute));
-	org.post('/chat/agents/:agentId/messages', withAuthResult('Post chat message route', handlePostMessageRoute));
+	org.get('/chat/personas', withAuthResult('List personas route', handleListPersonasRoute));
+	org.post('/chat/personas', withAuthResult('Create persona route', handleCreatePersonaRoute));
+	org.put('/chat/personas/:personaId', withAuthResult('Update persona route', handleUpdatePersonaRoute));
+	org.delete('/chat/personas/:personaId', withAuthResult('Delete persona route', handleDeletePersonaRoute));
+	org.get('/chat/personas/:personaId/thread', withAuthResult('Get chat thread route', handleGetThreadRoute));
+	org.post('/chat/personas/:personaId/messages', withAuthResult('Post chat message route', handlePostMessageRoute));
 
 	// The agent side: its own sign-in and cookie, and every request made for one of the agent's
 	// tasks, checked against the agent's access and logged with the task.

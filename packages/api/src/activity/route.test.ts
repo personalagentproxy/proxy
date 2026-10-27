@@ -21,6 +21,7 @@ const listAgentTasksBetween = mock();
 const listSubTasks = mock();
 
 mock.module('@proxy/db/task', () => ({listAgentTasks, listAgentTasksBetween, listSubTasks}));
+mock.module('@proxy/db/harness', () => ({listPersonasById: mock(async () => Ok([]))}));
 
 function makeRequest(query: Record<string, string>) {
 	return {user: {userId: 'user-1', email: 'test@example.com', name: 'Test User'}, query};
@@ -45,6 +46,7 @@ describe('handleActivityTimelineRoute', () => {
 		const task = {
 			id: 'task-1',
 			agentId: 'agent-1',
+			personaId: null,
 			parentId: null,
 			title: 'Triage inbox',
 			goal: 'Archive the newsletters',
@@ -90,6 +92,7 @@ describe('handleActivityTimelineRoute', () => {
 				{
 					id: 'task-1',
 					agentId: 'agent-1',
+					persona: null,
 					parentId: null,
 					title: 'Triage inbox',
 					goal: 'Archive the newsletters',
@@ -118,6 +121,7 @@ describe('handleActivityTimelineRoute', () => {
 		const task = (id: string, parentId: string | null, createdAt: string) => ({
 			id,
 			agentId: 'agent-1',
+			personaId: null,
 			parentId,
 			title: 'Draft the pricing notes',
 			goal: 'Write up the pricing review',
@@ -205,6 +209,7 @@ describe('handleListActivityRoute', () => {
 				{
 					id: 'task-1',
 					agentId: 'agent-1',
+					persona: null,
 					parentId: 'task-0',
 					title: 'Triage inbox',
 					goal: 'Archive the newsletters',
@@ -262,6 +267,7 @@ describe('handleListActivityRoute', () => {
 				{
 					id: 'task-1',
 					agentId: 'agent-1',
+					persona: null,
 					parentId: 'task-0',
 					title: 'Triage inbox',
 					goal: 'Archive the newsletters',
@@ -280,6 +286,7 @@ describe('handleTaskRunRoute', () => {
 	const task = (id: string, start: string, finish: string | null, parentId: string | null = null) => ({
 		id,
 		agentId: 'agent-1',
+		personaId: null,
 		parentId,
 		title: `Task ${id}`,
 		goal: 'List the week’s events and what to do first',

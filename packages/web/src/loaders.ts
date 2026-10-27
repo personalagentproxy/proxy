@@ -10,7 +10,7 @@ import {
 	listMcpClients,
 } from '@/client/agents-client';
 import {getConnection, listConnections} from '@/client/connections-client';
-import {createChatAgent, getThread, listChatAgents} from '@/client/harness-client';
+import {createPersona, getThread, listPersonas} from '@/client/harness-client';
 import {getMe} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {getInvitation, getOrg, listMembers, listOrgs} from '@/client/orgs-client';
@@ -112,28 +112,28 @@ export async function connectionLoader(args: {params: {org?: string; id?: string
 	};
 }
 
-// Chat opens on the organization's first agent, a General one made where it has none yet.
+// Chat opens on the organization's first persona, a General one made where it has none yet.
 export async function chatIndexLoader(args: OrgParams) {
 	const org = orgOf(args);
-	const {agents} = unwrapLoaderResult(await listChatAgents(org));
-	const first = agents[0];
+	const {personas} = unwrapLoaderResult(await listPersonas(org));
+	const first = personas[0];
 	if (first) {
 		throw redirect(`/${org}/chat/${first.id}`);
 	}
-	const {agent} = unwrapLoaderResult(
-		await createChatAgent(org, {name: 'General', look: DEFAULT_LOOK, color: 'blue'}),
+	const {persona} = unwrapLoaderResult(
+		await createPersona(org, {name: 'General', look: DEFAULT_LOOK, color: 'blue'}),
 	);
-	throw redirect(`/${org}/chat/${agent.id}`);
+	throw redirect(`/${org}/chat/${persona.id}`);
 }
 
 // The person's conversation with an agent, and the agents to switch between.
 export async function chatLoader(args: OrgParams & {params: {id?: string}}) {
 	const org = orgOf(args);
-	const [log, agents] = await Promise.all([
+	const [log, personas] = await Promise.all([
 		getThread(org, args.params.id ?? ''),
-		listChatAgents(org),
+		listPersonas(org),
 	]);
-	return {log: unwrapLoaderResult(log), agents: unwrapLoaderResult(agents).agents};
+	return {log: unwrapLoaderResult(log), personas: unwrapLoaderResult(personas).personas};
 }
 
 // The vault is the one built-in connection, which every organization has twice: the person's own

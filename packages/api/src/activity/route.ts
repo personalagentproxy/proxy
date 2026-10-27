@@ -4,6 +4,8 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import {type AuditEntryRow, listAuditEntries, listLastTaskEntries, listTaskEntries} from '@proxy/db/audit';
 import {listMemberNames} from '@proxy/db/organization';
+import type {Look} from '@proxy/utils/harness';
+import {listPersonasById} from '@proxy/db/harness';
 import {type AgentTaskRow, listAgentTasks, listAgentTasksBetween, listSubTasks} from '@proxy/db/task';
 import type {Viewer} from '@proxy/db/viewer';
 
@@ -46,6 +48,9 @@ export type AuditEntryResponse = {
 export type ActivityTaskResponse = {
 	id: string;
 	agentId: string;
+	// The persona of the Chat page a sub-agent ran it as, with its head; null for every other task,
+	// and for one whose persona is gone.
+	persona: {id: string; name: string; look: Look; color: string} | null;
 	// The agent's task it is a sub-task of, where the agent handed part of that task to a sub-agent;
 	// null for a task started on its own. The parent may be missing from the answer.
 	parentId: string | null;
@@ -62,8 +67,22 @@ export type ActivityTaskResponse = {
 	lastStartedAt: string;
 };
 
-function toActivityTask({createdAt, finishedAt, lastStartedAt, ...task}: AgentTaskRow): ActivityTaskResponse {
-	return {...task, startedAt: createdAt.toISOString(), finishedAt: finishedAt?.toISOString() ?? null, lastStartedAt: lastStartedAt.toISOString()};
+// The tasks as the web app reads them, each with the persona it was run as, where it was.
+function toActivityTasks(viewer: Viewer, rows: AgentTaskRow[]): Promise<Result<ActivityTaskResponse[], ApiError>> {
+	return Do(async ($) => {
+		const personaIds = new Set(rows.flatMap((row) => (row.personaId === null ? [] : [row.personaId])));
+		const personas = $(await listPersonasById(viewer.orgId, [...personaIds]));
+		return rows.map(({createdAt, finishedAt, lastStartedAt, personaId, ...task}) => {
+			const persona = personas.find((candidate) => candidate.id === personaId);
+			return {
+				...task,
+				persona: persona ? {id: persona.id, name: persona.name, look: persona.look, color: persona.color} : null,
+				startedAt: createdAt.toISOString(),
+				finishedAt: finishedAt?.toISOString() ?? null,
+				lastStartedAt: lastStartedAt.toISOString(),
+			};
+		});
+	});
 }
 
 // `?agentId=proxy` is what Personal Agent Proxy did itself.
@@ -94,7 +113,7 @@ export function handleListActivityRoute(request: AuthenticatedRequest): Promise<
 		const rows = $(await listAuditEntries(viewer, filter, MAX_ENTRIES));
 		const taskIds = new Set([...rows.flatMap((row) => (row.taskId === null ? [] : [row.taskId])), ...(taskId === undefined ? [] : [taskId])]);
 		const tasks = $(await listAgentTasks(viewer, [...taskIds]));
-		return {entries: $(await toEntries(viewer, rows)), tasks: tasks.map(toActivityTask)};
+		return {entries: $(await toEntries(viewer, rows)), tasks: $(await toActivityTasks(viewer, tasks))};
 	});
 }
 
@@ -151,8 +170,8 @@ export function handleTaskRunRoute(request: AuthenticatedRequest): Promise<Resul
 			now: now.toISOString(),
 			task: task.id,
 			agentId: task.agentId,
-			parent: parent === undefined ? null : toActivityTask(parent),
-			tasks: tasks.map(toActivityTask),
+			parent: parent === undefined ? null : ($(await toActivityTasks(viewer, [parent]))[0] ?? null),
+			tasks: $(await toActivityTasks(viewer, tasks)),
 			entries: $(await toEntries(viewer, rows)),
 		};
 	});
@@ -215,7 +234,7 @@ export function handleActivityTimelineRoute(request: AuthenticatedRequest): Prom
 			now: now.toISOString(),
 			from: from.toISOString(),
 			to: to.toISOString(),
-			tasks: tasks.map(toActivityTask),
+			tasks: $(await toActivityTasks(viewer, tasks)),
 			entries: $(await toEntries(viewer, [...rows, ...later])),
 		};
 	});

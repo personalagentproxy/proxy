@@ -3,17 +3,17 @@ import {type FormEvent, type KeyboardEvent, useEffect, useRef, useState} from 'r
 import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
 import {Result} from 'ts-results-es';
 import {
-	type ChatAgent,
 	type ChatEntry,
+	type ChatPersona,
 	type ChatSubAgent,
 	type ChatToolCall,
-	createChatAgent,
-	deleteChatAgent,
+	createPersona,
+	deletePersona,
 	getThread,
 	type Persona,
 	postMessage,
 	type ThreadLog,
-	updateChatAgent,
+	updatePersona,
 } from '@/client/harness-client';
 import {AppShell} from '@/components/app-shell';
 import {Head, LiveHead} from '@/components/head';
@@ -237,7 +237,7 @@ function Status({log}: {log: ThreadLog}) {
 }
 
 // What a row shows under the name: the last thing said in the conversation, the person's with "You:".
-function preview(last: ChatAgent['lastMessage']): string {
+function preview(last: ChatPersona['lastMessage']): string {
 	if (last === null) {
 		return 'Nothing yet';
 	}
@@ -245,7 +245,7 @@ function preview(last: ChatAgent['lastMessage']): string {
 }
 
 // The last thing said in the open conversation, as the page has it, fresher than the list.
-function lastOf(log: ThreadLog): ChatAgent['lastMessage'] {
+function lastOf(log: ThreadLog): ChatPersona['lastMessage'] {
 	const last = log.entries.findLast(
 		(entry) => (entry.kind === 'person' || entry.kind === 'assistant') && entry.text !== '',
 	);
@@ -255,16 +255,16 @@ function lastOf(log: ThreadLog): ChatAgent['lastMessage'] {
 	return {kind: last.kind, text: last.text, at: last.at};
 }
 
-// The organization's agents in the second sidebar, each with its head, its name and the last
+// The organization's personas in the second sidebar, each with its head, its name and the last
 // thing said between it and the person, the open one lit, its head watching the pointer while it
 // is over the sidebar, and a row at the bottom to make a new one.
-function AgentList({
-	agents,
+function PersonaList({
+	personas,
 	current,
 	currentLog,
 	onNew,
 }: {
-	agents: ChatAgent[];
+	personas: ChatPersona[];
 	current: string;
 	currentLog: ThreadLog;
 	onNew: () => void;
@@ -278,31 +278,36 @@ function AgentList({
 			onPointerLeave={() => setWatching(false)}
 		>
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
-				{agents.length === 0 && (
+				{personas.length === 0 && (
 					<span className="px-2 py-1.5 text-sm text-muted-foreground">No agents yet.</span>
 				)}
 				<ul className="flex flex-col gap-0.5">
-					{agents.map((agent) => {
-						const last = agent.id === current ? lastOf(currentLog) : agent.lastMessage;
+					{personas.map((persona) => {
+						const last = persona.id === current ? lastOf(currentLog) : persona.lastMessage;
 						return (
-							<li key={agent.id}>
+							<li key={persona.id}>
 								<Link
-									to={`/${org}/chat/${agent.id}`}
-									aria-current={agent.id === current ? 'page' : undefined}
+									to={`/${org}/chat/${persona.id}`}
+									aria-current={persona.id === current ? 'page' : undefined}
 									className={cn(
 										'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-										agent.id === current && 'bg-sidebar-accent text-sidebar-accent-foreground',
+										persona.id === current && 'bg-sidebar-accent text-sidebar-accent-foreground',
 									)}
 								>
-									{agent.id === current ? (
-										<LiveHead look={agent.look} color={agent.color} size={40} watching={watching} />
+									{persona.id === current ? (
+										<LiveHead
+											look={persona.look}
+											color={persona.color}
+											size={40}
+											watching={watching}
+										/>
 									) : (
-										<Head look={agent.look} color={agent.color} size={40} />
+										<Head look={persona.look} color={persona.color} size={40} />
 									)}
 									<span className="flex min-w-0 flex-1 flex-col">
 										<span className="flex items-baseline gap-2">
 											<span className="min-w-0 flex-1 truncate text-sm font-medium">
-												{agent.name}
+												{persona.name}
 											</span>
 											{last && (
 												<span className="shrink-0 text-xs text-muted-foreground">
@@ -334,17 +339,17 @@ function AgentList({
 
 type Loaded = Awaited<ReturnType<typeof chatLoader>>;
 
-// The page: the conversation with the agent in its address, started over when the address
+// The page: the conversation with the persona in its address, started over when the address
 // changes, so what one conversation showed never lingers on another.
 export function ChatPage() {
 	const loaded = useLoaderData<typeof chatLoader>();
-	return <Conversation key={loaded.log.agent.id} loaded={loaded} />;
+	return <Conversation key={loaded.log.persona.id} loaded={loaded} />;
 }
 
-// The person's conversation with one of the organization's agents: its log, read again as the
-// agent works, and an input. The agent hands each piece of work to a sub-agent, which acts as the
-// person and whose calls go through the same gate as any agent's, so its activity is in the log
-// by the sub-agent's task.
+// The person's conversation with one of the organization's personas: its log, read again as the
+// persona works, and an input. The persona hands each piece of work to a sub-agent, which acts as
+// the person through the organization's built-in login, whose calls go through the same gate as
+// any agent's, so its activity is in the log by the sub-agent's task.
 function Conversation({loaded}: {loaded: Loaded}) {
 	const org = useOrgSlug();
 	const navigate = useNavigate();
@@ -356,14 +361,14 @@ function Conversation({loaded}: {loaded: Loaded}) {
 	// The agent dialog: making a new one, or changing this one; closed as null.
 	const [editing, setEditing] = useState<'new' | 'current' | null>(null);
 	const form = useRef<HTMLFormElement>(null);
-	const agentId = loaded.log.agent.id;
-	const current = loaded.log.agent;
+	const personaId = loaded.log.persona.id;
+	const current = loaded.log.persona;
 
 	// The log as it is now, while the page is open.
 	useEffect(() => {
 		let cancelled = false;
 		const refresh = async () => {
-			const result = await getThread(org, agentId);
+			const result = await getThread(org, personaId);
 			if (!cancelled && result.isOk()) {
 				setLog(result.value);
 			}
@@ -373,7 +378,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 			cancelled = true;
 			clearInterval(timer);
 		};
-	}, [org, agentId, log.busy]);
+	}, [org, personaId, log.busy]);
 
 	const send = async (event: FormEvent) => {
 		event.preventDefault();
@@ -383,14 +388,14 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		}
 		setSending(true);
 		setError(null);
-		const posted = await postMessage(org, agentId, message);
+		const posted = await postMessage(org, personaId, message);
 		setSending(false);
 		if (posted.isErr()) {
 			setError(describeFetchError(posted.error));
 			return;
 		}
 		setText('');
-		const refreshed = await getThread(org, agentId);
+		const refreshed = await getThread(org, personaId);
 		if (refreshed.isOk()) {
 			setLog(refreshed.value);
 		}
@@ -404,17 +409,17 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		}
 	};
 
-	// Saves the dialog's persona: a new agent, opened; or this one, renamed or refaced.
+	// Saves the dialog's persona: a new one, opened; or this one, renamed or refaced.
 	const savePersona = async (persona: Persona): Promise<string | null> => {
 		if (editing === 'new') {
-			const made = await createChatAgent(org, persona);
+			const made = await createPersona(org, persona);
 			if (made.isErr()) {
 				return describeFetchError(made.error);
 			}
-			void navigate(`/${org}/chat/${made.value.agent.id}`);
+			void navigate(`/${org}/chat/${made.value.persona.id}`);
 			return null;
 		}
-		const changed = await updateChatAgent(org, agentId, persona);
+		const changed = await updatePersona(org, personaId, persona);
 		if (changed.isErr()) {
 			return describeFetchError(changed.error);
 		}
@@ -422,9 +427,9 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		return null;
 	};
 
-	// Deletes this agent with everyone's conversations with it, and opens whichever is first.
-	const removeAgent = async (): Promise<string | null> => {
-		const removed = await deleteChatAgent(org, agentId);
+	// Deletes this persona with everyone's conversations with it, and opens whichever is first.
+	const removePersona = async (): Promise<string | null> => {
+		const removed = await deletePersona(org, personaId);
 		if (removed.isErr()) {
 			return describeFetchError(removed.error);
 		}
@@ -473,9 +478,9 @@ function Conversation({loaded}: {loaded: Loaded}) {
 				)
 			}
 			panel={
-				<AgentList
-					agents={loaded.agents}
-					current={agentId}
+				<PersonaList
+					personas={loaded.personas}
+					current={personaId}
 					currentLog={log}
 					onNew={() => setEditing('new')}
 				/>
@@ -485,7 +490,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		>
 			{editing !== null && (
 				<PersonaDialog
-					key={editing === 'new' ? 'new' : agentId}
+					key={editing === 'new' ? 'new' : personaId}
 					open
 					initial={
 						editing === 'new'
@@ -494,7 +499,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 					}
 					onClose={() => setEditing(null)}
 					onSave={savePersona}
-					onDelete={editing === 'current' ? removeAgent : undefined}
+					onDelete={editing === 'current' ? removePersona : undefined}
 				/>
 			)}
 			<MessageScrollerProvider autoScroll defaultScrollPosition="end">
@@ -551,10 +556,10 @@ function Conversation({loaded}: {loaded: Loaded}) {
 					/>
 					<InputGroupAddon align="block-end">
 						<Link
-							to={`/${org}/activity?agent=${agentId}`}
+							to={`/${org}/activity`}
 							className="text-xs font-normal underline-offset-4 hover:underline"
 						>
-							Activity of this agent
+							Activity
 						</Link>
 						<InputGroupButton
 							type="submit"

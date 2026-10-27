@@ -119,6 +119,7 @@ model Organization {
   feedback    AgentFeedback[]
   tasks       AgentTask[]
   threads     AgentThread[]
+  personas    Persona[]
 
   @@index([ownerUserId])
 }
@@ -280,10 +281,6 @@ model Agent {
   // Who made it, kept once it is shared: who may change it beside the organization's owner. A plain
   // id rather than a relation, so a shared agent stays when they are gone.
   createdById  String?
-  // A built-in agent's head on the Chat page: its look, as JSON (`@proxy/utils/harness` Look), and
-  // its color; none for an agent that connects from outside.
-  look         String?
-  color        String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -421,6 +418,9 @@ model AgentTask {
   // The member whose own the agent is, who alone sees the task; null for a shared agent's, which
   // everyone in the organization sees.
   ownerUserId String?
+  // The persona a sub-agent of the Chat page ran the task as (Persona), for the activity log to
+  // say whose it was; null for every other task. As a column, as the agent is.
+  personaId String?
   // When it, or the last of its sub-tasks at any depth, was started: one never finished is taken
   // as abandoned a day after (@proxy/utils/tasks). Never before any of its sub-tasks', so a parent
   // is never abandoned while one is under way. Set with createdAt, and on every task above a
@@ -539,12 +539,37 @@ model OAuthGrant {
 // it is for the thread's task, as any agent's calls are; a task abandoned a day on is replaced by
 // a new one. Everything that happens to the agent is an entry, and everything that makes it do
 // something is a job (AgentJob).
+// A persona of the Chat page: an agent Personal Agent Proxy runs itself, as the organization's
+// members see it, named and given a head, one of any number. Every persona acts through the
+// organization's one built-in agent login (Agent, provider `proxy`), whose grants are every
+// persona's: a persona is who did the work, the login is what it may do.
+model Persona {
+  id    String @id @default(cuid())
+  orgId String
+  name  String
+  // Its head: the look as JSON (`@proxy/utils/harness` Look), in one of the colors.
+  look  String
+  color String
+  // Who made it, who may change it beside the organization's owner.
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  threads AgentThread[]
+
+  @@index([orgId, createdAt])
+}
+
 model AgentThread {
   id      String @id @default(cuid())
   orgId   String
-  // One of the organization's built-in agents, shared with every member of it, an Agent like any
-  // other, with grants of its own.
+  // The organization's built-in agent login, which the persona acts through: its grants, its
+  // activity log.
   agentId String
+  // The persona the conversation is with, or the sub-agent works as.
+  personaId String
   // The member whose conversation with the agent it is, or, for a sub-agent's thread, whose
   // conversation it was started from: the agent acts as them in it, reaching what they see, and
   // nobody else sees it.
@@ -568,11 +593,13 @@ model AgentThread {
 
   org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   agent   Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  persona Persona      @relation(fields: [personaId], references: [id], onDelete: Cascade)
   user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   entries AgentEntry[]
   jobs    AgentJob[]
 
-  @@index([agentId, userId])
+  @@index([personaId, userId])
+  @@index([agentId])
   @@index([parentThreadId])
   @@index([orgId, createdAt])
 }

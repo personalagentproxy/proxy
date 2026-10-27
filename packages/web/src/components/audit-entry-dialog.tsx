@@ -116,7 +116,7 @@ function AuditEntryContent({
 					)}
 					{entry.agentId !== null && agent && (
 						<>
-							<AgentLogo providerId={agent.providerId} face={agent.face} />
+							<AgentLogo providerId={agent.providerId} />
 							<Link to={`/${org}/agents/${agent.id}`} className="min-w-0 truncate hover:underline">
 								{agent.name}
 							</Link>

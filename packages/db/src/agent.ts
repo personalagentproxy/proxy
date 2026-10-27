@@ -17,10 +17,6 @@ export type AgentRow = {
 	providerId: string;
 	name: string;
 	username: string;
-	// A built-in agent's head: its look as JSON (@proxy/utils/harness Look) and its color; null for
-	// every other agent.
-	look: string | null;
-	color: string | null;
 	createdAt: Date;
 	lastActiveAt: Date | null;
 	revokedAt: Date | null;
@@ -36,8 +32,6 @@ const agentSelect = {
 	providerId: true,
 	name: true,
 	username: true,
-	look: true,
-	color: true,
 	createdAt: true,
 	lastActiveAt: true,
 	revokedAt: true,
@@ -63,6 +57,20 @@ export async function getAgentById(
 	return wrapDb(() => db.agent.findFirst({where: {id: agentId, orgId}, select: agentSelect}));
 }
 
+/** The organization's shared agent of a provider, such as its one built-in login; `Ok(null)` for none. */
+export async function getSharedAgentByProvider(
+	orgId: string,
+	providerId: string,
+): Promise<Result<AgentRow | null, ApiError>> {
+	return wrapDb(() =>
+		db.agent.findFirst({
+			where: {orgId, providerId, ownerUserId: null},
+			select: agentSelect,
+			orderBy: {createdAt: 'asc'},
+		}),
+	);
+}
+
 /** `Ok(null)` means no such agent the viewer sees. */
 export async function getAgent(
 	viewer: MemberViewer,
@@ -80,14 +88,12 @@ export async function getAgent(
 export async function createAgent(data: {
 	orgId: string;
 	ownerUserId: string | null;
-	createdById: string;
+	// Who made it; null for the organization's built-in login, made by nobody in particular.
+	createdById: string | null;
 	providerId: string;
 	name: string;
 	username: string;
 	passwordHash: string;
-	// A built-in agent's face.
-	look?: string;
-	color?: string;
 }): Promise<Result<AgentRow, ApiError>> {
 	return wrapDb(() => db.agent.create({data, select: agentSelect}));
 }

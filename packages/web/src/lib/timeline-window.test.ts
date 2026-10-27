@@ -23,6 +23,7 @@ function task(overrides: Partial<ActivityTask>): ActivityTask {
 		via: 'mcp',
 		startedAt: '2026-10-16T11:30:00Z',
 		finishedAt: null,
+		persona: null,
 		parentId: null,
 		outcome: null,
 		// No sub-task started after it, unless a test gives one.
@@ -87,12 +88,14 @@ describe('endsOf', () => {
 		});
 		const compare = task({
 			id: 'compare',
+			persona: null,
 			parentId: 'groceries',
 			startedAt: '2026-10-15T08:00:00Z',
 			finishedAt: '2026-10-15T08:45:00Z',
 		});
 		const slot = task({
 			id: 'slot',
+			persona: null,
 			parentId: 'groceries',
 			startedAt: '2026-10-15T09:00:00Z',
 			lastStartedAt: '2026-10-15T10:00:00Z',

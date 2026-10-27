@@ -1,4 +1,4 @@
-import {Err, type Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
@@ -7,6 +7,7 @@ import {getConnectionWithCredential} from '@proxy/db/connection';
 import {deleteOAuthGrant, listAgentOAuthGrants} from '@proxy/db/oauth';
 import {listMemberNames} from '@proxy/db/organization';
 import type {MemberViewer} from '@proxy/db/viewer';
+import {findAgentProvider} from '@proxy/integrations';
 
 import {refuseUnavailable, unavailableActions} from '../connections/unavailable';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
@@ -111,12 +112,22 @@ export function handleRenameAgentRoute(request: AuthenticatedRequest): Promise<R
 
 const setRevokedBodySchema = z.object({revoked: z.boolean()});
 
+// The built-in login, which every persona of the Chat page acts through, is neither revoked nor
+// deleted: that would silence them all; a persona is deleted on the Chat page.
+function requireNotBuiltIn(agent: {providerId: string}): Result<void, ApiError> {
+	if (findAgentProvider(agent.providerId)?.connects === 'built-in') {
+		return Err(ApiErr.forbidden());
+	}
+	return Ok(undefined);
+}
+
 /** A revoked agent can't sign in, and is shown nothing it could reach before. */
 export function handleSetAgentRevokedRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
 	return Do(async ($) => {
 		const {revoked} = $(parseSchema(setRevokedBodySchema, request.body));
 		const viewer = $(await requireViewer(request));
 		const agent = $(await requireManagedAgent(viewer, agentIdOf(request)));
+		$(requireNotBuiltIn(agent));
 		const updated = $(await updateAgent(viewer.orgId, agent.id, {revokedAt: revoked ? new Date() : null}));
 		if (!updated) {
 			return $(Err(ApiErr.notFound('agent', agent.id)));
@@ -129,6 +140,7 @@ export function handleDeleteAgentRoute(request: AuthenticatedRequest): Promise<R
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const agent = $(await requireManagedAgent(viewer, agentIdOf(request)));
+		$(requireNotBuiltIn(agent));
 		const deleted = $(await deleteAgent(viewer.orgId, agent.id));
 		if (!deleted) {
 			return $(Err(ApiErr.notFound('agent', agent.id)));

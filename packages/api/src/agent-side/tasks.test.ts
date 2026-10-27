@@ -13,6 +13,7 @@ const caller = {agent, via: 'mcp' as const};
 const row = {
 	id: 'task-1',
 	agentId: 'agent-1',
+	personaId: null,
 	parentId: null,
 	title: 'Triage inbox',
 	goal: 'Archive the newsletters',

@@ -16,7 +16,6 @@ const claude: AgentLogin = {
 	providerId: 'claude',
 	name: 'Claude',
 	username: 'claude-k7q2',
-	face: null,
 	shared: false,
 	createdById: 'user-1',
 	createdBy: null,

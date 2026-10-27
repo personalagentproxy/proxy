@@ -99,13 +99,15 @@ function AgentDetail({id}: {id: string}) {
 					<BackButton to={`/${org}/agents`} label="Back to agents" />
 					<PageTitle
 						detail={
-							revoked
-								? `${company} · revoked ${formatDate(agent.revokedAt ?? '')}`
-								: `${company} · added ${formatDate(agent.createdAt)}`
+							builtIn
+								? 'Built in · the agents on the Chat page act through it, with its access'
+								: revoked
+									? `${company} · revoked ${formatDate(agent.revokedAt ?? '')}`
+									: `${company} · added ${formatDate(agent.createdAt)}`
 						}
 					>
 						<span className="flex items-center gap-2">
-							<AgentLogo providerId={agent.providerId} face={agent.face} />
+							<AgentLogo providerId={agent.providerId} />
 							{agent.name}
 						</span>
 					</PageTitle>
@@ -122,7 +124,7 @@ function AgentDetail({id}: {id: string}) {
 								<KeyRoundIcon />
 							</IconButton>
 						)}
-						{revoked ? (
+						{builtIn ? null : revoked ? (
 							<IconButton
 								label="Restore login"
 								onClick={() => void apply(setAgentRevoked(org, agent.id, false))}
@@ -134,9 +136,11 @@ function AgentDetail({id}: {id: string}) {
 								<BanIcon />
 							</IconButton>
 						)}
-						<IconButton label="Delete agent" onClick={() => setConfirming('delete')}>
-							<Trash2Icon />
-						</IconButton>
+						{!builtIn && (
+							<IconButton label="Delete agent" onClick={() => setConfirming('delete')}>
+								<Trash2Icon />
+							</IconButton>
+						)}
 					</>
 				)
 			}

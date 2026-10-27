@@ -214,7 +214,7 @@ export function ConnectionPage() {
 							<Row
 								key={agent.id}
 								to={`/${org}/agents/${agent.id}`}
-								icon={<AgentLogo providerId={agent.providerId} face={agent.face} />}
+								icon={<AgentLogo providerId={agent.providerId} />}
 								title={agent.name}
 								cells={
 									<span className="hidden min-w-0 shrink truncate text-right text-muted-foreground md:block">

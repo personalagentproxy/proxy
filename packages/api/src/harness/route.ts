@@ -3,72 +3,72 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, hasExperiment, parseSchema, requirePresent} from '@proxy/utils';
 import {AVATAR_COLORS, type Look, lookSchema, type ToolCall} from '@proxy/utils/harness';
-import {deleteAgent} from '@proxy/db/agent';
 import {
 	appendPersonMessage,
-	type ChatAgentRow,
+	createPersona,
+	deletePersona,
 	ensureMemberThread,
 	type EntryRow,
-	getChatAgent,
 	getMemberThread,
+	getPersona,
 	type LastMessage,
-	listChatAgents,
 	listEntries,
 	listOpenJobs,
+	listPersonas,
 	listSubAgents,
+	type PersonaRow,
 	type ThreadRow,
-	updateChatAgent,
+	updatePersona,
 } from '@proxy/db/harness';
-import {AGENT_NAME_MAX, BUILT_IN_AGENT_PROVIDER} from '@proxy/integrations';
+import {AGENT_NAME_MAX} from '@proxy/integrations';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {manages} from '../utils/manages';
 import {type OrgViewer, requireViewer} from '../utils/user-org';
-import {createBuiltInAgent} from './built-in-agent';
+import {ensureBuiltInAgent} from './built-in-agent';
 
 /**
- * The Chat page's routes, under the organization: its built-in agents, which every member sees,
- * each named and given a face, and the member's own conversation with each, its log, the
- * sub-agents started from it, and what they say in it. Behind the `harness` experiment. Nothing
- * here runs the model: a message queues a job, and the worker (worker.ts) does the rest; the page
- * reads the log again as it goes.
+ * The Chat page's routes, under the organization: its personas, which every member sees, each
+ * named and given a head, all acting through the organization's one built-in agent login, and the
+ * member's own conversation with each, its log, the sub-agents started from it, and what they say
+ * in it. Behind the `harness` experiment. Nothing here runs the model: a message queues a job, and
+ * the worker (worker.ts) does the rest; the page reads the log again as it goes.
  */
 
 const MAX_MESSAGE = 20_000;
 
-/** A built-in agent as the page lists it: its persona, whether the viewer may change it, and the last thing said in their conversation with it, cut to a line; null before anything was said. */
-export type ChatAgentResponse = {id: string; name: string; look: Look; color: string; mayChange: boolean; lastMessage: {kind: 'person' | 'assistant'; text: string; at: string} | null};
+/** A persona as the page lists it, whether the viewer may change it, and the last thing said in their conversation with it, cut to a line; null before anything was said. */
+export type PersonaResponse = {id: string; name: string; look: Look; color: string; mayChange: boolean; lastMessage: {kind: 'person' | 'assistant'; text: string; at: string} | null};
 
 export type EntryResponse = {id: string; kind: 'person' | 'assistant' | 'tool_result' | 'event'; text: string; toolCalls: ToolCall[] | null; callId: string | null; isError: boolean; at: string};
 
 /** A sub-agent started from the conversation: the call that started it, its title, the task its calls are made for, which the activity log can be narrowed to, and when it was done. */
 export type SubAgentResponse = {callId: string; title: string; taskId: string; finishedAt: string | null};
 
-/** The member's conversation with an agent: the agent, the thread, its log, the sub-agents started from it, and what the agent is up to: busy on it, asleep until a time, or waiting for the person. */
-export type ThreadLogResponse = {agent: ChatAgentResponse; thread: {id: string}; entries: EntryResponse[]; subAgents: SubAgentResponse[]; busy: boolean; sleepingUntil: string | null};
+/** The member's conversation with a persona: the persona, the thread, its log, the sub-agents started from it, and what the persona is up to: busy on it, asleep until a time, or waiting for the person. */
+export type ThreadLogResponse = {persona: PersonaResponse; thread: {id: string}; entries: EntryResponse[]; subAgents: SubAgentResponse[]; busy: boolean; sleepingUntil: string | null};
 
 // How much of the last message the list shows.
 const PREVIEW_CHARS = 120;
 
-// Whether the viewer may rename, reface or delete the agent: whoever made it, or the organization's owner (utils/manages.ts).
-function managesAgent(viewer: OrgViewer, agent: ChatAgentRow): boolean {
-	return manages(viewer, {ownerUserId: null, byId: agent.createdById});
+// Whether the viewer may rename, reface or delete the persona: whoever made it, or the organization's owner (utils/manages.ts).
+function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
+	return manages(viewer, {ownerUserId: null, byId: persona.createdById});
 }
 
-function toAgent(viewer: OrgViewer, agent: ChatAgentRow & {lastMessage?: LastMessage | null}): ChatAgentResponse {
-	const last = agent.lastMessage ?? null;
+function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null}): PersonaResponse {
+	const last = persona.lastMessage ?? null;
 	return {
-		id: agent.id,
-		name: agent.name,
-		look: agent.look,
-		color: agent.color,
-		mayChange: managesAgent(viewer, agent),
+		id: persona.id,
+		name: persona.name,
+		look: persona.look,
+		color: persona.color,
+		mayChange: managesPersona(viewer, persona),
 		lastMessage: last && {kind: last.kind, text: last.text.replace(/\s+/g, ' ').trim().slice(0, PREVIEW_CHARS), at: last.createdAt.toISOString()},
 	};
 }
 
-// An agent's persona as the person makes or changes it: a name, and a head, a look in one of the
-// colors.
+// A persona as the person makes or changes it: a name, and a head, a look in one of the colors.
 const personaSchema = z.object({
 	name: z.string().trim().pipe(z.string().min(1).max(AGENT_NAME_MAX)),
 	look: lookSchema,
@@ -94,85 +94,88 @@ function requireChat(request: AuthenticatedRequest): Promise<Result<OrgViewer, A
 	});
 }
 
-// The agent in the address, one of the organization's built-in ones.
-function requireAgent(viewer: OrgViewer, request: AuthenticatedRequest): Promise<Result<ChatAgentRow, ApiError>> {
+// The persona in the address, one of the organization's.
+function requirePersona(viewer: OrgViewer, request: AuthenticatedRequest): Promise<Result<PersonaRow, ApiError>> {
 	return Do(async ($) => {
-		const agentId = request.params.agentId ?? '';
-		return $(requirePresent($(await getChatAgent(viewer.orgId, agentId, BUILT_IN_AGENT_PROVIDER.id)), ApiErr.notFound('agent', agentId)));
+		const personaId = request.params.personaId ?? '';
+		return $(requirePresent($(await getPersona(viewer.orgId, personaId)), ApiErr.notFound('persona', personaId)));
 	});
 }
 
-// The agent in the address, which the viewer may change; forbidden for one they only talk to.
-function requireManagedAgent(viewer: OrgViewer, request: AuthenticatedRequest): Promise<Result<ChatAgentRow, ApiError>> {
+// The persona in the address, which the viewer may change; forbidden for one they only talk to.
+function requireManagedPersona(viewer: OrgViewer, request: AuthenticatedRequest): Promise<Result<PersonaRow, ApiError>> {
 	return Do(async ($) => {
-		const agent = $(await requireAgent(viewer, request));
-		if (!managesAgent(viewer, agent)) {
+		const persona = $(await requirePersona(viewer, request));
+		if (!managesPersona(viewer, persona)) {
 			return $(Err(ApiErr.forbidden()));
 		}
-		return agent;
+		return persona;
 	});
 }
 
-// The viewer's conversation with the agent, begun the first time.
-function requireThread(viewer: OrgViewer, agent: ChatAgentRow): Promise<Result<ThreadRow, ApiError>> {
+// The viewer's conversation with the persona, begun the first time, through the organization's
+// built-in login, made with it where there is none yet.
+function requireThread(viewer: OrgViewer, persona: PersonaRow): Promise<Result<ThreadRow, ApiError>> {
 	return Do(async ($) => {
-		const existing = $(await getMemberThread(agent.id, viewer.userId));
+		const existing = $(await getMemberThread(persona.id, viewer.userId));
 		if (existing) {
 			return existing;
 		}
-		return $(await ensureMemberThread({orgId: viewer.orgId, agentId: agent.id, userId: viewer.userId}));
+		const login = $(await ensureBuiltInAgent(viewer.orgId));
+		return $(await ensureMemberThread({orgId: viewer.orgId, agentId: login.id, personaId: persona.id, userId: viewer.userId}));
 	});
 }
 
-/** `GET /api/orgs/:org/chat/agents`: the organization's built-in agents, in the order they were made, with the viewer's conversations. */
-export function handleListChatAgentsRoute(request: AuthenticatedRequest): Promise<Result<{agents: ChatAgentResponse[]}, ApiError>> {
+/** `GET /api/orgs/:org/chat/personas`: the organization's personas, in the order they were made, with the viewer's conversations. */
+export function handleListPersonasRoute(request: AuthenticatedRequest): Promise<Result<{personas: PersonaResponse[]}, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
-		const agents = $(await listChatAgents(viewer.orgId, viewer.userId, BUILT_IN_AGENT_PROVIDER.id));
-		return {agents: agents.map((agent) => toAgent(viewer, agent))};
+		const personas = $(await listPersonas(viewer.orgId, viewer.userId));
+		return {personas: personas.map((persona) => toPersona(viewer, persona))};
 	});
 }
 
-/** `POST /api/orgs/:org/chat/agents` with `{name, look, color}`: a new built-in agent, every member's. */
-export function handleCreateChatAgentRoute(request: AuthenticatedRequest): Promise<Result<{agent: ChatAgentResponse}, ApiError>> {
-	return Do(async ($) => {
-		const viewer = $(await requireChat(request));
-		const persona = $(parseSchema(personaSchema, request.body));
-		const made = $(await createBuiltInAgent(viewer, persona));
-		return {agent: toAgent(viewer, {...persona, id: made.id, createdById: made.createdById})};
-	});
-}
-
-/** `PUT /api/orgs/:org/chat/agents/:agentId` with `{name, look, color}`: the agent renamed, or with another head. */
-export function handleUpdateChatAgentRoute(request: AuthenticatedRequest): Promise<Result<{agent: ChatAgentResponse}, ApiError>> {
+/** `POST /api/orgs/:org/chat/personas` with `{name, look, color}`: a new persona, every member's, and the organization's built-in login with it where there is none yet. */
+export function handleCreatePersonaRoute(request: AuthenticatedRequest): Promise<Result<{persona: PersonaResponse}, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const persona = $(parseSchema(personaSchema, request.body));
-		const agent = $(await requireManagedAgent(viewer, request));
-		if (!$(await updateChatAgent(viewer.orgId, agent.id, persona))) {
-			return $(Err(ApiErr.notFound('agent', agent.id)));
-		}
-		return {agent: toAgent(viewer, {...agent, ...persona})};
+		$(await ensureBuiltInAgent(viewer.orgId));
+		const made = $(await createPersona(viewer.orgId, viewer.userId, persona));
+		return {persona: toPersona(viewer, made)};
 	});
 }
 
-/** `DELETE /api/orgs/:org/chat/agents/:agentId`: the agent, with every member's conversation with it. */
-export function handleDeleteChatAgentRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+/** `PUT /api/orgs/:org/chat/personas/:personaId` with `{name, look, color}`: the persona renamed, or with another head. */
+export function handleUpdatePersonaRoute(request: AuthenticatedRequest): Promise<Result<{persona: PersonaResponse}, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
-		const agent = $(await requireManagedAgent(viewer, request));
-		if (!$(await deleteAgent(viewer.orgId, agent.id))) {
-			return $(Err(ApiErr.notFound('agent', agent.id)));
+		const persona = $(parseSchema(personaSchema, request.body));
+		const existing = $(await requireManagedPersona(viewer, request));
+		if (!$(await updatePersona(viewer.orgId, existing.id, persona))) {
+			return $(Err(ApiErr.notFound('persona', existing.id)));
+		}
+		return {persona: toPersona(viewer, {...existing, ...persona})};
+	});
+}
+
+/** `DELETE /api/orgs/:org/chat/personas/:personaId`: the persona, with every member's conversation with it. */
+export function handleDeletePersonaRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireChat(request));
+		const persona = $(await requireManagedPersona(viewer, request));
+		if (!$(await deletePersona(viewer.orgId, persona.id))) {
+			return $(Err(ApiErr.notFound('persona', persona.id)));
 		}
 	});
 }
 
-/** `GET /api/orgs/:org/chat/agents/:agentId/thread`: the viewer's conversation with the agent, begun where there was none, its sub-agents, and whether the agent is busy on it, sub-agents included. */
+/** `GET /api/orgs/:org/chat/personas/:personaId/thread`: the viewer's conversation with the persona, begun where there was none, its sub-agents, and whether the persona is busy on it, sub-agents included. */
 export function handleGetThreadRoute(request: AuthenticatedRequest): Promise<Result<ThreadLogResponse, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
-		const agent = $(await requireAgent(viewer, request));
-		const thread = $(await requireThread(viewer, agent));
+		const persona = $(await requirePersona(viewer, request));
+		const thread = $(await requireThread(viewer, persona));
 		const [entries, jobs, subAgents] = await Promise.all([listEntries(thread.id), listOpenJobs(thread.id), listSubAgents(thread.id)]);
 		const open = $(jobs);
 		const now = Date.now();
@@ -181,7 +184,7 @@ export function handleGetThreadRoute(request: AuthenticatedRequest): Promise<Res
 		const asleep = open.length > 0 && later.length === open.length;
 		const first = later.map((job) => job.runAt.getTime()).sort((a, b) => a - b)[0];
 		return {
-			agent: toAgent(viewer, agent),
+			persona: toPersona(viewer, persona),
 			thread: {id: thread.id},
 			entries: $(entries).filter(isShown).map(toEntry),
 			subAgents: $(subAgents).map((sub) => ({callId: sub.parentCallId, title: sub.title, taskId: sub.taskId, finishedAt: sub.finishedAt?.toISOString() ?? null})),
@@ -193,13 +196,13 @@ export function handleGetThreadRoute(request: AuthenticatedRequest): Promise<Res
 
 const messageBodySchema = z.object({text: z.string().trim().min(1).max(MAX_MESSAGE)});
 
-/** `POST /api/orgs/:org/chat/agents/:agentId/messages` with `{text}`: what the viewer says to the agent; the agent is woken. */
+/** `POST /api/orgs/:org/chat/personas/:personaId/messages` with `{text}`: what the viewer says to the persona; it is woken. */
 export function handlePostMessageRoute(request: AuthenticatedRequest): Promise<Result<{entry: EntryResponse}, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const {text} = $(parseSchema(messageBodySchema, request.body));
-		const agent = $(await requireAgent(viewer, request));
-		const thread = $(await requireThread(viewer, agent));
+		const persona = $(await requirePersona(viewer, request));
+		const thread = $(await requireThread(viewer, persona));
 		const entry = $(requirePresent($(await appendPersonMessage(thread.id, text)), ApiErr.notFound('thread', thread.id)));
 		return {entry: toEntry({...entry, kind: 'person'})};
 	});

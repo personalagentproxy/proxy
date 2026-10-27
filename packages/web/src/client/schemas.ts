@@ -32,8 +32,6 @@ export const agentSchema = z.object({
 	providerId: z.string(),
 	name: z.string(),
 	username: z.string(),
-	// A built-in agent's head, shown in place of a logo; null for every other agent.
-	face: z.object({look: lookSchema, color: z.enum(AVATAR_COLORS)}).nullable(),
 	// Shared with every member of its organization, rather than one member's own.
 	shared: z.boolean(),
 	// Who made it, kept once it is shared, and their name or address while they are still in its
@@ -89,6 +87,10 @@ export const auditEntrySchema = z.object({
 export const activityTaskSchema = z.object({
 	id: z.string(),
 	agentId: z.string(),
+	// The persona of the Chat page a sub-agent ran it as, with its head; null for every other task.
+	persona: z
+		.object({id: z.string(), name: z.string(), look: lookSchema, color: z.enum(AVATAR_COLORS)})
+		.nullable(),
 	// The agent's task it is a sub-task of, handed to one of its sub-agents; null for one started
 	// on its own.
 	parentId: z.string().nullable(),

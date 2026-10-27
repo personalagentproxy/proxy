@@ -17,6 +17,7 @@ function task(overrides: Partial<ActivityTask>): ActivityTask {
 	return {
 		id: 'plan',
 		agentId: 'a1',
+		persona: null,
 		parentId: null,
 		title: 'Plan the week',
 		goal: 'List the week’s events and what to do first',
@@ -154,6 +155,7 @@ describe('buildRunTimeline', () => {
 	const plan = task({finishedAt: '2026-10-16T09:10:00Z', outcome: 'Tuesday is the day to start'});
 	const calendar = task({
 		id: 'calendar',
+		persona: null,
 		parentId: 'plan',
 		title: 'Check the calendar',
 		startedAt: '2026-10-16T09:01:00Z',
@@ -162,6 +164,7 @@ describe('buildRunTimeline', () => {
 	});
 	const issues = task({
 		id: 'issues',
+		persona: null,
 		parentId: 'plan',
 		title: 'Find the open issues',
 		startedAt: '2026-10-16T09:03:00Z',
@@ -170,6 +173,7 @@ describe('buildRunTimeline', () => {
 	});
 	const notes = task({
 		id: 'notes',
+		persona: null,
 		parentId: 'calendar',
 		title: 'Pull the meeting notes',
 		startedAt: '2026-10-16T09:02:00Z',
@@ -233,6 +237,7 @@ describe('buildRunTimeline', () => {
 	test('a task finished by its agent is handed back; one finished along with its parent, saying nothing, is not', () => {
 		const quiet = task({
 			id: 'quiet',
+			persona: null,
 			parentId: 'plan',
 			startedAt: '2026-10-16T09:05:00Z',
 			finishedAt: '2026-10-16T09:10:00Z',
@@ -250,6 +255,7 @@ describe('buildRunTimeline', () => {
 		const burst = ['a', 'b', 'c'].map((id, index) =>
 			task({
 				id,
+				persona: null,
 				parentId: 'parent',
 				startedAt: new Date(Date.parse('2026-10-16T09:01:00Z') + index * 15 * SECOND).toISOString(),
 				finishedAt: new Date(
@@ -300,6 +306,7 @@ describe('buildRunTimeline', () => {
 		const burst = ['a', 'b'].map((id, index) =>
 			task({
 				id,
+				persona: null,
 				parentId: 'parent',
 				startedAt: new Date(Date.parse('2026-10-14T09:01:00Z') + index * 3 * SECOND).toISOString(),
 			}),

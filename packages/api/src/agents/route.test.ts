@@ -215,6 +215,16 @@ describe('handleSetAgentRevokedRoute', () => {
 		expect(updateAgent.mock.calls[0]?.[2].revokedAt).toBeInstanceOf(Date);
 		expect(updateAgent.mock.calls[1]?.[2]).toEqual({revokedAt: null});
 	});
+
+	test('the organization’s built-in login, which every persona acts through, is neither revoked nor deleted', async () => {
+		const {handleDeleteAgentRoute, handleSetAgentRevokedRoute} = await import('./route');
+		getAgent.mockResolvedValue(Ok({...agentRow, providerId: 'proxy', ownerUserId: null, createdById: null}));
+
+		expect((await handleSetAgentRevokedRoute(makeRequest({agentId: 'agent-1'}, {revoked: true}))).unwrapErr().kind).toBe('forbidden');
+		expect((await handleDeleteAgentRoute(makeRequest({agentId: 'agent-1'}))).unwrapErr().kind).toBe('forbidden');
+		expect(updateAgent).not.toHaveBeenCalled();
+		expect(deleteAgent).not.toHaveBeenCalled();
+	});
 });
 
 describe('handleSetAgentGrantsRoute', () => {

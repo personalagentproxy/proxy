@@ -38,7 +38,7 @@ const DESTINATIONS: Destination[] = [
 	{to: '', label: 'Home', icon: HomeIcon},
 	{to: '/chat', label: 'Chat', icon: MessageSquareIcon, experiment: 'harness'},
 	{to: '/connections', label: 'Connections', icon: PlugIcon},
-	{to: '/agents', label: 'Agents', icon: BotIcon},
+	{to: '/agents', label: 'Agent permissions', icon: BotIcon},
 	{to: '/vault', label: 'Vault', icon: LibraryIcon},
 	{to: '/activity', label: 'Activity', icon: ScrollTextIcon},
 	{to: '/members', label: 'Members', icon: UsersIcon},

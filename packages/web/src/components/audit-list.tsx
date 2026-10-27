@@ -2,6 +2,7 @@ import {useState} from 'react';
 import {AuditEntryDialog} from '@/components/audit-entry-dialog';
 import {EmptyRows, RowHeader, RowList} from '@/components/row-list';
 import {AgentLogo, IntegrationLogo, ProxyLogo} from '@/components/brand-logo';
+import {Head} from '@/components/head';
 import {connectionLabel, describeEntry, locateEntry} from '@/lib/access';
 import {formatDateTime} from '@/lib/format';
 import type {ActivityTask, AgentLogin, AuditEntry, Connection} from '@/lib/types';
@@ -27,16 +28,33 @@ function NamedLogo({name, logo}: {name: string; logo: ReactNode}) {
 	);
 }
 
-// The agent an entry was made by, or Personal Agent Proxy for what it did itself, with who asked.
-function EntryAgentLogo({entry, agent}: {entry: AuditEntry; agent: AgentLogin | undefined}) {
+// The agent an entry was made by, or Personal Agent Proxy for what it did itself, with who asked;
+// a persona of the Chat page, with its head, where the entry was made for one of its tasks.
+function EntryAgentLogo({
+	entry,
+	agent,
+	task,
+}: {
+	entry: AuditEntry;
+	agent: AgentLogin | undefined;
+	task: ActivityTask | undefined;
+}) {
 	if (entry.agentId === null) {
 		return <NamedLogo name={`Personal Agent Proxy${askedBy(entry)}`} logo={<ProxyLogo />} />;
+	}
+	if (task?.persona) {
+		return (
+			<NamedLogo
+				name={task.persona.name}
+				logo={<Head look={task.persona.look} color={task.persona.color} size={20} />}
+			/>
+		);
 	}
 
 	return (
 		<NamedLogo
 			name={agent?.name ?? 'Deleted agent'}
-			logo={agent && <AgentLogo providerId={agent.providerId} face={agent.face} />}
+			logo={agent && <AgentLogo providerId={agent.providerId} />}
 		/>
 	);
 }
@@ -101,7 +119,7 @@ export function AuditList({
 								className="flex h-10 w-full items-center gap-3 px-(--bleed) text-left text-sm hover:bg-muted/50 active:bg-muted/50"
 							>
 								<span className={CELLS.at}>{formatDateTime(entry.at)}</span>
-								{showAgent && <EntryAgentLogo entry={entry} agent={agent} />}
+								{showAgent && <EntryAgentLogo entry={entry} agent={agent} task={task} />}
 								<span
 									className={cn('min-w-0 flex-1 truncate', refusedOrFailed && 'text-destructive')}
 								>

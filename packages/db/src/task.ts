@@ -11,6 +11,8 @@ import {type Viewer, visibleTo} from './viewer';
 export type AgentTaskRow = {
 	id: string;
 	agentId: string;
+	// The persona a Chat page sub-agent ran it as; null for every other task.
+	personaId: string | null;
 	// The task this one is a sub-task of; null for one started on its own.
 	parentId: string | null;
 	title: string;
@@ -29,6 +31,7 @@ export type AgentTaskRow = {
 const taskSelect = {
 	id: true,
 	agentId: true,
+	personaId: true,
 	parentId: true,
 	title: true,
 	goal: true,
@@ -52,6 +55,8 @@ export async function createAgentTask(data: {
 	orgId: string;
 	agentId: string;
 	ownerUserId: string | null;
+	// The persona a Chat page sub-agent runs it as; null for every other task.
+	personaId?: string | null;
 	parentId: string | null;
 	title: string;
 	goal: string;

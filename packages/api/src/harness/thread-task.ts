@@ -37,7 +37,16 @@ export function ensureThreadTask(thread: ThreadRow, now: Date): Promise<Result<s
 		}
 		const entries = $(await listEntries(thread.id));
 		const made = $(
-			await createAgentTask({orgId: thread.orgId, agentId: thread.agentId, ownerUserId: thread.userId, parentId: null, title: thread.title ?? 'Sub-agent', goal: goalOf(entries), via: 'harness'}),
+			await createAgentTask({
+				orgId: thread.orgId,
+				agentId: thread.agentId,
+				ownerUserId: thread.userId,
+				personaId: thread.personaId,
+				parentId: null,
+				title: thread.title ?? 'Sub-agent',
+				goal: goalOf(entries),
+				via: 'harness',
+			}),
 		);
 		const id = $(requirePresent(made, ApiErr.internalError(new Error('A task with no parent was not made')))).id;
 		$(await setThreadTask(thread.id, id));

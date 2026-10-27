@@ -2,18 +2,18 @@ import {AVATAR_COLORS, lookSchema} from '@proxy/utils/harness';
 import {z} from 'zod';
 import {apiRequest, apiSend, orgApi} from '@/client/request';
 
-// The Chat page's api: the organization's built-in agents, each named and given a face, which
-// every member sees, the person's own conversation with each, its log, the sub-agents started from
-// it, and what they say in it.
+// The Chat page's api: the organization's personas, each named and given a head, which every
+// member sees, the person's own conversation with each, its log, the sub-agents started from it,
+// and what they say in it.
 
-// An agent's persona as the person makes or changes it: its name and its head, a look in a color.
+// A persona as the person makes or changes it: its name and its head, a look in a color.
 const personaSchema = z.object({
 	name: z.string(),
 	look: lookSchema,
 	color: z.enum(AVATAR_COLORS),
 });
 
-const agentSchema = personaSchema.extend({
+const chatPersonaSchema = personaSchema.extend({
 	id: z.string(),
 	// Whether the person may rename, reface or delete it: they made it, or own the organization.
 	mayChange: z.boolean(),
@@ -48,7 +48,7 @@ const subAgentSchema = z.object({
 });
 
 const threadLogSchema = z.object({
-	agent: agentSchema,
+	persona: chatPersonaSchema,
 	thread: z.object({id: z.string()}),
 	entries: z.array(entrySchema),
 	subAgents: z.array(subAgentSchema),
@@ -58,41 +58,50 @@ const threadLogSchema = z.object({
 });
 
 export type Persona = z.infer<typeof personaSchema>;
-export type ChatAgent = z.infer<typeof agentSchema>;
+export type ChatPersona = z.infer<typeof chatPersonaSchema>;
 export type ChatEntry = z.infer<typeof entrySchema>;
 export type ChatToolCall = z.infer<typeof toolCallSchema>;
 export type ChatSubAgent = z.infer<typeof subAgentSchema>;
 export type ThreadLog = z.infer<typeof threadLogSchema>;
 
-export function listChatAgents(org: string) {
-	return apiRequest('GET', `${orgApi(org)}/chat/agents`, z.object({agents: z.array(agentSchema)}));
-}
-
-export function createChatAgent(org: string, persona: Persona) {
-	return apiRequest('POST', `${orgApi(org)}/chat/agents`, z.object({agent: agentSchema}), persona);
-}
-
-export function updateChatAgent(org: string, agentId: string, persona: Persona) {
+export function listPersonas(org: string) {
 	return apiRequest(
-		'PUT',
-		`${orgApi(org)}/chat/agents/${agentId}`,
-		z.object({agent: agentSchema}),
+		'GET',
+		`${orgApi(org)}/chat/personas`,
+		z.object({personas: z.array(chatPersonaSchema)}),
+	);
+}
+
+export function createPersona(org: string, persona: Persona) {
+	return apiRequest(
+		'POST',
+		`${orgApi(org)}/chat/personas`,
+		z.object({persona: chatPersonaSchema}),
 		persona,
 	);
 }
 
-export function deleteChatAgent(org: string, agentId: string) {
-	return apiSend('DELETE', `${orgApi(org)}/chat/agents/${agentId}`);
+export function updatePersona(org: string, personaId: string, persona: Persona) {
+	return apiRequest(
+		'PUT',
+		`${orgApi(org)}/chat/personas/${personaId}`,
+		z.object({persona: chatPersonaSchema}),
+		persona,
+	);
 }
 
-export function getThread(org: string, agentId: string) {
-	return apiRequest('GET', `${orgApi(org)}/chat/agents/${agentId}/thread`, threadLogSchema);
+export function deletePersona(org: string, personaId: string) {
+	return apiSend('DELETE', `${orgApi(org)}/chat/personas/${personaId}`);
 }
 
-export function postMessage(org: string, agentId: string, text: string) {
+export function getThread(org: string, personaId: string) {
+	return apiRequest('GET', `${orgApi(org)}/chat/personas/${personaId}/thread`, threadLogSchema);
+}
+
+export function postMessage(org: string, personaId: string, text: string) {
 	return apiRequest(
 		'POST',
-		`${orgApi(org)}/chat/agents/${agentId}/messages`,
+		`${orgApi(org)}/chat/personas/${personaId}/messages`,
 		z.object({entry: entrySchema}),
 		{text},
 	);

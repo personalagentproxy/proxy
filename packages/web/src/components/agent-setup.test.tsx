@@ -31,7 +31,6 @@ function agentLogin(id: string, name: string, providerId: AgentProviderId = 'cus
 		providerId,
 		name,
 		username: `${name.toLowerCase().replace(/ /g, '-')}-k7q2`,
-		face: null,
 		shared: false,
 		createdById: 'user-1',
 		createdBy: null,

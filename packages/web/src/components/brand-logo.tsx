@@ -1,9 +1,7 @@
 import {findAgentProvider} from '@proxy/integrations';
 import {cn} from '@proxy/ui/lib/utils';
 import {useState, type ReactNode} from 'react';
-import {Head} from '@/components/head';
 import type {Integration} from '@/lib/integrations';
-import type {AgentLogin} from '@/lib/types';
 
 // Logos sit on a white tile in both themes, so dark marks stay legible. They're decorative: the
 // text beside one always names it.
@@ -21,21 +19,9 @@ function LogoTile({children, className}: {children: ReactNode; className?: strin
 	);
 }
 
-// A built-in agent has its head in place of a logo, the one it has on the Chat page. A custom MCP
-// agent is connected through Personal Agent Proxy, so it gets our mark.
-export function AgentLogo({
-	providerId,
-	face,
-	className,
-}: {
-	providerId: string;
-	face?: AgentLogin['face'];
-	className?: string;
-}) {
+// A custom MCP agent is connected through Personal Agent Proxy, so it gets our mark.
+export function AgentLogo({providerId, className}: {providerId: string; className?: string}) {
 	const provider = findAgentProvider(providerId);
-	if (face) {
-		return <Head look={face.look} color={face.color} size={20} className={className} />;
-	}
 	if (provider?.custom) {
 		return (
 			<LogoTile className={className}>
