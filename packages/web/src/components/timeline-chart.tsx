@@ -447,13 +447,6 @@ function RequestTarget({
 }) {
 	const {entry} = request;
 	const located = locateEntry(connections, entry);
-	// One that didn't go through is always pointed at, so its target is never narrower than the
-	// least, centred on its stretch.
-	const width = Math.max(
-		request.end - request.start,
-		entry.outcome === 'allowed' ? 0 : MIN_TARGET_PX,
-	);
-	const left = (request.start + request.end - width) / 2;
 	return (
 		<TooltipTrigger
 			handle={tooltip}
@@ -464,7 +457,7 @@ function RequestTarget({
 					onClick={onOpen}
 					aria-label={describeEntry(entry, located)}
 					className="absolute cursor-pointer rounded-sm transition-[top] duration-300 ease-in-out hover:bg-foreground/10 focus-visible:outline-2 focus-visible:outline-ring motion-reduce:transition-none"
-					style={{left, top, width, height}}
+					style={{left: request.start, top, width: request.end - request.start, height}}
 				/>
 			}
 		/>
@@ -499,13 +492,10 @@ function RequestDetails({
 	);
 }
 
-// The least a request is wide to get a target of its own, where it isn't marked.
+// The least a request is wide to get a target of its own.
 const MIN_TARGET_PX = 8;
 
-/**
- * The targets for a row's requests: every one that didn't go through, and every other where its
- * stretch of the track is wide enough to point at.
- */
+/** The targets for a row's requests: every one whose stretch of the track is wide enough to point at. */
 export const RequestTargets = memo(function RequestTargets({
 	requests,
 	top,
@@ -530,10 +520,7 @@ export const RequestTargets = memo(function RequestTargets({
 	return (
 		<>
 			{requests
-				.filter(
-					(request) =>
-						request.entry.outcome !== 'allowed' || request.end - request.start >= MIN_TARGET_PX,
-				)
+				.filter((request) => request.end - request.start >= MIN_TARGET_PX)
 				.map((request) => (
 					<RequestTarget
 						key={request.entry.id}
