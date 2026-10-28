@@ -1,3 +1,4 @@
+import {VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import {PencilIcon, PlusIcon, Trash2Icon} from 'lucide-react';
 import {useState} from 'react';
 import {Link, useLoaderData, useRevalidator} from 'react-router';
@@ -16,7 +17,7 @@ import {useSide} from '@/hooks/use-side';
 import {agentsWithAccess, integrationOf} from '@/lib/access';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
 import {actsAs, manages} from '@/lib/orgs';
-import type {Connection} from '@/lib/types';
+import type {AgentLogin, Connection} from '@/lib/types';
 import type {connectionsLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 
@@ -40,9 +41,10 @@ function titleOf(connection: Connection): string {
 // The services connected in the organization open: its shared ones and the person's own, never
 // another member's. With anyone else in it or invited, a toggle picks the list, in the address as
 // `?for=me` or `?for=everyone`, opening on the shared one unless only the person's own has any, the
-// shared one saying who the provider sees when an agent uses each. The vault is kept on a page of
-// its own. A right click on a row renames or deletes a connection the person may change: their own,
-// or a shared one they connected or whose organization they own.
+// shared one saying who the provider sees when an agent uses each. The vault comes first, the
+// person's own or the organization's as the list shows, both alone, opening its own page. A right
+// click on a row renames or deletes a connection the person may change: their own, or a shared one
+// they connected or whose organization they own.
 export function ConnectionsPage() {
 	const org = useOrgSlug();
 	const {connections: all, agents} = useLoaderData<typeof connectionsLoader>();
@@ -55,6 +57,12 @@ export function ConnectionsPage() {
 	if (!human) {
 		return null;
 	}
+
+	const vaults = all.filter(
+		(connection) =>
+			connection.integrationId === VAULT_INTEGRATION_ID &&
+			(!side.others || connection.shared === side.shared),
+	);
 
 	const activeOrg = human.org;
 	const connections = side.shown;
@@ -96,6 +104,7 @@ export function ConnectionsPage() {
 					</RowHeader>
 				}
 			>
+				<VaultRow vaults={vaults} agents={agents} showingShared={showingShared} />
 				{connections.length === 0 && (
 					<SideEmpty
 						side={side}
@@ -200,5 +209,45 @@ export function ConnectionsPage() {
 				}}
 			/>
 		</AppShell>
+	);
+}
+
+// The vault the list shows, or both alone, as one row: what agents know, kept in Personal Agent
+// Proxy, so never renamed or deleted. Its page opens on the same side.
+function VaultRow({
+	vaults,
+	agents,
+	showingShared,
+}: {
+	vaults: Connection[];
+	agents: AgentLogin[];
+	showingShared: boolean;
+}) {
+	const org = useOrgSlug();
+	const human = useHuman();
+	const [first] = vaults;
+	const integration = first && integrationOf(first);
+	if (!first || !integration || !human) {
+		return null;
+	}
+
+	const withAccess = new Set(
+		vaults.flatMap((vault) => agentsWithAccess(agents, vault).map((agent) => agent.id)),
+	);
+	const side = vaults.length > 1 ? '' : `?for=${first.shared ? 'everyone' : 'me'}`;
+
+	return (
+		<Row
+			to={`/${org}/connections/vault${side}`}
+			icon={<IntegrationLogo integration={integration} />}
+			title={integration.name}
+			cells={
+				<>
+					<span className={CELLS.account}>{first.account}</span>
+					{showingShared && <span className={CELLS.actsAs}>{actsAs(first, human)}</span>}
+					<span className={CELLS.agents}>{withAccess.size}</span>
+				</>
+			}
+		/>
 	);
 }

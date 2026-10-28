@@ -13,6 +13,7 @@ import {useState} from 'react';
 import {useLoaderData} from 'react-router';
 import {createRecord, deleteRecord, updateRecord} from '@/client/records-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
+import {BackButton} from '@/components/back-button';
 import {RecordForm} from '@/components/record-form';
 import {Row, RowHeader, RowList} from '@/components/row-list';
 import {SideEmpty, SideToggle} from '@/components/share-toggle';
@@ -70,7 +71,8 @@ type Editing = {listed: Listed | null};
 // everyone's agents should know about the organization: a table of the entries, each opened for
 // editing. With anyone else in the organization or invited, a toggle picks the vault, the person's
 // own or the organization's, in the address as `?for=me` or `?for=everyone`, opening on their own;
-// alone, both vaults' entries are one list, and a new entry is the person's own.
+// alone, both vaults' entries are one list, and a new entry is the person's own. It is one of the
+// connections, opened from theirs.
 export function VaultPage() {
 	const org = useOrgSlug();
 	const {own, shared} = useLoaderData<typeof vaultLoader>();
@@ -101,7 +103,12 @@ export function VaultPage() {
 
 	return (
 		<AppShell
-			title={<PageTitle>Vault</PageTitle>}
+			title={
+				<>
+					<BackButton to={`/${org}/connections`} label="Back to connections" />
+					<PageTitle>Vault</PageTitle>
+				</>
+			}
 			actions={
 				<Button size="sm" variant="outline" onClick={() => open({listed: null})}>
 					<PlusIcon data-icon="inline-start" />

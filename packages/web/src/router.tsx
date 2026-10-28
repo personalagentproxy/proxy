@@ -91,8 +91,8 @@ const LEGACY_PAGES = new Map([
 	['connections', 'connections'],
 	['agents', 'agents'],
 	['activity', 'activity'],
-	['vault', 'vault'],
-	['info', 'vault'],
+	['vault', 'connections/vault'],
+	['info', 'connections/vault'],
 	['settings', 'settings'],
 ]);
 
@@ -122,6 +122,11 @@ async function unknownLoader({request}: {request: Request}) {
 	}
 	const first = unwrapLoaderResult(await listOrgs()).orgs[0]?.slug;
 	throw redirect(legacyRedirect(url, first));
+}
+
+// The vault's old address, where a saved link to it, its side included, still opens it.
+function oldVaultLoader({params, request}: {params: {org?: string}; request: Request}) {
+	throw redirect(`/${params.org ?? ''}/connections/vault${new URL(request.url).search}`);
 }
 
 // The human side's guard, on every page in an organization (`/:org/…`) and the person's account: no session sends the user to /login, and back here after; an organization that isn't
@@ -264,8 +269,10 @@ export const router = createBrowserRouter([
 			{path: '/:org/connections/new/mysql', element: <AddDatabasePage dialect="mysql" />},
 			{path: '/:org/connections/new/plaid', element: <AddBankPage />},
 			{path: '/:org/connections/new/mcp', element: <AddMcpPage />},
+			{path: '/:org/connections/vault', loader: vaultLoader, element: <VaultPage />},
 			{path: '/:org/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
-			{path: '/:org/vault', loader: vaultLoader, element: <VaultPage />},
+			// The vault's page before it was one of the connections.
+			{path: '/:org/vault', loader: oldVaultLoader, element: null},
 			// The built-in agents, behind the `harness` experiment: the api refuses it otherwise.
 			{path: '/:org/chat', loader: chatIndexLoader, element: <ChatPage />},
 			{path: '/:org/chat/:id', loader: chatLoader, element: <ChatPage />},

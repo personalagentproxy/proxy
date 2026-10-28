@@ -35,7 +35,7 @@ function renderVaultPage(entries: Entry[], options: {shared?: Entry[]; org?: Org
 				element: <HumanSide />,
 				children: [
 					{
-						path: '/:org/vault',
+						path: '/:org/connections/vault',
 						loader: () => ({
 							own: vault('vault-1', entries),
 							shared: vault('vault-2', options.shared ?? []),
@@ -45,7 +45,7 @@ function renderVaultPage(entries: Entry[], options: {shared?: Entry[]; org?: Org
 				],
 			},
 		],
-		{initialEntries: ['/acme/vault']},
+		{initialEntries: ['/acme/connections/vault']},
 	);
 
 	return render(
