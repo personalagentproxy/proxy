@@ -357,9 +357,9 @@ function Conversation({loaded}: {loaded: Loaded}) {
 									<Head look={current.look} color={current.color} size={64} />
 									<p className="text-lg font-medium">What should {current.name} do?</p>
 									<p className="max-w-md text-sm text-muted-foreground">
-										This conversation is yours alone. {current.name} hands each piece of work to a
-										sub-agent, which can use what is shared with everyone and what you connected
-										yourself, as far as its access allows. Every call is in the activity log.
+										This conversation is yours alone. {current.name} can use what is shared with
+										everyone and what you connected yourself, as far as its access allows.
+										Everything it does is in the activity log.
 									</p>
 								</div>
 							)}

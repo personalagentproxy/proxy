@@ -38,13 +38,13 @@ import {ensureBuiltInAgent} from './built-in-agent';
 const MAX_MESSAGE = 20_000;
 
 /** A persona as the page lists it, whether the viewer may change it, and the last thing said in their conversation with it, cut to a line; null before anything was said. */
-export type PersonaResponse = {id: string; name: string; look: Look; color: string; mayChange: boolean; lastMessage: {kind: 'person' | 'assistant'; text: string; at: string} | null};
+type PersonaResponse = {id: string; name: string; look: Look; color: string; mayChange: boolean; lastMessage: {kind: 'person' | 'assistant'; text: string; at: string} | null};
 
 /** A turn of the conversation as the page shows it: what the person said, or what the persona answered, which is what went wrong where its turn failed. What the persona did in between is in the activity log, not here. */
-export type EntryResponse = {id: string; kind: 'person' | 'assistant'; text: string; isError: boolean; at: string};
+type EntryResponse = {id: string; kind: 'person' | 'assistant'; text: string; isError: boolean; at: string};
 
 /** The member's conversation with a persona: the persona, its turns, and what the persona is up to: busy on it, asleep until a time, or waiting for the person. */
-export type ThreadLogResponse = {persona: PersonaResponse; entries: EntryResponse[]; busy: boolean; sleepingUntil: string | null};
+type ThreadLogResponse = {persona: PersonaResponse; entries: EntryResponse[]; busy: boolean; sleepingUntil: string | null};
 
 // Whether the viewer may rename, reface or delete the persona: whoever made it, or the organization's owner (utils/manages.ts).
 function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
