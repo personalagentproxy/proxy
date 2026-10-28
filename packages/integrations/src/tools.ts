@@ -270,7 +270,9 @@ function collectionTools(integration: Integration, collection: Collection): Coll
 			if (command.on === 'new') {
 				return make('newCommand', command.id, {
 					title: command.label,
-					description: `${command.label} a new ${collection.singular} from the fields given, without saving it first.${what}`,
+					description:
+						command.description ??
+						`${command.label} a new ${collection.singular} from the fields given, without saving it first.${what}`,
 					inputSchema: objectSchema(valueProperties(integration, collection)),
 					readOnly: command.readOnly,
 				});

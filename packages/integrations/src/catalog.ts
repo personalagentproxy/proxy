@@ -147,6 +147,47 @@ function emailsCollection(args: {
 			// "Unread, Flagged" ("Unread, Starred" on Gmail), for an email in the inbox.
 			{key: 'status', label: 'Status', type: 'text', system: true},
 			{key: 'body', label: 'Body', type: 'longtext'},
+			// One a line, numbered as the attachments collection reads them by: "1. Q3.xlsx
+			// (application/…, 48 KB)".
+			{key: 'attachments', label: 'Attachments', type: 'longtext', system: true},
+		],
+	};
+}
+
+/**
+ * An email's attachments, read as text with the action reading the email: never listed or opened,
+ * only read, one at a time, by the email's id and the attachment's number among those the email
+ * lists, or its name.
+ */
+function attachmentsCollection(read: string): Collection {
+	return {
+		id: 'attachments',
+		name: 'Attachments',
+		singular: 'attachment',
+		titleField: 'name',
+		writes: {},
+		commands: [
+			{
+				id: 'read',
+				on: 'new',
+				label: 'Read',
+				description:
+					'Read one of an email’s attachments as text: a spreadsheet’s tabs as CSV, a PDF’s or a Word document’s text, a forwarded email, or text as it is. Name the email by its id, as a list gives it, and the attachment by its number among the attachments the email lists, or its name. Images and other files are turned down.',
+				action: read,
+				readOnly: true,
+				done: 'Read {}',
+				tried: 'read {}',
+			},
+		],
+		fields: [
+			{key: 'email', label: 'Email', type: 'text'},
+			{key: 'attachment', label: 'Attachment', type: 'text'},
+			{key: 'name', label: 'Name', type: 'text', system: true},
+			{key: 'type', label: 'Type', type: 'text', system: true},
+			{key: 'size', label: 'Size', type: 'text', system: true},
+			// "1234 characters", or how many of more were answered: at most 100,000.
+			{key: 'length', label: 'Length', type: 'text', system: true},
+			{key: 'content', label: 'Content', type: 'longtext', system: true},
 		],
 	};
 }
@@ -226,6 +267,7 @@ const email: Integration = {
 				'On Gmail, Gmail’s own search syntax works, such as from:sam has:attachment newer_than:7d. Other mailboxes match the words in the sender, recipients, subject and text.',
 			flag: FLAG,
 		}),
+		attachmentsCollection('read'),
 	],
 };
 
@@ -1032,6 +1074,7 @@ const google: Integration = {
 			flag: STAR,
 			openIn: 'Gmail',
 		}),
+		attachmentsCollection('readEmails'),
 		// The calendars the account sees, each holding its events: from now on, soonest first, every
 		// time a repeating event comes round its own record. Times are written as Google takes them,
 		// 2026-10-15T14:00 in the calendar's time zone or with an offset, and a day alone, 2026-10-15,

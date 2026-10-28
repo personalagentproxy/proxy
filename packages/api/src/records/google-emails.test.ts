@@ -97,6 +97,8 @@ const gmail = {
 	calls: [] as Call[],
 	messages: mailbox(),
 	drafts: {r1: 'm3'} as Record<string, string>,
+	// An attachment's content by its id, of m1's.
+	attachments: {} as Record<string, string>,
 	answer: (_call: Call): Response | null => null,
 };
 
@@ -140,6 +142,11 @@ function answer(call: Call): Response {
 	if (draft) {
 		return draftAnswer(draft);
 	}
+	const [, attachmentOf, attachmentId] = /^\/messages\/([^/]+)\/attachments\/([^/]+)$/.exec(path) ?? [];
+	if (attachmentOf && attachmentId) {
+		const content = attachmentOf === 'm1' ? gmail.attachments[attachmentId] : undefined;
+		return content === undefined ? notFound() : Response.json({size: content.length, data: base64url(content)});
+	}
 	const [, id, verb] = /^\/messages\/([^/]+)(?:\/(modify|trash))?$/.exec(path) ?? [];
 	const found = id ? gmail.messages[id] : undefined;
 	if (!found) {
@@ -179,6 +186,7 @@ beforeEach(() => {
 	gmail.calls = [];
 	gmail.messages = mailbox();
 	gmail.drafts = {r1: 'm3'};
+	gmail.attachments = {};
 	gmail.answer = () => null;
 });
 
@@ -323,6 +331,60 @@ describe('get', () => {
 		expect((await c.get(target, '../labels')).unwrapErr().kind).toBe('not_found');
 		expect(calls('GET', '/messages/../labels')).toEqual([]);
 		expect(gmail.calls.map((call) => call.url.pathname)).toEqual(['/gmail/v1/users/me/messages/missing']);
+	});
+});
+
+describe('attachments', () => {
+	function attachments(): Collection {
+		const integration = findIntegration('google');
+		const found = integration && findCollection(integration, 'attachments');
+		if (!found) {
+			throw new Error('No attachments collection');
+		}
+		return found;
+	}
+
+	const attachmentsTarget = {...target, collection: attachments()};
+
+	beforeEach(() => {
+		gmail.messages.m1?.payload.parts?.push(
+			{mimeType: 'text/csv', filename: 'Budget.csv', body: {size: 22, attachmentId: 'att-budget'}},
+			{mimeType: 'image/png', filename: 'logo.png', body: {size: 2048, attachmentId: 'att-logo'}},
+		);
+		gmail.messages.m3?.payload.parts?.push({mimeType: 'text/plain', filename: 'notes.txt', body: {size: 5, data: base64url('Notes')}});
+		gmail.attachments = {'att-budget': 'Item,Cost\r\nVenue,1200'};
+	});
+
+	test('an email opens with its attachments listed, numbered, apart from its text', async () => {
+		const record = (await (await connector()).get(target, 'm1')).unwrap();
+
+		expect(record.values.body).toBe('Agenda attached.');
+		expect(record.values.attachments).toBe('1. Budget.csv (text/csv, 22 B)\n2. logo.png (image/png, 2 KB)');
+	});
+
+	test('an attachment is read by its number, fetched by the id the email gives it', async () => {
+		const read = (await connector()).newCommands?.read;
+		const record = (await read?.(attachmentsTarget, {email: 'm1', attachment: '1'}))?.unwrap();
+
+		expect(record?.values).toMatchObject({email: 'm1', attachment: '1', name: 'Budget.csv', type: 'text/csv', content: 'Item,Cost\nVenue,1200'});
+		expect(calls('GET', '/messages/m1/attachments/att-budget')).toHaveLength(1);
+	});
+
+	test('a draft’s attachment is read by its name, from the draft itself where its content is in it', async () => {
+		const read = (await connector()).newCommands?.read;
+		const record = (await read?.(attachmentsTarget, {email: 'draft-r1', attachment: 'notes.txt'}))?.unwrap();
+
+		expect(record?.values.content).toBe('Notes');
+		expect(gmail.calls.some((call) => call.url.pathname.includes('/attachments/'))).toBe(false);
+	});
+
+	test('an image is turned down, and an email Gmail doesn’t have is not found', async () => {
+		const read = (await connector()).newCommands?.read;
+
+		expect((await read?.(attachmentsTarget, {email: 'm1', attachment: '2'}))?.unwrapErr()).toMatchObject({kind: 'validation_error', message: expect.stringContaining('can’t be read as text')});
+		expect(calls('GET', '/messages/m1/attachments/att-logo')).toEqual([]);
+		expect((await read?.(attachmentsTarget, {email: 'missing', attachment: '1'}))?.unwrapErr()).toMatchObject({kind: 'not_found', id: 'missing'});
+		expect((await read?.(attachmentsTarget, {attachment: '1'}))?.unwrapErr()).toMatchObject({kind: 'validation_error'});
 	});
 });
 

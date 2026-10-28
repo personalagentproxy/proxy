@@ -31,6 +31,7 @@ describe('integrationTools', () => {
 			'emails_trash',
 			'emails_send',
 			'emails_send_new',
+			'attachments_read',
 		]);
 		expect(integrationTools(integration('granola')).map((tool) => tool.name)).toEqual([
 			'notes_list',
@@ -93,6 +94,18 @@ describe('integrationTools', () => {
 		expect(findTool(email, 'emails_archive')?.description).toBe(
 			'Archive: one email, by its id. Move emails out of the inbox into the archive. Only where Folder is Inbox.',
 		);
+	});
+});
+
+test('an attachment is read with the action reading email, by the email and the attachment, as the command describes it', () => {
+	const read = findTool(email, 'attachments_read');
+
+	expect(read).toMatchObject({kind: 'newCommand', action: 'read', readOnly: true});
+	expect(read?.description).toStartWith('Read one of an email’s attachments as text');
+	expect(Object.keys(read?.inputSchema.properties ?? {})).toEqual(['email', 'attachment']);
+	expect(findTool(integration('google'), 'attachments_read')).toMatchObject({
+		action: 'readEmails',
+		readOnly: true,
 	});
 });
 

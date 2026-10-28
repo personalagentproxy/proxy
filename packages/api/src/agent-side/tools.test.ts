@@ -130,7 +130,8 @@ const draft = {id: 'drafts-7-3', values: {folder: 'Draft', from: 'alex@example.c
 const archive = mock();
 const send = mock();
 const sendNew = mock();
-const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send}, newCommands: {sendNew}};
+const read = mock();
+const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send}, newCommands: {sendNew, read}};
 
 function useConnection(connection: typeof vaultConnection | typeof emailConnection | typeof notionConnection | typeof googleConnection) {
 	loadConnection.mockResolvedValue(Ok({connection, integration: integration(connection.integrationId), connector}));
@@ -228,7 +229,7 @@ describe('listAgentTools', () => {
 		const {listAgentTools} = await import('./tools');
 		const result = await listAgentTools(signedIn, 'mail-1');
 
-		expect(result.unwrap().map((tool) => tool.name)).toEqual(['emails_list', 'emails_get', 'emails_send', 'emails_send_new']);
+		expect(result.unwrap().map((tool) => tool.name)).toEqual(['emails_list', 'emails_get', 'emails_send', 'emails_send_new', 'attachments_read']);
 	});
 });
 
@@ -407,6 +408,18 @@ describe('runAgentTool', () => {
 		expect(result.unwrap()).toEqual({record: null});
 		expect(sendNew.mock.calls[0]?.[1]).toEqual(values);
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'sendNew', recordTitle: 'Friday', outcome: 'allowed'});
+	});
+
+	test('an attachment read by its number is logged by the name it came back with', async () => {
+		useConnection(emailConnection);
+		getAgentById.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'mail-1', actionId: 'read', allowed: true}]}));
+		read.mockResolvedValue(Ok({id: 'inbox-7-12/1', values: {email: 'inbox-7-12', attachment: '1', name: 'Budget.xlsx', content: 'Tab: Q3'}, updatedAt: '2026-10-01T00:00:00.000Z'}));
+
+		const {runAgentTool} = await import('./tools');
+		const result = await runAgentTool(caller, 'mail-1', 'attachments_read', {email: 'inbox-7-12', attachment: '1'});
+
+		expect(result.unwrap()).toMatchObject({record: {values: {name: 'Budget.xlsx'}}});
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'attachments', action: 'read', recordTitle: 'Budget.xlsx', outcome: 'allowed'});
 	});
 
 	test('a run the provider fails is logged as failed with what went wrong, not as allowed, and passed on', async () => {

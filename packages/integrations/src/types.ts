@@ -46,6 +46,9 @@ export type Command = {
 	on: 'record' | 'new';
 	// The button: "Mark as read".
 	label: string;
+	// What an agent is told the tool does, where the label and the action don't say it, as
+	// reading an attachment needs the email and the attachment named.
+	description?: string;
 	action: string;
 	// The records it applies to, when not every one.
 	where?: Condition;

@@ -1,8 +1,10 @@
-import {Ok, Result} from 'ts-results-es';
+import {Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {type ApiError, mapWithLimit} from '@proxy/utils';
 
+import {decodeText} from '../../utils/decode-text';
+import {htmlToText} from '../../utils/html-to-text';
 import {googleDelete, googleRequest, googleWrite} from './google-client';
 
 /**
@@ -132,12 +134,12 @@ export function headerOf(part: MessagePart | undefined, name: string): string {
 	return part?.headers?.find((header) => header.name.toLowerCase() === lower)?.value ?? '';
 }
 
-// A part's content, from base64url, in the charset its Content-Type names; one TextDecoder doesn't
-// know is read as UTF-8.
+// A part's content, from base64url, as UTF-8 where it is, else in the charset its Content-Type
+// names: a part naming ISO-8859-1 can come from Gmail as UTF-8, which read as ISO-8859-1 turns ä
+// into Ã¤.
 function decodePart(part: MessagePart): string {
-	const bytes = Buffer.from(part.body?.data ?? '', 'base64url');
-	const charset = /charset="?([^";\s]+)"?/i.exec(headerOf(part, 'Content-Type'))?.[1] ?? 'utf-8';
-	return Result.wrap(() => new TextDecoder(charset).decode(bytes)).unwrapOr(bytes.toString('utf8'));
+	const charset = /charset="?([^";\s]+)"?/i.exec(headerOf(part, 'Content-Type'))?.[1] ?? null;
+	return decodeText(Buffer.from(part.body?.data ?? '', 'base64url'), charset);
 }
 
 function isAttachment(part: MessagePart): boolean {
@@ -161,134 +163,21 @@ function findText(part: MessagePart, mimeType: string): MessagePart | null {
 	return null;
 }
 
-/** The names of a message's attachments, inline images included, in the order of its parts. */
-export function attachmentNames(part: MessagePart | undefined): string[] {
+/**
+ * One of a message's attachments: its content is in the message, as a small one's may be, or is
+ * fetched by its `attachmentId`, which Gmail gives anew every time the message is read.
+ */
+export type GmailAttachment = {name: string; type: string; size: number; data: string | null; attachmentId: string | null};
+
+/** A message's attachments, inline images included, in the order of its parts. */
+export function attachmentsOf(part: MessagePart | undefined): GmailAttachment[] {
 	if (!part) {
 		return [];
 	}
-	const own = isAttachment(part) ? [part.filename ?? ''] : [];
-	return [...own, ...(part.parts ?? []).flatMap(attachmentNames)];
-}
-
-const ENTITIES: Record<string, string> = {amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' '};
-
-// A character by its number, or the replacement character for one Unicode doesn't have.
-function codePoint(digits: string, radix: number): string {
-	const value = Number.parseInt(digits, radix);
-	if (!Number.isInteger(value) || value < 1 || value > 0x10ffff) {
-		return '\uFFFD';
-	}
-	return String.fromCodePoint(value);
-}
-
-function decodeEntities(text: string): string {
-	return text.replace(/&(#x[0-9a-f]{1,8}|#\d{1,8}|[a-z]{1,32});/gi, (entity, name: string) => {
-		if (name.startsWith('#x') || name.startsWith('#X')) {
-			return codePoint(name.slice(2), 16);
-		}
-		if (name.startsWith('#')) {
-			return codePoint(name.slice(1), 10);
-		}
-		return ENTITIES[name.toLowerCase()] ?? entity;
-	});
-}
-
-// Elements whose content is never text.
-const HIDDEN = ['script', 'style', 'head', 'title'];
-
-// Elements ending a line where they close.
-const BLOCKS = ['p', 'div', 'tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'table', 'ul', 'ol'];
-
-// What a tag becomes in the text, by its name and whether it closes an element.
-function tagText(name: string, closing: boolean): string {
-	if (name === 'br') {
-		return '\n';
-	}
-	if (name === 'li' && !closing) {
-		return '\n- ';
-	}
-	if (closing && BLOCKS.includes(name)) {
-		return '\n';
-	}
-	return '';
-}
-
-/**
- * HTML as plain text, for an email without a text part: blocks and line breaks as new lines, a
- * link's address after its text where they differ, everything else's tags dropped. Read in one
- * pass, each tag found from where the last ended, so the time it takes grows with the email's
- * length whatever its HTML looks like, unclosed tags and all.
- */
-export function htmlToText(html: string): string {
-	const parts: string[] = [];
-	// The link being read: its address, and where its text starts among the parts.
-	let link: {href: string; start: number} | null = null;
-	let at = 0;
-	while (at < html.length) {
-		const open = html.indexOf('<', at);
-		if (open === -1) {
-			parts.push(sourceText(html.slice(at)));
-			break;
-		}
-		parts.push(sourceText(html.slice(at, open)));
-		// A < that starts no tag, as in "1 < 2", is text.
-		if (!/[a-z/!?]/i.test(html.charAt(open + 1))) {
-			parts.push('<');
-			at = open + 1;
-			continue;
-		}
-		if (html.startsWith('<!--', open)) {
-			const end = html.indexOf('-->', open + 4);
-			at = end === -1 ? html.length : end + 3;
-			continue;
-		}
-		const close = html.indexOf('>', open);
-		if (close === -1) {
-			parts.push(sourceText(html.slice(open)));
-			break;
-		}
-		const tag = html.slice(open, close + 1);
-		at = close + 1;
-		const [, slash = '', rawName = ''] = /^<(\/?)([a-z][a-z0-9]*)/i.exec(tag) ?? [];
-		const name = rawName.toLowerCase();
-		const closing = slash === '/';
-		if (!closing && HIDDEN.includes(name)) {
-			const end = indexOfTag(html, `</${name}`, at);
-			const endClose = end === -1 ? -1 : html.indexOf('>', end);
-			at = endClose === -1 ? html.length : endClose + 1;
-			continue;
-		}
-		if (name === 'a' && !closing) {
-			const href = /\shref\s*=\s*"([^"]*)"/i.exec(tag)?.[1];
-			link = href === undefined ? null : {href, start: parts.length};
-			continue;
-		}
-		if (name === 'a' && closing && link) {
-			const label = parts.splice(link.start).join('').trim();
-			parts.push(label === '' || label === link.href ? link.href : `${label} (${link.href})`);
-			link = null;
-			continue;
-		}
-		parts.push(tagText(name, closing));
-	}
-	return decodeEntities(parts.join(''))
-		.replace(/[ \t\u00a0]+/g, ' ')
-		.replace(/ ?\n ?/g, '\n')
-		.replace(/\n{3,}/g, '\n\n')
-		.trim();
-}
-
-// Text between tags: a line break in the HTML's source is a space, as a browser shows it.
-function sourceText(text: string): string {
-	return text.replace(/\r\n?|\n/g, ' ');
-}
-
-// Where a tag next starts from `from`, whatever its case. The email isn't lowercased whole to look,
-// since a letter can lowercase to more than one, as İ does, which would move everything after it.
-function indexOfTag(html: string, tag: string, from: number): number {
-	const pattern = new RegExp(tag, 'ig');
-	pattern.lastIndex = from;
-	return pattern.exec(html)?.index ?? -1;
+	const own = isAttachment(part)
+		? [{name: part.filename ?? '', type: part.mimeType ?? '', size: part.body?.size ?? 0, data: part.body?.data ?? null, attachmentId: part.body?.attachmentId ?? null}]
+		: [];
+	return [...own, ...(part.parts ?? []).flatMap(attachmentsOf)];
 }
 
 /** A message's HTML part, as its sender wrote it, or null for one without. */
@@ -297,19 +186,17 @@ export function messageHtml(payload: MessagePart | undefined): string | null {
 	return html ? decodePart(html) : null;
 }
 
-/** A message's text: its plain text part, else its HTML part as text, then the names of its attachments. */
+/** A message's text: its plain text part, else its HTML part as text. */
 export function messageBody(payload: MessagePart | undefined): string {
 	if (!payload) {
 		return '';
 	}
 	const plain = findText(payload, 'text/plain');
-	const html = plain ? null : findText(payload, 'text/html');
-	const text = plain ? decodePart(plain).replace(/\r\n?/g, '\n').trim() : html ? htmlToText(decodePart(html)) : '';
-	const attachments = attachmentNames(payload);
-	if (attachments.length === 0) {
-		return text;
+	if (plain) {
+		return decodePart(plain).replace(/\r\n?/g, '\n').trim();
 	}
-	return `${text}\n\nAttachments: ${attachments.join(', ')}`.trim();
+	const html = findText(payload, 'text/html');
+	return html ? htmlToText(decodePart(html)) : '';
 }
 
 // ---- Calls -----------------------------------------------------------------------------------
@@ -396,6 +283,14 @@ export function getMessageSummaries(accessToken: string, messageIds: string[]): 
 /** A message whole: its headers and every part. */
 export function getMessage(accessToken: string, messageId: string): Promise<Result<GmailMessage, ApiError>> {
 	return googleRequest(accessToken, gmailUrl(`/messages/${messageId}`, {format: 'full'}), messageSchema);
+}
+
+const attachmentSchema = z.object({data: z.string()});
+
+/** An attachment's content, by the id the message gave it when it was read. */
+export async function getAttachment(accessToken: string, messageId: string, attachmentId: string): Promise<Result<Buffer, ApiError>> {
+	const answer = await googleRequest(accessToken, gmailUrl(`/messages/${messageId}/attachments/${attachmentId}`), attachmentSchema);
+	return answer.map(({data}) => Buffer.from(data, 'base64url'));
 }
 
 /** Adds and removes labels on a message, as marking, starring and archiving do. */

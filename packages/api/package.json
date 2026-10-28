@@ -21,10 +21,13 @@
 		"fast-xml-parser": "^5.11.2",
 		"imapflow": "^2.2.6",
 		"mailparser": "^3.9.36",
+		"mammoth": "^1.13.0",
 		"nodemailer": "^10.0.15",
 		"resend": "^6.7.0",
 		"tldts": "^7.4.19",
 		"ts-results-es": "^7.1.0",
+		"unpdf": "^1.9.1",
+		"xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
 		"zod": "^4.5.4"
 	},
 	"devDependencies": {

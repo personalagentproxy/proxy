@@ -307,6 +307,59 @@ describe('emails', () => {
 	});
 });
 
+describe('attachments', () => {
+	const withAttachments = Buffer.from(
+		[
+			'From: sam@example.com',
+			'To: alex@example.com',
+			'Subject: Q3 budget',
+			'MIME-Version: 1.0',
+			'Content-Type: multipart/mixed; boundary="b"',
+			'',
+			'--b',
+			'Content-Type: text/plain; charset=utf-8',
+			'',
+			'Budget attached.',
+			'--b',
+			'Content-Type: text/csv; name="Budget.csv"',
+			'Content-Disposition: attachment; filename="Budget.csv"',
+			'Content-Transfer-Encoding: base64',
+			'',
+			Buffer.from('Item,Cost\r\nVenue,1200').toString('base64'),
+			'--b--',
+			'',
+		].join('\r\n'),
+	);
+
+	function attachmentsTarget() {
+		const integration = findIntegration('email');
+		const collection = integration && findCollection(integration, 'attachments');
+		if (!collection) {
+			throw new Error('No attachments collection');
+		}
+		return {...target, collection};
+	}
+
+	test('an email opens with its attachments listed, and one is read by its number', async () => {
+		imap.message = {uid: 12, flags: new Set(), source: withAttachments};
+
+		const {emailConnector} = await import('./email-connector');
+		const record = (await emailConnector.get(target, INBOX_EMAIL)).unwrap();
+		const read = (await emailConnector.newCommands?.read?.(attachmentsTarget(), {email: INBOX_EMAIL, attachment: '1'}))?.unwrap();
+
+		expect(record.values.body).toBe('Budget attached.');
+		expect(record.values.attachments).toBe('1. Budget.csv (text/csv, 21 B)');
+		expect(read?.values).toMatchObject({email: INBOX_EMAIL, name: 'Budget.csv', content: 'Item,Cost\nVenue,1200'});
+	});
+
+	test('an email without attachments says so', async () => {
+		const {emailConnector} = await import('./email-connector');
+		const result = await emailConnector.newCommands?.read?.(attachmentsTarget(), {email: INBOX_EMAIL, attachment: '1'});
+
+		expect(result?.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'This email has no attachments'});
+	});
+});
+
 describe('findInboxEmails', () => {
 	test("searches the inbox in IMAP's own terms, newest first, at most as many as asked for", async () => {
 		imap.boxes.INBOX = fill(6, '2026-10-01T09:00:00Z');

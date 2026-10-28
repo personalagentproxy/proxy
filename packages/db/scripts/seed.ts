@@ -510,6 +510,13 @@ const RANGE_TITLES: [string, ...string[]] = [
 	"'Trip costs'!A1:D9",
 ];
 
+// The attachments agents read.
+const ATTACHMENT_TITLES: [string, ...string[]] = [
+	'Q3 budget.xlsx',
+	'Invoice 1042.pdf',
+	'Lease.docx',
+];
+
 // What agents search for.
 const SEARCHES: [string, ...string[]] = [
 	'invoice',
@@ -521,6 +528,10 @@ const SEARCHES: [string, ...string[]] = [
 ];
 
 function recordTitle(connection: Connection, collectionId: string): string {
+	if (collectionId === 'attachments') {
+		return pick(ATTACHMENT_TITLES);
+	}
+
 	if (connection.integrationId === 'email' || collectionId === 'emails') {
 		return pick(EMAIL_TITLES);
 	}

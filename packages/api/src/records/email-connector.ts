@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 
 import {ImapFlow, type FetchMessageObject, type MailboxObject, type MessageAddressObject, type SearchObject} from 'imapflow';
-import {simpleParser} from 'mailparser';
+import {simpleParser, type ParsedMail} from 'mailparser';
 import MailComposer from 'nodemailer/lib/mail-composer';
 import type Mail from 'nodemailer/lib/mailer';
 import {Err, Ok, Result} from 'ts-results-es';
@@ -13,6 +13,7 @@ import type {EmailCredential} from '../connections/email/credential';
 import {imapClientOptions, imapError, smtpError, smtpTransport} from '../connections/email/mail-check';
 import {log, serializeError} from '../observability/log';
 import {decryptSecret} from '../utils/secret-crypto';
+import {attachmentRecord, attachmentsText, pickAttachment, requireEmailId, type AttachmentFile} from './attachment-text';
 import type {CommandRunner, Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
 import {gmailQuery, type EmailSearch} from './email-search';
 import {replyHeaders, type MailReply, type ReplyHeaders} from './email-reply';
@@ -26,7 +27,8 @@ import {replyHeaders, type MailReply, type ReplyHeaders} from './email-reply';
  *
  * IMAP messages can't be changed, so updating a draft saves a new one and deletes the old: the
  * draft gets a new id. Received emails are only flagged or moved: archived, or moved to Trash.
- * Email goes out over SMTP, from a draft or straight from values typed in.
+ * Email goes out over SMTP, from a draft or straight from values typed in. An email's attachments
+ * are read from the message whole, as the `attachments` collection's one command.
  */
 
 const PAGE_SIZE = 50;
@@ -455,7 +457,8 @@ function listPage(target: RecordTarget, query: ListQuery): Promise<Result<Record
 	);
 }
 
-async function getMessage(session: Session, id: string): Promise<Result<DataRecord, ApiError>> {
+// A message whole, as it was fetched and as mailparser reads it.
+async function parsedMessage(session: Session, id: string): Promise<Result<{message: FetchMessageObject; parsed: ParsedMail}, ApiError>> {
 	return Do(async ($) => {
 		const uid = $(uidOf(session, id));
 		const message = await session.client.fetchOne(String(uid), {uid: true, envelope: true, internalDate: true, flags: true, source: true}, {uid: true});
@@ -465,8 +468,35 @@ async function getMessage(session: Session, id: string): Promise<Result<DataReco
 
 		const source = message.source;
 		const parsed = $((await Result.wrapAsync(() => simpleParser(source))).mapErr((cause) => ApiErr.providerUnreachable(cause)));
+		return {message, parsed};
+	});
+}
+
+function attachmentFiles(parsed: ParsedMail): AttachmentFile[] {
+	return parsed.attachments.map((attachment) => ({name: attachment.filename ?? '', type: attachment.contentType, size: attachment.size, bytes: attachment.content}));
+}
+
+async function getMessage(session: Session, id: string): Promise<Result<DataRecord, ApiError>> {
+	return Do(async ($) => {
+		const {message, parsed} = $(await parsedMessage(session, id));
 		const body = (parsed.text ?? '').trim();
-		return {id, values: {...summaryValues(session.folder, message), body}, updatedAt: updatedAt(message)};
+		return {id, values: {...summaryValues(session.folder, message), body, attachments: attachmentsText(attachmentFiles(parsed))}, updatedAt: updatedAt(message)};
+	});
+}
+
+/** One of an email's attachments, read as text: the `attachments` collection's one command. */
+function readAttachment(target: RecordTarget, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
+	return Do(async ($) => {
+		const email = $(requireEmailId(values));
+		return $(
+			await withRecord(target, email, (session) =>
+				Do(async ($$) => {
+					const {parsed} = $$(await parsedMessage(session, email));
+					const {attachment, number} = $$(pickAttachment(attachmentFiles(parsed), values));
+					return $$(await attachmentRecord(email, number, attachment));
+				}),
+			),
+		);
 	});
 }
 
@@ -681,5 +711,7 @@ export const emailConnector: Connector = {
 	},
 	newCommands: {
 		sendNew: (target, values) => withClient(target, async (client, credential) => (await deliver(client, credential, values)).map(() => null)),
+		// The `attachments` collection's, the only command it has.
+		read: readAttachment,
 	},
 };

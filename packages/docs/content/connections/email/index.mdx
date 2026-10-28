@@ -12,7 +12,10 @@ Personal Agent Proxy and nothing else. Emails stay with the provider; nothing is
 Agents see the inbox, drafts and sent mail as one list. You can allow each action separately:
 
 - **Read** lists, opens and searches email. A mailbox over IMAP has no web address for an email,
-  so an agent points you to one by its subject, sender and date rather than a link.
+  so an agent points you to one by its subject, sender and date rather than a link. An email opens
+  with its attachments listed, and an attachment is read as text: a spreadsheet's tabs as CSV, a
+  PDF's or a Word document's text, a forwarded email, or a text file as it is, the first 100,000
+  characters of it. Images and other files can't be read.
 - **Mark read or unread**, **Flag**, **Archive** and **Move to Trash** act on messages in the
   inbox, and require Read. Trash can still be restored at the provider.
 - **Write drafts** creates, edits and deletes drafts, and requires Read. Received messages are

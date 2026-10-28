@@ -435,7 +435,8 @@ function newCommand(run: ToolRun, params: Record<string, string>): Promise<Resul
 		const runner = $(requirePresent(run.connector.newCommands?.[run.tool.operation], ApiErr.notFound('tool', run.tool.name)));
 		const values = $(parseRecordValues(run.target.collection, params));
 		const record = $(await logFailure(run, await runner(run.target, values), recordTitle(run.target.collection, values)));
-		$(await log(run, 'allowed', recordTitle(run.target.collection, values)));
+		// Titled as it came back where it did, as an attachment read by its number is by its name.
+		$(await log(run, 'allowed', (record && recordTitle(run.target.collection, record.values)) ?? recordTitle(run.target.collection, values)));
 		return {record};
 	});
 }

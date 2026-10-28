@@ -9,11 +9,12 @@ import {ApiErr, type ApiError, Do, mapWithLimit, requirePresent} from '@proxy/ut
 
 import {callGoogle} from '../connections/google/google-client';
 import {
-	attachmentNames,
+	attachmentsOf,
 	createDraft,
 	deleteDraft,
 	findDraftIds,
 	folderOf,
+	getAttachment,
 	folderQuery,
 	getDraft,
 	getMessage,
@@ -35,7 +36,8 @@ import {
 	type GmailMessage,
 	type MessagePart,
 } from '../connections/google/gmail-api';
-import type {CommandRunner, Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
+import {attachmentRecord, attachmentsText, pickAttachment, readableKind, requireEmailId} from './attachment-text';
+import {onlyRun, type CommandRunner, type Connector, type DataRecord, type ListQuery, type NewCommandRunner, type RecordPage, type RecordTarget, type RecordValues} from './connector';
 import {gmailQuery, type EmailSearch} from './email-search';
 import {replyHeaders, type MailReply} from './email-reply';
 
@@ -158,7 +160,7 @@ function toRecord(account: string, recordId: string, message: GmailMessage, valu
 }
 
 function fullRecord(account: string, recordId: string, message: GmailMessage): DataRecord {
-	return toRecord(account, recordId, message, {...summaryValues(message), body: messageBody(message.payload)});
+	return toRecord(account, recordId, message, {...summaryValues(message), body: messageBody(message.payload), attachments: attachmentsText(attachmentsOf(message.payload))});
 }
 
 // A draft in the drafts, not one moved to Trash, which Gmail doesn't list among them.
@@ -318,7 +320,7 @@ function updateDraftRecord(target: RecordTarget, recordId: string, values: Recor
 			const draftId = $(await requireDraft(token, recordId, 'Only drafts can be edited or deleted'));
 			const draft = $((await getDraft(token, draftId)).mapErr(notFoundAs(recordId)));
 			const {payload, threadId} = draft.message;
-			if (attachmentNames(payload).length > 0) {
+			if (attachmentsOf(payload).length > 0) {
 				return $(Err(ApiErr.validationError('This draft has attachments, which editing it here would drop; edit it in Gmail')));
 			}
 			const current = {to: headerOf(payload, 'To'), subject: headerOf(payload, 'Subject'), body: messageBody(payload)};
@@ -422,6 +424,36 @@ export const replyToGmail: MailReply = (target, recordId, reply) =>
 			return headers;
 		}),
 	);
+
+// A message whole, by an email's id: a draft's by its draft id.
+function messageOf(token: string, recordId: string): Promise<Result<GmailMessage, ApiError>> {
+	return Do(async ($) => {
+		const ref = $(requireRef(recordId));
+		if (ref.kind === 'draft') {
+			return $((await getDraft(token, ref.draftId)).mapErr(notFoundAs(recordId))).message;
+		}
+		return $((await getMessage(token, ref.messageId)).mapErr(notFoundAs(recordId)));
+	});
+}
+
+/** One of an email's attachments, read as text. */
+const readAttachment: NewCommandRunner = (target, values) =>
+	Do(async ($) => {
+		const email = $(requireEmailId(values));
+		return $(
+			await callGoogle(target.connection, (token) =>
+				Do(async ($$) => {
+					const message = $$(await messageOf(token, email));
+					const {attachment, number} = $$(pickAttachment(attachmentsOf(message.payload), values));
+					$$(readableKind(attachment));
+					const bytes = attachment.attachmentId ? $$(await getAttachment(token, message.id, attachment.attachmentId)) : Buffer.from(attachment.data ?? '', 'base64url');
+					return $$(await attachmentRecord(email, number, {...attachment, bytes}));
+				}),
+			),
+		);
+	});
+
+export const gmailAttachmentsConnector: Connector = {...onlyRun('Attachments are only read, one at a time'), newCommands: {read: readAttachment}};
 
 export const gmailConnector: Connector = {
 	list: listPage,
