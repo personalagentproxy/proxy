@@ -17,7 +17,7 @@ const TASK_TOOLS = new Set(['start_task', 'finish_task']);
 const DELEGATE: ModelTool = {
 	name: DELEGATE_TOOL,
 	description:
-		'Starts a sub-agent on a piece of work with the person’s accounts, with the same access as you. It answers at once that the sub-agent has started, and the sub-agent’s report comes to you as a message when it is done: go on meanwhile, or, when there is nothing to do until then, say so to the person and stop. Give `title`, what the work is in a few words, which the person sees, and `brief`, everything the sub-agent needs: it knows nothing of this conversation but the brief, and can’t ask you or the person anything. Several started in one turn run side by side.',
+		'Starts a sub-agent on a piece of work with the person’s accounts, with the same access as you. It answers at once that the sub-agent has started, and the sub-agent’s report comes to you as a message when it is done: go on meanwhile, or, when there is nothing to do until then, tell the person what you are looking into and stop. Give `title`, what the work is in a few words, which the person sees, and `brief`, everything the sub-agent needs: it knows nothing of this conversation but the brief, and can’t ask you or the person anything. One sub-agent can look in several accounts: start another only for a separate piece of work.',
 	parameters: {
 		type: 'object',
 		properties: {
