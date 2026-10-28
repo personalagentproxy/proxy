@@ -8,13 +8,15 @@ import {OrgTile} from '@/components/org-switcher';
 import {RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {SettingRow} from '@/components/setting-row';
+import {ThemePicker} from '@/components/theme-picker';
 import {TypeToConfirmDialog} from '@/components/type-to-confirm-dialog';
 import {useHuman} from '@/hooks/use-human';
 import {describeApiError} from '@/lib/loader-utils';
 import {hasOtherPeople} from '@/lib/orgs';
 
-// The person's account, in no organization: who is signed in, the organizations they are in, each
-// to its own settings, and deleting the account, which deletes every one they own.
+// The person's account, in no organization: who is signed in, how the app looks to them, the
+// organizations they are in, each to its own settings, and deleting the account, which deletes
+// every one they own.
 export function AccountPage() {
 	const human = useHuman();
 	const [deleting, setDeleting] = useState(false);
@@ -32,6 +34,13 @@ export function AccountPage() {
 					<RowList>
 						<SettingRow label="Email">{human.user.email}</SettingRow>
 						{human.user.name && <SettingRow label="Name">{human.user.name}</SettingRow>}
+					</RowList>
+				</Section>
+				<Section title="Appearance">
+					<RowList>
+						<SettingRow label="Theme">
+							<ThemePicker />
+						</SettingRow>
 					</RowList>
 				</Section>
 				<Section title="Organizations" detail={human.orgs.length}>

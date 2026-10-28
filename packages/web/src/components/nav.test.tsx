@@ -30,7 +30,7 @@ function renderSidebar(human: Human, entry = '/acme') {
 	return render(
 		<ThemeProvider>
 			<TooltipProvider>
-				<SidebarProvider>
+				<SidebarProvider collapsed>
 					<RouterProvider router={router} />
 				</SidebarProvider>
 			</TooltipProvider>

@@ -8,8 +8,6 @@ import {cn} from 'cn';
 
 import {useIsMobile} from '@proxy/ui/hooks/use-mobile';
 import {Button} from '@proxy/ui/components/button';
-import {Input} from '@proxy/ui/components/input';
-import {Separator} from '@proxy/ui/components/separator';
 import {
 	Sheet,
 	SheetContent,
@@ -17,25 +15,18 @@ import {
 	SheetHeader,
 	SheetTitle,
 } from '@proxy/ui/components/sheet';
-import {Skeleton} from '@proxy/ui/components/skeleton';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {PanelLeftIcon} from 'lucide-react';
 
-const SIDEBAR_COOKIE_NAME = 'sidebar_state';
-const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 const SIDEBAR_WIDTH = '16rem';
 const SIDEBAR_WIDTH_MOBILE = '18rem';
 const SIDEBAR_WIDTH_ICON = '3rem';
-const SIDEBAR_KEYBOARD_SHORTCUT = 'b';
 
 type SidebarContextProps = {
 	state: 'expanded' | 'collapsed';
-	open: boolean;
-	setOpen: (open: boolean) => void;
 	openMobile: boolean;
 	setOpenMobile: (open: boolean) => void;
 	isMobile: boolean;
-	toggleSidebar: () => void;
 };
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null);
@@ -49,74 +40,24 @@ function useSidebar() {
 	return context;
 }
 
+// On desktop the sidebar is either always collapsed or always expanded, as `collapsed` says: there
+// is no toggling it. On phones it is a sheet, opened by the trigger and closed on every pick.
 function SidebarProvider({
-	defaultOpen = true,
-	open: openProp,
-	onOpenChange: setOpenProp,
+	collapsed = false,
 	className,
 	style,
 	children,
 	...props
 }: React.ComponentProps<'div'> & {
-	defaultOpen?: boolean;
-	open?: boolean;
-	onOpenChange?: (open: boolean) => void;
+	collapsed?: boolean;
 }) {
 	const isMobile = useIsMobile();
 	const [openMobile, setOpenMobile] = React.useState(false);
-
-	// This is the internal state of the sidebar.
-	// We use openProp and setOpenProp for control from outside the component.
-	const [_open, _setOpen] = React.useState(defaultOpen);
-	const open = openProp ?? _open;
-	const setOpen = React.useCallback(
-		(value: boolean | ((value: boolean) => boolean)) => {
-			const openState = typeof value === 'function' ? value(open) : value;
-			if (setOpenProp) {
-				setOpenProp(openState);
-			} else {
-				_setOpen(openState);
-			}
-
-			// This sets the cookie to keep the sidebar state.
-			document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
-		},
-		[setOpenProp, open],
-	);
-
-	// Helper to toggle the sidebar.
-	const toggleSidebar = React.useCallback(() => {
-		return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
-	}, [isMobile, setOpen, setOpenMobile]);
-
-	// Adds a keyboard shortcut to toggle the sidebar.
-	React.useEffect(() => {
-		const handleKeyDown = (event: KeyboardEvent) => {
-			if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
-				event.preventDefault();
-				toggleSidebar();
-			}
-		};
-
-		window.addEventListener('keydown', handleKeyDown);
-		return () => window.removeEventListener('keydown', handleKeyDown);
-	}, [toggleSidebar]);
-
-	// We add a state so that we can do data-state="expanded" or "collapsed".
-	// This makes it easier to style the sidebar with Tailwind classes.
-	const state = open ? 'expanded' : 'collapsed';
+	const state = collapsed ? 'collapsed' : 'expanded';
 
 	const contextValue = React.useMemo<SidebarContextProps>(
-		() => ({
-			state,
-			open,
-			setOpen,
-			isMobile,
-			openMobile,
-			setOpenMobile,
-			toggleSidebar,
-		}),
-		[state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar],
+		() => ({state, isMobile, openMobile, setOpenMobile}),
+		[state, isMobile, openMobile],
 	);
 
 	return (
@@ -244,8 +185,9 @@ function Sidebar({
 	);
 }
 
+// Opens the sidebar's sheet on phones.
 function SidebarTrigger({className, onClick, ...props}: React.ComponentProps<typeof Button>) {
-	const {toggleSidebar} = useSidebar();
+	const {openMobile, setOpenMobile} = useSidebar();
 
 	return (
 		<Button
@@ -256,62 +198,13 @@ function SidebarTrigger({className, onClick, ...props}: React.ComponentProps<typ
 			className={cn(className)}
 			onClick={(event) => {
 				onClick?.(event);
-				toggleSidebar();
+				setOpenMobile(!openMobile);
 			}}
 			{...props}
 		>
 			<PanelLeftIcon className="cn-rtl-flip" />
-			<span className="sr-only">Toggle Sidebar</span>
+			<span className="sr-only">Open sidebar</span>
 		</Button>
-	);
-}
-
-function SidebarRail({className, ...props}: React.ComponentProps<'button'>) {
-	const {toggleSidebar} = useSidebar();
-
-	return (
-		<button
-			data-sidebar="rail"
-			data-slot="sidebar-rail"
-			aria-label="Toggle Sidebar"
-			tabIndex={-1}
-			onClick={toggleSidebar}
-			title="Toggle Sidebar"
-			className={cn(
-				'absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:start-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2',
-				'in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize',
-				'[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize',
-				'group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-sidebar',
-				'[[data-side=left][data-collapsible=offcanvas]_&]:-right-2',
-				'[[data-side=right][data-collapsible=offcanvas]_&]:-left-2',
-				className,
-			)}
-			{...props}
-		/>
-	);
-}
-
-function SidebarInset({className, ...props}: React.ComponentProps<'main'>) {
-	return (
-		<main
-			data-slot="sidebar-inset"
-			className={cn(
-				'relative flex w-full flex-1 flex-col bg-background md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2',
-				className,
-			)}
-			{...props}
-		/>
-	);
-}
-
-function SidebarInput({className, ...props}: React.ComponentProps<typeof Input>) {
-	return (
-		<Input
-			data-slot="sidebar-input"
-			data-sidebar="input"
-			className={cn('h-8 w-full bg-background shadow-none', className)}
-			{...props}
-		/>
 	);
 }
 
@@ -332,17 +225,6 @@ function SidebarFooter({className, ...props}: React.ComponentProps<'div'>) {
 			data-slot="sidebar-footer"
 			data-sidebar="footer"
 			className={cn('flex flex-col gap-2 p-2', className)}
-			{...props}
-		/>
-	);
-}
-
-function SidebarSeparator({className, ...props}: React.ComponentProps<typeof Separator>) {
-	return (
-		<Separator
-			data-slot="sidebar-separator"
-			data-sidebar="separator"
-			className={cn('mx-2 w-auto bg-sidebar-border', className)}
 			{...props}
 		/>
 	);
@@ -395,41 +277,6 @@ function SidebarGroupLabel({
 			sidebar: 'group-label',
 		},
 	});
-}
-
-function SidebarGroupAction({
-	className,
-	render,
-	...props
-}: useRender.ComponentProps<'button'> & React.ComponentProps<'button'>) {
-	return useRender({
-		defaultTagName: 'button',
-		props: mergeProps<'button'>(
-			{
-				className: cn(
-					'absolute top-3.5 right-3 flex aspect-square w-5 items-center justify-center rounded-md p-0 text-sidebar-foreground ring-sidebar-ring outline-hidden transition-transform group-data-[collapsible=icon]:hidden after:absolute after:-inset-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 md:after:hidden [&>svg]:size-4 [&>svg]:shrink-0',
-					className,
-				),
-			},
-			props,
-		),
-		render,
-		state: {
-			slot: 'sidebar-group-action',
-			sidebar: 'group-action',
-		},
-	});
-}
-
-function SidebarGroupContent({className, ...props}: React.ComponentProps<'div'>) {
-	return (
-		<div
-			data-slot="sidebar-group-content"
-			data-sidebar="group-content"
-			className={cn('w-full text-sm', className)}
-			{...props}
-		/>
-	);
 }
 
 function SidebarMenu({className, ...props}: React.ComponentProps<'ul'>) {
@@ -560,53 +407,6 @@ function SidebarMenuAction({
 	});
 }
 
-function SidebarMenuBadge({className, ...props}: React.ComponentProps<'div'>) {
-	return (
-		<div
-			data-slot="sidebar-menu-badge"
-			data-sidebar="menu-badge"
-			className={cn(
-				'pointer-events-none absolute right-1 flex h-5 min-w-5 items-center justify-center rounded-md px-1 text-xs font-medium text-sidebar-foreground tabular-nums select-none group-data-[collapsible=icon]:hidden peer-hover/menu-button:text-sidebar-accent-foreground peer-data-[size=default]/menu-button:top-1.5 peer-data-[size=lg]/menu-button:top-2.5 peer-data-[size=sm]/menu-button:top-1 peer-data-active/menu-button:text-sidebar-accent-foreground',
-				className,
-			)}
-			{...props}
-		/>
-	);
-}
-
-function SidebarMenuSkeleton({
-	className,
-	showIcon = false,
-	...props
-}: React.ComponentProps<'div'> & {
-	showIcon?: boolean;
-}) {
-	// Random width between 50 to 90%.
-	const [width] = React.useState(() => {
-		return `${Math.floor(Math.random() * 40) + 50}%`;
-	});
-
-	return (
-		<div
-			data-slot="sidebar-menu-skeleton"
-			data-sidebar="menu-skeleton"
-			className={cn('flex h-8 items-center gap-2 rounded-md px-2', className)}
-			{...props}
-		>
-			{showIcon && <Skeleton className="size-4 rounded-md" data-sidebar="menu-skeleton-icon" />}
-			<Skeleton
-				className="h-4 max-w-(--skeleton-width) flex-1"
-				data-sidebar="menu-skeleton-text"
-				style={
-					{
-						'--skeleton-width': width,
-					} as React.CSSProperties
-				}
-			/>
-		</div>
-	);
-}
-
 function SidebarMenuSub({className, ...props}: React.ComponentProps<'ul'>) {
 	return (
 		<ul
@@ -669,24 +469,16 @@ export {
 	SidebarContent,
 	SidebarFooter,
 	SidebarGroup,
-	SidebarGroupAction,
-	SidebarGroupContent,
 	SidebarGroupLabel,
 	SidebarHeader,
-	SidebarInput,
-	SidebarInset,
 	SidebarMenu,
 	SidebarMenuAction,
-	SidebarMenuBadge,
 	SidebarMenuButton,
 	SidebarMenuItem,
-	SidebarMenuSkeleton,
 	SidebarMenuSub,
 	SidebarMenuSubButton,
 	SidebarMenuSubItem,
 	SidebarProvider,
-	SidebarRail,
-	SidebarSeparator,
 	SidebarTrigger,
 	useSidebar,
 };

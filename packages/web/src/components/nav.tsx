@@ -12,7 +12,6 @@ import {Link, useLocation} from 'react-router';
 import {signOut} from '@/client/auth-client';
 import {OrgSwitcher} from '@/components/org-switcher';
 import {PersonAvatar} from '@/components/person-avatar';
-import {ThemeMenu} from '@/components/theme-menu';
 import {useExperiments} from '@/hooks/use-experiment';
 import {
 	Sidebar,
@@ -50,10 +49,10 @@ function isActive(pathname: string, path: string, home: string): boolean {
 	return path === home ? pathname === home : pathname.startsWith(path);
 }
 
-// The stock shadcn sidebar: a rail in icon mode on desktop, labels in tooltips and ⌘B to expand
-// it; a sheet from the left on phones, opened from the header and closed again on every pick. The
-// organization switcher sits at its top, with the organization's pages in groups under it; the
-// person's own, their account, theme and signing out, at its foot.
+// The stock shadcn sidebar: always a rail in icon mode on desktop, labels in tooltips; a sheet from
+// the left on phones, opened from the header and closed again on every pick. The organization
+// switcher sits at its top, with the organization's pages in groups under it; the person's own,
+// their account and signing out, at its foot.
 export function AppSidebar() {
 	const {pathname} = useLocation();
 	const human = useHuman();
@@ -111,9 +110,6 @@ export function AppSidebar() {
 							</span>
 							<span>Account</span>
 						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<ThemeMenu />
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton

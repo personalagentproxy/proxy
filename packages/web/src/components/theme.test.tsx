@@ -2,9 +2,7 @@
 
 import {afterEach, beforeEach, describe, expect, test} from 'bun:test';
 import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
-import {SidebarProvider} from '@proxy/ui/components/sidebar';
-import {TooltipProvider} from '@proxy/ui/components/tooltip';
-import {ThemeMenu} from '@/components/theme-menu';
+import {ThemePicker} from '@/components/theme-picker';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {
 	storeTheme,
@@ -166,20 +164,16 @@ describe('ThemeProvider', () => {
 	});
 });
 
-test('the sidebar menu selects and persists each theme', async () => {
+test("the account's picker selects and persists each theme", async () => {
 	localStorage.setItem(THEME_STORAGE_KEY, 'dark');
-	renderTheme(
-		<TooltipProvider>
-			<SidebarProvider>
-				<ThemeMenu />
-			</SidebarProvider>
-		</TooltipProvider>,
-	);
+	renderTheme(<ThemePicker />);
 
-	fireEvent.click(screen.getByRole('button', {name: 'Theme: Dark'}));
-	expect(screen.getByRole('group', {name: 'Theme'})).toBeTruthy();
-	fireEvent.click(await screen.findByRole('menuitemradio', {name: 'Light'}));
+	const group = screen.getByRole('group', {name: 'Theme'});
+	expect(group).toBeTruthy();
+	expect(screen.getByRole('button', {name: 'Dark'}).getAttribute('aria-pressed')).toBe('true');
+	fireEvent.click(screen.getByRole('button', {name: 'Light'}));
 
 	await waitFor(() => expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light'));
 	expect(document.documentElement.classList.contains('light')).toBe(true);
+	expect(screen.getByRole('button', {name: 'Light'}).getAttribute('aria-pressed')).toBe('true');
 });
