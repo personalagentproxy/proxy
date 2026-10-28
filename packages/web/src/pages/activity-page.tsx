@@ -172,7 +172,7 @@ function TaskCard({
 }
 
 // Finished once the agent says so; one it never finished is taken as left open 20 minutes after
-// anything was last done for it or its sub-tasks (@proxy/utils/tasks).
+// anything was last done for it or its sub-tasks, until the next request (@proxy/utils/tasks).
 function TaskBadge({task}: {task: ActivityTask}) {
 	// When the page was opened, as the log's entries are.
 	const [now] = useState(() => new Date());

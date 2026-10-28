@@ -97,20 +97,27 @@ describe('startAgentTask', () => {
 			expect(createAgentTask).not.toHaveBeenCalled();
 		});
 
-		test('a parent finished or left open is refused as a conflict, saying to start a new task', async () => {
+		test('a parent finished is refused as a conflict, saying to start a new task', async () => {
 			const {startAgentTask} = await import('./tasks');
 			getAgentTask.mockResolvedValue(Ok({...parentRow, finishedAt: new Date('2026-10-16T10:00:00Z')}));
 			const finished = await startAgentTask(caller, {title: 'Triage inbox', goal: 'Archive the newsletters', parent: 'task-0'});
-			getAgentTask.mockResolvedValue(Ok({...parentRow, lastActiveAt: new Date('2026-10-16T08:50:00Z')}));
-			const leftOpen = await startAgentTask(caller, {title: 'Triage inbox', goal: 'Archive the newsletters', parent: 'task-0'});
 
 			expect(finished.unwrapErr()).toEqual({
 				kind: 'conflict',
 				statusCode: 409,
 				message: 'Task task-0 (Plan the week) is finished. Start a new task for what you are doing now, and give its id as task.',
 			});
-			expect(leftOpen.unwrapErr()).toMatchObject({kind: 'conflict'});
 			expect(createAgentTask).not.toHaveBeenCalled();
+		});
+
+		test('a parent left open is taken up again, and the sub-task started under it', async () => {
+			getAgentTask.mockResolvedValue(Ok({...parentRow, lastActiveAt: new Date('2026-10-16T08:30:00Z')}));
+			createAgentTask.mockResolvedValue(Ok({...row, parentId: 'task-0'}));
+			const {startAgentTask} = await import('./tasks');
+			const result = await startAgentTask(caller, {title: 'Triage inbox', goal: 'Archive the newsletters', parent: 'task-0'});
+
+			expect(touchAgentTask).toHaveBeenCalledWith('org-1', 'agent-1', 'task-0');
+			expect(result.unwrap()).toEqual({...response, parent: 'task-0'});
 		});
 
 		test('a parent finished between the check and the start is refused as a conflict too', async () => {
@@ -119,7 +126,7 @@ describe('startAgentTask', () => {
 			const {startAgentTask} = await import('./tasks');
 			const result = await startAgentTask(caller, {title: 'Triage inbox', goal: 'Archive the newsletters', parent: 'task-0'});
 
-			expect(result.unwrapErr()).toMatchObject({kind: 'conflict', message: expect.stringContaining('Task task-0 is no longer under way')});
+			expect(result.unwrapErr()).toMatchObject({kind: 'conflict', message: expect.stringContaining('Task task-0, or a task it is part of, is finished')});
 		});
 	});
 });
@@ -165,12 +172,16 @@ describe('finishAgentTask', () => {
 		expect(result.unwrapErr()).toMatchObject({kind: 'not_found', resource: 'task', id: 'task-9'});
 	});
 
-	test('a task left open, never finished, is refused as a conflict', async () => {
+	test('a task left open under a task finished without it is refused as a conflict', async () => {
 		finishAgentTask.mockResolvedValue(Ok(row));
 		const {finishAgentTask: finish} = await import('./tasks');
 		const result = await finish(caller, {task: 'task-1', outcome: 'Archived 12 newsletters'});
 
-		expect(result.unwrapErr()).toMatchObject({kind: 'conflict', message: expect.stringContaining('taken as left open')});
+		expect(result.unwrapErr()).toEqual({
+			kind: 'conflict',
+			statusCode: 409,
+			message: "Task task-1 (Triage inbox) was left open, and a task it is part of was finished without it, so it can't be finished any more.",
+		});
 	});
 });
 
@@ -213,43 +224,25 @@ describe('requireOpenTask', () => {
 		expect(touchAgentTask).not.toHaveBeenCalled();
 	});
 
-	test('a task never finished is left open 20 minutes after anything was last done for it or its sub-tasks', async () => {
+	test('a task left open, 20 minutes or more with nothing done for it, is taken up again by the call', async () => {
 		const {requireOpenTask} = await import('./tasks');
-		setSystemTime(new Date('2026-10-16T09:19:59Z'));
-		const lastSecond = await requireOpenTask(agent, 'task-1');
-		touchAgentTask.mockClear();
-		setSystemTime(new Date('2026-10-16T09:20:00Z'));
-		const leftOpen = await requireOpenTask(agent, 'task-1');
+		setSystemTime(new Date('2026-10-16T11:00:00Z'));
+		const result = await requireOpenTask(agent, 'task-1');
 
-		expect(lastSecond.unwrap()).toBe(row);
-		expect(leftOpen.unwrapErr()).toEqual({
-			kind: 'conflict',
-			statusCode: 409,
-			message:
-				'Task task-1 (Triage inbox) was never finished, and nothing was done for it or its sub-tasks in the last 20 minutes, so it is taken as left open. Start a new task for what you are doing now, and give its id as task.',
-		});
-		expect(touchAgentTask).not.toHaveBeenCalled();
+		expect(touchAgentTask).toHaveBeenCalledWith('org-1', 'agent-1', 'task-1');
+		expect(result.unwrap()).toBe(row);
 	});
 
-	test('a task started long ago is under way while something was done for it in the last 20 minutes', async () => {
-		const {requireOpenTask} = await import('./tasks');
-		const active = {...row, lastActiveAt: new Date('2026-10-16T14:00:00Z')};
-		getAgentTask.mockResolvedValue(Ok(active));
-		setSystemTime(new Date('2026-10-16T14:15:00Z'));
-		const underWay = await requireOpenTask(agent, 'task-1');
-		setSystemTime(new Date('2026-10-16T14:20:00Z'));
-		const leftOpen = await requireOpenTask(agent, 'task-1');
-
-		expect(underWay.unwrap()).toBe(active);
-		expect(leftOpen.unwrapErr()).toMatchObject({kind: 'conflict', message: expect.stringContaining('taken as left open')});
-	});
-
-	test('a task finished or left open between the check and the call is refused as a conflict', async () => {
+	test('a task finished since it was read, or left open under a task finished, is refused as a conflict', async () => {
 		touchAgentTask.mockResolvedValue(Ok(false));
 		const {requireOpenTask} = await import('./tasks');
 		const result = await requireOpenTask(agent, 'task-1');
 
-		expect(result.unwrapErr()).toMatchObject({kind: 'conflict', message: expect.stringContaining('taken as left open')});
+		expect(result.unwrapErr()).toEqual({
+			kind: 'conflict',
+			statusCode: 409,
+			message: 'Task task-1 (Triage inbox), or a task it is part of, is finished. Start a new task for what you are doing now, and give its id as task.',
+		});
 	});
 });
 

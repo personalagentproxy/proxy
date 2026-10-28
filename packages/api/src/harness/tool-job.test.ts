@@ -12,9 +12,6 @@ const getThreadAgent = mock(async () => Ok(signedIn));
 const startSubAgent = mock(async () => Ok(true));
 mock.module('@proxy/db/harness', () => ({getJobThread, getEntry, completeToolJob, failJob, finishJob, getThreadAgent, startSubAgent}));
 
-const ensureThreadTask = mock(async () => Ok('task-2'));
-mock.module('./thread-task', () => ({ensureThreadTask}));
-
 const callMcpTool = mock();
 mock.module('../mcp/tools', () => ({callMcpTool}));
 
@@ -73,7 +70,7 @@ describe('runToolJob', () => {
 		const result = await runToolJob(job('c1'), 'w1', now);
 
 		expect(result.isOk()).toBe(true);
-		expect(callMcpTool).toHaveBeenCalledWith(signedIn, 'read', {connection: 'mail-1', tool: 'emails_list', task: 'task-2'}, false, 'harness');
+		expect(callMcpTool).toHaveBeenCalledWith(signedIn, 'read', {connection: 'mail-1', tool: 'emails_list', task: 'task-1'}, false, 'harness');
 		expect(completeToolJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: '{"records":[]}', isError: false});
 	});
 

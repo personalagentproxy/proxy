@@ -5,7 +5,6 @@ import {callArguments, DELEGATE_TOOL, delegateArgs, SLEEP_TOOL, sleepUntil, type
 import {completeToolJob, failJob, finishJob, getEntry, getJobThread, getThreadAgent, type JobRow, startSubAgent, type ThreadRow} from '@proxy/db/harness';
 
 import {callMcpTool} from '../mcp/tools';
-import {ensureThreadTask} from './thread-task';
 import {isGateTool} from './tool-surface';
 
 /**
@@ -45,11 +44,14 @@ function cutResult(text: string): string {
 }
 
 // Runs the call through the gate, as the sub-agent acts in the thread, for its task.
-function runGateTool(thread: ThreadRow, name: string, args: Record<string, unknown>, now: Date): Promise<Result<ToolAnswer, ApiError>> {
+function runGateTool(thread: ThreadRow, name: string, args: Record<string, unknown>): Promise<Result<ToolAnswer, ApiError>> {
 	return Do(async ($) => {
+		if (thread.taskId === null) {
+			return $(Err(ApiErr.conflict('The agent talking with the person makes no calls of its own')));
+		}
 		const signedIn = $(requirePresent($(await getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
-		const taskId = $(await ensureThreadTask(thread, now));
-		const result = await callMcpTool(signedIn, name, {...args, task: taskId}, false, 'harness');
+		// One left open, as when the sub-agent slept long, is taken up again by the call (@proxy/utils/tasks).
+		const result = await callMcpTool(signedIn, name, {...args, task: thread.taskId}, false, 'harness');
 		return {text: cutResult(result.content.map((part) => part.text).join('\n')), isError: result.isError === true};
 	});
 }
@@ -84,7 +86,7 @@ function answer(thread: ThreadRow, job: JobRow, call: ToolCall, now: Date): Prom
 		if (call.name === 'run' && job.attempts > 1) {
 			return error('The outcome of this call is unknown: the worker running it was interrupted before it could record the answer. Check what it changed before making it again.');
 		}
-		return $(await runGateTool(thread, call.name, args, now));
+		return $(await runGateTool(thread, call.name, args));
 	});
 }
 

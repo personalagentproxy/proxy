@@ -422,9 +422,10 @@ model AgentTask {
   // say whose it was; null for every other task. As a column, as the agent is.
   personaId String?
   // When it, or the last of its sub-tasks at any depth, was started or had a request made for it:
-  // one never finished is taken as left open 20 minutes after (@proxy/utils/tasks). Never before
-  // any of its sub-tasks', so a parent is never left open while one is under way. Set with
-  // createdAt, and on it and every task above it when a sub-task starts or a request is made.
+  // one never finished is taken as left open 20 minutes after, until the next request takes it up
+  // again (@proxy/utils/tasks). Never before any of its sub-tasks', so a parent is never left open
+  // while one is under way. Set with createdAt, and on it and every task above it when a sub-task
+  // starts, a request is made or it is finished.
   lastActiveAt DateTime
 
   createdAt DateTime @default(now())
@@ -559,10 +560,10 @@ model Persona {
 
 // A thread of the built-in agent, holding its log of entries: a member's conversation with a
 // persona, or a sub-agent started from it. Every call a sub-agent makes is for its thread's task,
-// as any agent's calls are; a task left open, 20 minutes on with nothing done for it, is replaced
-// by a new one. A conversation has no task: its agent makes no calls but to delegate. Everything
-// that happens to the agent is an entry (AgentEntry), and everything that makes it do something
-// is a job (AgentJob).
+// as any agent's calls are, taken up again by the next where it was left open, as when it slept
+// long. A conversation has no task: its agent makes no calls but to delegate. Everything that
+// happens to the agent is an entry (AgentEntry), and everything that makes it do something is a
+// job (AgentJob).
 model AgentThread {
   id      String @id @default(cuid())
   orgId   String

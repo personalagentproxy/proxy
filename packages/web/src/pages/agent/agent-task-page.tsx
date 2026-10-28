@@ -29,7 +29,7 @@ export function AgentTaskPage() {
 	const notice =
 		noticeFromState(useLocation().state) ??
 		(refused
-			? `Task ${refused} can’t be worked on anymore: it is finished, went 20 minutes with nothing done for it, or isn’t this login’s. Carry on with another, or start one for what you are doing now`
+			? `Task ${refused} can’t be worked on anymore: it, or the task it is part of, is finished, or it isn’t this login’s. Carry on with another, or start one for what you are doing now`
 			: null);
 	const [error, setError] = useState<string | null>(null);
 

@@ -16,7 +16,7 @@ describe('isTaskRefusal', () => {
 		body,
 	});
 
-	test('is a task that is unknown, finished or left open, and no other refusal', () => {
+	test('is a task that is unknown or finished, and no other refusal', () => {
 		expect(isTaskRefusal(refused(404, {error: 'not_found', resource: 'task'}))).toBe(true);
 		expect(
 			isTaskRefusal(

@@ -13,7 +13,7 @@ export function apiMessage(body: unknown): string | null {
 
 export function agentErrorMessage(error: FetchError): string {
 	if (isTaskRefusal(error)) {
-		return 'This task can’t be worked on anymore: it is finished, went 20 minutes with nothing done for it, or isn’t this login’s. Switch task, or start a new one.';
+		return 'This task can’t be worked on anymore: it, or the task it is part of, is finished, or it isn’t this login’s. Switch task, or start a new one.';
 	}
 	if (error.kind === 'http' && error.status === 403) {
 		return 'This login is not allowed to do that.';

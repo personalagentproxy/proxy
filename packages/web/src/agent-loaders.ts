@@ -16,7 +16,7 @@ import {fetchErrorToResponse} from '@/lib/loader-utils';
 
 // The agent side's pages. Every records request is made for the task in the page's address,
 // checked and logged by the api; a page shows what came back, a refusal included. A task the api
-// refuses, unknown, finished or left open, sends the agent back to its tasks.
+// refuses, unknown or finished, sends the agent back to its tasks.
 
 // No live session, a revoked login included, sends the agent to its sign-in.
 function unwrapAgentResult<T>(result: Result<T, FetchError>): T {
@@ -31,8 +31,8 @@ function unwrapAgentResult<T>(result: Result<T, FetchError>): T {
 
 export type Outcome<T> = {kind: 'ok'; value: T} | {kind: 'denied'} | {kind: 'missing'};
 
-// A run refused for its task, one finished since the page opened or left open, sends
-// the agent back to its tasks, rather than show the page as refused or missing.
+// A run refused for its task, one finished since the page opened, sends the agent back to its
+// tasks, rather than show the page as refused or missing.
 function toOutcome<T>(taskId: string, result: Result<T, FetchError>): Outcome<T> {
 	if (result.isErr() && isTaskRefusal(result.error)) {
 		throw redirect(taskRefusedPath(taskId));

@@ -18,7 +18,6 @@ import {
 	readyForInference,
 	type ToolCall,
 } from '@proxy/utils/harness';
-import {TASK_LEFT_OPEN_AFTER_MS} from '@proxy/utils/tasks';
 
 import {db} from '.';
 import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed-in-agent';
@@ -464,16 +463,6 @@ export async function listJobEvents(threadId: string): Promise<Result<JobEventRo
 	);
 }
 
-/** A new task for a sub-agent's calls, once the one before was left open. */
-export async function setThreadTask(
-	threadId: string,
-	taskId: string,
-): Promise<Result<void, ApiError>> {
-	return (await wrapDb(() => db.agentThread.update({where: {id: threadId}, data: {taskId}}))).map(
-		() => undefined,
-	);
-}
-
 // Locks the thread's row for the rest of the transaction, and gives the thread as it is; null
 // when there is no such thread.
 async function lockThread(tx: Tx, threadId: string): Promise<ThreadRow | null> {
@@ -586,9 +575,9 @@ async function answerCall(
 }
 
 // Ends a sub-agent's work with its report: its thread is done, its task finished with the report
-// as the outcome (unless left open meanwhile, as a task is 20 minutes after anything was last done
-// for it), and the report answers the call that started it, in the thread it was started from,
-// from the sub-agent's job that ended with it. With the sub-agent's thread locked; its parent's is locked here, after.
+// as the outcome, taken up again where it was left open meanwhile (@proxy/utils/tasks), and the
+// report answers the call that started it, in the thread it was started from, from the sub-agent's
+// job that ended with it. With the sub-agent's thread locked; its parent's is locked here, after.
 async function endSubAgent(
 	tx: Tx,
 	thread: ThreadRow,
@@ -606,12 +595,8 @@ async function endSubAgent(
 	await tx.agentThread.update({where: {id: thread.id}, data: {finishedAt: now}});
 	if (thread.taskId !== null) {
 		await tx.agentTask.updateMany({
-			where: {
-				id: thread.taskId,
-				finishedAt: null,
-				lastActiveAt: {gt: new Date(now.getTime() - TASK_LEFT_OPEN_AFTER_MS)},
-			},
-			data: {finishedAt: now, outcome: cut(report.text, MAX_TASK_TEXT)},
+			where: {id: thread.taskId, finishedAt: null},
+			data: {finishedAt: now, lastActiveAt: now, outcome: cut(report.text, MAX_TASK_TEXT)},
 		});
 	}
 	const parent = await lockThread(tx, thread.parentThreadId);

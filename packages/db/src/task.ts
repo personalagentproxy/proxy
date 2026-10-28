@@ -47,9 +47,9 @@ const taskSelect = {
  * task it is a sub-task of, where it is one. The parent and every task above it are locked while
  * the sub-task is made, so none can be finished in between and leave the sub-task open, and each
  * takes the sub-task's start as the last thing done for it (`lastActiveAt`), so none is left open
- * before it; `Ok(null)` means the parent is no longer under way, finished or left open
- * (@proxy/utils/tasks). `ownerUserId` is the member whose own the agent is, who alone sees the
- * task; null for a shared agent's.
+ * before it, and one left open is taken up again; `Ok(null)` means the parent, or a task above it,
+ * is finished (@proxy/utils/tasks). `ownerUserId` is the member whose own the agent is, who alone
+ * sees the task; null for a shared agent's.
  */
 export async function createAgentTask(data: {
 	orgId: string;
@@ -89,8 +89,8 @@ export async function createAgentTask(data: {
 /**
  * Takes now as the last thing done for the agent's task `taskId` and every task above it, as a
  * request made for it is (`lastActiveAt`), so none is left open while the agent is still at work on
- * it. `Ok(false)` means it is no longer under way, finished or left open (@proxy/utils/tasks), or
- * the agent has no such task.
+ * it, and one left open is taken up again (@proxy/utils/tasks). `Ok(false)` means it, or a task
+ * above it, is finished, or the agent has no such task.
  */
 export async function touchAgentTask(
 	orgId: string,
@@ -101,8 +101,9 @@ export async function touchAgentTask(
 }
 
 // Locks the task and every task above it, and takes `now` as the last thing done for each; false,
-// with none changed, where the task is no longer under way. A task under way has every task above it
-// under way too: finishing one finishes its sub-tasks, and none is left open before them.
+// with none changed, where any of them is finished. So a task taken up again takes up every task
+// above it too, none left open before it; and one left open when its parent was finished, which
+// it was not finished with (finishSubTasks), stays as it is.
 async function touchLine(
 	tx: Prisma.TransactionClient,
 	{orgId, agentId, taskId}: {orgId: string; agentId: string; taskId: string},
@@ -126,12 +127,7 @@ async function touchLine(
 		JOIN "line" ON "task"."id" = "line"."id"
 		ORDER BY "line"."depth" DESC
 		FOR UPDATE OF "task"`;
-	const task = above.find((row) => row.id === taskId);
-	if (
-		!task ||
-		task.finishedAt !== null ||
-		task.lastActiveAt.getTime() <= now.getTime() - TASK_LEFT_OPEN_AFTER_MS
-	) {
+	if (!above.some((row) => row.id === taskId) || above.some((row) => row.finishedAt !== null)) {
 		return false;
 	}
 	// Where another instance's clock is ahead, one may have set a later time already.
@@ -155,10 +151,12 @@ export async function getAgentTask(
 
 /**
  * Marks the agent's task finished now, with what was done where the agent said, and its sub-tasks
- * still under way finished with it, in one transaction. One already finished keeps the time it was,
- * and takes the outcome only where it has none, as a sub-task finished with its parent does; one
- * left open (@proxy/utils/tasks) stays as it is, ended when it was left open. `Ok(null)` means the
- * agent has no such task.
+ * still under way finished with it, in one transaction. Finishing is something done for it and
+ * every task above it, as a request is (touchLine), so one left open (@proxy/utils/tasks) is taken
+ * up again to be finished. One already finished keeps the time it was, and takes the outcome only
+ * where it has none, as a sub-task finished with its parent does; one left open under a task
+ * finished without it stays as it is, ended when it was left open. `Ok(null)` means the agent has
+ * no such task.
  */
 export async function finishAgentTask(
 	orgId: string,
@@ -169,21 +167,13 @@ export async function finishAgentTask(
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
 			const finishedAt = new Date();
-			const leftOpenBefore = new Date(finishedAt.getTime() - TASK_LEFT_OPEN_AFTER_MS);
-			const {count} = await tx.agentTask.updateMany({
-				where: {
-					id: taskId,
-					orgId,
-					agentId,
-					finishedAt: null,
-					lastActiveAt: {gt: leftOpenBefore},
-				},
-				data: {finishedAt, outcome},
-			});
-			if (count > 0) {
+			const open = await touchLine(tx, {orgId, agentId, taskId}, finishedAt);
+			if (open) {
+				await tx.agentTask.update({where: {id: taskId}, data: {finishedAt, outcome}});
+				const leftOpenBefore = new Date(finishedAt.getTime() - TASK_LEFT_OPEN_AFTER_MS);
 				await finishSubTasks(tx, {orgId, agentId, finishedAt, leftOpenBefore}, [taskId]);
 			}
-			if (count === 0 && outcome !== null) {
+			if (!open && outcome !== null) {
 				await tx.agentTask.updateMany({
 					where: {id: taskId, orgId, agentId, finishedAt: {not: null}, outcome: null},
 					data: {outcome},
@@ -197,7 +187,7 @@ export async function finishAgentTask(
 // Finishes the sub-tasks of `parentIds` still under way, level by level down the tree. Each level
 // is read after the one above is updated, which waits for a sub-task being made under it
 // (createAgentTask), so none is left under way. One left open keeps when it ended, as do its own
-// sub-tasks, left open no later than it.
+// sub-tasks, left open no later than it, and can't be taken up again (touchLine).
 async function finishSubTasks(
 	tx: Prisma.TransactionClient,
 	at: {orgId: string; agentId: string; finishedAt: Date; leftOpenBefore: Date},

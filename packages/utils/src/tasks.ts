@@ -1,9 +1,10 @@
 // An agent says when it has finished a task, but it often doesn't: a task still open 20 minutes
 // after anything was last done for it or for one of its sub-tasks at any depth, a sub-task started
 // or a request made, is taken as left open, ended then. So a task isn't ended while a sub-agent is
-// still at work on part of it, and a parent is never left open before any of its sub-tasks. One
-// left open is no longer under way, so no call can be made for it; the web app shows it as having
-// ended at the last request made for it.
+// still at work on part of it, and a parent is never left open before any of its sub-tasks. The web
+// app shows one left open as having ended at the last request made for it. It is taken up again,
+// with every task above it, by the next call made for it, a sub-task started under it or the agent
+// finishing it, unless a task it is part of was finished meanwhile.
 
 export const TASK_LEFT_OPEN_AFTER_MS = 20 * 60 * 1000;
 
