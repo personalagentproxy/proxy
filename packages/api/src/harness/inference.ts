@@ -50,14 +50,14 @@ const SUB_FLOW =
 
 // How a long log is summarized, by the same model, for itself: a conversation's, or a
 // sub-agent's, whose one message from the person is its brief.
-const SUMMARIZE =
+export const SUMMARIZE =
 	'You are summarizing a conversation between a person and their agent, written out below with the calls the agent made and what they answered, so that the agent can go on from the summary in place of the conversation so far. Write what the agent needs to go on as if it remembered: what the person asked for and what they said they want in general; what was done and found, with the names, ids, dates and numbers that matter; what the person was told; what is still open, promised or planned, such as what to do after a sleep or when a sub-agent reports. Leave out what no longer matters. Plain prose, from the agent’s side, no title.';
-const SUMMARIZE_NOW = 'Write the summary now.';
+export const SUMMARIZE_NOW = 'Write the summary now.';
 
 // How many answers the model may give in a row without the person saying anything, calls,
 // reports and wake-ups included, before it stops and waits for them; a report that comes after
 // the stop is acted on, and the count starts over.
-const MAX_TURNS_ALONE = 30;
+export const MAX_TURNS_ALONE = 30;
 
 // How often a model that can't be reached is tried, and how long to wait between tries.
 const MAX_MODEL_ATTEMPTS = 3;
@@ -80,9 +80,8 @@ function isStop(entry: EntryRow): boolean {
 	return entry.kind === 'assistant' && (entry.text === TOO_LONG || entry.text === TOO_LONG_SUB);
 }
 
-// How many answers the model has given since the person last spoke, or since it last stopped for
-// them.
-function turnsAlone(entries: EntryRow[]): number {
+/** How many answers the model has given since the person last spoke, or since it last stopped for them. */
+export function turnsAlone(entries: EntryRow[]): number {
 	const since = entries.findLastIndex((entry) => entry.kind === 'person' || isStop(entry));
 	return entries.slice(since + 1).filter((entry) => entry.kind === 'assistant').length;
 }

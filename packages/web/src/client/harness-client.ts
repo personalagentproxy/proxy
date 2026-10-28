@@ -12,7 +12,7 @@ const personaSchema = z.object({
 	color: z.enum(AVATAR_COLORS),
 });
 
-const chatPersonaSchema = personaSchema.extend({
+export const chatPersonaSchema = personaSchema.extend({
 	id: z.string(),
 	// Whether the person may rename, reface or delete it: they made it, or own the organization.
 	mayChange: z.boolean(),

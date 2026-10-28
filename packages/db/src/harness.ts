@@ -453,15 +453,65 @@ export async function listOpenJobs(threadId: string): Promise<Result<JobRow[], A
 	);
 }
 
-/** What happened to the thread's jobs, in order: every claim, requeue, finish and failure. */
-export async function listJobEvents(threadId: string): Promise<Result<JobEventRow[], ApiError>> {
+/** What happened to the threads' jobs, in order: every claim, requeue, finish and failure. */
+export async function listJobEvents(threadIds: string[]): Promise<Result<JobEventRow[], ApiError>> {
 	return wrapDb(() =>
 		db.agentJobEvent.findMany({
-			where: {threadId},
+			where: {threadId: {in: threadIds}},
 			select: jobEventSelect,
 			orderBy: {at: 'asc'},
 		}),
 	);
+}
+
+/** A job with its whole record, for the inspector: beside what the worker reads, why it failed, its lease and when it was made. */
+export type JobDetailRow = JobRow & {
+	leaseExpiresAt: Date | null;
+	error: string | null;
+	createdAt: Date;
+};
+
+const jobDetailSelect = {...jobSelect, leaseExpiresAt: true, error: true, createdAt: true} as const;
+
+/** Every job of the threads, whatever its status, oldest first: the queue and its history, for the inspector. */
+export async function listThreadJobs(
+	threadIds: string[],
+): Promise<Result<JobDetailRow[], ApiError>> {
+	return wrapDb(() =>
+		db.agentJob.findMany({
+			where: {threadId: {in: threadIds}},
+			select: jobDetailSelect,
+			orderBy: {createdAt: 'asc'},
+		}),
+	);
+}
+
+/** The sub-agents started from the thread, done or not, oldest first. */
+export async function listSubAgentThreads(
+	parentThreadId: string,
+): Promise<Result<ThreadRow[], ApiError>> {
+	return wrapDb(() =>
+		db.agentThread.findMany({
+			where: {parentThreadId},
+			select: threadSelect,
+			orderBy: {createdAt: 'asc'},
+		}),
+	);
+}
+
+/** The thread's whole log, for the inspector: what the model reads in order, then what is pending, in the order it landed. */
+export async function listEntriesWithPending(
+	threadId: string,
+): Promise<Result<EntryRow[], ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentEntry.findMany({
+				where: {threadId},
+				select: entrySelect,
+				orderBy: [{pending: 'asc'}, {seq: 'asc'}],
+			}),
+		)
+	).map((entries) => entries.map(toEntry));
 }
 
 /** A new task for a sub-agent's calls, once the one before was abandoned. */

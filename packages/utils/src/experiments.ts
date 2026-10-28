@@ -11,6 +11,9 @@ export const EXPERIMENTS = {
 	// The built-in agent: a conversation with an agent Personal Agent Proxy runs itself, behind its
 	// own gate, on the Chat page.
 	harness: 'Built-in agent',
+	// Debugging: the inspector of the built-in agent, for whoever works on it, every thread of a
+	// conversation with its whole log, its jobs and what the model was sent, on its own page.
+	debug: 'Debugging',
 } as const satisfies Record<string, string>;
 
 export type Experiment = keyof typeof EXPERIMENTS;

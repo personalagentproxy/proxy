@@ -46,6 +46,7 @@ import {
 	handleShareConnectionRoute,
 } from '../connections/route';
 import {handleFaviconRoute} from '../favicons/route';
+import {handleInspectRequestRoute, handleInspectThreadRoute} from '../harness/inspect-route';
 import {handleCreatePersonaRoute, handleDeletePersonaRoute, handleGetThreadRoute, handleListPersonasRoute, handlePostMessageRoute, handleUpdatePersonaRoute} from '../harness/route';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
@@ -219,6 +220,10 @@ export function createApiRouter(): express.Router {
 	org.delete('/chat/personas/:personaId', withAuthResult('Delete persona route', handleDeletePersonaRoute));
 	org.get('/chat/personas/:personaId/thread', withAuthResult('Get chat thread route', handleGetThreadRoute));
 	org.post('/chat/personas/:personaId/messages', withAuthResult('Post chat message route', handlePostMessageRoute));
+	// The inspector, behind the `debug` experiment too: the conversation as the harness has
+	// it, and what the model was sent for an answer.
+	org.get('/chat/personas/:personaId/inspect', withAuthResult('Inspect chat thread route', handleInspectThreadRoute));
+	org.get('/chat/inspect/entries/:entryId/request', withAuthResult('Inspect chat request route', handleInspectRequestRoute));
 
 	// The agent side: its own sign-in and cookie, and every request made for one of the agent's
 	// tasks, checked against the agent's access and logged with the task.

@@ -10,6 +10,7 @@ import {
 } from '@/client/agents-client';
 import {getConnection, listConnections} from '@/client/connections-client';
 import {getThread, listPersonas} from '@/client/harness-client';
+import {getInspection} from '@/client/inspect-client';
 import {getMe} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {getInvitation, getOrg, listMembers, listOrgs} from '@/client/orgs-client';
@@ -130,6 +131,30 @@ export async function chatLoader(args: OrgParams & {params: {id?: string}}) {
 		listPersonas(org),
 	]);
 	return {log: unwrapLoaderResult(log), personas: unwrapLoaderResult(personas).personas};
+}
+
+// The inspector of the conversation with a persona: the first persona's where the address names none.
+export async function inspectIndexLoader(args: OrgParams) {
+	const org = orgOf(args);
+	const {personas} = unwrapLoaderResult(await listPersonas(org));
+	const first = personas[0];
+	if (!first) {
+		throw redirect(`/${org}`);
+	}
+	throw redirect(`/${org}/inspect/${first.id}`);
+}
+
+// The conversation with a persona as the harness has it, and the personas to switch between.
+export async function inspectLoader(args: OrgParams & {params: {id?: string}}) {
+	const org = orgOf(args);
+	const [inspection, personas] = await Promise.all([
+		getInspection(org, args.params.id ?? ''),
+		listPersonas(org),
+	]);
+	return {
+		inspection: unwrapLoaderResult(inspection),
+		personas: unwrapLoaderResult(personas).personas,
+	};
 }
 
 // The vault is the one built-in connection, which every organization has twice: the person's own

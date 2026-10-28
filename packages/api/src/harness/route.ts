@@ -2,7 +2,7 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, hasExperiment, parseSchema, requirePresent} from '@proxy/utils';
-import {AVATAR_COLORS, type Look, lookSchema, preview} from '@proxy/utils/harness';
+import {AVATAR_COLORS, lookSchema} from '@proxy/utils/harness';
 import {
 	appendPersonMessage,
 	createPersona,
@@ -12,7 +12,6 @@ import {
 	type EntryRow,
 	getMemberThread,
 	getPersona,
-	type LastMessage,
 	listOpenJobs,
 	listPersonas,
 	listShownEntries,
@@ -23,9 +22,9 @@ import {
 import {AGENT_NAME_MAX} from '@proxy/integrations';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {manages} from '../utils/manages';
 import {type OrgViewer, requireViewer} from '../utils/user-org';
 import {ensureBuiltInAgent} from './built-in-agent';
+import {managesPersona, type PersonaResponse, toPersona} from './persona-response';
 
 /**
  * The Chat page's routes, under the organization: its personas, which every member sees, each
@@ -37,31 +36,11 @@ import {ensureBuiltInAgent} from './built-in-agent';
 
 const MAX_MESSAGE = 20_000;
 
-/** A persona as the page lists it, whether the viewer may change it, and the last thing said in their conversation with it, cut to a line; null before anything was said. */
-export type PersonaResponse = {id: string; name: string; look: Look; color: string; mayChange: boolean; lastMessage: {kind: 'person' | 'assistant'; text: string; at: string} | null};
-
 /** A turn of the conversation as the page shows it: what the person said, or what the persona answered, which is what went wrong where its turn failed. What the persona did in between is in the activity log, not here. */
 export type EntryResponse = {id: string; kind: 'person' | 'assistant'; text: string; isError: boolean; at: string};
 
 /** The member's conversation with a persona: the persona, its turns, and what the persona is up to: busy on it, asleep until a time, or waiting for the person. */
 export type ThreadLogResponse = {persona: PersonaResponse; entries: EntryResponse[]; busy: boolean; sleepingUntil: string | null};
-
-// Whether the viewer may rename, reface or delete the persona: whoever made it, or the organization's owner (utils/manages.ts).
-function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
-	return manages(viewer, {ownerUserId: null, byId: persona.createdById});
-}
-
-function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null}): PersonaResponse {
-	const last = persona.lastMessage ?? null;
-	return {
-		id: persona.id,
-		name: persona.name,
-		look: persona.look,
-		color: persona.color,
-		mayChange: managesPersona(viewer, persona),
-		lastMessage: last && {kind: last.kind, text: preview(last.text), at: last.createdAt.toISOString()},
-	};
-}
 
 // A persona as the person makes or changes it: a name, and a head, a look in one of the colors.
 const personaSchema = z.object({
