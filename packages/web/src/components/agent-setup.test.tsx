@@ -119,8 +119,9 @@ describe('AddAgent', () => {
 			providerId: 'claude-code',
 			name: 'Claude Code at work',
 		});
-		// The sign-in page Claude Code opens in this browser has it chosen.
-		expect(pendingAgent()).toEqual({org: 'acme', agentId: 'agent-3'});
+		// The sign-in page Claude Code opens in this browser has it chosen, once the step's effect
+		// has run, which may be after its text is shown.
+		await waitFor(() => expect(pendingAgent()).toEqual({org: 'acme', agentId: 'agent-3'}));
 	});
 
 	test('needs a custom agent named', () => {
