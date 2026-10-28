@@ -1,5 +1,5 @@
-import type {AuditVia, Prisma} from '@prisma/client';
-import type {Result} from 'ts-results-es';
+import {type AuditVia, Prisma} from '@prisma/client';
+import {Ok, type Result} from 'ts-results-es';
 
 import {type ApiError, wrapDb} from '@proxy/utils';
 import {TASK_LEFT_OPEN_AFTER_MS} from '@proxy/utils/tasks';
@@ -27,6 +27,10 @@ export type AgentTaskRow = {
 	// one never finished is taken as left open 20 minutes after (@proxy/utils/tasks).
 	lastActiveAt: Date;
 };
+
+// How stale a task's lastActiveAt may be before something done for it writes it again: so a call
+// is not a write each, and a task is left open 19 to 20 minutes after the last call made for it.
+const TOUCH_AFTER_MS = 60 * 1000;
 
 const taskSelect = {
 	id: true,
@@ -87,17 +91,73 @@ export async function createAgentTask(data: {
 }
 
 /**
- * Takes now as the last thing done for the agent's task `taskId` and every task above it, as a
- * request made for it is (`lastActiveAt`), so none is left open while the agent is still at work on
- * it, and one left open is taken up again (@proxy/utils/tasks). `Ok(false)` means it, or a task
- * above it, is finished, or the agent has no such task.
+ * Takes now as the last thing done for the agent's task and every task above it, as a request made
+ * for it is (`lastActiveAt`), so none is left open while the agent is still at work on it, and one
+ * left open is taken up again (@proxy/utils/tasks). `Ok(false)` means it, or a task above it, is
+ * finished, or the agent has no such task. One read unfinished and done for within the last
+ * minute isn't written again, nor the tasks above it read: none of them can have been finished
+ * since without finishing it too (finishSubTasks).
  */
 export async function touchAgentTask(
 	orgId: string,
 	agentId: string,
+	task: Pick<AgentTaskRow, 'id' | 'finishedAt' | 'lastActiveAt'>,
+): Promise<Result<boolean, ApiError>> {
+	if (task.finishedAt !== null) {
+		return Ok(false);
+	}
+	if (Date.now() - task.lastActiveAt.getTime() < TOUCH_AFTER_MS) {
+		return Ok(true);
+	}
+	return wrapDb(() =>
+		db.$transaction((tx) => touchLine(tx, {orgId, agentId, taskId: task.id}, new Date())),
+	);
+}
+
+/**
+ * Whether the agent's task and every task above it are not finished, read without taking any of
+ * them up; `Ok(false)` where the agent has no such task.
+ */
+export async function isAgentTaskOpen(
+	orgId: string,
+	agentId: string,
 	taskId: string,
 ): Promise<Result<boolean, ApiError>> {
-	return wrapDb(() => db.$transaction((tx) => touchLine(tx, {orgId, agentId, taskId}, new Date())));
+	return wrapDb(async () => {
+		const line = await lineOf(db, {orgId, agentId, taskId}, {lock: false});
+		return isOpen(line, taskId);
+	});
+}
+
+type LineRow = {id: string; finishedAt: Date | null};
+
+// The task and every task above it, from the top down; with `lock`, locked for the rest of the
+// transaction in that order, the one finishing a task locks its sub-tasks in (finishSubTasks), so
+// the two can't wait on each other.
+function lineOf(
+	client: Prisma.TransactionClient,
+	{orgId, agentId, taskId}: {orgId: string; agentId: string; taskId: string},
+	{lock}: {lock: boolean},
+): Promise<LineRow[]> {
+	return client.$queryRaw<LineRow[]>`
+		WITH RECURSIVE "line" AS (
+			SELECT "id", "parentId", 0 AS "depth" FROM "AgentTask"
+			WHERE "id" = ${taskId} AND "orgId" = ${orgId} AND "agentId" = ${agentId}
+			UNION ALL
+			SELECT "task"."id", "task"."parentId", "line"."depth" + 1
+			FROM "AgentTask" AS "task"
+			JOIN "line" ON "task"."id" = "line"."parentId"
+		)
+		SELECT "task"."id", "task"."finishedAt"
+		FROM "AgentTask" AS "task"
+		JOIN "line" ON "task"."id" = "line"."id"
+		ORDER BY "line"."depth" DESC
+		${lock ? Prisma.sql`FOR UPDATE OF "task"` : Prisma.empty}`;
+}
+
+// Whether the line of `taskId` holds it, with none of it finished.
+function isOpen(line: LineRow[], taskId: string): boolean {
+	return line.some((row) => row.id === taskId) && line.every((row) => row.finishedAt === null);
 }
 
 // Locks the task and every task above it, and takes `now` as the last thing done for each; false,
@@ -109,30 +169,13 @@ async function touchLine(
 	{orgId, agentId, taskId}: {orgId: string; agentId: string; taskId: string},
 	now: Date,
 ): Promise<boolean> {
-	// Locked from the top down, the order finishing a task locks its sub-tasks in (finishSubTasks),
-	// so the two can't wait on each other.
-	const above = await tx.$queryRaw<
-		Array<{id: string; finishedAt: Date | null; lastActiveAt: Date}>
-	>`
-		WITH RECURSIVE "line" AS (
-			SELECT "id", "parentId", 0 AS "depth" FROM "AgentTask"
-			WHERE "id" = ${taskId} AND "orgId" = ${orgId} AND "agentId" = ${agentId}
-			UNION ALL
-			SELECT "task"."id", "task"."parentId", "line"."depth" + 1
-			FROM "AgentTask" AS "task"
-			JOIN "line" ON "task"."id" = "line"."parentId"
-		)
-		SELECT "task"."id", "task"."finishedAt", "task"."lastActiveAt"
-		FROM "AgentTask" AS "task"
-		JOIN "line" ON "task"."id" = "line"."id"
-		ORDER BY "line"."depth" DESC
-		FOR UPDATE OF "task"`;
-	if (!above.some((row) => row.id === taskId) || above.some((row) => row.finishedAt !== null)) {
+	const line = await lineOf(tx, {orgId, agentId, taskId}, {lock: true});
+	if (!isOpen(line, taskId)) {
 		return false;
 	}
 	// Where another instance's clock is ahead, one may have set a later time already.
 	await tx.agentTask.updateMany({
-		where: {id: {in: above.map((row) => row.id)}, lastActiveAt: {lt: now}},
+		where: {id: {in: line.map((row) => row.id)}, lastActiveAt: {lt: now}},
 		data: {lastActiveAt: now},
 	});
 	return true;
@@ -230,10 +273,11 @@ export async function listOpenAgentTasks(
 
 /**
  * The tasks the viewer sees, shared agents' and their own agents', under way at some point between
- * `from` and `to`: started by `to` and not finished before `from`, nor left open before it, 20
- * minutes after anything was last done for it or its sub-tasks. Of those, the newest `take`
- * started on their own, newest first; a sub-task ends no later than its parent, which is under way
- * then too, so the rest are sub-tasks of these (listSubTasks).
+ * `from` and `to`: started by `to` and not finished before `from`, nor, left open, last had
+ * anything done for it or its sub-tasks before it, which is where the web app ends it
+ * (@/lib/timeline-window's endsOf). Of those, the newest `take` started on their own, newest
+ * first; a sub-task ends no later than its parent, which is under way then too, so the rest are
+ * sub-tasks of these (listSubTasks).
  */
 export async function listAgentTasksBetween(
 	viewer: Viewer,
@@ -241,7 +285,10 @@ export async function listAgentTasksBetween(
 	to: Date,
 	take: number,
 ): Promise<Result<AgentTaskRow[], ApiError>> {
-	const activeSince = new Date(from.getTime() - TASK_LEFT_OPEN_AFTER_MS);
+	// lastActiveAt is a minute behind at most (touchAgentTask), and one under way runs to now.
+	const activeSince = new Date(
+		Math.min(from.getTime() - TOUCH_AFTER_MS, Date.now() - TASK_LEFT_OPEN_AFTER_MS),
+	);
 	return wrapDb(() =>
 		db.agentTask.findMany({
 			where: {

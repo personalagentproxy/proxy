@@ -14,7 +14,14 @@ mock.module('@proxy/db/audit', () => ({logAgentRequest}));
 
 const getAgentTask = mock();
 
-mock.module('@proxy/db/task', () => ({getAgentTask, createAgentTask: mock(), finishAgentTask: mock(), listOpenAgentTasks: mock(), touchAgentTask: mock(async () => Ok(true))}));
+mock.module('@proxy/db/task', () => ({
+	getAgentTask,
+	createAgentTask: mock(),
+	finishAgentTask: mock(),
+	isAgentTaskOpen: mock(),
+	listOpenAgentTasks: mock(),
+	touchAgentTask: mock(async () => Ok(true)),
+}));
 
 const listConnectionsWithCredential = mock();
 

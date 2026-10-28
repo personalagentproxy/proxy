@@ -2,7 +2,7 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
-import {type AuditEntryRow, listAuditEntries, listLastTaskEntries, listTaskEntries} from '@proxy/db/audit';
+import {type AuditEntryRow, listAuditEntries, listTaskEntries} from '@proxy/db/audit';
 import {listMemberNames} from '@proxy/db/organization';
 import type {Look} from '@proxy/utils/harness';
 import {listPersonasById} from '@proxy/db/harness';
@@ -197,8 +197,7 @@ export type ActivityTimelineResponse = {
 	to: string;
 	// Every task under way at some point between `from` and `to`, with its sub-tasks, newest first.
 	tasks: ActivityTaskResponse[];
-	// The requests made for them between `from` and `to`, in the order they were made; and, where
-	// `to` is before now, each task's last made after it.
+	// The requests made for them between `from` and `to`, in the order they were made.
 	entries: AuditEntryResponse[];
 };
 
@@ -227,15 +226,12 @@ export function handleActivityTimelineRoute(request: AuthenticatedRequest): Prom
 		const ids = tasks.map((task) => task.id);
 		// Only the stretch read shares out the most requests, so none goes to what came after it.
 		const rows = $(await listTaskEntries(viewer, ids, MAX_TIMELINE_ENTRIES, {from, to}));
-		// Read back from before now, a task left open may have had requests made after the stretch:
-		// the last of them says when it ended (@/lib/timeline-window's endsOf in the web app).
-		const later = to < now ? $(await listLastTaskEntries(viewer, ids, to)) : [];
 		return {
 			now: now.toISOString(),
 			from: from.toISOString(),
 			to: to.toISOString(),
 			tasks: $(await toActivityTasks(viewer, tasks)),
-			entries: $(await toEntries(viewer, [...rows, ...later])),
+			entries: $(await toEntries(viewer, rows)),
 		};
 	});
 }

@@ -463,6 +463,16 @@ export async function listJobEvents(threadId: string): Promise<Result<JobEventRo
 	);
 }
 
+/** A new task for a sub-agent's calls, once the one before was finished while it was at work. */
+export async function setThreadTask(
+	threadId: string,
+	taskId: string,
+): Promise<Result<void, ApiError>> {
+	return (await wrapDb(() => db.agentThread.update({where: {id: threadId}, data: {taskId}}))).map(
+		() => undefined,
+	);
+}
+
 // Locks the thread's row for the rest of the transaction, and gives the thread as it is; null
 // when there is no such thread.
 async function lockThread(tx: Tx, threadId: string): Promise<ThreadRow | null> {

@@ -3,7 +3,7 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import type {SignedInAgent} from '@proxy/db/agent';
-import {type AgentTaskRow, createAgentTask, finishAgentTask as markAgentTaskFinished, getAgentTask, listOpenAgentTasks, touchAgentTask} from '@proxy/db/task';
+import {type AgentTaskRow, createAgentTask, finishAgentTask as markAgentTaskFinished, getAgentTask, isAgentTaskOpen, listOpenAgentTasks, touchAgentTask} from '@proxy/db/task';
 
 import type {AgentCaller} from './tools';
 
@@ -25,12 +25,10 @@ import type {AgentCaller} from './tools';
 const MAX_TITLE = 120;
 const MAX_GOAL = 2000;
 const MAX_OUTCOME = 2000;
-// How stale a task's last activity may be before a call made for it writes it again: so a call is
-// not a write each, and a task is left open 19 to 20 minutes after the last call made for it.
-const TOUCH_AFTER_MS = 60 * 1000;
 // Why a task can't be worked on any more, where it, or a task above it, was finished since it was
 // read; or, left open, a task above it was finished without it (@proxy/utils/tasks).
-const finishedAbove = (taskId: string, title: string) => `Task ${taskId} (${title}), or a task it is part of, is finished. Start a new task for what you are doing now, and give its id as task.`;
+const finishedAbove = (task: Pick<AgentTaskRow, 'id' | 'title'>) =>
+	`Task ${task.id} (${task.title}), or a task it is part of, is finished. Start a new task for what you are doing now, and give its id as task.`;
 
 const startSchema = z.object({title: z.string(), goal: z.string(), parent: z.string().optional()});
 const finishSchema = z.object({task: z.string(), outcome: z.string().optional()});
@@ -76,15 +74,17 @@ export function startAgentTask(caller: AgentCaller, args: unknown): Promise<Resu
 			return $(Err(ApiErr.validationError(`The goal is ${goal.length} characters long; keep it under ${MAX_GOAL}, a sentence or two.`)));
 		}
 		const parentId = parsed.parent?.trim() || null;
-		if (parentId !== null) {
-			$(await requireOpenTask(caller.agent, parentId));
-		}
+		// Only read: making the sub-task takes the parent, and every task above it, up again.
+		const parent = parentId === null ? null : $(await readUnfinishedTask(caller.agent, parentId));
 		const task = $(await createAgentTask({orgId: caller.agent.orgId, agentId: caller.agent.agentId, ownerUserId: caller.agent.ownerUserId, parentId, title, goal, via: caller.via}));
-		// Only where the parent, or a task above it, was finished since it was checked above.
-		if (task === null) {
-			return $(Err(ApiErr.conflict(`Task ${parentId}, or a task it is part of, is finished. Start a new task for what you are doing now, and give its id as task.`)));
+		if (task !== null) {
+			return toResponse(task);
 		}
-		return toResponse(task);
+		if (parent === null) {
+			return $(Err(ApiErr.internalError(new Error('A task with no parent was not made'))));
+		}
+		// Only where the parent, or a task above it, was finished since it was read above.
+		return $(Err(ApiErr.conflict(finishedAbove(parent))));
 	});
 }
 
@@ -93,9 +93,18 @@ export function listAgentOpenTasks(agent: SignedInAgent): Promise<Result<{tasks:
 	return Do(async ($) => ({tasks: $(await listOpenAgentTasks(agent.orgId, agent.agentId)).map(toResponse)}));
 }
 
-/** The agent's task `taskId` while it is not finished, refused as a call made for it would be (`requireOpenTask`). */
+/**
+ * The agent's task `taskId` while it is not finished, refused as a call made for it would be
+ * (`requireOpenTask`), but only read: one left open stays so until a call is made for it.
+ */
 export function getAgentOpenTask(agent: SignedInAgent, taskId: string): Promise<Result<AgentTaskResponse, ApiError>> {
-	return Do(async ($) => toResponse($(await requireOpenTask(agent, taskId))));
+	return Do(async ($) => {
+		const task = $(await readUnfinishedTask(agent, taskId));
+		if (!$(await isAgentTaskOpen(agent.orgId, agent.agentId, taskId))) {
+			return $(Err(ApiErr.conflict(finishedAbove(task))));
+		}
+		return toResponse(task);
+	});
 }
 
 /**
@@ -129,16 +138,22 @@ export function finishAgentTask(caller: AgentCaller, args: unknown): Promise<Res
  */
 export function requireOpenTask(agent: SignedInAgent, taskId: string): Promise<Result<AgentTaskRow, ApiError>> {
 	return Do(async ($) => {
+		const task = $(await readUnfinishedTask(agent, taskId));
+		// False where it was finished since it was read, or, left open, a task above it was.
+		if (!$(await touchAgentTask(agent.orgId, agent.agentId, task))) {
+			return $(Err(ApiErr.conflict(finishedAbove(task))));
+		}
+		return task;
+	});
+}
+
+// The agent's task `taskId`, read: unknown, or another agent's, is not found, and one finished a
+// conflict.
+function readUnfinishedTask(agent: SignedInAgent, taskId: string): Promise<Result<AgentTaskRow, ApiError>> {
+	return Do(async ($) => {
 		const task = $(requirePresent($(await getAgentTask(agent.orgId, agent.agentId, taskId)), ApiErr.notFound('task', taskId)));
 		if (task.finishedAt !== null) {
 			return $(Err(ApiErr.conflict(`Task ${taskId} (${task.title}) is finished. Start a new task for what you are doing now, and give its id as task.`)));
-		}
-		if (Date.now() - task.lastActiveAt.getTime() < TOUCH_AFTER_MS) {
-			return task;
-		}
-		// False where it was finished since it was read, or, left open, a task above it was.
-		if (!$(await touchAgentTask(agent.orgId, agent.agentId, taskId))) {
-			return $(Err(ApiErr.conflict(finishedAbove(taskId, task.title))));
 		}
 		return task;
 	});

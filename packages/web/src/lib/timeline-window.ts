@@ -118,9 +118,11 @@ function leftOpenAt(task: TaskTimes, now: Date): Date | null {
 type TaskInTree = TaskTimes & Pick<ActivityTask, 'id' | 'parentId'>;
 
 /**
- * When each of `tasks` ended, if it has by `now`: when it was finished; or, left open, when the
- * last of `entries` made for it was done or the last of its sub-tasks ended, or when it started
- * where there was neither, since nothing was done for it after. Null while it is under way.
+ * When each of `tasks` ended, if it has by `now`: when it was finished; or, left open, when
+ * anything was last done for it or its sub-tasks (`lastActiveAt`), or the last of `entries` made
+ * for it was done or the last of its sub-tasks ended where that is later, as it can be by the
+ * minute `lastActiveAt` is written at most once in (db/task's touchAgentTask). Null while it is
+ * under way.
  */
 export function endsOf(
 	tasks: TaskInTree[],
@@ -163,13 +165,13 @@ export function endsOf(
 		if (leftOpenAt(task, now) === null) {
 			return null;
 		}
-		const started = new Date(task.startedAt).getTime();
+		const active = new Date(task.lastActiveAt).getTime();
 		// A sub-task is left open no later than its parent (@proxy/utils/tasks), so each has ended.
 		return new Date(
 			Math.max(
-				started,
-				lastRequest.get(task.id) ?? started,
-				...(children.get(task.id) ?? []).map((child) => endOf(child)?.getTime() ?? started),
+				active,
+				lastRequest.get(task.id) ?? active,
+				...(children.get(task.id) ?? []).map((child) => endOf(child)?.getTime() ?? active),
 			),
 		);
 	};

@@ -426,7 +426,10 @@ model AgentTask {
   // again (@proxy/utils/tasks). Never before any of its sub-tasks', so a parent is never left open
   // while one is under way. Set with createdAt, and on it and every task above it when a sub-task
   // starts, a request is made or it is finished.
-  lastActiveAt DateTime
+  lastActiveAt  DateTime @default(now())
+  // What lastActiveAt took over from, read by nothing: kept only for the instances still on the
+  // version before while a deploy replaces them, and dropped by the next migration.
+  lastStartedAt DateTime @default(now())
 
   createdAt DateTime @default(now())
 

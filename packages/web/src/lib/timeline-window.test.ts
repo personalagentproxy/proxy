@@ -73,11 +73,26 @@ describe('endsOf', () => {
 		expect(ends.get('t1')).toBeNull();
 	});
 
-	test('a task left open ended when its last request was done, or when it started with none', () => {
-		const leftOpen = task({startedAt: '2026-10-15T09:00:00Z'});
+	test('a task left open ended when anything was last done for it, logged or not', () => {
+		const leftOpen = task({
+			startedAt: '2026-10-15T09:00:00Z',
+			lastActiveAt: '2026-10-15T09:50:00Z',
+		});
 		const requests = [request('2026-10-15T09:10:00Z'), request('2026-10-15T09:40:00Z')];
-		expect(endsOf([leftOpen], requests, now).get('t1')).toEqual(new Date('2026-10-15T09:40:00Z'));
-		expect(endsOf([leftOpen], [], now).get('t1')).toEqual(new Date('2026-10-15T09:00:00Z'));
+		expect(endsOf([leftOpen], requests, now).get('t1')).toEqual(new Date('2026-10-15T09:50:00Z'));
+		expect(endsOf([task({startedAt: '2026-10-15T09:00:00Z'})], [], now).get('t1')).toEqual(
+			new Date('2026-10-15T09:00:00Z'),
+		);
+	});
+
+	test('a task left open ended no earlier than its last request, made in the minute after it was last written', () => {
+		const leftOpen = task({
+			startedAt: '2026-10-15T09:00:00Z',
+			lastActiveAt: '2026-10-15T09:40:00Z',
+		});
+		expect(endsOf([leftOpen], [request('2026-10-15T09:40:30Z')], now).get('t1')).toEqual(
+			new Date('2026-10-15T09:40:30Z'),
+		);
 	});
 
 	test('a task left open ended no earlier than the last of its sub-tasks, at any depth', () => {

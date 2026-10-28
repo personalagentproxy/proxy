@@ -6,8 +6,9 @@ const getAgentTask = mock();
 const finishAgentTask = mock();
 const listOpenAgentTasks = mock();
 const touchAgentTask = mock();
+const isAgentTaskOpen = mock();
 
-mock.module('@proxy/db/task', () => ({createAgentTask, getAgentTask, finishAgentTask, listOpenAgentTasks, touchAgentTask}));
+mock.module('@proxy/db/task', () => ({createAgentTask, getAgentTask, finishAgentTask, isAgentTaskOpen, listOpenAgentTasks, touchAgentTask}));
 
 const agent = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', orgSlug: 'org-1', experiments: []};
 const caller = {agent, via: 'mcp' as const};
@@ -35,6 +36,7 @@ beforeEach(() => {
 	getAgentTask.mockResolvedValue(Ok(row));
 	finishAgentTask.mockResolvedValue(Ok(finishedRow));
 	touchAgentTask.mockResolvedValue(Ok(true));
+	isAgentTaskOpen.mockResolvedValue(Ok(true));
 });
 
 describe('startAgentTask', () => {
@@ -110,13 +112,14 @@ describe('startAgentTask', () => {
 			expect(createAgentTask).not.toHaveBeenCalled();
 		});
 
-		test('a parent left open is taken up again, and the sub-task started under it', async () => {
+		test('a parent left open has the sub-task started under it, which takes it up again, not before', async () => {
 			getAgentTask.mockResolvedValue(Ok({...parentRow, lastActiveAt: new Date('2026-10-16T08:30:00Z')}));
 			createAgentTask.mockResolvedValue(Ok({...row, parentId: 'task-0'}));
 			const {startAgentTask} = await import('./tasks');
 			const result = await startAgentTask(caller, {title: 'Triage inbox', goal: 'Archive the newsletters', parent: 'task-0'});
 
-			expect(touchAgentTask).toHaveBeenCalledWith('org-1', 'agent-1', 'task-0');
+			expect(touchAgentTask).not.toHaveBeenCalled();
+			expect(createAgentTask).toHaveBeenCalledWith(expect.objectContaining({parentId: 'task-0'}));
 			expect(result.unwrap()).toEqual({...response, parent: 'task-0'});
 		});
 
@@ -126,7 +129,7 @@ describe('startAgentTask', () => {
 			const {startAgentTask} = await import('./tasks');
 			const result = await startAgentTask(caller, {title: 'Triage inbox', goal: 'Archive the newsletters', parent: 'task-0'});
 
-			expect(result.unwrapErr()).toMatchObject({kind: 'conflict', message: expect.stringContaining('Task task-0, or a task it is part of, is finished')});
+			expect(result.unwrapErr()).toMatchObject({kind: 'conflict', message: expect.stringContaining('Task task-0 (Plan the week), or a task it is part of, is finished')});
 		});
 	});
 });
@@ -195,16 +198,7 @@ describe('requireOpenTask', () => {
 		const result = await requireOpenTask(agent, 'task-1');
 
 		expect(getAgentTask).toHaveBeenCalledWith('org-1', 'agent-1', 'task-1');
-		expect(touchAgentTask).toHaveBeenCalledWith('org-1', 'agent-1', 'task-1');
-		expect(result.unwrap()).toBe(row);
-	});
-
-	test('a call within a minute of the last thing done for the task is not written again', async () => {
-		const {requireOpenTask} = await import('./tasks');
-		setSystemTime(new Date('2026-10-16T09:00:59Z'));
-		const result = await requireOpenTask(agent, 'task-1');
-
-		expect(touchAgentTask).not.toHaveBeenCalled();
+		expect(touchAgentTask).toHaveBeenCalledWith('org-1', 'agent-1', row);
 		expect(result.unwrap()).toBe(row);
 	});
 
@@ -229,7 +223,7 @@ describe('requireOpenTask', () => {
 		setSystemTime(new Date('2026-10-16T11:00:00Z'));
 		const result = await requireOpenTask(agent, 'task-1');
 
-		expect(touchAgentTask).toHaveBeenCalledWith('org-1', 'agent-1', 'task-1');
+		expect(touchAgentTask).toHaveBeenCalledWith('org-1', 'agent-1', row);
 		expect(result.unwrap()).toBe(row);
 	});
 
@@ -258,5 +252,22 @@ describe('getAgentOpenTask', () => {
 
 		expect(open.unwrap()).toEqual(response);
 		expect(finished.unwrapErr()).toMatchObject({kind: 'conflict', statusCode: 409});
+	});
+
+	test('only reads the task: one left open stays so, and one under a task finished is refused', async () => {
+		const {getAgentOpenTask} = await import('./tasks');
+		setSystemTime(new Date('2026-10-16T11:00:00Z'));
+		const leftOpen = await getAgentOpenTask(agent, 'task-1');
+		isAgentTaskOpen.mockResolvedValue(Ok(false));
+		const under = await getAgentOpenTask(agent, 'task-1');
+
+		expect(leftOpen.unwrap()).toEqual(response);
+		expect(isAgentTaskOpen).toHaveBeenCalledWith('org-1', 'agent-1', 'task-1');
+		expect(under.unwrapErr()).toEqual({
+			kind: 'conflict',
+			statusCode: 409,
+			message: 'Task task-1 (Triage inbox), or a task it is part of, is finished. Start a new task for what you are doing now, and give its id as task.',
+		});
+		expect(touchAgentTask).not.toHaveBeenCalled();
 	});
 });

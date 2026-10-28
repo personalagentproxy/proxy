@@ -186,35 +186,6 @@ export async function listTaskEntries(
 }
 
 /**
- * The last request the viewer sees made for each of `taskIds` after `after`, where one was, in the
- * order they were made: for a stretch of time read that ends before now, when a task left open
- * last had anything done for it, which is when the web app shows it as having ended.
- */
-export async function listLastTaskEntries(
-	viewer: Viewer,
-	taskIds: string[],
-	after: Date,
-): Promise<Result<AuditEntryRow[], ApiError>> {
-	if (taskIds.length === 0) {
-		return wrapDb(async () => []);
-	}
-	return wrapDb(async () => {
-		const last = await db.$queryRaw<Array<{id: string}>>`
-			SELECT DISTINCT ON ("taskId") "id"
-			FROM "AuditEntry"
-			WHERE ${visibleSql(viewer)}
-				AND "taskId" IN (${Prisma.join(taskIds)})
-				AND "createdAt" > ${after}
-			ORDER BY "taskId", "createdAt" DESC, "id" DESC`;
-		return db.auditEntry.findMany({
-			where: {id: {in: last.map((row) => row.id)}},
-			orderBy: {createdAt: 'asc'},
-			select: entrySelect,
-		});
-	});
-}
-
-/**
  * How many requests each task keeps where tasks with `counts` requests share `take`: the most that
  * fits, a task with fewer keeping all of its own, and at least one; null where every request fits.
  */
