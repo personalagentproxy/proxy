@@ -50,6 +50,8 @@ export type Command = {
 	// reading an attachment needs the email and the attachment named.
 	description?: string;
 	action: string;
+	// The action it needs beside its own, as sending a reply needs Read, for the email it answers.
+	requires?: string;
 	// The records it applies to, when not every one.
 	where?: Condition;
 	// The activity log's line, `{}` standing for the record: "Marked {} as read", and what a refused

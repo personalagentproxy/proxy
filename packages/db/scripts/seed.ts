@@ -517,6 +517,13 @@ const ATTACHMENT_TITLES: [string, ...string[]] = [
 	'Lease.docx',
 ];
 
+// The replies agents send or save as drafts.
+const REPLY_TITLES: [string, ...string[]] = [
+	'Re: Q3 planning — agenda',
+	'Re: Booking request for 12 Oct',
+	'Re: Thanks for the intro!',
+];
+
 // What agents search for.
 const SEARCHES: [string, ...string[]] = [
 	'invoice',
@@ -530,6 +537,10 @@ const SEARCHES: [string, ...string[]] = [
 function recordTitle(connection: Connection, collectionId: string): string {
 	if (collectionId === 'attachments') {
 		return pick(ATTACHMENT_TITLES);
+	}
+
+	if (collectionId === 'replies') {
+		return pick(REPLY_TITLES);
 	}
 
 	if (connection.integrationId === 'email' || collectionId === 'emails') {

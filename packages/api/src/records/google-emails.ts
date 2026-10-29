@@ -39,7 +39,7 @@ import {
 import {attachmentRecord, attachmentsText, pickAttachment, readableKind, requireEmailId} from './attachment-text';
 import {onlyRun, type CommandRunner, type Connector, type DataRecord, type ListQuery, type NewCommandRunner, type RecordPage, type RecordTarget, type RecordValues} from './connector';
 import {gmailQuery, type EmailSearch} from './email-search';
-import {replyHeaders, type MailReply} from './email-reply';
+import {replyCommands, replyHeaders, type MailReply} from './email-reply';
 
 /**
  * Gmail as the `emails` collection, fetched live, the same email as any mailbox's: one list, 50 to
@@ -54,7 +54,8 @@ import {replyHeaders, type MailReply} from './email-reply';
  * Marking read or unread takes the UNREAD label off or puts it on, starring the STARRED label,
  * archiving takes INBOX off, and moving to Trash is Gmail's trash, which keeps the email 30 days.
  * Nothing is deleted for good but drafts. Email goes out from the connection's own address, a draft
- * as it is saved or a new one written here; Gmail files it in Sent.
+ * as it is saved or a new one written here; Gmail files it in Sent. A reply, the `replies`
+ * collection's, is written in the thread of the email it answers, sent or saved as a draft.
  */
 
 type EmailRef = {kind: 'message'; messageId: string} | {kind: 'draft'; draftId: string};
@@ -160,7 +161,13 @@ function toRecord(account: string, recordId: string, message: GmailMessage, valu
 }
 
 function fullRecord(account: string, recordId: string, message: GmailMessage): DataRecord {
-	return toRecord(account, recordId, message, {...summaryValues(message), body: messageBody(message.payload), attachments: attachmentsText(attachmentsOf(message.payload))});
+	return toRecord(account, recordId, message, {
+		...summaryValues(message),
+		body: messageBody(message.payload),
+		attachments: attachmentsText(attachmentsOf(message.payload)),
+		messageId: headerOf(message.payload, 'Message-ID'),
+		thread: message.threadId ?? '',
+	});
 }
 
 // A draft in the drafts, not one moved to Trash, which Gmail doesn't list among them.
@@ -397,33 +404,44 @@ function sendNew(target: RecordTarget, values: RecordValues): Promise<Result<nul
 
 /**
  * A reply to an email in Gmail, from the connection's address, in the email's thread, sent or
- * saved as a draft there. A draft isn't replied to.
+ * saved as a draft there: its message id, or its draft's, and the thread Gmail put it in. A draft
+ * isn't replied to.
  */
 export const replyToGmail: MailReply = (target, recordId, reply) =>
 	callGoogle(target.connection, (token) =>
 		Do(async ($) => {
-			const messageId = $(requireMessage(recordId));
-			const {payload, threadId} = $((await getMessage(token, messageId)).mapErr(notFoundAs(recordId)));
-			const headers = replyHeaders(target.connection.account, {
-				from: headerOf(payload, 'From'),
-				replyTo: headerOf(payload, 'Reply-To'),
-				to: headerOf(payload, 'To'),
-				subject: headerOf(payload, 'Subject'),
-				messageId: headerOf(payload, 'Message-ID'),
-				references: headerOf(payload, 'References'),
-			});
-			$(requireRecipient(headers.to, '', ''));
-			const kept = {cc: '', bcc: '', inReplyTo: headers.inReplyTo, references: headers.references};
+			const ref = $(requireRef(recordId));
+			if (ref.kind === 'draft') {
+				return $(Err(ApiErr.validationError('A draft isn’t replied to: send it, or reply to the email it answers')));
+			}
+			const {payload, threadId} = $((await getMessage(token, ref.messageId)).mapErr(notFoundAs(recordId)));
+			const headers = replyHeaders(
+				target.connection.account,
+				{
+					from: headerOf(payload, 'From'),
+					replyTo: headerOf(payload, 'Reply-To'),
+					to: headerOf(payload, 'To'),
+					cc: headerOf(payload, 'Cc'),
+					subject: headerOf(payload, 'Subject'),
+					messageId: headerOf(payload, 'Message-ID'),
+					references: headerOf(payload, 'References'),
+				},
+				reply.all,
+			);
+			$(requireRecipient(headers.to, headers.cc, ''));
+			const kept = {cc: headers.cc, bcc: '', inReplyTo: headers.inReplyTo, references: headers.references};
 			const source = $(await compose(target.connection.account, {to: headers.to, subject: headers.subject, body: reply.body}, kept));
 			const message = rawMessage(source, threadId ?? null);
 			if (reply.send) {
-				$(await sendMessage(token, message));
-				return headers;
+				const sent = $(await sendMessage(token, message));
+				return {...headers, id: sent.id, thread: sent.threadId ?? threadId ?? ''};
 			}
-			$(await createDraft(token, message));
-			return headers;
+			const draft = $(await createDraft(token, message));
+			return {...headers, id: `draft-${draft.id}`, thread: draft.message.threadId ?? threadId ?? ''};
 		}),
 	);
+
+export const gmailRepliesConnector: Connector = {...onlyRun('Replies are only sent or saved as drafts, one at a time'), newCommands: replyCommands(replyToGmail)};
 
 // A message whole, by an email's id: a draft's by its draft id.
 function messageOf(token: string, recordId: string): Promise<Result<GmailMessage, ApiError>> {

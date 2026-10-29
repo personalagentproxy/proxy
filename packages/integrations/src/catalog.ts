@@ -150,6 +150,58 @@ function emailsCollection(args: {
 			// One a line, numbered as the attachments collection reads them by: "1. Q3.xlsx
 			// (application/…, 48 KB)".
 			{key: 'attachments', label: 'Attachments', type: 'longtext', system: true},
+			// Its own header, "<q3@example.com>", which a reply to it names as the email it answers.
+			{key: 'messageId', label: 'Message-ID', type: 'text', system: true},
+			// Gmail's id of the conversation it is in, which a reply to it joins; other mailboxes have none.
+			{key: 'thread', label: 'Thread', type: 'text', system: true},
+		],
+	};
+}
+
+/**
+ * Replies to email, each written in the thread of the email it answers: never listed or opened,
+ * only sent at once, with the action sending email and the one reading it, or saved as a draft,
+ * with the one writing drafts. Who it goes to, its subject and its thread come from the email.
+ */
+function repliesCollection(actions: Pick<EmailActions, 'read' | 'write' | 'send'>): Collection {
+	const what =
+		'Name the email by its id, as a list gives it, and write the reply as body: whom it goes to, its subject and its thread come from the email, as a mail app’s Reply writes them. With replyAll Yes it also goes to everyone else the email went to. Answers whom it went to, its subject and its id among email, with its thread on Gmail.';
+	return {
+		id: 'replies',
+		name: 'Replies',
+		singular: 'reply',
+		titleField: 'subject',
+		writes: {},
+		commands: [
+			{
+				id: 'send',
+				on: 'new',
+				label: 'Send',
+				description: `Reply to an email in its thread, and send the reply at once. ${what}`,
+				action: actions.send,
+				requires: actions.read,
+				done: 'Sent {}',
+				tried: 'send {}',
+			},
+			{
+				id: 'draft',
+				on: 'new',
+				label: 'Save as draft',
+				description: `Reply to an email in its thread, saved as a draft for emails_send to send later. ${what}`,
+				action: actions.write,
+				done: 'Saved {} as a draft',
+				tried: 'save {} as a draft',
+			},
+		],
+		fields: [
+			{key: 'email', label: 'Email', type: 'text'},
+			{key: 'body', label: 'Body', type: 'longtext'},
+			{key: 'replyAll', label: 'Reply all', type: 'select', options: ['Yes', 'No']},
+			{key: 'to', label: 'To', type: 'email', system: true},
+			{key: 'cc', label: 'Cc', type: 'email', system: true},
+			{key: 'subject', label: 'Subject', type: 'text', system: true},
+			// Gmail's, as the email's.
+			{key: 'thread', label: 'Thread', type: 'text', system: true},
 		],
 	};
 }
@@ -196,7 +248,8 @@ function attachmentsCollection(read: string): Collection {
 // so access is only ever narrowed in Personal Agent Proxy. The inbox, drafts and sent mail are one
 // list, each email saying which folder it is in. Received emails are never edited or deleted for
 // good: they are marked, flagged, archived or moved to Trash. Sending needs nothing else, so an
-// agent can send without reading the mailbox.
+// agent can send without reading the mailbox; sending a reply, which reads the email it answers,
+// needs Read too.
 const email: Integration = {
 	id: 'email',
 	name: 'Email',
@@ -232,7 +285,7 @@ const email: Integration = {
 		{
 			id: 'write',
 			label: 'Write drafts',
-			description: 'Create, edit and delete drafts',
+			description: 'Create, edit and delete drafts, replies in an email’s thread among them',
 			risk: 'medium',
 			requires: 'read',
 		},
@@ -246,7 +299,8 @@ const email: Integration = {
 		{
 			id: 'send',
 			label: 'Send',
-			description: 'Send email from this address, new or from a draft',
+			description:
+				'Send email from this address: new, from a draft, or a reply, which needs Read too',
 			risk: 'high',
 			reachesOthers: true,
 		},
@@ -268,6 +322,7 @@ const email: Integration = {
 			flag: FLAG,
 		}),
 		attachmentsCollection('read'),
+		repliesCollection({read: 'read', write: 'write', send: 'send'}),
 	],
 };
 
@@ -923,7 +978,7 @@ const google: Integration = {
 		{
 			id: 'writeEmails',
 			label: 'Write drafts',
-			description: 'Create, edit and delete drafts',
+			description: 'Create, edit and delete drafts, replies in an email’s thread among them',
 			risk: 'medium',
 			requires: 'readEmails',
 			group: 'Gmail',
@@ -939,7 +994,8 @@ const google: Integration = {
 		{
 			id: 'sendEmails',
 			label: 'Send',
-			description: 'Send email from this address, new or from a draft',
+			description:
+				'Send email from this address: new, from a draft, or a reply, which needs Read email too',
 			risk: 'high',
 			reachesOthers: true,
 			group: 'Gmail',
@@ -1075,6 +1131,7 @@ const google: Integration = {
 			openIn: 'Gmail',
 		}),
 		attachmentsCollection('readEmails'),
+		repliesCollection({read: 'readEmails', write: 'writeEmails', send: 'sendEmails'}),
 		// The calendars the account sees, each holding its events: from now on, soonest first, every
 		// time a repeating event comes round its own record. Times are written as Google takes them,
 		// 2026-10-15T14:00 in the calendar's time zone or with an offset, and a day alone, 2026-10-15,

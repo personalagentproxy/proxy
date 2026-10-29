@@ -44,8 +44,9 @@ type ToolBase = {
 	// What the activity log calls it, and what `requiredAction` takes: list, view, create, update,
 	// delete, or the command's id; a custom server's tool its name.
 	operation: string;
-	// The integration's action it needs.
+	// The integration's action it needs, and one it needs beside it, as sending a reply needs Read.
 	action: string;
+	requires?: string;
 	// Lists and opens, never changes anything.
 	readOnly: boolean;
 	risk: Action['risk'];
@@ -198,6 +199,7 @@ function collectionTools(integration: Integration, collection: Collection): Coll
 		rest: Pick<CollectionTool, 'title' | 'description' | 'inputSchema'> & {
 			where?: Condition;
 			readOnly?: true;
+			requires?: string;
 		},
 	): CollectionTool[] => {
 		const action = requiredAction(collection, operation);
@@ -275,6 +277,7 @@ function collectionTools(integration: Integration, collection: Collection): Coll
 						`${command.label} a new ${collection.singular} from the fields given, without saving it first.${what}`,
 					inputSchema: objectSchema(valueProperties(integration, collection)),
 					readOnly: command.readOnly,
+					...(command.requires ? {requires: command.requires} : {}),
 				});
 			}
 			return make('command', command.id, {
@@ -317,5 +320,9 @@ export function findTool(integration: Integration, name: string): Tool | undefin
 
 /** The tools the actions allow, as `effectiveActions` gives them for an agent. */
 export function allowedTools(integration: Integration, actions: string[]): Tool[] {
-	return integrationTools(integration).filter((tool) => actions.includes(tool.action));
+	return integrationTools(integration).filter(
+		(tool) =>
+			actions.includes(tool.action) &&
+			(tool.requires === undefined || actions.includes(tool.requires)),
+	);
 }

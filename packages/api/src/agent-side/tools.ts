@@ -185,9 +185,10 @@ function logFailure<T>(run: ToolRun, answer: Result<T, ApiError>, title: string 
  * Runs one of the connection's tools with `params`, as its input schema describes them, for the
  * caller's task, which has to be one of the agent's and still under way; a run without one is
  * refused, unlogged. A connection the agent doesn't reach, or a tool its integration doesn't have,
- * is not found and not logged; a tool whose action the agent doesn't have is refused and logged as
- * denied, saying how to allow it where the connection's sign-in didn't cover the action. A run the
- * provider fails, turning it down or out of reach, is logged as failed, with what went wrong.
+ * is not found and not logged; a tool whose action, or the one it needs beside it, the agent
+ * doesn't have is refused and logged as denied, saying how to allow it where the connection's
+ * sign-in didn't cover the action. A run the provider fails, turning it down or out of reach, is
+ * logged as failed, with what went wrong.
  * `readOnly` limits the run to tools that only read, or only to those that change something, as
  * the MCP server's `read` and `run` do; any other is refused, unlogged.
  */
@@ -225,9 +226,10 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 
 		// A list's search is logged, a refused one's too, so its params are read first.
 		const listParams = tool.kind === 'list' ? $(parseToolParams(tool, params)) : null;
-		if (!run.actions.includes(tool.action)) {
+		const missing = [tool.action, tool.requires].find((actionId) => actionId !== undefined && !run.actions.includes(actionId));
+		if (missing !== undefined) {
 			$(await log(run, 'denied', null, searchOf(listParams)));
-			return $(Err(run.refuse(tool.action)));
+			return $(Err(run.refuse(missing)));
 		}
 		return $(await execute(run, listParams ?? $(parseToolParams(tool, params))));
 	});

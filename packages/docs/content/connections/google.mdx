@@ -146,9 +146,17 @@ can allow each action separately:
 - **Write drafts** creates, edits and deletes drafts, and requires Read email. An edit keeps the
   draft's Cc, Bcc and thread, and its formatting while its text is unchanged; text written anew
   goes out as plain text. A draft with attachments isn't edited, since it would lose them.
-  Received messages are never edited or deleted.
+  Received messages are never edited or deleted. A reply to an email is saved as a draft in its
+  thread.
 - **Send** sends a new email or a saved draft from the account's own address, and Gmail files it
   in Sent. It does not require Read email, so an agent can send without seeing the mailbox.
+  Sending a reply needs Read email too, since it reads the email it answers.
+
+A reply goes to whoever the email asks replies to go to, else its sender, or, for an email you
+sent, to whom it went, under the email's subject with "Re:", in the email's thread in Gmail. A
+reply to all also goes to everyone else the email went to and copies whom it copied, never the
+account itself. An email opens with its Message-ID and its Gmail thread, and a reply says its own
+id and thread, so an agent can check it landed in the conversation.
 
 For Calendar, agents see the calendars in the account's list, the primary one first, and inside
 each its events from now on, the soonest first, 50 to a page, each time a repeating event comes

@@ -5,7 +5,7 @@ import {ApiErr, type ApiError} from '@proxy/utils';
 import type {CommandRunner, Connector, NewCommandRunner, RecordTarget} from './connector';
 import {availabilityConnector} from './google-availability';
 import {contactsConnector} from './google-contacts';
-import {gmailAttachmentsConnector, gmailConnector} from './google-emails';
+import {gmailAttachmentsConnector, gmailConnector, gmailRepliesConnector} from './google-emails';
 import {eventsConnector} from './google-events';
 import {createFilesRecord, getFilesRecord, listFilesTree, trashFilesRecord, updateFilesRecord} from './google-files';
 import {otherContactsConnector} from './google-other-contacts';
@@ -14,14 +14,14 @@ import {tasksConnector} from './google-tasks';
 
 /**
  * A Google account, fetched live from Google's APIs with the connection's tokens, one collection
- * per product: `emails`, Gmail, and `attachments`, its emails' attachments read as text
- * (`google-emails.ts`), `events`, Calendar (`google-events.ts`), `availability`, when people are
- * busy (`google-availability.ts`), `files`, Drive with Docs, Sheets and Slides
- * (`google-files.ts`), `ranges`, a spreadsheet's values in A1 notation
- * (`google-ranges.ts`), `contacts`, Google Contacts (`google-contacts.ts`), `otherContacts`, the
- * people Gmail keeps under Other contacts (`google-other-contacts.ts`), and `tasks`, Google Tasks
- * (`google-tasks.ts`). Commands go to the collection they were run on, since two can share an id,
- * as Trash does.
+ * per product: `emails`, Gmail, `attachments`, its emails' attachments read as text, and
+ * `replies`, replies written in an email's thread (`google-emails.ts`), `events`, Calendar
+ * (`google-events.ts`), `availability`, when people are busy (`google-availability.ts`), `files`,
+ * Drive with Docs, Sheets and Slides (`google-files.ts`), `ranges`, a spreadsheet's values in A1
+ * notation (`google-ranges.ts`), `contacts`, Google Contacts (`google-contacts.ts`),
+ * `otherContacts`, the people Gmail keeps under Other contacts (`google-other-contacts.ts`), and
+ * `tasks`, Google Tasks (`google-tasks.ts`). Commands go to the collection they were run on, since
+ * two can share an id, as Trash does.
  */
 
 // Files are moved to Trash, never deleted: the collection offers no delete.
@@ -41,6 +41,7 @@ const filesConnector: Connector = {
 const COLLECTIONS: Partial<Record<string, Connector>> = {
 	emails: gmailConnector,
 	attachments: gmailAttachmentsConnector,
+	replies: gmailRepliesConnector,
 	events: eventsConnector,
 	availability: availabilityConnector,
 	files: filesConnector,

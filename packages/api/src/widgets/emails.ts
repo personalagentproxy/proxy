@@ -143,7 +143,7 @@ export function handleReplyEmailRoute(request: AuthenticatedRequest): Promise<Re
 		const source = $(await requireWritable(viewer, body.connectionId, 'emails', write, ['to', 'subject', 'body']));
 		$(await requireReadable(viewer, body.connectionId, 'emails'));
 		const reply = $(requirePresent(replierFor(source), ApiErr.forbidden()));
-		const written = $(await reply(source, body.emailId, {body: body.body, send: body.send}));
+		const written = $(await reply(source, body.emailId, {body: body.body, send: body.send, all: false}));
 		await afterWrite({viewer, source, action: write, title: written.subject, parent: undefined});
 		return {sent: body.send};
 	});

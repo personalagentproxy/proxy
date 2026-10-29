@@ -36,7 +36,7 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	requireWritable.mockResolvedValue(Ok(source));
 	requireReadable.mockResolvedValue(Ok(source));
-	reply.mockResolvedValue(Ok({to: 'Sam <sam@example.com>', subject: 'Re: Invoice', inReplyTo: '<a@example.com>', references: '<a@example.com>'}));
+	reply.mockResolvedValue(Ok({to: 'Sam <sam@example.com>', cc: '', subject: 'Re: Invoice', inReplyTo: '<a@example.com>', references: '<a@example.com>', id: 'm8', thread: 't1'}));
 	create.mockResolvedValue(Ok({id: 'team:e1', values: {title: 'Lunch'}, updatedAt: '', url: 'https://calendar.google.com/e1'}));
 	sendNew.mockResolvedValue(Ok(null));
 });
@@ -115,7 +115,7 @@ describe('handleReplyEmailRoute', () => {
 		expect((await handleReplyEmailRoute(request({...answer, send: true}))).unwrap()).toEqual({sent: true});
 		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails', 'sendNew', ['to', 'subject', 'body']);
 		expect(requireReadable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails');
-		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: true});
+		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: true, all: false});
 		// The mailbox is the email's, so none is picked for the next new email.
 		expect(afterWrite).toHaveBeenCalledWith({viewer: expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), source, action: 'sendNew', title: 'Re: Invoice', parent: undefined});
 	});
@@ -125,7 +125,7 @@ describe('handleReplyEmailRoute', () => {
 
 		expect((await handleReplyEmailRoute(request({...answer, send: false}))).unwrap()).toEqual({sent: false});
 		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails', 'create', ['to', 'subject', 'body']);
-		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: false});
+		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: false, all: false});
 	});
 
 	test('replies through no mailbox it can’t read, nor one that can’t reply, and logs nothing then', async () => {

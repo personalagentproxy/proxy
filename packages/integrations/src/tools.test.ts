@@ -32,6 +32,8 @@ describe('integrationTools', () => {
 			'emails_send',
 			'emails_send_new',
 			'attachments_read',
+			'replies_send',
+			'replies_draft',
 		]);
 		expect(integrationTools(integration('granola')).map((tool) => tool.name)).toEqual([
 			'notes_list',
@@ -109,6 +111,31 @@ test('an attachment is read with the action reading email, by the email and the 
 	});
 });
 
+test('a reply is sent with the actions sending and reading email, or saved as a draft with the one writing drafts', () => {
+	const send = findTool(email, 'replies_send');
+	const draft = findTool(email, 'replies_draft');
+
+	expect(send).toMatchObject({
+		kind: 'newCommand',
+		action: 'send',
+		requires: 'read',
+		readOnly: false,
+		reachesOthers: true,
+	});
+	expect(draft).toMatchObject({kind: 'newCommand', action: 'write', readOnly: false});
+	expect(draft?.requires).toBeUndefined();
+	expect(send?.description).toStartWith(
+		'Reply to an email in its thread, and send the reply at once',
+	);
+	expect(Object.keys(send?.inputSchema.properties ?? {})).toEqual(['email', 'body', 'replyAll']);
+	expect(send?.inputSchema.properties?.replyAll?.enum).toEqual(['Yes', 'No']);
+	expect(findTool(integration('google'), 'replies_send')).toMatchObject({
+		action: 'sendEmails',
+		requires: 'readEmails',
+	});
+	expect(findTool(integration('google'), 'replies_draft')).toMatchObject({action: 'writeEmails'});
+});
+
 describe('allowedTools', () => {
 	test('only the tools whose action the agent has', () => {
 		expect(allowedTools(email, ['send']).map((tool) => tool.name)).toEqual([
@@ -116,6 +143,18 @@ describe('allowedTools', () => {
 			'emails_send_new',
 		]);
 		expect(allowedTools(email, [])).toEqual([]);
+	});
+
+	test('and the one a tool needs beside it: a reply is sent only with Read too', () => {
+		expect(allowedTools(email, ['read', 'send']).map((tool) => tool.name)).toContain(
+			'replies_send',
+		);
+		expect(allowedTools(email, ['read', 'write']).map((tool) => tool.name)).toContain(
+			'replies_draft',
+		);
+		expect(allowedTools(email, ['read', 'write']).map((tool) => tool.name)).not.toContain(
+			'replies_send',
+		);
 	});
 });
 
