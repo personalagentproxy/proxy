@@ -39,7 +39,7 @@ const {beginSignIn, handleCallback: handleCustomMcpCallbackRoute} = signInFlow({
 	integrationId: 'mcp',
 	name: 'MCP server',
 	// The server found from the address and the name the person gave the connection, beside the
-	// client registered for the sign-in.
+	// client the sign-in is made as.
 	keptSchema: z.object({clientId: z.string(), server: mcpEndpointsSchema, name: z.string()}),
 	// Signed in, the server is asked for its tools with the new token, and the connection keeps its
 	// endpoints beside the tokens, for refreshing them.

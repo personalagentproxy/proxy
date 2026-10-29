@@ -45,10 +45,13 @@ mock.module('../../observability/log', () => ({
 	serializeError: mock(() => ({})),
 }));
 
-mock.module('../../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com', ALLOW_PRIVATE_HOSTS: false}}));
+const env = {NODE_ENV: 'production', APP_URL: 'https://app.example.com', ALLOW_PRIVATE_HOSTS: false};
 
-// The example server is on the internet.
-mock.module('node:dns/promises', () => ({default: {lookup: async () => [{address: '93.184.216.34', family: 4}]}}));
+mock.module('../../utils/env', () => ({env}));
+
+// The example servers, and Personal Agent Proxy at app.example.com, are on the internet; one
+// self-hosted at proxy.internal is on a private network.
+mock.module('node:dns/promises', () => ({default: {lookup: async (host: string) => [{address: host === 'proxy.internal' ? '10.0.0.4' : '93.184.216.34', family: 4}]}}));
 
 // Readable stand-ins for encryption, so a test can see what was stored.
 mock.module('../../utils/secret-crypto', () => ({
@@ -149,6 +152,7 @@ async function connect(body: unknown) {
 
 beforeEach(() => {
 	mock.clearAllMocks();
+	env.APP_URL = 'https://app.example.com';
 	findAccountConnection.mockResolvedValue(Ok(null));
 	createConnection.mockImplementation(async (data: {account: string; tools: string; defaults: string[]; name?: string}) =>
 		Ok({...row, account: data.account, tools: data.tools, name: data.name ?? null, defaults: data.defaults.map((actionId) => ({actionId}))}),
@@ -169,6 +173,17 @@ beforeEach(() => {
 		}),
 	);
 });
+
+// A server whose authorization server takes a client ID metadata document and lets no app register.
+const documentServer = {
+	name: 'mcp.example.com',
+	url: 'https://mcp.example.com/mcp',
+	handshake: true,
+	clientIdMetadataDocument: true,
+	authorizeUrl: 'https://auth.example.com/oauth2/authorize',
+	tokenUrl: 'https://auth.example.com/oauth2/token',
+	scope: 'offline_access',
+} as const;
 
 describe('handleConnectCustomMcpRoute', () => {
 	test('connects a server that answers without a sign-in, its tools kept and the ones that only read on by default', async () => {
@@ -260,6 +275,37 @@ describe('handleConnectCustomMcpRoute', () => {
 		const refused = await connect({name: 'Docs', url: 'https://mcp.example.com/mcp'});
 		expect(refused.statusCode).toBe(400);
 		expect(refused.sent).toMatchObject({error: 'validation_error', message: 'No registration'});
+	});
+
+	test('an authorization server that takes a client ID metadata document is sent its address as the client, rather than one registered', async () => {
+		probeMcpServer.mockResolvedValue(Ok({kind: 'signIn'}));
+		discoverMcpServer.mockResolvedValue(Ok({...documentServer, registerUrl: 'https://auth.example.com/register'}));
+		const res = await connect({name: 'Docs', url: 'https://mcp.example.com/mcp'});
+
+		const authorizeUrl = new URL((res.sent as {url: string}).url);
+		expect(authorizeUrl.origin + authorizeUrl.pathname).toBe('https://auth.example.com/oauth2/authorize');
+		expect(authorizeUrl.searchParams.get('client_id')).toBe('https://app.example.com/oauth/client-metadata.json');
+		expect(authorizeUrl.searchParams.get('redirect_uri')).toBe('https://app.example.com/api/connections/mcp/callback');
+		expect(authorizeUrl.searchParams.get('code_challenge_method')).toBe('S256');
+		expect(authorizeUrl.searchParams.get('scope')).toBe('offline_access');
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	test('a Personal Agent Proxy an authorization server could not fetch the document from registers a client instead, and can not sign in where that is the only way', async () => {
+		probeMcpServer.mockResolvedValue(Ok({kind: 'signIn'}));
+		discoverMcpServer.mockResolvedValue(Ok({...documentServer, registerUrl: 'https://auth.example.com/register'}));
+		for (const appUrl of ['https://proxy.internal', 'http://localhost:5173']) {
+			env.APP_URL = appUrl;
+			const res = await connect({name: 'Docs', url: 'https://mcp.example.com/mcp'});
+			expect(new URL((res.sent as {url: string}).url).searchParams.get('client_id')).toBe('client-1');
+			expect(String(fetchSpy.mock.calls.at(-1)?.[0])).toBe('https://auth.example.com/register');
+		}
+
+		discoverMcpServer.mockResolvedValue(Ok(documentServer));
+		const refused = await connect({name: 'Docs', url: 'https://mcp.example.com/mcp'});
+		expect(refused.statusCode).toBe(400);
+		expect(refused.sent).toMatchObject({error: 'validation_error'});
+		expect(refused.cookies).toEqual([]);
 	});
 
 	test('refuses an address that is not https, before asking anything', async () => {
@@ -358,6 +404,37 @@ describe('handleCustomMcpCallbackRoute', () => {
 		expect(created).toMatchObject({account: 'mcp.example.com/mcp', providerAccountId: null, defaults: ['search_docs'], tools: JSON.stringify([search, publish]), name: 'Docs'});
 		expect(JSON.parse(created.credential.replace(/^enc:/, ''))).toEqual({auth: 'oauth', url: 'https://mcp.example.com/mcp', server: endpoints, ...tokens});
 		expect(res.redirectedTo).toBe('https://app.example.com/org-1/connections/mcp-1?added');
+	});
+	test('a sign-in made with the client ID metadata document keeps its address as the client, which refreshing sends', async () => {
+		probeMcpServer.mockResolvedValue(Ok({kind: 'signIn'}));
+		discoverMcpServer.mockResolvedValue(Ok(documentServer));
+		const begun = await connect({name: 'Docs', url: 'https://mcp.example.com/mcp'});
+		const state = new URL((begun.sent as {url: string}).url).searchParams.get('state') ?? '';
+		const cookie = `proxy.mcp-state=${encodeURIComponent(begun.cookies[0]?.value ?? '')}`;
+
+		const clientId = 'https://app.example.com/oauth/client-metadata.json';
+		const tokens = {clientId, accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null};
+		exchangeMcpCode.mockResolvedValue(Ok(tokens));
+		listMcpTools.mockResolvedValue(Ok([search]));
+		const {handleCustomMcpCallbackRoute} = await import('./route');
+		const res = makeRes();
+		await handleCustomMcpCallbackRoute(makeRequest(undefined, {}, {state, code: 'code-1'}, {cookie}), res as never);
+
+		expect(exchangeMcpCode).toHaveBeenCalledWith(documentServer, {clientId, redirectUri: 'https://app.example.com/api/connections/mcp/callback', code: 'code-1', verifier: expect.any(String)});
+		const created = createConnection.mock.calls[0]?.[0] as {credential: string};
+		const stored = customMcp.customCredentialSchema.parse(JSON.parse(created.credential.replace(/^enc:/, '')));
+		expect(stored).toEqual({auth: 'oauth', url: 'https://mcp.example.com/mcp', server: documentServer, ...tokens});
+
+		fetchSpy.mockImplementationOnce((async (_input: string | URL | Request) => Response.json({access_token: 'access-2', refresh_token: 'refresh-2', expires_in: 3600})) as typeof fetch);
+		if (stored.auth !== 'oauth') {
+			throw new Error('Not signed in');
+		}
+		const refreshed = (await mcpOauth.refreshMcpTokens({...customMcp.customEndpoint(stored.url), ...stored.server}, stored)).unwrap();
+		expect(refreshed).toMatchObject({clientId, accessToken: 'access-2', refreshToken: 'refresh-2'});
+		const [refreshUrl, refreshInit] = fetchSpy.mock.calls.at(-1) ?? [];
+		expect(String(refreshUrl)).toBe('https://auth.example.com/oauth2/token');
+		expect(new URLSearchParams(String(refreshInit?.body)).get('client_id')).toBe(clientId);
+		expect(new URLSearchParams(String(refreshInit?.body)).get('grant_type')).toBe('refresh_token');
 	});
 });
 

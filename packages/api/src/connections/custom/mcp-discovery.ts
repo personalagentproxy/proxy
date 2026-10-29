@@ -45,7 +45,42 @@ const authorizationServerSchema = z.object({
 	authorization_endpoint: z.string(),
 	token_endpoint: z.string(),
 	registration_endpoint: z.string().optional(),
+	client_id_metadata_document_supported: z.boolean().optional(),
+	scopes_supported: z.array(z.string()).optional(),
 });
+
+type AuthorizationServerMetadata = z.infer<typeof authorizationServerSchema>;
+
+// Asked for so a sign-in comes with a refresh token, where the authorization server offers it, as
+// the MCP spec allows: some hand one out only for it, and the connection would end with the first
+// access token otherwise.
+const OFFLINE_ACCESS = 'offline_access';
+
+// What a sign-in asks for: the scopes the server's metadata names, and `offline_access` where the
+// authorization server offers it.
+function signInScopes(scopes: string[], metadata: AuthorizationServerMetadata | null): string[] {
+	if (scopes.includes(OFFLINE_ACCESS) || !metadata?.scopes_supported?.includes(OFFLINE_ACCESS)) {
+		return scopes;
+	}
+	return [...scopes, OFFLINE_ACCESS];
+}
+
+// How a client is had for a sign-in: registered where the authorization server lets one be, the
+// client ID metadata document where it takes one, the usual registration address where it has no
+// metadata; null where it does neither.
+function clientRegistration(metadata: AuthorizationServerMetadata | null, base: string): Pick<McpServer, 'registerUrl' | 'clientIdMetadataDocument'> | null {
+	if (!metadata) {
+		return {registerUrl: `${base}/register`};
+	}
+	const registration = {
+		...(metadata.registration_endpoint ? {registerUrl: metadata.registration_endpoint} : {}),
+		...(metadata.client_id_metadata_document_supported ? {clientIdMetadataDocument: true as const} : {}),
+	};
+	if (!registration.registerUrl && !registration.clientIdMetadataDocument) {
+		return null;
+	}
+	return registration;
+}
 
 /** What a probe found: the server's tools, reachable as it was asked, or that it asks for a sign-in. */
 export type Probe = {kind: 'tools'; tools: McpTool[]} | {kind: 'signIn'};
@@ -118,8 +153,10 @@ async function findAuthorizationServer(url: URL): Promise<{issuer: URL; scopes: 
 /**
  * The server and its authorization server, from its address, for signing in: its endpoints as the
  * authorization server's metadata names them, or the usual ones under the issuer where it has
- * none, and the scopes the server's own metadata asks for, none otherwise. An authorization server
- * that doesn't let apps register themselves can't be signed in to.
+ * none, how a client is had (`clientRegistration`), and the scopes the server's own metadata asks
+ * for, none otherwise, with `offline_access` where the authorization server offers it. An
+ * authorization server that neither lets apps register themselves nor takes a client ID metadata
+ * document can't be signed in to.
  */
 export function discoverMcpServer(url: URL): Promise<Result<McpServer, ApiError>> {
 	return Do(async ($) => {
@@ -130,9 +167,9 @@ export function discoverMcpServer(url: URL): Promise<Result<McpServer, ApiError>
 			[...wellKnownUrls(issuer, 'oauth-authorization-server'), ...wellKnownUrls(issuer, 'openid-configuration'), `${base}/.well-known/openid-configuration`],
 			authorizationServerSchema,
 		);
-		const registerUrl = metadata ? metadata.registration_endpoint : `${base}/register`;
-		if (!registerUrl) {
-			return $(Err(ApiErr.validationError('This server’s sign-in doesn’t let apps register themselves, so Personal Agent Proxy can’t sign in to it')));
+		const registration = clientRegistration(metadata, base);
+		if (!registration) {
+			return $(Err(ApiErr.validationError('This server’s sign-in neither lets apps register themselves nor takes a client ID metadata document, so Personal Agent Proxy can’t sign in to it')));
 		}
 		// The browser is sent to the sign-in page, so it is checked as every address the api calls is:
 		// metadata could name anything, a `javascript:` address included.
@@ -141,10 +178,10 @@ export function discoverMcpServer(url: URL): Promise<Result<McpServer, ApiError>
 		$((await checkUrl(signInPage)).mapErr((error) => ApiErr.validationError(`The server’s sign-in page (${authorizeUrl}) can’t be used: ${'message' in error ? error.message : error.kind}`)));
 		return {
 			...customEndpoint(url.toString()),
-			registerUrl,
+			...registration,
 			authorizeUrl,
 			tokenUrl: metadata?.token_endpoint ?? `${base}/token`,
-			scope: scopes.join(' '),
+			scope: signInScopes(scopes, metadata).join(' '),
 		};
 	});
 }

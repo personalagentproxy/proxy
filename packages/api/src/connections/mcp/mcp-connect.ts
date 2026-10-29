@@ -8,27 +8,63 @@ import {type Connection, connectWithKeyBodySchema, type ReturnTo} from '@proxy/c
 
 import type {Connector} from '../../records/connector';
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
+import {env} from '../../utils/env';
+import {isPublicHttpsUrl} from '../../utils/host-check';
 import {requireViewer, type OrgViewer} from '../../utils/user-org';
 import {respond} from '../connection-response';
 import {saveConnection, signInFlow, signInRoutes, type Connected, type SaveOptions, type SignInRequest} from '../connect-flow';
 import type {ApiIntegration} from '../integration';
 import {requireManaged, type ManagingViewer} from '../managed';
 import type {BuiltInMcp, ProviderAccount} from './built-in';
-import {exchangeMcpCode, mcpAuthorizeUrl, registerMcpClient, type McpCredential, type McpServer} from './mcp-oauth';
+import {clientMetadataUrl, exchangeMcpCode, mcpAuthorizeUrl, registerMcpClient, type McpCredential, type McpServer} from './mcp-oauth';
 import type {McpKeyCredential} from './mcp-session';
 
 /**
  * Connecting an integration built on its MCP server: by signing in to it, as Granola, Notion and
  * Linear are and as a custom server found from its address is (`custom/route.ts`), or with an API
- * key where the server takes one, as Exa's and Parallel's do. A sign-in registers a client with the
- * server's authorization server and sends the browser to its sign-in page; a key is checked with
+ * key where the server takes one, as Exa's and Parallel's do. A sign-in is made as Personal Agent
+ * Proxy's client ID metadata document or a client registered with the server's authorization
+ * server (`mcpClientId`), and the browser goes to its sign-in page; a key is checked with
  * the server, then kept as the connection's credential, sent as its bearer token.
  */
 
-/** Registers a client for this sign-in and answers the server's sign-in page, the client kept for the callback beside `kept`. */
+// Personal Agent Proxy's client ID metadata document, where an authorization server out on the
+// internet can fetch it: under an `https` APP_URL on a public address. A self-hosted one on a
+// private network, or in development, registers a client instead.
+async function reachableClientMetadataUrl(): Promise<string | null> {
+	if (!env.APP_URL || !(await isPublicHttpsUrl(new URL(env.APP_URL)))) {
+		return null;
+	}
+	return clientMetadataUrl(env.APP_URL);
+}
+
+// Why an authorization server that takes only the document can't be signed in to from here.
+const DOCUMENT_ONLY =
+	'This server’s sign-in only takes apps by a client ID metadata document, which its authorization server fetches from Personal Agent Proxy: that needs APP_URL to be a public https:// address';
+
+/**
+ * The client a sign-in is made as, in the order the MCP spec gives: the client ID metadata
+ * document, where the authorization server takes one and can fetch it, else a client registered
+ * for this sign-in, returning back to `redirectUri`. One that takes only the document can't be
+ * signed in to from a Personal Agent Proxy it can't reach.
+ */
+function mcpClientId(server: McpServer, redirectUri: string): Promise<Result<string, ApiError>> {
+	return Do(async ($) => {
+		const document = server.clientIdMetadataDocument ? await reachableClientMetadataUrl() : null;
+		if (document) {
+			return document;
+		}
+		if (server.registerUrl) {
+			return $(await registerMcpClient(server, server.registerUrl, redirectUri));
+		}
+		return $(Err(ApiErr.validationError(DOCUMENT_ONLY)));
+	});
+}
+
+/** Answers the server's sign-in page, as the client `mcpClientId` gives, which is kept for the callback beside `kept`. */
 export function startMcpSignIn<K extends object>(server: McpServer, {redirectUri, state, challenge}: SignInRequest, kept: K): Promise<Result<{url: string; kept: K & {clientId: string}}, ApiError>> {
 	return Do(async ($) => {
-		const clientId = $(await registerMcpClient(server, redirectUri));
+		const clientId = $(await mcpClientId(server, redirectUri));
 		return {url: mcpAuthorizeUrl(server, {clientId, redirectUri, state, challenge}), kept: {...kept, clientId}};
 	});
 }

@@ -223,11 +223,16 @@ type SignInArgs<E, C> = {
 	// The provider's name in errors and logs: "Notion".
 	name: string;
 	// What the start keeps in the cookie for the callback beyond the handshake itself, such as the
-	// client an MCP server registered for this sign-in.
+	// client an MCP sign-in is made as.
 	keptSchema: z.ZodType<E>;
 	// The code traded for tokens, and the connection they make.
 	finish: (answer: SignInAnswer<E>) => Promise<Result<Connected<C>, ApiError>>;
 };
+
+/** Where an integration's sign-in comes back to, as its provider is told: its callback route under `appUrl`. */
+export function signInCallbackUrl(appUrl: string, integrationId: IntegrationId): string {
+	return `${appUrl}/api/connections/${integrationId}/callback`;
+}
 
 /**
  * The sign-in to one integration: `beginSignIn` for the route that knows the provider, and the
@@ -254,10 +259,6 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 	});
 
 	type StatePayload = {state: string; verifier: string; userId: string; orgId: string; slug: string; returnTo?: ReturnTo; shared?: boolean; connectionId?: string; kept: E};
-
-	function redirectUri(appUrl: string): string {
-		return `${appUrl}${basePath}/callback`;
-	}
 
 	function stateCookieOptions() {
 		return {httpOnly: true, sameSite: 'lax' as const, secure: useSecureCookies(), path: basePath};
@@ -289,7 +290,7 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 			const appUrl = $(requirePresent(env.APP_URL, ApiErr.internalError(new Error('APP_URL is not configured'))));
 			const state = randomBytes(16).toString('hex');
 			const {verifier, challenge} = makePkce();
-			const {url, kept} = $(await begin.start({redirectUri: redirectUri(appUrl), state, challenge, account: begin.account}));
+			const {url, kept} = $(await begin.start({redirectUri: signInCallbackUrl(appUrl, integrationId), state, challenge, account: begin.account}));
 			const payload: StatePayload = {
 				state,
 				verifier,
@@ -324,7 +325,7 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 
 			const membership = $(requirePresent($(await getMembership(payload.userId, payload.orgId)), ApiErr.notFound('organization', payload.slug)));
 			const viewer: ManagingViewer = {orgId: payload.orgId, userId: payload.userId, role: membership.role};
-			const connected = $(await args.finish({redirectUri: redirectUri(appUrl), code, verifier: payload.verifier, kept: payload.kept}));
+			const connected = $(await args.finish({redirectUri: signInCallbackUrl(appUrl, integrationId), code, verifier: payload.verifier, kept: payload.kept}));
 			const {row, added} = $(await saveConnection(viewer, integrationId, connected, {shared: payload.shared, connectionId: payload.connectionId ?? null}));
 			return {id: row.id, added};
 		});
