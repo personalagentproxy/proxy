@@ -93,7 +93,8 @@ type Request = {method: string; url: URL; type: string; body: string};
 
 // Where Sheets puts an appended row: after the last rows holding anything, from the first column of
 // the block they are in.
-const google = {requests: [] as Request[], appendColumn: 'A', appendedTitle: 'Q1'};
+// What a search of Drive finds, by its query; none is asked for but in the searches' tests.
+const google = {requests: [] as Request[], appendColumn: 'A', appendedTitle: 'Q1', found: null as ((q: string) => File[]) | null};
 
 function driveFile(file: File): object {
 	return {
@@ -141,6 +142,9 @@ function make(name: string, mimeType: string, parents: string[], content: string
 function answer(request: Request): Response {
 	const {method, url} = request;
 	const path = decodeURIComponent(url.pathname);
+	if (method === 'GET' && path === '/drive/v3/files' && google.found) {
+		return Response.json({files: google.found(url.searchParams.get('q') ?? '').map(driveFile)});
+	}
 	if (path === '/drive/v3/files/root') {
 		return Response.json({id: MY_DRIVE_ID});
 	}
@@ -225,6 +229,7 @@ beforeEach(() => {
 	google.requests = [];
 	google.appendColumn = 'A';
 	google.appendedTitle = 'Q1';
+	google.found = null;
 });
 
 describe('creating files', () => {
@@ -487,5 +492,44 @@ describe('moving files to Trash', () => {
 		const result = await filesConnector.commands?.trash?.(target, '1Gone');
 
 		expect(result?.isErr() && result.error).toMatchObject({kind: 'not_found', id: '1Gone'});
+	});
+});
+
+describe('finding files for the widget', () => {
+	test("in Drive's query language: every word in the name, or in the text, the owner, never what is trashed, quotes escaped", async () => {
+		const {driveQuery} = await import('./google-files');
+		const search = {words: ['q3', "paul's"], owner: 'paul@example.com'};
+		expect(driveQuery(search, 'name')).toBe("name contains 'q3' and name contains 'paul\\'s' and 'paul@example.com' in owners and trashed = false");
+		expect(driveQuery(search, 'content')).toBe("fullText contains 'q3' and fullText contains 'paul\\'s' and 'paul@example.com' in owners and trashed = false");
+		expect(driveQuery({words: [], owner: null}, 'name')).toBe('trashed = false');
+	});
+
+	test('by name, the most recently changed first, in every drive', async () => {
+		google.found = (q) => (q.startsWith('name') ? [state.files['1Budget'], state.files['1Plan']].flatMap((file) => (file ? [file] : [])) : []);
+		const {filesConnector} = await import('./google-files');
+		const found = (await filesConnector.findFiles(target, {words: ['budget'], owner: null}, 8)).unwrap();
+
+		expect(google.requests).toHaveLength(1);
+		const params = google.requests[0]?.url.searchParams;
+		expect(params?.get('q')).toBe("name contains 'budget' and trashed = false");
+		expect(params?.get('orderBy')).toBe('modifiedTime desc');
+		expect(params?.get('corpora')).toBe('allDrives');
+		expect(params?.get('pageSize')).toBe('30');
+		expect(found).toEqual([
+			{id: '1Budget', name: 'Budget 2026', kind: 'Spreadsheet', owner: 'Alex Kim', modified: '2026-10-08T08:00:00.000Z', link: 'https://drive.google.com/open?id=1Budget', matched: 'name'},
+			{id: '1Plan', name: 'Launch plan', kind: 'Document', owner: 'Alex Kim', modified: '2026-10-08T08:00:00.000Z', link: 'https://drive.google.com/open?id=1Plan', matched: 'name'},
+		]);
+	});
+
+	test('inside the files where no name has the words, as many as asked for, in the order Drive finds best', async () => {
+		google.found = (q) => (q.startsWith('fullText') ? [state.files['1Plan']].flatMap((file) => (file ? [file] : [])) : []);
+		const {filesConnector} = await import('./google-files');
+		const found = (await filesConnector.findFiles(target, {words: ['ship'], owner: null}, 8)).unwrap();
+
+		const params = google.requests[1]?.url.searchParams;
+		expect(params?.get('q')).toBe("fullText contains 'ship' and trashed = false");
+		expect(params?.has('orderBy')).toBe(false);
+		expect(params?.get('pageSize')).toBe('8');
+		expect(found.map((file) => [file.name, file.matched])).toEqual([['Launch plan', 'content']]);
 	});
 });

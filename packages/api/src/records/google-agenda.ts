@@ -5,16 +5,17 @@ import {type ApiError, Do, mapWithLimit} from '@proxy/utils';
 import {listCalendars, listEvents, type EventsQuery, type GoogleCalendar, type GoogleEvent} from '../connections/google/calendar-api';
 import {callGoogle} from '../connections/google/google-client';
 import {log} from '../observability/log';
-import type {AgendaCalendar, AgendaEvent, CalendarAdapter} from './agenda';
+import type {Agenda, Calendar, CalendarEvent} from './capabilities';
+import type {RecordTarget} from './connector';
 
 /**
- * Google Calendar for the widgets: the calendars Google Calendar shows, ticked in its list, and
- * their events in a range, or from a time on those its search finds, each time a repeating event
- * comes round its own. Events the account declined are left out, as Google Calendar fades them; a
- * calendar it only sees as free or busy shows its events as Busy, and isn't searched, having
- * nothing to search. One calendar Google won't list the events of is left out too, rather than
- * the account's whole day; Google out of reach or busy fails the account, rather than leaving out
- * what it would have found.
+ * Google Calendar for the widgets, as the `events` connector's agenda and search: the calendars
+ * Google Calendar shows, ticked in its list, and their events in a range, or from a time on those
+ * its search finds, each time a repeating event comes round its own. Events the account declined
+ * are left out, as Google Calendar fades them; a calendar it only sees as free or busy shows its
+ * events as Busy, and isn't searched, having nothing to search. One calendar Google won't list the
+ * events of is left out too, rather than the account's whole day; Google out of reach or busy
+ * fails the account, rather than leaving out what it would have found.
  */
 
 // A person ticks a dozen calendars at most; past that, the rest wait on the first.
@@ -24,9 +25,8 @@ function writable(calendar: GoogleCalendar): boolean {
 	return calendar.accessRole === 'owner' || calendar.accessRole === 'writer';
 }
 
-function calendarOf(connectionId: string, calendar: GoogleCalendar): AgendaCalendar {
+function calendarOf(calendar: GoogleCalendar): Calendar {
 	return {
-		connectionId,
 		id: calendar.id,
 		name: calendar.summaryOverride ?? calendar.summary ?? calendar.id,
 		primary: calendar.primary === true,
@@ -39,7 +39,7 @@ function declined(event: GoogleEvent): boolean {
 	return event.attendees?.some((attendee) => attendee.self && attendee.responseStatus === 'declined') === true;
 }
 
-function eventOf(connectionId: string, calendar: GoogleCalendar, event: GoogleEvent): AgendaEvent[] {
+function eventOf(calendar: GoogleCalendar, event: GoogleEvent): CalendarEvent[] {
 	const start = event.start?.dateTime ?? event.start?.date;
 	const end = event.end?.dateTime ?? event.end?.date;
 	if (!start || !end || event.status === 'cancelled' || declined(event)) {
@@ -50,7 +50,6 @@ function eventOf(connectionId: string, calendar: GoogleCalendar, event: GoogleEv
 	const editable = writable(calendar) && (event.organizer === undefined || event.organizer.self === true);
 	return [
 		{
-			connectionId,
 			calendarId: calendar.id,
 			id: event.id,
 			title,
@@ -83,7 +82,7 @@ function failsAccount(error: ApiError): boolean {
 }
 
 // The events each ask answers, those of a calendar Google wouldn't list left out.
-async function eventsOf(token: string, connectionId: string, asks: Asked[]): Promise<Result<AgendaEvent[], ApiError>> {
+async function eventsOf(token: string, connectionId: string, asks: Asked[]): Promise<Result<CalendarEvent[], ApiError>> {
 	const answers = await mapWithLimit(asks, ASKED_AT_ONCE, ({calendar, query}) => listEvents(token, calendar.id, query));
 	const failure = answers.find((answer) => answer.isErr() && failsAccount(answer.error));
 	if (failure?.isErr()) {
@@ -93,7 +92,7 @@ async function eventsOf(token: string, connectionId: string, asks: Asked[]): Pro
 		asks.flatMap(({calendar}, index) => {
 			const answer = answers[index];
 			if (answer?.isOk()) {
-				return answer.value.events.flatMap((event) => eventOf(connectionId, calendar, event));
+				return answer.value.events.flatMap((event) => eventOf(calendar, event));
 			}
 			log.warn('A Google calendar’s events could not be listed', {connectionId, kind: answer?.isErr() ? answer.error.kind : null});
 			return [];
@@ -103,8 +102,8 @@ async function eventsOf(token: string, connectionId: string, asks: Asked[]): Pro
 
 // Each event once, though two searches, or two calendars it is on, found it: the copy the person
 // can change where one is, as on their own calendar beside a colleague's they only read.
-function eachOnce(events: AgendaEvent[]): AgendaEvent[] {
-	const kept = new Map<string, AgendaEvent>();
+function eachOnce(events: CalendarEvent[]): CalendarEvent[] {
+	const kept = new Map<string, CalendarEvent>();
 	events.forEach((event) => {
 		const key = `${event.id} ${event.start}`;
 		const had = kept.get(key);
@@ -115,28 +114,30 @@ function eachOnce(events: AgendaEvent[]): AgendaEvent[] {
 	return [...kept.values()];
 }
 
-export const googleCalendars: CalendarAdapter = {
-	agenda: (source, range) =>
-		callGoogle(source.connection, (token) =>
-			Do(async ($) => {
-				const connectionId = source.connection.id;
-				const shown = $(await shownCalendars(token));
-				const events = $(
-					await eventsOf(
-						token,
-						connectionId,
-						shown.map((calendar) => ({calendar, query: {from: range.from, to: range.to, search: null, page: null}})),
-					),
-				);
-				return {calendars: shown.map((calendar) => calendarOf(connectionId, calendar)), events: eachOnce(events)};
-			}),
-		),
-	search: (source, {from, searches}) =>
-		callGoogle(source.connection, (token) =>
-			Do(async ($) => {
-				const searched = $(await shownCalendars(token)).filter((calendar) => calendar.accessRole !== 'freeBusyReader');
-				const asks = searched.flatMap((calendar) => searches.map((search) => ({calendar, query: {from, search, page: null}})));
-				return eachOnce($(await eventsOf(token, source.connection.id, asks))).sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
-			}),
-		),
-};
+/** The calendars Google Calendar shows, and their events between two times. */
+export function googleAgenda(target: RecordTarget, range: {from: string; to: string}): Promise<Result<Agenda, ApiError>> {
+	return callGoogle(target.connection, (token) =>
+		Do(async ($) => {
+			const shown = $(await shownCalendars(token));
+			const events = $(
+				await eventsOf(
+					token,
+					target.connection.id,
+					shown.map((calendar) => ({calendar, query: {from: range.from, to: range.to, search: null, page: null}})),
+				),
+			);
+			return {calendars: shown.map(calendarOf), events: eachOnce(events)};
+		}),
+	);
+}
+
+/** The events from a time on that any of the searches finds in the calendars shown, soonest first, each once. */
+export function findGoogleEvents(target: RecordTarget, {from, searches}: {from: string; searches: string[]}): Promise<Result<CalendarEvent[], ApiError>> {
+	return callGoogle(target.connection, (token) =>
+		Do(async ($) => {
+			const searched = $(await shownCalendars(token)).filter((calendar) => calendar.accessRole !== 'freeBusyReader');
+			const asks = searched.flatMap((calendar) => searches.map((search) => ({calendar, query: {from, search, page: null}})));
+			return eachOnce($(await eventsOf(token, target.connection.id, asks))).sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
+		}),
+	);
+}

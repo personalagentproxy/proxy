@@ -5,9 +5,11 @@ import {ApiErr} from '@proxy/utils';
 
 const findSources = mock();
 
-mock.module('./sources', () => ({findSources, summarize: (source: {connection: {id: string}}) => ({connectionId: source.connection.id})}));
-// Every mailbox can be searched, with the search each fake mailbox has.
-mock.module('./mail-searches', () => ({searchable: (sources: Array<{search: unknown}>) => sources.map((source) => ({...source, find: source.search}))}));
+mock.module('./sources', () => ({
+	findSources,
+	summarize: (source: {connection: {id: string}}) => ({connectionId: source.connection.id}),
+	withCapability: (sources: Array<{connector: object}>, capability: string) => sources.filter((source) => capability in source.connector),
+}));
 mock.module('../utils/user-org', () => ({
 	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
 }));
@@ -142,7 +144,11 @@ describe('handlePeopleRoute', () => {
 							source('work', (search) => Ok({records: search === 'jacky' ? [contact('c1', 'Jacky Doe', 'jacky@example.com')] : [], nextPage: null})),
 							source('home', () => Err(ApiErr.credentialsRejected())),
 						]
-					: [{...source('mail', () => Ok({records: [], nextPage: null})), search: mailSearch}],
+					: [
+							{connection: {id: 'mail', account: 'mail@example.com', integrationId: 'google'}, connector: {list: mock(), findEmails: mailSearch}},
+							// A mailbox that can't be searched is left out.
+							{connection: {id: 'unsearched', account: 'unsearched@example.com', integrationId: 'email'}, connector: {list: mock()}},
+						],
 			),
 		);
 		const {handlePeopleRoute} = await import('./people');

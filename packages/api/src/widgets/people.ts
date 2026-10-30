@@ -8,8 +8,7 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireViewer} from '../utils/user-org';
 import type {DataRecord} from '../records/connector';
 import {eachSource, type Failure} from './each-source';
-import {searchable} from './mail-searches';
-import {findSources, summarize, type Source, type SourceSummary} from './sources';
+import {findSources, summarize, withCapability, type Source, type SourceSummary} from './sources';
 
 /**
  * People by name, for the widgets that name someone: the contact itself, the guests of an event,
@@ -202,13 +201,13 @@ export function handlePeopleRoute(request: AuthenticatedRequest): Promise<Result
 		const {name: names} = $(parseSchema(querySchema, request.query));
 		const viewer = $(await requireViewer(request));
 		const books = $(await findSources(viewer, 'contacts', 'list'));
-		const mailboxes = searchable($(await findSources(viewer, 'emails', 'list')));
+		const mailboxes = withCapability($(await findSources(viewer, 'emails', 'list')), 'findEmails');
 		const wanted = [...new Set(names)].slice(0, 10);
 		// Each mailbox is asked once for every name, over one sign-in, rather than once a name.
 		const searches = wanted.map((name) => ({from: null, involving: name, words: [], since: null}));
 		const [inBooks, inEmail] = await Promise.all([
 			Promise.all(wanted.map((name) => eachSource(books, (source) => searchContacts(source, name)))),
-			eachSource(mailboxes, (source, signal) => source.find(source, searches, EMAILS_READ, signal)),
+			eachSource(mailboxes, (source, signal) => source.connector.findEmails(source, searches, EMAILS_READ, signal)),
 		]);
 		const people = wanted.map((name, index) => [
 			...(inBooks[index]?.found ?? []).flatMap(({value}) => value),

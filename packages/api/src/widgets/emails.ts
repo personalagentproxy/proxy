@@ -9,9 +9,7 @@ import {requireViewer} from '../utils/user-org';
 import type {DataRecord} from '../records/connector';
 import type {EmailSearch} from '../records/email-search';
 import {eachSource, type Failure} from './each-source';
-import {replierFor} from './mail-replies';
-import {searchable} from './mail-searches';
-import {findSources, requireReadable, requireWritable, summarize, type Source, type SourceSummary} from './sources';
+import {findSources, requireReadable, requireWritable, summarize, withCapability, type Source, type SourceSummary} from './sources';
 import {afterWrite} from './writes';
 
 /**
@@ -71,8 +69,8 @@ export function handleFindEmailsRoute(request: AuthenticatedRequest): Promise<Re
 	return Do(async ($) => {
 		const search = readSearch($(parseSchema(searchSchema, request.query)));
 		const viewer = $(await requireViewer(request));
-		const sources = searchable($(await findSources(viewer, 'emails', 'list')));
-		const {found, failed} = await eachSource(sources, (source, signal) => source.find(source, [search], LIMIT, signal));
+		const sources = withCapability($(await findSources(viewer, 'emails', 'list')), 'findEmails');
+		const {found, failed} = await eachSource(sources, (source, signal) => source.connector.findEmails(source, [search], LIMIT, signal));
 		const emails = found
 			.flatMap(({source, value: [records = []]}) => records.map((record) => foundEmail(source, record)))
 			.sort((a, b) => Date.parse(b.date) - Date.parse(a.date))
@@ -143,7 +141,7 @@ export function handleReplyEmailRoute(request: AuthenticatedRequest): Promise<Re
 		const write = body.send ? 'sendNew' : 'create';
 		const source = $(await requireWritable(viewer, body.connectionId, 'emails', write, ['to', 'subject', 'body']));
 		$(await requireReadable(viewer, body.connectionId, 'emails'));
-		const reply = $(requirePresent(replierFor(source), ApiErr.forbidden()));
+		const reply = $(requirePresent(source.connector.reply, ApiErr.forbidden()));
 		const written = $(await reply(source, body.emailId, {body: body.body, send: body.send, all: false}));
 		await afterWrite({viewer, source, action: write, title: written.subject, parent: undefined});
 		return {sent: body.send};

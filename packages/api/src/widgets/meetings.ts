@@ -2,21 +2,19 @@ import type {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {type ApiError, Do, parseSchema} from '@proxy/utils';
-import type {IntegrationId} from '@proxy/integrations';
 
-import type {GranolaMeeting} from '../connections/granola/granola-mcp';
-import {getGranolaMeetings, listGranolaMeetings} from '../records/granola-connector';
+import type {Meeting} from '../records/capabilities';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireViewer} from '../utils/user-org';
 import {requireAskExperiment} from './ask-experiment';
 import {eachSource, type Failure} from './each-source';
-import {findSources, summarize, type Source, type SourceSummary} from './sources';
+import {findSources, summarize, withCapability, type Capable, type SourceSummary} from './sources';
 
 /**
  * Meetings for the Ask widget: every meeting notetaker connected, its meetings between two days,
  * those with every person named, among the participants, in the title or in the notes, the ones
- * most surely with them and with the most of the words first, then the newest. Granola has no
- * search, so its meetings for the days are listed and picked from here.
+ * most surely with them and with the most of the words first, then the newest. A notetaker such
+ * as Granola has no search, so its meetings for the days are listed and picked from here.
  */
 
 /** Days as 2026-10-14, both included; people by name or address; words of the title or topic. */
@@ -31,9 +29,6 @@ export type FoundMeeting = {
 	participants: string;
 	link: string | null;
 };
-
-/** How an integration's meetings are listed; a meeting notetaker joins the widget with one. */
-type MeetingsList = (source: Source, search: MeetingSearch) => Promise<Result<FoundMeeting[], ApiError>>;
 
 // What the widget offers at most, across every notetaker.
 const LIMIT = 8;
@@ -90,24 +85,20 @@ function scoreMeetings(listed: Listed[], search: MeetingSearch): Scored[] {
 		.map(({meeting, score}) => ({meeting, score}));
 }
 
-function listed(connectionId: string, meeting: GranolaMeeting): Listed {
-	return {
-		meeting: {connectionId, id: meeting.id, title: meeting.title, date: meeting.date, participants: meeting.participants, link: meeting.url || null},
-		notes: `${meeting.summary} ${meeting.privateNotes}`,
-	};
+function listed(connectionId: string, {notes, ...meeting}: Meeting): Listed {
+	return {meeting: {connectionId, ...meeting}, notes};
 }
 
 // How many of the newest meetings have their notes read when no title or participant says what was
 // searched for.
 const READ_NOTES = 25;
 
-// Granola is asked to the day after, as it may end before the last day it is given, and its
-// meetings outside the days are left out after. A list has no notes, so when no title or
-// participant has what was searched for, the newest meetings' notes are read and searched too.
-const listGranola: MeetingsList = (source, search) =>
-	Do(async ($) => {
-		const all = $(await listGranolaMeetings(source, search.from, dayOf(Date.parse(search.to) + DAY_MS)));
-		const meetings = all.filter((meeting) => meeting.day === null || (meeting.day >= search.from && meeting.day <= search.to));
+// A list has no notes, so when no title or participant has what was searched for, the newest
+// meetings' notes are read and searched too.
+function findMeetings(source: Capable<'meetings'>, search: MeetingSearch): Promise<Result<FoundMeeting[], ApiError>> {
+	return Do(async ($) => {
+		const finder = source.connector.meetings;
+		const meetings = $(await finder.between(source, search.from, search.to));
 		const searched = search.people.length > 0 || search.words.length > 0;
 		const first = scoreMeetings(
 			meetings.map((meeting) => listed(source.connection.id, meeting)),
@@ -124,7 +115,7 @@ const listGranola: MeetingsList = (source, search) =>
 				.map(({meeting}) => meeting);
 		}
 		const read = $(
-			await getGranolaMeetings(
+			await finder.withNotes(
 				source,
 				meetings.slice(0, READ_NOTES).map((meeting) => meeting.id),
 			),
@@ -137,8 +128,7 @@ const listGranola: MeetingsList = (source, search) =>
 			.slice(0, LIMIT)
 			.map(({meeting}) => meeting);
 	});
-
-const LISTS: Partial<Record<IntegrationId, MeetingsList>> = {granola: listGranola};
+}
 
 function dayOf(time: number): string {
 	return new Date(time).toISOString().slice(0, 10);
@@ -169,11 +159,8 @@ export function handleFindMeetingsRoute(request: AuthenticatedRequest): Promise<
 		const search: MeetingSearch = {from: query.from ?? dayOf(Date.parse(to) - DEFAULT_DAYS * DAY_MS), to, people: query.with, words: query.words};
 		const viewer = $(await requireViewer(request));
 		$(requireAskExperiment(viewer));
-		const sources = $(await findSources(viewer, 'notes', 'list')).flatMap((source) => {
-			const list = LISTS[source.integration.id];
-			return list ? [{...source, list}] : [];
-		});
-		const {found, failed} = await eachSource(sources, (source) => source.list(source, search));
+		const sources = withCapability($(await findSources(viewer, 'notes', 'list')), 'meetings');
+		const {found, failed} = await eachSource(sources, (source) => findMeetings(source, search));
 		// Each notetaker's best first, then the next's: one person seldom has two.
 		const meetings = found.flatMap(({value}) => value).slice(0, LIMIT);
 		return {sources: sources.map(summarize), meetings, failed};

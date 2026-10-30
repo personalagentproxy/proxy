@@ -370,10 +370,10 @@ describe('attachments', () => {
 	});
 });
 
-describe('findInboxEmails', () => {
+describe('emailConnector.findEmails', () => {
 	test("searches the inbox in IMAP's own terms, newest first, at most as many as asked for", async () => {
 		imap.boxes.INBOX = fill(6, '2026-10-01T09:00:00Z');
-		const {findInboxEmails} = await import('./email-connector');
+		const findInboxEmails = (await import('./email-connector')).emailConnector.findEmails;
 		const [found = []] = (await findInboxEmails(target, [{from: 'sam', words: [['Note']], since: '2026-10-01'}], 3)).unwrap();
 
 		expect(imap.opened).toBe('INBOX');
@@ -385,7 +385,7 @@ describe('findInboxEmails', () => {
 	});
 
 	test("searches in Gmail's syntax on Gmail, and everything without a search", async () => {
-		const {findInboxEmails} = await import('./email-connector');
+		const findInboxEmails = (await import('./email-connector')).emailConnector.findEmails;
 		imap.gmail = true;
 		await findInboxEmails(target, [{from: 'sam', words: [['Note']], since: null}], 3);
 		await findInboxEmails(target, [{from: null, words: [], since: null}], 3);
@@ -405,7 +405,7 @@ describe('findInboxEmails', () => {
 	});
 
 	test('closes the connection when the search is given up on, rather than signing out after it', async () => {
-		const {findInboxEmails} = await import('./email-connector');
+		const findInboxEmails = (await import('./email-connector')).emailConnector.findEmails;
 		const controller = new AbortController();
 		const finding = findInboxEmails(target, [{from: 'sam', words: [], since: null}], 3, controller.signal);
 		controller.abort();
@@ -420,7 +420,7 @@ describe('findInboxEmails', () => {
 			{uid: 1, date: '2026-10-01T09:00:00Z', subject: 'Lunch with Jacky'},
 			{uid: 2, date: '2026-10-02T09:00:00Z', subject: 'Notes for Sam'},
 		];
-		const {findInboxEmails} = await import('./email-connector');
+		const findInboxEmails = (await import('./email-connector')).emailConnector.findEmails;
 		const search = (words: string) => ({from: null, words: [[words]], since: null});
 		const found = (await findInboxEmails(target, [search('Sam'), search('Jacky'), search('Robin')], 10)).unwrap();
 
@@ -432,7 +432,7 @@ describe('findInboxEmails', () => {
 		const me = {address: 'me@example.com'};
 		const jacky = {name: 'Jacky Doe', address: 'jacky@example.com'};
 		const hugo = {name: 'Hugo Brandt', address: 'hugo@example.com'};
-		const {findInboxEmails} = await import('./email-connector');
+		const findInboxEmails = (await import('./email-connector')).emailConnector.findEmails;
 		const involving = (someone: string) => ({from: null, involving: someone, words: [], since: null});
 		const subjects = (found: Array<Array<{values: Record<string, string>}>>) => found.map((records) => records.map((record) => record.values.subject));
 		const either = (someone: string) => [{from: someone}, {to: someone}, {cc: someone}];
@@ -530,7 +530,7 @@ test('a new email without a recipient is not sent', async () => {
 	expect(sendMail).not.toHaveBeenCalled();
 });
 
-describe('replyToMailbox', () => {
+describe('emailConnector.reply', () => {
 	const asked = Buffer.from(
 		'From: Sam Lee <sam@example.com>\r\nReply-To: Planning <planning@example.com>\r\nTo: alex@example.com, Dana Cruz <dana@example.com>\r\nCc: Jo Park <jo@example.com>\r\nSubject: Q3 planning\r\nMessage-ID: <q3@example.com>\r\nReferences: <agenda@example.com>\r\n\r\nCan you make Thursday?\r\n',
 	);
@@ -546,7 +546,7 @@ describe('replyToMailbox', () => {
 
 	test('sends a reply from the connected address, to where the email asks, in its thread, and files it in Sent', async () => {
 		imap.message = {uid: 12, flags: new Set(), source: asked};
-		const {replyToMailbox} = await import('./email-connector');
+		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
 		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: false})).unwrap();
 
 		expect(written).toEqual({
@@ -574,7 +574,7 @@ describe('replyToMailbox', () => {
 
 	test('saves a reply in Drafts, keeping its thread', async () => {
 		imap.message = {uid: 12, flags: new Set(), source: asked};
-		const {replyToMailbox} = await import('./email-connector');
+		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
 		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: false, all: false})).unwrap();
 
 		expect(written.id).toBe(`drafts-${UID_VALIDITY}-99`);
@@ -588,7 +588,7 @@ describe('replyToMailbox', () => {
 
 	test('a reply to all also goes to whom the email went, and copies whom it copied, never the connected address', async () => {
 		imap.message = {uid: 12, flags: new Set(), source: asked};
-		const {replyToMailbox} = await import('./email-connector');
+		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
 		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: true})).unwrap();
 
 		expect(written).toMatchObject({to: '"Planning" <planning@example.com>, "Dana Cruz" <dana@example.com>', cc: '"Jo Park" <jo@example.com>'});
@@ -597,7 +597,7 @@ describe('replyToMailbox', () => {
 
 	test('an email sent is replied to as well, to whom it went', async () => {
 		imap.message = {uid: 12, flags: new Set(), source};
-		const {replyToMailbox} = await import('./email-connector');
+		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
 		const written = (await replyToMailbox(target, `sent-${UID_VALIDITY}-12`, {body: 'Any news?', send: true, all: false})).unwrap();
 
 		expect(imap.opened).toBe('Sent Items');
@@ -605,7 +605,7 @@ describe('replyToMailbox', () => {
 	});
 
 	test('replies to no draft, and to no email that isn’t there', async () => {
-		const {replyToMailbox} = await import('./email-connector');
+		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
 
 		expect((await replyToMailbox(target, DRAFT, {body: 'x', send: true, all: false})).unwrapErr().kind).toBe('validation_error');
 		expect((await replyToMailbox(target, `inbox-${UID_VALIDITY}-13`, {body: 'x', send: true, all: false})).unwrapErr().kind).toBe('not_found');

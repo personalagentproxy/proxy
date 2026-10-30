@@ -197,9 +197,9 @@ async function connector() {
 	return gmailConnector;
 }
 
-describe('findGmailEmails', () => {
+describe('gmailConnector.findEmails', () => {
 	test("searches all mail in Gmail's syntax and reads only as many as asked for, by their message ids", async () => {
-		const {findGmailEmails} = await import('./google-emails');
+		const findGmailEmails = (await import('./google-emails')).gmailConnector.findEmails;
 		const [found = []] = (await findGmailEmails(target, [{from: 'Sam Lee', words: [['planning']], since: '2026-09-01'}], 2)).unwrap();
 
 		const [list] = calls('GET', '/messages');
@@ -540,9 +540,9 @@ describe('commands', () => {
 	});
 });
 
-describe('replyToGmail', () => {
+describe('gmailConnector.reply', () => {
 	async function replyToGmail() {
-		return (await import('./google-emails')).replyToGmail;
+		return (await import('./google-emails')).gmailConnector.reply;
 	}
 
 	function withHeaders(id: string, headers: Record<string, string>) {

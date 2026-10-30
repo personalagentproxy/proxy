@@ -4,6 +4,8 @@ import {ApiErr, type ApiError} from '@proxy/utils';
 import type {ConnectionRow} from '@proxy/db/connection';
 import type {Collection} from '@proxy/integrations';
 
+import type {Capabilities} from './capabilities';
+
 export type RecordValues = Record<string, string>;
 
 /**
@@ -63,9 +65,10 @@ type NewCommandRunners = Partial<Record<string, NewCommandRunner>>;
  * How one collection's records are read and written. A collection offers only some writes and
  * commands, as the catalog says, and its connector has exactly those, as `connectors.test.ts`
  * checks; callers have checked access and that the collection offers the write or command. A
- * connector reports a missing record as not_found.
+ * connector reports a missing record as not_found. It may have capabilities for the home page's
+ * widgets too (`capabilities.ts`).
  */
-export type RecordStore = {
+export type RecordStore = Capabilities & {
 	list: (target: RecordTarget, query: ListQuery) => Promise<Result<RecordPage, ApiError>>;
 	get: (target: RecordTarget, recordId: string) => Promise<Result<DataRecord, ApiError>>;
 	// In a nested collection, inside `parent` when one is given.

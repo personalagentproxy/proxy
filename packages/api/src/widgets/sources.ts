@@ -6,6 +6,7 @@ import type {Viewer} from '@proxy/db/viewer';
 import {findCollection, requiredAction, type Collection, type Integration} from '@proxy/integrations';
 
 import {unavailableActions, unavailableError} from '../connections/unavailable';
+import type {Capabilities, Capability} from '../records/capabilities';
 import {isRecordStore, type RecordStore, type RecordTarget} from '../records/connector';
 import {connectorFor} from '../records/connectors';
 import {loadRecordTarget} from '../records/target';
@@ -16,12 +17,29 @@ import {integrationOf} from '../utils/connection-actions';
  * organization, its shared ones and their own, with a collection of the kind a widget is about, as the catalog names it (`events`, `contacts`,
  * `emails`, `files`). A collection's id is the contract: every integration with an `emails`
  * collection has the same fields, so a widget works with any of them, and connecting a new
- * integration with the collection lights the widget up. The person owns the connections, so
- * nothing limits them but what the sign-in covered.
+ * integration with the collection lights the widget up. What a widget does beyond listing and
+ * writing records, such as searching mail, is a capability of the collection's connector, which
+ * every connector of the collection may offer. The person owns the connections, so nothing limits
+ * them but what the sign-in covered.
  */
 
 // Every collection a widget is about keeps its records, so a source's connector lists and opens them.
 export type Source = RecordTarget & {integration: Integration; connector: RecordStore};
+
+/** A source whose connector has the capability. */
+export type Capable<C extends Capability> = Source & {connector: Required<Pick<Capabilities, C>>};
+
+function offers<C extends Capability>(connector: RecordStore, capability: C): connector is RecordStore & Required<Pick<Capabilities, C>> {
+	return connector[capability] !== undefined;
+}
+
+/** The sources whose connector has the capability, as the Find email widget keeps the mailboxes that can be searched. */
+export function withCapability<C extends Capability>(sources: Source[], capability: C): Array<Capable<C>> {
+	return sources.flatMap((source) => {
+		const {connector} = source;
+		return offers(connector, capability) ? [{...source, connector}] : [];
+	});
+}
 
 /** What the browser is told of a source: which account it is, to tell several apart. */
 export type SourceSummary = {connectionId: string; integrationId: string; account: string; name: string | null};

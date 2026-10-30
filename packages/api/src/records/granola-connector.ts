@@ -4,6 +4,7 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
 import {GRANOLA, parseGranolaMeetings, parseGranolaTranscript, type GranolaMeeting} from '../connections/granola/granola-mcp';
 import {callMcpToolFor} from '../connections/mcp/mcp-session';
+import type {Meeting, MeetingFinder, Reading} from './capabilities';
 import type {DataRecord, ListQuery, RecordPage, RecordStore, RecordTarget, RecordValues} from './connector';
 
 /**
@@ -14,6 +15,10 @@ import type {DataRecord, ListQuery, RecordPage, RecordStore, RecordTarget, Recor
  * none looks back to when Granola started at once and shows the 30 days up to the newest meeting
  * there, so months without meetings are skipped and the list ends where they run out. Granola
  * only reads, so neither collection offers a write.
+ *
+ * For the Ask widget, Granola has no search, so the meetings of the days asked about are listed for
+ * the widget to pick from, and a meeting is read whole, its notes and, where the sign-in covered
+ * reading them, its transcript.
  */
 
 const WINDOW_DAYS = 30;
@@ -44,7 +49,7 @@ function daysBefore(day: string, days: number): string {
 }
 
 /** The meetings between two days, both included, newest first, as Granola lists them. */
-export function listGranolaMeetings(target: RecordTarget, start: string, end: string): Promise<Result<GranolaMeeting[], ApiError>> {
+function listGranolaMeetings(target: RecordTarget, start: string, end: string): Promise<Result<GranolaMeeting[], ApiError>> {
 	return Do(async ($) => {
 		const text = $(await callMcpToolFor(GRANOLA, target.connection, 'list_meetings', {time_range: 'custom', custom_start: start, custom_end: end}));
 		return $(parseGranolaMeetings(text));
@@ -87,7 +92,7 @@ function toRecord(meeting: GranolaMeeting, values: RecordValues): DataRecord {
 }
 
 /** The meetings with the ids, each with its summary and the owner's own notes, which a list leaves out. */
-export function getGranolaMeetings(target: RecordTarget, meetingIds: string[]): Promise<Result<GranolaMeeting[], ApiError>> {
+function getGranolaMeetings(target: RecordTarget, meetingIds: string[]): Promise<Result<GranolaMeeting[], ApiError>> {
 	return Do(async ($) => {
 		const text = $(await callMcpToolFor(GRANOLA, target.connection, 'get_meetings', {meeting_ids: meetingIds}));
 		return $(parseGranolaMeetings(text));
@@ -115,6 +120,47 @@ function listMeetings(target: RecordTarget, query: ListQuery): Promise<Result<Re
 	});
 }
 
+function getTranscript(target: RecordTarget, meetingId: string): Promise<Result<string, ApiError>> {
+	return Do(async ($) => {
+		const text = $(await callMcpToolFor(GRANOLA, target.connection, 'get_meeting_transcript', {meeting_id: meetingId}));
+		return $(parseGranolaTranscript(text));
+	});
+}
+
+function meetingOf(meeting: GranolaMeeting): Meeting {
+	const {id, title, date, participants, url} = meeting;
+	return {id, title, date, participants, link: url || null, notes: `${meeting.summary} ${meeting.privateNotes}`};
+}
+
+const meetings: MeetingFinder = {
+	// Granola is asked to the day after, as it may end before the last day it is given, and its
+	// meetings outside the days are left out after.
+	between: (target, from, to) =>
+		Do(async ($) => {
+			const all = $(await listGranolaMeetings(target, from, dayOf(Date.parse(to) + DAY_MS)));
+			return all.filter((meeting) => meeting.day === null || (meeting.day >= from && meeting.day <= to)).map(meetingOf);
+		}),
+	withNotes: async (target, meetingIds) => (await getGranolaMeetings(target, meetingIds)).map((found) => found.map(meetingOf)),
+};
+
+// A meeting's notes, and its transcript where the sign-in covered reading transcripts.
+function readMeeting(target: RecordTarget, meetingId: string, readable: (collectionId: string) => boolean): Promise<Result<Reading, ApiError>> {
+	return Do(async ($) => {
+		const meeting = $(await getMeeting(target, meetingId));
+		const transcript = readable('transcripts') ? $(await getTranscript(target, meetingId)) : '';
+		const parts = [
+			`Meeting: ${meeting.title}`,
+			`When: ${meeting.date}`,
+			`Participants: ${meeting.participants}`,
+			meeting.summary && `Notes:\n${meeting.summary}`,
+			meeting.privateNotes && `The person's own notes:\n${meeting.privateNotes}`,
+			// Granola's lines are by where the audio came from: the person's microphone, or everyone else.
+			transcript && `Transcript ("Microphone" is the person asking, "System audio" the others):\n${transcript}`,
+		];
+		return {title: meeting.title, link: meeting.url || null, text: parts.filter((part) => part !== '').join('\n\n')};
+	});
+}
+
 export const granolaNotesConnector = {
 	list: listMeetings,
 	get: (target, recordId) =>
@@ -122,6 +168,8 @@ export const granolaNotesConnector = {
 			const meeting = $(await getMeeting(target, recordId));
 			return toRecord(meeting, {...summaryValues(meeting), attendees: meeting.participants, summary: meeting.summary, privateNotes: meeting.privateNotes});
 		}),
+	meetings,
+	readText: readMeeting,
 } satisfies RecordStore;
 
 export const granolaTranscriptsConnector = {
@@ -129,7 +177,6 @@ export const granolaTranscriptsConnector = {
 	get: (target, recordId) =>
 		Do(async ($) => {
 			const meeting = $(await getMeeting(target, recordId));
-			const text = $(await callMcpToolFor(GRANOLA, target.connection, 'get_meeting_transcript', {meeting_id: recordId}));
-			return toRecord(meeting, {...summaryValues(meeting), transcript: $(parseGranolaTranscript(text))});
+			return toRecord(meeting, {...summaryValues(meeting), transcript: $(await getTranscript(target, recordId))});
 		}),
 } satisfies RecordStore;

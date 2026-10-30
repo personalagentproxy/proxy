@@ -7,7 +7,6 @@ import {findCollection, findIntegration} from '@proxy/integrations';
 const requireWritable = mock();
 const requireReadable = mock();
 const reply = mock();
-const replierFor = mock((): typeof reply | null => reply);
 const afterWrite = mock(async () => {});
 const create = mock();
 const sendNew = mock();
@@ -16,15 +15,14 @@ const update = mock();
 
 // The Google client and the mail connectors read the environment on import, which tests don't have.
 mock.module('../utils/env', () => ({env: {NODE_ENV: 'test'}}));
-mock.module('./sources', () => ({requireWritable, requireReadable, findSources: mock(), summarize: mock()}));
-mock.module('./mail-replies', () => ({replierFor}));
+mock.module('./sources', () => ({requireWritable, requireReadable, findSources: mock(), summarize: mock(), withCapability: mock()}));
 mock.module('./writes', () => ({afterWrite}));
 mock.module('../utils/user-org', () => ({
 	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
 }));
 
 const events = findCollection(findIntegration('google') ?? {collections: []}, 'events');
-const source = {connection: {id: 'work'}, collection: events, connector: {create, get, update, newCommands: {sendNew}}};
+const source = {connection: {id: 'work'}, collection: events, connector: {create, get, update, newCommands: {sendNew}, reply}};
 
 function request(body: unknown) {
 	return {user: {userId: 'user-1'}, body} as never;
@@ -133,7 +131,7 @@ describe('handleReplyEmailRoute', () => {
 
 		requireReadable.mockResolvedValueOnce(Err(ApiErr.forbidden()));
 		expect((await handleReplyEmailRoute(request({...answer, send: true}))).unwrapErr().kind).toBe('forbidden');
-		replierFor.mockReturnValueOnce(null);
+		requireWritable.mockResolvedValueOnce(Ok({...source, connector: {create, get, update, newCommands: {sendNew}}}));
 		expect((await handleReplyEmailRoute(request({...answer, send: true}))).unwrapErr().kind).toBe('forbidden');
 		expect(reply).not.toHaveBeenCalled();
 		expect(afterWrite).not.toHaveBeenCalled();

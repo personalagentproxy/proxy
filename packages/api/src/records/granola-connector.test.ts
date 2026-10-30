@@ -158,3 +158,58 @@ describe('opening meetings', () => {
 		expect(tools.calls).toHaveLength(1);
 	});
 });
+
+describe('for the Ask widget', () => {
+	test('the meetings of some days, Granola asked to the day after, those outside the days left out', async () => {
+		const {granolaNotesConnector} = await import('./granola-connector');
+		const found = (await granolaNotesConnector.meetings.between(targetFor('notes'), '2026-09-22', '2026-09-22')).unwrap();
+
+		expect(tools.calls).toEqual([{name: 'list_meetings', args: {time_range: 'custom', custom_start: '2026-09-22', custom_end: '2026-09-23'}}]);
+		expect(found).toEqual([
+			{
+				id: MEETING_ID,
+				title: 'Q3 planning & budget',
+				date: 'Sep 22, 2026 11:00 AM PDT',
+				participants: 'Alex (note creator) from Acme <alex@acme.com>, Sam <sam@example.com>',
+				link: `https://notes.granola.ai/d/${MEETING_ID}`,
+				notes: '## Q3\n\nWe planned Q3. ',
+			},
+		]);
+	});
+
+	test('the meetings with the ids, their notes read in one call', async () => {
+		const {granolaNotesConnector} = await import('./granola-connector');
+		const read = (await granolaNotesConnector.meetings.withNotes(targetFor('notes'), [MEETING_ID, 'd63951cd-e802-4af0-b2ca-8613765f8ffc'])).unwrap();
+
+		expect(tools.calls).toEqual([{name: 'get_meetings', args: {meeting_ids: [MEETING_ID, 'd63951cd-e802-4af0-b2ca-8613765f8ffc']}}]);
+		expect(read.map((meeting) => [meeting.title, meeting.link])).toEqual([
+			['Q3 planning & budget', `https://notes.granola.ai/d/${MEETING_ID}`],
+			['Weekly sync', null],
+		]);
+	});
+
+	test('reads a meeting whole, its notes and its transcript', async () => {
+		const {granolaNotesConnector} = await import('./granola-connector');
+		const reading = (await granolaNotesConnector.readText(targetFor('notes'), MEETING_ID, (collectionId) => collectionId === 'transcripts')).unwrap();
+
+		expect(reading).toEqual({
+			title: 'Q3 planning & budget',
+			link: `https://notes.granola.ai/d/${MEETING_ID}`,
+			text: [
+				'Meeting: Q3 planning & budget',
+				'When: Sep 22, 2026 11:00 AM PDT',
+				'Participants: Alex (note creator) from Acme <alex@acme.com>, Sam <sam@example.com>',
+				'Notes:\n## Q3\n\nWe planned Q3.',
+				'Transcript ("Microphone" is the person asking, "System audio" the others):\nSystem audio: Shall we start?\n\nMicrophone: Sounds good.',
+			].join('\n\n'),
+		});
+	});
+
+	test('reads no transcript the sign-in didn’t cover', async () => {
+		const {granolaNotesConnector} = await import('./granola-connector');
+		const reading = (await granolaNotesConnector.readText(targetFor('notes'), MEETING_ID, () => false)).unwrap();
+
+		expect(tools.calls.map((call) => call.name)).toEqual(['get_meetings']);
+		expect(reading.text).not.toContain('Transcript');
+	});
+});

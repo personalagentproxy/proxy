@@ -38,7 +38,7 @@ import {
 } from '../connections/google/gmail-api';
 import {attachmentRecord, attachmentsText, pickAttachment, readableKind, requireEmailId} from './attachment-text';
 import type {CommandRunner, DataRecord, ListQuery, NewCommandRunner, RecordPage, RecordStore, RecordTarget, RecordValues, RunOnly} from './connector';
-import {gmailQuery, type EmailSearch} from './email-search';
+import {gmailQuery, type EmailSearch, type MailSearch} from './email-search';
 import {replyCommands, replyHeaders, type MailReply} from './email-reply';
 
 /**
@@ -244,9 +244,8 @@ function findWithToken(token: string, account: string, search: EmailSearch, limi
  * `limit` each, read with their headers alone: a list of a page would read 50. Drafts keep their
  * message ids, as they are only shown.
  */
-export function findGmailEmails(target: RecordTarget, searches: EmailSearch[], limit: number): Promise<Result<DataRecord[][], ApiError>> {
-	return callGoogle(target.connection, async (token) => Result.all(await mapWithLimit(searches, SEARCHES_AT_ONCE, (search) => findWithToken(token, target.connection.account, search, limit))));
-}
+const findGmailEmails: MailSearch = (target, searches, limit) =>
+	callGoogle(target.connection, async (token) => Result.all(await mapWithLimit(searches, SEARCHES_AT_ONCE, (search) => findWithToken(token, target.connection.account, search, limit))));
 
 function readDraft(token: string, account: string, recordId: string, draftId: string): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
@@ -407,7 +406,7 @@ function sendNew(target: RecordTarget, values: RecordValues): Promise<Result<nul
  * saved as a draft there: its message id, or its draft's, and the thread Gmail put it in. A draft
  * isn't replied to.
  */
-export const replyToGmail: MailReply = (target, recordId, reply) =>
+const replyToGmail: MailReply = (target, recordId, reply) =>
 	callGoogle(target.connection, (token) =>
 		Do(async ($) => {
 			const ref = $(requireRef(recordId));
@@ -490,4 +489,6 @@ export const gmailConnector = {
 		send,
 	},
 	newCommands: {sendNew},
+	findEmails: findGmailEmails,
+	reply: replyToGmail,
 } satisfies RecordStore;

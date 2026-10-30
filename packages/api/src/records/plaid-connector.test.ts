@@ -316,3 +316,39 @@ describe('Plaid’s errors', () => {
 		expect((await plaidAccountsConnector.list(accounts, LIST)).unwrapErr().kind).toBe('provider_unreachable');
 	});
 });
+
+describe('for the widgets', () => {
+	test('the balances as numbers, a card’s as owed', async () => {
+		const {plaidAccountsConnector} = await import('./plaid-connector');
+
+		expect((await plaidAccountsConnector.balances(accounts)).unwrap()).toEqual([
+			{id: CHECKING_ID, name: 'Plaid Checking', type: 'Checking', mask: '0000', owed: false, balance: 110, available: 100, limit: null, currency: 'USD'},
+			{id: CARD_ID, name: 'Plaid Credit Card', type: 'Credit card', mask: '3333', owed: true, balance: 410, available: null, limit: 2000, currency: 'USD'},
+		]);
+		expect(plaid.requests[0]?.body).toEqual({access_token: 'access-sandbox-1'});
+	});
+
+	test('every account’s transactions between the days, signed as a statement does, with the accounts', async () => {
+		const {plaidTransactionsConnector} = await import('./plaid-connector');
+		const read = (await plaidTransactionsConnector.transactionsBetween(transactions, {from: '2026-10-01', to: '2026-10-19'})).unwrap();
+
+		expect(plaid.requests[0]?.body).toEqual({access_token: 'access-sandbox-1', start_date: '2026-10-01', end_date: '2026-10-19', options: {count: 500, offset: 0}});
+		expect(read.transactions).toEqual([
+			{accountId: CHECKING_ID, id: UBER_ID, date: '2026-10-11', name: 'Uber 063015 SF**POOL**', merchant: 'Uber', amount: -5.4, currency: 'USD', category: 'TRANSPORTATION', pending: false},
+			{accountId: CHECKING_ID, id: PAYROLL_ID, date: '2026-10-10', name: 'ACME PAYROLL', merchant: null, amount: 2500, currency: 'USD', category: 'INCOME', pending: true},
+		]);
+		expect(read.accounts.map((account) => account.id)).toEqual([CHECKING_ID, CARD_ID]);
+		expect(read.more).toBe(false);
+	});
+
+	test('reads on from where a page ended, up to three pages, and says when there were more', async () => {
+		plaid.transactions = [UBER];
+		plaid.total = 5;
+		const {plaidTransactionsConnector} = await import('./plaid-connector');
+		const read = (await plaidTransactionsConnector.transactionsBetween(transactions, {from: '2026-10-01', to: '2026-10-19'})).unwrap();
+
+		expect(plaid.requests.map((request) => request.body.options)).toEqual([0, 1, 2].map((offset) => ({count: 500, offset})));
+		expect(read.transactions).toHaveLength(3);
+		expect(read.more).toBe(true);
+	});
+});

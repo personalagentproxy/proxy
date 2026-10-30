@@ -3,89 +3,49 @@ import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
 
-const getAccounts = mock();
-const getTransactions = mock();
+const balances = mock();
+const transactionsBetween = mock();
 
-mock.module('../connections/plaid/plaid-api', () => ({getAccounts, getTransactions}));
-mock.module('../connections/plaid/plaid-client', () => ({
-	callPlaid: (connection: {credential: string}, call: (client: unknown, accessToken: string) => unknown) => call({}, connection.credential),
-}));
 mock.module('./sources', () => ({
-	findSources: async () => Ok([{connection: {id: 'bank-1', integrationId: 'plaid', account: 'First Platypus Bank', name: null, credential: 'access-1'}, integration: {id: 'plaid'}}]),
+	findSources: async () =>
+		Ok([
+			{connection: {id: 'bank-1', integrationId: 'plaid', account: 'First Platypus Bank', name: null}, connector: {balances, transactionsBetween}},
+			// A collection of accounts the widgets can't read.
+			{connection: {id: 'other-1', integrationId: 'postgres', account: 'db', name: null}, connector: {}},
+		]),
 	summarize: (source: {connection: {id: string}}) => ({connectionId: source.connection.id}),
+	withCapability: (sources: Array<{connector: object}>, capability: string) => sources.filter((source) => capability in source.connector),
 }));
 mock.module('../utils/user-org', () => ({
 	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
 }));
 
-const CHECKING = {
-	account_id: 'checking',
-	name: 'Plaid Checking',
-	mask: '0000',
-	type: 'depository',
-	subtype: 'checking',
-	balances: {current: 110, available: 100, limit: null, iso_currency_code: 'USD'},
-};
-
-const CARD = {
-	account_id: 'card',
-	name: 'Plaid Credit Card',
-	mask: '3333',
-	type: 'credit',
-	subtype: 'credit card',
-	balances: {current: 410, available: null, limit: 2000, iso_currency_code: 'USD'},
-};
-
-const UBER = {
-	transaction_id: 'uber',
-	account_id: 'checking',
-	amount: 5.4,
-	iso_currency_code: 'USD',
-	date: '2026-10-11',
-	name: 'Uber 063015 SF**POOL**',
-	merchant_name: 'Uber',
-	pending: false,
-	personal_finance_category: {primary: 'TRANSPORTATION', detailed: 'TRANSPORTATION_TAXIS_AND_RIDE_SHARES'},
-};
-
-const PAYROLL = {
-	transaction_id: 'payroll',
-	account_id: 'checking',
-	amount: -2500,
-	iso_currency_code: 'USD',
-	date: '2026-10-10',
-	name: 'ACME PAYROLL',
-	merchant_name: null,
-	pending: true,
-	personal_finance_category: null,
-};
+const CHECKING = {id: 'checking', name: 'Plaid Checking', type: 'Checking', mask: '0000', owed: false, balance: 110, available: 100, limit: null, currency: 'USD'};
+const PAYROLL = {accountId: 'checking', id: 'payroll', date: '2026-10-10', name: 'ACME PAYROLL', merchant: null, amount: 2500, currency: 'USD', category: null, pending: true};
+const UBER = {accountId: 'checking', id: 'uber', date: '2026-10-11', name: 'Uber', merchant: 'Uber', amount: -5.4, currency: 'USD', category: 'TRANSPORTATION', pending: false};
 
 function request(query: Record<string, string> = {}) {
 	return {user: {userId: 'user-1'}, query} as never;
 }
 
 beforeEach(() => {
-	getAccounts.mockReset();
-	getTransactions.mockReset();
-	getAccounts.mockResolvedValue(Ok({accounts: [CHECKING, CARD], institution: 'First Platypus Bank'}));
-	getTransactions.mockResolvedValue(Ok({accounts: [CHECKING, CARD], transactions: [UBER, PAYROLL], total: 2}));
+	balances.mockReset();
+	transactionsBetween.mockReset();
+	balances.mockResolvedValue(Ok([CHECKING]));
+	transactionsBetween.mockResolvedValue(Ok({accounts: [CHECKING], transactions: [PAYROLL, UBER], more: false}));
 });
 
 describe('handleBankAccountsRoute', () => {
-	test('answers each account with its balances as numbers, a card’s as owed', async () => {
+	test('answers each bank’s accounts, with the connection they are of', async () => {
 		const {handleBankAccountsRoute} = await import('./bank');
 		const answer = (await handleBankAccountsRoute(request())).unwrap();
 
 		expect(answer.sources.map((source) => source.connectionId)).toEqual(['bank-1']);
-		expect(answer.accounts).toEqual([
-			{connectionId: 'bank-1', id: 'checking', name: 'Plaid Checking', type: 'Checking', mask: '0000', owed: false, balance: 110, available: 100, limit: null, currency: 'USD'},
-			{connectionId: 'bank-1', id: 'card', name: 'Plaid Credit Card', type: 'Credit card', mask: '3333', owed: true, balance: 410, available: null, limit: 2000, currency: 'USD'},
-		]);
-		expect(getAccounts).toHaveBeenCalledWith({}, 'access-1');
+		expect(answer.accounts).toEqual([{connectionId: 'bank-1', ...CHECKING}]);
 	});
 
 	test('a bank that can’t be read is a failure beside the rest', async () => {
-		getAccounts.mockResolvedValue(Err(ApiErr.validationError('The bank needs its login again')));
+		balances.mockResolvedValue(Err(ApiErr.validationError('The bank needs its login again')));
 		const {handleBankAccountsRoute} = await import('./bank');
 		const answer = (await handleBankAccountsRoute(request())).unwrap();
 
@@ -95,37 +55,17 @@ describe('handleBankAccountsRoute', () => {
 });
 
 describe('handleBankTransactionsRoute', () => {
-	test('reads the days asked for, signing amounts as a statement does, with the accounts they are on', async () => {
+	test('reads the days asked for, newest first, with the accounts they are on and whether there were more', async () => {
+		transactionsBetween.mockResolvedValue(Ok({accounts: [CHECKING], transactions: [PAYROLL, UBER], more: true}));
 		const {handleBankTransactionsRoute} = await import('./bank');
 		const answer = (await handleBankTransactionsRoute(request({from: '2026-10-01', to: '2026-10-19'}))).unwrap();
 
-		expect(getTransactions).toHaveBeenCalledWith({}, 'access-1', {from: '2026-10-01', to: '2026-10-19', accountId: null, count: 500, offset: 0});
+		expect(transactionsBetween).toHaveBeenCalledWith(expect.anything(), {from: '2026-10-01', to: '2026-10-19'});
 		expect(answer.transactions).toEqual([
-			{
-				connectionId: 'bank-1',
-				accountId: 'checking',
-				id: 'uber',
-				date: '2026-10-11',
-				name: 'Uber 063015 SF**POOL**',
-				merchant: 'Uber',
-				amount: -5.4,
-				currency: 'USD',
-				category: 'TRANSPORTATION',
-				pending: false,
-			},
-			{connectionId: 'bank-1', accountId: 'checking', id: 'payroll', date: '2026-10-10', name: 'ACME PAYROLL', merchant: null, amount: 2500, currency: 'USD', category: null, pending: true},
+			{connectionId: 'bank-1', ...UBER},
+			{connectionId: 'bank-1', ...PAYROLL},
 		]);
-		expect(answer.accounts.map((account) => account.id)).toEqual(['checking', 'card']);
-		expect(answer.more).toBe(false);
-	});
-
-	test('reads on from where a page ended, up to three pages, and says when there were more', async () => {
-		getTransactions.mockResolvedValue(Ok({accounts: [CHECKING], transactions: [UBER], total: 5}));
-		const {handleBankTransactionsRoute} = await import('./bank');
-		const answer = (await handleBankTransactionsRoute(request({from: '2026-10-01', to: '2026-10-19'}))).unwrap();
-
-		expect(getTransactions.mock.calls.map((call) => (call[2] as {offset: number}).offset)).toEqual([0, 1, 2]);
-		expect(answer.transactions).toHaveLength(3);
+		expect(answer.accounts).toEqual([{connectionId: 'bank-1', ...CHECKING}]);
 		expect(answer.more).toBe(true);
 	});
 
@@ -141,6 +81,6 @@ describe('handleBankTransactionsRoute', () => {
 			const kind = (await handleBankTransactionsRoute(request(query))).unwrapErr().kind;
 			expect(['parse_error', 'validation_error']).toContain(kind);
 		}
-		expect(getTransactions).not.toHaveBeenCalled();
+		expect(transactionsBetween).not.toHaveBeenCalled();
 	});
 });

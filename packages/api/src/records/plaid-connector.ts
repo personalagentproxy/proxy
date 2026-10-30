@@ -5,6 +5,7 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
 import {getAccounts, getTransactions, type PlaidAccount, type PlaidTransaction} from '../connections/plaid/plaid-api';
 import {callPlaid, type PlaidClient} from '../connections/plaid/plaid-client';
+import type {Account, Transaction, Transactions} from './capabilities';
 import {requireFirstPage, type DataRecord, type ListQuery, type RecordPage, type RecordStore, type RecordTarget} from './connector';
 import {readPageToken, writePageToken} from './page-token';
 
@@ -19,6 +20,9 @@ import {readPageToken, writePageToken} from './page-token';
  * `lvo4…:2026-10-11:k9oa…`. A pending transaction is replaced by its posted one, with an id of its
  * own, once the bank posts it, and is then not found. Amounts are written as a statement reads:
  * money out of the account negative, money in positive.
+ *
+ * For the Balances and Transactions widgets, the accounts with their balances as numbers, and every
+ * account's transactions between two days, read in a few calls of up to 500.
  */
 
 const PAGE_SIZE = 50;
@@ -88,13 +92,13 @@ function sentenceCase(text: string): string {
 }
 
 /** An account's kind as a person reads it: "Checking", "Credit card", "IRA". */
-export function accountType(account: PlaidAccount): string {
+function accountType(account: PlaidAccount): string {
 	const kind = account.subtype ?? account.type;
 	return ACRONYMS[kind] ?? sentenceCase(kind);
 }
 
 /** The account number's last digits as the bank shows them, "••0000", or nothing. */
-export function accountNumber(account: PlaidAccount): string {
+function accountNumber(account: PlaidAccount): string {
 	return account.mask ? `••${account.mask}` : '';
 }
 
@@ -267,6 +271,74 @@ function getBalance(target: RecordTarget, recordId: string): Promise<Result<Data
 	);
 }
 
-export const plaidAccountsConnector = {list: listBalances, get: getBalance} satisfies RecordStore;
+function currencyOf(amount: {iso_currency_code?: string | null; unofficial_currency_code?: string | null}): string {
+	return amount.iso_currency_code ?? amount.unofficial_currency_code ?? '';
+}
 
-export const plaidTransactionsConnector = {list: listTransactionsTree, get: getTransactionsRecord} satisfies RecordStore;
+// An account as the widgets show it: a card's or a loan's balance is what is owed.
+function shownAccount(account: PlaidAccount): Account {
+	const {balances} = account;
+	return {
+		id: account.account_id,
+		name: account.name,
+		type: accountType(account),
+		mask: account.mask ?? '',
+		owed: account.type === 'credit' || account.type === 'loan',
+		balance: balances.current ?? null,
+		available: balances.available ?? null,
+		limit: balances.limit ?? null,
+		currency: currencyOf(balances),
+	};
+}
+
+function shownTransaction(transaction: PlaidTransaction): Transaction {
+	return {
+		accountId: transaction.account_id,
+		id: transaction.transaction_id,
+		date: transaction.date,
+		name: transaction.name,
+		merchant: transaction.merchant_name ?? null,
+		// Plaid's amount is what left the account; a statement shows it taken off.
+		amount: transaction.amount === 0 ? 0 : -transaction.amount,
+		currency: currencyOf(transaction),
+		category: transaction.personal_finance_category?.primary ?? null,
+		pending: transaction.pending,
+	};
+}
+
+// Plaid answers at most 500 transactions a call; a range is read in a few calls, then given up on.
+const RANGE_PAGE = 500;
+const RANGE_PAGES = 3;
+
+function balances(target: RecordTarget): Promise<Result<Account[], ApiError>> {
+	return callPlaid(target.connection, (client, accessToken) =>
+		Do(async ($) => {
+			const {accounts} = $(await getAccounts(client, accessToken));
+			return accounts.map(shownAccount);
+		}),
+	);
+}
+
+function transactionsBetween(target: RecordTarget, range: {from: string; to: string}): Promise<Result<Transactions, ApiError>> {
+	return callPlaid(target.connection, (client, accessToken) =>
+		Do(async ($) => {
+			const transactions: Transaction[] = [];
+			let accounts: PlaidAccount[] = [];
+			let total = 0;
+			for (let page = 0; page < RANGE_PAGES; page += 1) {
+				const answer = $(await getTransactions(client, accessToken, {...range, accountId: null, count: RANGE_PAGE, offset: transactions.length}));
+				transactions.push(...answer.transactions.map(shownTransaction));
+				accounts = answer.accounts;
+				total = answer.total;
+				if (answer.transactions.length === 0 || transactions.length >= total) {
+					break;
+				}
+			}
+			return {accounts: accounts.map(shownAccount), transactions, more: transactions.length < total};
+		}),
+	);
+}
+
+export const plaidAccountsConnector = {list: listBalances, get: getBalance, balances} satisfies RecordStore;
+
+export const plaidTransactionsConnector = {list: listTransactionsTree, get: getTransactionsRecord, transactionsBetween} satisfies RecordStore;

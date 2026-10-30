@@ -13,7 +13,7 @@ beforeEach(() => {
 	mock.clearAllMocks();
 });
 
-describe('googleCalendars.agenda', () => {
+describe('googleAgenda', () => {
 	test('reads the calendars Google Calendar shows and their events, without the declined, Busy where only that is seen', async () => {
 		listCalendars.mockResolvedValue(
 			Ok([
@@ -47,10 +47,10 @@ describe('googleCalendars.agenda', () => {
 			}[calendarId];
 			return Ok({events: events ?? [], nextPage: null});
 		});
-		const {googleCalendars} = await import('./google-calendars');
+		const {googleAgenda} = await import('./google-agenda');
 
 		const range = {from: '2026-10-15T00:00:00+02:00', to: '2026-10-16T00:00:00+02:00'};
-		const read = (await googleCalendars.agenda({connection: {id: 'work'}} as never, range)).unwrap();
+		const read = (await googleAgenda({connection: {id: 'work'}} as never, range)).unwrap();
 
 		expect(listEvents).not.toHaveBeenCalledWith('token', 'holidays', expect.anything());
 		expect(listEvents).toHaveBeenCalledWith('token', 'me@work', {...range, search: null, page: null});
@@ -72,7 +72,7 @@ describe('googleCalendars.agenda', () => {
 	});
 });
 
-describe('googleCalendars.search', () => {
+describe('findGoogleEvents', () => {
 	test('searches every calendar shown for each search from the time on, but those only seen as busy, each event once, soonest first', async () => {
 		listCalendars.mockResolvedValue(
 			Ok([
@@ -89,10 +89,10 @@ describe('googleCalendars.search', () => {
 			}
 			return Ok({events: [], nextPage: null});
 		});
-		const {googleCalendars} = await import('./google-calendars');
+		const {findGoogleEvents} = await import('./google-agenda');
 
 		const from = '2026-10-16T00:00:00+02:00';
-		const found = (await googleCalendars.search({connection: {id: 'work'}} as never, {from, searches: ['arne', 'arne@example.com']})).unwrap();
+		const found = (await findGoogleEvents({connection: {id: 'work'}} as never, {from, searches: ['arne', 'arne@example.com']})).unwrap();
 
 		expect(listEvents).toHaveBeenCalledTimes(4);
 		expect(listEvents).toHaveBeenCalledWith('token', 'team', {from, search: 'arne@example.com', page: null});
@@ -101,7 +101,7 @@ describe('googleCalendars.search', () => {
 	});
 });
 
-describe('googleCalendars, an event on two calendars', () => {
+describe('an event on two calendars', () => {
 	test('shows it once, the copy the person can change, and fails the account when Google is out of reach', async () => {
 		listCalendars.mockResolvedValue(
 			Ok([
@@ -111,18 +111,18 @@ describe('googleCalendars, an event on two calendars', () => {
 		);
 		const oneOnOne = {id: '1on1', summary: 'Arne / me', start: {dateTime: '2026-10-21T15:00:00+02:00'}, end: {dateTime: '2026-10-21T15:30:00+02:00'}, organizer: {email: 'me@work', self: true}};
 		listEvents.mockResolvedValue(Ok({events: [oneOnOne], nextPage: null}));
-		const {googleCalendars} = await import('./google-calendars');
+		const {googleAgenda, findGoogleEvents} = await import('./google-agenda');
 		const source = {connection: {id: 'work'}} as never;
 
 		const range = {from: '2026-10-21T00:00:00+02:00', to: '2026-10-22T00:00:00+02:00'};
-		const day = (await googleCalendars.agenda(source, range)).unwrap();
+		const day = (await googleAgenda(source, range)).unwrap();
 		expect(day.events.map((event) => [event.calendarId, event.editable])).toEqual([['me@work', true]]);
-		const found = (await googleCalendars.search(source, {from: range.from, searches: ['arne']})).unwrap();
+		const found = (await findGoogleEvents(source, {from: range.from, searches: ['arne']})).unwrap();
 		expect(found.map((event) => [event.calendarId, event.editable])).toEqual([['me@work', true]]);
 
 		listEvents.mockImplementation(async (_token: string, calendarId: string) =>
 			calendarId === 'colleague' ? Err(ApiErr.providerUnreachable(new Error('rateLimitExceeded'))) : Ok({events: [oneOnOne], nextPage: null}),
 		);
-		expect((await googleCalendars.search(source, {from: range.from, searches: ['arne']})).isErr()).toBe(true);
+		expect((await findGoogleEvents(source, {from: range.from, searches: ['arne']})).isErr()).toBe(true);
 	});
 });

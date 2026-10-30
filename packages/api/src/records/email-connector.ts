@@ -15,7 +15,7 @@ import {log, serializeError} from '../observability/log';
 import {decryptSecret} from '../utils/secret-crypto';
 import {attachmentRecord, attachmentsText, pickAttachment, requireEmailId, type AttachmentFile} from './attachment-text';
 import type {CommandRunner, DataRecord, ListQuery, RecordPage, RecordStore, RecordTarget, RecordValues, RunOnly} from './connector';
-import {gmailQuery, type EmailSearch} from './email-search';
+import {gmailQuery, type EmailSearch, type MailSearch} from './email-search';
 import {replyCommands, replyHeaders, type MailReply, type ReplyHeaders} from './email-reply';
 
 /**
@@ -345,8 +345,8 @@ async function findEveryone(session: Session, searches: Array<EmailSearch & {inv
  * account only so many connections at once: searches only for people, as the People widget's,
  * as one search for any of them where it can, any others one after the other.
  */
-export function findInboxEmails(target: RecordTarget, searches: EmailSearch[], limit: number, signal?: AbortSignal): Promise<Result<DataRecord[][], ApiError>> {
-	return withFolder(
+const findInboxEmails: MailSearch = (target, searches, limit, signal) =>
+	withFolder(
 		target,
 		INBOX,
 		async (session) => {
@@ -362,7 +362,6 @@ export function findInboxEmails(target: RecordTarget, searches: EmailSearch[], l
 		},
 		signal,
 	);
-}
 
 // Where each folder goes on, in a page token: the folder, its UIDVALIDITY, and the UID listing
 // continues below, as `inbox-7-120,sent-7-33`. A folder left out has nothing more to list.
@@ -694,7 +693,7 @@ async function replyTo(session: Session, id: string, all: boolean): Promise<Resu
  * thread: sent over SMTP, or saved in Drafts. The email's folder is let go of before Drafts is
  * opened. A draft isn't replied to.
  */
-export const replyToMailbox: MailReply = (target, id, reply) =>
+const replyToMailbox: MailReply = (target, id, reply) =>
 	withClient(target, (client, credential) =>
 		Do(async ($) => {
 			const folder = $(folderOf(id));
@@ -742,6 +741,8 @@ export const emailConnector = {
 	newCommands: {
 		sendNew: (target, values) => withClient(target, async (client, credential) => (await deliver(client, credential, values)).map(() => null)),
 	},
+	findEmails: findInboxEmails,
+	reply: replyToMailbox,
 } satisfies RecordStore;
 
 export const emailAttachmentsConnector = {newCommands: {read: readAttachment}} satisfies RunOnly;

@@ -19,6 +19,7 @@ import {
 } from '../connections/google/calendar-api';
 import {callGoogle} from '../connections/google/google-client';
 import {readTime, realDay, zonedInstant, type Written} from './calendar-time';
+import {findGoogleEvents, googleAgenda} from './google-agenda';
 import {requireFirstPage, type CommandRunner, type DataRecord, type ListQuery, type RecordPage, type RecordStore, type RecordTarget, type RecordValues} from './connector';
 import {readPageToken, writePageToken} from './page-token';
 
@@ -449,4 +450,6 @@ export const eventsConnector = {
 	create: createEvent,
 	update: updateEvent,
 	commands: {accept: respond('accepted'), decline: respond('declined'), maybe: respond('tentative')},
+	agenda: googleAgenda,
+	findEvents: findGoogleEvents,
 } satisfies RecordStore;
