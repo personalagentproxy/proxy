@@ -100,8 +100,8 @@ function freeBusyBody(): {timeMin: string; timeMax: string; items: Array<{id: st
 
 describe('checking availability', () => {
 	test('asks Google when the account and the people named are busy, on the primary calendar’s clock', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.newCommands?.check?.(target, {people: 'Dana Fox <Dana@example.com>, sam@example.com', from: '2026-10-15T08:00', to: '2026-10-15T18:00'}))?.unwrap();
+		const {availabilityConnector} = await import('./google-availability');
+		const record = (await availabilityConnector.newCommands?.check?.(target, {people: 'Dana Fox <Dana@example.com>, sam@example.com', from: '2026-10-15T08:00', to: '2026-10-15T18:00'}))?.unwrap();
 
 		expect(google.requests[0]?.url.pathname).toBe('/calendar/v3/users/me/calendarList/primary');
 		expect(freeBusyBody()).toEqual({
@@ -120,20 +120,20 @@ describe('checking availability', () => {
 	});
 
 	test('a day alone is the whole day, and times with an offset are taken as they are', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.newCommands?.check?.(target, {people: '', from: '2026-10-15', to: '2026-10-16'});
+		const {availabilityConnector} = await import('./google-availability');
+		await availabilityConnector.newCommands?.check?.(target, {people: '', from: '2026-10-15', to: '2026-10-16'});
 		const days = freeBusyBody();
 		google.requests = [];
-		await googleConnector.newCommands?.check?.(target, {people: '', from: '2026-10-15T09:00:00Z', to: '2026-10-15T17:00:00+01:00'});
+		await availabilityConnector.newCommands?.check?.(target, {people: '', from: '2026-10-15T09:00:00Z', to: '2026-10-15T17:00:00+01:00'});
 
 		expect([days.timeMin, days.timeMax]).toEqual(['2026-10-14T22:00:00.000Z', '2026-10-16T22:00:00.000Z']);
 		expect([freeBusyBody().timeMin, freeBusyBody().timeMax]).toEqual(['2026-10-15T09:00:00.000Z', '2026-10-15T16:00:00.000Z']);
 	});
 
 	test('left out, it checks the account alone, from now for a week', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {availabilityConnector} = await import('./google-availability');
 		const before = Date.now();
-		await googleConnector.newCommands?.check?.(target, {people: '', from: '', to: ''});
+		await availabilityConnector.newCommands?.check?.(target, {people: '', from: '', to: ''});
 		const body = freeBusyBody();
 
 		expect(body.items).toEqual([{id: 'primary'}]);
@@ -142,31 +142,31 @@ describe('checking availability', () => {
 	});
 
 	test('busy times running past the window are cut to it, and someone with nothing on is free', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {availabilityConnector} = await import('./google-availability');
 		google.answer = (request) =>
 			request.url.pathname === '/calendar/v3/freeBusy'
 				? Response.json({calendars: {primary: {busy: [{start: '2026-10-14T20:00:00Z', end: '2026-10-15T07:00:00Z'}]}, 'dana@example.com': {busy: []}}})
 				: null;
-		const record = (await googleConnector.newCommands?.check?.(target, {people: 'dana@example.com', from: '2026-10-15T08:00', to: '2026-10-15T12:00'}))?.unwrap();
+		const record = (await availabilityConnector.newCommands?.check?.(target, {people: 'dana@example.com', from: '2026-10-15T08:00', to: '2026-10-15T12:00'}))?.unwrap();
 
 		expect(record?.values.busy).toBe('You (alex@example.com): 2026-10-15 08:00–09:00\ndana@example.com: free');
 		expect(record?.values.free).toBe('2026-10-15 09:00–12:00');
 	});
 
 	test('the account named among the people is checked once', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.newCommands?.check?.(target, {people: 'ALEX@example.com, dana@example.com', from: '2026-10-15', to: ''});
+		const {availabilityConnector} = await import('./google-availability');
+		await availabilityConnector.newCommands?.check?.(target, {people: 'ALEX@example.com, dana@example.com', from: '2026-10-15', to: ''});
 
 		expect(freeBusyBody().items).toEqual([{id: 'primary'}, {id: 'dana@example.com'}]);
 	});
 
 	test('people that aren’t addresses, times that aren’t times, and a to before from never reach free/busy', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {availabilityConnector} = await import('./google-availability');
 		const refusals = await Promise.all([
-			googleConnector.newCommands?.check?.(target, {people: 'Dana', from: '', to: ''}),
-			googleConnector.newCommands?.check?.(target, {people: '', from: 'tomorrow', to: ''}),
-			googleConnector.newCommands?.check?.(target, {people: '', from: '2026-10-16', to: '2026-10-15T12:00'}),
-			googleConnector.newCommands?.check?.(target, {people: Array.from({length: 50}, (_, index) => `p${index}@example.com`).join(','), from: '', to: ''}),
+			availabilityConnector.newCommands?.check?.(target, {people: 'Dana', from: '', to: ''}),
+			availabilityConnector.newCommands?.check?.(target, {people: '', from: 'tomorrow', to: ''}),
+			availabilityConnector.newCommands?.check?.(target, {people: '', from: '2026-10-16', to: '2026-10-15T12:00'}),
+			availabilityConnector.newCommands?.check?.(target, {people: Array.from({length: 50}, (_, index) => `p${index}@example.com`).join(','), from: '', to: ''}),
 		]);
 
 		expect(refusals.map(messageOf)).toEqual([
@@ -176,12 +176,5 @@ describe('checking availability', () => {
 			'Google checks 49 people at most at once, beside you',
 		]);
 		expect(google.requests.filter((request) => request.url.pathname === '/calendar/v3/freeBusy')).toEqual([]);
-	});
-
-	test('availability is never listed or opened', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const result = await googleConnector.list(target, {search: null, page: null, filter: null, parent: null});
-
-		expect(result.isErr() && result.error.kind).toBe('validation_error');
 	});
 });

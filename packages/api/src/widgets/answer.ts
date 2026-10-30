@@ -5,6 +5,8 @@ import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import {findCollection} from '@proxy/integrations';
 
 import {askForJson} from '../llm/open-router';
+import {isRecordStore} from '../records/connector';
+import {connectorFor} from '../records/connectors';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {env} from '../utils/env';
 import {requireViewer} from '../utils/user-org';
@@ -54,10 +56,11 @@ const MAX_QUOTES = 3;
 function transcriptOf(source: Source, id: string): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const transcripts = findCollection(source.integration, 'transcripts');
-		if (!transcripts || !covers(source.connection, transcripts, 'view')) {
+		const connector = connectorFor(source.integration.id, 'transcripts');
+		if (!transcripts || !connector || !isRecordStore(connector) || !covers(source.connection, transcripts, 'view')) {
 			return '';
 		}
-		const record = $(await source.connector.get({...source, collection: transcripts}, id));
+		const record = $(await connector.get({...source, collection: transcripts}, id));
 		return record.values.transcript ?? '';
 	});
 }

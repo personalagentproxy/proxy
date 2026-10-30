@@ -114,8 +114,8 @@ const LIST = {search: null, page: null, filter: null, parent: null};
 
 describe('listing', () => {
 	test('lists contacts, the most recently changed first, with Google’s page token', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const page = (await googleConnector.list(target, {...LIST, page: 'page-1'})).unwrap();
+		const {contactsConnector} = await import('./google-contacts');
+		const page = (await contactsConnector.list(target, {...LIST, page: 'page-1'})).unwrap();
 
 		const [request] = google.requests;
 		expect(request?.url.searchParams.get('sortOrder')).toBe('LAST_MODIFIED_DESCENDING');
@@ -128,21 +128,21 @@ describe('listing', () => {
 	});
 
 	test('a search warms Google’s search up first, as Google asks, and has no next page', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const page = (await googleConnector.list(target, {...LIST, search: 'sam'})).unwrap();
+		const {contactsConnector} = await import('./google-contacts');
+		const page = (await contactsConnector.list(target, {...LIST, search: 'sam'})).unwrap();
 
 		expect(google.requests.map((request) => request.url.searchParams.get('query'))).toEqual(['', 'sam']);
 		expect(page.records.map((record) => record.id)).toEqual(['c111']);
 		expect(page.nextPage).toBeNull();
 
-		const paged = await googleConnector.list(target, {...LIST, search: 'sam', page: 'page-2'});
+		const paged = await contactsConnector.list(target, {...LIST, search: 'sam', page: 'page-2'});
 		expect(paged.isErr() && paged.error.kind).toBe('validation_error');
 	});
 });
 
 test('a contact opens with every field, an address written over lines on one, a birthday without its year', async () => {
-	const {googleConnector} = await import('./google-connector');
-	const record = (await googleConnector.get(target, 'c111')).unwrap();
+	const {contactsConnector} = await import('./google-contacts');
+	const record = (await contactsConnector.get(target, 'c111')).unwrap();
 
 	expect(record.values).toEqual({
 		name: 'Sam Lee',
@@ -156,21 +156,25 @@ test('a contact opens with every field, an address written over lines on one, a 
 	});
 	expect(record.updatedAt).toBe('2026-10-01T08:00:00Z');
 	expect(record.url).toBe('https://contacts.google.com/person/c111');
-	expect(messageOf(await googleConnector.get(target, 'people/c111'))).toBe('not_found');
-	expect(messageOf(await googleConnector.get(target, 'c404'))).toBe('not_found');
+	expect(messageOf(await contactsConnector.get(target, 'people/c111'))).toBe('not_found');
+	expect(messageOf(await contactsConnector.get(target, 'c404'))).toBe('not_found');
 });
 
 const BLANK = {name: '', emails: '', phones: '', company: '', jobTitle: '', addresses: '', birthday: '', notes: ''};
 
 describe('creating', () => {
 	test('a contact is made from what is written, each email, number and address its own', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {contactsConnector} = await import('./google-contacts');
 		const record = (
-			await googleConnector.create(
-				target,
-				{...BLANK, name: 'Kim Park', emails: 'kim@example.com, kim@acme.com', phones: '+1 555 0100', company: 'Acme', birthday: '1990-04-12', addresses: '1 Main St, London\n2 High St, Leeds'},
-				null,
-			)
+			await contactsConnector.create(target, {
+				...BLANK,
+				name: 'Kim Park',
+				emails: 'kim@example.com, kim@acme.com',
+				phones: '+1 555 0100',
+				company: 'Acme',
+				birthday: '1990-04-12',
+				addresses: '1 Main St, London\n2 High St, Leeds',
+			})
 		).unwrap();
 
 		const create = google.requests.find((request) => request.method === 'POST');
@@ -187,21 +191,21 @@ describe('creating', () => {
 	});
 
 	test('an empty contact, an email that is no address and a birthday that is no day are refused before Google is asked', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {contactsConnector} = await import('./google-contacts');
 
-		expect(messageOf(await googleConnector.create(target, BLANK, null))).toBe('Write at least a name, an email or a phone number for the contact');
-		expect(messageOf(await googleConnector.create(target, {...BLANK, name: 'Kim', emails: 'kim at acme'}, null))).toBe('Write each email as an address, not “kim at acme”');
-		expect(messageOf(await googleConnector.create(target, {...BLANK, name: 'Kim', birthday: '02-30'}, null))).toBe('Write the birthday as 1990-04-12, or 04-12 without the year, not “02-30”');
+		expect(messageOf(await contactsConnector.create(target, BLANK))).toBe('Write at least a name, an email or a phone number for the contact');
+		expect(messageOf(await contactsConnector.create(target, {...BLANK, name: 'Kim', emails: 'kim at acme'}))).toBe('Write each email as an address, not “kim at acme”');
+		expect(messageOf(await contactsConnector.create(target, {...BLANK, name: 'Kim', birthday: '02-30'}))).toBe('Write the birthday as 1990-04-12, or 04-12 without the year, not “02-30”');
 		expect(google.requests).toEqual([]);
 	});
 });
 
 describe('editing', () => {
 	test('only the fields written differently are sent, with the etag, keeping the type of an email still there', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const before = (await googleConnector.get(target, 'c111')).unwrap();
+		const {contactsConnector} = await import('./google-contacts');
+		const before = (await contactsConnector.get(target, 'c111')).unwrap();
 		google.requests = [];
-		await googleConnector.update(target, 'c111', {...before.values, emails: 'sam@acme.com, sam.lee@gmail.com', jobTitle: 'VP Sales'}, before);
+		await contactsConnector.update(target, 'c111', {...before.values, emails: 'sam@acme.com, sam.lee@gmail.com', jobTitle: 'VP Sales'});
 
 		const update = google.requests.find((request) => request.method === 'PATCH');
 		expect(update?.url.searchParams.get('updatePersonFields')).toBe('emailAddresses,organizations');
@@ -214,17 +218,11 @@ describe('editing', () => {
 	});
 
 	test('nothing written differently sends nothing', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const before = (await googleConnector.get(target, 'c111')).unwrap();
+		const {contactsConnector} = await import('./google-contacts');
+		const before = (await contactsConnector.get(target, 'c111')).unwrap();
 		google.requests = [];
-		await googleConnector.update(target, 'c111', {...before.values}, before);
+		await contactsConnector.update(target, 'c111', {...before.values});
 
 		expect(google.requests.filter((request) => request.method === 'PATCH')).toEqual([]);
 	});
-});
-
-test('contacts are never deleted', async () => {
-	const {googleConnector} = await import('./google-connector');
-
-	expect(messageOf(await googleConnector.remove(target, 'c111'))).toBe('Contacts in Google Contacts are never deleted here');
 });

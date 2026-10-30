@@ -278,9 +278,8 @@ describe('notionConnector writes', () => {
 		expect(tools.calls.filter((call) => call.name === 'notion-update-page')).toEqual([]);
 	});
 
-	test('databases and views are not written to, and pages are not deleted', async () => {
+	test('databases and views are not written to', async () => {
 		const {notionConnector} = await import('./notion-connector');
 		expect((await notionConnector.update(target, DATABASE, {title: 'X', properties: '', content: ''})).unwrapErr().kind).toBe('validation_error');
-		expect((await notionConnector.remove(target, PAGE)).isErr()).toBe(true);
 	});
 });

@@ -4,7 +4,7 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
 import {GRANOLA, parseGranolaMeetings, parseGranolaTranscript, type GranolaMeeting} from '../connections/granola/granola-mcp';
 import {callMcpToolFor} from '../connections/mcp/mcp-session';
-import type {Connector, DataRecord, RecordTarget, RecordValues} from './connector';
+import type {DataRecord, ListQuery, RecordPage, RecordStore, RecordTarget, RecordValues} from './connector';
 
 /**
  * Granola's meeting notes, fetched live from its MCP server with the connection's tokens. Notes and
@@ -13,7 +13,7 @@ import type {Connector, DataRecord, RecordTarget, RecordValues} from './connecto
  * days of meetings, newest first, and the next page token the day before them. A page that finds
  * none looks back to when Granola started at once and shows the 30 days up to the newest meeting
  * there, so months without meetings are skipped and the list ends where they run out. Granola
- * only reads, so nothing is written.
+ * only reads, so neither collection offers a write.
  */
 
 const WINDOW_DAYS = 30;
@@ -107,26 +107,29 @@ function getMeeting(target: RecordTarget, meetingId: string): Promise<Result<Gra
 	});
 }
 
-function readOnly<T>(): Promise<Result<T, ApiError>> {
-	return Promise.resolve(Err(ApiErr.validationError('Granola notes are read-only')));
+// Both collections list the same meetings, with their summaries.
+function listMeetings(target: RecordTarget, query: ListQuery): Promise<Result<RecordPage, ApiError>> {
+	return Do(async ($) => {
+		const page = $(await meetingsPage(target, $(lastDay(query.page))));
+		return {records: page.meetings.map((meeting) => toRecord(meeting, summaryValues(meeting))), nextPage: page.nextPage};
+	});
 }
 
-export const granolaConnector: Connector = {
-	list: (target, query) =>
-		Do(async ($) => {
-			const page = $(await meetingsPage(target, $(lastDay(query.page))));
-			return {records: page.meetings.map((meeting) => toRecord(meeting, summaryValues(meeting))), nextPage: page.nextPage};
-		}),
+export const granolaNotesConnector = {
+	list: listMeetings,
 	get: (target, recordId) =>
 		Do(async ($) => {
 			const meeting = $(await getMeeting(target, recordId));
-			if (target.collection.id === 'transcripts') {
-				const text = $(await callMcpToolFor(GRANOLA, target.connection, 'get_meeting_transcript', {meeting_id: recordId}));
-				return toRecord(meeting, {...summaryValues(meeting), transcript: $(parseGranolaTranscript(text))});
-			}
 			return toRecord(meeting, {...summaryValues(meeting), attendees: meeting.participants, summary: meeting.summary, privateNotes: meeting.privateNotes});
 		}),
-	create: () => readOnly(),
-	update: () => readOnly(),
-	remove: () => readOnly(),
-};
+} satisfies RecordStore;
+
+export const granolaTranscriptsConnector = {
+	list: listMeetings,
+	get: (target, recordId) =>
+		Do(async ($) => {
+			const meeting = $(await getMeeting(target, recordId));
+			const text = $(await callMcpToolFor(GRANOLA, target.connection, 'get_meeting_transcript', {meeting_id: recordId}));
+			return toRecord(meeting, {...summaryValues(meeting), transcript: $(parseGranolaTranscript(text))});
+		}),
+} satisfies RecordStore;

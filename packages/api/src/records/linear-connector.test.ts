@@ -179,7 +179,7 @@ describe('linearConnector.create', () => {
 	test('sends the fields written, by name, and leaves the empty ones to the team', async () => {
 		const {linearConnector} = await import('./linear-connector');
 		const values = {title: 'New issue', team: 'ENG', status: '', priority: 'Urgent', assignee: 'me', project: '', labels: 'Bug, , Frontend', dueDate: '2026-10-20', description: ''};
-		const record = (await linearConnector.create(target, values, null)).unwrap();
+		const record = (await linearConnector.create(target, values)).unwrap();
 
 		expect(tools.calls[0]).toEqual({name: 'save_issue', args: {title: 'New issue', team: 'ENG', priority: 1, assignee: 'me', labels: ['Bug', 'Frontend'], dueDate: '2026-10-20'}});
 		expect(record.id).toBe('ENG-5');
@@ -187,7 +187,7 @@ describe('linearConnector.create', () => {
 
 	test('an issue needs a team, before asking Linear', async () => {
 		const {linearConnector} = await import('./linear-connector');
-		const created = await linearConnector.create(target, {title: 'New issue', team: ''}, null);
+		const created = await linearConnector.create(target, {title: 'New issue', team: ''});
 
 		expect(created.unwrapErr()).toEqual(ApiErr.validationError('An issue needs a team'));
 		expect(tools.calls).toEqual([]);
@@ -223,10 +223,4 @@ describe('linearConnector.update', () => {
 		expect((await linearConnector.update(target, 'ENG-5', {...CURRENT, status: ''})).unwrapErr()).toEqual(ApiErr.validationError('An issue needs a status'));
 		expect(tools.calls.some((call) => call.name === 'save_issue')).toBe(false);
 	});
-});
-
-test('issues are not deleted', async () => {
-	const {linearConnector} = await import('./linear-connector');
-
-	expect((await linearConnector.remove(target, 'ENG-5')).unwrapErr().kind).toBe('validation_error');
 });

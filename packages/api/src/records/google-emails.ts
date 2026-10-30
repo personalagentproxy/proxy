@@ -37,7 +37,7 @@ import {
 	type MessagePart,
 } from '../connections/google/gmail-api';
 import {attachmentRecord, attachmentsText, pickAttachment, readableKind, requireEmailId} from './attachment-text';
-import {onlyRun, type CommandRunner, type Connector, type DataRecord, type ListQuery, type NewCommandRunner, type RecordPage, type RecordTarget, type RecordValues} from './connector';
+import type {CommandRunner, DataRecord, ListQuery, NewCommandRunner, RecordPage, RecordStore, RecordTarget, RecordValues, RunOnly} from './connector';
 import {gmailQuery, type EmailSearch} from './email-search';
 import {replyCommands, replyHeaders, type MailReply} from './email-reply';
 
@@ -441,7 +441,8 @@ export const replyToGmail: MailReply = (target, recordId, reply) =>
 		}),
 	);
 
-export const gmailRepliesConnector: Connector = {...onlyRun('Replies are only sent or saved as drafts, one at a time'), newCommands: replyCommands(replyToGmail)};
+// The `replies` collection's Send and Save as draft, a reply at a time.
+export const gmailRepliesConnector = {newCommands: replyCommands(replyToGmail)} satisfies RunOnly;
 
 // A message whole, by an email's id: a draft's by its draft id.
 function messageOf(token: string, recordId: string): Promise<Result<GmailMessage, ApiError>> {
@@ -454,7 +455,7 @@ function messageOf(token: string, recordId: string): Promise<Result<GmailMessage
 	});
 }
 
-/** One of an email's attachments, read as text. */
+/** One of an email's attachments, read as text: the `attachments` collection's one command. */
 const readAttachment: NewCommandRunner = (target, values) =>
 	Do(async ($) => {
 		const email = $(requireEmailId(values));
@@ -471,9 +472,9 @@ const readAttachment: NewCommandRunner = (target, values) =>
 		);
 	});
 
-export const gmailAttachmentsConnector: Connector = {...onlyRun('Attachments are only read, one at a time'), newCommands: {read: readAttachment}};
+export const gmailAttachmentsConnector = {newCommands: {read: readAttachment}} satisfies RunOnly;
 
-export const gmailConnector: Connector = {
+export const gmailConnector = {
 	list: listPage,
 	get: (target, recordId) => callGoogle(target.connection, (token) => readRecord(token, target.connection.account, recordId)),
 	create: createDraftRecord,
@@ -489,4 +490,4 @@ export const gmailConnector: Connector = {
 		send,
 	},
 	newCommands: {sendNew},
-};
+} satisfies RecordStore;

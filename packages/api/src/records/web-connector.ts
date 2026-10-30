@@ -7,12 +7,12 @@ import type {McpServer} from '../connections/mcp/mcp-oauth';
 import {callMcpToolFor} from '../connections/mcp/mcp-session';
 import {pageError} from '../connections/page-failure';
 import {formatParallelResults, parseParallelPage, PARALLEL} from '../connections/parallel/parallel-mcp';
-import {onlyRun, type Connector, type DataRecord} from './connector';
+import type {DataRecord, RunOnly} from './connector';
 
 /**
  * The web, through a search engine made for agents, Exa or Parallel, fetched live from its MCP
- * server with the connection's tokens. Searches and pages are only run, never listed, opened or
- * kept: a search answers with the provider's results, written out the same way for both, a page
+ * server with the connection's tokens, as two collections, `searches` and `pages`, only run, never
+ * listed, opened or kept: a search answers with the provider's results, written out the same way for both, a page
  * with its title and text, the first MAX_PAGE_CHARACTERS of it and a line after them saying it was
  * cut where it goes on. A page with no text is a failure.
  */
@@ -80,32 +80,38 @@ function keptText(provider: WebProvider, content: string): string {
 	return `${content.slice(0, MAX_PAGE_CHARACTERS)}\n\n[Cut short: the page ${length}, of which these are the first ${kept}. Read a part of it at its own address, such as one section or chapter, or search for the passage you need with searches_run.]`;
 }
 
-function webConnector(provider: WebProvider): Connector {
+// The provider's two collections: its searches, run on a query, and its pages, read by address.
+function webConnectors(provider: WebProvider): {searches: RunOnly; pages: RunOnly} {
 	const use = <T>(connection: {id: string; credential: string | null}, {tool, args, answer}: ToolUse<T>): Promise<Result<T, ApiError>> =>
 		Do(async ($) => $(answer($(await callMcpToolFor(provider.server, connection, tool, args)))));
 
 	return {
-		...onlyRun('Searches and pages are only run, never listed or kept'),
-		newCommands: {
-			run: (target, values) =>
-				Do(async ($): Promise<DataRecord> => {
-					const query = (values.query ?? '').trim();
-					if (!query) {
-						return $(Err(ApiErr.validationError('Say what to search for')));
-					}
-					const results = $(await use(target.connection, provider.search(query)));
-					return {id: 'search', values: {query, results}, updatedAt: new Date().toISOString()};
-				}),
-			read: (target, values) =>
-				Do(async ($): Promise<DataRecord> => {
-					const url = $(pageUrl(values.url ?? ''));
-					const page = $(requireText(provider, url, $(await use(target.connection, provider.read(url)))));
-					return {id: 'page', values: {url, title: page.title, content: keptText(provider, page.content)}, updatedAt: new Date().toISOString()};
-				}),
+		searches: {
+			newCommands: {
+				run: (target, values) =>
+					Do(async ($): Promise<DataRecord> => {
+						const query = (values.query ?? '').trim();
+						if (!query) {
+							return $(Err(ApiErr.validationError('Say what to search for')));
+						}
+						const results = $(await use(target.connection, provider.search(query)));
+						return {id: 'search', values: {query, results}, updatedAt: new Date().toISOString()};
+					}),
+			},
+		},
+		pages: {
+			newCommands: {
+				read: (target, values) =>
+					Do(async ($): Promise<DataRecord> => {
+						const url = $(pageUrl(values.url ?? ''));
+						const page = $(requireText(provider, url, $(await use(target.connection, provider.read(url)))));
+						return {id: 'page', values: {url, title: page.title, content: keptText(provider, page.content)}, updatedAt: new Date().toISOString()};
+					}),
+			},
 		},
 	};
 }
 
-export const exaConnector = webConnector(EXA_WEB);
+export const exaConnectors = webConnectors(EXA_WEB);
 
-export const parallelConnector = webConnector(PARALLEL_WEB);
+export const parallelConnectors = webConnectors(PARALLEL_WEB);

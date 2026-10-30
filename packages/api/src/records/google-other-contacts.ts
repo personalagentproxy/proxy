@@ -5,7 +5,7 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import {callGoogle} from '../connections/google/google-client';
 import {copyOtherContact, listOtherContacts, OTHER_CONTACTS_MAX_PAGE, searchOtherContacts, type Person} from '../connections/google/people-api';
 import {contactValues} from './google-contacts';
-import {requireFirstPage, type CommandRunner, type Connector, type DataRecord, type ListQuery, type RecordPage, type RecordTarget} from './connector';
+import {requireFirstPage, type CommandRunner, type DataRecord, type ListQuery, type RecordPage, type RecordStore, type RecordTarget} from './connector';
 
 /**
  * The people Gmail keeps under Other contacts, as the `otherContacts` collection, fetched live:
@@ -88,8 +88,4 @@ const save: CommandRunner = (target, recordId) =>
 		}),
 	);
 
-function onlyRead(): Promise<Result<never, ApiError>> {
-	return Promise.resolve(Err(ApiErr.validationError('Other contacts are only read; save one to contacts to edit it there')));
-}
-
-export const otherContactsConnector: Connector = {list: listOthers, get: getOther, create: onlyRead, update: onlyRead, remove: onlyRead, commands: {save}};
+export const otherContactsConnector = {list: listOthers, get: getOther, commands: {save}} satisfies RecordStore;

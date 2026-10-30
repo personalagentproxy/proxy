@@ -14,7 +14,7 @@ mock.module('../connections/mcp/mcp-session', () => ({
 	},
 }));
 
-const {exaConnector, parallelConnector} = await import('./web-connector');
+const {exaConnectors, parallelConnectors} = await import('./web-connector');
 
 function collection(integrationId: string, id: string): Collection {
 	const integration = findIntegration(integrationId);
@@ -42,7 +42,8 @@ function run(integrationId: 'exa' | 'parallel', command: 'run' | 'read', values:
 		},
 		collection: collection(integrationId, command === 'run' ? 'searches' : 'pages'),
 	};
-	const runner = (integrationId === 'exa' ? exaConnector : parallelConnector).newCommands?.[command];
+	const connectors = integrationId === 'exa' ? exaConnectors : parallelConnectors;
+	const runner = (command === 'run' ? connectors.searches : connectors.pages).newCommands[command];
 	if (!runner) {
 		throw new Error(`No ${command} for ${integrationId}`);
 	}

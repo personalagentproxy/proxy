@@ -55,29 +55,37 @@ export type CommandRunner = (target: RecordTarget, recordId: string) => Promise<
 /** A command on values typed in, such as sending a new email: the record it made, or null. */
 export type NewCommandRunner = (target: RecordTarget, values: RecordValues) => Promise<Result<DataRecord | null, ApiError>>;
 
+// By the catalog's command id: the record commands, and those on values typed in.
+type CommandRunners = Partial<Record<string, CommandRunner>>;
+type NewCommandRunners = Partial<Record<string, NewCommandRunner>>;
+
 /**
- * How records of an integration are read and written. Callers have checked access and that the
- * collection offers the write or command; a connector reports a missing record as not_found.
+ * How one collection's records are read and written. A collection offers only some writes and
+ * commands, as the catalog says, and its connector has exactly those, as `connectors.test.ts`
+ * checks; callers have checked access and that the collection offers the write or command. A
+ * connector reports a missing record as not_found.
  */
-export type Connector = {
+export type RecordStore = {
 	list: (target: RecordTarget, query: ListQuery) => Promise<Result<RecordPage, ApiError>>;
 	get: (target: RecordTarget, recordId: string) => Promise<Result<DataRecord, ApiError>>;
 	// In a nested collection, inside `parent` when one is given.
-	create: (target: RecordTarget, values: RecordValues, parent: string | null) => Promise<Result<DataRecord, ApiError>>;
+	create?: (target: RecordTarget, values: RecordValues, parent: string | null) => Promise<Result<DataRecord, ApiError>>;
 	// `before` is the record as the caller read it, for a connector to tell what was written
 	// differently from it without reading it again.
-	update: (target: RecordTarget, recordId: string, values: RecordValues, before?: DataRecord) => Promise<Result<DataRecord, ApiError>>;
-	remove: (target: RecordTarget, recordId: string) => Promise<Result<void, ApiError>>;
-	// By the catalog's command id: the record commands, and those on values typed in.
-	commands?: Partial<Record<string, CommandRunner>>;
-	newCommands?: Partial<Record<string, NewCommandRunner>>;
+	update?: (target: RecordTarget, recordId: string, values: RecordValues, before?: DataRecord) => Promise<Result<DataRecord, ApiError>>;
+	remove?: (target: RecordTarget, recordId: string) => Promise<Result<void, ApiError>>;
+	commands?: CommandRunners;
+	newCommands?: NewCommandRunners;
 };
 
 /**
- * The record methods of a connector whose records are only run, never listed, opened or kept, as
- * a search is: each turns the request down, saying why.
+ * A collection whose records are only run, never listed, opened or kept, as a search is: the
+ * catalog gives it no read, and its commands are all on values typed in.
  */
-export function onlyRun(message: string): Pick<Connector, 'list' | 'get' | 'create' | 'update' | 'remove'> {
-	const refuse = (): Promise<Result<never, ApiError>> => Promise.resolve(Err(ApiErr.validationError(message)));
-	return {list: refuse, get: refuse, create: refuse, update: refuse, remove: refuse};
+export type RunOnly = {newCommands: NewCommandRunners};
+
+export type Connector = RecordStore | RunOnly;
+
+export function isRecordStore(connector: Connector): connector is RecordStore {
+	return 'list' in connector;
 }

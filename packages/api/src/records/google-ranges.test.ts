@@ -100,8 +100,8 @@ const LINK = 'https://docs.google.com/spreadsheets/d/1BudgetSheet_x-9/edit?gid=0
 
 describe('reading a range', () => {
 	test('a range of a spreadsheet given by its link answers its values as CSV', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.newCommands?.read?.(target, {spreadsheet: LINK, range: "'Q1 Sales'!A1:C3", values: ''}))?.unwrap();
+		const {rangesConnector} = await import('./google-ranges');
+		const record = (await rangesConnector.newCommands?.read?.(target, {spreadsheet: LINK, range: "'Q1 Sales'!A1:C3", values: ''}))?.unwrap();
 
 		const [request] = google.requests;
 		expect(request?.url.pathname).toBe("/v4/spreadsheets/1BudgetSheet_x-9/values/'Q1%20Sales'!A1%3AC3");
@@ -110,19 +110,19 @@ describe('reading a range', () => {
 
 	test('a range of more than 1000 rows answers the first 1000, saying how many there are', async () => {
 		google.answer = () => Response.json({range: "'Q1 Sales'!A1:A1500", majorDimension: 'ROWS', values: Array.from({length: 1500}, (_, index) => [String(index + 1)])});
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.newCommands?.read?.(target, {spreadsheet: LINK, range: "'Q1 Sales'!A:A", values: ''}))?.unwrap();
+		const {rangesConnector} = await import('./google-ranges');
+		const record = (await rangesConnector.newCommands?.read?.(target, {spreadsheet: LINK, range: "'Q1 Sales'!A:A", values: ''}))?.unwrap();
 
 		expect(record?.values.rows).toBe('The first 1000 of 1500 rows: read the rest as a range starting below them');
 		expect(record?.values.result?.split('\n')).toHaveLength(1000);
 	});
 
 	test('a spreadsheet is taken by its id or a Drive link, and a range without a tab or in an unquoted one', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.newCommands?.read?.(target, {spreadsheet: '1BudgetSheet', range: 'Sheet1!B:B'});
-		await googleConnector.newCommands?.read?.(target, {spreadsheet: 'https://drive.google.com/open?id=1BudgetSheet', range: 'A1:C9'});
-		await googleConnector.newCommands?.read?.(target, {spreadsheet: '1BudgetSheet', range: '$A$1:$F$20'});
-		await googleConnector.newCommands?.read?.(target, {spreadsheet: '1BudgetSheet', range: 'Übersicht!A1'});
+		const {rangesConnector} = await import('./google-ranges');
+		await rangesConnector.newCommands?.read?.(target, {spreadsheet: '1BudgetSheet', range: 'Sheet1!B:B'});
+		await rangesConnector.newCommands?.read?.(target, {spreadsheet: 'https://drive.google.com/open?id=1BudgetSheet', range: 'A1:C9'});
+		await rangesConnector.newCommands?.read?.(target, {spreadsheet: '1BudgetSheet', range: '$A$1:$F$20'});
+		await rangesConnector.newCommands?.read?.(target, {spreadsheet: '1BudgetSheet', range: 'Übersicht!A1'});
 
 		expect(google.requests.map((request) => decodeURIComponent(request.url.pathname))).toEqual([
 			'/v4/spreadsheets/1BudgetSheet/values/Sheet1!B:B',
@@ -133,13 +133,13 @@ describe('reading a range', () => {
 	});
 
 	test('a range that isn’t A1 notation, or a spreadsheet that isn’t Google’s, never reaches Google', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {rangesConnector} = await import('./google-ranges');
 		const refusals = await Promise.all([
-			googleConnector.newCommands?.read?.(target, {spreadsheet: '1BudgetSheet', range: 'A1:C3?fields=*'}),
-			googleConnector.newCommands?.read?.(target, {spreadsheet: '1BudgetSheet', range: "'Q1'!A1/../../x"}),
-			googleConnector.newCommands?.read?.(target, {spreadsheet: '1BudgetSheet', range: ''}),
-			googleConnector.newCommands?.read?.(target, {spreadsheet: 'https://evil.example.com/d/1BudgetSheet', range: 'A1'}),
-			googleConnector.newCommands?.read?.(target, {spreadsheet: '../1BudgetSheet', range: 'A1'}),
+			rangesConnector.newCommands?.read?.(target, {spreadsheet: '1BudgetSheet', range: 'A1:C3?fields=*'}),
+			rangesConnector.newCommands?.read?.(target, {spreadsheet: '1BudgetSheet', range: "'Q1'!A1/../../x"}),
+			rangesConnector.newCommands?.read?.(target, {spreadsheet: '1BudgetSheet', range: ''}),
+			rangesConnector.newCommands?.read?.(target, {spreadsheet: 'https://evil.example.com/d/1BudgetSheet', range: 'A1'}),
+			rangesConnector.newCommands?.read?.(target, {spreadsheet: '../1BudgetSheet', range: 'A1'}),
 		]);
 
 		expect(refusals.map((result) => result?.isErr() && result.error.kind)).toEqual(['validation_error', 'validation_error', 'validation_error', 'validation_error', 'validation_error']);
@@ -147,9 +147,9 @@ describe('reading a range', () => {
 	});
 
 	test('Google turning a range down is passed on in its own words', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {rangesConnector} = await import('./google-ranges');
 		google.answer = () => Response.json({error: {code: 400, message: "Unable to parse range: 'Nope'!A1", status: 'INVALID_ARGUMENT'}}, {status: 400});
-		const result = await googleConnector.newCommands?.read?.(target, {spreadsheet: '1BudgetSheet', range: "'Nope'!A1"});
+		const result = await rangesConnector.newCommands?.read?.(target, {spreadsheet: '1BudgetSheet', range: "'Nope'!A1"});
 
 		expect(result?.isErr() && result.error).toEqual({kind: 'validation_error', statusCode: 400, message: "Google: Unable to parse range: 'Nope'!A1"});
 	});
@@ -157,8 +157,8 @@ describe('reading a range', () => {
 
 describe('writing a range', () => {
 	test('CSV is written as if typed in, and the answer is what the range holds now', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.newCommands?.write?.(target, {spreadsheet: LINK, range: "'Q1 Sales'!A2", values: 'Rent,"1,200",=B2*2\n"Food, drink",300,=B3*2\n'}))?.unwrap();
+		const {rangesConnector} = await import('./google-ranges');
+		const record = (await rangesConnector.newCommands?.write?.(target, {spreadsheet: LINK, range: "'Q1 Sales'!A2", values: 'Rent,"1,200",=B2*2\n"Food, drink",300,=B3*2\n'}))?.unwrap();
 
 		const [request] = google.requests;
 		expect(request?.method).toBe('PUT');
@@ -175,26 +175,19 @@ describe('writing a range', () => {
 	});
 
 	test('an empty value in quotes empties the cell', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.newCommands?.write?.(target, {spreadsheet: LINK, range: 'A1', values: '""'});
+		const {rangesConnector} = await import('./google-ranges');
+		await rangesConnector.newCommands?.write?.(target, {spreadsheet: LINK, range: 'A1', values: '""'});
 
 		expect(JSON.parse(google.requests[0]?.body ?? '').values).toEqual([['']]);
 	});
 
 	test('no values, or a quote never closed, is turned down', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const empty = await googleConnector.newCommands?.write?.(target, {spreadsheet: LINK, range: 'A1', values: ''});
-		const unclosed = await googleConnector.newCommands?.write?.(target, {spreadsheet: LINK, range: 'A1', values: '"Rent,1200'});
+		const {rangesConnector} = await import('./google-ranges');
+		const empty = await rangesConnector.newCommands?.write?.(target, {spreadsheet: LINK, range: 'A1', values: ''});
+		const unclosed = await rangesConnector.newCommands?.write?.(target, {spreadsheet: LINK, range: 'A1', values: '"Rent,1200'});
 
 		expect(messageOf(empty)).toBe('Write the values as CSV, one row a line; "" empties a cell');
 		expect(messageOf(unclosed)).toBe('The CSV has a quote that is never closed');
 		expect(google.requests).toEqual([]);
-	});
-
-	test('ranges are never listed or opened', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const result = await googleConnector.get(target, 'range');
-
-		expect(result.isErr() && result.error.kind).toBe('validation_error');
 	});
 });

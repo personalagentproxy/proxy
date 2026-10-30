@@ -5,7 +5,7 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
 import {getAccounts, getTransactions, type PlaidAccount, type PlaidTransaction} from '../connections/plaid/plaid-api';
 import {callPlaid, type PlaidClient} from '../connections/plaid/plaid-client';
-import {requireFirstPage, type Connector, type DataRecord, type ListQuery, type RecordPage, type RecordTarget} from './connector';
+import {requireFirstPage, type DataRecord, type ListQuery, type RecordPage, type RecordStore, type RecordTarget} from './connector';
 import {readPageToken, writePageToken} from './page-token';
 
 /**
@@ -267,14 +267,6 @@ function getBalance(target: RecordTarget, recordId: string): Promise<Result<Data
 	);
 }
 
-function readOnly<T>(): Promise<Result<T, ApiError>> {
-	return Promise.resolve(Err(ApiErr.validationError('Bank accounts are only read here')));
-}
+export const plaidAccountsConnector = {list: listBalances, get: getBalance} satisfies RecordStore;
 
-export const plaidConnector: Connector = {
-	list: (target, query) => (target.collection.id === 'accounts' ? listBalances(target, query) : listTransactionsTree(target, query)),
-	get: (target, recordId) => (target.collection.id === 'accounts' ? getBalance(target, recordId) : getTransactionsRecord(target, recordId)),
-	create: () => readOnly(),
-	update: () => readOnly(),
-	remove: () => readOnly(),
-};
+export const plaidTransactionsConnector = {list: listTransactionsTree, get: getTransactionsRecord} satisfies RecordStore;

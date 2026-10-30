@@ -15,6 +15,8 @@ let transcripts = true;
 const get = mock();
 const requireReadable = mock();
 mock.module('./sources', () => ({requireReadable, covers: () => transcripts}));
+// The transcripts' connector, read through the same connection as the notes.
+mock.module('../records/connectors', () => ({connectorFor: () => ({list: mock(), get})}));
 
 // The integration each collection is read from here, as the catalog has it.
 const INTEGRATIONS: Record<string, string> = {notes: 'granola', files: 'google', emails: 'google', pages: 'notion', issues: 'linear'};

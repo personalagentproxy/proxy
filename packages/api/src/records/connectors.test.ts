@@ -1,0 +1,65 @@
+import {describe, expect, mock, test} from 'bun:test';
+
+import {INTEGRATIONS, type Collection} from '@proxy/integrations';
+
+import {isRecordStore, type Connector} from './connector';
+
+// Only the connectors are looked at here, never run: nothing reads the environment.
+mock.module('../utils/env', () => ({env: {}}));
+
+const {connectorFor} = await import('./connectors');
+
+// A connector has the methods and runners of what its collection offers, and only those: the gate
+// and the records routes refuse what the catalog doesn't offer before a connector is called, and
+// this is what makes sure a connector can do what they let through.
+
+// What the catalog offers of a collection, each as the connector's method or runner doing it.
+function declared(collection: Collection): string[] {
+	const {writes, commands = []} = collection;
+	return [
+		...(collection.read ? ['list', 'get'] : []),
+		...(writes.create ? ['create'] : []),
+		...(writes.update ? ['update'] : []),
+		...(writes.delete ? ['remove'] : []),
+		...commands.map((command) => `${command.on}:${command.id}`),
+	].sort();
+}
+
+// What a connector does, named the same way.
+function offered(connector: Connector): string[] {
+	if (!isRecordStore(connector)) {
+		return Object.keys(connector.newCommands)
+			.map((id) => `new:${id}`)
+			.sort();
+	}
+	return [
+		'list',
+		'get',
+		...(connector.create ? ['create'] : []),
+		...(connector.update ? ['update'] : []),
+		...(connector.remove ? ['remove'] : []),
+		...Object.keys(connector.commands ?? {}).map((id) => `record:${id}`),
+		...Object.keys(connector.newCommands ?? {}).map((id) => `new:${id}`),
+	].sort();
+}
+
+// A custom MCP server has no records: its tools are called as they are.
+const COLLECTIONS = INTEGRATIONS.filter((integration) => integration.id !== 'mcp').flatMap((integration) => integration.collections.map((collection) => ({integrationId: integration.id, collection})));
+
+describe('connectorFor', () => {
+	for (const {integrationId, collection} of COLLECTIONS) {
+		test(`${integrationId}/${collection.id} has a connector doing what the catalog offers, and nothing else`, () => {
+			const connector = connectorFor(integrationId, collection.id);
+			if (!connector) {
+				throw new Error(`No connector for ${integrationId}/${collection.id}`);
+			}
+			expect(offered(connector)).toEqual(declared(collection));
+		});
+	}
+
+	test('a custom MCP server, a collection the catalog lacks, and an integration it lacks have none', () => {
+		expect(connectorFor('mcp', 'tools')).toBeUndefined();
+		expect(connectorFor('google', 'photos')).toBeUndefined();
+		expect(connectorFor('dropbox', 'files')).toBeUndefined();
+	});
+});

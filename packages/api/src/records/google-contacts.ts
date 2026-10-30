@@ -4,7 +4,7 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
 import {callGoogle} from '../connections/google/google-client';
 import {createContact, getContact, listContacts, searchContacts, updateContact, type Person, type PersonWrite, type ValueEntry} from '../connections/google/people-api';
-import {requireFirstPage, type Connector, type DataRecord, type ListQuery, type RecordPage, type RecordTarget, type RecordValues} from './connector';
+import {requireFirstPage, type DataRecord, type ListQuery, type RecordPage, type RecordStore, type RecordTarget, type RecordValues} from './connector';
 
 /**
  * Google Contacts as the `contacts` collection, fetched live: the account's contacts, the most
@@ -223,14 +223,9 @@ function updateContactRecord(target: RecordTarget, recordId: string, values: Rec
 	);
 }
 
-function notDeleted(): Promise<Result<never, ApiError>> {
-	return Promise.resolve(Err(ApiErr.validationError('Contacts in Google Contacts are never deleted here')));
-}
-
-export const contactsConnector: Connector = {
+export const contactsConnector = {
 	list: listContactsPage,
 	get: getContactRecord,
 	create: (target, values) => createContactRecord(target, values),
 	update: (target, recordId, values) => updateContactRecord(target, recordId, values),
-	remove: notDeleted,
-};
+} satisfies RecordStore;

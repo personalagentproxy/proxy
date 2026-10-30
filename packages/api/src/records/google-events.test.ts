@@ -146,8 +146,8 @@ const LIST = {search: null, page: null, filter: null, parent: null};
 
 describe('listing', () => {
 	test('the top is the calendars, the primary first, each holding its events', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const page = (await googleConnector.list(target, LIST)).unwrap();
+		const {eventsConnector} = await import('./google-events');
+		const page = (await eventsConnector.list(target, LIST)).unwrap();
 
 		expect(page.records.map((record) => [record.id, record.values.title, record.hasChildren])).toEqual([
 			['alex@example.com', 'alex@example.com', true],
@@ -155,14 +155,14 @@ describe('listing', () => {
 		]);
 		expect(page.nextPage).toBeNull();
 
-		const paged = await googleConnector.list(target, {...LIST, page: 'next'});
+		const paged = await eventsConnector.list(target, {...LIST, page: 'next'});
 		expect(paged.isErr() && paged.error.kind).toBe('validation_error');
 	});
 
 	test("inside a calendar are its events from now on, soonest first, every time a repeating one comes round, and the calendar's name in the trail", async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {eventsConnector} = await import('./google-events');
 		const before = Date.now();
-		const page = (await googleConnector.list(target, {...LIST, parent: TEAM.id})).unwrap();
+		const page = (await eventsConnector.list(target, {...LIST, parent: TEAM.id})).unwrap();
 
 		const list = google.requests.find((request) => request.url.pathname.endsWith('/events'));
 		expect(decodeURIComponent(list?.url.pathname ?? '')).toBe('/calendar/v3/calendars/team@group.calendar.google.com/events');
@@ -175,11 +175,11 @@ describe('listing', () => {
 	});
 
 	test('the next page goes on from where the first began, with Google’s token', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const first = (await googleConnector.list(target, {...LIST, parent: TEAM.id})).unwrap();
+		const {eventsConnector} = await import('./google-events');
+		const first = (await eventsConnector.list(target, {...LIST, parent: TEAM.id})).unwrap();
 		const firstFrom = google.requests.find((request) => request.url.pathname.endsWith('/events'))?.url.searchParams.get('timeMin');
 		google.requests = [];
-		await googleConnector.list(target, {...LIST, parent: TEAM.id, page: first.nextPage});
+		await eventsConnector.list(target, {...LIST, parent: TEAM.id, page: first.nextPage});
 
 		const second = google.requests.find((request) => request.url.pathname.endsWith('/events'));
 		expect(second?.url.searchParams.get('pageToken')).toBe('google-page-2');
@@ -187,8 +187,8 @@ describe('listing', () => {
 	});
 
 	test("a search that begins with a day lists from that day's start on the calendar's clock, its words searched for", async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.list(target, {...LIST, search: '2026-10-15 planning'});
+		const {eventsConnector} = await import('./google-events');
+		await eventsConnector.list(target, {...LIST, search: '2026-10-15 planning'});
 
 		const list = google.requests.find((request) => request.url.pathname.endsWith('/events'));
 		expect(decodeURIComponent(list?.url.pathname ?? '')).toBe('/calendar/v3/calendars/alex@example.com/events');
@@ -197,8 +197,8 @@ describe('listing', () => {
 	});
 
 	test('a search of words alone is from now on, in the primary calendar at the top', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const page = (await googleConnector.list(target, {...LIST, search: 'planning'})).unwrap();
+		const {eventsConnector} = await import('./google-events');
+		const page = (await eventsConnector.list(target, {...LIST, search: 'planning'})).unwrap();
 
 		const list = google.requests.find((request) => request.url.pathname.endsWith('/events'));
 		expect(list?.url.searchParams.get('q')).toBe('planning');
@@ -206,8 +206,8 @@ describe('listing', () => {
 	});
 
 	test('events hold nothing to list', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const result = await googleConnector.list(target, {...LIST, parent: 'alex@example.com:ev1'});
+		const {eventsConnector} = await import('./google-events');
+		const result = await eventsConnector.list(target, {...LIST, parent: 'alex@example.com:ev1'});
 
 		expect(messageOf(result)).toBe('Events hold nothing: give a calendar’s id as parent');
 	});
@@ -215,8 +215,8 @@ describe('listing', () => {
 
 describe('opening', () => {
 	test("an invitation reads with its guests by address, their answers, the account's own, the organizer, and where it repeats", async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.get(target, 'alex@example.com:ev2')).unwrap();
+		const {eventsConnector} = await import('./google-events');
+		const record = (await eventsConnector.get(target, 'alex@example.com:ev2')).unwrap();
 
 		expect(record.values).toEqual({
 			title: 'Q4 planning',
@@ -236,18 +236,18 @@ describe('opening', () => {
 	});
 
 	test("an all-day event's end reads as its last day, and the account's own event has no answer", async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.get(target, 'alex@example.com:ev3')).unwrap();
+		const {eventsConnector} = await import('./google-events');
+		const record = (await eventsConnector.get(target, 'alex@example.com:ev3')).unwrap();
 
 		expect(record.values).toMatchObject({start: '2026-10-20', end: '2026-10-21', response: '', organizer: ''});
 	});
 
 	test('a calendar opens as one, and an event that is gone or an id that is no event is not found', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {eventsConnector} = await import('./google-events');
 
-		expect((await googleConnector.get(target, TEAM.id)).unwrap().values).toEqual({title: 'Acme team', kind: 'Calendar', description: 'Offsites and launches'});
-		expect(messageOf(await googleConnector.get(target, 'alex@example.com:gone'))).toBe('not_found');
-		expect(messageOf(await googleConnector.get(target, 'alex@example.com:ev/1'))).toBe('not_found');
+		expect((await eventsConnector.get(target, TEAM.id)).unwrap().values).toEqual({title: 'Acme team', kind: 'Calendar', description: 'Offsites and launches'});
+		expect(messageOf(await eventsConnector.get(target, 'alex@example.com:gone'))).toBe('not_found');
+		expect(messageOf(await eventsConnector.get(target, 'alex@example.com:ev/1'))).toBe('not_found');
 	});
 });
 
@@ -255,8 +255,8 @@ const BLANK = {title: '', start: '', end: '', location: '', guests: '', descript
 
 describe('creating', () => {
 	test('an event without guests goes in the calendar given, on its clock, an hour long, telling no one', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.create(target, {...BLANK, title: 'Focus', start: '2026-10-15 09:30'}, TEAM.id)).unwrap();
+		const {eventsConnector} = await import('./google-events');
+		const record = (await eventsConnector.create(target, {...BLANK, title: 'Focus', start: '2026-10-15 09:30'}, TEAM.id)).unwrap();
 
 		const insert = google.requests.find((request) => request.method === 'POST');
 		expect(decodeURIComponent(insert?.url.pathname ?? '')).toBe('/calendar/v3/calendars/team@group.calendar.google.com/events');
@@ -270,8 +270,8 @@ describe('creating', () => {
 	});
 
 	test('one made at the top goes in the primary calendar, by its own id', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.create(target, {...BLANK, title: 'Focus', start: '2026-10-15T09:30:00Z'}, null)).unwrap();
+		const {eventsConnector} = await import('./google-events');
+		const record = (await eventsConnector.create(target, {...BLANK, title: 'Focus', start: '2026-10-15T09:30:00Z'}, null)).unwrap();
 
 		const insert = google.requests.find((request) => request.method === 'POST');
 		expect(JSON.parse(insert?.body ?? '').start).toEqual({dateTime: '2026-10-15T09:30:00Z'});
@@ -280,9 +280,9 @@ describe('creating', () => {
 	});
 
 	test("an all-day event's end is written as its last day, which Google keeps as the day after", async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.create(target, {...BLANK, title: 'Offsite', start: '2026-10-20', end: '2026-10-21'}, null);
-		await googleConnector.create(target, {...BLANK, title: 'Holiday', start: '2026-10-23'}, null);
+		const {eventsConnector} = await import('./google-events');
+		await eventsConnector.create(target, {...BLANK, title: 'Offsite', start: '2026-10-20', end: '2026-10-21'}, null);
+		await eventsConnector.create(target, {...BLANK, title: 'Holiday', start: '2026-10-23'}, null);
 
 		const [offsite, holiday] = google.requests.filter((request) => request.method === 'POST').map((request) => JSON.parse(request.body));
 		expect([offsite.start, offsite.end]).toEqual([{date: '2026-10-20'}, {date: '2026-10-22'}]);
@@ -290,8 +290,8 @@ describe('creating', () => {
 	});
 
 	test('guests are invited, and Google emails them', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.create(target, {...BLANK, title: 'Q4 planning', start: '2026-10-15T14:00', guests: 'Sam@example.com, Lee <lee@example.com>'}, null);
+		const {eventsConnector} = await import('./google-events');
+		await eventsConnector.create(target, {...BLANK, title: 'Q4 planning', start: '2026-10-15T14:00', guests: 'Sam@example.com, Lee <lee@example.com>'}, null);
 
 		const insert = google.requests.find((request) => request.method === 'POST');
 		expect(insert?.url.searchParams.get('sendUpdates')).toBe('all');
@@ -299,25 +299,25 @@ describe('creating', () => {
 	});
 
 	test('a time Google would not take, a missing start or a day with a time is refused before Google is asked', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {eventsConnector} = await import('./google-events');
 
-		expect(messageOf(await googleConnector.create(target, {...BLANK, start: 'tomorrow at 3'}, null))).toContain('Write start as a time, 2026-10-15T14:00');
-		expect(messageOf(await googleConnector.create(target, {...BLANK, start: '2026-02-30'}, null))).toContain('Write start as a time');
-		expect(messageOf(await googleConnector.create(target, BLANK, null))).toContain('Say when the event starts');
-		expect(messageOf(await googleConnector.create(target, {...BLANK, start: '2026-10-15', end: '2026-10-15T10:00'}, null))).toBe(
+		expect(messageOf(await eventsConnector.create(target, {...BLANK, start: 'tomorrow at 3'}, null))).toContain('Write start as a time, 2026-10-15T14:00');
+		expect(messageOf(await eventsConnector.create(target, {...BLANK, start: '2026-02-30'}, null))).toContain('Write start as a time');
+		expect(messageOf(await eventsConnector.create(target, BLANK, null))).toContain('Say when the event starts');
+		expect(messageOf(await eventsConnector.create(target, {...BLANK, start: '2026-10-15', end: '2026-10-15T10:00'}, null))).toBe(
 			'Write start and end both as days, for an all-day event, or both as times',
 		);
-		expect(messageOf(await googleConnector.create(target, {...BLANK, start: '2026-10-15T09:00', guests: 'sam'}, null))).toBe('Write each guest as their email address, not “sam”');
+		expect(messageOf(await eventsConnector.create(target, {...BLANK, start: '2026-10-15T09:00', guests: 'sam'}, null))).toBe('Write each guest as their email address, not “sam”');
 		expect(google.requests.filter((request) => request.method === 'POST')).toEqual([]);
 	});
 });
 
 describe('editing', () => {
 	test('only what was written differently is sent, and an event without guests tells no one', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const before = (await googleConnector.get(target, 'alex@example.com:ev1')).unwrap();
+		const {eventsConnector} = await import('./google-events');
+		const before = (await eventsConnector.get(target, 'alex@example.com:ev1')).unwrap();
 		google.requests = [];
-		await googleConnector.update(target, 'alex@example.com:ev1', {...before.values, title: 'Deep work'}, before);
+		await eventsConnector.update(target, 'alex@example.com:ev1', {...before.values, title: 'Deep work'});
 
 		const patch = google.requests.find((request) => request.method === 'PATCH');
 		expect(JSON.parse(patch?.body ?? '')).toEqual({summary: 'Deep work'});
@@ -325,10 +325,10 @@ describe('editing', () => {
 	});
 
 	test('a start moved without a new end keeps the event as long as it was', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const before = (await googleConnector.get(target, 'alex@example.com:ev1')).unwrap();
-		await googleConnector.update(target, 'alex@example.com:ev1', {...before.values, start: '2026-10-16T13:00'}, before);
-		await googleConnector.update(target, 'alex@example.com:ev3', {...BLANK, title: 'Offsite', start: '2026-10-27', end: '2026-10-21'});
+		const {eventsConnector} = await import('./google-events');
+		const before = (await eventsConnector.get(target, 'alex@example.com:ev1')).unwrap();
+		await eventsConnector.update(target, 'alex@example.com:ev1', {...before.values, start: '2026-10-16T13:00'});
+		await eventsConnector.update(target, 'alex@example.com:ev3', {...BLANK, title: 'Offsite', start: '2026-10-27', end: '2026-10-21'});
 
 		const [moved, offsite] = google.requests.filter((request) => request.method === 'PATCH').map((request) => JSON.parse(request.body));
 		expect(moved).toEqual({start: {dateTime: '2026-10-16T13:00:00', timeZone: 'Europe/Berlin'}, end: {dateTime: '2026-10-16T15:00:00', timeZone: 'Europe/Berlin'}});
@@ -336,9 +336,9 @@ describe('editing', () => {
 	});
 
 	test('changing the guests keeps the account, the rooms and the answers of those still invited, and Google tells them', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const before = (await googleConnector.get(target, 'alex@example.com:ev2')).unwrap();
-		await googleConnector.update(target, 'alex@example.com:ev2', {...before.values, guests: 'sam@example.com, kim@example.com'}, before);
+		const {eventsConnector} = await import('./google-events');
+		const before = (await eventsConnector.get(target, 'alex@example.com:ev2')).unwrap();
+		await eventsConnector.update(target, 'alex@example.com:ev2', {...before.values, guests: 'sam@example.com, kim@example.com'});
 
 		const patch = google.requests.find((request) => request.method === 'PATCH');
 		expect(patch?.url.searchParams.get('sendUpdates')).toBe('all');
@@ -353,9 +353,9 @@ describe('editing', () => {
 	});
 
 	test('nothing written differently sends nothing', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const before = (await googleConnector.get(target, 'alex@example.com:ev2')).unwrap();
-		await googleConnector.update(target, 'alex@example.com:ev2', {...before.values}, before);
+		const {eventsConnector} = await import('./google-events');
+		const before = (await eventsConnector.get(target, 'alex@example.com:ev2')).unwrap();
+		await eventsConnector.update(target, 'alex@example.com:ev2', {...before.values});
 
 		expect(google.requests.filter((request) => request.method === 'PATCH')).toEqual([]);
 	});
@@ -363,8 +363,8 @@ describe('editing', () => {
 
 describe('answering an invitation', () => {
 	test("sets the account's own answer and tells the organizer", async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.commands?.accept?.(target, 'alex@example.com:ev2'))?.unwrap();
+		const {eventsConnector} = await import('./google-events');
+		const record = (await eventsConnector.commands?.accept?.(target, 'alex@example.com:ev2'))?.unwrap();
 
 		const patch = google.requests.find((request) => request.method === 'PATCH');
 		expect(patch?.url.searchParams.get('sendUpdates')).toBe('all');
@@ -373,8 +373,8 @@ describe('answering an invitation', () => {
 	});
 
 	test("the account's own event is not answered", async () => {
-		const {googleConnector} = await import('./google-connector');
-		const result = await googleConnector.commands?.decline?.(target, 'alex@example.com:ev1');
+		const {eventsConnector} = await import('./google-events');
+		const result = await eventsConnector.commands?.decline?.(target, 'alex@example.com:ev1');
 
 		expect(messageOf(result)).toBe('Only an event someone else invited you to is answered');
 		expect(google.requests.filter((request) => request.method === 'PATCH')).toEqual([]);

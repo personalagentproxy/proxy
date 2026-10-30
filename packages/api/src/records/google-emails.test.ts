@@ -4,6 +4,8 @@ import {Ok, type Result} from 'ts-results-es';
 import type {ApiError} from '@proxy/utils';
 import {findCollection, findIntegration, type Collection} from '@proxy/integrations';
 
+import type {RecordStore} from './connector';
+
 mock.module('@proxy/db/connection', () => ({updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
 
 mock.module('../observability/log', () => ({
@@ -191,8 +193,8 @@ beforeEach(() => {
 });
 
 async function connector() {
-	const {googleConnector} = await import('./google-connector');
-	return googleConnector;
+	const {gmailConnector} = await import('./google-emails');
+	return gmailConnector;
 }
 
 describe('findGmailEmails', () => {
@@ -370,7 +372,7 @@ describe('attachments', () => {
 	});
 
 	test('an attachment is read by its number, fetched by the id the email gives it', async () => {
-		const read = (await connector()).newCommands?.read;
+		const {read} = (await import('./google-emails')).gmailAttachmentsConnector.newCommands;
 		const record = (await read?.(attachmentsTarget, {email: 'm1', attachment: '1'}))?.unwrap();
 
 		expect(record?.values).toMatchObject({email: 'm1', attachment: '1', name: 'Budget.csv', type: 'text/csv', content: 'Item,Cost\nVenue,1200'});
@@ -378,7 +380,7 @@ describe('attachments', () => {
 	});
 
 	test('a draft’s attachment is read by its name, from the draft itself where its content is in it', async () => {
-		const read = (await connector()).newCommands?.read;
+		const {read} = (await import('./google-emails')).gmailAttachmentsConnector.newCommands;
 		const record = (await read?.(attachmentsTarget, {email: 'draft-r1', attachment: 'notes.txt'}))?.unwrap();
 
 		expect(record?.values.content).toBe('Notes');
@@ -386,7 +388,7 @@ describe('attachments', () => {
 	});
 
 	test('an image is turned down, and an email Gmail doesn’t have is not found', async () => {
-		const read = (await connector()).newCommands?.read;
+		const {read} = (await import('./google-emails')).gmailAttachmentsConnector.newCommands;
 
 		expect((await read?.(attachmentsTarget, {email: 'm1', attachment: '2'}))?.unwrapErr()).toMatchObject({kind: 'validation_error', message: expect.stringContaining('can’t be read as text')});
 		expect(calls('GET', '/messages/m1/attachments/att-logo')).toEqual([]);
@@ -397,7 +399,7 @@ describe('attachments', () => {
 
 describe('drafts', () => {
 	test('a new draft is written from the connection’s address and read back by its draft id', async () => {
-		const record = (await (await connector()).create(target, {to: 'robin@example.com', subject: 'New', body: 'Hello'}, null)).unwrap();
+		const record = (await (await connector()).create(target, {to: 'robin@example.com', subject: 'New', body: 'Hello'})).unwrap();
 
 		const raw = rawText(calls('POST', '/drafts')[0]?.body?.message as Record<string, unknown>);
 		expect(raw).toContain('From: alex@example.com');
@@ -473,7 +475,8 @@ describe('commands', () => {
 		['unflag', {addLabelIds: [], removeLabelIds: ['STARRED']}],
 		['archive', {addLabelIds: [], removeLabelIds: ['INBOX']}],
 	])('%s changes the labels and reads the email back', async (command, change) => {
-		const run = (await connector()).commands?.[command];
+		const {commands}: RecordStore = await connector();
+		const run = commands?.[command];
 		const record = (await run?.(target, 'm1'))?.unwrap();
 
 		expect(calls('POST', '/messages/m1/modify')[0]?.body).toEqual(change);
@@ -613,7 +616,7 @@ describe('replyToGmail', () => {
 		if (!replies) {
 			throw new Error('No replies collection');
 		}
-		const c = await connector();
+		const {gmailRepliesConnector: c} = await import('./google-emails');
 		const sent = (await c.newCommands?.send?.({...target, collection: replies}, {email: 'm1', body: 'Works for me.', replyAll: ''}))?.unwrap();
 		const drafted = (await c.newCommands?.draft?.({...target, collection: replies}, {email: 'm1', body: 'Works for me.', replyAll: 'Yes'}))?.unwrap();
 

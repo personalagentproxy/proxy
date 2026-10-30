@@ -353,9 +353,9 @@ describe('attachments', () => {
 	test('an email opens with its attachments listed, and one is read by its number', async () => {
 		imap.message = {uid: 12, flags: new Set(), source: withAttachments};
 
-		const {emailConnector} = await import('./email-connector');
+		const {emailAttachmentsConnector, emailConnector} = await import('./email-connector');
 		const record = (await emailConnector.get(target, INBOX_EMAIL)).unwrap();
-		const read = (await emailConnector.newCommands?.read?.(attachmentsTarget(), {email: INBOX_EMAIL, attachment: '1'}))?.unwrap();
+		const read = (await emailAttachmentsConnector.newCommands.read(attachmentsTarget(), {email: INBOX_EMAIL, attachment: '1'})).unwrap();
 
 		expect(record.values.body).toBe('Budget attached.');
 		expect(record.values.attachments).toBe('1. Budget.csv (text/csv, 21 B)');
@@ -363,10 +363,10 @@ describe('attachments', () => {
 	});
 
 	test('an email without attachments says so', async () => {
-		const {emailConnector} = await import('./email-connector');
-		const result = await emailConnector.newCommands?.read?.(attachmentsTarget(), {email: INBOX_EMAIL, attachment: '1'});
+		const {emailAttachmentsConnector} = await import('./email-connector');
+		const result = await emailAttachmentsConnector.newCommands.read(attachmentsTarget(), {email: INBOX_EMAIL, attachment: '1'});
 
-		expect(result?.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'This email has no attachments'});
+		expect(result.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'This email has no attachments'});
 	});
 });
 
@@ -614,9 +614,9 @@ describe('replyToMailbox', () => {
 
 	test('agents reply as the replies collection, sent or saved in Drafts', async () => {
 		imap.message = {uid: 12, flags: new Set(), source: asked};
-		const {emailConnector} = await import('./email-connector');
-		const sent = (await emailConnector.newCommands?.send?.(repliesTarget(), {email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'No'}))?.unwrap();
-		const drafted = (await emailConnector.newCommands?.draft?.(repliesTarget(), {email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'Yes'}))?.unwrap();
+		const {emailRepliesConnector} = await import('./email-connector');
+		const sent = (await emailRepliesConnector.newCommands.send(repliesTarget(), {email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'No'})).unwrap();
+		const drafted = (await emailRepliesConnector.newCommands.draft(repliesTarget(), {email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'Yes'})).unwrap();
 
 		expect(sent?.values).toEqual({email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'No', to: '"Planning" <planning@example.com>', cc: '', subject: 'Re: Q3 planning'});
 		expect(drafted).toMatchObject({id: `drafts-${UID_VALIDITY}-99`, values: {cc: '"Jo Park" <jo@example.com>'}});

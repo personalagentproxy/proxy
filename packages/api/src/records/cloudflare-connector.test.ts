@@ -3,6 +3,8 @@ import {Ok} from 'ts-results-es';
 
 import {findCollection, findIntegration} from '@proxy/integrations';
 
+import type {RunOnly} from './connector';
+
 // The server's tools by name, answering as Cloudflare's do.
 type Call = {name: string; args: Record<string, string>};
 const tools = {calls: [] as Call[]};
@@ -26,7 +28,7 @@ mock.module('../connections/mcp/mcp-session', () => ({
 	},
 }));
 
-const {cloudflareConnector} = await import('./cloudflare-connector');
+const {cloudflareDocsConnector, cloudflareEndpointsConnector, cloudflareRequestsConnector} = await import('./cloudflare-connector');
 const {requestCode} = await import('../connections/cloudflare/cloudflare-mcp');
 
 const cloudflare = findIntegration('cloudflare');
@@ -34,7 +36,8 @@ const cloudflare = findIntegration('cloudflare');
 function run(command: string, values: Record<string, string>) {
 	const collectionId = command === 'find' ? 'endpoints' : command === 'run' ? 'docs' : 'requests';
 	const collection = cloudflare && findCollection(cloudflare, collectionId);
-	const runner = cloudflareConnector.newCommands?.[command];
+	const connector: RunOnly = command === 'find' ? cloudflareEndpointsConnector : command === 'run' ? cloudflareDocsConnector : cloudflareRequestsConnector;
+	const runner = connector.newCommands[command];
 	if (!collection || !runner) {
 		throw new Error(`No ${command}`);
 	}

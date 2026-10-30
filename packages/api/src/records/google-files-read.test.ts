@@ -171,10 +171,10 @@ beforeEach(() => {
 	drive.row = storedRow;
 });
 
-describe('googleConnector.list', () => {
+describe('filesConnector.list', () => {
 	test('the top is the four places, each holding files', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const page = (await googleConnector.list(target, query())).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const page = (await filesConnector.list(target, query())).unwrap();
 
 		expect(page).toEqual({
 			records: [
@@ -189,8 +189,8 @@ describe('googleConnector.list', () => {
 	});
 
 	test('inside a folder, its files, folders first, from the page token given, with the next one and the trail', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const page = (await googleConnector.list(target, query({parent: '1Projects', page: 'page-1'}))).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const page = (await filesConnector.list(target, query({parent: '1Projects', page: 'page-1'}))).unwrap();
 
 		const [list] = requested('/drive/v3/files');
 		expect(Object.fromEntries(list?.searchParams ?? [])).toEqual({
@@ -226,10 +226,10 @@ describe('googleConnector.list', () => {
 	});
 
 	test('My Drive lists what is at its top, Shared with me and Recent in their own order', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.list(target, query({parent: 'root'}));
-		await googleConnector.list(target, query({parent: 'shared-with-me'}));
-		const recent = (await googleConnector.list(target, query({parent: 'recent'}))).unwrap();
+		const {filesConnector} = await import('./google-files');
+		await filesConnector.list(target, query({parent: 'root'}));
+		await filesConnector.list(target, query({parent: 'shared-with-me'}));
+		const recent = (await filesConnector.list(target, query({parent: 'recent'}))).unwrap();
 
 		expect(requested('/drive/v3/files').map((url) => [url.searchParams.get('q'), url.searchParams.get('orderBy')])).toEqual([
 			["'root' in parents and trashed=false", 'folder,modifiedTime desc'],
@@ -241,7 +241,7 @@ describe('googleConnector.list', () => {
 	});
 
 	test('shared drives are listed as such, and inside one its own files', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {filesConnector} = await import('./google-files');
 		drive.answer = (url) => {
 			if (url.pathname === '/drive/v3/drives') {
 				return Response.json({drives: [{id: '0ATeamDrive', name: 'Team', kind: 'drive#drive'}]});
@@ -252,8 +252,8 @@ describe('googleConnector.list', () => {
 			return null;
 		};
 
-		const drives = (await googleConnector.list(target, query({parent: 'shared-drives'}))).unwrap();
-		const inside = (await googleConnector.list(target, query({parent: 'drive-0ATeamDrive'}))).unwrap();
+		const drives = (await filesConnector.list(target, query({parent: 'shared-drives'}))).unwrap();
+		const inside = (await filesConnector.list(target, query({parent: 'drive-0ATeamDrive'}))).unwrap();
 
 		expect(drives.records).toEqual([
 			{id: 'drive-0ATeamDrive', values: {name: 'Team', kind: 'Shared drive'}, updatedAt: '', url: 'https://drive.google.com/drive/folders/0ATeamDrive', hasChildren: true},
@@ -269,9 +269,9 @@ describe('googleConnector.list', () => {
 	});
 
 	test('a search goes through all of Drive, its words quoted as Drive needs, in the order Drive finds best', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.list(target, query({search: "Alex's \\ plan"}));
-		await googleConnector.list(target, query({search: 'plan', parent: '1Projects'}));
+		const {filesConnector} = await import('./google-files');
+		await filesConnector.list(target, query({search: "Alex's \\ plan"}));
+		await filesConnector.list(target, query({search: 'plan', parent: '1Projects'}));
 
 		const [everywhere, inFolder] = requested('/drive/v3/files');
 		expect(everywhere?.searchParams.get('q')).toBe("fullText contains 'Alex\\'s \\\\ plan' and trashed=false");
@@ -281,16 +281,16 @@ describe('googleConnector.list', () => {
 	});
 
 	test("an id that isn't one of Drive's never reaches Google", async () => {
-		const {googleConnector} = await import('./google-connector');
-		const result = await googleConnector.list(target, query({parent: "x' or name contains '"}));
+		const {filesConnector} = await import('./google-files');
+		const result = await filesConnector.list(target, query({parent: "x' or name contains '"}));
 
 		expect(result.isErr() && result.error.kind).toBe('not_found');
 		expect(drive.requests).toEqual([]);
 	});
 
 	test("a spreadsheet holds its tabs, and a tab its rows, 50 to a page under the first row's headers", async () => {
-		const {googleConnector} = await import('./google-connector');
-		const tabs = (await googleConnector.list(target, query({parent: '1Budget'}))).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const tabs = (await filesConnector.list(target, query({parent: '1Budget'}))).unwrap();
 
 		expect(tabs.records.map((record) => [record.id, record.values.name, record.values.content, record.hasChildren, record.url])).toEqual([
 			['sheet-1Budget-0', 'Q1', '120 rows, 8 columns', true, 'https://docs.google.com/spreadsheets/d/1Budget/edit?usp=drivesdk#gid=0'],
@@ -302,7 +302,7 @@ describe('googleConnector.list', () => {
 			{id: '1Budget', title: 'Budget 2026'},
 		]);
 
-		const first = (await googleConnector.list(target, query({parent: 'sheet-1Budget-1834'}))).unwrap();
+		const first = (await filesConnector.list(target, query({parent: 'sheet-1Budget-1834'}))).unwrap();
 		expect(requested('/v4/spreadsheets/1Budget/values:batchGet')[0]?.searchParams.getAll('ranges')).toEqual(["'Alex''s notes'!A1:ZZ1", "'Alex''s notes'!A2:ZZ51"]);
 		expect(first.records).toHaveLength(50);
 		expect(first.records[0]).toEqual({
@@ -321,7 +321,7 @@ describe('googleConnector.list', () => {
 		expect(first.nextPage).toBe('52');
 		expect(first.trail?.at(-1)).toEqual({id: 'sheet-1Budget-1834', title: "Alex's notes"});
 
-		const last = (await googleConnector.list(target, query({parent: 'sheet-1Budget-1834', page: '52'}))).unwrap();
+		const last = (await filesConnector.list(target, query({parent: 'sheet-1Budget-1834', page: '52'}))).unwrap();
 		expect(last.records.map((record) => record.id)).toEqual(['row-1Budget-1834-52', 'row-1Budget-1834-53', 'row-1Budget-1834-54']);
 		expect(last.nextPage).toBeNull();
 		expect(requested('/v4/spreadsheets/1Budget/values:batchGet').at(-1)?.searchParams.getAll('ranges')).toEqual(["'Alex''s notes'!A102:ZZ1000"]);
@@ -329,19 +329,19 @@ describe('googleConnector.list', () => {
 
 	test('a page of rows ending in empty ones goes on at the next row that has any', async () => {
 		drive.row = (row) => (row <= 40 || (row >= 75 && row <= 80) ? storedRow(Math.min(row, 54)) : null);
-		const {googleConnector} = await import('./google-connector');
-		const first = (await googleConnector.list(target, query({parent: 'sheet-1Budget-0'}))).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const first = (await filesConnector.list(target, query({parent: 'sheet-1Budget-0'}))).unwrap();
 
 		expect(first.records).toHaveLength(39);
 		expect(first.nextPage).toBe('75');
-		const second = (await googleConnector.list(target, query({parent: 'sheet-1Budget-0', page: '75'}))).unwrap();
+		const second = (await filesConnector.list(target, query({parent: 'sheet-1Budget-0', page: '75'}))).unwrap();
 		expect(second.records).toHaveLength(6);
 		expect(second.nextPage).toBeNull();
 	});
 
 	test("a page of rows past the tab's last row is empty, without asking Sheets for a range outside its grid", async () => {
-		const {googleConnector} = await import('./google-connector');
-		const page = (await googleConnector.list(target, query({parent: 'sheet-1Budget-0', page: '121'}))).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const page = (await filesConnector.list(target, query({parent: 'sheet-1Budget-0', page: '121'}))).unwrap();
 
 		expect(page.records).toEqual([]);
 		expect(page.nextPage).toBeNull();
@@ -350,31 +350,31 @@ describe('googleConnector.list', () => {
 	});
 
 	test('a page of the places, or of a spreadsheet’s tabs, is refused, since each is all on one page', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {filesConnector} = await import('./google-files');
 		const lists = [query({page: 'next'}), query({parent: '1Budget', page: 'next'})];
 
 		for (const paged of lists) {
-			const result = await googleConnector.list(target, paged);
+			const result = await filesConnector.list(target, paged);
 			expect(result.isErr() && result.error.kind).toBe('validation_error');
 		}
 	});
 
 	test('a page of rows that is not a row number is refused', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const result = await googleConnector.list(target, query({parent: 'sheet-1Budget-0', page: 'A1'}));
+		const {filesConnector} = await import('./google-files');
+		const result = await filesConnector.list(target, query({parent: 'sheet-1Budget-0', page: 'A1'}));
 
 		expect(result.isErr() && result.error.kind).toBe('validation_error');
 	});
 
 	test('a folder whose folder the account cannot see is under Shared with me', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {filesConnector} = await import('./google-files');
 		drive.answer = (url) => {
 			if (url.pathname === '/drive/v3/files/1Shared') {
 				return Response.json({id: '1Shared', name: 'Shared plans', mimeType: 'application/vnd.google-apps.folder', parents: ['1Hidden']});
 			}
 			return null;
 		};
-		const page = (await googleConnector.list(target, query({parent: '1Shared'}))).unwrap();
+		const page = (await filesConnector.list(target, query({parent: '1Shared'}))).unwrap();
 
 		expect(page.trail).toEqual([
 			{id: 'shared-with-me', title: 'Shared with me'},
@@ -384,7 +384,7 @@ describe('googleConnector.list', () => {
 });
 
 test('a file at the top of a shared drive the account is not a member of is under Shared with me', async () => {
-	const {googleConnector} = await import('./google-connector');
+	const {filesConnector} = await import('./google-files');
 	drive.answer = (url) => {
 		if (url.pathname === '/drive/v3/files/1Theirs') {
 			return Response.json({id: '1Theirs', name: 'Their plans', mimeType: 'application/vnd.google-apps.folder', parents: ['0ATheirDrive'], driveId: '0ATheirDrive'});
@@ -394,7 +394,7 @@ test('a file at the top of a shared drive the account is not a member of is unde
 		}
 		return null;
 	};
-	const page = (await googleConnector.list(target, query({parent: '1Theirs'}))).unwrap();
+	const page = (await filesConnector.list(target, query({parent: '1Theirs'}))).unwrap();
 
 	expect(page.trail).toEqual([
 		{id: 'shared-with-me', title: 'Shared with me'},
@@ -402,10 +402,10 @@ test('a file at the top of a shared drive the account is not a member of is unde
 	]);
 });
 
-describe('googleConnector.get', () => {
+describe('filesConnector.get', () => {
 	test('a document opens as Markdown', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.get(target, '1Plan')).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const record = (await filesConnector.get(target, '1Plan')).unwrap();
 
 		expect(requested('/drive/v3/files/1Plan/export')[0]?.searchParams.get('mimeType')).toBe('text/markdown');
 		expect(record).toEqual({
@@ -423,50 +423,50 @@ describe('googleConnector.get', () => {
 	});
 
 	test('a spreadsheet opens with its tabs one a line', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.get(target, '1Budget')).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const record = (await filesConnector.get(target, '1Budget')).unwrap();
 
 		expect(record.values.content).toBe("Q1: 120 rows, 8 columns\nAlex's notes: 1000 rows, 26 columns");
 		expect(record.hasChildren).toBe(true);
 	});
 
 	test('a row opens with its values under the headers', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.get(target, 'row-1Budget-0-7')).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const record = (await filesConnector.get(target, 'row-1Budget-0-7')).unwrap();
 
 		expect(requested('/v4/spreadsheets/1Budget/values:batchGet')[0]?.searchParams.getAll('ranges')).toEqual(["'Q1'!A1:ZZ1", "'Q1'!A7:ZZ7"]);
 		expect(record.values).toMatchObject({name: 'Item 7', kind: 'Row', content: 'Item: Item 7\nAmount: 70\nColumn C: Paid'});
 	});
 
 	test("a row past the tab's last row is not found, without asking Sheets for it", async () => {
-		const {googleConnector} = await import('./google-connector');
-		const result = await googleConnector.get(target, 'row-1Budget-0-121');
+		const {filesConnector} = await import('./google-files');
+		const result = await filesConnector.get(target, 'row-1Budget-0-121');
 
 		expect(result.isErr() && result.error).toMatchObject({kind: 'not_found', resource: 'record', id: 'row-1Budget-0-121'});
 		expect(requested('/v4/spreadsheets/1Budget/values:batchGet')).toHaveLength(0);
 	});
 
 	test('a file too large to export says so in its content, and opens otherwise', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.get(target, '1Huge')).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const record = (await filesConnector.get(target, '1Huge')).unwrap();
 
 		expect(record.values).toMatchObject({name: 'Everything ever written', kind: 'Document', content: 'This file is too large to read; Google exports at most 10 MB'});
 	});
 
 	test("a disabled API is Google's own message, saying where to enable it", async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {filesConnector} = await import('./google-files');
 		const message =
 			'Google Sheets API has not been used in project 1234 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=1234 then retry.';
 		drive.answer = (url) => (url.hostname === 'sheets.googleapis.com' ? googleError(403, message, 'accessNotConfigured') : null);
 
-		const result = await googleConnector.get(target, '1Budget');
+		const result = await filesConnector.get(target, '1Budget');
 
 		expect(result.isErr() && result.error).toEqual({kind: 'validation_error', statusCode: 400, message});
 	});
 
 	test('a file Drive does not have is not found by its id', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const result = await googleConnector.get(target, '1Gone');
+		const {filesConnector} = await import('./google-files');
+		const result = await filesConnector.get(target, '1Gone');
 
 		expect(result.isErr() && result.error).toMatchObject({kind: 'not_found', resource: 'record', id: '1Gone'});
 	});

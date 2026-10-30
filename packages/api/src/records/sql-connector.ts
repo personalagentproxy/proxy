@@ -6,7 +6,7 @@ import {sqlCredentialSchema, type SqlCredential, type SqlDialect} from '../conne
 import {withSql, type SqlRun} from '../connections/sql/sql-client';
 import {checkStatement} from '../connections/sql/sql-statement';
 import {decryptSecret} from '../utils/secret-crypto';
-import {requireFirstPage, type Connector, type DataRecord, type ListQuery, type RecordPage, type RecordTarget, type RecordValues} from './connector';
+import {requireFirstPage, type DataRecord, type ListQuery, type RecordPage, type RecordTarget, type RecordStore, type RecordValues, type RunOnly} from './connector';
 import {dialectOf, type Column, type Dialect, type TableInfo, type TableRef} from './sql-dialect';
 import {readValueLines, valueLines} from './value-lines';
 
@@ -290,10 +290,10 @@ function queryRowsText(count: number, more: boolean): string {
 	return more ? `${rows}, more left out` : rows;
 }
 
-/** The connector for one dialect: its tables as a tree of rows, and its queries. */
-export function sqlConnector(id: SqlDialect): Connector {
+/** The connectors for one dialect: its tables as a tree of rows, and its queries. */
+export function sqlConnectors(id: SqlDialect) {
 	const dialect = dialectOf(id);
-	return {
+	const tables = {
 		list: (target, query) =>
 			connect(dialect, target, (run) =>
 				Do(async ($) => {
@@ -393,6 +393,8 @@ export function sqlConnector(id: SqlDialect): Connector {
 					}
 				}),
 			),
+	} satisfies RecordStore;
+	const queries = {
 		newCommands: {
 			// One statement that reads, checked before any connection is made, answered as one JSON
 			// object a line, QUERY_LIMIT rows at most.
@@ -410,5 +412,6 @@ export function sqlConnector(id: SqlDialect): Connector {
 					);
 				}),
 		},
-	};
+	} satisfies RunOnly;
+	return {tables, queries};
 }

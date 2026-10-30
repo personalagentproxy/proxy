@@ -4,12 +4,12 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
 import {CLOUDFLARE, endpointsCode, isGraphqlPath, requestCode, requestPath, type CloudflareRequest, type Json} from '../connections/cloudflare/cloudflare-mcp';
 import {callMcpToolFor} from '../connections/mcp/mcp-session';
-import {onlyRun, type Connector, type DataRecord, type NewCommandRunner, type RecordValues} from './connector';
+import type {DataRecord, NewCommandRunner, RecordValues, RunOnly} from './connector';
 
 /**
  * A Cloudflare account, through Cloudflare's MCP server, fetched live with the connection's
- * tokens. Requests, searches of the API reference and of the docs are only run, never listed,
- * opened or kept. Each of the request commands sends only the methods of its own action, so what
+ * tokens. Requests, searches of the API reference and of the docs, the `requests`, `endpoints` and
+ * `docs` collections, are only run, never listed, opened or kept. Each of the request commands sends only the methods of its own action, so what
  * an agent may do follows from what the request is, whatever the sign-in allows: Read sends GET
  * and GraphQL analytics queries, Send POST, PUT and PATCH, and Delete DELETE.
  */
@@ -104,12 +104,12 @@ function sendRequest(sends: Sends): NewCommandRunner {
 		});
 }
 
-export const cloudflareConnector: Connector = {
-	...onlyRun('Requests and searches are only run, never listed or kept'),
+export const cloudflareRequestsConnector = {
+	newCommands: {read: sendRequest(READ), send: sendRequest(SEND), remove: sendRequest(REMOVE)},
+} satisfies RunOnly;
+
+export const cloudflareEndpointsConnector = {
 	newCommands: {
-		read: sendRequest(READ),
-		send: sendRequest(SEND),
-		remove: sendRequest(REMOVE),
 		find: (target, values) =>
 			Do(async ($): Promise<DataRecord> => {
 				const search = (values.search ?? '').trim();
@@ -119,6 +119,11 @@ export const cloudflareConnector: Connector = {
 				const endpoints = passedOn($(await callMcpToolFor(CLOUDFLARE, target.connection, 'search', {code: endpointsCode(search)})));
 				return {id: 'endpoints', values: {search, endpoints}, updatedAt: new Date().toISOString()};
 			}),
+	},
+} satisfies RunOnly;
+
+export const cloudflareDocsConnector = {
+	newCommands: {
 		run: (target, values) =>
 			Do(async ($): Promise<DataRecord> => {
 				const query = (values.query ?? '').trim();
@@ -129,4 +134,4 @@ export const cloudflareConnector: Connector = {
 				return {id: 'docs', values: {query, results}, updatedAt: new Date().toISOString()};
 			}),
 	},
-};
+} satisfies RunOnly;

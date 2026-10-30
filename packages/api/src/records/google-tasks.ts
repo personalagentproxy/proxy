@@ -5,7 +5,7 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import {callGoogle} from '../connections/google/google-client';
 import {getTask, getTaskList, insertTask, listTaskLists, listTasks, moveTask, patchTask, type Task, type TaskList, type TaskStatus, type TaskWrite} from '../connections/google/tasks-api';
 import {realDay} from './calendar-time';
-import {requireFirstPage, type CommandRunner, type Connector, type DataRecord, type ListQuery, type RecordPage, type RecordTarget, type RecordValues} from './connector';
+import {requireFirstPage, type CommandRunner, type DataRecord, type ListQuery, type RecordPage, type RecordStore, type RecordTarget, type RecordValues} from './connector';
 
 /**
  * Google Tasks as the nested `tasks` collection, fetched live: at the top the account's task lists,
@@ -258,15 +258,10 @@ function setStatus(status: 'needsAction' | 'completed'): CommandRunner {
 		);
 }
 
-function notDeleted(): Promise<Result<never, ApiError>> {
-	return Promise.resolve(Err(ApiErr.validationError('Tasks in Google Tasks are completed, never deleted here')));
-}
-
-export const tasksConnector: Connector = {
+export const tasksConnector = {
 	list: listTasksTree,
 	get: getTasksRecord,
 	create: createTask,
 	update: updateTask,
-	remove: notDeleted,
 	commands: {complete: setStatus('completed'), reopen: setStatus('needsAction')},
-};
+} satisfies RecordStore;

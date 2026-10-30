@@ -137,8 +137,8 @@ function tomorrow(): string {
 
 describe('accounts', () => {
 	test('lists each account with its balances, with Plaid’s keys and the bank login’s access token', async () => {
-		const {plaidConnector} = await import('./plaid-connector');
-		const page = (await plaidConnector.list(accounts, LIST)).unwrap();
+		const {plaidAccountsConnector} = await import('./plaid-connector');
+		const page = (await plaidAccountsConnector.list(accounts, LIST)).unwrap();
 
 		expect(page.nextPage).toBeNull();
 		expect(page.records.map((record) => [record.id, record.values])).toEqual([
@@ -151,39 +151,32 @@ describe('accounts', () => {
 		expect(request?.headers.get('plaid-client-id')).toBe('plaid-client');
 		expect(request?.headers.get('plaid-secret')).toBe('plaid-secret');
 
-		const paged = await plaidConnector.list(accounts, {...LIST, page: 'next'});
+		const paged = await plaidAccountsConnector.list(accounts, {...LIST, page: 'next'});
 		expect(paged.isErr() && paged.error.kind).toBe('validation_error');
 	});
 
 	test('opens one account, and an account the bank login doesn’t have is not found', async () => {
-		const {plaidConnector} = await import('./plaid-connector');
+		const {plaidAccountsConnector} = await import('./plaid-connector');
 
-		expect((await plaidConnector.get(accounts, CARD_ID)).unwrap().values.limit).toBe('2000.00 USD');
-		expect((await plaidConnector.get(accounts, 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')).unwrapErr().kind).toBe('not_found');
+		expect((await plaidAccountsConnector.get(accounts, CARD_ID)).unwrap().values.limit).toBe('2000.00 USD');
+		expect((await plaidAccountsConnector.get(accounts, 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')).unwrapErr().kind).toBe('not_found');
 	});
 
 	test('writes an amount with its currency’s own digits, and one without an ISO code with every digit Plaid gives', async () => {
-		const {plaidConnector} = await import('./plaid-connector');
+		const {plaidAccountsConnector} = await import('./plaid-connector');
 		plaid.accounts = [
 			{...CHECKING, balances: {current: 15000, available: null, limit: null, iso_currency_code: 'JPY'}},
 			{...CARD, balances: {current: 0.00342, available: null, limit: null, iso_currency_code: null, unofficial_currency_code: 'BTC'}},
 		];
 
-		expect((await plaidConnector.list(accounts, LIST)).unwrap().records.map((record) => record.values.balance)).toEqual(['15000 JPY', '0.00342 BTC']);
-	});
-
-	test('is only read', async () => {
-		const {plaidConnector} = await import('./plaid-connector');
-
-		expect(messageOf(await plaidConnector.create(accounts, {}, null))).toBe('Bank accounts are only read here');
-		expect(plaid.requests).toEqual([]);
+		expect((await plaidAccountsConnector.list(accounts, LIST)).unwrap().records.map((record) => record.values.balance)).toEqual(['15000 JPY', '0.00342 BTC']);
 	});
 });
 
 describe('transactions', () => {
 	test('the top of the tree is the accounts, each holding its transactions', async () => {
-		const {plaidConnector} = await import('./plaid-connector');
-		const page = (await plaidConnector.list(transactions, LIST)).unwrap();
+		const {plaidTransactionsConnector} = await import('./plaid-connector');
+		const page = (await plaidTransactionsConnector.list(transactions, LIST)).unwrap();
 
 		expect(page.records.map((record) => [record.id, record.values, record.hasChildren])).toEqual([
 			[CHECKING_ID, {name: 'Plaid Checking', kind: 'Account', account: 'Plaid Checking ••0000'}, true],
@@ -192,8 +185,8 @@ describe('transactions', () => {
 	});
 
 	test('inside an account, its transactions newest first, money out negative and money in positive', async () => {
-		const {plaidConnector} = await import('./plaid-connector');
-		const page = (await plaidConnector.list(transactions, {...LIST, parent: CHECKING_ID})).unwrap();
+		const {plaidTransactionsConnector} = await import('./plaid-connector');
+		const page = (await plaidTransactionsConnector.list(transactions, {...LIST, parent: CHECKING_ID})).unwrap();
 
 		expect(plaid.requests[0]?.body).toEqual({
 			access_token: 'access-sandbox-1',
@@ -237,9 +230,9 @@ describe('transactions', () => {
 
 	test('a page carries the days it covers and goes on from where the last one ended', async () => {
 		plaid.total = 120;
-		const {plaidConnector} = await import('./plaid-connector');
-		const first = (await plaidConnector.list(transactions, {...LIST, parent: CHECKING_ID, search: '2026-09-01 2026-09-30'})).unwrap();
-		const next = (await plaidConnector.list(transactions, {...LIST, parent: CHECKING_ID, page: first.nextPage})).unwrap();
+		const {plaidTransactionsConnector} = await import('./plaid-connector');
+		const first = (await plaidTransactionsConnector.list(transactions, {...LIST, parent: CHECKING_ID, search: '2026-09-01 2026-09-30'})).unwrap();
+		const next = (await plaidTransactionsConnector.list(transactions, {...LIST, parent: CHECKING_ID, page: first.nextPage})).unwrap();
 
 		expect(plaid.requests.map((request) => [request.body.start_date, request.body.end_date, request.body.options])).toEqual([
 			['2026-09-01', '2026-09-30', {count: 50, offset: 0, account_ids: [CHECKING_ID]}],
@@ -249,32 +242,32 @@ describe('transactions', () => {
 	});
 
 	test('a search at the top is in every account, a day alone being that day and before it', async () => {
-		const {plaidConnector} = await import('./plaid-connector');
-		await plaidConnector.list(transactions, {...LIST, search: '2026-09-30'});
+		const {plaidTransactionsConnector} = await import('./plaid-connector');
+		await plaidTransactionsConnector.list(transactions, {...LIST, search: '2026-09-30'});
 
 		expect(plaid.requests[0]?.body).toMatchObject({start_date: '2000-01-01', end_date: '2026-09-30', options: {count: 50, offset: 0}});
 		expect(plaid.requests[0]?.body.options).not.toHaveProperty('account_ids');
 	});
 
 	test('a search in words is refused, saying what a search takes', async () => {
-		const {plaidConnector} = await import('./plaid-connector');
+		const {plaidTransactionsConnector} = await import('./plaid-connector');
 
-		expect(messageOf(await plaidConnector.list(transactions, {...LIST, search: 'coffee'}))).toStartWith('Search with a day');
-		expect(messageOf(await plaidConnector.list(transactions, {...LIST, search: '2026-02-30'}))).toStartWith('Search with a day');
-		expect(messageOf(await plaidConnector.list(transactions, {...LIST, search: '2026-13-01'}))).toStartWith('Search with a day');
-		expect(messageOf(await plaidConnector.list(transactions, {...LIST, search: '2026-09-01 2026-02-32'}))).toStartWith('Search with a day');
+		expect(messageOf(await plaidTransactionsConnector.list(transactions, {...LIST, search: 'coffee'}))).toStartWith('Search with a day');
+		expect(messageOf(await plaidTransactionsConnector.list(transactions, {...LIST, search: '2026-02-30'}))).toStartWith('Search with a day');
+		expect(messageOf(await plaidTransactionsConnector.list(transactions, {...LIST, search: '2026-13-01'}))).toStartWith('Search with a day');
+		expect(messageOf(await plaidTransactionsConnector.list(transactions, {...LIST, search: '2026-09-01 2026-02-32'}))).toStartWith('Search with a day');
 		expect(plaid.requests).toEqual([]);
 	});
 
 	test('a transaction on a day the calendar doesn’t have is not found', async () => {
-		const {plaidConnector} = await import('./plaid-connector');
+		const {plaidTransactionsConnector} = await import('./plaid-connector');
 
-		expect((await plaidConnector.get(transactions, `${CHECKING_ID}:2026-13-01:${UBER_ID}`)).unwrapErr().kind).toBe('not_found');
+		expect((await plaidTransactionsConnector.get(transactions, `${CHECKING_ID}:2026-13-01:${UBER_ID}`)).unwrapErr().kind).toBe('not_found');
 	});
 
 	test('opens a transaction among its account’s on its day', async () => {
-		const {plaidConnector} = await import('./plaid-connector');
-		const record = (await plaidConnector.get(transactions, `${CHECKING_ID}:2026-10-11:${UBER_ID}`)).unwrap();
+		const {plaidTransactionsConnector} = await import('./plaid-connector');
+		const record = (await plaidTransactionsConnector.get(transactions, `${CHECKING_ID}:2026-10-11:${UBER_ID}`)).unwrap();
 
 		expect(record.values.amount).toBe('-5.40 USD');
 		expect(plaid.requests[0]?.body).toMatchObject({start_date: '2026-10-11', end_date: '2026-10-11', options: {account_ids: [CHECKING_ID]}});
@@ -282,41 +275,44 @@ describe('transactions', () => {
 
 	test('a pending transaction the bank has since posted is not found', async () => {
 		plaid.transactions = [UBER];
-		const {plaidConnector} = await import('./plaid-connector');
+		const {plaidTransactionsConnector} = await import('./plaid-connector');
 
-		expect((await plaidConnector.get(transactions, `${CHECKING_ID}:2026-10-10:${PAYROLL_ID}`)).unwrapErr()).toMatchObject({kind: 'not_found', id: `${CHECKING_ID}:2026-10-10:${PAYROLL_ID}`});
+		expect((await plaidTransactionsConnector.get(transactions, `${CHECKING_ID}:2026-10-10:${PAYROLL_ID}`)).unwrapErr()).toMatchObject({
+			kind: 'not_found',
+			id: `${CHECKING_ID}:2026-10-10:${PAYROLL_ID}`,
+		});
 	});
 
 	test('a transaction holds nothing, and an account Plaid doesn’t know is not found', async () => {
-		const {plaidConnector} = await import('./plaid-connector');
+		const {plaidTransactionsConnector} = await import('./plaid-connector');
 
-		expect(messageOf(await plaidConnector.list(transactions, {...LIST, parent: `${CHECKING_ID}:2026-10-11:${UBER_ID}`}))).toBe('Transactions hold nothing: give an account’s id as parent');
+		expect(messageOf(await plaidTransactionsConnector.list(transactions, {...LIST, parent: `${CHECKING_ID}:2026-10-11:${UBER_ID}`}))).toBe('Transactions hold nothing: give an account’s id as parent');
 		plaid.error = {status: 400, body: {error_type: 'INVALID_INPUT', error_code: 'INVALID_ACCOUNT_ID', error_message: 'one or more of the account IDs is invalid'}};
-		expect((await plaidConnector.list(transactions, {...LIST, parent: CARD_ID})).unwrapErr()).toMatchObject({kind: 'not_found', id: CARD_ID});
+		expect((await plaidTransactionsConnector.list(transactions, {...LIST, parent: CARD_ID})).unwrapErr()).toMatchObject({kind: 'not_found', id: CARD_ID});
 	});
 });
 
 describe('Plaid’s errors', () => {
 	test('a bank that needs its login again says where the person signs in again', async () => {
 		plaid.error = {status: 400, body: {error_type: 'ITEM_ERROR', error_code: 'ITEM_LOGIN_REQUIRED', error_message: 'the login details of this item have changed'}};
-		const {plaidConnector} = await import('./plaid-connector');
+		const {plaidAccountsConnector} = await import('./plaid-connector');
 
-		expect(messageOf(await plaidConnector.list(accounts, LIST))).toContain('Sign in to the bank again');
+		expect(messageOf(await plaidAccountsConnector.list(accounts, LIST))).toContain('Sign in to the bank again');
 	});
 
 	test('transactions not fetched yet say to try again shortly', async () => {
 		plaid.error = {status: 400, body: {error_type: 'ITEM_ERROR', error_code: 'PRODUCT_NOT_READY', error_message: 'not ready'}};
-		const {plaidConnector} = await import('./plaid-connector');
+		const {plaidTransactionsConnector} = await import('./plaid-connector');
 
-		expect(messageOf(await plaidConnector.list(transactions, {...LIST, parent: CHECKING_ID}))).toBe('Plaid is still fetching this bank’s transactions. Try again in a minute.');
+		expect(messageOf(await plaidTransactionsConnector.list(transactions, {...LIST, parent: CHECKING_ID}))).toBe('Plaid is still fetching this bank’s transactions. Try again in a minute.');
 	});
 
 	test('a login removed at Plaid is turned down, and a bank that is down is out of reach', async () => {
-		const {plaidConnector} = await import('./plaid-connector');
+		const {plaidAccountsConnector} = await import('./plaid-connector');
 
 		plaid.error = {status: 400, body: {error_type: 'INVALID_INPUT', error_code: 'INVALID_ACCESS_TOKEN', error_message: 'could not find matching access token'}};
-		expect((await plaidConnector.list(accounts, LIST)).unwrapErr().kind).toBe('credentials_rejected');
+		expect((await plaidAccountsConnector.list(accounts, LIST)).unwrapErr().kind).toBe('credentials_rejected');
 		plaid.error = {status: 400, body: {error_type: 'INSTITUTION_ERROR', error_code: 'INSTITUTION_DOWN', error_message: 'down'}};
-		expect((await plaidConnector.list(accounts, LIST)).unwrapErr().kind).toBe('provider_unreachable');
+		expect((await plaidAccountsConnector.list(accounts, LIST)).unwrapErr().kind).toBe('provider_unreachable');
 	});
 });

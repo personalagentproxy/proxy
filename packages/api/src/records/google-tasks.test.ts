@@ -123,8 +123,8 @@ const query = (rest: Partial<{search: string | null; page: string | null; filter
 
 describe('listing tasks', () => {
 	test('the top is the account’s task lists, each holding its tasks', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const page = (await googleConnector.list(target, query())).unwrap();
+		const {tasksConnector} = await import('./google-tasks');
+		const page = (await tasksConnector.list(target, query())).unwrap();
 
 		expect(page).toEqual({
 			records: [
@@ -136,8 +136,8 @@ describe('listing tasks', () => {
 	});
 
 	test('a list holds its tasks, done and hidden ones too, a subtask saying the task it is under', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const page = (await googleConnector.list(target, query({parent: 'TUlORQ'}))).unwrap();
+		const {tasksConnector} = await import('./google-tasks');
+		const page = (await tasksConnector.list(target, query({parent: 'TUlORQ'}))).unwrap();
 
 		const request = google.requests.find((one) => one.url.pathname.endsWith('/tasks'));
 		expect(request?.url.pathname).toBe('/tasks/v1/lists/TUlORQ/tasks');
@@ -167,9 +167,9 @@ describe('listing tasks', () => {
 	});
 
 	test('narrowed to those still to do, done ones are left out; to those done, only they are asked for', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.list(target, query({parent: 'TUlORQ', filter: 'Needs action'}));
-		await googleConnector.list(target, query({parent: 'TUlORQ', filter: 'Done', page: 'google-page-2'}));
+		const {tasksConnector} = await import('./google-tasks');
+		await tasksConnector.list(target, query({parent: 'TUlORQ', filter: 'Needs action'}));
+		await tasksConnector.list(target, query({parent: 'TUlORQ', filter: 'Done', page: 'google-page-2'}));
 
 		const [open, done] = google.requests.filter((one) => one.url.pathname.endsWith('/tasks')).map((one) => Object.fromEntries(one.url.searchParams));
 		expect(open).toEqual({maxResults: '50', showCompleted: 'false', showHidden: 'false', showAssigned: 'true'});
@@ -177,9 +177,9 @@ describe('listing tasks', () => {
 	});
 
 	test('a task holds nothing, and a list Google doesn’t have is not found', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const inTask = await googleConnector.list(target, query({parent: 'TUlORQ:UkVQTFk'}));
-		const missing = await googleConnector.list(target, query({parent: 'Tk9QRQ'}));
+		const {tasksConnector} = await import('./google-tasks');
+		const inTask = await tasksConnector.list(target, query({parent: 'TUlORQ:UkVQTFk'}));
+		const missing = await tasksConnector.list(target, query({parent: 'Tk9QRQ'}));
 
 		expect(messageOf(inTask)).toBe('Tasks hold nothing: give a list’s id as parent');
 		expect(missing.isErr() && missing.error.kind).toBe('not_found');
@@ -188,15 +188,15 @@ describe('listing tasks', () => {
 
 describe('opening a task', () => {
 	test('a subtask opens with the title of the task it is under', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.get(target, 'TUlORQ:RFJBRlQ')).unwrap();
+		const {tasksConnector} = await import('./google-tasks');
+		const record = (await tasksConnector.get(target, 'TUlORQ:RFJBRlQ')).unwrap();
 
 		expect(record.values.subtaskOf).toBe('Reply to Dana about pricing');
 	});
 
 	test('a list opens as itself', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.get(target, 'RVJSQU5EUw')).unwrap();
+		const {tasksConnector} = await import('./google-tasks');
+		const record = (await tasksConnector.get(target, 'RVJSQU5EUw')).unwrap();
 
 		expect(record.values).toEqual({title: 'Errands', kind: 'List'});
 	});
@@ -204,8 +204,8 @@ describe('opening a task', () => {
 
 describe('making a task', () => {
 	test('in the list it is made inside, with its notes and due day', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.create(target, {title: 'Call the venue', notes: 'Ask about parking', due: '2026-10-21', list: ''}, 'RVJSQU5EUw')).unwrap();
+		const {tasksConnector} = await import('./google-tasks');
+		const record = (await tasksConnector.create(target, {title: 'Call the venue', notes: 'Ask about parking', due: '2026-10-21', list: ''}, 'RVJSQU5EUw')).unwrap();
 
 		const post = google.requests.find((one) => one.method === 'POST');
 		expect(post?.url.pathname).toBe('/tasks/v1/lists/RVJSQU5EUw/tasks');
@@ -215,11 +215,11 @@ describe('making a task', () => {
 	});
 
 	test('in the list named, else in the default one', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.create(target, {title: 'Buy stamps', notes: '', due: '', list: 'errands'}, null);
+		const {tasksConnector} = await import('./google-tasks');
+		await tasksConnector.create(target, {title: 'Buy stamps', notes: '', due: '', list: 'errands'}, null);
 		const named = google.requests.find((one) => one.method === 'POST');
 		google.requests = [];
-		const record = (await googleConnector.create(target, {title: 'Buy stamps', notes: '', due: '', list: ''}, null)).unwrap();
+		const record = (await tasksConnector.create(target, {title: 'Buy stamps', notes: '', due: '', list: ''}, null)).unwrap();
 
 		expect(named?.url.pathname).toBe('/tasks/v1/lists/RVJSQU5EUw/tasks');
 		expect(google.requests.map((one) => decodeURIComponent(one.url.pathname))).toEqual(['/tasks/v1/users/@me/lists/@default', '/tasks/v1/lists/TUlORQ/tasks']);
@@ -227,11 +227,11 @@ describe('making a task', () => {
 	});
 
 	test('no title, a due date with a time, or a list there isn’t, is turned down', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {tasksConnector} = await import('./google-tasks');
 		const results = await Promise.all([
-			googleConnector.create(target, {title: ' ', notes: '', due: '', list: ''}, 'TUlORQ'),
-			googleConnector.create(target, {title: 'Call', notes: '', due: '2026-10-21T09:00', list: ''}, 'TUlORQ'),
-			googleConnector.create(target, {title: 'Call', notes: '', due: '', list: 'Groceries'}, null),
+			tasksConnector.create(target, {title: ' ', notes: '', due: '', list: ''}, 'TUlORQ'),
+			tasksConnector.create(target, {title: 'Call', notes: '', due: '2026-10-21T09:00', list: ''}, 'TUlORQ'),
+			tasksConnector.create(target, {title: 'Call', notes: '', due: '', list: 'Groceries'}, null),
 		]);
 
 		expect(results.map(messageOf)).toEqual([
@@ -245,8 +245,8 @@ describe('making a task', () => {
 
 describe('editing a task', () => {
 	test('only what was written differently changes, and an empty due day takes it off', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.update(target, 'TUlORQ:UkVQTFk', {title: 'Reply to Dana about pricing', notes: 'Send the new tiers and the FAQ', due: '', list: 'My Tasks'});
+		const {tasksConnector} = await import('./google-tasks');
+		await tasksConnector.update(target, 'TUlORQ:UkVQTFk', {title: 'Reply to Dana about pricing', notes: 'Send the new tiers and the FAQ', due: '', list: 'My Tasks'});
 
 		const patch = google.requests.find((one) => one.method === 'PATCH');
 		expect(patch?.url.pathname).toBe('/tasks/v1/lists/TUlORQ/tasks/UkVQTFk');
@@ -254,8 +254,8 @@ describe('editing a task', () => {
 	});
 
 	test('writing another list’s name moves the task there', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.update(target, 'TUlORQ:UkVQTFk', {title: 'Reply to Dana about pricing', notes: 'Send the new tiers', due: '2026-10-20', list: 'Errands'})).unwrap();
+		const {tasksConnector} = await import('./google-tasks');
+		const record = (await tasksConnector.update(target, 'TUlORQ:UkVQTFk', {title: 'Reply to Dana about pricing', notes: 'Send the new tiers', due: '2026-10-20', list: 'Errands'})).unwrap();
 
 		const move = google.requests.find((one) => one.url.pathname.endsWith('/move'));
 		expect(move?.method).toBe('POST');
@@ -267,8 +267,8 @@ describe('editing a task', () => {
 	});
 
 	test('nothing written differently changes nothing', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.update(target, 'TUlORQ:UkVQTFk', {title: 'Reply to Dana about pricing', notes: 'Send the new tiers', due: '2026-10-20', list: 'My Tasks'});
+		const {tasksConnector} = await import('./google-tasks');
+		await tasksConnector.update(target, 'TUlORQ:UkVQTFk', {title: 'Reply to Dana about pricing', notes: 'Send the new tiers', due: '2026-10-20', list: 'My Tasks'});
 
 		expect(google.requests.filter((one) => one.method !== 'GET')).toEqual([]);
 	});
@@ -276,21 +276,13 @@ describe('editing a task', () => {
 
 describe('completing and reopening', () => {
 	test('completing marks the task done; reopening marks it to do again and clears when it was done', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const completed = (await googleConnector.commands?.complete?.(target, 'TUlORQ:UkVQTFk'))?.unwrap();
-		const reopened = (await googleConnector.commands?.reopen?.(target, 'TUlORQ:Qk9PS0VE'))?.unwrap();
+		const {tasksConnector} = await import('./google-tasks');
+		const completed = (await tasksConnector.commands?.complete?.(target, 'TUlORQ:UkVQTFk'))?.unwrap();
+		const reopened = (await tasksConnector.commands?.reopen?.(target, 'TUlORQ:Qk9PS0VE'))?.unwrap();
 
 		const patches = google.requests.filter((one) => one.method === 'PATCH').map((one) => JSON.parse(one.body));
 		expect(patches).toEqual([{status: 'completed'}, {status: 'needsAction', completed: null}]);
 		expect(completed?.values.status).toBe('Done');
 		expect(reopened?.values.status).toBe('Needs action');
-	});
-
-	test('tasks are never deleted here', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const result = await googleConnector.remove(target, 'TUlORQ:UkVQTFk');
-
-		expect(messageOf(result)).toBe('Tasks in Google Tasks are completed, never deleted here');
-		expect(google.requests).toEqual([]);
 	});
 });

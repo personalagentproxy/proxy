@@ -23,7 +23,7 @@ import {
 	type NotionView,
 } from '../connections/notion/notion-mcp';
 import {notionValues, propertyLines, shapeOfType, shapeOfValue, type NotionValue, type PropertyShape} from '../connections/notion/notion-properties';
-import {requireFirstPage, type Connector, type Crumb, type DataRecord, type ListQuery, type RecordPage, type RecordTarget, type RecordValues} from './connector';
+import {requireFirstPage, type Crumb, type DataRecord, type ListQuery, type RecordPage, type RecordStore, type RecordTarget, type RecordValues} from './connector';
 import {readValueLines} from './value-lines';
 
 /**
@@ -285,7 +285,7 @@ function placeNew(target: RecordTarget, values: RecordValues, parent: string | n
 	});
 }
 
-export const notionConnector: Connector = {
+export const notionConnector = {
 	list,
 	get: (target, recordId) =>
 		Do(async ($) => {
@@ -313,5 +313,4 @@ export const notionConnector: Connector = {
 			}
 			return fetchedRecord($(await getPage(target, page.id)));
 		}),
-	remove: () => Promise.resolve(Err(ApiErr.validationError('Notion pages are not deleted here'))),
-};
+} satisfies RecordStore;

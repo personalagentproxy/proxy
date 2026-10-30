@@ -5,7 +5,7 @@ import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/uti
 import {createVaultEntry, deleteVaultEntry, getVaultEntry, listVaultEntries, updateVaultEntry, type VaultEntryRow} from '@proxy/db/vault';
 
 import {decryptSecret, encryptSecret} from '../utils/secret-crypto';
-import {requireFirstPage, type Connector, type DataRecord, type RecordTarget, type RecordValues} from './connector';
+import {requireFirstPage, type DataRecord, type RecordStore, type RecordTarget, type RecordValues} from './connector';
 
 const storedValuesSchema = z.record(z.string(), z.string());
 
@@ -43,7 +43,7 @@ function toRecord(row: VaultEntryRow): Result<DataRecord, ApiError> {
 }
 
 /** The vault lives in Personal Agent Proxy: each entry's title, type and content are stored as encrypted JSON. */
-export const vaultConnector: Connector = {
+export const vaultConnector = {
 	// Few enough to search in memory, after decrypting, and to list on one page.
 	list: (target, query) =>
 		Do(async ($) => {
@@ -71,4 +71,4 @@ export const vaultConnector: Connector = {
 			return $(toRecord(row));
 		}),
 	remove: (target, recordId) => deleteVaultEntry(vaultCollection(target), recordId),
-};
+} satisfies RecordStore;

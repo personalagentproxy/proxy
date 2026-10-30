@@ -23,7 +23,7 @@ import {
 } from '../connections/google/drive-api';
 import {callGoogle, TOO_LARGE_TO_READ} from '../connections/google/google-client';
 import {appendRow, cellRange, columnLetters, getRanges, getSheets, renameSheet, rowsRange, updateCells, type Sheet} from '../connections/google/sheets-api';
-import {requireFirstPage, type CommandRunner, type Crumb, type DataRecord, type ListQuery, type RecordPage, type RecordTarget, type RecordValues} from './connector';
+import {requireFirstPage, type CommandRunner, type Crumb, type DataRecord, type ListQuery, type RecordPage, type RecordStore, type RecordTarget, type RecordValues} from './connector';
 import {readValueLines, valueLines} from './value-lines';
 
 /**
@@ -433,7 +433,7 @@ function listInside(drive: Drive, ref: FileRef, query: ListQuery): Promise<Resul
 	});
 }
 
-export function listFilesTree(target: RecordTarget, query: ListQuery): Promise<Result<RecordPage, ApiError>> {
+function listFilesTree(target: RecordTarget, query: ListQuery): Promise<Result<RecordPage, ApiError>> {
 	return withDrive(target, (drive) =>
 		Do(async ($) => {
 			if (query.parent !== null) {
@@ -506,7 +506,7 @@ function getRef(drive: Drive, ref: FileRef): Promise<Result<DataRecord, ApiError
 	});
 }
 
-export function getFilesRecord(target: RecordTarget, recordId: string): Promise<Result<DataRecord, ApiError>> {
+function getFilesRecord(target: RecordTarget, recordId: string): Promise<Result<DataRecord, ApiError>> {
 	return withDrive(target, (drive) =>
 		Do(async ($) => {
 			const ref = $(requireRef(recordId));
@@ -619,7 +619,7 @@ function createIn(drive: Drive, ref: FileRef, values: RecordValues): Promise<Res
  * A new file inside `parent`, My Drive when none is given: a folder, document or spreadsheet in a
  * folder, My Drive or a shared drive, or a row in a tab.
  */
-export function createFilesRecord(target: RecordTarget, values: RecordValues, parent: string | null): Promise<Result<DataRecord, ApiError>> {
+function createFilesRecord(target: RecordTarget, values: RecordValues, parent: string | null): Promise<Result<DataRecord, ApiError>> {
 	return withDrive(target, (drive) =>
 		Do(async ($) => {
 			const where = parent ?? MY_DRIVE.id;
@@ -743,7 +743,7 @@ function updateRef(drive: Drive, ref: FileRef, values: RecordValues, before: Dat
 }
 
 /** A file, tab or row changed where it is written differently, answered as opening it would. */
-export function updateFilesRecord(target: RecordTarget, recordId: string, values: RecordValues, before?: DataRecord): Promise<Result<DataRecord, ApiError>> {
+function updateFilesRecord(target: RecordTarget, recordId: string, values: RecordValues, before?: DataRecord): Promise<Result<DataRecord, ApiError>> {
 	return withDrive(target, (drive) =>
 		Do(async ($) => {
 			const ref = $(requireRef(recordId));
@@ -753,7 +753,7 @@ export function updateFilesRecord(target: RecordTarget, recordId: string, values
 }
 
 /** Moves a file or folder to Trash, where Drive keeps it 30 days; it leaves the tree. */
-export const trashFilesRecord: CommandRunner = (target, recordId) =>
+const trashFilesRecord: CommandRunner = (target, recordId) =>
 	withDrive(target, (drive) =>
 		Do(async ($) => {
 			const ref = $(requireRef(recordId));
@@ -764,3 +764,11 @@ export const trashFilesRecord: CommandRunner = (target, recordId) =>
 			return null;
 		}),
 	);
+
+export const filesConnector = {
+	list: listFilesTree,
+	get: getFilesRecord,
+	create: createFilesRecord,
+	update: updateFilesRecord,
+	commands: {trash: trashFilesRecord},
+} satisfies RecordStore;

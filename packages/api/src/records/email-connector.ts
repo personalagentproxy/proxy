@@ -14,7 +14,7 @@ import {imapClientOptions, imapError, smtpError, smtpTransport} from '../connect
 import {log, serializeError} from '../observability/log';
 import {decryptSecret} from '../utils/secret-crypto';
 import {attachmentRecord, attachmentsText, pickAttachment, requireEmailId, type AttachmentFile} from './attachment-text';
-import type {CommandRunner, Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
+import type {CommandRunner, DataRecord, ListQuery, RecordPage, RecordStore, RecordTarget, RecordValues, RunOnly} from './connector';
 import {gmailQuery, type EmailSearch} from './email-search';
 import {replyCommands, replyHeaders, type MailReply, type ReplyHeaders} from './email-reply';
 
@@ -712,7 +712,7 @@ export const replyToMailbox: MailReply = (target, id, reply) =>
 		}),
 	);
 
-export const emailConnector: Connector = {
+export const emailConnector = {
 	list: listPage,
 	get: (target, id) => withRecord(target, id, (session) => getMessage(session, id)),
 	create: (target, values) => withFolder(target, DRAFTS, (session) => appendDraft(session, values)),
@@ -741,9 +741,10 @@ export const emailConnector: Connector = {
 	},
 	newCommands: {
 		sendNew: (target, values) => withClient(target, async (client, credential) => (await deliver(client, credential, values)).map(() => null)),
-		// The `attachments` collection's, the only command it has.
-		read: readAttachment,
-		// The `replies` collection's: Send and Save as draft.
-		...replyCommands(replyToMailbox),
 	},
-};
+} satisfies RecordStore;
+
+export const emailAttachmentsConnector = {newCommands: {read: readAttachment}} satisfies RunOnly;
+
+// Send and Save as draft.
+export const emailRepliesConnector = {newCommands: replyCommands(replyToMailbox)} satisfies RunOnly;

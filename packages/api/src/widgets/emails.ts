@@ -114,7 +114,8 @@ export function handleWriteEmailRoute(request: AuthenticatedRequest): Promise<Re
 		const write = body.send ? 'sendNew' : 'create';
 		const source = $(await requireWritable(viewer, body.connectionId, 'emails', write, Object.keys(values)));
 		if (!body.send) {
-			$(await source.connector.create(source, values, null));
+			const create = $(requirePresent(source.connector.create, ApiErr.forbidden()));
+			$(await create(source, values, null));
 		}
 		if (body.send) {
 			const sendNew = $(requirePresent(source.connector.newCommands?.sendNew, ApiErr.forbidden()));
