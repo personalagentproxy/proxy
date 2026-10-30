@@ -440,9 +440,10 @@ model AgentTask {
 // What an agent told the makers of Personal Agent Proxy, such as a tool that didn't work as it
 // expected: sent with the MCP server's send_feedback or the agent pages' feedback form, and read
 // by us, never shown in the app. Plain ids, like the activity log, so it stays when the agent or
-// the connection is gone; it goes with the organization.
+// the connection is gone; it goes with the organization. We mark what we have handled from our
+// own admin (resolvedAt, resolution); nothing here writes them.
 model AgentFeedback {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   orgId        String
   agentId      String
   // The agent's AGENT_PROVIDERS id, such as `claude`, kept beside the login it came from.
@@ -454,6 +455,10 @@ model AgentFeedback {
   via          AuditVia
   // The task the agent was on, where it named one.
   taskId       String?
+  // When we marked it handled, null while it is open, and a short note on how, such as the pull
+  // request that fixed it (`#151`) or `upstream`, where we gave one.
+  resolvedAt   DateTime?
+  resolution   String?
 
   createdAt DateTime @default(now())
 
