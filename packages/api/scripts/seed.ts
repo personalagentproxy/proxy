@@ -1,19 +1,27 @@
 // `bun run seed`: fills the local database with a demo workspace, signed in as demo@proxy.local,
 // for looking at the app with data in it. Run it while `bun run dev` is up. Running it again
-// deletes the demo user and their organization first, then seeds them again.
-import {createCipheriv, createHash, randomBytes} from 'node:crypto';
+// deletes the demo user and their organization first, then seeds them again. It makes what it
+// can as the api does, with the packages' own functions, then dates it back; what agents did,
+// their tasks and their requests, it writes as rows of its own, since those functions log what
+// happens now, not what happened weeks ago.
+import {randomBytes} from 'node:crypto';
 
-import {
-	effectiveActions,
-	findIntegration,
-	requiredAction,
-	type Collection,
-	VAULT_INTEGRATION_ID,
-} from '@proxy/integrations';
+import type {Result} from 'ts-results-es';
+
+import {effectiveActions, findIntegration, requiredAction, type Collection} from '@proxy/integrations';
+import type {ApiError} from '@proxy/utils';
 import type {AgentProviderId} from '@proxy/utils/agent-providers';
 import {EMAIL_PROVIDERS, type EmailProvider} from '@proxy/utils/email-providers';
+import {hashVerificationToken, secretCipher} from '@proxy/utils/secret-crypto';
+import {db, disconnectDb} from '@proxy/db';
+import {createAgent, setAgentGrants} from '@proxy/db/agent';
+import {createVerificationToken} from '@proxy/db/auth';
+import {createConnection, listOrgConnectionsWithCredential} from '@proxy/db/connection';
+import {provisionOrganization} from '@proxy/db/organization';
+import {deleteUser} from '@proxy/db/user';
+import {createVaultEntry} from '@proxy/db/vault';
 
-import {db} from '../src';
+import {ORGANIZATION_CONNECTIONS} from '../src/orgs/starter-connections';
 
 // Whose workspace it is: the demo person's, or with SEED_EMAIL another's, such as the dev user's
 // (`dev@dev.proxy.local`), whom the login page signs in as in development.
@@ -41,15 +49,20 @@ if (!encryptionKey || !authSecret) {
 	console.error('[seed] ENCRYPTION_KEY and AUTH_SECRET are needed; see .env.example.');
 	process.exit(1);
 }
-const key = Buffer.from(encryptionKey, 'base64');
+// The api's cipher, under its key, so it can read what is seeded.
+const cipher = secretCipher(Buffer.from(encryptionKey, 'base64'));
 
-// The api's format (`packages/api/src/utils/secret-crypto.ts`), so it can read what is seeded.
 function encrypt(plaintext: string): string {
-	const iv = randomBytes(12);
-	const cipher = createCipheriv('aes-256-gcm', key, iv);
-	const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
-	const parts = [iv, cipher.getAuthTag(), ciphertext].map((part) => part.toString('base64url'));
-	return ['v1', ...parts].join('.');
+	return cipher.encrypt(plaintext);
+}
+
+// What a package's function answered; the seed stops at the first that failed.
+function must<T>(result: Result<T, ApiError>): T {
+	if (result.isErr()) {
+		console.error('[seed] Failed:', result.error);
+		process.exit(1);
+	}
+	return result.value;
 }
 
 // Deterministic, so the activity log comes out the same on every run.
@@ -71,7 +84,9 @@ function daysAgo(days: number): Date {
 
 const existing = await db.user.findUnique({where: {email: DEMO_EMAIL}, select: {id: true}});
 if (existing) {
-	// The organizations the demo user owns: one they were invited into is someone else's.
+	// The organizations the demo user owns: one they were invited into is someone else's. Their
+	// activity goes first, as it always has; the rest goes with the user, as deleting an account
+	// takes it.
 	const orgs = await db.organization.findMany({
 		where: {ownerUserId: existing.id},
 		select: {id: true},
@@ -79,56 +94,54 @@ if (existing) {
 	const orgIds = orgs.map((org) => org.id);
 	await db.auditEntry.deleteMany({where: {orgId: {in: orgIds}}});
 	await db.agentTask.deleteMany({where: {orgId: {in: orgIds}}});
-	await db.organization.deleteMany({where: {id: {in: orgIds}}});
-	await db.user.delete({where: {id: existing.id}});
+	must(await deleteUser(existing.id));
 }
 
 // ---- User and organization ------------------------------------------------------------------
 
-const user = await db.user.create({
-	data: {email: DEMO_EMAIL, name: 'Demo User', emailVerified: new Date(), createdAt: daysAgo(40)},
-});
-const org = await db.organization.create({
-	data: {
+// Made as a sign-up makes them, the organization with its vaults, then dated back.
+const provisioned = must(
+	await provisionOrganization({
+		owner: {
+			user: {email: DEMO_EMAIL, name: 'Demo User', emailVerified: new Date(), createdAt: daysAgo(40)},
+		},
 		name: ORG_NAME,
-		slug: WORKSPACE_SLUG,
-		ownerUserId: user.id,
+		slugSource: WORKSPACE_SLUG,
 		onboardedAt: daysAgo(40),
-		createdAt: daysAgo(40),
-	},
-});
-await db.orgMember.create({data: {orgId: org.id, userId: user.id}});
+		connections: ORGANIZATION_CONNECTIONS,
+	}),
+);
+const org = provisioned.org;
+const user = {id: provisioned.ownerUserId};
+await db.organization.update({where: {id: org.id}, data: {createdAt: daysAgo(40)}});
 
 // ---- Connections and their defaults ---------------------------------------------------------
 
-type Connection = {id: string; integrationId: string; createdAt: Date};
+type Connection = {id: string; integrationId: string; defaults: string[]};
 
+// A connection as the api makes one, the demo user's own, as everything in an organization with
+// one member is, connected `daysAgo`.
 async function connect(data: {
 	integrationId: string;
 	account: string;
-	credential: string | null;
+	credential: string;
 	daysAgo: number;
 	// The actions agents get by default.
 	defaults: string[];
-	// Shared with everyone in the organization, as its vault is; the demo user's own otherwise, as
-	// everything else in an organization with one member is.
-	shared?: boolean;
 }): Promise<Connection> {
-	const connection = await db.connection.create({
-		data: {
+	const connection = must(
+		await createConnection({
 			orgId: org.id,
-			ownerUserId: data.shared ? null : user.id,
+			ownerUserId: user.id,
 			connectedById: user.id,
 			integrationId: data.integrationId,
 			account: data.account,
 			credential: data.credential,
-			createdAt: daysAgo(data.daysAgo),
-		},
-	});
-	for (const actionId of data.defaults) {
-		await db.connectionDefault.create({data: {connectionId: connection.id, actionId}});
-	}
-	return connection;
+			defaults: data.defaults,
+		}),
+	);
+	await db.connection.update({where: {id: connection.id}, data: {createdAt: daysAgo(data.daysAgo)}});
+	return {id: connection.id, integrationId: connection.integrationId, defaults: data.defaults};
 }
 
 // A provider's real servers with a made-up app password: the access pages work, opening the
@@ -138,31 +151,27 @@ function mailboxCredential(providerId: EmailProvider['id'], username: string): s
 	return encrypt(JSON.stringify({...servers, username, password: 'abcd-efgh-ijkl-mnop'}));
 }
 
-async function connectMailbox(
-	providerId: EmailProvider['id'],
-	account: string,
-	data: {daysAgo: number; defaults: string[]},
-): Promise<Connection> {
+async function connectMailbox(providerId: EmailProvider['id'], account: string, data: {daysAgo: number; defaults: string[]}): Promise<Connection> {
 	const credential = mailboxCredential(providerId, account);
 	return connect({integrationId: 'email', account, credential, ...data});
 }
 
-const vault = await connect({
-	integrationId: VAULT_INTEGRATION_ID,
-	account: ORG_NAME,
-	credential: null,
-	daysAgo: 40,
-	defaults: ['readEntries', 'writeEntries'],
-});
-// The organization's own, as every organization has one beside each member's.
-const sharedVault = await connect({
-	integrationId: VAULT_INTEGRATION_ID,
-	account: ORG_NAME,
-	credential: null,
-	daysAgo: 40,
-	defaults: ['readEntries', 'writeEntries'],
-	shared: true,
-});
+// The demo user's own vault and the organization's, made with it.
+const vaults = must(await listOrgConnectionsWithCredential(org.id));
+for (const made of vaults) {
+	await db.connection.update({where: {id: made.id}, data: {createdAt: daysAgo(40)}});
+}
+const ownVault = vaults.find((made) => made.ownerUserId === user.id);
+const sharedVault = vaults.find((made) => made.ownerUserId === null);
+if (!ownVault || !sharedVault) {
+	console.error('[seed] The organization was made without its vaults.');
+	process.exit(1);
+}
+const vault: Connection = {
+	id: ownVault.id,
+	integrationId: ownVault.integrationId,
+	defaults: ownVault.defaults.map((stored) => stored.actionId),
+};
 const personal = await connectMailbox('gmail', 'demo.user@gmail.com', {
 	daysAgo: 38,
 	// Triage and drafts, but nothing goes out.
@@ -259,17 +268,7 @@ const googleAccount = await connect({
 	defaults: ['readEmails', 'readEvents', 'writeEvents', 'readFiles'],
 });
 
-const connections: [Connection, ...Connection[]] = [
-	vault,
-	personal,
-	work,
-	receipts,
-	newsletters,
-	meetings,
-	wiki,
-	tracker,
-	googleAccount,
-];
+const connections: [Connection, ...Connection[]] = [vault, personal, work, receipts, newsletters, meetings, wiki, tracker, googleAccount];
 
 // ---- Vault entries --------------------------------------------------------------------------
 
@@ -317,60 +316,50 @@ for (const [connectionId, entries] of [
 	[sharedVault.id, SHARED_VAULT_ENTRIES],
 ] as const) {
 	for (const values of entries) {
-		await db.vaultEntry.create({
-			data: {
-				connectionId,
-				collectionId: 'entries',
-				values: encrypt(JSON.stringify(values)),
-			},
-		});
+		must(await createVaultEntry({connectionId, collectionId: 'entries'}, encrypt(JSON.stringify(values))));
 	}
 }
 
 // ---- Agents and their own settings ----------------------------------------------------------
 
-type Grant = {connectionId: string; actionId: string; allowed: boolean};
+type Grant = {connectionId: string; actions: Record<string, boolean>};
 
 // The agent's own settings for some actions of a connection, on or off.
-function grant(connection: Connection, actions: Record<string, boolean>): Grant[] {
-	return Object.entries(actions).map(([actionId, allowed]) => ({
-		connectionId: connection.id,
-		actionId,
-		allowed,
-	}));
+function grant(connection: Connection, actions: Record<string, boolean>): Grant {
+	return {connectionId: connection.id, actions};
 }
 
 // Every demo agent signs in with this password at /agent/login.
 const AGENT_PASSWORD = 'demo-password';
 const passwordHash = await Bun.password.hash(AGENT_PASSWORD);
 
-async function makeAgent(data: {
-	providerId: AgentProviderId;
-	name: string;
-	username: string;
-	daysAgo: number;
-	revokedDaysAgo?: number;
-	grants: Grant[][];
-}) {
-	const agent = await db.agent.create({
-		data: {
+type Agent = {
+	id: string;
+	createdAt: Date;
+	grants: Array<{connectionId: string; actionId: string; allowed: boolean}>;
+};
+
+// An agent as the api makes one, the demo user's own, as everything in an organization with one
+// member is, made `daysAgo`, with its own settings.
+async function makeAgent(data: {providerId: AgentProviderId; name: string; username: string; daysAgo: number; grants: Grant[]}): Promise<Agent> {
+	const agent = must(
+		await createAgent({
 			orgId: org.id,
-			// The demo user's own, as everything in an organization with one member is.
 			ownerUserId: user.id,
 			createdById: user.id,
 			providerId: data.providerId,
 			name: data.name,
 			username: `${data.username}${USERNAME_SUFFIX}`,
 			passwordHash,
-			createdAt: daysAgo(data.daysAgo),
-			revokedAt: data.revokedDaysAgo === undefined ? null : daysAgo(data.revokedDaysAgo),
-		},
-	});
-	const grants = data.grants.flat();
-	for (const stored of grants) {
-		await db.agentGrant.create({data: {agentId: agent.id, ...stored}});
+		}),
+	);
+	const createdAt = daysAgo(data.daysAgo);
+	await db.agent.update({where: {id: agent.id}, data: {createdAt}});
+	for (const {connectionId, actions} of data.grants) {
+		must(await setAgentGrants({agentId: agent.id, connectionId, actions}));
 	}
-	return {...agent, grants};
+	const grants = data.grants.flatMap(({connectionId, actions}) => Object.entries(actions).map(([actionId, allowed]) => ({connectionId, actionId, allowed})));
+	return {id: agent.id, createdAt, grants};
 }
 
 const agents = [
@@ -402,11 +391,7 @@ const agents = [
 		name: 'Instinct',
 		username: 'instinct-m3x9',
 		daysAgo: 28,
-		grants: [
-			grant(personal, {write: false}),
-			grant(work, {read: false}),
-			grant(receipts, {read: true, archive: true}),
-		],
+		grants: [grant(personal, {write: false}), grant(work, {read: false}), grant(receipts, {read: true, archive: true})],
 	}),
 	// Sends status emails from the work address without reading the mailbox.
 	await makeAgent({
@@ -436,21 +421,9 @@ const agents = [
 
 // ---- Activity -------------------------------------------------------------------------------
 
-const connectionDefaults = await db.connectionDefault.findMany({
-	where: {connectionId: {in: connections.map((connection) => connection.id)}},
-});
-
 // What agents ask a collection for: mostly reading, then whatever else it offers.
 function requestsOf(collection: Collection): [string, ...string[]] {
-	return [
-		'list',
-		'list',
-		'view',
-		'view',
-		'view',
-		...Object.keys(collection.writes),
-		...(collection.commands ?? []).map((command) => command.id),
-	];
+	return ['list', 'list', 'view', 'view', 'view', ...Object.keys(collection.writes), ...(collection.commands ?? []).map((command) => command.id)];
 }
 
 // Titles for the mailboxes' emails, and Gmail's; the vault's come from the entries seeded above.
@@ -467,22 +440,10 @@ const EMAIL_TITLES: [string, ...string[]] = [
 ];
 
 // Titles for Granola's meetings.
-const MEETING_TITLES: [string, ...string[]] = [
-	'Q3 planning',
-	'Weekly sync',
-	'Design review: onboarding',
-	'1:1 with Sam',
-	'Customer call — Northwind',
-];
+const MEETING_TITLES: [string, ...string[]] = ['Q3 planning', 'Weekly sync', 'Design review: onboarding', '1:1 with Sam', 'Customer call — Northwind'];
 
 // Titles for Notion's pages.
-const PAGE_TITLES: [string, ...string[]] = [
-	'Roadmap 2027',
-	'Onboarding checklist',
-	'Hiring plan',
-	'Acme GmbH',
-	'Team offsite notes',
-];
+const PAGE_TITLES: [string, ...string[]] = ['Roadmap 2027', 'Onboarding checklist', 'Hiring plan', 'Acme GmbH', 'Team offsite notes'];
 
 // Titles for Linear's issues.
 const ISSUE_TITLES: [string, ...string[]] = [
@@ -494,44 +455,19 @@ const ISSUE_TITLES: [string, ...string[]] = [
 ];
 
 // Titles for Google Drive's files.
-const FILE_TITLES: [string, ...string[]] = [
-	'Budget 2027',
-	'Launch plan',
-	'Board deck — October',
-	'Contracts',
-	'Trip itinerary',
-];
+const FILE_TITLES: [string, ...string[]] = ['Budget 2027', 'Launch plan', 'Board deck — October', 'Contracts', 'Trip itinerary'];
 
 // The ranges agents read and write in spreadsheets.
-const RANGE_TITLES: [string, ...string[]] = [
-	"'Q1 Sales'!A1:F20",
-	'Budget!B2:B14',
-	"'Trip costs'!A1:D9",
-];
+const RANGE_TITLES: [string, ...string[]] = ["'Q1 Sales'!A1:F20", 'Budget!B2:B14', "'Trip costs'!A1:D9"];
 
 // The attachments agents read.
-const ATTACHMENT_TITLES: [string, ...string[]] = [
-	'Q3 budget.xlsx',
-	'Invoice 1042.pdf',
-	'Lease.docx',
-];
+const ATTACHMENT_TITLES: [string, ...string[]] = ['Q3 budget.xlsx', 'Invoice 1042.pdf', 'Lease.docx'];
 
 // The replies agents send or save as drafts.
-const REPLY_TITLES: [string, ...string[]] = [
-	'Re: Q3 planning — agenda',
-	'Re: Booking request for 12 Oct',
-	'Re: Thanks for the intro!',
-];
+const REPLY_TITLES: [string, ...string[]] = ['Re: Q3 planning — agenda', 'Re: Booking request for 12 Oct', 'Re: Thanks for the intro!'];
 
 // What agents search for.
-const SEARCHES: [string, ...string[]] = [
-	'invoice',
-	'flight',
-	'from:sam',
-	'Q3 planning',
-	'Home',
-	'order',
-];
+const SEARCHES: [string, ...string[]] = ['invoice', 'flight', 'from:sam', 'Q3 planning', 'Home', 'order'];
 
 function recordTitle(connection: Connection, collectionId: string): string {
 	if (collectionId === 'attachments') {
@@ -584,7 +520,7 @@ function randomRequest(): Request | null {
 }
 
 // A request the agent may make, found by trying; `fallback` when none turns up.
-function allowedRequest(agent: (typeof agents)[number], fallback: Request): Request {
+function allowedRequest(agent: Agent, fallback: Request): Request {
 	for (let attempt = 0; attempt < 20; attempt++) {
 		const candidate = randomRequest();
 		if (candidate && isAllowed(agent, candidate)) {
@@ -595,38 +531,20 @@ function allowedRequest(agent: (typeof agents)[number], fallback: Request): Requ
 }
 
 // Allowed or denied by the agent's real access, the way the api decides.
-function isAllowed(agent: (typeof agents)[number], request: Request): boolean {
+function isAllowed(agent: Agent, request: Request): boolean {
 	const {connection, collection, action} = request;
 	const integration = findIntegration(connection.integrationId);
-	const defaults = connectionDefaults
-		.filter((stored) => stored.connectionId === connection.id)
-		.map((stored) => stored.actionId);
-	const own = Object.fromEntries(
-		agent.grants
-			.filter((stored) => stored.connectionId === connection.id)
-			.map((stored) => [stored.actionId, stored.allowed]),
-	);
+	const {defaults} = connection;
+	const own = Object.fromEntries(agent.grants.filter((stored) => stored.connectionId === connection.id).map((stored) => [stored.actionId, stored.allowed]));
 	const needed = requiredAction(collection, action);
-	return (
-		integration !== undefined &&
-		needed !== null &&
-		effectiveActions(integration, defaults, own).includes(needed)
-	);
+	return integration !== undefined && needed !== null && effectiveActions(integration, defaults, own).includes(needed);
 }
 
 // Now and then the service fails an allowed request: too many requests, out of reach, or the
 // connection's sign-in turned down, as the api logs what went wrong.
-const FAILURES: [string, ...string[]] = [
-	'provider_unreachable 429',
-	'provider_unreachable 503',
-	'provider_unreachable',
-	'credentials_rejected',
-];
+const FAILURES: [string, ...string[]] = ['provider_unreachable 429', 'provider_unreachable 503', 'provider_unreachable', 'credentials_rejected'];
 
-function outcomeOf(
-	agent: (typeof agents)[number],
-	request: Request,
-): {outcome: 'allowed' | 'denied' | 'failed'; error: string | null} {
+function outcomeOf(agent: Agent, request: Request): {outcome: 'allowed' | 'denied' | 'failed'; error: string | null} {
 	if (!isAllowed(agent, request)) {
 		return {outcome: 'denied', error: null};
 	}
@@ -667,10 +585,7 @@ const TASKS: [{title: string; goal: string}, ...Array<{title: string; goal: stri
 
 // Parts of a task an agent handed to sub-agents of its own: each a sub-task of it, with what the
 // sub-agent handed back once done.
-const SUB_TASKS: [
-	{title: string; goal: string; outcome: string},
-	...Array<{title: string; goal: string; outcome: string}>,
-] = [
+const SUB_TASKS: [{title: string; goal: string; outcome: string}, ...Array<{title: string; goal: string; outcome: string}>] = [
 	{
 		title: 'Check the calendar',
 		goal: 'List this week’s events and when the day is free.',
@@ -719,8 +634,7 @@ type JobPart = {
 const JOB: JobPart = {
 	title: 'Prepare the board update',
 	goal: 'Gather the quarter’s numbers, what customers said on their calls and what is still open, and draft the board update.',
-	outcome:
-		'Drafted the board update with revenue up 12%, three customer themes and the two issues at risk.',
+	outcome: 'Drafted the board update with revenue up 12%, three customer themes and the two issues at risk.',
 	from: 0,
 	to: 13,
 	busy: [
@@ -752,8 +666,7 @@ const JOB: JobPart = {
 		{
 			title: 'Summarize the customer calls',
 			goal: 'Read the notes from this quarter’s customer calls and the themes in them.',
-			outcome:
-				'Three themes: onboarding takes too long, the reports export, and pricing for small teams.',
+			outcome: 'Three themes: onboarding takes too long, the reports export, and pricing for small teams.',
 			from: 0.8,
 			to: 7.1,
 			busy: [[0.9, 6.9]],
@@ -774,7 +687,7 @@ function lastStart(part: JobPart): number {
 	return Math.max(part.from, ...(part.parts ?? []).map(lastStart));
 }
 
-async function seedJob(agent: (typeof agents)[number], startedAt: number): Promise<number> {
+async function seedJob(agent: Agent, startedAt: number): Promise<number> {
 	let last = startedAt;
 	let refused = false;
 	let failed = false;
@@ -822,9 +735,7 @@ async function seedJob(agent: (typeof agents)[number], startedAt: number): Promi
 						connectionId: request.connection.id,
 						collectionId: request.collection.id,
 						action: request.action,
-						recordTitle: onOneRecord
-							? recordTitle(request.connection, request.collection.id)
-							: null,
+						recordTitle: onOneRecord ? recordTitle(request.connection, request.collection.id) : null,
 						query: null,
 						outcome: failure ? 'failed' : outcome,
 						error: failure ? pick(FAILURES) : null,
@@ -848,7 +759,7 @@ async function seedJob(agent: (typeof agents)[number], startedAt: number): Promi
 }
 
 // A request the agent may not make, where there is one.
-function deniedRequest(agent: (typeof agents)[number]): Request | null {
+function deniedRequest(agent: Agent): Request | null {
 	for (let attempt = 0; attempt < 40; attempt++) {
 		const candidate = randomRequest();
 		if (candidate && !isAllowed(agent, candidate)) {
@@ -861,7 +772,7 @@ function deniedRequest(agent: (typeof agents)[number]): Request | null {
 let jobSeeded = false;
 for (const agent of agents) {
 	const start = agent.createdAt.getTime();
-	const end = agent.revokedAt?.getTime() ?? now;
+	const end = now;
 	const count = agent.grants.length === 0 ? 12 : 25 + Math.floor(random() * 20);
 	let lastActiveAt = start;
 
@@ -872,9 +783,9 @@ for (const agent of agents) {
 	}))
 		.flatMap(({request, createdAt}) => (request ? [{request, createdAt}] : []))
 		.sort((a, b) => a.createdAt - b.createdAt);
-	// A login still in use has several tasks going at once in the past hours, its latest requests
-	// spread over them, so the home page's lanes show how agents really work.
-	const recent = agent.revokedAt === null ? requests.splice(-RECENT_REQUESTS) : [];
+	// Every login is still in use, so has several tasks going at once in the past hours, its latest
+	// requests spread over them, so the home page's lanes show how agents really work.
+	const recent = requests.splice(-RECENT_REQUESTS);
 	if (recent.length > 0) {
 		const concurrent = await Promise.all(
 			Array.from({length: CONCURRENT_TASKS}, async (_, index) => {
@@ -902,15 +813,12 @@ for (const agent of agents) {
 		// The oldest task, done, and the newest, under way, were split among sub-agents: a sub-task
 		// each, the done one's with what it handed back.
 		const subTasks: typeof concurrent = [];
-		for (const parent of [concurrent[0], concurrent.at(-1)].flatMap((task) =>
-			task ? [task] : [],
-		)) {
+		for (const parent of [concurrent[0], concurrent.at(-1)].flatMap((task) => (task ? [task] : []))) {
 			const parentDone = parent.endsAt !== now;
 			let parentActiveAt = parent.startedAt;
 			for (const [index, part] of SUB_TASKS.entries()) {
 				const startedAt = parent.startedAt + (2 + index * 3 + random() * 2) * MINUTE;
-				const finishedAt =
-					parentDone || index === 0 ? startedAt + (4 + random() * 8) * MINUTE : null;
+				const finishedAt = parentDone || index === 0 ? startedAt + (4 + random() * 8) * MINUTE : null;
 				const lastActiveAt = finishedAt === null ? now - random() * 5 * MINUTE : startedAt;
 				const task = await db.agentTask.create({
 					data: {
@@ -943,8 +851,7 @@ for (const agent of agents) {
 				continue;
 			}
 			// Mostly what the login may do: a refusal now and then, not at every turn.
-			const request =
-				isAllowed(agent, picked) || random() < 0.2 ? picked : allowedRequest(agent, picked);
+			const request = isAllowed(agent, picked) || random() < 0.2 ? picked : allowedRequest(agent, picked);
 			const createdAt = task.startedAt + random() * (task.endsAt - task.startedAt);
 			lastActiveAt = Math.max(lastActiveAt, createdAt);
 			const onOneRecord = request.action !== 'list' && request.action !== 'create';
@@ -1005,8 +912,7 @@ for (const agent of agents) {
 		const onOneRecord = request.action !== 'list' && request.action !== 'create';
 		const collectionId = request.collection.id;
 		// A third of the lists are searches, where the collection can be searched.
-		const searched =
-			request.action === 'list' && request.collection.searchHint !== undefined && random() < 0.33;
+		const searched = request.action === 'list' && request.collection.searchHint !== undefined && random() < 0.33;
 		await db.auditEntry.create({
 			data: {
 				orgId: org.id,
@@ -1055,24 +961,22 @@ await db.$executeRaw`
 // A magic link as the api makes one (`packages/api/src/auth/email.ts`): only the token's hash is
 // stored, and it works once.
 const token = randomBytes(32).toString('hex');
-await db.verificationToken.create({
-	data: {
+must(
+	await createVerificationToken({
 		identifier: DEMO_EMAIL,
-		token: createHash('sha256').update(`${token}${authSecret}`).digest('hex'),
+		token: hashVerificationToken(token, authSecret),
 		expires: new Date(now + DAY),
-	},
-});
+	}),
+);
 const apiUrl = process.env.VITE_PROXY_API_URL ?? 'http://localhost:4000';
 const query = new URLSearchParams({
 	token,
 	email: DEMO_EMAIL,
-	callbackUrl: `/${WORKSPACE_SLUG}/agents`,
+	callbackUrl: `/${org.slug}/agents`,
 });
 
-console.log(
-	`[seed] ${connections.length} connections, ${agents.length} agents, ${taskCount} tasks and ${entryCount} activity entries for ${DEMO_EMAIL}.`,
-);
+console.log(`[seed] ${connections.length} connections, ${agents.length} agents, ${taskCount} tasks and ${entryCount} activity entries for ${DEMO_EMAIL}.`);
 console.log(`[seed] Sign in, once, within 24 hours: ${apiUrl}/auth/email/verify?${query}`);
 console.log(`[seed] Later, ask for a magic link for ${DEMO_EMAIL}; the api prints it.`);
 console.log(`[seed] Agents sign in at /agent/login with their username and "${AGENT_PASSWORD}".`);
-await db.$disconnect();
+await disconnectDb();

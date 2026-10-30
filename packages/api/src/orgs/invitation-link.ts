@@ -8,6 +8,7 @@ import type {acceptedInvitationSchema, InvitationLink} from '@proxy/contracts/or
 
 import {hashToken} from '../auth/session';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
+import {MEMBER_CONNECTIONS} from './starter-connections';
 
 // An invitation's link, `/invite/<token>` in the web app, signed in: what it is for, and taking it
 // up. Only the address it was sent to can take it up, within the week it works.
@@ -52,7 +53,7 @@ export function handleAcceptInvitationRoute(request: AuthenticatedRequest): Prom
 		if (invitation.email.toLowerCase() !== request.user.email.toLowerCase()) {
 			return $(Err(ApiErr.forbidden()));
 		}
-		$(await acceptInvitation({invitationId: invitation.id, orgId: invitation.org.id, userId: request.user.userId, vaultName: invitation.org.name}));
+		$(await acceptInvitation({invitationId: invitation.id, orgId: invitation.org.id, userId: request.user.userId, orgName: invitation.org.name, connections: MEMBER_CONNECTIONS}));
 		return {orgId: invitation.org.id, orgSlug: invitation.org.slug};
 	});
 }

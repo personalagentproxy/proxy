@@ -1590,6 +1590,10 @@ const vault: Integration = {
 	],
 };
 
+// What agents may do with a vault by default, as every organization and member gets one: read
+// it, and keep what they learn there, unless told otherwise.
+export const VAULT_DEFAULT_ACTIONS: string[] = vault.actions.map((action) => action.id);
+
 // Any MCP server, by its address: what it lists as its tools is what an agent can be allowed, one
 // by one, so the catalog's entry has no actions of its own. A server that asks for a sign-in gets
 // one as Granola's does; one that takes a token typed in, or none, is connected with that. A tool's

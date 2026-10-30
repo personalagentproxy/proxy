@@ -2,26 +2,15 @@ import {Err, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {callArguments, DELEGATE_TOOL, delegateArgs, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
-import {
-	appendSummary,
-	type AssistantTurn,
-	type CallPlan,
-	completeInference,
-	type EntryRow,
-	finishJob,
-	getJobThread,
-	getThreadAgent,
-	type JobRow,
-	listEntries,
-	requeueJob,
-	type ThreadRow,
-} from '@proxy/db/harness';
+import type {AssistantTurn, CallPlan, EntryRow, JobRow, ThreadRow} from '@proxy/db/harness';
 
 import {askForTurn, type ModelTurn} from '../llm/open-router';
 import {agentInstructions} from '../mcp/tools';
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
 import {compactionCut, toMessages, toTranscript} from './context';
+import {afterAnswer} from './conversation';
+import type {HarnessStore} from './store';
 import {toolsFor} from './tool-surface';
 
 /**
@@ -31,13 +20,16 @@ import {toolsFor} from './tool-surface';
  * when the sleep ends, and a delegation is answered at once as started, its report to come as an
  * event. A log that has grown long is first summarized, in a summary entry the model reads in
  * place of what it covers. A model that can't be reached is tried again a few times, then the
- * person is told; any other failure fails the job, which tells them too (db/harness failJob). A
- * sub-agent's answer with no calls is its report, and ends its work. An answer of nothing, no
+ * person is told; any other failure fails the job, which tells them too (conversation.ts
+ * failureNote). A sub-agent's answer with no calls is its report, and ends its work. An answer of nothing, no
  * words and no calls, is written as that said: the person would otherwise see nothing, and the
  * model refuses a log with an empty turn in it. The answer is written with the system prompt the
  * model was sent, which is built from the login's grants as they are then, so that what the model
  * read can be told later; the rest of the request is rebuilt from the log.
  */
+
+/** What an inference job needs of the store. */
+export type InferenceStore = Pick<HarnessStore, 'getJobThread' | 'getThreadAgent' | 'listEntries' | 'finishJob' | 'requeueJob' | 'appendSummary' | 'completeInference'>;
 
 // How the agent talking with the person is to go about it: it does nothing itself, and hands
 // every piece of work to a sub-agent.
@@ -115,10 +107,10 @@ function said(thread: ThreadRow, turn: ModelTurn): ModelTurn {
 	return {...turn, text: thread.parentThreadId === null ? NOTHING : NOTHING_SUB};
 }
 
-// Writes the answer back; a job no longer the worker's is a conflict.
-function writeBack(job: JobRow, workerId: string, turn: AssistantTurn, callPlans: Record<string, CallPlan>): Promise<Result<void, ApiError>> {
+// Writes the answer back, with what follows it; a job no longer the worker's is a conflict.
+function writeBack(store: InferenceStore, job: JobRow, workerId: string, thread: ThreadRow, turn: AssistantTurn, callPlans: Record<string, CallPlan>): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		if (!$(await completeInference(job.id, workerId, job.threadId, turn, callPlans))) {
+		if (!$(await store.completeInference(job.id, workerId, job.threadId, turn, afterAnswer(thread, turn, callPlans)))) {
 			return $(Err(ApiErr.conflict('The job was no longer this worker’s')));
 		}
 	});
@@ -126,8 +118,8 @@ function writeBack(job: JobRow, workerId: string, turn: AssistantTurn, callPlans
 
 // Answers the person with `text` alone, as the model would, when the model can't be run: no
 // prompt was built.
-function answerWith(job: JobRow, workerId: string, text: string): Promise<Result<void, ApiError>> {
-	return writeBack(job, workerId, {text, toolCalls: [], inputTokens: 0, outputTokens: 0, system: null}, {});
+function answerWith(store: InferenceStore, job: JobRow, workerId: string, thread: ThreadRow, text: string): Promise<Result<void, ApiError>> {
+	return writeBack(store, job, workerId, thread, {text, toolCalls: [], inputTokens: 0, outputTokens: 0, system: null}, {});
 }
 
 // Why the model couldn't be reached, for the job's record.
@@ -138,9 +130,9 @@ function unreachable(failure: ApiError): string {
 
 // The system prompt: the instructions any agent with the login gets, for the agent as it acts in
 // the thread, as the member whose conversation it is, and how to go about it on this thread.
-function systemPrompt(thread: ThreadRow, now: Date): Promise<Result<string, ApiError>> {
+function systemPrompt(store: InferenceStore, thread: ThreadRow, now: Date): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
-		const signedIn = $(requirePresent($(await getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
+		const signedIn = $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
 		const instructions = $(await agentInstructions(signedIn, thread.parentThreadId === null ? MAIN_FLOW : SUB_FLOW));
 		return `${instructions}\n\nThe time now is ${now.toISOString()}.`;
 	});
@@ -149,7 +141,7 @@ function systemPrompt(thread: ThreadRow, now: Date): Promise<Result<string, ApiE
 // Summarizes the log where it has grown long, into a summary entry the model reads in place of
 // what it covers; the log then, as it is. The model gets the log as text, not as the turns it
 // made, which would need the tools sent along: a request with calls in it and no tools is refused.
-function compact(job: JobRow, workerId: string, entries: EntryRow[], key: string): Promise<Result<EntryRow[], ApiError>> {
+function compact(store: InferenceStore, job: JobRow, workerId: string, entries: EntryRow[], key: string): Promise<Result<EntryRow[], ApiError>> {
 	return Do(async ($) => {
 		const cut = compactionCut(entries);
 		const last = cut === null ? undefined : entries[cut - 1];
@@ -168,20 +160,20 @@ function compact(job: JobRow, workerId: string, entries: EntryRow[], key: string
 				timeoutMs: TIMEOUT_MS,
 			}),
 		);
-		const written = $(await appendSummary(job.id, workerId, job.threadId, summary, last.seq));
+		const written = $(await store.appendSummary(job.id, workerId, job.threadId, summary, last.seq));
 		if (!written) {
 			return $(Err(ApiErr.conflict('The job was no longer this worker’s')));
 		}
-		return $(await listEntries(job.threadId));
+		return $(await store.listEntries(job.threadId));
 	});
 }
 
 // The model's turn on the log, summarized first where it has grown long, with the system prompt
 // it was sent.
-function askOnLog(job: JobRow, workerId: string, thread: ThreadRow, entries: EntryRow[], key: string, now: Date): Promise<Result<{turn: ModelTurn; system: string}, ApiError>> {
+function askOnLog(store: InferenceStore, job: JobRow, workerId: string, thread: ThreadRow, entries: EntryRow[], key: string, now: Date): Promise<Result<{turn: ModelTurn; system: string}, ApiError>> {
 	return Do(async ($) => {
-		const current = $(await compact(job, workerId, entries, key));
-		const system = $(await systemPrompt(thread, now));
+		const current = $(await compact(store, job, workerId, entries, key));
+		const system = $(await systemPrompt(store, thread, now));
 		const turn = $(
 			await askForTurn({key, messages: [{role: 'system', content: system}, ...toMessages(current, {clearOld: true})], tools: toolsFor(thread), maxTokens: MAX_TOKENS, timeoutMs: TIMEOUT_MS}),
 		);
@@ -190,37 +182,37 @@ function askOnLog(job: JobRow, workerId: string, thread: ThreadRow, entries: Ent
 }
 
 /** Runs the job: one turn of the model on its thread's log, written back; nothing when the thread is done, or gone. */
-export function runInference(job: JobRow, workerId: string, now = new Date()): Promise<Result<void, ApiError>> {
+export function runInference(store: InferenceStore, job: JobRow, workerId: string, now = new Date()): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		const thread = $(await getJobThread(job.threadId));
+		const thread = $(await store.getJobThread(job.threadId));
 		if (!thread || thread.finishedAt !== null) {
-			$(await finishJob(job.id, workerId));
+			$(await store.finishJob(job.id, workerId));
 			return;
 		}
-		const entries = $(await listEntries(thread.id));
+		const entries = $(await store.listEntries(thread.id));
 		if (turnsAlone(entries) >= MAX_TURNS_ALONE) {
-			$(await answerWith(job, workerId, thread.parentThreadId === null ? TOO_LONG : TOO_LONG_SUB));
+			$(await answerWith(store, job, workerId, thread, thread.parentThreadId === null ? TOO_LONG : TOO_LONG_SUB));
 			return;
 		}
 		const key = env.OPENROUTER_KEY;
 		if (!key) {
-			$(await answerWith(job, workerId, NOT_SET_UP));
+			$(await answerWith(store, job, workerId, thread, NOT_SET_UP));
 			return;
 		}
-		const asked = await askOnLog(job, workerId, thread, entries, key, now);
+		const asked = await askOnLog(store, job, workerId, thread, entries, key, now);
 		if (asked.isErr() && asked.error.kind !== 'provider_unreachable') {
 			return $(Err(asked.error));
 		}
 		if (asked.isErr()) {
 			log.warn('The built-in agent’s model could not be reached', {attempt: job.attempts, ...serializeError('cause' in asked.error ? asked.error.cause : asked.error)});
 			if (job.attempts < MAX_MODEL_ATTEMPTS) {
-				$(await requeueJob(job.id, workerId, thread.id, new Date(now.getTime() + RETRY_MS * job.attempts), unreachable(asked.error)));
+				$(await store.requeueJob(job.id, workerId, thread.id, new Date(now.getTime() + RETRY_MS * job.attempts), unreachable(asked.error)));
 				return;
 			}
-			$(await answerWith(job, workerId, UNREACHABLE));
+			$(await answerWith(store, job, workerId, thread, UNREACHABLE));
 			return;
 		}
 		const {turn, system} = asked.value;
-		$(await writeBack(job, workerId, {...said(thread, turn), system}, plans(thread, turn.toolCalls, now)));
+		$(await writeBack(store, job, workerId, thread, {...said(thread, turn), system}, plans(thread, turn.toolCalls, now)));
 	});
 }

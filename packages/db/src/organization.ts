@@ -1,5 +1,3 @@
-import {randomBytes} from 'node:crypto';
-
 import {Prisma} from '@prisma/client';
 
 import {Err, Ok, type Result} from 'ts-results-es';
@@ -29,28 +27,6 @@ export function buildBaseSlug(source: string): string {
 		base = 'workspace';
 	}
 	return base;
-}
-
-/**
- * The display name and slug source of a user's personal organization: `<First>'s Workspace`,
- * else `<email-local>'s Workspace`. A first name with no Latin letters still names the
- * organization, but the slug comes from the email so it isn't just `s-workspace`.
- */
-export function planPersonalOrgIdentity(identity: {name?: string | null; email: string}): {
-	name: string;
-	slugSource: string;
-} {
-	const firstName = (identity.name?.trim() ?? '').split(/\s+/)[0] ?? '';
-	const emailLocal = identity.email.split('@')[0]?.trim() ?? '';
-
-	const display = firstName || emailLocal;
-	const name = display ? `${display}'s Workspace` : 'Workspace';
-
-	const firstNameYieldsLatinSlug = firstName && buildBaseSlug(firstName) !== 'workspace';
-	const slugDisplay = firstNameYieldsLatinSlug ? firstName : emailLocal || display;
-	const slugSource = slugDisplay ? `${slugDisplay}'s Workspace` : 'Workspace';
-
-	return {name, slugSource};
 }
 
 // An organization's address is `/<slug>`, so no slug can be a top-level path of the web app
@@ -241,28 +217,74 @@ export async function listUserOrgs(userId: string): Promise<Result<UserOrgRow[],
 const MAX_SLUG_ATTEMPTS = 5;
 
 /**
- * A new organization, with its shared vault, the person its owner with their own vault there, as
- * every member of an organization has. It has been through the welcome flow from the start: that
- * is the first organization's. Retries when a parallel creation took the slug.
+ * A connection an organization or a membership is made with, called by the organization's name:
+ * the member's own, or shared with everyone in it. Which ones, and what agents may do with them by
+ * default, is the api's to say.
  */
-export async function createOrganization(data: {
-	userId: string;
+export type StarterConnection = {integrationId: string; shared: boolean; defaults: string[]};
+
+/** A person made with the organization they are to own, as at sign-up. */
+export type NewUser = {
+	email: string;
+	name: string | null;
+	image?: string | null;
+	emailVerified?: Date;
+	termsAcceptedAt?: Date;
+	createdAt?: Date;
+};
+
+/** Makes the starter connections, with their defaults, for the member `userId` of the organization called `name`, in the transaction. */
+export async function createStarterConnections(
+	tx: Prisma.TransactionClient,
+	connections: StarterConnection[],
+	data: {orgId: string; userId: string; name: string},
+): Promise<void> {
+	for (const connection of connections) {
+		await tx.connection.create({
+			data: {
+				orgId: data.orgId,
+				ownerUserId: connection.shared ? null : data.userId,
+				connectedById: data.userId,
+				integrationId: connection.integrationId,
+				account: data.name,
+				defaults: {create: connection.defaults.map((actionId) => ({actionId}))},
+			},
+		});
+	}
+}
+
+/**
+ * A new organization with its owner's membership and its starter connections, in one
+ * transaction: the owner a person there is, or one made with it, so no user exists without an
+ * organization. Its slug is `slugSource`'s (buildBaseSlug), numbered where taken; picking is tried
+ * again when a parallel creation took the same one.
+ */
+export async function provisionOrganization(data: {
+	owner: {userId: string} | {user: NewUser};
 	name: string;
-}): Promise<Result<{id: string; slug: string; name: string}, ApiError>> {
-	const {userId, name} = data;
-	const base = buildBaseSlug(name);
+	slugSource: string;
+	onboardedAt: Date | null;
+	connections: StarterConnection[];
+}): Promise<
+	Result<{org: {id: string; slug: string; name: string}; ownerUserId: string}, ApiError>
+> {
+	const {owner, name, onboardedAt, connections} = data;
+	const base = buildBaseSlug(data.slugSource);
 	for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
 		const result = await wrapDb(() =>
 			db.$transaction(async (tx) => {
+				const userId =
+					'userId' in owner
+						? owner.userId
+						: (await tx.user.create({data: owner.user, select: {id: true}})).id;
 				const slug = await pickAvailableSlugDatabase(tx, base);
 				const org = await tx.organization.create({
-					data: {name, slug, ownerUserId: userId, onboardedAt: new Date()},
+					data: {name, slug, ownerUserId: userId, onboardedAt},
 					select: {id: true, slug: true, name: true},
 				});
 				await tx.orgMember.create({data: {orgId: org.id, userId}});
-				await tx.connection.create({data: ownVaultFor({orgId: org.id, userId, name})});
-				await tx.connection.create({data: sharedVaultFor({orgId: org.id, userId, name})});
-				return org;
+				await createStarterConnections(tx, connections, {orgId: org.id, userId, name});
+				return {org, ownerUserId: userId};
 			}),
 		);
 		if (result.isOk() || !isSlugUniqueConflict(result.error)) {
@@ -272,16 +294,20 @@ export async function createOrganization(data: {
 	return Err(ApiErr.dbError(new Error(`Slug conflict retries exhausted for base "${base}"`)));
 }
 
-/** Renames an organization, and its vaults with it, which are called by its name. */
+/** Renames an organization, and its connections of `namedIntegrationIds` with it, which are called by its name. */
 export async function renameOrganization(
 	orgId: string,
 	name: string,
+	namedIntegrationIds: string[],
 ): Promise<Result<void, ApiError>> {
 	return (
 		await wrapDb(() =>
 			db.$transaction([
 				db.organization.update({where: {id: orgId}, data: {name}, select: {id: true}}),
-				db.connection.updateMany({where: {orgId, integrationId: 'vault'}, data: {account: name}}),
+				db.connection.updateMany({
+					where: {orgId, integrationId: {in: namedIntegrationIds}},
+					data: {account: name},
+				}),
 			]),
 		)
 	).map(() => undefined);
@@ -344,81 +370,27 @@ export async function listMemberNames(
 	);
 }
 
-// A vault, as the organization's name: agents read it and keep what they learn there, unless told
-// otherwise.
-function vaultFor(data: {
-	orgId: string;
-	ownerUserId: string | null;
-	connectedById: string;
-	name: string;
-}): Prisma.ConnectionUncheckedCreateInput {
-	return {
-		orgId: data.orgId,
-		ownerUserId: data.ownerUserId,
-		connectedById: data.connectedById,
-		integrationId: 'vault',
-		account: data.name,
-		defaults: {create: [{actionId: 'readEntries'}, {actionId: 'writeEntries'}]},
-	};
-}
-
-/**
- * A member's own vault in an organization, as they get one on joining it: what their own agents
- * should know about them, which nobody else in the organization sees.
- */
-export function ownVaultFor(data: {
-	orgId: string;
-	userId: string;
-	name: string;
-}): Prisma.ConnectionUncheckedCreateInput {
-	return vaultFor({
-		orgId: data.orgId,
-		ownerUserId: data.userId,
-		connectedById: data.userId,
-		name: data.name,
-	});
-}
-
-/**
- * The organization's vault, made with it by whoever made the organization: what every member's
- * agents should know about it, shared with everyone in it, the shared agents included.
- */
-export function sharedVaultFor(data: {
-	orgId: string;
-	userId: string;
-	name: string;
-}): Prisma.ConnectionUncheckedCreateInput {
-	return vaultFor({
-		orgId: data.orgId,
-		ownerUserId: null,
-		connectedById: data.userId,
-		name: data.name,
-	});
-}
-
 /**
  * Takes a person out of an organization: their own connections there go, with their defaults,
  * entries and every agent's settings on them, and so do their own agents there, with their logins
  * and MCP clients, and their conversations with its built-in agents; the shared ones stay, but the
- * MCP clients they signed in as a shared agent are signed out, and the shared agents they made,
- * whose passwords they were shown, get one nobody knows and are signed out everywhere, so nothing
- * of theirs keeps working there. The organization's owner gives such an agent a new password to
- * sign in with it again. The caller has undone the connections at their providers first, and
- * checked they aren't its owner.
+ * MCP clients they signed in as a shared agent are signed out, and the shared agents they made get
+ * `sharedAgentPasswordHash` and are signed out everywhere. The caller has undone the connections
+ * at their providers first, and checked they aren't its owner.
  */
 export async function removeMembership(data: {
 	orgId: string;
 	userId: string;
+	sharedAgentPasswordHash: string;
 }): Promise<Result<void, ApiError>> {
-	const {orgId, userId} = data;
+	const {orgId, userId, sharedAgentPasswordHash} = data;
 	const madeShared = {orgId, ownerUserId: null, createdById: userId};
 	return wrapDb(async () => {
-		const unknownPasswordHash = await Bun.password.hash(randomBytes(32).toString('hex'));
 		await db.$transaction([
 			db.connection.deleteMany({where: {orgId, ownerUserId: userId}}),
 			db.agent.deleteMany({where: {orgId, ownerUserId: userId}}),
 			db.agentThread.deleteMany({where: {orgId, userId}}),
-			db.agent.updateMany({where: madeShared, data: {passwordHash: unknownPasswordHash}}),
+			db.agent.updateMany({where: madeShared, data: {passwordHash: sharedAgentPasswordHash}}),
 			db.agentSession.deleteMany({where: {agent: madeShared}}),
 			db.oAuthCode.deleteMany({where: {userId, agent: {orgId}}}),
 			db.oAuthGrant.deleteMany({where: {userId, agent: {orgId}}}),

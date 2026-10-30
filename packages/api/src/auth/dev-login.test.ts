@@ -20,9 +20,10 @@ const createUser = mock();
 const getUserByEmail = mock();
 
 mock.module('@proxy/db/user', () => ({
-	createUser,
 	getUserByEmail,
 }));
+
+mock.module('../orgs/provision', () => ({signUp: createUser}));
 
 mock.module('../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},

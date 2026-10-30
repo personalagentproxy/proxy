@@ -5,11 +5,13 @@ import {setTimeout as sleep} from 'node:timers/promises';
 import {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
-import {claimJob, failJob, type JobRow, renewLease} from '@proxy/db/harness';
+import type {JobRow} from '@proxy/db/harness';
 
 import {log, serializeError} from '../observability/log';
-import {runInference} from './inference';
-import {runToolJob} from './tool-job';
+import {failureNote} from './conversation';
+import {type InferenceStore, runInference} from './inference';
+import type {HarnessStore} from './store';
+import {runToolJob, type ToolJobStore} from './tool-job';
 
 /**
  * The worker that runs the built-in agents' jobs, a few at a time, in each api instance: it
@@ -33,16 +35,19 @@ const STOP_MS = 8_000;
 
 export type HarnessWorker = {stop: () => Promise<void>};
 
+/** What the worker needs of the store: the queue, and what the jobs it runs need. */
+export type WorkerStore = Pick<HarnessStore, 'claimJob' | 'renewLease' | 'failJob'> & InferenceStore & ToolJobStore;
+
 // One name per worker, so a lease says who holds it.
 function workerName(): string {
 	return `${hostname()}-${process.pid}-${randomBytes(3).toString('hex')}`;
 }
 
-function run(job: JobRow, workerId: string): Promise<Result<void, ApiError>> {
+function run(store: WorkerStore, job: JobRow, workerId: string): Promise<Result<void, ApiError>> {
 	if (job.kind === 'inference') {
-		return runInference(job, workerId);
+		return runInference(store, job, workerId);
 	}
-	return runToolJob(job, workerId);
+	return runToolJob(store, job, workerId);
 }
 
 // The failure in words, for the job's record and whoever is told of it.
@@ -59,16 +64,21 @@ function describe(failure: ApiError): string {
 	return failure.kind;
 }
 
+// Marks the job failed, saying why, with what that leaves in its thread (conversation.ts).
+async function fail(store: WorkerStore, job: JobRow, workerId: string, error: string): Promise<void> {
+	await store.failJob(job.id, workerId, error, failureNote(error));
+}
+
 // Runs the job with its lease kept, and marks it failed where it throws or fails.
-async function runClaimed(job: JobRow, workerId: string): Promise<void> {
+async function runClaimed(store: WorkerStore, job: JobRow, workerId: string): Promise<void> {
 	if (job.attempts > MAX_ATTEMPTS) {
-		await failJob(job.id, workerId, `Given up after ${job.attempts - 1} attempts`);
+		await fail(store, job, workerId, `Given up after ${job.attempts - 1} attempts`);
 		return;
 	}
 	const renewal = setInterval(() => {
-		void renewLease(job.id, workerId, LEASE_MS);
+		void store.renewLease(job.id, workerId, LEASE_MS);
 	}, RENEW_MS);
-	const result = await Result.wrapAsync(() => run(job, workerId));
+	const result = await Result.wrapAsync(() => run(store, job, workerId));
 	clearInterval(renewal);
 	const thrown = result.isErr() ? result.error : null;
 	const failed = result.isOk() && result.value.isErr() ? result.value.error : null;
@@ -77,11 +87,11 @@ async function runClaimed(job: JobRow, workerId: string): Promise<void> {
 	}
 	log.error('Built-in agent job failed', {jobId: job.id, kind: job.kind, attempt: job.attempts, ...serializeError(failed ?? thrown)});
 	const message = failed ? describe(failed) : thrown instanceof Error ? thrown.message : String(thrown);
-	await failJob(job.id, workerId, message.slice(0, 1000));
+	await fail(store, job, workerId, message.slice(0, 1000));
 }
 
-/** Starts the worker; it runs until stopped. */
-export function startHarnessWorker(): HarnessWorker {
+/** Starts the worker on the store; it runs until stopped. */
+export function startHarnessWorker(store: WorkerStore): HarnessWorker {
 	const workerId = workerName();
 	let stopping = false;
 	const running = new Set<Promise<void>>();
@@ -92,7 +102,7 @@ export function startHarnessWorker(): HarnessWorker {
 				await Promise.race(running);
 				continue;
 			}
-			const claimed = await claimJob(workerId, LEASE_MS);
+			const claimed = await store.claimJob(workerId, LEASE_MS);
 			if (claimed.isErr()) {
 				log.error('Built-in agent worker could not claim a job', serializeError(claimed.error));
 				await sleep(POLL_MS * 4);
@@ -102,7 +112,7 @@ export function startHarnessWorker(): HarnessWorker {
 				await sleep(POLL_MS);
 				continue;
 			}
-			const job: Promise<void> = runClaimed(claimed.value, workerId).finally(() => running.delete(job));
+			const job: Promise<void> = runClaimed(store, claimed.value, workerId).finally(() => running.delete(job));
 			running.add(job);
 		}
 	};

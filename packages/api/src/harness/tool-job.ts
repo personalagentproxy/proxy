@@ -2,10 +2,12 @@ import {Err, type Result} from 'ts-results-es';
 
 import {type ApiError, ApiErr, Do, requirePresent} from '@proxy/utils';
 import {callArguments, DELEGATE_TOOL, delegateArgs, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
-import {completeToolJob, failJob, finishJob, getEntry, getJobThread, getThreadAgent, type JobRow, startSubAgent, type ThreadRow} from '@proxy/db/harness';
+import type {JobRow, ThreadRow} from '@proxy/db/harness';
 
 import {callMcpTool} from '../mcp/tools';
-import {ensureThreadTask} from './thread-task';
+import {failureNote, subAgentStart} from './conversation';
+import type {HarnessStore} from './store';
+import {ensureThreadTask, type ThreadTaskStore} from './thread-task';
 import {isGateTool} from './tool-surface';
 
 /**
@@ -17,6 +19,9 @@ import {isGateTool} from './tool-surface';
  * was interrupted mid-call leaves the outcome unknown, and the model is told so rather than the
  * call being made again.
  */
+
+/** What a tool job needs of the store. */
+export type ToolJobStore = Pick<HarnessStore, 'getJobThread' | 'getEntry' | 'getThreadAgent' | 'completeToolJob' | 'failJob' | 'finishJob' | 'startSubAgent'> & ThreadTaskStore;
 
 // How much of a result the log keeps, and the model reads.
 const MAX_RESULT_CHARS = 60_000;
@@ -45,10 +50,10 @@ function cutResult(text: string): string {
 }
 
 // Runs the call through the gate, as the sub-agent acts in the thread, for its task.
-function runGateTool(thread: ThreadRow, name: string, args: Record<string, unknown>): Promise<Result<ToolAnswer, ApiError>> {
+function runGateTool(store: ToolJobStore, thread: ThreadRow, name: string, args: Record<string, unknown>): Promise<Result<ToolAnswer, ApiError>> {
 	return Do(async ($) => {
-		const signedIn = $(requirePresent($(await getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
-		const taskId = $(await ensureThreadTask(thread));
+		const signedIn = $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
+		const taskId = $(await ensureThreadTask(store, thread));
 		const result = await callMcpTool(signedIn, name, {...args, task: taskId}, false, 'harness');
 		return {text: cutResult(result.content.map((part) => part.text).join('\n')), isError: result.isError === true};
 	});
@@ -62,7 +67,7 @@ function delegation(thread: ThreadRow, call: ToolCall): {title: string; brief: s
 	return delegateArgs(parseArgs(call));
 }
 
-function answer(thread: ThreadRow, job: JobRow, call: ToolCall, now: Date): Promise<Result<ToolAnswer, ApiError>> {
+function answer(store: ToolJobStore, thread: ThreadRow, job: JobRow, call: ToolCall, now: Date): Promise<Result<ToolAnswer, ApiError>> {
 	return Do(async ($) => {
 		const args = parseArgs(call);
 		if (args === null) {
@@ -84,32 +89,33 @@ function answer(thread: ThreadRow, job: JobRow, call: ToolCall, now: Date): Prom
 		if (call.name === 'run' && job.attempts > 1) {
 			return error('The outcome of this call is unknown: the worker running it was interrupted before it could record the answer. Check what it changed before making it again.');
 		}
-		return $(await runGateTool(thread, call.name, args));
+		return $(await runGateTool(store, thread, call.name, args));
 	});
 }
 
 /** Runs the job: the call it is for, its answer written to the log, and the model woken once every call is answered; a delegation starts the sub-agent instead. */
-export function runToolJob(job: JobRow, workerId: string, now = new Date()): Promise<Result<void, ApiError>> {
+export function runToolJob(store: ToolJobStore, job: JobRow, workerId: string, now = new Date()): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		const thread = $(await getJobThread(job.threadId));
+		const thread = $(await store.getJobThread(job.threadId));
 		if (!thread) {
-			$(await finishJob(job.id, workerId));
+			$(await store.finishJob(job.id, workerId));
 			return;
 		}
-		const entry = $(await getEntry(job.entryId ?? ''));
+		const entry = $(await store.getEntry(job.entryId ?? ''));
 		const call = entry.toolCalls?.find((candidate) => candidate.id === job.callId);
 		if (!call) {
-			$(await failJob(job.id, workerId, `No call ${job.callId ?? ''} in entry ${entry.id}`));
+			const error = `No call ${job.callId ?? ''} in entry ${entry.id}`;
+			$(await store.failJob(job.id, workerId, error, failureNote(error)));
 			return;
 		}
 		const delegated = delegation(thread, call);
 		if (delegated) {
-			if (!$(await startSubAgent(job.id, workerId, thread, {id: call.id, ...delegated}))) {
+			if (!$(await store.startSubAgent(job.id, workerId, thread, subAgentStart(thread, {id: call.id, ...delegated})))) {
 				return $(Err(ApiErr.conflict('The job was no longer this worker’s')));
 			}
 			return;
 		}
-		const answered = $(await answer(thread, job, call, now));
-		$(await completeToolJob(job.id, workerId, thread.id, {callId: call.id, ...answered}));
+		const answered = $(await answer(store, thread, job, call, now));
+		$(await store.completeToolJob(job.id, workerId, thread.id, {callId: call.id, ...answered}));
 	});
 }

@@ -12,7 +12,6 @@ const listInvitations = mock();
 
 mock.module('@proxy/db/invitation', () => ({createInvitation, deleteInvitation, listInvitations}));
 
-const createOrganization = mock();
 const deleteOwnedOrganization = mock();
 const listMembers = mock();
 const listUserOrgs = mock();
@@ -23,7 +22,6 @@ const getMembership = mock();
 const getMemberOrganization = mock();
 
 mock.module('@proxy/db/organization', () => ({
-	createOrganization,
 	deleteOwnedOrganization,
 	listMembers,
 	listUserOrgs,
@@ -33,6 +31,10 @@ mock.module('@proxy/db/organization', () => ({
 	getMembership,
 	getMemberOrganization,
 }));
+
+const createOrganization = mock();
+
+mock.module('./provision', () => ({createOrganization}));
 
 const getUserByEmail = mock();
 
@@ -172,7 +174,7 @@ describe('handleRenameOrgRoute', () => {
 		const asMember = await handleRenameOrgRoute(makeRequest({}, {name: 'Mine now'}));
 
 		expect(renameOrganization).toHaveBeenCalledTimes(1);
-		expect(renameOrganization).toHaveBeenCalledWith('org-2', 'Acme Inc');
+		expect(renameOrganization).toHaveBeenCalledWith('org-2', 'Acme Inc', ['vault']);
 		expect(asMember.unwrapErr().kind).toBe('forbidden');
 	});
 });
@@ -237,7 +239,7 @@ describe('handleLeaveOrgRoute', () => {
 		expect(result.isOk()).toBe(true);
 		expect(listOwnConnectionsWithCredential).toHaveBeenCalledWith({orgId: 'org-2', userId: 'user-1'});
 		expect(beforeDisconnectAll).toHaveBeenCalledWith([workMail]);
-		expect(removeMembership).toHaveBeenCalledWith({orgId: 'org-2', userId: 'user-1'});
+		expect(removeMembership).toHaveBeenCalledWith({orgId: 'org-2', userId: 'user-1', sharedAgentPasswordHash: expect.any(String)});
 	});
 
 	test('its owner stays, and deletes it instead', async () => {
@@ -283,7 +285,7 @@ describe('handleRemoveMemberRoute', () => {
 
 		expect(listOwnConnectionsWithCredential).toHaveBeenCalledWith({orgId: 'org-2', userId: 'maya-1'});
 		expect(beforeDisconnectAll).toHaveBeenCalledWith([theirs]);
-		expect(removeMembership).toHaveBeenCalledWith({orgId: 'org-2', userId: 'maya-1'});
+		expect(removeMembership).toHaveBeenCalledWith({orgId: 'org-2', userId: 'maya-1', sharedAgentPasswordHash: expect.any(String)});
 	});
 
 	test('not its owner, not someone outside it, and not by a member', async () => {

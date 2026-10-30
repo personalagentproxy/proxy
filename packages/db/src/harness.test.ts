@@ -2,6 +2,7 @@ import {afterAll, beforeAll, describe, expect, test} from 'bun:test';
 import type {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
+import {readyForInference} from '@proxy/utils/harness';
 
 import {db} from '.';
 import {
@@ -24,7 +25,8 @@ import {
 // What the harness writes, against the local database: run with it up (`bun run dev`) and the
 // environment loaded, `bun --env-file=../../.env test src/harness.test.ts` from this package.
 // Without DATABASE_URL, as `bun run test` runs, there is nothing to run against, and this is
-// skipped. Everything made here is one organization's, deleted at the end.
+// skipped. Everything made here is one organization's, deleted at the end. The agent is woken as
+// the api wakes it (@proxy/utils/harness readyForInference).
 const databaseUrl = process.env.DATABASE_URL;
 
 function unwrap<T>(result: Result<T, ApiError>): T {
@@ -73,7 +75,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 	});
 
 	test('a claim is noted, and so is the finish: the answer carries its prompt and its job, a delegation’s placeholder and a summary the job too', async () => {
-		unwrap(await appendPersonMessage(thread.id, 'Find my invoices'));
+		unwrap(await appendPersonMessage(thread.id, 'Find my invoices', readyForInference));
 		const job = unwrap(await claimJob('worker-a', 60_000));
 		if (!job) {
 			throw new Error('nothing to claim');
@@ -107,7 +109,8 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 					outputTokens: 2,
 					system: 'You are signed in.',
 				},
-				{c1: {runAt: new Date(), placeholder: 'Started the sub-agent “Find”.'}},
+				{plans: {c1: {runAt: new Date(), placeholder: 'Started the sub-agent “Find”.'}}},
+				readyForInference,
 			),
 		);
 
@@ -137,11 +140,17 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			throw new Error(`expected the delegation’s tool job, got ${JSON.stringify(tool)}`);
 		}
 		unwrap(
-			await completeToolJob(tool.id, 'worker-b', thread.id, {
-				callId: 'c1',
-				text: 'Three invoices.',
-				isError: false,
-			}),
+			await completeToolJob(
+				tool.id,
+				'worker-b',
+				thread.id,
+				{
+					callId: 'c1',
+					text: 'Three invoices.',
+					isError: false,
+				},
+				readyForInference,
+			),
 		);
 		const next = unwrap(await claimJob('worker-c', 60_000));
 		if (!next || next.kind !== 'inference') {
@@ -154,6 +163,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 				thread.id,
 				new Date(),
 				'The model could not be reached: down',
+				readyForInference,
 			),
 		);
 		const again = unwrap(await claimJob('worker-d', 60_000));
@@ -161,7 +171,15 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			throw new Error(`expected the same turn again, got ${JSON.stringify(again)}`);
 		}
 		expect(again.attempts).toBe(2);
-		unwrap(await failJob(again.id, 'worker-d', 'Given up after 4 attempts'));
+		unwrap(
+			await failJob(
+				again.id,
+				'worker-d',
+				'Given up after 4 attempts',
+				() => ({kind: 'reply', text: 'Something went wrong on my side.'}),
+				readyForInference,
+			),
+		);
 
 		const entries = unwrap(await listEntries(thread.id));
 		expect(entries.slice(-2).map((entry) => [entry.kind, entry.jobId, entry.isError])).toEqual([
@@ -182,7 +200,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 	});
 
 	test('a finish with nothing written is a done event too', async () => {
-		unwrap(await appendPersonMessage(thread.id, 'Try again'));
+		unwrap(await appendPersonMessage(thread.id, 'Try again', readyForInference));
 		const job = unwrap(await claimJob('worker-e', 60_000));
 		if (!job) {
 			throw new Error('nothing to claim');

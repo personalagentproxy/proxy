@@ -9,6 +9,7 @@
 		"./days": "./src/days.ts",
 		"./email-providers": "./src/email-providers.ts",
 		"./harness": "./src/harness.ts",
+		"./secret-crypto": "./src/secret-crypto.ts",
 		"./tasks": "./src/tasks.ts",
 		"./units": "./src/units.ts",
 		"./transaction-categories": "./src/transaction-categories.ts"

@@ -5,6 +5,7 @@ import {Result} from 'ts-results-es';
 import {connectDb, disconnectDb} from '@proxy/db';
 
 import {runDataMigrations} from './data-migrations/run';
+import {harnessStore} from './harness/store';
 import {startHarnessWorker, type HarnessWorker} from './harness/worker';
 import {log, serializeError} from './observability/log';
 import {createHttpApp} from './server/create-http-app';
@@ -66,6 +67,6 @@ async function startApiServer(): Promise<void> {
 		log.info(`@proxy/api listening on http://localhost:${port}`);
 		// After listening, since signing in to a provider to name an account can take a while.
 		void runDataMigrations();
-		worker = startHarnessWorker();
+		worker = startHarnessWorker(harnessStore);
 	});
 }

@@ -1,12 +1,14 @@
-import {createHash, randomBytes} from 'node:crypto';
+import {randomBytes} from 'node:crypto';
 
 import type {Request, Response} from 'express';
 
 import {createVerificationToken, useVerificationToken} from '@proxy/db/auth';
-import {createUserFromEmail, getUserByEmail, setUserEmailVerified} from '@proxy/db/user';
+import {getUserByEmail, setUserEmailVerified} from '@proxy/db/user';
 import type {MagicLinkResponse} from '@proxy/contracts/auth';
+import {hashVerificationToken} from '@proxy/utils/secret-crypto';
 
 import {log, serializeError} from '../observability/log';
+import {signUp} from '../orgs/provision';
 import {env} from '../utils/env';
 import {normalizeEmail} from './email-address';
 import {sendMagicLink} from './mail';
@@ -41,10 +43,6 @@ function getEmailAuthConfig(): EmailAuthConfig | null {
 		appUrl: env.APP_URL,
 		verifyUrl: `${env.APP_URL}/auth/email/verify`,
 	};
-}
-
-function hashVerificationToken(token: string, secret: string): string {
-	return createHash('sha256').update(`${token}${secret}`).digest('hex');
 }
 
 /**
@@ -191,7 +189,8 @@ export async function handleEmailVerifyRoute(req: Request, res: Response): Promi
 		return;
 	}
 
-	const createdResult = await createUserFromEmail(email);
+	// Clicking the link verified the address.
+	const createdResult = await signUp({email, name: null, emailVerified: new Date()});
 	if (createdResult.isErr()) {
 		log.error('Email verify failed to create user', serializeError(createdResult.error));
 		redirectToLoginError(res, config.appUrl, 'Callback');

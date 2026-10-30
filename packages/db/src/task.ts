@@ -46,16 +46,8 @@ const taskSelect = {
 	lastActiveAt: true,
 } as const;
 
-/**
- * Starts a task for the agent: what it is called and what the person asked for, and the agent's
- * task it is a sub-task of, where it is one. The parent and every task above it are locked while
- * the sub-task is made, so none can be finished in between and leave the sub-task open, and each
- * takes the sub-task's start as the last thing done for it (`lastActiveAt`), so none is left open
- * before it, and one left open is taken up again; `Ok(null)` means the parent, or a task above it,
- * is finished (@proxy/utils/tasks). `ownerUserId` is the member whose own the agent is, who alone
- * sees the task; null for a shared agent's.
- */
-export async function createAgentTask(data: {
+/** A task to make: whose agent's, for whom, under which task, and what it is. */
+export type NewAgentTask = {
 	orgId: string;
 	agentId: string;
 	ownerUserId: string | null;
@@ -65,7 +57,20 @@ export async function createAgentTask(data: {
 	title: string;
 	goal: string;
 	via: AuditVia;
-}): Promise<Result<AgentTaskRow | null, ApiError>> {
+};
+
+/**
+ * Starts a task for the agent: what it is called and what the person asked for, and the agent's
+ * task it is a sub-task of, where it is one. The parent and every task above it are locked while
+ * the sub-task is made, so none can be finished in between and leave the sub-task open, and each
+ * takes the sub-task's start as the last thing done for it (`lastActiveAt`), so none is left open
+ * before it, and one left open is taken up again; `Ok(null)` means the parent, or a task above it,
+ * is finished (@proxy/utils/tasks). `ownerUserId` is the member whose own the agent is, who alone
+ * sees the task; null for a shared agent's.
+ */
+export async function createAgentTask(
+	data: NewAgentTask,
+): Promise<Result<AgentTaskRow | null, ApiError>> {
 	const {orgId, agentId, parentId} = data;
 	if (parentId === null) {
 		return wrapDb(() => {

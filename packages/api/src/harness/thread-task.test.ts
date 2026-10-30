@@ -1,16 +1,15 @@
-import {beforeEach, describe, expect, mock, test} from 'bun:test';
+import {beforeEach, describe, expect, test} from 'bun:test';
 import {Ok} from 'ts-results-es';
 
-const getAgentTask = mock();
-const createAgentTask = mock();
-mock.module('@proxy/db/task', () => ({getAgentTask, createAgentTask}));
+import type {ThreadRow} from '@proxy/db/harness';
+import type {AgentTaskRow} from '@proxy/db/task';
 
-const setThreadTask = mock(async () => Ok(undefined));
-mock.module('@proxy/db/harness', () => ({setThreadTask}));
+import {type FakeStore, fakeStore} from './fake-store';
+import {ensureThreadTask} from './thread-task';
 
 const now = new Date('2026-10-21T10:00:00Z');
 // A sub-agent's thread, at work on its task.
-const thread = {
+const thread: ThreadRow = {
 	id: 'thread-1',
 	orgId: 'org-1',
 	agentId: 'agent-1',
@@ -23,42 +22,43 @@ const thread = {
 	finishedAt: null,
 	createdAt: now,
 };
-const task = {
+const task: AgentTaskRow = {
 	id: 'task-1',
 	agentId: 'agent-1',
 	personaId: 'persona-1',
 	parentId: null,
 	title: 'Find the invoices',
 	goal: 'Collect the October invoices from the mail',
-	via: 'harness' as const,
+	via: 'harness',
 	createdAt: now,
 	finishedAt: null,
 	outcome: null,
 	lastActiveAt: now,
 };
 
+let store: FakeStore;
+
 beforeEach(() => {
-	mock.clearAllMocks();
-	createAgentTask.mockResolvedValue(Ok({...task, id: 'task-2'}));
+	store = fakeStore();
+	store.createAgentTask.mockResolvedValue(Ok({...task, id: 'task-2'}));
+	store.setThreadTask.mockResolvedValue(Ok(undefined));
 });
 
 describe('ensureThreadTask', () => {
 	test('keeps the task it has while it is not finished, left open included', async () => {
-		getAgentTask.mockResolvedValue(Ok({...task, lastActiveAt: new Date('2026-10-20T10:00:00Z')}));
-		const {ensureThreadTask} = await import('./thread-task');
-		const result = await ensureThreadTask(thread);
+		store.getAgentTask.mockResolvedValue(Ok({...task, lastActiveAt: new Date('2026-10-20T10:00:00Z')}));
+		const result = await ensureThreadTask(store, thread);
 
 		expect(result.unwrap()).toBe('task-1');
-		expect(createAgentTask).not.toHaveBeenCalled();
+		expect(store.createAgentTask).not.toHaveBeenCalled();
 	});
 
 	test('one finished while the sub-agent is at work is replaced with a new one for the same work', async () => {
-		getAgentTask.mockResolvedValue(Ok({...task, finishedAt: new Date('2026-10-21T09:00:00Z')}));
-		const {ensureThreadTask} = await import('./thread-task');
-		const result = await ensureThreadTask(thread);
+		store.getAgentTask.mockResolvedValue(Ok({...task, finishedAt: new Date('2026-10-21T09:00:00Z')}));
+		const result = await ensureThreadTask(store, thread);
 
 		expect(result.unwrap()).toBe('task-2');
-		expect(createAgentTask).toHaveBeenCalledWith({
+		expect(store.createAgentTask).toHaveBeenCalledWith({
 			orgId: 'org-1',
 			agentId: 'agent-1',
 			ownerUserId: 'user-1',
@@ -68,14 +68,13 @@ describe('ensureThreadTask', () => {
 			goal: 'Collect the October invoices from the mail',
 			via: 'harness',
 		});
-		expect(setThreadTask).toHaveBeenCalledWith('thread-1', 'task-2');
+		expect(store.setThreadTask).toHaveBeenCalledWith('thread-1', 'task-2');
 	});
 
 	test('the agent talking with the person has no task to make calls for', async () => {
-		const {ensureThreadTask} = await import('./thread-task');
-		const result = await ensureThreadTask({...thread, taskId: null});
+		const result = await ensureThreadTask(store, {...thread, taskId: null});
 
 		expect(result.unwrapErr().kind).toBe('conflict');
-		expect(getAgentTask).not.toHaveBeenCalled();
+		expect(store.getAgentTask).not.toHaveBeenCalled();
 	});
 });

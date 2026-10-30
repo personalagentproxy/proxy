@@ -22,17 +22,19 @@ mock.module('@proxy/db/auth', () => ({
 
 const getUserByEmail = mock();
 const getUserFromId = mock();
-const createUserFromOAuthProfile = mock();
 const deleteUser = mock();
 const updateUserFromOAuthProfile = mock();
 
 mock.module('@proxy/db/user', () => ({
 	getUserByEmail,
 	getUserFromId,
-	createUserFromOAuthProfile,
 	deleteUser,
 	updateUserFromOAuthProfile,
 }));
+
+const createUserFromOAuthProfile = mock();
+
+mock.module('../orgs/provision', () => ({signUp: createUserFromOAuthProfile}));
 
 mock.module('../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},

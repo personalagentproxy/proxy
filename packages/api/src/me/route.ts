@@ -7,6 +7,7 @@ import {listUserOrgs, removeMembership} from '@proxy/db/organization';
 import {deleteUser, getUserFromId} from '@proxy/db/user';
 import type {Me} from '@proxy/contracts/me';
 
+import {unknownPasswordHash} from '../agents/unknown-password';
 import {clearSessionCookie} from '../auth/session';
 import {beforeDisconnectAll} from '../connections/disconnect';
 import {log} from '../observability/log';
@@ -43,7 +44,7 @@ function deleteAccount(userId: string): Promise<Result<void, ApiError>> {
 			await beforeDisconnectAll(connections);
 			undone += connections.length;
 			if (!owned) {
-				$(await removeMembership({orgId: org.id, userId}));
+				$(await removeMembership({orgId: org.id, userId, sharedAgentPasswordHash: await unknownPasswordHash()}));
 			}
 		}
 		$(await deleteUser(userId));

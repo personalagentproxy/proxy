@@ -9,6 +9,7 @@
 	"scripts": {
 		"dev": "NODE_ENV=development bun run --watch src/index.ts",
 		"start": "bun run src/index.ts",
+		"seed": "bun --env-file=../../.env scripts/seed.ts",
 		"test": "bun test --isolate",
 		"typecheck": "tsc --noEmit"
 	},

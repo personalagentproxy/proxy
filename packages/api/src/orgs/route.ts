@@ -8,7 +8,6 @@ import {type Invitation, inviteBodySchema, type Member, type memberListSchema, t
 import {listOrgConnectionsWithCredential, listOwnConnectionsWithCredential} from '@proxy/db/connection';
 import {createInvitation, deleteInvitation, listInvitations, type InvitationRow} from '@proxy/db/invitation';
 import {
-	createOrganization,
 	deleteOwnedOrganization,
 	getMembership,
 	listMembers,
@@ -29,6 +28,9 @@ import {log} from '../observability/log';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {env} from '../utils/env';
 import {requireOwner, requireViewer} from '../utils/user-org';
+import {unknownPasswordHash} from '../agents/unknown-password';
+import {createOrganization} from './provision';
+import {NAMED_AFTER_ORGANIZATION} from './starter-connections';
 
 // Organizations and their members, each organization named in the address by its slug
 // (`/api/orgs/:org/…`). Anyone in an organization sees its members and invitations; its one owner,
@@ -98,7 +100,7 @@ export function handleRenameOrgRoute(request: AuthenticatedRequest): Promise<Res
 	return Do(async ($) => {
 		const {orgId} = $(await requireOwner(request));
 		const {name} = $(parseSchema(orgNameBodySchema, request.body));
-		$(await renameOrganization(orgId, name));
+		$(await renameOrganization(orgId, name, NAMED_AFTER_ORGANIZATION));
 	});
 }
 
@@ -133,7 +135,7 @@ export function handleDeleteOrgRoute(request: AuthenticatedRequest): Promise<Res
 function takeOut(orgId: string, userId: string): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		await beforeDisconnectAll($(await listOwnConnectionsWithCredential({orgId, userId})));
-		$(await removeMembership({orgId, userId}));
+		$(await removeMembership({orgId, userId, sharedAgentPasswordHash: await unknownPasswordHash()}));
 	});
 }
 
