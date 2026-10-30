@@ -1,4 +1,4 @@
-import {Result} from 'ts-results-es';
+import {Err, Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
@@ -17,15 +17,15 @@ import type {McpKeyCredential} from './mcp/mcp-session';
 import {callWithRefresh} from './token-session';
 
 /**
- * Moving custom MCP connections over to the integration built in since on the same server, every
- * time the api starts: what was connected by address before becomes a connection of the
- * integration, keeping its id, its name and its activity. Its tools' settings become the
- * integration's actions, never allowing more than before, and its tool runs the integration's
- * requests. A sign-in to the server itself carries over, for the account it is for, and a key the
- * integration takes, typed in or in the address; otherwise the connection waits to be signed in to
- * (`needsSignIn`). A server reached with nothing at all stays custom. Done once per connection,
- * however many servers start at once (`takeOverConnection`), and tried again on the next start
- * where it failed.
+ * Moving custom MCP connections over to the integration built in since on the same server, as a
+ * data migration (`data-migrations/run.ts`): what was connected by address before becomes a
+ * connection of the integration, keeping its id, its name and its activity. Its tools' settings
+ * become the integration's actions, never allowing more than before, and its tool runs the
+ * integration's requests. A sign-in to the server itself carries over, for the account it is for,
+ * and a key the integration takes, typed in or in the address; otherwise the connection waits to be
+ * signed in to (`needsSignIn`). A server reached with nothing at all stays custom. Done once per
+ * connection, however many servers start at once (`takeOverConnection`), and tried again on the
+ * next start where any failed.
  */
 
 type Grant = {agentId: string; actionId: string; allowed: boolean};
@@ -190,13 +190,17 @@ export function takeOver(connection: CustomMcpConnectionRow, builtIn: BuiltInMcp
 	});
 }
 
-/** Moves every custom MCP connection an integration takes over, logging each. */
-export async function takeOverCustomConnections(): Promise<void> {
+/**
+ * Moves every custom MCP connection an integration takes over, logging each; an error when listing
+ * them or moving any failed, so the data migration is tried again on the next start.
+ */
+export async function takeOverCustomConnections(): Promise<Result<void, ApiError>> {
 	const connections = await listCustomMcpConnections();
 	if (connections.isErr()) {
 		log.error('Listing custom MCP connections to move over failed', 'cause' in connections.error ? serializeError(connections.error.cause) : {kind: connections.error.kind});
-		return;
+		return Err(connections.error);
 	}
+	let failed = 0;
 	for (const connection of connections.value) {
 		// A custom connection's account is its server's address, host first: "mcp.linear.app/mcp".
 		const builtIn = builtInForHost(connection.account.split('/')[0] ?? '');
@@ -205,6 +209,7 @@ export async function takeOverCustomConnections(): Promise<void> {
 		}
 		const moved = await takeOver(connection, builtIn);
 		if (moved.isErr()) {
+			failed += 1;
 			log.warn('Moving a custom MCP connection over failed', {
 				connectionId: connection.id,
 				integrationId: builtIn.integrationId,
@@ -217,4 +222,8 @@ export async function takeOverCustomConnections(): Promise<void> {
 			log.info('Moved a custom MCP connection over', {connectionId: connection.id, integrationId: builtIn.integrationId});
 		}
 	}
+	if (failed > 0) {
+		return Err(ApiErr.internalError(new Error(`Moving ${failed} custom MCP connections over failed`)));
+	}
+	return Ok(undefined);
 }

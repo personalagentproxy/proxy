@@ -1,4 +1,4 @@
-import {AGENT_PROVIDERS, AGENT_NAME_MAX, findAgentProvider} from '@proxy/integrations';
+import {AGENT_PROVIDERS, AGENT_NAME_MAX, findAgentProvider} from '@proxy/utils/agent-providers';
 import type {FetchError} from '@proxy/utils';
 import {useRef, useState, type ReactNode} from 'react';
 import {useLoaderData} from 'react-router';

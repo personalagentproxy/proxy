@@ -1,4 +1,4 @@
-import {findAgentProvider} from '@proxy/integrations';
+import {findAgentProvider} from '@proxy/utils/agent-providers';
 import {cn} from '@proxy/ui/lib/utils';
 import {useState, type ReactNode} from 'react';
 import type {Integration} from '@/lib/integrations';

@@ -4,7 +4,7 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import {findCollection} from '@proxy/integrations';
 
-import {askModel} from '../intent/open-router';
+import {askForJson} from '../llm/open-router';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {env} from '../utils/env';
 import {requireViewer} from '../utils/user-org';
@@ -190,7 +190,7 @@ export function handleAnswerRoute(request: AuthenticatedRequest): Promise<Result
 		const cut = reading.text.length > MAX_CHARS;
 		const text = cut ? reading.text.slice(0, MAX_CHARS) : reading.text;
 		const answer = $(
-			await askModel({
+			await askForJson({
 				key: env.OPENROUTER_KEY,
 				system: instructions(body.collectionId),
 				user: `<${kind}>\n${text}\n</${kind}>\n\n${body.question}`,

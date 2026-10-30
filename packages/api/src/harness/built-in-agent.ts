@@ -4,7 +4,7 @@ import type {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
 import {type AgentRow, ensureSharedAgent} from '@proxy/db/agent';
-import {BUILT_IN_AGENT_PROVIDER} from '@proxy/integrations';
+import {BUILT_IN_AGENT_PROVIDER} from '@proxy/utils/agent-providers';
 
 /**
  * The organization's one built-in agent login, which every persona of the Chat page acts through,

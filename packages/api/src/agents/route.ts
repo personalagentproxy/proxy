@@ -7,7 +7,7 @@ import {getConnectionWithCredential} from '@proxy/db/connection';
 import {deleteOAuthGrant, listAgentOAuthGrants} from '@proxy/db/oauth';
 import {listMemberNames} from '@proxy/db/organization';
 import type {MemberViewer} from '@proxy/db/viewer';
-import {findAgentProvider} from '@proxy/integrations';
+import {findAgentProvider} from '@proxy/utils/agent-providers';
 
 import {refuseUnavailable, unavailableActions} from '../connections/unavailable';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';

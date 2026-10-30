@@ -1,4 +1,4 @@
-import type {AgentProvider} from '@proxy/integrations';
+import type {AgentProvider} from '@proxy/utils/agent-providers';
 import {AgentLogo} from '@/components/brand-logo';
 import {cn} from '@proxy/ui/lib/utils';
 

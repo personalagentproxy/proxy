@@ -3,8 +3,8 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, type Experiment, httpRequest} from '@proxy/utils';
 
+import {askForJson} from '../llm/open-router';
 import {env} from '../utils/env';
-import {askModel} from './open-router';
 import {INCOMPLETE, NO_WIDGET, offeredWidgets, type Widget, type WidgetField} from './widgets';
 
 /**
@@ -140,7 +140,7 @@ async function pickWidget(text: string, widgets: Widget[], key: string): Promise
 function fillWidget(text: string, widget: Widget, key: string): Promise<Result<FilledField[], ApiError>> {
 	return Do(async ($) => {
 		const answer = $(
-			await askModel({
+			await askForJson({
 				key,
 				system: instructions(widget),
 				user: text,

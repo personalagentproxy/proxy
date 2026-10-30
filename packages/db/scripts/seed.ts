@@ -5,14 +5,13 @@ import {createCipheriv, createHash, randomBytes} from 'node:crypto';
 
 import {
 	effectiveActions,
-	EMAIL_PROVIDERS,
 	findIntegration,
 	requiredAction,
-	type AgentProviderId,
 	type Collection,
-	type EmailProvider,
 	VAULT_INTEGRATION_ID,
 } from '@proxy/integrations';
+import type {AgentProviderId} from '@proxy/utils/agent-providers';
+import {EMAIL_PROVIDERS, type EmailProvider} from '@proxy/utils/email-providers';
 
 import {db} from '../src';
 

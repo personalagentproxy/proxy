@@ -1,7 +1,7 @@
 import {DELEGATE_TOOL, SLEEP_TOOL} from '@proxy/utils/harness';
 
+import type {ModelTool} from '../llm/open-router';
 import {MCP_TOOLS, type McpToolDefinition} from '../mcp/tools';
-import type {ModelTool} from './model';
 
 /**
  * The tools the built-in agent has. The agent talking with the person has one: to delegate a

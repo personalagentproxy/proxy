@@ -18,8 +18,8 @@ mock.module('@proxy/db/harness', () => ({getJobThread, listEntries, finishJob, c
 const agentInstructions = mock(async (_agent: unknown, flow: string) => Ok(`You are signed in.\n\n${flow}`));
 mock.module('../mcp/tools', () => ({agentInstructions, MCP_TOOLS: []}));
 
-const askModel = mock();
-mock.module('./model', () => ({askModel}));
+const askForTurn = mock();
+mock.module('../llm/open-router', () => ({askForTurn}));
 
 const delegate = {name: 'delegate', description: 'Delegates', parameters: {}};
 const read = {name: 'read', description: 'Reads', parameters: {}};
@@ -63,7 +63,7 @@ beforeEach(() => {
 	mockEnv.OPENROUTER_KEY = 'sk-test';
 	getJobThread.mockResolvedValue(Ok(thread));
 	listEntries.mockResolvedValue(Ok([entry('person', 'Hi')]));
-	askModel.mockResolvedValue(Ok({text: 'Hello', toolCalls: [], inputTokens: 10, outputTokens: 2}));
+	askForTurn.mockResolvedValue(Ok({text: 'Hello', toolCalls: [], inputTokens: 10, outputTokens: 2}));
 });
 
 describe('runInference', () => {
@@ -76,7 +76,7 @@ describe('runInference', () => {
 			entry('event', 'Three invoices from Dana.', {callId: 'c1'}),
 		];
 		listEntries.mockResolvedValue(Ok(log));
-		askModel.mockResolvedValue(
+		askForTurn.mockResolvedValue(
 			Ok({
 				text: 'Three invoices; I’ll have them filed.',
 				toolCalls: [{id: 'c2', name: 'delegate', arguments: '{"title":"File the invoices","brief":"Save the three invoices from Dana to the vault."}'}],
@@ -91,7 +91,7 @@ describe('runInference', () => {
 		// The agent acts as the member whose conversation it is.
 		expect(getThreadAgent).toHaveBeenCalledWith(thread);
 		expect(agentInstructions).toHaveBeenCalledWith(expect.objectContaining({agentId: 'agent-1', ownerUserId: 'user-1'}), expect.stringContaining('You are talking with the person directly'));
-		const request = askModel.mock.calls[0]?.[0] as {messages: Array<Record<string, unknown>>; tools: unknown[]};
+		const request = askForTurn.mock.calls[0]?.[0] as {messages: Array<Record<string, unknown>>; tools: unknown[]};
 		expect(request.messages[0]).toMatchObject({role: 'system'});
 		expect(String(request.messages[0]?.content)).toContain('The time now is 2026-10-21T10:00:00.000Z');
 		expect(request.messages.slice(1)).toEqual([
@@ -122,7 +122,7 @@ describe('runInference', () => {
 		listEntries.mockResolvedValue(
 			Ok([entry('person', 'Search the mailbox.'), entry('assistant', '', {toolCalls: [{id: 'c1', name: 'read', arguments: '{}'}]}), entry('tool_result', '{"records":[]}', {callId: 'c1'})]),
 		);
-		askModel.mockResolvedValue(
+		askForTurn.mockResolvedValue(
 			Ok({
 				text: '',
 				toolCalls: [
@@ -138,7 +138,7 @@ describe('runInference', () => {
 
 		expect(result.isOk()).toBe(true);
 		expect(agentInstructions).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('You are a sub-agent'));
-		const request = askModel.mock.calls[0]?.[0] as {messages: Array<Record<string, unknown>>; tools: unknown[]};
+		const request = askForTurn.mock.calls[0]?.[0] as {messages: Array<Record<string, unknown>>; tools: unknown[]};
 		expect(request.messages.slice(1)).toEqual([
 			{role: 'user', content: 'Search the mailbox.'},
 			{role: 'assistant', content: null, tool_calls: [{id: 'c1', type: 'function', function: {name: 'read', arguments: '{}'}}]},
@@ -153,7 +153,7 @@ describe('runInference', () => {
 
 	test('a delegation without a title and a brief is not answered as started, so its job answers with the error', async () => {
 		const {runInference} = await import('./inference');
-		askModel.mockResolvedValue(Ok({text: '', toolCalls: [{id: 'c2', name: 'delegate', arguments: '{"title":"Find"}'}], inputTokens: 10, outputTokens: 2}));
+		askForTurn.mockResolvedValue(Ok({text: '', toolCalls: [{id: 'c2', name: 'delegate', arguments: '{"title":"Find"}'}], inputTokens: 10, outputTokens: 2}));
 
 		await runInference(job, 'w1', now);
 
@@ -162,7 +162,7 @@ describe('runInference', () => {
 
 	test('an answer of nothing, no words and no calls, is written as that said, so the person sees something and the log keeps no empty turn', async () => {
 		const {runInference} = await import('./inference');
-		askModel.mockResolvedValue(Ok({text: ' ', toolCalls: [], inputTokens: 10, outputTokens: 0}));
+		askForTurn.mockResolvedValue(Ok({text: ' ', toolCalls: [], inputTokens: 10, outputTokens: 0}));
 
 		await runInference(job, 'w1', now);
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('nothing to say'), toolCalls: [], inputTokens: 10}), {});
@@ -180,7 +180,7 @@ describe('runInference', () => {
 
 	test('a model that refused the request, or turned the key down, fails the job with why, and is not tried again', async () => {
 		const {runInference} = await import('./inference');
-		askModel.mockResolvedValue(Err(ApiErr.unavailable('OpenRouter turned the server’s key down (401): bad key')));
+		askForTurn.mockResolvedValue(Err(ApiErr.unavailable('OpenRouter turned the server’s key down (401): bad key')));
 
 		const result = await runInference(job, 'w1', now);
 
@@ -194,7 +194,7 @@ describe('runInference', () => {
 		getJobThread.mockResolvedValue(Ok({...sub, finishedAt: now}));
 		await runInference({...job, threadId: 'thread-2'}, 'w1', now);
 		expect(finishJob).toHaveBeenCalledWith('job-1', 'w1');
-		expect(askModel).not.toHaveBeenCalled();
+		expect(askForTurn).not.toHaveBeenCalled();
 	});
 
 	test('a thread that is gone ends the job', async () => {
@@ -202,7 +202,7 @@ describe('runInference', () => {
 		getJobThread.mockResolvedValue(Ok(null));
 		await runInference(job, 'w1', now);
 		expect(finishJob).toHaveBeenCalledWith('job-1', 'w1');
-		expect(askModel).not.toHaveBeenCalled();
+		expect(askForTurn).not.toHaveBeenCalled();
 	});
 
 	test('without a key, the person is told the server is not set up', async () => {
@@ -211,13 +211,13 @@ describe('runInference', () => {
 
 		await runInference(job, 'w1', now);
 
-		expect(askModel).not.toHaveBeenCalled();
+		expect(askForTurn).not.toHaveBeenCalled();
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('OPENROUTER_KEY'), toolCalls: []}), {});
 	});
 
 	test('a model that can’t be reached is tried again later, and the person told after the last try', async () => {
 		const {runInference} = await import('./inference');
-		askModel.mockResolvedValue(Err(ApiErr.providerUnreachable(new Error('down'))));
+		askForTurn.mockResolvedValue(Err(ApiErr.providerUnreachable(new Error('down'))));
 
 		await runInference(job, 'w1', now);
 		expect(requeueJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', new Date('2026-10-21T10:00:05Z'), expect.stringContaining('The model could not be reached'));
@@ -243,14 +243,14 @@ describe('runInference', () => {
 		];
 		const summary = entry('summary', 'The person asked for one; it was done.', {coversSeq: long[3]?.seq});
 		listEntries.mockResolvedValueOnce(Ok(long)).mockResolvedValueOnce(Ok([...long, summary]));
-		askModel
+		askForTurn
 			.mockResolvedValueOnce(Ok({text: 'The person asked for one; it was done.', toolCalls: [], inputTokens: 90_000, outputTokens: 300}))
 			.mockResolvedValueOnce(Ok({text: 'Three is done too.', toolCalls: [], inputTokens: 2000, outputTokens: 20}));
 
 		const result = await runInference(job, 'w1', now);
 
 		expect(result.isOk()).toBe(true);
-		const asked = askModel.mock.calls.map((call) => call[0] as {messages: Array<{role: string; content: string | null}>; tools: unknown[]});
+		const asked = askForTurn.mock.calls.map((call) => call[0] as {messages: Array<{role: string; content: string | null}>; tools: unknown[]});
 		// The log to summarize goes as text, calls written out, since turns with calls need the tools sent along.
 		expect(asked[0]?.tools).toEqual([]);
 		expect(asked[0]?.messages[0]).toMatchObject({role: 'system', content: expect.stringContaining('summarizing a conversation')});
@@ -266,7 +266,7 @@ describe('runInference', () => {
 		listEntries.mockResolvedValue(Ok([...alone, entry('tool_result', 'x', {callId: 'none'})]));
 
 		await runInference(job, 'w1', now);
-		expect(askModel).not.toHaveBeenCalled();
+		expect(askForTurn).not.toHaveBeenCalled();
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('30 steps without hearing from you')}), {});
 
 		getJobThread.mockResolvedValue(Ok(sub));
@@ -292,11 +292,11 @@ describe('runInference', () => {
 		const alone = [entry('person', 'Go'), ...Array.from({length: 30}, (_, i) => entry('assistant', `step ${i}`))];
 		const stopped = entry('assistant', 'I have taken 30 steps without hearing from you, so I have stopped. Tell me to go on if you want me to.');
 		listEntries.mockResolvedValue(Ok([...alone, stopped, entry('event', 'Found three rows.', {callId: 'c1'})]));
-		askModel.mockResolvedValue(Ok({text: 'There are three rows.', toolCalls: [], inputTokens: 10, outputTokens: 2}));
+		askForTurn.mockResolvedValue(Ok({text: 'There are three rows.', toolCalls: [], inputTokens: 10, outputTokens: 2}));
 
 		await runInference(job, 'w1', now);
 
-		expect(askModel).toHaveBeenCalledTimes(1);
+		expect(askForTurn).toHaveBeenCalledTimes(1);
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: 'There are three rows.'}), {});
 	});
 });

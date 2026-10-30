@@ -1,6 +1,6 @@
-import {type Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 
-import {type ApiError, Do} from '@proxy/utils';
+import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import {listOldVaultRecords, replaceOldVaultRecord, type OldVaultRecord} from '@proxy/db/vault';
 
 import {log, serializeError} from '../observability/log';
@@ -8,12 +8,12 @@ import type {RecordValues} from './connector';
 import {decryptValues, encryptValues} from './vault-connector';
 
 /**
- * Turning what Information kept into vault entries, every time the api starts, since only the api
- * can read them (the names and access moved in migration `v023_rename_information_to_vault`): an
- * address becomes an Address entry titled by its label, written out a line at a time; a note a
- * Text entry under its title; a payment card is deleted, as the vault keeps none. Each record once,
- * however many servers start at once (`replaceOldVaultRecord`), and tried again on the next start
- * where it failed.
+ * Turning what Information kept into vault entries, as a data migration (`data-migrations/run.ts`),
+ * since only the api can read them (the names and access moved in migration
+ * `v023_rename_information_to_vault`): an address becomes an Address entry titled by its label,
+ * written out a line at a time; a note a Text entry under its title; a payment card is deleted, as
+ * the vault keeps none. Each record once, however many servers start at once
+ * (`replaceOldVaultRecord`), and tried again on the next start where any failed.
  */
 
 /** What an old record becomes: an entry's values, or null to delete it. Exported for its tests. */
@@ -40,17 +40,22 @@ function convert(record: OldVaultRecord): Promise<Result<boolean, ApiError>> {
 	});
 }
 
-/** Converts every record from before the vault, logging each. */
-export async function convertOldVaultRecords(): Promise<void> {
+/**
+ * Converts every record from before the vault, logging each; an error when listing them or
+ * converting any failed, so the data migration is tried again on the next start.
+ */
+export async function convertOldVaultRecords(): Promise<Result<void, ApiError>> {
 	const records = await listOldVaultRecords();
 	if (records.isErr()) {
 		log.error('Listing records to turn into vault entries failed', 'cause' in records.error ? serializeError(records.error.cause) : {kind: records.error.kind});
-		return;
+		return Err(records.error);
 	}
 
+	let failed = 0;
 	for (const record of records.value) {
 		const converted = await convert(record);
 		if (converted.isErr()) {
+			failed += 1;
 			log.warn('Turning a record into a vault entry failed', {
 				recordId: record.id,
 				collectionId: record.collectionId,
@@ -63,4 +68,8 @@ export async function convertOldVaultRecords(): Promise<void> {
 			log.info('Turned a record into a vault entry', {recordId: record.id, collectionId: record.collectionId});
 		}
 	}
+	if (failed > 0) {
+		return Err(ApiErr.internalError(new Error(`Turning ${failed} records into vault entries failed`)));
+	}
+	return Ok(undefined);
 }

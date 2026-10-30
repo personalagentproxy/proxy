@@ -1,6 +1,6 @@
 import {PlusIcon} from 'lucide-react';
 import {Link, useLoaderData} from 'react-router';
-import {findAgentProvider} from '@proxy/integrations';
+import {findAgentProvider} from '@proxy/utils/agent-providers';
 import {AgentLogo} from '@/components/brand-logo';
 import {Badge} from '@proxy/ui/components/badge';
 import {AppShell, PageTitle} from '@/components/app-shell';

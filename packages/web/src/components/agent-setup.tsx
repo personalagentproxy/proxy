@@ -5,7 +5,7 @@ import {
 	loginProviderIdFor,
 	type AgentProvider,
 	type AgentProviderId,
-} from '@proxy/integrations';
+} from '@proxy/utils/agent-providers';
 import {CheckIcon, LoaderCircleIcon} from 'lucide-react';
 import {useEffect, useState, type FormEvent, type ReactNode} from 'react';
 import {useRevalidator, useSearchParams} from 'react-router';

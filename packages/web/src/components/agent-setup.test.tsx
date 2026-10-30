@@ -5,7 +5,7 @@ import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {AddAgent, AgentSetup} from '@/components/agent-setup';
-import type {AgentProviderId} from '@proxy/integrations';
+import type {AgentProviderId} from '@proxy/utils/agent-providers';
 import {pendingAgent} from '@/lib/pending-agent';
 import type {AgentLogin} from '@/lib/types';
 

@@ -5,7 +5,9 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
+		"./agent-providers": "./src/agent-providers.ts",
 		"./days": "./src/days.ts",
+		"./email-providers": "./src/email-providers.ts",
 		"./harness": "./src/harness.ts",
 		"./tasks": "./src/tasks.ts",
 		"./units": "./src/units.ts",

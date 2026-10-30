@@ -1,4 +1,4 @@
-import type {AgentProviderId} from '@proxy/integrations';
+import type {AgentProviderId} from '@proxy/utils/agent-providers';
 import {z} from 'zod';
 import {
 	activityTaskSchema,

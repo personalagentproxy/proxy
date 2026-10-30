@@ -8,9 +8,11 @@ import {PARALLEL_MCP} from './parallel/route';
 
 /**
  * Every integration built on its provider's MCP server (`mcp/built-in.ts`). Adding one here gives
- * it its sign-in routes (`create-api-router.ts`), has the custom MCP form sign in to it when given
- * its server's address, and moves custom connections to its server over when the api starts. Its
- * catalog entry says it is signed in to (`signIn`), for the web app.
+ * it its sign-in routes (`create-api-router.ts`) and has the custom MCP form sign in to it when
+ * given its server's address. Custom connections to its server already made are moved over only by
+ * the data migration `take-over-custom-connections` (`data-migrations/run.ts`), once per instance:
+ * one added after an instance ran it needs a data migration of its own for that. Its catalog entry
+ * says it is signed in to (`signIn`), for the web app.
  */
 export const BUILT_IN_MCP: BuiltInMcp[] = [GRANOLA_MCP, NOTION_MCP, LINEAR_MCP, CLOUDFLARE_MCP, EXA_MCP, PARALLEL_MCP];
 

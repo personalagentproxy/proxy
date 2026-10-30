@@ -1,4 +1,5 @@
-import type {EmailProvider, IntegrationId, MailServers} from '@proxy/integrations';
+import type {IntegrationId} from '@proxy/integrations';
+import type {EmailProvider, MailServers} from '@proxy/utils/email-providers';
 import {z} from 'zod';
 import {connectionSchema} from '@/client/schemas';
 import {apiRequest, apiSend, orgApi} from '@/client/request';

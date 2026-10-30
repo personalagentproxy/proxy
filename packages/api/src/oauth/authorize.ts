@@ -7,7 +7,7 @@ import {getAgent} from '@proxy/db/agent';
 import type {MemberViewer} from '@proxy/db/viewer';
 import {getMemberOrganization} from '@proxy/db/organization';
 import {createOAuthCode, getOAuthClient, type OAuthClientRow} from '@proxy/db/oauth';
-import {suggestAgentProvider} from '@proxy/integrations';
+import {suggestAgentProvider} from '@proxy/utils/agent-providers';
 
 import {createAgentLogin} from '../agents/create-agent-login';
 import {hashToken, queryParam} from '../auth/session';

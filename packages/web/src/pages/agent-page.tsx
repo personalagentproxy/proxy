@@ -1,4 +1,4 @@
-import {AGENT_NAME_MAX, findAgentProvider} from '@proxy/integrations';
+import {AGENT_NAME_MAX, findAgentProvider} from '@proxy/utils/agent-providers';
 import type {FetchError} from '@proxy/utils';
 import {
 	BanIcon,

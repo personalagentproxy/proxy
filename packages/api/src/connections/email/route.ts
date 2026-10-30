@@ -3,7 +3,7 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {createConnection, listConnections} from '@proxy/db/connection';
-import {EMAIL_PROVIDERS, type EmailProvider, type MailServers} from '@proxy/integrations';
+import {EMAIL_PROVIDERS, type EmailProvider, type MailServers} from '@proxy/utils/email-providers';
 
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {encryptSecret} from '../../utils/secret-crypto';

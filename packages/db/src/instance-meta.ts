@@ -20,3 +20,26 @@ export async function getOrCreateInstanceMetaValue(
 		)
 	).map((row) => row.value);
 }
+
+export async function hasInstanceMetaKey(key: string): Promise<Result<boolean, ApiError>> {
+	return (await wrapDb(() => db.instanceMeta.findUnique({where: {key}, select: {key: true}}))).map(
+		(row) => row !== null,
+	);
+}
+
+/** Overwrites the value when the key already exists. */
+export async function setInstanceMetaValue(
+	key: string,
+	value: string,
+): Promise<Result<void, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.instanceMeta.upsert({
+				where: {key},
+				create: {key, value},
+				update: {value},
+				select: {key: true},
+			}),
+		)
+	).map(() => undefined);
+}

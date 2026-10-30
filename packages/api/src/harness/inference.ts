@@ -17,11 +17,11 @@ import {
 	type ThreadRow,
 } from '@proxy/db/harness';
 
+import {askForTurn, type ModelTurn} from '../llm/open-router';
 import {agentInstructions} from '../mcp/tools';
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
 import {compactionCut, toMessages, toTranscript} from './context';
-import {askModel, type ModelTurn} from './model';
 import {toolsFor} from './tool-surface';
 
 /**
@@ -157,7 +157,7 @@ function compact(job: JobRow, workerId: string, entries: EntryRow[], key: string
 			return entries;
 		}
 		const summary = $(
-			await askModel({
+			await askForTurn({
 				key,
 				messages: [
 					{role: 'system', content: SUMMARIZE},
@@ -183,7 +183,7 @@ function askOnLog(job: JobRow, workerId: string, thread: ThreadRow, entries: Ent
 		const current = $(await compact(job, workerId, entries, key));
 		const system = $(await systemPrompt(thread, now));
 		const turn = $(
-			await askModel({key, messages: [{role: 'system', content: system}, ...toMessages(current, {clearOld: true})], tools: toolsFor(thread), maxTokens: MAX_TOKENS, timeoutMs: TIMEOUT_MS}),
+			await askForTurn({key, messages: [{role: 'system', content: system}, ...toMessages(current, {clearOld: true})], tools: toolsFor(thread), maxTokens: MAX_TOKENS, timeoutMs: TIMEOUT_MS}),
 		);
 		return {turn, system};
 	});

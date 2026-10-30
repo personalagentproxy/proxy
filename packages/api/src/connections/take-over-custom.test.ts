@@ -278,7 +278,7 @@ describe('takeOverCustomConnections', () => {
 			{id: 'e-2', action: 'agent_run', query: null},
 		];
 
-		await takeOverCustomConnections();
+		expect((await takeOverCustomConnections()).isOk()).toBe(true);
 
 		// Whether a keyless server's connection stays custom is told from its credential as locked.
 		expect(takeOverConnection.mock.calls.map((call) => call[0])).toEqual(['mcp-exa', 'mcp-parallel', 'mcp-keyless']);
@@ -350,7 +350,8 @@ describe('takeOverCustomConnections', () => {
 	test('Notion out of reach after a refresh leaves the connection to the next start, the new refresh token kept', async () => {
 		listed(customRow('mcp-notion', 'mcp.notion.com/mcp', {...NOTION_SIGN_IN, expiresAt: EXPIRED, refreshToken: 'refresh-down'}, ['notion-search'], []));
 
-		await takeOverCustomConnections();
+		// Left unrecorded, so the data migration is tried again on the next start.
+		expect((await takeOverCustomConnections()).isErr()).toBe(true);
 
 		expect(moves).toEqual([]);
 		expect(read(kept[0]?.credential)).toMatchObject({auth: 'oauth', accessToken: 'down-2', refreshToken: 'refresh-3'});
@@ -359,7 +360,8 @@ describe('takeOverCustomConnections', () => {
 	test("a credential that can't be read is left as it is, for the next start", async () => {
 		listed({...customRow('mcp-linear', 'mcp.linear.app/mcp', {}, ['list_issues'], []), credential: 'enc:not json'});
 
-		await takeOverCustomConnections();
+		// Left unrecorded, so the data migration is tried again on the next start.
+		expect((await takeOverCustomConnections()).isErr()).toBe(true);
 
 		expect(takeOverConnection).toHaveBeenCalledTimes(1);
 		expect(moves).toEqual([]);

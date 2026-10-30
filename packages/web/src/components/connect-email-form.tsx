@@ -1,4 +1,4 @@
-import {EMAIL_PROVIDERS, type EmailProvider} from '@proxy/integrations';
+import {EMAIL_PROVIDERS, type EmailProvider} from '@proxy/utils/email-providers';
 import type {FetchError} from '@proxy/utils';
 import {useState, type ReactNode} from 'react';
 import {connectEmail, testEmail, type ConnectEmailInput} from '@/client/connections-client';

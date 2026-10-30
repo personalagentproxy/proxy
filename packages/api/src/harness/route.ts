@@ -20,7 +20,7 @@ import {
 	type ThreadRow,
 	updatePersona,
 } from '@proxy/db/harness';
-import {AGENT_NAME_MAX} from '@proxy/integrations';
+import {AGENT_NAME_MAX} from '@proxy/utils/agent-providers';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {manages} from '../utils/manages';
