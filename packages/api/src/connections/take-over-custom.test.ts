@@ -369,11 +369,11 @@ describe('takeOverCustomConnections', () => {
 		expect(read(kept[0]?.credential)).toMatchObject({auth: 'oauth', accessToken: 'down-2', refreshToken: 'refresh-3'});
 	});
 
-	test("a credential that can't be read is left as it is, for the next start", async () => {
+	test("a credential that can't be read stays custom, and doesn't hold the migration open for the next start", async () => {
 		listed({...customRow('mcp-linear', 'mcp.linear.app/mcp', {}, ['list_issues'], []), credential: 'enc:not json'});
 
-		// Left unrecorded, so the data migration is tried again on the next start.
-		expect((await takeOverCustomConnections()).isErr()).toBe(true);
+		// Nothing the next start could do differently, so the data migration is noted as done.
+		expect((await takeOverCustomConnections()).isOk()).toBe(true);
 
 		expect(takeOverConnection).toHaveBeenCalledTimes(1);
 		expect(moves).toEqual([]);

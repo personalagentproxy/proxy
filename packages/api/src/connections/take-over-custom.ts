@@ -5,6 +5,7 @@ import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {listCustomMcpConnections, takeOverConnection, type CustomMcpConnectionRow, type LockedCustomMcpConnection, type MovedConnection, type MovedRun} from '@proxy/db/connection';
 import {findIntegration, TOOLS_COLLECTION_ID} from '@proxy/integrations';
 
+import {worthRetrying} from '../data-migrations/retry';
 import {log, serializeError} from '../observability/log';
 import {encryptSecret} from '../utils/secret-crypto';
 import {readStoredJson} from '../utils/stored-json';
@@ -166,8 +167,8 @@ export function takeOver(connection: CustomMcpConnectionRow, builtIn: BuiltInMcp
 		// both refresh its tokens, and a request that refreshed them meanwhile isn't undone. It asks
 		// nothing of the database, which the lock holds a connection of, but keeps refreshed tokens on
 		// the custom connection as it was, so a failed move loses none. A credential that can't be
-		// read, as after a change of `ENCRYPTION_KEY`, is an error, the connection left as it is until
-		// it can be.
+		// read, as after a change of `ENCRYPTION_KEY`, is an error, the connection left custom, which
+		// it works as still.
 		const move = (locked: LockedCustomMcpConnection, keepCredential: (credential: string) => Promise<Result<void, ApiError>>) =>
 			Do<MovedConnection | null, ApiError>(async ($$) => {
 				const custom = locked.credential === null ? null : $$(readStoredJson(locked.credential, customCredentialSchema));
@@ -192,7 +193,8 @@ export function takeOver(connection: CustomMcpConnectionRow, builtIn: BuiltInMcp
 
 /**
  * Moves every custom MCP connection an integration takes over, logging each; an error when listing
- * them or moving any failed, so the data migration is tried again on the next start.
+ * them failed, or moving any did for a reason the next start might not meet (`worthRetrying`), so
+ * the data migration is tried again then. One that can't be moved over stays custom, logged.
  */
 export async function takeOverCustomConnections(): Promise<Result<void, ApiError>> {
 	const connections = await listCustomMcpConnections();
@@ -209,13 +211,18 @@ export async function takeOverCustomConnections(): Promise<Result<void, ApiError
 		}
 		const moved = await takeOver(connection, builtIn);
 		if (moved.isErr()) {
-			failed += 1;
-			log.warn('Moving a custom MCP connection over failed', {
+			const details = {
 				connectionId: connection.id,
 				integrationId: builtIn.integrationId,
 				kind: moved.error.kind,
 				...('cause' in moved.error ? serializeError(moved.error.cause) : {}),
-			});
+			};
+			if (!worthRetrying(moved.error)) {
+				log.error('A custom MCP connection can’t be moved over, and stays custom', details);
+				continue;
+			}
+			failed += 1;
+			log.warn('Moving a custom MCP connection over failed, to be tried again on the next start', details);
 			continue;
 		}
 		if (moved.value) {

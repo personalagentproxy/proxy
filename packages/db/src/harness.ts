@@ -125,7 +125,8 @@ export type SubAgentStart = {
 	callId: string;
 	title: string;
 	task: NewAgentTask & {parentId: null};
-	entries: NewEntry[];
+	/** The first entries of its log, which wake it: at least one, so it is run at all. */
+	entries: [NewEntry, ...NewEntry[]];
 };
 
 /** What follows the model's answer: a job for each of its calls, as planned, or, a sub-agent's report, the end of its work. */

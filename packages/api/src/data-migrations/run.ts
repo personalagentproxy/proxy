@@ -11,7 +11,8 @@ import {convertOldVaultRecords} from '../records/vault-entries';
  * Changes to the data that only the api can make, as reading a credential takes its key, run once
  * per instance after it starts listening rather than on every start. One that finishes is noted in
  * `InstanceMeta` under its id, with when; one that fails is logged and left unnoted, so the next
- * start tries it again. Each has to be safe to run twice, as two servers starting at once both do.
+ * start tries it again, for what might go through then alone (`retry.ts`). Each has to be safe to
+ * run twice, as two servers starting at once both do.
  *
  * Once hosted and self-hosted instances have all started past one, its entry here and the code it
  * calls can be deleted.

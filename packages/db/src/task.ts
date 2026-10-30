@@ -217,7 +217,14 @@ export async function finishAgentTask(
 			const finishedAt = new Date();
 			const open = await touchLine(tx, {orgId, agentId, taskId}, finishedAt);
 			if (open) {
-				await tx.agentTask.update({where: {id: taskId}, data: {finishedAt, outcome}});
+				// Selecting something, as every read of a task does: left to itself, Prisma returns every
+				// column of its model, which fails on a column a migration drops while an instance of the
+				// version before still runs (schema.prisma, AgentTask.lastStartedAt).
+				await tx.agentTask.update({
+					where: {id: taskId},
+					data: {finishedAt, outcome},
+					select: {id: true},
+				});
 				const leftOpenBefore = new Date(finishedAt.getTime() - TASK_LEFT_OPEN_AFTER_MS);
 				await finishSubTasks(tx, {orgId, agentId, finishedAt, leftOpenBefore}, [taskId]);
 			}

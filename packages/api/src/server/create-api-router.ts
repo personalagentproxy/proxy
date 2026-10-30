@@ -278,7 +278,6 @@ function mountConnectRoutes(router: express.Router, org: express.Router, {id, co
 	}
 
 	const {handleConnect, handleCallback} = connect.routes();
-	const name = `${connect.name.charAt(0).toUpperCase()}${connect.name.slice(1)}`;
 	org.post(`/connections/${id}`, withAuth(`Connect ${connect.name} route`, handleConnect));
-	router.get(`/api/connections/${id}/callback`, withAuth(`${name} sign-in callback route`, handleCallback));
+	router.get(`/api/connections/${id}/callback`, withAuth(`Connect ${connect.name} callback route`, handleCallback));
 }

@@ -83,11 +83,16 @@ describe('contracts', () => {
 	test('intent lists every widget once, each field once within it, and answers only their ids', () => {
 		const ids = intent.WIDGETS.map((widget) => widget.id);
 		expect(new Set(ids).size).toBe(ids.length);
-		expect(intent.WIDGET_IDS).toEqual(ids);
+		expect([...intent.WIDGET_IDS]).toEqual(ids);
 		for (const widget of intent.WIDGETS) {
 			const fields = widget.fields.map((field) => field.id);
 			expect(new Set(fields).size).toBe(fields.length);
 		}
+		expect([...intent.FIELD_IDS].sort()).toEqual(
+			[
+				...new Set(intent.WIDGETS.flatMap((widget) => widget.fields.map((field) => field.id))),
+			].sort(),
+		);
 		expect(ids).not.toContain(intent.NO_WIDGET);
 		expect(ids).not.toContain(intent.INCOMPLETE);
 		const answers: Array<intent.Picked['widget']> = [...ids, intent.NO_WIDGET, intent.INCOMPLETE];

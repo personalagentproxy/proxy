@@ -351,13 +351,63 @@ export type Widget = WidgetOf<WidgetId, FieldId>;
 
 export const WIDGETS: readonly Widget[] = LIST;
 
+// The ids written out rather than read from the widgets, so that the web app, which answers by
+// them alone, takes none of what the widgets tell the model into the browser. `contracts.test.ts`
+// checks each list against the widgets.
+
 /** Every widget's id. */
-export const WIDGET_IDS: readonly WidgetId[] = WIDGETS.map((widget) => widget.id);
+export const WIDGET_IDS = [
+	'new_event',
+	'change_event',
+	'show_calendar',
+	'find_person',
+	'write_email',
+	'reply_email',
+	'find_email',
+	'find_file',
+	'ask',
+	'calculate',
+	'convert_units',
+	'show_balances',
+	'find_transactions',
+] as const satisfies readonly WidgetId[];
 
 /** Every field's id, of any widget, each once. */
-export const FIELD_IDS: readonly FieldId[] = [
-	...new Set(WIDGETS.flatMap((widget) => widget.fields.map((field) => field.id))),
-];
+export const FIELD_IDS = [
+	'attendees',
+	'location',
+	'title',
+	'changeWith',
+	'changeEvent',
+	'changeFrom',
+	'changeTo',
+	'invite',
+	'uninvite',
+	'newTitle',
+	'newLocation',
+	'meetingWith',
+	'eventName',
+	'person',
+	'to',
+	'subject',
+	'body',
+	'from',
+	'about',
+	'name',
+	'owner',
+	'askIn',
+	'askWith',
+	'askAbout',
+	'expression',
+	'amount',
+	'fromUnit',
+	'toUnit',
+	'balanceAccount',
+	'merchant',
+	'category',
+	'flow',
+	'transactionAccount',
+] as const satisfies readonly FieldId[];
 
 /** The widgets offered to an organization: every one not behind an experiment, and those behind one it has on. */
 export function offeredWidgets(holder: {experiments: Experiment[]}): Widget[] {

@@ -46,5 +46,9 @@ export function apiIntegrations(): ApiIntegration[] {
 
 /** An integration's module, by its id; none for an id the catalog lacks. */
 export function apiIntegration(integrationId: string): ApiIntegration | undefined {
-	return apiIntegrations().find((integration) => integration.id === integrationId);
+	const all = modules();
+	if (!Object.hasOwn(all, integrationId)) {
+		return undefined;
+	}
+	return all[integrationId as IntegrationId];
 }
