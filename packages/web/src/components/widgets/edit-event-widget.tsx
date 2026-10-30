@@ -10,7 +10,7 @@ import {Avatar, DetailRow, Missing, WidgetFrame} from '@/components/widgets/widg
 import {WidgetSelect} from '@/components/widgets/widget-select';
 import {WriteResult} from '@/components/widgets/write-result';
 import {dayAround, eventKey, searchFrom} from '@/lib/calendar-day';
-import {useAgenda, useEvents, usePeople} from '@/lib/widget-lookups';
+import {useAgenda, useEvents, usePeople} from '@/hooks/widget-lookups';
 import {
 	dayAsked,
 	eventSearches,
@@ -21,8 +21,9 @@ import {
 	movedTime,
 	namesIn,
 } from '@/lib/widget-values';
-import {useSuggested} from '@/lib/use-suggested';
-import {useWriteStatus, writeErrorMessage} from '@/lib/write-status';
+import {useSuggested} from '@/hooks/use-suggested';
+import {useWriteStatus} from '@/hooks/use-write-status';
+import {writeErrorMessage} from '@/lib/write-status';
 import {useOrgSlug} from '@/hooks/use-org';
 
 const TIME = new Intl.DateTimeFormat(undefined, {hour: 'numeric', minute: '2-digit'});

@@ -4,7 +4,7 @@ import * as React from 'react';
 import {mergeProps} from '@base-ui/react/merge-props';
 import {useRender} from '@base-ui/react/use-render';
 import {cva, type VariantProps} from 'class-variance-authority';
-import {cn} from 'cn';
+import {cn} from '@proxy/ui/lib/utils';
 
 import {useIsMobile} from '@proxy/ui/hooks/use-mobile';
 import {Button} from '@proxy/ui/components/button';

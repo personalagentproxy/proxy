@@ -8,7 +8,8 @@ import {
 	shouldRevalidateAgentTask,
 } from '@/agent-loaders';
 import {getSignInMethods, type SignInMethods} from '@/client/auth-client';
-import {getMe, isNotFoundError} from '@/client/me-client';
+import {getMe} from '@/client/me-client';
+import {isNotFoundError} from '@/client/request';
 import {getOrg, listOrgs, type Org} from '@/client/orgs-client';
 import {HumanSide} from '@/components/human-side';
 import {RouteError} from '@/components/route-error';

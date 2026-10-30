@@ -10,10 +10,11 @@ import {ConnectWidget} from '@/components/widgets/connect-widget';
 import {Missing, WidgetFrame} from '@/components/widgets/widget-frame';
 import {WidgetSelect} from '@/components/widgets/widget-select';
 import {WriteResult} from '@/components/widgets/write-result';
-import {useSuggested} from '@/lib/use-suggested';
-import {useMailboxes, usePeople} from '@/lib/widget-lookups';
+import {useSuggested} from '@/hooks/use-suggested';
+import {useMailboxes, usePeople} from '@/hooks/widget-lookups';
 import {aboutPhrase, bestMatch, fieldTexts, isAddress, namesIn} from '@/lib/widget-values';
-import {useWriteStatus, writeErrorMessage} from '@/lib/write-status';
+import {useWriteStatus} from '@/hooks/use-write-status';
+import {writeErrorMessage} from '@/lib/write-status';
 import {useOrgSlug} from '@/hooks/use-org';
 
 // Write email: the recipients found among the contacts, the subject, and a body to write, sent

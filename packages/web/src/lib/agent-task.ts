@@ -1,5 +1,4 @@
 import type {FetchError} from '@proxy/utils';
-import {useParams} from 'react-router';
 
 // The task the pages are on is in their address, `/agent/<task>/<connection>/<collection>/…`, as
 // the MCP server's calls carry `task`: every run a page makes is for it, so the activity log says
@@ -17,11 +16,6 @@ export function taskHome(taskId: string): string {
 /** Where an agent is sent when the api refused its task: its tasks, saying which was refused. */
 export function taskRefusedPath(taskId: string): string {
 	return `${TASKS_PATH}?${new URLSearchParams({refused: taskId})}`;
-}
-
-/** The task the page is on, from its address; empty on a page that isn't any task's. */
-export function useTaskId(): string {
-	return useParams().taskId ?? '';
 }
 
 /**

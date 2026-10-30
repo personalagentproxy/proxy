@@ -15,7 +15,7 @@ import {
 	totalsOf,
 	type Total,
 } from '@/lib/bank-values';
-import {useTransactions} from '@/lib/widget-lookups';
+import {useTransactions} from '@/hooks/widget-lookups';
 import {fieldTexts, shortDay} from '@/lib/widget-values';
 
 // What the widget lists at most.

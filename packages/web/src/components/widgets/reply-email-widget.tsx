@@ -9,8 +9,8 @@ import {ConnectWidget} from '@/components/widgets/connect-widget';
 import {WidgetFrame} from '@/components/widgets/widget-frame';
 import {WidgetSelect} from '@/components/widgets/widget-select';
 import {WriteResult} from '@/components/widgets/write-result';
-import {useSuggested} from '@/lib/use-suggested';
-import {useEmail, useEmails, useMailboxes} from '@/lib/widget-lookups';
+import {useSuggested} from '@/hooks/use-suggested';
+import {useEmail, useEmails, useMailboxes} from '@/hooks/widget-lookups';
 import {
 	emailQuery,
 	emailQueryRead,
@@ -19,7 +19,8 @@ import {
 	senderName,
 	shortDay,
 } from '@/lib/widget-values';
-import {useWriteStatus, writeErrorMessage} from '@/lib/write-status';
+import {useWriteStatus} from '@/hooks/use-write-status';
+import {writeErrorMessage} from '@/lib/write-status';
 import {useOrgSlug} from '@/hooks/use-org';
 
 const NAME = 'Reply to email';

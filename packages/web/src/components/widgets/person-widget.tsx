@@ -14,7 +14,7 @@ import type {Intent} from '@/client/intent-client';
 import {buttonVariants} from '@proxy/ui/components/button';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
 import {Avatar, DetailRow, Missing, WidgetFrame} from '@/components/widgets/widget-frame';
-import {usePeople} from '@/lib/widget-lookups';
+import {usePeople} from '@/hooks/widget-lookups';
 import {fieldTexts, matchesFor, personKey} from '@/lib/widget-values';
 
 // Person: who someone is and how to reach them, found by the name as written in every contact

@@ -17,7 +17,7 @@ import {
 	useFiles,
 	useMeetings,
 	useRecords,
-} from '@/lib/widget-lookups';
+} from '@/hooks/widget-lookups';
 import {askSearch, senderName, shortDay, type AskIn, type AskSearch} from '@/lib/widget-values';
 
 // A meeting, file, email, page or issue Ask can read, from any of its searches.

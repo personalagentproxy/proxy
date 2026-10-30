@@ -1,15 +1,19 @@
 import type {FetchError} from '@proxy/utils';
 import {data, redirect} from 'react-router';
 import type {Result} from 'ts-results-es';
-import {isNotFoundError, isUnauthenticatedError} from '@/client/me-client';
+import {isNotFoundError, isUnauthenticatedError} from '@/client/request';
 import {apiMessage} from '@/lib/agent-errors';
 
-export function unwrapLoaderResult<T>(result: Result<T, FetchError>): T {
+/**
+ * A loader's answer, or the response its failure stands for: a 401 sends to `signIn` (by default
+ * the person's sign-in, back to where they were), a 404 renders not-found, anything else an error.
+ */
+export function unwrapLoaderResult<T>(result: Result<T, FetchError>, signIn?: string): T {
 	if (result.isOk()) {
 		return result.value;
 	}
 
-	throw fetchErrorToResponse(result.error);
+	throw fetchErrorToResponse(result.error, signIn);
 }
 
 // A detail page's record: null when its id points at nothing, so the page says so in its own frame.
@@ -31,9 +35,9 @@ function buildLoginRedirect(): string {
 	return `/login?callbackUrl=${encodeURIComponent(returnTo)}`;
 }
 
-export function fetchErrorToResponse(error: FetchError): never {
+function fetchErrorToResponse(error: FetchError, signIn: string | undefined): never {
 	if (isUnauthenticatedError(error)) {
-		throw redirect(buildLoginRedirect());
+		throw redirect(signIn ?? buildLoginRedirect());
 	}
 
 	if (isNotFoundError(error)) {

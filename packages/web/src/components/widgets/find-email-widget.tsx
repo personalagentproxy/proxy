@@ -2,7 +2,7 @@ import {InboxIcon} from 'lucide-react';
 import type {Intent} from '@/client/intent-client';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
 import {Missing, WidgetFrame} from '@/components/widgets/widget-frame';
-import {useEmails} from '@/lib/widget-lookups';
+import {useEmails} from '@/hooks/widget-lookups';
 import {emailQuery, emailQueryRead, senderName, shortDay} from '@/lib/widget-values';
 
 // Find email: what it searches for, from the sender, the topic and the day it goes back to, and

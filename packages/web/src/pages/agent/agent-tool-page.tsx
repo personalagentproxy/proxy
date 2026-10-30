@@ -16,7 +16,8 @@ import {
 import {Textarea} from '@proxy/ui/components/textarea';
 import {useAgentMe} from '@/hooks/use-agent-target';
 import {agentErrorMessage} from '@/lib/agent-errors';
-import {taskHome, useTaskId} from '@/lib/agent-task';
+import {useTaskId} from '@/hooks/use-task-id';
+import {taskHome} from '@/lib/agent-task';
 import {AgentMissing} from '@/pages/agent/agent-collection-page';
 
 // What a property's input is, from its JSON Schema: a choice, a number, yes or no, text, or JSON

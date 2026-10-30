@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import {cva, type VariantProps} from 'class-variance-authority';
-import {cn} from 'cn';
+import {cn} from '@proxy/ui/lib/utils';
 
 import {Button} from '@proxy/ui/components/button';
 import {Textarea} from '@proxy/ui/components/textarea';

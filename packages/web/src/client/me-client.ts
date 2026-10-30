@@ -1,6 +1,5 @@
-import {httpRequest, type FetchError} from '@proxy/utils';
 import {z} from 'zod';
-import {apiSend} from '@/client/request';
+import {apiRequest, apiSend} from '@/client/request';
 
 const meSchema = z.object({
 	user: z.object({
@@ -13,19 +12,9 @@ const meSchema = z.object({
 
 export type Me = z.infer<typeof meSchema>;
 
-/** True when the api rejected the session — the client should send the user to /login. */
-export function isUnauthenticatedError(error: FetchError): boolean {
-	return error.kind === 'http' && error.status === 401;
-}
-
-/** True when the resource is not there, or not the caller's to see — render not-found. */
-export function isNotFoundError(error: FetchError): boolean {
-	return error.kind === 'http' && error.status === 404;
-}
-
 /** Who is signed in (`GET /api/me`). A 401 means "redirect to /login". The organizations they are in are `listOrgs`. */
 export function getMe() {
-	return httpRequest('/api/me', {method: 'GET'}, {schema: meSchema});
+	return apiRequest('GET', '/api/me', meSchema);
 }
 
 /**

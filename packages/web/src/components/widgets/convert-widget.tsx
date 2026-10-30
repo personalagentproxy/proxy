@@ -4,7 +4,7 @@ import type {Intent} from '@/client/intent-client';
 import {CopyButton} from '@/components/copy-button';
 import {Missing, WidgetFrame} from '@/components/widgets/widget-frame';
 import {formatNumber} from '@/lib/calculate';
-import {useRates} from '@/lib/widget-lookups';
+import {useRates} from '@/hooks/widget-lookups';
 import {fieldTexts} from '@/lib/widget-values';
 
 // The other units of a kind shown under the answer, at most, and the amounts they read well at:

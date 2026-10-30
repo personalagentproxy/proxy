@@ -5,7 +5,7 @@ import {
 	MessageScroller as MessageScrollerPrimitive,
 	useMessageScrollerScrollable,
 } from '@shadcn/react/message-scroller';
-import {cn} from 'cn';
+import {cn} from '@proxy/ui/lib/utils';
 
 import {Button} from '@proxy/ui/components/button';
 import {ArrowDownIcon} from 'lucide-react';

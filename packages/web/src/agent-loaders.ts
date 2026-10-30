@@ -10,24 +10,16 @@ import {
 	runAgentRecordTool,
 } from '@/client/agent-client';
 import type {DataRecord} from '@/lib/types';
-import {isNotFoundError, isUnauthenticatedError} from '@/client/me-client';
+import {isNotFoundError} from '@/client/request';
 import {isTaskRefusal, taskRefusedPath} from '@/lib/agent-task';
-import {fetchErrorToResponse} from '@/lib/loader-utils';
+import {unwrapLoaderResult} from '@/lib/loader-utils';
 
 // The agent side's pages. Every records request is made for the task in the page's address,
 // checked and logged by the api; a page shows what came back, a refusal included. A task the api
 // refuses, unknown or finished, sends the agent back to its tasks.
 
 // No live session, a revoked login included, sends the agent to its sign-in.
-function unwrapAgentResult<T>(result: Result<T, FetchError>): T {
-	if (result.isOk()) {
-		return result.value;
-	}
-	if (isUnauthenticatedError(result.error)) {
-		throw redirect('/agent/login');
-	}
-	throw fetchErrorToResponse(result.error);
-}
+const AGENT_LOGIN = '/agent/login';
 
 export type Outcome<T> = {kind: 'ok'; value: T} | {kind: 'denied'} | {kind: 'missing'};
 
@@ -43,16 +35,16 @@ function toOutcome<T>(taskId: string, result: Result<T, FetchError>): Outcome<T>
 	if (result.isErr() && isNotFoundError(result.error)) {
 		return {kind: 'missing'};
 	}
-	return {kind: 'ok', value: unwrapAgentResult(result)};
+	return {kind: 'ok', value: unwrapLoaderResult(result, AGENT_LOGIN)};
 }
 
 export async function agentSideLoader() {
-	return unwrapAgentResult(await getAgentMe());
+	return unwrapLoaderResult(await getAgentMe(), AGENT_LOGIN);
 }
 
 // The task list: the agent's tasks under way, to open or finish.
 export async function agentTasksLoader() {
-	return unwrapAgentResult(await listAgentTasks());
+	return unwrapLoaderResult(await listAgentTasks(), AGENT_LOGIN);
 }
 
 type Params = {taskId?: string; connectionId?: string; collectionId?: string; recordId?: string};
@@ -64,7 +56,7 @@ export async function agentTaskLoader({params}: {params: Params}) {
 	if (result.isErr() && isTaskRefusal(result.error)) {
 		throw redirect(taskRefusedPath(taskId));
 	}
-	return unwrapAgentResult(result);
+	return unwrapLoaderResult(result, AGENT_LOGIN);
 }
 
 // The task is read again only when the address names another; its pages read the rest.

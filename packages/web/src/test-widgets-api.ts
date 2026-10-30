@@ -11,7 +11,7 @@ import {
 	useRates,
 	useRecords,
 	useTransactions,
-} from '@/lib/widget-lookups';
+} from '@/hooks/widget-lookups';
 
 // A fake of the home page widgets' api (`/api/widgets/…`) for the web app's tests: one Google
 // account with contacts, a calendar, mail and files, and one bank, answering as the api does.
