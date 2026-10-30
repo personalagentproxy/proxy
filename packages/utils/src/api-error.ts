@@ -1,7 +1,8 @@
 import {Err, Ok, Result} from 'ts-results-es';
 
 export type ApiError =
-	| {kind: 'not_found'; statusCode: 404; resource: string; id?: string}
+	// `message`, where there is one, says what to do next, as for a web page nothing was found at.
+	| {kind: 'not_found'; statusCode: 404; resource: string; id?: string; message?: string}
 	| {kind: 'unauthenticated'; statusCode: 401}
 	| {kind: 'forbidden'; statusCode: 403}
 	| {kind: 'conflict'; statusCode: 409; message: string}
@@ -12,17 +13,20 @@ export type ApiError =
 	| {kind: 'mail_error'; statusCode: 500; message: string; cause: unknown}
 	// A provider turned the credential down, such as a wrong app password.
 	| {kind: 'credentials_rejected'; statusCode: 422}
-	// A provider couldn't be reached or answered with something other than a verdict.
-	| {kind: 'provider_unreachable'; statusCode: 502; cause: unknown}
+	// A provider couldn't be reached or answered with something other than a verdict, or couldn't
+	// reach what it was asked for; `message`, where there is one, the provider's own words for why,
+	// or what to do next, passed on to agents in place of trying again.
+	| {kind: 'provider_unreachable'; statusCode: 502; cause: unknown; message?: string}
 	// Something this server needs for the request isn't set up, such as a key or a model.
 	| {kind: 'unavailable'; statusCode: 503; message: string};
 
 export const ApiErr = {
-	notFound: (resource: string, id?: string): ApiError => ({
+	notFound: (resource: string, id?: string, message?: string): ApiError => ({
 		kind: 'not_found',
 		statusCode: 404,
 		resource,
 		id,
+		message,
 	}),
 	unauthenticated: (): ApiError => ({kind: 'unauthenticated', statusCode: 401}),
 	forbidden: (): ApiError => ({kind: 'forbidden', statusCode: 403}),
@@ -42,10 +46,11 @@ export const ApiErr = {
 		cause,
 	}),
 	credentialsRejected: (): ApiError => ({kind: 'credentials_rejected', statusCode: 422}),
-	providerUnreachable: (cause: unknown): ApiError => ({
+	providerUnreachable: (cause: unknown, message?: string): ApiError => ({
 		kind: 'provider_unreachable',
 		statusCode: 502,
 		cause,
+		message,
 	}),
 	unavailable: (message: string): ApiError => ({kind: 'unavailable', statusCode: 503, message}),
 };

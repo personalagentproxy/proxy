@@ -5,6 +5,7 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import {EXA, parseExaPage} from '../connections/exa/exa-mcp';
 import type {McpServer} from '../connections/mcp/mcp-oauth';
 import {callMcpToolFor} from '../connections/mcp/mcp-session';
+import {pageError} from '../connections/page-failure';
 import {formatParallelResults, parseParallelPage, PARALLEL} from '../connections/parallel/parallel-mcp';
 import {onlyRun, type Connector, type DataRecord} from './connector';
 
@@ -12,10 +13,15 @@ import {onlyRun, type Connector, type DataRecord} from './connector';
  * The web, through a search engine made for agents, Exa or Parallel, fetched live from its MCP
  * server with the connection's tokens. Searches and pages are only run, never listed, opened or
  * kept: a search answers with the provider's results, written out the same way for both, a page
- * with its title and text, the first MAX_PAGE_CHARACTERS of it.
+ * with its title and text, the first MAX_PAGE_CHARACTERS of it and a line after them saying it was
+ * cut where it goes on. A page with no text is a failure.
  */
 
 const MAX_PAGE_CHARACTERS = 100_000;
+
+// Exa is asked for a little more of a page than is kept, so one that goes on past what is kept is
+// told from one that ends there whatever space it trims at the end.
+const EXA_PAGE_CHARACTERS = MAX_PAGE_CHARACTERS + 1_000;
 
 type Page = {title: string; content: string};
 
@@ -26,13 +32,16 @@ type WebProvider = {
 	server: McpServer;
 	search: (query: string) => ToolUse<string>;
 	read: (url: string) => ToolUse<Page>;
+	// Whether a page comes whole, so a cut one can say how long it was.
+	readsWhole: boolean;
 };
 
 // Exa takes the query both as what to find and as why, and stops reading a page where it is cut.
 const EXA_WEB: WebProvider = {
 	server: EXA,
 	search: (query) => ({tool: 'web_search_exa', args: {query, objective: query}, answer: (text) => Ok(text)}),
-	read: (url) => ({tool: 'web_fetch_exa', args: {urls: [url], maxCharacters: MAX_PAGE_CHARACTERS}, answer: (text) => Ok(parseExaPage(text))}),
+	read: (url) => ({tool: 'web_fetch_exa', args: {urls: [url], maxCharacters: EXA_PAGE_CHARACTERS}, answer: (text) => Ok(parseExaPage(text))}),
+	readsWhole: false,
 };
 
 // Parallel takes the query both as what to find and as its one search, and reads a page in full.
@@ -40,6 +49,7 @@ const PARALLEL_WEB: WebProvider = {
 	server: PARALLEL,
 	search: (query) => ({tool: 'web_search', args: {objective: query, search_queries: [query]}, answer: formatParallelResults}),
 	read: (url) => ({tool: 'web_fetch', args: {urls: [url], full_content: true}, answer: (text) => parseParallelPage(text, url)}),
+	readsWhole: true,
 };
 
 // An address a provider can read: `http` or `https`.
@@ -49,6 +59,25 @@ function pageUrl(raw: string): Result<string, ApiError> {
 		return Err(ApiErr.validationError('Give the page’s address, such as https://example.com'));
 	}
 	return Ok(trimmed);
+}
+
+// A page that was read, or why it is no page: it has no text.
+function requireText(provider: WebProvider, url: string, page: Page): Result<Page, ApiError> {
+	if (!page.content) {
+		return Err(pageError(provider.server.name, url, {kind: 'empty'}));
+	}
+	return Ok(page);
+}
+
+// A page's text, whole, or its start and a line after it saying it goes on, and how to read less
+// of it, so a cut page never reads as all of it.
+function keptText(provider: WebProvider, content: string): string {
+	if (content.length <= MAX_PAGE_CHARACTERS) {
+		return content;
+	}
+	const kept = MAX_PAGE_CHARACTERS.toLocaleString('en-US');
+	const length = provider.readsWhole ? `is ${content.length.toLocaleString('en-US')} characters long` : `goes on past ${kept} characters`;
+	return `${content.slice(0, MAX_PAGE_CHARACTERS)}\n\n[Cut short: the page ${length}, of which these are the first ${kept}. Read a part of it at its own address, such as one section or chapter, or search for the passage you need with searches_run.]`;
 }
 
 function webConnector(provider: WebProvider): Connector {
@@ -70,8 +99,8 @@ function webConnector(provider: WebProvider): Connector {
 			read: (target, values) =>
 				Do(async ($): Promise<DataRecord> => {
 					const url = $(pageUrl(values.url ?? ''));
-					const page = $(await use(target.connection, provider.read(url)));
-					return {id: 'page', values: {url, title: page.title, content: page.content.slice(0, MAX_PAGE_CHARACTERS)}, updatedAt: new Date().toISOString()};
+					const page = $(requireText(provider, url, $(await use(target.connection, provider.read(url)))));
+					return {id: 'page', values: {url, title: page.title, content: keptText(provider, page.content)}, updatedAt: new Date().toISOString()};
 				}),
 		},
 	};

@@ -9,7 +9,8 @@ import {mcpAuthError, type McpServer} from '../mcp/mcp-oauth';
 /**
  * Granola's MCP server and what its tools answer. The tools answer in text made for models: a
  * sentence telling the model to treat what follows as data, then meetings as XML
- * (`<meetings_data><meeting id title date url>…`) or a transcript as JSON.
+ * (`<meetings_data><meeting id title date url>…`) or a transcript as JSON. A tool that fails says
+ * why in words, such as what the account's plan doesn't include, passed on as Granola wrote them.
  */
 
 const AUTH_BASE = 'https://mcp-auth.granola.ai';
@@ -21,6 +22,7 @@ export const GRANOLA: McpServer = {
 	authorizeUrl: `${AUTH_BASE}/oauth2/authorize`,
 	tokenUrl: `${AUTH_BASE}/oauth2/token`,
 	scope: 'openid profile email offline_access',
+	toolError: (text) => ApiErr.validationError(`Granola turned it down: ${text.trim() || 'it didn’t say why'}`),
 };
 
 const userInfoSchema = z.object({sub: z.string(), email: z.string().optional(), name: z.string().optional()});

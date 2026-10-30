@@ -32,7 +32,7 @@ function messageOf<T>(result: Result<T, ApiError> | undefined): string | null {
 	if (!result || result.isOk()) {
 		return null;
 	}
-	return 'message' in result.error ? result.error.message : result.error.kind;
+	return ('message' in result.error && result.error.message) || result.error.kind;
 }
 
 const CREDENTIAL = {accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: new Date(Date.now() + 3_600_000).toISOString(), scopes: [], email: 'alex@example.com'};

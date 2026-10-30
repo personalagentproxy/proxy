@@ -47,7 +47,7 @@ function run(job: JobRow, workerId: string): Promise<Result<void, ApiError>> {
 
 // The failure in words, for the job's record and whoever is told of it.
 function describe(failure: ApiError): string {
-	if ('message' in failure) {
+	if ('message' in failure && failure.message) {
 		return failure.message;
 	}
 	if (failure.kind === 'not_found') {

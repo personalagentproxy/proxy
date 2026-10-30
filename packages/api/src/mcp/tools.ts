@@ -281,6 +281,9 @@ function errorMessage(error: ApiError, args: Record<string, unknown>): string {
 	if (error.kind === 'not_found' && error.resource === 'task') {
 		return `There is no task ${error.id ?? ''} for this login. Call start_task with a title and the goal, and give the id it answers with as task.`;
 	}
+	if (error.kind === 'not_found' && error.message) {
+		return error.message;
+	}
 	if (error.kind === 'not_found') {
 		return `There is no ${error.resource}${error.id ? ` ${error.id}` : ''}.`;
 	}
@@ -294,7 +297,7 @@ function errorMessage(error: ApiError, args: Record<string, unknown>): string {
 		return 'The provider turned this connection’s sign-in down. The person who made this login needs to reconnect it.';
 	}
 	if (error.kind === 'provider_unreachable') {
-		return 'The provider could not be reached. Try again in a moment.';
+		return error.message ?? 'The provider could not be reached. Try again in a moment.';
 	}
 	if (error.kind === 'unauthenticated') {
 		return 'This login has been signed out.';

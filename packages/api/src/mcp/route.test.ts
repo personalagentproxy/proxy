@@ -266,6 +266,21 @@ describe('handleMcpRoute', () => {
 		expect(JSON.stringify(missing.body)).toContain('Call list_connections');
 	});
 
+	test('a not found or out-of-reach error says so in the words it came with, and one without any in the usual ones', async () => {
+		const texts = [];
+		for (const error of [
+			ApiErr.notFound('page', 'https://example.com/gone', 'Exa found no page at https://example.com/gone.'),
+			ApiErr.providerUnreachable(new Error('timed out'), 'Exa timed out reading https://example.com/slow.'),
+			ApiErr.providerUnreachable(new Error('timed out')),
+		]) {
+			runAgentTool.mockResolvedValue(Err(error));
+			const answer = await post(rpc('tools/call', {name: 'read', arguments: {task: 'task-1', connection: 'web-1', tool: 'pages_read', params: {url: 'https://example.com'}}}));
+			texts.push((answer.body as {result: {content: Array<{text: string}>}}).result.content[0]?.text);
+		}
+
+		expect(texts).toEqual(['Exa found no page at https://example.com/gone.', 'Exa timed out reading https://example.com/slow.', 'The provider could not be reached. Try again in a moment.']);
+	});
+
 	test('an unknown tool or method is a JSON-RPC error; a notification gets no answer', async () => {
 		const tool = await post(rpc('tools/call', {name: 'delete_everything', arguments: {}}));
 		const method = await post(rpc('resources/list'));

@@ -5,12 +5,13 @@ import {ApiErr, type ApiError} from '@proxy/utils';
 
 import {parseToolJson} from '../mcp/mcp-client';
 import type {McpServer} from '../mcp/mcp-oauth';
+import {httpPageFailure, pageError} from '../page-failure';
 
 /**
  * Parallel's MCP server, at the address that takes a sign-in or an API key (its keyless one is
  * `/mcp` beside it), and what its tools answer: JSON, a search's results each a page's address,
- * title, publish date and the passages that fit, and a page read in full its text as Markdown, or
- * why it couldn't be read. Results are written out as Exa writes its own, so an agent reads both
+ * title, publish date and the passages that fit, and a page read in full its text as Markdown,
+ * whole however long, or why it couldn't be read. Results are written out as Exa writes its own, so an agent reads both
  * the same.
  */
 
@@ -38,7 +39,8 @@ const resultSchema = z.object({
 
 const searchSchema = z.object({results: z.array(resultSchema)});
 
-// What `web_fetch` couldn't read: `{"url": "…", "error_type": "connect_error", "http_status_code": null}`.
+// What `web_fetch` couldn't read: `{"url": "…", "error_type": "connect_error", "http_status_code": null}`,
+// or `"http_error"` with the site's status, as 404.
 const fetchSchema = z.object({
 	results: z.array(resultSchema),
 	errors: z.array(z.object({url: z.string(), error_type: z.string(), http_status_code: z.number().nullish()})).nullish(),
@@ -53,12 +55,19 @@ export function formatParallelResults(text: string): Result<string, ApiError> {
 	);
 }
 
-/** The page in a `web_fetch` answer for `url`, or why Parallel couldn't read it. */
+/**
+ * The page in a `web_fetch` answer for `url`, or why Parallel couldn't read it: by the site's
+ * status where it is a failure of a known kind, else in Parallel's words.
+ */
 export function parseParallelPage(text: string, url: string): Result<{title: string; content: string}, ApiError> {
 	return parseToolJson(text, fetchSchema).andThen((answer): Result<{title: string; content: string}, ApiError> => {
 		const page = answer.results[0];
 		if (!page) {
 			const error = answer.errors?.[0];
+			const failure = error?.http_status_code ? httpPageFailure(error.http_status_code) : null;
+			if (failure) {
+				return Err(pageError('Parallel', url, failure));
+			}
 			const status = error?.http_status_code ? ` (HTTP ${error.http_status_code})` : '';
 			return Err(ApiErr.validationError(`Parallel couldn’t read ${url}: ${error?.error_type ?? 'it didn’t say why'}${status}`));
 		}

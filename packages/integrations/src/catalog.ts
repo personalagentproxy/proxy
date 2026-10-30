@@ -770,7 +770,8 @@ function webIntegration(
 				fields: [
 					{key: 'url', label: 'URL', type: 'text'},
 					{key: 'title', label: 'Title', type: 'text', system: true},
-					// As Markdown, where the provider gives it so.
+					// As Markdown, where the provider gives it so; where it runs long, its start and a line
+					// saying it was cut.
 					{key: 'content', label: 'Content', type: 'longtext', system: true},
 				],
 			},

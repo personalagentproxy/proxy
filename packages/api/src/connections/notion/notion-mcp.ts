@@ -430,12 +430,20 @@ export function parseNotionViewRows(text: string, titleProperty: string | null):
 	}));
 }
 
-/** The page a `notion-create-pages` answer made: the first page address or id in it. */
+/**
+ * The page a `notion-create-pages` answer made: the first page address or id in it. One without
+ * any most likely made the page all the same, so the agent is told to look before trying again.
+ */
 export function parseNotionCreated(text: string): Result<string, ApiError> {
 	const match = /([0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})/i.exec(text);
 	const id = match?.[1] ? plainId(match[1]) : null;
 	if (!id) {
-		return Err(ApiErr.providerUnreachable(new Error(`Notion did not say which page it made: ${text.slice(0, 200)}`)));
+		return Err(
+			ApiErr.providerUnreachable(
+				new Error(`Notion did not say which page it made: ${text.slice(0, 200)}`),
+				'Notion answered without saying which page it made, so it may have made it: look for it by its title before trying again, so it isn’t made twice.',
+			),
+		);
 	}
 	return Ok(id);
 }

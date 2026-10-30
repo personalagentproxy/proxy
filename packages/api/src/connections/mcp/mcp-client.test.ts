@@ -54,12 +54,29 @@ describe('callMcpTool', () => {
 		expect((await callMcpTool(SERVER, 'access-1', 'get_account_info', {})).unwrap()).toBe('hello');
 	});
 
-	test('a token the server turns down is rejected credentials; a failed tool is the server out of reach', async () => {
+	test('a token the server turns down is rejected credentials; a failed tool is the server out of reach, in the tool’s words', async () => {
 		server.answer = () => new Response('Unauthorized', {status: 401});
 		expect((await callMcpTool(SERVER, 'expired', 'list_meetings', {})).unwrapErr().kind).toBe('credentials_rejected');
 
-		server.answer = () => Response.json({jsonrpc: '2.0', id: 1, result: {isError: true, content: [{type: 'text', text: 'Rate limit exceeded'}]}});
-		expect((await callMcpTool(SERVER, 'access-1', 'list_meetings', {})).unwrapErr().kind).toBe('provider_unreachable');
+		server.answer = () => Response.json({jsonrpc: '2.0', id: 1, result: {isError: true, content: [{type: 'text', text: 'Rate limit exceeded, try again in 30 seconds\n'}]}});
+		expect((await callMcpTool(SERVER, 'access-1', 'list_meetings', {})).unwrapErr()).toMatchObject({
+			kind: 'provider_unreachable',
+			message: 'Example answered with an error: Rate limit exceeded, try again in 30 seconds',
+		});
+
+		server.answer = () => Response.json({jsonrpc: '2.0', id: 1, result: {isError: true, content: [{type: 'text', text: ' '}]}});
+		expect((await callMcpTool(SERVER, 'access-1', 'list_meetings', {})).unwrapErr()).toMatchObject({kind: 'provider_unreachable', message: undefined});
+	});
+
+	test('a JSON-RPC error is the server out of reach, in its own words where it has some', async () => {
+		server.answer = () => Response.json({jsonrpc: '2.0', id: 1, error: {code: -32602, message: 'Invalid params: limit must be at most 100'}});
+		expect((await callMcpTool(SERVER, 'access-1', 'list_meetings', {})).unwrapErr()).toMatchObject({
+			kind: 'provider_unreachable',
+			message: 'Example answered with an error: Invalid params: limit must be at most 100',
+		});
+
+		server.answer = () => Response.json({jsonrpc: '2.0', id: 1});
+		expect((await callMcpTool(SERVER, 'access-1', 'list_meetings', {})).unwrapErr()).toMatchObject({kind: 'provider_unreachable', message: undefined});
 	});
 
 	test('a 403 asking for a scope the sign-in lacks says which, for the model; any other 403 is the token turned down', async () => {

@@ -527,7 +527,14 @@ async function saveDraft(session: Session, values: RecordValues, thread: Thread 
 		// Servers without UIDPLUS don't say which UID the draft got; its Message-ID finds it.
 		const uid = appended && appended.uid ? appended.uid : ((await client.search({header: {'message-id': messageId}}, {uid: true})) || [])[0];
 		if (uid === undefined) {
-			return $(Err(ApiErr.providerUnreachable(new Error('The saved draft could not be found'))));
+			return $(
+				Err(
+					ApiErr.providerUnreachable(
+						new Error('The saved draft could not be found'),
+						'The draft was saved, but the mailbox didn’t say which it is: look for it in the drafts before saving it again, so it isn’t saved twice.',
+					),
+				),
+			);
 		}
 		return uid;
 	});

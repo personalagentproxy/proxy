@@ -24,7 +24,7 @@ function messageOf<T>(result: Result<T, ApiError>): string | null {
 	if (result.isOk()) {
 		return null;
 	}
-	return 'message' in result.error ? result.error.message : result.error.kind;
+	return ('message' in result.error && result.error.message) || result.error.kind;
 }
 
 const connection = {
