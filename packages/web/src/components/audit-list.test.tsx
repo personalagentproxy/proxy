@@ -1,11 +1,13 @@
 /// <reference types="bun" />
 
+import type {ActivityTask, AuditEntry} from '@proxy/contracts/activity';
+import type {AgentLogin} from '@proxy/contracts/agents';
+import type {Connection} from '@proxy/contracts/connections';
 import {afterEach, describe, expect, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {AuditList} from '@/components/audit-list';
-import type {ActivityTask, AgentLogin, AuditEntry, Connection} from '@/lib/types';
 
 afterEach(() => {
 	cleanup();
@@ -27,6 +29,7 @@ const agent: AgentLogin = {
 
 const connection: Connection = {
 	id: 'connection-1',
+	orgId: 'org-1',
 	integrationId: 'email',
 	shared: false,
 	connectedById: 'user-1',

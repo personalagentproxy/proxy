@@ -4,13 +4,14 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import {updateConnectionTools} from '@proxy/db/connection';
+import {type Connection, connectMcpBodySchema, type connectMcpSchema} from '@proxy/contracts/connections';
 
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {sendResult} from '../../server/response';
 import {requireViewer} from '../../utils/user-org';
 import {builtInForHost} from '../built-in-mcp';
-import {respond, type ConnectionResponse} from '../connection-response';
-import {connectionNameSchema, returnToSchema, saveConnection, signInFlow, type SignInRequest} from '../connect-flow';
+import {respond} from '../connection-response';
+import {saveConnection, signInFlow, type SignInRequest} from '../connect-flow';
 import {requireManaged} from '../managed';
 import {listMcpTools} from '../mcp/mcp-client';
 import {keyInAddress} from '../mcp/built-in';
@@ -34,23 +35,6 @@ import {discoverMcpServer, parseMcpServerUrl, probeMcpServer} from './mcp-discov
  * catalog begins, which comes back to its callback; a token for one that takes no key is refused.
  */
 
-// A token is sent as a header, where a line break has no place.
-const connectBodySchema = z.object({
-	name: connectionNameSchema,
-	url: z.string(),
-	token: z
-		.string()
-		.trim()
-		.regex(/^[^\r\n]*$/, 'The token can’t have line breaks')
-		.optional(),
-	returnTo: returnToSchema.optional(),
-	// For every member of the organization rather than the person's own.
-	shared: z.boolean().optional(),
-});
-
-/** Connected, with the new connection, or the server asks for a sign-in, begun, at the page the browser goes to. */
-export type ConnectCustomMcpResponse = {kind: 'connected'; connection: ConnectionResponse} | {kind: 'signIn'; url: string};
-
 const {beginSignIn, handleCallback: handleCustomMcpCallbackRoute} = signInFlow({
 	integrationId: 'mcp',
 	name: 'MCP server',
@@ -71,9 +55,9 @@ const {beginSignIn, handleCallback: handleCustomMcpCallbackRoute} = signInFlow({
 
 export {handleCustomMcpCallbackRoute};
 
-function connectCustomMcp(request: AuthenticatedRequest, res: Response): Promise<Result<ConnectCustomMcpResponse, ApiError>> {
+function connectCustomMcp(request: AuthenticatedRequest, res: Response): Promise<Result<z.infer<typeof connectMcpSchema>, ApiError>> {
 	return Do(async ($) => {
-		const body = $(parseSchema(connectBodySchema, request.body));
+		const body = $(parseSchema(connectMcpBodySchema, request.body));
 		const url = $(await parseMcpServerUrl(body.url));
 		const token = body.token || null;
 		const viewer = $(await requireViewer(request));
@@ -111,7 +95,7 @@ export async function handleConnectCustomMcpRoute(request: AuthenticatedRequest,
 }
 
 /** `POST /api/connections/:connectionId/tools`: asks the server for its tools again and keeps the new list. */
-export function handleRefreshCustomMcpToolsRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
+export function handleRefreshCustomMcpToolsRoute(request: AuthenticatedRequest): Promise<Result<Connection, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const connectionId = request.params.connectionId ?? '';

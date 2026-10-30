@@ -1,3 +1,4 @@
+import type {Connection} from '@proxy/contracts/connections';
 import {isOffered, type IntegrationId} from '@proxy/integrations';
 import {useState} from 'react';
 import type {Experiment} from '@proxy/utils';
@@ -18,7 +19,6 @@ import {
 	type Configured,
 	type Need,
 } from '@/lib/integrations';
-import type {Connection} from '@/lib/types';
 import {useOrgSlug} from '@/hooks/use-org';
 
 // The integrations not connected by signing in to them are connected on a form of their own: a

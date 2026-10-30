@@ -1,16 +1,17 @@
 /// <reference types="bun" />
 
+import type {Connection} from '@proxy/contracts/connections';
 import {afterEach, describe, expect, mock, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {IntegrationCatalog, SignInFailed} from '@/components/integration-catalog';
-import type {Connection} from '@/lib/types';
 
 const GOOGLE_DOCS = 'https://docs.personalagentproxy.com/connections/google/';
 
 const google: Connection = {
 	id: 'conn-1',
+	orgId: 'org-1',
 	integrationId: 'google',
 	shared: false,
 	connectedById: 'user-1',

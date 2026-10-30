@@ -1,3 +1,5 @@
+import type {ActivityTask} from '@proxy/contracts/activity';
+import type {AgentLogin} from '@proxy/contracts/agents';
 import {taskEndedAt} from '@proxy/utils/tasks';
 import {XIcon} from 'lucide-react';
 import {useState} from 'react';
@@ -18,7 +20,6 @@ import {Badge} from '@proxy/ui/components/badge';
 import {useOrgSlug} from '@/hooks/use-org';
 import {connectionLabel} from '@/lib/access';
 import {formatDateTime} from '@/lib/format';
-import type {ActivityTask, AgentLogin} from '@/lib/types';
 import type {activityLoader} from '@/loaders';
 
 const ALL = 'all';

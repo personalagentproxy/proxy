@@ -1,27 +1,16 @@
 import {Err, type Result} from 'ts-results-es';
+import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {acceptInvitation, getInvitationByTokenHash, type InvitationForLink} from '@proxy/db/invitation';
 import {getMembership} from '@proxy/db/organization';
+import type {acceptedInvitationSchema, InvitationLink} from '@proxy/contracts/orgs';
 
 import {hashToken} from '../auth/session';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 
 // An invitation's link, `/invite/<token>` in the web app, signed in: what it is for, and taking it
 // up. Only the address it was sent to can take it up, within the week it works.
-
-export type InvitationLinkResponse = {
-	orgId: string;
-	// The organization's slug, its address in the web app.
-	orgSlug: string;
-	orgName: string;
-	invitedBy: string | null;
-	// The address it was sent to.
-	email: string;
-	expired: boolean;
-	// Whether the signed-in person is in the organization already.
-	member: boolean;
-};
 
 function requireInvitation(request: AuthenticatedRequest): Promise<Result<InvitationForLink, ApiError>> {
 	return Do(async ($) => {
@@ -34,7 +23,7 @@ function requireInvitation(request: AuthenticatedRequest): Promise<Result<Invita
  * `GET /api/invitations/:token`: the organization it is for, who sent it and to whom. Nothing in
  * the organization shows until the invitation is taken up, by its address alone.
  */
-export function handleGetInvitationRoute(request: AuthenticatedRequest): Promise<Result<InvitationLinkResponse, ApiError>> {
+export function handleGetInvitationRoute(request: AuthenticatedRequest): Promise<Result<InvitationLink, ApiError>> {
 	return Do(async ($) => {
 		const invitation = $(await requireInvitation(request));
 		const member = $(await getMembership(request.user.userId, invitation.org.id)) !== null;
@@ -54,7 +43,7 @@ export function handleGetInvitationRoute(request: AuthenticatedRequest): Promise
  * `POST /api/invitations/:token/accept`: the signed-in person, at the address it was sent to,
  * becomes a member, with their own vault there; the organization's slug is where to go next.
  */
-export function handleAcceptInvitationRoute(request: AuthenticatedRequest): Promise<Result<{orgId: string; orgSlug: string}, ApiError>> {
+export function handleAcceptInvitationRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof acceptedInvitationSchema>, ApiError>> {
 	return Do(async ($) => {
 		const invitation = $(await requireInvitation(request));
 		if (invitation.expires <= new Date()) {

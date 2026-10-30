@@ -13,6 +13,7 @@
 	},
 	"dependencies": {
 		"@base-ui/react": "^1.8.0",
+		"@proxy/contracts": "workspace:*",
 		"@proxy/integrations": "workspace:*",
 		"@proxy/ui": "workspace:*",
 		"@proxy/utils": "workspace:*",

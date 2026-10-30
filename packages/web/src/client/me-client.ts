@@ -1,16 +1,5 @@
-import {z} from 'zod';
+import {meSchema} from '@proxy/contracts/me';
 import {apiRequest, apiSend} from '@/client/request';
-
-const meSchema = z.object({
-	user: z.object({
-		id: z.string(),
-		email: z.string(),
-		name: z.string().nullable(),
-		image: z.string().nullable(),
-	}),
-});
-
-export type Me = z.infer<typeof meSchema>;
 
 /** Who is signed in (`GET /api/me`). A 401 means "redirect to /login". The organizations they are in are `listOrgs`. */
 export function getMe() {

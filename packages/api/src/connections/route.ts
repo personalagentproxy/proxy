@@ -1,26 +1,27 @@
 import {Err, type Result} from 'ts-results-es';
-import {z} from 'zod';
+import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
+import {type Connection, type connectionListSchema, renameConnectionBodySchema, setDefaultsBodySchema} from '@proxy/contracts/connections';
 import {deleteConnection, listConnectionsWithCredential, setConnectionDefaults, shareConnection, updateConnectionName} from '@proxy/db/connection';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {integrationOf, parseActionChanges, requireIntegration} from '../utils/connection-actions';
 import {requireViewer} from '../utils/user-org';
-import {respond, respondAll, type ConnectionResponse} from './connection-response';
+import {respond, respondAll} from './connection-response';
 import {beforeDisconnect} from './disconnect';
 import {requireConnection, requireManaged} from './managed';
 import {refuseUnavailable, unavailableActions} from './unavailable';
 
 /** The connections the person sees in the organization they work in: its shared ones and their own. */
-export function handleListConnectionsRoute(request: AuthenticatedRequest): Promise<Result<{connections: ConnectionResponse[]}, ApiError>> {
+export function handleListConnectionsRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof connectionListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		return {connections: $(await respondAll($(await listConnectionsWithCredential(viewer))))};
 	});
 }
 
-export function handleGetConnectionRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
+export function handleGetConnectionRoute(request: AuthenticatedRequest): Promise<Result<Connection, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		return $(await respond($(await requireConnection(viewer, request.params.connectionId ?? ''))));
@@ -49,16 +50,12 @@ export function handleDeleteConnectionRoute(request: AuthenticatedRequest): Prom
 	});
 }
 
-const MAX_NAME_LENGTH = 80;
-
-const renameBodySchema = z.object({name: z.string().trim().max(MAX_NAME_LENGTH, `The name can be at most ${MAX_NAME_LENGTH} characters`)});
-
 /**
  * Renames a connection, `{name}`: what it is called here and to agents. An empty name is none of
  * its own, so the connection shows as its integration again, except for a custom MCP server, which
  * has nothing else to be called. The vault is built in and keeps its name.
  */
-export function handleRenameConnectionRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
+export function handleRenameConnectionRoute(request: AuthenticatedRequest): Promise<Result<Connection, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const connectionId = request.params.connectionId ?? '';
@@ -67,7 +64,7 @@ export function handleRenameConnectionRoute(request: AuthenticatedRequest): Prom
 		if (integration.builtIn) {
 			return $(Err(ApiErr.forbidden()));
 		}
-		const {name} = $(parseSchema(renameBodySchema, request.body));
+		const {name} = $(parseSchema(renameConnectionBodySchema, request.body));
 		if (name === '' && integration.custom) {
 			return $(Err(ApiErr.validationError('A custom MCP server needs a name')));
 		}
@@ -82,13 +79,13 @@ export function handleRenameConnectionRoute(request: AuthenticatedRequest): Prom
  * `{actions: {read: true, send: false}}`. An action the integration doesn't have is refused, and so
  * is turning on one the connection's sign-in didn't cover.
  */
-export function handleSetConnectionDefaultsRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
+export function handleSetConnectionDefaultsRoute(request: AuthenticatedRequest): Promise<Result<Connection, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const connectionId = request.params.connectionId ?? '';
 		const row = $(await requireManaged(viewer, connectionId));
 		const integration = $(requireIntegration(row));
-		const actions = $(parseActionChanges(integration, z.boolean(), request.body));
+		const actions = $(parseActionChanges(integration, setDefaultsBodySchema, request.body));
 		$(refuseUnavailable(integration, unavailableActions(row), actions));
 
 		$(await setConnectionDefaults({connectionId, actions}));
@@ -101,7 +98,7 @@ export function handleSetConnectionDefaultsRoute(request: AuthenticatedRequest):
  * of its organization, for good: to have it as their own again, they disconnect it and connect it
  * again. The vault is each member's own and stays so: the organization has one shared from the start.
  */
-export function handleShareConnectionRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
+export function handleShareConnectionRoute(request: AuthenticatedRequest): Promise<Result<Connection, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const connectionId = request.params.connectionId ?? '';

@@ -1,15 +1,15 @@
 import {Err, type Result} from 'ts-results-es';
-import {z} from 'zod';
+import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
+import {type Connection, connectPlaidBodySchema, plaidLinkTokenBodySchema, type plaidLinkTokenSchema} from '@proxy/contracts/connections';
 
 import {log} from '../../observability/log';
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {requireViewer} from '../../utils/user-org';
 import {saveConnection} from '../connect-flow';
-import {respond, type ConnectionResponse} from '../connection-response';
+import {respond} from '../connection-response';
 import {requireManaged, type ManagingViewer} from '../managed';
-import {shareBodySchema} from '../ownership';
 import {createLinkToken, exchangePublicToken, getAccounts, removeItem} from './plaid-api';
 import {readPlaidCredential, requirePlaidClient, type PlaidClient, type PlaidCredential} from './plaid-client';
 
@@ -23,8 +23,6 @@ import {readPlaidCredential, requirePlaidClient, type PlaidClient, type PlaidCre
  * it. A new connection gives agents nothing until a default or an agent's own setting says
  * otherwise.
  */
-
-const linkTokenBodySchema = z.object({connectionId: z.string().min(1).optional()});
 
 // The access token of a Plaid connection the person may change, for Link's update mode.
 function requirePlaidConnection(viewer: ManagingViewer, connectionId: string): Promise<Result<PlaidCredential, ApiError>> {
@@ -41,9 +39,9 @@ function requirePlaidConnection(viewer: ManagingViewer, connectionId: string): P
  * `POST /api/connections/plaid/link-token` — a Link token for the web app's Plaid Link: a new bank,
  * or, with `connectionId`, signing in again to the bank of that connection.
  */
-export function handleCreatePlaidLinkTokenRoute(request: AuthenticatedRequest): Promise<Result<{linkToken: string}, ApiError>> {
+export function handleCreatePlaidLinkTokenRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof plaidLinkTokenSchema>, ApiError>> {
 	return Do(async ($) => {
-		const {connectionId} = $(parseSchema(linkTokenBodySchema, request.body ?? {}));
+		const {connectionId} = $(parseSchema(plaidLinkTokenBodySchema, request.body ?? {}));
 		const client = $(requirePlaidClient());
 		const viewer = $(await requireViewer(request));
 		const accessToken = connectionId === undefined ? null : $(await requirePlaidConnection(viewer, connectionId)).accessToken;
@@ -58,16 +56,14 @@ async function removeUnsavedItem(client: PlaidClient, credential: PlaidCredentia
 	}
 }
 
-const connectBodySchema = z.object({publicToken: z.string().min(1)}).extend(shareBodySchema.shape);
-
 /**
  * `POST /api/connections/plaid` with `{publicToken, shared?}` — the public token Link answered
  * with, exchanged and saved as a connection named by its bank, the person's own or every member's.
  */
-export function handleConnectPlaidRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
+export function handleConnectPlaidRoute(request: AuthenticatedRequest): Promise<Result<Connection, ApiError>> {
 	return Do(async ($) => {
 		const client = $(requirePlaidClient());
-		const {publicToken, shared} = $(parseSchema(connectBodySchema, request.body));
+		const {publicToken, shared} = $(parseSchema(connectPlaidBodySchema, request.body));
 		const viewer = $(await requireViewer(request));
 		const credential = $(await exchangePublicToken(client, publicToken));
 		// The login is made at Plaid by now, and billed: it is saved even when its bank's name can't be read.

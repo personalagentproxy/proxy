@@ -17,6 +17,7 @@ import {
 } from '@proxy/db/connection';
 import {getMembership} from '@proxy/db/organization';
 import type {IntegrationId, McpTool} from '@proxy/integrations';
+import {returnToSchema, type ReturnTo} from '@proxy/contracts/connections';
 
 import {queryParam, timingSafeEqualString, useSecureCookies} from '../auth/session';
 import {log, serializeError} from '../observability/log';
@@ -50,15 +51,7 @@ import {ownership} from './ownership';
 
 const stateCookieMaxAgeMs = 15 * 60 * 1000;
 
-/** Where a sign-in ends when not on the connection's page: the welcome flow or the home page it began from. */
-export const returnToSchema = z.enum(['welcome', 'home']);
-
-export type ReturnTo = z.infer<typeof returnToSchema>;
-
 type Route = (request: AuthenticatedRequest, res: Response) => Promise<void>;
-
-/** What a connection the person names is called, as the custom MCP form's is. */
-export const connectionNameSchema = z.string().trim().min(1, 'Give the connection a name').max(80, 'The name can be at most 80 characters');
 
 /**
  * What the provider's sign-in is sent: where it comes back to, the state, the PKCE challenge, and

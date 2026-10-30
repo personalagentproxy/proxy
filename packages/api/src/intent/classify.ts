@@ -2,10 +2,10 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, type Experiment, httpRequest} from '@proxy/utils';
+import {type Filled, type FilledField, INCOMPLETE, NO_WIDGET, offeredWidgets, type Picked, type Widget, type WidgetField} from '@proxy/contracts/intent';
 
 import {askForJson} from '../llm/open-router';
 import {env} from '../utils/env';
-import {INCOMPLETE, NO_WIDGET, offeredWidgets, type Widget, type WidgetField} from './widgets';
 
 /**
  * What a person typed into the home page's input, in two steps, each a request of its own so the
@@ -28,24 +28,6 @@ const JEV_MODEL = 'jev-1.13.0';
 const TIMEOUT_MS = 5000;
 
 const MAX_TOKENS = 2000;
-
-/** A field of the picked widget and what fills it: one value, or each of a list's. */
-export type FilledField = {id: string; name: string; values: string[]};
-
-/** The widget Jev picked. */
-export type Picked = {
-	/** The widget's id, `none` when what was asked is whole and none does it, or `incomplete` when too little was typed to tell yet. */
-	widget: string;
-	/** How long Jev took. */
-	ms: number;
-};
-
-/** The picked widget's fields, filled in. */
-export type Filled = {
-	fields: FilledField[];
-	/** How long the model took. */
-	ms: number;
-};
 
 // Jev's question: which of the widgets, `incomplete` or `none`, each described for it to tell apart.
 function widgetQuestion(widgets: Widget[]) {

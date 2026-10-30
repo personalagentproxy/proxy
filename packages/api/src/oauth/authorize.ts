@@ -8,6 +8,7 @@ import type {MemberViewer} from '@proxy/db/viewer';
 import {getMemberOrganization} from '@proxy/db/organization';
 import {createOAuthCode, getOAuthClient, type OAuthClientRow} from '@proxy/db/oauth';
 import {suggestAgentProvider} from '@proxy/utils/agent-providers';
+import {type AuthorizationRequest, consentBodySchema, type consentAnswerSchema} from '@proxy/contracts/oauth';
 
 import {createAgentLogin} from '../agents/create-agent-login';
 import {hashToken, queryParam} from '../auth/session';
@@ -35,7 +36,7 @@ const sealedRequestSchema = z.object({
 	expiresAt: z.number(),
 });
 
-type AuthorizationRequest = z.infer<typeof sealedRequestSchema>;
+type SealedRequest = z.infer<typeof sealedRequestSchema>;
 
 // The client's own mistakes before its redirect can be trusted are shown in the browser, never
 // sent to the redirect: an unknown client, or a redirect it didn't register.
@@ -97,7 +98,7 @@ export async function handleAuthorizeRoute(req: Request, res: Response): Promise
 		return;
 	}
 
-	const sealed = encryptSecret(JSON.stringify({clientId: client.value.id, redirectUri, state, codeChallenge, expiresAt: Date.now() + REQUEST_TTL_MS} satisfies AuthorizationRequest));
+	const sealed = encryptSecret(JSON.stringify({clientId: client.value.id, redirectUri, state, codeChallenge, expiresAt: Date.now() + REQUEST_TTL_MS} satisfies SealedRequest));
 	if (sealed.isErr()) {
 		log.error('Sealing an OAuth request failed', serializeError(sealed.error));
 		res.status(500).type('text/plain').send('Something went wrong. Try again in a moment.');
@@ -106,7 +107,7 @@ export async function handleAuthorizeRoute(req: Request, res: Response): Promise
 	res.redirect(`${appUrl.value}/connect-agent?${new URLSearchParams({request: sealed.value})}`);
 }
 
-function unseal(sealed: string): Result<AuthorizationRequest, ApiError> {
+function unseal(sealed: string): Result<SealedRequest, ApiError> {
 	const unreadable = ApiErr.validationError('This sign-in request is not readable');
 	const request = decryptSecret(sealed)
 		.mapErr(() => unreadable)
@@ -118,7 +119,7 @@ function unseal(sealed: string): Result<AuthorizationRequest, ApiError> {
 	return request;
 }
 
-function loadRequest(sealed: unknown): Promise<Result<{request: AuthorizationRequest; client: OAuthClientRow}, ApiError>> {
+function loadRequest(sealed: unknown): Promise<Result<{request: SealedRequest; client: OAuthClientRow}, ApiError>> {
 	return Do(async ($) => {
 		const request = $(unseal($(parseSchema(z.string().min(1), sealed))));
 		const client = $(requirePresent($(await getOAuthClient(request.clientId)), ApiErr.notFound('client', request.clientId)));
@@ -126,29 +127,14 @@ function loadRequest(sealed: unknown): Promise<Result<{request: AuthorizationReq
 	});
 }
 
-export type AuthorizationRequestResponse = {
-	clientName: string;
-	// Where the browser goes back to, so the person can tell which app is asking.
-	redirectHost: string;
-	// The agent the client's name points at, such as Claude, if it has one; else it is a custom one.
-	suggestedProviderId: string | null;
-};
-
 /** `GET /api/oauth/request?request=…`: who is asking, for the consent page. */
-export function handleGetAuthorizationRequestRoute(request: AuthenticatedRequest): Promise<Result<AuthorizationRequestResponse, ApiError>> {
+export function handleGetAuthorizationRequestRoute(request: AuthenticatedRequest): Promise<Result<AuthorizationRequest, ApiError>> {
 	return Do(async ($) => {
 		const {request: authorization, client} = $(await loadRequest(request.query.request));
 		const redirect = new URL(authorization.redirectUri);
 		return {clientName: client.name, redirectHost: redirect.host || redirect.protocol, suggestedProviderId: suggestAgentProvider(client.name)?.id ?? null};
 	});
 }
-
-// `org` is the slug of the organization the agent is in, or a new one goes in.
-const consentBodySchema = z.union([
-	z.object({request: z.string(), allow: z.literal(false)}),
-	z.object({request: z.string(), allow: z.literal(true), org: z.string(), agentId: z.string().min(1)}),
-	z.object({request: z.string(), allow: z.literal(true), org: z.string(), providerId: z.string().min(1), name: z.string().optional()}),
-]);
 
 // The organization the consent is about, as a viewer of it: a member of it, or it is not found.
 function consentViewer(userId: string, slug: string): Promise<Result<MemberViewer, ApiError>> {
@@ -181,7 +167,7 @@ function chooseAgent(viewer: MemberViewer, body: z.infer<typeof consentBodySchem
  * client, good once for a few minutes, which keeps who allowed it; either way the answer is where
  * the browser goes next.
  */
-export function handleConsentRoute(request: AuthenticatedRequest): Promise<Result<{redirectTo: string}, ApiError>> {
+export function handleConsentRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof consentAnswerSchema>, ApiError>> {
 	return Do(async ($) => {
 		const appUrl = $(requireAppUrl());
 		const body = $(parseSchema(consentBodySchema, request.body));

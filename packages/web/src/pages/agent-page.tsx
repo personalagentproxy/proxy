@@ -1,3 +1,5 @@
+import type {AgentLogin, McpClient} from '@proxy/contracts/agents';
+import type {Connection} from '@proxy/contracts/connections';
 import {AGENT_NAME_MAX, findAgentProvider} from '@proxy/utils/agent-providers';
 import type {FetchError} from '@proxy/utils';
 import {
@@ -20,7 +22,6 @@ import {
 	setAgentGrants,
 	setAgentRevoked,
 	shareAgent,
-	type McpClient,
 } from '@/client/agents-client';
 import {setConnectionDefaults} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
@@ -44,7 +45,6 @@ import {cn} from '@proxy/ui/lib/utils';
 import {formatDate} from '@/lib/format';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
 import {hasOtherPeople, manages} from '@/lib/orgs';
-import type {AgentLogin, Connection} from '@/lib/types';
 import type {agentLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 

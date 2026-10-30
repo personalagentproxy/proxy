@@ -1,7 +1,7 @@
 import type {Result} from 'ts-results-es';
-import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
+import {type MadeEvent, newEventBodySchema} from '@proxy/contracts/widgets';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireViewer} from '../utils/user-org';
@@ -13,22 +13,10 @@ import {afterWrite} from './writes';
  * through the calendar's connector, so the guests get the provider's invitation.
  */
 
-const bodySchema = z.object({
-	connectionId: z.string().min(1),
-	calendarId: z.string().min(1),
-	title: z.string().trim().min(1).max(500),
-	start: z.iso.datetime({offset: true}),
-	end: z.iso.datetime({offset: true}),
-	location: z.string().trim().max(500).default(''),
-	guests: z.array(z.email()).max(100).default([]),
-});
-
-export type MadeEvent = {title: string; link: string | null};
-
 /** `POST /api/widgets/events`. */
 export function handleCreateEventRoute(request: AuthenticatedRequest): Promise<Result<MadeEvent, ApiError>> {
 	return Do(async ($) => {
-		const body = $(parseSchema(bodySchema, request.body));
+		const body = $(parseSchema(newEventBodySchema, request.body));
 		const viewer = $(await requireViewer(request));
 		const values = {title: body.title, start: body.start, end: body.end, location: body.location, guests: body.guests.join(', ')};
 		const written = Object.keys(values).filter((key) => key !== 'guests' || body.guests.length > 0);

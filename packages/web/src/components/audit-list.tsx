@@ -1,3 +1,6 @@
+import type {ActivityTask, AuditEntry} from '@proxy/contracts/activity';
+import type {AgentLogin} from '@proxy/contracts/agents';
+import type {Connection} from '@proxy/contracts/connections';
 import {useState} from 'react';
 import {AuditEntryDialog} from '@/components/audit-entry-dialog';
 import {EmptyRows, RowHeader, RowList} from '@/components/row-list';
@@ -5,7 +8,6 @@ import {AgentLogo, IntegrationLogo, ProxyLogo} from '@/components/brand-logo';
 import {Head} from '@/components/head';
 import {connectionLabel, describeEntry, locateEntry} from '@/lib/access';
 import {formatDateTime} from '@/lib/format';
-import type {ActivityTask, AgentLogin, AuditEntry, Connection} from '@/lib/types';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
 import type {ReactNode} from 'react';

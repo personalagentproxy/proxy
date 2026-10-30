@@ -1,3 +1,7 @@
+import type {AuditEntry} from '@proxy/contracts/activity';
+import type {AgentLogin} from '@proxy/contracts/agents';
+import type {Connection} from '@proxy/contracts/connections';
+import type {DataRecord} from '@proxy/contracts/records';
 import {
 	effectiveActions,
 	findCollection,
@@ -11,7 +15,6 @@ import {
 } from '@proxy/integrations';
 import {formatDate, formatDateTime} from '@/lib/format';
 import {integrationOf, type Integration} from '@/lib/integrations';
-import type {AgentLogin, AuditEntry, Connection, DataRecord} from '@/lib/types';
 
 export {integrationOf};
 

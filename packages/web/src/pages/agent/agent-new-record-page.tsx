@@ -1,3 +1,4 @@
+import type {DataRecord} from '@proxy/contracts/records';
 import {toolName, type Command} from '@proxy/integrations';
 import {useState} from 'react';
 import {useLocation, useNavigate, useSearchParams} from 'react-router';
@@ -10,7 +11,6 @@ import {agentErrorMessage} from '@/lib/agent-errors';
 import {useTaskId} from '@/hooks/use-task-id';
 import {taskHome} from '@/lib/agent-task';
 import {inside, recordPath} from '@/lib/agent-paths';
-import type {DataRecord} from '@/lib/types';
 import {AgentDenied} from '@/pages/agent/agent-collection-page';
 
 // The title of the record a new one goes inside, as the list it was started from hands it over.

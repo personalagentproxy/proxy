@@ -1,3 +1,5 @@
+import type {AgentLogin} from '@proxy/contracts/agents';
+import type {Connection} from '@proxy/contracts/connections';
 import {VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import {PencilIcon, PlusIcon, Trash2Icon} from 'lucide-react';
 import {useState} from 'react';
@@ -17,7 +19,6 @@ import {useSide} from '@/hooks/use-side';
 import {agentsWithAccess, integrationOf} from '@/lib/access';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
 import {actsAs, manages} from '@/lib/orgs';
-import type {AgentLogin, Connection} from '@/lib/types';
 import type {connectionsLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 

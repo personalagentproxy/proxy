@@ -4,6 +4,7 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import {listConnectionsWithCredential} from '@proxy/db/connection';
 import type {Viewer} from '@proxy/db/viewer';
 import {findCollection, requiredAction, type Collection, type Integration} from '@proxy/integrations';
+import type {SourceSummary} from '@proxy/contracts/widgets';
 
 import {unavailableActions, unavailableError} from '../connections/unavailable';
 import type {Capabilities, Capability} from '../records/capabilities';
@@ -42,8 +43,6 @@ export function withCapability<C extends Capability>(sources: Source[], capabili
 }
 
 /** What the browser is told of a source: which account it is, to tell several apart. */
-export type SourceSummary = {connectionId: string; integrationId: string; account: string; name: string | null};
-
 export function summarize(source: Source): SourceSummary {
 	const {id, integrationId, account, name} = source.connection;
 	return {connectionId: id, integrationId, account, name};

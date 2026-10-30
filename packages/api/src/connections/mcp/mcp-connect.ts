@@ -4,13 +4,13 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import type {ConnectionRow} from '@proxy/db/connection';
+import {type Connection, connectWithKeyBodySchema, type ReturnTo} from '@proxy/contracts/connections';
 
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {requireViewer, type OrgViewer} from '../../utils/user-org';
-import {respond, type ConnectionResponse} from '../connection-response';
-import {saveConnection, signInFlow, signInRoutes, type Connected, type ReturnTo, type SaveOptions, type SignInRequest} from '../connect-flow';
+import {respond} from '../connection-response';
+import {saveConnection, signInFlow, signInRoutes, type Connected, type SaveOptions, type SignInRequest} from '../connect-flow';
 import {requireManaged, type ManagingViewer} from '../managed';
-import {shareBodySchema} from '../ownership';
 import type {BuiltInMcp, ProviderAccount} from './built-in';
 import {exchangeMcpCode, mcpAuthorizeUrl, registerMcpClient, type McpCredential, type McpServer} from './mcp-oauth';
 import type {McpKeyCredential} from './mcp-session';
@@ -139,24 +139,16 @@ export function connectWithKey(builtIn: BuiltInMcp, viewer: ManagingViewer, args
 	});
 }
 
-const keyBodySchema = z
-	.object({
-		key: z.string().trim().min(1, 'Paste the API key').max(1000, 'That is too long for an API key'),
-		// The connection to give the key, as its page does; else a new one.
-		connection: z.string().optional(),
-	})
-	.extend(shareBodySchema.shape);
-
 /**
  * `POST /api/orgs/:org/connections/<integration>` with `{key, connection?, shared?}`: connects the
  * integration with an API key; the new connection, the person's own or every member's, or the one
  * given the key, which the person may change. 422 is a key the server turned down, 502 the server
  * out of reach.
  */
-export function keyConnectRoute(builtIn: BuiltInMcp): (request: AuthenticatedRequest) => Promise<Result<ConnectionResponse, ApiError>> {
+export function keyConnectRoute(builtIn: BuiltInMcp): (request: AuthenticatedRequest) => Promise<Result<Connection, ApiError>> {
 	return (request) =>
 		Do(async ($) => {
-			const body = $(parseSchema(keyBodySchema, request.body));
+			const body = $(parseSchema(connectWithKeyBodySchema, request.body));
 			const viewer = $(await requireViewer(request));
 			if (body.connection !== undefined) {
 				$(await requireManaged(viewer, body.connection));

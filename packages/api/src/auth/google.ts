@@ -7,6 +7,7 @@ import {z} from 'zod';
 import {createOAuthAccount, getAccountByProvider} from '@proxy/db/auth';
 import {createUserFromOAuthProfile, deleteUser, getUserByEmail, getUserFromId, updateUserFromOAuthProfile} from '@proxy/db/user';
 import {formatFetchError, httpRequest, parseCookieHeader} from '@proxy/utils';
+import type {SignInMethods} from '@proxy/contracts/auth';
 
 import {plaidClient} from '../connections/plaid/plaid-client';
 import {log, serializeError} from '../observability/log';
@@ -70,7 +71,7 @@ function getOAuthConfig(): OAuthConfig | null {
  * checks, and a bank connected through Plaid the server's Plaid keys.
  */
 export function handleSignInMethodsRoute(_req: Request, res: Response): void {
-	res.json({google: getOAuthConfig() !== null, needs: {google: googleOAuthClient() !== null, plaid: plaidClient() !== null}});
+	res.json({google: getOAuthConfig() !== null, needs: {google: googleOAuthClient() !== null, plaid: plaidClient() !== null}} satisfies SignInMethods);
 }
 
 const statePayloadSchema = z.object({

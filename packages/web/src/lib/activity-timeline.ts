@@ -1,3 +1,4 @@
+import type {ActivityTask, AuditEntry} from '@proxy/contracts/activity';
 import {
 	formatDuration,
 	layTimedRequests,
@@ -14,7 +15,6 @@ import {
 	type TaskStatus,
 	taskStatus,
 } from '@/lib/timeline-window';
-import type {ActivityTask, AuditEntry} from '@/lib/types';
 
 // The home page's timeline: who is doing what. Every agent has a row over a window of time
 // ending now, or scrolled back from it, and in it a bar for every task it was given, with the

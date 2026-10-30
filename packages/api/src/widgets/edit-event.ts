@@ -1,11 +1,10 @@
 import {Err, type Result} from 'ts-results-es';
-import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
+import {eventChangeBodySchema, type MadeEvent} from '@proxy/contracts/widgets';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireViewer} from '../utils/user-org';
-import type {MadeEvent} from './new-event';
 import {requireWritable} from './sources';
 import {afterWrite} from './writes';
 
@@ -16,22 +15,10 @@ import {afterWrite} from './writes';
  * them to is theirs to answer, not to move.
  */
 
-const bodySchema = z.object({
-	connectionId: z.string().min(1),
-	calendarId: z.string().min(1),
-	eventId: z.string().min(1),
-	title: z.string().trim().min(1).max(500).optional(),
-	start: z.iso.datetime({offset: true}).optional(),
-	end: z.iso.datetime({offset: true}).optional(),
-	location: z.string().trim().max(500).optional(),
-	// Everyone invited once it is changed, the account itself left out.
-	guests: z.array(z.email()).max(100).optional(),
-});
-
 /** `PUT /api/widgets/events`. */
 export function handleEditEventRoute(request: AuthenticatedRequest): Promise<Result<MadeEvent, ApiError>> {
 	return Do(async ($) => {
-		const {connectionId, calendarId, eventId, guests, ...rest} = $(parseSchema(bodySchema, request.body));
+		const {connectionId, calendarId, eventId, guests, ...rest} = $(parseSchema(eventChangeBodySchema, request.body));
 		const viewer = $(await requireViewer(request));
 		const changes = {...rest, ...(guests ? {guests: guests.join(', ')} : {})};
 		const written = Object.keys(changes);

@@ -1,5 +1,5 @@
+import type {AuditEntry} from '@proxy/contracts/activity';
 import {useState} from 'react';
-import type {AuditEntry} from '@/lib/types';
 import {createTooltipHandle, type TooltipHandle} from '@proxy/ui/components/tooltip';
 
 // What a request's target hands its chart's one tooltip (timeline-chart.tsx): the request, and the

@@ -1,10 +1,12 @@
+import type {AgentLogin} from '@proxy/contracts/agents';
+import type {Consent} from '@proxy/contracts/oauth';
+import type {Org} from '@proxy/contracts/orgs';
 import {AGENT_PROVIDERS, AGENT_NAME_MAX, findAgentProvider} from '@proxy/utils/agent-providers';
 import type {FetchError} from '@proxy/utils';
 import {useRef, useState, type ReactNode} from 'react';
 import {useLoaderData} from 'react-router';
 import {listAgents} from '@/client/agents-client';
-import {answerAuthorizationRequest, type Consent} from '@/client/oauth-client';
-import type {Org} from '@/client/orgs-client';
+import {answerAuthorizationRequest} from '@/client/oauth-client';
 import {AgentLogo} from '@/components/brand-logo';
 import {OrgTile} from '@/components/org-switcher';
 import {Button} from '@proxy/ui/components/button';
@@ -21,7 +23,6 @@ import {cn} from '@proxy/ui/lib/utils';
 import {apiMessage} from '@/lib/agent-errors';
 import {describeFetchError} from '@/lib/loader-utils';
 import {forgetPendingAgent} from '@/lib/pending-agent';
-import type {AgentLogin} from '@/lib/types';
 import type {ConnectAgentData, connectAgentLoader} from '@/loaders';
 
 // One choice on the page: an agent login the organization has, or a new one for a provider, which

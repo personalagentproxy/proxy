@@ -1,5 +1,5 @@
+import type {AuditEntry} from '@proxy/contracts/activity';
 import {counted} from '@/lib/format';
-import type {AuditEntry} from '@/lib/types';
 
 // What the two timelines share: the task page's, of one run, and the home page's, of every agent
 // over a window of time. Both lay out in pixels, measured from the chart's left edge, so that how

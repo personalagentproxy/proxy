@@ -1,6 +1,7 @@
 /// <reference types="bun" />
 
 import {describe, expect, test} from 'bun:test';
+import {FIELD_IDS, type FieldId} from '@proxy/contracts/intent';
 import type {Intent} from '@/client/intent-client';
 import type {People, Person} from '@/client/widgets-client';
 import {
@@ -27,10 +28,13 @@ import {
 // Wednesday 14 October 2026, 14:30 local time.
 const now = new Date(2026, 9, 14, 14, 30);
 
-function intentWith(widget: string, fields: Record<string, string[]>): Intent {
+function intentWith(widget: Intent['widget'], fields: Partial<Record<FieldId, string[]>>): Intent {
 	return {
 		widget,
-		fields: Object.entries(fields).map(([id, values]) => ({id, name: id, values})),
+		fields: FIELD_IDS.flatMap((id) => {
+			const values = fields[id];
+			return values ? [{id, name: id, values}] : [];
+		}),
 	};
 }
 

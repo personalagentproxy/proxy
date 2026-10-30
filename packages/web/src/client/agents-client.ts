@@ -1,19 +1,29 @@
-import type {AgentProviderId} from '@proxy/utils/agent-providers';
-import {z} from 'zod';
 import {
-	activityTaskSchema,
+	activityListSchema,
 	activityTimelineSchema,
-	agentSchema,
-	auditEntrySchema,
 	taskRunSchema,
-} from '@/client/schemas';
+	type ActivityFilter,
+} from '@proxy/contracts/activity';
+import {
+	agentListSchema,
+	agentPasswordSchema,
+	agentSchema,
+	type createAgentBodySchema,
+	createdAgentSchema,
+	mcpClientListSchema,
+	type renameAgentBodySchema,
+	type setGrantsBodySchema,
+	type setRevokedBodySchema,
+} from '@proxy/contracts/agents';
+import type {AgentProviderId} from '@proxy/utils/agent-providers';
+import type {z} from 'zod';
 import {apiRequest, apiSend, orgApi} from '@/client/request';
 
 // Every call is about one organization, by its slug (`org`), as its address in the app names it.
 
 /** The agents the person sees in the organization: its shared ones and their own. */
 export function listAgents(org: string) {
-	return apiRequest('GET', `${orgApi(org)}/agents`, z.object({agents: z.array(agentSchema)}));
+	return apiRequest('GET', `${orgApi(org)}/agents`, agentListSchema);
 }
 
 export function getAgent(org: string, agentId: string) {
@@ -26,12 +36,11 @@ export function createAgent(
 	providerId: AgentProviderId,
 	options: {name: string; shared: boolean},
 ) {
-	return apiRequest(
-		'POST',
-		`${orgApi(org)}/agents`,
-		z.object({agent: agentSchema, password: z.string()}),
-		{providerId, name: options.name, ...(options.shared ? {shared: true} : {})},
-	);
+	return apiRequest('POST', `${orgApi(org)}/agents`, createdAgentSchema, {
+		providerId,
+		name: options.name,
+		...(options.shared ? {shared: true} : {}),
+	} satisfies z.input<typeof createAgentBodySchema>);
 }
 
 /** Shares one's own agent with every member of its organization, for good. */
@@ -41,19 +50,19 @@ export function shareAgent(org: string, agentId: string) {
 
 /** Renames an agent: what it is called here, in the activity log and to the agent itself. */
 export function renameAgent(org: string, agentId: string, name: string) {
-	return apiRequest('PUT', `${orgApi(org)}/agents/${agentId}/name`, agentSchema, {name});
+	return apiRequest('PUT', `${orgApi(org)}/agents/${agentId}/name`, agentSchema, {
+		name,
+	} satisfies z.input<typeof renameAgentBodySchema>);
 }
 
 export function resetAgentPassword(org: string, agentId: string) {
-	return apiRequest(
-		'POST',
-		`${orgApi(org)}/agents/${agentId}/password`,
-		z.object({password: z.string()}),
-	);
+	return apiRequest('POST', `${orgApi(org)}/agents/${agentId}/password`, agentPasswordSchema);
 }
 
 export function setAgentRevoked(org: string, agentId: string, revoked: boolean) {
-	return apiRequest('PUT', `${orgApi(org)}/agents/${agentId}/revoked`, agentSchema, {revoked});
+	return apiRequest('PUT', `${orgApi(org)}/agents/${agentId}/revoked`, agentSchema, {
+		revoked,
+	} satisfies z.input<typeof setRevokedBodySchema>);
 }
 
 export function deleteAgent(org: string, agentId: string) {
@@ -69,52 +78,24 @@ export function setAgentGrants(
 ) {
 	return apiRequest('PUT', `${orgApi(org)}/agents/${agentId}/grants/${connectionId}`, agentSchema, {
 		actions,
-	});
+	} satisfies z.input<typeof setGrantsBodySchema>);
 }
-
-const mcpClientSchema = z.object({
-	id: z.string(),
-	name: z.string(),
-	connectedAt: z.string(),
-	// Who signed it in, by their name or address; null once they have left the organization.
-	connectedBy: z.string().nullable(),
-	// Signed in by the person themselves, who may sign it out whether or not they manage the agent.
-	mine: z.boolean(),
-});
-
-export type McpClient = z.infer<typeof mcpClientSchema>;
 
 /** The MCP clients, such as Claude, signed in as the agent. */
 export function listMcpClients(org: string, agentId: string) {
-	return apiRequest(
-		'GET',
-		`${orgApi(org)}/agents/${agentId}/mcp-clients`,
-		z.object({clients: z.array(mcpClientSchema)}),
-	);
+	return apiRequest('GET', `${orgApi(org)}/agents/${agentId}/mcp-clients`, mcpClientListSchema);
 }
 
 export function disconnectMcpClient(org: string, agentId: string, clientId: string) {
 	return apiSend('DELETE', `${orgApi(org)}/agents/${agentId}/mcp-clients/${clientId}`);
 }
 
-export type ActivityFilter = {
-	agentId?: string;
-	connectionId?: string;
-	// One task's requests.
-	taskId?: string;
-	outcome?: 'allowed' | 'denied' | 'failed';
-};
-
 export function listActivity(org: string, filter: ActivityFilter) {
 	const query = new URLSearchParams(
 		Object.entries(filter).filter((entry): entry is [string, string] => entry[1] !== undefined),
 	);
 	const suffix = query.size > 0 ? `?${query}` : '';
-	return apiRequest(
-		'GET',
-		`${orgApi(org)}/activity${suffix}`,
-		z.object({entries: z.array(auditEntrySchema), tasks: z.array(activityTaskSchema)}),
-	);
+	return apiRequest('GET', `${orgApi(org)}/activity${suffix}`, activityListSchema);
 }
 
 /** A task's page: the task, its sub-tasks at every depth, and every request made for them. */

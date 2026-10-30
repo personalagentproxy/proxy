@@ -1,17 +1,19 @@
+import {z} from 'zod';
+
 import {type Experiment, hasExperiment} from '@proxy/utils';
 import {TRANSACTION_CATEGORIES} from '@proxy/utils/transaction-categories';
 import {UNITS} from '@proxy/utils/units';
 
 /**
  * The widgets the home page shows for what a person types, Sana's way: Jev picks the one that fits,
- * and a small, fast LLM fills in its fields from the text. Most are meant for one kind of data:
- * Calendar, Contacts, Gmail or Drive, or a bank; Math and Convert units are worked out in the web
- * app; Ask reads one meeting, file, email, page or issue and answers from it. A widget behind an experiment is offered
- * only to an organization with it on.
+ * and a small, fast LLM fills in its fields from the text (`packages/api/src/intent/`). Most are
+ * meant for one kind of data: Calendar, Contacts, Gmail or Drive, or a bank; Math and Convert units
+ * are worked out in the web app; Ask reads one meeting, file, email, page or issue and answers from
+ * it. A widget behind an experiment is offered only to an organization with it on.
  */
 
-export type WidgetField = {
-	id: string;
+type FieldOf<Id extends string> = {
+	id: Id;
 	name: string;
 	/**
 	 * What the LLM is told the field holds. Worded by trying them: "without 's" keeps "jacky's
@@ -27,15 +29,15 @@ export type WidgetField = {
 	 */
 	terms?: true;
 	/** The values it can hold, which the model picks one of, or none: a unit's id. */
-	options?: string[];
+	options?: readonly string[];
 };
 
-export type Widget = {
-	id: string;
+type WidgetOf<Id extends string, FieldId extends string> = {
+	id: Id;
 	name: string;
 	/** What Jev reads to tell the widgets apart, and the LLM reads to know what it fills in. */
 	description: string;
-	fields: WidgetField[];
+	fields: ReadonlyArray<FieldOf<FieldId>>;
 	/** The experiment an organization needs on to be offered it. */
 	experiment?: Experiment;
 };
@@ -47,23 +49,36 @@ const UNIT_LIST = UNITS.map((unit) => `${unit.id} (${unit.name})`).join(', ');
 
 // The kinds of spending Transactions knows, each as the model is told of it: `FOOD_AND_DRINK`
 // (restaurants, groceries, coffee, bars, delivery, eating out).
-const CATEGORY_LIST = TRANSACTION_CATEGORIES.map((category) => `${category.id} (${category.examples})`).join(', ');
+const CATEGORY_LIST = TRANSACTION_CATEGORIES.map(
+	(category) => `${category.id} (${category.examples})`,
+).join(', ');
 
-export const WIDGETS: Widget[] = [
+// Each widget's id and its fields' as literals, for `WidgetId` and `FieldId`.
+const LIST = [
 	{
 		id: 'new_event',
 		name: 'New event',
 		description: 'Schedule a meeting, call or calendar invite with people at a time',
 		fields: [
-			{id: 'attendees', name: 'Attendees', hint: 'each person to invite, one per item, as written (a name or an email address); never the person typing', many: true},
+			{
+				id: 'attendees',
+				name: 'Attendees',
+				hint: 'each person to invite, one per item, as written (a name or an email address); never the person typing',
+				many: true,
+			},
 			{id: 'location', name: 'Location', hint: 'where it takes place, as written, or null'},
-			{id: 'title', name: 'Title', hint: 'the event\'s name: one it was given, else a short one from what it is ("Lunch"); null when it is only a meeting, call or event'},
+			{
+				id: 'title',
+				name: 'Title',
+				hint: 'the event\'s name: one it was given, else a short one from what it is ("Lunch"); null when it is only a meeting, call or event',
+			},
 		],
 	},
 	{
 		id: 'change_event',
 		name: 'Change event',
-		description: 'Change an event already in the calendar: move it to another time, rename it, change where it is, or invite people to it or take them off it',
+		description:
+			'Change an event already in the calendar: move it to another time, rename it, change where it is, or invite people to it or take them off it',
 		fields: [
 			{
 				id: 'changeWith',
@@ -71,11 +86,33 @@ export const WIDGETS: Widget[] = [
 				hint: 'each person the event to change is with, to find it by, as written without \'s ("my 1:1 with arne" is arne); never the person typing, nor someone being invited or taken off',
 				many: true,
 			},
-			{id: 'changeEvent', name: 'Event', hint: 'what the event to change is, as written, without the people or any day or time ("standup", "lunch"); null when it is only a meeting, call or event'},
-			{id: 'changeFrom', name: 'When', hint: 'when the event to change is now, as written ("friday", "tomorrow\'s"); null when not said'},
-			{id: 'changeTo', name: 'New time', hint: 'the time it moves to, as written ("thursday at 3", "10am", "an hour later"); null when its time stays'},
-			{id: 'invite', name: 'Invite', hint: 'each person to invite to it, one per item, as written (a name or an email address)', many: true},
-			{id: 'uninvite', name: 'Take off', hint: 'each person to take off it, one per item, as written (a name or an email address)', many: true},
+			{
+				id: 'changeEvent',
+				name: 'Event',
+				hint: 'what the event to change is, as written, without the people or any day or time ("standup", "lunch"); null when it is only a meeting, call or event',
+			},
+			{
+				id: 'changeFrom',
+				name: 'When',
+				hint: 'when the event to change is now, as written ("friday", "tomorrow\'s"); null when not said',
+			},
+			{
+				id: 'changeTo',
+				name: 'New time',
+				hint: 'the time it moves to, as written ("thursday at 3", "10am", "an hour later"); null when its time stays',
+			},
+			{
+				id: 'invite',
+				name: 'Invite',
+				hint: 'each person to invite to it, one per item, as written (a name or an email address)',
+				many: true,
+			},
+			{
+				id: 'uninvite',
+				name: 'Take off',
+				hint: 'each person to take off it, one per item, as written (a name or an email address)',
+				many: true,
+			},
 			{id: 'newTitle', name: 'New title', hint: 'its new name when it is renamed, else null'},
 			{id: 'newLocation', name: 'New location', hint: 'where it moves to, as written, else null'},
 		],
@@ -83,9 +120,15 @@ export const WIDGETS: Widget[] = [
 	{
 		id: 'show_calendar',
 		name: 'Calendar',
-		description: 'See what is on the calendar on a day, or find when a meeting or event is: what is on today or tomorrow, when the person is meeting someone, when their next dentist appointment is',
+		description:
+			'See what is on the calendar on a day, or find when a meeting or event is: what is on today or tomorrow, when the person is meeting someone, when their next dentist appointment is',
 		fields: [
-			{id: 'meetingWith', name: 'With', hint: "each person the event is with, one per item, as written (a name or an email address) without 's; never the person typing", many: true},
+			{
+				id: 'meetingWith',
+				name: 'With',
+				hint: "each person the event is with, one per item, as written (a name or an email address) without 's; never the person typing",
+				many: true,
+			},
 			{
 				id: 'eventName',
 				name: 'Event',
@@ -97,15 +140,30 @@ export const WIDGETS: Widget[] = [
 		id: 'find_person',
 		name: 'Person',
 		description: 'Look up who someone is, or their email address or phone number',
-		fields: [{id: 'person', name: 'Person', hint: "the person's name or address alone, without 's or what is asked about them"}],
+		fields: [
+			{
+				id: 'person',
+				name: 'Person',
+				hint: "the person's name or address alone, without 's or what is asked about them",
+			},
+		],
 	},
 	{
 		id: 'write_email',
 		name: 'Write email',
 		description: 'Write, draft or send a new email to someone, rather than a reply to one received',
 		fields: [
-			{id: 'to', name: 'To', hint: 'each recipient, one per item, as written (a name or an email address)', many: true},
-			{id: 'subject', name: 'Subject', hint: 'a short subject from what the email is about, or null'},
+			{
+				id: 'to',
+				name: 'To',
+				hint: 'each recipient, one per item, as written (a name or an email address)',
+				many: true,
+			},
+			{
+				id: 'subject',
+				name: 'Subject',
+				hint: 'a short subject from what the email is about, or null',
+			},
 			{
 				id: 'body',
 				name: 'Message',
@@ -142,7 +200,11 @@ export const WIDGETS: Widget[] = [
 		name: 'Find email',
 		description: 'Find, search for or open emails already received or sent',
 		fields: [
-			{id: 'from', name: 'From', hint: 'who sent it by name or address, as written (a person or a company); null for one described rather than named, such as "my landlord"'},
+			{
+				id: 'from',
+				name: 'From',
+				hint: 'who sent it by name or address, as written (a person or a company); null for one described rather than named, such as "my landlord"',
+			},
 			{
 				id: 'about',
 				name: 'About',
@@ -156,8 +218,16 @@ export const WIDGETS: Widget[] = [
 		name: 'Find file',
 		description: 'Find or open a file, document, spreadsheet or presentation in Drive',
 		fields: [
-			{id: 'name', name: 'Name', hint: "the file's name, or the words in it, as written, without its owner or 's"},
-			{id: 'owner', name: 'Owner', hint: "who made, owns or shared it, as written without 's, or null"},
+			{
+				id: 'name',
+				name: 'Name',
+				hint: "the file's name, or the words in it, as written, without its owner or 's",
+			},
+			{
+				id: 'owner',
+				name: 'Owner',
+				hint: "who made, owns or shared it, as written without 's, or null",
+			},
 		],
 	},
 	{
@@ -189,7 +259,8 @@ export const WIDGETS: Widget[] = [
 	{
 		id: 'calculate',
 		name: 'Math',
-		description: 'Work out arithmetic or math: sums, percentages, tips, splitting a bill, powers, roots',
+		description:
+			'Work out arithmetic or math: sums, percentages, tips, splitting a bill, powers, roots',
 		fields: [
 			{
 				id: 'expression',
@@ -201,18 +272,40 @@ export const WIDGETS: Widget[] = [
 	{
 		id: 'convert_units',
 		name: 'Convert units',
-		description: 'Convert a quantity from one unit to another: length, weight, volume, temperature, speed, area, time, data, energy, or money from one currency to another',
+		description:
+			'Convert a quantity from one unit to another: length, weight, volume, temperature, speed, area, time, data, energy, or money from one currency to another',
 		fields: [
-			{id: 'amount', name: 'Amount', hint: 'the number to convert, in digits ("five" is "5"); "1" when only units are said'},
-			{id: 'fromUnit', name: 'From', hint: `the unit it is in, one of: ${UNIT_LIST}`, options: UNITS.map((unit) => unit.id)},
-			{id: 'toUnit', name: 'To', hint: 'the unit to convert it to, of the same list; null when not said', options: UNITS.map((unit) => unit.id)},
+			{
+				id: 'amount',
+				name: 'Amount',
+				hint: 'the number to convert, in digits ("five" is "5"); "1" when only units are said',
+			},
+			{
+				id: 'fromUnit',
+				name: 'From',
+				hint: `the unit it is in, one of: ${UNIT_LIST}`,
+				options: UNITS.map((unit) => unit.id),
+			},
+			{
+				id: 'toUnit',
+				name: 'To',
+				hint: 'the unit to convert it to, of the same list; null when not said',
+				options: UNITS.map((unit) => unit.id),
+			},
 		],
 	},
 	{
 		id: 'show_balances',
 		name: 'Balances',
-		description: 'See the balance of a bank account, card or loan, or how much money the person has or owes in all',
-		fields: [{id: 'balanceAccount', name: 'Account', hint: 'the account asked about, as written without my ("checking", "amex", "savings", "credit card"); null for every account'}],
+		description:
+			'See the balance of a bank account, card or loan, or how much money the person has or owes in all',
+		fields: [
+			{
+				id: 'balanceAccount',
+				name: 'Account',
+				hint: 'the account asked about, as written without my ("checking", "amex", "savings", "credit card"); null for every account',
+			},
+		],
 	},
 	{
 		id: 'find_transactions',
@@ -231,10 +324,39 @@ export const WIDGETS: Widget[] = [
 				hint: `the kind of spending or income asked about, one of: ${CATEGORY_LIST}; null when none is said`,
 				options: TRANSACTION_CATEGORIES.map((category) => category.id),
 			},
-			{id: 'flow', name: 'Flow', hint: '"in" for money coming in (deposits, paychecks, refunds, income), "out" for money spent or paid; null when either or not said', options: ['in', 'out']},
-			{id: 'transactionAccount', name: 'Account', hint: 'the account the transactions are on, as written without my ("checking", "amex"); null when not said'},
+			{
+				id: 'flow',
+				name: 'Flow',
+				hint: '"in" for money coming in (deposits, paychecks, refunds, income), "out" for money spent or paid; null when either or not said',
+				options: ['in', 'out'],
+			},
+			{
+				id: 'transactionAccount',
+				name: 'Account',
+				hint: 'the account the transactions are on, as written without my ("checking", "amex"); null when not said',
+			},
 		],
 	},
+] as const satisfies ReadonlyArray<WidgetOf<string, string>>;
+
+/** A widget's id, as the api picks it and the web app shows it. */
+export type WidgetId = (typeof LIST)[number]['id'];
+
+/** A field's id, of any widget. */
+export type FieldId = (typeof LIST)[number]['fields'][number]['id'];
+
+export type WidgetField = FieldOf<FieldId>;
+
+export type Widget = WidgetOf<WidgetId, FieldId>;
+
+export const WIDGETS: readonly Widget[] = LIST;
+
+/** Every widget's id. */
+export const WIDGET_IDS: readonly WidgetId[] = WIDGETS.map((widget) => widget.id);
+
+/** Every field's id, of any widget, each once. */
+export const FIELD_IDS: readonly FieldId[] = [
+	...new Set(WIDGETS.flatMap((widget) => widget.fields.map((field) => field.id))),
 ];
 
 /** The widgets offered to an organization: every one not behind an experiment, and those behind one it has on. */
@@ -250,3 +372,47 @@ export const NO_WIDGET = 'none';
  * typing: the home page waits for more rather than saying nothing fits.
  */
 export const INCOMPLETE = 'incomplete';
+
+const text = z.string().trim().min(1).max(500);
+
+/** `POST /api/orgs/:org/intent`: what was typed, to pick a widget for. */
+export const pickBodySchema = z.object({text});
+
+export type PickBody = z.input<typeof pickBodySchema>;
+
+/** `POST /api/orgs/:org/intent/fields`: what was typed, and the widget picked for it, to fill in. */
+export const fillBodySchema = z.object({text, widget: z.string().min(1)});
+
+/** The widget's id is typed here, though the api answers an id it doesn't offer as not found. */
+export type FillBody = z.input<typeof fillBodySchema> & {widget: WidgetId};
+
+/** The widget Jev picked. */
+export const pickedSchema = z.object({
+	/**
+	 * The widget's id, `none` when what was asked is whole and none does it, or `incomplete` when
+	 * too little was typed to tell yet.
+	 */
+	widget: z.enum([...WIDGET_IDS, NO_WIDGET, INCOMPLETE]),
+	/** How long Jev took. */
+	ms: z.number(),
+});
+
+export type Picked = z.infer<typeof pickedSchema>;
+
+/** A field of the picked widget and what fills it: one value, or each of a list's. */
+export const filledFieldSchema = z.object({
+	id: z.enum(FIELD_IDS),
+	name: z.string(),
+	values: z.array(z.string()),
+});
+
+export type FilledField = z.infer<typeof filledFieldSchema>;
+
+/** The picked widget's fields, filled in. */
+export const filledSchema = z.object({
+	fields: z.array(filledFieldSchema),
+	/** How long the model took. */
+	ms: z.number(),
+});
+
+export type Filled = z.infer<typeof filledSchema>;

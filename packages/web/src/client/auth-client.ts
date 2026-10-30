@@ -1,20 +1,12 @@
+import {magicLinkResponseSchema, signInMethodsSchema} from '@proxy/contracts/auth';
 import {httpRequest} from '@proxy/utils';
-import {z} from 'zod';
 import {apiRequest, apiSend} from '@/client/request';
-
-// `POST /auth/email` answers 200 `{ok: true}`, with `logged` when the api wrote the link to its
-// log for lack of a way to send email, or 4xx/5xx `{error}` with a code the login page maps to
-// copy. Any status is accepted so the error body is parsed as an answer, which is why this one
-// call goes to `httpRequest` itself: `apiRequest` takes a 4xx/5xx as an error, unparsed.
-const magicLinkResponseSchema = z.object({
-	ok: z.boolean().optional(),
-	logged: z.boolean().optional(),
-	error: z.string().optional(),
-});
 
 /**
  * Requests a magic-link email. Pre-auth, so no session cookie; the api still requires the app's
- * Origin (CSRF guard), which the browser attaches.
+ * Origin (CSRF guard), which the browser attaches. Any status is accepted so the error body
+ * (`magicLinkResponseSchema`) is parsed as an answer, which is why this one call goes to
+ * `httpRequest` itself: `apiRequest` takes a 4xx/5xx as an error, unparsed.
  */
 export function requestMagicLink(email: string, callbackUrl?: string) {
 	return httpRequest(
@@ -27,13 +19,6 @@ export function requestMagicLink(email: string, callbackUrl?: string) {
 		{schema: magicLinkResponseSchema, allowStatus: () => true},
 	);
 }
-
-const signInMethodsSchema = z.object({
-	google: z.boolean(),
-	needs: z.object({google: z.boolean(), plaid: z.boolean()}),
-});
-
-export type SignInMethods = z.infer<typeof signInMethodsSchema>;
 
 /**
  * The sign-in methods the api has set up besides the magic link, which always is, and which of

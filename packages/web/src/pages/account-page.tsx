@@ -1,7 +1,7 @@
+import type {Org} from '@proxy/contracts/orgs';
 import {useState} from 'react';
 import {Link} from 'react-router';
 import {deleteAccount} from '@/client/me-client';
-import type {Org} from '@/client/orgs-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {DangerCard} from '@/components/danger-card';
 import {OrgTile} from '@/components/org-switcher';

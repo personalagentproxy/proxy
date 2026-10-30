@@ -1,9 +1,10 @@
 import {randomBytes} from 'node:crypto';
 
 import {Err, type Result} from 'ts-results-es';
-import {z} from 'zod';
+import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, type Experiment, parseSchema, requirePresent} from '@proxy/utils';
+import {type Invitation, inviteBodySchema, type Member, type memberListSchema, type Org, type orgListSchema, orgNameBodySchema} from '@proxy/contracts/orgs';
 import {listOrgConnectionsWithCredential, listOwnConnectionsWithCredential} from '@proxy/db/connection';
 import {createInvitation, deleteInvitation, listInvitations, type InvitationRow} from '@proxy/db/invitation';
 import {
@@ -16,7 +17,6 @@ import {
 	removeMembership,
 	renameOrganization,
 	type MemberRow,
-	type OrgRole,
 	type UserOrgRow,
 } from '@proxy/db/organization';
 import {getUserByEmail} from '@proxy/db/user';
@@ -36,45 +36,34 @@ import {requireOwner, requireViewer} from '../utils/user-org';
 // members can leave. Roles never change, and nobody deletes the last one they own, so everyone
 // always owns one.
 
-const MAX_NAME_LENGTH = 80;
 // How long an invitation's link works.
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-// `onboarded`: whether it has been through the welcome flow, which the web app shows until then;
-// `experiments`: the ones on for it, for the web app's `useExperiments`.
-export type OrgResponse = {id: string; slug: string; name: string; role: OrgRole; onboarded: boolean; experiments: Experiment[]; memberCount: number; invitationCount: number};
-
-export type MemberResponse = {userId: string; name: string | null; email: string; image: string | null; role: OrgRole; joinedAt: string};
-
-export type InvitationResponse = {id: string; email: string; invitedBy: string | null; expiresAt: string};
-
-function toOrg(row: UserOrgRow, experiments: Experiment[]): OrgResponse {
+function toOrg(row: UserOrgRow, experiments: Experiment[]): Org {
 	return {id: row.id, slug: row.slug, name: row.name, role: row.role, onboarded: row.onboarded, experiments, memberCount: row.memberCount, invitationCount: row.invitationCount};
 }
 
-function toMember(row: MemberRow): MemberResponse {
+function toMember(row: MemberRow): Member {
 	return {userId: row.userId, name: row.name, email: row.email, image: row.image, role: row.role, joinedAt: row.joinedAt.toISOString()};
 }
 
-function toInvitation(row: InvitationRow): InvitationResponse {
+function toInvitation(row: InvitationRow): Invitation {
 	return {id: row.id, email: row.email, invitedBy: row.invitedBy, expiresAt: row.expires.toISOString()};
 }
-
-const nameBodySchema = z.object({name: z.string().trim().min(1, 'Give the organization a name').max(MAX_NAME_LENGTH, `The name can be at most ${MAX_NAME_LENGTH} characters`)});
 
 /**
  * `GET /api/orgs`: the person's organizations, the first one joined first, for the switcher and
  * for where the app opens with no organization in its address. The experiments are each
  * organization's own page's to say (`GET /api/orgs/:org`); here they are left empty.
  */
-export function handleListOrgsRoute(request: AuthenticatedRequest): Promise<Result<{orgs: OrgResponse[]}, ApiError>> {
+export function handleListOrgsRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof orgListSchema>, ApiError>> {
 	return Do(async ($) => {
 		return {orgs: $(await listUserOrgs(request.user.userId)).map((org) => toOrg(org, []))};
 	});
 }
 
 /** `GET /api/orgs/:org`: the organization the address names, for a member of it, with their role there. */
-export function handleGetOrgRoute(request: AuthenticatedRequest): Promise<Result<OrgResponse, ApiError>> {
+export function handleGetOrgRoute(request: AuthenticatedRequest): Promise<Result<Org, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const row = $(
@@ -88,9 +77,9 @@ export function handleGetOrgRoute(request: AuthenticatedRequest): Promise<Result
 }
 
 /** `POST /api/orgs` with `{name}`: a new organization, the person its owner, answered with the slug its address is. */
-export function handleCreateOrgRoute(request: AuthenticatedRequest): Promise<Result<OrgResponse, ApiError>> {
+export function handleCreateOrgRoute(request: AuthenticatedRequest): Promise<Result<Org, ApiError>> {
 	return Do(async ($) => {
-		const {name} = $(parseSchema(nameBodySchema, request.body));
+		const {name} = $(parseSchema(orgNameBodySchema, request.body));
 		const org = $(await createOrganization({userId: request.user.userId, name}));
 		return {id: org.id, slug: org.slug, name: org.name, role: 'owner' as const, onboarded: true, experiments: [], memberCount: 1, invitationCount: 0};
 	});
@@ -108,7 +97,7 @@ export function handleFinishOnboardingRoute(request: AuthenticatedRequest): Prom
 export function handleRenameOrgRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		const {orgId} = $(await requireOwner(request));
-		const {name} = $(parseSchema(nameBodySchema, request.body));
+		const {name} = $(parseSchema(orgNameBodySchema, request.body));
 		$(await renameOrganization(orgId, name));
 	});
 }
@@ -160,7 +149,7 @@ export function handleLeaveOrgRoute(request: AuthenticatedRequest): Promise<Resu
 }
 
 /** `GET /api/orgs/:org/members`: who is in it and who is invited, for anyone in it. */
-export function handleListMembersRoute(request: AuthenticatedRequest): Promise<Result<{members: MemberResponse[]; invitations: InvitationResponse[]}, ApiError>> {
+export function handleListMembersRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof memberListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const {orgId} = $(await requireViewer(request));
 		const members = $(await listMembers(orgId)).map(toMember);
@@ -188,11 +177,11 @@ export function handleRemoveMemberRoute(request: AuthenticatedRequest): Promise<
  * are; it works for a week. An address that can't sign up here, by ALLOWED_SIGNUP_EMAILS, is
  * refused, and so is someone already in it.
  */
-export function handleInviteRoute(request: AuthenticatedRequest): Promise<Result<InvitationResponse, ApiError>> {
+export function handleInviteRoute(request: AuthenticatedRequest): Promise<Result<Invitation, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireOwner(request));
 		const {orgId, userId} = viewer;
-		const {email: given} = $(parseSchema(z.object({email: z.string()}), request.body));
+		const {email: given} = $(parseSchema(inviteBodySchema, request.body));
 		const email = $(requirePresent(normalizeEmail(given), ApiErr.validationError('That isn’t an email address')));
 		const existing = $(await getUserByEmail(email));
 		if (!existing && !canSignUp(email)) {

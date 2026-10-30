@@ -1,6 +1,6 @@
+import type {Persona} from '@proxy/contracts/harness';
 import {RotateCcwIcon, ShuffleIcon} from 'lucide-react';
 import {useState} from 'react';
-import type {Persona} from '@/client/harness-client';
 import {AGENT_NAME_MAX} from '@proxy/utils/agent-providers';
 import {AVATAR_COLORS, type AvatarColor, shuffleLook} from '@proxy/utils/harness';
 import {LiveHead} from '@/components/head';

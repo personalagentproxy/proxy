@@ -2,13 +2,13 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
+import type {Agenda, AgendaCalendar, AgendaEvent, CalendarTarget, FoundEvents} from '@proxy/contracts/widgets';
 import {getWriteTarget} from '@proxy/db/write-target';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireViewer} from '../utils/user-org';
-import type {Calendar, CalendarEvent} from '../records/capabilities';
-import {eachSource, type Failure} from './each-source';
-import {findSources, summarize, withCapability, type SourceSummary} from './sources';
+import {eachSource} from './each-source';
+import {findSources, summarize, withCapability} from './sources';
 
 /**
  * Every calendar connected, for the New event and Calendar widgets: a stretch of time, the day an
@@ -16,16 +16,6 @@ import {findSources, summarize, withCapability, type SourceSummary} from './sour
  * the one the person last made one in first; and the events coming up that a search finds, each
  * through the `events` connector's agenda and search.
  */
-
-/** A calendar as the widget shows it: whose, and whether a new event can go in it. */
-export type AgendaCalendar = {connectionId: string} & Calendar;
-
-/** An event of a calendar, and whose. */
-export type AgendaEvent = {connectionId: string} & CalendarEvent;
-
-export type CalendarTarget = {connectionId: string; calendarId: string};
-
-export type Agenda = {sources: SourceSummary[]; calendars: AgendaCalendar[]; events: AgendaEvent[]; target: CalendarTarget | null; failed: Failure[]};
 
 // A widget shows a day, or two where an event runs past midnight.
 const MAX_RANGE_MS = 2 * 24 * 3_600_000;
@@ -74,8 +64,6 @@ const searchSchema = z.object({
 		.transform((value) => [...new Set((Array.isArray(value) ? value : [value]).map((one) => one.trim().slice(0, 200)).filter((one) => one !== ''))])
 		.pipe(z.array(z.string()).min(1).max(3)),
 });
-
-export type FoundEvents = {sources: SourceSummary[]; events: AgendaEvent[]; failed: Failure[]};
 
 /**
  * `GET /api/widgets/events?from=…&search=…&search=…`: the events from a time on that any of the

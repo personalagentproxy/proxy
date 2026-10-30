@@ -2,14 +2,15 @@ import type {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
+import {emailReplyBodySchema, type FoundEmail, type FoundEmails, type Mailboxes, newEmailBodySchema, type WrittenEmail} from '@proxy/contracts/widgets';
 import {getWriteTarget} from '@proxy/db/write-target';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireViewer} from '../utils/user-org';
 import type {DataRecord} from '../records/connector';
 import type {EmailSearch} from '../records/email-search';
-import {eachSource, type Failure} from './each-source';
-import {findSources, requireReadable, requireWritable, summarize, withCapability, type Source, type SourceSummary} from './sources';
+import {eachSource} from './each-source';
+import {findSources, requireReadable, requireWritable, summarize, withCapability, type Source} from './sources';
 import {afterWrite} from './writes';
 
 /**
@@ -18,8 +19,6 @@ import {afterWrite} from './writes';
  * picked, and a reply to an email found, in its thread, from the mailbox it was found in, each
  * saved as a draft or sent, through the mailbox's connector as an agent's would be.
  */
-
-export type FoundEmail = {connectionId: string; id: string; from: string; subject: string; date: string; unread: boolean; link: string | null};
 
 // What the widget lists at most, across every mailbox.
 const LIMIT = 8;
@@ -62,8 +61,6 @@ function readSearch(query: z.infer<typeof searchSchema>): EmailSearch {
 	};
 }
 
-export type FoundEmails = {sources: SourceSummary[]; emails: FoundEmail[]; failed: Failure[]};
-
 /** `GET /api/widgets/emails?from=…&words=…&since=…`: the newest emails each mailbox finds. */
 export function handleFindEmailsRoute(request: AuthenticatedRequest): Promise<Result<FoundEmails, ApiError>> {
 	return Do(async ($) => {
@@ -79,8 +76,6 @@ export function handleFindEmailsRoute(request: AuthenticatedRequest): Promise<Re
 	});
 }
 
-export type Mailboxes = {sources: SourceSummary[]; target: string | null};
-
 /** `GET /api/widgets/mailboxes`: the mailboxes email can go out from, the one last written from first. */
 export function handleMailboxesRoute(request: AuthenticatedRequest): Promise<Result<Mailboxes, ApiError>> {
 	return Do(async ($) => {
@@ -92,21 +87,10 @@ export function handleMailboxesRoute(request: AuthenticatedRequest): Promise<Res
 	});
 }
 
-const writeSchema = z.object({
-	connectionId: z.string().min(1),
-	to: z.array(z.email()).min(1).max(100),
-	subject: z.string().trim().max(1000).default(''),
-	body: z.string().max(100_000).default(''),
-	// Sent at once, or saved as a draft.
-	send: z.boolean(),
-});
-
-export type WrittenEmail = {sent: boolean};
-
 /** `POST /api/widgets/emails`: an email from the mailbox picked, sent or saved as a draft. */
 export function handleWriteEmailRoute(request: AuthenticatedRequest): Promise<Result<WrittenEmail, ApiError>> {
 	return Do(async ($) => {
-		const body = $(parseSchema(writeSchema, request.body));
+		const body = $(parseSchema(newEmailBodySchema, request.body));
 		const viewer = $(await requireViewer(request));
 		const values = {to: body.to.join(', '), subject: body.subject, body: body.body};
 		const write = body.send ? 'sendNew' : 'create';
@@ -124,19 +108,10 @@ export function handleWriteEmailRoute(request: AuthenticatedRequest): Promise<Re
 	});
 }
 
-const replySchema = z.object({
-	connectionId: z.string().min(1),
-	// The email answered, as the search found it.
-	emailId: z.string().min(1).max(500),
-	body: z.string().max(100_000),
-	// Sent at once, or saved as a draft.
-	send: z.boolean(),
-});
-
 /** `POST /api/widgets/emails/reply`: a reply to an email found, from the mailbox it is in, in its thread, sent or saved as a draft. */
 export function handleReplyEmailRoute(request: AuthenticatedRequest): Promise<Result<WrittenEmail, ApiError>> {
 	return Do(async ($) => {
-		const body = $(parseSchema(replySchema, request.body));
+		const body = $(parseSchema(emailReplyBodySchema, request.body));
 		const viewer = $(await requireViewer(request));
 		const write = body.send ? 'sendNew' : 'create';
 		const source = $(await requireWritable(viewer, body.connectionId, 'emails', write, ['to', 'subject', 'body']));

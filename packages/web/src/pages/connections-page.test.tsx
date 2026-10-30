@@ -1,13 +1,13 @@
 /// <reference types="bun" />
 
+import type {Connection} from '@proxy/contracts/connections';
+import type {Org} from '@proxy/contracts/orgs';
 import {afterEach, describe, expect, test} from 'bun:test';
 import {cleanup, render, screen} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
-import type {Org} from '@/client/orgs-client';
 import {HumanSide} from '@/components/human-side';
-import type {Connection} from '@/lib/types';
 import {ConnectionsPage} from '@/pages/connections-page';
 import {testHuman, testOrg} from '@/test-org';
 
@@ -18,6 +18,7 @@ afterEach(() => {
 function connection(id: string, integrationId: string, shared: boolean): Connection {
 	return {
 		id,
+		orgId: 'org-1',
 		integrationId,
 		account: 'Acme',
 		shared,

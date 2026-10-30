@@ -1,59 +1,38 @@
-import {mcpToolSchema} from '@proxy/integrations';
-import {z} from 'zod';
-import {dataRecordSchema} from '@/client/schemas';
+import {type agentLoginBodySchema, agentLoginSchema} from '@proxy/contracts/agent-auth';
+import {
+	agentMeSchema,
+	agentTaskListSchema,
+	agentTaskSchema,
+	type feedbackBodySchema,
+	feedbackSentSchema,
+	recordToolResultSchema,
+	type runToolBodySchema,
+	serverToolResultSchema,
+	type startTaskBodySchema,
+} from '@proxy/contracts/agent-side';
+import {recordPageSchema} from '@proxy/contracts/records';
+import type {z} from 'zod';
 import {apiRequest, apiSend} from '@/client/request';
 
 // The agent side: its own sign-in and cookie. Every records call is made for a task, the one in
 // the page's address (lib/agent-task.ts), checked against the agent's access and logged by the api
 // with the task, a refused one (403) too.
 
-const agentMeSchema = z.object({
-	agent: z.object({id: z.string(), providerId: z.string(), name: z.string()}),
-	connections: z.array(
-		z.object({
-			id: z.string(),
-			integrationId: z.string(),
-			account: z.string(),
-			// Shared with everyone in the organization, rather than the agent's owner's own.
-			shared: z.boolean(),
-			// The actions the agent can take with the connection.
-			actions: z.array(z.string()),
-			// A custom MCP server's tools the agent may run; null for every other integration.
-			tools: z.array(mcpToolSchema).nullable(),
-			// What the person called the connection, where they named it.
-			name: z.string().nullable(),
-		}),
-	),
-});
-
-export type AgentMe = z.infer<typeof agentMeSchema>;
-
 /** 401 wrong username or password, 403 a revoked login. */
 export function signInAgent(username: string, password: string) {
-	return apiRequest('POST', '/agent-auth/login', z.object({agentId: z.string()}), {
+	return apiRequest('POST', '/agent-auth/login', agentLoginSchema, {
 		username,
 		password,
-	});
+	} satisfies z.input<typeof agentLoginBodySchema>);
 }
 
 export function signOutAgent() {
 	return apiSend('POST', '/agent-auth/logout');
 }
 
-const agentTaskSchema = z.object({
-	// The task's id, which every run is made with.
-	task: z.string(),
-	title: z.string(),
-	goal: z.string(),
-	startedAt: z.string(),
-	finishedAt: z.string().nullable(),
-});
-
-export type AgentTask = z.infer<typeof agentTaskSchema>;
-
 /** The agent's tasks still under way, newest first: it can have any number at once. */
 export function listAgentTasks() {
-	return apiRequest('GET', '/api/agent/tasks', z.object({tasks: z.array(agentTaskSchema)}));
+	return apiRequest('GET', '/api/agent/tasks', agentTaskListSchema);
 }
 
 /** The task while it is not finished: 404 for one unknown, 409 for one finished. */
@@ -62,7 +41,7 @@ export function getAgentTask(taskId: string) {
 }
 
 /** Starts a task: what the agent is about to do for the person, as the MCP server's start_task takes it. */
-export function startAgentTask(task: {title: string; goal: string}) {
+export function startAgentTask(task: z.input<typeof startTaskBodySchema>) {
 	return apiRequest('POST', '/api/agent/tasks', agentTaskSchema, task);
 }
 
@@ -86,6 +65,8 @@ function toolPath(connectionId: string, tool: string): string {
 	return `/api/agent/connections/${connectionId}/tools/${encodeURIComponent(tool)}`;
 }
 
+type RunToolBody = z.input<typeof runToolBodySchema>;
+
 /**
  * Runs a list tool: a page of records, newest first, and the token of the next, older page. A list
  * opened inside a record says where it is: that record last, those above it before it.
@@ -96,16 +77,10 @@ export function runAgentListTool(
 	tool: string,
 	params: Record<string, string>,
 ) {
-	return apiRequest(
-		'POST',
-		toolPath(connectionId, tool),
-		z.object({
-			records: z.array(dataRecordSchema),
-			nextPage: z.string().nullable(),
-			trail: z.array(z.object({id: z.string(), title: z.string()})).optional(),
-		}),
-		{task: taskId, params},
-	);
+	return apiRequest('POST', toolPath(connectionId, tool), recordPageSchema, {
+		task: taskId,
+		params,
+	} satisfies RunToolBody);
 }
 
 /** Runs one of a custom MCP server's tools with its params as the server takes them: what the tool answered. */
@@ -115,10 +90,10 @@ export function runAgentServerTool(
 	tool: string,
 	params: Record<string, unknown>,
 ) {
-	return apiRequest('POST', toolPath(connectionId, tool), z.object({text: z.string()}), {
+	return apiRequest('POST', toolPath(connectionId, tool), serverToolResultSchema, {
 		task: taskId,
 		params,
-	});
+	} satisfies RunToolBody);
 }
 
 /**
@@ -131,23 +106,16 @@ export function runAgentRecordTool(
 	tool: string,
 	params: Record<string, string>,
 ) {
-	return apiRequest(
-		'POST',
-		toolPath(connectionId, tool),
-		z.object({record: dataRecordSchema.nullable()}),
-		{task: taskId, params},
-	);
+	return apiRequest('POST', toolPath(connectionId, tool), recordToolResultSchema, {
+		task: taskId,
+		params,
+	} satisfies RunToolBody);
 }
 
 /**
  * Feedback for the makers of Personal Agent Proxy, such as a page that didn't work as the agent
  * expected, and the connection, the tool and the task it is about where there are any.
  */
-export function sendAgentFeedback(feedback: {
-	message: string;
-	connection?: string;
-	tool?: string;
-	task?: string;
-}) {
-	return apiRequest('POST', '/api/agent/feedback', z.object({sent: z.literal(true)}), feedback);
+export function sendAgentFeedback(feedback: z.input<typeof feedbackBodySchema>) {
+	return apiRequest('POST', '/api/agent/feedback', feedbackSentSchema, feedback);
 }

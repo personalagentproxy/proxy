@@ -4,6 +4,7 @@ import type {Request, Response} from 'express';
 
 import {createVerificationToken, useVerificationToken} from '@proxy/db/auth';
 import {createUserFromEmail, getUserByEmail, setUserEmailVerified} from '@proxy/db/user';
+import type {MagicLinkResponse} from '@proxy/contracts/auth';
 
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
@@ -54,14 +55,14 @@ export async function handleEmailSignInRoute(req: Request, res: Response): Promi
 	const config = getEmailAuthConfig();
 	if (!config) {
 		log.error('Email sign-in route called without complete email auth configuration');
-		res.status(500).json({error: 'EmailSignin'});
+		res.status(500).json({error: 'EmailSignin'} satisfies MagicLinkResponse);
 		return;
 	}
 
 	const body = req.body as {email?: unknown; callbackUrl?: unknown} | undefined;
 	const email = normalizeEmail(typeof body?.email === 'string' ? body.email : '');
 	if (!email) {
-		res.status(400).json({error: 'EmailSignin'});
+		res.status(400).json({error: 'EmailSignin'} satisfies MagicLinkResponse);
 		return;
 	}
 
@@ -70,12 +71,12 @@ export async function handleEmailSignInRoute(req: Request, res: Response): Promi
 		const existingResult = await getUserByEmail(email);
 		if (existingResult.isErr()) {
 			log.error('Email sign-in user lookup failed', serializeError(existingResult.error));
-			res.status(500).json({error: 'EmailSignin'});
+			res.status(500).json({error: 'EmailSignin'} satisfies MagicLinkResponse);
 			return;
 		}
 
 		if (!existingResult.value) {
-			res.status(403).json({error: 'SignupNotAllowed'});
+			res.status(403).json({error: 'SignupNotAllowed'} satisfies MagicLinkResponse);
 			return;
 		}
 	}
@@ -90,7 +91,7 @@ export async function handleEmailSignInRoute(req: Request, res: Response): Promi
 	});
 	if (tokenResult.isErr()) {
 		log.error('Email sign-in failed to store verification token', serializeError(tokenResult.error));
-		res.status(500).json({error: 'EmailSignin'});
+		res.status(500).json({error: 'EmailSignin'} satisfies MagicLinkResponse);
 		return;
 	}
 
@@ -99,18 +100,18 @@ export async function handleEmailSignInRoute(req: Request, res: Response): Promi
 	// Without a way to send email, whoever runs Personal Agent Proxy can read the link from its log.
 	if (env.NODE_ENV === 'development' || !env.RESEND_KEY) {
 		log.info(`[Magic Link] ${email}: ${url}`);
-		res.json({ok: true, logged: true});
+		res.json({ok: true, logged: true} satisfies MagicLinkResponse);
 		return;
 	}
 
 	const sendResult = await sendMagicLink({email, url});
 	if (sendResult.isErr()) {
 		log.error('[Magic Link] Failed to send email', serializeError(sendResult.error));
-		res.status(500).json({error: 'EmailSignin'});
+		res.status(500).json({error: 'EmailSignin'} satisfies MagicLinkResponse);
 		return;
 	}
 
-	res.json({ok: true});
+	res.json({ok: true} satisfies MagicLinkResponse);
 }
 
 /**

@@ -1,12 +1,14 @@
 /// <reference types="bun" />
 
+import type {ActivityTimeline} from '@proxy/contracts/activity';
+import type {AgentLogin} from '@proxy/contracts/agents';
+import type {Connection} from '@proxy/contracts/connections';
 import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {HumanSide} from '@/components/human-side';
-import type {ActivityTimeline} from '@/client/schemas';
 import {HomePage} from '@/pages/home-page';
 import {testHuman} from '@/test-org';
 import {clearWidgetLookups, widgetsAnswer} from '@/test-widgets-api';
@@ -20,17 +22,27 @@ const intent = {
 	ms: 140,
 };
 
-const connection = (id: string, integrationId: string, account: string) => ({
+const connection = (id: string, integrationId: string, account: string): Connection => ({
 	id,
+	orgId: 'org-1',
 	integrationId,
 	account,
+	shared: false,
+	connectedById: 'user-1',
+	connectedBy: null,
 	defaults: [],
 	tools: null,
 	name: null,
 	unavailable: [],
+	signInNeeded: false,
 });
 
-const agent = (id: string, providerId: string, name: string, revokedAt: string | null = null) => ({
+const agent = (
+	id: string,
+	providerId: string,
+	name: string,
+	revokedAt: string | null = null,
+): AgentLogin => ({
 	id,
 	providerId,
 	name,
@@ -83,8 +95,8 @@ const activity: ActivityTimeline = {
 // What the home route's loader answers: the connections and agent logins, for the logos, and
 // what the agents are doing, for the timeline.
 let home: {
-	connections: ReturnType<typeof connection>[];
-	agents: ReturnType<typeof agent>[];
+	connections: Connection[];
+	agents: AgentLogin[];
 	activity: ActivityTimeline | null;
 } = {
 	connections: [

@@ -1,18 +1,26 @@
+import {
+	type connectDatabaseBodySchema,
+	type connectEmailBodySchema,
+	connectionListSchema,
+	connectionSchema,
+	type connectMcpBodySchema,
+	connectMcpSchema,
+	type connectPlaidBodySchema,
+	type connectWithKeyBodySchema,
+	type plaidLinkTokenBodySchema,
+	plaidLinkTokenSchema,
+	type renameConnectionBodySchema,
+	type setDefaultsBodySchema,
+} from '@proxy/contracts/connections';
 import type {IntegrationId} from '@proxy/integrations';
-import type {EmailProvider, MailServers} from '@proxy/utils/email-providers';
-import {z} from 'zod';
-import {connectionSchema} from '@/client/schemas';
+import type {z} from 'zod';
 import {apiRequest, apiSend, orgApi} from '@/client/request';
 
 // Every call is about one organization, by its slug (`org`), as its address in the app names it.
 
 /** The connections the person sees in the organization: its shared ones and their own. */
 export function listConnections(org: string) {
-	return apiRequest(
-		'GET',
-		`${orgApi(org)}/connections`,
-		z.object({connections: z.array(connectionSchema)}),
-	);
+	return apiRequest('GET', `${orgApi(org)}/connections`, connectionListSchema);
 }
 
 /** Shares one's own connection with every member of its organization, for good. */
@@ -32,7 +40,7 @@ export function deleteConnection(org: string, connectionId: string) {
 export function renameConnection(org: string, connectionId: string, name: string) {
 	return apiRequest('PUT', `${orgApi(org)}/connections/${connectionId}/name`, connectionSchema, {
 		name,
-	});
+	} satisfies z.input<typeof renameConnectionBodySchema>);
 }
 
 /** Turns default actions of a connection on or off; actions left out stay as they are. */
@@ -45,18 +53,12 @@ export function setConnectionDefaults(
 		'PUT',
 		`${orgApi(org)}/connections/${connectionId}/defaults`,
 		connectionSchema,
-		{actions},
+		{actions} satisfies z.input<typeof setDefaultsBodySchema>,
 	);
 }
 
 // `shared`: for every member of the organization rather than the person's own.
-export type ConnectEmailInput = {
-	provider: EmailProvider['id'];
-	email: string;
-	password: string;
-	servers?: MailServers;
-	shared?: boolean;
-};
+export type ConnectEmailInput = z.input<typeof connectEmailBodySchema>;
 
 /** Signs in to the mailbox first: 422 is a wrong password, 502 a server out of reach. */
 export function connectEmail(org: string, input: ConnectEmailInput) {
@@ -70,15 +72,7 @@ export function testEmail(org: string, input: ConnectEmailInput) {
 
 export type DatabaseDialect = 'postgres' | 'mysql';
 
-export type ConnectDatabaseInput = {
-	host: string;
-	port: number;
-	database: string;
-	username: string;
-	password: string;
-	tls: 'verify' | 'require' | 'off';
-	shared?: boolean;
-};
+export type ConnectDatabaseInput = z.input<typeof connectDatabaseBodySchema>;
 
 /** Signs in to the database first: 422 is a wrong password, 502 a server out of reach, 400 says what is wrong with the host. */
 export function connectDatabase(
@@ -94,14 +88,6 @@ export function testDatabase(org: string, dialect: DatabaseDialect, input: Conne
 	return apiSend('POST', `${orgApi(org)}/connections/${dialect}/test`, input);
 }
 
-export type ConnectMcpInput = {
-	name: string;
-	url: string;
-	token?: string;
-	returnTo?: 'welcome';
-	shared?: boolean;
-};
-
 /**
  * Connects a custom MCP server by its address, with a token where the server takes one: the new
  * connection, or that the server asks for a sign-in, begun, with the server's sign-in page for the
@@ -109,19 +95,9 @@ export type ConnectMcpInput = {
  * (`returnTo`). A 400 says what is wrong with the address, 422 that the token was turned down, 502
  * that the server could not be reached.
  */
-export function connectMcp(org: string, input: ConnectMcpInput) {
-	return apiRequest(
-		'POST',
-		`${orgApi(org)}/connections/mcp`,
-		z.discriminatedUnion('kind', [
-			z.object({kind: z.literal('connected'), connection: connectionSchema}),
-			z.object({kind: z.literal('signIn'), url: z.string()}),
-		]),
-		input,
-	);
+export function connectMcp(org: string, input: z.input<typeof connectMcpBodySchema>) {
+	return apiRequest('POST', `${orgApi(org)}/connections/mcp`, connectMcpSchema, input);
 }
-
-export type ConnectWithKeyInput = {key: string; connection?: string; shared?: boolean};
 
 /**
  * Connects an integration that takes an API key, Cloudflare, Exa, Linear or Parallel, with one,
@@ -132,7 +108,7 @@ export type ConnectWithKeyInput = {key: string; connection?: string; shared?: bo
 export function connectWithKey(
 	org: string,
 	integrationId: IntegrationId,
-	input: ConnectWithKeyInput,
+	input: z.input<typeof connectWithKeyBodySchema>,
 ) {
 	return apiRequest('POST', `${orgApi(org)}/connections/${integrationId}`, connectionSchema, input);
 }
@@ -150,8 +126,10 @@ export function createPlaidLinkToken(org: string, connectionId?: string) {
 	return apiRequest(
 		'POST',
 		`${orgApi(org)}/connections/plaid/link-token`,
-		z.object({linkToken: z.string()}),
-		connectionId === undefined ? {} : {connectionId},
+		plaidLinkTokenSchema,
+		(connectionId === undefined ? {} : {connectionId}) satisfies z.input<
+			typeof plaidLinkTokenBodySchema
+		>,
 	);
 }
 
@@ -160,5 +138,5 @@ export function connectPlaid(org: string, publicToken: string, shared = false) {
 	return apiRequest('POST', `${orgApi(org)}/connections/plaid`, connectionSchema, {
 		publicToken,
 		...(shared ? {shared} : {}),
-	});
+	} satisfies z.input<typeof connectPlaidBodySchema>);
 }

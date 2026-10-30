@@ -3,12 +3,12 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import {daysBetween} from '@proxy/utils/days';
+import type {BankAccount, BankAccounts, BankTransaction, BankTransactions} from '@proxy/contracts/widgets';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireViewer} from '../utils/user-org';
-import type {Account, Transaction} from '../records/capabilities';
-import {eachSource, type Failure} from './each-source';
-import {findSources, summarize, withCapability, type SourceSummary} from './sources';
+import {eachSource} from './each-source';
+import {findSources, summarize, withCapability} from './sources';
 
 /**
  * Every bank connected, for the Balances and Transactions widgets: each account with its balances,
@@ -19,15 +19,8 @@ import {findSources, summarize, withCapability, type SourceSummary} from './sour
  * `accounts` and `transactions` connectors.
  */
 
-/** An account as the widgets show it: whose, what kind, and what it holds or owes. */
-export type BankAccount = {connectionId: string} & Account;
-
-export type BankTransaction = {connectionId: string} & Transaction;
-
 // Plaid has at most two years before the bank was connected.
 const MAX_DAYS = 731;
-
-export type BankAccounts = {sources: SourceSummary[]; accounts: BankAccount[]; failed: Failure[]};
 
 /** `GET /api/widgets/accounts`: every bank's accounts with their balances. */
 export function handleBankAccountsRoute(request: AuthenticatedRequest): Promise<Result<BankAccounts, ApiError>> {
@@ -44,8 +37,6 @@ export function handleBankAccountsRoute(request: AuthenticatedRequest): Promise<
 const day = z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().startsWith(value), 'Not a day');
 
 const rangeSchema = z.object({from: day, to: day});
-
-export type BankTransactions = {sources: SourceSummary[]; accounts: BankAccount[]; transactions: BankTransaction[]; more: boolean; failed: Failure[]};
 
 /** `GET /api/widgets/transactions?from=2026-09-01&to=2026-09-30`: every bank's transactions between two days, both included, newest first. */
 export function handleBankTransactionsRoute(request: AuthenticatedRequest): Promise<Result<BankTransactions, ApiError>> {

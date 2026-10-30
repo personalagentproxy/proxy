@@ -4,6 +4,7 @@ import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {MemoryRouter, Route, Routes} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
+import {FIELD_IDS, type FieldId} from '@proxy/contracts/intent';
 import type {Intent} from '@/client/intent-client';
 import {IntentWidget} from '@/components/widgets/intent-widget';
 import {clearWidgetLookups, widgetsAnswer} from '@/test-widgets-api';
@@ -28,10 +29,13 @@ afterEach(() => {
 	cleanup();
 });
 
-function intentWith(widget: string, fields: Record<string, string[]>): Intent {
+function intentWith(widget: Intent['widget'], fields: Partial<Record<FieldId, string[]>>): Intent {
 	return {
 		widget,
-		fields: Object.entries(fields).map(([id, values]) => ({id, name: id, values})),
+		fields: FIELD_IDS.flatMap((id) => {
+			const values = fields[id];
+			return values ? [{id, name: id, values}] : [];
+		}),
 	};
 }
 

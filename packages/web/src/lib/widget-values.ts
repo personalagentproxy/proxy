@@ -1,4 +1,5 @@
 import * as chrono from 'chrono-node';
+import type {FieldId} from '@proxy/contracts/intent';
 import {dayIn} from '@proxy/utils/days';
 import type {Intent} from '@/client/intent-client';
 import type {EmailQuery, FileKind, People, Person} from '@/client/widgets-client';
@@ -12,7 +13,7 @@ const DEFAULT_MEETING_MINUTES = 30;
 const DEFAULT_MEETING_HOUR = 10;
 
 /** What fills one of the picked widget's fields: its value, or each of a list's. */
-export function fieldTexts(intent: Intent, fieldId: string): string[] {
+export function fieldTexts(intent: Intent, fieldId: FieldId): string[] {
 	return intent.fields.find((candidate) => candidate.id === fieldId)?.values ?? [];
 }
 
@@ -20,7 +21,7 @@ export function fieldTexts(intent: Intent, fieldId: string): string[] {
  * The people a field names, one each: a model takes "jon and jacky" for one at times, so a name is
  * parted where "and", "&" or a comma joins two.
  */
-export function namesIn(intent: Intent, fieldId: string): string[] {
+export function namesIn(intent: Intent, fieldId: FieldId): string[] {
 	return fieldTexts(intent, fieldId)
 		.flatMap((text) => text.split(/\s*(?:,|&|\band\b)\s*/i))
 		.map((name) => name.trim())

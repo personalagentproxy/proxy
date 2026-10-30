@@ -1,8 +1,8 @@
 import {Err, type Result} from 'ts-results-es';
-import {z} from 'zod';
-
+import type {z} from 'zod';
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import type {SignedInAgent} from '@proxy/db/agent';
+import {type AgentTask, type agentTaskListSchema, finishTaskBodySchema, startTaskBodySchema} from '@proxy/contracts/agent-side';
 import {type AgentTaskRow, createAgentTask, finishAgentTask as markAgentTaskFinished, getAgentTask, isAgentTaskOpen, listOpenAgentTasks, touchAgentTask} from '@proxy/db/task';
 
 import type {AgentCaller} from './tools';
@@ -30,16 +30,7 @@ const MAX_OUTCOME = 2000;
 const finishedAbove = (task: Pick<AgentTaskRow, 'id' | 'title'>) =>
 	`Task ${task.id} (${task.title}), or a task it is part of, is finished. Start a new task for what you are doing now, and give its id as task.`;
 
-const startSchema = z.object({title: z.string(), goal: z.string(), parent: z.string().optional()});
-const finishSchema = z.object({task: z.string(), outcome: z.string().optional()});
-
-/**
- * A task as an agent sees it: `task` is its id, which every other call takes; `parent` the task it
- * is a sub-task of, or null; `outcome` what was done, once finished with one.
- */
-export type AgentTaskResponse = {task: string; parent: string | null; title: string; goal: string; startedAt: string; finishedAt: string | null; outcome: string | null};
-
-function toResponse(task: AgentTaskRow): AgentTaskResponse {
+function toResponse(task: AgentTaskRow): AgentTask {
 	return {
 		task: task.id,
 		parent: task.parentId,
@@ -56,9 +47,9 @@ function toResponse(task: AgentTaskRow): AgentTaskResponse {
  * it is a sub-task, the id of one of the agent's tasks not finished, taken up again where it was
  * left open.
  */
-export function startAgentTask(caller: AgentCaller, args: unknown): Promise<Result<AgentTaskResponse, ApiError>> {
+export function startAgentTask(caller: AgentCaller, args: unknown): Promise<Result<AgentTask, ApiError>> {
 	return Do(async ($) => {
-		const parsed = $(parseSchema(startSchema, args));
+		const parsed = $(parseSchema(startTaskBodySchema, args));
 		const title = parsed.title.trim();
 		const goal = parsed.goal.trim();
 		if (title === '') {
@@ -89,7 +80,7 @@ export function startAgentTask(caller: AgentCaller, args: unknown): Promise<Resu
 }
 
 /** The agent's tasks still under way, newest first: none finished, and none left open. */
-export function listAgentOpenTasks(agent: SignedInAgent): Promise<Result<{tasks: AgentTaskResponse[]}, ApiError>> {
+export function listAgentOpenTasks(agent: SignedInAgent): Promise<Result<z.infer<typeof agentTaskListSchema>, ApiError>> {
 	return Do(async ($) => ({tasks: $(await listOpenAgentTasks(agent.orgId, agent.agentId)).map(toResponse)}));
 }
 
@@ -97,7 +88,7 @@ export function listAgentOpenTasks(agent: SignedInAgent): Promise<Result<{tasks:
  * The agent's task `taskId` while it is not finished, refused as a call made for it would be
  * (`requireOpenTask`), but only read: one left open stays so until a call is made for it.
  */
-export function getAgentOpenTask(agent: SignedInAgent, taskId: string): Promise<Result<AgentTaskResponse, ApiError>> {
+export function getAgentOpenTask(agent: SignedInAgent, taskId: string): Promise<Result<AgentTask, ApiError>> {
 	return Do(async ($) => {
 		const task = $(await readUnfinishedTask(agent, taskId));
 		if (!$(await isAgentTaskOpen(agent.orgId, agent.agentId, taskId))) {
@@ -114,9 +105,9 @@ export function getAgentOpenTask(agent: SignedInAgent, taskId: string): Promise<
  * parent. One left open (@proxy/utils/tasks) is taken up again to be finished, unless a task it is
  * part of was finished without it, when it is refused as a conflict.
  */
-export function finishAgentTask(caller: AgentCaller, args: unknown): Promise<Result<AgentTaskResponse, ApiError>> {
+export function finishAgentTask(caller: AgentCaller, args: unknown): Promise<Result<AgentTask, ApiError>> {
 	return Do(async ($) => {
-		const {task: taskId, outcome: given} = $(parseSchema(finishSchema, args));
+		const {task: taskId, outcome: given} = $(parseSchema(finishTaskBodySchema, args));
 		const outcome = given?.trim() || null;
 		if (outcome !== null && outcome.length > MAX_OUTCOME) {
 			return $(Err(ApiErr.validationError(`The outcome is ${outcome.length} characters long; keep it under ${MAX_OUTCOME}, a sentence or two.`)));

@@ -3,10 +3,11 @@ import {randomBytes} from 'node:crypto';
 import type {IncomingHttpHeaders} from 'node:http';
 import type {Request, Response} from 'express';
 import {Err, type Result} from 'ts-results-es';
-import {z} from 'zod';
+import type {z} from 'zod';
 
 import {createAgentSession, deleteAgentSession, getAgentForSignIn, getSignedInAgent, type SignedInAgent} from '@proxy/db/agent';
 import {agentSessionCookieNames, ApiErr, type ApiError, Do, getAgentSessionTokenFromHeader, parseSchema, requirePresent} from '@proxy/utils';
+import {agentLoginBodySchema, type agentLoginSchema} from '@proxy/contracts/agent-auth';
 
 import {hashToken, sessionCookieOptions, useSecureCookies} from '../auth/session';
 import {log, serializeError} from '../observability/log';
@@ -31,12 +32,10 @@ function agentSessionCookieName(): string {
 	return agentSessionCookieNames.insecure;
 }
 
-const loginBodySchema = z.object({username: z.string().trim().min(1), password: z.string().min(1)});
-
 /** Wrong username or password is a 401; the right password of a revoked login is a 403. */
 async function signIn(body: unknown): Promise<Result<{agentId: string; token: string; expires: Date}, ApiError>> {
 	return Do(async ($) => {
-		const {username, password} = $(parseSchema(loginBodySchema, body));
+		const {username, password} = $(parseSchema(agentLoginBodySchema, body));
 		const agent = $(await getAgentForSignIn(username));
 		const matches = await Bun.password.verify(password, agent?.passwordHash ?? (await unknownUsernameHash));
 		if (!agent || !matches) {
@@ -64,7 +63,7 @@ export async function handleAgentLoginRoute(req: Request, res: Response): Promis
 
 	const {agentId, token, expires} = result.value;
 	res.cookie(agentSessionCookieName(), token, {...sessionCookieOptions(), expires});
-	res.json({agentId});
+	res.json({agentId} satisfies z.infer<typeof agentLoginSchema>);
 }
 
 /** `POST /agent-auth/logout`. Succeeds without a session too, like the human sign-out. */

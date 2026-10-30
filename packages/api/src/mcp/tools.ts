@@ -4,10 +4,11 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import type {SignedInAgent} from '@proxy/db/agent';
 import {findIntegration, integrationFor, INTEGRATIONS, isOffered, VAULT_ENTRY_TYPES, VAULT_INTEGRATION_ID, type Tool} from '@proxy/integrations';
+import type {AgentConnection} from '@proxy/contracts/agent-side';
 
 import {sendAgentFeedback} from '../agent-side/feedback';
 import {finishAgentTask, startAgentTask} from '../agent-side/tasks';
-import {listAgentConnections, listAgentTools, runAgentTool, type AgentConnection} from '../agent-side/tools';
+import {listAgentConnections, listAgentTools, runAgentTool} from '../agent-side/tools';
 import {requireAppUrl} from '../oauth/oauth-config';
 import {log, serializeError} from '../observability/log';
 import {requireOpenTaskIfAny} from './pre-task-clients';

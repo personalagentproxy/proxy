@@ -1,8 +1,8 @@
 import {Err, type Result} from 'ts-results-es';
-import {z} from 'zod';
+import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, hasExperiment, parseSchema, requirePresent} from '@proxy/utils';
-import {AVATAR_COLORS, type Look, lookSchema, preview} from '@proxy/utils/harness';
+import {preview, toAvatarColor} from '@proxy/utils/harness';
 import {
 	appendPersonMessage,
 	createPersona,
@@ -20,7 +20,16 @@ import {
 	type ThreadRow,
 	updatePersona,
 } from '@proxy/db/harness';
-import {AGENT_NAME_MAX} from '@proxy/utils/agent-providers';
+import {
+	type ChatEntry,
+	type ChatPersona,
+	personaBodySchema,
+	type personaAnswerSchema,
+	type personaListSchema,
+	postMessageBodySchema,
+	type postedMessageSchema,
+	type ThreadLog,
+} from '@proxy/contracts/harness';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {manages} from '../utils/manages';
@@ -35,47 +44,29 @@ import {ensureBuiltInAgent} from './built-in-agent';
  * the worker (worker.ts) does the rest; the page reads the log again as it goes.
  */
 
-const MAX_MESSAGE = 20_000;
-
-/** A persona as the page lists it, whether the viewer may change it, and the last thing said in their conversation with it, cut to a line; null before anything was said. */
-type PersonaResponse = {id: string; name: string; look: Look; color: string; mayChange: boolean; lastMessage: {kind: 'person' | 'assistant'; text: string; at: string} | null};
-
-/** A turn of the conversation as the page shows it: what the person said, or what the persona answered, which is what went wrong where its turn failed. What the persona did in between is in the activity log, not here. */
-type EntryResponse = {id: string; kind: 'person' | 'assistant'; text: string; isError: boolean; at: string};
-
-/** The member's conversation with a persona: the persona, its turns, and what the persona is up to: busy on it, asleep until a time, or waiting for the person. */
-type ThreadLogResponse = {persona: PersonaResponse; entries: EntryResponse[]; busy: boolean; sleepingUntil: string | null};
-
 // Whether the viewer may rename, reface or delete the persona: whoever made it, or the organization's owner (utils/manages.ts).
 function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
 	return manages(viewer, {ownerUserId: null, byId: persona.createdById});
 }
 
-function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null}): PersonaResponse {
+function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null}): ChatPersona {
 	const last = persona.lastMessage ?? null;
 	return {
 		id: persona.id,
 		name: persona.name,
 		look: persona.look,
-		color: persona.color,
+		color: toAvatarColor(persona.color),
 		mayChange: managesPersona(viewer, persona),
 		lastMessage: last && {kind: last.kind, text: preview(last.text), at: last.createdAt.toISOString()},
 	};
 }
 
-// A persona as the person makes or changes it: a name, and a head, a look in one of the colors.
-const personaSchema = z.object({
-	name: z.string().trim().pipe(z.string().min(1).max(AGENT_NAME_MAX)),
-	look: lookSchema,
-	color: z.enum(AVATAR_COLORS),
-});
-
 // The entries the person sees (db/harness listShownEntries), as their kinds, for the response.
-function isShown(entry: EntryRow): entry is EntryRow & {kind: EntryResponse['kind']} {
+function isShown(entry: EntryRow): entry is EntryRow & {kind: ChatEntry['kind']} {
 	return entry.kind === 'person' || (entry.kind === 'assistant' && entry.text !== '');
 }
 
-function toEntry(entry: EntryRow & {kind: EntryResponse['kind']}): EntryResponse {
+function toEntry(entry: EntryRow & {kind: ChatEntry['kind']}): ChatEntry {
 	return {id: entry.id, kind: entry.kind, text: entry.text, isError: entry.isError, at: entry.createdAt.toISOString()};
 }
 
@@ -122,7 +113,7 @@ function requireThread(viewer: OrgViewer, persona: PersonaRow): Promise<Result<T
 }
 
 /** `GET /api/orgs/:org/chat/personas`: the organization's personas, in the order they were made, with the viewer's conversations; a General one is made where it has none. */
-export function handleListPersonasRoute(request: AuthenticatedRequest): Promise<Result<{personas: PersonaResponse[]}, ApiError>> {
+export function handleListPersonasRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const personas = $(await listPersonas(viewer.orgId, viewer.userId));
@@ -135,10 +126,10 @@ export function handleListPersonasRoute(request: AuthenticatedRequest): Promise<
 }
 
 /** `POST /api/orgs/:org/chat/personas` with `{name, look, color}`: a new persona, every member's, and the organization's built-in login with it where there is none yet. */
-export function handleCreatePersonaRoute(request: AuthenticatedRequest): Promise<Result<{persona: PersonaResponse}, ApiError>> {
+export function handleCreatePersonaRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaAnswerSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
-		const persona = $(parseSchema(personaSchema, request.body));
+		const persona = $(parseSchema(personaBodySchema, request.body));
 		$(await ensureBuiltInAgent(viewer.orgId));
 		const made = $(await createPersona(viewer.orgId, viewer.userId, persona));
 		return {persona: toPersona(viewer, made)};
@@ -146,10 +137,10 @@ export function handleCreatePersonaRoute(request: AuthenticatedRequest): Promise
 }
 
 /** `PUT /api/orgs/:org/chat/personas/:personaId` with `{name, look, color}`: the persona renamed, or with another head. */
-export function handleUpdatePersonaRoute(request: AuthenticatedRequest): Promise<Result<{persona: PersonaResponse}, ApiError>> {
+export function handleUpdatePersonaRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaAnswerSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
-		const persona = $(parseSchema(personaSchema, request.body));
+		const persona = $(parseSchema(personaBodySchema, request.body));
 		const existing = $(await requireManagedPersona(viewer, request));
 		if (!$(await updatePersona(viewer.orgId, existing.id, persona))) {
 			return $(Err(ApiErr.notFound('persona', existing.id)));
@@ -170,7 +161,7 @@ export function handleDeletePersonaRoute(request: AuthenticatedRequest): Promise
 }
 
 /** `GET /api/orgs/:org/chat/personas/:personaId/thread`: the viewer's conversation with the persona, begun where there was none, what they said while it was answering at the end, and whether the persona is busy on it, its sub-agents included. */
-export function handleGetThreadRoute(request: AuthenticatedRequest): Promise<Result<ThreadLogResponse, ApiError>> {
+export function handleGetThreadRoute(request: AuthenticatedRequest): Promise<Result<ThreadLog, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const persona = $(await requirePersona(viewer, request));
@@ -192,13 +183,11 @@ export function handleGetThreadRoute(request: AuthenticatedRequest): Promise<Res
 	});
 }
 
-const messageBodySchema = z.object({text: z.string().trim().min(1).max(MAX_MESSAGE)});
-
 /** `POST /api/orgs/:org/chat/personas/:personaId/messages` with `{text}`: what the viewer says to the persona; it is woken. */
-export function handlePostMessageRoute(request: AuthenticatedRequest): Promise<Result<{entry: EntryResponse}, ApiError>> {
+export function handlePostMessageRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof postedMessageSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
-		const {text} = $(parseSchema(messageBodySchema, request.body));
+		const {text} = $(parseSchema(postMessageBodySchema, request.body));
 		const persona = $(await requirePersona(viewer, request));
 		const thread = $(await requireThread(viewer, persona));
 		const entry = $(requirePresent($(await appendPersonMessage(thread.id, text)), ApiErr.notFound('thread', thread.id)));

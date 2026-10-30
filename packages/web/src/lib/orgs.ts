@@ -1,7 +1,7 @@
+import type {Connection} from '@proxy/contracts/connections';
+import type {Me} from '@proxy/contracts/me';
+import type {Org} from '@proxy/contracts/orgs';
 import {findIntegration} from '@proxy/integrations';
-import type {Me} from '@/client/me-client';
-import type {Org} from '@/client/orgs-client';
-import type {Connection} from '@/lib/types';
 
 // The human side's organizations: the one in the address, and who else is in each.
 

@@ -1,3 +1,4 @@
+import type {AgentLogin, McpClient} from '@proxy/contracts/agents';
 import {
 	AGENT_NAME_MAX,
 	AGENT_PROVIDERS,
@@ -9,12 +10,7 @@ import {
 import {CheckIcon, LoaderCircleIcon} from 'lucide-react';
 import {useEffect, useState, type FormEvent, type ReactNode} from 'react';
 import {useRevalidator, useSearchParams} from 'react-router';
-import {
-	createAgent,
-	listMcpClients,
-	resetAgentPassword,
-	type McpClient,
-} from '@/client/agents-client';
+import {createAgent, listMcpClients, resetAgentPassword} from '@/client/agents-client';
 import {AgentProviderTile} from '@/components/agent-provider-tile';
 import {CopyButton} from '@/components/copy-button';
 import {StepHeading} from '@/components/step-heading';
@@ -24,7 +20,6 @@ import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {describeFetchError} from '@/lib/loader-utils';
 import {forgetPendingAgent, rememberPendingAgent} from '@/lib/pending-agent';
-import type {AgentLogin} from '@/lib/types';
 import {useCommandEnter} from '@/hooks/use-command-enter';
 import {useOrgSlug} from '@/hooks/use-org';
 

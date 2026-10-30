@@ -38,11 +38,11 @@ export function requireIntegration(connection: StoredIntegration): Result<Integr
 
 /**
  * The actions a request turns on or off, by id, refusing any the integration doesn't have.
- * `schema` is what each may be set to: on or off for a default, or null too for an agent's own
- * setting.
+ * `schema` is the request's body: each action on or off for a default (`setDefaultsBodySchema`),
+ * or null too for an agent's own setting (`setGrantsBodySchema`).
  */
-export function parseActionChanges<T>(integration: Integration, schema: z.ZodType<T>, body: unknown): Result<Record<string, T>, ApiError> {
-	const parsed = parseSchema(z.object({actions: z.record(z.string(), schema)}), body);
+export function parseActionChanges<T>(integration: Integration, schema: z.ZodType<{actions: Record<string, T>}>, body: unknown): Result<Record<string, T>, ApiError> {
+	const parsed = parseSchema(schema, body);
 	if (parsed.isErr()) {
 		return parsed;
 	}

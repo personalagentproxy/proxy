@@ -1,3 +1,4 @@
+import type {AgentLogin} from '@proxy/contracts/agents';
 import {ListRestartIcon, RefreshCwIcon, UnplugIcon} from 'lucide-react';
 import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
@@ -35,7 +36,6 @@ import {useHuman} from '@/hooks/use-human';
 import {signInPath} from '@/lib/integrations';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
 import {actsAs, connectedBy, hasOtherPeople, manages} from '@/lib/orgs';
-import type {AgentLogin} from '@/lib/types';
 import type {connectionLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 

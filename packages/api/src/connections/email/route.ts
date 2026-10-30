@@ -1,36 +1,22 @@
 import {Err, Ok, type Result} from 'ts-results-es';
-import {z} from 'zod';
+import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {createConnection, listConnections} from '@proxy/db/connection';
 import {EMAIL_PROVIDERS, type EmailProvider, type MailServers} from '@proxy/utils/email-providers';
+import {type Connection, mailboxBodySchema, shareBodySchema} from '@proxy/contracts/connections';
 
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {encryptSecret} from '../../utils/secret-crypto';
 import {requireViewer} from '../../utils/user-org';
-import {respond, type ConnectionResponse} from '../connection-response';
-import {ownership, shareBodySchema} from '../ownership';
+import {respond} from '../connection-response';
+import {ownership} from '../ownership';
 import type {EmailCredential} from './credential';
 import {checkMailbox} from './mail-check';
 
-const hostnameSchema = z
-	.string()
-	.trim()
-	.toLowerCase()
-	.regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/, 'Not a hostname');
+type MailboxBody = z.infer<typeof mailboxBodySchema>;
 
-// Only the standard mail ports, so a typed-in server can't point the api at anything else on its
-// network.
-const connectEmailBodySchema = z.object({
-	provider: z.enum(EMAIL_PROVIDERS.map((provider) => provider.id)),
-	email: z.string().trim().toLowerCase().pipe(z.email()),
-	password: z.string().min(1),
-	servers: z.object({imapHost: hostnameSchema, smtpHost: hostnameSchema, smtpPort: z.union([z.literal(465), z.literal(587)])}).optional(),
-});
-
-type ConnectEmailBody = z.infer<typeof connectEmailBodySchema>;
-
-function serversFor(provider: EmailProvider, body: ConnectEmailBody): Result<MailServers, ApiError> {
+function serversFor(provider: EmailProvider, body: MailboxBody): Result<MailServers, ApiError> {
 	const servers = provider.servers ?? body.servers;
 	if (!servers) {
 		return Err(ApiErr.validationError('Servers are needed for this provider'));
@@ -51,7 +37,7 @@ function passwordFor(provider: EmailProvider, password: string): string {
 // password as the server takes it.
 function credentialFor(body: unknown): Result<{email: string; credential: EmailCredential}, ApiError> {
 	return Do<{email: string; credential: EmailCredential}, ApiError>(($) => {
-		const parsed = $(parseSchema(connectEmailBodySchema, body));
+		const parsed = $(parseSchema(mailboxBodySchema, body));
 		const provider = $(
 			requirePresent(
 				EMAIL_PROVIDERS.find((candidate) => candidate.id === parsed.provider),
@@ -77,7 +63,7 @@ export function handleTestEmailRoute(request: AuthenticatedRequest): Promise<Res
  * first request. A new connection gives agents nothing until a default or an agent's own setting
  * says otherwise.
  */
-export function handleConnectEmailRoute(request: AuthenticatedRequest): Promise<Result<ConnectionResponse, ApiError>> {
+export function handleConnectEmailRoute(request: AuthenticatedRequest): Promise<Result<Connection, ApiError>> {
 	return Do(async ($) => {
 		const {email, credential} = $(credentialFor(request.body));
 		const {shared = false} = $(parseSchema(shareBodySchema, request.body));

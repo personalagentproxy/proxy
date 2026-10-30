@@ -2,7 +2,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, httpRequest} from '@proxy/utils';
-import type {Rates} from '@proxy/utils/units';
+import type {DayRates} from '@proxy/contracts/widgets';
 
 /**
  * The day's exchange rates for Convert units: the European Central Bank's, from Frankfurter, which
@@ -13,9 +13,6 @@ import type {Rates} from '@proxy/utils/units';
 const RATES_URL = 'https://api.frankfurter.dev/v1/latest';
 
 const KEEP_MS = 3_600_000;
-
-/** What one euro is worth in each currency, and the day the bank published it. */
-export type DayRates = {date: string; rates: Rates};
 
 const answerSchema = z.object({base: z.literal('EUR'), date: z.string(), rates: z.record(z.string(), z.number())});
 

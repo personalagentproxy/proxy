@@ -1,3 +1,4 @@
+import type {Connection} from '@proxy/contracts/connections';
 import {findIntegration, type IntegrationId} from '@proxy/integrations';
 import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
@@ -14,7 +15,6 @@ import {
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {apiMessage} from '@/lib/agent-errors';
-import type {Connection} from '@/lib/types';
 import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import {useOrgSlug} from '@/hooks/use-org';
 

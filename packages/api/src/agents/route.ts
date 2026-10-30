@@ -1,7 +1,18 @@
 import {Err, Ok, type Result} from 'ts-results-es';
-import {z} from 'zod';
+import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
+import {
+	type AgentLogin,
+	type agentListSchema,
+	type agentPasswordSchema,
+	createAgentBodySchema,
+	type createdAgentSchema,
+	type mcpClientListSchema,
+	renameAgentBodySchema,
+	setGrantsBodySchema,
+	setRevokedBodySchema,
+} from '@proxy/contracts/agents';
 import {deleteAgent, getAgent, listAgents, renameAgent, setAgentGrants, shareAgent, updateAgent, type AgentRow} from '@proxy/db/agent';
 import {getConnectionWithCredential} from '@proxy/db/connection';
 import {deleteOAuthGrant, listAgentOAuthGrants} from '@proxy/db/oauth';
@@ -14,7 +25,7 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {parseActionChanges, requireIntegration} from '../utils/connection-actions';
 import {manages} from '../utils/manages';
 import {requireViewer, type OrgViewer} from '../utils/user-org';
-import {respond, respondAll, type AgentResponse} from './agent-response';
+import {respond, respondAll} from './agent-response';
 import {createAgentLogin, parseAgentName} from './create-agent-login';
 import {generatePassword} from './credentials';
 
@@ -51,26 +62,22 @@ function requireManagedAgent(viewer: OrgViewer, agentId: string): Promise<Result
 }
 
 /** The agents the person sees in the organization they work in: its shared ones and their own. */
-export function handleListAgentsRoute(request: AuthenticatedRequest): Promise<Result<{agents: AgentResponse[]}, ApiError>> {
+export function handleListAgentsRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof agentListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		return {agents: $(await respondAll($(await listAgents(viewer))))};
 	});
 }
 
-export function handleGetAgentRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
+export function handleGetAgentRoute(request: AuthenticatedRequest): Promise<Result<AgentLogin, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		return $(await respond($(await requireAgent(viewer, agentIdOf(request)))));
 	});
 }
 
-// The agent's name, the person's, or else its provider's, which a custom agent has none of. `shared`
-// makes it every member's rather than the person's own.
-const createAgentBodySchema = z.object({providerId: z.string(), name: z.string().optional(), shared: z.boolean().optional()});
-
 /** The only time the password is sent; Personal Agent Proxy keeps its hash. A new agent follows every default. */
-export function handleCreateAgentRoute(request: AuthenticatedRequest): Promise<Result<{agent: AgentResponse; password: string}, ApiError>> {
+export function handleCreateAgentRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof createdAgentSchema>, ApiError>> {
 	return Do(async ($) => {
 		const {providerId, name, shared} = $(parseSchema(createAgentBodySchema, request.body));
 		const viewer = $(await requireViewer(request));
@@ -80,7 +87,7 @@ export function handleCreateAgentRoute(request: AuthenticatedRequest): Promise<R
 }
 
 /** A new password, sent this once; the old one stops working. */
-export function handleResetAgentPasswordRoute(request: AuthenticatedRequest): Promise<Result<{password: string}, ApiError>> {
+export function handleResetAgentPasswordRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof agentPasswordSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const agent = $(await requireManagedAgent(viewer, agentIdOf(request)));
@@ -94,12 +101,10 @@ export function handleResetAgentPasswordRoute(request: AuthenticatedRequest): Pr
 	});
 }
 
-const renameBodySchema = z.object({name: z.string()});
-
 /** Renames an agent, `{name}`: what it is called here, in the activity log and to the agent itself. */
-export function handleRenameAgentRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
+export function handleRenameAgentRoute(request: AuthenticatedRequest): Promise<Result<AgentLogin, ApiError>> {
 	return Do(async ($) => {
-		const body = $(parseSchema(renameBodySchema, request.body));
+		const body = $(parseSchema(renameAgentBodySchema, request.body));
 		const name = $(parseAgentName(body.name));
 		const viewer = $(await requireViewer(request));
 		const agent = $(await requireManagedAgent(viewer, agentIdOf(request)));
@@ -110,8 +115,6 @@ export function handleRenameAgentRoute(request: AuthenticatedRequest): Promise<R
 		return $(await respond({...agent, name}));
 	});
 }
-
-const setRevokedBodySchema = z.object({revoked: z.boolean()});
 
 // The built-in login, which every persona of the Chat page acts through, is neither revoked nor
 // deleted, which would silence them all (a persona is deleted on the Chat page), nor given a
@@ -124,7 +127,7 @@ function requireNotBuiltIn(agent: {providerId: string}): Result<void, ApiError> 
 }
 
 /** A revoked agent can't sign in, and is shown nothing it could reach before. */
-export function handleSetAgentRevokedRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
+export function handleSetAgentRevokedRoute(request: AuthenticatedRequest): Promise<Result<AgentLogin, ApiError>> {
 	return Do(async ($) => {
 		const {revoked} = $(parseSchema(setRevokedBodySchema, request.body));
 		const viewer = $(await requireViewer(request));
@@ -157,7 +160,7 @@ export function handleDeleteAgentRoute(request: AuthenticatedRequest): Promise<R
  * with it; its requests on any other connection stay the person's, with the tasks they were made
  * for (`shareAgent`).
  */
-export function handleShareAgentRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
+export function handleShareAgentRoute(request: AuthenticatedRequest): Promise<Result<AgentLogin, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const agent = $(await requireManagedAgent(viewer, agentIdOf(request)));
@@ -172,7 +175,7 @@ export function handleShareAgentRoute(request: AuthenticatedRequest): Promise<Re
  * refused, and so is turning on one the connection's sign-in didn't cover. A shared agent reaches
  * only shared connections, so a setting on one's own connection is refused for it.
  */
-export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
+export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promise<Result<AgentLogin, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const agentId = agentIdOf(request);
@@ -183,7 +186,7 @@ export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promis
 			return $(Err(ApiErr.validationError('A shared agent reaches only shared connections')));
 		}
 		const integration = $(requireIntegration(connection));
-		const actions = $(parseActionChanges(integration, z.boolean().nullable(), request.body));
+		const actions = $(parseActionChanges(integration, setGrantsBodySchema, request.body));
 		$(refuseUnavailable(integration, unavailableActions(connection), actions));
 
 		$(await setAgentGrants({agentId, connectionId, actions}));
@@ -191,22 +194,11 @@ export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promis
 	});
 }
 
-export type McpClientResponse = {
-	id: string;
-	name: string;
-	connectedAt: string;
-	// Who signed it in, by their name or address while they are in the organization; null once they
-	// have left it.
-	connectedBy: string | null;
-	// Signed in by the person asking, who may sign it out whether or not they may change the agent.
-	mine: boolean;
-};
-
 /**
  * The MCP clients signed in as the agent, such as Claude, newest first: every one for whoever may
  * change the agent, and the ones the person signed in themselves for anyone else who sees it.
  */
-export function handleListMcpClientsRoute(request: AuthenticatedRequest): Promise<Result<{clients: McpClientResponse[]}, ApiError>> {
+export function handleListMcpClientsRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof mcpClientListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const agent = $(await requireAgent(viewer, agentIdOf(request)));

@@ -1,5 +1,4 @@
-import {z} from 'zod';
-import {dataRecordSchema} from '@/client/schemas';
+import {dataRecordSchema, recordPageSchema} from '@proxy/contracts/records';
 import {apiRequest, apiSend, orgApi} from '@/client/request';
 
 // The human side's records: in full, and not logged. Only the vault's are shown for now. Every
@@ -10,11 +9,7 @@ function recordsPath(org: string, connectionId: string, collectionId: string): s
 }
 
 export function listRecords(org: string, connectionId: string, collectionId: string) {
-	return apiRequest(
-		'GET',
-		recordsPath(org, connectionId, collectionId),
-		z.object({records: z.array(dataRecordSchema), nextPage: z.string().nullable()}),
-	);
+	return apiRequest('GET', recordsPath(org, connectionId, collectionId), recordPageSchema);
 }
 
 export function getRecord(

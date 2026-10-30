@@ -1,13 +1,8 @@
+import type {Member} from '@proxy/contracts/orgs';
 import {EllipsisIcon, LogOutIcon, MailPlusIcon, Trash2Icon, XIcon} from 'lucide-react';
 import {useState} from 'react';
 import {useLoaderData, useNavigate, useRevalidator} from 'react-router';
-import {
-	inviteMember,
-	leaveOrg,
-	removeMember,
-	revokeInvitation,
-	type Member,
-} from '@/client/orgs-client';
+import {inviteMember, leaveOrg, removeMember, revokeInvitation} from '@/client/orgs-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';

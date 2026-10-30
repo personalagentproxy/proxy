@@ -1,3 +1,5 @@
+import type {SignInMethods} from '@proxy/contracts/auth';
+import type {Org} from '@proxy/contracts/orgs';
 import {Outlet, createBrowserRouter, redirect} from 'react-router';
 import {
 	agentCollectionLoader,
@@ -7,10 +9,10 @@ import {
 	agentTasksLoader,
 	shouldRevalidateAgentTask,
 } from '@/agent-loaders';
-import {getSignInMethods, type SignInMethods} from '@/client/auth-client';
+import {getSignInMethods} from '@/client/auth-client';
 import {getMe} from '@/client/me-client';
 import {isNotFoundError} from '@/client/request';
-import {getOrg, listOrgs, type Org} from '@/client/orgs-client';
+import {getOrg, listOrgs} from '@/client/orgs-client';
 import {HumanSide} from '@/components/human-side';
 import {RouteError} from '@/components/route-error';
 import {sanitizeCallbackUrl} from '@/lib/callback-url';

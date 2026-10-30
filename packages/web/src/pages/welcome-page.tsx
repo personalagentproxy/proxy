@@ -1,3 +1,5 @@
+import type {AgentLogin} from '@proxy/contracts/agents';
+import type {Connection} from '@proxy/contracts/connections';
 import type {Experiment} from '@proxy/utils';
 import {useState, type ReactNode} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
@@ -25,7 +27,6 @@ import {
 	type Integration,
 } from '@/lib/integrations';
 import {describeFetchError} from '@/lib/loader-utils';
-import type {AgentLogin, Connection} from '@/lib/types';
 import type {welcomeConnectionLoader, welcomeLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 

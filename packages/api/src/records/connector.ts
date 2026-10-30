@@ -3,17 +3,14 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {ApiErr, type ApiError} from '@proxy/utils';
 import type {ConnectionRow} from '@proxy/db/connection';
 import type {Collection} from '@proxy/integrations';
+import type {Crumb, DataRecord, RecordPage} from '@proxy/contracts/records';
 
 import type {Capabilities} from './capabilities';
 
 export type RecordValues = Record<string, string>;
 
-/**
- * A record and, in a nested collection, whether it holds records of its own to list. `url` is
- * where the person sees it in the provider's own app, as Gmail or Notion shows it, for an agent to
- * hand them; a record without one has no page they can open.
- */
-export type DataRecord = {id: string; values: RecordValues; updatedAt: string; url?: string; hasChildren?: boolean};
+// What the connectors read and write, as the api answers it (`@proxy/contracts/records`).
+export type {Crumb, DataRecord, RecordPage};
 
 /**
  * What to list: records matching `search`, with the collection's filter field at `filter` (an
@@ -32,15 +29,6 @@ export function requireFirstPage(query: ListQuery): Result<void, ApiError> {
 	}
 	return Ok(undefined);
 }
-
-/** A record a list was opened in, or one above it. */
-export type Crumb = {id: string; title: string};
-
-/**
- * One page of records, newest first, and the token of the next, older page if there is one. A
- * list opened in a record says where it is: that record last, those above it before it.
- */
-export type RecordPage = {records: DataRecord[]; nextPage: string | null; trail?: Crumb[]};
 
 /** The connection and collection a request is about, with the connection's encrypted credential. */
 export type RecordTarget = {

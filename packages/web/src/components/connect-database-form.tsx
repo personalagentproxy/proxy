@@ -1,3 +1,4 @@
+import type {Connection} from '@proxy/contracts/connections';
 import type {FetchError} from '@proxy/utils';
 import {useState, type ReactNode} from 'react';
 import {
@@ -18,7 +19,6 @@ import {
 } from '@proxy/ui/components/select';
 import {SuccessLine} from '@/components/success-line';
 import {apiMessage} from '@/lib/agent-errors';
-import type {Connection} from '@/lib/types';
 import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
 import {useOrgSlug} from '@/hooks/use-org';

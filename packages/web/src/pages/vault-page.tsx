@@ -1,3 +1,4 @@
+import type {DataRecord} from '@proxy/contracts/records';
 import {findCollection, VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import {
 	CalendarIcon,
@@ -25,7 +26,6 @@ import {useHuman} from '@/hooks/use-human';
 import {useSide} from '@/hooks/use-side';
 import {recordTitle} from '@/lib/access';
 import {findIntegration} from '@/lib/integrations';
-import type {DataRecord} from '@/lib/types';
 import type {vaultLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 

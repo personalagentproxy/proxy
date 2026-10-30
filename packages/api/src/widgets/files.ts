@@ -2,12 +2,13 @@ import type {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {type ApiError, Do, parseSchema} from '@proxy/utils';
+import {FILE_KINDS, type FileKind, type FoundFile, type FoundFiles} from '@proxy/contracts/widgets';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireViewer} from '../utils/user-org';
-import type {FileSearch, MatchedFile} from '../records/capabilities';
-import {eachSource, type Failure} from './each-source';
-import {findSources, summarize, withCapability, type SourceSummary} from './sources';
+import type {FileSearch} from '../records/capabilities';
+import {eachSource} from './each-source';
+import {findSources, summarize, withCapability} from './sources';
 
 /**
  * Files for the Find file widget: a search of every file store connected, each in its own terms,
@@ -16,28 +17,20 @@ import {findSources, summarize, withCapability, type SourceSummary} from './sour
  * first, since people say "doc" of a spreadsheet, a PDF or a Word file as well.
  */
 
-const KINDS = ['Document', 'Spreadsheet', 'Presentation', 'Folder'] as const;
-
-type Kind = (typeof KINDS)[number];
-
-export type FoundFile = {connectionId: string} & MatchedFile;
-
 // What the widget lists at most, across every file store.
 const LIMIT = 8;
 
 /** The files to show: of the kind preferred first, then those named with the words, then the most recently changed. */
-export function rankFiles(files: FoundFile[], kind: Kind | null): FoundFile[] {
+export function rankFiles(files: FoundFile[], kind: FileKind | null): FoundFile[] {
 	const score = (file: FoundFile) => (file.kind === kind ? 2 : 0) + (file.matched === 'name' ? 1 : 0);
 	return [...files].sort((a, b) => score(b) - score(a) || Date.parse(b.modified || '0') - Date.parse(a.modified || '0')).slice(0, LIMIT);
 }
 
 const querySchema = z.object({
 	words: z.union([z.string(), z.array(z.string())]).optional(),
-	kind: z.enum(KINDS).optional(),
+	kind: z.enum(FILE_KINDS).optional(),
 	owner: z.email().optional(),
 });
-
-export type FoundFiles = {sources: SourceSummary[]; files: FoundFile[]; failed: Failure[]};
 
 /** `GET /api/widgets/files?words=…&kind=…&owner=…`: the files each file store finds. */
 export function handleFindFilesRoute(request: AuthenticatedRequest): Promise<Result<FoundFiles, ApiError>> {

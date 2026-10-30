@@ -1,3 +1,5 @@
+import type {ActivityTask, AuditEntry} from '@proxy/contracts/activity';
+import type {Connection} from '@proxy/contracts/connections';
 import {type CSSProperties, memo, type ReactNode, useId, useState} from 'react';
 import {Link} from 'react-router';
 import type {RequestTooltipHandle} from '@/hooks/use-request-tooltip';
@@ -16,7 +18,6 @@ import {
 	TASK_COLOR_CLASS,
 } from '@/lib/timeline';
 import {STATUS_LABEL, type TaskStatus} from '@/lib/timeline-window';
-import type {ActivityTask, AuditEntry, Connection} from '@/lib/types';
 import {
 	DropdownMenu,
 	DropdownMenuArrow,

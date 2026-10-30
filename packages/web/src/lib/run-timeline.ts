@@ -1,3 +1,4 @@
+import type {ActivityTask, AuditEntry} from '@proxy/contracts/activity';
 import {
 	formatDuration,
 	layRequests,
@@ -9,7 +10,6 @@ import {
 	type TimelineRequest,
 } from '@/lib/timeline';
 import {combinedStatus, endsOf, type TaskStatus, taskStatus} from '@/lib/timeline-window';
-import type {ActivityTask, AuditEntry} from '@/lib/types';
 
 // A task's run on its page: how it went, as a tree of tasks over time. Agents work through
 // sub-agents, and each task is one of them at work, so the task has a row at the top and every

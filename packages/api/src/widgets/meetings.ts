@@ -2,13 +2,14 @@ import type {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {type ApiError, Do, parseSchema} from '@proxy/utils';
+import type {FoundMeeting, FoundMeetings} from '@proxy/contracts/widgets';
 
 import type {Meeting} from '../records/capabilities';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireViewer} from '../utils/user-org';
 import {requireAskExperiment} from './ask-experiment';
-import {eachSource, type Failure} from './each-source';
-import {findSources, summarize, withCapability, type Capable, type SourceSummary} from './sources';
+import {eachSource} from './each-source';
+import {findSources, summarize, withCapability, type Capable} from './sources';
 
 /**
  * Meetings for the Ask widget: every meeting notetaker connected, its meetings between two days,
@@ -19,16 +20,6 @@ import {findSources, summarize, withCapability, type Capable, type SourceSummary
 
 /** Days as 2026-10-14, both included; people by name or address; words of the title or topic. */
 export type MeetingSearch = {from: string; to: string; people: string[]; words: string[]};
-
-export type FoundMeeting = {
-	connectionId: string;
-	id: string;
-	title: string;
-	// As the notetaker writes it: "Sep 22, 2026 11:00 AM PDT".
-	date: string;
-	participants: string;
-	link: string | null;
-};
 
 // What the widget offers at most, across every notetaker.
 const LIMIT = 8;
@@ -148,8 +139,6 @@ const many = z
 	);
 
 const querySchema = z.object({from: day.optional(), to: day.optional(), with: many, words: many});
-
-export type FoundMeetings = {sources: SourceSummary[]; meetings: FoundMeeting[]; failed: Failure[]};
 
 /** `GET /api/widgets/meetings?from=…&to=…&with=…&words=…`: the meetings each notetaker finds. */
 export function handleFindMeetingsRoute(request: AuthenticatedRequest): Promise<Result<FoundMeetings, ApiError>> {

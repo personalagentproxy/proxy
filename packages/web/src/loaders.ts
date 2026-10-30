@@ -1,6 +1,6 @@
+import type {ActivityFilter} from '@proxy/contracts/activity';
 import {getSignInMethods} from '@/client/auth-client';
 import {
-	type ActivityFilter,
 	getActivityTimeline,
 	getAgent,
 	getTaskRun,

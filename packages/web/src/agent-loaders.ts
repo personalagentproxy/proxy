@@ -1,3 +1,4 @@
+import type {DataRecord} from '@proxy/contracts/records';
 import type {FetchError} from '@proxy/utils';
 import {redirect, type ShouldRevalidateFunctionArgs} from 'react-router';
 import type {Result} from 'ts-results-es';
@@ -9,7 +10,6 @@ import {
 	runAgentListTool,
 	runAgentRecordTool,
 } from '@/client/agent-client';
-import type {DataRecord} from '@/lib/types';
 import {isNotFoundError} from '@/client/request';
 import {isTaskRefusal, taskRefusedPath} from '@/lib/agent-task';
 import {unwrapLoaderResult} from '@/lib/loader-utils';

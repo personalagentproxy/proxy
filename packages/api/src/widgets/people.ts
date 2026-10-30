@@ -3,12 +3,13 @@ import type {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {type ApiError, Do, parseSchema} from '@proxy/utils';
+import type {Failure, People, Person, SourceSummary} from '@proxy/contracts/widgets';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireViewer} from '../utils/user-org';
 import type {DataRecord} from '../records/connector';
-import {eachSource, type Failure} from './each-source';
-import {findSources, summarize, withCapability, type Source, type SourceSummary} from './sources';
+import {eachSource} from './each-source';
+import {findSources, summarize, withCapability, type Source} from './sources';
 
 /**
  * People by name, for the widgets that name someone: the contact itself, the guests of an event,
@@ -17,26 +18,6 @@ import {findSources, summarize, withCapability, type Source, type SourceSummary}
  * written to was never saved as a contact. What they find is one list per name: the closest names
  * first, contacts before people only in email, each person once.
  */
-
-/**
- * A person: a contact, read from the `contacts` collection's fields, which every contact book
- * shares, or someone in a mailbox's email, known by their name and address alone.
- */
-export type Person = {
-	// Where they were found: a contact book, or the email of a mailbox.
-	origin: 'contacts' | 'email';
-	connectionId: string;
-	id: string;
-	name: string;
-	emails: string[];
-	phones: string[];
-	company: string;
-	jobTitle: string;
-	addresses: string[];
-	link: string | null;
-};
-
-export type PeopleAnswer = {sources: SourceSummary[]; people: Array<{name: string; matches: Person[]}>; failed: Failure[]};
 
 // The people a name finds at most, the closest first.
 const MATCHES = 5;
@@ -196,7 +177,7 @@ function searchContacts(source: Source, name: string): Promise<Result<Person[], 
 }
 
 /** `GET /api/widgets/people?name=…&name=…`: the people each name finds in every contact book and mailbox. */
-export function handlePeopleRoute(request: AuthenticatedRequest): Promise<Result<PeopleAnswer, ApiError>> {
+export function handlePeopleRoute(request: AuthenticatedRequest): Promise<Result<People, ApiError>> {
 	return Do(async ($) => {
 		const {name: names} = $(parseSchema(querySchema, request.query));
 		const viewer = $(await requireViewer(request));

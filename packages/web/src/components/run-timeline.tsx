@@ -1,3 +1,5 @@
+import type {ActivityTask, AuditEntry} from '@proxy/contracts/activity';
+import type {Connection} from '@proxy/contracts/connections';
 import {ChevronDownIcon, ChevronRightIcon, CornerDownRightIcon} from 'lucide-react';
 import {Fragment, useId, useMemo, useState} from 'react';
 import {Link, useLocation} from 'react-router';
@@ -35,7 +37,6 @@ import {
 	roughDuration,
 	TASK_COLOR_CLASS,
 } from '@/lib/timeline';
-import type {ActivityTask, AuditEntry, Connection} from '@/lib/types';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
 

@@ -1,4 +1,35 @@
 import {
+	agendaSchema,
+	answerSchema,
+	askBodySchema,
+	bankAccountsSchema,
+	bankTransactionsSchema,
+	dayRatesSchema,
+	emailReplyBodySchema,
+	eventChangeBodySchema,
+	foundEmailsSchema,
+	foundEventsSchema,
+	foundFilesSchema,
+	foundMeetingsSchema,
+	foundRecordsSchema,
+	madeEventSchema,
+	mailboxesSchema,
+	newEmailBodySchema,
+	newEventBodySchema,
+	peopleSchema,
+	writtenEmailSchema,
+	type AgendaEvent,
+	type BankAccount,
+	type BankTransaction,
+	type FoundEmail,
+	type FoundFile,
+	type FoundMeeting,
+	type FoundRecord,
+	type Person,
+	type SourceSummary,
+} from '@proxy/contracts/widgets';
+import type {z} from 'zod';
+import {
 	useAccounts,
 	useAgenda,
 	useAnswer,
@@ -15,24 +46,34 @@ import {
 
 // A fake of the home page widgets' api (`/api/widgets/…`) for the web app's tests: one Google
 // account with contacts, a calendar, mail and files, and one bank, answering as the api does.
-// `widgetsAnswer` answers a widget request, or null for any other.
+// `widgetsAnswer` answers a widget request, or null for any other. Every answer is parsed by the
+// api's own schema first, so the fake can't answer what the api couldn't.
 
-const google = {
+function answered<S extends z.ZodType>(schema: S, body: z.input<S>): Response {
+	return Response.json(schema.parse(body));
+}
+
+// What a widget sent, parsed as the api parses it, so a body the api would refuse fails the test.
+function sent<S extends z.ZodType>(schema: S, init: RequestInit | undefined): z.output<S> {
+	return schema.parse(JSON.parse(String(init?.body)));
+}
+
+const google: SourceSummary = {
 	connectionId: 'google-1',
 	integrationId: 'google',
 	account: 'me@example.com',
 	name: null,
 };
 
-const bank = {
+const bank: SourceSummary = {
 	connectionId: 'bank-1',
 	integrationId: 'plaid',
 	account: 'First Platypus Bank',
 	name: null,
 };
 
-const contact = (name: string, jobTitle: string, phone: string) => ({
-	origin: 'contacts' as const,
+const contact = (name: string, jobTitle: string, phone: string): Person => ({
+	origin: 'contacts',
 	connectionId: 'google-1',
 	id: `c${name.length}${name.charCodeAt(0)}`,
 	name,
@@ -137,7 +178,7 @@ function foundEvents(url: URL) {
 	return {
 		sources: [google],
 		events: found
-			? [0, 1].map((weeks) => ({
+			? [0, 1].map((weeks): AgendaEvent => ({
 					connectionId: 'google-1',
 					calendarId: 'me@example.com',
 					id: `hugo-${weeks}`,
@@ -155,7 +196,7 @@ function foundEvents(url: URL) {
 	};
 }
 
-const EMAILS = [
+const EMAILS: FoundEmail[] = [
 	{
 		connectionId: 'google-1',
 		id: 'm1',
@@ -179,7 +220,7 @@ const EMAIL_TEXT = [
 	'> Thanks, paid.',
 ].join('\n');
 
-const FILES = [
+const FILES: FoundFile[] = [
 	{
 		connectionId: 'google-1',
 		id: 'f1',
@@ -192,14 +233,14 @@ const FILES = [
 	},
 ];
 
-const granola = {
+const granola: SourceSummary = {
 	connectionId: 'granola-1',
 	integrationId: 'granola',
 	account: 'me@example.com',
 	name: null,
 };
 
-export const MEETINGS = [
+export const MEETINGS: FoundMeeting[] = [
 	{
 		connectionId: 'granola-1',
 		id: 'm2',
@@ -218,21 +259,21 @@ export const MEETINGS = [
 	},
 ];
 
-const notion = {
+const notion: SourceSummary = {
 	connectionId: 'notion-1',
 	integrationId: 'notion',
 	account: 'Example workspace',
 	name: null,
 };
 
-const linear = {
+const linear: SourceSummary = {
 	connectionId: 'linear-1',
 	integrationId: 'linear',
 	account: 'Example',
 	name: null,
 };
 
-const PAGES = [
+const PAGES: FoundRecord[] = [
 	{
 		connectionId: 'notion-1',
 		id: 'p2',
@@ -249,7 +290,7 @@ const PAGES = [
 	},
 ];
 
-const ISSUES = [
+const ISSUES: FoundRecord[] = [
 	{
 		connectionId: 'linear-1',
 		id: 'ENG-12',
@@ -268,7 +309,7 @@ function records(url: URL) {
 }
 
 // What each meeting, file, email, page or issue says of anything asked of it.
-function answer(body: {collectionId: string; id: string}) {
+function answer(body: z.output<typeof askBodySchema>) {
 	const meeting = MEETINGS.find((candidate) => candidate.id === body.id);
 	if (body.collectionId === 'notes' && meeting) {
 		return {
@@ -300,7 +341,7 @@ function answer(body: {collectionId: string; id: string}) {
 	};
 }
 
-export const ACCOUNTS = [
+export const ACCOUNTS: BankAccount[] = [
 	{
 		connectionId: 'bank-1',
 		id: 'checking',
@@ -336,7 +377,7 @@ const transaction = (
 	amount: number,
 	category: string | null,
 	pending = false,
-) => ({
+): BankTransaction => ({
 	connectionId: 'bank-1',
 	accountId,
 	id,
@@ -411,59 +452,69 @@ export function widgetsAnswer(input: string, init?: RequestInit): Response | nul
 	}
 	const route = `${init?.method ?? 'GET'} ${url.pathname}`;
 	if (route === 'GET /api/widgets/people') {
-		return Response.json(people(url));
+		return answered(peopleSchema, people(url));
 	}
 	if (route === 'GET /api/widgets/agenda') {
-		return Response.json(agenda(url));
+		return answered(agendaSchema, agenda(url));
 	}
 	if (route === 'GET /api/widgets/events') {
-		return Response.json(foundEvents(url));
+		return answered(foundEventsSchema, foundEvents(url));
 	}
 	if (route === 'POST /api/widgets/events') {
-		return Response.json({title: 'Made', link: 'https://calendar.google.com/event?eid=1'});
+		sent(newEventBodySchema, init);
+		return answered(madeEventSchema, {
+			title: 'Made',
+			link: 'https://calendar.google.com/event?eid=1',
+		});
 	}
 	if (route === 'PUT /api/widgets/events') {
-		return Response.json({title: 'Changed', link: 'https://calendar.google.com/event?eid=hugo-0'});
+		sent(eventChangeBodySchema, init);
+		return answered(madeEventSchema, {
+			title: 'Changed',
+			link: 'https://calendar.google.com/event?eid=hugo-0',
+		});
 	}
 	if (route === 'GET /api/widgets/emails') {
-		return Response.json({sources: [google], emails: EMAILS, failed: []});
+		return answered(foundEmailsSchema, {sources: [google], emails: EMAILS, failed: []});
 	}
 	if (route === 'POST /api/widgets/emails') {
-		return Response.json({sent: true});
+		sent(newEmailBodySchema, init);
+		return answered(writtenEmailSchema, {sent: true});
 	}
 	if (route === 'POST /api/widgets/emails/reply') {
-		return Response.json({sent: true});
+		sent(emailReplyBodySchema, init);
+		return answered(writtenEmailSchema, {sent: true});
 	}
 	if (route === 'GET /api/widgets/mailboxes') {
-		return Response.json({sources: [google], target: 'google-1'});
+		return answered(mailboxesSchema, {sources: [google], target: 'google-1'});
 	}
 	if (route === 'GET /api/widgets/rates') {
-		return Response.json({
+		return answered(dayRatesSchema, {
 			date: '2026-10-14',
 			rates: {EUR: 1, USD: 1.1195, GBP: 0.84385, JPY: 177.39, CHF: 0.933, CAD: 1.5918},
 		});
 	}
 	if (route === 'GET /api/widgets/files') {
-		return Response.json({sources: [google], files: FILES, failed: []});
+		return answered(foundFilesSchema, {sources: [google], files: FILES, failed: []});
 	}
 	if (route === 'GET /api/widgets/meetings') {
 		const people = url.searchParams.getAll('with').map((person) => person.toLowerCase());
 		const meetings = MEETINGS.filter((meeting) =>
 			people.every((person) => meeting.participants.toLowerCase().includes(person)),
 		);
-		return Response.json({sources: [granola], meetings, failed: []});
+		return answered(foundMeetingsSchema, {sources: [granola], meetings, failed: []});
 	}
 	if (route === 'GET /api/widgets/records') {
-		return Response.json(records(url));
+		return answered(foundRecordsSchema, records(url));
 	}
 	if (route === 'POST /api/widgets/answer') {
-		return Response.json(answer(JSON.parse(String(init?.body))));
+		return answered(answerSchema, answer(sent(askBodySchema, init)));
 	}
 	if (route === 'GET /api/widgets/accounts') {
-		return Response.json({sources: [bank], accounts: ACCOUNTS, failed: []});
+		return answered(bankAccountsSchema, {sources: [bank], accounts: ACCOUNTS, failed: []});
 	}
 	if (route === 'GET /api/widgets/transactions') {
-		return Response.json(transactions(url));
+		return answered(bankTransactionsSchema, transactions(url));
 	}
 	return Response.json({error: 'not_found'}, {status: 404});
 }

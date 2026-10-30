@@ -3,6 +3,7 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import {findCollection} from '@proxy/integrations';
+import {type Answer, askBodySchema, type AskedCollection} from '@proxy/contracts/widgets';
 
 import {askForJson} from '../llm/open-router';
 import type {Reading} from '../records/capabilities';
@@ -18,22 +19,6 @@ import {covers, requireReadable, type Source} from './sources';
  * quotes the passages its answer rests on. A quote the text doesn't have word for word is left out, so what is shown
  * as quoted was said. A text past what the model is given is cut, and the answer says so.
  */
-
-/** What Ask reads: a meeting's notes, a file, an email, a page or an issue. */
-const COLLECTIONS = ['notes', 'files', 'emails', 'pages', 'issues'] as const;
-
-type AskedCollection = (typeof COLLECTIONS)[number];
-
-export type Answer = {
-	title: string;
-	link: string | null;
-	/** Whether it says what was asked. */
-	found: boolean;
-	answer: string;
-	quotes: string[];
-	/** Whether it was longer than was read. */
-	cut: boolean;
-};
 
 // About 40,000 tokens: an hour's transcript and its notes, read in a few seconds on Cerebras.
 const MAX_CHARS = 160_000;
@@ -143,17 +128,10 @@ export function quotedFrom(text: string, quotes: string[]): string[] {
 	return [...new Set(kept)].filter((quote) => quote !== '').slice(0, MAX_QUOTES);
 }
 
-const bodySchema = z.object({
-	question: z.string().trim().min(1).max(500),
-	connectionId: z.string().min(1),
-	collectionId: z.enum(COLLECTIONS),
-	id: z.string().min(1).max(300),
-});
-
 /** `POST /api/widgets/answer {question, connectionId, collectionId, id}`: what the meeting, file, email, page or issue says of the question. */
 export function handleAnswerRoute(request: AuthenticatedRequest): Promise<Result<Answer, ApiError>> {
 	return Do(async ($) => {
-		const body = $(parseSchema(bodySchema, request.body));
+		const body = $(parseSchema(askBodySchema, request.body));
 		if (!env.OPENROUTER_KEY) {
 			return $(Err(ApiErr.unavailable('Ask is not set up: set `OPENROUTER_KEY`.')));
 		}

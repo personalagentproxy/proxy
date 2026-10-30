@@ -3,6 +3,7 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {getAgentById, type AgentRow, type SignedInAgent} from '@proxy/db/agent';
+import type {agentMeSchema, ToolResult} from '@proxy/contracts/agent-side';
 import {logAgentRequest} from '@proxy/db/audit';
 import {listConnectionsWithCredential, type ConnectionRow} from '@proxy/db/connection';
 import type {Viewer} from '@proxy/db/viewer';
@@ -16,7 +17,6 @@ import {
 	type CollectionTool,
 	type Integration,
 	type Condition,
-	type McpTool,
 	type OwnSettings,
 	type ServerTool,
 	type Tool,
@@ -25,7 +25,7 @@ import {
 
 import {callCustomTool} from '../connections/custom/custom-mcp';
 import {needsSignIn, signInNeededError, unavailableActions, unavailableError} from '../connections/unavailable';
-import {isRecordStore, type Connector, type DataRecord, type RecordPage, type RecordStore, type RecordTarget, type RecordValues} from '../records/connector';
+import {isRecordStore, type Connector, type DataRecord, type RecordStore, type RecordTarget, type RecordValues} from '../records/connector';
 import {connectorFor} from '../records/connectors';
 import {parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
@@ -39,24 +39,6 @@ import {isPlainObject, parseToolParams} from './tool-params';
  * against the agent's access as it is now and logged with the task, a refused one too, and one the
  * provider fails; one that can't be logged fails rather than go unrecorded.
  */
-
-export type AgentConnection = {
-	id: string;
-	integrationId: string;
-	account: string;
-	// Shared with everyone in the organization, rather than the agent's owner's own.
-	shared: boolean;
-	// The actions the agent can take with the connection.
-	actions: string[];
-	// A custom MCP server's tools the agent may run, as the server describes them; null for every
-	// other integration.
-	tools: McpTool[] | null;
-	// What the person called the connection, where they named it.
-	name: string | null;
-};
-
-/** A page of records from a list, the record a tool opened, wrote or ran on (null once it is gone), or what a custom server's tool answered. */
-export type ToolResult = RecordPage | {record: DataRecord | null} | {text: string};
 
 // How much of a custom tool's params the activity log keeps.
 const MAX_LOGGED_PARAMS = 200;
@@ -88,7 +70,7 @@ export function requireAgent(signedIn: SignedInAgent): Promise<Result<AgentRow, 
 }
 
 /** Who the agent is and what it can do with each connection it reaches; connections it can't use are left out. */
-export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<{agent: {id: string; providerId: string; name: string}; connections: AgentConnection[]}, ApiError>> {
+export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.infer<typeof agentMeSchema>, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
 		const connections = $(await listConnectionsWithCredential(agentViewer(signedIn)))

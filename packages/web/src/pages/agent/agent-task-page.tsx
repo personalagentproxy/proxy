@@ -1,3 +1,4 @@
+import type {AgentTask} from '@proxy/contracts/agent-side';
 import {useId, useState} from 'react';
 import {
 	useLoaderData,
@@ -6,7 +7,7 @@ import {
 	useRevalidator,
 	useSearchParams,
 } from 'react-router';
-import {type AgentTask, finishAgentTask, startAgentTask} from '@/client/agent-client';
+import {finishAgentTask, startAgentTask} from '@/client/agent-client';
 import {AgentHeading, AgentShell} from '@/components/agent-shell';
 import {Row, RowList} from '@/components/row-list';
 import {Button} from '@proxy/ui/components/button';

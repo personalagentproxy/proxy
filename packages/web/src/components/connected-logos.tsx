@@ -1,3 +1,5 @@
+import type {AgentLogin} from '@proxy/contracts/agents';
+import type {Connection} from '@proxy/contracts/connections';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import type {ReactNode} from 'react';
 import {Link} from 'react-router';
@@ -6,7 +8,6 @@ import {useOrgSlug} from '@/hooks/use-org';
 import {connectionLabel} from '@/lib/access';
 import {counted} from '@/lib/format';
 import {integrationOf, type Integration} from '@/lib/integrations';
-import type {AgentLogin, Connection} from '@/lib/types';
 
 const TILE = 'size-6 rounded-md ring-2 ring-background';
 

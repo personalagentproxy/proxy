@@ -36,7 +36,7 @@ mock.module('./built-in-agent', () => ({ensureBuiltInAgent}));
 const now = new Date('2026-10-21T10:00:00Z');
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
 const persona = {id: 'persona-1', name: 'Finance', look, color: 'blue', createdById: 'user-1'};
-const personaResponse = {id: 'persona-1', name: 'Finance', look, color: 'blue', mayChange: true, lastMessage: null};
+const personaResponse = {id: 'persona-1', name: 'Finance', look, color: 'blue' as const, mayChange: true, lastMessage: null};
 const thread = {
 	id: 'thread-1',
 	orgId: 'org-1',
@@ -187,7 +187,7 @@ describe('the chat routes', () => {
 
 	test('rename a persona or change its head, and delete one with every conversation, for whoever made it or owns the organization', async () => {
 		const {handleDeletePersonaRoute, handleUpdatePersonaRoute} = await import('./route');
-		const changed = {name: 'Money', look: {...look, eyes: 1 as const}, color: 'green'};
+		const changed = {name: 'Money', look: {...look, eyes: 1 as const}, color: 'green' as const};
 
 		const updated = await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, changed));
 		expect(updatePersona).toHaveBeenCalledWith('org-1', 'persona-1', changed);

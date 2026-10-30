@@ -1,8 +1,8 @@
+import type {AgentLogin} from '@proxy/contracts/agents';
 import {BotIcon} from 'lucide-react';
 import {Link} from 'react-router';
 import {buttonVariants} from '@proxy/ui/components/button';
 import {WidgetFrame} from '@/components/widgets/widget-frame';
-import type {AgentLogin} from '@/lib/types';
 import {useOrgSlug} from '@/hooks/use-org';
 
 // "Claude", "Claude or Poke", and past two, "one of your agents".

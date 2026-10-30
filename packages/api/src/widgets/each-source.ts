@@ -1,12 +1,10 @@
 import {Err, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
+import type {Failure} from '@proxy/contracts/widgets';
 
 import {log, serializeError} from '../observability/log';
 import type {Source} from './sources';
-
-/** A source that couldn't be read, and why, in a line the widget shows. */
-export type Failure = {connectionId: string; account: string; message: string};
 
 type Gathered<S, T> = {found: Array<{source: S; value: T}>; failed: Failure[]};
 

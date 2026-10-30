@@ -1,8 +1,9 @@
 import {Err, type Result} from 'ts-results-es';
-import {z} from 'zod';
+import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import {saveAgentFeedback} from '@proxy/db/feedback';
+import {feedbackBodySchema, type feedbackSentSchema} from '@proxy/contracts/agent-side';
 
 import type {AgentCaller} from './tools';
 
@@ -14,17 +15,10 @@ import type {AgentCaller} from './tools';
 
 const MAX_MESSAGE = 5000;
 
-const feedbackSchema = z.object({
-	message: z.string(),
-	connection: z.string().max(200).optional(),
-	tool: z.string().max(200).optional(),
-	task: z.string().max(200).optional(),
-});
-
 /** Keeps the agent's feedback: `{message}`, and the connection, the tool and the task it is about where it names them. */
-export function sendAgentFeedback(caller: AgentCaller, args: unknown): Promise<Result<{sent: true}, ApiError>> {
+export function sendAgentFeedback(caller: AgentCaller, args: unknown): Promise<Result<z.infer<typeof feedbackSentSchema>, ApiError>> {
 	return Do(async ($) => {
-		const {message, connection, tool, task} = $(parseSchema(feedbackSchema, args));
+		const {message, connection, tool, task} = $(parseSchema(feedbackBodySchema, args));
 		const text = message.trim();
 		if (text === '') {
 			return $(Err(ApiErr.validationError('The feedback is empty: say what happened and what you expected.')));

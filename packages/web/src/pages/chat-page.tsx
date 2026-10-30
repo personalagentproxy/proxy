@@ -1,15 +1,12 @@
+import type {ChatEntry, ChatPersona, Persona, ThreadLog} from '@proxy/contracts/harness';
 import {ArrowUpIcon, ChevronDownIcon, MoonIcon, PlusIcon} from 'lucide-react';
 import {type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
 import {
-	type ChatEntry,
-	type ChatPersona,
 	createPersona,
 	deletePersona,
 	getThread,
-	type Persona,
 	postMessage,
-	type ThreadLog,
 	updatePersona,
 } from '@/client/harness-client';
 import {AppShell} from '@/components/app-shell';

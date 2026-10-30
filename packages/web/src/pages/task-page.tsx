@@ -1,7 +1,9 @@
+import type {AuditEntry, TaskRun} from '@proxy/contracts/activity';
+import type {AgentLogin} from '@proxy/contracts/agents';
+import type {Connection} from '@proxy/contracts/connections';
 import {useEffect, useId, useState} from 'react';
 import {Link, useLoaderData, useLocation} from 'react-router';
 import {getTaskRun} from '@/client/agents-client';
-import type {TaskRun} from '@/client/schemas';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditEntryDialog} from '@/components/audit-entry-dialog';
 import {AuditList} from '@/components/audit-list';
@@ -16,7 +18,6 @@ import {backFrom, backOf} from '@/lib/back';
 import {endsOf, STATUS_LABEL, taskStatus} from '@/lib/timeline-window';
 import {counted, formatDateTime} from '@/lib/format';
 import {formatDuration, outcomeSummary} from '@/lib/timeline';
-import type {AgentLogin, AuditEntry, Connection} from '@/lib/types';
 import type {taskLoader} from '@/loaders';
 import {Badge} from '@proxy/ui/components/badge';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';

@@ -1,6 +1,6 @@
+import type {ActivityTask, AuditEntry} from '@proxy/contracts/activity';
 import {describe, expect, test} from 'bun:test';
 import {HOUR, MINUTE, SECOND} from '@/lib/timeline';
-import type {ActivityTask, AuditEntry} from '@/lib/types';
 import {
 	BREAK_PX,
 	buildAxis,

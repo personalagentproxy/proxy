@@ -1,3 +1,4 @@
+import type {DataRecord} from '@proxy/contracts/records';
 import type {Collection} from '@proxy/integrations';
 import type {ReactNode} from 'react';
 import {Form, Link, useLoaderData, useLocation, useSearchParams} from 'react-router';
@@ -17,7 +18,6 @@ import {useTaskId} from '@/hooks/use-task-id';
 import {taskHome} from '@/lib/agent-task';
 import {inside, recordPath} from '@/lib/agent-paths';
 import type {agentCollectionLoader} from '@/agent-loaders';
-import type {DataRecord} from '@/lib/types';
 
 // What a page hands over when its record left the list, or was sent: "Sent email “Re: Q3”".
 export function noticeFromState(state: unknown): string | null {
