@@ -47,6 +47,17 @@ mock.module('../utils/secret-crypto', () => ({
 
 mock.module('../utils/env', () => ({env: {PLAID_CLIENT_ID: 'plaid-client', PLAID_SECRET: 'plaid-secret', PLAID_ENV: 'sandbox'}}));
 
+// Of the integrations' modules, what Google and Plaid undo at the provider and Google's partial consent.
+const {REVOKE_GOOGLE} = await import('./google/revoke');
+const {unavailableGoogleConnectionActions} = await import('./google/unavailable');
+const {REMOVE_PLAID_ITEM} = await import('./plaid/revoke');
+const integrations = [
+	{id: 'google', connectors: {}, revoke: REVOKE_GOOGLE, unavailableActions: unavailableGoogleConnectionActions},
+	{id: 'plaid', connectors: {}, revoke: REMOVE_PLAID_ITEM},
+];
+
+mock.module('./integrations', () => ({apiIntegration: (id: string) => integrations.find((integration) => integration.id === id)}));
+
 // Google's revoke endpoint and Plaid's: each request, and its answer.
 const google = {requests: [] as Array<{url: string; body: URLSearchParams; text: string}>, status: 200};
 

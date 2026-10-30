@@ -1,7 +1,7 @@
-import {Err, type Result} from 'ts-results-es';
+import type {Result} from 'ts-results-es';
 import type {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
+import {type ApiError, Do, parseSchema} from '@proxy/utils';
 import {type Connection, connectPlaidBodySchema, plaidLinkTokenBodySchema, type plaidLinkTokenSchema} from '@proxy/contracts/connections';
 
 import {log} from '../../observability/log';
@@ -9,7 +9,7 @@ import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {requireViewer} from '../../utils/user-org';
 import {saveConnection} from '../connect-flow';
 import {respond} from '../connection-response';
-import {requireManaged, type ManagingViewer} from '../managed';
+import {requireManagedOf, type ManagingViewer} from '../managed';
 import {createLinkToken, exchangePublicToken, getAccounts, removeItem} from './plaid-api';
 import {readPlaidCredential, requirePlaidClient, type PlaidClient, type PlaidCredential} from './plaid-client';
 
@@ -27,10 +27,7 @@ import {readPlaidCredential, requirePlaidClient, type PlaidClient, type PlaidCre
 // The access token of a Plaid connection the person may change, for Link's update mode.
 function requirePlaidConnection(viewer: ManagingViewer, connectionId: string): Promise<Result<PlaidCredential, ApiError>> {
 	return Do(async ($) => {
-		const row = $(await requireManaged(viewer, connectionId));
-		if (row.integrationId !== 'plaid') {
-			return $(Err(ApiErr.notFound('connection', connectionId)));
-		}
+		const row = $(await requireManagedOf(viewer, connectionId, 'plaid'));
 		return $(readPlaidCredential(row.credential));
 	});
 }

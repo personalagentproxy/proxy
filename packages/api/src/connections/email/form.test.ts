@@ -3,10 +3,18 @@ import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
 
-const listConnections = mock();
+const findAccountConnection = mock();
 const createConnection = mock();
 
-mock.module('@proxy/db/connection', () => ({listConnections, createConnection}));
+mock.module('@proxy/db/connection', () => ({
+	findAccountConnection,
+	createConnection,
+	getConnectionWithCredential: mock(),
+	renewConnection: mock(),
+	shareConnection: mock(),
+	updateConnectionName: mock(),
+	updateConnectionTools: mock(),
+}));
 
 mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
@@ -22,6 +30,11 @@ const encryptSecret = mock((plaintext: string): Result<string, ApiError> => Ok(`
 
 mock.module('../../utils/secret-crypto', () => ({encryptSecret, decryptSecret: (stored: string) => Ok(stored)}));
 
+mock.module('../../utils/env', () => ({env: {}}));
+
+// None of the integrations' modules is needed here: what they declare is the integrations' own.
+mock.module('../integrations', () => ({apiIntegration: () => undefined, apiIntegrations: () => []}));
+
 const createdRow = {
 	id: 'conn-1',
 	integrationId: 'email',
@@ -35,20 +48,23 @@ const createdRow = {
 	defaults: [],
 };
 
+const {formConnectRoutes} = await import('../form-connect');
+const {EMAIL_FORM} = await import('./form');
+const {handleConnect: handleConnectEmailRoute, handleTest: handleTestEmailRoute} = formConnectRoutes('email', EMAIL_FORM);
+
 function makeRequest(body: unknown) {
 	return {user: {userId: 'user-1', email: 'alex@gmail.com'}, params: {}, body} as never;
 }
 
 beforeEach(() => {
 	mock.clearAllMocks();
-	listConnections.mockResolvedValue(Ok([]));
+	findAccountConnection.mockResolvedValue(Ok(null));
 	createConnection.mockResolvedValue(Ok(createdRow));
 	checkMailbox.mockResolvedValue(Ok(undefined));
 });
 
-describe('handleConnectEmailRoute', () => {
+describe('connecting a mailbox', () => {
 	test("signs in with the provider's servers, then stores the encrypted credential", async () => {
-		const {handleConnectEmailRoute} = await import('./route');
 		const result = await handleConnectEmailRoute(makeRequest({provider: 'gmail', email: ' Alex@Gmail.com ', password: 'abcd efgh ijkl mnop'}));
 
 		const credential = {imapHost: 'imap.gmail.com', smtpHost: 'smtp.gmail.com', smtpPort: 465, username: 'alex@gmail.com', password: 'abcdefghijklmnop'};
@@ -59,15 +75,17 @@ describe('handleConnectEmailRoute', () => {
 			connectedById: 'user-1',
 			integrationId: 'email',
 			account: 'alex@gmail.com',
+			providerAccountId: null,
 			credential: `encrypted:${JSON.stringify(credential)}`,
+			defaults: [],
 		});
+		expect(findAccountConnection).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1'}), {integrationId: 'email', account: 'alex@gmail.com', providerAccountId: null});
 		const connection = result.unwrap();
 		expect(connection.id).toBe('conn-1');
 		expect(connection.defaults).toEqual([]);
 	});
 
 	test('takes typed-in servers for another provider, and its password as typed', async () => {
-		const {handleConnectEmailRoute} = await import('./route');
 		await handleConnectEmailRoute(
 			makeRequest({provider: 'other', email: 'alex@example.com', password: 'pass word', servers: {imapHost: 'Mail.Example.com', smtpHost: 'mail.example.com', smtpPort: 587}}),
 		);
@@ -76,7 +94,6 @@ describe('handleConnectEmailRoute', () => {
 	});
 
 	test('another provider needs its servers', async () => {
-		const {handleConnectEmailRoute} = await import('./route');
 		const result = await handleConnectEmailRoute(makeRequest({provider: 'other', email: 'alex@example.com', password: 'secret'}));
 
 		expect(result.unwrapErr().kind).toBe('validation_error');
@@ -84,7 +101,6 @@ describe('handleConnectEmailRoute', () => {
 	});
 
 	test('refuses ports other than the mail ports', async () => {
-		const {handleConnectEmailRoute} = await import('./route');
 		const result = await handleConnectEmailRoute(
 			makeRequest({provider: 'other', email: 'alex@example.com', password: 'secret', servers: {imapHost: 'mail.example.com', smtpHost: 'mail.example.com', smtpPort: 5432}}),
 		);
@@ -93,9 +109,8 @@ describe('handleConnectEmailRoute', () => {
 	});
 
 	test('refuses a mailbox that is already connected', async () => {
-		listConnections.mockResolvedValue(Ok([{...createdRow, id: 'conn-0'}]));
+		findAccountConnection.mockResolvedValue(Ok({...createdRow, id: 'conn-0'}));
 
-		const {handleConnectEmailRoute} = await import('./route');
 		const result = await handleConnectEmailRoute(makeRequest({provider: 'gmail', email: 'alex@gmail.com', password: 'secret'}));
 
 		expect(result.unwrapErr().kind).toBe('conflict');
@@ -105,7 +120,6 @@ describe('handleConnectEmailRoute', () => {
 	test('saves nothing when the mailbox turns the password down', async () => {
 		checkMailbox.mockResolvedValue(Err(ApiErr.credentialsRejected()));
 
-		const {handleConnectEmailRoute} = await import('./route');
 		const result = await handleConnectEmailRoute(makeRequest({provider: 'gmail', email: 'alex@gmail.com', password: 'wrong'}));
 
 		expect(result.unwrapErr().kind).toBe('credentials_rejected');
@@ -115,7 +129,6 @@ describe('handleConnectEmailRoute', () => {
 	test('saves nothing without an encryption key', async () => {
 		encryptSecret.mockReturnValueOnce(Err(ApiErr.internalError(new Error('ENCRYPTION_KEY is not set'))));
 
-		const {handleConnectEmailRoute} = await import('./route');
 		const result = await handleConnectEmailRoute(makeRequest({provider: 'gmail', email: 'alex@gmail.com', password: 'secret'}));
 
 		expect(result.unwrapErr().kind).toBe('internal_error');
@@ -124,9 +137,8 @@ describe('handleConnectEmailRoute', () => {
 	});
 });
 
-describe('handleTestEmailRoute', () => {
+describe('testing a mailbox', () => {
 	test('signs in to the mailbox and saves nothing', async () => {
-		const {handleTestEmailRoute} = await import('./route');
 		const result = await handleTestEmailRoute(makeRequest({provider: 'gmail', email: ' Alex@Gmail.com ', password: 'abcd efgh ijkl mnop'}));
 
 		expect(result.isOk()).toBe(true);
@@ -138,14 +150,12 @@ describe('handleTestEmailRoute', () => {
 	test("reports the mailbox's refusal", async () => {
 		checkMailbox.mockResolvedValue(Err(ApiErr.credentialsRejected()));
 
-		const {handleTestEmailRoute} = await import('./route');
 		const result = await handleTestEmailRoute(makeRequest({provider: 'gmail', email: 'alex@gmail.com', password: 'wrong'}));
 
 		expect(result.unwrapErr().kind).toBe('credentials_rejected');
 	});
 
 	test('another provider needs its servers', async () => {
-		const {handleTestEmailRoute} = await import('./route');
 		const result = await handleTestEmailRoute(makeRequest({provider: 'other', email: 'alex@example.com', password: 'secret'}));
 
 		expect(result.isErr()).toBe(true);

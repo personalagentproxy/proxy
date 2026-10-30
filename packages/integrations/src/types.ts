@@ -134,6 +134,10 @@ export type Integration = {
 	custom?: true;
 	// The tools of the connection a custom integration was built for, each a tool of its own.
 	mcpTools?: McpTool[];
+	// Connected on a form of its own rather than by signing in, at `/connections/new/<id>` in the web
+	// app and posted to `/api/orgs/:org/connections/<id>`: a mailbox with an app password, a database
+	// with a user's name and password, a bank through Plaid Link, a custom MCP server by its address.
+	form?: 'email' | 'database' | 'bank' | 'server';
 	// Connected by signing in to the provider, the sign-in starting at
 	// `/api/connections/<id>/start`: Google, and every integration built on its MCP server.
 	signIn?: true;

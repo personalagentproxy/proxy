@@ -43,6 +43,9 @@ mock.module('../../utils/secret-crypto', () => ({
 	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
 }));
 
+// None of the integrations' modules is needed here: what they declare is the integrations' own.
+mock.module('../integrations', () => ({apiIntegration: () => undefined, apiIntegrations: () => []}));
+
 const CALLBACK = 'https://app.example.com/api/connections/linear/callback';
 
 // Linear's authorization and MCP server: each request, and its answers.
@@ -80,7 +83,7 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 // The sign-in routes the api makes of Linear's declaration.
 async function routes() {
 	const {mcpConnectRoutes} = await import('../mcp/mcp-connect');
-	const {LINEAR_MCP} = await import('./route');
+	const {LINEAR_MCP} = await import('./built-in');
 	return mcpConnectRoutes(LINEAR_MCP);
 }
 
@@ -252,7 +255,7 @@ describe('handleLinearCallbackRoute', () => {
 describe('keyConnectRoute', () => {
 	async function connectWithKey(body: unknown) {
 		const {keyConnectRoute} = await import('../mcp/mcp-connect');
-		const {LINEAR_MCP} = await import('./route');
+		const {LINEAR_MCP} = await import('./built-in');
 		return keyConnectRoute(LINEAR_MCP)({user, body} as never);
 	}
 

@@ -72,11 +72,23 @@ mock.module('../utils/secret-crypto', () => ({
 	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
 }));
 
+// Of the integrations' modules, those built on their MCP servers, which take over a server's address.
+const builtIns = await Promise.all([
+	import('./cloudflare/built-in').then((module) => module.CLOUDFLARE_MCP),
+	import('./exa/built-in').then((module) => module.EXA_MCP),
+	import('./granola/built-in').then((module) => module.GRANOLA_MCP),
+	import('./linear/built-in').then((module) => module.LINEAR_MCP),
+	import('./notion/built-in').then((module) => module.NOTION_MCP),
+	import('./parallel/built-in').then((module) => module.PARALLEL_MCP),
+]);
+
+mock.module('./integrations', () => ({apiIntegration: () => undefined, apiIntegrations: () => builtIns.map((builtInMcp) => ({id: builtInMcp.integrationId, connectors: {}, builtInMcp}))}));
+
 const {movedCredential, movedPermissions, movedRun, takeOverCustomConnections} = await import('./take-over-custom');
-const {CLOUDFLARE_MCP} = await import('./cloudflare/route');
-const {EXA_MCP} = await import('./exa/route');
-const {LINEAR_MCP} = await import('./linear/route');
-const {PARALLEL_MCP} = await import('./parallel/route');
+const {CLOUDFLARE_MCP} = await import('./cloudflare/built-in');
+const {EXA_MCP} = await import('./exa/built-in');
+const {LINEAR_MCP} = await import('./linear/built-in');
+const {PARALLEL_MCP} = await import('./parallel/built-in');
 
 const LINEAR_ACTIONS = ['read', 'create', 'edit'];
 

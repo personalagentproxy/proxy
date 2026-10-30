@@ -44,6 +44,13 @@ const callCustomTool = mock();
 
 mock.module('../connections/custom/custom-mcp', () => ({callCustomTool}));
 
+// Of the integrations' modules, Google's partial consent alone, read from its credential.
+const {unavailableGoogleConnectionActions} = await import('../connections/google/unavailable');
+
+mock.module('../connections/integrations', () => ({
+	apiIntegration: (id: string) => (id === 'google' ? {id, connectors: {}, unavailableActions: unavailableGoogleConnectionActions} : undefined),
+}));
+
 function integration(id: string): Integration {
 	const found = findIntegration(id);
 	if (!found) {

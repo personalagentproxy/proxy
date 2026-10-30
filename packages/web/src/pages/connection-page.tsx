@@ -180,7 +180,7 @@ export function ConnectionPage() {
 							}}
 						/>
 					)}
-					{connection.integrationId === 'plaid' && mayChange && (
+					{integration.form === 'bank' && mayChange && (
 						<SignInToBankAgain connectionId={connection.id} />
 					)}
 					{error && <p className="text-sm text-destructive">{error}</p>}

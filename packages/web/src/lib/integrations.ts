@@ -96,7 +96,7 @@ export function integrationOf(connection: {
 	if (!integration) {
 		return null;
 	}
-	const logo = integration.id === 'mcp' ? serverLogo(connection.account) : logoOf(integration.id);
+	const logo = integration.custom ? serverLogo(connection.account) : logoOf(integration.id);
 	return {...integration, logo};
 }
 
@@ -163,7 +163,7 @@ export const PLAID_FORM = {
 };
 
 /** What the catalog's plus leads to for a database: the form's title and where the database has to be. */
-export function describeDatabase(dialect: 'postgres' | 'mysql'): {title: string; intro: string} {
+export function describeDatabase(dialect: IntegrationId): {title: string; intro: string} {
 	const name = findIntegration(dialect)?.name ?? dialect;
 	return {
 		title: `Connect a ${name} database`,

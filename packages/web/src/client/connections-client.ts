@@ -70,7 +70,8 @@ export function testEmail(org: string, input: ConnectEmailInput) {
 	return apiSend('POST', `${orgApi(org)}/connections/email/test`, input);
 }
 
-export type DatabaseDialect = 'postgres' | 'mysql';
+/** A database's integration, one connected on the database form (`form: 'database'` in the catalog): Postgres, MySQL. */
+export type DatabaseDialect = IntegrationId;
 
 export type ConnectDatabaseInput = z.input<typeof connectDatabaseBodySchema>;
 

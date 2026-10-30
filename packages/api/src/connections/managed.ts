@@ -4,6 +4,7 @@ import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {getConnectionWithCredential, type ConnectionRow} from '@proxy/db/connection';
 import type {MemberViewer} from '@proxy/db/viewer';
 import type {OrgRole} from '@proxy/db/organization';
+import type {IntegrationId} from '@proxy/integrations';
 
 import {manages as managesThing} from '../utils/manages';
 
@@ -34,6 +35,25 @@ export function requireManaged(viewer: ManagingViewer, connectionId: string): Pr
 		const row = $(await requireConnection(viewer, connectionId));
 		if (!manages(viewer, row)) {
 			return $(Err(ApiErr.forbidden()));
+		}
+		return row;
+	});
+}
+
+/**
+ * A connection of the integration the viewer may change (`requireManaged`); one of another
+ * integration is `mismatch`, not found unless the route says otherwise.
+ */
+export function requireManagedOf(
+	viewer: ManagingViewer,
+	connectionId: string,
+	integrationId: IntegrationId,
+	mismatch: ApiError = ApiErr.notFound('connection', connectionId),
+): Promise<Result<StoredConnectionRow, ApiError>> {
+	return Do(async ($) => {
+		const row = $(await requireManaged(viewer, connectionId));
+		if (row.integrationId !== integrationId) {
+			return $(Err(mismatch));
 		}
 		return row;
 	});

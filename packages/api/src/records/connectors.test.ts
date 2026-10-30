@@ -71,8 +71,7 @@ function extras(connector: Connector): {capabilities: Capability[]; others: stri
 	return {capabilities: keys.filter(isCapability), others: keys.filter((key) => !isCapability(key))};
 }
 
-// A custom MCP server has no records: its tools are called as they are.
-const COLLECTIONS = INTEGRATIONS.filter((integration) => integration.id !== 'mcp').flatMap((integration) => integration.collections.map((collection) => ({integrationId: integration.id, collection})));
+const COLLECTIONS = INTEGRATIONS.flatMap((integration) => integration.collections.map((collection) => ({integrationId: integration.id, collection})));
 
 describe('connectorFor', () => {
 	for (const {integrationId, collection} of COLLECTIONS) {

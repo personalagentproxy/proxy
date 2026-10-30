@@ -1,5 +1,6 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
+import type {IntegrationId} from '@proxy/integrations';
 import type {Experiment} from '@proxy/utils';
 import {useState, type ReactNode} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
@@ -21,6 +22,7 @@ import {defaultActions, defaultsOnOrOff, integrationOf} from '@/lib/access';
 import {
 	describeDatabase,
 	EMAIL_FORM,
+	findIntegration,
 	PLAID_FORM,
 	signInPath,
 	type Configured,
@@ -30,9 +32,10 @@ import {describeFetchError} from '@/lib/loader-utils';
 import type {welcomeConnectionLoader, welcomeLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 
-// Step one is the catalog, the mailbox, bank, database and MCP server forms, and (on its own page,
-// `WelcomeConnectionPage`) a new connection's permissions; step two is the agent.
-type Step = 'connections' | 'email' | 'plaid' | 'mcp' | DatabaseDialect | 'agent';
+// Step one is the catalog, the form of an integration connected on one (a mailbox, a bank, a
+// database, an MCP server), by its id, and (on its own page, `WelcomeConnectionPage`) a new
+// connection's permissions; step two is the agent.
+type Step = 'connections' | IntegrationId | 'agent';
 
 // The welcome flow, before the app: step one connects the person's services, each connection's
 // permissions confirmed as it is made, step two their agent, in the way that agent takes (an MCP
@@ -50,6 +53,11 @@ export function WelcomePage({step}: {step: Step}) {
 	// (`?agent=`) go on with Finish or back to the choice.
 	const skippable =
 		step === 'connections' || (step === 'agent' && !params.has('provider') && !params.has('agent'));
+	// The integration whose form this is, and the form.
+	const connecting = step === 'connections' || step === 'agent' ? null : step;
+	const form = connecting === null ? undefined : findIntegration(connecting)?.form;
+	const onContinue = (connection: Connection) =>
+		navigate(`/${org}/welcome/connections/${connection.id}`);
 
 	const finish = async () => {
 		setFinishing(true);
@@ -72,27 +80,12 @@ export function WelcomePage({step}: {step: Step}) {
 					experiments={experiments}
 				/>
 			)}
-			{step === 'email' && (
-				<EmailStep
-					onContinue={(connection) => navigate(`/${org}/welcome/connections/${connection.id}`)}
-				/>
+			{form === 'email' && <EmailStep onContinue={onContinue} />}
+			{form === 'bank' && <BankStep onContinue={onContinue} />}
+			{connecting && form === 'database' && (
+				<DatabaseStep dialect={connecting} onContinue={onContinue} />
 			)}
-			{step === 'plaid' && (
-				<BankStep
-					onContinue={(connection) => navigate(`/${org}/welcome/connections/${connection.id}`)}
-				/>
-			)}
-			{(step === 'postgres' || step === 'mysql') && (
-				<DatabaseStep
-					dialect={step}
-					onContinue={(connection) => navigate(`/${org}/welcome/connections/${connection.id}`)}
-				/>
-			)}
-			{step === 'mcp' && (
-				<McpStep
-					onContinue={(connection) => navigate(`/${org}/welcome/connections/${connection.id}`)}
-				/>
-			)}
+			{form === 'server' && <McpStep onContinue={onContinue} />}
 			{step === 'agent' && (
 				<AddAgent agents={agents} continueLabel="Finish" onContinue={() => void finish()} />
 			)}

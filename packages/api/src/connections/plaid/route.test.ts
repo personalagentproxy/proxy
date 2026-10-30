@@ -33,6 +33,9 @@ mock.module('../../utils/secret-crypto', () => ({
 	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
 }));
 
+// None of the integrations' modules is needed here: what they declare is the integrations' own.
+mock.module('../integrations', () => ({apiIntegration: () => undefined, apiIntegrations: () => []}));
+
 type PlaidRequest = {path: string; body: Record<string, unknown>};
 
 const plaid = {requests: [] as PlaidRequest[], accountsStatus: 200};

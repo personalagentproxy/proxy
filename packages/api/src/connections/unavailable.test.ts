@@ -15,6 +15,13 @@ mock.module('../utils/secret-crypto', () => ({
 	decryptSecret: (stored: string): Result<string, ApiError> => (stored.startsWith('enc:') ? Ok(stored.slice('enc:'.length)) : Err(ApiErr.internalError(new Error('Unreadable secret')))),
 }));
 
+// Of the integrations' modules, Google's partial consent alone, read from its credential.
+const {unavailableGoogleConnectionActions} = await import('./google/unavailable');
+
+mock.module('./integrations', () => ({
+	apiIntegration: (id: string) => (id === 'google' ? {id, connectors: {}, unavailableActions: unavailableGoogleConnectionActions} : undefined),
+}));
+
 const ALL_SCOPES = [
 	'openid',
 	'https://www.googleapis.com/auth/userinfo.email',

@@ -12,7 +12,7 @@ import {requireViewer} from '../../utils/user-org';
 import {builtInForHost} from '../built-in-mcp';
 import {respond} from '../connection-response';
 import {saveConnection, signInFlow, type SignInRequest} from '../connect-flow';
-import {requireManaged} from '../managed';
+import {requireManagedOf} from '../managed';
 import {listMcpTools} from '../mcp/mcp-client';
 import {keyInAddress} from '../mcp/built-in';
 import {beginBuiltInSignIn, connectWithKey, startMcpSignIn} from '../mcp/mcp-connect';
@@ -99,10 +99,7 @@ export function handleRefreshCustomMcpToolsRoute(request: AuthenticatedRequest):
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const connectionId = request.params.connectionId ?? '';
-		const row = $(await requireManaged(viewer, connectionId));
-		if (row.integrationId !== 'mcp') {
-			return $(Err(ApiErr.validationError('Only a custom MCP server has tools to ask for again')));
-		}
+		const row = $(await requireManagedOf(viewer, connectionId, 'mcp', ApiErr.validationError('Only a custom MCP server has tools to ask for again')));
 		const tools = $(await listCustomTools(row));
 		const stored = JSON.stringify(tools);
 		$(await updateConnectionTools({connectionId, tools: stored, actions: tools.map((tool) => tool.name)}));

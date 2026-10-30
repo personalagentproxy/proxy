@@ -6,10 +6,12 @@ import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/uti
 import type {ConnectionRow} from '@proxy/db/connection';
 import {type Connection, connectWithKeyBodySchema, type ReturnTo} from '@proxy/contracts/connections';
 
+import type {Connector} from '../../records/connector';
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {requireViewer, type OrgViewer} from '../../utils/user-org';
 import {respond} from '../connection-response';
 import {saveConnection, signInFlow, signInRoutes, type Connected, type SaveOptions, type SignInRequest} from '../connect-flow';
+import type {ApiIntegration} from '../integration';
 import {requireManaged, type ManagingViewer} from '../managed';
 import type {BuiltInMcp, ProviderAccount} from './built-in';
 import {exchangeMcpCode, mcpAuthorizeUrl, registerMcpClient, type McpCredential, type McpServer} from './mcp-oauth';
@@ -156,4 +158,21 @@ export function keyConnectRoute(builtIn: BuiltInMcp): (request: AuthenticatedReq
 			const row = $(await connectWithKey(builtIn, viewer, {key: body.key, connectionId: body.connection ?? null, shared: body.shared}));
 			return $(await respond(row));
 		});
+}
+
+/**
+ * An integration built on its MCP server, as Granola is, with its collections' `connectors`:
+ * signed in to through the server, and given an API key where the server takes one.
+ */
+export function builtInMcpIntegration(builtIn: BuiltInMcp, connectors: Partial<Record<string, Connector>>): ApiIntegration {
+	return {
+		id: builtIn.integrationId,
+		connectors,
+		builtInMcp: builtIn,
+		connect: {
+			kind: 'signIn',
+			name: builtIn.server.name,
+			routes: () => ({...mcpConnectRoutes(builtIn), ...(builtIn.apiKey ? {handleKey: keyConnectRoute(builtIn)} : {})}),
+		},
+	};
 }

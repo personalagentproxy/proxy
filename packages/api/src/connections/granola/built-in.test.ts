@@ -43,6 +43,9 @@ mock.module('../../utils/secret-crypto', () => ({
 	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
 }));
 
+// None of the integrations' modules is needed here: what they declare is the integrations' own.
+mock.module('../integrations', () => ({apiIntegration: () => undefined, apiIntegrations: () => []}));
+
 const CALLBACK = 'https://app.example.com/api/connections/granola/callback';
 
 // Granola's authorization server: each request, and its answers.
@@ -63,7 +66,7 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 // The sign-in routes the api makes of Granola's declaration.
 async function routes() {
 	const {mcpConnectRoutes} = await import('../mcp/mcp-connect');
-	const {GRANOLA_MCP} = await import('./route');
+	const {GRANOLA_MCP} = await import('./built-in');
 	return mcpConnectRoutes(GRANOLA_MCP);
 }
 

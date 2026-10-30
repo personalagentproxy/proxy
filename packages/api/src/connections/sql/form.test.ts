@@ -3,10 +3,22 @@ import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
 
-const listConnections = mock();
+// The connections there already, as the viewer sees them.
+let connected: Array<{integrationId: string; account: string}> = [];
+const findAccountConnection = mock(async (_viewer: {orgId: string}, {integrationId, account}: {integrationId: string; account: string}) =>
+	Ok(connected.find((connection) => connection.integrationId === integrationId && connection.account === account) ?? null),
+);
 const createConnection = mock();
 
-mock.module('@proxy/db/connection', () => ({listConnections, createConnection}));
+mock.module('@proxy/db/connection', () => ({
+	findAccountConnection,
+	createConnection,
+	getConnectionWithCredential: mock(),
+	renewConnection: mock(),
+	shareConnection: mock(),
+	updateConnectionName: mock(),
+	updateConnectionTools: mock(),
+}));
 
 mock.module('@proxy/db/organization', () => ({getMembership: mock(async () => Ok({role: 'owner'})), listMemberNames: mock(async () => Ok([]))}));
 
@@ -22,6 +34,11 @@ const encryptSecret = mock((plaintext: string): Result<string, ApiError> => Ok(`
 
 mock.module('../../utils/secret-crypto', () => ({encryptSecret, decryptSecret: (stored: string) => Ok(stored)}));
 
+mock.module('../../utils/env', () => ({env: {}}));
+
+// None of the integrations' modules is needed here: what they declare is the integrations' own.
+mock.module('../integrations', () => ({apiIntegration: () => undefined, apiIntegrations: () => []}));
+
 const createdRow = {
 	id: 'conn-1',
 	integrationId: 'postgres',
@@ -35,20 +52,26 @@ const createdRow = {
 
 const body = {host: 'db.example.com', port: 5432, database: 'app', username: 'reader', password: 'secret', tls: 'verify'};
 
+const {formConnectRoutes} = await import('../form-connect');
+const {sqlForm} = await import('./form');
+
+function sqlConnectRoutes(dialect: 'postgres' | 'mysql') {
+	return formConnectRoutes(dialect, sqlForm(dialect, dialect));
+}
+
 function makeRequest(body: unknown) {
 	return {user: {userId: 'user-1', email: 'alex@example.com'}, params: {}, body} as never;
 }
 
 beforeEach(() => {
 	mock.clearAllMocks();
-	listConnections.mockResolvedValue(Ok([]));
+	connected = [];
 	createConnection.mockResolvedValue(Ok(createdRow));
 	checkDatabase.mockResolvedValue(Ok(undefined));
 });
 
-describe('sqlConnectRoutes', () => {
+describe('sqlForm', () => {
 	test('signs in first, then stores the encrypted credential with reading on by default', async () => {
-		const {sqlConnectRoutes} = await import('./route');
 		const result = await sqlConnectRoutes('postgres').handleConnect(makeRequest({...body, host: ' DB.example.com '}));
 
 		const credential = {...body, host: 'DB.example.com'};
@@ -59,6 +82,7 @@ describe('sqlConnectRoutes', () => {
 			connectedById: 'user-1',
 			integrationId: 'postgres',
 			account: 'reader@DB.example.com/app',
+			providerAccountId: null,
 			credential: `encrypted:${JSON.stringify(credential)}`,
 			defaults: ['read', 'query'],
 		});
@@ -66,7 +90,6 @@ describe('sqlConnectRoutes', () => {
 	});
 
 	test('connects a MySQL database as its own integration, an IPv6 address without its brackets', async () => {
-		const {sqlConnectRoutes} = await import('./route');
 		await sqlConnectRoutes('mysql').handleConnect(makeRequest({...body, host: '[2001:db8::7]', port: 3306}));
 
 		expect(checkDatabase).toHaveBeenCalledWith('mysql', {...body, host: '2001:db8::7', port: 3306});
@@ -74,7 +97,6 @@ describe('sqlConnectRoutes', () => {
 	});
 
 	test('saves nothing when the sign-in fails', async () => {
-		const {sqlConnectRoutes} = await import('./route');
 		checkDatabase.mockResolvedValue(Err(ApiErr.credentialsRejected()));
 		const result = await sqlConnectRoutes('postgres').handleConnect(makeRequest(body));
 
@@ -83,8 +105,7 @@ describe('sqlConnectRoutes', () => {
 	});
 
 	test('the same database as the same user is connected once; as another user it is another connection', async () => {
-		const {sqlConnectRoutes} = await import('./route');
-		listConnections.mockResolvedValue(Ok([{id: 'conn-0', integrationId: 'postgres', account: 'reader@db.example.com/app', defaults: []}]));
+		connected = [{integrationId: 'postgres', account: 'reader@db.example.com/app'}];
 
 		expect((await sqlConnectRoutes('postgres').handleConnect(makeRequest(body))).unwrapErr().kind).toBe('conflict');
 		expect((await sqlConnectRoutes('postgres').handleConnect(makeRequest({...body, username: 'writer'}))).isOk()).toBe(true);
@@ -92,7 +113,6 @@ describe('sqlConnectRoutes', () => {
 	});
 
 	test('refuses a host with a path or spaces, a port out of range and an unknown TLS mode', async () => {
-		const {sqlConnectRoutes} = await import('./route');
 		const {handleConnect} = sqlConnectRoutes('postgres');
 		for (const bad of [{host: 'db.example.com/app'}, {host: 'db example.com'}, {port: 70000}, {port: '5432'}, {tls: 'maybe'}, {database: ''}, {username: ' '}]) {
 			expect((await handleConnect(makeRequest({...body, ...bad}))).unwrapErr().statusCode, JSON.stringify(bad)).toBe(400);
@@ -101,13 +121,11 @@ describe('sqlConnectRoutes', () => {
 	});
 
 	test('an empty password is taken, as a local database may have none', async () => {
-		const {sqlConnectRoutes} = await import('./route');
 		expect((await sqlConnectRoutes('postgres').handleTest(makeRequest({...body, password: ''}))).isOk()).toBe(true);
 		expect(checkDatabase).toHaveBeenCalledWith('postgres', {...body, password: ''});
 	});
 
 	test('testing signs in and saves nothing', async () => {
-		const {sqlConnectRoutes} = await import('./route');
 		expect((await sqlConnectRoutes('mysql').handleTest(makeRequest(body))).isOk()).toBe(true);
 		expect(checkDatabase).toHaveBeenCalledWith('mysql', body);
 		expect(createConnection).not.toHaveBeenCalled();

@@ -254,6 +254,7 @@ const email: Integration = {
 	id: 'email',
 	name: 'Email',
 	description: 'Gmail, iCloud, Fastmail or any IMAP mailbox',
+	form: 'email',
 	actions: [
 		{
 			id: 'read',
@@ -804,6 +805,7 @@ function sqlIntegration(id: 'postgres' | 'mysql', name: string, description: str
 		id,
 		name,
 		description,
+		form: 'database',
 		actions: [
 			{
 				id: 'read',
@@ -1465,6 +1467,7 @@ const plaid: Integration = {
 	id: 'plaid',
 	name: 'Plaid',
 	description: 'Balances and transactions from your bank accounts, cards and loans',
+	form: 'bank',
 	actions: [
 		{
 			id: 'readBalances',
@@ -1597,6 +1600,7 @@ const mcp: Integration = {
 	name: 'Custom MCP server',
 	description: 'Any MCP server, by its address',
 	custom: true,
+	form: 'server',
 	actions: [],
 	collections: [],
 };

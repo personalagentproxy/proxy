@@ -4,10 +4,12 @@ import {findCollection, findIntegration, INTEGRATIONS, requiredAction} from '@pr
 
 mock.module('../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com'}}));
 
-const {BUILT_IN_MCP, builtInForHost} = await import('./built-in-mcp');
+const {builtInMcps, builtInForHost} = await import('./built-in-mcp');
 const {builtInHosts} = await import('./mcp/built-in');
 
-describe('BUILT_IN_MCP', () => {
+const BUILT_IN_MCP = builtInMcps();
+
+describe('builtInMcps', () => {
 	test("every entry is an integration of the catalog's, and its defaults and tools' actions are its actions", () => {
 		for (const builtIn of BUILT_IN_MCP) {
 			const integration = findIntegration(builtIn.integrationId);

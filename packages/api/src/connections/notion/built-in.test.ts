@@ -41,6 +41,9 @@ mock.module('../../utils/secret-crypto', () => ({
 	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
 }));
 
+// None of the integrations' modules is needed here: what they declare is the integrations' own.
+mock.module('../integrations', () => ({apiIntegration: () => undefined, apiIntegrations: () => []}));
+
 const CALLBACK = 'https://app.example.com/api/connections/notion/callback';
 
 // Notion's authorization and MCP server: each request, and its answers.
@@ -64,7 +67,7 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 // The sign-in routes the api makes of Notion's declaration.
 async function routes() {
 	const {mcpConnectRoutes} = await import('../mcp/mcp-connect');
-	const {NOTION_MCP} = await import('./route');
+	const {NOTION_MCP} = await import('./built-in');
 	return mcpConnectRoutes(NOTION_MCP);
 }
 

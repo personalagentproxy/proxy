@@ -26,7 +26,7 @@ import {env} from '../utils/env';
 import {encryptSecret} from '../utils/secret-crypto';
 import {readStoredJson} from '../utils/stored-json';
 import {requireViewer, type OrgViewer} from '../utils/user-org';
-import {manages, requireManaged, type ManagingViewer} from './managed';
+import {manages, requireManaged, type ManagingViewer, type StoredConnectionRow} from './managed';
 import {ownership} from './ownership';
 
 /**
@@ -116,6 +116,22 @@ function connectionToRenew(
 	});
 }
 
+// A new connection, the viewer's own or every member's (`shared`), with its credential encrypted.
+function addConnection<C>(viewer: ManagingViewer, integrationId: IntegrationId, connected: Connected<C>, encrypted: string, shared: boolean): Promise<Result<ConnectionRow, ApiError>> {
+	const listed = connected.tools === undefined ? {} : {tools: JSON.stringify(connected.tools)};
+	const name = connected.name === undefined ? {} : {name: connected.name};
+	return createConnection({
+		...ownership(viewer, shared),
+		integrationId,
+		account: connected.account,
+		providerAccountId: connected.accountId ?? null,
+		credential: encrypted,
+		defaults: connected.defaults,
+		...listed,
+		...name,
+	});
+}
+
 /** How a connection is saved: `shared` with every member of the organization rather than the viewer's own, and the connection a sign-in was begun from, to renew (`connectionToRenew`). */
 export type SaveOptions = {shared?: boolean; connectionId?: string | null};
 
@@ -139,13 +155,7 @@ export function saveConnection<C>(
 		const name = connected.name === undefined ? {} : {name: connected.name};
 		const existing = $(await connectionToRenew(viewer, integrationId, {account, providerAccountId, anonymous: connected.anonymous === true}, options.connectionId ?? null));
 		if (!existing) {
-			const listed = tools === undefined ? {} : {tools: JSON.stringify(tools)};
-			return {
-				row: $(
-					await createConnection({...ownership(viewer, options.shared === true), integrationId, account, providerAccountId, credential: encrypted, defaults: connected.defaults, ...listed, ...name}),
-				),
-				added: true,
-			};
+			return {row: $(await addConnection(viewer, integrationId, connected, encrypted, options.shared === true)), added: true};
 		}
 		$(await renewConnection({connectionId: existing.id, account, providerAccountId, credential: encrypted}));
 		const shares = options.shared === true && existing.ownerUserId !== null;
@@ -164,6 +174,34 @@ export function saveConnection<C>(
 		const stored = JSON.stringify(tools);
 		$(await updateConnectionTools({connectionId: existing.id, tools: stored, actions: tools.map((tool) => tool.name)}));
 		return {row: {...renewed, tools: stored, ...name}, added: false};
+	});
+}
+
+/**
+ * What a form connects (`form-connect.ts`): the account and credential it was given, the sign-in
+ * checking them with the provider, the actions agents get with the new connection, and the refusal
+ * of an account already connected.
+ */
+export type FormConnected<C> = {account: string; credential: C; check: (credential: C) => Promise<Result<void, ApiError>>; defaults: string[]; conflict: string};
+
+/**
+ * Connects an integration on a form of its own, as a mailbox is with an app password: a new
+ * connection, the viewer's own or every member's (`shared`), never one there already, so an account
+ * the viewer sees connected is refused rather than signed in to again. The credential is checked
+ * with the provider first, so a wrong password or server is reported now rather than on an agent's
+ * first request, once it can be stored.
+ */
+export function connectWithForm<C>(viewer: ManagingViewer, integrationId: IntegrationId, form: FormConnected<C>, options: {shared?: boolean} = {}): Promise<Result<StoredConnectionRow, ApiError>> {
+	return Do(async ($) => {
+		const {account, credential} = form;
+		const already = $(await findAccountConnection(viewer, {integrationId, account, providerAccountId: null}));
+		if (already) {
+			return $(Err(ApiErr.conflict(form.conflict)));
+		}
+		const encrypted = $(encryptSecret(JSON.stringify(credential)));
+		$(await form.check(credential));
+		const row = $(await addConnection(viewer, integrationId, {account, credential, defaults: form.defaults}, encrypted, options.shared === true));
+		return {...row, credential: encrypted};
 	});
 }
 
