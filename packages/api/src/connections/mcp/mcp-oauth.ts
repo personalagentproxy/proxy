@@ -7,11 +7,13 @@ import {checkedRequest} from '../../utils/checked-request';
 
 /**
  * Signing in to an MCP server, as the MCP spec asks of every client: OAuth 2.0 with PKCE against
- * the server's own authorization server, a client registered on the spot (Dynamic Client
- * Registration) with no secret, and refresh tokens for staying connected. Each connection keeps
- * the client it was made with, since refreshing needs it. Nothing has to be set up beforehand, so
- * a self-hosted Personal Agent Proxy connects the same way. Every request goes through
- * `checkedRequest`, since a custom server's endpoints are wherever its metadata said.
+ * the server's own authorization server, as a public client with no secret, and refresh tokens for
+ * staying connected. The client is Personal Agent Proxy's client ID metadata document, the address
+ * of a document it serves about itself (`client-metadata.ts`), where the authorization server takes
+ * one and can fetch it, else one registered on the spot (Dynamic Client Registration). Each
+ * connection keeps the client it was made with, since refreshing needs it. Nothing has to be set up
+ * beforehand, so a self-hosted Personal Agent Proxy connects the same way. Every request goes
+ * through `checkedRequest`, since a custom server's endpoints are wherever its metadata said.
  */
 
 /** An MCP server, as far as calling its tools goes. */
@@ -33,7 +35,12 @@ export type McpServer = McpEndpoint & {
 	// The resource its tokens are for, where it isn't `url`: an endpoint whose address carries a
 	// query of the server's own, as Cloudflare's does, has its tokens for the address without it.
 	resource?: string;
-	registerUrl: string;
+	// Where a client is registered for a sign-in (Dynamic Client Registration), where the
+	// authorization server lets one be.
+	registerUrl?: string;
+	// The authorization server takes Personal Agent Proxy's client ID metadata document as the client
+	// (`client_id_metadata_document_supported`), which the spec has clients prefer.
+	clientIdMetadataDocument?: true;
 	authorizeUrl: string;
 	tokenUrl: string;
 	// What is asked for at sign-in; nothing when the server names no scopes.
@@ -44,7 +51,8 @@ export type McpServer = McpEndpoint & {
 export const mcpEndpointsSchema = z.object({
 	name: z.string(),
 	url: z.string(),
-	registerUrl: z.string(),
+	registerUrl: z.string().optional(),
+	clientIdMetadataDocument: z.literal(true).optional(),
 	authorizeUrl: z.string(),
 	tokenUrl: z.string(),
 	scope: z.string(),
@@ -55,8 +63,26 @@ export type McpEndpoints = z.infer<typeof mcpEndpointsSchema>;
 
 /** A server's endpoints alone, for keeping: what `mcpEndpointsSchema` reads back. */
 export function mcpEndpoints(server: McpServer): McpEndpoints {
-	const {name, url, registerUrl, authorizeUrl, tokenUrl, scope, handshake} = server;
-	return {name, url, registerUrl, authorizeUrl, tokenUrl, scope, ...(handshake ? {handshake} : {})};
+	const {name, url, registerUrl, clientIdMetadataDocument, authorizeUrl, tokenUrl, scope, handshake} = server;
+	return {
+		name,
+		url,
+		...(registerUrl ? {registerUrl} : {}),
+		...(clientIdMetadataDocument ? {clientIdMetadataDocument} : {}),
+		authorizeUrl,
+		tokenUrl,
+		scope,
+		...(handshake ? {handshake} : {}),
+	};
+}
+
+/**
+ * Personal Agent Proxy's client ID metadata document, under `APP_URL`: the address is the client's
+ * id, which an authorization server that takes one fetches to learn the client's name and the
+ * addresses its sign-ins come back to.
+ */
+export function clientMetadataUrl(appUrl: string): string {
+	return `${appUrl}/oauth/client-metadata.json`;
 }
 
 const TIMEOUT_MS = 15_000;
@@ -90,10 +116,10 @@ export function mcpAuthError(error: FetchError): ApiError {
 	return ApiErr.providerUnreachable(error);
 }
 
-/** Registers Personal Agent Proxy with the server for one sign-in, returning back to `redirectUri`. */
-export async function registerMcpClient(server: McpServer, redirectUri: string): Promise<Result<string, ApiError>> {
+/** Registers Personal Agent Proxy at `registerUrl`, the server's, for one sign-in, returning back to `redirectUri`. */
+export async function registerMcpClient(server: McpServer, registerUrl: string, redirectUri: string): Promise<Result<string, ApiError>> {
 	const registration = await checkedRequest(
-		server.registerUrl,
+		registerUrl,
 		{
 			method: 'POST',
 			headers: {'content-type': 'application/json'},

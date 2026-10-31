@@ -6,7 +6,8 @@ import {mcpResourceUrl, OAUTH_SCOPE, requireAppUrl} from './oauth-config';
 // metadata (RFC 9728) points at the authorization server, whose metadata (RFC 8414) lists its
 // endpoints. Both are public.
 
-function sendMetadata(res: Response, build: (appUrl: string) => Record<string, unknown>): void {
+/** A public metadata document built from `APP_URL`, cached for an hour. */
+export function sendMetadata(res: Response, build: (appUrl: string) => Record<string, unknown>): void {
 	const appUrl = requireAppUrl();
 	if (appUrl.isErr()) {
 		res.status(500).json({error: 'server_error', error_description: 'APP_URL is not set'});

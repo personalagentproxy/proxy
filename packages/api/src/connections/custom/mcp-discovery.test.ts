@@ -182,7 +182,58 @@ describe('discoverMcpServer', () => {
 		expect((await discoverMcpServer(new URL(MCP_URL))).unwrapErr().kind).toBe('validation_error');
 	});
 
-	test('an authorization server that does not let apps register themselves, or is not https, cannot be signed in to', async () => {
+	test('an authorization server that takes a client ID metadata document is signed in to with it, registering too where it lets apps', async () => {
+		const {discoverMcpServer} = await import('./mcp-discovery');
+		servers.answers.set('https://mcp.example.com/.well-known/oauth-protected-resource', () => Response.json({authorization_servers: ['https://auth.example.com']}));
+		servers.answers.set('https://auth.example.com/.well-known/oauth-authorization-server', () =>
+			Response.json({authorization_endpoint: 'https://auth.example.com/oauth2/authorize', token_endpoint: 'https://auth.example.com/oauth2/token', client_id_metadata_document_supported: true}),
+		);
+		const server = (await discoverMcpServer(new URL(MCP_URL))).unwrap();
+		expect(server).toMatchObject({clientIdMetadataDocument: true, authorizeUrl: 'https://auth.example.com/oauth2/authorize', tokenUrl: 'https://auth.example.com/oauth2/token'});
+		expect(server.registerUrl).toBeUndefined();
+
+		servers.answers.set('https://auth.example.com/.well-known/oauth-authorization-server', () =>
+			Response.json({
+				authorization_endpoint: 'https://auth.example.com/oauth2/authorize',
+				token_endpoint: 'https://auth.example.com/oauth2/token',
+				registration_endpoint: 'https://auth.example.com/oauth2/register',
+				client_id_metadata_document_supported: true,
+			}),
+		);
+		expect((await discoverMcpServer(new URL(MCP_URL))).unwrap()).toMatchObject({clientIdMetadataDocument: true, registerUrl: 'https://auth.example.com/oauth2/register'});
+	});
+
+	test('asks for offline_access beside the scopes the server names where the authorization server offers it, so the sign-in comes with a refresh token', async () => {
+		const {discoverMcpServer} = await import('./mcp-discovery');
+		servers.answers.set('https://mcp.example.com/.well-known/oauth-protected-resource', () => Response.json({authorization_servers: ['https://auth.example.com']}));
+		servers.answers.set('https://auth.example.com/.well-known/oauth-authorization-server', () =>
+			Response.json({
+				authorization_endpoint: 'https://auth.example.com/authorize',
+				token_endpoint: 'https://auth.example.com/token',
+				client_id_metadata_document_supported: true,
+				scopes_supported: ['openid', 'email', 'offline_access'],
+			}),
+		);
+		expect((await discoverMcpServer(new URL(MCP_URL))).unwrap().scope).toBe('offline_access');
+
+		servers.answers.set('https://mcp.example.com/.well-known/oauth-protected-resource', () =>
+			Response.json({authorization_servers: ['https://auth.example.com'], scopes_supported: ['docs:read', 'offline_access']}),
+		);
+		expect((await discoverMcpServer(new URL(MCP_URL))).unwrap().scope).toBe('docs:read offline_access');
+
+		servers.answers.set('https://mcp.example.com/.well-known/oauth-protected-resource', () => Response.json({authorization_servers: ['https://auth.example.com'], scopes_supported: ['docs:read']}));
+		servers.answers.set('https://auth.example.com/.well-known/oauth-authorization-server', () =>
+			Response.json({
+				authorization_endpoint: 'https://auth.example.com/authorize',
+				token_endpoint: 'https://auth.example.com/token',
+				registration_endpoint: 'https://auth.example.com/register',
+				scopes_supported: ['docs:read'],
+			}),
+		);
+		expect((await discoverMcpServer(new URL(MCP_URL))).unwrap().scope).toBe('docs:read');
+	});
+
+	test('an authorization server that neither lets apps register themselves nor takes a client ID metadata document, or is not https, cannot be signed in to', async () => {
 		const {discoverMcpServer} = await import('./mcp-discovery');
 		servers.answers.set('https://mcp.example.com/.well-known/oauth-protected-resource', () => Response.json({authorization_servers: ['https://auth.example.com']}));
 		servers.answers.set('https://auth.example.com/.well-known/oauth-authorization-server', () =>
@@ -191,6 +242,11 @@ describe('discoverMcpServer', () => {
 		const refused = (await discoverMcpServer(new URL(MCP_URL))).unwrapErr();
 		expect(refused.kind).toBe('validation_error');
 		expect('message' in refused && refused.message).toContain('register');
+
+		servers.answers.set('https://auth.example.com/.well-known/oauth-authorization-server', () =>
+			Response.json({authorization_endpoint: 'https://auth.example.com/authorize', token_endpoint: 'https://auth.example.com/token', client_id_metadata_document_supported: false}),
+		);
+		expect((await discoverMcpServer(new URL(MCP_URL))).unwrapErr().kind).toBe('validation_error');
 
 		servers.answers.set('https://mcp.example.com/.well-known/oauth-protected-resource', () => Response.json({authorization_servers: ['http://auth.example.com']}));
 		expect((await discoverMcpServer(new URL(MCP_URL))).unwrapErr().kind).toBe('validation_error');

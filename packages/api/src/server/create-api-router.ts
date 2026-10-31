@@ -32,6 +32,7 @@ import {handleSignOutRoute} from '../auth/signout';
 import {handleRefreshCustomMcpToolsRoute} from '../connections/custom/route';
 import type {ApiIntegration} from '../connections/integration';
 import {apiIntegrations} from '../connections/integrations';
+import {handleClientMetadataRoute} from '../connections/mcp/client-metadata';
 import {
 	handleDeleteConnectionRoute,
 	handleGetConnectionRoute,
@@ -229,6 +230,10 @@ export function createApiRouter(): express.Router {
 	router.post('/mcp', wrapAsyncRoute('MCP route', handleMcpRoute));
 	router.get('/mcp', handleMcpMethodNotAllowedRoute);
 	router.delete('/mcp', handleMcpMethodNotAllowedRoute);
+
+	// Personal Agent Proxy as an MCP client: the client ID metadata document an MCP server's
+	// authorization server fetches, where it takes one, to learn who is signing in to it.
+	router.get('/oauth/client-metadata.json', allowAnyOrigin, handleClientMetadataRoute);
 
 	// A body that isn't JSON: JSON-RPC's parse error for the MCP server, Express's own answer elsewhere.
 	router.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {

@@ -75,10 +75,25 @@ tool the server later lists by that name.
 ## How the sign-in works
 
 Personal Agent Proxy signs in to a server the way the MCP specification lays out: the server says
-which authorization server its tokens come from, Personal Agent Proxy registers itself there as a
+which authorization server its tokens come from, Personal Agent Proxy introduces itself there as a
 client, and you approve access on the authorization server's own page. Tokens are refreshed as they
-run out. A server whose authorization server does not let clients register themselves cannot be
-connected this way; use an access token instead, where the server offers one.
+run out, and where the authorization server offers `offline_access`, Personal Agent Proxy asks for
+it, so the sign-in comes with a refresh token.
+
+An authorization server can take a client in one of two ways, and Personal Agent Proxy uses the
+one the specification prefers:
+
+- **Client ID metadata document.** Where the authorization server takes one, Personal Agent Proxy
+  gives the address of a document it serves about itself, `<APP_URL>/oauth/client-metadata.json`,
+  as its client ID, and the authorization server fetches it. That only works when the
+  authorization server can reach Personal Agent Proxy, so it is used only when `APP_URL` is an
+  `https` address on the public internet.
+- **Registering itself.** Otherwise Personal Agent Proxy registers a client with the authorization
+  server for the sign-in (Dynamic Client Registration).
+
+A server whose authorization server takes neither cannot be connected this way, nor one that only
+takes the document when Personal Agent Proxy is [self-hosted](/self-hosting) where the internet
+can't reach it; use an access token instead, where the server offers one.
 
 ## When a server becomes built in
 

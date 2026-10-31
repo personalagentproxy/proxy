@@ -112,3 +112,16 @@ export function checkUrl(url: URL): Promise<Result<URL, ApiError>> {
 		return url;
 	});
 }
+
+/**
+ * Whether a server out on the internet can reach the address: `https`, on a host that resolves only
+ * to public addresses, whatever `ALLOW_PRIVATE_HOSTS` says, since that is about what the api calls
+ * rather than what calls it.
+ */
+export async function isPublicHttpsUrl(url: URL): Promise<boolean> {
+	if (url.protocol !== 'https:') {
+		return false;
+	}
+	const addresses = await lookup(hostOf(url));
+	return addresses.isOk() && addresses.value.length > 0 && !addresses.value.some(isPrivateAddress);
+}

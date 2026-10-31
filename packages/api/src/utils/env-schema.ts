@@ -42,7 +42,7 @@ export const envSchema = z.object({
 		group: 'Core',
 		required: true,
 		description:
-			'Where people open Personal Agent Proxy, such as `https://proxy.example.com`. Sign-in links and Google sign-in return here, and it is the only origin the api accepts browser requests from.',
+			'Where people open Personal Agent Proxy, such as `https://proxy.example.com`. Sign-in links and Google sign-in return here, and it is the only origin the api accepts browser requests from. When it is an `https` address on the public internet, MCP servers whose sign-in takes a client ID metadata document fetch Personal Agent Proxy’s from `<APP_URL>/oauth/client-metadata.json`.',
 	}),
 	AUTH_SECRET: documented(z.string().min(1).optional(), {
 		group: 'Core',
