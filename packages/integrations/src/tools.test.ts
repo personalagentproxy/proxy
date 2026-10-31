@@ -249,12 +249,13 @@ describe('postgres and mysql', () => {
 	});
 });
 
-describe('exa and parallel', () => {
+describe('exa, parallel and keenable', () => {
 	const exa = integration('exa');
 
 	test('searches and pages only ever run, each a read with an action of its own', () => {
 		expect(integrationTools(exa).map((tool) => tool.name)).toEqual(['searches_run', 'pages_read']);
 		expect(integrationTools(integration('parallel'))).toEqual(integrationTools(exa));
+		expect(integrationTools(integration('keenable'))).toEqual(integrationTools(exa));
 		expect(findTool(exa, 'searches_run')).toMatchObject({
 			readOnly: true,
 			action: 'search',

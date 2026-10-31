@@ -122,7 +122,9 @@ describe('handleMcpRoute', () => {
 		expect(result.instructions).toContain('with the task it was made for');
 		expect(result.instructions).toContain('- Email (alex@example.com), connection mail-1: Read, Archive');
 		expect(result.instructions).toContain('check Personal Agent Proxy first');
-		expect(result.instructions).toContain('Personal Agent Proxy connects Email, Google, Granola, Notion, Linear, Cloudflare, Exa, Parallel, Plaid, PostgreSQL, MySQL and any custom MCP server');
+		expect(result.instructions).toContain(
+			'Personal Agent Proxy connects Email, Google, Granola, Notion, Linear, Cloudflare, Exa, Parallel, Keenable, Plaid, PostgreSQL, MySQL and any custom MCP server',
+		);
 		expect(result.instructions).toContain('https://app.example.com/org-1/connections/new');
 		expect(result.instructions).toContain('give them its url');
 		expect(result.instructions).toContain('send_feedback');

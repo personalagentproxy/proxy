@@ -110,6 +110,7 @@ export type IntegrationId =
 	| 'cloudflare'
 	| 'exa'
 	| 'parallel'
+	| 'keenable'
 	| 'postgres'
 	| 'mysql'
 	| 'mcp'
@@ -142,10 +143,10 @@ export type Integration = {
 	// `/api/connections/<id>/start`: Google, and every integration built on its MCP server.
 	signIn?: true;
 	// Also connected with an API key, made at `keysUrl`, on `/api/connections/<id>`: Cloudflare,
-	// Exa, Linear and Parallel, whose MCP servers take one as a bearer token.
+	// Exa, Keenable, Linear and Parallel, whose MCP servers take one as a bearer token.
 	apiKey?: {keysUrl: string};
-	// Says nothing of who signed in, or whose a key is: Exa and Parallel. Each sign-in or key is a
-	// connection of its own, which only its own page signs in to again or gives a new key.
+	// Says nothing of who signed in, or whose a key is: Exa, Keenable and Parallel. Each sign-in or
+	// key is a connection of its own, which only its own page signs in to again or gives a new key.
 	anonymous?: true;
 	// The experiment an organization needs on to connect it: the catalog, the api's routes and the
 	// MCP server's instructions all leave it out without. Connections already made keep working.

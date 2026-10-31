@@ -3,7 +3,7 @@ import {Ok} from 'ts-results-es';
 
 import {findCollection, findIntegration, type Collection} from '@proxy/integrations';
 
-// The servers' tools by name, answering as Exa's and Parallel's do.
+// The servers' tools by name, answering as Exa's, Parallel's and Keenable's do.
 type Call = {server: string; name: string; args: Record<string, unknown>};
 const tools = {calls: [] as Call[], answer: (_call: Call): string => ''};
 
@@ -14,7 +14,9 @@ mock.module('../connections/mcp/mcp-session', () => ({
 	},
 }));
 
-const {exaConnectors, parallelConnectors} = await import('./web-connector');
+const {exaConnectors, keenableConnectors, parallelConnectors} = await import('./web-connector');
+
+const CONNECTORS = {exa: exaConnectors, parallel: parallelConnectors, keenable: keenableConnectors};
 
 function collection(integrationId: string, id: string): Collection {
 	const integration = findIntegration(integrationId);
@@ -25,7 +27,7 @@ function collection(integrationId: string, id: string): Collection {
 	return found;
 }
 
-function run(integrationId: 'exa' | 'parallel', command: 'run' | 'read', values: Record<string, string>) {
+function run(integrationId: keyof typeof CONNECTORS, command: 'run' | 'read', values: Record<string, string>) {
 	const target = {
 		connection: {
 			id: `${integrationId}-1`,
@@ -42,7 +44,7 @@ function run(integrationId: 'exa' | 'parallel', command: 'run' | 'read', values:
 		},
 		collection: collection(integrationId, command === 'run' ? 'searches' : 'pages'),
 	};
-	const connectors = integrationId === 'exa' ? exaConnectors : parallelConnectors;
+	const connectors = CONNECTORS[integrationId];
 	const runner = (command === 'run' ? connectors.searches : connectors.pages).newCommands[command];
 	if (!runner) {
 		throw new Error(`No ${command} for ${integrationId}`);
@@ -64,6 +66,15 @@ beforeEach(() => {
 		if (name === 'web_search') {
 			return JSON.stringify({results: [{url: 'https://bun.sh/docs/test/mocks', title: 'Mocks | Bun Docs', publish_date: null, excerpts: ['Mocking replaces a dependency.']}]});
 		}
+		if (name === 'search_web_pages') {
+			return JSON.stringify({
+				query: 'bun module mocks',
+				results: [{url: 'https://bun.sh/docs/test/mocks', title: 'Mocks | Bun Docs', description: '', snippet: 'Mocking replaces a dependency.\n', acquired_at: '2026-10-13T09:00:00Z'}],
+			});
+		}
+		if (name === 'fetch_page_content') {
+			return JSON.stringify({url: 'https://bun.sh/docs/test/mocks', title: 'Mocks | Bun Docs', content: 'Mocking replaces a dependency.', description: ''});
+		}
 		return JSON.stringify({results: [{url: 'https://bun.sh/docs/test/mocks', title: 'Mocks | Bun Docs', excerpts: [], full_content: 'x'.repeat(150_000)}], errors: []});
 	};
 });
@@ -81,6 +92,36 @@ describe('webConnector', () => {
 
 		expect(tools.calls).toEqual([{server: 'Parallel', name: 'web_search', args: {objective: 'bun module mocks', search_queries: ['bun module mocks']}}]);
 		expect(record?.values.results).toBe(EXA_RESULTS);
+	});
+
+	test('searches Keenable with the query, asking for JSON, its results written as Exa writes them', async () => {
+		const record = (await run('keenable', 'run', {query: 'bun module mocks'})).unwrap();
+
+		expect(tools.calls).toEqual([{server: 'Keenable', name: 'search_web_pages', args: {query: 'bun module mocks', output_format: 'json'}}]);
+		expect(record?.values.results).toBe(EXA_RESULTS);
+	});
+
+	test('reads a page with Keenable, as much of it as is kept', async () => {
+		const record = (await run('keenable', 'read', {url: 'https://bun.sh/docs/test/mocks'})).unwrap();
+
+		// A little more than is kept, as of Exa, to tell a page that goes on from one that ends there.
+		expect(tools.calls).toEqual([{server: 'Keenable', name: 'fetch_page_content', args: {url: 'https://bun.sh/docs/test/mocks', max_chars: 101_000, output_format: 'json'}}]);
+		expect(record?.values).toEqual({url: 'https://bun.sh/docs/test/mocks', title: 'Mocks | Bun Docs', content: 'Mocking replaces a dependency.'});
+	});
+
+	test('a page Keenable cut is cut where it is kept, its own note on the cut dropped for the one saying the page goes on', async () => {
+		const text = 'Section one. '.repeat(10_000).slice(0, 101_000);
+		tools.answer = () =>
+			JSON.stringify({
+				url: 'https://docs.example.com/reference',
+				title: 'Reference | Example Docs',
+				content: `${text}\n\n..._This content has been truncated to stay below 101000 characters_...`,
+				description: '',
+			});
+		const content = (await run('keenable', 'read', {url: 'https://docs.example.com/reference'})).unwrap()?.values.content ?? '';
+
+		expect(content.startsWith(text.slice(0, 100_000))).toBe(true);
+		expect(content.slice(100_000)).toStartWith('\n\n[Cut short: the page goes on past 100,000 characters, of which these are the first 100,000.');
 	});
 
 	test('reads a page with Exa, as much of it as is kept', async () => {
@@ -112,11 +153,16 @@ describe('webConnector', () => {
 		expect(content.slice(100_000)).toStartWith('\n\n[Cut short: the page is 150,000 characters long, of which these are the first 100,000.');
 	});
 
-	test('a page with no text is a failure saying so, for Exa and Parallel alike', async () => {
-		tools.answer = ({name}) =>
-			name === 'web_fetch_exa'
-				? 'No content found for the provided URL(s).'
-				: JSON.stringify({results: [{url: 'https://app.example.com', title: 'App', excerpts: [' '], full_content: ' '}], errors: []});
+	test('a page with no text is a failure saying so, for Exa, Parallel and Keenable alike', async () => {
+		tools.answer = ({name}) => {
+			if (name === 'web_fetch_exa') {
+				return 'No content found for the provided URL(s).';
+			}
+			if (name === 'fetch_page_content') {
+				return JSON.stringify({url: 'https://app.example.com', title: 'App', content: ' ', description: ''});
+			}
+			return JSON.stringify({results: [{url: 'https://app.example.com', title: 'App', excerpts: [' '], full_content: ' '}], errors: []});
+		};
 
 		expect((await run('exa', 'read', {url: 'https://app.example.com'})).unwrapErr()).toMatchObject({
 			kind: 'validation_error',
@@ -125,6 +171,10 @@ describe('webConnector', () => {
 		expect((await run('parallel', 'read', {url: 'https://app.example.com'})).unwrapErr()).toMatchObject({
 			kind: 'validation_error',
 			message: expect.stringContaining('Parallel found no text at https://app.example.com'),
+		});
+		expect((await run('keenable', 'read', {url: 'https://app.example.com'})).unwrapErr()).toMatchObject({
+			kind: 'validation_error',
+			message: expect.stringContaining('Keenable found no text at https://app.example.com'),
 		});
 	});
 

@@ -7,6 +7,7 @@ import {EXA_INTEGRATION} from './exa/integration';
 import {GOOGLE_INTEGRATION} from './google/integration';
 import {GRANOLA_INTEGRATION} from './granola/integration';
 import type {ApiIntegration} from './integration';
+import {KEENABLE_INTEGRATION} from './keenable/integration';
 import {LINEAR_INTEGRATION} from './linear/integration';
 import {MYSQL_INTEGRATION} from './mysql/integration';
 import {NOTION_INTEGRATION} from './notion/integration';
@@ -31,6 +32,7 @@ function modules(): Record<IntegrationId, ApiIntegration> {
 		cloudflare: CLOUDFLARE_INTEGRATION,
 		exa: EXA_INTEGRATION,
 		parallel: PARALLEL_INTEGRATION,
+		keenable: KEENABLE_INTEGRATION,
 		postgres: POSTGRES_INTEGRATION,
 		mysql: MYSQL_INTEGRATION,
 		mcp: CUSTOM_MCP_INTEGRATION,

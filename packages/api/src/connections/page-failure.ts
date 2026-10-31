@@ -1,11 +1,11 @@
 import {ApiErr, type ApiError, type FetchError} from '@proxy/utils';
 
 /**
- * Why a web page couldn't be read, from what Exa or Parallel says in its own way, as an error an
- * agent can act on: the address it asked for, and whether to look for it elsewhere or try again.
- * Nothing at the address is not found; a site that was slow, busy or failing, out of reach for
- * now; a site that turned the crawler away, or a page with no text or that isn't text, turned
- * down, there being no point in trying again.
+ * Why a web page couldn't be read, from what Exa, Parallel or Keenable says in its own way, as an
+ * error an agent can act on: the address it asked for, and whether to look for it elsewhere or
+ * try again. Nothing at the address is not found; a site that was slow, busy or failing, out of
+ * reach for now; a site that turned the crawler away, or a page with no text or that isn't text,
+ * turned down, there being no point in trying again.
  */
 export type PageFailure = {kind: 'missing' | 'timeout' | 'unsupported' | 'empty'} | {kind: 'refused' | 'busy'; status: number};
 

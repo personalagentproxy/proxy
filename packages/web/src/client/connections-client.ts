@@ -101,10 +101,10 @@ export function connectMcp(org: string, input: z.input<typeof connectMcpBodySche
 }
 
 /**
- * Connects an integration that takes an API key, Cloudflare, Exa, Linear or Parallel, with one,
- * checked with the service first: a new connection, or, with `connection`, that connection given
- * the key, its name kept. 422 is a key the service turned down, 502 the service out of reach, 400
- * says what is wrong with the key.
+ * Connects an integration that takes an API key, Cloudflare, Exa, Keenable, Linear or Parallel,
+ * with one, checked with the service first: a new connection, or, with `connection`, that
+ * connection given the key, its name kept. 422 is a key the service turned down, 502 the service
+ * out of reach, 400 says what is wrong with the key.
  */
 export function connectWithKey(
 	org: string,

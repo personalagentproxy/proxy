@@ -77,6 +77,7 @@ const builtIns = await Promise.all([
 	import('./cloudflare/built-in').then((module) => module.CLOUDFLARE_MCP),
 	import('./exa/built-in').then((module) => module.EXA_MCP),
 	import('./granola/built-in').then((module) => module.GRANOLA_MCP),
+	import('./keenable/built-in').then((module) => module.KEENABLE_MCP),
 	import('./linear/built-in').then((module) => module.LINEAR_MCP),
 	import('./notion/built-in').then((module) => module.NOTION_MCP),
 	import('./parallel/built-in').then((module) => module.PARALLEL_MCP),
@@ -87,6 +88,7 @@ mock.module('./integrations', () => ({apiIntegration: () => undefined, apiIntegr
 const {movedCredential, movedPermissions, movedRun, takeOverCustomConnections} = await import('./take-over-custom');
 const {CLOUDFLARE_MCP} = await import('./cloudflare/built-in');
 const {EXA_MCP} = await import('./exa/built-in');
+const {KEENABLE_MCP} = await import('./keenable/built-in');
 const {LINEAR_MCP} = await import('./linear/built-in');
 const {PARALLEL_MCP} = await import('./parallel/built-in');
 
@@ -215,6 +217,16 @@ describe('movedCredential', () => {
 	test('a server reached with nothing at all stays custom, rather than stop working', () => {
 		expect(movedCredential(PARALLEL_MCP, {auth: 'none', url: 'https://search.parallel.ai/mcp'})).toEqual({kind: 'stays'});
 		expect(movedCredential(EXA_MCP, {auth: 'none', url: 'https://mcp.exa.ai/mcp'})).toEqual({kind: 'stays'});
+	});
+
+	test("Keenable's keyless server: a key typed in for it becomes the integration's API key, and reached with nothing it stays custom", () => {
+		expect(movedCredential(KEENABLE_MCP, {auth: 'token', url: 'https://api.keenable.ai/mcp', token: 'keen_a1_1234'})).toEqual({kind: 'moved', credential: {auth: 'key', key: 'keen_a1_1234'}});
+		expect(movedCredential(KEENABLE_MCP, {auth: 'none', url: 'https://api.keenable.ai/mcp'})).toEqual({kind: 'stays'});
+		expect(movedRun(KEENABLE_MCP, {id: 'e-1', action: 'fetch_page_content', query: JSON.stringify({url: 'https://example.com'})})).toMatchObject({
+			collectionId: 'pages',
+			action: 'read',
+			recordTitle: 'https://example.com',
+		});
 	});
 
 	test('a sign-in through another authorization server has to be signed in to again', () => {

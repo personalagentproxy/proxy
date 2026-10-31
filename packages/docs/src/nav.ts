@@ -27,6 +27,7 @@ export const NAV: {title: string; pages: NavEntry[]}[] = [
 			'connections/cloudflare',
 			'connections/exa',
 			'connections/parallel',
+			'connections/keenable',
 			'connections/plaid',
 			'connections/postgres',
 			'connections/mysql',

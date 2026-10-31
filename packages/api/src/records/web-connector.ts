@@ -3,6 +3,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
 import {EXA, parseExaPage} from '../connections/exa/exa-mcp';
+import {formatKeenableResults, KEENABLE, parseKeenablePage} from '../connections/keenable/keenable-mcp';
 import type {McpServer} from '../connections/mcp/mcp-oauth';
 import {callMcpToolFor} from '../connections/mcp/mcp-session';
 import {pageError} from '../connections/page-failure';
@@ -10,11 +11,11 @@ import {formatParallelResults, parseParallelPage, PARALLEL} from '../connections
 import type {DataRecord, RunOnly} from './connector';
 
 /**
- * The web, through a search engine made for agents, Exa or Parallel, fetched live from its MCP
- * server with the connection's tokens, as two collections, `searches` and `pages`, only run, never
- * listed, opened or kept: a search answers with the provider's results, written out the same way for both, a page
- * with its title and text, the first MAX_PAGE_CHARACTERS of it and a line after them saying it was
- * cut where it goes on. A page with no text is a failure.
+ * The web, through a search engine made for agents, Exa, Parallel or Keenable, fetched live from
+ * its MCP server with the connection's tokens, as two collections, `searches` and `pages`, only
+ * run, never listed, opened or kept: a search answers with the provider's results, written out the
+ * same way for each, a page with its title and text, the first MAX_PAGE_CHARACTERS of it and a line
+ * after them saying it was cut where it goes on. A page with no text is a failure.
  */
 
 const MAX_PAGE_CHARACTERS = 100_000;
@@ -50,6 +51,15 @@ const PARALLEL_WEB: WebProvider = {
 	search: (query) => ({tool: 'web_search', args: {objective: query, search_queries: [query]}, answer: formatParallelResults}),
 	read: (url) => ({tool: 'web_fetch', args: {urls: [url], full_content: true}, answer: (text) => parseParallelPage(text, url)}),
 	readsWhole: true,
+};
+
+// Keenable takes the query as it is, stops reading a page where it is cut, asked for as much of it
+// as Exa is, and answers both as JSON.
+const KEENABLE_WEB: WebProvider = {
+	server: KEENABLE,
+	search: (query) => ({tool: 'search_web_pages', args: {query, output_format: 'json'}, answer: formatKeenableResults}),
+	read: (url) => ({tool: 'fetch_page_content', args: {url, max_chars: EXA_PAGE_CHARACTERS, output_format: 'json'}, answer: parseKeenablePage}),
+	readsWhole: false,
 };
 
 // An address a provider can read: `http` or `https`.
@@ -115,3 +125,5 @@ function webConnectors(provider: WebProvider): {searches: RunOnly; pages: RunOnl
 export const exaConnectors = webConnectors(EXA_WEB);
 
 export const parallelConnectors = webConnectors(PARALLEL_WEB);
+
+export const keenableConnectors = webConnectors(KEENABLE_WEB);

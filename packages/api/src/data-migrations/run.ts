@@ -22,6 +22,8 @@ export type DataMigration = {id: string; run: () => Promise<Result<void, ApiErro
 export const DATA_MIGRATIONS: DataMigration[] = [
 	{id: 'take-over-custom-connections', run: takeOverCustomConnections},
 	{id: 'convert-old-vault-records', run: convertOldVaultRecords},
+	// Again for Keenable, built in after instances had moved the others' over.
+	{id: 'take-over-custom-keenable-connections', run: takeOverCustomConnections},
 ];
 
 function metaKey(id: string): string {

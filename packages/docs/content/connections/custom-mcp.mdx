@@ -27,12 +27,13 @@ authorization server to the same rule; a server on a private address needs Perso
 
 The servers of the services Personal Agent Proxy connects itself, [Granola](/connections/granola),
 [Notion](/connections/notion), [Linear](/connections/linear),
-[Cloudflare](/connections/cloudflare) (`https://mcp.cloudflare.com/mcp`), [Exa](/connections/exa)
-and [Parallel](/connections/parallel), are connected as those services, under the name you gave,
-as adding them from the list of connections does: entering one's address opens the service's own
-sign-in, or, for Cloudflare, Exa, Linear and Parallel with an access token typed in, or Exa's
-address with its key in it (`?exaApiKey=`), connects the service with it as its API key. Granola and Notion are only
-signed in to, so a token typed in for them is turned down. See also
+[Cloudflare](/connections/cloudflare) (`https://mcp.cloudflare.com/mcp`), [Exa](/connections/exa),
+[Parallel](/connections/parallel) and [Keenable](/connections/keenable), are connected as those
+services, under the name you gave, as adding them from the list of connections does: entering
+one's address opens the service's own sign-in, or, for Cloudflare, Exa, Keenable, Linear and
+Parallel with an access token typed in, or Exa's address with its key in it (`?exaApiKey=`),
+connects the service with it as its API key. Granola and Notion are only signed in to, so a token
+typed in for them is turned down. See also
 [When a server becomes built in](#when-a-server-becomes-built-in).
 
 ### Sign in, if the server asks
@@ -92,9 +93,9 @@ its agents and its activity:
 - Tool runs in the activity log become the service's own requests, such as listing Linear issues
   or running a web search. Runs of tools it has no action for stay as they were.
 - A server you signed in to stays signed in, and an access token typed in for Cloudflare, Exa,
-  Linear or Parallel, or an Exa key in the server's address, becomes the connection's API key, once
-  the service has accepted it. Any other token, one the service turns down, or a sign-in it has
-  since revoked, doesn't carry over: the connection has to be signed in to before agents can use
-  it, so open it and choose **Sign in**.
-- A server you connected with no token or sign-in at all, as Parallel's free search server, stays a
-  custom server, so it keeps working as it did.
+  Keenable, Linear or Parallel, or an Exa key in the server's address, becomes the connection's
+  API key, once the service has accepted it. Any other token, one the service turns down, or a
+  sign-in it has since revoked, doesn't carry over: the connection has to be signed in to before
+  agents can use it, so open it and choose **Sign in**.
+- A server you connected with no token or sign-in at all, as Parallel's or Keenable's free search
+  server, stays a custom server, so it keeps working as it did.

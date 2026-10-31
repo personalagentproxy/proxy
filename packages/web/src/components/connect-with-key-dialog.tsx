@@ -41,10 +41,10 @@ type Props = {
 	onConnected: (connection: Connection) => void;
 };
 
-// Connecting an integration that takes an API key, Cloudflare, Exa, Linear or Parallel, in a small
-// dialog: the key, checked with the service before the connection is made, and where to get one.
-// The connection shows as the key's account, or its end where the service names none; it can be
-// renamed from the connections list.
+// Connecting an integration that takes an API key, Cloudflare, Exa, Keenable, Linear or Parallel,
+// in a small dialog: the key, checked with the service before the connection is made, and where to
+// get one. The connection shows as the key's account, or its end where the service names none; it
+// can be renamed from the connections list.
 export function ConnectWithKeyDialog({
 	integrationId,
 	connectionId,
