@@ -29,7 +29,7 @@ export function ConfirmDialog({
 	onClose,
 	onConfirm,
 }: Props) {
-	const form = useCommandEnterSubmit(!destructive);
+	const form = useCommandEnterSubmit(open && !destructive);
 
 	return (
 		<Dialog
