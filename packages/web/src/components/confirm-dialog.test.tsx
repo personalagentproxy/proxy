@@ -32,7 +32,7 @@ describe('ConfirmDialog', () => {
 
 		await waitFor(() => expect(document.activeElement).toBe(confirm));
 		expect(confirm.getAttribute('type')).toBe('submit');
-		fireEvent.click(confirm);
+		fireEvent.keyDown(window, {key: 'Enter', metaKey: true});
 
 		expect(onConfirm).toHaveBeenCalledTimes(1);
 		expect(onClose).toHaveBeenCalledTimes(1);
@@ -44,6 +44,8 @@ describe('ConfirmDialog', () => {
 
 		await waitFor(() => expect(document.activeElement).toBe(cancel));
 		expect(cancel.getAttribute('type')).toBe('button');
+		fireEvent.keyDown(window, {key: 'Enter', metaKey: true});
+		expect(onConfirm).not.toHaveBeenCalled();
 		fireEvent.click(cancel);
 
 		expect(onConfirm).not.toHaveBeenCalled();

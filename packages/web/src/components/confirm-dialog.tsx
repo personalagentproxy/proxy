@@ -8,6 +8,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '@proxy/ui/components/dialog';
+import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
 
 type Props = {
 	open: boolean;
@@ -28,6 +29,8 @@ export function ConfirmDialog({
 	onClose,
 	onConfirm,
 }: Props) {
+	const form = useCommandEnterSubmit(!destructive);
+
 	return (
 		<Dialog
 			open={open}
@@ -40,6 +43,7 @@ export function ConfirmDialog({
 		>
 			<DialogContent>
 				<form
+					ref={form}
 					className="grid gap-4"
 					onSubmit={(event) => {
 						event.preventDefault();
