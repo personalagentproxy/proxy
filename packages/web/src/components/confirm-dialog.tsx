@@ -39,24 +39,31 @@ export function ConfirmDialog({
 			}}
 		>
 			<DialogContent>
-				<DialogHeader>
-					<DialogTitle>{title}</DialogTitle>
-					<DialogDescription>{description}</DialogDescription>
-				</DialogHeader>
-				<DialogFooter>
-					<Button variant="outline" onClick={onClose}>
-						Cancel
-					</Button>
-					<Button
-						variant={destructive ? 'destructive' : 'default'}
-						onClick={() => {
-							onConfirm();
-							onClose();
-						}}
-					>
-						{confirmLabel}
-					</Button>
-				</DialogFooter>
+				<form
+					className="grid gap-4"
+					onSubmit={(event) => {
+						event.preventDefault();
+						onConfirm();
+						onClose();
+					}}
+				>
+					<DialogHeader>
+						<DialogTitle>{title}</DialogTitle>
+						<DialogDescription>{description}</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button type="button" variant="outline" autoFocus={destructive} onClick={onClose}>
+							Cancel
+						</Button>
+						<Button
+							type="submit"
+							variant={destructive ? 'destructive' : 'default'}
+							autoFocus={!destructive}
+						>
+							{confirmLabel}
+						</Button>
+					</DialogFooter>
+				</form>
 			</DialogContent>
 		</Dialog>
 	);
