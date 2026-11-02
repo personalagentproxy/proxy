@@ -1,5 +1,12 @@
 import type {ChatEntry, ChatPersona, Persona, ThreadLog} from '@proxy/contracts/harness';
-import {ArrowUpIcon, ChevronDownIcon, MoonIcon, PlusIcon, Trash2Icon} from 'lucide-react';
+import {
+	ArrowUpIcon,
+	ChevronDownIcon,
+	MoonIcon,
+	PencilIcon,
+	PlusIcon,
+	Trash2Icon,
+} from 'lucide-react';
 import {type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
 import {
@@ -123,12 +130,14 @@ function PersonaList({
 	current,
 	currentLog,
 	onNew,
+	onEdit,
 	onDelete,
 }: {
 	personas: ChatPersona[];
 	current: string;
 	currentLog: ThreadLog;
 	onNew: () => void;
+	onEdit: (persona: ChatPersona) => void;
 	onDelete: (persona: ChatPersona) => void;
 }) {
 	const org = useOrgSlug();
@@ -187,6 +196,10 @@ function PersonaList({
 							<ContextMenu key={persona.id}>
 								<ContextMenuTrigger render={<li />}>{row}</ContextMenuTrigger>
 								<ContextMenuContent>
+									<ContextMenuItem onClick={() => onEdit(persona)}>
+										<PencilIcon />
+										Rename
+									</ContextMenuItem>
 									<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
 										<Trash2Icon />
 										Delete
@@ -232,8 +245,8 @@ function Conversation({loaded}: {loaded: Loaded}) {
 	const [text, setText] = useState('');
 	const [sending, setSending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	// The agent dialog: making a new one, or changing this one; closed as null.
-	const [editing, setEditing] = useState<'new' | 'current' | null>(null);
+	// The agent dialog: making a new one, or changing the selected one; closed as null.
+	const [editing, setEditing] = useState<'new' | ChatPersona | null>(null);
 	const [deleting, setDeleting] = useState<ChatPersona | null>(null);
 	const form = useRef<HTMLFormElement>(null);
 	const personaId = loaded.log.persona.id;
@@ -286,8 +299,11 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		}
 	};
 
-	// Saves the dialog's persona: a new one, opened; or this one, renamed or refaced.
+	// Saves the dialog's persona: a new one, opened; or the selected one, renamed or refaced.
 	const savePersona = async (persona: Persona): Promise<string | null> => {
+		if (editing === null) {
+			return 'This agent is no longer being edited.';
+		}
 		if (editing === 'new') {
 			const made = await createPersona(org, persona);
 			if (made.isErr()) {
@@ -296,7 +312,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 			void navigate(`/${org}/chat/${made.value.persona.id}`);
 			return null;
 		}
-		const changed = await updatePersona(org, personaId, persona);
+		const changed = await updatePersona(org, editing.id, persona);
 		if (changed.isErr()) {
 			return describeFetchError(changed.error);
 		}
@@ -335,7 +351,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 				current.mayChange ? (
 					<button
 						type="button"
-						onClick={() => setEditing('current')}
+						onClick={() => setEditing(current)}
 						className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-sm font-medium outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
 					>
 						<span className="truncate">{current.name}</span>
@@ -353,6 +369,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 					current={personaId}
 					currentLog={log}
 					onNew={() => setEditing('new')}
+					onEdit={setEditing}
 					onDelete={setDeleting}
 				/>
 			}
@@ -361,19 +378,19 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		>
 			{editing !== null && (
 				<PersonaDialog
-					key={editing === 'new' ? 'new' : personaId}
+					key={editing === 'new' ? 'new' : editing.id}
 					open
 					initial={
 						editing === 'new'
 							? null
-							: {name: current.name, look: current.look, color: current.color}
+							: {name: editing.name, look: editing.look, color: editing.color}
 					}
 					onClose={() => setEditing(null)}
 					onSave={savePersona}
 					onDelete={
-						editing === 'current'
+						editing !== 'new'
 							? async () => {
-									setDeleting(current);
+									setDeleting(editing);
 									return null;
 								}
 							: undefined
