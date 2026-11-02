@@ -16,6 +16,7 @@ import {
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {cn} from '@proxy/ui/lib/utils';
+import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
 
 type Props = {
 	open: boolean;
@@ -62,6 +63,7 @@ export function PersonaDialog({open, initial, onClose, onSave, onDelete}: Props)
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const ready = persona.name.trim() !== '';
+	const form = useCommandEnterSubmit(ready && !busy);
 
 	const finish = (failed: string | null) => {
 		setBusy(false);
@@ -83,6 +85,7 @@ export function PersonaDialog({open, initial, onClose, onSave, onDelete}: Props)
 		>
 			<DialogContent>
 				<form
+					ref={form}
 					className="grid gap-5"
 					onSubmit={async (event) => {
 						event.preventDefault();
