@@ -1,5 +1,5 @@
+import type {AuditEntry} from '@proxy/contracts/activity';
 import {describe, expect, test} from 'bun:test';
-import type {AuditEntry} from '@/lib/types';
 import {
 	formatDuration,
 	layRequests,

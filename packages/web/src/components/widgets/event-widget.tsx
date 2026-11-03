@@ -9,10 +9,11 @@ import {dayAround, timedItems, type DayItem} from '@/lib/calendar-day';
 import {Avatar, DetailRow, Missing, WidgetFrame} from '@/components/widgets/widget-frame';
 import {WidgetSelect} from '@/components/widgets/widget-select';
 import {WriteResult} from '@/components/widgets/write-result';
-import {useAgenda, usePeople} from '@/lib/widget-lookups';
+import {useAgenda, usePeople} from '@/hooks/widget-lookups';
 import {eventTime, fieldTexts, guestsOf, namesIn, personKey, type Guest} from '@/lib/widget-values';
-import {useSuggested} from '@/lib/use-suggested';
-import {useWriteStatus, writeErrorMessage} from '@/lib/write-status';
+import {useSuggested} from '@/hooks/use-suggested';
+import {useWriteStatus} from '@/hooks/use-write-status';
+import {writeErrorMessage} from '@/lib/write-status';
 import {useState} from 'react';
 import {useOrgSlug} from '@/hooks/use-org';
 

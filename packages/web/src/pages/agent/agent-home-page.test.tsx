@@ -74,7 +74,9 @@ describe('AgentTaskPage', () => {
 		renderAgentSide('/agent?refused=task-9');
 
 		expect(
-			await screen.findByText(/^Task task-9 can’t be worked on anymore: it is finished/),
+			await screen.findByText(
+				/^Task task-9 can’t be worked on anymore: it, or the task it is part of, is finished/,
+			),
 		).toBeDefined();
 	});
 });

@@ -1,3 +1,6 @@
+import type {ActivityTask, AuditEntry} from '@proxy/contracts/activity';
+import type {AgentLogin} from '@proxy/contracts/agents';
+import type {Connection} from '@proxy/contracts/connections';
 import {Fragment, useEffect, useMemo, useRef, useState} from 'react';
 import {Link} from 'react-router';
 import {AgentLogo} from '@/components/brand-logo';
@@ -30,9 +33,8 @@ import {
 	prepareActivityTimeline,
 	type Window,
 } from '@/lib/activity-timeline';
-import {ABANDONED_OPACITY, MIN_TRACK_PX, TASK_COLOR_CLASS} from '@/lib/timeline';
+import {LEFT_OPEN_OPACITY, MIN_TRACK_PX, TASK_COLOR_CLASS} from '@/lib/timeline';
 import {zoomedOn} from '@/lib/timeline-window';
-import type {ActivityTask, AgentLogin, AuditEntry, Connection} from '@/lib/types';
 import {cn} from '@proxy/ui/lib/utils';
 
 // A lane's height and its bar's, and the room above and below an agent's lanes, in pixels. The
@@ -199,8 +201,8 @@ export function ActivityTimeline({
 													height={BAR_H}
 													clippedStart={bar.clippedStart}
 													clippedEnd={bar.clippedEnd}
-													opacity={bar.status === 'abandoned' ? ABANDONED_OPACITY : undefined}
-													dashed={bar.status === 'abandoned'}
+													opacity={bar.status === 'leftOpen' ? LEFT_OPEN_OPACITY : undefined}
+													dashed={bar.status === 'leftOpen'}
 												/>
 												{bar.status === 'running' && (
 													<Shimmer

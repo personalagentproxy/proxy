@@ -7,14 +7,24 @@ const unavailableActions = mock((_connection: {id: string}): string[] => []);
 
 // The Google client and the mail connectors read the environment on import, which tests don't have.
 mock.module('../utils/env', () => ({env: {NODE_ENV: 'test'}}));
+// The connectors are the integrations' modules' own, which bring how each is connected along: what
+// connecting saves is stubbed, never called here.
 mock.module('@proxy/db/connection', () => ({
 	getOrgConnectionWithCredential: mock(),
 	listConnectionsWithCredential,
 	getConnectionWithCredential,
 	getConnectionCredential: mock(),
 	updateConnectionCredential: mock(),
+	createConnection: mock(),
+	findAccountConnection: mock(),
+	renewConnection: mock(),
+	shareConnection: mock(),
+	updateConnectionName: mock(),
+	updateConnectionTools: mock(),
+	countSameAccountConnections: mock(),
 }));
 mock.module('../connections/unavailable', () => ({
+	needsSignIn: mock(),
 	unavailableActions,
 	unavailableError: (_integration: unknown, actionId: string) => ({kind: 'validation_error', statusCode: 400, message: `not allowed: ${actionId}`}),
 }));

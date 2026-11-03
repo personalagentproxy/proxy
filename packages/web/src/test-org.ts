@@ -1,4 +1,4 @@
-import type {Org} from '@/client/orgs-client';
+import type {Org} from '@proxy/contracts/orgs';
 import type {Human} from '@/lib/orgs';
 
 // The organization the address names in the web app's tests, as the api answers it: the person's

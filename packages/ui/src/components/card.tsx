@@ -1,5 +1,5 @@
 import type {ComponentProps} from 'react';
-import {cn} from 'cn';
+import {cn} from '@proxy/ui/lib/utils';
 
 // A bordered box on the page. Its padding is where text starts inside it, and a row in it reaches
 // within a little of its border (`bleed`), clear of its rounded corners.

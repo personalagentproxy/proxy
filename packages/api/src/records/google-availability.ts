@@ -6,7 +6,7 @@ import {addDays} from '@proxy/utils/days';
 import {getCalendar, queryFreeBusy, type FreeBusy} from '../connections/google/calendar-api';
 import {callGoogle} from '../connections/google/google-client';
 import {clockTime, readTime, zonedInstant} from './calendar-time';
-import {onlyRun, type Connector, type NewCommandRunner} from './connector';
+import type {NewCommandRunner, RunOnly} from './connector';
 
 /**
  * When people are free, as the `availability` collection: never listed or opened, only checked.
@@ -177,4 +177,4 @@ const check: NewCommandRunner = (target, values) =>
 		}),
 	);
 
-export const availabilityConnector: Connector = {...onlyRun('Availability is only checked, for the people and times given'), newCommands: {check}};
+export const availabilityConnector = {newCommands: {check}} satisfies RunOnly;

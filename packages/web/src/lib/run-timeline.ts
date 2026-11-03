@@ -1,3 +1,4 @@
+import type {ActivityTask, AuditEntry} from '@proxy/contracts/activity';
 import {
 	formatDuration,
 	layRequests,
@@ -9,7 +10,6 @@ import {
 	type TimelineRequest,
 } from '@/lib/timeline';
 import {combinedStatus, endsOf, type TaskStatus, taskStatus} from '@/lib/timeline-window';
-import type {ActivityTask, AuditEntry} from '@/lib/types';
 
 // A task's run on its page: how it went, as a tree of tasks over time. Agents work through
 // sub-agents, and each task is one of them at work, so the task has a row at the top and every
@@ -33,7 +33,7 @@ export type RunRow = {
 	parentRow: number | null;
 	// The task, or the group's members, in the order started.
 	tasks: ActivityTask[];
-	// The task's, or, for a group, under way if any member is, else abandoned if every member was.
+	// The task's, or, for a group, under way if any member is, else left open if every member was.
 	status: TaskStatus;
 	// Where its track runs, in pixels from the chart's left edge.
 	start: number;
@@ -343,7 +343,7 @@ export function buildRunTimeline(
 			task.finishedAt === parent.finishedAt
 		);
 	};
-	// Every one of them finished, and one or more by its agent saying so: one given up on was
+	// Every one of them finished, and one or more by its agent saying so: one left open was
 	// handed back to nothing.
 	const handedBack = (of: ActivityTask[]) =>
 		of.every((task) => taskStatus(task, now) === 'finished') &&

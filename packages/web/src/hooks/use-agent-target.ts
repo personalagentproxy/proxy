@@ -1,6 +1,6 @@
+import type {AgentMe, AgentTask} from '@proxy/contracts/agent-side';
 import {findCollection, type Collection} from '@proxy/integrations';
 import {useParams, useRouteLoaderData} from 'react-router';
-import type {AgentMe, AgentTask} from '@/client/agent-client';
 import {integrationOf, type Integration} from '@/lib/integrations';
 
 export type AgentTarget = {

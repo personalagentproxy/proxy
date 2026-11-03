@@ -3,13 +3,13 @@ import type {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {type ApiError, Do, parseSchema} from '@proxy/utils';
+import type {Failure, People, Person, SourceSummary} from '@proxy/contracts/widgets';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireViewer} from '../utils/user-org';
 import type {DataRecord} from '../records/connector';
-import {eachSource, type Failure} from './each-source';
-import {searchable} from './mail-searches';
-import {findSources, summarize, type Source, type SourceSummary} from './sources';
+import {eachSource} from './each-source';
+import {findSources, summarize, withCapability, type Source} from './sources';
 
 /**
  * People by name, for the widgets that name someone: the contact itself, the guests of an event,
@@ -18,26 +18,6 @@ import {findSources, summarize, type Source, type SourceSummary} from './sources
  * written to was never saved as a contact. What they find is one list per name: the closest names
  * first, contacts before people only in email, each person once.
  */
-
-/**
- * A person: a contact, read from the `contacts` collection's fields, which every contact book
- * shares, or someone in a mailbox's email, known by their name and address alone.
- */
-export type Person = {
-	// Where they were found: a contact book, or the email of a mailbox.
-	origin: 'contacts' | 'email';
-	connectionId: string;
-	id: string;
-	name: string;
-	emails: string[];
-	phones: string[];
-	company: string;
-	jobTitle: string;
-	addresses: string[];
-	link: string | null;
-};
-
-export type PeopleAnswer = {sources: SourceSummary[]; people: Array<{name: string; matches: Person[]}>; failed: Failure[]};
 
 // The people a name finds at most, the closest first.
 const MATCHES = 5;
@@ -197,18 +177,18 @@ function searchContacts(source: Source, name: string): Promise<Result<Person[], 
 }
 
 /** `GET /api/widgets/people?name=…&name=…`: the people each name finds in every contact book and mailbox. */
-export function handlePeopleRoute(request: AuthenticatedRequest): Promise<Result<PeopleAnswer, ApiError>> {
+export function handlePeopleRoute(request: AuthenticatedRequest): Promise<Result<People, ApiError>> {
 	return Do(async ($) => {
 		const {name: names} = $(parseSchema(querySchema, request.query));
 		const viewer = $(await requireViewer(request));
 		const books = $(await findSources(viewer, 'contacts', 'list'));
-		const mailboxes = searchable($(await findSources(viewer, 'emails', 'list')));
+		const mailboxes = withCapability($(await findSources(viewer, 'emails', 'list')), 'findEmails');
 		const wanted = [...new Set(names)].slice(0, 10);
 		// Each mailbox is asked once for every name, over one sign-in, rather than once a name.
 		const searches = wanted.map((name) => ({from: null, involving: name, words: [], since: null}));
 		const [inBooks, inEmail] = await Promise.all([
 			Promise.all(wanted.map((name) => eachSource(books, (source) => searchContacts(source, name)))),
-			eachSource(mailboxes, (source, signal) => source.find(source, searches, EMAILS_READ, signal)),
+			eachSource(mailboxes, (source, signal) => source.connector.findEmails(source, searches, EMAILS_READ, signal)),
 		]);
 		const people = wanted.map((name, index) => [
 			...(inBooks[index]?.found ?? []).flatMap(({value}) => value),

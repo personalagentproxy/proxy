@@ -1,29 +1,34 @@
-import {ArrowUpIcon, ChevronDownIcon, MoonIcon, PlusIcon} from 'lucide-react';
+import type {ChatEntry, ChatPersona, Persona, ThreadLog} from '@proxy/contracts/harness';
+import {
+	ArrowUpIcon,
+	ChevronDownIcon,
+	MoonIcon,
+	PencilIcon,
+	PlusIcon,
+	Trash2Icon,
+} from 'lucide-react';
 import {type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
 import {
-	type ChatEntry,
-	type ChatPersona,
 	createPersona,
 	deletePersona,
 	getThread,
-	type Persona,
 	postMessage,
-	type ThreadLog,
 	updatePersona,
 } from '@/client/harness-client';
 import {AppShell} from '@/components/app-shell';
+import {ConfirmDialog} from '@/components/confirm-dialog';
 import {Head, LiveHead} from '@/components/head';
 import {Markdown} from '@/components/markdown';
 import {PersonaDialog} from '@/components/persona-dialog';
-import {Bubble, BubbleContent} from '@proxy/ui/components/bubble';
+import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {
 	InputGroup,
 	InputGroupAddon,
 	InputGroupButton,
 	InputGroupTextarea,
 } from '@proxy/ui/components/input-group';
-import {Message, MessageContent} from '@proxy/ui/components/message';
+import {Message, MessageContent} from '@/components/chat/message';
 import {
 	MessageScroller,
 	MessageScrollerButton,
@@ -31,14 +36,20 @@ import {
 	MessageScrollerItem,
 	MessageScrollerProvider,
 	MessageScrollerViewport,
-} from '@proxy/ui/components/message-scroller';
-import {Trace, TraceIcon, TraceLine, TraceTitle} from '@proxy/ui/components/trace';
+} from '@/components/chat/message-scroller';
+import {Trace, TraceIcon, TraceLine, TraceTitle} from '@/components/chat/trace';
 import {preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
 import {useOrgSlug} from '@/hooks/use-org';
 import {formatAgo, formatDateTime} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {chatLoader} from '@/loaders';
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuTrigger,
+} from '@proxy/ui/components/context-menu';
 
 // How often the log is read again while the agent is at work, and while it is not: a reply, or a
 // wake-up, shows within a moment either way.
@@ -119,11 +130,15 @@ function PersonaList({
 	current,
 	currentLog,
 	onNew,
+	onEdit,
+	onDelete,
 }: {
 	personas: ChatPersona[];
 	current: string;
 	currentLog: ThreadLog;
 	onNew: () => void;
+	onEdit: (persona: ChatPersona) => void;
+	onDelete: (persona: ChatPersona) => void;
 }) {
 	const org = useOrgSlug();
 	const [watching, setWatching] = useState(false);
@@ -140,41 +155,57 @@ function PersonaList({
 				<ul className="flex flex-col gap-0.5">
 					{personas.map((persona) => {
 						const last = persona.id === current ? lastOf(currentLog) : persona.lastMessage;
-						return (
-							<li key={persona.id}>
-								<Link
-									to={`/${org}/chat/${persona.id}`}
-									aria-current={persona.id === current ? 'page' : undefined}
-									className={cn(
-										'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-										persona.id === current && 'bg-sidebar-accent text-sidebar-accent-foreground',
-									)}
-								>
-									{persona.id === current ? (
-										<LiveHead
-											look={persona.look}
-											color={persona.color}
-											size={40}
-											watching={watching}
-										/>
-									) : (
-										<Head look={persona.look} color={persona.color} size={40} />
-									)}
-									<span className="flex min-w-0 flex-1 flex-col">
-										<span className="flex items-baseline gap-2">
-											<span className="min-w-0 flex-1 truncate text-sm font-medium">
-												{persona.name}
-											</span>
-											{last && (
-												<span className="shrink-0 text-xs text-muted-foreground">
-													{formatAgo(last.at)}
-												</span>
-											)}
+						const row = (
+							<Link
+								to={`/${org}/chat/${persona.id}`}
+								aria-current={persona.id === current ? 'page' : undefined}
+								className={cn(
+									'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+									persona.id === current && 'bg-sidebar-accent text-sidebar-accent-foreground',
+								)}
+							>
+								{persona.id === current ? (
+									<LiveHead
+										look={persona.look}
+										color={persona.color}
+										size={40}
+										watching={watching}
+									/>
+								) : (
+									<Head look={persona.look} color={persona.color} size={40} />
+								)}
+								<span className="flex min-w-0 flex-1 flex-col">
+									<span className="flex items-baseline gap-2">
+										<span className="min-w-0 flex-1 truncate text-sm font-medium">
+											{persona.name}
 										</span>
-										<span className="truncate text-xs text-muted-foreground">{subtitle(last)}</span>
+										{last && (
+											<span className="shrink-0 text-xs text-muted-foreground">
+												{formatAgo(last.at)}
+											</span>
+										)}
 									</span>
-								</Link>
-							</li>
+									<span className="truncate text-xs text-muted-foreground">{subtitle(last)}</span>
+								</span>
+							</Link>
+						);
+						if (!persona.mayChange) {
+							return <li key={persona.id}>{row}</li>;
+						}
+						return (
+							<ContextMenu key={persona.id}>
+								<ContextMenuTrigger render={<li />}>{row}</ContextMenuTrigger>
+								<ContextMenuContent>
+									<ContextMenuItem onClick={() => onEdit(persona)}>
+										<PencilIcon />
+										Rename
+									</ContextMenuItem>
+									<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
+										<Trash2Icon />
+										Delete
+									</ContextMenuItem>
+								</ContextMenuContent>
+							</ContextMenu>
 						);
 					})}
 				</ul>
@@ -214,8 +245,9 @@ function Conversation({loaded}: {loaded: Loaded}) {
 	const [text, setText] = useState('');
 	const [sending, setSending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	// The agent dialog: making a new one, or changing this one; closed as null.
-	const [editing, setEditing] = useState<'new' | 'current' | null>(null);
+	// The agent dialog: making a new one, or changing the selected one; closed as null.
+	const [editing, setEditing] = useState<'new' | ChatPersona | null>(null);
+	const [deleting, setDeleting] = useState<ChatPersona | null>(null);
 	const form = useRef<HTMLFormElement>(null);
 	const personaId = loaded.log.persona.id;
 	const current = loaded.log.persona;
@@ -267,8 +299,11 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		}
 	};
 
-	// Saves the dialog's persona: a new one, opened; or this one, renamed or refaced.
+	// Saves the dialog's persona: a new one, opened; or the selected one, renamed or refaced.
 	const savePersona = async (persona: Persona): Promise<string | null> => {
+		if (editing === null) {
+			return 'This agent is no longer being edited.';
+		}
 		if (editing === 'new') {
 			const made = await createPersona(org, persona);
 			if (made.isErr()) {
@@ -277,7 +312,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 			void navigate(`/${org}/chat/${made.value.persona.id}`);
 			return null;
 		}
-		const changed = await updatePersona(org, personaId, persona);
+		const changed = await updatePersona(org, editing.id, persona);
 		if (changed.isErr()) {
 			return describeFetchError(changed.error);
 		}
@@ -285,14 +320,19 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		return null;
 	};
 
-	// Deletes this persona with everyone's conversations with it, and opens whichever is first.
-	const removePersona = async (): Promise<string | null> => {
-		const removed = await deletePersona(org, personaId);
+	// Deletes a persona with everyone's conversations with it. If it was open, opens whichever is
+	// first; otherwise refreshes the list around the conversation that stays open.
+	const removePersona = async (persona: ChatPersona) => {
+		const removed = await deletePersona(org, persona.id);
 		if (removed.isErr()) {
-			return describeFetchError(removed.error);
+			setError(describeFetchError(removed.error));
+			return;
 		}
-		void navigate(`/${org}/chat`);
-		return null;
+		if (persona.id === personaId) {
+			void navigate(`/${org}/chat`);
+			return;
+		}
+		await revalidator.revalidate();
 	};
 
 	// Turns in a row from the same side sit closer together than the sides do.
@@ -311,7 +351,7 @@ function Conversation({loaded}: {loaded: Loaded}) {
 				current.mayChange ? (
 					<button
 						type="button"
-						onClick={() => setEditing('current')}
+						onClick={() => setEditing(current)}
 						className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-sm font-medium outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
 					>
 						<span className="truncate">{current.name}</span>
@@ -329,6 +369,8 @@ function Conversation({loaded}: {loaded: Loaded}) {
 					current={personaId}
 					currentLog={log}
 					onNew={() => setEditing('new')}
+					onEdit={setEditing}
+					onDelete={setDeleting}
 				/>
 			}
 			panelLabel="Agents"
@@ -336,18 +378,43 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		>
 			{editing !== null && (
 				<PersonaDialog
-					key={editing === 'new' ? 'new' : personaId}
+					key={editing === 'new' ? 'new' : editing.id}
 					open
 					initial={
 						editing === 'new'
 							? null
-							: {name: current.name, look: current.look, color: current.color}
+							: {name: editing.name, look: editing.look, color: editing.color}
 					}
 					onClose={() => setEditing(null)}
 					onSave={savePersona}
-					onDelete={editing === 'current' ? removePersona : undefined}
+					onDelete={
+						editing !== 'new'
+							? async () => {
+									setDeleting(editing);
+									return null;
+								}
+							: undefined
+					}
 				/>
 			)}
+			<ConfirmDialog
+				open={deleting !== null}
+				title={deleting ? `Delete ${deleting.name}?` : ''}
+				description={
+					deleting
+						? `This deletes ${deleting.name} and every member's conversation with it. This cannot be undone.`
+						: ''
+				}
+				confirmLabel="Delete"
+				destructive
+				onClose={() => setDeleting(null)}
+				onConfirm={() => {
+					if (!deleting) {
+						return;
+					}
+					void removePersona(deleting);
+				}}
+			/>
 			<MessageScrollerProvider autoScroll defaultScrollPosition="end">
 				<MessageScroller className="min-h-0 flex-1">
 					<MessageScrollerViewport aria-label="Conversation">
@@ -357,9 +424,9 @@ function Conversation({loaded}: {loaded: Loaded}) {
 									<Head look={current.look} color={current.color} size={64} />
 									<p className="text-lg font-medium">What should {current.name} do?</p>
 									<p className="max-w-md text-sm text-muted-foreground">
-										This conversation is yours alone. {current.name} hands each piece of work to a
-										sub-agent, which can use what is shared with everyone and what you connected
-										yourself, as far as its access allows. Every call is in the activity log.
+										This conversation is yours alone. {current.name} can use what is shared with
+										everyone and what you connected yourself, as far as its access allows.
+										Everything it does is in the activity log.
 									</p>
 								</div>
 							)}

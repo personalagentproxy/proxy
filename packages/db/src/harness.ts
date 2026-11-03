@@ -9,19 +9,17 @@ import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, wrapDb} from '@proxy/utils';
 import {
-	cut,
 	DEFAULT_LOOK,
 	type Look,
 	type LogEntry,
 	parseLook,
 	pendingToolCalls,
-	readyForInference,
 	type ToolCall,
 } from '@proxy/utils/harness';
-import {TASK_ABANDONED_AFTER_MS} from '@proxy/utils/tasks';
 
 import {db} from '.';
 import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed-in-agent';
+import type {NewAgentTask} from './task';
 
 /**
  * The Chat page: the organization's personas, each with a thread per member, the member's
@@ -35,7 +33,8 @@ import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed
  * A worker's write is fenced by its lease: it goes through only while the job is still its. A
  * sub-agent's thread ends with its report, which lands in the thread it was started from as the
  * answer to the call that started it; a sub-agent's thread is locked before its parent's, never
- * the other way, so two can't wait on each other.
+ * the other way, so two can't wait on each other. What is written, and when the agent is woken,
+ * is the api's to say (its harness): these transactions take it composed.
  */
 
 export type ThreadRow = {
@@ -109,8 +108,39 @@ export type JobEventRow = {
 /** What is to happen with a call the model made: when its job may run, and, for a delegation, what it is answered at once with, since the report comes later as an event. */
 export type CallPlan = {runAt: Date; placeholder: string | null};
 
-// How much of a sub-agent's report its task keeps as the outcome, and of its brief as the goal.
-const MAX_TASK_TEXT = 2000;
+/**
+ * Whether the log, from the model's last answer on and without what is pending, is ready for the
+ * model: where it is, the thread is given an inference job, unless it has one or is done.
+ */
+export type Wakes = (tail: LogEntry[]) => boolean;
+
+/** An entry to land in a thread. */
+export type NewEntry = {kind: AgentEntryKind; text: string};
+
+/** How a sub-agent's work ends: its task's outcome, and its report, which answers the call that started it, in the thread it was started from. */
+export type SubAgentEnd = {outcome: string; report: {text: string; isError: boolean}};
+
+/** A sub-agent as a delegation starts it: the call it answers, its thread's title, its task and the first entries of its log. */
+export type SubAgentStart = {
+	callId: string;
+	title: string;
+	task: NewAgentTask & {parentId: null};
+	/** The first entries of its log, which wake it: at least one, so it is run at all. */
+	entries: [NewEntry, ...NewEntry[]];
+};
+
+/** What follows the model's answer: a job for each of its calls, as planned, or, a sub-agent's report, the end of its work. */
+export type AfterAnswer = {plans: Record<string, CallPlan>} | {end: SubAgentEnd};
+
+/**
+ * What a failed job writes in its thread, so nobody is left waiting on it: an answer to its call,
+ * as the call's result or, where it was answered as started already, as an event; the end of the
+ * sub-agent's work; or the agent's answer, as an error.
+ */
+export type FailureNote =
+	| {kind: 'answer'; callId: string; text: string}
+	| {kind: 'end'; end: SubAgentEnd}
+	| {kind: 'reply'; text: string};
 
 const threadSelect = {
 	id: true,
@@ -514,7 +544,7 @@ export async function listEntriesWithPending(
 	).map((entries) => entries.map(toEntry));
 }
 
-/** A new task for a sub-agent's calls, once the one before was abandoned. */
+/** A new task for a sub-agent's calls, once the one before was finished while it was at work. */
 export async function setThreadTask(
 	threadId: string,
 	taskId: string,
@@ -584,9 +614,9 @@ async function holding(tx: Tx, thread: ThreadRow): Promise<boolean> {
 
 // Gives the thread's pending entries their place in the log, in the order they landed, once
 // nothing holds them any more: after what the inference job that just ended wrote, or after the
-// result of the last call still open; and queues an inference job where the log is then ready
-// for one. With the thread locked.
-async function release(tx: Tx, thread: ThreadRow): Promise<void> {
+// result of the last call still open; and queues an inference job where the log then `wakes` the
+// agent. With the thread locked.
+async function release(tx: Tx, thread: ThreadRow, wakes: Wakes): Promise<void> {
 	if (await holding(tx, thread)) {
 		return;
 	}
@@ -598,7 +628,7 @@ async function release(tx: Tx, thread: ThreadRow): Promise<void> {
 	for (const {id} of pending) {
 		await tx.$executeRaw`UPDATE "AgentEntry" SET "seq" = nextval(pg_get_serial_sequence('"AgentEntry"', 'seq')), "pending" = false WHERE "id" = ${id}`;
 	}
-	if (readyForInference(await tailOf(tx, thread))) {
+	if (wakes(await tailOf(tx, thread))) {
 		await queueInference(tx, thread);
 	}
 }
@@ -606,11 +636,12 @@ async function release(tx: Tx, thread: ThreadRow): Promise<void> {
 // Lands an entry in the thread: a call's result in the log, directly after the answer that made
 // the call; anything else in the log too where nothing holds it, or pending until what holds it
 // ends (`release`). What lands in the log releases what was pending where it can, and wakes the
-// agent where the log is then ready. With the thread locked.
+// agent where the log then `wakes` it. With the thread locked.
 async function appendEntry(
 	tx: Tx,
 	thread: ThreadRow,
-	data: {kind: AgentEntryKind; text: string; callId?: string; isError?: boolean; jobId?: string},
+	data: NewEntry & {callId?: string; isError?: boolean; jobId?: string},
+	wakes: Wakes,
 ): Promise<EntryRow> {
 	const pending = data.kind !== 'tool_result' && (await holding(tx, thread));
 	const entry = await tx.agentEntry.create({
@@ -618,7 +649,7 @@ async function appendEntry(
 		select: entrySelect,
 	});
 	if (!pending) {
-		await release(tx, thread);
+		await release(tx, thread, wakes);
 	}
 	return toEntry(entry);
 }
@@ -631,19 +662,21 @@ async function answerCall(
 	kind: 'tool_result' | 'event',
 	answer: {callId: string; text: string; isError: boolean},
 	jobId: string,
+	wakes: Wakes,
 ): Promise<void> {
-	await appendEntry(tx, thread, {kind, ...answer, jobId});
+	await appendEntry(tx, thread, {kind, ...answer, jobId}, wakes);
 }
 
-// Ends a sub-agent's work with its report: its thread is done, its task finished with the report
-// as the outcome (unless abandoned meanwhile, as a task is a day after its last start), and the
-// report answers the call that started it, in the thread it was started from, from the sub-agent's
-// job that ended with it. With the sub-agent's thread locked; its parent's is locked here, after.
+// Ends a sub-agent's work: its thread is done, its task finished with the outcome, taken up again
+// where it was left open meanwhile (@proxy/utils/tasks), and the report answers the call that
+// started it, in the thread it was started from, from the sub-agent's job that ended with it.
+// With the sub-agent's thread locked; its parent's is locked here, after.
 async function endSubAgent(
 	tx: Tx,
 	thread: ThreadRow,
-	report: {text: string; isError: boolean},
+	end: SubAgentEnd,
 	jobId: string,
+	wakes: Wakes,
 ): Promise<void> {
 	if (
 		thread.finishedAt !== null ||
@@ -656,25 +689,22 @@ async function endSubAgent(
 	await tx.agentThread.update({where: {id: thread.id}, data: {finishedAt: now}});
 	if (thread.taskId !== null) {
 		await tx.agentTask.updateMany({
-			where: {
-				id: thread.taskId,
-				finishedAt: null,
-				lastStartedAt: {gt: new Date(now.getTime() - TASK_ABANDONED_AFTER_MS)},
-			},
-			data: {finishedAt: now, outcome: cut(report.text, MAX_TASK_TEXT)},
+			where: {id: thread.taskId, finishedAt: null},
+			data: {finishedAt: now, lastActiveAt: now, outcome: end.outcome},
 		});
 	}
 	const parent = await lockThread(tx, thread.parentThreadId);
 	if (!parent) {
 		return;
 	}
-	await answerCall(tx, parent, 'event', {callId: thread.parentCallId, ...report}, jobId);
+	await answerCall(tx, parent, 'event', {callId: thread.parentCallId, ...end.report}, jobId, wakes);
 }
 
-/** Lands what the person said, and wakes the agent. `Ok(null)` means no such thread. */
+/** Lands what the person said, and wakes the agent where the log `wakes` it. `Ok(null)` means no such thread. */
 export async function appendPersonMessage(
 	threadId: string,
 	text: string,
+	wakes: Wakes,
 ): Promise<Result<EntryRow | null, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
@@ -682,7 +712,7 @@ export async function appendPersonMessage(
 			if (!thread) {
 				return null;
 			}
-			return appendEntry(tx, thread, {kind: 'person', text});
+			return appendEntry(tx, thread, {kind: 'person', text}, wakes);
 		}),
 	);
 }
@@ -786,17 +816,16 @@ export async function finishJob(
 }
 
 /**
- * Marks the worker's job failed, saying why, and keeps the thread going: a tool job's call is
- * answered with the failure, so the agent isn't left waiting for it, or, where the call was
- * answered as started already, a delegation, the failure comes as an event, as its report would
- * have; a turn that failed in the member's conversation is answered with the failure, so the
- * person sees it and can go on; and a sub-agent whose turn failed reports the failure, so neither
- * is whoever delegated to it. `Ok(false)` when the job was no longer the worker's.
+ * Marks the worker's job failed, saying why, and writes what `noteFor` says of it, for the job as
+ * it was and its thread, locked, so the thread goes on. `Ok(false)` when the job was no longer
+ * the worker's, and nothing is written.
  */
 export async function failJob(
 	jobId: string,
 	workerId: string,
 	error: string,
+	noteFor: (job: JobRow, thread: ThreadRow) => FailureNote | null,
+	wakes: Wakes,
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
@@ -808,51 +837,53 @@ export async function failJob(
 			if (!(await fence(tx, jobId, workerId, 'failed', error))) {
 				return false;
 			}
-			if (!thread) {
+			const note = thread ? noteFor(job, thread) : null;
+			if (!thread || !note) {
 				return true;
 			}
-			if (job.kind === 'tool' && job.callId !== null) {
-				const answered = await tx.agentEntry.count({
-					where: {threadId: thread.id, kind: 'tool_result', callId: job.callId},
-				});
-				await answerCall(
-					tx,
-					thread,
-					answered > 0 ? 'event' : 'tool_result',
-					{
-						callId: job.callId,
-						text: `This call could not be run: ${error}`,
-						isError: true,
-					},
-					job.id,
-				);
-				return true;
-			}
-			if (job.kind !== 'inference') {
-				return true;
-			}
-			if (thread.parentThreadId !== null) {
-				await endSubAgent(
-					tx,
-					thread,
-					{text: `The sub-agent failed: ${error}`, isError: true},
-					job.id,
-				);
-				return true;
-			}
-			await tx.agentEntry.create({
-				data: {
-					threadId: thread.id,
-					kind: 'assistant' satisfies AgentEntryKind,
-					text: `Something went wrong on my side, so I could not answer: ${error.replace(/\.$/, '')}. Say something to try again.`,
-					isError: true,
-					jobId: job.id,
-				},
-			});
-			await release(tx, thread);
+			await writeNote(tx, thread, note, job.id, wakes);
 			return true;
 		}),
 	);
+}
+
+// Writes what a failed job leaves in its thread. With the thread locked.
+async function writeNote(
+	tx: Tx,
+	thread: ThreadRow,
+	note: FailureNote,
+	jobId: string,
+	wakes: Wakes,
+): Promise<void> {
+	if (note.kind === 'answer') {
+		const answered = await tx.agentEntry.count({
+			where: {threadId: thread.id, kind: 'tool_result', callId: note.callId},
+		});
+		const kind = answered > 0 ? 'event' : 'tool_result';
+		await answerCall(
+			tx,
+			thread,
+			kind,
+			{callId: note.callId, text: note.text, isError: true},
+			jobId,
+			wakes,
+		);
+		return;
+	}
+	if (note.kind === 'end') {
+		await endSubAgent(tx, thread, note.end, jobId, wakes);
+		return;
+	}
+	await tx.agentEntry.create({
+		data: {
+			threadId: thread.id,
+			kind: 'assistant' satisfies AgentEntryKind,
+			text: note.text,
+			isError: true,
+			jobId,
+		},
+	});
+	await release(tx, thread, wakes);
 }
 
 /**
@@ -865,6 +896,7 @@ export async function requeueJob(
 	threadId: string,
 	runAt: Date,
 	why: string,
+	wakes: Wakes,
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
@@ -880,7 +912,7 @@ export async function requeueJob(
 				data: {jobId, threadId, kind: 'requeued', workerId, error: why},
 			});
 			if (thread) {
-				await release(tx, thread);
+				await release(tx, thread, wakes);
 			}
 			return true;
 		}),
@@ -932,19 +964,20 @@ export async function appendSummary(
 }
 
 /**
- * Finishes an inference job with the model's answer: the assistant entry, and a tool job for each
- * of its calls, due when its plan says; a call with a placeholder in its plan, a delegation, is
- * answered with it at once, and what it comes to lands as an event. A sub-agent's answer with no
- * calls is its report, which ends its work and answers the call that started it. What landed
- * meanwhile takes its place in the log after the answer, and wakes the agent where the log is
- * then ready. `Ok(false)` when the job was no longer the worker's, and nothing is written.
+ * Finishes an inference job with the model's answer: the assistant entry, then what follows it,
+ * a tool job for each of its calls, due when its plan says, a call with a placeholder in its plan,
+ * a delegation, answered with it at once, what it comes to landing as an event; or, a sub-agent's
+ * report, the end of its work. What landed meanwhile takes its place in the log after the answer,
+ * and wakes the agent where the log then `wakes` it. `Ok(false)` when the job was no longer the
+ * worker's, and nothing is written.
  */
 export async function completeInference(
 	jobId: string,
 	workerId: string,
 	threadId: string,
 	turn: AssistantTurn,
-	plans: Record<string, CallPlan>,
+	after: AfterAnswer,
+	wakes: Wakes,
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
@@ -965,14 +998,15 @@ export async function completeInference(
 				},
 				select: {id: true},
 			});
-			if (turn.toolCalls.length === 0 && thread.parentThreadId !== null) {
-				await endSubAgent(tx, thread, {text: turn.text, isError: false}, jobId);
+			if ('end' in after) {
+				await endSubAgent(tx, thread, after.end, jobId, wakes);
 				return true;
 			}
 			if (turn.toolCalls.length === 0) {
-				await release(tx, thread);
+				await release(tx, thread, wakes);
 				return true;
 			}
+			const {plans} = after;
 			await tx.agentJob.createMany({
 				data: turn.toolCalls.map((call) => ({
 					threadId,
@@ -992,22 +1026,22 @@ export async function completeInference(
 			if (started.length > 0) {
 				await tx.agentEntry.createMany({data: started});
 			}
-			await release(tx, thread);
+			await release(tx, thread, wakes);
 			return true;
 		}),
 	);
 }
 
 /**
- * Finishes a tool job with what the call answered, and wakes the agent once the log is ready:
- * every call of its last answer has its result. `Ok(false)` when the job was no longer the
- * worker's, and nothing is written.
+ * Finishes a tool job with what the call answered, and wakes the agent where the log then
+ * `wakes` it. `Ok(false)` when the job was no longer the worker's, and nothing is written.
  */
 export async function completeToolJob(
 	jobId: string,
 	workerId: string,
 	threadId: string,
 	result: {callId: string; text: string; isError: boolean},
+	wakes: Wakes,
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
@@ -1015,23 +1049,25 @@ export async function completeToolJob(
 			if (!thread || !(await fence(tx, jobId, workerId, 'done'))) {
 				return false;
 			}
-			await answerCall(tx, thread, 'tool_result', result, jobId);
+			await answerCall(tx, thread, 'tool_result', result, jobId, wakes);
 			return true;
 		}),
 	);
 }
 
 /**
- * Finishes a delegate call's tool job by starting the sub-agent: its task, run as the persona, its
- * thread with the brief as the first thing said in it, and its first turn queued. The call was answered as the
- * turn was written; the report lands as an event. `Ok(false)` when the job was no longer the
- * worker's, and nothing is made.
+ * Finishes a delegate call's tool job by starting the sub-agent: its task, its thread, the
+ * parent's agent, persona and member's, under the call it answers, and the first entries of its
+ * log, which wake it where they `wake` it. The call was answered as the turn was written; the
+ * report lands as an event. `Ok(false)` when the job was no longer the worker's, and nothing is
+ * made.
  */
 export async function startSubAgent(
 	jobId: string,
 	workerId: string,
 	parent: ThreadRow,
-	call: {id: string; title: string; brief: string},
+	start: SubAgentStart,
+	wakes: Wakes,
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
@@ -1041,18 +1077,7 @@ export async function startSubAgent(
 			}
 			const now = new Date();
 			const task = await tx.agentTask.create({
-				data: {
-					orgId: parent.orgId,
-					agentId: parent.agentId,
-					ownerUserId: parent.userId,
-					personaId: parent.personaId,
-					parentId: null,
-					title: call.title,
-					goal: cut(call.brief, MAX_TASK_TEXT),
-					via: 'harness',
-					createdAt: now,
-					lastStartedAt: now,
-				},
+				data: {...start.task, createdAt: now, lastActiveAt: now},
 				select: {id: true},
 			});
 			const thread = await tx.agentThread.create({
@@ -1062,16 +1087,15 @@ export async function startSubAgent(
 					personaId: parent.personaId,
 					userId: parent.userId,
 					parentThreadId: parent.id,
-					parentCallId: call.id,
-					title: call.title,
+					parentCallId: start.callId,
+					title: start.title,
 					taskId: task.id,
 				},
-				select: {id: true},
+				select: threadSelect,
 			});
-			await tx.agentEntry.create({
-				data: {threadId: thread.id, kind: 'person' satisfies AgentEntryKind, text: call.brief},
-			});
-			await tx.agentJob.create({data: {threadId: thread.id, kind: 'inference'}});
+			for (const entry of start.entries) {
+				await appendEntry(tx, thread, entry, wakes);
+			}
 			return true;
 		}),
 	);

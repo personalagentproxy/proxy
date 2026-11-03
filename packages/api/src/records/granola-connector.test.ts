@@ -71,10 +71,10 @@ beforeEach(() => {
 	};
 });
 
-describe('granolaConnector.list', () => {
+describe('granolaNotesConnector.list', () => {
 	test('lists 30 days of meetings as Granola orders them, pointing at the 30 before them', async () => {
-		const {granolaConnector} = await import('./granola-connector');
-		const page = (await granolaConnector.list(targetFor('notes'), {search: null, page: '2026-10-05', filter: null, parent: null})).unwrap();
+		const {granolaNotesConnector} = await import('./granola-connector');
+		const page = (await granolaNotesConnector.list(targetFor('notes'), {search: null, page: '2026-10-05', filter: null, parent: null})).unwrap();
 
 		expect(tools.calls).toEqual([{name: 'list_meetings', args: {time_range: 'custom', custom_start: '2026-09-06', custom_end: '2026-10-05'}}]);
 		expect(page.records.map((record) => record.values)).toEqual([
@@ -87,8 +87,8 @@ describe('granolaConnector.list', () => {
 	});
 
 	test('the first page runs to tomorrow', async () => {
-		const {granolaConnector} = await import('./granola-connector');
-		await granolaConnector.list(targetFor('notes'), {search: null, page: null, filter: null, parent: null});
+		const {granolaNotesConnector} = await import('./granola-connector');
+		await granolaNotesConnector.list(targetFor('notes'), {search: null, page: null, filter: null, parent: null});
 
 		const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 		expect(tools.calls[0]?.args.custom_end).toBe(tomorrow);
@@ -96,8 +96,8 @@ describe('granolaConnector.list', () => {
 
 	test('a page without meetings skips to the 30 days up to the newest one before it', async () => {
 		tools.answer = ({args}) => (args.custom_start === '2023-01-01' ? meetingsData([spring, winter]) : meetingsData([]));
-		const {granolaConnector} = await import('./granola-connector');
-		const page = (await granolaConnector.list(targetFor('notes'), {search: null, page: '2026-09-05', filter: null, parent: null})).unwrap();
+		const {granolaNotesConnector} = await import('./granola-connector');
+		const page = (await granolaNotesConnector.list(targetFor('notes'), {search: null, page: '2026-09-05', filter: null, parent: null})).unwrap();
 
 		expect(tools.calls.map((call) => call.args)).toEqual([
 			{time_range: 'custom', custom_start: '2026-08-07', custom_end: '2026-09-05'},
@@ -109,25 +109,25 @@ describe('granolaConnector.list', () => {
 
 	test('the list ends where the meetings run out', async () => {
 		tools.answer = () => meetingsData([]);
-		const {granolaConnector} = await import('./granola-connector');
-		const page = (await granolaConnector.list(targetFor('notes'), {search: null, page: '2026-09-05', filter: null, parent: null})).unwrap();
+		const {granolaNotesConnector} = await import('./granola-connector');
+		const page = (await granolaNotesConnector.list(targetFor('notes'), {search: null, page: '2026-09-05', filter: null, parent: null})).unwrap();
 
 		expect(page).toEqual({records: [], nextPage: null});
 	});
 
 	test('a page token that is not a day is refused without asking Granola', async () => {
-		const {granolaConnector} = await import('./granola-connector');
-		const result = await granolaConnector.list(targetFor('notes'), {search: null, page: 'drop table', filter: null, parent: null});
+		const {granolaNotesConnector} = await import('./granola-connector');
+		const result = await granolaNotesConnector.list(targetFor('notes'), {search: null, page: 'drop table', filter: null, parent: null});
 
 		expect(result.unwrapErr().kind).toBe('validation_error');
 		expect(tools.calls).toEqual([]);
 	});
 });
 
-describe('granolaConnector.get', () => {
+describe('opening meetings', () => {
 	test('opens a note with its attendees, summary and link', async () => {
-		const {granolaConnector} = await import('./granola-connector');
-		const record = (await granolaConnector.get(targetFor('notes'), MEETING_ID)).unwrap();
+		const {granolaNotesConnector} = await import('./granola-connector');
+		const record = (await granolaNotesConnector.get(targetFor('notes'), MEETING_ID)).unwrap();
 
 		expect(tools.calls).toEqual([{name: 'get_meetings', args: {meeting_ids: [MEETING_ID]}}]);
 		expect(record.values).toEqual({
@@ -141,8 +141,8 @@ describe('granolaConnector.get', () => {
 	});
 
 	test('opens a transcript as Granola writes it, without the summary', async () => {
-		const {granolaConnector} = await import('./granola-connector');
-		const record = (await granolaConnector.get(targetFor('transcripts'), MEETING_ID)).unwrap();
+		const {granolaTranscriptsConnector} = await import('./granola-connector');
+		const record = (await granolaTranscriptsConnector.get(targetFor('transcripts'), MEETING_ID)).unwrap();
 
 		expect(tools.calls.map((call) => call.name)).toEqual(['get_meetings', 'get_meeting_transcript']);
 		expect(record.values).toEqual({title: 'Q3 planning & budget', date: 'Sep 22, 2026 11:00 AM PDT', transcript: 'System audio: Shall we start?\n\nMicrophone: Sounds good.'});
@@ -151,10 +151,65 @@ describe('granolaConnector.get', () => {
 
 	test('a meeting Granola does not know, or an id that is not one, is not found', async () => {
 		tools.answer = () => '{"meetings":[],"not_found":["00000000-0000-4000-8000-000000000000"]}';
-		const {granolaConnector} = await import('./granola-connector');
+		const {granolaNotesConnector} = await import('./granola-connector');
 
-		expect((await granolaConnector.get(targetFor('notes'), '00000000-0000-4000-8000-000000000000')).unwrapErr().kind).toBe('not_found');
-		expect((await granolaConnector.get(targetFor('notes'), '../../folders')).unwrapErr().kind).toBe('not_found');
+		expect((await granolaNotesConnector.get(targetFor('notes'), '00000000-0000-4000-8000-000000000000')).unwrapErr().kind).toBe('not_found');
+		expect((await granolaNotesConnector.get(targetFor('notes'), '../../folders')).unwrapErr().kind).toBe('not_found');
 		expect(tools.calls).toHaveLength(1);
+	});
+});
+
+describe('for the Ask widget', () => {
+	test('the meetings of some days, Granola asked to the day after, those outside the days left out', async () => {
+		const {granolaNotesConnector} = await import('./granola-connector');
+		const found = (await granolaNotesConnector.meetings.between(targetFor('notes'), '2026-09-22', '2026-09-22')).unwrap();
+
+		expect(tools.calls).toEqual([{name: 'list_meetings', args: {time_range: 'custom', custom_start: '2026-09-22', custom_end: '2026-09-23'}}]);
+		expect(found).toEqual([
+			{
+				id: MEETING_ID,
+				title: 'Q3 planning & budget',
+				date: 'Sep 22, 2026 11:00 AM PDT',
+				participants: 'Alex (note creator) from Acme <alex@acme.com>, Sam <sam@example.com>',
+				link: `https://notes.granola.ai/d/${MEETING_ID}`,
+				notes: '## Q3\n\nWe planned Q3. ',
+			},
+		]);
+	});
+
+	test('the meetings with the ids, their notes read in one call', async () => {
+		const {granolaNotesConnector} = await import('./granola-connector');
+		const read = (await granolaNotesConnector.meetings.withNotes(targetFor('notes'), [MEETING_ID, 'd63951cd-e802-4af0-b2ca-8613765f8ffc'])).unwrap();
+
+		expect(tools.calls).toEqual([{name: 'get_meetings', args: {meeting_ids: [MEETING_ID, 'd63951cd-e802-4af0-b2ca-8613765f8ffc']}}]);
+		expect(read.map((meeting) => [meeting.title, meeting.link])).toEqual([
+			['Q3 planning & budget', `https://notes.granola.ai/d/${MEETING_ID}`],
+			['Weekly sync', null],
+		]);
+	});
+
+	test('reads a meeting whole, its notes and its transcript', async () => {
+		const {granolaNotesConnector} = await import('./granola-connector');
+		const reading = (await granolaNotesConnector.readText(targetFor('notes'), MEETING_ID, (collectionId) => collectionId === 'transcripts')).unwrap();
+
+		expect(reading).toEqual({
+			title: 'Q3 planning & budget',
+			link: `https://notes.granola.ai/d/${MEETING_ID}`,
+			text: [
+				'Meeting: Q3 planning & budget',
+				'When: Sep 22, 2026 11:00 AM PDT',
+				'Participants: Alex (note creator) from Acme <alex@acme.com>, Sam <sam@example.com>',
+				'Notes:\n## Q3\n\nWe planned Q3.',
+				'Transcript ("Microphone" is the person asking, "System audio" the others):\nSystem audio: Shall we start?\n\nMicrophone: Sounds good.',
+			].join('\n\n'),
+		});
+	});
+
+	test('reads no transcript the sign-in didn’t cover', async () => {
+		const {granolaNotesConnector} = await import('./granola-connector');
+		const reading = (await granolaNotesConnector.readText(targetFor('notes'), MEETING_ID, () => false)).unwrap();
+
+		expect(tools.calls.map((call) => call.name)).toEqual(['get_meetings']);
+		expect(reading.text).not.toContain('Transcript');
 	});
 });

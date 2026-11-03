@@ -7,7 +7,8 @@ import {Section} from '@/components/section';
 import {useAgentMe} from '@/hooks/use-agent-target';
 import {allows, canStartNew, describeActions} from '@/lib/access';
 import {integrationOf, type Integration} from '@/lib/integrations';
-import {taskHome, useTaskId} from '@/lib/agent-task';
+import {useTaskId} from '@/hooks/use-task-id';
+import {taskHome} from '@/lib/agent-task';
 import {noticeFromState} from '@/pages/agent/agent-collection-page';
 
 // Everything this login can do, connection by connection: what it is allowed, and the lists it can

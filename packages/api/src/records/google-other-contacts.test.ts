@@ -85,8 +85,8 @@ beforeEach(() => {
 
 describe('listing other contacts', () => {
 	test('a page of Google’s list, each by its name, addresses and numbers', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const page = (await googleConnector.list(target, {search: null, page: null, filter: null, parent: null})).unwrap();
+		const {otherContactsConnector} = await import('./google-other-contacts');
+		const page = (await otherContactsConnector.list(target, {search: null, page: null, filter: null, parent: null})).unwrap();
 
 		const [request] = google.requests;
 		expect(request?.url.pathname).toBe('/v1/otherContacts');
@@ -101,15 +101,15 @@ describe('listing other contacts', () => {
 	});
 
 	test('the next page goes on from Google’s token', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.list(target, {search: null, page: 'google-page-2', filter: null, parent: null});
+		const {otherContactsConnector} = await import('./google-other-contacts');
+		await otherContactsConnector.list(target, {search: null, page: 'google-page-2', filter: null, parent: null});
 
 		expect(google.requests[0]?.url.searchParams.get('pageToken')).toBe('google-page-2');
 	});
 
 	test('a search is Google’s, after the empty one Google asks for first', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const page = (await googleConnector.list(target, {search: 'dan', page: null, filter: null, parent: null})).unwrap();
+		const {otherContactsConnector} = await import('./google-other-contacts');
+		const page = (await otherContactsConnector.list(target, {search: 'dan', page: null, filter: null, parent: null})).unwrap();
 
 		expect(google.requests.map((request) => request.url.searchParams.get('query'))).toEqual(['', 'dan']);
 		expect(google.requests[1]?.url.searchParams.get('pageSize')).toBe('30');
@@ -120,10 +120,10 @@ describe('listing other contacts', () => {
 
 describe('opening an other contact', () => {
 	test('it is found in Google’s list, a page of 1000 at a time', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {otherContactsConnector} = await import('./google-other-contacts');
 		google.answer = (request) =>
 			request.url.searchParams.get('pageToken') === null ? Response.json({otherContacts: [UNNAMED], nextPageToken: 'google-page-2'}) : Response.json({otherContacts: [DANA]});
-		const record = (await googleConnector.get(target, 'c222')).unwrap();
+		const record = (await otherContactsConnector.get(target, 'c222')).unwrap();
 
 		expect(google.requests.map((request) => [request.url.searchParams.get('pageSize'), request.url.searchParams.get('pageToken')])).toEqual([
 			['1000', null],
@@ -133,10 +133,10 @@ describe('opening an other contact', () => {
 	});
 
 	test('one not in the list, or an id that isn’t Google’s, is not found', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {otherContactsConnector} = await import('./google-other-contacts');
 		google.answer = () => Response.json({otherContacts: [UNNAMED]});
-		const missing = await googleConnector.get(target, 'c404');
-		const wrong = await googleConnector.get(target, '../people/c222');
+		const missing = await otherContactsConnector.get(target, 'c404');
+		const wrong = await otherContactsConnector.get(target, '../people/c222');
 
 		expect(missing.isErr() && missing.error.kind).toBe('not_found');
 		expect(wrong.isErr() && wrong.error.kind).toBe('not_found');
@@ -146,21 +146,13 @@ describe('opening an other contact', () => {
 
 describe('saving an other contact', () => {
 	test('copies its names, addresses and numbers into Google Contacts', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const result = (await googleConnector.commands?.save?.(target, 'c222'))?.unwrap();
+		const {otherContactsConnector} = await import('./google-other-contacts');
+		const result = (await otherContactsConnector.commands?.save?.(target, 'c222'))?.unwrap();
 
 		const [request] = google.requests;
 		expect(request?.method).toBe('POST');
 		expect(request?.url.pathname).toBe('/v1/otherContacts/c222:copyOtherContactToMyContactsGroup');
 		expect(JSON.parse(request?.body ?? '').copyMask).toBe('names,emailAddresses,phoneNumbers');
 		expect(result).toBeNull();
-	});
-
-	test('other contacts are never made, edited or deleted here', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const results = await Promise.all([googleConnector.create(target, {name: 'Dana'}, null), googleConnector.update(target, 'c222', {name: 'Dana'}), googleConnector.remove(target, 'c222')]);
-
-		expect(results.map((result) => result.isErr() && result.error.kind)).toEqual(['validation_error', 'validation_error', 'validation_error']);
-		expect(google.requests).toEqual([]);
 	});
 });

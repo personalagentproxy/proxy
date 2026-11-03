@@ -1,5 +1,5 @@
 import * as React from 'react';
-import {cn} from 'cn';
+import {cn} from '@proxy/ui/lib/utils';
 
 function Textarea({className, ...props}: React.ComponentProps<'textarea'>) {
 	return (

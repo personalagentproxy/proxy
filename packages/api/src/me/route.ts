@@ -5,19 +5,17 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import {listOrgConnectionsWithCredential, listOwnConnectionsWithCredential} from '@proxy/db/connection';
 import {listUserOrgs, removeMembership} from '@proxy/db/organization';
 import {deleteUser, getUserFromId} from '@proxy/db/user';
+import type {Me} from '@proxy/contracts/me';
 
+import {unknownPasswordHash} from '../agents/unknown-password';
 import {clearSessionCookie} from '../auth/session';
 import {beforeDisconnectAll} from '../connections/disconnect';
 import {log} from '../observability/log';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {sendApiError} from '../server/response';
 
-export type MeResponse = {
-	user: {id: string; email: string; name: string | null; image: string | null};
-};
-
 /** Who is signed in. The web app's guard: 401 means "send them to /login". The organizations they are in are `GET /api/orgs`. */
-export function handleMeRoute(request: AuthenticatedRequest): Promise<Result<MeResponse, ApiError>> {
+export function handleMeRoute(request: AuthenticatedRequest): Promise<Result<Me, ApiError>> {
 	return Do(async ($) => {
 		const user = $(await getUserFromId(request.user.userId));
 		if (!user) {
@@ -46,7 +44,7 @@ function deleteAccount(userId: string): Promise<Result<void, ApiError>> {
 			await beforeDisconnectAll(connections);
 			undone += connections.length;
 			if (!owned) {
-				$(await removeMembership({orgId: org.id, userId}));
+				$(await removeMembership({orgId: org.id, userId, sharedAgentPasswordHash: await unknownPasswordHash()}));
 			}
 		}
 		$(await deleteUser(userId));

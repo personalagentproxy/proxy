@@ -1,13 +1,10 @@
 import {
 	BotIcon,
 	HomeIcon,
-	LibraryIcon,
 	LogOutIcon,
 	MessageSquareIcon,
 	PlugIcon,
 	ScrollTextIcon,
-	SettingsIcon,
-	UsersIcon,
 	type LucideIcon,
 } from 'lucide-react';
 import type {Experiment} from '@proxy/utils';
@@ -15,7 +12,6 @@ import {Link, useLocation} from 'react-router';
 import {signOut} from '@/client/auth-client';
 import {OrgSwitcher} from '@/components/org-switcher';
 import {PersonAvatar} from '@/components/person-avatar';
-import {ThemeMenu} from '@/components/theme-menu';
 import {useExperiments} from '@/hooks/use-experiment';
 import {
 	Sidebar,
@@ -33,16 +29,18 @@ import {useHuman} from '@/hooks/use-human';
 // `experiment` is the experiment a destination is behind, shown only with it on.
 type Destination = {to: string; label: string; icon: LucideIcon; experiment?: Experiment};
 
-// The organization's, under the switcher, each under its slug.
-const DESTINATIONS: Destination[] = [
-	{to: '', label: 'Home', icon: HomeIcon},
-	{to: '/chat', label: 'Chat', icon: MessageSquareIcon, experiment: 'harness'},
-	{to: '/connections', label: 'Connections', icon: PlugIcon},
-	{to: '/agents', label: 'Agent permissions', icon: BotIcon},
-	{to: '/vault', label: 'Vault', icon: LibraryIcon},
-	{to: '/activity', label: 'Activity', icon: ScrollTextIcon},
-	{to: '/members', label: 'Members', icon: UsersIcon},
-	{to: '/settings', label: 'Settings', icon: SettingsIcon},
+// The organization's, under the switcher, each under its slug, in groups set apart from each
+// other. Its members and settings are in the switcher.
+const GROUPS: Destination[][] = [
+	[
+		{to: '', label: 'Home', icon: HomeIcon},
+		{to: '/chat', label: 'Chat', icon: MessageSquareIcon, experiment: 'harness'},
+	],
+	[
+		{to: '/connections', label: 'Connections', icon: PlugIcon},
+		{to: '/agents', label: 'Agent permissions', icon: BotIcon},
+	],
+	[{to: '/activity', label: 'Activity', icon: ScrollTextIcon}],
 ];
 
 // Each destination is lit on its own pages too, as `/acme/connections/:id`; Home only on itself,
@@ -51,19 +49,21 @@ function isActive(pathname: string, path: string, home: string): boolean {
 	return path === home ? pathname === home : pathname.startsWith(path);
 }
 
-// The stock shadcn sidebar: a rail in icon mode on desktop, labels in tooltips and ⌘B to expand
-// it; a sheet from the left on phones, opened from the header and closed again on every pick. The
-// organization switcher sits at its top, with the organization's pages under it; the person's own,
-// their account, theme and signing out, at its foot.
+// The stock shadcn sidebar: always a rail in icon mode on desktop, labels in tooltips; a sheet from
+// the left on phones, opened from the header and closed again on every pick. The organization
+// switcher sits at its top, with the organization's pages in groups under it; the person's own,
+// their account and signing out, at its foot.
 export function AppSidebar() {
 	const {pathname} = useLocation();
 	const human = useHuman();
 	const experiments = useExperiments();
 	const {setOpenMobile} = useSidebar();
 	const home = `/${human?.org.slug ?? ''}`;
-	const destinations = DESTINATIONS.filter(
-		(destination) =>
-			destination.experiment === undefined || experiments.includes(destination.experiment),
+	const groups = GROUPS.map((group) =>
+		group.filter(
+			(destination) =>
+				destination.experiment === undefined || experiments.includes(destination.experiment),
+		),
 	);
 
 	return (
@@ -76,24 +76,26 @@ export function AppSidebar() {
 				</SidebarMenu>
 			</SidebarHeader>
 			<SidebarContent>
-				<SidebarGroup className="pt-0">
-					<SidebarMenu>
-						{destinations.map((destination) => (
-							<SidebarMenuItem key={destination.to}>
-								<SidebarMenuButton
-									isActive={isActive(pathname, `${home}${destination.to}`, home)}
-									tooltip={destination.label}
-									render={
-										<Link to={`${home}${destination.to}`} onClick={() => setOpenMobile(false)} />
-									}
-								>
-									<destination.icon />
-									<span>{destination.label}</span>
-								</SidebarMenuButton>
-							</SidebarMenuItem>
-						))}
-					</SidebarMenu>
-				</SidebarGroup>
+				{groups.map((group, index) => (
+					<SidebarGroup key={index} className={index === 0 ? 'pt-0' : undefined}>
+						<SidebarMenu>
+							{group.map((destination) => (
+								<SidebarMenuItem key={destination.to}>
+									<SidebarMenuButton
+										isActive={isActive(pathname, `${home}${destination.to}`, home)}
+										tooltip={destination.label}
+										render={
+											<Link to={`${home}${destination.to}`} onClick={() => setOpenMobile(false)} />
+										}
+									>
+										<destination.icon />
+										<span>{destination.label}</span>
+									</SidebarMenuButton>
+								</SidebarMenuItem>
+							))}
+						</SidebarMenu>
+					</SidebarGroup>
+				))}
 			</SidebarContent>
 			<SidebarFooter>
 				<SidebarMenu>
@@ -108,9 +110,6 @@ export function AppSidebar() {
 							</span>
 							<span>Account</span>
 						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<ThemeMenu />
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton

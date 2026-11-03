@@ -5,13 +5,15 @@ import {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {createOAuthAccount, getAccountByProvider} from '@proxy/db/auth';
-import {createUserFromOAuthProfile, deleteUser, getUserByEmail, getUserFromId, updateUserFromOAuthProfile} from '@proxy/db/user';
+import {deleteUser, getUserByEmail, getUserFromId, updateUserFromOAuthProfile} from '@proxy/db/user';
 import {formatFetchError, httpRequest, parseCookieHeader} from '@proxy/utils';
+import type {SignInMethods} from '@proxy/contracts/auth';
 
 import {plaidClient} from '../connections/plaid/plaid-client';
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
 import {googleOAuthClient} from '../utils/google-oauth-client';
+import {signUp} from '../orgs/provision';
 import {canSignUp, establishSessionAndRedirect, queryParam, redirectToLoginError, sanitizeCallbackUrl, timingSafeEqualString, useSecureCookies} from './session';
 
 /**
@@ -70,7 +72,7 @@ function getOAuthConfig(): OAuthConfig | null {
  * checks, and a bank connected through Plaid the server's Plaid keys.
  */
 export function handleSignInMethodsRoute(_req: Request, res: Response): void {
-	res.json({google: getOAuthConfig() !== null, needs: {google: googleOAuthClient() !== null, plaid: plaidClient() !== null}});
+	res.json({google: getOAuthConfig() !== null, needs: {google: googleOAuthClient() !== null, plaid: plaidClient() !== null}} satisfies SignInMethods);
 }
 
 const statePayloadSchema = z.object({
@@ -337,7 +339,8 @@ export async function handleGoogleCallbackRoute(req: Request, res: Response): Pr
 		return;
 	}
 
-	const createdResult = await createUserFromOAuthProfile({
+	// Name and picture from the profile; the address is not marked verified.
+	const createdResult = await signUp({
 		email: profile.email,
 		name: profile.name ?? null,
 		image: profile.picture ?? null,

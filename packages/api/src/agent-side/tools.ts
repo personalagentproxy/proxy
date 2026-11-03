@@ -3,6 +3,7 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {getAgentById, type AgentRow, type SignedInAgent} from '@proxy/db/agent';
+import type {agentMeSchema, ToolResult} from '@proxy/contracts/agent-side';
 import {logAgentRequest} from '@proxy/db/audit';
 import {listConnectionsWithCredential, type ConnectionRow} from '@proxy/db/connection';
 import type {Viewer} from '@proxy/db/viewer';
@@ -16,7 +17,6 @@ import {
 	type CollectionTool,
 	type Integration,
 	type Condition,
-	type McpTool,
 	type OwnSettings,
 	type ServerTool,
 	type Tool,
@@ -25,7 +25,8 @@ import {
 
 import {callCustomTool} from '../connections/custom/custom-mcp';
 import {needsSignIn, signInNeededError, unavailableActions, unavailableError} from '../connections/unavailable';
-import type {Connector, DataRecord, RecordPage, RecordTarget, RecordValues} from '../records/connector';
+import {isRecordStore, type Connector, type DataRecord, type RecordStore, type RecordTarget, type RecordValues} from '../records/connector';
+import {connectorFor} from '../records/connectors';
 import {parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
 import {integrationOf} from '../utils/connection-actions';
@@ -38,24 +39,6 @@ import {isPlainObject, parseToolParams} from './tool-params';
  * against the agent's access as it is now and logged with the task, a refused one too, and one the
  * provider fails; one that can't be logged fails rather than go unrecorded.
  */
-
-export type AgentConnection = {
-	id: string;
-	integrationId: string;
-	account: string;
-	// Shared with everyone in the organization, rather than the agent's owner's own.
-	shared: boolean;
-	// The actions the agent can take with the connection.
-	actions: string[];
-	// A custom MCP server's tools the agent may run, as the server describes them; null for every
-	// other integration.
-	tools: McpTool[] | null;
-	// What the person called the connection, where they named it.
-	name: string | null;
-};
-
-/** A page of records from a list, the record a tool opened, wrote or ran on (null once it is gone), or what a custom server's tool answered. */
-export type ToolResult = RecordPage | {record: DataRecord | null} | {text: string};
 
 // How much of a custom tool's params the activity log keeps.
 const MAX_LOGGED_PARAMS = 200;
@@ -87,7 +70,7 @@ export function requireAgent(signedIn: SignedInAgent): Promise<Result<AgentRow, 
 }
 
 /** Who the agent is and what it can do with each connection it reaches; connections it can't use are left out. */
-export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<{agent: {id: string; providerId: string; name: string}; connections: AgentConnection[]}, ApiError>> {
+export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.infer<typeof agentMeSchema>, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
 		const connections = $(await listConnectionsWithCredential(agentViewer(signedIn)))
@@ -133,7 +116,18 @@ export type TaskCaller = AgentCaller & {taskId: string | null};
 
 // `actions` are what the agent can do with the connection, and `refuse` why it can't do another;
 // `startedAt` is when the call came in, so the log can say how long it took.
-type ToolRun = {caller: TaskCaller; target: RecordTarget; connector: Connector; tool: CollectionTool; actions: string[]; refuse: (actionId: string) => ApiError; startedAt: number};
+type ToolRun<C extends Connector = Connector> = {
+	caller: TaskCaller;
+	target: RecordTarget;
+	connector: C;
+	tool: CollectionTool;
+	actions: string[];
+	refuse: (actionId: string) => ApiError;
+	startedAt: number;
+};
+
+// A run on a collection that keeps its records, as every tool but a command on values typed in is.
+type StoreRun = ToolRun<RecordStore>;
 
 function recordTitle(collection: Collection, values: RecordValues): string | null {
 	return values[collection.titleField]?.trim() || null;
@@ -185,9 +179,10 @@ function logFailure<T>(run: ToolRun, answer: Result<T, ApiError>, title: string 
  * Runs one of the connection's tools with `params`, as its input schema describes them, for the
  * caller's task, which has to be one of the agent's and still under way; a run without one is
  * refused, unlogged. A connection the agent doesn't reach, or a tool its integration doesn't have,
- * is not found and not logged; a tool whose action the agent doesn't have is refused and logged as
- * denied, saying how to allow it where the connection's sign-in didn't cover the action. A run the
- * provider fails, turning it down or out of reach, is logged as failed, with what went wrong.
+ * is not found and not logged; a tool whose action, or the one it needs beside it, the agent
+ * doesn't have is refused and logged as denied, saying how to allow it where the connection's
+ * sign-in didn't cover the action. A run the provider fails, turning it down or out of reach, is
+ * logged as failed, with what went wrong.
  * `readOnly` limits the run to tools that only read, or only to those that change something, as
  * the MCP server's `read` and `run` do; any other is refused, unlogged.
  */
@@ -202,7 +197,7 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 		]);
 		const agent = $(agentRead);
 		$(taskRead);
-		const {connection, integration, connector} = $(connectionRead);
+		const {connection, integration} = $(connectionRead);
 		const tool = $(requirePresent(findTool(integration, toolName), ApiErr.notFound('tool', toolName)));
 		if (options.readOnly !== undefined && options.readOnly !== tool.readOnly) {
 			return $(Err(ApiErr.validationError(tool.readOnly ? `${tool.name} only reads: use read for it` : `${tool.name} changes something: use run for it`)));
@@ -216,7 +211,7 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 		const run: ToolRun = {
 			caller,
 			target: {connection, collection},
-			connector: $(requirePresent(connector, ApiErr.notFound('tool', toolName))),
+			connector: $(requirePresent(connectorFor(integration.id, collection.id), ApiErr.notFound('tool', toolName))),
 			tool,
 			actions: actionsOf(agent, connection, integration, unavailable),
 			refuse: (actionId) => refusal(integration, agent, connection, unavailable, actionId),
@@ -225,9 +220,10 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 
 		// A list's search is logged, a refused one's too, so its params are read first.
 		const listParams = tool.kind === 'list' ? $(parseToolParams(tool, params)) : null;
-		if (!run.actions.includes(tool.action)) {
+		const missing = [tool.action, tool.requires].find((actionId) => actionId !== undefined && !run.actions.includes(actionId));
+		if (missing !== undefined) {
 			$(await log(run, 'denied', null, searchOf(listParams)));
-			return $(Err(run.refuse(tool.action)));
+			return $(Err(run.refuse(missing)));
 		}
 		return $(await execute(run, listParams ?? $(parseToolParams(tool, params))));
 	});
@@ -311,27 +307,34 @@ function runServerTool(
 	});
 }
 
+// Only a command on values typed in runs on a collection that is only run; the catalog gives such
+// a collection no other tool, so a run of another on it is a tool it doesn't have.
 function execute(run: ToolRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
 	const {kind} = run.tool;
+	if (kind === 'newCommand') {
+		return newCommand(run, params);
+	}
+	const {connector} = run;
+	if (!isRecordStore(connector)) {
+		return Promise.resolve(Err(ApiErr.notFound('tool', run.tool.name)));
+	}
+	const stored: StoreRun = {...run, connector};
 	if (kind === 'list') {
-		return list(run, params);
+		return list(stored, params);
 	}
 	if (kind === 'get') {
-		return get(run, params.id ?? '');
+		return get(stored, params.id ?? '');
 	}
 	if (kind === 'create') {
-		return create(run, params);
+		return create(stored, params);
 	}
 	if (kind === 'update') {
-		return update(run, params);
+		return update(stored, params);
 	}
 	if (kind === 'delete') {
-		return remove(run, params.id ?? '');
+		return remove(stored, params.id ?? '');
 	}
-	if (kind === 'command') {
-		return command(run, params.id ?? '');
-	}
-	return newCommand(run, params);
+	return command(stored, params.id ?? '');
 }
 
 // The params a write sets, without the record's id or the one a new record goes in.
@@ -349,7 +352,7 @@ function requireApplies(condition: Condition | undefined, record: DataRecord): R
 }
 
 // A list opened inside a record, in a nested collection, is logged with that record's title.
-function list(run: ToolRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
+function list(run: StoreRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
 		const {filterField} = run.target.collection;
 		const query = {search: searchOf(params), page: params.page ?? null, filter: filterField ? (params[filterField] ?? null) : null, parent: params.parent ?? null};
@@ -359,7 +362,7 @@ function list(run: ToolRun, params: Record<string, string>): Promise<Result<Tool
 	});
 }
 
-function get(run: ToolRun, recordId: string): Promise<Result<ToolResult, ApiError>> {
+function get(run: StoreRun, recordId: string): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
 		const record = $(await logFailure(run, await run.connector.get(run.target, recordId), null));
 		$(await log(run, 'allowed', recordTitle(run.target.collection, record.values)));
@@ -383,19 +386,21 @@ function requireFieldActions(run: ToolRun, values: RecordValues, before: RecordV
 	});
 }
 
-function create(run: ToolRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
+function create(run: StoreRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
+		const runner = $(requirePresent(run.connector.create, ApiErr.notFound('tool', run.tool.name)));
 		const values = $(parseRecordValues(run.target.collection, fieldsOf(params)));
 		$(await requireFieldActions(run, values));
-		const record = $(await logFailure(run, await run.connector.create(run.target, values, params.parent ?? null), recordTitle(run.target.collection, values)));
+		const record = $(await logFailure(run, await runner(run.target, values, params.parent ?? null), recordTitle(run.target.collection, values)));
 		$(await log(run, 'allowed', recordTitle(run.target.collection, record.values)));
 		return {record};
 	});
 }
 
 // Only the fields given change: the rest are the record's as it is.
-function update(run: ToolRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
+function update(run: StoreRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
+		const runner = $(requirePresent(run.connector.update, ApiErr.notFound('tool', run.tool.name)));
 		const {collection} = run.target;
 		const recordId = params.id ?? '';
 		const before = $(await logFailure(run, await run.connector.get(run.target, recordId), null));
@@ -403,23 +408,24 @@ function update(run: ToolRun, params: Record<string, string>): Promise<Result<To
 		const current = Object.fromEntries(collection.fields.filter((field) => !field.system).map((field) => [field.key, before.values[field.key] ?? '']));
 		const values = $(parseRecordValues(collection, {...current, ...fieldsOf(params)}));
 		$(await requireFieldActions(run, values, before.values));
-		const record = $(await logFailure(run, await run.connector.update(run.target, recordId, values, before), recordTitle(collection, values)));
+		const record = $(await logFailure(run, await runner(run.target, recordId, values, before), recordTitle(collection, values)));
 		$(await log(run, 'allowed', recordTitle(collection, record.values)));
 		return {record};
 	});
 }
 
-function remove(run: ToolRun, recordId: string): Promise<Result<ToolResult, ApiError>> {
+function remove(run: StoreRun, recordId: string): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
+		const runner = $(requirePresent(run.connector.remove, ApiErr.notFound('tool', run.tool.name)));
 		const before = $(await logFailure(run, await run.connector.get(run.target, recordId), null));
 		$(requireApplies(run.tool.where, before));
-		$(await logFailure(run, await run.connector.remove(run.target, recordId), recordTitle(run.target.collection, before.values)));
+		$(await logFailure(run, await runner(run.target, recordId), recordTitle(run.target.collection, before.values)));
 		$(await log(run, 'allowed', recordTitle(run.target.collection, before.values)));
 		return {record: null};
 	});
 }
 
-function command(run: ToolRun, recordId: string): Promise<Result<ToolResult, ApiError>> {
+function command(run: StoreRun, recordId: string): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
 		const runner = $(requirePresent(run.connector.commands?.[run.tool.operation], ApiErr.notFound('tool', run.tool.name)));
 		const before = $(await logFailure(run, await run.connector.get(run.target, recordId), null));
@@ -435,7 +441,8 @@ function newCommand(run: ToolRun, params: Record<string, string>): Promise<Resul
 		const runner = $(requirePresent(run.connector.newCommands?.[run.tool.operation], ApiErr.notFound('tool', run.tool.name)));
 		const values = $(parseRecordValues(run.target.collection, params));
 		const record = $(await logFailure(run, await runner(run.target, values), recordTitle(run.target.collection, values)));
-		$(await log(run, 'allowed', recordTitle(run.target.collection, values)));
+		// Titled as it came back where it did, as an attachment read by its number is by its name.
+		$(await log(run, 'allowed', (record && recordTitle(run.target.collection, record.values)) ?? recordTitle(run.target.collection, values)));
 		return {record};
 	});
 }

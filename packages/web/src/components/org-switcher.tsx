@@ -1,6 +1,6 @@
-import {CheckIcon, ChevronsUpDownIcon, PlusIcon} from 'lucide-react';
+import {CheckIcon, ChevronsUpDownIcon, PlusIcon, SettingsIcon, UsersIcon} from 'lucide-react';
 import {useState} from 'react';
-import {useNavigate} from 'react-router';
+import {Link, useLocation, useNavigate} from 'react-router';
 import {createOrg} from '@/client/orgs-client';
 import {Button} from '@proxy/ui/components/button';
 import {
@@ -16,6 +16,7 @@ import {
 	DropdownMenuContent,
 	DropdownMenuGroup,
 	DropdownMenuItem,
+	DropdownMenuLinkItem,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@proxy/ui/components/dropdown-menu';
@@ -42,19 +43,28 @@ export function OrgTile({org, className}: {org: {name: string}; className?: stri
 	);
 }
 
+// The organization's own pages, in the switcher under its organizations.
+const ORG_PAGES = [
+	{to: '/members', label: 'Members', icon: UsersIcon},
+	{to: '/settings', label: 'Settings', icon: SettingsIcon},
+];
+
 // The top of the sidebar's rail: the organization the address names, as its mark. Hovering it, or
-// clicking it on a touch screen, opens the switcher beside the rail. Everything on the human side
-// is that organization's; switching goes to another's address, its Home.
+// clicking it on a touch screen, opens the switcher beside the rail, with the organization's
+// members and settings, lit while one of them is open. Everything on the human side is that
+// organization's; switching goes to another's address, its Home.
 export function OrgSwitcher() {
 	const human = useHuman();
 	const {isMobile, setOpenMobile} = useSidebar();
 	const navigate = useNavigate();
+	const {pathname} = useLocation();
 	const [creating, setCreating] = useState(false);
 	if (!human) {
 		return null;
 	}
 
 	const activeOrg = human.org;
+	const onOrgPage = ORG_PAGES.some((page) => pathname.startsWith(`/${activeOrg.slug}${page.to}`));
 	const open = async (slug: string) => {
 		setOpenMobile(false);
 		await navigate(`/${slug}`);
@@ -72,6 +82,7 @@ export function OrgSwitcher() {
 						// on the rail the same on every side, so it centers on the icons as they do.
 						<SidebarMenuButton
 							aria-label={`Organization: ${activeOrg.name}`}
+							isActive={onOrgPage}
 							className="py-1.5 group-data-[collapsible=icon]:p-1.5!"
 						/>
 					}
@@ -100,6 +111,21 @@ export function OrgSwitcher() {
 									</span>
 								)}
 							</DropdownMenuItem>
+						))}
+					</DropdownMenuGroup>
+					<DropdownMenuSeparator />
+					<DropdownMenuGroup>
+						{ORG_PAGES.map((page) => (
+							<DropdownMenuLinkItem
+								key={page.to}
+								closeOnClick
+								render={
+									<Link to={`/${activeOrg.slug}${page.to}`} onClick={() => setOpenMobile(false)} />
+								}
+							>
+								<page.icon />
+								{page.label}
+							</DropdownMenuLinkItem>
 						))}
 					</DropdownMenuGroup>
 					<DropdownMenuSeparator />

@@ -1,12 +1,13 @@
 /// <reference types="bun" />
 
+import type {Org} from '@proxy/contracts/orgs';
+import type {DataRecord} from '@proxy/contracts/records';
 import {afterEach, describe, expect, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {HumanSide} from '@/components/human-side';
-import type {Org} from '@/client/orgs-client';
 import {VaultPage} from '@/pages/vault-page';
 import {testHuman, testOrg} from '@/test-org';
 
@@ -19,7 +20,10 @@ type Entry = {id: string; values: Record<string, string>};
 function vault(connectionId: string, entries: Entry[]) {
 	return {
 		connectionId,
-		entries: entries.map((entry) => ({...entry, updatedAt: '2026-10-21T00:00:00.000Z'})),
+		entries: entries.map((entry): DataRecord => ({
+			...entry,
+			updatedAt: '2026-10-21T00:00:00.000Z',
+		})),
 	};
 }
 
@@ -35,7 +39,7 @@ function renderVaultPage(entries: Entry[], options: {shared?: Entry[]; org?: Org
 				element: <HumanSide />,
 				children: [
 					{
-						path: '/:org/vault',
+						path: '/:org/connections/vault',
 						loader: () => ({
 							own: vault('vault-1', entries),
 							shared: vault('vault-2', options.shared ?? []),
@@ -45,7 +49,7 @@ function renderVaultPage(entries: Entry[], options: {shared?: Entry[]; org?: Org
 				],
 			},
 		],
-		{initialEntries: ['/acme/vault']},
+		{initialEntries: ['/acme/connections/vault']},
 	);
 
 	return render(

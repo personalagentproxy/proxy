@@ -3,10 +3,11 @@ import {randomBytes} from 'node:crypto';
 import type {Request, Response} from 'express';
 import {Ok, type Result} from 'ts-results-es';
 
-import {createUser, type CreatedUser, getUserByEmail} from '@proxy/db/user';
+import {type CreatedUser, getUserByEmail} from '@proxy/db/user';
 import type {ApiError} from '@proxy/utils';
 
 import {log} from '../observability/log';
+import {signUp} from '../orgs/provision';
 import {env} from '../utils/env';
 import {establishSession} from './session';
 
@@ -55,10 +56,10 @@ async function findOrCreateDevUser(): Promise<Result<CreatedUser, ApiError>> {
 		return Ok(existing.value);
 	}
 
-	return createUser({email: DEV_USER_EMAIL, name: 'Dev User', emailVerified: new Date()});
+	return signUp({email: DEV_USER_EMAIL, name: 'Dev User', emailVerified: new Date()});
 }
 
 function createThrowawayUser(): Promise<Result<CreatedUser, ApiError>> {
 	const email = `dev-${randomBytes(8).toString('hex')}@${DEV_USER_EMAIL_DOMAIN}`;
-	return createUser({email, name: 'Dev User', emailVerified: new Date()});
+	return signUp({email, name: 'Dev User', emailVerified: new Date()});
 }

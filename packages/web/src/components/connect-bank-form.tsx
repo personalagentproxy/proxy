@@ -1,3 +1,4 @@
+import type {Connection} from '@proxy/contracts/connections';
 import type {FetchError} from '@proxy/utils';
 import {Button} from '@proxy/ui/components/button';
 import {useEffect, useState, type ReactNode} from 'react';
@@ -5,7 +6,6 @@ import {usePlaidLink} from 'react-plaid-link';
 import {connectPlaid, createPlaidLinkToken} from '@/client/connections-client';
 import {SuccessLine} from '@/components/success-line';
 import {apiMessage} from '@/lib/agent-errors';
-import type {Connection} from '@/lib/types';
 import {useOrgSlug} from '@/hooks/use-org';
 
 function plaidErrorMessage(error: FetchError): string {

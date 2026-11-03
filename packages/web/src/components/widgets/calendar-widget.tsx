@@ -6,7 +6,7 @@ import {ConnectWidget} from '@/components/widgets/connect-widget';
 import {DayGrid} from '@/components/widgets/day-grid';
 import {dayAround, dayBounds, eventKey, searchFrom, timedItems} from '@/lib/calendar-day';
 import {Missing, WidgetFrame} from '@/components/widgets/widget-frame';
-import {useAgenda, useEvents, usePeople} from '@/lib/widget-lookups';
+import {useAgenda, useEvents, usePeople} from '@/hooks/widget-lookups';
 import {
 	dayAsked,
 	eventSearches,
@@ -62,9 +62,7 @@ export function CalendarWidget({intent, typed, now}: {intent: Intent; typed: str
 	const people = usePeople(lookFor.length > 0 ? lookFor : null);
 	const searches = eventSearches({name: first, what}, people.data);
 	const ready = searching && searches.length > 0 && (lookFor.length === 0 || !people.loading);
-	const found = useEvents(
-		ready ? {from: searchFrom(asked, now).toISOString(), searches} : null,
-	);
+	const found = useEvents(ready ? {from: searchFrom(asked, now).toISOString(), searches} : null);
 	const [picked, setPicked] = useState<string | null>(null);
 
 	const matches = found.data?.events ?? [];

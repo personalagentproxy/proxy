@@ -6,7 +6,7 @@ import {cn} from '@proxy/ui/lib/utils';
 // What a task set out to do and what came of it, one at a time: a switch between the two, and the
 // text itself, the one shown fading in and the room it takes growing or shrinking to fit, so
 // nothing below jumps. The two are separate so the page can place them apart; the page holds
-// which is shown. A task without an outcome yet, under way or given up on, has only its
+// which is shown. A task without an outcome yet, under way or left open, has only its
 // description: the switch is there, but can't be moved, and says so on hover. The switch is a
 // pair of tabs over the text as their panel, tied together by `id`, which the page gives both.
 

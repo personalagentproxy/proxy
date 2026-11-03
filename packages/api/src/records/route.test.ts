@@ -71,6 +71,19 @@ describe('records routes', () => {
 		expect(connector.remove).not.toHaveBeenCalled();
 	});
 
+	test('refuse to list or open a collection that is only run', async () => {
+		const run = {newCommands: {run: mock()}};
+		loadRecordTarget.mockResolvedValue(Ok({connection: {id: 'conn-1'}, collection: collection('exa', 'searches'), connector: run}));
+
+		const {handleListRecordsRoute, handleGetRecordRoute} = await import('./route');
+		const listed = await handleListRecordsRoute(makeRequest({connectionId: 'conn-1', collectionId: 'searches'}));
+		const opened = await handleGetRecordRoute(makeRequest({connectionId: 'conn-1', collectionId: 'searches', recordId: 'search'}));
+
+		expect(listed.unwrapErr().kind).toBe('forbidden');
+		expect(opened.unwrapErr().kind).toBe('forbidden');
+		expect(run.newCommands.run).not.toHaveBeenCalled();
+	});
+
 	test('refuse values the collection does not have', async () => {
 		const {handleUpdateRecordRoute} = await import('./route');
 		const result = await handleUpdateRecordRoute(makeRequest({connectionId: 'conn-1', collectionId: 'entries', recordId: 'rec-1'}, {values: {color: 'red'}}));

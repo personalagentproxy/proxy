@@ -46,7 +46,12 @@ export type Command = {
 	on: 'record' | 'new';
 	// The button: "Mark as read".
 	label: string;
+	// What an agent is told the tool does, where the label and the action don't say it, as
+	// reading an attachment needs the email and the attachment named.
+	description?: string;
 	action: string;
+	// The action it needs beside its own, as sending a reply needs Read, for the email it answers.
+	requires?: string;
 	// The records it applies to, when not every one.
 	where?: Condition;
 	// The activity log's line, `{}` standing for the record: "Marked {} as read", and what a refused
@@ -129,6 +134,10 @@ export type Integration = {
 	custom?: true;
 	// The tools of the connection a custom integration was built for, each a tool of its own.
 	mcpTools?: McpTool[];
+	// Connected on a form of its own rather than by signing in, at `/connections/new/<id>` in the web
+	// app and posted to `/api/orgs/:org/connections/<id>`: a mailbox with an app password, a database
+	// with a user's name and password, a bank through Plaid Link, a custom MCP server by its address.
+	form?: 'email' | 'database' | 'bank' | 'server';
 	// Connected by signing in to the provider, the sign-in starting at
 	// `/api/connections/<id>/start`: Google, and every integration built on its MCP server.
 	signIn?: true;

@@ -1,7 +1,9 @@
+import type {ActivityTimeline as ActivityAnswer, AuditEntry} from '@proxy/contracts/activity';
+import type {AgentLogin} from '@proxy/contracts/agents';
+import type {Connection} from '@proxy/contracts/connections';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useLocation, useSearchParams} from 'react-router';
 import {getActivityTimeline} from '@/client/agents-client';
-import type {ActivityTimeline as ActivityAnswer} from '@/client/schemas';
 import {AuditEntryDialog} from '@/components/audit-entry-dialog';
 import {ActivityTimeline, CHART_ATTRIBUTE} from '@/components/activity-timeline';
 import type {Window} from '@/lib/activity-timeline';
@@ -20,7 +22,6 @@ import {
 	zoomedOn,
 } from '@/lib/timeline-window';
 import {zoomPath} from '@/lib/zoom-path';
-import type {AgentLogin, AuditEntry, Connection} from '@/lib/types';
 import {Button} from '@proxy/ui/components/button';
 import {cn} from '@proxy/ui/lib/utils';
 import {

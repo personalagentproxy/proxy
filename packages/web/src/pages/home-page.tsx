@@ -1,6 +1,7 @@
 import type {FetchError} from '@proxy/utils';
 import {useEffect, useRef, useState} from 'react';
 import {useLoaderData} from 'react-router';
+import {INCOMPLETE, NO_WIDGET, type WidgetId} from '@proxy/contracts/intent';
 import {fillIntent, type Intent, pickIntent} from '@/client/intent-client';
 import {AgentTimeline} from '@/components/agent-timeline';
 import {AnimatedHeight} from '@/components/animated-height';
@@ -68,7 +69,7 @@ type Answer = {intent: Intent; text: string; at: Date; follows: boolean; filling
 // never kept) from a whole request no widget does (`none`), and as a backstop, `none` waits until
 // typing has paused on the text it was for, then stays while typing goes on until a widget fits.
 function saysUnsupported(answer: Answer, pausedOn: string): boolean {
-	return answer.intent.widget === 'none' && (answer.text === pausedOn || answer.follows);
+	return answer.intent.widget === NO_WIDGET && (answer.text === pausedOn || answer.follows);
 }
 
 // The start page, as Sana's: one input, and as it is typed in, it comes forward over the page,
@@ -116,7 +117,7 @@ export function HomePage() {
 
 	// The fields of `widget`, picked for `words`, shown when it is still the widget on screen and no
 	// newer fields are.
-	const fill = (words: string, widget: string, request: number) => {
+	const fill = (words: string, widget: WidgetId, request: number) => {
 		void fillIntent(org, words, widget).then((result) => {
 			if (request <= filled.current) {
 				return;
@@ -162,22 +163,22 @@ export function HomePage() {
 			setError(null);
 			const widget = result.value.widget;
 			// Too little to tell yet: what is on screen stays until there is more.
-			if (widget === 'incomplete') {
+			if (widget === INCOMPLETE) {
 				return;
 			}
 			// The widget on screen, picked again, stays as it is filled in until its new fields come.
 			setAnswer((previous) =>
-				previous?.intent.widget === widget && widget !== 'none'
+				previous?.intent.widget === widget && widget !== NO_WIDGET
 					? previous
 					: {
 							intent: {widget, fields: []},
 							text: words,
 							at: new Date(),
 							follows: previous !== null && saysUnsupported(previous, pausedOnNow.current),
-							filling: widget !== 'none',
+							filling: widget !== NO_WIDGET,
 						},
 			);
-			if (widget !== 'none') {
+			if (widget !== NO_WIDGET) {
 				fill(words, widget, request);
 			}
 		});
@@ -227,7 +228,7 @@ export function HomePage() {
 		if (answer.filling) {
 			return <FillingWidget widget={answer.intent.widget} />;
 		}
-		if (answer.intent.widget !== 'none') {
+		if (answer.intent.widget !== NO_WIDGET) {
 			return (
 				<IntentWidget intent={answer.intent} typed={answer.text} now={answer.at} onAsk={ask} />
 			);

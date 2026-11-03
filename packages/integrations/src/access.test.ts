@@ -31,7 +31,10 @@ test("every read, write, command and requirement names one of the integration's 
 			...each.collections.flatMap((one) => [
 				...(one.read ? [one.read] : []),
 				...Object.values(one.writes),
-				...(one.commands ?? []).map((command) => command.action),
+				...(one.commands ?? []).flatMap((command) => [
+					command.action,
+					...(command.requires ? [command.requires] : []),
+				]),
 				...one.fields.flatMap((field) => (field.action ? [field.action] : [])),
 			]),
 		];

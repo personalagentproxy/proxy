@@ -61,7 +61,13 @@ describe('handleAcceptInvitationRoute', () => {
 		const {handleAcceptInvitationRoute} = await import('./invitation-link');
 		const result = await handleAcceptInvitationRoute(makeRequest('Sam@Acme.com'));
 
-		expect(acceptInvitation).toHaveBeenCalledWith({invitationId: 'inv-1', orgId: 'org-2', userId: 'sam-1', vaultName: 'Acme'});
+		expect(acceptInvitation).toHaveBeenCalledWith({
+			invitationId: 'inv-1',
+			orgId: 'org-2',
+			userId: 'sam-1',
+			orgName: 'Acme',
+			connections: [{integrationId: 'vault', shared: false, defaults: ['readEntries', 'writeEntries']}],
+		});
 		expect(result.unwrap()).toEqual({orgId: 'org-2', orgSlug: 'acme'});
 	});
 

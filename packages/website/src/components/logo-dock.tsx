@@ -11,7 +11,7 @@ type Logo = {
 	darkSrc?: string;
 };
 
-// The supported agents (AGENT_PROVIDERS in @proxy/integrations), ordered so the tiles' colours
+// The supported agents (AGENT_PROVIDERS in @proxy/utils/agent-providers), ordered so the tiles' colours
 // alternate. Claude Duet shares Claude's account-wide connector and login.
 const AGENTS: Logo[] = [
 	{name: 'ChatGPT', src: '/logos/chatgpt.png', tile: '', lit: true},

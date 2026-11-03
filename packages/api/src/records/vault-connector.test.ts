@@ -49,7 +49,7 @@ beforeEach(() => {
 describe('vaultConnector', () => {
 	test('stores the values encrypted and reads them back', async () => {
 		const {vaultConnector} = await import('./vault-connector');
-		const created = await vaultConnector.create(target, {title: 'Sizes', type: 'Text', content: 'Shoes: EU 43'}, null);
+		const created = await vaultConnector.create(target, {title: 'Sizes', type: 'Text', content: 'Shoes: EU 43'});
 
 		const [collection, stored] = createVaultEntry.mock.calls[0] ?? [];
 		expect(collection).toEqual({connectionId: 'vault-1', collectionId: 'entries'});
@@ -64,8 +64,8 @@ describe('vaultConnector', () => {
 
 	test('searches every value, ignoring case', async () => {
 		const {vaultConnector} = await import('./vault-connector');
-		const sizes = (await vaultConnector.create(target, {title: 'Sizes', type: 'Text', content: 'Shoes: EU 43'}, null)).unwrap();
-		const diet = (await vaultConnector.create(target, {title: 'Diet', type: 'Text', content: 'Vegetarian'}, null)).unwrap();
+		const sizes = (await vaultConnector.create(target, {title: 'Sizes', type: 'Text', content: 'Shoes: EU 43'})).unwrap();
+		const diet = (await vaultConnector.create(target, {title: 'Diet', type: 'Text', content: 'Vegetarian'})).unwrap();
 		const [, sizesStored] = createVaultEntry.mock.calls[0] ?? [];
 		const [, dietStored] = createVaultEntry.mock.calls[1] ?? [];
 		listVaultEntries.mockResolvedValue(
@@ -89,7 +89,7 @@ describe('vaultConnector', () => {
 
 	test('a new entry needs a title or content', async () => {
 		const {vaultConnector} = await import('./vault-connector');
-		const result = await vaultConnector.create(target, {title: ' ', type: 'Email', content: ''}, null);
+		const result = await vaultConnector.create(target, {title: ' ', type: 'Email', content: ''});
 
 		expect(result.unwrapErr().kind).toBe('validation_error');
 		expect(createVaultEntry).not.toHaveBeenCalled();
@@ -99,7 +99,7 @@ describe('vaultConnector', () => {
 		updateVaultEntry.mockImplementation((_collection: unknown, id: string, values: string) => Promise.resolve(Ok({id, values, updatedAt})));
 
 		const {vaultConnector} = await import('./vault-connector');
-		const created = await vaultConnector.create(target, {title: 'Sizes', type: '', content: ''}, null);
+		const created = await vaultConnector.create(target, {title: 'Sizes', type: '', content: ''});
 		const updated = await vaultConnector.update(target, 'rec-1', {title: 'Sizes', type: '', content: 'Shoes: EU 43'});
 
 		expect(created.unwrap().values.type).toBe('Text');

@@ -1,11 +1,7 @@
+import type {SignInMethods} from '@proxy/contracts/auth';
 import {useState, type FormEvent} from 'react';
 import {Link, useLoaderData, useSearchParams} from 'react-router';
-import {
-	devLogin,
-	googleSignInUrl,
-	requestMagicLink,
-	type SignInMethods,
-} from '@/client/auth-client';
+import {devLogin, googleSignInUrl, requestMagicLink} from '@/client/auth-client';
 import {GoogleIcon} from '@/components/google-icon';
 import {Button} from '@proxy/ui/components/button';
 import {Input} from '@proxy/ui/components/input';

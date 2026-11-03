@@ -1,3 +1,4 @@
+import type {Connection} from '@proxy/contracts/connections';
 import type {FetchError} from '@proxy/utils';
 import {useState, type ReactNode} from 'react';
 import {
@@ -18,12 +19,11 @@ import {
 } from '@proxy/ui/components/select';
 import {SuccessLine} from '@/components/success-line';
 import {apiMessage} from '@/lib/agent-errors';
-import type {Connection} from '@/lib/types';
 import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
 import {useOrgSlug} from '@/hooks/use-org';
 
-const DEFAULT_PORT: Record<DatabaseDialect, string> = {postgres: '5432', mysql: '3306'};
+const DEFAULT_PORT: Partial<Record<DatabaseDialect, string>> = {postgres: '5432', mysql: '3306'};
 
 const TLS_ITEMS: {value: ConnectDatabaseInput['tls']; label: string}[] = [
 	{value: 'verify', label: 'Encrypted, certificate verified'},
@@ -72,7 +72,7 @@ export function ConnectDatabaseForm({
 }) {
 	const org = useOrgSlug();
 	const [host, setHost] = useState('');
-	const [port, setPort] = useState(DEFAULT_PORT[dialect]);
+	const [port, setPort] = useState(DEFAULT_PORT[dialect] ?? '');
 	const [database, setDatabase] = useState('');
 	const [username, setUsername] = useState('');
 	const [password, setPassword] = useState('');

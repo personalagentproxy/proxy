@@ -1,7 +1,7 @@
 import {callArguments, DELEGATE_TOOL, delegateArgs, pendingToolCalls, type ToolCall} from '@proxy/utils/harness';
 import type {EntryRow} from '@proxy/db/harness';
 
-import type {ModelMessage} from './model';
+import type {ModelMessage} from '../llm/open-router';
 
 /**
  * The log as the model reads it. An event, a sub-agent's report, is read as a message, since it

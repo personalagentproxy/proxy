@@ -421,11 +421,17 @@ model AgentTask {
   // The persona a sub-agent of the Chat page ran the task as (Persona), for the activity log to
   // say whose it was; null for every other task. As a column, as the agent is.
   personaId String?
-  // When it, or the last of its sub-tasks at any depth, was started: one never finished is taken
-  // as abandoned a day after (@proxy/utils/tasks). Never before any of its sub-tasks', so a parent
-  // is never abandoned while one is under way. Set with createdAt, and on every task above a
-  // sub-task when it starts.
-  lastStartedAt DateTime
+  // When it, or the last of its sub-tasks at any depth, was started or had a request made for it:
+  // one never finished is taken as left open 20 minutes after, until the next request takes it up
+  // again (@proxy/utils/tasks). Never before any of its sub-tasks', so a parent is never left open
+  // while one is under way. Set with createdAt, and on it and every task above it when a sub-task
+  // starts, a request is made or it is finished.
+  lastActiveAt  DateTime @default(now())
+  // What lastActiveAt took over from, read by nothing. Kept until every instance selects what it
+  // updates of a task (db/task.ts finishAgentTask): the versions before returned every column on an
+  // update, so dropping it while one still ran during a deploy failed its finishing of a task. The
+  // migration after the next deploy drops it.
+  lastStartedAt DateTime @default(now())
 
   createdAt DateTime @default(now())
 
@@ -439,9 +445,10 @@ model AgentTask {
 // What an agent told the makers of Personal Agent Proxy, such as a tool that didn't work as it
 // expected: sent with the MCP server's send_feedback or the agent pages' feedback form, and read
 // by us, never shown in the app. Plain ids, like the activity log, so it stays when the agent or
-// the connection is gone; it goes with the organization.
+// the connection is gone; it goes with the organization. We mark what we have handled from our
+// own admin (resolvedAt, resolution); nothing here writes them.
 model AgentFeedback {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   orgId        String
   agentId      String
   // The agent's AGENT_PROVIDERS id, such as `claude`, kept beside the login it came from.
@@ -453,6 +460,10 @@ model AgentFeedback {
   via          AuditVia
   // The task the agent was on, where it named one.
   taskId       String?
+  // When we marked it handled, null while it is open, and a short note on how, such as the pull
+  // request that fixed it (`#151`) or `upstream`, where we gave one.
+  resolvedAt   DateTime?
+  resolution   String?
 
   createdAt DateTime @default(now())
 
@@ -559,9 +570,10 @@ model Persona {
 
 // A thread of the built-in agent, holding its log of entries: a member's conversation with a
 // persona, or a sub-agent started from it. Every call a sub-agent makes is for its thread's task,
-// as any agent's calls are; a task abandoned a day on is replaced by a new one. A conversation has
-// no task: its agent makes no calls but to delegate. Everything that happens to the agent is an
-// entry (AgentEntry), and everything that makes it do something is a job (AgentJob).
+// as any agent's calls are, taken up again by the next where it was left open, as when it slept
+// long. A conversation has no task: its agent makes no calls but to delegate. Everything that
+// happens to the agent is an entry (AgentEntry), and everything that makes it do something is a
+// job (AgentJob).
 model AgentThread {
   id      String @id @default(cuid())
   orgId   String

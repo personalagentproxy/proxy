@@ -1,3 +1,6 @@
+import type {ActivityTask, AuditEntry} from '@proxy/contracts/activity';
+import type {AgentLogin} from '@proxy/contracts/agents';
+import type {Connection} from '@proxy/contracts/connections';
 import {TOOLS_COLLECTION_ID} from '@proxy/integrations';
 import type {ReactNode} from 'react';
 import {Link} from 'react-router';
@@ -11,7 +14,6 @@ import {
 } from '@proxy/ui/components/dialog';
 import {AgentLogo, IntegrationLogo, ProxyLogo} from '@/components/brand-logo';
 import {describeEntry, describeFailure, entryAction, locateEntry} from '@/lib/access';
-import type {ActivityTask, AgentLogin, AuditEntry, Connection} from '@/lib/types';
 import {useOrgSlug} from '@/hooks/use-org';
 
 type Props = {

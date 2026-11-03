@@ -34,9 +34,25 @@ describe('parseParallelPage', () => {
 		expect(parseParallelPage(text, 'https://example.com').unwrap()).toEqual({title: 'Example Domain', content: '# Example Domain\n\nThis domain is for examples.'});
 	});
 
-	test("says why Parallel couldn't read the page", () => {
-		const text = JSON.stringify({results: [], errors: [{url: 'https://example.com/gone', error_type: 'fetch_error', http_status_code: 404, content: null}]});
-		const error = parseParallelPage(text, 'https://example.com/gone').unwrapErr();
-		expect(error).toMatchObject({kind: 'validation_error', message: 'Parallel couldn’t read https://example.com/gone: fetch_error (HTTP 404)'});
+	const failed = (url: string, error_type: string, http_status_code: number | null) =>
+		parseParallelPage(JSON.stringify({results: [], errors: [{url, error_type, http_status_code, content: null}]}), url).unwrapErr();
+
+	test('a page the site has no longer, or turned the crawler away from, fails as Exa’s do, by the site’s status', () => {
+		expect(failed('https://example.com/gone', 'http_error', 404)).toMatchObject({
+			kind: 'not_found',
+			resource: 'page',
+			id: 'https://example.com/gone',
+			message: expect.stringContaining('Parallel found no page at https://example.com/gone'),
+		});
+		expect(failed('https://example.com/members', 'http_error', 403)).toMatchObject({
+			kind: 'validation_error',
+			message: expect.stringContaining('turned Parallel’s crawler away (HTTP 403)'),
+		});
+		expect(failed('https://example.com/down', 'http_error', 502)).toMatchObject({kind: 'provider_unreachable', cause: {status: 502}});
+	});
+
+	test("says why Parallel couldn't read the page, in its words, for any other failure", () => {
+		expect(failed('https://nowhere.example', 'connect_error', null)).toMatchObject({kind: 'validation_error', message: 'Parallel couldn’t read https://nowhere.example: connect_error'});
+		expect(failed('https://example.com/odd', 'http_error', 418)).toMatchObject({kind: 'validation_error', message: 'Parallel couldn’t read https://example.com/odd: http_error (HTTP 418)'});
 	});
 });

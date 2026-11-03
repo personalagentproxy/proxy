@@ -14,7 +14,14 @@ mock.module('@proxy/db/audit', () => ({logAgentRequest}));
 
 const getAgentTask = mock();
 
-mock.module('@proxy/db/task', () => ({getAgentTask, createAgentTask: mock(), finishAgentTask: mock(), listOpenAgentTasks: mock()}));
+mock.module('@proxy/db/task', () => ({
+	getAgentTask,
+	createAgentTask: mock(),
+	finishAgentTask: mock(),
+	isAgentTaskOpen: mock(),
+	listOpenAgentTasks: mock(),
+	touchAgentTask: mock(async () => Ok(true)),
+}));
 
 const listConnectionsWithCredential = mock();
 
@@ -30,9 +37,19 @@ const loadConnection = mock();
 
 mock.module('../records/target', () => ({loadConnection}));
 
+// Every collection's connector is the one stand-in below.
+mock.module('../records/connectors', () => ({connectorFor: () => connector}));
+
 const callCustomTool = mock();
 
 mock.module('../connections/custom/custom-mcp', () => ({callCustomTool}));
+
+// Of the integrations' modules, Google's partial consent alone, read from its credential.
+const {unavailableGoogleConnectionActions} = await import('../connections/google/unavailable');
+
+mock.module('../connections/integrations', () => ({
+	apiIntegration: (id: string) => (id === 'google' ? {id, connectors: {}, unavailableActions: unavailableGoogleConnectionActions} : undefined),
+}));
 
 function integration(id: string): Integration {
 	const found = findIntegration(id);
@@ -47,7 +64,7 @@ const caller = {agent: signedIn, via: 'mcp' as const, taskId: 'task-1'};
 
 // The task every run here is for, under way.
 // Started a moment ago, so it is under way whenever the tests run.
-const task = {id: 'task-1', agentId: 'agent-1', title: 'Find the Visa', goal: 'Look up the card number', via: 'mcp', createdAt: new Date(), finishedAt: null, lastStartedAt: new Date()};
+const task = {id: 'task-1', agentId: 'agent-1', title: 'Find the Visa', goal: 'Look up the card number', via: 'mcp', createdAt: new Date(), finishedAt: null, lastActiveAt: new Date()};
 
 const vaultConnection = {
 	id: 'vault-1',
@@ -123,10 +140,12 @@ const draft = {id: 'drafts-7-3', values: {folder: 'Draft', from: 'alex@example.c
 const archive = mock();
 const send = mock();
 const sendNew = mock();
-const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send}, newCommands: {sendNew}};
+const read = mock();
+const sendReply = mock();
+const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send}, newCommands: {sendNew, read, send: sendReply}};
 
 function useConnection(connection: typeof vaultConnection | typeof emailConnection | typeof notionConnection | typeof googleConnection) {
-	loadConnection.mockResolvedValue(Ok({connection, integration: integration(connection.integrationId), connector}));
+	loadConnection.mockResolvedValue(Ok({connection, integration: integration(connection.integrationId)}));
 }
 
 beforeEach(() => {
@@ -221,7 +240,7 @@ describe('listAgentTools', () => {
 		const {listAgentTools} = await import('./tools');
 		const result = await listAgentTools(signedIn, 'mail-1');
 
-		expect(result.unwrap().map((tool) => tool.name)).toEqual(['emails_list', 'emails_get', 'emails_send', 'emails_send_new']);
+		expect(result.unwrap().map((tool) => tool.name)).toEqual(['emails_list', 'emails_get', 'emails_send', 'emails_send_new', 'attachments_read', 'replies_send']);
 	});
 });
 
@@ -400,6 +419,53 @@ describe('runAgentTool', () => {
 		expect(result.unwrap()).toEqual({record: null});
 		expect(sendNew.mock.calls[0]?.[1]).toEqual(values);
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'sendNew', recordTitle: 'Friday', outcome: 'allowed'});
+	});
+
+	test('an attachment read by its number is logged by the name it came back with', async () => {
+		useConnection(emailConnection);
+		getAgentById.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'mail-1', actionId: 'read', allowed: true}]}));
+		read.mockResolvedValue(Ok({id: 'inbox-7-12/1', values: {email: 'inbox-7-12', attachment: '1', name: 'Budget.xlsx', content: 'Tab: Q3'}, updatedAt: '2026-10-01T00:00:00.000Z'}));
+
+		const {runAgentTool} = await import('./tools');
+		const result = await runAgentTool(caller, 'mail-1', 'attachments_read', {email: 'inbox-7-12', attachment: '1'});
+
+		expect(result.unwrap()).toMatchObject({record: {values: {name: 'Budget.xlsx'}}});
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'attachments', action: 'read', recordTitle: 'Budget.xlsx', outcome: 'allowed'});
+	});
+
+	test('a reply is sent with Send and Read, and logged under the subject it went out with', async () => {
+		useConnection(emailConnection);
+		getAgentById.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'mail-1', actionId: 'send', allowed: true}]}));
+		sendReply.mockResolvedValue(
+			Ok({id: '<r1@proxy>', values: {email: 'inbox-7-12', body: 'Thursday works.', replyAll: '', to: 'sam@example.com', cc: '', subject: 'Re: Friday'}, updatedAt: '2026-10-01T00:00:00.000Z'}),
+		);
+
+		const {runAgentTool} = await import('./tools');
+		const result = await runAgentTool(caller, 'mail-1', 'replies_send', {email: 'inbox-7-12', body: 'Thursday works.'});
+
+		expect(result.unwrap()).toMatchObject({record: {values: {to: 'sam@example.com', subject: 'Re: Friday'}}});
+		expect(sendReply.mock.calls[0]?.[1]).toEqual({email: 'inbox-7-12', body: 'Thursday works.', replyAll: ''});
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'replies', action: 'send', recordTitle: 'Re: Friday', outcome: 'allowed'});
+	});
+
+	test('a reply is refused with Send but not Read, since it reads the email it answers, and logged as denied', async () => {
+		useConnection(emailConnection);
+		getAgentById.mockResolvedValue(
+			Ok({
+				...agent,
+				grants: [
+					{connectionId: 'mail-1', actionId: 'send', allowed: true},
+					{connectionId: 'mail-1', actionId: 'read', allowed: false},
+				],
+			}),
+		);
+
+		const {runAgentTool} = await import('./tools');
+		const result = await runAgentTool(caller, 'mail-1', 'replies_send', {email: 'inbox-7-12', body: 'Thursday works.'});
+
+		expect(result.unwrapErr().kind).toBe('forbidden');
+		expect(sendReply).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'replies', action: 'send', outcome: 'denied'});
 	});
 
 	test('a run the provider fails is logged as failed with what went wrong, not as allowed, and passed on', async () => {
@@ -583,7 +649,7 @@ describe('custom MCP servers', () => {
 	};
 
 	beforeEach(() => {
-		loadConnection.mockResolvedValue(Ok({connection: customConnection, integration: integrationFor({integrationId: 'mcp', tools: [search, publish]}), connector: null}));
+		loadConnection.mockResolvedValue(Ok({connection: customConnection, integration: integrationFor({integrationId: 'mcp', tools: [search, publish]})}));
 		listConnectionsWithCredential.mockResolvedValue(Ok([customConnection]));
 		callCustomTool.mockResolvedValue(Ok('3 results'));
 	});

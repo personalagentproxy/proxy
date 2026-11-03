@@ -134,7 +134,7 @@ describe('handleDeleteMeRoute', () => {
 
 		expect(listOrgConnectionsWithCredential).toHaveBeenCalledTimes(1);
 		expect(listOrgConnectionsWithCredential).toHaveBeenCalledWith('org-1');
-		expect(removeMembership).toHaveBeenCalledWith({orgId: 'org-2', userId: 'user-1'});
+		expect(removeMembership).toHaveBeenCalledWith({orgId: 'org-2', userId: 'user-1', sharedAgentPasswordHash: expect.any(String)});
 		expect(deleteUser).toHaveBeenCalledWith('user-1');
 	});
 

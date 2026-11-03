@@ -6,14 +6,14 @@ import {createMemoryRouter, RouterProvider} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {HumanSide} from '@/components/human-side';
-import type {ChatPersona} from '@/client/harness-client';
+import type {ChatPersona} from '@proxy/contracts/harness';
 import type {
 	InspectedEntry,
 	InspectedJob,
 	InspectedThread,
 	Inspection,
 	ModelRequest,
-} from '@/client/inspect-client';
+} from '@proxy/contracts/inspect';
 import {InspectPage} from '@/pages/inspect-page';
 import {testHuman} from '@/test-org';
 

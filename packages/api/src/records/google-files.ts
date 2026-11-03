@@ -23,7 +23,8 @@ import {
 } from '../connections/google/drive-api';
 import {callGoogle, TOO_LARGE_TO_READ} from '../connections/google/google-client';
 import {appendRow, cellRange, columnLetters, getRanges, getSheets, renameSheet, rowsRange, updateCells, type Sheet} from '../connections/google/sheets-api';
-import {requireFirstPage, type CommandRunner, type Crumb, type DataRecord, type ListQuery, type RecordPage, type RecordTarget, type RecordValues} from './connector';
+import {requireFirstPage, type CommandRunner, type Crumb, type DataRecord, type ListQuery, type RecordPage, type RecordStore, type RecordTarget, type RecordValues} from './connector';
+import type {FileSearch, Matched, MatchedFile} from './capabilities';
 import {readValueLines, valueLines} from './value-lines';
 
 /**
@@ -43,6 +44,9 @@ import {readValueLines, valueLines} from './value-lines';
  * and a tab; a document's content is replaced whole by uploading Markdown again, which drops its
  * comments and suggestions; a row changes only in the cells written differently. A presentation's
  * and a spreadsheet's content are only read. Files go to Trash, never deleted for good.
+ *
+ * For the Find file widget, a search of all of Drive, shared drives too, by name, or where no name
+ * has the words, inside the files.
  */
 
 // Each with where Drive shows it: `https://drive.google.com/drive/<path>`.
@@ -123,7 +127,7 @@ function withDrive<T>(target: RecordTarget, run: (drive: Drive) => Promise<Resul
 	});
 }
 
-export function kindOf(mimeType: string): string {
+function kindOf(mimeType: string): string {
 	if (mimeType === MIME_TYPES.folder) {
 		return 'Folder';
 	}
@@ -433,7 +437,7 @@ function listInside(drive: Drive, ref: FileRef, query: ListQuery): Promise<Resul
 	});
 }
 
-export function listFilesTree(target: RecordTarget, query: ListQuery): Promise<Result<RecordPage, ApiError>> {
+function listFilesTree(target: RecordTarget, query: ListQuery): Promise<Result<RecordPage, ApiError>> {
 	return withDrive(target, (drive) =>
 		Do(async ($) => {
 			if (query.parent !== null) {
@@ -506,7 +510,7 @@ function getRef(drive: Drive, ref: FileRef): Promise<Result<DataRecord, ApiError
 	});
 }
 
-export function getFilesRecord(target: RecordTarget, recordId: string): Promise<Result<DataRecord, ApiError>> {
+function getFilesRecord(target: RecordTarget, recordId: string): Promise<Result<DataRecord, ApiError>> {
 	return withDrive(target, (drive) =>
 		Do(async ($) => {
 			const ref = $(requireRef(recordId));
@@ -619,7 +623,7 @@ function createIn(drive: Drive, ref: FileRef, values: RecordValues): Promise<Res
  * A new file inside `parent`, My Drive when none is given: a folder, document or spreadsheet in a
  * folder, My Drive or a shared drive, or a row in a tab.
  */
-export function createFilesRecord(target: RecordTarget, values: RecordValues, parent: string | null): Promise<Result<DataRecord, ApiError>> {
+function createFilesRecord(target: RecordTarget, values: RecordValues, parent: string | null): Promise<Result<DataRecord, ApiError>> {
 	return withDrive(target, (drive) =>
 		Do(async ($) => {
 			const where = parent ?? MY_DRIVE.id;
@@ -743,7 +747,7 @@ function updateRef(drive: Drive, ref: FileRef, values: RecordValues, before: Dat
 }
 
 /** A file, tab or row changed where it is written differently, answered as opening it would. */
-export function updateFilesRecord(target: RecordTarget, recordId: string, values: RecordValues, before?: DataRecord): Promise<Result<DataRecord, ApiError>> {
+function updateFilesRecord(target: RecordTarget, recordId: string, values: RecordValues, before?: DataRecord): Promise<Result<DataRecord, ApiError>> {
 	return withDrive(target, (drive) =>
 		Do(async ($) => {
 			const ref = $(requireRef(recordId));
@@ -753,7 +757,7 @@ export function updateFilesRecord(target: RecordTarget, recordId: string, values
 }
 
 /** Moves a file or folder to Trash, where Drive keeps it 30 days; it leaves the tree. */
-export const trashFilesRecord: CommandRunner = (target, recordId) =>
+const trashFilesRecord: CommandRunner = (target, recordId) =>
 	withDrive(target, (drive) =>
 		Do(async ($) => {
 			const ref = $(requireRef(recordId));
@@ -764,3 +768,50 @@ export const trashFilesRecord: CommandRunner = (target, recordId) =>
 			return null;
 		}),
 	);
+
+// How many files a name search reads, for a widget to put those of the kind preferred first.
+const READ_BY_NAME = 30;
+
+/** The search in Drive's query language: every word in the name, or in the text, owned by the owner. */
+export function driveQuery(search: FileSearch, matched: Matched): string {
+	const field = matched === 'name' ? 'name' : 'fullText';
+	return [...search.words.map((word) => `${field} contains ${driveQuoted(word)}`), ...(search.owner ? [`${driveQuoted(search.owner)} in owners`] : []), 'trashed = false'].join(' and ');
+}
+
+function matchedFile(file: DriveFile, matched: Matched): MatchedFile {
+	const owner = file.owners?.[0];
+	return {
+		id: file.id,
+		name: file.name,
+		kind: kindOf(file.mimeType),
+		owner: owner?.displayName ?? owner?.emailAddress ?? '',
+		modified: file.modifiedTime ?? '',
+		link: file.webViewLink ?? null,
+		matched,
+	};
+}
+
+// Drive, shared drives too: by name, the most recently changed first, else inside the files, in the
+// order Drive finds best, as it sorts no full-text search.
+function findFiles(target: RecordTarget, search: FileSearch, limit: number): Promise<Result<MatchedFile[], ApiError>> {
+	return callGoogle(target.connection, (token) =>
+		Do(async ($) => {
+			const params = {corpora: 'allDrives'};
+			const byName = $(await listFiles(token, driveQuery(search, 'name'), {...params, orderBy: 'modifiedTime desc', pageSize: String(READ_BY_NAME)}, null));
+			if (byName.items.length > 0 || search.words.length === 0) {
+				return byName.items.map((file) => matchedFile(file, 'name'));
+			}
+			const inside = $(await listFiles(token, driveQuery(search, 'content'), {...params, pageSize: String(limit)}, null));
+			return inside.items.map((file) => matchedFile(file, 'content'));
+		}),
+	);
+}
+
+export const filesConnector = {
+	list: listFilesTree,
+	get: getFilesRecord,
+	create: createFilesRecord,
+	update: updateFilesRecord,
+	commands: {trash: trashFilesRecord},
+	findFiles,
+} satisfies RecordStore;

@@ -1,3 +1,7 @@
+import type {AuditEntry} from '@proxy/contracts/activity';
+import type {AgentLogin} from '@proxy/contracts/agents';
+import type {Connection} from '@proxy/contracts/connections';
+import type {DataRecord} from '@proxy/contracts/records';
 import {
 	effectiveActions,
 	findCollection,
@@ -11,7 +15,6 @@ import {
 } from '@proxy/integrations';
 import {formatDate, formatDateTime} from '@/lib/format';
 import {integrationOf, type Integration} from '@/lib/integrations';
-import type {AgentLogin, AuditEntry, Connection, DataRecord} from '@/lib/types';
 
 export {integrationOf};
 
@@ -81,10 +84,16 @@ export function describeActions(integration: {actions: Action[]}, actions: strin
 		.join(', ');
 }
 
-// Whether the actions allow a request: reading, a write, or one of the collection's commands.
+// Whether the actions allow a request: reading, a write, or one of the collection's commands,
+// with the action it needs beside its own, as sending a reply needs Read.
 export function allows(collection: Collection, actions: string[], request: string): boolean {
 	const needed = requiredAction(collection, request);
-	return needed !== null && actions.includes(needed);
+	const beside = collection.commands?.find((command) => command.id === request)?.requires;
+	return (
+		needed !== null &&
+		actions.includes(needed) &&
+		(beside === undefined || actions.includes(beside))
+	);
 }
 
 // The commands on values typed in that the actions allow, such as Send for a new email.

@@ -1,5 +1,5 @@
+import type {AuditEntry} from '@proxy/contracts/activity';
 import {counted} from '@/lib/format';
-import type {AuditEntry} from '@/lib/types';
 
 // What the two timelines share: the task page's, of one run, and the home page's, of every agent
 // over a window of time. Both lay out in pixels, measured from the chart's left edge, so that how
@@ -21,9 +21,9 @@ export type TimelineRequest = Span & {entry: AuditEntry};
 // and red are left out, as amber and red mean a request was blocked or failed.
 export const TASK_COLOR_CLASS = 'text-[#2a78d6] dark:text-[#3987e5]';
 
-// How faint a task's track is, and one given up.
+// How faint a task's track is, and one left open.
 export const TRACK_OPACITY = 0.2;
-export const ABANDONED_OPACITY = 0.1;
+export const LEFT_OPEN_OPACITY = 0.1;
 
 // A track is drawn at least this wide, so a task done in a moment still reads as one.
 export const MIN_TRACK_PX = 6;

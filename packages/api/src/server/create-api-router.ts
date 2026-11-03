@@ -29,14 +29,9 @@ import {handleDevLoginRoute} from '../auth/dev-login';
 import {handleEmailSignInRoute, handleEmailVerifyRoute} from '../auth/email';
 import {handleGoogleCallbackRoute, handleGoogleStartRoute, handleSignInMethodsRoute} from '../auth/google';
 import {handleSignOutRoute} from '../auth/signout';
-import {BUILT_IN_MCP} from '../connections/built-in-mcp';
-import {handleConnectCustomMcpRoute, handleCustomMcpCallbackRoute, handleRefreshCustomMcpToolsRoute} from '../connections/custom/route';
-import {handleConnectEmailRoute, handleTestEmailRoute} from '../connections/email/route';
-import {handleGoogleCallbackRoute as handleConnectGoogleCallbackRoute, handleStartGoogleRoute} from '../connections/google/route';
-import {keyConnectRoute, mcpConnectRoutes} from '../connections/mcp/mcp-connect';
-import {handleConnectMysqlRoute, handleTestMysqlRoute} from '../connections/mysql/route';
-import {handleConnectPlaidRoute, handleCreatePlaidLinkTokenRoute} from '../connections/plaid/route';
-import {handleConnectPostgresRoute, handleTestPostgresRoute} from '../connections/postgres/route';
+import {handleRefreshCustomMcpToolsRoute} from '../connections/custom/route';
+import type {ApiIntegration} from '../connections/integration';
+import {apiIntegrations} from '../connections/integrations';
 import {
 	handleDeleteConnectionRoute,
 	handleGetConnectionRoute,
@@ -46,8 +41,9 @@ import {
 	handleShareConnectionRoute,
 } from '../connections/route';
 import {handleFaviconRoute} from '../favicons/route';
-import {handleInspectRequestRoute, handleInspectThreadRoute} from '../harness/inspect-route';
-import {handleCreatePersonaRoute, handleDeletePersonaRoute, handleGetThreadRoute, handleListPersonasRoute, handlePostMessageRoute, handleUpdatePersonaRoute} from '../harness/route';
+import {inspectRoutes} from '../harness/inspect-route';
+import {chatRoutes} from '../harness/route';
+import {harnessStore} from '../harness/store';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
 import {handleDeleteMeRoute, handleMeRoute} from '../me/route';
@@ -133,30 +129,12 @@ export function createApiRouter(): express.Router {
 	org.delete('/invitations/:invitationId', withAuthResult('Revoke invitation route', handleRevokeInvitationRoute));
 
 	org.get('/connections', withAuthResult('List connections route', handleListConnectionsRoute));
-	org.post('/connections/email', withAuthResult('Connect email route', handleConnectEmailRoute));
-	org.post('/connections/email/test', withAuthResult('Test email route', handleTestEmailRoute));
-	org.get('/connections/google/start', withAuth('Start Google sign-in route', handleStartGoogleRoute));
+	// Each integration's own connect routes, as its module declares them: the starts and the forms
+	// under the organization, the callbacks top-level navigations outside it.
 	router.use('/api/connections', requireBrowserOrigin);
-	router.get('/api/connections/google/callback', withAuth('Google sign-in callback route', handleConnectGoogleCallbackRoute));
-	// Every integration built on its MCP server signs in the same way, from its declaration, and
-	// takes an API key the same way where its server does.
-	for (const builtIn of BUILT_IN_MCP) {
-		const {handleStart, handleCallback} = mcpConnectRoutes(builtIn);
-		const {integrationId, server} = builtIn;
-		org.get(`/connections/${integrationId}/start`, withAuth(`Start ${server.name} sign-in route`, handleStart));
-		router.get(`/api/connections/${integrationId}/callback`, withAuth(`${server.name} sign-in callback route`, handleCallback));
-		if (builtIn.apiKey) {
-			org.post(`/connections/${integrationId}`, withAuthResult(`Connect ${server.name} with an API key route`, keyConnectRoute(builtIn)));
-		}
+	for (const integration of apiIntegrations()) {
+		mountConnectRoutes(router, org, integration);
 	}
-	org.post('/connections/plaid', withAuthResult('Connect Plaid route', handleConnectPlaidRoute));
-	org.post('/connections/plaid/link-token', withAuthResult('Create Plaid Link token route', handleCreatePlaidLinkTokenRoute));
-	org.post('/connections/postgres', withAuthResult('Connect Postgres route', handleConnectPostgresRoute));
-	org.post('/connections/postgres/test', withAuthResult('Test Postgres route', handleTestPostgresRoute));
-	org.post('/connections/mysql', withAuthResult('Connect MySQL route', handleConnectMysqlRoute));
-	org.post('/connections/mysql/test', withAuthResult('Test MySQL route', handleTestMysqlRoute));
-	org.post('/connections/mcp', withAuth('Connect custom MCP server route', handleConnectCustomMcpRoute));
-	router.get('/api/connections/mcp/callback', withAuth('Custom MCP server sign-in callback route', handleCustomMcpCallbackRoute));
 	org.get('/connections/:connectionId', withAuthResult('Get connection route', handleGetConnectionRoute));
 	org.delete('/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
 	org.put('/connections/:connectionId/defaults', withAuthResult('Set connection defaults route', handleSetConnectionDefaultsRoute));
@@ -214,16 +192,18 @@ export function createApiRouter(): express.Router {
 	// The Chat page: the organization's built-in agents and the member's conversations with them.
 	// Nothing here runs the model: the worker in each api instance does (harness/worker.ts); a
 	// message queues its work.
-	org.get('/chat/personas', withAuthResult('List personas route', handleListPersonasRoute));
-	org.post('/chat/personas', withAuthResult('Create persona route', handleCreatePersonaRoute));
-	org.put('/chat/personas/:personaId', withAuthResult('Update persona route', handleUpdatePersonaRoute));
-	org.delete('/chat/personas/:personaId', withAuthResult('Delete persona route', handleDeletePersonaRoute));
-	org.get('/chat/personas/:personaId/thread', withAuthResult('Get chat thread route', handleGetThreadRoute));
-	org.post('/chat/personas/:personaId/messages', withAuthResult('Post chat message route', handlePostMessageRoute));
-	// The inspector, behind the `debug` experiment too: the conversation as the harness has
-	// it, and what the model was sent for an answer.
-	org.get('/chat/personas/:personaId/inspect', withAuthResult('Inspect chat thread route', handleInspectThreadRoute));
-	org.get('/chat/inspect/entries/:entryId/request', withAuthResult('Inspect chat request route', handleInspectRequestRoute));
+	const chat = chatRoutes(harnessStore);
+	org.get('/chat/personas', withAuthResult('List personas route', chat.handleListPersonasRoute));
+	org.post('/chat/personas', withAuthResult('Create persona route', chat.handleCreatePersonaRoute));
+	org.put('/chat/personas/:personaId', withAuthResult('Update persona route', chat.handleUpdatePersonaRoute));
+	org.delete('/chat/personas/:personaId', withAuthResult('Delete persona route', chat.handleDeletePersonaRoute));
+	org.get('/chat/personas/:personaId/thread', withAuthResult('Get chat thread route', chat.handleGetThreadRoute));
+	org.post('/chat/personas/:personaId/messages', withAuthResult('Post chat message route', chat.handlePostMessageRoute));
+	// The inspector, behind the `debug` experiment too: the conversation as the harness has it,
+	// and what the model was sent for an answer.
+	const inspect = inspectRoutes(harnessStore);
+	org.get('/chat/personas/:personaId/inspect', withAuthResult('Inspect chat thread route', inspect.handleInspectThreadRoute));
+	org.get('/chat/inspect/entries/:entryId/request', withAuthResult('Inspect chat request route', inspect.handleInspectRequestRoute));
 
 	// The agent side: its own sign-in and cookie, and every request made for one of the agent's
 	// tasks, checked against the agent's access and logged with the task.
@@ -266,4 +246,44 @@ export function createApiRouter(): express.Router {
 	});
 
 	return router;
+}
+
+/**
+ * The routes connecting an integration, by how it is connected (`ConnectRoutes`): a sign-in's start
+ * under `/api/orgs/:org/connections/<id>/start` and its callback at `/api/connections/<id>/callback`,
+ * and its API key where it takes one; a form's connect and test; Plaid's exchange and Link token; a
+ * custom MCP server's connect and callback.
+ */
+function mountConnectRoutes(router: express.Router, org: express.Router, {id, connect}: ApiIntegration): void {
+	if (!connect) {
+		return;
+	}
+
+	if (connect.kind === 'signIn') {
+		const {handleStart, handleCallback, handleKey} = connect.routes();
+		org.get(`/connections/${id}/start`, withAuth(`Start ${connect.name} sign-in route`, handleStart));
+		router.get(`/api/connections/${id}/callback`, withAuth(`${connect.name} sign-in callback route`, handleCallback));
+		if (handleKey) {
+			org.post(`/connections/${id}`, withAuthResult(`Connect ${connect.name} with an API key route`, handleKey));
+		}
+		return;
+	}
+
+	if (connect.kind === 'form') {
+		const {handleConnect, handleTest} = connect.routes();
+		org.post(`/connections/${id}`, withAuthResult(`Connect ${connect.name} route`, handleConnect));
+		org.post(`/connections/${id}/test`, withAuthResult(`Test ${connect.name} route`, handleTest));
+		return;
+	}
+
+	if (connect.kind === 'bank') {
+		const {handleConnect, handleLinkToken} = connect.routes();
+		org.post(`/connections/${id}`, withAuthResult(`Connect ${connect.name} route`, handleConnect));
+		org.post(`/connections/${id}/link-token`, withAuthResult(`Create ${connect.name} Link token route`, handleLinkToken));
+		return;
+	}
+
+	const {handleConnect, handleCallback} = connect.routes();
+	org.post(`/connections/${id}`, withAuth(`Connect ${connect.name} route`, handleConnect));
+	router.get(`/api/connections/${id}/callback`, withAuth(`Connect ${connect.name} callback route`, handleCallback));
 }

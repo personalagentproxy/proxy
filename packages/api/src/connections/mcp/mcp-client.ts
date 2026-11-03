@@ -138,12 +138,14 @@ function post(server: McpEndpoint, accessToken: string | null, session: McpSessi
 	});
 }
 
-// A request's answer, read with `schema`: a JSON-RPC error, or no result, is the server out of reach.
+// A request's answer, read with `schema`: a JSON-RPC error, or no result, is the server out of reach,
+// in the error's own words where it has some, such as a param the tool doesn't take.
 function readResult<T extends {result?: unknown; error?: {message: string}}>(server: McpEndpoint, what: string, schema: z.ZodType<T>, json: unknown): Result<NonNullable<T['result']>, ApiError> {
 	return Do<NonNullable<T['result']>, ApiError>(($) => {
 		const message = $(parseSchema(schema, json).mapErr((error) => ApiErr.providerUnreachable(error)));
 		if (message.error || message.result === undefined || message.result === null) {
-			return $(Err(ApiErr.providerUnreachable(new Error(`${server.name}'s ${what} failed: ${message.error?.message ?? 'no result'}`))));
+			const said = message.error?.message.trim();
+			return $(Err(ApiErr.providerUnreachable(new Error(`${server.name}'s ${what} failed: ${said || 'no result'}`), said ? `${server.name} answered with an error: ${said}` : undefined)));
 		}
 		return message.result as NonNullable<T['result']>;
 	});
@@ -190,8 +192,9 @@ function inSession<T>(server: McpEndpoint, accessToken: string | null, use: (ses
 /**
  * Calls one of a server's tools, its answer's text. A token the server turns down is
  * `credentials_rejected`, so the caller can refresh it; a tool failing is what the server's
- * `toolError` makes of it, else the server out of reach. No token is sent for a server that takes
- * none (`null`).
+ * `toolError` makes of it, else the server out of reach, in the words the tool wrote for the model,
+ * so an agent can tell a failure worth trying again from one that isn't. No token is sent for a
+ * server that takes none (`null`).
  */
 export function callMcpTool(server: McpEndpoint, accessToken: string | null, name: string, args: Record<string, unknown>): Promise<Result<string, ApiError>> {
 	return inSession(server, accessToken, (session) =>
@@ -200,7 +203,10 @@ export function callMcpTool(server: McpEndpoint, accessToken: string | null, nam
 			const result = $(readResult(server, name, toolResponseSchema, posted.json));
 			const text = result.content.map((block) => block.text ?? '').join('\n');
 			if (result.isError) {
-				return $(Err(server.toolError?.(text) ?? ApiErr.providerUnreachable(new Error(`${server.name}'s ${name} failed: ${text}`))));
+				const said = text.trim();
+				return $(
+					Err(server.toolError?.(text) ?? ApiErr.providerUnreachable(new Error(`${server.name}'s ${name} failed: ${text}`), said ? `${server.name} answered with an error: ${said}` : undefined)),
+				);
 			}
 			return text;
 		}),

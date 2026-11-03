@@ -3,7 +3,7 @@ import type {Result} from 'ts-results-es';
 import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
-import {ownVaultFor} from './organization';
+import {createStarterConnections, type StarterConnection} from './organization';
 
 export type InvitationRow = {
 	id: string;
@@ -111,16 +111,18 @@ export async function getInvitationByTokenHash(
 }
 
 /**
- * Takes an invitation up: the person becomes a member of its organization, with their own vault
- * there, unless they already are, and the invitation is gone.
+ * Takes an invitation up: the person becomes a member of its organization, with the starter
+ * connections a member gets there, called by its name `orgName`, unless they already are, and the
+ * invitation is gone.
  */
 export async function acceptInvitation(data: {
 	invitationId: string;
 	orgId: string;
 	userId: string;
-	vaultName: string;
+	orgName: string;
+	connections: StarterConnection[];
 }): Promise<Result<void, ApiError>> {
-	const {invitationId, orgId, userId, vaultName} = data;
+	const {invitationId, orgId, userId, orgName, connections} = data;
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
 			const member = await tx.orgMember.findUnique({
@@ -129,7 +131,7 @@ export async function acceptInvitation(data: {
 			});
 			if (!member) {
 				await tx.orgMember.create({data: {orgId, userId}});
-				await tx.connection.create({data: ownVaultFor({orgId, userId, name: vaultName})});
+				await createStarterConnections(tx, connections, {orgId, userId, name: orgName});
 			}
 			await tx.invitation.deleteMany({where: {id: invitationId}});
 		}),

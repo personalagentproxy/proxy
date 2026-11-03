@@ -7,7 +7,6 @@ import {findCollection, findIntegration} from '@proxy/integrations';
 const requireWritable = mock();
 const requireReadable = mock();
 const reply = mock();
-const replierFor = mock((): typeof reply | null => reply);
 const afterWrite = mock(async () => {});
 const create = mock();
 const sendNew = mock();
@@ -16,15 +15,14 @@ const update = mock();
 
 // The Google client and the mail connectors read the environment on import, which tests don't have.
 mock.module('../utils/env', () => ({env: {NODE_ENV: 'test'}}));
-mock.module('./sources', () => ({requireWritable, requireReadable, findSources: mock(), summarize: mock()}));
-mock.module('./mail-replies', () => ({replierFor}));
+mock.module('./sources', () => ({requireWritable, requireReadable, findSources: mock(), summarize: mock(), withCapability: mock()}));
 mock.module('./writes', () => ({afterWrite}));
 mock.module('../utils/user-org', () => ({
 	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
 }));
 
 const events = findCollection(findIntegration('google') ?? {collections: []}, 'events');
-const source = {connection: {id: 'work'}, collection: events, connector: {create, get, update, newCommands: {sendNew}}};
+const source = {connection: {id: 'work'}, collection: events, connector: {create, get, update, newCommands: {sendNew}, reply}};
 
 function request(body: unknown) {
 	return {user: {userId: 'user-1'}, body} as never;
@@ -36,7 +34,7 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	requireWritable.mockResolvedValue(Ok(source));
 	requireReadable.mockResolvedValue(Ok(source));
-	reply.mockResolvedValue(Ok({to: 'Sam <sam@example.com>', subject: 'Re: Invoice', inReplyTo: '<a@example.com>', references: '<a@example.com>'}));
+	reply.mockResolvedValue(Ok({to: 'Sam <sam@example.com>', cc: '', subject: 'Re: Invoice', inReplyTo: '<a@example.com>', references: '<a@example.com>', id: 'm8', thread: 't1'}));
 	create.mockResolvedValue(Ok({id: 'team:e1', values: {title: 'Lunch'}, updatedAt: '', url: 'https://calendar.google.com/e1'}));
 	sendNew.mockResolvedValue(Ok(null));
 });
@@ -115,7 +113,7 @@ describe('handleReplyEmailRoute', () => {
 		expect((await handleReplyEmailRoute(request({...answer, send: true}))).unwrap()).toEqual({sent: true});
 		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails', 'sendNew', ['to', 'subject', 'body']);
 		expect(requireReadable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails');
-		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: true});
+		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: true, all: false});
 		// The mailbox is the email's, so none is picked for the next new email.
 		expect(afterWrite).toHaveBeenCalledWith({viewer: expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), source, action: 'sendNew', title: 'Re: Invoice', parent: undefined});
 	});
@@ -125,7 +123,7 @@ describe('handleReplyEmailRoute', () => {
 
 		expect((await handleReplyEmailRoute(request({...answer, send: false}))).unwrap()).toEqual({sent: false});
 		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails', 'create', ['to', 'subject', 'body']);
-		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: false});
+		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: false, all: false});
 	});
 
 	test('replies through no mailbox it can’t read, nor one that can’t reply, and logs nothing then', async () => {
@@ -133,7 +131,7 @@ describe('handleReplyEmailRoute', () => {
 
 		requireReadable.mockResolvedValueOnce(Err(ApiErr.forbidden()));
 		expect((await handleReplyEmailRoute(request({...answer, send: true}))).unwrapErr().kind).toBe('forbidden');
-		replierFor.mockReturnValueOnce(null);
+		requireWritable.mockResolvedValueOnce(Ok({...source, connector: {create, get, update, newCommands: {sendNew}}}));
 		expect((await handleReplyEmailRoute(request({...answer, send: true}))).unwrapErr().kind).toBe('forbidden');
 		expect(reply).not.toHaveBeenCalled();
 		expect(afterWrite).not.toHaveBeenCalled();

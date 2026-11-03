@@ -1,5 +1,5 @@
+import type {Org} from '@proxy/contracts/orgs';
 import {useSearchParams} from 'react-router';
-import type {Org} from '@/client/orgs-client';
 import {useHuman} from '@/hooks/use-human';
 import {hasOtherPeople} from '@/lib/orgs';
 

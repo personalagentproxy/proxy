@@ -21,14 +21,16 @@ mock.module('@proxy/db/auth', () => ({
 }));
 
 const getUserByEmail = mock();
-const createUserFromEmail = mock();
 const setUserEmailVerified = mock();
 
 mock.module('@proxy/db/user', () => ({
 	getUserByEmail,
-	createUserFromEmail,
 	setUserEmailVerified,
 }));
+
+const signUp = mock();
+
+mock.module('../orgs/provision', () => ({signUp}));
 
 const sendMagicLink = mock();
 
@@ -122,7 +124,7 @@ beforeEach(() => {
 	useVerificationToken.mockResolvedValue(Ok(null));
 	sendMagicLink.mockResolvedValue(Ok(undefined));
 	getUserByEmail.mockResolvedValue(Ok(null));
-	createUserFromEmail.mockResolvedValue(Ok({id: 'user-new', email: 'user@example.com', name: null}));
+	signUp.mockResolvedValue(Ok({id: 'user-new', email: 'user@example.com', name: null}));
 	setUserEmailVerified.mockResolvedValue(Ok({id: 'user-1', email: 'user@example.com', name: 'Existing User'}));
 	createSession.mockResolvedValue(Ok(undefined));
 });
@@ -301,7 +303,7 @@ describe('handleEmailVerifyRoute', () => {
 		expect(useVerificationToken).toHaveBeenCalledWith({identifier: row.identifier, token: row.token});
 
 		expect(setUserEmailVerified).toHaveBeenCalledWith('user-1');
-		expect(createUserFromEmail).not.toHaveBeenCalled();
+		expect(signUp).not.toHaveBeenCalled();
 
 		expect(createSession).toHaveBeenCalledTimes(1);
 		const sessionArgs = createSession.mock.calls[0]?.[0] as {tokenHash: string; userId: string; expires: Date};
@@ -331,7 +333,7 @@ describe('handleEmailVerifyRoute', () => {
 		const res = makeRes();
 		await handleEmailVerifyRoute(makeVerifyRequest(query) as never, res as never);
 
-		expect(createUserFromEmail).toHaveBeenCalledWith('user@example.com');
+		expect(signUp).toHaveBeenCalledWith({email: 'user@example.com', name: null, emailVerified: expect.any(Date)});
 		expect(setUserEmailVerified).not.toHaveBeenCalled();
 		expect(createSession).toHaveBeenCalledTimes(1);
 		expect((createSession.mock.calls[0]?.[0] as {userId: string}).userId).toBe('user-new');
@@ -348,14 +350,14 @@ describe('handleEmailVerifyRoute', () => {
 		await handleEmailVerifyRoute(makeVerifyRequest(query) as never, res as never);
 
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/login?error=SignupNotAllowed');
-		expect(createUserFromEmail).not.toHaveBeenCalled();
+		expect(signUp).not.toHaveBeenCalled();
 		expect(createSession).not.toHaveBeenCalled();
 	});
 
 	test('user creation failure → Callback error, no session', async () => {
 		const {query} = await sendFlow();
 		useVerificationToken.mockResolvedValue(Ok(storedRow()));
-		createUserFromEmail.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
+		signUp.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
 
 		const {handleEmailVerifyRoute} = await importRoutes();
 		const res = makeRes();
@@ -389,7 +391,7 @@ describe('handleEmailVerifyRoute', () => {
 		await handleEmailVerifyRoute(makeVerifyRequest(query) as never, res as never);
 
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/login?error=Callback');
-		expect(createUserFromEmail).not.toHaveBeenCalled();
+		expect(signUp).not.toHaveBeenCalled();
 		expect(createSession).not.toHaveBeenCalled();
 	});
 
@@ -442,7 +444,7 @@ describe('handleEmailVerifyRoute', () => {
 
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/login?error=Verification');
 		expect(createSession).not.toHaveBeenCalled();
-		expect(createUserFromEmail).not.toHaveBeenCalled();
+		expect(signUp).not.toHaveBeenCalled();
 		expect(setUserEmailVerified).not.toHaveBeenCalled();
 	});
 

@@ -5,7 +5,7 @@ import type {BankAccount, Source} from '@/client/widgets-client';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
 import {Missing, WidgetFrame} from '@/components/widgets/widget-frame';
 import {formatMoney, matchAccounts} from '@/lib/bank-values';
-import {useAccounts} from '@/lib/widget-lookups';
+import {useAccounts} from '@/hooks/widget-lookups';
 import {fieldTexts} from '@/lib/widget-values';
 
 /** What a widget asks for when nothing is connected to read. */

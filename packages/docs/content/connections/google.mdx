@@ -136,17 +136,27 @@ A search is Gmail's own, as in its search box, such as `from:sam has:attachment 
 can allow each action separately:
 
 - **Read email** lists, opens and searches email. An email opens as its text, or its HTML as text
-  where it has none, with the names of its attachments. Each comes with its link in Gmail, in this
-  account, for the agent to give you; a draft's opens it to be written.
+  where it has none, with its attachments listed. Each comes with its link in Gmail, in this
+  account, for the agent to give you; a draft's opens it to be written. An attachment is read as
+  text: a spreadsheet's tabs as CSV, a PDF's or a Word document's text, a forwarded email, or a
+  text file as it is, the first 100,000 characters of it. Images and other files can't be read.
 - **Mark read or unread**, **Star**, **Archive** and **Move email to Trash** act on messages in
   the inbox, and require Read email. Archived email stays in All Mail, and Gmail keeps Trash 30
   days before deleting it; nothing is deleted for good.
 - **Write drafts** creates, edits and deletes drafts, and requires Read email. An edit keeps the
   draft's Cc, Bcc and thread, and its formatting while its text is unchanged; text written anew
   goes out as plain text. A draft with attachments isn't edited, since it would lose them.
-  Received messages are never edited or deleted.
+  Received messages are never edited or deleted. A reply to an email is saved as a draft in its
+  thread.
 - **Send** sends a new email or a saved draft from the account's own address, and Gmail files it
   in Sent. It does not require Read email, so an agent can send without seeing the mailbox.
+  Sending a reply needs Read email too, since it reads the email it answers.
+
+A reply goes to whoever the email asks replies to go to, else its sender, or, for an email you
+sent, to whom it went, under the email's subject with "Re:", in the email's thread in Gmail. A
+reply to all also goes to everyone else the email went to and copies whom it copied, never the
+account itself. An email opens with its Message-ID and its Gmail thread, and a reply says its own
+id and thread, so an agent can check it landed in the conversation.
 
 For Calendar, agents see the calendars in the account's list, the primary one first, and inside
 each its events from now on, the soonest first, 50 to a page, each time a repeating event comes

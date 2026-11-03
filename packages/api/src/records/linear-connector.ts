@@ -16,7 +16,7 @@ import {
 	type LinearIssue,
 } from '../connections/linear/linear-mcp';
 import {callMcpToolFor} from '../connections/mcp/mcp-session';
-import type {Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
+import type {DataRecord, ListQuery, RecordPage, RecordStore, RecordTarget, RecordValues} from './connector';
 
 /**
  * A Linear workspace's issues, fetched live from Linear's MCP server as the person who signed in,
@@ -175,7 +175,7 @@ function list(target: RecordTarget, query: ListQuery): Promise<Result<RecordPage
 	});
 }
 
-export const linearConnector: Connector = {
+export const linearConnector = {
 	list,
 	get: getIssue,
 	// Every field typed in, the empty ones left out: Linear gives a new issue its team's defaults.
@@ -198,5 +198,4 @@ export const linearConnector: Connector = {
 			const saved = $(parseLinearIssue($(await callLinear(target, 'save_issue', {id: issue.id, ...$(saveArgs(changed))}))));
 			return $(await getIssue(target, saved.id));
 		}),
-	remove: () => Promise.resolve(Err(ApiErr.validationError('Linear issues are not deleted here'))),
-};
+} satisfies RecordStore;

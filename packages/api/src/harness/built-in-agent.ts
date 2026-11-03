@@ -4,7 +4,9 @@ import type {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
 import {type AgentRow, ensureSharedAgent} from '@proxy/db/agent';
-import {BUILT_IN_AGENT_PROVIDER} from '@proxy/integrations';
+import {BUILT_IN_AGENT_PROVIDER} from '@proxy/utils/agent-providers';
+
+import {unknownPasswordHash} from '../agents/unknown-password';
 
 /**
  * The organization's one built-in agent login, which every persona of the Chat page acts through,
@@ -19,6 +21,6 @@ export function ensureBuiltInAgent(orgId: string): Promise<Result<AgentRow, ApiE
 	return ensureSharedAgent(orgId, BUILT_IN_AGENT_PROVIDER.id, async () => ({
 		name: 'Chat',
 		username: `proxy-${randomBytes(6).toString('hex')}`,
-		passwordHash: await Bun.password.hash(randomBytes(32).toString('base64url')),
+		passwordHash: await unknownPasswordHash(),
 	}));
 }

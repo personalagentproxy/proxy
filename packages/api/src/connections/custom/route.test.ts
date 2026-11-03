@@ -82,6 +82,18 @@ mock.module('../mcp/mcp-client', () => ({...mcpClient, listMcpTools, callMcpTool
 const linearMcp = await import('../linear/linear-mcp');
 mock.module('../linear/linear-mcp', () => ({...linearMcp, getLinearAccount: mock(async () => Ok('alex@example.com · Acme'))}));
 
+// Of the integrations' modules, those built on their MCP servers, which take over a server's address.
+const builtIns = await Promise.all([
+	import('../cloudflare/built-in').then((module) => module.CLOUDFLARE_MCP),
+	import('../exa/built-in').then((module) => module.EXA_MCP),
+	import('../granola/built-in').then((module) => module.GRANOLA_MCP),
+	import('../linear/built-in').then((module) => module.LINEAR_MCP),
+	import('../notion/built-in').then((module) => module.NOTION_MCP),
+	import('../parallel/built-in').then((module) => module.PARALLEL_MCP),
+]);
+
+mock.module('../integrations', () => ({apiIntegration: () => undefined, apiIntegrations: () => builtIns.map((builtInMcp) => ({id: builtInMcp.integrationId, connectors: {}, builtInMcp}))}));
+
 const search = {name: 'search_docs', title: 'Search docs', inputSchema: {type: 'object', properties: {query: {type: 'string'}}}, annotations: {readOnlyHint: true}};
 const publish = {name: 'publish_doc', inputSchema: {type: 'object'}};
 

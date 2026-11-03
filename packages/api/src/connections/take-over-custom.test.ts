@@ -72,11 +72,23 @@ mock.module('../utils/secret-crypto', () => ({
 	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
 }));
 
+// Of the integrations' modules, those built on their MCP servers, which take over a server's address.
+const builtIns = await Promise.all([
+	import('./cloudflare/built-in').then((module) => module.CLOUDFLARE_MCP),
+	import('./exa/built-in').then((module) => module.EXA_MCP),
+	import('./granola/built-in').then((module) => module.GRANOLA_MCP),
+	import('./linear/built-in').then((module) => module.LINEAR_MCP),
+	import('./notion/built-in').then((module) => module.NOTION_MCP),
+	import('./parallel/built-in').then((module) => module.PARALLEL_MCP),
+]);
+
+mock.module('./integrations', () => ({apiIntegration: () => undefined, apiIntegrations: () => builtIns.map((builtInMcp) => ({id: builtInMcp.integrationId, connectors: {}, builtInMcp}))}));
+
 const {movedCredential, movedPermissions, movedRun, takeOverCustomConnections} = await import('./take-over-custom');
-const {CLOUDFLARE_MCP} = await import('./cloudflare/route');
-const {EXA_MCP} = await import('./exa/route');
-const {LINEAR_MCP} = await import('./linear/route');
-const {PARALLEL_MCP} = await import('./parallel/route');
+const {CLOUDFLARE_MCP} = await import('./cloudflare/built-in');
+const {EXA_MCP} = await import('./exa/built-in');
+const {LINEAR_MCP} = await import('./linear/built-in');
+const {PARALLEL_MCP} = await import('./parallel/built-in');
 
 const LINEAR_ACTIONS = ['read', 'create', 'edit'];
 
@@ -278,7 +290,7 @@ describe('takeOverCustomConnections', () => {
 			{id: 'e-2', action: 'agent_run', query: null},
 		];
 
-		await takeOverCustomConnections();
+		expect((await takeOverCustomConnections()).isOk()).toBe(true);
 
 		// Whether a keyless server's connection stays custom is told from its credential as locked.
 		expect(takeOverConnection.mock.calls.map((call) => call[0])).toEqual(['mcp-exa', 'mcp-parallel', 'mcp-keyless']);
@@ -350,16 +362,18 @@ describe('takeOverCustomConnections', () => {
 	test('Notion out of reach after a refresh leaves the connection to the next start, the new refresh token kept', async () => {
 		listed(customRow('mcp-notion', 'mcp.notion.com/mcp', {...NOTION_SIGN_IN, expiresAt: EXPIRED, refreshToken: 'refresh-down'}, ['notion-search'], []));
 
-		await takeOverCustomConnections();
+		// Left unrecorded, so the data migration is tried again on the next start.
+		expect((await takeOverCustomConnections()).isErr()).toBe(true);
 
 		expect(moves).toEqual([]);
 		expect(read(kept[0]?.credential)).toMatchObject({auth: 'oauth', accessToken: 'down-2', refreshToken: 'refresh-3'});
 	});
 
-	test("a credential that can't be read is left as it is, for the next start", async () => {
+	test("a credential that can't be read stays custom, and doesn't hold the migration open for the next start", async () => {
 		listed({...customRow('mcp-linear', 'mcp.linear.app/mcp', {}, ['list_issues'], []), credential: 'enc:not json'});
 
-		await takeOverCustomConnections();
+		// Nothing the next start could do differently, so the data migration is noted as done.
+		expect((await takeOverCustomConnections()).isOk()).toBe(true);
 
 		expect(takeOverConnection).toHaveBeenCalledTimes(1);
 		expect(moves).toEqual([]);

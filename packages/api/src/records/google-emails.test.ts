@@ -4,6 +4,8 @@ import {Ok, type Result} from 'ts-results-es';
 import type {ApiError} from '@proxy/utils';
 import {findCollection, findIntegration, type Collection} from '@proxy/integrations';
 
+import type {RecordStore} from './connector';
+
 mock.module('@proxy/db/connection', () => ({updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
 
 mock.module('../observability/log', () => ({
@@ -97,6 +99,8 @@ const gmail = {
 	calls: [] as Call[],
 	messages: mailbox(),
 	drafts: {r1: 'm3'} as Record<string, string>,
+	// An attachment's content by its id, of m1's.
+	attachments: {} as Record<string, string>,
 	answer: (_call: Call): Response | null => null,
 };
 
@@ -140,6 +144,11 @@ function answer(call: Call): Response {
 	if (draft) {
 		return draftAnswer(draft);
 	}
+	const [, attachmentOf, attachmentId] = /^\/messages\/([^/]+)\/attachments\/([^/]+)$/.exec(path) ?? [];
+	if (attachmentOf && attachmentId) {
+		const content = attachmentOf === 'm1' ? gmail.attachments[attachmentId] : undefined;
+		return content === undefined ? notFound() : Response.json({size: content.length, data: base64url(content)});
+	}
 	const [, id, verb] = /^\/messages\/([^/]+)(?:\/(modify|trash))?$/.exec(path) ?? [];
 	const found = id ? gmail.messages[id] : undefined;
 	if (!found) {
@@ -179,17 +188,18 @@ beforeEach(() => {
 	gmail.calls = [];
 	gmail.messages = mailbox();
 	gmail.drafts = {r1: 'm3'};
+	gmail.attachments = {};
 	gmail.answer = () => null;
 });
 
 async function connector() {
-	const {googleConnector} = await import('./google-connector');
-	return googleConnector;
+	const {gmailConnector} = await import('./google-emails');
+	return gmailConnector;
 }
 
-describe('findGmailEmails', () => {
+describe('gmailConnector.findEmails', () => {
 	test("searches all mail in Gmail's syntax and reads only as many as asked for, by their message ids", async () => {
-		const {findGmailEmails} = await import('./google-emails');
+		const findGmailEmails = (await import('./google-emails')).gmailConnector.findEmails;
 		const [found = []] = (await findGmailEmails(target, [{from: 'Sam Lee', words: [['planning']], since: '2026-09-01'}], 2)).unwrap();
 
 		const [list] = calls('GET', '/messages');
@@ -297,6 +307,13 @@ describe('get', () => {
 		expect(record.values.subject).toBe('Q3 planning');
 	});
 
+	test('an email opens with its Message-ID and its thread, as a reply names them', async () => {
+		gmail.messages.m1?.payload.headers?.push({name: 'Message-Id', value: '<q3@example.com>'});
+		const record = (await (await connector()).get(target, 'm1')).unwrap();
+
+		expect(record.values).toMatchObject({messageId: '<q3@example.com>', thread: 'thread-m1'});
+	});
+
 	test('an email with only HTML opens as its text', async () => {
 		const record = (await (await connector()).get(target, 'm2')).unwrap();
 
@@ -326,9 +343,63 @@ describe('get', () => {
 	});
 });
 
+describe('attachments', () => {
+	function attachments(): Collection {
+		const integration = findIntegration('google');
+		const found = integration && findCollection(integration, 'attachments');
+		if (!found) {
+			throw new Error('No attachments collection');
+		}
+		return found;
+	}
+
+	const attachmentsTarget = {...target, collection: attachments()};
+
+	beforeEach(() => {
+		gmail.messages.m1?.payload.parts?.push(
+			{mimeType: 'text/csv', filename: 'Budget.csv', body: {size: 22, attachmentId: 'att-budget'}},
+			{mimeType: 'image/png', filename: 'logo.png', body: {size: 2048, attachmentId: 'att-logo'}},
+		);
+		gmail.messages.m3?.payload.parts?.push({mimeType: 'text/plain', filename: 'notes.txt', body: {size: 5, data: base64url('Notes')}});
+		gmail.attachments = {'att-budget': 'Item,Cost\r\nVenue,1200'};
+	});
+
+	test('an email opens with its attachments listed, numbered, apart from its text', async () => {
+		const record = (await (await connector()).get(target, 'm1')).unwrap();
+
+		expect(record.values.body).toBe('Agenda attached.');
+		expect(record.values.attachments).toBe('1. Budget.csv (text/csv, 22 B)\n2. logo.png (image/png, 2 KB)');
+	});
+
+	test('an attachment is read by its number, fetched by the id the email gives it', async () => {
+		const {read} = (await import('./google-emails')).gmailAttachmentsConnector.newCommands;
+		const record = (await read?.(attachmentsTarget, {email: 'm1', attachment: '1'}))?.unwrap();
+
+		expect(record?.values).toMatchObject({email: 'm1', attachment: '1', name: 'Budget.csv', type: 'text/csv', content: 'Item,Cost\nVenue,1200'});
+		expect(calls('GET', '/messages/m1/attachments/att-budget')).toHaveLength(1);
+	});
+
+	test('a draft’s attachment is read by its name, from the draft itself where its content is in it', async () => {
+		const {read} = (await import('./google-emails')).gmailAttachmentsConnector.newCommands;
+		const record = (await read?.(attachmentsTarget, {email: 'draft-r1', attachment: 'notes.txt'}))?.unwrap();
+
+		expect(record?.values.content).toBe('Notes');
+		expect(gmail.calls.some((call) => call.url.pathname.includes('/attachments/'))).toBe(false);
+	});
+
+	test('an image is turned down, and an email Gmail doesn’t have is not found', async () => {
+		const {read} = (await import('./google-emails')).gmailAttachmentsConnector.newCommands;
+
+		expect((await read?.(attachmentsTarget, {email: 'm1', attachment: '2'}))?.unwrapErr()).toMatchObject({kind: 'validation_error', message: expect.stringContaining('can’t be read as text')});
+		expect(calls('GET', '/messages/m1/attachments/att-logo')).toEqual([]);
+		expect((await read?.(attachmentsTarget, {email: 'missing', attachment: '1'}))?.unwrapErr()).toMatchObject({kind: 'not_found', id: 'missing'});
+		expect((await read?.(attachmentsTarget, {attachment: '1'}))?.unwrapErr()).toMatchObject({kind: 'validation_error'});
+	});
+});
+
 describe('drafts', () => {
 	test('a new draft is written from the connection’s address and read back by its draft id', async () => {
-		const record = (await (await connector()).create(target, {to: 'robin@example.com', subject: 'New', body: 'Hello'}, null)).unwrap();
+		const record = (await (await connector()).create(target, {to: 'robin@example.com', subject: 'New', body: 'Hello'})).unwrap();
 
 		const raw = rawText(calls('POST', '/drafts')[0]?.body?.message as Record<string, unknown>);
 		expect(raw).toContain('From: alex@example.com');
@@ -404,7 +475,8 @@ describe('commands', () => {
 		['unflag', {addLabelIds: [], removeLabelIds: ['STARRED']}],
 		['archive', {addLabelIds: [], removeLabelIds: ['INBOX']}],
 	])('%s changes the labels and reads the email back', async (command, change) => {
-		const run = (await connector()).commands?.[command];
+		const {commands}: RecordStore = await connector();
+		const run = commands?.[command];
 		const record = (await run?.(target, 'm1'))?.unwrap();
 
 		expect(calls('POST', '/messages/m1/modify')[0]?.body).toEqual(change);
@@ -468,9 +540,9 @@ describe('commands', () => {
 	});
 });
 
-describe('replyToGmail', () => {
+describe('gmailConnector.reply', () => {
 	async function replyToGmail() {
-		return (await import('./google-emails')).replyToGmail;
+		return (await import('./google-emails')).gmailConnector.reply;
 	}
 
 	function withHeaders(id: string, headers: Record<string, string>) {
@@ -480,9 +552,18 @@ describe('replyToGmail', () => {
 
 	test('sends a reply to the sender from the connection’s address, in the email’s thread', async () => {
 		withHeaders('m1', {'Message-ID': '<q3@example.com>', References: '<agenda@example.com>'});
-		const headers = (await (await replyToGmail())(target, 'm1', {body: 'Works for me.', send: true})).unwrap();
+		const written = (await (await replyToGmail())(target, 'm1', {body: 'Works for me.', send: true, all: false})).unwrap();
 
-		expect(headers).toEqual({to: '"Sam Lee" <sam@example.com>', subject: 'Re: Q3 planning', inReplyTo: '<q3@example.com>', references: '<agenda@example.com> <q3@example.com>'});
+		expect(written).toEqual({
+			to: '"Sam Lee" <sam@example.com>',
+			cc: '',
+			subject: 'Re: Q3 planning',
+			inReplyTo: '<q3@example.com>',
+			references: '<agenda@example.com> <q3@example.com>',
+			// The message Gmail sent, in the thread it went in.
+			id: 'm8',
+			thread: 'thread-m8',
+		});
 		const [sent] = calls('POST', '/messages/send');
 		expect(sent?.body?.threadId).toBe('thread-m1');
 		const raw = rawText(sent?.body);
@@ -498,8 +579,9 @@ describe('replyToGmail', () => {
 
 	test('saves a reply as a draft in the thread, to where the email asks replies to go', async () => {
 		withHeaders('m1', {'Reply-To': 'planning@example.com', 'Message-ID': '<q3@example.com>'});
-		(await (await replyToGmail())(target, 'm1', {body: 'Draft reply', send: false})).unwrap();
+		const written = (await (await replyToGmail())(target, 'm1', {body: 'Draft reply', send: false, all: false})).unwrap();
 
+		expect(written).toMatchObject({id: 'draft-r2', thread: 'thread-m4'});
 		const message = calls('POST', '/drafts')[0]?.body?.message as Record<string, unknown>;
 		expect(message.threadId).toBe('thread-m1');
 		expect(rawText(message)).toContain('To: planning@example.com');
@@ -507,16 +589,49 @@ describe('replyToGmail', () => {
 	});
 
 	test('a reply to an email sent goes to whom it went, under its subject as it is', async () => {
-		const headers = (await (await replyToGmail())(target, 'm2', {body: 'Running late', send: true})).unwrap();
+		const headers = (await (await replyToGmail())(target, 'm2', {body: 'Running late', send: true, all: false})).unwrap();
 
 		expect(headers).toMatchObject({to: 'Robin <robin@example.com>', subject: 'Re: dinner'});
+	});
+
+	test('a reply to all also goes to whom the email went, and copies whom it copied, never the account', async () => {
+		withHeaders('m1', {'Message-ID': '<q3@example.com>'});
+		const email = gmail.messages.m1;
+		if (email?.payload.headers) {
+			email.payload.headers = email.payload.headers.map((header) => (header.name === 'To' ? {...header, value: 'Alex Kim <alex@example.com>, Dana Cruz <dana@example.com>'} : header));
+		}
+		const written = (await (await replyToGmail())(target, 'm1', {body: 'Works for all of us.', send: true, all: true})).unwrap();
+
+		expect(written).toMatchObject({to: '"Sam Lee" <sam@example.com>, "Dana Cruz" <dana@example.com>', cc: '"Jo Park" <jo@example.com>'});
+		const raw = rawText(calls('POST', '/messages/send')[0]?.body);
+		expect(raw).toContain('To: Sam Lee <sam@example.com>, Dana Cruz <dana@example.com>');
+		expect(raw).toContain('Cc: Jo Park <jo@example.com>');
+		expect(raw).not.toContain('Cc: Alex');
+	});
+
+	test('agents reply as the replies collection: sent or saved as a draft, answered with where it went', async () => {
+		withHeaders('m1', {'Message-ID': '<q3@example.com>'});
+		const integration = findIntegration('google');
+		const replies = integration && findCollection(integration, 'replies');
+		if (!replies) {
+			throw new Error('No replies collection');
+		}
+		const {gmailRepliesConnector: c} = await import('./google-emails');
+		const sent = (await c.newCommands?.send?.({...target, collection: replies}, {email: 'm1', body: 'Works for me.', replyAll: ''}))?.unwrap();
+		const drafted = (await c.newCommands?.draft?.({...target, collection: replies}, {email: 'm1', body: 'Works for me.', replyAll: 'Yes'}))?.unwrap();
+
+		expect(sent).toMatchObject({id: 'm8', values: {email: 'm1', to: '"Sam Lee" <sam@example.com>', cc: '', subject: 'Re: Q3 planning', thread: 'thread-m8'}});
+		expect(drafted).toMatchObject({id: 'draft-r2', values: {cc: '"Jo Park" <jo@example.com>', replyAll: 'Yes'}});
+		expect((await c.newCommands?.send?.({...target, collection: replies}, {email: 'm1', body: ' '}))?.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'Say what to reply as body'});
+		expect((await c.newCommands?.send?.({...target, collection: replies}, {body: 'Hi'}))?.unwrapErr().kind).toBe('validation_error');
+		expect(calls('POST', '/messages/send')).toHaveLength(1);
 	});
 
 	test('replies to no draft, and to no email Gmail doesn’t have', async () => {
 		const reply = await replyToGmail();
 
-		expect((await reply(target, 'draft-r1', {body: 'x', send: true})).unwrapErr().kind).toBe('validation_error');
-		expect((await reply(target, 'gone', {body: 'x', send: true})).unwrapErr().kind).toBe('not_found');
+		expect((await reply(target, 'draft-r1', {body: 'x', send: true, all: false})).unwrapErr().kind).toBe('validation_error');
+		expect((await reply(target, 'gone', {body: 'x', send: true, all: false})).unwrapErr().kind).toBe('not_found');
 		expect(calls('POST', '/messages/send')).toEqual([]);
 	});
 });

@@ -1,12 +1,3 @@
-export {
-	AGENT_PROVIDERS,
-	AGENT_NAME_MAX,
-	BUILT_IN_AGENT_PROVIDER,
-	findAgentProvider,
-	loginProviderIdFor,
-	suggestAgentProvider,
-} from './agent-providers';
-export type {AgentProvider, AgentProviderId} from './agent-providers';
 export {applies, effectiveActions, requiredAction} from './access';
 export type {OwnSettings} from './access';
 export {
@@ -16,6 +7,7 @@ export {
 	isOffered,
 	LINEAR_PRIORITIES,
 	LINEAR_STATUS_TYPES,
+	VAULT_DEFAULT_ACTIONS,
 	VAULT_ENTRY_TYPES,
 	VAULT_INTEGRATION_ID,
 } from './catalog';
@@ -38,8 +30,6 @@ export {
 	TOOLS_COLLECTION_ID,
 } from './mcp-tools';
 export type {McpInputSchema, McpSchemaProperty, McpTool} from './mcp-tools';
-export {EMAIL_PROVIDERS} from './email-providers';
-export type {EmailProvider, MailServers} from './email-providers';
 export type {
 	Action,
 	Collection,

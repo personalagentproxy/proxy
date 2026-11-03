@@ -1,9 +1,9 @@
 /// <reference types="bun" />
 
+import type {AgentLogin} from '@proxy/contracts/agents';
 import {afterEach, describe, expect, test} from 'bun:test';
 import {cleanup, render, screen} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
-import type {AgentLogin} from '@/lib/types';
 import {ConnectAgentPage} from '@/pages/connect-agent-page';
 import {testOrg as org} from '@/test-org';
 

@@ -2,28 +2,28 @@ import {describe, expect, test} from 'bun:test';
 
 import {taskEndedAt} from './tasks';
 
-const lastStartedAt = new Date('2026-10-16T09:00:00Z');
+const lastActiveAt = new Date('2026-10-16T09:00:00Z');
 
 describe('taskEndedAt', () => {
 	test('is when the task was finished', () => {
 		const finishedAt = new Date('2026-10-16T10:00:00Z');
-		expect(taskEndedAt({lastStartedAt, finishedAt}, new Date('2026-10-20T00:00:00Z'))).toEqual(
+		expect(taskEndedAt({lastActiveAt, finishedAt}, new Date('2026-10-20T00:00:00Z'))).toEqual(
 			finishedAt,
 		);
 	});
 
-	test('is null for a task open less than a day since it or its last sub-task was started', () => {
+	test('is null for a task open less than 20 minutes since anything was done for it', () => {
 		expect(
-			taskEndedAt({lastStartedAt, finishedAt: null}, new Date('2026-10-17T08:59:59Z')),
+			taskEndedAt({lastActiveAt, finishedAt: null}, new Date('2026-10-16T09:19:59Z')),
 		).toBeNull();
 	});
 
-	test('is a day after it or its last sub-task was started for a task never finished', () => {
-		expect(
-			taskEndedAt({lastStartedAt, finishedAt: null}, new Date('2026-10-17T09:00:00Z')),
-		).toEqual(new Date('2026-10-17T09:00:00Z'));
-		expect(
-			taskEndedAt({lastStartedAt, finishedAt: null}, new Date('2026-10-30T00:00:00Z')),
-		).toEqual(new Date('2026-10-17T09:00:00Z'));
+	test('is 20 minutes after anything was last done for it for a task never finished', () => {
+		expect(taskEndedAt({lastActiveAt, finishedAt: null}, new Date('2026-10-16T09:20:00Z'))).toEqual(
+			new Date('2026-10-16T09:20:00Z'),
+		);
+		expect(taskEndedAt({lastActiveAt, finishedAt: null}, new Date('2026-10-30T00:00:00Z'))).toEqual(
+			new Date('2026-10-16T09:20:00Z'),
+		);
 	});
 });

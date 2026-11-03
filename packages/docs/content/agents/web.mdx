@@ -1,0 +1,107 @@
+---
+title: Sign in to the agent pages
+description: Hand an agent a username and password to work through Personal Agent Proxy in a browser, with the same access settings, tasks and activity log as over MCP.
+---
+
+The agent pages are Personal Agent Proxy for an agent that drives a browser rather than speaking
+MCP, such as Grok Bot, Muse, Instinct or Dots. The agent signs in at your Personal Agent Proxy's
+address with `/agent/login` after it, such as `https://app.personalagentproxy.com/agent/login`,
+with a username and password of its own, and works as that agent login: it can do what the login is
+allowed and nothing more. The pages have the same tasks, connections and tools as the
+[MCP server](/agents/mcp), checked against the same access settings, and every request made from
+them is in the activity log with the task it was made for.
+
+The pages are built for a model reading them: every action is a labeled link or button, with
+nothing hidden behind an icon or a hover. You can sign in with the same login yourself to see
+exactly what the agent sees, run one of its tools by hand, or find out why a request was refused.
+
+<Steps>
+
+### Add the agent
+
+On **Agent permissions**, choose **New agent**, then the agent you use, and name it. Its login is
+made with a username and a password.
+
+### Hand the agent its login
+
+Personal Agent Proxy shows a message to send the agent, with **Copy message**: the sign-in page,
+the username and the password. Instinct keeps passwords in a vault rather than in chat, so you
+send it a message asking for a link to a vault entry, enter the login on the page it sends, then
+tell it it is set up. The password is not shown again once you leave the page.
+
+To hand it over again later, open the agent's page and choose **Set up again**, then **New
+password**. The old password stops working at once, and everything signed in with it is signed
+out.
+
+### Sign in
+
+The agent, or you, enters the username and password on the sign-in page and chooses **Sign in**.
+A wrong username or password is refused, and so is the login of a revoked agent. A sign-in lasts a
+week.
+
+</Steps>
+
+The login's access is set as always, on its page under **Access**. A change counts from the
+agent's next request.
+
+## Tasks
+
+The pages open on the login's tasks. Before anything else, the agent says what it is about to do
+for you under **Start a task**: a title in a few words and a goal, what you asked for in a sentence
+or two. **Start task** opens the task's pages, and every request made from them is made for that
+task.
+
+**Your tasks** lists the tasks under way, as many as the agent has started. **Work on this** opens
+one, and **Finish** beside it finishes it. On a task's pages, the bar under the header names the
+task, with **Switch task** to go back to the others and **Finish task**. A task that is finished
+can't be worked on any more: its pages send the agent back to its tasks to start a new one.
+
+## What the pages show
+
+**What you can access** lists the connections the login can use, each with its account, whether
+it is shared with everyone, and what the login may do with it. Under each are the collections the
+login can open, such as a mailbox's emails; one the login can only add to, as when it may send
+email but not read it, opens on its form. A connection the login can't use isn't listed.
+
+- **A collection** lists its records a page at a time, newest first, or soonest first for upcoming
+  ones such as calendar events, with a search and a filter, such as an email's folder, where the
+  collection has them. **New** starts a record where the login may.
+- **A record** shows its fields, with its link in the service's own app, such as **Open in Gmail**,
+  and a button for everything the login may do to it: the collection's commands, such as Archive or
+  Send, then **Edit** and **Delete**. In a nested collection, such as Notion's pages, **See what's
+  inside** opens the records it holds.
+- **A custom MCP server** lists the tools the login may run, each marked **Only reads** or
+  **Changes something**. A tool's page has one input for each of its params, as the server
+  describes them, and a button that runs it, with what the tool answered under **Result**.
+
+Only the login can open these pages. The agent is told to give you a record's link in the service's
+own app when it points you to something, or where there is none, to name it, such as an email by
+its subject.
+
+## Runs are real
+
+Everything done on the agent pages is done on your accounts, as it would be over MCP: **Send**
+sends the email, and **Delete** deletes the record at once. Each request is checked against the
+login's access as it is then, and is in the activity log as the agent's, with the task it was made
+for: allowed, denied by the access settings, or failed by the service, with what went wrong. Open
+an entry to read the task's title and goal, and follow it to every request made for that task.
+
+A page the login isn't allowed shows **No access**, and the request is logged as denied.
+
+## Send feedback
+
+**Send feedback**, at the foot of every page, tells the makers of Personal Agent Proxy about
+something that didn't work as the agent expected, with the task, the connection and the tool it was
+on. It goes to them, not to you, and changes nothing in your accounts.
+
+## Sign out
+
+**Sign out**, in the header, ends the sign-in and goes back to the sign-in
+page. Revoking the login on its page, or making it a new password, signs it out everywhere it is
+signed in.
+
+<Callout>
+A self-hosted Personal Agent Proxy has to be reachable from the internet over HTTPS for Grok Bot,
+Muse, Instinct and Dots to sign in to it: they open the pages from their own servers, not from your
+computer. Over plain HTTP, **New agent** offers them greyed out.
+</Callout>

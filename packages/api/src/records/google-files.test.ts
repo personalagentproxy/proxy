@@ -32,7 +32,7 @@ function messageOf<T>(result: Result<T, ApiError> | undefined): string | null {
 	if (!result || result.isOk()) {
 		return null;
 	}
-	return 'message' in result.error ? result.error.message : result.error.kind;
+	return ('message' in result.error && result.error.message) || result.error.kind;
 }
 
 const CREDENTIAL = {accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: new Date(Date.now() + 3_600_000).toISOString(), scopes: [], email: 'alex@example.com'};
@@ -93,7 +93,8 @@ type Request = {method: string; url: URL; type: string; body: string};
 
 // Where Sheets puts an appended row: after the last rows holding anything, from the first column of
 // the block they are in.
-const google = {requests: [] as Request[], appendColumn: 'A', appendedTitle: 'Q1'};
+// What a search of Drive finds, by its query; none is asked for but in the searches' tests.
+const google = {requests: [] as Request[], appendColumn: 'A', appendedTitle: 'Q1', found: null as ((q: string) => File[]) | null};
 
 function driveFile(file: File): object {
 	return {
@@ -141,6 +142,9 @@ function make(name: string, mimeType: string, parents: string[], content: string
 function answer(request: Request): Response {
 	const {method, url} = request;
 	const path = decodeURIComponent(url.pathname);
+	if (method === 'GET' && path === '/drive/v3/files' && google.found) {
+		return Response.json({files: google.found(url.searchParams.get('q') ?? '').map(driveFile)});
+	}
 	if (path === '/drive/v3/files/root') {
 		return Response.json({id: MY_DRIVE_ID});
 	}
@@ -225,12 +229,13 @@ beforeEach(() => {
 	google.requests = [];
 	google.appendColumn = 'A';
 	google.appendedTitle = 'Q1';
+	google.found = null;
 });
 
 describe('creating files', () => {
 	test('a folder is made inside the folder given, in shared drives too, and answered as opening it would', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.create(target, {name: 'Receipts', kind: 'Folder', content: ''}, '1Projects')).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const record = (await filesConnector.create(target, {name: 'Receipts', kind: 'Folder', content: ''}, '1Projects')).unwrap();
 
 		const [made] = writes();
 		expect(made?.url.pathname).toBe('/drive/v3/files');
@@ -240,17 +245,17 @@ describe('creating files', () => {
 	});
 
 	test('without a parent, or in My Drive, a file goes at the top of My Drive', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.create(target, {name: 'Inbox', kind: 'Folder'}, null);
-		await googleConnector.create(target, {name: 'Inbox 2', kind: 'Folder'}, 'root');
+		const {filesConnector} = await import('./google-files');
+		await filesConnector.create(target, {name: 'Inbox', kind: 'Folder'}, null);
+		await filesConnector.create(target, {name: 'Inbox 2', kind: 'Folder'}, 'root');
 
 		expect(writes().map((request) => JSON.parse(request.body).parents)).toEqual([['root'], ['root']]);
 	});
 
 	test('a document is uploaded as Markdown and a spreadsheet as CSV, each with the Google type Drive converts it to', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const doc = (await googleConnector.create(target, {name: 'Notes', kind: 'Document', content: '# Notes\n\nIt’s a start.'}, '1Projects')).unwrap();
-		await googleConnector.create(target, {name: 'Costs', kind: 'Spreadsheet', content: 'Item,Amount\nRent,"1,200"'}, 'drive-0ATeamDrive');
+		const {filesConnector} = await import('./google-files');
+		const doc = (await filesConnector.create(target, {name: 'Notes', kind: 'Document', content: '# Notes\n\nIt’s a start.'}, '1Projects')).unwrap();
+		await filesConnector.create(target, {name: 'Costs', kind: 'Spreadsheet', content: 'Item,Amount\nRent,"1,200"'}, 'drive-0ATeamDrive');
 
 		const [docUpload, sheetUpload] = writes();
 		expect(docUpload?.url.pathname).toBe('/upload/drive/v3/files');
@@ -270,15 +275,15 @@ describe('creating files', () => {
 	});
 
 	test('an empty document is made without an upload', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.create(target, {name: 'Blank', kind: 'Document', content: ''}, '1Projects');
+		const {filesConnector} = await import('./google-files');
+		await filesConnector.create(target, {name: 'Blank', kind: 'Document', content: ''}, '1Projects');
 
 		expect(writes().map((request) => [request.url.pathname, JSON.parse(request.body).mimeType])).toEqual([['/drive/v3/files', MIME.document]]);
 	});
 
 	test('a row goes at the end of a tab, its lines under the headers they name, and opens as a row', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.create(target, {name: '', kind: '', content: 'Status: Due\nItem: Travel'}, 'sheet-1Budget-0')).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const record = (await filesConnector.create(target, {name: '', kind: '', content: 'Status: Due\nItem: Travel'}, 'sheet-1Budget-0')).unwrap();
 
 		const [append] = writes();
 		expect(decodeURIComponent(append?.url.pathname ?? '')).toBe("/v4/spreadsheets/1Budget/values/'Q1':append");
@@ -289,8 +294,8 @@ describe('creating files', () => {
 
 	test('a row Sheets appends past column A, under the last block of rows, is written again from A', async () => {
 		google.appendColumn = 'B';
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.create(target, {content: 'Item: Travel\nStatus: Due'}, 'sheet-1Budget-0')).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const record = (await filesConnector.create(target, {content: 'Item: Travel\nStatus: Due'}, 'sheet-1Budget-0')).unwrap();
 
 		const [, rewrite] = writes();
 		expect(rewrite?.method).toBe('PUT');
@@ -300,8 +305,8 @@ describe('creating files', () => {
 
 	test("the new row's number is read after the tab's title, whatever the title holds", async () => {
 		google.appendedTitle = "'a!B7'";
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.create(target, {content: 'Item: Travel'}, 'sheet-1Budget-0')).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const record = (await filesConnector.create(target, {content: 'Item: Travel'}, 'sheet-1Budget-0')).unwrap();
 
 		expect(record.id).toBe('row-1Budget-0-4');
 	});
@@ -311,42 +316,42 @@ describe('creating files', () => {
 			['Item', 'Status', 'Status'],
 			['Rent', 'Open', 'Closed'],
 		];
-		const {googleConnector} = await import('./google-connector');
-		const row = (await googleConnector.get(target, 'row-1Budget-0-2')).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const row = (await filesConnector.get(target, 'row-1Budget-0-2')).unwrap();
 		expect(row.values.content).toBe('Item: Rent\nStatus: Open\nStatus (C): Closed');
 
-		await googleConnector.update(target, 'row-1Budget-0-2', {content: 'Item: Rent\nStatus: Open\nStatus (C): Done'});
+		await filesConnector.update(target, 'row-1Budget-0-2', {content: 'Item: Rent\nStatus: Open\nStatus (C): Done'});
 		expect(JSON.parse(writes()[0]?.body ?? '').data).toEqual([{range: "'Q1'!C2", majorDimension: 'ROWS', values: [['Done']]}]);
 	});
 
 	test('a row given a name is turned down, since its name is its first value', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const result = await googleConnector.create(target, {name: 'Travel', content: 'Status: Due'}, 'sheet-1Budget-0');
+		const {filesConnector} = await import('./google-files');
+		const result = await filesConnector.create(target, {name: 'Travel', content: 'Status: Due'}, 'sheet-1Budget-0');
 
 		expect(messageOf(result)).toBe('A row’s name is its first value: write it in content');
 		expect(writes()).toEqual([]);
 	});
 
 	test('a row naming a header the tab lacks is turned down before anything is written', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const result = await googleConnector.create(target, {content: 'Colour: red'}, 'sheet-1Budget-0');
+		const {filesConnector} = await import('./google-files');
+		const result = await filesConnector.create(target, {content: 'Colour: red'}, 'sheet-1Budget-0');
 
 		expect(messageOf(result)).toStartWith('“Colour: red” doesn’t start with one of the names: Item, Amount, Status');
 		expect(writes()).toEqual([]);
 	});
 
 	test('nothing is made in the places without a folder of their own, in a spreadsheet, or in a file', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {filesConnector} = await import('./google-files');
 		const folder = {name: 'New', kind: 'Folder', content: ''};
 		const refusals = await Promise.all([
-			googleConnector.create(target, folder, 'recent'),
-			googleConnector.create(target, folder, 'shared-with-me'),
-			googleConnector.create(target, folder, 'shared-drives'),
-			googleConnector.create(target, folder, '1Budget'),
-			googleConnector.create(target, folder, '1Plan'),
-			googleConnector.create(target, {name: 'New', kind: 'Presentation', content: ''}, '1Projects'),
-			googleConnector.create(target, {name: '', kind: 'Document', content: ''}, '1Projects'),
-			googleConnector.create(target, {name: 'New', kind: 'Folder', content: 'Something'}, '1Projects'),
+			filesConnector.create(target, folder, 'recent'),
+			filesConnector.create(target, folder, 'shared-with-me'),
+			filesConnector.create(target, folder, 'shared-drives'),
+			filesConnector.create(target, folder, '1Budget'),
+			filesConnector.create(target, folder, '1Plan'),
+			filesConnector.create(target, {name: 'New', kind: 'Presentation', content: ''}, '1Projects'),
+			filesConnector.create(target, {name: '', kind: 'Document', content: ''}, '1Projects'),
+			filesConnector.create(target, {name: 'New', kind: 'Folder', content: 'Something'}, '1Projects'),
 		]);
 
 		expect(refusals.map((result) => messageOf(result))).toEqual([
@@ -365,8 +370,8 @@ describe('creating files', () => {
 
 describe('editing files', () => {
 	test('a file is renamed with its metadata alone', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.update(target, '1Deck', {name: 'Board deck v2', kind: 'Presentation', content: 'Slide one'})).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const record = (await filesConnector.update(target, '1Deck', {name: 'Board deck v2', kind: 'Presentation', content: 'Slide one'})).unwrap();
 
 		const [rename] = writes();
 		expect([rename?.method, rename?.url.pathname, JSON.parse(rename?.body ?? '')]).toEqual(['PATCH', '/drive/v3/files/1Deck', {name: 'Board deck v2'}]);
@@ -376,11 +381,11 @@ describe('editing files', () => {
 	});
 
 	test('a document’s content is replaced whole by uploading Markdown, and only when written differently', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.update(target, '1Plan', {name: 'Launch plan', content: '# Launch plan\n\n- Ship it'});
+		const {filesConnector} = await import('./google-files');
+		await filesConnector.update(target, '1Plan', {name: 'Launch plan', content: '# Launch plan\n\n- Ship it'});
 		expect(writes()).toEqual([]);
 
-		const record = (await googleConnector.update(target, '1Plan', {name: 'Launch plan', content: '# Launch plan\n\n- Shipped'})).unwrap();
+		const record = (await filesConnector.update(target, '1Plan', {name: 'Launch plan', content: '# Launch plan\n\n- Shipped'})).unwrap();
 
 		const [upload] = writes();
 		expect([upload?.method, upload?.url.pathname, upload?.url.searchParams.get('uploadType'), upload?.type, upload?.body]).toEqual([
@@ -394,13 +399,13 @@ describe('editing files', () => {
 	});
 
 	test('a presentation’s or a spreadsheet’s content, a kind or an empty name is turned down before anything is written', async () => {
-		const {googleConnector} = await import('./google-connector');
+		const {filesConnector} = await import('./google-files');
 		const refusals = await Promise.all([
-			googleConnector.update(target, '1Deck', {name: 'Board deck v2', content: 'Slide two'}),
-			googleConnector.update(target, '1Budget', {content: 'Q1: 3 rows'}),
-			googleConnector.update(target, '1Plan', {kind: 'Spreadsheet'}),
-			googleConnector.update(target, '1Plan', {name: ' '}),
-			googleConnector.update(target, 'root', {name: 'Mine'}),
+			filesConnector.update(target, '1Deck', {name: 'Board deck v2', content: 'Slide two'}),
+			filesConnector.update(target, '1Budget', {content: 'Q1: 3 rows'}),
+			filesConnector.update(target, '1Plan', {kind: 'Spreadsheet'}),
+			filesConnector.update(target, '1Plan', {name: ' '}),
+			filesConnector.update(target, 'root', {name: 'Mine'}),
 		]);
 
 		expect(refusals.map((result) => messageOf(result))).toEqual([
@@ -414,22 +419,22 @@ describe('editing files', () => {
 	});
 
 	test('a rename leaves the content alone when it is as it read, however it reads now', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const before = (await googleConnector.get(target, '1Plan')).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const before = (await filesConnector.get(target, '1Plan')).unwrap();
 		const plan = state.files['1Plan'];
 		if (plan) {
 			plan.content = '# Launch plan\n\n- Shipped, by someone else meanwhile';
 		}
 		google.requests = [];
-		await googleConnector.update(target, '1Plan', {...before.values, name: 'Plan'}, before);
+		await filesConnector.update(target, '1Plan', {...before.values, name: 'Plan'}, before);
 
 		expect(writes().map((request) => [request.method, request.url.pathname])).toEqual([['PATCH', '/drive/v3/files/1Plan']]);
 		expect(state.files['1Plan']?.content).toBe('# Launch plan\n\n- Shipped, by someone else meanwhile');
 	});
 
 	test('a row changes only in the cells written differently, a cell written empty cleared', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const record = (await googleConnector.update(target, 'row-1Budget-0-3', {name: 'Food', kind: 'Row', content: 'Item: Food\nAmount: 350\nStatus: Paid'})).unwrap();
+		const {filesConnector} = await import('./google-files');
+		const record = (await filesConnector.update(target, 'row-1Budget-0-3', {name: 'Food', kind: 'Row', content: 'Item: Food\nAmount: 350\nStatus: Paid'})).unwrap();
 
 		const [update] = writes();
 		expect(update?.url.pathname).toBe('/v4/spreadsheets/1Budget/values:batchUpdate');
@@ -442,22 +447,22 @@ describe('editing files', () => {
 		});
 		expect(record.values.content).toBe('Item: Food\nAmount: 350\nStatus: Paid');
 
-		await googleConnector.update(target, 'row-1Budget-0-2', {content: 'Status:'});
+		await filesConnector.update(target, 'row-1Budget-0-2', {content: 'Status:'});
 		expect(JSON.parse(writes()[1]?.body ?? '').data).toEqual([{range: "'Q1'!C2", majorDimension: 'ROWS', values: [['']]}]);
 	});
 
 	test('a row written as it reads changes nothing, and its name is its first value', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.update(target, 'row-1Budget-0-2', {name: 'Rent', content: 'Item: Rent\nAmount: 1,200\nStatus: Paid'});
-		const renamed = await googleConnector.update(target, 'row-1Budget-0-2', {name: 'Mortgage'});
+		const {filesConnector} = await import('./google-files');
+		await filesConnector.update(target, 'row-1Budget-0-2', {name: 'Rent', content: 'Item: Rent\nAmount: 1,200\nStatus: Paid'});
+		const renamed = await filesConnector.update(target, 'row-1Budget-0-2', {name: 'Mortgage'});
 
 		expect(messageOf(renamed)).toBe('A row’s name is its first value: change it in content');
 		expect(writes()).toEqual([]);
 	});
 
 	test('a tab is renamed through the spreadsheet', async () => {
-		const {googleConnector} = await import('./google-connector');
-		await googleConnector.update(target, 'sheet-1Budget-0', {name: 'Q1 2026', content: '100 rows, 3 columns'});
+		const {filesConnector} = await import('./google-files');
+		await filesConnector.update(target, 'sheet-1Budget-0', {name: 'Q1 2026', content: '100 rows, 3 columns'});
 
 		const [rename] = writes();
 		expect(rename?.url.pathname).toBe('/v4/spreadsheets/1Budget:batchUpdate');
@@ -467,27 +472,64 @@ describe('editing files', () => {
 
 describe('moving files to Trash', () => {
 	test('a file goes to Trash, never deleted, and leaves the tree', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const result = await googleConnector.commands?.trash?.({...target}, '1Plan');
+		const {filesConnector} = await import('./google-files');
+		const result = await filesConnector.commands?.trash?.({...target}, '1Plan');
 
 		expect(result?.unwrap()).toBeNull();
 		expect(writes().map((request) => [request.method, request.url.pathname, JSON.parse(request.body)])).toEqual([['PATCH', '/drive/v3/files/1Plan', {trashed: true}]]);
 	});
 
-	test('places, tabs and rows are not files to trash, and deleting is refused', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const tab = await googleConnector.commands?.trash?.(target, 'sheet-1Budget-0');
-		const removed = await googleConnector.remove(target, '1Plan');
+	test('places, tabs and rows are not files to trash', async () => {
+		const {filesConnector} = await import('./google-files');
+		const tab = await filesConnector.commands?.trash?.(target, 'sheet-1Budget-0');
 
 		expect(tab?.isErr() && tab.error.kind).toBe('validation_error');
-		expect(messageOf(removed)).toBe('Files in Google Drive are moved to Trash, never deleted here');
 		expect(writes()).toEqual([]);
 	});
 
 	test('a file that is gone is not found by its id', async () => {
-		const {googleConnector} = await import('./google-connector');
-		const result = await googleConnector.commands?.trash?.(target, '1Gone');
+		const {filesConnector} = await import('./google-files');
+		const result = await filesConnector.commands?.trash?.(target, '1Gone');
 
 		expect(result?.isErr() && result.error).toMatchObject({kind: 'not_found', id: '1Gone'});
+	});
+});
+
+describe('finding files for the widget', () => {
+	test("in Drive's query language: every word in the name, or in the text, the owner, never what is trashed, quotes escaped", async () => {
+		const {driveQuery} = await import('./google-files');
+		const search = {words: ['q3', "paul's"], owner: 'paul@example.com'};
+		expect(driveQuery(search, 'name')).toBe("name contains 'q3' and name contains 'paul\\'s' and 'paul@example.com' in owners and trashed = false");
+		expect(driveQuery(search, 'content')).toBe("fullText contains 'q3' and fullText contains 'paul\\'s' and 'paul@example.com' in owners and trashed = false");
+		expect(driveQuery({words: [], owner: null}, 'name')).toBe('trashed = false');
+	});
+
+	test('by name, the most recently changed first, in every drive', async () => {
+		google.found = (q) => (q.startsWith('name') ? [state.files['1Budget'], state.files['1Plan']].flatMap((file) => (file ? [file] : [])) : []);
+		const {filesConnector} = await import('./google-files');
+		const found = (await filesConnector.findFiles(target, {words: ['budget'], owner: null}, 8)).unwrap();
+
+		expect(google.requests).toHaveLength(1);
+		const params = google.requests[0]?.url.searchParams;
+		expect(params?.get('q')).toBe("name contains 'budget' and trashed = false");
+		expect(params?.get('orderBy')).toBe('modifiedTime desc');
+		expect(params?.get('corpora')).toBe('allDrives');
+		expect(params?.get('pageSize')).toBe('30');
+		expect(found).toEqual([
+			{id: '1Budget', name: 'Budget 2026', kind: 'Spreadsheet', owner: 'Alex Kim', modified: '2026-10-08T08:00:00.000Z', link: 'https://drive.google.com/open?id=1Budget', matched: 'name'},
+			{id: '1Plan', name: 'Launch plan', kind: 'Document', owner: 'Alex Kim', modified: '2026-10-08T08:00:00.000Z', link: 'https://drive.google.com/open?id=1Plan', matched: 'name'},
+		]);
+	});
+
+	test('inside the files where no name has the words, as many as asked for, in the order Drive finds best', async () => {
+		google.found = (q) => (q.startsWith('fullText') ? [state.files['1Plan']].flatMap((file) => (file ? [file] : [])) : []);
+		const {filesConnector} = await import('./google-files');
+		const found = (await filesConnector.findFiles(target, {words: ['ship'], owner: null}, 8)).unwrap();
+
+		const params = google.requests[1]?.url.searchParams;
+		expect(params?.get('q')).toBe("fullText contains 'ship' and trashed = false");
+		expect(params?.has('orderBy')).toBe(false);
+		expect(params?.get('pageSize')).toBe('8');
+		expect(found.map((file) => [file.name, file.matched])).toEqual([['Launch plan', 'content']]);
 	});
 });

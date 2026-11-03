@@ -3,7 +3,7 @@ import type {
 	InspectedJob,
 	InspectedJobEvent,
 	InspectedThread,
-} from '@/client/inspect-client';
+} from '@proxy/contracts/inspect';
 
 /**
  * What the inspector says of a thread, a job and a log, worked out from what the api gives:

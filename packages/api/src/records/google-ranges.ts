@@ -5,7 +5,7 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import {DRIVE_ID} from '../connections/google/drive-api';
 import {callGoogle} from '../connections/google/google-client';
 import {getValues, putValues} from '../connections/google/sheets-api';
-import {onlyRun, type Connector, type DataRecord, type NewCommandRunner, type RecordValues} from './connector';
+import type {DataRecord, NewCommandRunner, RecordValues, RunOnly} from './connector';
 import {csvOf, parseCsv} from './csv';
 
 /**
@@ -91,4 +91,4 @@ const write: NewCommandRunner = (target, values) =>
 		return rangeRecord(spreadsheet, answer.range, answer.values);
 	});
 
-export const rangesConnector: Connector = {...onlyRun('Ranges are only read or written, a range at a time'), newCommands: {read, write}};
+export const rangesConnector = {newCommands: {read, write}} satisfies RunOnly;

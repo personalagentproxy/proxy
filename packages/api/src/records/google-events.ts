@@ -19,7 +19,8 @@ import {
 } from '../connections/google/calendar-api';
 import {callGoogle} from '../connections/google/google-client';
 import {readTime, realDay, zonedInstant, type Written} from './calendar-time';
-import {requireFirstPage, type CommandRunner, type Connector, type DataRecord, type ListQuery, type RecordPage, type RecordTarget, type RecordValues} from './connector';
+import {findGoogleEvents, googleAgenda} from './google-agenda';
+import {requireFirstPage, type CommandRunner, type DataRecord, type ListQuery, type RecordPage, type RecordStore, type RecordTarget, type RecordValues} from './connector';
 import {readPageToken, writePageToken} from './page-token';
 
 /**
@@ -443,15 +444,12 @@ function respond(answer: 'accepted' | 'declined' | 'tentative'): CommandRunner {
 		);
 }
 
-function notDeleted(): Promise<Result<never, ApiError>> {
-	return Promise.resolve(Err(ApiErr.validationError('Events in Google Calendar are never deleted here')));
-}
-
-export const eventsConnector: Connector = {
+export const eventsConnector = {
 	list: listEventsTree,
 	get: getEventsRecord,
 	create: createEvent,
 	update: updateEvent,
-	remove: notDeleted,
 	commands: {accept: respond('accepted'), decline: respond('declined'), maybe: respond('tentative')},
-};
+	agenda: googleAgenda,
+	findEvents: findGoogleEvents,
+} satisfies RecordStore;

@@ -1,3 +1,4 @@
+import type {AgentTask} from '@proxy/contracts/agent-side';
 import {useId, useState} from 'react';
 import {
 	useLoaderData,
@@ -6,7 +7,7 @@ import {
 	useRevalidator,
 	useSearchParams,
 } from 'react-router';
-import {type AgentTask, finishAgentTask, startAgentTask} from '@/client/agent-client';
+import {finishAgentTask, startAgentTask} from '@/client/agent-client';
 import {AgentHeading, AgentShell} from '@/components/agent-shell';
 import {Row, RowList} from '@/components/row-list';
 import {Button} from '@proxy/ui/components/button';
@@ -29,7 +30,7 @@ export function AgentTaskPage() {
 	const notice =
 		noticeFromState(useLocation().state) ??
 		(refused
-			? `Task ${refused} can’t be worked on anymore: it is finished, was left open over a day, or isn’t this login’s. Carry on with another, or start one for what you are doing now`
+			? `Task ${refused} can’t be worked on anymore: it, or the task it is part of, is finished, or it isn’t this login’s. Carry on with another, or start one for what you are doing now`
 			: null);
 	const [error, setError] = useState<string | null>(null);
 

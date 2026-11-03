@@ -9,11 +9,12 @@ import {ApiErr, type ApiError, Do, mapWithLimit, requirePresent} from '@proxy/ut
 
 import {callGoogle} from '../connections/google/google-client';
 import {
-	attachmentNames,
+	attachmentsOf,
 	createDraft,
 	deleteDraft,
 	findDraftIds,
 	folderOf,
+	getAttachment,
 	folderQuery,
 	getDraft,
 	getMessage,
@@ -35,9 +36,10 @@ import {
 	type GmailMessage,
 	type MessagePart,
 } from '../connections/google/gmail-api';
-import type {CommandRunner, Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
-import {gmailQuery, type EmailSearch} from './email-search';
-import {replyHeaders, type MailReply} from './email-reply';
+import {attachmentRecord, attachmentsText, pickAttachment, readableKind, requireEmailId} from './attachment-text';
+import type {CommandRunner, DataRecord, ListQuery, NewCommandRunner, RecordPage, RecordStore, RecordTarget, RecordValues, RunOnly} from './connector';
+import {gmailQuery, type EmailSearch, type MailSearch} from './email-search';
+import {replyCommands, replyHeaders, type MailReply} from './email-reply';
 
 /**
  * Gmail as the `emails` collection, fetched live, the same email as any mailbox's: one list, 50 to
@@ -52,7 +54,8 @@ import {replyHeaders, type MailReply} from './email-reply';
  * Marking read or unread takes the UNREAD label off or puts it on, starring the STARRED label,
  * archiving takes INBOX off, and moving to Trash is Gmail's trash, which keeps the email 30 days.
  * Nothing is deleted for good but drafts. Email goes out from the connection's own address, a draft
- * as it is saved or a new one written here; Gmail files it in Sent.
+ * as it is saved or a new one written here; Gmail files it in Sent. A reply, the `replies`
+ * collection's, is written in the thread of the email it answers, sent or saved as a draft.
  */
 
 type EmailRef = {kind: 'message'; messageId: string} | {kind: 'draft'; draftId: string};
@@ -158,7 +161,13 @@ function toRecord(account: string, recordId: string, message: GmailMessage, valu
 }
 
 function fullRecord(account: string, recordId: string, message: GmailMessage): DataRecord {
-	return toRecord(account, recordId, message, {...summaryValues(message), body: messageBody(message.payload)});
+	return toRecord(account, recordId, message, {
+		...summaryValues(message),
+		body: messageBody(message.payload),
+		attachments: attachmentsText(attachmentsOf(message.payload)),
+		messageId: headerOf(message.payload, 'Message-ID'),
+		thread: message.threadId ?? '',
+	});
 }
 
 // A draft in the drafts, not one moved to Trash, which Gmail doesn't list among them.
@@ -235,9 +244,8 @@ function findWithToken(token: string, account: string, search: EmailSearch, limi
  * `limit` each, read with their headers alone: a list of a page would read 50. Drafts keep their
  * message ids, as they are only shown.
  */
-export function findGmailEmails(target: RecordTarget, searches: EmailSearch[], limit: number): Promise<Result<DataRecord[][], ApiError>> {
-	return callGoogle(target.connection, async (token) => Result.all(await mapWithLimit(searches, SEARCHES_AT_ONCE, (search) => findWithToken(token, target.connection.account, search, limit))));
-}
+const findGmailEmails: MailSearch = (target, searches, limit) =>
+	callGoogle(target.connection, async (token) => Result.all(await mapWithLimit(searches, SEARCHES_AT_ONCE, (search) => findWithToken(token, target.connection.account, search, limit))));
 
 function readDraft(token: string, account: string, recordId: string, draftId: string): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
@@ -318,7 +326,7 @@ function updateDraftRecord(target: RecordTarget, recordId: string, values: Recor
 			const draftId = $(await requireDraft(token, recordId, 'Only drafts can be edited or deleted'));
 			const draft = $((await getDraft(token, draftId)).mapErr(notFoundAs(recordId)));
 			const {payload, threadId} = draft.message;
-			if (attachmentNames(payload).length > 0) {
+			if (attachmentsOf(payload).length > 0) {
 				return $(Err(ApiErr.validationError('This draft has attachments, which editing it here would drop; edit it in Gmail')));
 			}
 			const current = {to: headerOf(payload, 'To'), subject: headerOf(payload, 'Subject'), body: messageBody(payload)};
@@ -395,35 +403,77 @@ function sendNew(target: RecordTarget, values: RecordValues): Promise<Result<nul
 
 /**
  * A reply to an email in Gmail, from the connection's address, in the email's thread, sent or
- * saved as a draft there. A draft isn't replied to.
+ * saved as a draft there: its message id, or its draft's, and the thread Gmail put it in. A draft
+ * isn't replied to.
  */
-export const replyToGmail: MailReply = (target, recordId, reply) =>
+const replyToGmail: MailReply = (target, recordId, reply) =>
 	callGoogle(target.connection, (token) =>
 		Do(async ($) => {
-			const messageId = $(requireMessage(recordId));
-			const {payload, threadId} = $((await getMessage(token, messageId)).mapErr(notFoundAs(recordId)));
-			const headers = replyHeaders(target.connection.account, {
-				from: headerOf(payload, 'From'),
-				replyTo: headerOf(payload, 'Reply-To'),
-				to: headerOf(payload, 'To'),
-				subject: headerOf(payload, 'Subject'),
-				messageId: headerOf(payload, 'Message-ID'),
-				references: headerOf(payload, 'References'),
-			});
-			$(requireRecipient(headers.to, '', ''));
-			const kept = {cc: '', bcc: '', inReplyTo: headers.inReplyTo, references: headers.references};
+			const ref = $(requireRef(recordId));
+			if (ref.kind === 'draft') {
+				return $(Err(ApiErr.validationError('A draft isn’t replied to: send it, or reply to the email it answers')));
+			}
+			const {payload, threadId} = $((await getMessage(token, ref.messageId)).mapErr(notFoundAs(recordId)));
+			const headers = replyHeaders(
+				target.connection.account,
+				{
+					from: headerOf(payload, 'From'),
+					replyTo: headerOf(payload, 'Reply-To'),
+					to: headerOf(payload, 'To'),
+					cc: headerOf(payload, 'Cc'),
+					subject: headerOf(payload, 'Subject'),
+					messageId: headerOf(payload, 'Message-ID'),
+					references: headerOf(payload, 'References'),
+				},
+				reply.all,
+			);
+			$(requireRecipient(headers.to, headers.cc, ''));
+			const kept = {cc: headers.cc, bcc: '', inReplyTo: headers.inReplyTo, references: headers.references};
 			const source = $(await compose(target.connection.account, {to: headers.to, subject: headers.subject, body: reply.body}, kept));
 			const message = rawMessage(source, threadId ?? null);
 			if (reply.send) {
-				$(await sendMessage(token, message));
-				return headers;
+				const sent = $(await sendMessage(token, message));
+				return {...headers, id: sent.id, thread: sent.threadId ?? threadId ?? ''};
 			}
-			$(await createDraft(token, message));
-			return headers;
+			const draft = $(await createDraft(token, message));
+			return {...headers, id: `draft-${draft.id}`, thread: draft.message.threadId ?? threadId ?? ''};
 		}),
 	);
 
-export const gmailConnector: Connector = {
+// The `replies` collection's Send and Save as draft, a reply at a time.
+export const gmailRepliesConnector = {newCommands: replyCommands(replyToGmail)} satisfies RunOnly;
+
+// A message whole, by an email's id: a draft's by its draft id.
+function messageOf(token: string, recordId: string): Promise<Result<GmailMessage, ApiError>> {
+	return Do(async ($) => {
+		const ref = $(requireRef(recordId));
+		if (ref.kind === 'draft') {
+			return $((await getDraft(token, ref.draftId)).mapErr(notFoundAs(recordId))).message;
+		}
+		return $((await getMessage(token, ref.messageId)).mapErr(notFoundAs(recordId)));
+	});
+}
+
+/** One of an email's attachments, read as text: the `attachments` collection's one command. */
+const readAttachment: NewCommandRunner = (target, values) =>
+	Do(async ($) => {
+		const email = $(requireEmailId(values));
+		return $(
+			await callGoogle(target.connection, (token) =>
+				Do(async ($$) => {
+					const message = $$(await messageOf(token, email));
+					const {attachment, number} = $$(pickAttachment(attachmentsOf(message.payload), values));
+					$$(readableKind(attachment));
+					const bytes = attachment.attachmentId ? $$(await getAttachment(token, message.id, attachment.attachmentId)) : Buffer.from(attachment.data ?? '', 'base64url');
+					return $$(await attachmentRecord(email, number, {...attachment, bytes}));
+				}),
+			),
+		);
+	});
+
+export const gmailAttachmentsConnector = {newCommands: {read: readAttachment}} satisfies RunOnly;
+
+export const gmailConnector = {
 	list: listPage,
 	get: (target, recordId) => callGoogle(target.connection, (token) => readRecord(token, target.connection.account, recordId)),
 	create: createDraftRecord,
@@ -439,4 +489,6 @@ export const gmailConnector: Connector = {
 		send,
 	},
 	newCommands: {sendNew},
-};
+	findEmails: findGmailEmails,
+	reply: replyToGmail,
+} satisfies RecordStore;

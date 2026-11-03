@@ -1,37 +1,13 @@
-import {findIntegration, type IntegrationId} from '@proxy/integrations';
-
-import {cloudflareConnector} from './cloudflare-connector';
+import {apiIntegration} from '../connections/integrations';
 import type {Connector} from './connector';
-import {emailConnector} from './email-connector';
-import {googleConnector} from './google-connector';
-import {granolaConnector} from './granola-connector';
-import {linearConnector} from './linear-connector';
-import {notionConnector} from './notion-connector';
-import {plaidConnector} from './plaid-connector';
-import {sqlConnector} from './sql-connector';
-import {vaultConnector} from './vault-connector';
-import {exaConnector, parallelConnector} from './web-connector';
 
-// A custom MCP server has no records: its tools are called as they are (`connections/custom`).
-const CONNECTORS: Record<Exclude<IntegrationId, 'mcp'>, Connector> = {
-	vault: vaultConnector,
-	email: emailConnector,
-	granola: granolaConnector,
-	notion: notionConnector,
-	linear: linearConnector,
-	cloudflare: cloudflareConnector,
-	exa: exaConnector,
-	parallel: parallelConnector,
-	postgres: sqlConnector('postgres'),
-	mysql: sqlConnector('mysql'),
-	google: googleConnector,
-	plaid: plaidConnector,
-};
-
-export function connectorFor(integrationId: string): Connector | undefined {
-	const integration = findIntegration(integrationId);
-	if (!integration || integration.id === 'mcp') {
-		return undefined;
-	}
-	return CONNECTORS[integration.id];
+/**
+ * The connector of an integration's collection, by their ids, from the integration's module
+ * (`connections/integrations.ts`): each collection has one of its own, so a command runs on the
+ * collection it was run on even where two share an id, as Google's Trash does for emails and files.
+ * `connectors.test.ts` checks each against the catalog. A custom MCP server has none: its tools are
+ * called as they are (`connections/custom`).
+ */
+export function connectorFor(integrationId: string, collectionId: string): Connector | undefined {
+	return apiIntegration(integrationId)?.connectors[collectionId];
 }

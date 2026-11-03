@@ -1,5 +1,5 @@
 import {describe, expect, test} from 'bun:test';
-import type {InspectedEntry, InspectedJob, InspectedThread} from '@/client/inspect-client';
+import type {InspectedEntry, InspectedJob, InspectedThread} from '@proxy/contracts/inspect';
 import {
 	coveredSeq,
 	formatDue,

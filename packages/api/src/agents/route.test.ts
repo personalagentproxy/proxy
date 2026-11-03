@@ -49,6 +49,13 @@ const deleteOAuthGrant = mock();
 
 mock.module('@proxy/db/oauth', () => ({listAgentOAuthGrants, deleteOAuthGrant}));
 
+// Of the integrations' modules, Google's partial consent alone, read from its credential.
+const {unavailableGoogleConnectionActions} = await import('../connections/google/unavailable');
+
+mock.module('../connections/integrations', () => ({
+	apiIntegration: (id: string) => (id === 'google' ? {id, connectors: {}, unavailableActions: unavailableGoogleConnectionActions} : undefined),
+}));
+
 const agentRow = {
 	id: 'agent-1',
 	orgId: 'org-1',

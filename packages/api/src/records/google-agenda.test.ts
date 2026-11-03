@@ -1,0 +1,128 @@
+import {beforeEach, describe, expect, mock, test} from 'bun:test';
+import {Err, Ok} from 'ts-results-es';
+
+import {ApiErr} from '@proxy/utils';
+
+const listCalendars = mock();
+const listEvents = mock();
+
+mock.module('../connections/google/google-client', () => ({callGoogle: (_connection: unknown, call: (token: string) => unknown) => call('token')}));
+mock.module('../connections/google/calendar-api', () => ({listCalendars, listEvents}));
+
+beforeEach(() => {
+	mock.clearAllMocks();
+});
+
+describe('googleAgenda', () => {
+	test('reads the calendars Google Calendar shows and their events, without the declined, Busy where only that is seen', async () => {
+		listCalendars.mockResolvedValue(
+			Ok([
+				{id: 'me@work', summary: 'me@work', primary: true, accessRole: 'owner', backgroundColor: '#9fe1e7'},
+				{id: 'team', summary: 'Team', selected: true, accessRole: 'writer'},
+				{id: 'boss', summary: 'Boss', selected: true, accessRole: 'freeBusyReader'},
+				{id: 'holidays', summary: 'Holidays', accessRole: 'reader'},
+				{id: 'broken', summary: 'Broken', selected: true, accessRole: 'reader'},
+			]),
+		);
+		listEvents.mockImplementation(async (_token: string, calendarId: string) => {
+			if (calendarId === 'broken') {
+				return Err(ApiErr.notFound('file'));
+			}
+			const events = {
+				'me@work': [
+					{
+						id: 'standup',
+						summary: 'Standup',
+						location: 'Room 1',
+						start: {dateTime: '2026-10-15T09:30:00+02:00'},
+						end: {dateTime: '2026-10-15T09:45:00+02:00'},
+						htmlLink: 'https://calendar.google.com/standup',
+						organizer: {email: 'me@work', self: true},
+						attendees: [{email: 'me@work', self: true}, {email: 'sam@example.com'}, {email: 'room-1@resource.calendar.google.com', resource: true}],
+					},
+					{id: 'declined', summary: 'Skip', start: {dateTime: '2026-10-15T11:00:00+02:00'}, end: {dateTime: '2026-10-15T12:00:00+02:00'}, attendees: [{self: true, responseStatus: 'declined'}]},
+				],
+				team: [{id: 'offsite', summary: 'Offsite', start: {date: '2026-10-15'}, end: {date: '2026-10-16'}, organizer: {email: 'boss@work'}}],
+				boss: [{id: 'x', start: {dateTime: '2026-10-15T14:00:00+02:00'}, end: {dateTime: '2026-10-15T15:00:00+02:00'}}],
+			}[calendarId];
+			return Ok({events: events ?? [], nextPage: null});
+		});
+		const {googleAgenda} = await import('./google-agenda');
+
+		const range = {from: '2026-10-15T00:00:00+02:00', to: '2026-10-16T00:00:00+02:00'};
+		const read = (await googleAgenda({connection: {id: 'work'}} as never, range)).unwrap();
+
+		expect(listEvents).not.toHaveBeenCalledWith('token', 'holidays', expect.anything());
+		expect(listEvents).toHaveBeenCalledWith('token', 'me@work', {...range, search: null, page: null});
+		expect(read.calendars.map((calendar) => [calendar.id, calendar.primary, calendar.writable])).toEqual([
+			['me@work', true, true],
+			['team', false, true],
+			['boss', false, false],
+			['broken', false, false],
+		]);
+		// Only an event the account organizes, in a calendar it writes to, can be changed.
+		expect(read.events.map((event) => [event.title, event.allDay, event.editable])).toEqual([
+			['Standup', false, true],
+			['Offsite', true, false],
+			['Busy', false, false],
+		]);
+		// The guests but the account and the room.
+		expect(read.events[0]).toMatchObject({location: 'Room 1', guests: ['sam@example.com']});
+		expect(read.events[0]?.link).toBe('https://calendar.google.com/standup');
+	});
+});
+
+describe('findGoogleEvents', () => {
+	test('searches every calendar shown for each search from the time on, but those only seen as busy, each event once, soonest first', async () => {
+		listCalendars.mockResolvedValue(
+			Ok([
+				{id: 'me@work', summary: 'me@work', primary: true, accessRole: 'owner'},
+				{id: 'team', summary: 'Team', selected: true, accessRole: 'writer'},
+				{id: 'boss', summary: 'Boss', selected: true, accessRole: 'freeBusyReader'},
+			]),
+		);
+		const oneOnOne = {id: '1on1_20261021', summary: 'Arne / Konsti', start: {dateTime: '2026-10-21T15:00:00+02:00'}, end: {dateTime: '2026-10-21T15:30:00+02:00'}};
+		const lunch = {id: 'lunch', summary: 'Lunch', start: {dateTime: '2026-10-17T12:00:00+02:00'}, end: {dateTime: '2026-10-17T13:00:00+02:00'}};
+		listEvents.mockImplementation(async (_token: string, calendarId: string, query: {search: string}) => {
+			if (calendarId === 'me@work') {
+				return Ok({events: query.search === 'arne' ? [oneOnOne] : [oneOnOne, lunch], nextPage: null});
+			}
+			return Ok({events: [], nextPage: null});
+		});
+		const {findGoogleEvents} = await import('./google-agenda');
+
+		const from = '2026-10-16T00:00:00+02:00';
+		const found = (await findGoogleEvents({connection: {id: 'work'}} as never, {from, searches: ['arne', 'arne@example.com']})).unwrap();
+
+		expect(listEvents).toHaveBeenCalledTimes(4);
+		expect(listEvents).toHaveBeenCalledWith('token', 'team', {from, search: 'arne@example.com', page: null});
+		expect(listEvents).not.toHaveBeenCalledWith('token', 'boss', expect.anything());
+		expect(found.map((event) => event.title)).toEqual(['Lunch', 'Arne / Konsti']);
+	});
+});
+
+describe('an event on two calendars', () => {
+	test('shows it once, the copy the person can change, and fails the account when Google is out of reach', async () => {
+		listCalendars.mockResolvedValue(
+			Ok([
+				{id: 'colleague', summary: 'Arne', selected: true, accessRole: 'reader'},
+				{id: 'me@work', summary: 'me@work', primary: true, accessRole: 'owner'},
+			]),
+		);
+		const oneOnOne = {id: '1on1', summary: 'Arne / me', start: {dateTime: '2026-10-21T15:00:00+02:00'}, end: {dateTime: '2026-10-21T15:30:00+02:00'}, organizer: {email: 'me@work', self: true}};
+		listEvents.mockResolvedValue(Ok({events: [oneOnOne], nextPage: null}));
+		const {googleAgenda, findGoogleEvents} = await import('./google-agenda');
+		const source = {connection: {id: 'work'}} as never;
+
+		const range = {from: '2026-10-21T00:00:00+02:00', to: '2026-10-22T00:00:00+02:00'};
+		const day = (await googleAgenda(source, range)).unwrap();
+		expect(day.events.map((event) => [event.calendarId, event.editable])).toEqual([['me@work', true]]);
+		const found = (await findGoogleEvents(source, {from: range.from, searches: ['arne']})).unwrap();
+		expect(found.map((event) => [event.calendarId, event.editable])).toEqual([['me@work', true]]);
+
+		listEvents.mockImplementation(async (_token: string, calendarId: string) =>
+			calendarId === 'colleague' ? Err(ApiErr.providerUnreachable(new Error('rateLimitExceeded'))) : Ok({events: [oneOnOne], nextPage: null}),
+		);
+		expect((await findGoogleEvents(source, {from: range.from, searches: ['arne']})).isErr()).toBe(true);
+	});
+});

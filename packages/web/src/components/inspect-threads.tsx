@@ -1,7 +1,7 @@
 import {Link} from 'react-router';
 import {Badge} from '@proxy/ui/components/badge';
 import {cn} from '@proxy/ui/lib/utils';
-import type {InspectedJob, InspectedThread} from '@/client/inspect-client';
+import type {InspectedJob, InspectedThread} from '@proxy/contracts/inspect';
 import {useOrgSlug} from '@/hooks/use-org';
 import {formatTime} from '@/lib/format';
 import {

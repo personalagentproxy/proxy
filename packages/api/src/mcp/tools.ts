@@ -4,10 +4,11 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import type {SignedInAgent} from '@proxy/db/agent';
 import {findIntegration, integrationFor, INTEGRATIONS, isOffered, VAULT_ENTRY_TYPES, VAULT_INTEGRATION_ID, type Tool} from '@proxy/integrations';
+import type {AgentConnection} from '@proxy/contracts/agent-side';
 
 import {sendAgentFeedback} from '../agent-side/feedback';
 import {finishAgentTask, startAgentTask} from '../agent-side/tasks';
-import {listAgentConnections, listAgentTools, runAgentTool, type AgentConnection} from '../agent-side/tools';
+import {listAgentConnections, listAgentTools, runAgentTool} from '../agent-side/tools';
 import {requireAppUrl} from '../oauth/oauth-config';
 import {log, serializeError} from '../observability/log';
 import {requireOpenTaskIfAny} from './pre-task-clients';
@@ -281,6 +282,9 @@ function errorMessage(error: ApiError, args: Record<string, unknown>): string {
 	if (error.kind === 'not_found' && error.resource === 'task') {
 		return `There is no task ${error.id ?? ''} for this login. Call start_task with a title and the goal, and give the id it answers with as task.`;
 	}
+	if (error.kind === 'not_found' && error.message) {
+		return error.message;
+	}
 	if (error.kind === 'not_found') {
 		return `There is no ${error.resource}${error.id ? ` ${error.id}` : ''}.`;
 	}
@@ -294,7 +298,7 @@ function errorMessage(error: ApiError, args: Record<string, unknown>): string {
 		return 'The provider turned this connection’s sign-in down. The person who made this login needs to reconnect it.';
 	}
 	if (error.kind === 'provider_unreachable') {
-		return 'The provider could not be reached. Try again in a moment.';
+		return error.message ?? 'The provider could not be reached. Try again in a moment.';
 	}
 	if (error.kind === 'unauthenticated') {
 		return 'This login has been signed out.';

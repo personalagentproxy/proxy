@@ -1,13 +1,13 @@
 import {useEffect, useState} from 'react';
 import {Badge} from '@proxy/ui/components/badge';
 import {cn} from '@proxy/ui/lib/utils';
-import {
-	getRequest,
-	type InspectedEntry,
-	type InspectedThread,
-	type ModelMessage,
-	type ModelRequest,
-} from '@/client/inspect-client';
+import type {
+	InspectedEntry,
+	InspectedThread,
+	ModelMessage,
+	ModelRequest,
+} from '@proxy/contracts/inspect';
+import {getRequest} from '@/client/inspect-client';
 import {useOrgSlug} from '@/hooks/use-org';
 import {formatTime} from '@/lib/format';
 import {formatDuration, prettyJson, timedEvents} from '@/lib/inspect';

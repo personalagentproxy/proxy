@@ -1,13 +1,13 @@
 /// <reference types="bun" />
 
+import type {AgentLogin, McpClient} from '@proxy/contracts/agents';
 import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
 import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {AddAgent, AgentSetup} from '@/components/agent-setup';
-import type {AgentProviderId} from '@proxy/integrations';
+import type {AgentProviderId} from '@proxy/utils/agent-providers';
 import {pendingAgent} from '@/lib/pending-agent';
-import type {AgentLogin} from '@/lib/types';
 
 const realFetch = globalThis.fetch;
 const fetchMock = mock<(input: string, init?: RequestInit) => Promise<Response>>();
@@ -119,8 +119,9 @@ describe('AddAgent', () => {
 			providerId: 'claude-code',
 			name: 'Claude Code at work',
 		});
-		// The sign-in page Claude Code opens in this browser has it chosen.
-		expect(pendingAgent()).toEqual({org: 'acme', agentId: 'agent-3'});
+		// The sign-in page Claude Code opens in this browser has it chosen, once the step's effect
+		// has run, which may be after its text is shown.
+		await waitFor(() => expect(pendingAgent()).toEqual({org: 'acme', agentId: 'agent-3'}));
 	});
 
 	test('needs a custom agent named', () => {
@@ -224,7 +225,7 @@ describe('AgentSetup', () => {
 	});
 
 	test('waits for an MCP client to sign in as the agent, then says which did', async () => {
-		const client = (id: string, name: string, connectedAt: string, mine: boolean) => ({
+		const client = (id: string, name: string, connectedAt: string, mine: boolean): McpClient => ({
 			id,
 			name,
 			connectedAt,

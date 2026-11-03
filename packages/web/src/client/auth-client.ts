@@ -1,18 +1,12 @@
+import {magicLinkResponseSchema, signInMethodsSchema} from '@proxy/contracts/auth';
 import {httpRequest} from '@proxy/utils';
-import {z} from 'zod';
-
-// `POST /auth/email` answers 200 `{ok: true}`, with `logged` when the api wrote the link to its
-// log for lack of a way to send email, or 4xx/5xx `{error}` with a code the login page maps to
-// copy. Any status is accepted so the error body survives.
-const magicLinkResponseSchema = z.object({
-	ok: z.boolean().optional(),
-	logged: z.boolean().optional(),
-	error: z.string().optional(),
-});
+import {apiRequest, apiSend} from '@/client/request';
 
 /**
  * Requests a magic-link email. Pre-auth, so no session cookie; the api still requires the app's
- * Origin (CSRF guard), which the browser attaches.
+ * Origin (CSRF guard), which the browser attaches. Any status is accepted so the error body
+ * (`magicLinkResponseSchema`) is parsed as an answer, which is why this one call goes to
+ * `httpRequest` itself: `apiRequest` takes a 4xx/5xx as an error, unparsed.
  */
 export function requestMagicLink(email: string, callbackUrl?: string) {
 	return httpRequest(
@@ -26,19 +20,12 @@ export function requestMagicLink(email: string, callbackUrl?: string) {
 	);
 }
 
-const signInMethodsSchema = z.object({
-	google: z.boolean(),
-	needs: z.object({google: z.boolean(), plaid: z.boolean()}),
-});
-
-export type SignInMethods = z.infer<typeof signInMethodsSchema>;
-
 /**
  * The sign-in methods the api has set up besides the magic link, which always is, and which of
  * what integrations need it has (`needs`), for the catalog.
  */
 export function getSignInMethods() {
-	return httpRequest('/auth/methods', {method: 'GET'}, {schema: signInMethodsSchema});
+	return apiRequest('GET', '/auth/methods', signInMethodsSchema);
 }
 
 /** The full-page navigation that starts Google sign-in; the api redirects back when done. */
@@ -53,9 +40,7 @@ export function googleSignInUrl(callbackUrl?: string): string {
  * them signed in where they were.
  */
 export async function signOut(): Promise<void> {
-	const result = await httpRequest('/auth/signout', {
-		method: 'POST',
-	});
+	const result = await apiSend('POST', '/auth/signout');
 	if (result.isErr()) {
 		console.warn('Sign-out request failed', result.error.kind);
 	}
@@ -65,7 +50,5 @@ export async function signOut(): Promise<void> {
 
 /** Dev only: signs in as the dev user, made on its first sign-in. The api 404s outside development. */
 export function devLogin() {
-	return httpRequest('/auth/dev/login', {
-		method: 'POST',
-	});
+	return apiSend('POST', '/auth/dev/login');
 }

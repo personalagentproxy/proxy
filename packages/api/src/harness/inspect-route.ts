@@ -1,109 +1,33 @@
 import {Err, type Result} from 'ts-results-es';
+import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, hasExperiment, requirePresent} from '@proxy/utils';
-import {pendingToolCalls, readyForInference, type ToolCall} from '@proxy/utils/harness';
-import {
-	type EntryRow,
-	getEntry,
-	getJobThread,
-	getMemberThread,
-	getPersona,
-	type JobDetailRow,
-	type JobEventRow,
-	listEntries,
-	listEntriesWithPending,
-	listJobEvents,
-	listSubAgentThreads,
-	listThreadJobs,
-	type ThreadRow,
-} from '@proxy/db/harness';
+import {pendingToolCalls, readyForInference} from '@proxy/utils/harness';
+import type {EntryRow, JobDetailRow, JobEventRow, ThreadRow} from '@proxy/db/harness';
+import type {InspectedEntry, InspectedJob, InspectedJobEvent, InspectedThread, inspectionSchema, ModelRequest, ThreadState} from '@proxy/contracts/inspect';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {type OrgViewer, requireViewer} from '../utils/user-org';
 import {COMPACT_AT_TOKENS, compactionCut, toMessages, toTranscript} from './context';
 import {MAX_TURNS_ALONE, SUMMARIZE, SUMMARIZE_NOW, turnsAlone} from './inference';
-import type {ModelMessage, ModelTool} from './model';
-import {type PersonaResponse, toPersona} from './persona-response';
+import {toPersona} from './route';
+import type {HarnessStore} from './store';
 import {toolsFor} from './tool-surface';
 
 /**
- * The inspector's routes, for whoever works on the built-in agent, behind the `debug`
- * experiment beside `harness`: the viewer's conversation with a persona as the harness has it,
- * every thread of it with its whole log, its jobs and what happened to each, and, for any answer
- * of the model, the request it was sent, rebuilt from the log with the functions the harness runs
- * (context.ts) and the system prompt the entry kept. The viewer sees their own conversations
- * alone, as on the Chat page: a conversation is theirs, whoever they are in the organization.
+ * The inspector's routes, for whoever works on the built-in agent, behind the `debug` experiment
+ * beside `harness`: the viewer's conversation with a persona as the harness has it, every thread
+ * of it with its whole log, its jobs and what happened to each, and, for any answer of the model,
+ * the request it was sent, rebuilt from the log with the functions the harness runs (context.ts)
+ * and the system prompt the entry kept. The viewer sees their own conversations alone, as on the
+ * Chat page: a conversation is theirs, whoever they are in the organization.
  */
 
-/** An entry of a thread's log, whole: every kind, what is pending too, with what the model's answer cost and whether its system prompt was kept, which `GET …/inspect/entries/:entryId/request` gives with the rest of the request. */
-export type InspectedEntry = {
-	id: string;
-	seq: number;
-	kind: EntryRow['kind'];
-	text: string;
-	toolCalls: ToolCall[] | null;
-	callId: string | null;
-	isError: boolean;
-	pending: boolean;
-	inputTokens: number | null;
-	outputTokens: number | null;
-	coversSeq: number | null;
-	hasSystem: boolean;
-	jobId: string | null;
-	at: string;
-};
-
-/** A job as the queue has it, whatever its status. */
-export type InspectedJob = {
-	id: string;
-	threadId: string;
-	kind: JobDetailRow['kind'];
-	status: JobDetailRow['status'];
-	entryId: string | null;
-	callId: string | null;
-	runAt: string;
-	claimedBy: string | null;
-	leaseExpiresAt: string | null;
-	attempts: number;
-	error: string | null;
-	createdAt: string;
-};
-
-/** What happened to a job, one row per happening. */
-export type InspectedJobEvent = {id: string; jobId: string; threadId: string; kind: JobEventRow['kind']; workerId: string | null; error: string | null; at: string};
-
-/** Where the thread stands for the harness: whether its log is ready for the model and what holds it back, how many steps the model took alone against the limit, and how close the log is to being summarized. */
-export type ThreadState = {
-	ready: boolean;
-	pendingCalls: ToolCall[];
-	turnsAlone: number;
-	maxTurnsAlone: number;
-	lastInputTokens: number;
-	compactAtTokens: number;
-	// The seq of the last entry a summary made now would cover; null when the log needs none.
-	compactionCoversSeq: number | null;
-};
-
-/** A thread of the conversation: the conversation itself, or a sub-agent started from it. */
-export type InspectedThread = {
-	id: string;
-	parentThreadId: string | null;
-	parentCallId: string | null;
-	title: string | null;
-	taskId: string | null;
-	finishedAt: string | null;
-	createdAt: string;
-	entries: InspectedEntry[];
-	jobs: InspectedJob[];
-	events: InspectedJobEvent[];
-	state: ThreadState;
-};
-
-/** The viewer's conversation with a persona, whole: the conversation's thread first, then every sub-agent started from it, oldest first. */
-export type InspectionResponse = {persona: PersonaResponse; now: string; threads: InspectedThread[]};
-
-/** What the model was sent for an entry: the system prompt as kept (null where the answer was written without the model), the messages and the tools, rebuilt from the log as it was. */
-export type RequestResponse = {kind: 'turn' | 'summary'; system: string | null; messages: ModelMessage[]; tools: ModelTool[]};
+/** What the inspector's routes need of the store. */
+export type InspectStore = Pick<
+	HarnessStore,
+	'getPersona' | 'getMemberThread' | 'listSubAgentThreads' | 'listEntriesWithPending' | 'listThreadJobs' | 'listJobEvents' | 'getEntry' | 'getJobThread' | 'listEntries'
+>;
 
 function toInspectedEntry(entry: EntryRow): InspectedEntry {
 	return {
@@ -176,9 +100,9 @@ function mayInspect(viewer: OrgViewer, thread: ThreadRow): boolean {
 	return thread.orgId === viewer.orgId && thread.userId === viewer.userId;
 }
 
-async function inspectThread(thread: ThreadRow, jobs: JobDetailRow[], events: JobEventRow[]): Promise<Result<InspectedThread, ApiError>> {
+function inspectThread(store: InspectStore, thread: ThreadRow, jobs: JobDetailRow[], events: JobEventRow[]): Promise<Result<InspectedThread, ApiError>> {
 	return Do(async ($) => {
-		const entries = $(await listEntriesWithPending(thread.id));
+		const entries = $(await store.listEntriesWithPending(thread.id));
 		return {
 			id: thread.id,
 			parentThreadId: thread.parentThreadId,
@@ -196,21 +120,21 @@ async function inspectThread(thread: ThreadRow, jobs: JobDetailRow[], events: Jo
 }
 
 /** `GET /api/orgs/:org/chat/personas/:personaId/inspect`: the viewer's conversation with the persona as the harness has it; not found before they have one. */
-export function handleInspectThreadRoute(request: AuthenticatedRequest): Promise<Result<InspectionResponse, ApiError>> {
+function handleInspectThreadRoute(store: InspectStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof inspectionSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireInspector(request));
 		const personaId = request.params.personaId ?? '';
-		const persona = $(requirePresent($(await getPersona(viewer.orgId, personaId)), ApiErr.notFound('persona', personaId)));
-		const conversation = $(requirePresent($(await getMemberThread(persona.id, viewer.userId)), ApiErr.notFound('thread', persona.id)));
-		const subAgents = $(await listSubAgentThreads(conversation.id));
+		const persona = $(requirePresent($(await store.getPersona(viewer.orgId, personaId)), ApiErr.notFound('persona', personaId)));
+		const conversation = $(requirePresent($(await store.getMemberThread(persona.id, viewer.userId)), ApiErr.notFound('thread', persona.id)));
+		const subAgents = $(await store.listSubAgentThreads(conversation.id));
 		const threads = [conversation, ...subAgents];
 		const ids = threads.map((thread) => thread.id);
-		const [jobs, events] = await Promise.all([listThreadJobs(ids), listJobEvents(ids)]);
+		const [jobs, events] = await Promise.all([store.listThreadJobs(ids), store.listJobEvents(ids)]);
 		const allJobs = $(jobs);
 		const allEvents = $(events);
 		const inspected: InspectedThread[] = [];
 		for (const thread of threads) {
-			inspected.push($(await inspectThread(thread, allJobs, allEvents)));
+			inspected.push($(await inspectThread(store, thread, allJobs, allEvents)));
 		}
 		return {persona: toPersona(viewer, persona), now: new Date().toISOString(), threads: inspected};
 	});
@@ -218,14 +142,14 @@ export function handleInspectThreadRoute(request: AuthenticatedRequest): Promise
 
 // The request behind an assistant entry: the log before it, as the model read it, behind the
 // system prompt the entry kept.
-function turnRequest(thread: ThreadRow, entry: EntryRow, log: EntryRow[]): RequestResponse {
+function turnRequest(thread: ThreadRow, entry: EntryRow, log: EntryRow[]): ModelRequest {
 	const before = log.filter((candidate) => candidate.seq < entry.seq);
-	const system: ModelMessage[] = entry.system === null ? [] : [{role: 'system', content: entry.system}];
+	const system: ModelRequest['messages'] = entry.system === null ? [] : [{role: 'system', content: entry.system}];
 	return {kind: 'turn', system: entry.system, messages: [...system, ...toMessages(before, {clearOld: true})], tools: toolsFor(thread)};
 }
 
 // The request behind a summary entry: the log it covers, written out for the model to summarize.
-function summaryRequest(entry: EntryRow, log: EntryRow[]): RequestResponse {
+function summaryRequest(entry: EntryRow, log: EntryRow[]): ModelRequest {
 	const covered = log.filter((candidate) => candidate.seq <= (entry.coversSeq ?? -1));
 	return {
 		kind: 'summary',
@@ -239,16 +163,16 @@ function summaryRequest(entry: EntryRow, log: EntryRow[]): RequestResponse {
 }
 
 /** `GET /api/orgs/:org/chat/inspect/entries/:entryId/request`: what the model was sent for an assistant or summary entry of one of the viewer's threads, rebuilt from the log; not found for any other entry. */
-export function handleInspectRequestRoute(request: AuthenticatedRequest): Promise<Result<RequestResponse, ApiError>> {
+function handleInspectRequestRoute(store: InspectStore, request: AuthenticatedRequest): Promise<Result<ModelRequest, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireInspector(request));
 		const entryId = request.params.entryId ?? '';
-		const entry = $(await getEntry(entryId));
-		const thread = $(requirePresent($(await getJobThread(entry.threadId)), ApiErr.notFound('thread', entry.threadId)));
+		const entry = $(await store.getEntry(entryId));
+		const thread = $(requirePresent($(await store.getJobThread(entry.threadId)), ApiErr.notFound('thread', entry.threadId)));
 		if (!mayInspect(viewer, thread)) {
 			return $(Err(ApiErr.notFound('entry', entryId)));
 		}
-		const log = $(await listEntries(thread.id));
+		const log = $(await store.listEntries(thread.id));
 		if (entry.kind === 'assistant') {
 			return turnRequest(thread, entry, log);
 		}
@@ -257,4 +181,12 @@ export function handleInspectRequestRoute(request: AuthenticatedRequest): Promis
 		}
 		return $(Err(ApiErr.notFound('entry', entryId)));
 	});
+}
+
+/** The inspector's routes, on the store. */
+export function inspectRoutes(store: InspectStore) {
+	return {
+		handleInspectThreadRoute: (request: AuthenticatedRequest) => handleInspectThreadRoute(store, request),
+		handleInspectRequestRoute: (request: AuthenticatedRequest) => handleInspectRequestRoute(store, request),
+	};
 }

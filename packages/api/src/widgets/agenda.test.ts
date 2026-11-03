@@ -2,11 +2,15 @@ import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Ok} from 'ts-results-es';
 
 const findSources = mock();
-const googleCalendars = {agenda: mock(), search: mock()};
+const agenda = mock();
+const findEvents = mock();
 const getWriteTarget = mock(async (): Promise<unknown> => Ok(null));
 
-mock.module('./sources', () => ({findSources, summarize: (source: {connection: {id: string}}) => ({connectionId: source.connection.id})}));
-mock.module('./google-calendars', () => ({googleCalendars}));
+mock.module('./sources', () => ({
+	findSources,
+	summarize: (source: {connection: {id: string}}) => ({connectionId: source.connection.id}),
+	withCapability: (sources: Array<{connector: object}>, capability: string) => sources.filter((source) => capability in source.connector),
+}));
 mock.module('@proxy/db/write-target', () => ({getWriteTarget}));
 mock.module('../utils/user-org', () => ({
 	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
@@ -36,30 +40,34 @@ describe('handleAgendaRoute', () => {
 	const from = '2026-10-15T00:00:00.000+02:00';
 	const to = '2026-10-16T00:00:00.000+02:00';
 
-	test('gathers every calendar integration with an adapter, soonest first', async () => {
+	test('gathers every calendar whose connector has an agenda, soonest first, each with its connection', async () => {
 		findSources.mockResolvedValue(
 			Ok([
-				{connection: {id: 'work'}, integration: {id: 'google'}},
-				{connection: {id: 'other'}, integration: {id: 'notion'}},
+				{connection: {id: 'work'}, connector: {agenda, findEvents}},
+				{connection: {id: 'other'}, connector: {}},
 			]),
 		);
-		googleCalendars.agenda.mockResolvedValue(
+		agenda.mockResolvedValue(
 			Ok({
-				calendars: [calendar('work', 'me@work', true, true)],
+				calendars: [{id: 'me@work', name: 'me@work', primary: true, writable: true, color: null}],
 				events: [
-					{connectionId: 'work', calendarId: 'me@work', id: 'b', title: 'Later', start: '2026-10-15T15:00:00+02:00', end: '2026-10-15T16:00:00+02:00', allDay: false, link: null},
-					{connectionId: 'work', calendarId: 'me@work', id: 'a', title: 'Sooner', start: '2026-10-15T09:00:00+02:00', end: '2026-10-15T10:00:00+02:00', allDay: false, link: null},
+					{calendarId: 'me@work', id: 'b', title: 'Later', start: '2026-10-15T15:00:00+02:00', end: '2026-10-15T16:00:00+02:00', allDay: false, link: null},
+					{calendarId: 'me@work', id: 'a', title: 'Sooner', start: '2026-10-15T09:00:00+02:00', end: '2026-10-15T10:00:00+02:00', allDay: false, link: null},
 				],
 			}),
 		);
 		getWriteTarget.mockResolvedValue(Ok({connectionId: 'work', parent: 'me@work'}));
 		const {handleAgendaRoute} = await import('./agenda');
 
-		const agenda = (await handleAgendaRoute({user: {userId: 'user-1'}, query: {from, to}} as never)).unwrap();
-		expect(googleCalendars.agenda).toHaveBeenCalledTimes(1);
-		expect(agenda.sources.map((source) => source.connectionId)).toEqual(['work']);
-		expect(agenda.events.map((event) => event.title)).toEqual(['Sooner', 'Later']);
-		expect(agenda.target).toEqual({connectionId: 'work', calendarId: 'me@work'});
+		const day = (await handleAgendaRoute({user: {userId: 'user-1'}, query: {from, to}} as never)).unwrap();
+		expect(agenda).toHaveBeenCalledTimes(1);
+		expect(day.sources.map((source) => source.connectionId)).toEqual(['work']);
+		expect(day.calendars).toEqual([calendar('work', 'me@work', true, true)]);
+		expect(day.events.map((event) => [event.connectionId, event.title])).toEqual([
+			['work', 'Sooner'],
+			['work', 'Later'],
+		]);
+		expect(day.target).toEqual({connectionId: 'work', calendarId: 'me@work'});
 		expect(getWriteTarget).toHaveBeenCalledWith('user-1', 'events');
 	});
 
@@ -77,24 +85,27 @@ describe('handleAgendaRoute', () => {
 
 describe('handleFindEventsRoute', () => {
 	const from = '2026-10-16T00:00:00.000+02:00';
-	const event = (connectionId: string, id: string, start: string) => ({connectionId, calendarId: 'me', id, title: id, start, end: start, allDay: false, link: null});
+	const event = (id: string, start: string) => ({calendarId: 'me', id, title: id, start, end: start, allDay: false, link: null});
 
 	test('searches every calendar with each search, soonest first across them', async () => {
 		findSources.mockResolvedValue(
 			Ok([
-				{connection: {id: 'work'}, integration: {id: 'google'}},
-				{connection: {id: 'home'}, integration: {id: 'google'}},
+				{connection: {id: 'work'}, connector: {agenda, findEvents}},
+				{connection: {id: 'home'}, connector: {agenda, findEvents}},
 			]),
 		);
-		googleCalendars.search.mockImplementation(async (source: {connection: {id: string}}) =>
-			Ok(source.connection.id === 'work' ? [event('work', 'later', '2026-10-21T15:00:00+02:00')] : [event('home', 'sooner', '2026-10-17T09:00:00+02:00')]),
+		findEvents.mockImplementation(async (source: {connection: {id: string}}) =>
+			Ok(source.connection.id === 'work' ? [event('later', '2026-10-21T15:00:00+02:00')] : [event('sooner', '2026-10-17T09:00:00+02:00')]),
 		);
 		const {handleFindEventsRoute} = await import('./agenda');
 
 		const found = (await handleFindEventsRoute({user: {userId: 'user-1'}, query: {from, search: ['arne', ' arne@example.com ', 'arne']}} as never)).unwrap();
 		expect(findSources).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'events', 'list');
-		expect(googleCalendars.search).toHaveBeenCalledWith(expect.anything(), {from, searches: ['arne', 'arne@example.com']});
-		expect(found.events.map((one) => one.id)).toEqual(['sooner', 'later']);
+		expect(findEvents).toHaveBeenCalledWith(expect.anything(), {from, searches: ['arne', 'arne@example.com']});
+		expect(found.events.map((one) => [one.connectionId, one.id])).toEqual([
+			['home', 'sooner'],
+			['work', 'later'],
+		]);
 	});
 
 	test('takes one search to three, and a time to search from', async () => {

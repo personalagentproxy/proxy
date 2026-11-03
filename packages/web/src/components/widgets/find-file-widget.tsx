@@ -10,7 +10,7 @@ import {
 import type {Intent} from '@/client/intent-client';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
 import {Missing, WidgetFrame} from '@/components/widgets/widget-frame';
-import {useAddress, useFiles} from '@/lib/widget-lookups';
+import {useAddress, useFiles} from '@/hooks/widget-lookups';
 import {fileSearch, shortDay} from '@/lib/widget-values';
 
 const KIND_ICONS: Partial<Record<string, LucideIcon>> = {

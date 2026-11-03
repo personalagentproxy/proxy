@@ -147,6 +147,99 @@ function emailsCollection(args: {
 			// "Unread, Flagged" ("Unread, Starred" on Gmail), for an email in the inbox.
 			{key: 'status', label: 'Status', type: 'text', system: true},
 			{key: 'body', label: 'Body', type: 'longtext'},
+			// One a line, numbered as the attachments collection reads them by: "1. Q3.xlsx
+			// (application/…, 48 KB)".
+			{key: 'attachments', label: 'Attachments', type: 'longtext', system: true},
+			// Its own header, "<q3@example.com>", which a reply to it names as the email it answers.
+			{key: 'messageId', label: 'Message-ID', type: 'text', system: true},
+			// Gmail's id of the conversation it is in, which a reply to it joins; other mailboxes have none.
+			{key: 'thread', label: 'Thread', type: 'text', system: true},
+		],
+	};
+}
+
+/**
+ * Replies to email, each written in the thread of the email it answers: never listed or opened,
+ * only sent at once, with the action sending email and the one reading it, or saved as a draft,
+ * with the one writing drafts. Who it goes to, its subject and its thread come from the email.
+ */
+function repliesCollection(actions: Pick<EmailActions, 'read' | 'write' | 'send'>): Collection {
+	const what =
+		'Name the email by its id, as a list gives it, and write the reply as body: whom it goes to, its subject and its thread come from the email, as a mail app’s Reply writes them. With replyAll Yes it also goes to everyone else the email went to. Answers whom it went to, its subject and its id among email, with its thread on Gmail.';
+	return {
+		id: 'replies',
+		name: 'Replies',
+		singular: 'reply',
+		titleField: 'subject',
+		writes: {},
+		commands: [
+			{
+				id: 'send',
+				on: 'new',
+				label: 'Send',
+				description: `Reply to an email in its thread, and send the reply at once. ${what}`,
+				action: actions.send,
+				requires: actions.read,
+				done: 'Sent {}',
+				tried: 'send {}',
+			},
+			{
+				id: 'draft',
+				on: 'new',
+				label: 'Save as draft',
+				description: `Reply to an email in its thread, saved as a draft for emails_send to send later. ${what}`,
+				action: actions.write,
+				done: 'Saved {} as a draft',
+				tried: 'save {} as a draft',
+			},
+		],
+		fields: [
+			{key: 'email', label: 'Email', type: 'text'},
+			{key: 'body', label: 'Body', type: 'longtext'},
+			{key: 'replyAll', label: 'Reply all', type: 'select', options: ['Yes', 'No']},
+			{key: 'to', label: 'To', type: 'email', system: true},
+			{key: 'cc', label: 'Cc', type: 'email', system: true},
+			{key: 'subject', label: 'Subject', type: 'text', system: true},
+			// Gmail's, as the email's.
+			{key: 'thread', label: 'Thread', type: 'text', system: true},
+		],
+	};
+}
+
+/**
+ * An email's attachments, read as text with the action reading the email: never listed or opened,
+ * only read, one at a time, by the email's id and the attachment's number among those the email
+ * lists, or its name.
+ */
+function attachmentsCollection(read: string): Collection {
+	return {
+		id: 'attachments',
+		name: 'Attachments',
+		singular: 'attachment',
+		titleField: 'name',
+		writes: {},
+		commands: [
+			{
+				id: 'read',
+				on: 'new',
+				label: 'Read',
+				description:
+					'Read one of an email’s attachments as text: a spreadsheet’s tabs as CSV, a PDF’s or a Word document’s text, a forwarded email, or text as it is. Name the email by its id, as a list gives it, and the attachment by its number among the attachments the email lists, or its name. Images and other files are turned down.',
+				action: read,
+				readOnly: true,
+				done: 'Read {}',
+				tried: 'read {}',
+			},
+		],
+		fields: [
+			{key: 'email', label: 'Email', type: 'text'},
+			{key: 'attachment', label: 'Attachment', type: 'text'},
+			{key: 'name', label: 'Name', type: 'text', system: true},
+			{key: 'type', label: 'Type', type: 'text', system: true},
+			{key: 'size', label: 'Size', type: 'text', system: true},
+			// "1234 characters", or how many of more were answered: at most 100,000.
+			{key: 'length', label: 'Length', type: 'text', system: true},
+			{key: 'content', label: 'Content', type: 'longtext', system: true},
 		],
 	};
 }
@@ -155,11 +248,13 @@ function emailsCollection(args: {
 // so access is only ever narrowed in Personal Agent Proxy. The inbox, drafts and sent mail are one
 // list, each email saying which folder it is in. Received emails are never edited or deleted for
 // good: they are marked, flagged, archived or moved to Trash. Sending needs nothing else, so an
-// agent can send without reading the mailbox.
+// agent can send without reading the mailbox; sending a reply, which reads the email it answers,
+// needs Read too.
 const email: Integration = {
 	id: 'email',
 	name: 'Email',
 	description: 'Gmail, iCloud, Fastmail or any IMAP mailbox',
+	form: 'email',
 	actions: [
 		{
 			id: 'read',
@@ -191,7 +286,7 @@ const email: Integration = {
 		{
 			id: 'write',
 			label: 'Write drafts',
-			description: 'Create, edit and delete drafts',
+			description: 'Create, edit and delete drafts, replies in an email’s thread among them',
 			risk: 'medium',
 			requires: 'read',
 		},
@@ -205,7 +300,8 @@ const email: Integration = {
 		{
 			id: 'send',
 			label: 'Send',
-			description: 'Send email from this address, new or from a draft',
+			description:
+				'Send email from this address: new, from a draft, or a reply, which needs Read too',
 			risk: 'high',
 			reachesOthers: true,
 		},
@@ -226,6 +322,8 @@ const email: Integration = {
 				'On Gmail, Gmail’s own search syntax works, such as from:sam has:attachment newer_than:7d. Other mailboxes match the words in the sender, recipients, subject and text.',
 			flag: FLAG,
 		}),
+		attachmentsCollection('read'),
+		repliesCollection({read: 'read', write: 'write', send: 'send'}),
 	],
 };
 
@@ -673,7 +771,8 @@ function webIntegration(
 				fields: [
 					{key: 'url', label: 'URL', type: 'text'},
 					{key: 'title', label: 'Title', type: 'text', system: true},
-					// As Markdown, where the provider gives it so.
+					// As Markdown, where the provider gives it so; where it runs long, its start and a line
+					// saying it was cut.
 					{key: 'content', label: 'Content', type: 'longtext', system: true},
 				],
 			},
@@ -706,6 +805,7 @@ function sqlIntegration(id: 'postgres' | 'mysql', name: string, description: str
 		id,
 		name,
 		description,
+		form: 'database',
 		actions: [
 			{
 				id: 'read',
@@ -881,7 +981,7 @@ const google: Integration = {
 		{
 			id: 'writeEmails',
 			label: 'Write drafts',
-			description: 'Create, edit and delete drafts',
+			description: 'Create, edit and delete drafts, replies in an email’s thread among them',
 			risk: 'medium',
 			requires: 'readEmails',
 			group: 'Gmail',
@@ -897,7 +997,8 @@ const google: Integration = {
 		{
 			id: 'sendEmails',
 			label: 'Send',
-			description: 'Send email from this address, new or from a draft',
+			description:
+				'Send email from this address: new, from a draft, or a reply, which needs Read email too',
 			risk: 'high',
 			reachesOthers: true,
 			group: 'Gmail',
@@ -1032,6 +1133,8 @@ const google: Integration = {
 			flag: STAR,
 			openIn: 'Gmail',
 		}),
+		attachmentsCollection('readEmails'),
+		repliesCollection({read: 'readEmails', write: 'writeEmails', send: 'sendEmails'}),
 		// The calendars the account sees, each holding its events: from now on, soonest first, every
 		// time a repeating event comes round its own record. Times are written as Google takes them,
 		// 2026-10-15T14:00 in the calendar's time zone or with an offset, and a day alone, 2026-10-15,
@@ -1364,6 +1467,7 @@ const plaid: Integration = {
 	id: 'plaid',
 	name: 'Plaid',
 	description: 'Balances and transactions from your bank accounts, cards and loans',
+	form: 'bank',
 	actions: [
 		{
 			id: 'readBalances',
@@ -1486,6 +1590,10 @@ const vault: Integration = {
 	],
 };
 
+// What agents may do with a vault by default, as every organization and member gets one: read
+// it, and keep what they learn there, unless told otherwise.
+export const VAULT_DEFAULT_ACTIONS: string[] = vault.actions.map((action) => action.id);
+
 // Any MCP server, by its address: what it lists as its tools is what an agent can be allowed, one
 // by one, so the catalog's entry has no actions of its own. A server that asks for a sign-in gets
 // one as Granola's does; one that takes a token typed in, or none, is connected with that. A tool's
@@ -1496,6 +1604,7 @@ const mcp: Integration = {
 	name: 'Custom MCP server',
 	description: 'Any MCP server, by its address',
 	custom: true,
+	form: 'server',
 	actions: [],
 	collections: [],
 };

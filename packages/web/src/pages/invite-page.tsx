@@ -1,8 +1,9 @@
+import type {InvitationLink} from '@proxy/contracts/orgs';
 import type {ReactNode} from 'react';
 import {useState} from 'react';
 import {Link, useLoaderData, useNavigate, useParams} from 'react-router';
 import {signOut} from '@/client/auth-client';
-import {acceptInvitation, type InvitationLink} from '@/client/orgs-client';
+import {acceptInvitation} from '@/client/orgs-client';
 import {OrgTile} from '@/components/org-switcher';
 import {StepHeading} from '@/components/step-heading';
 import {Button} from '@proxy/ui/components/button';

@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 
 import {ImapFlow, type FetchMessageObject, type MailboxObject, type MessageAddressObject, type SearchObject} from 'imapflow';
-import {simpleParser} from 'mailparser';
+import {simpleParser, type AddressObject, type ParsedMail} from 'mailparser';
 import MailComposer from 'nodemailer/lib/mail-composer';
 import type Mail from 'nodemailer/lib/mailer';
 import {Err, Ok, Result} from 'ts-results-es';
@@ -13,9 +13,10 @@ import type {EmailCredential} from '../connections/email/credential';
 import {imapClientOptions, imapError, smtpError, smtpTransport} from '../connections/email/mail-check';
 import {log, serializeError} from '../observability/log';
 import {decryptSecret} from '../utils/secret-crypto';
-import type {CommandRunner, Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
-import {gmailQuery, type EmailSearch} from './email-search';
-import {replyHeaders, type MailReply, type ReplyHeaders} from './email-reply';
+import {attachmentRecord, attachmentsText, pickAttachment, requireEmailId, type AttachmentFile} from './attachment-text';
+import type {CommandRunner, DataRecord, ListQuery, RecordPage, RecordStore, RecordTarget, RecordValues, RunOnly} from './connector';
+import {gmailQuery, type EmailSearch, type MailSearch} from './email-search';
+import {replyCommands, replyHeaders, type MailReply, type ReplyHeaders} from './email-reply';
 
 /**
  * A mailbox over IMAP, signed in fresh for every request. Its one list is the inbox and the
@@ -26,7 +27,9 @@ import {replyHeaders, type MailReply, type ReplyHeaders} from './email-reply';
  *
  * IMAP messages can't be changed, so updating a draft saves a new one and deletes the old: the
  * draft gets a new id. Received emails are only flagged or moved: archived, or moved to Trash.
- * Email goes out over SMTP, from a draft or straight from values typed in.
+ * Email goes out over SMTP, from a draft or straight from values typed in. An email's attachments
+ * are read from the message whole, as the `attachments` collection's one command. A reply, the
+ * `replies` collection's, is written in the thread of the email it answers, sent or saved in Drafts.
  */
 
 const PAGE_SIZE = 50;
@@ -342,8 +345,8 @@ async function findEveryone(session: Session, searches: Array<EmailSearch & {inv
  * account only so many connections at once: searches only for people, as the People widget's,
  * as one search for any of them where it can, any others one after the other.
  */
-export function findInboxEmails(target: RecordTarget, searches: EmailSearch[], limit: number, signal?: AbortSignal): Promise<Result<DataRecord[][], ApiError>> {
-	return withFolder(
+const findInboxEmails: MailSearch = (target, searches, limit, signal) =>
+	withFolder(
 		target,
 		INBOX,
 		async (session) => {
@@ -359,7 +362,6 @@ export function findInboxEmails(target: RecordTarget, searches: EmailSearch[], l
 		},
 		signal,
 	);
-}
 
 // Where each folder goes on, in a page token: the folder, its UIDVALIDITY, and the UID listing
 // continues below, as `inbox-7-120,sent-7-33`. A folder left out has nothing more to list.
@@ -455,7 +457,8 @@ function listPage(target: RecordTarget, query: ListQuery): Promise<Result<Record
 	);
 }
 
-async function getMessage(session: Session, id: string): Promise<Result<DataRecord, ApiError>> {
+// A message whole, as it was fetched and as mailparser reads it.
+async function parsedMessage(session: Session, id: string): Promise<Result<{message: FetchMessageObject; parsed: ParsedMail}, ApiError>> {
 	return Do(async ($) => {
 		const uid = $(uidOf(session, id));
 		const message = await session.client.fetchOne(String(uid), {uid: true, envelope: true, internalDate: true, flags: true, source: true}, {uid: true});
@@ -465,8 +468,36 @@ async function getMessage(session: Session, id: string): Promise<Result<DataReco
 
 		const source = message.source;
 		const parsed = $((await Result.wrapAsync(() => simpleParser(source))).mapErr((cause) => ApiErr.providerUnreachable(cause)));
+		return {message, parsed};
+	});
+}
+
+function attachmentFiles(parsed: ParsedMail): AttachmentFile[] {
+	return parsed.attachments.map((attachment) => ({name: attachment.filename ?? '', type: attachment.contentType, size: attachment.size, bytes: attachment.content}));
+}
+
+async function getMessage(session: Session, id: string): Promise<Result<DataRecord, ApiError>> {
+	return Do(async ($) => {
+		const {message, parsed} = $(await parsedMessage(session, id));
 		const body = (parsed.text ?? '').trim();
-		return {id, values: {...summaryValues(session.folder, message), body}, updatedAt: updatedAt(message)};
+		const values = {...summaryValues(session.folder, message), body, attachments: attachmentsText(attachmentFiles(parsed)), messageId: parsed.messageId ?? ''};
+		return {id, values, updatedAt: updatedAt(message)};
+	});
+}
+
+/** One of an email's attachments, read as text: the `attachments` collection's one command. */
+function readAttachment(target: RecordTarget, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
+	return Do(async ($) => {
+		const email = $(requireEmailId(values));
+		return $(
+			await withRecord(target, email, (session) =>
+				Do(async ($$) => {
+					const {parsed} = $$(await parsedMessage(session, email));
+					const {attachment, number} = $$(pickAttachment(attachmentFiles(parsed), values));
+					return $$(await attachmentRecord(email, number, attachment));
+				}),
+			),
+		);
 	});
 }
 
@@ -477,18 +508,32 @@ function threadOptions(thread: Thread | null): Mail.Options {
 	return thread ? {inReplyTo: thread.inReplyTo, references: thread.references} : {};
 }
 
+// Who else an email goes to, as a reply to all copies whom the email it answers copied.
+function ccOptions(values: RecordValues): Mail.Options {
+	return values.cc ? {cc: values.cc} : {};
+}
+
 /** Saves a draft from the typed-in values, from the connected address, a reply in `thread`: its UID. */
 async function saveDraft(session: Session, values: RecordValues, thread: Thread | null): Promise<Result<number, ApiError>> {
 	return Do(async ($) => {
 		const {client, mailbox, credential} = session;
 		const messageId = `<${randomUUID()}@proxy>`;
-		const raw = await new MailComposer({from: credential.username, to: values.to, subject: values.subject, text: values.body, messageId, ...threadOptions(thread)}).compile().build();
+		const raw = await new MailComposer({from: credential.username, to: values.to, ...ccOptions(values), subject: values.subject, text: values.body, messageId, ...threadOptions(thread)})
+			.compile()
+			.build();
 		const appended = await client.append(mailbox.path, raw, ['\\Draft', '\\Seen']);
 
 		// Servers without UIDPLUS don't say which UID the draft got; its Message-ID finds it.
 		const uid = appended && appended.uid ? appended.uid : ((await client.search({header: {'message-id': messageId}}, {uid: true})) || [])[0];
 		if (uid === undefined) {
-			return $(Err(ApiErr.providerUnreachable(new Error('The saved draft could not be found'))));
+			return $(
+				Err(
+					ApiErr.providerUnreachable(
+						new Error('The saved draft could not be found'),
+						'The draft was saved, but the mailbox didn’t say which it is: look for it in the drafts before saving it again, so it isn’t saved twice.',
+					),
+				),
+			);
 		}
 		return uid;
 	});
@@ -557,24 +602,25 @@ function moveTo(uses: SpecialUse[], name: string): CommandRunner {
 
 /**
  * Sends an email from the connected address, a reply in `thread`, then files a copy in Sent (Gmail
- * does that itself). Once the email is out, a copy left unfiled is only logged: a failure then
- * would invite the agent to send it twice.
+ * does that itself): its Message-ID. Once the email is out, a copy left unfiled is only logged: a
+ * failure then would invite the agent to send it twice.
  */
-async function deliver(client: ImapFlow, credential: EmailCredential, values: RecordValues, thread: Thread | null = null): Promise<Result<void, ApiError>> {
+async function deliver(client: ImapFlow, credential: EmailCredential, values: RecordValues, thread: Thread | null = null): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const to = values.to?.trim() ?? '';
 		if (to === '') {
 			return $(Err(ApiErr.validationError('The email has no recipient')));
 		}
 
-		const message: Mail.Options = {from: credential.username, to, subject: values.subject ?? '', text: values.body ?? '', messageId: `<${randomUUID()}@proxy>`, ...threadOptions(thread)};
+		const messageId = `<${randomUUID()}@proxy>`;
+		const message: Mail.Options = {from: credential.username, to, ...ccOptions(values), subject: values.subject ?? '', text: values.body ?? '', messageId, ...threadOptions(thread)};
 		const transport = smtpTransport(credential);
 		const sent = await Result.wrapAsync(() => transport.sendMail(message));
 		transport.close();
 		$(sent.mapErr(smtpError));
 
 		if (isGmail(client)) {
-			return;
+			return messageId;
 		}
 		const filed = await Do<void, ApiError>(async ($$) => {
 			const path = $$(await specialFolder(client, ['\\Sent'], 'Sent'));
@@ -584,6 +630,7 @@ async function deliver(client: ImapFlow, credential: EmailCredential, values: Re
 		if (filed.isErr()) {
 			log.warn('sent email not filed in Sent', serializeError(filed.error));
 		}
+		return messageId;
 	});
 }
 
@@ -602,13 +649,21 @@ async function sendDraft(session: Session, id: string): Promise<Result<null, Api
 	});
 }
 
+// An email's To or Cc, as mailparser reads it: one list, several, or none.
+function addressesText(addresses: AddressObject | AddressObject[] | undefined): string {
+	return [addresses ?? []]
+		.flat()
+		.map((one) => one.text)
+		.join(', ');
+}
+
 // An email's References, as mailparser reads them: one id, several, or none.
 function referencesOf(references: string | string[] | undefined): string {
 	return [references ?? []].flat().join(' ');
 }
 
-// The headers of a reply to the email in the open inbox, from its own headers.
-async function replyTo(session: Session, id: string): Promise<Result<ReplyHeaders, ApiError>> {
+// The headers of a reply to the email in the open folder, from its own headers, to all where `all`.
+async function replyTo(session: Session, id: string, all: boolean): Promise<Result<ReplyHeaders, ApiError>> {
 	return Do(async ($) => {
 		const uid = $(uidOf(session, id));
 		const message = await session.client.fetchOne(String(uid), {uid: true, source: true}, {uid: true});
@@ -617,42 +672,46 @@ async function replyTo(session: Session, id: string): Promise<Result<ReplyHeader
 		}
 		const source = message.source;
 		const parsed = $((await Result.wrapAsync(() => simpleParser(source))).mapErr((cause) => ApiErr.providerUnreachable(cause)));
-		return replyHeaders(session.credential.username, {
-			from: parsed.from?.text ?? '',
-			replyTo: parsed.replyTo?.text ?? '',
-			to: [parsed.to ?? []]
-				.flat()
-				.map((one) => one.text)
-				.join(', '),
-			subject: parsed.subject ?? '',
-			messageId: parsed.messageId ?? '',
-			references: referencesOf(parsed.references),
-		});
+		return replyHeaders(
+			session.credential.username,
+			{
+				from: parsed.from?.text ?? '',
+				replyTo: parsed.replyTo?.text ?? '',
+				to: addressesText(parsed.to),
+				cc: addressesText(parsed.cc),
+				subject: parsed.subject ?? '',
+				messageId: parsed.messageId ?? '',
+				references: referencesOf(parsed.references),
+			},
+			all,
+		);
 	});
 }
 
 /**
- * A reply to an email in the inbox, as its search finds them, from the connected address, in the
- * email's thread: sent over SMTP, or saved in Drafts. The inbox is let go of before Drafts is opened.
+ * A reply to an email in the inbox or sent mail, from the connected address, in the email's
+ * thread: sent over SMTP, or saved in Drafts. The email's folder is let go of before Drafts is
+ * opened. A draft isn't replied to.
  */
-export const replyToInbox: MailReply = (target, id, reply) =>
+const replyToMailbox: MailReply = (target, id, reply) =>
 	withClient(target, (client, credential) =>
 		Do(async ($) => {
-			if ($(folderOf(id)) !== INBOX) {
-				return $(Err(ApiErr.validationError('Only for Inbox')));
+			const folder = $(folderOf(id));
+			if (folder === DRAFTS) {
+				return $(Err(ApiErr.validationError('A draft isn’t replied to: send it, or reply to the email it answers')));
 			}
-			const headers = $(await inFolder(client, credential, INBOX, (session) => replyTo(session, id)));
-			const values = {to: headers.to, subject: headers.subject, body: reply.body};
+			const headers = $(await inFolder(client, credential, folder, (session) => replyTo(session, id, reply.all)));
+			const values = {to: headers.to, cc: headers.cc, subject: headers.subject, body: reply.body};
 			if (reply.send) {
-				$(await deliver(client, credential, values, headers));
-				return headers;
+				const messageId = $(await deliver(client, credential, values, headers));
+				return {...headers, id: messageId, thread: ''};
 			}
-			$(await inFolder(client, credential, DRAFTS, (session) => saveDraft(session, values, headers)));
-			return headers;
+			const draft = $(await inFolder(client, credential, DRAFTS, async (session) => (await saveDraft(session, values, headers)).map((uid) => recordId(session, uid))));
+			return {...headers, id: draft, thread: ''};
 		}),
 	);
 
-export const emailConnector: Connector = {
+export const emailConnector = {
 	list: listPage,
 	get: (target, id) => withRecord(target, id, (session) => getMessage(session, id)),
 	create: (target, values) => withFolder(target, DRAFTS, (session) => appendDraft(session, values)),
@@ -682,4 +741,11 @@ export const emailConnector: Connector = {
 	newCommands: {
 		sendNew: (target, values) => withClient(target, async (client, credential) => (await deliver(client, credential, values)).map(() => null)),
 	},
-};
+	findEmails: findInboxEmails,
+	reply: replyToMailbox,
+} satisfies RecordStore;
+
+export const emailAttachmentsConnector = {newCommands: {read: readAttachment}} satisfies RunOnly;
+
+// Send and Save as draft.
+export const emailRepliesConnector = {newCommands: replyCommands(replyToMailbox)} satisfies RunOnly;

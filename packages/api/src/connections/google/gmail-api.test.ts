@@ -9,7 +9,7 @@ mock.module('@proxy/db/connection', () => ({updateConnectionCredential: mock(), 
 
 mock.module('../../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com', GOOGLE_CLIENT_ID: 'client-1', GOOGLE_CLIENT_SECRET: 'secret-1'}}));
 
-const {attachmentNames, folderOf, folderQuery, htmlToText, messageBody} = await import('./gmail-api');
+const {attachmentsOf, folderOf, folderQuery, messageBody} = await import('./gmail-api');
 
 const base64url = (text: string, encoding: BufferEncoding = 'utf8'): string => Buffer.from(text, encoding).toString('base64url');
 
@@ -77,7 +77,7 @@ describe('messageBody', () => {
 		expect(messageBody(textPart('text/html', html))).toBe('Your order has shipped & is on its way.\nTrack it here (https://example.com/track/1).\n\n- One\n- Two');
 	});
 
-	test('nested parts are walked, a text part in the charset it names, and the attachments listed after', () => {
+	test('nested parts are walked, a text part in the charset it names, and the attachments found apart from it', () => {
 		const latin = {mimeType: 'text/plain', filename: '', headers: [{name: 'Content-Type', value: 'text/plain; charset=ISO-8859-1'}], body: {size: 12, data: base64url('Grüße, Sam', 'latin1')}};
 		const payload: MessagePart = {
 			mimeType: 'multipart/mixed',
@@ -85,14 +85,37 @@ describe('messageBody', () => {
 			parts: [{mimeType: 'multipart/alternative', filename: '', parts: [latin, textPart('text/html', '<p>Grüße</p>')]}, attachment('invoice.pdf'), attachment('receipt.pdf')],
 		};
 
-		expect(messageBody(payload)).toBe('Grüße, Sam\n\nAttachments: invoice.pdf, receipt.pdf');
-		expect(attachmentNames(payload)).toEqual(['invoice.pdf', 'receipt.pdf']);
+		expect(messageBody(payload)).toBe('Grüße, Sam');
+		expect(attachmentsOf(payload)).toEqual([
+			{name: 'invoice.pdf', type: 'application/pdf', size: 1200, data: null, attachmentId: 'att-1'},
+			{name: 'receipt.pdf', type: 'application/pdf', size: 1200, data: null, attachmentId: 'att-1'},
+		]);
+	});
+
+	test('a part naming another charset whose content Gmail hands over as UTF-8 is read as UTF-8', () => {
+		const part = {
+			mimeType: 'text/plain',
+			filename: '',
+			headers: [{name: 'Content-Type', value: 'text/plain; charset="iso-8859-1"'}],
+			body: {size: 30, data: base64url('mit der Zusammenfassung bin ich selbstverständlich einverstanden')},
+		};
+
+		expect(messageBody(part)).toBe('mit der Zusammenfassung bin ich selbstverständlich einverstanden');
+	});
+
+	test('a part in a charset TextDecoder doesn’t know, or naming none, that isn’t UTF-8 is read as Windows-1252', () => {
+		const unknown = {mimeType: 'text/plain', filename: '', headers: [{name: 'Content-Type', value: 'text/plain; charset=x-unknown'}], body: {size: 6, data: base64url('Grüße', 'latin1')}};
+		const unnamed = {mimeType: 'text/plain', filename: '', headers: [{name: 'Content-Type', value: 'text/plain'}], body: {size: 6, data: base64url('Grüße', 'latin1')}};
+
+		expect(messageBody(unknown)).toBe('Grüße');
+		expect(messageBody(unnamed)).toBe('Grüße');
 	});
 
 	test('a text attachment is not the body', () => {
 		const payload: MessagePart = {mimeType: 'multipart/mixed', filename: '', parts: [{...textPart('text/plain', 'notes'), filename: 'notes.txt'}, textPart('text/html', '<p>The body</p>')]};
 
-		expect(messageBody(payload)).toBe('The body\n\nAttachments: notes.txt');
+		expect(messageBody(payload)).toBe('The body');
+		expect(attachmentsOf(payload).map(({name, data}) => [name, data])).toEqual([['notes.txt', base64url('notes')]]);
 	});
 
 	test('a message without parts is empty', () => {
@@ -103,31 +126,4 @@ describe('messageBody', () => {
 		expect(messageBody(textPart('text/plain', 'Hi Alex,\r\n\r\nSee you Friday.\r\n'))).toBe('Hi Alex,\n\nSee you Friday.');
 		expect(messageBody(textPart('text/html', '<p>Hi\r\nAlex,</p>\r\n<p>See you\nFriday.</p>'))).toBe('Hi Alex,\nSee you Friday.');
 	});
-});
-
-test('htmlToText finds the end of a hidden element after a letter that lowercases to two', () => {
-	expect(htmlToText('<p>İstanbul</p><STYLE>p {}</STYLE><p>after</p>')).toBe('İstanbul\nafter');
-	expect(htmlToText(`<p>${'İ'.repeat(12)} before</p><style>a > b {}</style><p>after</p><p>more</p>`)).toBe(`${'İ'.repeat(12)} before\nafter\nmore`);
-});
-
-test('htmlToText decodes entities only once the tags are gone', () => {
-	expect(htmlToText('<p>&lt;b&gt; is bold &#8212; &#x263A;</p>')).toBe('<b> is bold — ☺');
-});
-
-test('htmlToText reads a number Unicode has no character for as the replacement character', () => {
-	expect(htmlToText('<p>a&#99999999;b&#x110000;c&#0;d</p>')).toBe('a\uFFFDb\uFFFDc\uFFFDd');
-});
-
-test('htmlToText keeps the text of unclosed tags, and of a link that never ends', () => {
-	expect(htmlToText('<p>Hi <b>there<!-- note')).toBe('Hi there');
-	expect(htmlToText('See <a href="https://example.com">this')).toBe('See this');
-	expect(htmlToText('1 < 2 and <script>gone')).toBe('1 < 2 and');
-	expect(htmlToText('<A HREF="https://example.com">Go</A><BR>on<SCRIPT>x</SCRIPT>')).toBe('Go (https://example.com)\non');
-});
-
-test('htmlToText takes time in proportion to the email, however many tags are left open', () => {
-	const started = performance.now();
-	htmlToText(`${'<a href="x">y'.repeat(100_000)}${'<'.repeat(100_000)}${'<!--'.repeat(100_000)}`);
-
-	expect(performance.now() - started).toBeLessThan(1000);
 });

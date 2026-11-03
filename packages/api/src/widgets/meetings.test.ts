@@ -1,37 +1,37 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Ok} from 'ts-results-es';
 
-import type {GranolaMeeting} from '../connections/granola/granola-mcp';
+import type {Meeting} from '../records/capabilities';
 
-const listGranolaMeetings = mock();
-const getGranolaMeetings = mock();
+const between = mock();
+const withNotes = mock();
 
-mock.module('../records/granola-connector', () => ({listGranolaMeetings, getGranolaMeetings}));
 mock.module('./sources', () => ({
 	findSources: async () =>
 		Ok([
-			{connection: {id: 'granola-1'}, integration: {id: 'granola'}},
+			{connection: {id: 'granola-1'}, connector: {meetings: {between, withNotes}}},
 			// The vault has no meetings to list.
-			{connection: {id: 'vault-1'}, integration: {id: 'vault'}},
+			{connection: {id: 'vault-1'}, connector: {}},
 		]),
 	summarize: (source: {connection: {id: string}}) => ({connectionId: source.connection.id}),
+	withCapability: (sources: Array<{connector: object}>, capability: string) => sources.filter((source) => capability in source.connector),
 }));
 mock.module('../utils/user-org', () => ({
 	requireViewer: async (request: {user: {experiments?: string[]}}) =>
 		Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: request.user.experiments ?? []}),
 }));
 
-function meeting(id: string, title: string, day: string, participants: string, summary = '', privateNotes = ''): GranolaMeeting {
-	return {id, title, date: '', day, url: `https://notes.granola.ai/d/${id}`, participants, summary, privateNotes};
+function meeting(id: string, title: string, participants: string, notes = ''): Meeting {
+	return {id, title, date: '', link: `https://notes.granola.ai/d/${id}`, participants, notes};
 }
 
 const SAM = 'Me (note creator), Sam Lee <sam@example.com>';
 
 const MEETINGS = [
-	meeting('m4', 'Standup', '2026-10-14', 'Me (note creator), Jo <jo@example.com>'),
-	meeting('m3', 'Sam / me', '2026-10-13', SAM, 'We talked about hiring.'),
-	meeting('m2', 'Q4 planning', '2026-10-12', SAM, 'Pricing for Q4, and the pricing page.'),
-	meeting('m1', 'Offsite', '2026-10-09', SAM),
+	meeting('m4', 'Standup', 'Me (note creator), Jo <jo@example.com>'),
+	meeting('m3', 'Sam / me', SAM, 'We talked about hiring.'),
+	meeting('m2', 'Q4 planning', SAM, 'Pricing for Q4, and the pricing page.'),
+	meeting('m1', 'Offsite', SAM),
 ];
 
 function request(query: Record<string, string | string[]>) {
@@ -39,9 +39,9 @@ function request(query: Record<string, string | string[]>) {
 }
 
 beforeEach(() => {
-	listGranolaMeetings.mockReset();
-	listGranolaMeetings.mockResolvedValue(Ok(MEETINGS));
-	getGranolaMeetings.mockReset();
+	between.mockReset();
+	between.mockResolvedValue(Ok(MEETINGS));
+	withNotes.mockReset();
 });
 
 describe('isParticipant', () => {
@@ -65,32 +65,30 @@ describe('handleFindMeetingsRoute', () => {
 	});
 
 	test('a person Granola knew of no one but the owner with, by the title naming them, before one only in the notes', async () => {
-		listGranolaMeetings.mockResolvedValue(
+		between.mockResolvedValue(
 			Ok([
-				meeting('m6', 'Weekly sync', '2026-10-15', 'Me (note creator)', 'Dana asked about the launch.'),
-				meeting('m5', 'Pricing review with Dana', '2026-10-14', 'Me (note creator)'),
-				meeting('m4', 'Standup', '2026-10-14', 'Me (note creator), Jo <jo@example.com>'),
+				meeting('m6', 'Weekly sync', 'Me (note creator)', 'Dana asked about the launch.'),
+				meeting('m5', 'Pricing review with Dana', 'Me (note creator)'),
+				meeting('m4', 'Standup', 'Me (note creator), Jo <jo@example.com>'),
 			]),
 		);
 		const {handleFindMeetingsRoute} = await import('./meetings');
 		const found = (await handleFindMeetingsRoute(request({with: 'dana'}))).unwrap();
 		expect(found.meetings.map((one) => one.id)).toEqual(['m5', 'm6']);
-		expect(getGranolaMeetings).not.toHaveBeenCalled();
+		expect(withNotes).not.toHaveBeenCalled();
 	});
 
 	test('reads the newest meetings’ notes when no title or participant has what was searched for', async () => {
-		listGranolaMeetings.mockResolvedValue(Ok([meeting('m6', 'Weekly sync', '2026-10-15', 'Me (note creator)'), meeting('m5', '1:1', '2026-10-14', 'Me (note creator)')]));
-		getGranolaMeetings.mockResolvedValue(
-			Ok([meeting('m6', 'Weekly sync', '2026-10-15', 'Me (note creator)', 'Shipping dates.'), meeting('m5', '1:1', '2026-10-14', 'Me (note creator)', '', 'Dana wants to try annual billing.')]),
-		);
+		between.mockResolvedValue(Ok([meeting('m6', 'Weekly sync', 'Me (note creator)'), meeting('m5', '1:1', 'Me (note creator)')]));
+		withNotes.mockResolvedValue(Ok([meeting('m6', 'Weekly sync', 'Me (note creator)', 'Shipping dates.'), meeting('m5', '1:1', 'Me (note creator)', 'Dana wants to try annual billing.')]));
 		const {handleFindMeetingsRoute} = await import('./meetings');
 		const found = (await handleFindMeetingsRoute(request({with: 'dana'}))).unwrap();
-		expect(getGranolaMeetings.mock.calls[0]?.[1]).toEqual(['m6', 'm5']);
+		expect(withNotes.mock.calls[0]?.[1]).toEqual(['m6', 'm5']);
 		expect(found.meetings.map((one) => one.id)).toEqual(['m5']);
 
-		getGranolaMeetings.mockClear();
+		withNotes.mockClear();
 		const none = (await handleFindMeetingsRoute(request({words: 'budget'}))).unwrap();
-		expect(getGranolaMeetings).toHaveBeenCalledTimes(1);
+		expect(withNotes).toHaveBeenCalledTimes(1);
 		expect(none.meetings).toEqual([]);
 	});
 
@@ -98,20 +96,19 @@ describe('handleFindMeetingsRoute', () => {
 		const {handleFindMeetingsRoute} = await import('./meetings');
 		const found = (await handleFindMeetingsRoute(request({words: ['hiring']}))).unwrap();
 		expect(found.meetings.map((one) => one.id)).toEqual(['m3']);
-		expect(getGranolaMeetings).not.toHaveBeenCalled();
+		expect(withNotes).not.toHaveBeenCalled();
 	});
 
-	test('asks Granola to the day after the last, and leaves out what is outside the days', async () => {
+	test('asks each notetaker for the days said', async () => {
 		const {handleFindMeetingsRoute} = await import('./meetings');
-		const found = (await handleFindMeetingsRoute(request({from: '2026-10-13', to: '2026-10-13'}))).unwrap();
-		expect(listGranolaMeetings.mock.calls[0]?.slice(1)).toEqual(['2026-10-13', '2026-10-14']);
-		expect(found.meetings.map((one) => one.id)).toEqual(['m3']);
+		(await handleFindMeetingsRoute(request({from: '2026-10-13', to: '2026-10-13'}))).unwrap();
+		expect(between.mock.calls[0]?.slice(1)).toEqual(['2026-10-13', '2026-10-13']);
 	});
 
-	test('the last month when no days are said', async () => {
+	test('the last three months, to tomorrow, when no days are said', async () => {
 		const {handleFindMeetingsRoute} = await import('./meetings');
 		(await handleFindMeetingsRoute(request({}))).unwrap();
-		const [, from, to] = listGranolaMeetings.mock.calls[0] ?? [];
-		expect(Date.parse(to) - Date.parse(from)).toBe(91 * 24 * 60 * 60 * 1000);
+		const [, from, to] = between.mock.calls[0] ?? [];
+		expect(Date.parse(to) - Date.parse(from)).toBe(90 * 24 * 60 * 60 * 1000);
 	});
 });

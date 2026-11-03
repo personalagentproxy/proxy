@@ -9,7 +9,8 @@ import {
 	InputGroupTextarea,
 } from '@proxy/ui/components/input-group';
 import {postMessage} from '@/client/harness-client';
-import {getInspection, type Inspection} from '@/client/inspect-client';
+import type {Inspection} from '@proxy/contracts/inspect';
+import {getInspection} from '@/client/inspect-client';
 import {Head} from '@/components/head';
 import {ThreadLog} from '@/components/inspect-log';
 import {RequestPane} from '@/components/inspect-request';

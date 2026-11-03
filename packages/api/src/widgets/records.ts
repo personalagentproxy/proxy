@@ -2,12 +2,13 @@ import type {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {type ApiError, Do, parseSchema} from '@proxy/utils';
+import {type FoundRecord, type FoundRecords, SEARCHED_COLLECTIONS} from '@proxy/contracts/widgets';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireViewer} from '../utils/user-org';
 import {requireAskExperiment} from './ask-experiment';
-import {eachSource, type Failure} from './each-source';
-import {findSources, summarize, type Source, type SourceSummary} from './sources';
+import {eachSource} from './each-source';
+import {findSources, summarize, type Source} from './sources';
 
 /**
  * Records for the Ask widget from a collection searched as an agent searches it, through its
@@ -16,16 +17,11 @@ import {findSources, summarize, type Source, type SourceSummary} from './sources
  * searches of their own, which know senders, owners and kinds.
  */
 
-/** The collections searched here. */
-const COLLECTIONS = ['pages', 'issues'] as const;
-
-export type FoundRecord = {connectionId: string; id: string; title: string; updated: string; link: string | null};
-
 // What the widget offers at most, across every source.
 const LIMIT = 8;
 
 const querySchema = z.object({
-	collection: z.enum(COLLECTIONS),
+	collection: z.enum(SEARCHED_COLLECTIONS),
 	words: z
 		.union([z.string(), z.array(z.string())])
 		.optional()
@@ -53,8 +49,6 @@ function searchSource(source: Source, words: string[]): Promise<Result<FoundReco
 			}));
 	});
 }
-
-export type FoundRecords = {sources: SourceSummary[]; records: FoundRecord[]; failed: Failure[]};
 
 /** `GET /api/widgets/records?collection=…&words=…`: the records each source's search finds. */
 export function handleFindRecordsRoute(request: AuthenticatedRequest): Promise<Result<FoundRecords, ApiError>> {

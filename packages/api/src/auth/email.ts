@@ -1,11 +1,14 @@
-import {createHash, randomBytes} from 'node:crypto';
+import {randomBytes} from 'node:crypto';
 
 import type {Request, Response} from 'express';
 
 import {createVerificationToken, useVerificationToken} from '@proxy/db/auth';
-import {createUserFromEmail, getUserByEmail, setUserEmailVerified} from '@proxy/db/user';
+import {getUserByEmail, setUserEmailVerified} from '@proxy/db/user';
+import type {MagicLinkResponse} from '@proxy/contracts/auth';
+import {hashVerificationToken} from '@proxy/utils/secret-crypto';
 
 import {log, serializeError} from '../observability/log';
+import {signUp} from '../orgs/provision';
 import {env} from '../utils/env';
 import {normalizeEmail} from './email-address';
 import {sendMagicLink} from './mail';
@@ -42,10 +45,6 @@ function getEmailAuthConfig(): EmailAuthConfig | null {
 	};
 }
 
-function hashVerificationToken(token: string, secret: string): string {
-	return createHash('sha256').update(`${token}${secret}`).digest('hex');
-}
-
 /**
  * `POST /auth/email` `{email, callbackUrl?}` — issues a verification token and emails the magic
  * link (or logs it in dev). Errors carry the codes the login form maps to copy.
@@ -54,14 +53,14 @@ export async function handleEmailSignInRoute(req: Request, res: Response): Promi
 	const config = getEmailAuthConfig();
 	if (!config) {
 		log.error('Email sign-in route called without complete email auth configuration');
-		res.status(500).json({error: 'EmailSignin'});
+		res.status(500).json({error: 'EmailSignin'} satisfies MagicLinkResponse);
 		return;
 	}
 
 	const body = req.body as {email?: unknown; callbackUrl?: unknown} | undefined;
 	const email = normalizeEmail(typeof body?.email === 'string' ? body.email : '');
 	if (!email) {
-		res.status(400).json({error: 'EmailSignin'});
+		res.status(400).json({error: 'EmailSignin'} satisfies MagicLinkResponse);
 		return;
 	}
 
@@ -70,12 +69,12 @@ export async function handleEmailSignInRoute(req: Request, res: Response): Promi
 		const existingResult = await getUserByEmail(email);
 		if (existingResult.isErr()) {
 			log.error('Email sign-in user lookup failed', serializeError(existingResult.error));
-			res.status(500).json({error: 'EmailSignin'});
+			res.status(500).json({error: 'EmailSignin'} satisfies MagicLinkResponse);
 			return;
 		}
 
 		if (!existingResult.value) {
-			res.status(403).json({error: 'SignupNotAllowed'});
+			res.status(403).json({error: 'SignupNotAllowed'} satisfies MagicLinkResponse);
 			return;
 		}
 	}
@@ -90,7 +89,7 @@ export async function handleEmailSignInRoute(req: Request, res: Response): Promi
 	});
 	if (tokenResult.isErr()) {
 		log.error('Email sign-in failed to store verification token', serializeError(tokenResult.error));
-		res.status(500).json({error: 'EmailSignin'});
+		res.status(500).json({error: 'EmailSignin'} satisfies MagicLinkResponse);
 		return;
 	}
 
@@ -99,18 +98,18 @@ export async function handleEmailSignInRoute(req: Request, res: Response): Promi
 	// Without a way to send email, whoever runs Personal Agent Proxy can read the link from its log.
 	if (env.NODE_ENV === 'development' || !env.RESEND_KEY) {
 		log.info(`[Magic Link] ${email}: ${url}`);
-		res.json({ok: true, logged: true});
+		res.json({ok: true, logged: true} satisfies MagicLinkResponse);
 		return;
 	}
 
 	const sendResult = await sendMagicLink({email, url});
 	if (sendResult.isErr()) {
 		log.error('[Magic Link] Failed to send email', serializeError(sendResult.error));
-		res.status(500).json({error: 'EmailSignin'});
+		res.status(500).json({error: 'EmailSignin'} satisfies MagicLinkResponse);
 		return;
 	}
 
-	res.json({ok: true});
+	res.json({ok: true} satisfies MagicLinkResponse);
 }
 
 /**
@@ -190,7 +189,8 @@ export async function handleEmailVerifyRoute(req: Request, res: Response): Promi
 		return;
 	}
 
-	const createdResult = await createUserFromEmail(email);
+	// Clicking the link verified the address.
+	const createdResult = await signUp({email, name: null, emailVerified: new Date()});
 	if (createdResult.isErr()) {
 		log.error('Email verify failed to create user', serializeError(createdResult.error));
 		redirectToLoginError(res, config.appUrl, 'Callback');

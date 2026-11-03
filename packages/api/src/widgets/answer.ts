@@ -3,8 +3,10 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import {findCollection} from '@proxy/integrations';
+import {type Answer, askBodySchema, type AskedCollection} from '@proxy/contracts/widgets';
 
-import {askModel} from '../intent/open-router';
+import {askForJson} from '../llm/open-router';
+import type {Reading} from '../records/capabilities';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {env} from '../utils/env';
 import {requireViewer} from '../utils/user-org';
@@ -18,28 +20,6 @@ import {covers, requireReadable, type Source} from './sources';
  * as quoted was said. A text past what the model is given is cut, and the answer says so.
  */
 
-/** What Ask reads: a meeting's notes, a file, an email, a page or an issue. */
-const COLLECTIONS = ['notes', 'files', 'emails', 'pages', 'issues'] as const;
-
-type AskedCollection = (typeof COLLECTIONS)[number];
-
-/** A meeting, file, email, page or issue as the model reads it; no text when it has none to read. */
-export type Reading = {title: string; link: string | null; text: string};
-
-/** How one is read. */
-type Reader = (source: Source, id: string) => Promise<Result<Reading, ApiError>>;
-
-export type Answer = {
-	title: string;
-	link: string | null;
-	/** Whether it says what was asked. */
-	found: boolean;
-	answer: string;
-	quotes: string[];
-	/** Whether it was longer than was read. */
-	cut: boolean;
-};
-
 // About 40,000 tokens: an hour's transcript and its notes, read in a few seconds on Cerebras.
 const MAX_CHARS = 160_000;
 
@@ -50,41 +30,12 @@ const TIMEOUT_MS = 30_000;
 
 const MAX_QUOTES = 3;
 
-// A meeting's transcript, when the sign-in covered reading transcripts too; else none.
-function transcriptOf(source: Source, id: string): Promise<Result<string, ApiError>> {
+// A record its connector reads no text of its own for: its fields as the catalog names them, one a
+// line, a long one in a block below its name: an email's body, a document's content, an issue's
+// description and comments. One with none of its long fields filled, as an image in Drive, has no
+// text to read.
+function readRecord(source: Source, id: string): Promise<Result<Reading, ApiError>> {
 	return Do(async ($) => {
-		const transcripts = findCollection(source.integration, 'transcripts');
-		if (!transcripts || !covers(source.connection, transcripts, 'view')) {
-			return '';
-		}
-		const record = $(await source.connector.get({...source, collection: transcripts}, id));
-		return record.values.transcript ?? '';
-	});
-}
-
-// A meeting's notes, and its transcript.
-const readMeeting: Reader = (source, id) =>
-	Do(async ($) => {
-		const notes = $(await source.connector.get(source, id));
-		const transcript = $(await transcriptOf(source, id));
-		const {title = '', date = '', attendees = '', summary = '', privateNotes = ''} = notes.values;
-		const parts = [
-			`Meeting: ${title}`,
-			`When: ${date}`,
-			`Participants: ${attendees}`,
-			summary && `Notes:\n${summary}`,
-			privateNotes && `The person's own notes:\n${privateNotes}`,
-			// Granola's lines are by where the audio came from: the person's microphone, or everyone else.
-			transcript && `Transcript ("Microphone" is the person asking, "System audio" the others):\n${transcript}`,
-		];
-		return {title, link: notes.url ?? null, text: parts.filter((part) => part !== '').join('\n\n')};
-	});
-
-// Any other record: its fields as the catalog names them, one a line, a long one in a block below its
-// name: an email's body, a document's content, an issue's description and comments. One with none
-// of its long fields filled, as an image in Drive, has no text to read.
-const readRecord: Reader = (source, id) =>
-	Do(async ($) => {
 		const record = $(await source.connector.get(source, id));
 		const filled = source.collection.fields.flatMap((field) => {
 			const value = record.values[field.key]?.trim() ?? '';
@@ -97,10 +48,23 @@ const readRecord: Reader = (source, id) =>
 		const lines = filled.map(({field, value}) => (field.type === 'longtext' ? `${field.label}:\n${value}` : `${field.label}: ${value}`));
 		return {title, link: record.url ?? null, text: lines.join('\n\n')};
 	});
+}
 
-// Granola's meetings with their transcripts; everything else as its fields.
-function readerFor(source: Source): Reader {
-	return source.integration.id === 'granola' ? readMeeting : readRecord;
+// Which of the integration's collections the sign-in covered reading, as a meeting's transcripts.
+function readable(source: Source): (collectionId: string) => boolean {
+	return (collectionId) => {
+		const collection = findCollection(source.integration, collectionId);
+		return collection !== undefined && covers(source.connection, collection, 'view');
+	};
+}
+
+// As its connector reads it, as a meeting with its transcript; else as its fields.
+function read(source: Source, id: string): Promise<Result<Reading, ApiError>> {
+	const {readText} = source.connector;
+	if (readText) {
+		return readText(source, id, readable(source));
+	}
+	return readRecord(source, id);
 }
 
 const KINDS: Record<AskedCollection, string> = {notes: 'meeting', files: 'file', emails: 'email', pages: 'page', issues: 'issue'};
@@ -164,24 +128,17 @@ export function quotedFrom(text: string, quotes: string[]): string[] {
 	return [...new Set(kept)].filter((quote) => quote !== '').slice(0, MAX_QUOTES);
 }
 
-const bodySchema = z.object({
-	question: z.string().trim().min(1).max(500),
-	connectionId: z.string().min(1),
-	collectionId: z.enum(COLLECTIONS),
-	id: z.string().min(1).max(300),
-});
-
 /** `POST /api/widgets/answer {question, connectionId, collectionId, id}`: what the meeting, file, email, page or issue says of the question. */
 export function handleAnswerRoute(request: AuthenticatedRequest): Promise<Result<Answer, ApiError>> {
 	return Do(async ($) => {
-		const body = $(parseSchema(bodySchema, request.body));
+		const body = $(parseSchema(askBodySchema, request.body));
 		if (!env.OPENROUTER_KEY) {
 			return $(Err(ApiErr.unavailable('Ask is not set up: set `OPENROUTER_KEY`.')));
 		}
 		const viewer = $(await requireViewer(request));
 		$(requireAskExperiment(viewer));
 		const source = $(await requireReadable(viewer, body.connectionId, body.collectionId));
-		const reading = $(await readerFor(source)(source, body.id));
+		const reading = $(await read(source, body.id));
 		const kind = KINDS[body.collectionId];
 		if (reading.text.trim() === '') {
 			return {title: reading.title, link: reading.link, found: false, answer: `This ${kind} has no text to read.`, quotes: [], cut: false};
@@ -190,7 +147,7 @@ export function handleAnswerRoute(request: AuthenticatedRequest): Promise<Result
 		const cut = reading.text.length > MAX_CHARS;
 		const text = cut ? reading.text.slice(0, MAX_CHARS) : reading.text;
 		const answer = $(
-			await askModel({
+			await askForJson({
 				key: env.OPENROUTER_KEY,
 				system: instructions(body.collectionId),
 				user: `<${kind}>\n${text}\n</${kind}>\n\n${body.question}`,

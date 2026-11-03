@@ -187,7 +187,13 @@ describe('parseNotionViewRows', () => {
 describe('parseNotionCreated', () => {
 	test('reads the id of the page made', () => {
 		expect(parseNotionCreated(JSON.stringify({pages: [{id: '3e4955a6-3d7e-8069-a438-e7961ef050ef', url: url(PAGE)}]})).unwrap()).toBe(PAGE);
-		expect(parseNotionCreated('Nothing made').isErr()).toBe(true);
+	});
+
+	test('an answer without an id says the page may have been made, so it isn’t made twice', () => {
+		expect(parseNotionCreated('Nothing made').unwrapErr()).toMatchObject({
+			kind: 'provider_unreachable',
+			message: 'Notion answered without saying which page it made, so it may have made it: look for it by its title before trying again, so it isn’t made twice.',
+		});
 	});
 });
 

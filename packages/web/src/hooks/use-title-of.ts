@@ -1,5 +1,5 @@
+import type {ActivityTask} from '@proxy/contracts/activity';
 import {useCallback} from 'react';
-import type {ActivityTask} from '@/lib/types';
 
 /**
  * The name of the task of `tasks` with an id, for a chart's request targets to say what a request

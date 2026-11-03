@@ -13,6 +13,8 @@ import {
 	UserRoundIcon,
 	type LucideIcon,
 } from 'lucide-react';
+import type {ReactNode} from 'react';
+import {NO_WIDGET, type WidgetId} from '@proxy/contracts/intent';
 import type {Intent} from '@/client/intent-client';
 import {Skeleton} from '@proxy/ui/components/skeleton';
 import {AskWidget} from '@/components/widgets/ask-widget';
@@ -40,55 +42,44 @@ type Props = {
 	onAsk: (text: string) => void;
 };
 
-// The widget the api picked, filled with its fields; nothing for `none`. The ids are the
-// api's (`packages/api/src/intent/widgets.ts`).
-export function IntentWidget({intent, typed, now, onAsk}: Props) {
-	const id = intent.widget;
-	if (id === 'new_event') {
-		return <EventWidget intent={intent} typed={typed} now={now} />;
+// Each widget, filled with its fields, by its id: a widget the api offers that the web app has no
+// way to show fails typecheck, as does an id the api doesn't have.
+const VIEWS: Record<WidgetId, (props: Props) => ReactNode> = {
+	new_event: ({intent, typed, now}) => <EventWidget intent={intent} typed={typed} now={now} />,
+	change_event: ({intent, typed, now}) => (
+		<EditEventWidget intent={intent} typed={typed} now={now} />
+	),
+	show_calendar: ({intent, typed, now}) => (
+		<CalendarWidget intent={intent} typed={typed} now={now} />
+	),
+	find_person: ({intent, onAsk}) => <PersonWidget intent={intent} onAsk={onAsk} />,
+	write_email: ({intent, typed}) => <WriteEmailWidget intent={intent} typed={typed} />,
+	reply_email: ({intent, typed, now}) => (
+		<ReplyEmailWidget intent={intent} typed={typed} now={now} />
+	),
+	find_email: ({intent, typed, now}) => <FindEmailWidget intent={intent} typed={typed} now={now} />,
+	find_file: ({intent, typed}) => <FindFileWidget intent={intent} typed={typed} />,
+	ask: ({intent, typed, now}) => <AskWidget intent={intent} typed={typed} now={now} />,
+	calculate: ({intent}) => <MathWidget intent={intent} />,
+	convert_units: ({intent}) => <ConvertWidget intent={intent} />,
+	show_balances: ({intent}) => <BalancesWidget intent={intent} />,
+	find_transactions: ({intent, typed, now}) => (
+		<TransactionsWidget intent={intent} typed={typed} now={now} />
+	),
+};
+
+// The widget the api picked, filled with its fields; nothing for `none`.
+export function IntentWidget(props: Props) {
+	const {widget} = props.intent;
+	if (widget === NO_WIDGET) {
+		return null;
 	}
-	if (id === 'change_event') {
-		return <EditEventWidget intent={intent} typed={typed} now={now} />;
-	}
-	if (id === 'show_calendar') {
-		return <CalendarWidget intent={intent} typed={typed} now={now} />;
-	}
-	if (id === 'find_person') {
-		return <PersonWidget intent={intent} onAsk={onAsk} />;
-	}
-	if (id === 'write_email') {
-		return <WriteEmailWidget intent={intent} typed={typed} />;
-	}
-	if (id === 'reply_email') {
-		return <ReplyEmailWidget intent={intent} typed={typed} now={now} />;
-	}
-	if (id === 'find_email') {
-		return <FindEmailWidget intent={intent} typed={typed} now={now} />;
-	}
-	if (id === 'find_file') {
-		return <FindFileWidget intent={intent} typed={typed} />;
-	}
-	if (id === 'ask') {
-		return <AskWidget intent={intent} typed={typed} now={now} />;
-	}
-	if (id === 'calculate') {
-		return <MathWidget intent={intent} />;
-	}
-	if (id === 'convert_units') {
-		return <ConvertWidget intent={intent} />;
-	}
-	if (id === 'show_balances') {
-		return <BalancesWidget intent={intent} />;
-	}
-	if (id === 'find_transactions') {
-		return <TransactionsWidget intent={intent} typed={typed} now={now} />;
-	}
-	return null;
+	return VIEWS[widget](props);
 }
 
 // What each widget is called and its icon, as it shows them, for its frame while its fields are
 // filled in.
-const FRAMES: Partial<Record<string, {icon: LucideIcon; name: string}>> = {
+const FRAMES: Record<WidgetId, {icon: LucideIcon; name: string}> = {
 	new_event: {icon: CalendarIcon, name: 'New event'},
 	change_event: {icon: CalendarIcon, name: 'Change event'},
 	show_calendar: {icon: CalendarDaysIcon, name: 'Calendar'},
@@ -105,11 +96,11 @@ const FRAMES: Partial<Record<string, {icon: LucideIcon; name: string}>> = {
 };
 
 // The widget the api picked, as soon as it is picked: its frame, until its fields are filled in.
-export function FillingWidget({widget}: {widget: string}) {
-	const frame = FRAMES[widget];
-	if (!frame) {
+export function FillingWidget({widget}: {widget: Intent['widget']}) {
+	if (widget === NO_WIDGET) {
 		return null;
 	}
+	const frame = FRAMES[widget];
 	return (
 		<WidgetFrame icon={frame.icon} name={frame.name}>
 			<p className="sr-only">Filling in…</p>

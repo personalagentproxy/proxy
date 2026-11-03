@@ -137,6 +137,14 @@ export function isAvatarColor(value: string): value is AvatarColor {
 	return (AVATAR_COLORS as readonly string[]).includes(value);
 }
 
+/** A color as it is kept, one of the eight; blue, the first head's, for one that isn't. */
+export function toAvatarColor(value: string): AvatarColor {
+	if (isAvatarColor(value)) {
+		return value;
+	}
+	return 'blue';
+}
+
 /** A head's features: the nose's size as a share of the head and how far it sits out, the eyes' size and place in degrees, and how many eyes. */
 export type Look = {
 	nose: number;

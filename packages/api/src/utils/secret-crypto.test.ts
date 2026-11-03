@@ -11,45 +11,21 @@ beforeEach(() => {
 	mockEnv.ENCRYPTION_KEY = KEY;
 });
 
+// The cipher itself is tested where it is (@proxy/utils/secret-crypto); this is the key it is under.
 describe('secret crypto', () => {
-	test('decrypts what it encrypted', async () => {
+	test('decrypts what it encrypted, under ENCRYPTION_KEY', async () => {
 		const {encryptSecret, decryptSecret} = await import('./secret-crypto');
-		const stored = encryptSecret('{"password":"abcd efgh ijkl mnop"}').unwrap();
+		const stored = encryptSecret('secret').unwrap();
 
-		expect(stored.startsWith('v1.')).toBe(true);
-		expect(stored).not.toContain('abcd');
-		expect(decryptSecret(stored).unwrap()).toBe('{"password":"abcd efgh ijkl mnop"}');
+		expect(decryptSecret(stored).unwrap()).toBe('secret');
 	});
 
-	test('encrypts the same value differently each time', async () => {
-		const {encryptSecret} = await import('./secret-crypto');
-		expect(encryptSecret('secret').unwrap()).not.toBe(encryptSecret('secret').unwrap());
-	});
-
-	test('fails under another key', async () => {
+	test('fails, as an internal error, under another key', async () => {
 		const {encryptSecret, decryptSecret} = await import('./secret-crypto');
 		const stored = encryptSecret('secret').unwrap();
 		mockEnv.ENCRYPTION_KEY = OTHER_KEY;
 
 		expect(decryptSecret(stored).unwrapErr().kind).toBe('internal_error');
-	});
-
-	test('fails when the ciphertext was changed', async () => {
-		const {encryptSecret, decryptSecret} = await import('./secret-crypto');
-		const [version, iv, tag] = encryptSecret('secret').unwrap().split('.');
-		const forged = [version, iv, tag, Buffer.from('public').toString('base64url')].join('.');
-
-		expect(decryptSecret(forged).unwrapErr().kind).toBe('internal_error');
-	});
-
-	test('fails with a shortened tag, though it is the start of the right one', async () => {
-		const {encryptSecret, decryptSecret} = await import('./secret-crypto');
-		const [version, iv, tag, ciphertext] = encryptSecret('secret').unwrap().split('.');
-		const shortTag = Buffer.from(tag ?? '', 'base64url')
-			.subarray(0, 4)
-			.toString('base64url');
-
-		expect(decryptSecret([version, iv, shortTag, ciphertext].join('.')).unwrapErr().kind).toBe('internal_error');
 	});
 
 	test('fails without a key', async () => {

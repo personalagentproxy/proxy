@@ -3,7 +3,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {createAgent, isUsernameConflict, type AgentRow} from '@proxy/db/agent';
 import type {MemberViewer} from '@proxy/db/viewer';
-import {AGENT_NAME_MAX, findAgentProvider, loginProviderIdFor, type AgentProvider} from '@proxy/integrations';
+import {AGENT_NAME_MAX, findAgentProvider, loginProviderIdFor, type AgentProvider} from '@proxy/utils/agent-providers';
 
 import {generatePassword, generateUsername} from './credentials';
 

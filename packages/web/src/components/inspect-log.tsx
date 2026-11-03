@@ -1,7 +1,7 @@
 import {Badge} from '@proxy/ui/components/badge';
 import {Button} from '@proxy/ui/components/button';
 import {cn} from '@proxy/ui/lib/utils';
-import type {InspectedEntry, InspectedThread, ThreadState} from '@/client/inspect-client';
+import type {InspectedEntry, InspectedThread, ThreadState} from '@proxy/contracts/inspect';
 import {formatTime} from '@/lib/format';
 import {coveredSeq, prettyJson} from '@/lib/inspect';
 
