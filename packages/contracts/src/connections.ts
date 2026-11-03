@@ -160,6 +160,8 @@ export const connectMcpBodySchema = z.object({
 	returnTo: returnToSchema.optional(),
 	/** For every member of the organization rather than the person's own. */
 	shared: z.boolean().optional(),
+	/** Sent from the browser for the desktop app, whose window the server's sign-in page would turn away: the sign-in ends on the page that hands back to the app. */
+	desktop: z.boolean().optional(),
 });
 
 /** Connected, with the new connection, or the server asks for a sign-in, begun, at the page the browser goes to. */

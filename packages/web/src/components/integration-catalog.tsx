@@ -20,6 +20,7 @@ import {
 	type Need,
 } from '@/lib/integrations';
 import {useOrgSlug} from '@/hooks/use-org';
+import {onSignInClick} from '@/lib/desktop';
 
 // The integrations not connected by signing in to them are connected on a form of their own: a
 // mailbox with an app password, a database with a user's name and password, a custom MCP server by
@@ -127,7 +128,7 @@ export function IntegrationCatalog({
 						<li key={integration.id} className="-mx-(--bleed) flex items-center">
 							{unmet && <div className={ROW}>{content}</div>}
 							{!unmet && signIn && (
-								<a href={signIn} className={ROW}>
+								<a href={signIn} onClick={onSignInClick} className={ROW}>
 									{content}
 								</a>
 							)}
@@ -144,7 +145,11 @@ export function IntegrationCatalog({
 									>
 										<KeyRoundIcon />
 									</IconButton>
-									<IconButton label={`Sign in with ${integration.name}`} href={signIn}>
+									<IconButton
+										label={`Sign in with ${integration.name}`}
+										href={signIn}
+										onClick={onSignInClick}
+									>
 										<PlusIcon />
 									</IconButton>
 								</span>

@@ -14,10 +14,14 @@
 		"seed": "bun run --cwd packages/api seed",
 		"build": "bun run --cwd packages/web build && bun run --cwd packages/docs build && bun run --cwd packages/website build",
 		"typecheck": "bun run --filter './packages/*' typecheck",
-		"lint": "bun run --cwd packages/web lint && bun run --cwd packages/docs lint && bun run --cwd packages/website lint && bun run --cwd packages/map lint",
-		"test": "bun run --filter './packages/*' test"
+		"lint": "bun run --cwd packages/web lint && bun run --cwd packages/docs lint && bun run --cwd packages/website lint && bun run --cwd packages/map lint && bun run --cwd packages/desktop lint",
+		"test": "bun run --filter './packages/*' test",
+		"desktop": "bun run --cwd packages/desktop desktop"
 	},
 	"devDependencies": {
 		"prettier": "^3.5.3"
-	}
+	},
+	"trustedDependencies": [
+		"electron"
+	]
 }

@@ -1,0 +1,41 @@
+# The macOS app, for Apple silicon and Intel: a disk image to install from, and the zip
+# electron-updater installs updates from. `bun run --cwd packages/desktop package` builds them
+# into release/; .github/workflows/desktop.yml builds and publishes them on a `desktop-v*` tag.
+appId: com.personalagentproxy.desktop
+productName: Personal Agent Proxy
+# No spaces: GitHub renames an asset with spaces, and the update feed names the files as built.
+artifactName: personal-agent-proxy-${version}-${arch}.${ext}
+directories:
+  output: release
+  buildResources: build
+# The main process, bundled with everything it needs by build.ts; nothing from node_modules.
+files:
+  - dist/**/*
+  - '!dist/**/*.map'
+  - package.json
+  - '!node_modules/**'
+npmRebuild: false
+# Where electron-updater looks: the assets of the repository's latest GitHub release, whatever
+# its tag, which the workflow uploads with the feed, latest-mac.yml.
+publish:
+  - provider: generic
+    url: https://github.com/personalagentproxy/proxy/releases/latest/download
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.png
+  # Pull-request builds have no Apple credentials and remain unsigned. A local build can use an
+  # identity from the Mac's Keychain, but only tagged releases require both signing and
+  # notarization and verify the signature and stapled ticket before publishing.
+  notarize: true
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+# The app's own links, personalagentproxy://…, which the browser hands things back through.
+protocols:
+  - name: Personal Agent Proxy
+    schemes: [personalagentproxy]
