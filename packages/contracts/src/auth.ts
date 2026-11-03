@@ -27,3 +27,23 @@ export const signInMethodsSchema = z.object({
 });
 
 export type SignInMethods = z.infer<typeof signInMethodsSchema>;
+
+/**
+ * Signing the desktop app in. The app opens the browser at `/desktop-auth?challenge=` with the
+ * SHA-256 of a verifier it keeps to itself (base64url, 43 characters); the page, signed in, asks
+ * `POST /auth/desktop/code` for a one-time code bound to the challenge and hands it to the app
+ * through its `personalagentproxy://` link. The app trades the code and the verifier at
+ * `POST /auth/desktop/session` for a session cookie of its own.
+ */
+export const desktopChallengeSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+
+export const desktopCodeBodySchema = z.object({challenge: desktopChallengeSchema});
+
+export const desktopCodeSchema = z.object({code: z.string()});
+
+export type DesktopCode = z.infer<typeof desktopCodeSchema>;
+
+export const desktopSessionBodySchema = z.object({
+	code: z.string().min(1).max(256),
+	verifier: z.string().min(1).max(256),
+});

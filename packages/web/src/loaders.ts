@@ -1,5 +1,5 @@
 import type {ActivityFilter} from '@proxy/contracts/activity';
-import {getSignInMethods} from '@/client/auth-client';
+import {createDesktopCode, getSignInMethods} from '@/client/auth-client';
 import {
 	getActivityTimeline,
 	getAgent,
@@ -15,6 +15,8 @@ import {getAuthorizationRequest} from '@/client/oauth-client';
 import {getInvitation, getOrg, listMembers, listOrgs} from '@/client/orgs-client';
 import {listRecords} from '@/client/records-client';
 import {VAULT_INTEGRATION_ID} from '@proxy/integrations';
+import {desktopChallengeSchema} from '@proxy/contracts/auth';
+import {desktopAuthLink} from '@/lib/desktop';
 import {LOADED_MINUTES, windowStart} from '@/lib/timeline-window';
 import {unwrapLoaderResult, unwrapOrNull} from '@/lib/loader-utils';
 import {pendingAgent} from '@/lib/pending-agent';
@@ -278,6 +280,20 @@ export async function membersLoader(args: OrgParams) {
 export async function inviteLoader({params}: {params: {token?: string}}) {
 	const [me, invitation] = await Promise.all([getMe(), getInvitation(params.token ?? '')]);
 	return {me: unwrapLoaderResult(me), invitation: unwrapOrNull(invitation)};
+}
+
+// The desktop app's sign-in, `/desktop-auth?challenge=`: the one-time code for the signed-in
+// person, bound to the app's challenge, in the link that hands it over. Signed out, the person
+// signs in first and comes back here; a challenge that isn't one opens the app's root instead.
+export async function desktopAuthLoader({request}: {request: Request}) {
+	const url = new URL(request.url);
+	const challenge = desktopChallengeSchema.safeParse(url.searchParams.get('challenge'));
+	if (!challenge.success) {
+		throw redirect('/');
+	}
+	const signIn = `/login?callbackUrl=${encodeURIComponent(url.pathname + url.search)}`;
+	const {code} = unwrapLoaderResult(await createDesktopCode(challenge.data), signIn);
+	return {link: desktopAuthLink(code)};
 }
 
 // The welcome flow, shown until the organization finishes or skips it: what the person has

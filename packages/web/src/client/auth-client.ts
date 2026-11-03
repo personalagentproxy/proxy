@@ -1,4 +1,8 @@
-import {magicLinkResponseSchema, signInMethodsSchema} from '@proxy/contracts/auth';
+import {
+	desktopCodeSchema,
+	magicLinkResponseSchema,
+	signInMethodsSchema,
+} from '@proxy/contracts/auth';
 import {httpRequest} from '@proxy/utils';
 import {apiRequest, apiSend} from '@/client/request';
 
@@ -51,4 +55,12 @@ export async function signOut(): Promise<void> {
 /** Dev only: signs in as the dev user, made on its first sign-in. The api 404s outside development. */
 export function devLogin() {
 	return apiSend('POST', '/auth/dev/login');
+}
+
+/**
+ * A one-time code that signs the desktop app in as the person signed in here, bound to the
+ * challenge the app made (`POST /auth/desktop/code`). The /desktop-auth page hands it to the app.
+ */
+export function createDesktopCode(challenge: string) {
+	return apiRequest('POST', '/auth/desktop/code', desktopCodeSchema, {challenge});
 }

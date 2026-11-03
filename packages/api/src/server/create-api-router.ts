@@ -25,6 +25,7 @@ import {
 	handleSetAgentRevokedRoute,
 	handleShareAgentRoute,
 } from '../agents/route';
+import {handleDesktopCodeRoute, handleDesktopSessionRoute} from '../auth/desktop';
 import {handleDevLoginRoute} from '../auth/dev-login';
 import {handleEmailSignInRoute, handleEmailVerifyRoute} from '../auth/email';
 import {handleGoogleCallbackRoute, handleGoogleStartRoute, handleSignInMethodsRoute} from '../auth/google';
@@ -98,6 +99,11 @@ export function createApiRouter(): express.Router {
 	router.get('/auth/email/verify', wrapAsyncRoute('Email verify route', handleEmailVerifyRoute));
 	router.post('/auth/signout', requireBrowserOrigin, wrapAsyncRoute('Sign-out route', handleSignOutRoute));
 	router.post('/auth/dev/login', requireBrowserOrigin, wrapAsyncRoute('Dev login route', handleDevLoginRoute));
+	// Signing the desktop app in (auth/desktop.ts): the code is minted by the signed-in browser, a
+	// write from the web app; the session is asked for by the app's own process, which has no
+	// session and sends no Origin, so the code and its verifier are the guard there.
+	router.post('/auth/desktop/code', requireBrowserOrigin, withAuthResult('Desktop code route', handleDesktopCodeRoute));
+	router.post('/auth/desktop/session', wrapAsyncRoute('Desktop session route', handleDesktopSessionRoute));
 
 	router.use('/api/me', requireBrowserOrigin);
 	router.get('/api/me', withAuthResult('Me route', handleMeRoute));

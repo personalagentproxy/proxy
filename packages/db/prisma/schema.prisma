@@ -42,6 +42,7 @@ model User {
   agents       Agent[]
   threads      AgentThread[]
   writeTargets WriteTarget[]
+  desktopCodes DesktopAuthCode[]
 }
 
 // A sign-in provider identity linked to a user, such as their Google account. Only who it is:
@@ -72,6 +73,24 @@ model Session {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// A one-time code for signing the desktop app in. The browser, signed in, mints one at
+// /desktop-auth, bound to the PKCE challenge the app made, and the app trades it, with the
+// verifier, for a session of its own (`POST /auth/desktop/session`). Minutes long and single-use,
+// and kept only as its SHA-256, like a session's token.
+model DesktopAuthCode {
+  id        String   @id @default(cuid())
+  codeHash  String   @unique
+  challenge String
+  userId    String
+  expires   DateTime
+
+  createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
