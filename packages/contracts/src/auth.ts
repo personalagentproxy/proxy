@@ -47,3 +47,15 @@ export const desktopSessionBodySchema = z.object({
 	code: z.string().min(1).max(256),
 	verifier: z.string().min(1).max(256),
 });
+
+/**
+ * The other way round: `POST /auth/desktop/handoff` `{next}`, from the app's window, signed in,
+ * for what has to happen in the browser, such as connecting a service whose sign-in turns the
+ * app's window away. The answer is the address the app opens in the browser, which signs the
+ * browser in as the same person, once, and goes on to `next`, a path in the app.
+ */
+export const desktopHandoffBodySchema = z.object({next: z.string().max(2000)});
+
+export const desktopHandoffSchema = z.object({url: z.string()});
+
+export type DesktopHandoff = z.infer<typeof desktopHandoffSchema>;

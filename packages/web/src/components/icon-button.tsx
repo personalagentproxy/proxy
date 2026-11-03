@@ -1,4 +1,4 @@
-import type {ReactNode} from 'react';
+import type {MouseEvent, ReactNode} from 'react';
 import {Link} from 'react-router';
 import {Button} from '@proxy/ui/components/button';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
@@ -11,8 +11,9 @@ type Props = {
 } & (
 	| {onClick: () => void; to?: never; href?: never}
 	| {to: string; onClick?: never; href?: never}
-	// A full navigation, such as to an api route that sends the browser on to a sign-in.
-	| {href: string; onClick?: never; to?: never}
+	// A full navigation, such as to an api route that sends the browser on to a sign-in, with what
+	// the desktop app does with it instead (`onSignInClick`).
+	| {href: string; onClick?: (event: MouseEvent<HTMLAnchorElement>) => void; to?: never}
 );
 
 // A header's icon action: a ghost icon button with its label in a tooltip.
@@ -41,7 +42,7 @@ export function IconButton({
 				size={buttonSize}
 				aria-label={label}
 				nativeButton={false}
-				render={<a href={href} />}
+				render={<a href={href} onClick={onClick} />}
 			/>
 		) : (
 			<Button

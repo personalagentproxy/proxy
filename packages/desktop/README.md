@@ -17,6 +17,13 @@ everything but the app's own origin out of the window: links out of the app open
   `personalagentproxy://auth-callback?code=…`. The app trades code and verifier at
   `POST /auth/desktop/session` for a session cookie, which its window keeps, and is signed in as a
   browser is.
+- Connecting a service whose sign-in turns the app's window away, as Google's does, happens in
+  the browser too: the web app, which knows the window by its user agent, asks the api for a
+  handoff (`POST /auth/desktop/handoff`), an address with a one-time code that signs the browser
+  in as the same person and goes on to the service's sign-in, and opens it in the browser. That
+  sign-in ends on `/desktop-return`, which hands back through `personalagentproxy://open?path=…`,
+  and the window opens the page the sign-in would have ended on. A custom MCP server that asks for
+  a sign-in moves its form to the browser, filled in as it was.
 - The main process is bundled by `build.ts` into `dist/main.cjs`, the splash pages as text in it.
 
 ## Development

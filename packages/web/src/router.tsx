@@ -63,6 +63,7 @@ import {ConnectAgentPage} from '@/pages/connect-agent-page';
 import {ConnectionPage} from '@/pages/connection-page';
 import {ConnectionsPage} from '@/pages/connections-page';
 import {DesktopAuthPage} from '@/pages/desktop-auth-page';
+import {DesktopReturnPage} from '@/pages/desktop-return-page';
 import {HomePage} from '@/pages/home-page';
 import {InvitePage} from '@/pages/invite-page';
 import {LoginPage} from '@/pages/login-page';
@@ -183,6 +184,7 @@ export const router = createBrowserRouter([
 	{path: '/', loader: rootLoader, element: null, errorElement: <RouteError />},
 	{path: '/login', loader: loginLoader, element: <LoginPage />},
 	{path: '/desktop-auth', loader: desktopAuthLoader, element: <DesktopAuthPage />},
+	{path: '/desktop-return', element: <DesktopReturnPage />},
 	{path: '/agent/login', element: <AgentLoginPage />},
 	// An MCP client, such as Claude, signing in as one of the person's agents.
 	{

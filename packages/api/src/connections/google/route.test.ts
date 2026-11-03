@@ -260,6 +260,20 @@ describe('handleGoogleCallbackRoute', () => {
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/welcome/connections?error=google');
 	});
 
+	test('begun from the desktop app, ends on the page that hands over to it, wherever it ends', async () => {
+		const {cookie, state} = await start({desktop: '1'});
+		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/desktop-return?path=%2Forg-1%2Fconnections%2Fconn-1%3Fadded');
+
+		const {cookie: welcome, state: welcomeState} = await start({desktop: '1', returnTo: 'welcome'});
+		const welcomeRes = await callback({cookie: welcome?.value ?? '', query: {state: welcomeState, code: 'code-1'}});
+		expect(welcomeRes.redirect).toHaveBeenCalledWith('https://app.example.com/desktop-return?path=%2Forg-1%2Fwelcome%2Fconnections%2Fconn-1');
+
+		const {cookie: refused, state: refusedState} = await start({desktop: '1'});
+		const refusedRes = await callback({cookie: refused?.value ?? '', query: {state: refusedState, error: 'access_denied'}});
+		expect(refusedRes.redirect).toHaveBeenCalledWith('https://app.example.com/desktop-return?path=%2Forg-1%2Fconnections%2Fnew%3Ferror%3Dgoogle');
+	});
+
 	test('a sign-in turned down at Google goes back to the catalog', async () => {
 		const {cookie, state} = await start();
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, error: 'access_denied'}});

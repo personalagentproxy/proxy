@@ -1,11 +1,13 @@
 import type {Connection} from '@proxy/contracts/connections';
 import type {FetchError} from '@proxy/utils';
 import {useState, type ReactNode} from 'react';
+import {useSearchParams} from 'react-router';
 import {connectMcp} from '@/client/connections-client';
 import {Button} from '@proxy/ui/components/button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {apiMessage} from '@/lib/agent-errors';
+import {handOffToBrowser, isDesktopApp} from '@/lib/desktop';
 import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -28,7 +30,9 @@ function connectErrorMessage(error: FetchError): string {
 // sign-in. Connecting asks the server for its tools: a server that answers is
 // connected at once, and for one that asks for a sign-in the api begins it and answers the
 // server's sign-in page, which the browser goes to; it comes back to the new connection, or to the
-// welcome flow's page for it. `cancel` sits beside the button.
+// welcome flow's page for it. In the desktop app, whose window a sign-in page would turn away, the
+// form moves to the browser instead, filled in as it was (`?name=&url=`), to be sent again there.
+// `cancel` sits beside the button.
 export function ConnectMcpForm({
 	cancel,
 	returnTo,
@@ -42,11 +46,12 @@ export function ConnectMcpForm({
 	onConnected: (connection: Connection) => void;
 }) {
 	const org = useOrgSlug();
-	const [name, setName] = useState('');
-	const [url, setUrl] = useState('');
+	const [params] = useSearchParams();
+	const [name, setName] = useState(params.get('name') ?? '');
+	const [url, setUrl] = useState(params.get('url') ?? '');
 	const [token, setToken] = useState('');
 	const [error, setError] = useState<string | null>(null);
-	const [pending, setPending] = useState<'connecting' | 'signingIn' | null>(null);
+	const [pending, setPending] = useState<'connecting' | 'signingIn' | 'browser' | null>(null);
 	const ready = name.trim() !== '' && url.trim() !== '';
 	const form = useCommandEnterSubmit(ready && pending === null);
 
@@ -71,6 +76,18 @@ export function ConnectMcpForm({
 					return;
 				}
 				if (result.value.kind === 'signIn') {
+					if (isDesktopApp()) {
+						setPending('browser');
+						const here = new URL(window.location.href);
+						here.searchParams.set('name', name.trim());
+						here.searchParams.set('url', url.trim());
+						const handed = await handOffToBrowser(`${here.pathname}${here.search}`);
+						if (handed.isErr()) {
+							setPending(null);
+							setError('Could not open your browser. Try again.');
+						}
+						return;
+					}
 					// Only ever a web address: the api has checked it, and the browser goes nowhere else.
 					if (!/^https?:\/\//.test(result.value.url)) {
 						setPending(null);
@@ -134,9 +151,11 @@ export function ConnectMcpForm({
 				<Button type="submit" disabled={!ready || pending !== null}>
 					{pending === 'signingIn'
 						? 'Opening sign-in…'
-						: pending === 'connecting'
-							? 'Connecting…'
-							: 'Connect'}
+						: pending === 'browser'
+							? 'Continuing in your browser…'
+							: pending === 'connecting'
+								? 'Connecting…'
+								: 'Connect'}
 				</Button>
 			</div>
 		</form>

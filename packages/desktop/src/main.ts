@@ -8,7 +8,8 @@ import {DESKTOP_VERSION} from './env';
 import {createMainWindow, loadApp, showSignIn} from './window';
 
 // The desktop app: a window around the web app, hosted, with nothing of it bundled. The main
-// process keeps the window, signs in through the browser, and takes the app's links.
+// process keeps the window, signs in through the browser, and takes the app's links: the browser
+// coming back from the sign-in, and from what the app hands it, as a service's sign-in is.
 
 // So the web app can tell it is in the desktop app, and which version.
 app.userAgentFallback = `${app.userAgentFallback} PersonalAgentProxyDesktop/${DESKTOP_VERSION}`;
@@ -36,6 +37,13 @@ function focusWindow(): BrowserWindow {
 async function onDeepLink(link: DeepLink): Promise<void> {
 	await app.whenReady();
 	const win = focusWindow();
+
+	// The browser has done what the app handed it, such as connecting a service: on to where that
+	// ended.
+	if (link.kind === 'open') {
+		loadApp(win, link.path);
+		return;
+	}
 
 	const signedIn = await finishSignIn(link.code);
 	if (signedIn.isErr()) {

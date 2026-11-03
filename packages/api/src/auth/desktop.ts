@@ -3,13 +3,15 @@ import {createHash, randomBytes} from 'node:crypto';
 import type {Request, Response} from 'express';
 import type {Result} from 'ts-results-es';
 
-import {createDesktopAuthCode, getDesktopAuthCode, takeDesktopAuthCode} from '@proxy/db/desktop-auth';
-import {desktopCodeBodySchema, desktopSessionBodySchema, type DesktopCode} from '@proxy/contracts/auth';
-import {type ApiError, Do, parseSchema} from '@proxy/utils';
+import {createDesktopAuthCode, createDesktopHandoff, getDesktopAuthCode, takeDesktopAuthCode, takeDesktopHandoff} from '@proxy/db/desktop-auth';
+import {desktopCodeBodySchema, desktopHandoffBodySchema, desktopSessionBodySchema, type DesktopCode, type DesktopHandoff} from '@proxy/contracts/auth';
+import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 
 import {log, serializeError} from '../observability/log';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {establishSession, hashToken, timingSafeEqualString} from './session';
+import {authenticateApiRequest} from '../utils/auth';
+import {env} from '../utils/env';
+import {establishSession, hashToken, queryParam, redirectToLoginError, sanitizeCallbackUrl, timingSafeEqualString} from './session';
 
 /**
  * Signing the desktop app in. The app can't sign in itself: Google turns embedded browsers away,
@@ -19,6 +21,12 @@ import {establishSession, hashToken, timingSafeEqualString} from './session';
  * to the app through its `personalagentproxy://` link; the app trades the code and the verifier
  * for a session cookie of its own (`handleDesktopSessionRoute`), and is signed in as the browser
  * is, with the same kind of session, for as long.
+ *
+ * The other way round, for what has to happen in the browser once the app is signed in, such as
+ * connecting a service whose sign-in turns the app's window away as Google's does: the app asks
+ * for a handoff (`handleDesktopHandoffRoute`), an address with a one-time code that signs the
+ * browser in as the same person and goes on to where the app was headed
+ * (`handleDesktopHandoffOpenRoute`), and opens it in the browser.
  */
 
 // Long enough to click through the browser's "open the app?" prompt, no longer.
@@ -105,4 +113,77 @@ export async function handleDesktopSessionRoute(req: Request, res: Response): Pr
 
 	log.info('Desktop app signed in', {userId: authCode.userId});
 	res.json({ok: true});
+}
+
+// Long enough for the browser to open, no longer.
+const handoffMaxAgeMs = 2 * 60 * 1000;
+
+/**
+ * `POST /auth/desktop/handoff` `{next}` — the app's window, signed in: the address to open in the
+ * browser, for `next`, a path in the app, as the sign-in's callback paths are.
+ */
+export function handleDesktopHandoffRoute(request: AuthenticatedRequest): Promise<Result<DesktopHandoff, ApiError>> {
+	return Do(async ($) => {
+		const appUrl = $(requirePresent(env.APP_URL, ApiErr.internalError(new Error('APP_URL is not configured'))));
+		const body = $(parseSchema(desktopHandoffBodySchema, request.body));
+		const next = $(requirePresent(sanitizeCallbackUrl(body.next), ApiErr.validationError('next must be a path in the app')));
+		const code = randomBytes(32).toString('hex');
+		$(
+			await createDesktopHandoff({
+				codeHash: hashToken(code),
+				userId: request.user.userId,
+				next,
+				expires: new Date(Date.now() + handoffMaxAgeMs),
+			}),
+		);
+		return {url: `${appUrl}/auth/desktop/handoff?code=${code}`};
+	});
+}
+
+/**
+ * `GET /auth/desktop/handoff?code=` — the browser, opened by the app: signed in as the app's
+ * person, unless it is already, and sent on to `next`. A code that is unknown, expired or taken
+ * lands on the login page saying the link is no good, as a spent magic link does.
+ */
+export async function handleDesktopHandoffOpenRoute(req: Request, res: Response): Promise<void> {
+	const appUrl = env.APP_URL;
+	if (!appUrl) {
+		res.status(500).json({error: 'app_url_not_configured'});
+		return;
+	}
+
+	const code = queryParam(req, 'code');
+	if (!code) {
+		redirectToLoginError(res, appUrl, 'Verification');
+		return;
+	}
+
+	const handoffResult = await takeDesktopHandoff(hashToken(code));
+	if (handoffResult.isErr()) {
+		log.error('Desktop handoff failed to take the code', serializeError(handoffResult.error));
+		redirectToLoginError(res, appUrl, 'Callback');
+		return;
+	}
+
+	const handoff = handoffResult.value;
+	if (!handoff || handoff.expires.valueOf() < Date.now()) {
+		redirectToLoginError(res, appUrl, 'Verification');
+		return;
+	}
+
+	// The browser is usually signed in already, since the app was signed in through it: that
+	// session stays. Signed in as someone else, or not at all, it is signed in as the app's person.
+	const existing = await authenticateApiRequest(req.headers);
+	const signedIn = existing.isOk() && existing.value.userId === handoff.userId;
+	if (!signedIn) {
+		const sessionResult = await establishSession(res, handoff.userId);
+		if (sessionResult.isErr()) {
+			log.error('Desktop handoff failed to create the session', serializeError(sessionResult.error));
+			redirectToLoginError(res, appUrl, 'Callback');
+			return;
+		}
+	}
+
+	log.info('Desktop app handed over to the browser', {userId: handoff.userId, signedIn});
+	res.redirect(`${appUrl}${handoff.next}`);
 }

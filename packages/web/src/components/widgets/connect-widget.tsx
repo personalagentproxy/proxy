@@ -3,6 +3,7 @@ import {Link} from 'react-router';
 import {buttonVariants} from '@proxy/ui/components/button';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {WidgetFrame} from '@/components/widgets/widget-frame';
+import {onSignInClick} from '@/lib/desktop';
 import {INTEGRATIONS, signInPath} from '@/lib/integrations';
 import {useOrgSlug} from '@/hooks/use-org';
 
@@ -40,7 +41,7 @@ export function ConnectWidget({icon, name, collectionIds, children}: Props) {
 				const signIn = signInPath(org, integration.id, {returnTo: 'home'});
 				if (signIn) {
 					return (
-						<a key={integration.id} href={signIn} className={className}>
+						<a key={integration.id} href={signIn} onClick={onSignInClick} className={className}>
 							{content}
 						</a>
 					);

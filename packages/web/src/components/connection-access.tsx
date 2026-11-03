@@ -6,6 +6,7 @@ import {Badge} from '@proxy/ui/components/badge';
 import {Button} from '@proxy/ui/components/button';
 import {Checkbox} from '@proxy/ui/components/checkbox';
 import {cn} from '@proxy/ui/lib/utils';
+import {onSignInClick} from '@/lib/desktop';
 
 type Props = {
 	actions: Action[];
@@ -364,7 +365,7 @@ export function SignInAgain({
 		return (
 			<p className="text-sm text-muted-foreground">
 				This connection isn't signed in yet, so agents can't use it.{' '}
-				<a href={href} className={link}>
+				<a href={href} onClick={onSignInClick} className={link}>
 					Sign in
 				</a>
 				{useKey && <>, or {useKey},</>} to start.
