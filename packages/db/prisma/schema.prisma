@@ -586,19 +586,18 @@ model AgentThread {
   // conversation it was started from: the agent acts as them in it, reaching what they see, and
   // nobody else sees it.
   userId  String
-  // A sub-agent's thread: the thread whose agent delegated to it (AgentThread; as a column, as a
+  // A sub-agent's thread: the thread whose agent started it (AgentThread; as a column, as a
   // task's parent is, since its agent, member and organization are the same, and go with them),
-  // and the call in that thread's log it was started by, which its report answers. Null for a
-  // member's conversation, of which there is one per member and agent.
+  // and the call in that thread's log it was started by, which everything it says to that agent
+  // answers. Null for a member's conversation, of which there is one per member and agent.
   parentThreadId String?
   parentCallId   String?
-  // A sub-agent's title, as the agent that delegated to it gave it; null for a conversation.
+  // A sub-agent's title, as the agent that started it gave it; null for a conversation.
   title   String?
-  // The task a sub-agent's calls are made for, the sub-agent's own; a conversation has none: its
-  // agent makes no calls but to delegate.
+  // The task a sub-agent's calls are made for, the sub-agent's own, finished each time it stops
+  // and made anew when it is taken up again; a conversation has none: its agent makes no calls
+  // but to its sub-agents.
   taskId  String?
-  // When a sub-agent reported, or failed: its work is done, and nothing more runs on its thread.
-  finishedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

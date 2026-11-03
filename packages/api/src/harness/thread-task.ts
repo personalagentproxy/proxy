@@ -9,13 +9,14 @@ import type {HarnessStore} from './store';
 /**
  * The task a sub-agent's calls are made for, as every agent's calls are, so the activity log says
  * which piece of work each request was for. It is the member's, as the conversation it was
- * delegated from is, so what the sub-agent did is theirs alone to see. A sub-agent starts with
- * one, made as it is (conversation.ts subAgentStart). One left open, as when it slept long, is taken up
- * again by its next call (@proxy/utils/tasks); one finished while it is still at work, as by
- * finish_task from the agent's login elsewhere, is replaced with a new one for the same piece of
- * work, the title and goal the one before had, since the gate refuses calls for it and the
- * sub-agent has no start_task of its own (tool-surface). The agent talking with the person has
- * none: it makes no calls but to delegate.
+ * started from is, so what the sub-agent did is theirs alone to see. A sub-agent starts with one,
+ * made as it is (conversation.ts subAgentStart). One left open, as when it slept long, is taken up
+ * again by its next call (@proxy/utils/tasks); one finished, as each is when the sub-agent stops,
+ * or by finish_task from the agent's login elsewhere while it is still at work, is replaced with a
+ * new one for the same piece of work, the title and goal the one before had, once the sub-agent
+ * makes a call again, since the gate refuses calls for it and the sub-agent has no start_task of
+ * its own (tool-surface). The agent talking with the person has none: it makes no calls but to
+ * its sub-agents.
  */
 
 /** What a sub-agent's task needs of the store. */

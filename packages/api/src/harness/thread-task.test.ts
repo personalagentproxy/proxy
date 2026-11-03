@@ -19,7 +19,6 @@ const thread: ThreadRow = {
 	parentCallId: 'c0',
 	title: 'Find the invoices',
 	taskId: 'task-1',
-	finishedAt: null,
 	createdAt: now,
 };
 const task: AgentTaskRow = {

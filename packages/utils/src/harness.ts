@@ -4,11 +4,11 @@ import {z} from 'zod';
 /**
  * The built-in agent's log, as the api writes it and the web app reads it: what is shared between
  * them. The log is the transcript: the person's messages, the model's answers with the tool calls
- * it made, what each call answered, events that came since (a sub-agent's report), and, once it
+ * it made, what each call answered, events that came since (what a sub-agent said to it), and, once it
  * has grown long, summaries of it up to a point, which the model reads in place of what they
  * cover. A call is pending until its result is in the log, and the model is run again only once
- * none is: a delegation is answered at once, that the sub-agent has started, and its report lands
- * as an event when it is done.
+ * none is: starting a sub-agent is answered at once, with its id, and what it says lands as an
+ * event when it says it.
  */
 
 /** A tool call the model made, as the model API gives it: its arguments are the JSON it wrote. */
@@ -63,30 +63,47 @@ export function readyForInference(entries: LogEntry[]): boolean {
 	return last.kind !== 'assistant';
 }
 
-/** The name of the one tool the main agent has: a sub-agent, started on a brief, which reports back. */
-export const DELEGATE_TOOL = 'delegate';
+/** The names of the agent talking with the person's two tools: a sub-agent, started on a brief, and a message to one. */
+export const CREATE_SUBAGENT_TOOL = 'create_subagent';
+export const SEND_TO_SUBAGENT_TOOL = 'send_to_subagent';
 
-/** The name of the one tool a sub-agent has beyond its connections: a wake-up later. */
+/** The names of a sub-agent's two tools beyond its connections: a message to the agent it works for, and a wake-up later. */
+export const SEND_TO_PARENT_TOOL = 'send_to_parent';
 export const SLEEP_TOOL = 'sleep_until';
 
 // How long a sub-agent's title may be: a task's.
 const MAX_TITLE = 120;
 
-/** A delegate call's arguments: the sub-agent's title, cut to a task's, and its brief. Null when they are not that. */
-export function delegateArgs(args: unknown): {title: string; brief: string} | null {
-	if (typeof args !== 'object' || args === null) {
+function isRecord(args: unknown): args is Record<string, unknown> {
+	return typeof args === 'object' && args !== null && !Array.isArray(args);
+}
+
+function isText(value: unknown): value is string {
+	return typeof value === 'string' && value.trim() !== '';
+}
+
+/** A create_subagent call's arguments: the sub-agent's title, cut to a task's, and its brief. Null when they are not that. */
+export function subAgentArgs(args: unknown): {title: string; brief: string} | null {
+	if (!isRecord(args) || !isText(args.title) || !isText(args.brief)) {
 		return null;
 	}
-	const {title, brief} = args as {title?: unknown; brief?: unknown};
-	if (
-		typeof title !== 'string' ||
-		typeof brief !== 'string' ||
-		title.trim() === '' ||
-		brief.trim() === ''
-	) {
+	return {title: cut(args.title.trim(), MAX_TITLE), brief: args.brief.trim()};
+}
+
+/** A send_to_subagent call's arguments: which sub-agent, by id, and the message. Null when they are not that. */
+export function subAgentMessageArgs(args: unknown): {subagent: string; text: string} | null {
+	if (!isRecord(args) || !isText(args.subagent) || !isText(args.text)) {
 		return null;
 	}
-	return {title: cut(title.trim(), MAX_TITLE), brief: brief.trim()};
+	return {subagent: args.subagent.trim(), text: args.text.trim()};
+}
+
+/** A send_to_parent call's arguments: the message. Null when there is none. */
+export function parentMessageArgs(args: unknown): {text: string} | null {
+	if (!isRecord(args) || !isText(args.text)) {
+		return null;
+	}
+	return {text: args.text.trim()};
 }
 
 // How long a sleep may be at most.
@@ -97,10 +114,10 @@ const MAX_SLEEP_MS = 7 * 24 * 60 * 60 * 1000;
  * now, and more than a week is cut to a week. Null when the arguments say neither.
  */
 export function sleepUntil(args: unknown, now: Date): Date | null {
-	if (typeof args !== 'object' || args === null) {
+	if (!isRecord(args)) {
 		return null;
 	}
-	const {until, seconds} = args as {until?: unknown; seconds?: unknown};
+	const {until, seconds} = args;
 	const requested =
 		typeof seconds === 'number'
 			? new Date(now.getTime() + seconds * 1000)
@@ -112,6 +129,30 @@ export function sleepUntil(args: unknown, now: Date): Date | null {
 	}
 	const earliest = Math.max(requested.getTime(), now.getTime());
 	return new Date(Math.min(earliest, now.getTime() + MAX_SLEEP_MS));
+}
+
+/**
+ * What a thread's agent is up to, by the jobs still to run or running on it: at work; asleep,
+ * when every one of them is a tool job due later, which only a sleep is, until the first is due;
+ * or stopped, with nothing to run, until something lands in its log.
+ */
+export type ThreadState = {kind: 'working'} | {kind: 'asleep'; until: Date} | {kind: 'stopped'};
+
+export function threadState(
+	openJobs: Array<{kind: 'inference' | 'tool'; runAt: Date}>,
+	now: Date,
+): ThreadState {
+	if (openJobs.length === 0) {
+		return {kind: 'stopped'};
+	}
+	const later = openJobs.filter(
+		(job) => job.kind === 'tool' && job.runAt.getTime() > now.getTime(),
+	);
+	if (later.length < openJobs.length) {
+		return {kind: 'working'};
+	}
+	const first = later.map((job) => job.runAt.getTime()).sort((a, b) => a - b)[0];
+	return first === undefined ? {kind: 'working'} : {kind: 'asleep', until: new Date(first)};
 }
 
 /**

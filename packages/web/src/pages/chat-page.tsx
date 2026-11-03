@@ -58,7 +58,7 @@ const IDLE_POLL_MS = 4000;
 
 // One turn of the conversation: what the person said in a bubble on the right, as they typed it,
 // or what the persona answered in an outlined one on the left, as Markdown, in a red one where
-// its turn failed. What it did in between, the sub-agents it started and what they found, is in
+// its turn failed. What it did in between, the sub-agents it started and what they said, is in
 // the activity log, not here: this is a conversation.
 function Turn({entry}: {entry: ChatEntry}) {
 	if (entry.kind === 'person') {
@@ -234,9 +234,9 @@ export function ChatPage() {
 }
 
 // The person's conversation with one of the organization's personas: its log, read again as the
-// persona works, and an input. The persona hands each piece of work to a sub-agent, which acts as
-// the person through the organization's built-in login, whose calls go through the same gate as
-// any agent's, so its activity is in the log by the sub-agent's task.
+// persona works, and an input. The persona hands each piece of work to a sub-agent it keeps
+// talking with, which acts as the person through the organization's built-in login, whose calls
+// go through the same gate as any agent's, so its activity is in the log by the sub-agent's task.
 function Conversation({loaded}: {loaded: Loaded}) {
 	const org = useOrgSlug();
 	const navigate = useNavigate();

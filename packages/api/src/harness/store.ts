@@ -3,7 +3,7 @@ import type {Result} from 'ts-results-es';
 import type {ApiError} from '@proxy/utils';
 import {readyForInference} from '@proxy/utils/harness';
 import * as harness from '@proxy/db/harness';
-import type {AfterAnswer, AssistantTurn, EntryRow, FailureNote, JobRow, LastMessage, Persona, PersonaRow, SubAgentStart, ThreadRow} from '@proxy/db/harness';
+import type {AfterAnswer, AssistantTurn, EntryRow, FailureNote, JobRow, LastMessage, Persona, PersonaRow, SubAgentMessage, SubAgentRow, ThreadRow} from '@proxy/db/harness';
 import {type AgentTaskRow, createAgentTask, getAgentTask, type NewAgentTask} from '@proxy/db/task';
 import type {SignedInAgent} from '@proxy/db/agent';
 
@@ -29,7 +29,8 @@ export type HarnessStore = {
 	appendSummary: (jobId: string, workerId: string, threadId: string, summary: {text: string; inputTokens: number; outputTokens: number}, coversSeq: number) => Promise<Result<boolean, ApiError>>;
 	completeInference: (jobId: string, workerId: string, threadId: string, turn: AssistantTurn, after: AfterAnswer) => Promise<Result<boolean, ApiError>>;
 	completeToolJob: (jobId: string, workerId: string, threadId: string, result: {callId: string; text: string; isError: boolean}) => Promise<Result<boolean, ApiError>>;
-	startSubAgent: (jobId: string, workerId: string, parent: ThreadRow, start: SubAgentStart) => Promise<Result<boolean, ApiError>>;
+	sendToSubAgent: (jobId: string, workerId: string, parent: ThreadRow, subAgentId: string, message: SubAgentMessage) => Promise<Result<SubAgentRow | null | false, ApiError>>;
+	listSubAgents: (parentThreadId: string, now: Date) => Promise<Result<SubAgentRow[], ApiError>>;
 	setThreadTask: (threadId: string, taskId: string) => Promise<Result<void, ApiError>>;
 	getAgentTask: (orgId: string, agentId: string, taskId: string) => Promise<Result<AgentTaskRow | null, ApiError>>;
 	createAgentTask: (task: NewAgentTask) => Promise<Result<AgentTaskRow | null, ApiError>>;
@@ -62,7 +63,8 @@ export const harnessStore: HarnessStore = {
 	appendSummary: harness.appendSummary,
 	completeInference: (jobId, workerId, threadId, turn, after) => harness.completeInference(jobId, workerId, threadId, turn, after, readyForInference),
 	completeToolJob: (jobId, workerId, threadId, result) => harness.completeToolJob(jobId, workerId, threadId, result, readyForInference),
-	startSubAgent: (jobId, workerId, parent, start) => harness.startSubAgent(jobId, workerId, parent, start, readyForInference),
+	sendToSubAgent: (jobId, workerId, parent, subAgentId, message) => harness.sendToSubAgent(jobId, workerId, parent, subAgentId, message, readyForInference),
+	listSubAgents: harness.listSubAgents,
 	setThreadTask: harness.setThreadTask,
 	getAgentTask,
 	createAgentTask,

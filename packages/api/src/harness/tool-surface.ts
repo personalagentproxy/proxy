@@ -1,23 +1,25 @@
-import {DELEGATE_TOOL, SLEEP_TOOL} from '@proxy/utils/harness';
+import {CREATE_SUBAGENT_TOOL, SEND_TO_PARENT_TOOL, SEND_TO_SUBAGENT_TOOL, SLEEP_TOOL} from '@proxy/utils/harness';
 
 import type {ModelTool} from '../llm/open-router';
 import {MCP_TOOLS, type McpToolDefinition} from '../mcp/tools';
 
 /**
- * The tools the built-in agent has. The agent talking with the person has one: to delegate a
- * piece of work to a sub-agent, which reports back. A sub-agent has the MCP server's, as any agent
- * gets them, less the two about tasks, since every call it makes is for its own task and the loop
- * fills it in (tool-job.ts); and one of its own, to be woken later. Nothing else: everything done
- * to the person's accounts goes through the same gate as Claude's calls.
+ * The tools the built-in agent has. The agent talking with the person has two: to start a
+ * sub-agent on a brief, and to send a message to one it started, which keeps what it did and
+ * found and takes the message up. A sub-agent has the MCP server's, as any agent gets them, less
+ * the two about tasks, since every call it makes is for its own task and the loop fills it in
+ * (tool-job.ts); and two of its own, to send a message to the agent it works for, and to be woken
+ * later. Nothing else: everything done to the person's accounts goes through the same gate as
+ * Claude's calls.
  */
 
 // The MCP tools a sub-agent doesn't need: its task is its own.
 const TASK_TOOLS = new Set(['start_task', 'finish_task']);
 
-const DELEGATE: ModelTool = {
-	name: DELEGATE_TOOL,
+const CREATE_SUBAGENT: ModelTool = {
+	name: CREATE_SUBAGENT_TOOL,
 	description:
-		'Starts a sub-agent on a piece of work with the person’s accounts, with the same access as you. It answers at once that the sub-agent has started, and the sub-agent’s report comes to you as a message when it is done: go on meanwhile, or, when there is nothing to do until then, tell the person what you are looking into and stop. Give `title`, what the work is in a few words, which the person sees, and `brief`, everything the sub-agent needs: it knows nothing of this conversation but the brief, and can’t ask you or the person anything. One sub-agent can look in several accounts: start another only for a separate piece of work.',
+		'Starts a sub-agent on a piece of work with the person’s accounts, with the same access as you, and answers at once with its id. The sub-agent works on its own: what it says to you, a question, how far it has got or what it found, comes to you as a message; when it stops, its last words come too, and it keeps everything it did and found, so send_to_subagent takes it up again rather than starting another. Go on meanwhile, or, when there is nothing to do until it says something, tell the person what you are looking into and stop. Give `title`, what the work is in a few words, which the person sees, and `brief`, everything the sub-agent needs: it knows nothing of this conversation but the brief and what you send it. One sub-agent can look in several accounts: start another only for a separate piece of work.',
 	parameters: {
 		type: 'object',
 		properties: {
@@ -32,10 +34,39 @@ const DELEGATE: ModelTool = {
 	},
 };
 
+const SEND_TO_SUBAGENT: ModelTool = {
+	name: SEND_TO_SUBAGENT_TOOL,
+	description:
+		'Sends a message to one of your sub-agents, by the id create_subagent answered with: an answer to its question, more to do, or a change to what it is doing. It has everything it did and found so far, so say only what is new. A sub-agent that had stopped takes the message up again; one that is asleep is woken by it; one at work reads it when its current call is answered. What it says back comes to you as a message. Your sub-agents, with their ids and what each is doing, are listed in your instructions.',
+	parameters: {
+		type: 'object',
+		properties: {
+			subagent: {type: 'string', description: 'The sub-agent’s id, as create_subagent answered'},
+			text: {type: 'string', description: 'The message'},
+		},
+		required: ['subagent', 'text'],
+		additionalProperties: false,
+	},
+};
+
+const SEND_TO_PARENT: ModelTool = {
+	name: SEND_TO_PARENT_TOOL,
+	description:
+		'Sends a message to the agent you work for while you go on working: a question you need answered to do the brief, how far you have got where the work takes long, or something found that it should know before you are done. Its answer, when it has one, comes to you as a message. Don’t send what your final answer will say: stopping with an answer hands that over by itself.',
+	parameters: {
+		type: 'object',
+		properties: {
+			text: {type: 'string', description: 'The message'},
+		},
+		required: ['text'],
+		additionalProperties: false,
+	},
+};
+
 const SLEEP: ModelTool = {
 	name: SLEEP_TOOL,
 	description:
-		'Stops until a time, then wakes you with a note of the time. For checking back on something later, or doing what the brief asks for at a time it named. Give `until`, the time to wake at, in ISO 8601 with its offset, or `seconds` from now; at most a week. Say what you will do when you wake in your message, since it is all you will have then.',
+		'Stops until a time, then wakes you with a note of the time. For checking back on something later, or doing what the brief asks for at a time it named. Give `until`, the time to wake at, in ISO 8601 with its offset, or `seconds` from now; at most a week. A message from the agent you work for wakes you before then. Say what you will do when you wake in your message, since it is all you will have then.',
 	parameters: {
 		type: 'object',
 		properties: {
@@ -67,11 +98,11 @@ function withoutTask(tool: McpToolDefinition): ModelTool {
 	};
 }
 
-/** The tools the agent talking with the person is given: delegating, and nothing else. */
-export const MAIN_AGENT_TOOLS: ModelTool[] = [DELEGATE];
+/** The tools the agent talking with the person is given: starting a sub-agent and messaging one, and nothing else. */
+export const MAIN_AGENT_TOOLS: ModelTool[] = [CREATE_SUBAGENT, SEND_TO_SUBAGENT];
 
-/** The tools a sub-agent is given: the MCP server's but the task ones, in the order it lists them, and a sleep. */
-export const SUB_AGENT_TOOLS: ModelTool[] = [...MCP_TOOLS.filter((tool) => !TASK_TOOLS.has(tool.name)).map(withoutTask), SLEEP];
+/** The tools a sub-agent is given: the MCP server's but the task ones, in the order it lists them, a message to the agent it works for, and a sleep. */
+export const SUB_AGENT_TOOLS: ModelTool[] = [...MCP_TOOLS.filter((tool) => !TASK_TOOLS.has(tool.name)).map(withoutTask), SEND_TO_PARENT, SLEEP];
 
 /** The tools the model is given on a thread: a sub-agent's, or the main agent's. */
 export function toolsFor(thread: {parentThreadId: string | null}): ModelTool[] {
