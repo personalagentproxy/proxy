@@ -36,3 +36,21 @@ A `bun run dev` already running is used as it is; without one, the stack is star
 again when the window closes. The app loads the root `.env`'s `APP_URL`, the one origin the api
 takes sign-ins from. `DESKTOP_APP_URL` names another and skips the stack. A packaged app always
 loads hosted Personal Agent Proxy.
+
+## Packaging and releases
+
+```bash
+bun run --cwd packages/desktop package
+```
+
+Builds the macOS app for Apple silicon and Intel into `release/`: a disk image each to install
+from, a zip each for updates, and `latest-mac.yml`, the update feed (`electron-builder.yml`).
+Without Apple's certificate the app is unsigned, which macOS warns about on first open, and
+can't update itself.
+
+A release is a `desktop-v<version>` tag, with the version in `package.json`:
+`.github/workflows/desktop.yml` builds on it and publishes the files as a GitHub release. The app
+checks the repository's latest release for `latest-mac.yml` (`src/updates.ts`), so the desktop
+app's releases are the repository's releases; the Docker image has tags, not releases. Signing
+and notarization start once the workflow has `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`,
+`APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` as secrets.

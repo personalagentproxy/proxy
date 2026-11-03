@@ -1,0 +1,66 @@
+name: desktop
+
+# The macOS desktop app (packages/desktop), on a `desktop-v1.2.3` tag: built for Apple silicon and
+# Intel and published as the release for the tag, with latest-mac.yml, the feed the app checks the
+# repository's latest release for. Pull requests touching the app only build it.
+#
+# Signed and notarized once the secrets are there: CSC_LINK (the Developer ID certificate as a
+# base64 .p12) and CSC_KEY_PASSWORD, and APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID for
+# notarization. Without them the build is unsigned, which macOS warns about on first open, and the
+# app can't update itself.
+
+on:
+  push:
+    tags: ['desktop-v*']
+  pull_request:
+    paths:
+      - packages/desktop/**
+      - .github/workflows/desktop.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Check the tag names the version in package.json
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        run: |
+          version=$(bun -e "console.log(require('./packages/desktop/package.json').version)")
+          if [[ "${GITHUB_REF_NAME}" != "desktop-v${version}" ]]; then
+            echo "::error::The tag is ${GITHUB_REF_NAME} but packages/desktop/package.json says ${version}."
+            exit 1
+          fi
+      - run: bun run --cwd packages/desktop package
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - if: startsWith(github.ref, 'refs/tags/desktop-v')
+        name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "Personal Agent Proxy for macOS ${GITHUB_REF_NAME#desktop-v}" \
+            --generate-notes \
+            packages/desktop/release/*.dmg \
+            packages/desktop/release/*.zip \
+            packages/desktop/release/*.blockmap \
+            packages/desktop/release/latest-mac.yml
+      - if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-mac
+          path: |
+            packages/desktop/release/*.dmg
+            packages/desktop/release/latest-mac.yml
+          if-no-files-found: error

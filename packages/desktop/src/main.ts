@@ -5,6 +5,7 @@ import {app, dialog, type BrowserWindow} from 'electron';
 import {finishSignIn} from './auth';
 import {DEEP_LINK_SCHEME, findDeepLink, parseDeepLink, type DeepLink} from './deep-link';
 import {DESKTOP_VERSION} from './env';
+import {initUpdates} from './updates';
 import {createMainWindow, loadApp, showSignIn} from './window';
 
 // The desktop app: a window around the web app, hosted, with nothing of it bundled. The main
@@ -103,6 +104,7 @@ if (!app.requestSingleInstanceLock()) {
 			app.dock?.setIcon(path.join(__dirname, '../build/icon.png'));
 		}
 		loadApp(window());
+		initUpdates();
 		const link = findDeepLink(process.argv);
 		if (link) {
 			void onDeepLink(link);

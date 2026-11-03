@@ -10,20 +10,21 @@
 	"scripts": {
 		"desktop": "bun run dev.ts",
 		"build": "bun run build.ts",
+		"package": "NODE_ENV=production bun run build.ts && electron-builder --mac --publish never",
 		"lint": "oxlint",
 		"test": "bun test",
 		"typecheck": "tsc --noEmit"
-	},
-	"dependencies": {
-		"ts-results-es": "^7.1.0",
-		"zod": "^4.5.4"
 	},
 	"devDependencies": {
 		"@types/bun": "latest",
 		"dotenv": "^16.6.1",
 		"electron": "^41.0.0",
+		"electron-builder": "^26.18.0",
+		"electron-updater": "^6.8.11",
 		"esbuild": "^0.27.0",
 		"oxlint": "^1.79.0",
-		"typescript": "~6.0.2"
+		"ts-results-es": "^7.1.0",
+		"typescript": "~6.0.2",
+		"zod": "^4.5.4"
 	}
 }
