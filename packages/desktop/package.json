@@ -1,0 +1,29 @@
+{
+	"name": "desktop",
+	"productName": "Personal Agent Proxy",
+	"private": true,
+	"version": "0.1.0",
+	"description": "Personal Agent Proxy",
+	"author": "Personal Agent Proxy <hello@personalagentproxy.com>",
+	"type": "module",
+	"main": "dist/main.cjs",
+	"scripts": {
+		"desktop": "bun run dev.ts",
+		"build": "bun run build.ts",
+		"lint": "oxlint",
+		"test": "bun test",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"ts-results-es": "^7.1.0",
+		"zod": "^4.5.4"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"dotenv": "^16.6.1",
+		"electron": "^41.0.0",
+		"esbuild": "^0.27.0",
+		"oxlint": "^1.79.0",
+		"typescript": "~6.0.2"
+	}
+}
