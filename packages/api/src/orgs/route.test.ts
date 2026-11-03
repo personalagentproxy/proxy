@@ -122,13 +122,13 @@ describe('handleListOrgsRoute', () => {
 
 describe('handleGetOrgRoute', () => {
 	test('answers the organization in the address, with the person’s role and its experiments', async () => {
-		getMemberOrganization.mockResolvedValue(Ok({...membership('member'), experiments: ['ask']}));
+		getMemberOrganization.mockResolvedValue(Ok({...membership('member'), experiments: ['harness']}));
 		listUserOrgs.mockResolvedValue(Ok([mine, {...acme, role: 'member' as const}]));
 		const {handleGetOrgRoute} = await import('./route');
 		const result = await handleGetOrgRoute(makeRequest());
 
 		expect(getMemberOrganization).toHaveBeenCalledWith('user-1', 'acme');
-		expect(result.unwrap()).toEqual({...acme, role: 'member', experiments: ['ask'], chatModel: null});
+		expect(result.unwrap()).toEqual({...acme, role: 'member', experiments: ['harness'], chatModel: null});
 	});
 
 	test('answers an insider’s chat model', async () => {

@@ -6,8 +6,7 @@ import {findCollection, findIntegration} from '@proxy/integrations';
 const mockEnv: {OPENROUTER_KEY?: string} = {};
 mock.module('../utils/env', () => ({env: mockEnv}));
 mock.module('../utils/user-org', () => ({
-	requireViewer: async (request: {user: {experiments?: string[]}}) =>
-		Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: request.user.experiments ?? []}),
+	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
 }));
 
 // Whether the sign-in covered reading transcripts.
@@ -31,7 +30,7 @@ function sent(): {messages: Array<{role: string; content: string}>} {
 }
 
 function request(body: Record<string, string>) {
-	return {user: {userId: 'user-1', experiments: ['ask']}, body} as never;
+	return {user: {userId: 'user-1'}, body} as never;
 }
 
 beforeEach(() => {
@@ -132,14 +131,6 @@ describe('handleAnswerRoute', () => {
 		get.mockResolvedValueOnce(Ok({id: 'e1', updatedAt: '', values: {from: 'Sam <sam@example.com>', subject: 'Contract', body: 'Signed copy attached.'}}));
 		(await handleAnswerRoute(request({question: 'is it signed?', connectionId: 'google-1', collectionId: 'emails', id: 'e1'}))).unwrap();
 		expect(sent().messages[1]?.content).toContain('<email>\nFrom: Sam <sam@example.com>\n\nSubject: Contract\n\nBody:\nSigned copy attached.\n</email>');
-	});
-
-	test('reads and answers nothing for an organization without the ask experiment', async () => {
-		const {handleAnswerRoute} = await import('./answer');
-		const answer = await handleAnswerRoute({user: {userId: 'user-1', experiments: []}, body: {question: 'what?', connectionId: 'granola-1', collectionId: 'notes', id: 'm1'}} as never);
-		expect(answer.isErr() && answer.error.kind).toBe('forbidden');
-		expect(requireReadable).not.toHaveBeenCalled();
-		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
 	test('is unavailable without an OpenRouter key', async () => {
