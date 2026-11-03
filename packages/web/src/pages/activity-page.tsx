@@ -2,7 +2,7 @@ import type {ActivityTask} from '@proxy/contracts/activity';
 import type {AgentLogin} from '@proxy/contracts/agents';
 import {taskEndedAt} from '@proxy/utils/tasks';
 import {XIcon} from 'lucide-react';
-import {useState} from 'react';
+import {type ReactNode, useState} from 'react';
 import {Link, useLoaderData, useSearchParams} from 'react-router';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
@@ -14,17 +14,18 @@ import {
 	SelectValue,
 } from '@proxy/ui/components/select';
 import {Button} from '@proxy/ui/components/button';
-import {AgentLogo} from '@/components/brand-logo';
+import {AgentLogo, IntegrationLogo, ProxyLogo} from '@/components/brand-logo';
 import {Head} from '@/components/head';
 import {Badge} from '@proxy/ui/components/badge';
 import {useOrgSlug} from '@/hooks/use-org';
 import {connectionLabel} from '@/lib/access';
 import {formatDateTime} from '@/lib/format';
+import {integrationOf} from '@/lib/integrations';
 import type {activityLoader} from '@/loaders';
 
 const ALL = 'all';
 
-type Option = {value: string; label: string};
+type Option = {value: string; label: string; icon?: ReactNode};
 
 const OUTCOMES: Option[] = [
 	{value: ALL, label: 'All outcomes'},
@@ -65,15 +66,23 @@ export function ActivityPage() {
 
 	const agents: Option[] = [
 		{value: ALL, label: 'All agents'},
-		{value: 'proxy', label: 'Personal Agent Proxy'},
-		...allAgents.map((candidate) => ({value: candidate.id, label: candidate.name})),
+		{value: 'proxy', label: 'Personal Agent Proxy', icon: <ProxyLogo />},
+		...allAgents.map((candidate) => ({
+			value: candidate.id,
+			label: candidate.name,
+			icon: <AgentLogo providerId={candidate.providerId} />,
+		})),
 	];
 	const connections: Option[] = [
 		{value: ALL, label: 'All connections'},
-		...allConnections.map((candidate) => ({
-			value: candidate.id,
-			label: connectionLabel(allConnections, candidate),
-		})),
+		...allConnections.map((candidate) => {
+			const integration = integrationOf(candidate);
+			return {
+				value: candidate.id,
+				label: connectionLabel(allConnections, candidate),
+				icon: integration ? <IntegrationLogo integration={integration} /> : undefined,
+			};
+		}),
 	];
 
 	return (
@@ -195,6 +204,7 @@ type FilterProps = {
 };
 
 function Filter({label, options, value, onChange}: FilterProps) {
+	const selected = options.find((option) => option.value === value);
 	return (
 		<Select
 			value={value}
@@ -210,11 +220,15 @@ function Filter({label, options, value, onChange}: FilterProps) {
 				aria-label={label}
 				className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] md:w-48 md:flex-none md:basis-auto"
 			>
-				<SelectValue />
+				<SelectValue>
+					{selected?.icon}
+					{selected?.label}
+				</SelectValue>
 			</SelectTrigger>
 			<SelectContent alignItemWithTrigger={false}>
 				{options.map((option) => (
 					<SelectItem key={option.value} value={option.value}>
+						{option.icon}
 						{option.label}
 					</SelectItem>
 				))}
