@@ -1,0 +1,58 @@
+import {cleanup, fireEvent, render} from '@testing-library/react';
+import {afterEach, describe, expect, test} from 'bun:test';
+
+import {Markdown} from './markdown';
+
+afterEach(cleanup);
+
+describe('Markdown', () => {
+	test('shows a decorative favicon before absolute HTTPS links', () => {
+		const {container} = render(
+			<Markdown text="Read [the secure example](https://www.example.com/a-page?part=one) or [another page](https://plain.example.com/another-page)." />,
+		);
+		const links = container.querySelectorAll('a');
+		const favicons = container.querySelectorAll('img');
+
+		expect(favicons).toHaveLength(2);
+		expect(favicons[0]?.getAttribute('src')).toBe('/api/favicons/www.example.com');
+		expect(favicons[1]?.getAttribute('src')).toBe('/api/favicons/plain.example.com');
+		expect(favicons[0]?.getAttribute('alt')).toBe('');
+		expect(favicons[0]?.getAttribute('loading')).toBe('lazy');
+		expect(links[0]?.firstElementChild).toBe(favicons[0]);
+	});
+
+	test('leaves relative, email and insecure links without a favicon', () => {
+		const {container} = render(
+			<Markdown text="[Email us](mailto:hello@example.com), [open settings](/settings), [use HTTP](http://example.com), or use malformed HTTPS links such as [one slash](https:/example.com) and [no slashes](https:example.com)." />,
+		);
+
+		expect(container.querySelectorAll('a')).toHaveLength(5);
+		expect(container.querySelector('img')).toBeNull();
+	});
+
+	test('hides a favicon that cannot be loaded', () => {
+		const {container, rerender} = render(<Markdown text="[Example](https://example.com)" />);
+		const favicon = container.querySelector('img');
+
+		expect(favicon).not.toBeNull();
+		fireEvent.error(favicon as HTMLImageElement);
+		expect(favicon?.hidden).toBe(true);
+
+		rerender(<Markdown text="[Example](https://example.com) with more detail" />);
+		expect(container.querySelector('img')).toBe(favicon);
+		expect(favicon?.hidden).toBe(true);
+	});
+
+	test('limits one reply to eight distinct favicon hosts', () => {
+		const firstEight = Array.from(
+			{length: 8},
+			(_, index) => `[Site ${index + 1}](https://site-${index + 1}.example.com)`,
+		).join(' ');
+		const links = `${firstEight} [Site 1 again](https://site-1.example.com/again) [Site 9](https://site-9.example.com)`;
+		const {container} = render(<Markdown text={links} />);
+
+		expect(container.querySelectorAll('a')).toHaveLength(10);
+		expect(container.querySelectorAll('img')).toHaveLength(9);
+		expect(container.querySelector('a:last-of-type img')).toBeNull();
+	});
+});
