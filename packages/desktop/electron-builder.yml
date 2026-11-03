@@ -23,9 +23,10 @@ publish:
 mac:
   category: public.app-category.productivity
   icon: build/icon.png
-  # Signed and notarized once the workflow has Apple's certificate (CSC_LINK) and credentials;
-  # until then the build is unsigned, which macOS warns about on first open and electron-updater
-  # cannot update.
+  # Pull-request builds have no Apple credentials and remain unsigned. A local build can use an
+  # identity from the Mac's Keychain, but only tagged releases require both signing and
+  # notarization and verify the signature and stapled ticket before publishing.
+  notarize: true
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist

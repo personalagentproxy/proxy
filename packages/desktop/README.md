@@ -48,13 +48,48 @@ bun run --cwd packages/desktop package
 ```
 
 Builds the macOS app for Apple silicon and Intel into `release/`: a disk image each to install
-from, a zip each for updates, and `latest-mac.yml`, the update feed (`electron-builder.yml`).
-Without Apple's certificate the app is unsigned, which macOS warns about on first open, and
-can't update itself.
+from, a zip each for updates, and `latest-mac.yml`, the update feed (`electron-builder.yml`). A
+local build uses a Developer ID identity from the Mac's Keychain when one is available, but it is
+not notarized without separate Apple credentials and is not a distributable release.
 
 A release is a `desktop-v<version>` tag, with the version in `package.json`:
 `.github/workflows/desktop.yml` builds on it and publishes the files as a GitHub release. The app
 checks the repository's latest release for `latest-mac.yml` (`src/updates.ts`), so the desktop
 app's releases are the repository's releases; the Docker image has tags, not releases. Signing
-and notarization start once the workflow has `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`,
-`APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` as secrets.
+and notarization are mandatory for a tagged release. The workflow refuses to publish unless it
+can verify both architectures' signatures and stapled notarization tickets.
+
+### One-time Apple and GitHub setup
+
+1. Join or renew the Apple Developer Program for the team that will publish Personal Agent Proxy.
+2. Use a valid **Developer ID Application** certificate for the team (not an Apple Distribution or
+   Developer ID Installer certificate), or have the Apple team's Account Holder create one. On the
+   Mac that holds its private key, export the certificate and private key from **My Certificates**
+   in Keychain Access as a password-protected `.p12` file.
+3. Base64-encode the `.p12` without line breaks:
+
+   ```bash
+   base64 -i developer-id-application.p12 | tr -d '\n' | pbcopy
+   ```
+
+4. In App Store Connect, open **Users and Access → Integrations → App Store Connect API**, create a
+   team key with the **Developer** role, download its `.p8` file, and record its Key ID and Issuer
+   ID. Apple only offers the private key for download once.
+5. Base64-encode the `.p8` without line breaks:
+
+   ```bash
+   base64 -i AuthKey_KEYID.p8 | tr -d '\n' | pbcopy
+   ```
+
+6. Add these repository Actions secrets in GitHub under **Settings → Secrets and variables →
+   Actions**:
+
+   - `CSC_LINK`: the base64-encoded `.p12`
+   - `CSC_KEY_PASSWORD`: the `.p12` export password
+   - `APPLE_API_KEY_BASE64`: the base64-encoded `.p8`
+   - `APPLE_API_KEY_ID`: the App Store Connect key ID
+   - `APPLE_API_ISSUER`: the App Store Connect issuer ID
+
+The certificate and private key files must never be committed. Keep encrypted backups: the `.p8`
+cannot be downloaded again, and losing the `.p12` private key means a new Developer ID certificate
+is needed for future releases.

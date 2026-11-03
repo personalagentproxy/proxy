@@ -11,6 +11,7 @@
 		"desktop": "bun run dev.ts",
 		"build": "bun run build.ts",
 		"package": "NODE_ENV=production bun run build.ts && electron-builder --mac --publish never",
+		"package:release": "NODE_ENV=production bun run build.ts && electron-builder --mac --publish never --config.mac.forceCodeSigning=true",
 		"lint": "oxlint",
 		"test": "bun test",
 		"typecheck": "tsc --noEmit"
