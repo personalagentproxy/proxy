@@ -19,12 +19,12 @@ beforeEach(() => {
 });
 
 describe('handlePickIntentRoute', () => {
-	test("picks among the widgets the person's organization is offered, for the text trimmed", async () => {
+	test('picks among the widgets for a member of the organization, for the text trimmed', async () => {
 		const {handlePickIntentRoute} = await import('./route');
 		const result = await handlePickIntentRoute(makeRequest({text: '  who is hugo  '}));
 
 		expect(result.isOk()).toBe(true);
-		expect(pickIntent).toHaveBeenCalledWith('who is hugo', expect.objectContaining({userId: 'user-1', experiments: []}));
+		expect(pickIntent).toHaveBeenCalledWith('who is hugo');
 	});
 
 	test('refuses empty text, and text past 500 characters, without asking the models', async () => {
@@ -38,12 +38,12 @@ describe('handlePickIntentRoute', () => {
 });
 
 describe('handleFillIntentRoute', () => {
-	test("fills in the widget's fields for the person's organization, from the text trimmed", async () => {
+	test("fills in the widget's fields for a member of the organization, from the text trimmed", async () => {
 		const {handleFillIntentRoute} = await import('./route');
 		const result = await handleFillIntentRoute(makeRequest({text: '  who is hugo  ', widget: 'find_person'}));
 
 		expect(result.isOk()).toBe(true);
-		expect(fillIntent).toHaveBeenCalledWith('who is hugo', 'find_person', expect.objectContaining({userId: 'user-1', experiments: []}));
+		expect(fillIntent).toHaveBeenCalledWith('who is hugo', 'find_person');
 	});
 
 	test('refuses a request without a widget, or with text that is empty or past 500 characters', async () => {

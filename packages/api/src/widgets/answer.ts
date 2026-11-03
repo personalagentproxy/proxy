@@ -10,7 +10,6 @@ import type {Reading} from '../records/capabilities';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {env} from '../utils/env';
 import {requireViewer} from '../utils/user-org';
-import {requireAskExperiment} from './ask-experiment';
 import {covers, requireReadable, type Source} from './sources';
 
 /**
@@ -136,7 +135,6 @@ export function handleAnswerRoute(request: AuthenticatedRequest): Promise<Result
 			return $(Err(ApiErr.unavailable('Ask is not set up: set `OPENROUTER_KEY`.')));
 		}
 		const viewer = $(await requireViewer(request));
-		$(requireAskExperiment(viewer));
 		const source = $(await requireReadable(viewer, body.connectionId, body.collectionId));
 		const reading = $(await read(source, body.id));
 		const kind = KINDS[body.collectionId];

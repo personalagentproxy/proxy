@@ -8,8 +8,7 @@ const findSources = mock();
 
 mock.module('./sources', () => ({findSources, summarize: (source: {connection: {id: string}}) => ({connectionId: source.connection.id})}));
 mock.module('../utils/user-org', () => ({
-	requireViewer: async (request: {user: {experiments?: string[]}}) =>
-		Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: request.user.experiments ?? []}),
+	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
 }));
 
 function source(integrationId: string, collectionId: string) {
@@ -18,7 +17,7 @@ function source(integrationId: string, collectionId: string) {
 }
 
 function request(query: Record<string, string | string[]>) {
-	return {user: {userId: 'user-1', experiments: ['ask']}, query} as never;
+	return {user: {userId: 'user-1'}, query} as never;
 }
 
 beforeEach(() => {

@@ -101,11 +101,4 @@ describe('contracts', () => {
 		}
 		expect(intent.pickedSchema.safeParse({widget: 'nope', ms: 1}).success).toBe(false);
 	});
-
-	test('intent offers a widget behind an experiment only to an organization with it on', () => {
-		const offered = (experiments: Parameters<typeof intent.offeredWidgets>[0]['experiments']) =>
-			intent.offeredWidgets({experiments}).map((widget) => widget.id);
-		expect(offered([])).not.toContain('ask');
-		expect(offered(['ask'])).toContain('ask');
-	});
 });

@@ -1,8 +1,8 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, type Experiment, httpRequest} from '@proxy/utils';
-import {type Filled, type FilledField, INCOMPLETE, NO_WIDGET, offeredWidgets, type Picked, type Widget, type WidgetField} from '@proxy/contracts/intent';
+import {ApiErr, type ApiError, Do, httpRequest} from '@proxy/utils';
+import {type Filled, type FilledField, INCOMPLETE, NO_WIDGET, type Picked, type Widget, type WidgetField, WIDGETS} from '@proxy/contracts/intent';
 
 import {askForJson} from '../llm/open-router';
 import {env} from '../utils/env';
@@ -10,13 +10,11 @@ import {env} from '../utils/env';
 /**
  * What a person typed into the home page's input, in two steps, each a request of its own so the
  * home page shows the widget as soon as it is picked and fills it in when its fields come. First
- * Jev, TypeSafe AI's classifier, picks the widget that fits: one choice among the widgets offered,
+ * Jev, TypeSafe AI's classifier, picks the widget that fits: one choice among the widgets,
  * `incomplete` and `none`. Then gpt-oss-120b, over OpenRouter on Cerebras, the fastest host, else
  * Groq, fills in that widget's fields from the text, held to a JSON schema of them alone. It fills
  * fields better than GLiNER did, every one right on nine in ten typed requests where GLiNER managed
- * half, since GLiNER found no title it wasn't told of, no subject and no file's name. The widgets
- * offered are the organization's: a widget behind an experiment it doesn't have is not among Jev's
- * choices, nor filled in.
+ * half, since GLiNER found no title it wasn't told of, no subject and no file's name.
  */
 
 const TYPESAFE_URL = 'https://api.typesafe.ai/v1/systemone';
@@ -30,7 +28,7 @@ const TIMEOUT_MS = 5000;
 const MAX_TOKENS = 2000;
 
 // Jev's question: which of the widgets, `incomplete` or `none`, each described for it to tell apart.
-function widgetQuestion(widgets: Widget[]) {
+function widgetQuestion(widgets: readonly Widget[]) {
 	return {
 		type: 'choice',
 		instructions: 'Which quick action is the person asking for in what they typed into a command box?',
@@ -97,7 +95,7 @@ function cleaned(value: AnswerValue | undefined): string[] {
 }
 
 // Which of `widgets` Jev picks for `text`: one of them, `incomplete` or `none`.
-async function pickWidget(text: string, widgets: Widget[], key: string): Promise<Result<Widget | typeof INCOMPLETE | typeof NO_WIDGET, ApiError>> {
+async function pickWidget(text: string, widgets: readonly Widget[], key: string): Promise<Result<Widget | typeof INCOMPLETE | typeof NO_WIDGET, ApiError>> {
 	const picked = await httpRequest(
 		TYPESAFE_URL,
 		{
@@ -146,21 +144,21 @@ function keys(): Result<{typesafe: string; openRouter: string}, ApiError> {
 	return Ok({typesafe: env.TYPESAFE_API_KEY, openRouter: env.OPENROUTER_KEY});
 }
 
-/** Which of the widgets offered to `holder` fits `text`, as Jev picks it. */
-export function pickIntent(text: string, holder: {experiments: Experiment[]}): Promise<Result<Picked, ApiError>> {
+/** Which of the widgets fits `text`, as Jev picks it. */
+export function pickIntent(text: string): Promise<Result<Picked, ApiError>> {
 	return Do(async ($) => {
 		const {typesafe} = $(keys());
 		const start = performance.now();
-		const picked = $(await pickWidget(text, offeredWidgets(holder), typesafe));
+		const picked = $(await pickWidget(text, WIDGETS, typesafe));
 		return {widget: typeof picked === 'string' ? picked : picked.id, ms: Math.round(performance.now() - start)};
 	});
 }
 
-/** The fields of `widgetId`, one of the widgets offered to `holder`, as gpt-oss-120b fills them in from `text`. */
-export function fillIntent(text: string, widgetId: string, holder: {experiments: Experiment[]}): Promise<Result<Filled, ApiError>> {
+/** The fields of `widgetId`, one of the widgets, as gpt-oss-120b fills them in from `text`. */
+export function fillIntent(text: string, widgetId: string): Promise<Result<Filled, ApiError>> {
 	return Do(async ($) => {
 		const {openRouter} = $(keys());
-		const widget = offeredWidgets(holder).find((candidate) => candidate.id === widgetId);
+		const widget = WIDGETS.find((candidate) => candidate.id === widgetId);
 		if (!widget) {
 			return $(Err(ApiErr.notFound('widget', widgetId)));
 		}
