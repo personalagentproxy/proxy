@@ -125,6 +125,9 @@ model Organization {
   // is ignored), and an insider has all of them. Both set from the internal admin, never in the app.
   experiments String[]  @default([])
   insider     Boolean   @default(false)
+  // The model its built-in agent answers with, by id (CHAT_MODELS in @proxy/utils): an insider
+  // switches it on Settings; for any other organization it is ignored, and Claude answers.
+  chatModel   String    @default("claude")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

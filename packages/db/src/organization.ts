@@ -5,7 +5,9 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {
 	ApiErr,
 	type ApiError,
+	type ChatModel,
 	type Experiment,
+	organizationChatModel,
 	organizationExperiments,
 	wrapDb,
 } from '@proxy/utils';
@@ -107,6 +109,8 @@ export type MemberOrganization = {
 	onboardedAt: Date | null;
 	// The experiments on for it.
 	experiments: Experiment[];
+	// The model its built-in agent answers with, where it may choose one (an insider); else null.
+	chatModel: ChatModel | null;
 };
 
 /**
@@ -132,6 +136,7 @@ export async function getMemberOrganization(
 							ownerUserId: true,
 							insider: true,
 							experiments: true,
+							chatModel: true,
 						},
 					},
 				},
@@ -141,11 +146,12 @@ export async function getMemberOrganization(
 		if (!member) {
 			return null;
 		}
-		const {ownerUserId, insider, experiments, ...org} = member.org;
+		const {ownerUserId, insider, experiments, chatModel, ...org} = member.org;
 		return {
 			...org,
 			role: roleOf(userId, {ownerUserId}),
 			experiments: organizationExperiments({insider, experiments}),
+			chatModel: organizationChatModel({insider, chatModel}),
 		};
 	});
 }
@@ -311,6 +317,38 @@ export async function renameOrganization(
 			]),
 		)
 	).map(() => undefined);
+}
+
+/**
+ * Switches the model the organization's built-in agent answers with; an organization that isn't
+ * an insider can't, and `Ok(false)` says so.
+ */
+export async function setOrganizationChatModel(
+	orgId: string,
+	chatModel: ChatModel,
+): Promise<Result<boolean, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.organization.updateMany({where: {id: orgId, insider: true}, data: {chatModel}}),
+		)
+	).map(({count}) => count > 0);
+}
+
+/**
+ * The model the organization's built-in agent answers with: the one it chose, while it is an
+ * insider; Claude for any other, and for one that is gone.
+ */
+export async function getOrganizationChatModel(
+	orgId: string,
+): Promise<Result<ChatModel, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.organization.findUnique({
+				where: {id: orgId},
+				select: {insider: true, chatModel: true},
+			}),
+		)
+	).map((org) => (org ? (organizationChatModel(org) ?? 'claude') : 'claude'));
 }
 
 export type MemberRow = {
