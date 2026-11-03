@@ -62,6 +62,7 @@ function connectCustomMcp(request: AuthenticatedRequest, res: Response): Promise
 		const token = body.token || null;
 		const viewer = $(await requireViewer(request));
 		const shared = body.shared ?? false;
+		const desktop = body.desktop ?? false;
 		// A server of an integration built in is connected as that integration: with the token, or
 		// the key in the address, as its API key, where it takes one, else signed in to as its
 		// catalog's entry is. A token for one that only signs in is refused rather than dropped.
@@ -75,13 +76,13 @@ function connectCustomMcp(request: AuthenticatedRequest, res: Response): Promise
 			return $(Err(ApiErr.validationError(`${builtIn.server.name} is connected by signing in to it, so leave the token out`)));
 		}
 		if (builtIn) {
-			return {kind: 'signIn' as const, url: $(await beginBuiltInSignIn(builtIn, res, {viewer, returnTo: body.returnTo, name: body.name, shared}))};
+			return {kind: 'signIn' as const, url: $(await beginBuiltInSignIn(builtIn, res, {viewer, returnTo: body.returnTo, desktop, name: body.name, shared}))};
 		}
 		const probe = $(await probeMcpServer(url, token));
 		if (probe.kind === 'signIn') {
 			const server = $(await discoverMcpServer(url));
 			const start = (signIn: SignInRequest) => startMcpSignIn(server, signIn, {server: mcpEndpoints(server), name: body.name});
-			return {kind: 'signIn' as const, url: $(await beginSignIn(res, {viewer, returnTo: body.returnTo, account: null, shared, start}))};
+			return {kind: 'signIn' as const, url: $(await beginSignIn(res, {viewer, returnTo: body.returnTo, desktop, account: null, shared, start}))};
 		}
 		const credential: CustomCredential = token === null ? {auth: 'none', url: url.toString()} : {auth: 'token', url: url.toString(), token};
 		const {row} = $(await saveConnection(viewer, 'mcp', {account: mcpAccount(url), credential, defaults: readOnlyToolNames(probe.tools), tools: probe.tools, name: body.name}, {shared}));
@@ -89,7 +90,7 @@ function connectCustomMcp(request: AuthenticatedRequest, res: Response): Promise
 	});
 }
 
-/** `POST /api/connections/mcp` with `{name, url, token?, returnTo?, shared?}`: connects the server, or begins the sign-in it asks for. */
+/** `POST /api/connections/mcp` with `{name, url, token?, returnTo?, shared?, desktop?}`: connects the server, or begins the sign-in it asks for. */
 export async function handleConnectCustomMcpRoute(request: AuthenticatedRequest, res: Response): Promise<void> {
 	sendResult(res, await connectCustomMcp(request, res));
 }

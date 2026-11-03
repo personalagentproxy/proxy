@@ -11,7 +11,7 @@ import {initialWindowBounds, keepWindowBounds} from './window-state';
 
 // The window: the web app, and in its place, when there is no one signed in or no connection,
 // one of two pages of the app's own. Links out of the app, and anything but the app's own
-// origin, open in the browser.
+// origin, open in the browser, a page of the app's that sends the window elsewhere included.
 
 // What the splash pages' buttons ask: intercepted as navigations, never loaded.
 const SIGN_IN_URL = 'personalagentproxy-desktop://sign-in';
@@ -55,6 +55,15 @@ function isAllowed(url: URL): boolean {
 // The person's sign-in page. Not the agents' (/agent/login), which works in the window as it is.
 function isLoginPage(url: URL): boolean {
 	return url.origin === APP_ORIGIN && url.pathname === '/login';
+}
+
+// A page of the app's for the browser to run instead, as the web app has it run a service's
+// sign-in (`onSignInClick` there): through the login page, which sends a signed-in browser
+// straight on, and marked `?desktop=1` so it ends back in the app.
+function inBrowser(url: URL): string {
+	const page = new URL(url);
+	page.searchParams.set('desktop', '1');
+	return `${APP_URL}/login?callbackUrl=${encodeURIComponent(`${page.pathname}${page.search}`)}`;
 }
 
 // Whether Plaid Link is open on the page: one of the page's frames is Plaid's.
@@ -130,6 +139,9 @@ export function createMainWindow(): BrowserWindow {
 		});
 	});
 
+	// The page the window is on its way to, should it send the window on elsewhere.
+	let navigatingTo: URL | null = null;
+
 	win.webContents.on('will-navigate', (event, raw) => {
 		if (raw === SIGN_IN_URL) {
 			event.preventDefault();
@@ -158,12 +170,35 @@ export function createMainWindow(): BrowserWindow {
 		if (!isAllowed(url)) {
 			event.preventDefault();
 			openExternal(raw);
+			return;
 		}
+
+		navigatingTo = url;
+	});
+
+	// A page of the app's that sends the window on to another origin, as the api's sign-in starts
+	// send it to a provider's page, which would turn the window away as Google's does: the browser
+	// gets the page the window was headed to, and runs it as the web app's own sign-in links are
+	// run. The web app hands those to the browser itself; this catches a link it did not.
+	win.webContents.on('will-redirect', (details) => {
+		const target = urlOf(details.url);
+		if (!details.isMainFrame || !target || isAllowed(target)) {
+			return;
+		}
+
+		details.preventDefault();
+		if (navigatingTo?.origin === APP_ORIGIN) {
+			openExternal(inBrowser(navigatingTo));
+			return;
+		}
+
+		openExternal(details.url);
 	});
 
 	// The app sends a signed-out person to its login page from within, which is no navigation to
 	// intercept, so where the window ends up is watched too.
 	const onArrived = (_event: Electron.Event, raw: string) => {
+		navigatingTo = null;
 		const url = urlOf(raw);
 		if (url && isLoginPage(url)) {
 			showSignIn(win);
@@ -177,6 +212,7 @@ export function createMainWindow(): BrowserWindow {
 			return;
 		}
 
+		navigatingTo = null;
 		// ERR_ABORTED: a navigation the window cancelled itself.
 		if (errorCode === -3) {
 			return;

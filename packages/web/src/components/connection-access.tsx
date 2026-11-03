@@ -375,7 +375,7 @@ export function SignInAgain({
 	if (reason === 'renew') {
 		return (
 			<p className="text-sm text-muted-foreground">
-				<a href={href} className={link}>
+				<a href={href} onClick={onSignInClick} className={link}>
 					Sign in again
 				</a>
 				{useKey && <>, or {useKey}</>}, keeping every agent's settings.
@@ -385,7 +385,7 @@ export function SignInAgain({
 	return (
 		<p className="text-sm text-muted-foreground">
 			Some actions weren't allowed when this account was signed in.{' '}
-			<a href={href} className="text-foreground underline underline-offset-4">
+			<a href={href} onClick={onSignInClick} className={link}>
 				Sign in again
 			</a>{' '}
 			to allow them.

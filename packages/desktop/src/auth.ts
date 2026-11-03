@@ -12,9 +12,13 @@ import {APP_URL} from './env';
 
 let verifier: string | null = null;
 
-/** Where the browser signs in: the login page, coming back to /desktop-auth with the challenge. */
+/**
+ * Where the browser signs in: the login page, coming back to /desktop-auth with the challenge. A
+ * sign-in begun while one is under way, as a second press of the button is, shares its verifier:
+ * whichever browser tab comes back first signs the app in, and the other's code is nothing to it.
+ */
 export function beginSignIn(): string {
-	verifier = randomBytes(32).toString('base64url');
+	verifier ??= randomBytes(32).toString('base64url');
 	const challenge = createHash('sha256').update(verifier).digest('base64url');
 	const callbackUrl = `/desktop-auth?challenge=${challenge}`;
 

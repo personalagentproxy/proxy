@@ -84,10 +84,15 @@ export function mcpConnectRoutes(builtIn: BuiltInMcp) {
  * integration's own server, the connection called `name`, the viewer's own or `shared`; its sign-in
  * page, for the browser to go to, which comes back to the integration's callback.
  */
-export function beginBuiltInSignIn(builtIn: BuiltInMcp, res: Response, begin: {viewer: OrgViewer; returnTo: ReturnTo | undefined; name: string; shared: boolean}): Promise<Result<string, ApiError>> {
+export function beginBuiltInSignIn(
+	builtIn: BuiltInMcp,
+	res: Response,
+	begin: {viewer: OrgViewer; returnTo: ReturnTo | undefined; desktop?: boolean; name: string; shared: boolean},
+): Promise<Result<string, ApiError>> {
 	return signInFlow(builtInSignIn(builtIn)).beginSignIn(res, {
 		viewer: begin.viewer,
 		returnTo: begin.returnTo,
+		desktop: begin.desktop,
 		account: null,
 		shared: begin.shared,
 		start: (request) => startMcpSignIn(builtIn.server, request, {name: begin.name}),

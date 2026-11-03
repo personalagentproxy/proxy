@@ -60,10 +60,13 @@ async function onDeepLink(link: DeepLink): Promise<void> {
 	loadApp(win);
 }
 
-// One instance: a link opened while the app runs reaches it, not a second copy.
-if (!app.requestSingleInstanceLock()) {
-	app.quit();
-} else {
+function start(): void {
+	// One instance: a link opened while the app runs reaches it, not a second copy.
+	if (!app.requestSingleInstanceLock()) {
+		app.quit();
+		return;
+	}
+
 	app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
 
 	// macOS hands the app its links as they are opened, running or not.
@@ -111,3 +114,5 @@ if (!app.requestSingleInstanceLock()) {
 		}
 	});
 }
+
+start();
