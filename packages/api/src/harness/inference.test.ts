@@ -69,6 +69,7 @@ let store: FakeStore;
 let getJobThread: FakeStore['getJobThread'];
 let listEntries: FakeStore['listEntries'];
 let getThreadAgent: FakeStore['getThreadAgent'];
+let getChatModel: FakeStore['getChatModel'];
 let finishJob: FakeStore['finishJob'];
 let completeInference: FakeStore['completeInference'];
 let requeueJob: FakeStore['requeueJob'];
@@ -78,10 +79,11 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	mockEnv.OPENROUTER_KEY = 'sk-test';
 	store = fakeStore();
-	({getJobThread, listEntries, getThreadAgent, finishJob, completeInference, requeueJob, appendSummary} = store);
+	({getJobThread, listEntries, getThreadAgent, getChatModel, finishJob, completeInference, requeueJob, appendSummary} = store);
 	getJobThread.mockResolvedValue(Ok(thread));
 	listEntries.mockResolvedValue(Ok([entry('person', 'Hi')]));
 	getThreadAgent.mockResolvedValue(Ok({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: []}));
+	getChatModel.mockResolvedValue(Ok('claude'));
 	for (const write of [finishJob, completeInference, requeueJob, appendSummary]) {
 		write.mockResolvedValue(Ok(true));
 	}
@@ -113,7 +115,10 @@ describe('runInference', () => {
 		// The agent acts as the member whose conversation it is.
 		expect(getThreadAgent).toHaveBeenCalledWith(thread);
 		expect(agentInstructions).toHaveBeenCalledWith(expect.objectContaining({agentId: 'agent-1', ownerUserId: 'user-1'}), expect.stringContaining('You are talking with the person directly'));
-		const request = askForTurn.mock.calls[0]?.[0] as {messages: Array<Record<string, unknown>>; tools: unknown[]};
+		const request = askForTurn.mock.calls[0]?.[0] as {model: string; messages: Array<Record<string, unknown>>; tools: unknown[]};
+		// With the organization's model.
+		expect(getChatModel).toHaveBeenCalledWith('org-1');
+		expect(request.model).toBe('claude');
 		expect(request.messages[0]).toMatchObject({role: 'system'});
 		expect(String(request.messages[0]?.content)).toContain('The time now is 2026-10-21T10:00:00.000Z');
 		expect(request.messages.slice(1)).toEqual([
@@ -270,6 +275,8 @@ describe('runInference', () => {
 		];
 		const summary = entry('summary', 'The person asked for one; it was done.', {coversSeq: long[3]?.seq});
 		listEntries.mockResolvedValueOnce(Ok(long)).mockResolvedValueOnce(Ok([...long, summary]));
+		// An insider that switched to GLM: it summarizes, too.
+		getChatModel.mockResolvedValue(Ok('glm'));
 		askForTurn
 			.mockResolvedValueOnce(Ok({text: 'The person asked for one; it was done.', toolCalls: [], inputTokens: 90_000, outputTokens: 300}))
 			.mockResolvedValueOnce(Ok({text: 'Three is done too.', toolCalls: [], inputTokens: 2000, outputTokens: 20}));
@@ -277,7 +284,8 @@ describe('runInference', () => {
 		const result = await runInference(store, job, 'w1', now);
 
 		expect(result.isOk()).toBe(true);
-		const asked = askForTurn.mock.calls.map((call) => call[0] as {messages: Array<{role: string; content: string | null}>; tools: unknown[]});
+		const asked = askForTurn.mock.calls.map((call) => call[0] as {model: string; messages: Array<{role: string; content: string | null}>; tools: unknown[]});
+		expect(asked.map((request) => request.model)).toEqual(['glm', 'glm']);
 		// The log to summarize goes as text, calls written out, since turns with calls need the tools sent along.
 		expect(asked[0]?.tools).toEqual([]);
 		expect(asked[0]?.messages[0]).toMatchObject({role: 'system', content: expect.stringContaining('summarizing a conversation')});

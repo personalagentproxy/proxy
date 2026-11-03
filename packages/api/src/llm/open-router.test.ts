@@ -1,7 +1,7 @@
 import {afterAll, beforeEach, describe, expect, spyOn, test} from 'bun:test';
 import {z} from 'zod';
 
-import {askForJson, askForTurn, TURN_MODEL} from './open-router';
+import {askForJson, askForTurn} from './open-router';
 
 // What OpenRouter answers, and with what status.
 let status = 200;
@@ -21,6 +21,7 @@ beforeEach(() => {
 
 const request = {
 	key: 'sk-test',
+	model: 'claude' as const,
 	messages: [
 		{role: 'system' as const, content: 'Be brief.'},
 		{role: 'user' as const, content: 'Hi'},
@@ -43,11 +44,18 @@ describe('askForTurn', () => {
 		expect(String(fetchSpy.mock.calls[0]?.[0])).toBe('https://openrouter.ai/api/v1/chat/completions');
 		expect((fetchSpy.mock.calls[0]?.[1]?.headers as Record<string, string>).authorization).toBe('Bearer sk-test');
 		const body = sent();
-		expect(body.model).toBe(TURN_MODEL);
+		expect(body.model).toBe('anthropic/claude-sonnet-5.5');
 		expect(body.messages).toEqual(request.messages);
 		expect(body.tools).toEqual([{type: 'function', function: {name: 'read', description: 'Reads', parameters: {type: 'object', properties: {}}}}]);
 		expect(body.max_tokens).toBe(100);
 		expect(body.provider.data_collection).toBe('deny');
+	});
+
+	test('asks GLM 5.3 for an organization that switched to it', async () => {
+		await askForTurn({...request, model: 'glm'});
+
+		expect(sent().model).toBe('z-ai/glm-5.3');
+		expect(sent().provider.data_collection).toBe('deny');
 	});
 
 	test('reads the calls the model made, with their arguments as it wrote them', async () => {
