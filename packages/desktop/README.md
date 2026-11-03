@@ -24,6 +24,9 @@ everything but the app's own origin out of the window: links out of the app open
   sign-in ends on `/desktop-return`, which hands back through `personalagentproxy://open?path=…`,
   and the window opens the page the sign-in would have ended on. A custom MCP server that asks for
   a sign-in moves its form to the browser, filled in as it was.
+- A bank is connected in the window as in the browser: Plaid Link runs in its frame over the page,
+  and an OAuth bank's sign-in, which Link opens in a popup that reports back to it, gets a window of
+  the app's for that, the one popup that doesn't go to the browser.
 - The main process is bundled by `build.ts` into `dist/main.cjs`, the splash pages as text in it.
 
 ## Development

@@ -19,6 +19,10 @@ const RETRY_URL = 'personalagentproxy-desktop://retry';
 
 const EXTERNAL_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
 
+// Plaid Link's frame, from which an OAuth bank's sign-in is opened.
+const PLAID_LINK_ORIGIN = 'https://cdn.plaid.com';
+const POPUP_BOUNDS = {width: 520, height: 760};
+
 function urlOf(raw: string): URL | null {
 	if (!URL.canParse(raw)) {
 		return null;
@@ -51,6 +55,13 @@ function isAllowed(url: URL): boolean {
 // The person's sign-in page. Not the agents' (/agent/login), which works in the window as it is.
 function isLoginPage(url: URL): boolean {
 	return url.origin === APP_ORIGIN && url.pathname === '/login';
+}
+
+// Whether Plaid Link is open on the page: one of the page's frames is Plaid's.
+function hasPlaidLinkFrame(win: BrowserWindow): boolean {
+	return win.webContents.mainFrame.framesInSubtree.some(
+		(frame) => urlOf(frame.url)?.origin === PLAID_LINK_ORIGIN,
+	);
 }
 
 export function openExternal(raw: string): void {
@@ -98,10 +109,25 @@ export function createMainWindow(): BrowserWindow {
 	keepWindowBounds(win);
 	win.once('ready-to-show', () => win.show());
 
-	// Links that open a new window, such as the docs', open in the browser.
+	// Links that open a new window, such as the docs', open in the browser. The one window opened
+	// here is an OAuth bank's sign-in: Plaid Link, in its frame over the page, opens the bank's page
+	// in a popup that reports back to Link and closes, which it can only do from a window of this
+	// app's. With Link open the page under it is inert, so the popup is Link's.
 	win.webContents.setWindowOpenHandler(({url}) => {
+		if (hasPlaidLinkFrame(win)) {
+			return {action: 'allow', overrideBrowserWindowOptions: {...POPUP_BOUNDS, parent: win}};
+		}
 		openExternal(url);
 		return {action: 'deny'};
+	});
+
+	// The popup is the bank's: it goes where the bank's sign-in goes, and opens no windows of its
+	// own.
+	win.webContents.on('did-create-window', (popup) => {
+		popup.webContents.setWindowOpenHandler(({url}) => {
+			openExternal(url);
+			return {action: 'deny'};
+		});
 	});
 
 	win.webContents.on('will-navigate', (event, raw) => {
