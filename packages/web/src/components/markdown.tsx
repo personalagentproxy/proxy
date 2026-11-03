@@ -1,23 +1,53 @@
+import {createContext, useContext, useState} from 'react';
 import ReactMarkdown, {type Components} from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {cn} from '@proxy/ui/lib/utils';
+
+const MAX_FAVICON_HOSTS = 8;
+const FaviconHostsContext = createContext<Set<string> | null>(null);
 
 // What a persona answers, as Markdown: paragraphs, lists, tables, code and links, styled to sit
 // in a chat bubble. Every link opens in a new tab, since the conversation stays here. Each
 // component takes the element's own props, without the syntax tree node react-markdown hands
 // along, which is no attribute of an element.
 
-const components: Components = {
-	p: ({node: _node, className, ...props}) => (
-		<p className={cn('leading-relaxed', className)} {...props} />
-	),
-	a: ({node: _node, className, ...props}) => (
+const MarkdownLink: NonNullable<Components['a']> = ({
+	node: _node,
+	className,
+	href,
+	children,
+	...props
+}) => {
+	const hosts = useContext(FaviconHostsContext);
+	const host = hosts ? faviconHost(href, hosts) : null;
+	return (
 		<a
 			className={cn('underline underline-offset-4 hover:text-foreground', className)}
+			href={href}
 			target="_blank"
 			rel="noreferrer"
 			{...props}
-		/>
+		>
+			{host && (
+				<img
+					src={`/api/favicons/${encodeURIComponent(host)}`}
+					alt=""
+					loading="lazy"
+					className="inline-block h-3.5 w-[18px] rounded-[3px] pr-1 align-[-2px] object-contain"
+					onError={(event) => {
+						event.currentTarget.hidden = true;
+					}}
+				/>
+			)}
+			{children}
+		</a>
+	);
+};
+
+const components: Components = {
+	a: MarkdownLink,
+	p: ({node: _node, className, ...props}) => (
+		<p className={cn('leading-relaxed', className)} {...props} />
 	),
 	ul: ({node: _node, className, ...props}) => (
 		<ul className={cn('flex list-disc flex-col gap-1 pl-5', className)} {...props} />
@@ -77,12 +107,33 @@ const components: Components = {
 	),
 };
 
+function faviconHost(href: string | undefined, hosts: Set<string>): string | null {
+	if (!href || !/^https:\/\//i.test(href) || !URL.canParse(href)) {
+		return null;
+	}
+	const url = new URL(href);
+	if (url.protocol !== 'https:') {
+		return null;
+	}
+	if (hosts.has(url.hostname)) {
+		return url.hostname;
+	}
+	if (hosts.size >= MAX_FAVICON_HOSTS) {
+		return null;
+	}
+	hosts.add(url.hostname);
+	return url.hostname;
+}
+
 export function Markdown({text, className}: {text: string; className?: string}) {
+	const [faviconHosts] = useState(() => new Set<string>());
 	return (
-		<div className={cn('flex flex-col gap-2 wrap-break-word', className)}>
-			<ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-				{text}
-			</ReactMarkdown>
-		</div>
+		<FaviconHostsContext.Provider value={faviconHosts}>
+			<div className={cn('flex flex-col gap-2 wrap-break-word', className)}>
+				<ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+					{text}
+				</ReactMarkdown>
+			</div>
+		</FaviconHostsContext.Provider>
 	);
 }
