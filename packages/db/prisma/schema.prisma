@@ -43,7 +43,6 @@ model User {
   threads      AgentThread[]
   writeTargets WriteTarget[]
   desktopCodes DesktopAuthCode[]
-  handoffs     DesktopHandoff[]
 }
 
 // A sign-in provider identity linked to a user, such as their Google account. Only who it is:
@@ -90,24 +89,6 @@ model DesktopAuthCode {
   challenge String
   userId    String
   expires   DateTime
-
-  createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-}
-
-// The other way round: a one-time code that signs the browser in as the desktop app's person, for
-// what has to happen there, such as connecting a service whose sign-in turns the app's window
-// away (`GET /auth/desktop/handoff`). `next` is where the browser goes on to, a path in the app.
-// Minutes long, single-use, and kept only as its hash.
-model DesktopHandoff {
-  id       String   @id @default(cuid())
-  codeHash String   @unique
-  userId   String
-  next     String
-  expires  DateTime
 
   createdAt DateTime @default(now())
 

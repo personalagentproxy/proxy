@@ -223,7 +223,7 @@ function catalogPath(slug: string | null, returnTo: ReturnTo | undefined): strin
 
 /**
  * Where a sign-in comes back to: the organization it began in and, for one begun from the desktop
- * app, that it did, which the handoff to the browser marks with `?desktop=1` on the start.
+ * app, that it did, which the web app marks with `?desktop=1` on the start it opens in the browser.
  */
 type Back = {slug: string | null; returnTo: ReturnTo | undefined; desktop: boolean};
 

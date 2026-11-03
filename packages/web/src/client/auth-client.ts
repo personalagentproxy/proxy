@@ -1,6 +1,5 @@
 import {
 	desktopCodeSchema,
-	desktopHandoffSchema,
 	magicLinkResponseSchema,
 	signInMethodsSchema,
 } from '@proxy/contracts/auth';
@@ -64,13 +63,4 @@ export function devLogin() {
  */
 export function createDesktopCode(challenge: string) {
 	return apiRequest('POST', '/auth/desktop/code', desktopCodeSchema, {challenge});
-}
-
-/**
- * The other way round (`POST /auth/desktop/handoff`): the address the desktop app opens in the
- * browser, which signs the browser in as the person signed in here, once, and goes on to `next`,
- * a path in the app.
- */
-export function createDesktopHandoff(next: string) {
-	return apiRequest('POST', '/auth/desktop/handoff', desktopHandoffSchema, {next});
 }

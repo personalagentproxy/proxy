@@ -18,10 +18,11 @@ everything but the app's own origin out of the window: links out of the app open
   `POST /auth/desktop/session` for a session cookie, which its window keeps, and is signed in as a
   browser is.
 - Connecting a service whose sign-in turns the app's window away, as Google's does, happens in
-  the browser too: the web app, which knows the window by its user agent, asks the api for a
-  handoff (`POST /auth/desktop/handoff`), an address with a one-time code that signs the browser
-  in as the same person and goes on to the service's sign-in, and opens it in the browser. That
-  sign-in ends on `/desktop-return`, which hands back through `personalagentproxy://open?path=…`,
+  the browser too: the web app, which knows the window by its user agent, opens the service's
+  sign-in in the browser through `/login?callbackUrl=…`, which sends a signed-in browser straight
+  on and lets any other sign in as itself first. (The app mints nothing that signs the browser in:
+  such a link would sign whoever opened it in as the app's person.) That sign-in ends on
+  `/desktop-return`, which hands back through `personalagentproxy://open?path=…`,
   and the window opens the page the sign-in would have ended on. A custom MCP server that asks for
   a sign-in moves its form to the browser, filled in as it was.
 - A bank is connected in the window as in the browser: Plaid Link runs in its frame over the page,

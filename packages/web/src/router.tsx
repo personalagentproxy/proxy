@@ -1,6 +1,6 @@
 import type {SignInMethods} from '@proxy/contracts/auth';
 import type {Org} from '@proxy/contracts/orgs';
-import {Outlet, createBrowserRouter, redirect} from 'react-router';
+import {Outlet, createBrowserRouter, redirect, redirectDocument} from 'react-router';
 import {
 	agentCollectionLoader,
 	agentRecordLoader,
@@ -177,6 +177,11 @@ async function loginLoader({request}: {request: Request}): Promise<SignInMethods
 	}
 
 	const callbackUrl = sanitizeCallbackUrl(new URL(request.url).searchParams.get('callbackUrl'));
+	// A path of the api's, such as a service's sign-in start the desktop app sent here, is the
+	// server's to answer, not the router's.
+	if (callbackUrl?.startsWith('/api/')) {
+		throw redirectDocument(callbackUrl);
+	}
 	throw redirect(callbackUrl ?? '/');
 }
 

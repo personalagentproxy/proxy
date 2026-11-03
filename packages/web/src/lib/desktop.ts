@@ -1,7 +1,4 @@
-import type {FetchError} from '@proxy/utils';
 import type {MouseEvent} from 'react';
-import {Ok, type Result} from 'ts-results-es';
-import {createDesktopHandoff} from '@/client/auth-client';
 
 // The desktop app, a window around this web app (packages/desktop). It signs in through the
 // browser, which hands what it needs back through the app's own links, `personalagentproxy://…`,
@@ -29,17 +26,13 @@ export function desktopOpenLink(path: string): string {
 }
 
 /**
- * Hands `next`, a path in the app, to the browser: the api gives an address that signs the
- * browser in as the same person, once, and sends it on, and the app opens every link out of its
- * window in the browser.
+ * Hands `next`, a path in the app, to the browser, where the app opens every link out of its
+ * window. The browser goes through the login page, which sends a signed-in browser straight on
+ * and lets any other sign in first: the browser is signed in as whoever holds it, never as
+ * whoever holds the app, so nothing the app mints could sign someone else in.
  */
-export async function handOffToBrowser(next: string): Promise<Result<void, FetchError>> {
-	const handoff = await createDesktopHandoff(next);
-	if (handoff.isErr()) {
-		return handoff;
-	}
-	window.open(handoff.value.url, '_blank');
-	return Ok(undefined);
+export function handOffToBrowser(next: string): void {
+	window.open(`${window.location.origin}/login?callbackUrl=${encodeURIComponent(next)}`, '_blank');
 }
 
 /**
@@ -54,9 +47,5 @@ export function onSignInClick(event: MouseEvent<HTMLAnchorElement>): void {
 	event.preventDefault();
 	const url = new URL(event.currentTarget.href);
 	url.searchParams.set('desktop', '1');
-	void handOffToBrowser(`${url.pathname}${url.search}`).then((result) => {
-		if (result.isErr()) {
-			console.warn('Could not hand the sign-in to the browser', result.error.kind);
-		}
-	});
+	handOffToBrowser(`${url.pathname}${url.search}`);
 }
