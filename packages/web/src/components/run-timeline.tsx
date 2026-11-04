@@ -529,7 +529,7 @@ function HandoffTargets({
 								/>
 							}
 						/>
-						<TooltipContent className="pointer-events-none max-w-xs">
+						<TooltipContent className="max-w-xs">
 							<span className="flex flex-col gap-1">
 								<span className="font-medium">{mark.text}</span>
 								{mark.when && <span className="opacity-80">{formatTime(mark.when)}</span>}
@@ -557,7 +557,7 @@ function BreakTarget({gap, height}: {gap: RunBreak; height: number}) {
 					/>
 				}
 			/>
-			<TooltipContent className="pointer-events-none max-w-xs">
+			<TooltipContent className="max-w-xs">
 				<span className="flex flex-col gap-1">
 					<span className="font-medium">Nothing happened for {formatDuration(gap.idleMs)}</span>
 					<span className="opacity-80">Folded away, so the busy stretches have the room</span>
