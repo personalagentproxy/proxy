@@ -1,6 +1,6 @@
 import {Err, type Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, type ChatModel, Do, requirePresent, type Experiment} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, requirePresent, type Experiment} from '@proxy/utils';
 import {getMemberOrganization, type OrgRole} from '@proxy/db/organization';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
@@ -8,17 +8,17 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 /**
  * The signed-in user in the organization a request is about, named by its slug in the address
  * (`/api/orgs/:org/…`): what they see there is its shared connections and agents and their own,
- * their role says what they may change, and the experiments are the organization's, as is the
- * model its built-in agent answers with where it may choose one (an insider; else null). One they
- * aren't a member of is not found, as is one that doesn't exist.
+ * their role says what they may change, and the experiments are the organization's, as is whether
+ * it is an insider, whose personas each answer with the model chosen for them. One they aren't a
+ * member of is not found, as is one that doesn't exist.
  */
-export type OrgViewer = {orgId: string; userId: string; slug: string; name: string; role: OrgRole; onboarded: boolean; experiments: Experiment[]; chatModel: ChatModel | null};
+export type OrgViewer = {orgId: string; userId: string; slug: string; name: string; role: OrgRole; onboarded: boolean; experiments: Experiment[]; insider: boolean};
 
 export async function requireViewer(request: AuthenticatedRequest): Promise<Result<OrgViewer, ApiError>> {
 	return Do(async ($) => {
 		const slug = request.params.org ?? '';
 		const org = $(requirePresent($(await getMemberOrganization(request.user.userId, slug)), ApiErr.notFound('organization', slug)));
-		return {orgId: org.id, userId: request.user.userId, slug: org.slug, name: org.name, role: org.role, onboarded: org.onboardedAt !== null, experiments: org.experiments, chatModel: org.chatModel};
+		return {orgId: org.id, userId: request.user.userId, slug: org.slug, name: org.name, role: org.role, onboarded: org.onboardedAt !== null, experiments: org.experiments, insider: org.insider};
 	});
 }
 
