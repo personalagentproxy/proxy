@@ -1,5 +1,47 @@
 @import '@proxy/ui/styles.css';
 
+/* The macOS desktop window uses a hidden native title bar. The transparent drag surface leaves the
+   traffic lights over each column's own background, with no separate bar; browsers keep the page's
+   normal edge-to-edge layout. */
+.desktop-app {
+	/* Keep in step with the fallback in preload.ts and desktop's splash.css. */
+	--desktop-title-bar-height: 2rem;
+}
+
+.desktop-app body::before {
+	position: fixed;
+	z-index: 60;
+	top: 0;
+	right: 0;
+	left: 0;
+	height: var(--desktop-title-bar-height);
+	content: '';
+	-webkit-app-region: drag;
+}
+
+/* The columns themselves reach the window's top, so their backgrounds continue under the traffic
+   lights. Only their contents make room for the controls and transparent drag surface. */
+.desktop-app [data-slot='sidebar-inner'],
+.desktop-app [data-desktop-panel],
+.desktop-app [data-desktop-page] {
+	padding-top: var(--desktop-title-bar-height);
+}
+
+.desktop-app [data-desktop-page] > header {
+	top: var(--desktop-title-bar-height);
+}
+
+/* Zoom can move the 800px desktop window into the responsive layout. Keep its floating menu and
+   any left-side sheet below the traffic lights and drag surface too. */
+.desktop-app [data-desktop-floating-control] {
+	top: calc(var(--desktop-title-bar-height) + 0.5rem);
+}
+
+.desktop-app [data-slot='sheet-content'][data-side='left'],
+.desktop-app [data-mobile='true'][data-sidebar='sidebar'] {
+	padding-top: var(--desktop-title-bar-height);
+}
+
 /* The message scroller's viewport fades its bottom only while there is more below
    (components/chat/message-scroller.tsx). A browser that drives the fade from the scroll
    position itself (shadcn's scroll-fade) animates over this; one that can't gets the fade

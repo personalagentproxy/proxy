@@ -1,6 +1,6 @@
 import {app} from 'electron';
 
-const PRODUCTION_APP_URL = 'https://app.personalagentproxy.com';
+import {PRODUCTION_APP_URL} from './app-url';
 
 // A packaged app is hosted Personal Agent Proxy's. In development, DESKTOP_APP_URL, which dev.ts
 // sets from the root .env's APP_URL: the api refuses sign-ins from any other origin.

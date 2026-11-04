@@ -26,7 +26,7 @@ export function AgentShell({children, feedback = true}: {children: ReactNode; fe
 	}).toString();
 
 	return (
-		<div className="flex min-h-dvh w-full flex-col bg-background text-foreground">
+		<div data-desktop-page className="flex min-h-dvh w-full flex-col bg-background text-foreground">
 			<header className="sticky top-0 z-20 flex h-12 items-center justify-between gap-4 border-b bg-background px-4">
 				<Link
 					to={task ? taskHome(task.task) : TASKS_PATH}

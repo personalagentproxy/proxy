@@ -109,6 +109,9 @@ export function createMainWindow(): BrowserWindow {
 		show: false,
 		minWidth: 800,
 		minHeight: 600,
+		// Let the page fill the native title bar on macOS while keeping its traffic lights in their
+		// standard position. The page provides the drag surface the hidden frame no longer supplies.
+		...(process.platform === 'darwin' ? {titleBarStyle: 'hidden'} : {}),
 		// The window's icon where the window carries one, Windows and Linux, in a development run;
 		// a packaged app has its own, and no build/ beside it.
 		...(app.isPackaged ? {} : {icon: path.join(__dirname, '../build/icon.png')}),
