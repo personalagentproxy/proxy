@@ -5,7 +5,8 @@ import {type ApiError, ApiErr, Do} from '@proxy/utils';
 import {parseCriteria} from '@proxy/utils/alerts';
 import {toAvatarColor} from '@proxy/utils/harness';
 import type {ConnectionRow} from '@proxy/db/connection';
-import type {ListedAlert, PollRow} from '@proxy/db/harness';
+import type {ListedAlert} from '@proxy/db/harness';
+import type {PollRow} from '@proxy/db/poll';
 import {findIntegration} from '@proxy/integrations';
 import type {Alert, alertListSchema} from '@proxy/contracts/alerts';
 

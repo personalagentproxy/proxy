@@ -37,11 +37,11 @@ import type {NewAgentTask} from './task';
  * answer to the call that started it; a sub-agent's thread is locked before its parent's, never
  * the other way, so two can't wait on each other. A timed alert the agent set in a conversation
  * is a job due when the alert is, which lands what the alert is due with in the conversation. A
- * watch is a rule on a collection of some connections, each polled while any watch is on it: a
- * poll is claimed with a lease as a job is, and what it finds to match lands in the conversations
- * the watches were set in. A poll's row is locked before a conversation's, and an alert's before
- * a conversation's, never the other way. What is written, and when the agent is woken, is the
- * api's to say (its harness): these transactions take it composed.
+ * watch is a rule on a collection of some connections, polled while any watch is on them
+ * (db/poll); what a look finds to match a watch lands in the conversation it was set in, once per
+ * record. An alert's row is locked before a conversation's, never the other way. What is written,
+ * and when the agent is woken, is the api's to say (its harness): these transactions take it
+ * composed.
  */
 
 export type ThreadRow = {
@@ -149,19 +149,6 @@ export type NewAlert = {title: string; brief: string} & (
 	| {kind: 'watch'; collectionId: string; connectionIds: string[]; criteria: Criteria}
 );
 
-/** One collection of one connection, polled while a watch is on it: where the last poll left off, and when the next is due. */
-export type PollRow = {
-	id: string;
-	orgId: string;
-	connectionId: string;
-	collectionId: string;
-	cursor: string | null;
-	nextAt: Date;
-	claimedBy: string | null;
-	lastPolledAt: Date | null;
-	lastError: string | null;
-};
-
 /** A record a watch matched, as the Alerts page shows it. */
 export type MatchRow = {
 	id: string;
@@ -175,20 +162,11 @@ export type MatchRow = {
 	createdAt: Date;
 };
 
-/** A record a watch matched, as the poll found it, with what is kept of it. */
+/** A record a watch matched, as a look found it, with what is kept of it. */
 export type MatchedItem = PollItem & {summary: string};
 
-/**
- * What a poll came to: where it left off and when the next is due; what it failed with, if it
- * did; and for each watch, the records that matched it, of which those matched before are left
- * out, and what is then told in the watch's conversation, as the api's rules say.
- */
-export type PollOutcome = {
-	cursor: string | null;
-	nextAt: Date;
-	error: string | null;
-	matches: Array<{alert: AlertRow; items: MatchedItem[]}>;
-};
+/** A watch's matches among what a look found: of which those matched before are left out when they land. */
+export type WatchMatches = {alert: AlertRow; items: MatchedItem[]};
 
 /** What a watch's conversation is told of the records that matched it now. */
 export type MatchTell = (alert: AlertRow, items: MatchedItem[]) => string;
@@ -308,18 +286,6 @@ const alertSelect = {
 	endedAt: true,
 	endedBy: true,
 	createdAt: true,
-} as const;
-
-const pollSelect = {
-	id: true,
-	orgId: true,
-	connectionId: true,
-	collectionId: true,
-	cursor: true,
-	nextAt: true,
-	claimedBy: true,
-	lastPolledAt: true,
-	lastError: true,
 } as const;
 
 const matchSelect = {
@@ -1230,8 +1196,8 @@ async function tellConversation(
 
 /**
  * Sets an alert in the conversation, from the call that set it: a timed one's job, due at its
- * time; a watch's polls, one per connection it watches, made where there is none, due now for a
- * first look. The same call again, a tool job tried again, gives the alert it set.
+ * time. The same call again, a tool job tried again, gives the alert it set. A watch's
+ * connections are had polled by the api (db/poll ensurePoll), after.
  */
 export async function createAlert(
 	thread: ThreadRow,
@@ -1270,14 +1236,6 @@ export async function createAlert(
 			if (alert.kind === 'time') {
 				await tx.agentJob.create({
 					data: {threadId: thread.id, kind: 'alert', alertId: made.id, runAt: alert.at},
-				});
-				return made;
-			}
-			for (const connectionId of alert.connectionIds) {
-				await tx.connectionPoll.upsert({
-					where: {connectionId_collectionId: {connectionId, collectionId: alert.collectionId}},
-					create: {orgId: thread.orgId, connectionId, collectionId: alert.collectionId},
-					update: {},
 				});
 			}
 			return made;
@@ -1335,11 +1293,6 @@ export async function listMemberAlerts(
 	);
 }
 
-/** The organization's polls: what each connection's collection was last polled for, and with what error. */
-export async function listPolls(orgId: string): Promise<Result<PollRow[], ApiError>> {
-	return wrapDb(() => db.connectionPoll.findMany({where: {orgId}, select: pollSelect}));
-}
-
 /** Ends an alert set in the conversation, as the agent asked; `Ok(false)` when there is none such still going. A timed one's job goes with it. */
 export async function endAlert(
 	threadId: string,
@@ -1362,7 +1315,7 @@ export async function endAlert(
 	);
 }
 
-/** Deletes one of the member's alerts, ended or not, with its matches; `Ok(false)` when there is no such alert of theirs. A timed one's job goes with it; a watch's polls end themselves once no watch is on them. */
+/** Deletes one of the member's alerts, ended or not, with its matches; `Ok(false)` when there is no such alert of theirs. A timed one's job goes with it; a watch's polls end once no watch is on them. */
 export async function deleteAlert(
 	orgId: string,
 	userId: string,
@@ -1414,52 +1367,8 @@ export async function fireAlert(
 	);
 }
 
-/**
- * Claims the next poll due for `workerId`: one unclaimed whose time has come, or one claimed whose
- * worker's lease ran out, the earliest due first. `Ok(null)` when none is due. The claim holds for
- * `leaseMs`, and `renewPollLease` keeps it.
- */
-export async function claimPoll(
-	workerId: string,
-	leaseMs: number,
-): Promise<Result<PollRow | null, ApiError>> {
-	// As claimJob: compared and written as the UTC wall clock.
-	return wrapDb(async () => {
-		const rows = await db.$queryRaw<Array<PollRow>>`
-			UPDATE "ConnectionPoll" SET
-				"claimedBy" = ${workerId},
-				"leaseExpiresAt" = (now() AT TIME ZONE 'UTC') + make_interval(secs => ${leaseMs / 1000}),
-				"updatedAt" = now() AT TIME ZONE 'UTC'
-			WHERE "id" = (
-				SELECT "id" FROM "ConnectionPoll"
-				WHERE ("claimedBy" IS NULL AND "nextAt" <= now() AT TIME ZONE 'UTC')
-					OR ("claimedBy" IS NOT NULL AND "leaseExpiresAt" < now() AT TIME ZONE 'UTC')
-				ORDER BY "nextAt" ASC
-				LIMIT 1
-				FOR UPDATE SKIP LOCKED
-			)
-			RETURNING "id", "orgId", "connectionId", "collectionId", "cursor", "nextAt", "claimedBy", "lastPolledAt", "lastError"`;
-		return rows[0] ?? null;
-	});
-}
-
-/** Keeps the worker's claim on the poll; `Ok(false)` when the poll is no longer its. */
-export async function renewPollLease(
-	pollId: string,
-	workerId: string,
-	leaseMs: number,
-): Promise<Result<boolean, ApiError>> {
-	return (
-		await wrapDb(
-			() => db.$executeRaw`
-				UPDATE "ConnectionPoll" SET "leaseExpiresAt" = (now() AT TIME ZONE 'UTC') + make_interval(secs => ${leaseMs / 1000}), "updatedAt" = now() AT TIME ZONE 'UTC'
-				WHERE "id" = ${pollId} AND "claimedBy" = ${workerId}`,
-		)
-	).map((count) => count > 0);
-}
-
 /** The watches on the connection's collection still going, oldest first. */
-export async function listPollRules(
+export async function listWatches(
 	connectionId: string,
 	collectionId: string,
 ): Promise<Result<AlertRow[], ApiError>> {
@@ -1472,49 +1381,21 @@ export async function listPollRules(
 	);
 }
 
-/** Deletes a poll, once no watch is on it, or its connection is gone. */
-export async function deletePoll(pollId: string): Promise<Result<void, ApiError>> {
-	return (await wrapDb(() => db.connectionPoll.deleteMany({where: {id: pollId}}))).map(
-		() => undefined,
-	);
-}
-
 /**
- * Finishes the worker's poll with what it came to: where it left off, when the next is due, what
- * it failed with if it did; and each watch's matches, kept, those matched before left out, and
- * told in the watch's conversation where any are new, which wakes the agent where the log then
- * `wakes` it. A watch ended or gone meanwhile takes nothing. `Ok(false)` when the poll was no
- * longer the worker's, and nothing is written.
+ * Lands what a look at the connection's collection found to match each watch: the matches kept,
+ * those matched before left out, and told in the watch's conversation where any are new, which
+ * wakes the agent where the log then `wakes` it. A watch ended or gone meanwhile takes nothing.
+ * The same look landed again, as after a worker lost its poll, lands nothing more.
  */
-export async function finishPoll(
-	pollId: string,
-	workerId: string,
-	outcome: PollOutcome,
+export async function landMatches(
+	poll: {connectionId: string; collectionId: string},
+	matches: WatchMatches[],
 	tell: MatchTell,
 	wakes: Wakes,
-): Promise<Result<boolean, ApiError>> {
+): Promise<Result<void, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
-			const now = new Date();
-			const {count} = await tx.connectionPoll.updateMany({
-				where: {id: pollId, claimedBy: workerId},
-				data: {
-					cursor: outcome.cursor,
-					nextAt: outcome.nextAt,
-					lastPolledAt: now,
-					lastError: outcome.error,
-					claimedBy: null,
-					leaseExpiresAt: null,
-				},
-			});
-			if (count === 0) {
-				return false;
-			}
-			const poll = await tx.connectionPoll.findUnique({where: {id: pollId}, select: pollSelect});
-			if (!poll) {
-				return true;
-			}
-			for (const {alert, items} of outcome.matches) {
+			for (const {alert, items} of matches) {
 				const current = await lockAlert(tx, alert.id);
 				if (!current || current.endedAt !== null) {
 					continue;
@@ -1545,7 +1426,6 @@ export async function finishPoll(
 				});
 				await tellConversation(tx, current.threadId, tell(current, fresh), false, wakes);
 			}
-			return true;
 		}),
 	);
 }

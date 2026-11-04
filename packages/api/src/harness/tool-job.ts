@@ -17,7 +17,8 @@ import {isGateTool} from './tool-surface';
  * A tool job: one call the model made, run and answered in the log. A delegation starts the
  * sub-agent, whose report answers the call later; the call was answered as started when it was
  * made (inference.ts). An alert is set in the conversation, due when it says, or a watch on the
- * connections the agent may read with the collection (watch-connections.ts), or ended, as the
+ * connections the agent may read with the collection (watch-connections.ts), each had polled from
+ * then on (polling), or ended, as the
  * agent talking with the person asks; a call that set one and is run again, by a worker that lost
  * the job after, finds the alert it set. The MCP server's tools go through the gate as the
  * sub-agent acting as the member, for its task, logged like any agent's call. A sleep answers
@@ -27,7 +28,10 @@ import {isGateTool} from './tool-surface';
  */
 
 /** What a tool job needs of the store. */
-export type ToolJobStore = Pick<HarnessStore, 'getJobThread' | 'getEntry' | 'getThreadAgent' | 'completeToolJob' | 'failJob' | 'finishJob' | 'startSubAgent' | 'createAlert' | 'endAlert'> &
+export type ToolJobStore = Pick<
+	HarnessStore,
+	'getJobThread' | 'getEntry' | 'getThreadAgent' | 'completeToolJob' | 'failJob' | 'finishJob' | 'startSubAgent' | 'createAlert' | 'ensurePoll' | 'endAlert'
+> &
 	ThreadTaskStore;
 
 // How much of a result the log keeps, and the model reads.
@@ -92,7 +96,12 @@ function setAlert(store: ToolJobStore, thread: ThreadRow, callId: string, spec: 
 			return Err(`You may not watch ${unknown.join(', ')} for ${WATCH_COLLECTIONS[spec.collectionId].name}. The connections you may watch for it: ${named}.`);
 		}
 		const connectionIds = spec.connectionIds ?? watchable.map((connection) => connection.id);
-		return Ok($(await store.createAlert(thread, callId, {kind: 'watch', title: spec.title, brief: spec.brief, collectionId: spec.collectionId, connectionIds, criteria: spec.criteria})));
+		const alert = $(await store.createAlert(thread, callId, {kind: 'watch', title: spec.title, brief: spec.brief, collectionId: spec.collectionId, connectionIds, criteria: spec.criteria}));
+		// After the alert, and again when the call is run again: a poll is had either way.
+		for (const connectionId of connectionIds) {
+			$(await store.ensurePoll({orgId: thread.orgId, connectionId, collectionId: spec.collectionId}));
+		}
+		return Ok(alert);
 	});
 }
 

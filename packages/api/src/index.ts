@@ -6,8 +6,11 @@ import {connectDb, disconnectDb} from '@proxy/db';
 
 import {runDataMigrations} from './data-migrations/run';
 import {harnessStore} from './harness/store';
+import {watchConsumer} from './harness/watches';
 import {startHarnessWorker, type HarnessWorker} from './harness/worker';
 import {log, serializeError} from './observability/log';
+import {pollStore} from './polling/store';
+import {startPollWorker, type PollWorker} from './polling/worker';
 import {createHttpApp} from './server/create-http-app';
 import {startTelemetry} from './telemetry';
 import {env} from './utils/env';
@@ -27,6 +30,7 @@ async function startApiServer(): Promise<void> {
 	}
 	startTelemetry();
 	let worker: HarnessWorker | null = null;
+	let poller: PollWorker | null = null;
 
 	const shutdown = async (signal: string): Promise<void> => {
 		if (isShuttingDown) {
@@ -45,8 +49,9 @@ async function startApiServer(): Promise<void> {
 
 		server.close();
 		// The built-in agent's worker claims nothing more and finishes the job it is on; a job it
-		// can't finish in time goes to another instance when its lease runs out.
-		await worker?.stop();
+		// can't finish in time goes to another instance when its lease runs out. The poll worker
+		// the same.
+		await Promise.all([worker?.stop(), poller?.stop()]);
 
 		const disconnectResult = await Result.wrapAsync(() => disconnectDb());
 		if (disconnectResult.isErr()) {
@@ -68,5 +73,7 @@ async function startApiServer(): Promise<void> {
 		// After listening, since signing in to a provider to name an account can take a while.
 		void runDataMigrations();
 		worker = startHarnessWorker(harnessStore);
+		// The connections watched, looked at for the watches on them.
+		poller = startPollWorker(pollStore, [watchConsumer(harnessStore)]);
 	});
 }

@@ -268,12 +268,19 @@ describe('runToolJob', () => {
 			]),
 		);
 		store.createAlert.mockResolvedValue(Ok(alertRow));
+		store.ensurePoll.mockResolvedValue(
+			Ok({id: 'poll-1', orgId: 'org-1', connectionId: 'mail-1', collectionId: 'emails', cursor: null, nextAt: now, claimedBy: null, lastPolledAt: null, lastError: null}),
+		);
 		getEntry.mockResolvedValue(
 			Ok(entryWith([{id: 'c1', name: 'set_alert', arguments: '{"title":"Mail from the bank","brief":"The loan.","collection":"emails","match":[{"field":"from","terms":["@bank.com"]}]}'}])),
 		);
 
 		(await runToolJob(store, {...job('c1'), threadId: 'thread-0'}, 'w1', now)).unwrap();
 		expect(watchableConnections).toHaveBeenCalledWith(signedIn, 'emails');
+		expect(store.ensurePoll.mock.calls.map((call) => call[0])).toEqual([
+			{orgId: 'org-1', connectionId: 'mail-1', collectionId: 'emails'},
+			{orgId: 'org-1', connectionId: 'mail-2', collectionId: 'emails'},
+		]);
 		expect(store.createAlert).toHaveBeenCalledWith(conversation, 'c1', {
 			kind: 'watch',
 			title: 'Mail from the bank',

@@ -10,7 +10,7 @@ import type {HarnessStore} from './store';
  * An alert job: a timed alert that is due. It fires: what the agent noted for it lands in the
  * conversation it was set in, as an event, and the agent tells the person. An alert gone or ended
  * since the job was due, as when the person deleted it, is nothing to do. A watch has no job: the
- * polls of the connections it watches find what it is for (poll.ts).
+ * polls of the connections it watches find what it is for (polling, watches.ts).
  */
 
 /** What an alert job needs of the store. */

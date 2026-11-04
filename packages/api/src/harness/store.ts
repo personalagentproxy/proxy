@@ -2,8 +2,7 @@ import type {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
 import {readyForInference} from '@proxy/utils/harness';
-import {logProxyAction} from '@proxy/db/audit';
-import {type ConnectionRow, getConnectionWithCredentialById, listConnectionsByIds} from '@proxy/db/connection';
+import {type ConnectionRow, listConnectionsByIds} from '@proxy/db/connection';
 import * as harness from '@proxy/db/harness';
 import type {
 	AfterAnswer,
@@ -18,11 +17,11 @@ import type {
 	NewAlert,
 	Persona,
 	PersonaRow,
-	PollOutcome,
-	PollRow,
 	SubAgentStart,
 	ThreadRow,
+	WatchMatches,
 } from '@proxy/db/harness';
+import {ensurePoll, listPolls, type PollRow} from '@proxy/db/poll';
 import {type AgentTaskRow, createAgentTask, getAgentTask, type NewAgentTask} from '@proxy/db/task';
 import type {SignedInAgent} from '@proxy/db/agent';
 
@@ -30,10 +29,11 @@ import {matchText} from './alerts';
 
 /**
  * What the harness reads and writes: the job queue, each thread's log and its jobs, the Chat
- * page's personas, the alerts set in conversations and the polls of the connections watched, in
- * the database (@proxy/db/harness). Every write is one transaction, fenced by the worker's lease
- * where it is a job's or a poll's, and takes what it writes as the harness composed it: the rules
- * of the conversation are the harness's own (conversation.ts), as are the words of the alerts
+ * page's personas, and the alerts set in conversations, in the database (@proxy/db/harness), and
+ * of polling (@proxy/db/poll) what the watches need: a connection had polled, and the polls as
+ * the Alerts page shows them. Every write is one transaction, fenced by the worker's lease where
+ * it is a job's, and takes what it writes as the harness composed it: the rules of the
+ * conversation are the harness's own (conversation.ts), as are the words of the alerts
  * (alerts.ts). The agent is woken where what lands leaves its log ready for it
  * (@proxy/utils/harness readyForInference). Each part of the harness takes the store, or the
  * part of it it uses, so its tests give it a fake one.
@@ -79,22 +79,10 @@ export type HarnessStore = {
 	deleteAlert: (orgId: string, userId: string, alertId: string) => Promise<Result<boolean, ApiError>>;
 	fireAlert: (jobId: string, workerId: string, alertId: string, text: string) => Promise<Result<boolean, ApiError>>;
 
-	claimPoll: (workerId: string, leaseMs: number) => Promise<Result<PollRow | null, ApiError>>;
-	renewPollLease: (pollId: string, workerId: string, leaseMs: number) => Promise<Result<boolean, ApiError>>;
-	listPollRules: (connectionId: string, collectionId: string) => Promise<Result<AlertRow[], ApiError>>;
-	deletePoll: (pollId: string) => Promise<Result<void, ApiError>>;
-	finishPoll: (pollId: string, workerId: string, outcome: PollOutcome) => Promise<Result<boolean, ApiError>>;
+	ensurePoll: (data: {orgId: string; connectionId: string; collectionId: string}) => Promise<Result<PollRow, ApiError>>;
+	listWatches: (connectionId: string, collectionId: string) => Promise<Result<AlertRow[], ApiError>>;
+	landMatches: (poll: {connectionId: string; collectionId: string}, matches: WatchMatches[]) => Promise<Result<void, ApiError>>;
 	dropConnectionFromWatches: (connectionId: string, collectionId: string, tell: (alert: AlertRow) => string) => Promise<Result<void, ApiError>>;
-	getPollConnection: (connectionId: string) => Promise<Result<(ConnectionRow & {credential: string | null}) | null, ApiError>>;
-	logPoll: (entry: {
-		orgId: string;
-		connectionId: string;
-		collectionId: string;
-		action: string;
-		recordTitle: string | null;
-		ownerUserId: string | null;
-		userId: string | null;
-	}) => Promise<Result<void, ApiError>>;
 };
 
 /** The store in the database. */
@@ -133,18 +121,14 @@ export const harnessStore: HarnessStore = {
 	createAlert: harness.createAlert,
 	listThreadAlerts: harness.listThreadAlerts,
 	listMemberAlerts: harness.listMemberAlerts,
-	listPolls: harness.listPolls,
+	listPolls,
 	listConnectionsByIds,
 	endAlert: harness.endAlert,
 	deleteAlert: harness.deleteAlert,
 	fireAlert: (jobId, workerId, alertId, text) => harness.fireAlert(jobId, workerId, alertId, text, readyForInference),
 
-	claimPoll: harness.claimPoll,
-	renewPollLease: harness.renewPollLease,
-	listPollRules: harness.listPollRules,
-	deletePoll: harness.deletePoll,
-	finishPoll: (pollId, workerId, outcome) => harness.finishPoll(pollId, workerId, outcome, matchText, readyForInference),
+	ensurePoll,
+	listWatches: harness.listWatches,
+	landMatches: (poll, matches) => harness.landMatches(poll, matches, matchText, readyForInference),
 	dropConnectionFromWatches: (connectionId, collectionId, tell) => harness.dropConnectionFromWatches(connectionId, collectionId, tell, readyForInference),
-	getPollConnection: getConnectionWithCredentialById,
-	logPoll: logProxyAction,
 };

@@ -14,9 +14,6 @@ mock.module('./inference', () => ({runInference}));
 const runToolJob = mock<Run>(async () => Ok(undefined));
 mock.module('./tool-job', () => ({runToolJob}));
 
-const runPoll = mock<(store: unknown, poll: unknown, workerId: string) => Promise<Result<void, ApiError>>>(async () => Ok(undefined));
-mock.module('./poll', () => ({runPoll}));
-
 const now = new Date();
 const inference: JobRow = {id: 'j1', threadId: 't1', kind: 'inference', status: 'running', entryId: null, callId: null, alertId: null, runAt: now, claimedBy: 'w', attempts: 1};
 const tool: JobRow = {...inference, id: 'j2', kind: 'tool', entryId: 'e1', callId: 'c1'};
@@ -31,8 +28,6 @@ beforeEach(() => {
 	store = fakeStore();
 	store.failJob.mockResolvedValue(Ok(true));
 	store.renewLease.mockResolvedValue(Ok(true));
-	store.renewPollLease.mockResolvedValue(Ok(true));
-	store.claimPoll.mockResolvedValue(Ok(null));
 });
 
 describe('the worker', () => {
@@ -90,26 +85,5 @@ describe('the worker', () => {
 		};
 		const noteFor = store.failJob.mock.calls.find((call) => call[0] === 'j2')?.[3];
 		expect(noteFor?.(tool, thread)).toEqual({kind: 'answer', callId: 'c1', text: 'This call could not be run: boom'});
-	});
-
-	test('with no job due, claims the next poll due and runs it with its lease kept; one that fails is noted for the next look', async () => {
-		const {startHarnessWorker} = await import('./worker');
-		const poll = {id: 'p1', orgId: 'o1', connectionId: 'c1', collectionId: 'emails', cursor: 'h1', nextAt: now, claimedBy: 'w', lastPolledAt: null, lastError: null};
-		store.claimJob.mockResolvedValue(Ok(null));
-		store.claimPoll
-			.mockResolvedValueOnce(Ok(poll))
-			.mockResolvedValueOnce(Ok({...poll, id: 'p2'}))
-			.mockResolvedValue(Ok(null));
-		store.finishPoll.mockResolvedValue(Ok(true));
-		runPoll.mockResolvedValueOnce(Ok(undefined)).mockResolvedValueOnce(Err(ApiErr.providerUnreachable(new Error('down'))));
-
-		const worker = startHarnessWorker(store);
-		await settle();
-		await worker.stop();
-
-		expect(runPoll).toHaveBeenCalledWith(store, poll, expect.any(String));
-		expect(runPoll).toHaveBeenCalledWith(store, {...poll, id: 'p2'}, expect.any(String));
-		expect(store.finishPoll).toHaveBeenCalledTimes(1);
-		expect(store.finishPoll).toHaveBeenCalledWith('p2', expect.any(String), {cursor: 'h1', nextAt: expect.any(Date), error: 'down', matches: []});
 	});
 });

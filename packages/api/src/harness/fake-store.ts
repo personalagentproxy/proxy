@@ -44,13 +44,9 @@ export function fakeStore(): FakeStore {
 		endAlert: mock<HarnessStore['endAlert']>(),
 		deleteAlert: mock<HarnessStore['deleteAlert']>(),
 		fireAlert: mock<HarnessStore['fireAlert']>(),
-		claimPoll: mock<HarnessStore['claimPoll']>(),
-		renewPollLease: mock<HarnessStore['renewPollLease']>(),
-		listPollRules: mock<HarnessStore['listPollRules']>(),
-		deletePoll: mock<HarnessStore['deletePoll']>(),
-		finishPoll: mock<HarnessStore['finishPoll']>(),
+		ensurePoll: mock<HarnessStore['ensurePoll']>(),
+		listWatches: mock<HarnessStore['listWatches']>(),
+		landMatches: mock<HarnessStore['landMatches']>(),
 		dropConnectionFromWatches: mock<HarnessStore['dropConnectionFromWatches']>(),
-		getPollConnection: mock<HarnessStore['getPollConnection']>(),
-		logPoll: mock<HarnessStore['logPoll']>(),
 	};
 }

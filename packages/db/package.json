@@ -16,6 +16,7 @@
 		"./instance-meta": "./src/instance-meta.ts",
 		"./oauth": "./src/oauth.ts",
 		"./organization": "./src/organization.ts",
+		"./poll": "./src/poll.ts",
 		"./task": "./src/task.ts",
 		"./user": "./src/user.ts",
 		"./viewer": "./src/viewer.ts",

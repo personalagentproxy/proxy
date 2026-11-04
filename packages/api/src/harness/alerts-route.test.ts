@@ -2,7 +2,8 @@ import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Ok} from 'ts-results-es';
 
 import type {ConnectionRow} from '@proxy/db/connection';
-import type {ListedAlert, PersonaRow, PollRow} from '@proxy/db/harness';
+import type {ListedAlert, PersonaRow} from '@proxy/db/harness';
+import type {PollRow} from '@proxy/db/poll';
 
 import {type FakeStore, fakeStore} from './fake-store';
 

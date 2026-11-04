@@ -5,15 +5,13 @@ import {setTimeout as sleep} from 'node:timers/promises';
 import {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
-import {POLL_EVERY_MS} from '@proxy/utils/alerts';
-import type {JobRow, PollRow} from '@proxy/db/harness';
+import type {JobRow} from '@proxy/db/harness';
 
 import {log, serializeError} from '../observability/log';
+import {describeFailure} from '../utils/describe-failure';
 import {type AlertJobStore, runAlertJob} from './alert-job';
 import {failureNote} from './conversation';
-import {describeFailure} from './failure';
 import {type InferenceStore, runInference} from './inference';
-import {type PollStore, runPoll} from './poll';
 import type {HarnessStore} from './store';
 import {runToolJob, type ToolJobStore} from './tool-job';
 
@@ -21,8 +19,7 @@ import {runToolJob, type ToolJobStore} from './tool-job';
  * The worker that runs the built-in agents' jobs, a few at a time, in each api instance: it
  * claims the next job due while it has room, keeps each job's lease while it runs, and claims
  * the next as soon as one is done, so a turn's calls, the sub-agents started side by side and the
- * next turn follow each other without waiting; no job due, it claims the next poll due, of the
- * connections watched (poll.ts), the same way; nothing due, it looks again in a moment. The queue
+ * next turn follow each other without waiting; nothing due, it looks again in a moment. The queue
  * is the database, so instances need nothing of each other: one that goes down mid-job loses its
  * lease, and another picks the job up. Stopping, as for a deploy, the worker claims nothing more
  * and finishes the jobs it is on, up to a point.
@@ -41,7 +38,7 @@ const STOP_MS = 8_000;
 export type HarnessWorker = {stop: () => Promise<void>};
 
 /** What the worker needs of the store: the queue, and what the jobs it runs need. */
-export type WorkerStore = Pick<HarnessStore, 'claimJob' | 'renewLease' | 'failJob' | 'claimPoll' | 'renewPollLease'> & InferenceStore & ToolJobStore & AlertJobStore & PollStore;
+export type WorkerStore = Pick<HarnessStore, 'claimJob' | 'renewLease' | 'failJob'> & InferenceStore & ToolJobStore & AlertJobStore;
 
 // One name per worker, so a lease says who holds it.
 function workerName(): string {
@@ -84,24 +81,6 @@ async function runClaimed(store: WorkerStore, job: JobRow, workerId: string): Pr
 	await fail(store, job, workerId, message.slice(0, 1000));
 }
 
-// Runs the poll with its lease kept; one that throws or fails is noted with why, and tried again
-// at the next.
-async function runClaimedPoll(store: WorkerStore, poll: PollRow, workerId: string): Promise<void> {
-	const renewal = setInterval(() => {
-		void store.renewPollLease(poll.id, workerId, LEASE_MS);
-	}, RENEW_MS);
-	const result = await Result.wrapAsync(() => runPoll(store, poll, workerId));
-	clearInterval(renewal);
-	const thrown = result.isErr() ? result.error : null;
-	const failed = result.isOk() && result.value.isErr() ? result.value.error : null;
-	if (thrown === null && failed === null) {
-		return;
-	}
-	log.error('A poll failed', {pollId: poll.id, connectionId: poll.connectionId, collectionId: poll.collectionId, ...serializeError(failed ?? thrown)});
-	const message = failed ? describeFailure(failed) : thrown instanceof Error ? thrown.message : String(thrown);
-	await store.finishPoll(poll.id, workerId, {cursor: poll.cursor, nextAt: new Date(Date.now() + POLL_EVERY_MS), error: message.slice(0, 1000), matches: []});
-}
-
 /** Starts the worker on the store; it runs until stopped. */
 export function startHarnessWorker(store: WorkerStore): HarnessWorker {
 	const workerId = workerName();
@@ -120,23 +99,12 @@ export function startHarnessWorker(store: WorkerStore): HarnessWorker {
 				await sleep(POLL_MS * 4);
 				continue;
 			}
-			if (claimed.value !== null) {
-				const job: Promise<void> = runClaimed(store, claimed.value, workerId).finally(() => running.delete(job));
-				running.add(job);
-				continue;
-			}
-			const poll = await store.claimPoll(workerId, LEASE_MS);
-			if (poll.isErr()) {
-				log.error('Built-in agent worker could not claim a poll', serializeError(poll.error));
-				await sleep(POLL_MS * 4);
-				continue;
-			}
-			if (poll.value === null) {
+			if (claimed.value === null) {
 				await sleep(POLL_MS);
 				continue;
 			}
-			const look: Promise<void> = runClaimedPoll(store, poll.value, workerId).finally(() => running.delete(look));
-			running.add(look);
+			const job: Promise<void> = runClaimed(store, claimed.value, workerId).finally(() => running.delete(job));
+			running.add(job);
 		}
 	};
 	void loop();
