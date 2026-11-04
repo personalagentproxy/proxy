@@ -77,7 +77,8 @@ function toEntry(entry: EntryRow & {kind: ChatEntry['kind']}): ChatEntry {
 	return {id: entry.id, kind: entry.kind, text: entry.text, isError: entry.isError, at: entry.createdAt.toISOString()};
 }
 
-function requireChat(request: AuthenticatedRequest): Promise<Result<OrgViewer, ApiError>> {
+/** The viewer, in an organization with Chat on: the Chat page's routes and the Alerts page's take it. */
+export function requireChat(request: AuthenticatedRequest): Promise<Result<OrgViewer, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		if (!hasExperiment(viewer, 'harness')) {

@@ -16,7 +16,7 @@ import {
 	type LinearIssue,
 } from '../connections/linear/linear-mcp';
 import {callMcpToolFor} from '../connections/mcp/mcp-session';
-import type {DataRecord, ListQuery, RecordPage, RecordStore, RecordTarget, RecordValues} from './connector';
+import {type Change, type Changes, type DataRecord, type ListQuery, MAX_CHANGES, type RecordPage, type RecordStore, type RecordTarget, type RecordValues} from './connector';
 
 /**
  * A Linear workspace's issues, fetched live from Linear's MCP server as the person who signed in,
@@ -27,6 +27,9 @@ import type {DataRecord, ListQuery, RecordPage, RecordStore, RecordTarget, Recor
  * Teams, statuses, people, projects and labels are written by name, and Linear finds them,
  * turning down a name it doesn't know. An edit sends only the fields written differently, an empty
  * one clearing it. Issues aren't deleted.
+ *
+ * What is new for a watch on the workspace is the issues updated since the last look, read off
+ * the first page of the list, which is the issues updated last: a look is one request.
  */
 
 const PAGE_SIZE = 50;
@@ -175,8 +178,35 @@ function list(target: RecordTarget, query: ListQuery): Promise<Result<RecordPage
 	});
 }
 
+function toChange(issue: LinearIssue): Change {
+	return {
+		id: issue.id,
+		title: issue.title,
+		url: issue.url || null,
+		summary: [issue.team, issue.status, issue.assignee ? `assigned to ${issue.assignee}` : ''].filter((part) => part !== '').join(' · '),
+	};
+}
+
+// The issues updated since the last look, among the `MAX_CHANGES` updated last; the cursor is the
+// latest update seen. The first look takes only the time.
+const issuesChanges: Changes = (target, cursor, now) =>
+	Do(async ($) => {
+		if (cursor === null) {
+			return {items: [], cursor: now.toISOString()};
+		}
+		const text = $(await callLinear(target, 'list_issues', {limit: MAX_CHANGES, orderBy: 'updatedAt', fields: LIST_FIELDS}));
+		const changed = $(parseLinearIssues(text)).issues.filter((issue) => issue.updatedAt !== '' && issue.updatedAt > cursor);
+		const latest =
+			changed
+				.map((issue) => issue.updatedAt)
+				.sort()
+				.at(-1) ?? cursor;
+		return {items: changed.map(toChange), cursor: latest};
+	});
+
 export const linearConnector = {
 	list,
+	changes: issuesChanges,
 	get: getIssue,
 	// Every field typed in, the empty ones left out: Linear gives a new issue its team's defaults.
 	create: (target, values) =>

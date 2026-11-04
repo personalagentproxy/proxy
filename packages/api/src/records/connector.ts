@@ -49,15 +49,29 @@ export type NewCommandRunner = (target: RecordTarget, values: RecordValues) => P
 type CommandRunners = Partial<Record<string, CommandRunner>>;
 type NewCommandRunners = Partial<Record<string, NewCommandRunner>>;
 
+/** A record new or changed in a polled collection: its title and a line of its fields are what a watch's words are looked for in. */
+export type Change = {id: string; title: string; url: string | null; summary: string};
+
+/** How many changes one look takes at most: the newest, the rest left for the next. */
+export const MAX_CHANGES = 50;
+
+/**
+ * What is new or changed in a collection since `cursor`, where the last look left off in the
+ * connector's own terms, and where this one leaves off; `null` for the first look, which takes
+ * nothing but where to start from. For the watches on the collection (harness/alert-sweep.ts).
+ */
+export type Changes = (target: RecordTarget, cursor: string | null, now: Date) => Promise<Result<{items: Change[]; cursor: string}, ApiError>>;
+
 /**
  * How one collection's records are read and written. A collection offers only some writes and
  * commands, as the catalog says, and its connector has exactly those, as `connectors.test.ts`
  * checks; callers have checked access and that the collection offers the write or command. A
  * connector reports a missing record as not_found. It may have capabilities for the home page's
- * widgets too (`capabilities.ts`).
+ * widgets too (`capabilities.ts`), and `changes`, where a watch can be set on it.
  */
 export type RecordStore = Capabilities & {
 	list: (target: RecordTarget, query: ListQuery) => Promise<Result<RecordPage, ApiError>>;
+	changes?: Changes;
 	get: (target: RecordTarget, recordId: string) => Promise<Result<DataRecord, ApiError>>;
 	// In a nested collection, inside `parent` when one is given.
 	create?: (target: RecordTarget, values: RecordValues, parent: string | null) => Promise<Result<DataRecord, ApiError>>;

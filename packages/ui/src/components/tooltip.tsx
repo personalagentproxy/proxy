@@ -7,8 +7,20 @@ function TooltipProvider({delay = 0, ...props}: TooltipPrimitive.Provider.Props)
 	return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />;
 }
 
-function Tooltip<Payload>({...props}: TooltipPrimitive.Root.Props<Payload>) {
-	return <TooltipPrimitive.Root<Payload> data-slot="tooltip" {...props} />;
+// A tooltip is never a target for the mouse: hovering it doesn't keep it open, and the pointer
+// passes through it (TooltipContent) to whatever is under it, so moving from one trigger to the
+// next across a tooltip doesn't catch on it.
+function Tooltip<Payload>({
+	disableHoverablePopup = true,
+	...props
+}: TooltipPrimitive.Root.Props<Payload>) {
+	return (
+		<TooltipPrimitive.Root<Payload>
+			data-slot="tooltip"
+			disableHoverablePopup={disableHoverablePopup}
+			{...props}
+		/>
+	);
 }
 
 function TooltipTrigger<Payload>({...props}: TooltipPrimitive.Trigger.Props<Payload>) {
@@ -20,6 +32,8 @@ function TooltipTrigger<Payload>({...props}: TooltipPrimitive.Trigger.Props<Payl
 const createTooltipHandle = TooltipPrimitive.createHandle;
 type TooltipHandle<Payload> = TooltipPrimitive.Handle<Payload>;
 
+// The pointer passes through the tooltip (Tooltip), so it sits where it is positioned without a
+// hitbox.
 function TooltipContent({
 	className,
 	side = 'top',
@@ -37,7 +51,7 @@ function TooltipContent({
 				alignOffset={alignOffset}
 				side={side}
 				sideOffset={sideOffset}
-				className="isolate z-50"
+				className="pointer-events-none isolate z-50"
 			>
 				<TooltipPrimitive.Popup
 					data-slot="tooltip-content"

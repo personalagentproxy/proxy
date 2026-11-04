@@ -83,6 +83,7 @@ beforeEach(() => {
 	getJobThread.mockResolvedValue(Ok(thread));
 	listEntries.mockResolvedValue(Ok([entry('person', 'Hi')]));
 	listSubAgents.mockResolvedValue(Ok([]));
+	store.listThreadAlerts.mockResolvedValue(Ok([]));
 	getThreadAgent.mockResolvedValue(Ok({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: []}));
 	getChatModel.mockResolvedValue(Ok('claude'));
 	for (const write of [finishJob, completeInference, requeueJob, appendSummary]) {

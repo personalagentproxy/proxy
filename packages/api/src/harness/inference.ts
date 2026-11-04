@@ -8,6 +8,7 @@ import {agentInstructions} from '../mcp/tools';
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
 import {compactionCut, toMessages, toTranscript} from '@proxy/utils/harness-context';
+import {alertsParagraph} from './alerts';
 import {afterAnswer, planCalls} from './conversation';
 import type {HarnessStore} from './store';
 import {toolsFor} from './tool-surface';
@@ -29,19 +30,20 @@ import {toolsFor} from './tool-surface';
  * Claude, or GLM for a persona of an insider that was switched to it. The answer is written with the system prompt the model was sent, which is built
  * from the login's grants as they are then and, for the agent talking with the person, its
  * sub-agents as they are then, so that what the model read can be told later; the rest of the
- * request is rebuilt from the log.
+ * request is rebuilt from the log. The agent talking with the person is told the alerts set in the
+ * conversation too, by id, so it can cancel one.
  */
 
 /** What an inference job needs of the store. */
 export type InferenceStore = Pick<
 	HarnessStore,
-	'getJobThread' | 'getThreadAgent' | 'getChatModel' | 'listEntries' | 'listSubAgents' | 'finishJob' | 'requeueJob' | 'appendSummary' | 'completeInference'
+	'getJobThread' | 'getThreadAgent' | 'getChatModel' | 'listEntries' | 'listSubAgents' | 'listThreadAlerts' | 'finishJob' | 'requeueJob' | 'appendSummary' | 'completeInference'
 >;
 
 // How the agent talking with the person is to go about it: it does nothing itself, and hands
 // every piece of work to a sub-agent, which it can go on talking with.
 const MAIN_FLOW =
-	'You are talking with the person directly, on the Chat page of Personal Agent Proxy; what you write is shown to them as a chat message, rendered as Markdown, so write short, and answer what they asked: plain sentences for most things, a list or a table where it lays out better, no headings. You make no calls to their accounts yourself: you have two tools. create_subagent starts a sub-agent on a piece of work with the same access as you, and answers at once with its id; send_to_subagent sends a message to one you started. Where these instructions name a tool such as read, run, entries_list or entries_create, that is what a sub-agent does on your behalf: put it in its brief. A sub-agent knows nothing of this conversation but its brief and what you send it, so put in the brief everything it needs, including what to report back. What a sub-agent says comes to you as a message: a question, which you answer with send_to_subagent, or ask the person where only they know; how far it has got; or, when it stops, what it did and found. A stopped sub-agent keeps everything it did and found, with the ids, names and dates it came across, so for more work on the same ground, or a follow-up to what it found, send it a message rather than starting another with the same brief over again; start another for a separate piece of work. Hand one question to one sub-agent, even when the answer spans several accounts: it can look in them all. Start several only for separate pieces of work, each a sizeable job of its own. Your sub-agents, with their ids and what each is doing now, are listed below. While a sub-agent is at work and there is nothing else to do, tell the person in a few words what you are looking into, such as “Looking through your inboxes and notes for the Lisbon trip.”, and stop; its next message wakes you. Never tell the person how you work: say nothing of sub-agents, briefs, messages or searches you started or are waiting on; to them, you are doing the work yourself. When a sub-agent’s message comes, tell the person what matters of it, answer the sub-agent, or start the next piece; while other sub-agents are still working, say nothing of it unless it changes what the person should know now, and answer once you have the whole picture. A long conversation is summarized for you as it goes, and older messages are cleared from it: take a summary as what happened, and don’t mention that the conversation was summarized.';
+	'You are talking with the person directly, on the Chat page of Personal Agent Proxy; what you write is shown to them as a chat message, rendered as Markdown, so write short, and answer what they asked: plain sentences for most things, a list or a table where it lays out better, no headings. You make no calls to their accounts yourself: you have two tools. create_subagent starts a sub-agent on a piece of work with the same access as you, and answers at once with its id; send_to_subagent sends a message to one you started. Where these instructions name a tool such as read, run, entries_list or entries_create, that is what a sub-agent does on your behalf: put it in its brief. A sub-agent knows nothing of this conversation but its brief and what you send it, so put in the brief everything it needs, including what to report back. What a sub-agent says comes to you as a message: a question, which you answer with send_to_subagent, or ask the person where only they know; how far it has got; or, when it stops, what it did and found. A stopped sub-agent keeps everything it did and found, with the ids, names and dates it came across, so for more work on the same ground, or a follow-up to what it found, send it a message rather than starting another with the same brief over again; start another for a separate piece of work. Hand one question to one sub-agent, even when the answer spans several accounts: it can look in them all. Start several only for separate pieces of work, each a sizeable job of its own. Your sub-agents, with their ids and what each is doing now, are listed below. While a sub-agent is at work and there is nothing else to do, tell the person in a few words what you are looking into, such as “Looking through your inboxes and notes for the Lisbon trip.”, and stop; its next message wakes you. Never tell the person how you work: say nothing of sub-agents, briefs, messages or searches you started or are waiting on; to them, you are doing the work yourself. When a sub-agent’s message comes, tell the person what matters of it, answer the sub-agent, or start the next piece; while other sub-agents are still working, say nothing of it unless it changes what the person should know now, and answer once you have the whole picture. A long conversation is summarized for you as it goes, and older messages are cleared from it: take a summary as what happened, and don’t mention that the conversation was summarized. When the person asks to be told at a time, or when something happens in their accounts, such as an email coming in, an issue changing or an event moved, set an alert with set_alert rather than starting a sub-agent to wait or watch: an alert that is due comes to you as a message, for you to tell the person in your words, or to do what you noted for it. A watch matches words, not meaning: give the ways the thing may be written. Your alerts are listed below; cancel_alert ends one when the person no longer wants it, and a changed one is a new one.';
 
 // How a sub-agent is to go about it: a brief, its tools, messages to and from the agent it works
 // for, and an answer when it stops.
@@ -149,12 +151,12 @@ function unreachable(failure: ApiError): string {
 
 // The system prompt: the instructions any agent with the login gets, for the agent as it acts in
 // the thread, as the member whose conversation it is, how to go about it on this thread, and, for
-// the agent talking with the person, its sub-agents.
+// the agent talking with the person, its sub-agents and the alerts set in the conversation.
 function systemPrompt(store: InferenceStore, thread: ThreadRow, subAgents: SubAgentRow[], now: Date): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const signedIn = $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
 		const instructions = $(await agentInstructions(signedIn, thread.parentThreadId === null ? MAIN_FLOW : SUB_FLOW));
-		const about = thread.parentThreadId === null ? [roster(subAgents)] : [];
+		const about = thread.parentThreadId === null ? [roster(subAgents), alertsParagraph($(await store.listThreadAlerts(thread.id)))] : [];
 		return [instructions, ...about, `The time now is ${now.toISOString()}.`].join('\n\n');
 	});
 }

@@ -139,6 +139,7 @@ model Organization {
   tasks       AgentTask[]
   threads     AgentThread[]
   personas    Persona[]
+  alerts      AgentAlert[]
 
   @@index([ownerUserId])
 }
@@ -219,6 +220,7 @@ model Connection {
   vaultEntries VaultEntry[]
   agentGrants  AgentGrant[]
   writeTargets WriteTarget[]
+  polls        ConnectionPoll[]
 
   @@index([orgId])
   @@index([ownerUserId])
@@ -632,6 +634,7 @@ model AgentThread {
   entries   AgentEntry[]
   jobs      AgentJob[]
   jobEvents AgentJobEvent[]
+  alerts    AgentAlert[]
 
   @@index([personaId, userId])
   @@index([agentId])
@@ -760,4 +763,63 @@ model AgentJobEvent {
 
   @@index([jobId, at])
   @@index([threadId, at])
+}
+
+// An alert the built-in agent set in a member's conversation, to be woken outside it. Both kinds
+// are taken by the alerts' sweep (api harness/alert-sweep.ts), which moves what it takes on as it
+// takes it, so one api instance takes each. A timed alert (`at`) is due at `nextAt`, its time at
+// first, and lands what the agent noted in the conversation as an event in the transaction that
+// deletes it. A watch (`collectionId`) is a rule on a collection of some connections, each read
+// through its poll (ConnectionPoll), which every watch on it shares; a record new or changed there
+// that carries any of the watch's words lands in the conversation as an event. Set in the
+// transaction that answers the call that set it. The person sees their alerts on the Alerts page
+// and deletes them there; the agent cancels one when asked.
+model AgentAlert {
+  id       String @id @default(cuid())
+  orgId    String
+  // The member whose conversation it was set in: the alert is theirs alone to see.
+  userId   String
+  threadId String
+  title    String
+  // What the agent noted: what to tell the person at the time, or what the watch is for.
+  brief    String
+  // A timed alert's time, and when it is next due: its time, then again a while after a turn that
+  // failed; null for a watch.
+  at       DateTime?
+  nextAt   DateTime?
+  // A watch: the collection watched (emails, issues or events), the connections watched, as plain
+  // ids, and the words any of which a record has to carry to match; none, and every new record does.
+  collectionId  String?
+  connectionIds String[] @default([])
+  terms         String[] @default([])
+  // When a watch last matched a record; null for a timed alert, and before the first match.
+  lastMatchedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  thread AgentThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId])
+  @@index([orgId, userId])
+  @@index([nextAt])
+}
+
+// One collection of one connection, read for what is new for every watch on it. `cursor` is where
+// the last look left off, in the connector's own terms; null before the first, which only takes
+// where to start from. Due again a fixed while after each look; the look that takes it moves
+// `nextAt` on first, so one api instance takes each, and lands what matched, for every watch, in
+// the transaction that moves the cursor on from where the look started. Made with the first watch
+// and kept, gone only with its connection: one no watch is on is no longer looked at, its cursor
+// cleared as it is found so, so a watch set on it later starts from then.
+model ConnectionPoll {
+  connectionId String
+  collectionId String
+  cursor       String?
+  nextAt       DateTime @default(now())
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@id([connectionId, collectionId])
+  @@index([nextAt])
 }

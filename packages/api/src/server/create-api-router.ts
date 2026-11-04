@@ -42,6 +42,7 @@ import {
 	handleShareConnectionRoute,
 } from '../connections/route';
 import {handleFaviconRoute} from '../favicons/route';
+import {alertRoutes} from '../harness/alerts-route';
 import {chatRoutes} from '../harness/route';
 import {harnessStore} from '../harness/store';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
@@ -204,6 +205,10 @@ export function createApiRouter(): express.Router {
 	org.delete('/chat/personas/:personaId', withAuthResult('Delete persona route', chat.handleDeletePersonaRoute));
 	org.get('/chat/personas/:personaId/thread', withAuthResult('Get chat thread route', chat.handleGetThreadRoute));
 	org.post('/chat/personas/:personaId/messages', withAuthResult('Post chat message route', chat.handlePostMessageRoute));
+	// The Alerts page: what the agents set in the member's conversations, to be woken outside them.
+	const alerts = alertRoutes(harnessStore);
+	org.get('/alerts', withAuthResult('List alerts route', alerts.handleListAlertsRoute));
+	org.delete('/alerts/:alertId', withAuthResult('Delete alert route', alerts.handleDeleteAlertRoute));
 
 	// The agent side: its own sign-in and cookie, and every request made for one of the agent's
 	// tasks, checked against the agent's access and logged with the task.

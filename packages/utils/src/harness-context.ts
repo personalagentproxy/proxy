@@ -32,7 +32,7 @@ export type ContextEntry = {
  * repo) can rebuild what the model was sent from a log it reads. An event, what a sub-agent said to the agent that started it, is
  * read as a message, since it came on its own, after the call that started the sub-agent was
  * answered with its id; which sub-agent, by that call, is known from the thread's sub-agents
- * (`SubAgent`), given alongside the log. A log that has grown long
+ * (`SubAgent`), given alongside the log. An alert's event answers no call. A log that has grown long
  * is summarized: a summary entry stands for every entry up to the one it covers, and the model
  * reads the summary, then what came since. Of that, the person's last turns are kept as said,
  * except what tools answered and what events brought in the turns before the current one, which
@@ -66,8 +66,12 @@ function callOf(entries: ContextEntry[], callId: string | null): ToolCall | unde
 		.find((candidate) => candidate.id === callId);
 }
 
-// How an event is led in: which sub-agent said it, by the call that started it.
+// How an event is led in: which sub-agent said it, by the call that started it; an alert's, which
+// answers no call.
 function eventLead(subAgents: SubAgent[], event: ContextEntry): string {
+	if (event.callId === null) {
+		return 'An alert set in this conversation. The person did not write this; it is for you to tell them of, or to act on as you noted.';
+	}
 	const from = subAgents.find((candidate) => candidate.parentCallId === event.callId);
 	const who = from
 		? `the sub-agent “${from.title ?? ''}” (id ${from.id})`
