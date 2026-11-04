@@ -28,9 +28,14 @@ function notFound(ref: SandboxRef): ApiError {
 	return ApiErr.notFound('sandbox', ref);
 }
 
-// Ends every process in the group, as a command's shell and what it left running are one.
-function killGroup(group: number, signal: NodeJS.Signals): void {
-	Result.wrap(() => process.kill(-group, signal));
+// Ends every process in the group, as a command's shell and what it left running are one: by the
+// system's own kill, which takes a group the same way everywhere, where the runtime's doesn't.
+function killGroup(group: number, signal: 'TERM' | 'KILL'): Promise<void> {
+	return new Promise((done) => {
+		const kill = spawn('/bin/sh', ['-c', 'kill -s "$1" -- "-$2" 2>/dev/null', '_', signal, String(group)], {stdio: 'ignore'});
+		kill.on('error', () => done());
+		kill.on('close', () => done());
+	});
 }
 
 // Runs the command in the directory, in a process group of its own, which `groups` notes so the
@@ -64,8 +69,8 @@ function run(directory: string, command: SandboxCommand, groups: Set<number>): P
 			if (group === undefined) {
 				return;
 			}
-			killGroup(group, 'SIGTERM');
-			setTimeout(() => killGroup(group, 'SIGKILL'), KILL_AFTER_MS).unref();
+			void killGroup(group, 'TERM');
+			setTimeout(() => void killGroup(group, 'KILL'), KILL_AFTER_MS).unref();
 		}, command.timeoutMs);
 		child.on('error', () => {
 			clearTimeout(timer);
@@ -97,10 +102,8 @@ export async function tempDirSandboxBackend(): Promise<SandboxBackend> {
 			return directory;
 		});
 
-	const endRunning = (directory: string) => {
-		for (const group of running.get(directory) ?? []) {
-			killGroup(group, 'SIGKILL');
-		}
+	const endRunning = async (directory: string): Promise<void> => {
+		await Promise.all([...(running.get(directory) ?? [])].map((group) => killGroup(group, 'KILL')));
 		running.delete(directory);
 	};
 
@@ -122,14 +125,14 @@ export async function tempDirSandboxBackend(): Promise<SandboxBackend> {
 		sleep: (ref) =>
 			Do(async ($) => {
 				const directory = $(await requireDirectory(ref));
-				endRunning(directory);
+				await endRunning(directory);
 				return directory;
 			}),
 		wake: requireDirectory,
 		destroy: (ref) =>
 			Do(async ($) => {
 				const directory = $(await requireDirectory(ref));
-				endRunning(directory);
+				await endRunning(directory);
 				$((await Result.wrapAsync(() => rm(directory, {recursive: true, force: true}))).mapErr(ApiErr.internalError));
 			}),
 	};

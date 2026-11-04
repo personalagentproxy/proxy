@@ -65,7 +65,12 @@ export function sandboxBackendTests(make: () => Promise<SandboxBackend>): void {
 			const woken = (await backend.wake((await backend.sleep(ref)).unwrap())).unwrap();
 			made.push(woken);
 
-			expect(await exec(woken, 'kill -0 "$(cat pid)" 2>/dev/null && echo alive || echo gone')).toMatchObject({stdout: 'gone\n'});
+			// A process just killed may be a moment from being reaped, which kill -0 still counts.
+			let last = '';
+			for (let tries = 0; tries < 20 && last !== 'gone\n'; tries++) {
+				last = (await exec(woken, 'kill -0 "$(cat pid)" 2>/dev/null && echo alive || echo gone')).stdout;
+			}
+			expect(last).toBe('gone\n');
 		});
 
 		test('sandboxes keep apart, of one tenant and of two', async () => {
