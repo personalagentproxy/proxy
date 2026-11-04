@@ -40,9 +40,11 @@ const GROUPS: Destination[][] = [
 	[
 		{to: '/connections', label: 'Connections', icon: PlugIcon},
 		{to: '/agents', label: 'Agent permissions', icon: BotIcon},
+	],
+	[
+		{to: '/activity', label: 'Activity', icon: ScrollTextIcon},
 		{to: '/alerts', label: 'Alerts', icon: BellIcon, experiment: 'harness'},
 	],
-	[{to: '/activity', label: 'Activity', icon: ScrollTextIcon}],
 ];
 
 // Each destination is lit on its own pages too, as `/acme/connections/:id`; Home only on itself,
