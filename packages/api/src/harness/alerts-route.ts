@@ -33,7 +33,7 @@ function toAlert(alert: AlertRow & {persona: PersonaRow}, connections: Map<strin
 		collection: alert.collectionId !== null && alert.collectionId in WATCHED_COLLECTIONS ? WATCHED_COLLECTIONS[alert.collectionId as WatchedCollection] : null,
 		connections: alert.connectionIds.flatMap((id) => {
 			const connection = connections.get(id);
-			return connection ? [{id, name: connectionName(connection)}] : [];
+			return connection ? [{id, integrationId: connection.integrationId, name: connectionName(connection)}] : [];
 		}),
 		terms: alert.terms,
 		lastMatchedAt: alert.lastMatchedAt?.toISOString() ?? null,

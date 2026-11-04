@@ -9,9 +9,11 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '@proxy/ui/components/dialog';
+import {IntegrationLogo} from '@/components/brand-logo';
 import {Head} from '@/components/head';
 import {useOrgSlug} from '@/hooks/use-org';
 import {formatDateTime} from '@/lib/format';
+import {findIntegration} from '@/lib/integrations';
 
 type Props = {
 	// The alert shown, or null while the dialog is closed.
@@ -78,11 +80,15 @@ function AlertDetailContent({alert}: {alert: Alert}) {
 						{alert.connections.length === 0 && (
 							<span className="text-muted-foreground">A connection that is gone</span>
 						)}
-						{alert.connections.map((connection) => (
-							<Badge key={connection.id} variant="secondary">
-								{connection.name}
-							</Badge>
-						))}
+						{alert.connections.map((connection) => {
+							const integration = findIntegration(connection.integrationId);
+							return (
+								<Badge key={connection.id} variant="secondary" className="gap-1.5">
+									{integration && <IntegrationLogo integration={integration} className="size-4" />}
+									{connection.name}
+								</Badge>
+							);
+						})}
 					</Detail>
 				)}
 				{alert.at === null && (

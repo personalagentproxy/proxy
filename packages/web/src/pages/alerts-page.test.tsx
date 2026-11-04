@@ -29,7 +29,7 @@ const alerts: Alert[] = [
 		persona,
 		at: null,
 		collection: 'emails',
-		connections: [{id: 'conn-a', name: 'Google (a@example.com)'}],
+		connections: [{id: 'conn-a', integrationId: 'google', name: 'Google (a@example.com)'}],
 		terms: ['loan', 'mortgage'],
 		lastMatchedAt: null,
 		createdAt: '2026-11-04T10:00:00.000Z',

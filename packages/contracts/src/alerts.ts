@@ -22,9 +22,9 @@ export const alertSchema = z.object({
 	}),
 	/** A timed alert's time; null for a watch. */
 	at: z.string().nullable(),
-	/** A watch: what it watches, in words ("emails"), the connections it watches, and the words it looks for; null and none for a timed alert. */
+	/** A watch: what it watches, in words ("emails"), the connections it watches, each with its integration, and the words it looks for; null and none for a timed alert. */
 	collection: z.string().nullable(),
-	connections: z.array(z.object({id: z.string(), name: z.string()})),
+	connections: z.array(z.object({id: z.string(), integrationId: z.string(), name: z.string()})),
 	terms: z.array(z.string()),
 	/** When a watch last matched a record; null before the first match, and for a timed alert. */
 	lastMatchedAt: z.string().nullable(),

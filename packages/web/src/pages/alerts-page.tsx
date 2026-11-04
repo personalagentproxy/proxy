@@ -5,21 +5,37 @@ import {useLoaderData, useRevalidator} from 'react-router';
 import {deleteAlert} from '@/client/alerts-client';
 import {AlertDetailDialog} from '@/components/alert-detail-dialog';
 import {AppShell, PageTitle} from '@/components/app-shell';
+import {IntegrationLogo} from '@/components/brand-logo';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {Head} from '@/components/head';
 import {IconButton} from '@/components/icon-button';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
 import {useOrgSlug} from '@/hooks/use-org';
 import {formatAgo, formatDateTime} from '@/lib/format';
+import {findIntegration, type Integration} from '@/lib/integrations';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {alertsLoader} from '@/loaders';
 
 // Widths and visibility shared by the header and every row, so the columns line up.
 const CELLS = {
+	where: 'hidden w-20 shrink-0 items-center gap-1 sm:flex',
 	created: 'hidden w-20 shrink-0 text-right text-muted-foreground tabular-nums sm:block',
 	matched: 'w-36 shrink-0 text-right text-muted-foreground tabular-nums',
 	agent: 'hidden w-28 shrink-0 truncate text-muted-foreground md:block',
 };
+
+// The integrations a watch looks in, one logo each however many connections of it; none for a
+// timed alert.
+function integrationsOf(alert: Alert): Integration[] {
+	const seen = new Map<string, Integration>();
+	for (const connection of alert.connections) {
+		const integration = findIntegration(connection.integrationId);
+		if (integration) {
+			seen.set(integration.id, integration);
+		}
+	}
+	return [...seen.values()];
+}
 
 // When a watch last matched, or when a timed alert is due, which is the one time it matches.
 function matched(alert: Alert): string {
@@ -74,6 +90,7 @@ export function AlertsPage() {
 					<RowHeader>
 						<span className="size-5 shrink-0" />
 						<span className="min-w-0 flex-1">Alert</span>
+						<span className={CELLS.where}>Where</span>
 						<span className={CELLS.created}>Created</span>
 						<span className={CELLS.matched}>Last matched</span>
 						<span className={CELLS.agent}>Agent</span>
@@ -103,6 +120,13 @@ export function AlertsPage() {
 						title={alert.title}
 						cells={
 							<>
+								<span className={CELLS.where}>
+									{integrationsOf(alert).map((integration) => (
+										<span key={integration.id} title={integration.name}>
+											<IntegrationLogo integration={integration} />
+										</span>
+									))}
+								</span>
 								<span className={CELLS.created}>{formatAgo(alert.createdAt)}</span>
 								<span className={CELLS.matched}>{matched(alert)}</span>
 								<span className={CELLS.agent}>{alert.persona.name}</span>
