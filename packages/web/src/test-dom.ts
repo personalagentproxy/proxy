@@ -7,7 +7,7 @@ export const testWindow = new Window({
 	url: 'http://localhost/',
 	settings: {
 		device: {prefersColorScheme: 'light'},
-		navigation: {disableMainFrameNavigation: true},
+		navigation: {disableMainFrameNavigation: true, disableFallbackToSetURL: true},
 	},
 });
 
