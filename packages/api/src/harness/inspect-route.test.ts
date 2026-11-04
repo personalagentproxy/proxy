@@ -19,6 +19,9 @@ const viewer = {orgId: 'org-1', userId: 'user-1', slug: 'acme', name: 'Acme', ro
 const requireViewer = mock(async () => Ok(viewer));
 mock.module('../utils/user-org', () => ({requireViewer}));
 
+const ensureBuiltInAgent = mock(async () => Ok({id: 'login-1'}));
+mock.module('./built-in-agent', () => ({ensureBuiltInAgent}));
+
 const now = new Date('2026-10-21T10:00:00Z');
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
 const persona = {id: 'persona-1', name: 'Finance', look, color: 'blue', createdById: 'user-1'};
@@ -174,9 +177,13 @@ describe('the inspection of a conversation', () => {
 		expect(agent?.state).toMatchObject({ready: false, pendingCalls: [{id: 'c2', name: 'read'}], turnsAlone: 1, lastInputTokens: 800});
 	});
 
-	test('is not found before the viewer has a conversation with the persona', async () => {
+	test('begins the conversation where the viewer has none yet, as the Chat page does', async () => {
 		store.getMemberThread.mockResolvedValue(Ok(null));
-		expect((await routes.handleInspectThreadRoute(request({personaId: 'persona-1'}))).unwrapErr().kind).toBe('not_found');
+		store.ensureMemberThread.mockResolvedValue(Ok(thread));
+		store.listSubAgents.mockResolvedValue(Ok([]));
+		const result = (await routes.handleInspectThreadRoute(request({personaId: 'persona-1'}))).unwrap();
+		expect(store.ensureMemberThread).toHaveBeenCalledWith({orgId: 'org-1', agentId: 'login-1', personaId: 'persona-1', userId: 'user-1'});
+		expect(result.threads.map((candidate) => candidate.id)).toEqual(['thread-1']);
 	});
 });
 

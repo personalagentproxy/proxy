@@ -10,7 +10,7 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {type OrgViewer, requireViewer} from '../utils/user-org';
 import {COMPACT_AT_TOKENS, compactionCut, type SubAgent, toMessages, toTranscript} from './context';
 import {MAX_TURNS_ALONE, SUMMARIZE, SUMMARIZE_NOW, turnsAlone} from './inference';
-import {toPersona} from './route';
+import {requireThread, toPersona} from './route';
 import type {HarnessStore} from './store';
 import {toolsFor} from './tool-surface';
 
@@ -26,7 +26,7 @@ import {toolsFor} from './tool-surface';
 /** What the inspector's routes need of the store. */
 export type InspectStore = Pick<
 	HarnessStore,
-	'getPersona' | 'getMemberThread' | 'listSubAgents' | 'listEntriesWithPending' | 'listThreadJobs' | 'listJobEvents' | 'getEntry' | 'getJobThread' | 'listEntries'
+	'getPersona' | 'getMemberThread' | 'ensureMemberThread' | 'listSubAgents' | 'listEntriesWithPending' | 'listThreadJobs' | 'listJobEvents' | 'getEntry' | 'getJobThread' | 'listEntries'
 >;
 
 function toInspectedEntry(entry: EntryRow): InspectedEntry {
@@ -118,13 +118,13 @@ function inspectThread(store: InspectStore, thread: ThreadRow, jobs: JobDetailRo
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas/:personaId/inspect`: the viewer's conversation with the persona as the harness has it; not found before they have one. */
+/** `GET /api/orgs/:org/chat/personas/:personaId/inspect`: the viewer's conversation with the persona as the harness has it, begun where there was none, as the Chat page begins it. */
 function handleInspectThreadRoute(store: InspectStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof inspectionSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireInspector(request));
 		const personaId = request.params.personaId ?? '';
 		const persona = $(requirePresent($(await store.getPersona(viewer.orgId, personaId)), ApiErr.notFound('persona', personaId)));
-		const conversation = $(requirePresent($(await store.getMemberThread(persona.id, viewer.userId)), ApiErr.notFound('thread', persona.id)));
+		const conversation = $(await requireThread(store, viewer, persona));
 		const now = new Date();
 		const subAgents = $(await store.listSubAgents(conversation.id, now));
 		const threads: ThreadRow[] = [conversation, ...subAgents];
