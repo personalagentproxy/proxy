@@ -329,7 +329,7 @@ describe('runInference', () => {
 
 	test('a log grown long is summarized first, and the model reads the summary in place of what it covers', async () => {
 		const {runInference} = await import('./inference');
-		const {COMPACT_AT_TOKENS} = await import('./context');
+		const {COMPACT_AT_TOKENS} = await import('@proxy/utils/harness-context');
 		const long = [
 			entry('person', 'One'),
 			entry('assistant', '', {toolCalls: [{id: 'c1', name: 'read', arguments: '{}'}], inputTokens: 10}),

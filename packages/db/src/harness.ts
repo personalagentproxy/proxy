@@ -211,7 +211,8 @@ function toPersona(persona: {
 	return {...persona, look: parseLook(persona.look)};
 }
 
-const entrySelect = {
+/** The columns of an entry, as `EntryRow` has them; the admin reads with it too. */
+export const entrySelect = {
 	id: true,
 	seq: true,
 	threadId: true,
@@ -251,11 +252,12 @@ const jobEventSelect = {
 	at: true,
 } as const;
 
-type EntryRecord = Prisma.AgentEntryGetPayload<{select: typeof entrySelect}>;
+export type EntryRecord = Prisma.AgentEntryGetPayload<{select: typeof entrySelect}>;
 
 type Tx = Prisma.TransactionClient;
 
-function toEntry(entry: EntryRecord): EntryRow {
+/** An entry as read, its calls parsed. */
+export function toEntry(entry: EntryRecord): EntryRow {
 	return {
 		...entry,
 		toolCalls: entry.toolCalls === null ? null : (JSON.parse(entry.toolCalls) as ToolCall[]),

@@ -7,7 +7,7 @@ import {askForTurn, type ModelTurn} from '../llm/open-router';
 import {agentInstructions} from '../mcp/tools';
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
-import {compactionCut, toMessages, toTranscript} from './context';
+import {compactionCut, toMessages, toTranscript} from '@proxy/utils/harness-context';
 import {afterAnswer, planCalls} from './conversation';
 import type {HarnessStore} from './store';
 import {toolsFor} from './tool-surface';
