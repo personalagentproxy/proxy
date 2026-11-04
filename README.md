@@ -20,6 +20,12 @@
 Personal Agent Proxy defines how people can use multiple personal agents without giving every provider
 their full private context or silently expanding what an agent may do.
 
+<p align="center">
+  <a href="https://github.com/personalagentproxy/proxy/releases/latest"><img src="https://img.shields.io/github/v/release/personalagentproxy/proxy?style=for-the-badge&label=Download%20for%20macOS&logo=apple&logoColor=white&color=000000" alt="Download the latest Personal Agent Proxy release for macOS"></a>
+  <br>
+  <sub>Signed and notarized. Choose the <code>arm64.dmg</code> for Apple silicon or <code>x64.dmg</code> for Intel from the latest release.</sub>
+</p>
+
 Connect email, Google, Granola, Notion, Linear, Plaid, PostgreSQL, MySQL or any service with an
 MCP server. From Home, quick actions can find people, email and files, work with calendars, write
 email, calculate, convert units and show balances or spending. Each agent gets its own login and
