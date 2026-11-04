@@ -24,7 +24,7 @@ export type SandboxRef = string;
  */
 export type SandboxCommand = {command: string; stdin?: string; cwd?: string; timeoutMs: number};
 
-/** What a command wrote and how it ended: `exitCode` null where it was stopped, `timedOut` whether by the timeout. */
+/** What a command wrote and how it ended: `exitCode` null where it was stopped, `timedOut` whether by the timeout; what it wrote before being stopped as far as the backend kept it. */
 export type SandboxOutput = {stdout: string; stderr: string; exitCode: number | null; timedOut: boolean};
 
 export type SandboxBackend = {

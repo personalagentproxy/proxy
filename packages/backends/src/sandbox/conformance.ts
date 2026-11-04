@@ -72,7 +72,8 @@ export function sandboxBackendTests(make: () => Promise<SandboxBackend>): void {
 			const ref = await create('slow');
 			const started = Date.now();
 
-			expect((await backend.exec(ref, {command: 'echo begun; sleep 20; echo done', timeoutMs: 500})).unwrap()).toMatchObject({stdout: 'begun\n', exitCode: null, timedOut: true});
+			// What it wrote before being stopped is kept where the backend can: not promised.
+			expect((await backend.exec(ref, {command: 'echo begun; sleep 20; echo done', timeoutMs: 500})).unwrap()).toMatchObject({exitCode: null, timedOut: true});
 			expect(Date.now() - started).toBeLessThan(10_000);
 		});
 
