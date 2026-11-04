@@ -17,12 +17,14 @@ import {
 	getAttachment,
 	folderQuery,
 	getDraft,
+	getHistoryId,
 	getMessage,
 	getMessageLabels,
 	getMessageSummaries,
 	GMAIL_ID,
 	headerOf,
 	listDrafts,
+	listHistory,
 	listMessageIds,
 	messageBody,
 	messageHtml,
@@ -37,7 +39,20 @@ import {
 	type MessagePart,
 } from '../connections/google/gmail-api';
 import {attachmentRecord, attachmentsText, pickAttachment, readableKind, requireEmailId} from './attachment-text';
-import type {CommandRunner, DataRecord, ListQuery, NewCommandRunner, RecordPage, RecordStore, RecordTarget, RecordValues, RunOnly} from './connector';
+import {
+	type Change,
+	type Changes,
+	type CommandRunner,
+	type DataRecord,
+	type ListQuery,
+	MAX_CHANGES,
+	type NewCommandRunner,
+	type RecordPage,
+	type RecordStore,
+	type RecordTarget,
+	type RecordValues,
+	type RunOnly,
+} from './connector';
 import {gmailQuery, type EmailSearch, type MailSearch} from './email-search';
 import {replyCommands, replyHeaders, type MailReply} from './email-reply';
 
@@ -56,6 +71,9 @@ import {replyCommands, replyHeaders, type MailReply} from './email-reply';
  * Nothing is deleted for good but drafts. Email goes out from the connection's own address, a draft
  * as it is saved or a new one written here; Gmail files it in Sent. A reply, the `replies`
  * collection's, is written in the thread of the email it answers, sent or saved as a draft.
+ *
+ * What is new for a watch on the mailbox is the mail that came in since the last look, read off
+ * Gmail's history from where that look left off: drafts, sent mail, spam and trash left out.
  */
 
 type EmailRef = {kind: 'message'; messageId: string} | {kind: 'draft'; draftId: string};
@@ -226,6 +244,40 @@ function listPage(target: RecordTarget, query: ListQuery): Promise<Result<Record
 		}),
 	);
 }
+
+// What a message added to the mailbox is, by its labels: a draft or sent mail is the person's own,
+// and spam or trash isn't mail that came in.
+const NOT_INCOMING = new Set(['DRAFT', 'SENT', 'SPAM', 'TRASH']);
+
+function toChange(account: string, message: GmailMessage): Change {
+	const values = summaryValues(message);
+	return {
+		id: message.id,
+		title: values.subject || '(No subject)',
+		url: webUrl(account, message),
+		summary: [`From ${values.from ?? ''}`, `to ${values.to ?? ''}`, message.snippet ?? ''].filter((part) => part.trim() !== '').join(' · '),
+	};
+}
+
+// The mail that came in since the last look, the newest `MAX_CHANGES` of it, read with its
+// headers and snippet; the cursor is where Gmail's history is now. The first look takes only that,
+// as does one whose history Gmail has let go.
+const inboxChanges: Changes = (target, cursor) =>
+	callGoogle(target.connection, (token) =>
+		Do(async ($) => {
+			if (cursor === null) {
+				return {items: [], cursor: $(await getHistoryId(token))};
+			}
+			const history = await listHistory(token, cursor);
+			if (history.isErr() && history.error.kind === 'not_found') {
+				return {items: [], cursor: $(await getHistoryId(token))};
+			}
+			const {added, historyId} = $(history);
+			const ids = [...new Set(added.filter(({labelIds}) => !labelIds.some((label) => NOT_INCOMING.has(label))).map(({id}) => id))].reverse().slice(0, MAX_CHANGES);
+			const messages = $(present(await getMessageSummaries(token, ids))).flatMap((message) => (message ? [message] : []));
+			return {items: messages.map((message) => toChange(target.connection.account, message)), cursor: historyId};
+		}),
+	);
 
 // Searches asked of one account at once: Gmail turns down a burst of them, as of messages.
 const SEARCHES_AT_ONCE = 3;
@@ -475,6 +527,7 @@ export const gmailAttachmentsConnector = {newCommands: {read: readAttachment}} s
 
 export const gmailConnector = {
 	list: listPage,
+	changes: inboxChanges,
 	get: (target, recordId) => callGoogle(target.connection, (token) => readRecord(token, target.connection.account, recordId)),
 	create: createDraftRecord,
 	update: updateDraftRecord,

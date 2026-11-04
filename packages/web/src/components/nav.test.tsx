@@ -66,11 +66,11 @@ describe('AppSidebar', () => {
 		expect(settings.getAttribute('href')).toBe('/acme/settings');
 	});
 
-	test('shows Chat beside Home with the harness experiment', async () => {
+	test('shows Chat and Alerts beside Home with the harness experiment', async () => {
 		renderSidebar(testHuman({...testOrg, experiments: ['harness']}));
 		await screen.findByRole('link', {name: 'Home'});
 
-		expect(groupLabels()[0]).toEqual(['Home', 'Chat']);
+		expect(groupLabels()[0]).toEqual(['Home', 'Chat', 'Alerts']);
 	});
 
 	test("lights the switcher on the organization's members and settings", async () => {

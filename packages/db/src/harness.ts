@@ -95,6 +95,8 @@ export type JobRow = {
 	status: AgentJobStatus;
 	entryId: string | null;
 	callId: string | null;
+	// An alert job's alert.
+	alertId: string | null;
 	runAt: Date;
 	claimedBy: string | null;
 	attempts: number;
@@ -187,13 +189,14 @@ const threadSelect = {
 	createdAt: true,
 } as const;
 
-// A thread's jobs still to run or running, as much of them as says what its agent is up to.
+// A thread's jobs still to run or running, as much of them as says what its agent is up to: not a
+// timed alert's, due later, which says nothing of it.
 const openJobsSelect = {
-	where: {status: {in: ['queued', 'running']}},
+	where: {status: {in: ['queued', 'running']}, kind: {in: ['inference', 'tool']}},
 	select: {kind: true, runAt: true},
 } satisfies Prisma.AgentThread$jobsArgs;
 
-const personaSelect = {
+export const personaSelect = {
 	id: true,
 	name: true,
 	look: true,
@@ -201,7 +204,7 @@ const personaSelect = {
 	createdById: true,
 } as const;
 
-function toPersona(persona: {
+export function toPersona(persona: {
 	id: string;
 	name: string;
 	look: string;
@@ -236,6 +239,7 @@ const jobSelect = {
 	status: true,
 	entryId: true,
 	callId: true,
+	alertId: true,
 	runAt: true,
 	claimedBy: true,
 	attempts: true,
@@ -505,13 +509,15 @@ export async function listShownEntries(threadId: string): Promise<Result<EntryRo
 
 /**
  * The jobs still to run or running on the thread, and on the sub-agents started from it: what
- * the agent is up to, for the person.
+ * the agent is up to, for the person. Not a timed alert's, due later: the Alerts page says what is
+ * set.
  */
 export async function listOpenJobs(threadId: string): Promise<Result<JobRow[], ApiError>> {
 	return wrapDb(() =>
 		db.agentJob.findMany({
 			where: {
 				status: {in: ['queued', 'running']},
+				kind: {in: ['inference', 'tool']},
 				OR: [{threadId}, {thread: {parentThreadId: threadId}}],
 			},
 			select: jobSelect,
@@ -724,6 +730,58 @@ async function endTurn(
 	await tellParent(tx, thread, stop.stopped, jobId, wakes);
 }
 
+/**
+ * Lands an event in the thread, something that came on its own, as what a watch matched does,
+ * and wakes the agent where the log `wakes` it. `Ok(false)` means no such thread.
+ */
+export async function appendEvent(
+	threadId: string,
+	text: string,
+	wakes: Wakes,
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const thread = await lockThread(tx, threadId);
+			if (!thread) {
+				return false;
+			}
+			await appendEntry(tx, thread, {kind: 'event', text}, wakes);
+			return true;
+		}),
+	);
+}
+
+/**
+ * Finishes an alert job: the alert, where it is still set, lands in its conversation as the event
+ * `tell` says, and is deleted; one deleted since the job was due is nothing to do. Wakes the agent
+ * where the log then `wakes` it. `Ok(false)` when the job was no longer the worker's, and nothing
+ * is written.
+ */
+export async function fireAlert(
+	jobId: string,
+	workerId: string,
+	threadId: string,
+	alertId: string,
+	tell: (alert: {title: string; brief: string; at: Date | null}) => string,
+	wakes: Wakes,
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction((tx) =>
+			endJob(tx, {jobId, workerId, threadId, status: 'done'}, wakes, async (thread) => {
+				const alert = await tx.agentAlert.findUnique({
+					where: {id: alertId},
+					select: {title: true, brief: true, at: true},
+				});
+				if (!alert) {
+					return;
+				}
+				await appendEntry(tx, thread, {kind: 'event', text: tell(alert), jobId}, wakes);
+				await tx.agentAlert.delete({where: {id: alertId}});
+			}),
+		),
+	);
+}
+
 /** Lands what the person said, and wakes the agent where the log `wakes` it. `Ok(null)` means no such thread. */
 export async function appendPersonMessage(
 	threadId: string,
@@ -770,7 +828,7 @@ export async function claimJob(
 					LIMIT 1
 					FOR UPDATE SKIP LOCKED
 				)
-				RETURNING "id", "threadId", "kind", "status", "entryId", "callId", "runAt", "claimedBy", "attempts"`;
+				RETURNING "id", "threadId", "kind", "status", "entryId", "callId", "alertId", "runAt", "claimedBy", "attempts"`;
 			const job = rows[0];
 			if (!job) {
 				return null;

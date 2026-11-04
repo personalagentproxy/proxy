@@ -78,6 +78,34 @@ export async function getConnectionWithCredential(
 }
 
 /**
+ * A connection by id alone, whoever's it is, with its credential: for what Personal Agent Proxy
+ * does with it itself, as polling it for the watches on it. `Ok(null)` when it is gone.
+ */
+export async function getConnectionWithCredentialById(
+	connectionId: string,
+): Promise<Result<(ConnectionRow & {credential: string | null}) | null, ApiError>> {
+	return wrapDb(() =>
+		db.connection.findUnique({
+			where: {id: connectionId},
+			select: {...connectionSelect, credential: true},
+		}),
+	);
+}
+
+/** The organization's connections among `ids`, for what names them; those gone are left out. */
+export async function listConnectionsByIds(
+	orgId: string,
+	ids: string[],
+): Promise<Result<ConnectionRow[], ApiError>> {
+	if (ids.length === 0) {
+		return Ok([]);
+	}
+	return wrapDb(() =>
+		db.connection.findMany({where: {orgId, id: {in: ids}}, select: connectionSelect}),
+	);
+}
+
+/**
  * Every connection of an organization, whoever's it is, with its credential: for undoing them at
  * their providers before the organization is deleted.
  */

@@ -21,6 +21,7 @@ import type {Human} from '@/lib/orgs';
 import {
 	activityLoader,
 	addConnectionLoader,
+	alertsLoader,
 	agentLoader,
 	agentSetupLoader,
 	agentsLoader,
@@ -40,6 +41,7 @@ import {
 	welcomeLoader,
 } from '@/loaders';
 import {ActivityPage} from '@/pages/activity-page';
+import {AlertsPage} from '@/pages/alerts-page';
 import {TaskPage} from '@/pages/task-page';
 import {AddBankPage} from '@/pages/add-bank-page';
 import {AddConnectionPage} from '@/pages/add-connection-page';
@@ -289,6 +291,7 @@ export const router = createBrowserRouter([
 			// The built-in agents, behind the `harness` experiment: the api refuses it otherwise.
 			{path: '/:org/chat', loader: chatIndexLoader, element: <ChatPage />},
 			{path: '/:org/chat/:id', loader: chatLoader, element: <ChatPage />},
+			{path: '/:org/alerts', loader: alertsLoader, element: <AlertsPage />},
 			{path: '/:org/agents', loader: agentsLoader, element: <AgentsPage />},
 			{path: '/:org/agents/new', loader: agentsLoader, element: <NewAgentPage />},
 			{path: '/:org/agents/:id', loader: agentLoader, element: <AgentPage />},

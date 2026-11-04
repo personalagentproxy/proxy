@@ -14,7 +14,19 @@ import {imapClientOptions, imapError, smtpError, smtpTransport} from '../connect
 import {log, serializeError} from '../observability/log';
 import {decryptSecret} from '../utils/secret-crypto';
 import {attachmentRecord, attachmentsText, pickAttachment, requireEmailId, type AttachmentFile} from './attachment-text';
-import type {CommandRunner, DataRecord, ListQuery, RecordPage, RecordStore, RecordTarget, RecordValues, RunOnly} from './connector';
+import {
+	type Change,
+	type Changes,
+	type CommandRunner,
+	type DataRecord,
+	type ListQuery,
+	MAX_CHANGES,
+	type RecordPage,
+	type RecordStore,
+	type RecordTarget,
+	type RecordValues,
+	type RunOnly,
+} from './connector';
 import {gmailQuery, type EmailSearch, type MailSearch} from './email-search';
 import {replyCommands, replyHeaders, type MailReply, type ReplyHeaders} from './email-reply';
 
@@ -30,6 +42,8 @@ import {replyCommands, replyHeaders, type MailReply, type ReplyHeaders} from './
  * Email goes out over SMTP, from a draft or straight from values typed in. An email's attachments
  * are read from the message whole, as the `attachments` collection's one command. A reply, the
  * `replies` collection's, is written in the thread of the email it answers, sent or saved in Drafts.
+ * What is new for a watch on the mailbox is the inbox's messages above the UID the last look left
+ * off at, read by their envelopes alone.
  */
 
 const PAGE_SIZE = 50;
@@ -457,6 +471,47 @@ function listPage(target: RecordTarget, query: ListQuery): Promise<Result<Record
 	);
 }
 
+// Where a look at the inbox leaves off: the folder's UIDVALIDITY and the highest UID seen, so a
+// folder renumbered since starts over.
+function parseInboxCursor(cursor: string): {uidValidity: string; lastUid: number} | null {
+	const [uidValidity, lastUid] = cursor.split(':');
+	if (!uidValidity || !lastUid || !/^\d+$/.test(lastUid)) {
+		return null;
+	}
+	return {uidValidity, lastUid: Number(lastUid)};
+}
+
+function inboxCursor(session: Session, lastUid: number): string {
+	return `${session.mailbox.uidValidity}:${lastUid}`;
+}
+
+function toChange(session: Session, message: FetchMessageObject): Change {
+	const values = summaryValues(INBOX, message);
+	return {id: recordId(session, message.uid), title: values.subject || '(No subject)', url: null, summary: `From ${values.from ?? ''} · to ${values.to ?? ''}`};
+}
+
+// The inbox's messages since the last look: those above its UID, the newest `MAX_CHANGES` of
+// them, the cursor past every one. The first look, or one after the folder was renumbered, takes
+// only where to start from: the last UID the folder has given out.
+const inboxChanges: Changes = (target, cursor) =>
+	withFolder(target, INBOX, (session) =>
+		Do(async ($) => {
+			const uidValidity = String(session.mailbox.uidValidity);
+			const last = cursor === null ? null : parseInboxCursor(cursor);
+			if (last === null || last.uidValidity !== uidValidity) {
+				return {items: [], cursor: inboxCursor(session, session.mailbox.uidNext - 1)};
+			}
+			// `n:*` gives the last message too when nothing is above `n`, so what is above is kept.
+			const found = ((await session.client.search({uid: `${last.lastUid + 1}:*`}, {uid: true})) || []).filter((uid) => uid > last.lastUid).sort((a, b) => b - a);
+			if (found.length === 0) {
+				return {items: [], cursor: inboxCursor(session, last.lastUid)};
+			}
+			const uids = found.slice(0, MAX_CHANGES);
+			const messages = $((await Result.wrapAsync(() => session.client.fetchAll(uids.join(','), SUMMARY_FIELDS, {uid: true}))).mapErr((cause) => ApiErr.providerUnreachable(cause)));
+			return {items: messages.sort((a, b) => b.uid - a.uid).map((message) => toChange(session, message)), cursor: inboxCursor(session, found[0] ?? last.lastUid)};
+		}),
+	);
+
 // A message whole, as it was fetched and as mailparser reads it.
 async function parsedMessage(session: Session, id: string): Promise<Result<{message: FetchMessageObject; parsed: ParsedMail}, ApiError>> {
 	return Do(async ($) => {
@@ -713,6 +768,7 @@ const replyToMailbox: MailReply = (target, id, reply) =>
 
 export const emailConnector = {
 	list: listPage,
+	changes: inboxChanges,
 	get: (target, id) => withRecord(target, id, (session) => getMessage(session, id)),
 	create: (target, values) => withFolder(target, DRAFTS, (session) => appendDraft(session, values)),
 	update: (target, id, values) =>

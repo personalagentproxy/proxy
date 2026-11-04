@@ -34,7 +34,7 @@ const thread: ThreadRow = {
 	createdAt: now,
 };
 const sub: ThreadRow = {...thread, id: 'thread-2', parentThreadId: 'thread-1', parentCallId: 'c0', title: 'Find the invoices', taskId: 'task-2'};
-const job: JobRow = {id: 'job-1', threadId: 'thread-1', kind: 'inference', status: 'running', entryId: null, callId: null, runAt: now, claimedBy: 'w1', attempts: 1};
+const job: JobRow = {id: 'job-1', threadId: 'thread-1', kind: 'inference', status: 'running', entryId: null, callId: null, alertId: null, runAt: now, claimedBy: 'w1', attempts: 1};
 
 let seq = 0;
 
@@ -83,6 +83,7 @@ beforeEach(() => {
 	getJobThread.mockResolvedValue(Ok(thread));
 	listEntries.mockResolvedValue(Ok([entry('person', 'Hi')]));
 	listSubAgents.mockResolvedValue(Ok([]));
+	store.listThreadAlerts.mockResolvedValue(Ok([]));
 	getThreadAgent.mockResolvedValue(Ok({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: []}));
 	getChatModel.mockResolvedValue(Ok('claude'));
 	for (const write of [finishJob, completeInference, requeueJob, appendSummary]) {

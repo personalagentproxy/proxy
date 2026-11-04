@@ -2,6 +2,9 @@ import type {Result} from 'ts-results-es';
 
 import type {ApiError, ChatModel} from '@proxy/utils';
 import {readyForInference} from '@proxy/utils/harness';
+import * as alerts from '@proxy/db/alerts';
+import type {AlertRow, NewAlert, PollRow} from '@proxy/db/alerts';
+import {type ConnectionRow, getConnectionWithCredentialById, listConnectionsByIds} from '@proxy/db/connection';
 import * as harness from '@proxy/db/harness';
 import type {AfterAnswer, AssistantTurn, EntryRow, FailureNote, JobRow, LastMessage, Persona, PersonaRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
 import {type AgentTaskRow, createAgentTask, getAgentTask, type NewAgentTask} from '@proxy/db/task';
@@ -9,8 +12,9 @@ import type {SignedInAgent} from '@proxy/db/agent';
 import {getOrganizationChatModel} from '@proxy/db/organization';
 
 /**
- * What the harness reads and writes: the job queue, each thread's log and its jobs, and the Chat
- * page's personas, in the database (@proxy/db/harness). Every write is one transaction, fenced by
+ * What the harness reads and writes: the job queue, each thread's log and its jobs, the Chat
+ * page's personas, and the alerts set in the conversations with the polls of the connections they
+ * watch, in the database (@proxy/db/harness, @proxy/db/alerts). Every write is one transaction, fenced by
  * the worker's lease where it is a job's, and takes what it writes as the harness composed it:
  * the rules of the conversation are the harness's own (conversation.ts). The agent is woken where
  * what lands leaves its log ready for it (@proxy/utils/harness readyForInference). Each part of
@@ -47,6 +51,19 @@ export type HarnessStore = {
 	listShownEntries: (threadId: string) => Promise<Result<EntryRow[], ApiError>>;
 	listOpenJobs: (threadId: string) => Promise<Result<JobRow[], ApiError>>;
 	appendPersonMessage: (threadId: string, text: string) => Promise<Result<EntryRow | null, ApiError>>;
+
+	createAlert: (thread: ThreadRow, callId: string, alert: NewAlert) => Promise<Result<AlertRow, ApiError>>;
+	deleteAlert: (alertId: string, owner: {threadId: string} | {orgId: string; userId: string}) => Promise<Result<boolean, ApiError>>;
+	listThreadAlerts: (threadId: string) => Promise<Result<AlertRow[], ApiError>>;
+	listMemberAlerts: (orgId: string, userId: string) => Promise<Result<Array<AlertRow & {persona: PersonaRow}>, ApiError>>;
+	listConnectionsByIds: (orgId: string, ids: string[]) => Promise<Result<ConnectionRow[], ApiError>>;
+	fireAlert: (jobId: string, workerId: string, threadId: string, alertId: string, tell: (alert: {title: string; brief: string; at: Date | null}) => string) => Promise<Result<boolean, ApiError>>;
+	claimDuePolls: (everyMs: number) => Promise<Result<PollRow[], ApiError>>;
+	setPollCursor: (poll: PollRow, cursor: string) => Promise<Result<void, ApiError>>;
+	deletePoll: (poll: PollRow) => Promise<Result<void, ApiError>>;
+	listWatches: (connectionId: string, collectionId: string) => Promise<Result<AlertRow[], ApiError>>;
+	getPollConnection: (connectionId: string) => Promise<Result<(ConnectionRow & {credential: string | null}) | null, ApiError>>;
+	appendEvent: (threadId: string, text: string) => Promise<Result<boolean, ApiError>>;
 };
 
 /** The store in the database. */
@@ -81,4 +98,17 @@ export const harnessStore: HarnessStore = {
 	listShownEntries: harness.listShownEntries,
 	listOpenJobs: harness.listOpenJobs,
 	appendPersonMessage: (threadId, text) => harness.appendPersonMessage(threadId, text, readyForInference),
+
+	createAlert: alerts.createAlert,
+	deleteAlert: alerts.deleteAlert,
+	listThreadAlerts: alerts.listThreadAlerts,
+	listMemberAlerts: alerts.listMemberAlerts,
+	listConnectionsByIds,
+	fireAlert: (jobId, workerId, threadId, alertId, tell) => harness.fireAlert(jobId, workerId, threadId, alertId, tell, readyForInference),
+	claimDuePolls: alerts.claimDuePolls,
+	setPollCursor: alerts.setPollCursor,
+	deletePoll: alerts.deletePoll,
+	listWatches: alerts.listWatches,
+	getPollConnection: getConnectionWithCredentialById,
+	appendEvent: (threadId, text) => harness.appendEvent(threadId, text, readyForInference),
 };

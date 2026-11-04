@@ -44,8 +44,9 @@ function offered(connector: Connector): string[] {
 	].sort();
 }
 
-// The members a connector has besides its capabilities: those `offered` names.
-const MEMBERS = ['list', 'get', 'create', 'update', 'remove', 'commands', 'newCommands'];
+// The members a connector has besides its capabilities: those `offered` names, and `changes`,
+// what is new for a watch on it.
+const MEMBERS = ['list', 'get', 'create', 'update', 'remove', 'commands', 'newCommands', 'changes'];
 
 // The collections each capability belongs to, those whose records it reads or writes; `any` for one
 // every collection may have. A widget works with every connector of the collection that has it.

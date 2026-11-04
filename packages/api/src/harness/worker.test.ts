@@ -15,7 +15,7 @@ const runToolJob = mock<Run>(async () => Ok(undefined));
 mock.module('./tool-job', () => ({runToolJob}));
 
 const now = new Date();
-const inference: JobRow = {id: 'j1', threadId: 't1', kind: 'inference', status: 'running', entryId: null, callId: null, runAt: now, claimedBy: 'w', attempts: 1};
+const inference: JobRow = {id: 'j1', threadId: 't1', kind: 'inference', status: 'running', entryId: null, callId: null, alertId: null, runAt: now, claimedBy: 'w', attempts: 1};
 const tool: JobRow = {...inference, id: 'j2', kind: 'tool', entryId: 'e1', callId: 'c1'};
 
 // Waits for the worker to get through what is queued.

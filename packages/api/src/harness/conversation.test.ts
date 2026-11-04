@@ -19,7 +19,7 @@ const conversation: ThreadRow = {
 	createdAt: now,
 };
 const sub: ThreadRow = {...conversation, id: 'thread-1', parentThreadId: 'thread-0', parentCallId: 'c0', title: 'Find the invoices', taskId: 'task-1'};
-const turn: JobRow = {id: 'job-1', threadId: 'thread-0', kind: 'inference', status: 'running', entryId: null, callId: null, runAt: now, claimedBy: 'w1', attempts: 1};
+const turn: JobRow = {id: 'job-1', threadId: 'thread-0', kind: 'inference', status: 'running', entryId: null, callId: null, alertId: null, runAt: now, claimedBy: 'w1', attempts: 1};
 const call: JobRow = {...turn, kind: 'tool', entryId: 'entry-1', callId: 'c1'};
 
 describe('a sub-agent', () => {

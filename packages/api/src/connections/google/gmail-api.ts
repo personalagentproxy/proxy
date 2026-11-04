@@ -56,7 +56,17 @@ const messageSchema = z.object({
 	labelIds: z.array(z.string()).optional(),
 	// Milliseconds since 1970, as text.
 	internalDate: z.string().optional(),
+	// The first words of the message, as Gmail shows them under the subject.
+	snippet: z.string().optional(),
 	payload: partSchema.optional(),
+});
+
+const profileSchema = z.object({historyId: z.string()});
+
+const historySchema = z.object({
+	history: z.array(z.object({messagesAdded: z.array(z.object({message: z.object({id: z.string(), labelIds: z.array(z.string()).optional()})})).optional()})).optional(),
+	historyId: z.string().optional(),
+	nextPageToken: z.string().optional(),
 });
 
 export type GmailMessage = z.infer<typeof messageSchema>;
@@ -268,6 +278,48 @@ async function retried<T>(call: () => Promise<Result<T, ApiError>>): Promise<Res
 /** A message with what a list shows of it: its labels, date and the headers in `LIST_HEADERS`. */
 function getMessageSummary(accessToken: string, messageId: string): Promise<Result<GmailMessage, ApiError>> {
 	return retried(() => googleRequest(accessToken, gmailUrl(`/messages/${messageId}`, {format: 'metadata', metadataHeaders: LIST_HEADERS}), messageSchema));
+}
+
+/** Where the mailbox's history is now: the id a later look at what was added since takes. */
+export async function getHistoryId(accessToken: string): Promise<Result<string, ApiError>> {
+	const profile = await googleRequest(accessToken, gmailUrl('/profile'), profileSchema);
+	return profile.map(({historyId}) => historyId);
+}
+
+/** What a look at the history since `startHistoryId` comes to: the messages added, with their labels, and where the history is now. */
+export type MailboxHistory = {added: Array<{id: string; labelIds: string[]}>; historyId: string};
+
+// How many history pages a look reads at most: each is up to 500 happenings.
+const HISTORY_PAGES = 10;
+
+/**
+ * The messages added to the mailbox since `startHistoryId`, oldest first, and where the history
+ * is now; `Err` not found once Gmail has let the history that far back go, which a look answers
+ * by starting over from now.
+ */
+export async function listHistory(accessToken: string, startHistoryId: string): Promise<Result<MailboxHistory, ApiError>> {
+	const added: MailboxHistory['added'] = [];
+	let historyId = startHistoryId;
+	let pageToken: string | null = null;
+	for (let page = 0; page < HISTORY_PAGES; page += 1) {
+		const answer: Result<z.infer<typeof historySchema>, ApiError> = await googleRequest(
+			accessToken,
+			gmailUrl('/history', {startHistoryId, historyTypes: 'messageAdded', maxResults: '500', pageToken}),
+			historySchema,
+		);
+		if (answer.isErr()) {
+			return answer;
+		}
+		for (const happening of answer.value.history ?? []) {
+			added.push(...(happening.messagesAdded ?? []).map(({message}) => ({id: message.id, labelIds: message.labelIds ?? []})));
+		}
+		historyId = answer.value.historyId ?? historyId;
+		pageToken = answer.value.nextPageToken ?? null;
+		if (pageToken === null) {
+			break;
+		}
+	}
+	return Ok({added, historyId});
 }
 
 /** A message's labels alone, to tell a draft from other email. */

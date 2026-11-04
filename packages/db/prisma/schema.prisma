@@ -142,6 +142,7 @@ model Organization {
   tasks       AgentTask[]
   threads     AgentThread[]
   personas    Persona[]
+  alerts      AgentAlert[]
 
   @@index([ownerUserId])
 }
@@ -222,6 +223,7 @@ model Connection {
   vaultEntries VaultEntry[]
   agentGrants  AgentGrant[]
   writeTargets WriteTarget[]
+  polls        ConnectionPoll[]
 
   @@index([orgId])
   @@index([ownerUserId])
@@ -631,6 +633,7 @@ model AgentThread {
   entries   AgentEntry[]
   jobs      AgentJob[]
   jobEvents AgentJobEvent[]
+  alerts    AgentAlert[]
 
   @@index([personaId, userId])
   @@index([agentId])
@@ -692,6 +695,7 @@ model AgentEntry {
 enum AgentJobKind {
   inference
   tool
+  alert
 }
 
 enum AgentJobStatus {
@@ -702,8 +706,9 @@ enum AgentJobStatus {
 }
 
 // A unit of the built-in agent's work, claimed by one api instance at a time: run the model on a
-// thread's log (inference), or run one tool call of an assistant entry (tool). `runAt` is when it
-// may run, which is how a call to sleep is kept. A worker claims a job due with a lease, renews
+// thread's log (inference), run one tool call of an assistant entry (tool), or fire a timed alert
+// (alert). `runAt` is when it may run, which is how a call to sleep is kept, and when an alert is
+// due. A worker claims a job due with a lease, renews
 // the lease while it works, and finishes the job in the same transaction as the entries it writes,
 // only while it still holds the lease; a lease that runs out gives the job to the next worker.
 model AgentJob {
@@ -714,6 +719,8 @@ model AgentJob {
   // A tool job's call: the assistant entry it is in and the id the model gave it.
   entryId  String?
   callId   String?
+  // An alert job's alert (AgentAlert; a plain id: the alert is deleted when it fires).
+  alertId  String?
   runAt    DateTime       @default(now())
   // Which worker holds it, and until when, while it is running.
   claimedBy      String?
@@ -759,4 +766,56 @@ model AgentJobEvent {
 
   @@index([jobId, at])
   @@index([threadId, at])
+}
+
+// An alert the built-in agent set in a member's conversation, to be woken outside it. A timed
+// alert (`at`) is a job (AgentJob, kind alert) due at its time, which lands what the agent noted in
+// the conversation as an event and deletes the alert. A watch (`collectionId`) is a rule on a
+// collection of some connections: while any watch is on a connection's collection, it is polled
+// (ConnectionPoll), and a record new or changed there that carries any of the watch's words lands
+// in the conversation as an event. The person sees their alerts on the Alerts page and deletes
+// them there; the agent cancels one when asked.
+model AgentAlert {
+  id       String @id @default(cuid())
+  orgId    String
+  // The member whose conversation it was set in: the alert is theirs alone to see.
+  userId   String
+  threadId String
+  // The call that set it, so a tool job run again sets it once.
+  callId   String
+  title    String
+  // What the agent noted: what to tell the person at the time, or what the watch is for.
+  brief    String
+  // A timed alert's time; null for a watch.
+  at       DateTime?
+  // A watch: the collection watched (emails, issues or events), the connections watched, as plain
+  // ids, and the words any of which a record has to carry to match; none, and every new record does.
+  collectionId  String?
+  connectionIds String[] @default([])
+  terms         String[] @default([])
+
+  createdAt DateTime @default(now())
+
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  thread AgentThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, callId])
+  @@index([orgId, userId])
+}
+
+// One collection of one connection, polled every so often for what is new or changed while any
+// watch is on it: made with the first watch, deleted by the poll that finds none. `cursor` is where
+// the last look left off, in the connector's own terms; null before the first, which only takes a
+// baseline. Due again a fixed while after each look; the look that takes it moves `nextAt` on
+// first, so one api instance takes each.
+model ConnectionPoll {
+  connectionId String
+  collectionId String
+  cursor       String?
+  nextAt       DateTime @default(now())
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@id([connectionId, collectionId])
+  @@index([nextAt])
 }
