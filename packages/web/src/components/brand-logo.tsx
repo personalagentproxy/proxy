@@ -74,7 +74,7 @@ export function IntegrationLogo({
 
 	return (
 		<LogoTile className={className}>
-			<integration.logo className="size-[60%] text-neutral-500" />
+			<integration.logo data-preserve-color className="size-[60%] text-neutral-500" />
 		</LogoTile>
 	);
 }
