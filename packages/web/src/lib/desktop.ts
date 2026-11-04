@@ -21,6 +21,8 @@ export function isDesktopApp(): boolean {
  * it.
  */
 export type DesktopBridge = {
+	// Optional while installed desktop apps from before the hidden title bar still load this page.
+	titleBarHidden?: boolean;
 	updateReady(): Promise<string | null>;
 	onUpdateReady(listener: (version: string) => void): () => void;
 	restart(): void;
@@ -35,6 +37,11 @@ declare global {
 /** The desktop app's bridge; null in a browser. */
 export function desktopBridge(): DesktopBridge | null {
 	return window.personalAgentProxyDesktop ?? null;
+}
+
+/** Whether this desktop shell removed its native title bar and needs the page to replace it. */
+export function hasHiddenDesktopTitleBar(): boolean {
+	return desktopBridge()?.titleBarHidden === true;
 }
 
 /** The link that hands the desktop app the one-time code it trades for a session. */

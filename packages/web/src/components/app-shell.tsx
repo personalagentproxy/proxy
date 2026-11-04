@@ -63,11 +63,15 @@ export function AppShell({
 		<>
 			<AppSidebar />
 			{panel !== undefined && desktop && (
-				<aside className="sticky top-0 flex h-dvh w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
+				<aside
+					data-desktop-panel
+					className="sticky top-0 flex h-dvh w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground"
+				>
 					{panel}
 				</aside>
 			)}
 			<div
+				data-desktop-page
 				className={cn(
 					'relative flex w-full min-w-0 flex-1 flex-col bg-background text-foreground',
 					scroll === 'inside' ? 'h-dvh overflow-hidden' : 'min-h-dvh',
@@ -86,7 +90,7 @@ export function AppShell({
 					</header>
 				)}
 				{title === undefined && !desktop && (
-					<div className="absolute top-2 left-4 z-20">
+					<div data-desktop-floating-control className="absolute top-2 left-4 z-20">
 						<SidebarTrigger />
 					</div>
 				)}
