@@ -6,7 +6,8 @@ import type {AlertRow} from '@proxy/db/alerts';
 import type {JobRow, ThreadRow} from '@proxy/db/harness';
 
 import {callMcpTool} from '../mcp/tools';
-import {alertArgs, type AlertSpec, CANCEL_ALERT_TOOL, describeAlert, SET_ALERT_TOOL, watchableConnections, WATCHED_COLLECTIONS} from './alerts';
+import {alertArgs, type AlertSpec, CANCEL_ALERT_TOOL, describeAlert, SET_ALERT_TOOL, WATCHED_COLLECTIONS} from './alerts';
+import {watchableConnections} from './watch-connections';
 import {failureNote} from './conversation';
 import type {HarnessStore} from './store';
 import {ensureThreadTask, type ThreadTaskStore} from './thread-task';

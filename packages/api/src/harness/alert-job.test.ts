@@ -5,8 +5,6 @@ import type {JobRow} from '@proxy/db/harness';
 
 import {type FakeStore, fakeStore} from './fake-store';
 
-mock.module('../agent-side/tools', () => ({listAgentConnections: mock()}));
-
 const now = new Date('2026-11-04T10:00:00Z');
 const job: JobRow = {id: 'job-1', threadId: 'thread-1', kind: 'alert', status: 'running', entryId: null, callId: null, alertId: 'alert-1', runAt: now, claimedBy: 'w1', attempts: 1};
 

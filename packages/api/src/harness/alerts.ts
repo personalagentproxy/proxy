@@ -1,16 +1,11 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {type ApiError, Do} from '@proxy/utils';
 import {cut} from '@proxy/utils/harness';
-import type {SignedInAgent} from '@proxy/db/agent';
 import type {AlertRow, NewAlert} from '@proxy/db/alerts';
-import {findCollection, integrationFor} from '@proxy/integrations';
+import {integrationFor} from '@proxy/integrations';
 
-import {listAgentConnections} from '../agent-side/tools';
 import type {Change} from '../records/connector';
-import {isRecordStore} from '../records/connector';
-import {connectorFor} from '../records/connectors';
 
 /**
  * The built-in agent's alerts: a wake-up outside the conversation, set by the agent talking with
@@ -18,8 +13,8 @@ import {connectorFor} from '../records/connectors';
  * timed alert lands what the agent noted in the conversation when it is due. A watch is a rule on
  * a collection of some connections, polled every so often (watches.ts): a record new or changed
  * there that carries any of the watch's words, matched as written, lands in the conversation with
- * its link. Here: what set_alert takes, which connections may be watched, how a record is matched,
- * and the words of it all, for the agent.
+ * its link. Here: what set_alert takes, how a record is matched, and the words of it all, for the
+ * agent; which connections may be watched is watch-connections.ts.
  */
 
 export const SET_ALERT_TOOL = 'set_alert';
@@ -104,33 +99,9 @@ export function alertArgs(args: unknown, now: Date): Result<AlertSpec, string> {
 	return Ok({kind: 'time', title, brief, at: new Date(Math.max(time, now.getTime()))});
 }
 
-/** A connection the agent may watch for a collection: by id, and as the person knows it. */
-export type WatchableConnection = {id: string; name: string};
-
 /** What the person calls the connection, or its integration and account. */
 export function connectionName(connection: {name: string | null; integrationId: string; account: string}): string {
 	return connection.name ?? `${integrationFor(connection)?.name ?? connection.integrationId} (${connection.account})`;
-}
-
-/**
- * The connections the agent may watch for the collection: those it reaches, acting as the member
- * whose conversation it is, whose connector polls the collection, and which it may read, since a
- * match tells the person what a record says. Checked when a watch is set, and again before a match
- * is told, so a read revoked since delivers nothing.
- */
-export function watchableConnections(signedIn: SignedInAgent, collectionId: string): Promise<Result<WatchableConnection[], ApiError>> {
-	return Do(async ($) => {
-		const {connections} = $(await listAgentConnections(signedIn));
-		return connections.flatMap((connection) => {
-			const integration = integrationFor(connection);
-			const collection = integration ? findCollection(integration, collectionId) : undefined;
-			const connector = connectorFor(connection.integrationId, collectionId);
-			if (!collection?.read || !connection.actions.includes(collection.read) || !connector || !isRecordStore(connector) || !connector.changes) {
-				return [];
-			}
-			return [{id: connection.id, name: connectionName(connection)}];
-		});
-	});
 }
 
 /** Whether a record carries any of the watch's words, in its title or its summary; every record does where there are none. */

@@ -1,8 +1,6 @@
-import {describe, expect, mock, test} from 'bun:test';
+import {describe, expect, test} from 'bun:test';
 
 import type {AlertRow} from '@proxy/db/alerts';
-
-mock.module('../agent-side/tools', () => ({listAgentConnections: mock()}));
 
 import {alertArgs, alertsParagraph, describeAlert, matches, matchText} from './alerts';
 

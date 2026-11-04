@@ -8,7 +8,8 @@ import {log, serializeError} from '../observability/log';
 import {type Change, type Changes, isRecordStore, type RecordTarget} from '../records/connector';
 import {connectorFor} from '../records/connectors';
 import {integrationOf} from '../utils/connection-actions';
-import {matches, matchText, POLL_EVERY_MS, watchableConnections} from './alerts';
+import {matches, matchText, POLL_EVERY_MS} from './alerts';
+import {watchableConnections} from './watch-connections';
 import type {HarnessStore} from './store';
 
 /**
