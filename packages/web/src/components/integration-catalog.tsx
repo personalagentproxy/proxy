@@ -65,7 +65,7 @@ export function IntegrationCatalog({
 }) {
 	const org = useOrgSlug();
 	const available = INTEGRATIONS.filter(
-		(integration) => !integration.builtIn && isOffered(integration, {experiments}),
+		(integration) => !integration.native && isOffered(integration, {experiments}),
 	);
 	// The integration a key is being typed for, in the dialog.
 	const [keyFor, setKeyFor] = useState<IntegrationId | null>(null);

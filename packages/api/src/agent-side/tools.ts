@@ -13,6 +13,7 @@ import {
 	effectiveActions,
 	findCollection,
 	findTool,
+	type ApiTool,
 	type Collection,
 	type CollectionTool,
 	type Integration,
@@ -24,6 +25,7 @@ import {
 } from '@proxy/integrations';
 
 import {callCustomTool} from '../connections/custom/custom-mcp';
+import {apiIntegration} from '../connections/integrations';
 import {needsSignIn, signInNeededError, unavailableActions, unavailableError} from '../connections/unavailable';
 import {isRecordStore, type Connector, type DataRecord, type RecordStore, type RecordTarget, type RecordValues} from '../records/connector';
 import {connectorFor} from '../records/connectors';
@@ -31,13 +33,16 @@ import {parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
 import {integrationOf} from '../utils/connection-actions';
 import {requireOpenTaskIfAny} from '../mcp/pre-task-clients';
+import type {NativeToolRun} from '../native/tool';
 import {isPlainObject, parseToolParams} from './tool-params';
 
 /**
  * The agent side, whichever way an agent comes in: the connections it can use, the tools it has
- * with each, and running one. Every run is made for one of the agent's tasks (tasks.ts), checked
- * against the agent's access as it is now and logged with the task, a refused one too, and one the
- * provider fails; one that can't be logged fails rather than go unrecorded.
+ * with each, and running one: a collection's, through its connector, a custom server's, called as
+ * it is, or one of the integration's own, run here (native/tool.ts). Every run is made for one of
+ * the agent's tasks (tasks.ts), checked against the agent's access as it is now and logged with
+ * the task, a refused one too, and one the provider fails; one that can't be logged fails rather
+ * than go unrecorded.
  */
 
 // How much of a custom tool's params the activity log keeps.
@@ -202,8 +207,8 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 		if (options.readOnly !== undefined && options.readOnly !== tool.readOnly) {
 			return $(Err(ApiErr.validationError(tool.readOnly ? `${tool.name} only reads: use read for it` : `${tool.name} changes something: use run for it`)));
 		}
-		if (tool.kind === 'call') {
-			return $(await runServerTool(caller, agent, connection, integration, tool, params, startedAt));
+		if (tool.kind === 'call' || tool.kind === 'native') {
+			return $(await runParamsTool(caller, agent, connection, integration, tool, params, startedAt));
 		}
 
 		const collection = $(requirePresent(findCollection(integration, tool.collectionId), ApiErr.notFound('tool', toolName)));
@@ -259,15 +264,26 @@ function loggedParams(args: Record<string, unknown>): string | null {
 	return `${json.slice(0, MAX_LOGGED_PARAMS - 1)}…`;
 }
 
-// A custom server's tool, called as it is: its params go to the server as given, which checks
-// them against its own schema, and its answer comes back as text. Logged by the tool's name, with
-// its params, allowed, denied or failed.
-function runServerTool(
+// One of the integration's own tools, by the runner its module names for it (native/tool.ts).
+function runNativeTool(integration: Integration, tool: ApiTool, run: NativeToolRun): Promise<Result<string, ApiError>> {
+	const runner = apiIntegration(integration.id)?.tools?.[tool.name];
+	if (!runner) {
+		return Promise.resolve(Err(ApiErr.notFound('tool', tool.name)));
+	}
+	return runner(run);
+}
+
+// A tool with params of its own shape: a custom server's, called as it is, its params going to
+// the server as given, which checks them against its own schema; or one of the integration's own,
+// run by the api. Its answer comes back as text. Logged by the tool's name, with its params,
+// allowed, denied or failed; one the agent lacks the action for, or the one it needs beside it, is
+// refused as a collection's tool is, saying why.
+function runParamsTool(
 	caller: TaskCaller,
 	agent: AgentRow,
 	connection: ConnectionRow & {credential: string | null},
 	integration: Integration,
-	tool: ServerTool,
+	tool: ServerTool | ApiTool,
 	params: unknown,
 	startedAt: number,
 ): Promise<Result<ToolResult, ApiError>> {
@@ -293,11 +309,14 @@ function runServerTool(
 				startedAt,
 				error,
 			});
-		if (!actionsOf(agent, connection, integration, unavailableActions(connection)).includes(tool.action)) {
+		const unavailable = unavailableActions(connection);
+		const actions = actionsOf(agent, connection, integration, unavailable);
+		const missing = [tool.action, tool.requires].find((actionId) => actionId !== undefined && !actions.includes(actionId));
+		if (missing !== undefined) {
 			$(await logRun('denied'));
-			return $(Err(ApiErr.forbidden()));
+			return $(Err(refusal(integration, agent, connection, unavailable, missing)));
 		}
-		const answer = await callCustomTool(connection, tool.name, args);
+		const answer = tool.kind === 'call' ? await callCustomTool(connection, tool.name, args) : await runNativeTool(integration, tool, {caller, connection, params: args});
 		if (answer.isErr()) {
 			$(await logRun('failed', failureOf(answer.error)));
 		}

@@ -8,7 +8,7 @@ const setInstanceMetaValue = mock();
 mock.module('@proxy/db/instance-meta', () => ({hasInstanceMetaKey, setInstanceMetaValue}));
 
 mock.module('../connections/take-over-custom', () => ({takeOverCustomConnections: mock()}));
-mock.module('../records/vault-entries', () => ({convertOldVaultRecords: mock()}));
+mock.module('../native/vault/vault-entries', () => ({convertOldVaultRecords: mock()}));
 
 const error = mock();
 mock.module('../observability/log', () => ({

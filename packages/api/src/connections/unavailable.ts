@@ -16,7 +16,7 @@ import {apiIntegration} from './integrations';
 
 /** Whether the connection has no sign-in at all, as one moved over from a custom MCP server may not. The vault is never signed in to. */
 export function needsSignIn(connection: StoredConnection): boolean {
-	return connection.credential === null && !findIntegration(connection.integrationId)?.builtIn;
+	return connection.credential === null && !findIntegration(connection.integrationId)?.native;
 }
 
 /** The connection's actions its sign-in didn't cover, in the catalog's order. */

@@ -4,8 +4,8 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {createVaultEntry, deleteVaultEntry, getVaultEntry, listVaultEntries, updateVaultEntry, type VaultEntryRow} from '@proxy/db/vault';
 
-import {decryptSecret, encryptSecret} from '../utils/secret-crypto';
-import {requireFirstPage, type DataRecord, type RecordStore, type RecordTarget, type RecordValues} from './connector';
+import {decryptSecret, encryptSecret} from '../../utils/secret-crypto';
+import {requireFirstPage, type DataRecord, type RecordStore, type RecordTarget, type RecordValues} from '../../records/connector';
 
 const storedValuesSchema = z.record(z.string(), z.string());
 
