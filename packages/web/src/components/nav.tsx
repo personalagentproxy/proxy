@@ -36,11 +36,11 @@ const GROUPS: Destination[][] = [
 	[
 		{to: '', label: 'Home', icon: HomeIcon},
 		{to: '/chat', label: 'Chat', icon: MessageSquareIcon, experiment: 'harness'},
-		{to: '/alerts', label: 'Alerts', icon: BellIcon, experiment: 'harness'},
 	],
 	[
 		{to: '/connections', label: 'Connections', icon: PlugIcon},
 		{to: '/agents', label: 'Agent permissions', icon: BotIcon},
+		{to: '/alerts', label: 'Alerts', icon: BellIcon, experiment: 'harness'},
 	],
 	[{to: '/activity', label: 'Activity', icon: ScrollTextIcon}],
 ];
