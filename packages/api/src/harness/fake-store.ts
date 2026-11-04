@@ -20,7 +20,6 @@ export function fakeStore(): FakeStore {
 		appendSummary: mock<HarnessStore['appendSummary']>(),
 		completeInference: mock<HarnessStore['completeInference']>(),
 		completeToolJob: mock<HarnessStore['completeToolJob']>(),
-		sendToSubAgent: mock<HarnessStore['sendToSubAgent']>(),
 		listSubAgents: mock<HarnessStore['listSubAgents']>(),
 		setThreadTask: mock<HarnessStore['setThreadTask']>(),
 		getAgentTask: mock<HarnessStore['getAgentTask']>(),

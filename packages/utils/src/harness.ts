@@ -74,7 +74,8 @@ export const SLEEP_TOOL = 'sleep_until';
 // How long a sub-agent's title may be: a task's.
 const MAX_TITLE = 120;
 
-function isRecord(args: unknown): args is Record<string, unknown> {
+/** Whether a call's arguments are a JSON object, as a tool takes them. */
+export function isRecord(args: unknown): args is Record<string, unknown> {
 	return typeof args === 'object' && args !== null && !Array.isArray(args);
 }
 

@@ -35,11 +35,11 @@ import type {NewAgentTask} from './task';
  * A worker's write is fenced by its lease: it goes through only while the job is still its.
  * What a sub-agent says to the agent that started it lands in that agent's thread as an event
  * answering the call that started the sub-agent; a sub-agent's thread stops when it answers with
- * no calls, keeping its log, and a message from its parent takes it up again. In one transaction
- * a sub-agent's thread is locked before its parent's, never the other way, so two can't wait on
- * each other: a message to a sub-agent locks its thread alone, and the job that sent it is
- * finished on the parent's after. What is written, and when the agent is woken, is the api's to
- * say (its harness): these transactions take it composed.
+ * no calls, keeping its log, and a message from its parent takes it up again. A conversation and
+ * its sub-agents' threads are one lock, the conversation's row: whatever a transaction writes in
+ * any of them, it locks that row first, so a message between two of them is written with the
+ * answer that sent it, and no two transactions wait on each other. What is written, and when the
+ * agent is woken, is the api's to say (its harness): these transactions take it composed.
  */
 
 export type ThreadRow = {
@@ -114,15 +114,22 @@ export type JobEventRow = {
 /**
  * What is to happen with a call the model made, as the api composed it: a tool job, due at
  * `runAt`; an answer at once, where the call was no good; a sub-agent started, answered at once
- * with its id, which only this layer knows, so the answer is asked of the id; or a message to the
- * agent the thread's sub-agent works for, answered at once as sent. The last two are done with the
- * answer written, since they need no worker: the one makes a thread, the other locks the parent's,
- * which a sub-agent's may.
+ * with its id, which only this layer knows, so the answer is asked of the id; a message to one of
+ * the thread's sub-agents, answered at once with what the sub-agent was up to, or that there is no
+ * such sub-agent, which only this layer knows too; or a message to the agent the thread's
+ * sub-agent works for, answered at once as sent. The last three are done with the answer written,
+ * since they need no worker, and the conversation is locked already.
  */
 export type CallPlan =
 	| {kind: 'job'; runAt: Date}
 	| {kind: 'answer'; text: string; isError: boolean}
 	| {kind: 'create_subagent'; start: SubAgentStart; started: (id: string) => string}
+	| {
+			kind: 'send_to_subagent';
+			subAgentId: string;
+			entry: NewEntry;
+			sent: (subAgent: SubAgentRow | null) => {text: string; isError: boolean};
+	  }
 	| {kind: 'send_to_parent'; message: {text: string; isError: boolean}; sent: string};
 
 /**
@@ -134,11 +141,17 @@ export type Wakes = (tail: LogEntry[]) => boolean;
 /** An entry to land in a thread. */
 export type NewEntry = {kind: AgentEntryKind; text: string};
 
-/** How a sub-agent stops for now: its task's outcome, and what it said, which goes to the thread it was started from as an event answering the call that started it. Its thread stays, for a message to take up. */
-export type SubAgentStop = {outcome: string; said: {text: string; isError: boolean}};
-
-/** A message to a sub-agent from the agent that started it: the entry to land in its log, and what a sleep cut short by it is answered with. */
-export type SubAgentMessage = {entry: NewEntry; wokenEarly: string};
+/**
+ * A sub-agent's answer without calls, which goes to the thread it was started from as an event
+ * answering the call that started it: as `stopped` says it, where it stops for now, its task
+ * finished with `outcome` and its thread kept for a message to take up; or as `goingOn` says it,
+ * where a message came while it answered, which it goes on to read.
+ */
+export type SubAgentStop = {
+	outcome: string;
+	stopped: {text: string; isError: boolean};
+	goingOn: {text: string; isError: boolean};
+};
 
 /** A sub-agent as a call starts it: the call it answers, its thread's title, its task and the first entries of its log. */
 export type SubAgentStart = {
@@ -173,6 +186,12 @@ const threadSelect = {
 	taskId: true,
 	createdAt: true,
 } as const;
+
+// A thread's jobs still to run or running, as much of them as says what its agent is up to.
+const openJobsSelect = {
+	where: {status: {in: ['queued', 'running']}},
+	select: {kind: true, runAt: true},
+} satisfies Prisma.AgentThread$jobsArgs;
 
 const personaSelect = {
 	id: true,
@@ -506,27 +525,17 @@ export async function listSubAgents(
 	parentThreadId: string,
 	now = new Date(),
 ): Promise<Result<SubAgentRow[], ApiError>> {
-	return wrapDb(async () => {
-		const threads = await db.agentThread.findMany({
-			where: {parentThreadId},
-			select: threadSelect,
-			orderBy: {createdAt: 'asc'},
-		});
-		const jobs = await db.agentJob.findMany({
-			where: {
-				status: {in: ['queued', 'running']},
-				threadId: {in: threads.map((thread) => thread.id)},
-			},
-			select: {threadId: true, kind: true, runAt: true},
-		});
-		return threads.map((thread) => ({
-			...thread,
-			state: threadState(
-				jobs.filter((job) => job.threadId === thread.id),
-				now,
-			),
-		}));
-	});
+	return (
+		await wrapDb(() =>
+			db.agentThread.findMany({
+				where: {parentThreadId},
+				select: {...threadSelect, jobs: openJobsSelect},
+				orderBy: {createdAt: 'asc'},
+			}),
+		)
+	).map((threads) =>
+		threads.map(({jobs, ...thread}) => ({...thread, state: threadState(jobs, now)})),
+	);
 }
 
 /** What happened to the thread's jobs, in order: every claim, requeue, finish and failure. */
@@ -550,12 +559,14 @@ export async function setThreadTask(
 	);
 }
 
-// Locks the thread's row for the rest of the transaction, and gives the thread as it is; null
-// when there is no such thread.
+// Locks the conversation the thread is part of, its own row or, a sub-agent's, the row of the
+// thread it was started from, for the rest of the transaction, and gives the thread as it is;
+// null when there is no such thread.
 async function lockThread(tx: Tx, threadId: string): Promise<ThreadRow | null> {
-	const rows = await tx.$queryRaw<
-		Array<{id: string}>
-	>`SELECT "id" FROM "AgentThread" WHERE "id" = ${threadId} FOR UPDATE`;
+	const rows = await tx.$queryRaw<Array<{id: string}>>`
+		SELECT "id" FROM "AgentThread"
+		WHERE "id" = (SELECT COALESCE("parentThreadId", "id") FROM "AgentThread" WHERE "id" = ${threadId})
+		FOR UPDATE`;
 	if (rows.length === 0) {
 		return null;
 	}
@@ -661,8 +672,7 @@ async function answerCall(
 }
 
 // Lands what a sub-agent said in the thread it was started from, as an event answering the call
-// that started it, from the sub-agent's job that said it. With the sub-agent's thread locked; its
-// parent's is locked here, after.
+// that started it, from the sub-agent's job that said it. With the conversation locked.
 async function tellParent(
 	tx: Tx,
 	thread: ThreadRow,
@@ -673,18 +683,23 @@ async function tellParent(
 	if (thread.parentThreadId === null || thread.parentCallId === null) {
 		return;
 	}
-	const parent = await lockThread(tx, thread.parentThreadId);
+	const parent = await tx.agentThread.findUnique({
+		where: {id: thread.parentThreadId},
+		select: threadSelect,
+	});
 	if (!parent) {
 		return;
 	}
 	await answerCall(tx, parent, 'event', {callId: thread.parentCallId, ...message}, jobId, wakes);
 }
 
-// Stops a sub-agent's work for now: its task is finished with the outcome, taken up again where it
-// was left open meanwhile (@proxy/utils/tasks), and what it said goes to the agent it works for.
-// Its thread stays, log and all, for a message to take up again. With the sub-agent's thread
-// locked.
-async function stopSubAgent(
+// A sub-agent's answer without calls: where a message came while it answered, pending, it goes on
+// to read it, its task still under way, and what it said goes to the agent it works for as said
+// going on; otherwise its work stops for now, its task finished with the outcome, and what it
+// said goes to the agent as said stopping. Its thread stays, log and all, for a message to take
+// up again (messageSubAgent). With the conversation locked; what is pending is released after, as
+// a job ends (endJob).
+async function endTurn(
 	tx: Tx,
 	thread: ThreadRow,
 	stop: SubAgentStop,
@@ -694,6 +709,11 @@ async function stopSubAgent(
 	if (thread.parentThreadId === null) {
 		return;
 	}
+	const waiting = await tx.agentEntry.count({where: {threadId: thread.id, pending: true}});
+	if (waiting > 0) {
+		await tellParent(tx, thread, stop.goingOn, jobId, wakes);
+		return;
+	}
 	if (thread.taskId !== null) {
 		const now = new Date();
 		await tx.agentTask.updateMany({
@@ -701,7 +721,7 @@ async function stopSubAgent(
 			data: {finishedAt: now, lastActiveAt: now, outcome: stop.outcome},
 		});
 	}
-	await tellParent(tx, thread, stop.said, jobId, wakes);
+	await tellParent(tx, thread, stop.stopped, jobId, wakes);
 }
 
 /** Lands what the person said, and wakes the agent where the log `wakes` it. `Ok(null)` means no such thread. */
@@ -803,6 +823,34 @@ async function fence(
 	return true;
 }
 
+// Ends the worker's job on its thread: locks the conversation, marks the job `status` (fence),
+// writes what `write` does in the thread, then gives what was pending its place in the log and
+// wakes the agent where the log then `wakes` it (`release`), so that no way a job ends leaves a
+// message unread. False when the job is no longer the worker's, and nothing is written.
+async function endJob(
+	tx: Tx,
+	end: {
+		jobId: string;
+		workerId: string;
+		threadId: string;
+		status: 'done' | 'failed';
+		error?: string;
+	},
+	wakes: Wakes,
+	write: (thread: ThreadRow) => Promise<void>,
+): Promise<boolean> {
+	const thread = await lockThread(tx, end.threadId);
+	if (!(await fence(tx, end.jobId, end.workerId, end.status, end.error ?? null))) {
+		return false;
+	}
+	if (!thread) {
+		return true;
+	}
+	await write(thread);
+	await release(tx, thread, wakes);
+	return true;
+}
+
 // Whether the job is still the worker's to write for. With the thread locked.
 async function held(tx: Tx, jobId: string, workerId: string): Promise<boolean> {
 	const count = await tx.agentJob.count({
@@ -837,21 +885,19 @@ export async function failJob(
 			if (!job) {
 				return false;
 			}
-			const thread = await lockThread(tx, job.threadId);
-			if (!(await fence(tx, jobId, workerId, 'failed', error))) {
-				return false;
-			}
-			const note = thread ? noteFor(job, thread) : null;
-			if (!thread || !note) {
-				return true;
-			}
-			await writeNote(tx, thread, note, job.id, wakes);
-			return true;
+			const end = {jobId, workerId, threadId: job.threadId, status: 'failed', error} as const;
+			return endJob(tx, end, wakes, async (thread) => {
+				const note = noteFor(job, thread);
+				if (note) {
+					await writeNote(tx, thread, note, job.id, wakes);
+				}
+			});
 		}),
 	);
 }
 
-// Writes what a failed job leaves in its thread. With the thread locked.
+// Writes what a failed job leaves in its thread. With the conversation locked; what is pending is
+// released after (endJob).
 async function writeNote(
 	tx: Tx,
 	thread: ThreadRow,
@@ -870,8 +916,19 @@ async function writeNote(
 		);
 		return;
 	}
+	// A sub-agent's turn that failed is its answer, said as the failure, so its log is not left
+	// ready for the model again, as the conversation's is not by the reply.
 	if (note.kind === 'stop') {
-		await stopSubAgent(tx, thread, note.stop, jobId, wakes);
+		await tx.agentEntry.create({
+			data: {
+				threadId: thread.id,
+				kind: 'assistant' satisfies AgentEntryKind,
+				text: note.stop.goingOn.text,
+				isError: true,
+				jobId,
+			},
+		});
+		await endTurn(tx, thread, note.stop, jobId, wakes);
 		return;
 	}
 	await tx.agentEntry.create({
@@ -883,7 +940,6 @@ async function writeNote(
 			jobId,
 		},
 	});
-	await release(tx, thread, wakes);
 }
 
 /**
@@ -965,7 +1021,7 @@ export async function appendSummary(
 
 // Makes a sub-agent of the thread's agent, as a call of its starts one: its task, its thread, and
 // the first entries of its log, which wake it. The thread is new, so nothing else holds it. With
-// the parent's thread locked.
+// the conversation locked.
 async function createSubAgent(
 	tx: Tx,
 	parent: ThreadRow,
@@ -996,7 +1052,44 @@ async function createSubAgent(
 	return thread.id;
 }
 
-// What a call is answered with at once, by its plan, done.
+// Lands a message from the agent that started the sub-agent in the sub-agent's log, and wakes the
+// sub-agent: one that had stopped takes it up, its task under way again; one at work reads it once
+// its current call is answered; and one asleep is woken now, its sleep's job due now, which answers
+// the sleep as any wake-up does, the message after it. The sub-agent as it was before the message;
+// null when the thread has no such sub-agent. With the conversation locked.
+async function messageSubAgent(
+	tx: Tx,
+	parent: ThreadRow,
+	subAgentId: string,
+	entry: NewEntry,
+	wakes: Wakes,
+): Promise<SubAgentRow | null> {
+	const found = await tx.agentThread.findFirst({
+		where: {id: subAgentId, parentThreadId: parent.id},
+		select: {...threadSelect, jobs: openJobsSelect},
+	});
+	if (!found) {
+		return null;
+	}
+	const {jobs, ...thread} = found;
+	const now = new Date();
+	if (thread.taskId !== null) {
+		await tx.agentTask.updateMany({
+			where: {id: thread.taskId},
+			data: {finishedAt: null, outcome: null, lastActiveAt: now},
+		});
+	}
+	// Only a sleep's job is due later; one a worker has claimed is no longer queued, and answers as it
+	// would.
+	await tx.agentJob.updateMany({
+		where: {threadId: thread.id, kind: 'tool', status: 'queued', runAt: {gt: now}},
+		data: {runAt: now},
+	});
+	await appendEntry(tx, thread, entry, wakes);
+	return {...thread, state: threadState(jobs, now)};
+}
+
+// What a call is answered with at once, by its plan, done. With the conversation locked.
 async function answerAtOnce(
 	tx: Tx,
 	thread: ThreadRow,
@@ -1011,6 +1104,9 @@ async function answerAtOnce(
 		const id = await createSubAgent(tx, thread, plan.start, wakes);
 		return {text: plan.started(id), isError: false};
 	}
+	if (plan.kind === 'send_to_subagent') {
+		return plan.sent(await messageSubAgent(tx, thread, plan.subAgentId, plan.entry, wakes));
+	}
 	await tellParent(tx, thread, plan.message, jobId, wakes);
 	return {text: plan.sent, isError: false};
 }
@@ -1018,10 +1114,10 @@ async function answerAtOnce(
 /**
  * Finishes an inference job with the model's answer: the assistant entry, then what follows it,
  * each of its calls as its plan says, a tool job due when it says or an answer at once
- * (`CallPlan`); or, a sub-agent's answer without calls, its stop. A call without a plan gets a
- * tool job due now. What landed meanwhile takes its place in the log after the answer, and wakes
- * the agent where the log then `wakes` it. `Ok(false)` when the job was no longer the worker's,
- * and nothing is written.
+ * (`CallPlan`); or, a sub-agent's answer without calls, what it said to the agent it works for,
+ * and its stop where nothing came meanwhile. A call without a plan gets a tool job due now. What
+ * landed meanwhile takes its place in the log after the answer, and wakes the agent where the log
+ * then `wakes` it. `Ok(false)` when the job was no longer the worker's, and nothing is written.
  */
 export async function completeInference(
 	jobId: string,
@@ -1032,56 +1128,52 @@ export async function completeInference(
 	wakes: Wakes,
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
-		db.$transaction(async (tx) => {
-			const thread = await lockThread(tx, threadId);
-			if (!thread || !(await fence(tx, jobId, workerId, 'done'))) {
-				return false;
-			}
-			const entry = await tx.agentEntry.create({
-				data: {
-					threadId,
-					kind: 'assistant' satisfies AgentEntryKind,
-					text: turn.text,
-					toolCalls: turn.toolCalls.length === 0 ? null : JSON.stringify(turn.toolCalls),
-					inputTokens: turn.inputTokens,
-					outputTokens: turn.outputTokens,
-					system: turn.system,
-					jobId,
-				},
-				select: {id: true},
-			});
-			if ('stop' in after) {
-				await stopSubAgent(tx, thread, after.stop, jobId, wakes);
-				return true;
-			}
-			for (const call of turn.toolCalls) {
-				const plan: CallPlan = after.plans[call.id] ?? {kind: 'job', runAt: new Date()};
-				if (plan.kind === 'job') {
-					await tx.agentJob.create({
-						data: {
-							threadId,
-							kind: 'tool' satisfies AgentJobKind,
-							entryId: entry.id,
-							callId: call.id,
-							runAt: plan.runAt,
-						},
-					});
-					continue;
-				}
-				const answered = await answerAtOnce(tx, thread, plan, jobId, wakes);
-				await tx.agentEntry.create({
+		db.$transaction((tx) =>
+			endJob(tx, {jobId, workerId, threadId, status: 'done'}, wakes, async (thread) => {
+				const entry = await tx.agentEntry.create({
 					data: {
 						threadId,
-						kind: 'tool_result' satisfies AgentEntryKind,
-						callId: call.id,
+						kind: 'assistant' satisfies AgentEntryKind,
+						text: turn.text,
+						toolCalls: turn.toolCalls.length === 0 ? null : JSON.stringify(turn.toolCalls),
+						inputTokens: turn.inputTokens,
+						outputTokens: turn.outputTokens,
+						system: turn.system,
 						jobId,
-						...answered,
 					},
+					select: {id: true},
 				});
-			}
-			await release(tx, thread, wakes);
-			return true;
-		}),
+				if ('stop' in after) {
+					await endTurn(tx, thread, after.stop, jobId, wakes);
+					return;
+				}
+				for (const call of turn.toolCalls) {
+					const plan: CallPlan = after.plans[call.id] ?? {kind: 'job', runAt: new Date()};
+					if (plan.kind === 'job') {
+						await tx.agentJob.create({
+							data: {
+								threadId,
+								kind: 'tool' satisfies AgentJobKind,
+								entryId: entry.id,
+								callId: call.id,
+								runAt: plan.runAt,
+							},
+						});
+						continue;
+					}
+					const answered = await answerAtOnce(tx, thread, plan, jobId, wakes);
+					await tx.agentEntry.create({
+						data: {
+							threadId,
+							kind: 'tool_result' satisfies AgentEntryKind,
+							callId: call.id,
+							jobId,
+							...answered,
+						},
+					});
+				}
+			}),
+		),
 	);
 }
 
@@ -1097,78 +1189,11 @@ export async function completeToolJob(
 	wakes: Wakes,
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
-		db.$transaction(async (tx) => {
-			const thread = await lockThread(tx, threadId);
-			if (!thread || !(await fence(tx, jobId, workerId, 'done'))) {
-				return false;
-			}
-			await answerCall(tx, thread, 'tool_result', result, jobId, wakes);
-			return true;
-		}),
-	);
-}
-
-/**
- * Lands a message from the agent that started the sub-agent in the sub-agent's log, from the tool
- * job of the call that sends it, and wakes the sub-agent: one that had stopped takes it up, one at
- * work reads it once its current call is answered, and one asleep is woken now, its sleep answered
- * as cut short. `Ok(null)` when there is no such sub-agent of the thread; `Ok(false)` when the
- * job was no longer the worker's, and nothing is written. The sub-agent's thread alone is locked:
- * the job is finished on the parent's after (completeToolJob). Answers with the sub-agent as it
- * was before the message.
- */
-export async function sendToSubAgent(
-	jobId: string,
-	workerId: string,
-	parent: ThreadRow,
-	subAgentId: string,
-	message: SubAgentMessage,
-	wakes: Wakes,
-): Promise<Result<SubAgentRow | null | false, ApiError>> {
-	return wrapDb(() =>
-		db.$transaction(async (tx) => {
-			const thread = await lockThread(tx, subAgentId);
-			if (!thread || thread.parentThreadId !== parent.id) {
-				return null;
-			}
-			if (!(await held(tx, jobId, workerId))) {
-				return false;
-			}
-			const now = new Date();
-			const open = await tx.agentJob.findMany({
-				where: {threadId: thread.id, status: {in: ['queued', 'running']}},
-				select: jobSelect,
-			});
-			const state = threadState(open, now);
-			// Only a sleep's job is due later; it is done with, and its call answered.
-			const sleeping = open.filter(
-				(job) =>
-					job.kind === 'tool' && job.status === 'queued' && job.runAt.getTime() > now.getTime(),
-			);
-			for (const sleep of sleeping) {
-				await tx.agentJob.update({where: {id: sleep.id}, data: {status: 'done'}});
-				await tx.agentJobEvent.create({
-					data: {
-						jobId: sleep.id,
-						threadId: thread.id,
-						kind: 'done',
-						error: 'Cut short: a message came',
-					},
-				});
-				if (sleep.callId !== null) {
-					await answerCall(
-						tx,
-						thread,
-						'tool_result',
-						{callId: sleep.callId, text: message.wokenEarly, isError: false},
-						jobId,
-						wakes,
-					);
-				}
-			}
-			await appendEntry(tx, thread, message.entry, wakes);
-			return {...thread, state};
-		}),
+		db.$transaction((tx) =>
+			endJob(tx, {jobId, workerId, threadId, status: 'done'}, wakes, (thread) =>
+				answerCall(tx, thread, 'tool_result', result, jobId, wakes),
+			),
+		),
 	);
 }
 

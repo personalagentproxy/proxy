@@ -52,7 +52,7 @@ const SEND_TO_SUBAGENT: ModelTool = {
 const SEND_TO_PARENT: ModelTool = {
 	name: SEND_TO_PARENT_TOOL,
 	description:
-		'Sends a message to the agent you work for while you go on working: a question you need answered to do the brief, how far you have got where the work takes long, or something found that it should know before you are done. Its answer, when it has one, comes to you as a message. Don’t send what your final answer will say: stopping with an answer hands that over by itself.',
+		'Sends a message to the agent you work for while you go on working: how far you have got where the work takes long, or something found that it should know before you are done. Its answer, when it has one, comes to you as a message. Not for a question you can’t go on without: answer with that question and no tool call, which stops you until the agent replies. Don’t send what your final answer will say: stopping with an answer hands that over by itself.',
 	parameters: {
 		type: 'object',
 		properties: {

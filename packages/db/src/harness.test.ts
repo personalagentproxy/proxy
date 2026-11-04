@@ -20,9 +20,13 @@ import {
 	listOpenJobs,
 	listSubAgents,
 	requeueJob,
-	sendToSubAgent,
+	type JobRow,
+	type NewEntry,
+	type SubAgentRow,
+	type SubAgentStop,
 	type ThreadRow,
 } from './harness';
+import type {ToolCall} from '@proxy/utils/harness';
 
 // What the harness writes, against the local database: run with it up (`bun run dev`) and the
 // environment loaded, `bun --env-file=../../.env test src/harness.test.ts` from this package.
@@ -36,6 +40,26 @@ function unwrap<T>(result: Result<T, ApiError>): T {
 		throw new Error(JSON.stringify(result.error));
 	}
 	return result.value;
+}
+
+// What the agent says to a sub-agent.
+function say(text: string): NewEntry {
+	return {kind: 'person', text};
+}
+
+// A sub-agent's answer without calls, as the api composes it: the note marks it stopped.
+function stop(text: string, isError = false): SubAgentStop {
+	return {outcome: text, stopped: {text: `${text} (Stopped.)`, isError}, goingOn: {text, isError}};
+}
+
+// A turn of the parent's, with the calls it made.
+function parentTurn(toolCalls: ToolCall[]) {
+	return {text: '', toolCalls, inputTokens: 1, outputTokens: 1, system: null};
+}
+
+// A turn of a sub-agent's that says `text`, with no calls.
+function subTurn(text: string) {
+	return {text, toolCalls: [], inputTokens: 1, outputTokens: 1, system: null};
 }
 
 describe.skipIf(!databaseUrl)('the harness, against the database', () => {
@@ -65,6 +89,43 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		const persona = unwrap(await ensureFirstPersona(orgId));
 		thread = unwrap(await ensureMemberThread({orgId, agentId, personaId: persona.id, userId}));
 	});
+
+	// The next two jobs due, both claimed by `workerId`, one the parent's and one the sub-agent's:
+	// due at once, in either order.
+	async function claimBoth(
+		workerId: string,
+		subId: string,
+	): Promise<{parent: JobRow; sub: JobRow}> {
+		const claimed = [
+			unwrap(await claimJob(workerId, 60_000)),
+			unwrap(await claimJob(workerId, 60_000)),
+		];
+		const parent = claimed.find((job) => job?.threadId === thread.id);
+		const sub = claimed.find((job) => job?.threadId === subId);
+		if (!parent || !sub) {
+			throw new Error(`expected a job of each, got ${JSON.stringify(claimed)}`);
+		}
+		return {parent, sub};
+	}
+
+	// Ends a turn of the parent's with nothing said and no calls.
+	async function endParentTurn(job: JobRow, workerId: string): Promise<void> {
+		expect(job.kind).toBe('inference');
+		const done = await completeInference(
+			job.id,
+			workerId,
+			thread.id,
+			parentTurn([]),
+			{plans: {}},
+			readyForInference,
+		);
+		expect(unwrap(done)).toBe(true);
+	}
+
+	// The sub-agent's task as it is now.
+	function taskOf(sub: ThreadRow) {
+		return db.agentTask.findUniqueOrThrow({where: {id: sub.taskId ?? ''}});
+	}
 
 	afterAll(async () => {
 		if (orgId !== '') {
@@ -222,7 +283,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		expect(unwrap(await listOpenJobs(thread.id))).toEqual([]);
 	});
 
-	test('a sub-agent is started as the answer is written, with its task and brief; stops with what it said, which reaches its parent; and is taken up again by a message', async () => {
+	test('a sub-agent is started as the answer is written, with its task and brief; is sent messages as the answer is written, one waking it early; goes on to read one that came while it answered; stops with what it said, which reaches its parent; and is taken up again by a message, its task with it', async () => {
 		const task = {
 			orgId,
 			agentId,
@@ -345,188 +406,230 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			until: later,
 		});
 
-		// The parent answers: its turn, then a message to the sub-agent, which cuts the sleep short.
+		// The parent answers: a message to no such sub-agent, and one to its sub-agent, sent at once, which
+		// wakes the sub-agent from its sleep: the sleep's job is due now, and the message waits for its answer.
 		const answer = unwrap(await claimJob('worker-h', 60_000));
 		if (!answer || answer.threadId !== thread.id || answer.kind !== 'inference') {
 			throw new Error(`expected the parent’s turn, got ${JSON.stringify(answer)}`);
 		}
+		const sent = (subAgent: SubAgentRow | null) =>
+			subAgent
+				? {text: `Sent; it was ${subAgent.state.kind}.`, isError: false}
+				: {text: 'No such sub-agent.', isError: true};
 		unwrap(
 			await completeInference(
 				answer.id,
 				'worker-h',
 				thread.id,
+				parentTurn([
+					{id: 'm0', name: 'send_to_subagent', arguments: '{}'},
+					{id: 'm1', name: 'send_to_subagent', arguments: '{}'},
+				]),
 				{
-					text: '',
-					toolCalls: [{id: 'm1', name: 'send_to_subagent', arguments: '{}'}],
-					inputTokens: 1,
-					outputTokens: 1,
-					system: null,
+					plans: {
+						m0: {
+							kind: 'send_to_subagent',
+							subAgentId: 'no-such-thread',
+							entry: say('Hello?'),
+							sent,
+						},
+						m1: {kind: 'send_to_subagent', subAgentId: sub.id, entry: say('The shared one.'), sent},
+					},
 				},
-				{plans: {m1: {kind: 'job', runAt: new Date()}}},
 				readyForInference,
 			),
 		);
-		const send = unwrap(await claimJob('worker-i', 60_000));
-		if (!send || send.kind !== 'tool' || send.callId !== 'm1') {
-			throw new Error(`expected the message’s job, got ${JSON.stringify(send)}`);
+		expect(
+			unwrap(await listEntries(thread.id))
+				.slice(-2)
+				.map((entry) => [entry.callId, entry.text, entry.isError]),
+		).toEqual([
+			['m0', 'No such sub-agent.', true],
+			['m1', 'Sent; it was asleep.', false],
+		]);
+		expect(unwrap(await listSubAgents(thread.id))[0]?.state).toEqual({kind: 'working'});
+		expect(unwrap(await listEntries(sub.id))).toHaveLength(3);
+
+		// The sleep answers as any wake-up does, and the message follows it; the parent's turn, woken by
+		// the answers, ends.
+		const woken = await claimBoth('worker-i', sub.id);
+		if (woken.sub.kind !== 'tool' || woken.sub.callId !== 'z1') {
+			throw new Error(`expected the sleep’s job, got ${JSON.stringify(woken.sub)}`);
 		}
-		const message = {
-			entry: {kind: 'person' as const, text: 'The shared one.'},
-			wokenEarly: 'Woken early.',
-		};
-		expect(
-			unwrap(
-				await sendToSubAgent(
-					send.id,
-					'worker-i',
-					thread,
-					'no-such-thread',
-					message,
-					readyForInference,
-				),
-			),
-		).toBeNull();
-		expect(
-			unwrap(await sendToSubAgent(send.id, 'worker-i', thread, sub.id, message, readyForInference)),
-		).toMatchObject({id: sub.id, state: {kind: 'asleep'}});
 		unwrap(
 			await completeToolJob(
-				send.id,
+				woken.sub.id,
 				'worker-i',
-				thread.id,
-				{callId: 'm1', text: 'Sent.', isError: false},
+				sub.id,
+				{callId: 'z1', text: 'Woken.', isError: false},
 				readyForInference,
 			),
 		);
+		await endParentTurn(woken.parent, 'worker-i');
 		expect(
 			unwrap(await listEntries(sub.id))
 				.slice(3)
 				.map((entry) => [entry.kind, entry.callId, entry.text]),
 		).toEqual([
-			['tool_result', 'z1', 'Woken early.'],
+			['tool_result', 'z1', 'Woken.'],
 			['person', null, 'The shared one.'],
 		]);
-		expect(unwrap(await listSubAgents(thread.id))[0]?.state).toEqual({kind: 'working'});
 
-		// The sub-agent's next turn stops it: its task is finished with the outcome, and the parent told what it said.
+		// While the sub-agent's turn runs, the person speaks and the parent sends it more: the message waits.
 		const next = unwrap(await claimJob('worker-j', 60_000));
 		if (!next || next.threadId !== sub.id || next.kind !== 'inference') {
 			throw new Error(`expected the sub-agent’s turn, got ${JSON.stringify(next)}`);
 		}
+		unwrap(await appendPersonMessage(thread.id, 'Also September', readyForInference));
+		const relay = unwrap(await claimJob('worker-k', 60_000));
+		if (!relay || relay.threadId !== thread.id) {
+			throw new Error(`expected the parent’s turn, got ${JSON.stringify(relay)}`);
+		}
+		unwrap(
+			await completeInference(
+				relay.id,
+				'worker-k',
+				thread.id,
+				parentTurn([{id: 'm2', name: 'send_to_subagent', arguments: '{}'}]),
+				{
+					plans: {
+						m2: {
+							kind: 'send_to_subagent',
+							subAgentId: sub.id,
+							entry: say('Any from September?'),
+							sent,
+						},
+					},
+				},
+				readyForInference,
+			),
+		);
+		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
+			callId: 'm2',
+			text: 'Sent; it was working.',
+		});
+
+		// The sub-agent answers without calls: a message came meanwhile, so it goes on to read it, its task
+		// under way, and the parent is told what it said, going on.
 		unwrap(
 			await completeInference(
 				next.id,
 				'worker-j',
 				sub.id,
-				{
-					text: 'Three invoices from Dana.',
-					toolCalls: [],
-					inputTokens: 1,
-					outputTokens: 1,
-					system: null,
-				},
-				{
-					stop: {
-						outcome: 'Three invoices from Dana.',
-						said: {text: 'Three invoices from Dana. (Stopped.)', isError: false},
-					},
-				},
+				subTurn('Three invoices from Dana.'),
+				{stop: stop('Three invoices from Dana.')},
 				readyForInference,
 			),
 		);
-		expect(unwrap(await listSubAgents(thread.id))[0]?.state).toEqual({kind: 'stopped'});
 		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
 			kind: 'event',
 			callId: 's1',
-			text: 'Three invoices from Dana. (Stopped.)',
-			isError: false,
+			text: 'Three invoices from Dana.',
 		});
-		expect(await db.agentTask.findUniqueOrThrow({where: {id: sub.taskId ?? ''}})).toMatchObject({
-			outcome: 'Three invoices from Dana.',
-			finishedAt: expect.any(Date),
-		});
-
-		// A stopped sub-agent takes a message up: its thread is woken, nothing else.
-		const again = unwrap(await claimJob('worker-k', 60_000));
-		if (!again || again.threadId !== thread.id) {
-			throw new Error(`expected the parent’s turn, got ${JSON.stringify(again)}`);
-		}
-		unwrap(
-			await completeInference(
-				again.id,
-				'worker-k',
-				thread.id,
-				{
-					text: '',
-					toolCalls: [{id: 'm2', name: 'send_to_subagent', arguments: '{}'}],
-					inputTokens: 1,
-					outputTokens: 1,
-					system: null,
-				},
-				{plans: {m2: {kind: 'job', runAt: new Date()}}},
-				readyForInference,
-			),
-		);
-		const send2 = unwrap(await claimJob('worker-l', 60_000));
-		if (!send2 || send2.callId !== 'm2') {
-			throw new Error(`expected the message’s job, got ${JSON.stringify(send2)}`);
-		}
-		const followUp = {
-			entry: {kind: 'person' as const, text: 'Any from September?'},
-			wokenEarly: 'Woken early.',
-		};
-		expect(
-			unwrap(
-				await sendToSubAgent(send2.id, 'worker-l', thread, sub.id, followUp, readyForInference),
-			),
-		).toMatchObject({state: {kind: 'stopped'}});
-		expect(unwrap(await listSubAgents(thread.id))[0]?.state).toEqual({kind: 'working'});
 		expect(unwrap(await listEntries(sub.id)).at(-1)).toMatchObject({
 			kind: 'person',
 			text: 'Any from September?',
 		});
+		expect(await taskOf(sub)).toMatchObject({finishedAt: null, outcome: null});
+
+		// It answers again with nothing come meanwhile: it stops, its task finished with the outcome, and
+		// the parent is told, with the note that it stopped.
+		const goingOn = await claimBoth('worker-l', sub.id);
+		await endParentTurn(goingOn.parent, 'worker-l');
 		unwrap(
-			await completeToolJob(
-				send2.id,
+			await completeInference(
+				goingOn.sub.id,
 				'worker-l',
-				thread.id,
-				{callId: 'm2', text: 'Sent.', isError: false},
+				sub.id,
+				subTurn('Two from September.'),
+				{stop: stop('Two from September.')},
 				readyForInference,
 			),
 		);
+		expect(unwrap(await listSubAgents(thread.id))[0]?.state).toEqual({kind: 'stopped'});
+		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
+			kind: 'event',
+			callId: 's1',
+			text: 'Two from September. (Stopped.)',
+			isError: false,
+		});
+		expect(await taskOf(sub)).toMatchObject({
+			outcome: 'Two from September.',
+			finishedAt: expect.any(Date),
+		});
 
-		// A sub-agent whose turn failed stops with the failure, which reaches its parent as an error.
-		const failing = unwrap(await claimJob('worker-m', 60_000));
-		if (!failing || failing.threadId !== sub.id) {
-			throw new Error(`expected the sub-agent’s turn, got ${JSON.stringify(failing)}`);
+		// A stopped sub-agent takes a message up: its thread is woken, and its task is under way again.
+		const followUp = unwrap(await claimJob('worker-m', 60_000));
+		if (!followUp || followUp.threadId !== thread.id) {
+			throw new Error(`expected the parent’s turn, got ${JSON.stringify(followUp)}`);
 		}
 		unwrap(
-			await failJob(
-				failing.id,
+			await completeInference(
+				followUp.id,
 				'worker-m',
-				'boom',
-				() => ({
-					kind: 'stop',
-					stop: {
-						outcome: 'The sub-agent failed: boom',
-						said: {text: 'The sub-agent failed: boom', isError: true},
+				thread.id,
+				parentTurn([{id: 'm3', name: 'send_to_subagent', arguments: '{}'}]),
+				{
+					plans: {
+						m3: {
+							kind: 'send_to_subagent',
+							subAgentId: sub.id,
+							entry: say('Any from August?'),
+							sent,
+						},
 					},
-				}),
+				},
+				readyForInference,
+			),
+		);
+		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
+			callId: 'm3',
+			text: 'Sent; it was stopped.',
+		});
+		expect(unwrap(await listSubAgents(thread.id))[0]?.state).toEqual({kind: 'working'});
+		expect(await taskOf(sub)).toMatchObject({finishedAt: null, outcome: null});
+
+		// A sub-agent whose turn failed stops with the failure, which reaches its parent as an error.
+		const failing = await claimBoth('worker-n', sub.id);
+		await endParentTurn(failing.parent, 'worker-n');
+		unwrap(
+			await failJob(
+				failing.sub.id,
+				'worker-n',
+				'boom',
+				() => ({kind: 'stop', stop: stop('The sub-agent failed: boom', true)}),
 				readyForInference,
 			),
 		);
 		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
 			kind: 'event',
 			callId: 's1',
+			text: 'The sub-agent failed: boom (Stopped.)',
+			isError: true,
+		});
+		// Its log has the failure as its answer, so it is not run again until a message comes.
+		expect(unwrap(await listEntries(sub.id)).at(-1)).toMatchObject({
+			kind: 'assistant',
 			text: 'The sub-agent failed: boom',
 			isError: true,
 		});
 		expect(unwrap(await listSubAgents(thread.id))[0]?.state).toEqual({kind: 'stopped'});
+		expect(await taskOf(sub)).toMatchObject({
+			outcome: 'The sub-agent failed: boom',
+			finishedAt: expect.any(Date),
+		});
 
-		// A job that is no longer the worker's sends nothing.
+		// A job that is no longer the worker's writes nothing.
 		expect(
 			unwrap(
-				await sendToSubAgent(send2.id, 'worker-l', thread, sub.id, followUp, readyForInference),
+				await completeInference(
+					failing.sub.id,
+					'worker-n',
+					sub.id,
+					subTurn('Late.'),
+					{stop: stop('Late.')},
+					readyForInference,
+				),
 			),
 		).toBe(false);
 	});

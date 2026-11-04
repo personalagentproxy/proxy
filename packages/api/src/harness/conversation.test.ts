@@ -1,8 +1,8 @@
 import {describe, expect, test} from 'bun:test';
 
-import type {JobRow, ThreadRow} from '@proxy/db/harness';
+import type {JobRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
 
-import {afterAnswer, failureNote, planCall, STOPPED_NOTE, subAgentMessage, subAgentStart, subAgentStop} from './conversation';
+import {afterAnswer, failureNote, planCall, STOPPED_NOTE, subAgentStart, subAgentStop} from './conversation';
 
 const now = new Date('2026-10-21T10:00:00Z');
 // The member's conversation, and a sub-agent started from it.
@@ -41,25 +41,18 @@ describe('a sub-agent', () => {
 		expect(started.task.goal.endsWith('…')).toBe(true);
 	});
 
-	test('stops with what it said, which its task keeps, cut, as the outcome, and the thread it was started from is told, with the note that it stopped', () => {
+	test('stops with what it said, which its task keeps, cut, as the outcome, and the thread it was started from is told, with the note that it stopped, or without it where it goes on', () => {
 		const said = {text: 'y'.repeat(2500), isError: false};
 
-		expect(subAgentStop(said)).toEqual({outcome: `${'y'.repeat(1999)}…`, said: {text: `${said.text}\n\n${STOPPED_NOTE}`, isError: false}});
+		expect(subAgentStop(said)).toEqual({outcome: `${'y'.repeat(1999)}…`, stopped: {text: `${said.text}\n\n${STOPPED_NOTE}`, isError: false}, goingOn: said});
 	});
 
 	test('stops on an answer without calls; any other answer, and any of the conversation, gets its calls as planned', () => {
 		const plans = {c2: {kind: 'job' as const, runAt: now}};
 
-		expect(afterAnswer(sub, {text: 'Three invoices.', toolCalls: []}, {})).toEqual({stop: {outcome: 'Three invoices.', said: {text: `Three invoices.\n\n${STOPPED_NOTE}`, isError: false}}});
+		expect(afterAnswer(sub, {text: 'Three invoices.', toolCalls: []}, {})).toEqual({stop: subAgentStop({text: 'Three invoices.', isError: false})});
 		expect(afterAnswer(sub, {text: '', toolCalls: [{id: 'c2', name: 'read', arguments: '{}'}]}, plans)).toEqual({plans});
 		expect(afterAnswer(conversation, {text: 'Hello', toolCalls: []}, {})).toEqual({plans: {}});
-	});
-
-	test('is sent a message as the brief was said, with what a sleep it cuts short is answered', () => {
-		expect(subAgentMessage('Also the shared mailbox.', now)).toEqual({
-			entry: {kind: 'person', text: 'Also the shared mailbox.'},
-			wokenEarly: 'You were woken before the time you asked for, by a message; it is now 2026-10-21T10:00:00.000Z.',
-		});
 	});
 });
 
@@ -83,11 +76,27 @@ describe('a call is planned', () => {
 		expect(planCall(conversation, call, now)).toEqual({kind: 'job', runAt: now});
 	});
 
+	test('as a message to a sub-agent, sent at once and said as the brief was, answered with what it was up to; as a job from a sub-agent', () => {
+		const call = {id: 'c1', name: 'send_to_subagent', arguments: '{"subagent":" thread-1 ","text":" Also check the shared mailbox. "}'};
+		const plan = planCall(conversation, call, now);
+		if (plan.kind !== 'send_to_subagent') {
+			throw new Error(`expected a message to a sub-agent, got ${plan.kind}`);
+		}
+		expect(plan.subAgentId).toBe('thread-1');
+		expect(plan.entry).toEqual({kind: 'person', text: 'Also check the shared mailbox.'});
+		const was = (state: SubAgentRow['state']): SubAgentRow => ({...sub, state});
+		expect(plan.sent(was({kind: 'stopped'}))).toEqual({text: expect.stringContaining('“Find the invoices”, which had stopped, and takes it up'), isError: false});
+		expect(plan.sent(was({kind: 'asleep', until: now}))).toEqual({text: expect.stringContaining('was asleep, and is woken by it'), isError: false});
+		expect(plan.sent(was({kind: 'working'}))).toEqual({text: expect.stringContaining('is at work, and reads it when its current call is answered'), isError: false});
+		expect(plan.sent(null)).toEqual({text: expect.stringContaining('You have no sub-agent with id thread-1'), isError: true});
+		expect(planCall(conversation, {...call, arguments: '{"subagent":"thread-1"}'}, now)).toEqual({kind: 'answer', text: expect.stringContaining('Give subagent'), isError: true});
+		expect(planCall(sub, call, now)).toEqual({kind: 'job', runAt: now});
+	});
+
 	test('as a sub-agent’s sleep’s job due when it ends, and any other call’s job due now', () => {
 		expect(planCall(sub, {id: 'c1', name: 'sleep_until', arguments: '{"seconds":60}'}, now)).toEqual({kind: 'job', runAt: new Date('2026-10-21T10:01:00Z')});
 		expect(planCall(sub, {id: 'c1', name: 'sleep_until', arguments: '{}'}, now)).toEqual({kind: 'job', runAt: now});
 		expect(planCall(sub, {id: 'c1', name: 'read', arguments: '{}'}, now)).toEqual({kind: 'job', runAt: now});
-		expect(planCall(conversation, {id: 'c1', name: 'send_to_subagent', arguments: '{"subagent":"x","text":"Go"}'}, now)).toEqual({kind: 'job', runAt: now});
 	});
 });
 
@@ -99,7 +108,7 @@ describe('a failed job', () => {
 	test('of a sub-agent’s turn stops it with the failure as what it said', () => {
 		expect(failureNote('Given up after 4 attempts')(turn, sub)).toEqual({
 			kind: 'stop',
-			stop: {outcome: 'The sub-agent failed: Given up after 4 attempts', said: {text: `The sub-agent failed: Given up after 4 attempts\n\n${STOPPED_NOTE}`, isError: true}},
+			stop: subAgentStop({text: 'The sub-agent failed: Given up after 4 attempts', isError: true}),
 		});
 	});
 

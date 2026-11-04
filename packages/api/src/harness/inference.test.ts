@@ -153,10 +153,26 @@ describe('runInference', () => {
 						start: expect.objectContaining({callId: 'c2', title: 'File the invoices', entries: [{kind: 'person', text: 'Save the three invoices from Dana to the vault.'}]}),
 						started: expect.any(Function),
 					},
-					c3: {kind: 'job', runAt: now},
+					c3: {kind: 'send_to_subagent', subAgentId: 'thread-2', entry: {kind: 'person', text: 'Any from before October?'}, sent: expect.any(Function)},
 				},
 			},
 		);
+	});
+
+	test('lists every sub-agent at work or asleep, and of those that have stopped, the latest ten, with how many older ones there are', async () => {
+		const {runInference} = await import('./inference');
+		const stopped = Array.from({length: 13}, (_, index) => ({...sub, id: `stopped-${index}`, state: {kind: 'stopped' as const}}));
+		const working = {...sub, id: 'working-0', state: {kind: 'working' as const}};
+		listSubAgents.mockResolvedValue(Ok([stopped[0], working, ...stopped.slice(1)].filter((subAgent) => subAgent !== undefined)));
+
+		await runInference(store, job, 'w1', now);
+
+		const system = String((askForTurn.mock.calls[0]?.[0] as {messages: Array<{content: string}>}).messages[0]?.content);
+		expect(system).toContain('- 3 older sub-agents that have stopped, not listed');
+		expect(system).toContain('- working-0: “Find the invoices”, at work');
+		expect(system).not.toContain('stopped-2:');
+		expect(system).toContain('- stopped-3: ');
+		expect(system).toContain('- stopped-12: ');
 	});
 
 	test('tells the agent talking with the person when it has no sub-agents yet, and a sub-agent nothing of any', async () => {
@@ -251,7 +267,11 @@ describe('runInference', () => {
 		await runInference(store, {...job, threadId: 'thread-2'}, 'w1', now);
 		// A sub-agent's answer without calls stops it, with that said.
 		expect(completeInference).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-2', expect.objectContaining({text: 'I stopped without saying anything.'}), {
-			stop: {outcome: 'I stopped without saying anything.', said: {text: expect.stringContaining('I stopped without saying anything.'), isError: false}},
+			stop: {
+				outcome: 'I stopped without saying anything.',
+				stopped: {text: expect.stringContaining('I stopped without saying anything.'), isError: false},
+				goingOn: {text: 'I stopped without saying anything.', isError: false},
+			},
 		});
 	});
 
@@ -347,7 +367,11 @@ describe('runInference', () => {
 		getJobThread.mockResolvedValue(Ok(sub));
 		await runInference(store, {...job, threadId: 'thread-2'}, 'w1', now);
 		expect(completeInference).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-2', expect.objectContaining({text: expect.stringContaining('not a complete answer')}), {
-			stop: {outcome: expect.stringContaining('not a complete answer'), said: {text: expect.stringContaining('not a complete answer'), isError: false}},
+			stop: {
+				outcome: expect.stringContaining('not a complete answer'),
+				stopped: {text: expect.stringContaining('not a complete answer'), isError: false},
+				goingOn: {text: expect.stringContaining('not a complete answer'), isError: false},
+			},
 		});
 	});
 

@@ -17,12 +17,12 @@ import {toolsFor} from './tool-surface';
  * answered, and changes under it only by what the job itself writes (db/harness). Its answer goes
  * in the log as an assistant entry, with each call it made planned (conversation.ts planCall): a
  * tool job, due now or, for a sleep, when the sleep ends; or an answer at once, which is what
- * starting a sub-agent gets, with its id, and a message to the agent a sub-agent works for, and a
- * call with arguments that are no good. A log that has grown long is first summarized, in a
+ * starting a sub-agent gets, with its id, a message to one, with what it was up to, a message to
+ * the agent a sub-agent works for, and a call with arguments that are no good. A log that has grown long is first summarized, in a
  * summary entry the model reads in place of what it covers. A model that can't be reached is tried
  * again a few times, then the person is told; any other failure fails the job, which tells them
- * too (conversation.ts failureNote). A sub-agent's answer with no calls stops its work for now, and
- * goes to the agent it works for. An answer of nothing, no words and no calls, is written as that
+ * too (conversation.ts failureNote). A sub-agent's answer with no calls goes to the agent it works
+ * for, and stops its work for now, unless a message came while it answered. An answer of nothing, no words and no calls, is written as that
  * said: the person would otherwise see nothing, and the model refuses a log with an empty turn in
  * it. The answer is written with the system prompt the model was sent, which is built from the
  * login's grants as they are then and, for the agent talking with the person, its sub-agents as
@@ -41,7 +41,7 @@ const MAIN_FLOW =
 // How a sub-agent is to go about it: a brief, its tools, messages to and from the agent it works
 // for, and an answer when it stops.
 const SUB_FLOW =
-	'You are a sub-agent of the agent talking with the person on the Chat page of Personal Agent Proxy. The first message is your brief from it, and every later message is from it too: the person never reads what you write, and only that agent does. list_connections lists the accounts you can use and what you may do with each. list_tools with a connection gives that connection’s tools and the params each takes. Don’t guess a tool’s params: where these instructions don’t give them, call list_tools for the connection before you first read or run one of its tools. read runs the tools that only read; run runs the ones that change something or reach other people. Every call is made for your task, filled in for you: there is nothing to start or finish. send_to_parent sends the agent a message while you go on working: a question you can’t do the brief without, how far you have got where the work takes long, or something it should know before you are done; its answer comes as a message, so after a question with nothing else to do, stop and wait for it. Don’t send what your answer will say. When you have called sleep_until, you are woken at that time, or earlier by a message, with nothing but this log, so say in your message what you will do then. Your first message without a tool call is your answer, handed to the agent as it is, and stops your work for now: say what you did and found, with the names, ids, dates and numbers that matter, and what you could not do; nothing else. You keep this log, and a later message from the agent takes you up again where you left off: do what it says with what you already have, and answer again. A long log is summarized for you as it goes: take a summary as what happened.';
+	'You are a sub-agent of the agent talking with the person on the Chat page of Personal Agent Proxy. The first message is your brief from it, and every later message is from it too: the person never reads what you write, and only that agent does. list_connections lists the accounts you can use and what you may do with each. list_tools with a connection gives that connection’s tools and the params each takes. Don’t guess a tool’s params: where these instructions don’t give them, call list_tools for the connection before you first read or run one of its tools. read runs the tools that only read; run runs the ones that change something or reach other people. Every call is made for your task, filled in for you: there is nothing to start or finish. send_to_parent sends the agent a message while you go on working: how far you have got where the work takes long, or something it should know before you are done. Don’t send what your answer will say. To ask something you can’t go on without, answer with the question and no tool call: that stops you, and the agent’s reply takes you up again. When you have called sleep_until, you are woken at that time, or earlier by a message, with nothing but this log, so say in your message what you will do then. Your first message without a tool call is your answer, handed to the agent as it is, and stops your work for now: say what you did and found, with the names, ids, dates and numbers that matter, and what you could not do; nothing else. You keep this log, and a later message from the agent takes you up again where you left off: do what it says with what you already have, and answer again. A long log is summarized for you as it goes: take a summary as what happened.';
 
 // How a long log is summarized, by the same model, for itself: a conversation's, or a
 // sub-agent's, whose messages from the person are from the agent it works for.
@@ -117,13 +117,23 @@ function rosterLine(subAgent: SubAgentRow): string {
 	return `- ${subAgent.id}: “${subAgent.title ?? ''}”, ${doing}`;
 }
 
-// The main agent's sub-agents, for its system prompt: what it has started so far, by id, and what
-// each is doing now, which a summary of the conversation might have lost.
+// How many of the sub-agents that have stopped the roster lists, the latest: a long conversation
+// starts more than its prompt should carry, and those at work or asleep are listed whatever their
+// number.
+const MAX_STOPPED_LISTED = 10;
+
+// The main agent's sub-agents, for its system prompt: what it has started, by id, and what each
+// is doing now, which a summary of the conversation might have lost; of those that have stopped,
+// the latest, with how many older ones there are.
 function roster(subAgents: SubAgentRow[]): string {
 	if (subAgents.length === 0) {
 		return 'You have started no sub-agents yet.';
 	}
-	return `Your sub-agents, each by the id send_to_subagent takes:\n${subAgents.map(rosterLine).join('\n')}`;
+	const stopped = subAgents.filter((subAgent) => subAgent.state.kind === 'stopped');
+	const unlisted = new Set(stopped.slice(0, -MAX_STOPPED_LISTED).map((subAgent) => subAgent.id));
+	const listed = subAgents.filter((subAgent) => !unlisted.has(subAgent.id)).map(rosterLine);
+	const older = unlisted.size === 0 ? [] : [`- ${unlisted.size} older sub-agents that have stopped, not listed; a message to one by its id still takes it up again`];
+	return `Your sub-agents, each by the id send_to_subagent takes:\n${[...older, ...listed].join('\n')}`;
 }
 
 // Why the model couldn't be reached, for the job's record.

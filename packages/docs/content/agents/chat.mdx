@@ -21,9 +21,9 @@ The agent you talk with does nothing to your accounts itself. It hands each piec
 sub-agent: an agent with the same access, started on a brief, which does the work and answers.
 The two keep talking: a sub-agent can ask the agent a question or say how far it has got while it
 works, and the agent can send it more to do, or a follow-up to what it found, since the sub-agent
-keeps everything it did and found. Each stretch of a sub-agent's work is a task in the activity
-log, titled as the agent titled the sub-agent, with every call it made under it and what it
-answered as the outcome.
+keeps everything it did and found. A sub-agent's work is one task in the activity log, titled as
+the agent titled the sub-agent, with every call it made under it: finished, with what it answered
+as the outcome, each time the sub-agent stops, and under way again when a message takes it up.
 
 What it does differently from an agent you connect is where it runs: in Personal Agent Proxy, not
 on another company's servers. The model is Claude Sonnet 5.5, reached through OpenRouter with a
