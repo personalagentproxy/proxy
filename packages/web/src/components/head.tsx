@@ -1,7 +1,18 @@
-import {useEffect, useRef} from 'react';
+import {useCallback, useEffect, useRef} from 'react';
 import type {Look} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
-import {FACING, loadStage, paintHead, pixels, type Pose, REST} from '@/lib/head';
+import {
+	FACING,
+	FIRST_HOVER_DURATION_MS,
+	followAmount,
+	followTime,
+	loadStage,
+	paintHead,
+	pixels,
+	poseTowardPointer,
+	type Pose,
+	REST,
+} from '@/lib/head';
 
 // A persona's head, drawn as the head lab draws it (lib/head.ts). It is decorative: the text
 // beside one always names it.
@@ -58,13 +69,6 @@ export function Head({
 	);
 }
 
-// How far the head turns toward the cursor, in degrees, at the edge of the window, and how fast
-// it follows: the share of the way it goes each frame.
-const TURN = 45;
-const NOD = 30;
-const TILT = 10;
-const FOLLOW = 0.15;
-
 // Where the pointer last was on the page, from any move or press since the app loaded, so a head
 // that appears, as in a dialog opened by a click, looks at it from its first frame rather than
 // waiting for the pointer to move again; and the live heads on the page, each set going again as
@@ -82,40 +86,46 @@ if (typeof window !== 'undefined') {
 	window.addEventListener('pointerdown', note, {passive: true});
 }
 
-function clamp(value: number): number {
-	return Math.max(-1, Math.min(1, value));
-}
-
 // Where the head should look to meet the pointer: turned and nodded toward it by how far it is
-// from the head across the window, tilted a little with the turn; at you while the pointer is
-// unknown.
-function toward(canvas: HTMLCanvasElement): Pose {
+// from the head across its own bounds, tilted a little with the turn; at you while the pointer is
+// unknown. Live heads only watch while hovered, so their bounds are the full available range.
+function toward(canvas: HTMLCanvasElement, tracking: 'head' | 'viewport'): Pose {
 	if (pointer === null) {
 		return {...FACING};
 	}
-	const box = canvas.getBoundingClientRect();
-	const dx = clamp((pointer.x - (box.left + box.width / 2)) / (window.innerWidth / 2));
-	const dy = clamp((pointer.y - (box.top + box.height / 2)) / (window.innerHeight / 2));
-	return {rotX: dy * NOD, rotY: FACING.rotY + dx * TURN, rotZ: -dx * TILT};
+	const bounds = canvas.getBoundingClientRect();
+	if (tracking === 'head') {
+		return poseTowardPointer(pointer, bounds);
+	}
+	return poseTowardPointer(pointer, bounds, {
+		width: window.innerWidth,
+		height: window.innerHeight,
+	});
 }
 
 /**
  * A head that looks at the cursor while `watching`: facing you, turning toward the pointer
- * wherever it goes on the page; not watching, it settles back to rest. Either way it is drawn
- * only while it has somewhere to go: once it is where it should look, it stays, drawn no more
- * until the pointer moves, or it is to look elsewhere.
+ * wherever it goes on the page; once it stops watching, it settles back to rest. Either way it is
+ * drawn only while it has somewhere to go: once it is where it should look, it stays, drawn no
+ * more until the pointer moves, or it is to look elsewhere.
  */
 export function LiveHead({
 	look,
 	color,
 	size,
 	watching = true,
+	tracking = 'viewport',
+	recallPose,
+	rememberPose,
 	className,
 }: {
 	look: Look;
 	color: string;
 	size: number;
 	watching?: boolean;
+	tracking?: 'head' | 'viewport';
+	recallPose?: () => Pose | null;
+	rememberPose?: (pose: Pose) => void;
 	className?: string;
 }) {
 	const ref = useRef<HTMLCanvasElement>(null);
@@ -124,12 +134,37 @@ export function LiveHead({
 	// and as the pointer moves.
 	const spec = useRef({look, color});
 	const watch = useRef(watching);
+	const trackingMode = useRef(tracking);
+	const memory = useRef({recallPose, rememberPose});
+	const firstHoverUntil = useRef(0);
 	const wake = useRef<(() => void) | null>(null);
+	const wakeFromPointer = useCallback(() => {
+		if (!watch.current) {
+			return;
+		}
+		wake.current?.();
+	}, []);
 	useEffect(() => {
+		memory.current = {recallPose, rememberPose};
+	}, [recallPose, rememberPose]);
+	useEffect(() => {
+		if (!watch.current && watching) {
+			firstHoverUntil.current = performance.now() + FIRST_HOVER_DURATION_MS;
+		}
+		if (!watching) {
+			firstHoverUntil.current = 0;
+		}
 		spec.current = {look, color};
 		watch.current = watching;
+		trackingMode.current = tracking;
+		if (watching) {
+			wakers.add(wakeFromPointer);
+		}
+		if (!watching) {
+			wakers.delete(wakeFromPointer);
+		}
 		wake.current?.();
-	}, [look, color, watching]);
+	}, [look, color, tracking, wakeFromPointer, watching]);
 	useEffect(() => {
 		const canvas = ref.current;
 		if (!canvas) {
@@ -138,9 +173,11 @@ export function LiveHead({
 		let current = true;
 		let running = false;
 		let frame = 0;
-		// Starts looking at the pointer, or at rest, then goes a share of the way to where it
-		// should look each frame.
-		const pose = watch.current ? toward(canvas) : {...REST};
+		let lastFrame = performance.now();
+		// Starts looking at the pointer, or at rest, then eases toward where it should look.
+		const pose =
+			memory.current.recallPose?.() ??
+			(watch.current ? toward(canvas, trackingMode.current) : {...REST});
 		void loadStage().then((stage) => {
 			if (!current || !stage) {
 				return;
@@ -149,7 +186,10 @@ export function LiveHead({
 				if (!current) {
 					return;
 				}
-				const target = watch.current ? toward(canvas) : REST;
+				const now = performance.now();
+				const elapsed = Math.min(now - lastFrame, 50);
+				lastFrame = now;
+				const target = watch.current ? toward(canvas, trackingMode.current) : REST;
 				const settled =
 					Math.abs(target.rotX - pose.rotX) < 0.05 &&
 					Math.abs(target.rotY - pose.rotY) < 0.05 &&
@@ -158,11 +198,16 @@ export function LiveHead({
 					Object.assign(pose, target);
 				}
 				if (!settled) {
-					pose.rotX += (target.rotX - pose.rotX) * FOLLOW;
-					pose.rotY += (target.rotY - pose.rotY) * FOLLOW;
-					pose.rotZ += (target.rotZ - pose.rotZ) * FOLLOW;
+					const amount = followAmount(
+						elapsed,
+						followTime(watch.current, now, firstHoverUntil.current),
+					);
+					pose.rotX += (target.rotX - pose.rotX) * amount;
+					pose.rotY += (target.rotY - pose.rotY) * amount;
+					pose.rotZ += (target.rotZ - pose.rotZ) * amount;
 				}
-				paintHead(stage, canvas, spec.current, pose, pixels(size), true);
+				memory.current.rememberPose?.({...pose});
+				paintHead(stage, canvas, spec.current, pose, pixels(size), watch.current || !settled);
 				if (settled) {
 					running = false;
 					return;
@@ -174,24 +219,27 @@ export function LiveHead({
 					return;
 				}
 				running = true;
+				lastFrame = performance.now();
 				frame = requestAnimationFrame(tick);
 			};
-			wakers.add(wake.current);
+			if (watch.current) {
+				wakers.add(wakeFromPointer);
+			}
 			wake.current();
 		});
 		return () => {
 			current = false;
-			if (wake.current) {
-				wakers.delete(wake.current);
-			}
+			wakers.delete(wakeFromPointer);
 			wake.current = null;
 			cancelAnimationFrame(frame);
 		};
-	}, [size]);
+	}, [size, wakeFromPointer]);
 	return (
 		<canvas
 			ref={ref}
 			aria-hidden
+			data-slot="live-head"
+			data-state={watching ? 'watching' : 'rest'}
 			className={cn('shrink-0', className)}
 			style={{width: size, height: size}}
 		/>

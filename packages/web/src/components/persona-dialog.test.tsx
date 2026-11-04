@@ -2,11 +2,7 @@
 
 import {afterEach, describe, expect, mock, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
-
-// Both of what it exports, since the mock outlives this file for those that run after it.
-mock.module('@/components/head', () => ({Head: () => null, LiveHead: () => null}));
-
-const {PersonaDialog} = await import('@/components/persona-dialog');
+import {PersonaDialog} from '@/components/persona-dialog';
 
 afterEach(() => {
 	cleanup();
