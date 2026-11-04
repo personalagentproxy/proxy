@@ -27,6 +27,7 @@ import {
 
 import {callCustomTool} from '../connections/custom/custom-mcp';
 import {apiIntegration} from '../connections/integrations';
+import {toolMetrics} from '../observability/metrics';
 import {needsSignIn, signInNeededError, unavailableActions, unavailableError} from '../connections/unavailable';
 import {isRecordStore, type Connector, type DataRecord, type RecordStore, type RecordTarget, type RecordValues} from '../records/connector';
 import {connectorFor} from '../records/connectors';
@@ -154,8 +155,21 @@ function recordTitle(collection: Collection, values: RecordValues): string | nul
 
 type Outcome = 'allowed' | 'denied' | 'failed';
 
+// The metrics' side of an entry: the kind of error alone of what went wrong, never the status.
+function recordToolCall(caller: TaskCaller, connection: ConnectionRow, action: string, outcome: Outcome, startedAt: number, error?: string): void {
+	toolMetrics.recordToolCall({
+		surface: caller.via,
+		integration: connection.integrationId,
+		action,
+		outcome,
+		durationMs: Date.now() - startedAt,
+		errorKind: error?.split(' ')[0],
+	});
+}
+
 // `query` is what a list searched for, and `error` what went wrong, for a failed run.
 function log(run: ToolRun, outcome: Outcome, title: string | null, query: string | null = null, error?: string): Promise<Result<void, ApiError>> {
+	recordToolCall(run.caller, run.target.connection, run.tool.operation, outcome, run.startedAt, error);
 	return logAgentRequest({
 		orgId: run.caller.agent.orgId,
 		agentId: run.caller.agent.agentId,
@@ -307,8 +321,9 @@ function runParamsTool(
 			return $(Err(ApiErr.validationError(`${tool.name} takes an object of params`)));
 		}
 		const logged = loggedParams(args);
-		const logRun = (outcome: Outcome, error?: string) =>
-			logAgentRequest({
+		const logRun = (outcome: Outcome, error?: string) => {
+			recordToolCall(caller, connection, tool.action, outcome, startedAt, error);
+			return logAgentRequest({
 				orgId: caller.agent.orgId,
 				agentId: caller.agent.agentId,
 				connectionId: connection.id,
@@ -323,6 +338,7 @@ function runParamsTool(
 				startedAt,
 				error,
 			});
+		};
 		const unavailable = unavailableActions(connection);
 		const actions = actionsOf(agent, connection, integration, unavailable);
 		const missing = [tool.action, tool.requires].find((actionId) => actionId !== undefined && !actions.includes(actionId));

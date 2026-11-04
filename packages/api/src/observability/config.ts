@@ -3,7 +3,7 @@ import {fileURLToPath} from 'node:url';
 
 import {config} from 'dotenv';
 
-import type {EnvLabel, LokiConfig} from '@proxy/observability';
+import type {EnvLabel, LokiConfig, MetricsConfig} from '@proxy/observability';
 
 /**
  * What the logger needs of the environment, read here and not from utils/env.ts: that parses the
@@ -27,5 +27,12 @@ export const envLabel: EnvLabel = read('NODE_ENV') === 'production' ? 'productio
 export const lokiConfig: LokiConfig = {
 	url: read('LOKI_URL').replace(/\/+$/, ''),
 	userId: read('LOKI_USER_ID'),
+	token: read('GRAFANA_CLOUD_TOKEN'),
+};
+
+/** Grafana Cloud's OTLP gateway, where the api pushes its metrics when set; nothing is pushed otherwise. */
+export const metricsConfig: Pick<MetricsConfig, 'url' | 'userId' | 'token'> = {
+	url: read('METRICS_OTLP_URL'),
+	userId: read('METRICS_USER_ID'),
 	token: read('GRAFANA_CLOUD_TOKEN'),
 };

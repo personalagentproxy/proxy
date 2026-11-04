@@ -8,6 +8,7 @@ import type {ApiError} from '@proxy/utils';
 import type {JobRow} from '@proxy/db/harness';
 
 import {log, serializeError} from '../observability/log';
+import {agentMetrics} from '../observability/metrics';
 import {runInContext} from '../observability/request-context';
 import {failureNote} from './conversation';
 import {type InferenceStore, runInference} from './inference';
@@ -79,10 +80,16 @@ async function runClaimed(store: WorkerStore, job: JobRow, workerId: string): Pr
 	const renewal = setInterval(() => {
 		void store.renewLease(job.id, workerId, LEASE_MS);
 	}, RENEW_MS);
+	const startedAt = performance.now();
 	const result = await Result.wrapAsync(() => run(store, job, workerId));
 	clearInterval(renewal);
 	const thrown = result.isErr() ? result.error : null;
 	const failed = result.isOk() && result.value.isErr() ? result.value.error : null;
+	agentMetrics.recordJob({
+		kind: job.kind,
+		status: thrown !== null ? 'thrown' : failed !== null ? 'failed' : 'done',
+		durationMs: Math.round(performance.now() - startedAt),
+	});
 	if (thrown === null && failed === null) {
 		return;
 	}

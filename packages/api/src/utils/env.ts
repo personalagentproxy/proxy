@@ -38,4 +38,6 @@ export const env = envSchema.parse({
 	LOKI_URL: read('LOKI_URL'),
 	LOKI_USER_ID: read('LOKI_USER_ID'),
 	GRAFANA_CLOUD_TOKEN: read('GRAFANA_CLOUD_TOKEN'),
+	METRICS_OTLP_URL: read('METRICS_OTLP_URL'),
+	METRICS_USER_ID: read('METRICS_USER_ID'),
 });

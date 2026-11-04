@@ -1,9 +1,10 @@
 import {afterEach, describe, expect, it, mock} from 'bun:test';
 
-import {ApiErr, setDbLogger, wrapDb} from './api-error';
+import {ApiErr, setDbLogger, setDbMetrics, wrapDb} from './api-error';
 
 afterEach(() => {
 	setDbLogger(undefined);
+	setDbMetrics(undefined);
 });
 
 describe('wrapDb', () => {
@@ -23,6 +24,21 @@ describe('wrapDb', () => {
 			'db query failed',
 			expect.objectContaining({errorKind: 'db_error'}),
 		);
+	});
+
+	it('records every query, with the kind of error of a failed one', async () => {
+		const recordQuery = mock();
+		setDbMetrics({recordQuery});
+
+		await wrapDb(async () => 1);
+		await wrapDb(async () => Promise.reject(ApiErr.forbidden()));
+
+		expect(recordQuery).toHaveBeenNthCalledWith(1, {success: true, durationMs: expect.any(Number)});
+		expect(recordQuery).toHaveBeenNthCalledWith(2, {
+			success: false,
+			durationMs: expect.any(Number),
+			errorKind: 'forbidden',
+		});
 	});
 
 	it('passes a thrown ApiError through', async () => {

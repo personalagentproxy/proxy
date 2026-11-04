@@ -155,6 +155,15 @@ export const envSchema = z.object({
 		group: 'Observability',
 		description: 'A Grafana Cloud access policy token that may write logs and metrics.',
 	}),
+	METRICS_OTLP_URL: documented(z.url().optional(), {
+		group: 'Observability',
+		description:
+			'Pushes the api’s metrics, such as request and query counts and latencies, to Grafana Cloud, with `METRICS_USER_ID` and `GRAFANA_CLOUD_TOKEN`: the stack’s OTLP metrics address, such as `https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/metrics`. Unset, nothing is pushed.',
+	}),
+	METRICS_USER_ID: documented(z.string().min(1).optional(), {
+		group: 'Observability',
+		description: 'The numeric instance id of the Grafana Cloud stack’s OTLP gateway, from its details page.',
+	}),
 
 	ALLOW_PRIVATE_HOSTS: documented(
 		z

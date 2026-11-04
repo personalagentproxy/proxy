@@ -10,6 +10,8 @@ import {startAlertSweeper, type AlertSweeper} from './harness/alert-sweep';
 import {startHarnessWorker, type HarnessWorker} from './harness/worker';
 import {startSandboxSweeper} from './native/sandbox/sweeper';
 import {log, serializeError} from './observability/log';
+import {metrics} from './observability/metrics';
+import {startProbes} from './observability/probes';
 import {createHttpApp} from './server/create-http-app';
 import {startTelemetry} from './telemetry';
 import {env} from './utils/env';
@@ -29,6 +31,7 @@ async function startApiServer(): Promise<void> {
 		process.exit(1);
 	}
 	startTelemetry();
+	startProbes();
 	let worker: HarnessWorker | null = null;
 	let sweeper: AlertSweeper | null = null;
 
@@ -59,7 +62,7 @@ async function startApiServer(): Promise<void> {
 			log.error('Failed to disconnect Prisma', serializeError(disconnectResult.error));
 		}
 
-		await log.shutdown();
+		await Promise.all([metrics.shutdown(), log.shutdown()]);
 		process.exit(0);
 	};
 
