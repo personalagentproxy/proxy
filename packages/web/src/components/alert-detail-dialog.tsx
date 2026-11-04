@@ -69,7 +69,7 @@ function AlertDetailContent({alert}: {alert: Alert}) {
 				<DialogTitle className="pr-8 leading-snug break-words">{alert.title}</DialogTitle>
 				<DialogDescription>
 					{alert.at === null
-						? `Watching ${collection}, every ten minutes`
+						? `Watching ${collection}`
 						: `Once, ${formatMoment(alert.at)}`}
 				</DialogDescription>
 			</DialogHeader>
