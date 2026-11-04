@@ -3,8 +3,8 @@ import {randomBytes} from 'node:crypto';
 import {Err, type Result} from 'ts-results-es';
 import type {z} from 'zod';
 
-import {ApiErr, type ApiError, type ChatModel, Do, type Experiment, parseSchema, requirePresent} from '@proxy/utils';
-import {chatModelBodySchema, type Invitation, inviteBodySchema, type Member, type memberListSchema, type Org, type orgListSchema, orgNameBodySchema} from '@proxy/contracts/orgs';
+import {ApiErr, type ApiError, Do, type Experiment, parseSchema, requirePresent} from '@proxy/utils';
+import {type Invitation, inviteBodySchema, type Member, type memberListSchema, type Org, type orgListSchema, orgNameBodySchema} from '@proxy/contracts/orgs';
 import {listOrgConnectionsWithCredential, listOwnConnectionsWithCredential} from '@proxy/db/connection';
 import {createInvitation, deleteInvitation, listInvitations, type InvitationRow} from '@proxy/db/invitation';
 import {
@@ -15,7 +15,6 @@ import {
 	markOrganizationOnboarded,
 	removeMembership,
 	renameOrganization,
-	setOrganizationChatModel,
 	type MemberRow,
 	type UserOrgRow,
 } from '@proxy/db/organization';
@@ -42,8 +41,8 @@ import {NAMED_AFTER_ORGANIZATION} from './starter-connections';
 // How long an invitation's link works.
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-function toOrg(row: UserOrgRow, experiments: Experiment[], chatModel: ChatModel | null): Org {
-	return {id: row.id, slug: row.slug, name: row.name, role: row.role, onboarded: row.onboarded, experiments, chatModel, memberCount: row.memberCount, invitationCount: row.invitationCount};
+function toOrg(row: UserOrgRow, experiments: Experiment[], insider: boolean): Org {
+	return {id: row.id, slug: row.slug, name: row.name, role: row.role, onboarded: row.onboarded, experiments, insider, memberCount: row.memberCount, invitationCount: row.invitationCount};
 }
 
 function toMember(row: MemberRow): Member {
@@ -56,12 +55,12 @@ function toInvitation(row: InvitationRow): Invitation {
 
 /**
  * `GET /api/orgs`: the person's organizations, the first one joined first, for the switcher and
- * for where the app opens with no organization in its address. The experiments and the chat
- * model are each organization's own page's to say (`GET /api/orgs/:org`); here they are left out.
+ * for where the app opens with no organization in its address. The experiments and whether it is
+ * an insider are each organization's own page's to say (`GET /api/orgs/:org`); here they are left out.
  */
 export function handleListOrgsRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof orgListSchema>, ApiError>> {
 	return Do(async ($) => {
-		return {orgs: $(await listUserOrgs(request.user.userId)).map((org) => toOrg(org, [], null))};
+		return {orgs: $(await listUserOrgs(request.user.userId)).map((org) => toOrg(org, [], false))};
 	});
 }
 
@@ -75,7 +74,7 @@ export function handleGetOrgRoute(request: AuthenticatedRequest): Promise<Result
 				ApiErr.notFound('organization', viewer.slug),
 			),
 		);
-		return toOrg(row, viewer.experiments, viewer.chatModel);
+		return toOrg(row, viewer.experiments, viewer.insider);
 	});
 }
 
@@ -84,7 +83,7 @@ export function handleCreateOrgRoute(request: AuthenticatedRequest): Promise<Res
 	return Do(async ($) => {
 		const {name} = $(parseSchema(orgNameBodySchema, request.body));
 		const org = $(await createOrganization({userId: request.user.userId, name}));
-		return {id: org.id, slug: org.slug, name: org.name, role: 'owner' as const, onboarded: true, experiments: [], chatModel: null, memberCount: 1, invitationCount: 0};
+		return {id: org.id, slug: org.slug, name: org.name, role: 'owner' as const, onboarded: true, experiments: [], insider: false, memberCount: 1, invitationCount: 0};
 	});
 }
 
@@ -102,21 +101,6 @@ export function handleRenameOrgRoute(request: AuthenticatedRequest): Promise<Res
 		const {orgId} = $(await requireOwner(request));
 		const {name} = $(parseSchema(orgNameBodySchema, request.body));
 		$(await renameOrganization(orgId, name, NAMED_AFTER_ORGANIZATION));
-	});
-}
-
-/**
- * `PUT /api/orgs/:org/chat-model` with `{chatModel}`: the owner of an insider organization switches
- * the model its built-in agent answers with, from the next turn on. Any other organization has no
- * choice, and is refused.
- */
-export function handleSetChatModelRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
-	return Do(async ($) => {
-		const {orgId, chatModel: current} = $(await requireOwner(request));
-		const {chatModel} = $(parseSchema(chatModelBodySchema, request.body));
-		if (current === null || !$(await setOrganizationChatModel(orgId, chatModel))) {
-			return $(Err(ApiErr.forbidden()));
-		}
 	});
 }
 

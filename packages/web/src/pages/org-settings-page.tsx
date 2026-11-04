@@ -1,10 +1,7 @@
 import {PencilIcon} from 'lucide-react';
 import {useState} from 'react';
 import {Link, useNavigate, useRevalidator} from 'react-router';
-import {CHAT_MODELS, type ChatModel} from '@proxy/utils';
-import {Badge} from '@proxy/ui/components/badge';
-import {Button} from '@proxy/ui/components/button';
-import {deleteOrg, leaveOrg, renameOrg, setChatModel} from '@/client/orgs-client';
+import {deleteOrg, leaveOrg, renameOrg} from '@/client/orgs-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {DangerCard} from '@/components/danger-card';
@@ -18,63 +15,8 @@ import {TypeToConfirmDialog} from '@/components/type-to-confirm-dialog';
 import {useHuman} from '@/hooks/use-human';
 import {describeApiError} from '@/lib/loader-utils';
 
-// The model an insider organization's built-in agent answers with, as two buttons for its owner,
-// who switches it from the next turn on, and as its name for anyone else in it.
-function ChatModelRow({
-	org,
-	chatModel,
-	owner,
-	onError,
-}: {
-	org: string;
-	chatModel: ChatModel;
-	owner: boolean;
-	onError: (error: string | null) => void;
-}) {
-	const revalidator = useRevalidator();
-	const [saving, setSaving] = useState(false);
-	const pick = async (next: ChatModel) => {
-		if (next === chatModel) {
-			return;
-		}
-		setSaving(true);
-		const result = await setChatModel(org, next);
-		if (result.isErr()) {
-			setSaving(false);
-			onError(describeApiError(result.error));
-			return;
-		}
-		onError(null);
-		await revalidator.revalidate();
-		setSaving(false);
-	};
-
-	return (
-		<SettingRow label="Chat model" action={<Badge variant="secondary">Insider</Badge>}>
-			{!owner && CHAT_MODELS[chatModel]}
-			{owner && (
-				<span className="flex items-center gap-2">
-					{(Object.keys(CHAT_MODELS) as ChatModel[]).map((model) => (
-						<Button
-							key={model}
-							size="sm"
-							variant={model === chatModel ? 'secondary' : 'outline'}
-							aria-pressed={model === chatModel}
-							disabled={saving}
-							onClick={() => void pick(model)}
-						>
-							{CHAT_MODELS[model]}
-						</Button>
-					))}
-				</span>
-			)}
-		</SettingRow>
-	);
-}
-
-// The settings of the organization the address names: its name and your place in it, and for an
-// insider the model its built-in agent answers with. Its owner renames and deletes it, unless it
-// is the last one they own; a member leaves it.
+// The settings of the organization the address names: its name and your place in it. Its owner
+// renames and deletes it, unless it is the last one they own; a member leaves it.
 export function OrgSettingsPage() {
 	const human = useHuman();
 	const navigate = useNavigate();
@@ -121,14 +63,6 @@ export function OrgSettingsPage() {
 								{organization.memberCount} {organization.memberCount === 1 ? 'member' : 'members'}
 							</Link>
 						</SettingRow>
-						{organization.chatModel !== null && (
-							<ChatModelRow
-								org={organization.slug}
-								chatModel={organization.chatModel}
-								owner={owner}
-								onError={setError}
-							/>
-						)}
 					</RowList>
 				</Section>
 				{owner && (

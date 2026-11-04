@@ -15,7 +15,7 @@ const fetchMock = mock<(input: string, init?: RequestInit) => Promise<Response>>
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
 
 function persona(id: string, name: string, mayChange: boolean): ChatPersona {
-	return {id, name, mayChange, look, color: 'blue', lastMessage: null};
+	return {id, name, mayChange, look, color: 'blue', chatModel: null, lastMessage: null};
 }
 
 const general = persona('general', 'General', false);

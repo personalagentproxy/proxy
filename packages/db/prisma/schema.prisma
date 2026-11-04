@@ -125,9 +125,6 @@ model Organization {
   // is ignored), and an insider has all of them. Both set from the internal admin, never in the app.
   experiments String[]  @default([])
   insider     Boolean   @default(false)
-  // The model its built-in agent answers with, by id (CHAT_MODELS in @proxy/utils): an insider
-  // switches it on Settings; for any other organization it is ignored, and Claude answers.
-  chatModel   String    @default("claude")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -578,6 +575,10 @@ model Persona {
   // Its head: the look as JSON (`@proxy/utils/harness` Look), in one of the colors.
   look  String
   color String
+  // The model it answers with, by id (CHAT_MODELS in @proxy/utils), its sub-agents too: chosen
+  // where it is made or changed in an insider organization; in any other it is ignored, and Claude
+  // answers.
+  chatModel String @default("claude")
   // Who made it, who may change it beside the organization's owner.
   createdById String?
 

@@ -3,7 +3,7 @@ import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, hasExperiment, parseSchema, requirePresent} from '@proxy/utils';
 import {preview, threadState, toAvatarColor} from '@proxy/utils/harness';
-import type {EntryRow, LastMessage, PersonaRow, ThreadRow} from '@proxy/db/harness';
+import type {EntryRow, LastMessage, Persona, PersonaRow, ThreadRow} from '@proxy/db/harness';
 import {
 	type ChatEntry,
 	type ChatPersona,
@@ -44,7 +44,7 @@ export type ChatStore = Pick<
 	| 'appendPersonMessage'
 >;
 
-// Whether the viewer may rename, reface or delete the persona: whoever made it, or the organization's owner (utils/manages.ts).
+// Whether the viewer may rename, reface, switch the model of or delete the persona: whoever made it, or the organization's owner (utils/manages.ts).
 function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
 	return manages(viewer, {ownerUserId: null, byId: persona.createdById});
 }
@@ -56,9 +56,16 @@ function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastM
 		name: persona.name,
 		look: persona.look,
 		color: toAvatarColor(persona.color),
+		chatModel: viewer.insider ? persona.chatModel : null,
 		mayChange: managesPersona(viewer, persona),
 		lastMessage: last && {kind: last.kind, text: preview(last.text), at: last.createdAt.toISOString()},
 	};
+}
+
+// The persona as the person made or changed it, the model left out where the organization has no
+// choice of one (it isn't an insider): a persona of any other answers with Claude.
+function readPersona(viewer: OrgViewer, request: AuthenticatedRequest): Result<Persona, ApiError> {
+	return parseSchema(personaBodySchema, request.body).map(({chatModel, ...persona}) => (viewer.insider && chatModel ? {...persona, chatModel} : persona));
 }
 
 // The entries the person sees (db/harness listShownEntries), as their kinds, for the response.
@@ -125,27 +132,27 @@ function handleListPersonasRoute(store: ChatStore, request: AuthenticatedRequest
 	});
 }
 
-/** `POST /api/orgs/:org/chat/personas` with `{name, look, color}`: a new persona, every member's, and the organization's built-in login with it where there is none yet. */
+/** `POST /api/orgs/:org/chat/personas` with `{name, look, color, chatModel?}`: a new persona, every member's, and the organization's built-in login with it where there is none yet. */
 function handleCreatePersonaRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaAnswerSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
-		const persona = $(parseSchema(personaBodySchema, request.body));
+		const persona = $(readPersona(viewer, request));
 		$(await ensureBuiltInAgent(viewer.orgId));
 		const made = $(await store.createPersona(viewer.orgId, viewer.userId, persona));
 		return {persona: toPersona(viewer, made)};
 	});
 }
 
-/** `PUT /api/orgs/:org/chat/personas/:personaId` with `{name, look, color}`: the persona renamed, or with another head. */
+/** `PUT /api/orgs/:org/chat/personas/:personaId` with `{name, look, color, chatModel?}`: the persona renamed, with another head, or switched to another model from its next turn on. */
 function handleUpdatePersonaRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaAnswerSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
-		const persona = $(parseSchema(personaBodySchema, request.body));
+		const persona = $(readPersona(viewer, request));
 		const existing = $(await requireManagedPersona(store, viewer, request));
 		if (!$(await store.updatePersona(viewer.orgId, existing.id, persona))) {
 			return $(Err(ApiErr.notFound('persona', existing.id)));
 		}
-		return {persona: toPersona(viewer, {...existing, ...persona})};
+		return {persona: toPersona(viewer, {...existing, ...persona, chatModel: persona.chatModel ?? existing.chatModel})};
 	});
 }
 
