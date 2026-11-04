@@ -45,8 +45,11 @@ import {ownership} from './ownership';
  * `?error=<integration>` (with `?error=<integration>-unconfigured` when the server lacks what the
  * sign-in needs, such as Google's client); a sign-in begun from the welcome flow
  * (`returnTo: 'welcome'`) ends on its page for the connection, or its catalog, instead, and one
- * begun from a home page widget's card (`returnTo: 'home'`) back on the home page. What the
- * provider's sign-in page is and how a code becomes tokens and a connection is the integration's.
+ * begun from a home page widget's card (`returnTo: 'home'`) back on the home page. One begun from
+ * the desktop app runs in the browser, which the app hands over to (`auth/desktop.ts`) with
+ * `?desktop=1` on the start, and ends on `/desktop-return`, which opens that page in the app. What
+ * the provider's sign-in page is and how a code becomes tokens and a connection is the
+ * integration's.
  */
 
 const stateCookieMaxAgeMs = 15 * 60 * 1000;
@@ -205,17 +208,33 @@ export function connectWithForm<C>(viewer: ManagingViewer, integrationId: Integr
 	});
 }
 
-// Where the sign-in ends: the organization's catalog, or the welcome flow's connections step it
-// started from; the app's root, which opens the person's first organization, when the sign-in
-// can't be read at all.
-function catalogUrl(appUrl: string, slug: string | null, returnTo: ReturnTo | undefined): string {
+// Where the sign-in ends when not on the connection's page: the organization's catalog, or the
+// welcome flow's connections step it started from; the app's root, which opens the person's first
+// organization, when the sign-in can't be read at all.
+function catalogPath(slug: string | null, returnTo: ReturnTo | undefined): string {
 	if (slug === null) {
-		return `${appUrl}/`;
+		return '/';
 	}
 	if (returnTo === 'welcome') {
-		return `${appUrl}/${slug}/welcome/connections`;
+		return `/${slug}/welcome/connections`;
 	}
-	return `${appUrl}/${slug}/connections/new`;
+	return `/${slug}/connections/new`;
+}
+
+/**
+ * Where a sign-in comes back to: the organization it began in and, for one begun from the desktop
+ * app, that it did, which the web app marks with `?desktop=1` on the start it opens in the browser.
+ */
+type Back = {slug: string | null; returnTo: ReturnTo | undefined; desktop: boolean};
+
+// The browser goes on to `path` in the app, or, for a sign-in begun from the desktop app, to the
+// page that hands the browser's work back to the app, which opens that path.
+function redirectBack(res: Response, appUrl: string, back: Back, path: string): void {
+	if (back.desktop) {
+		res.redirect(`${appUrl}/desktop-return?path=${encodeURIComponent(path)}`);
+		return;
+	}
+	res.redirect(`${appUrl}${path}`);
 }
 
 type SignInArgs<E, C> = {
@@ -248,12 +267,13 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 		orgId: z.string(),
 		slug: z.string(),
 		returnTo: returnToSchema.optional(),
+		desktop: z.boolean().optional(),
 		shared: z.boolean().optional(),
 		connectionId: z.string().optional(),
 		kept: args.keptSchema,
 	});
 
-	type StatePayload = {state: string; verifier: string; userId: string; orgId: string; slug: string; returnTo?: ReturnTo; shared?: boolean; connectionId?: string; kept: E};
+	type StatePayload = {state: string; verifier: string; userId: string; orgId: string; slug: string; returnTo?: ReturnTo; desktop?: boolean; shared?: boolean; connectionId?: string; kept: E};
 
 	function redirectUri(appUrl: string): string {
 		return `${appUrl}${basePath}/callback`;
@@ -271,19 +291,20 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 		});
 	}
 
-	function redirectToConnectError(res: Response, appUrl: string, slug: string | null, returnTo: ReturnTo | undefined, error: ApiError): void {
+	function redirectToConnectError(res: Response, appUrl: string, back: Back, error: ApiError): void {
 		log.warn(`Connecting ${name} failed`, {kind: error.kind, ...('message' in error ? {message: error.message} : {}), ...('cause' in error ? serializeError(error.cause) : {})});
-		res.redirect(`${catalogUrl(appUrl, slug, returnTo)}?error=${integrationId}`);
+		redirectBack(res, appUrl, back, `${catalogPath(back.slug, back.returnTo)}?error=${integrationId}`);
 	}
 
 	/**
 	 * Keeps the handshake, and what `start` keeps beside it, in a cookie on `res`, and answers the
 	 * provider's sign-in page, for the browser to go to: for a connection of the viewer's own, or
-	 * `shared` with every member, or renewing the one it was begun from (`connectionId`).
+	 * `shared` with every member, or renewing the one it was begun from (`connectionId`); begun
+	 * from the desktop app (`desktop`), it ends on the page that hands over to the app.
 	 */
 	function beginSignIn(
 		res: Response,
-		begin: {viewer: OrgViewer; returnTo: ReturnTo | undefined; account: string | null; shared?: boolean; connectionId?: string | null; start: SignInStart<E>},
+		begin: {viewer: OrgViewer; returnTo: ReturnTo | undefined; desktop?: boolean; account: string | null; shared?: boolean; connectionId?: string | null; start: SignInStart<E>},
 	): Promise<Result<string, ApiError>> {
 		return Do(async ($) => {
 			const appUrl = $(requirePresent(env.APP_URL, ApiErr.internalError(new Error('APP_URL is not configured'))));
@@ -297,6 +318,7 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 				orgId: begin.viewer.orgId,
 				slug: begin.viewer.slug,
 				...(begin.returnTo ? {returnTo: begin.returnTo} : {}),
+				...(begin.desktop ? {desktop: true} : {}),
 				...(begin.shared ? {shared: true} : {}),
 				...(begin.connectionId ? {connectionId: begin.connectionId} : {}),
 				kept,
@@ -345,23 +367,26 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 		// The handshake is single-use: cleared however the callback ends.
 		res.clearCookie(stateCookieName, stateCookieOptions());
 		const payload = readStateCookie(request);
-		const returnTo = payload.isOk() ? payload.value.returnTo : undefined;
-		const slug = payload.isOk() ? payload.value.slug : null;
+		const back: Back = payload.isOk() ? {slug: payload.value.slug, returnTo: payload.value.returnTo, desktop: payload.value.desktop === true} : {slug: null, returnTo: undefined, desktop: false};
 		const finished = payload.isErr() ? Err(payload.error) : await finishConnect(request, appUrl, payload.value);
 		if (finished.isErr()) {
-			redirectToConnectError(res, appUrl, slug, returnTo, finished.error);
+			redirectToConnectError(res, appUrl, back, finished.error);
 			return;
 		}
 		const {id, added} = finished.value;
-		if (returnTo === 'welcome') {
-			res.redirect(`${appUrl}/${slug}/welcome/connections/${id}`);
-			return;
+		redirectBack(res, appUrl, back, landingPath(back, id, added));
+	}
+
+	// Where a finished sign-in lands: the welcome flow's page for the connection, the home page, or
+	// the connection's page, saying it was added unless it was only signed in to again.
+	function landingPath(back: Back, id: string, added: boolean): string {
+		if (back.returnTo === 'welcome') {
+			return `/${back.slug}/welcome/connections/${id}`;
 		}
-		if (returnTo === 'home') {
-			res.redirect(`${appUrl}/${slug}`);
-			return;
+		if (back.returnTo === 'home') {
+			return `/${back.slug}`;
 		}
-		res.redirect(`${appUrl}/${slug}/connections/${id}${added ? '?added' : ''}`);
+		return `/${back.slug}/connections/${id}${added ? '?added' : ''}`;
 	}
 
 	return {beginSignIn, handleCallback, redirectToConnectError};
@@ -386,10 +411,13 @@ export function signInRoutes<E, C>(
 			return;
 		}
 
-		const returnTo = returnToSchema.safeParse(queryParam(request, 'returnTo')).data;
-		const slug = request.params.org ?? null;
+		const back: Back = {
+			slug: request.params.org ?? null,
+			returnTo: returnToSchema.safeParse(queryParam(request, 'returnTo')).data,
+			desktop: queryParam(request, 'desktop') === '1',
+		};
 		if (args.configured && !args.configured()) {
-			res.redirect(`${catalogUrl(appUrl, slug, returnTo)}?error=${args.integrationId}-unconfigured`);
+			redirectBack(res, appUrl, back, `${catalogPath(back.slug, back.returnTo)}?error=${args.integrationId}-unconfigured`);
 			return;
 		}
 
@@ -401,10 +429,20 @@ export function signInRoutes<E, C>(
 			if (connectionId !== null) {
 				$(await requireManaged(viewer, connectionId));
 			}
-			return $(await flow.beginSignIn(res, {viewer, returnTo, account: queryParam(request, 'account'), shared: queryParam(request, 'share') === 'everyone', connectionId, start: args.start}));
+			return $(
+				await flow.beginSignIn(res, {
+					viewer,
+					returnTo: back.returnTo,
+					desktop: back.desktop,
+					account: queryParam(request, 'account'),
+					shared: queryParam(request, 'share') === 'everyone',
+					connectionId,
+					start: args.start,
+				}),
+			);
 		});
 		if (begun.isErr()) {
-			flow.redirectToConnectError(res, appUrl, slug, returnTo, begun.error);
+			flow.redirectToConnectError(res, appUrl, back, begun.error);
 			return;
 		}
 		res.redirect(begun.value);

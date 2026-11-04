@@ -42,6 +42,7 @@ model User {
   agents       Agent[]
   threads      AgentThread[]
   writeTargets WriteTarget[]
+  desktopCodes DesktopAuthCode[]
 }
 
 // A sign-in provider identity linked to a user, such as their Google account. Only who it is:
@@ -78,6 +79,24 @@ model Session {
   @@index([userId])
 }
 
+// A one-time code for signing the desktop app in. The browser, signed in, mints one at
+// /desktop-auth, bound to the PKCE challenge the app made, and the app trades it, with the
+// verifier, for a session of its own (`POST /auth/desktop/session`). Minutes long and single-use,
+// and kept only as its SHA-256, like a session's token.
+model DesktopAuthCode {
+  id        String   @id @default(cuid())
+  codeHash  String   @unique
+  challenge String
+  userId    String
+  expires   DateTime
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
 // A magic link waiting to be clicked. `token` is a hash, never the token from the email.
 model VerificationToken {
   identifier String
@@ -106,6 +125,9 @@ model Organization {
   // is ignored), and an insider has all of them. Both set from the internal admin, never in the app.
   experiments String[]  @default([])
   insider     Boolean   @default(false)
+  // The model its built-in agent answers with, by id (CHAT_MODELS in @proxy/utils): an insider
+  // switches it on Settings; for any other organization it is ignored, and Claude answers.
+  chatModel   String    @default("claude")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

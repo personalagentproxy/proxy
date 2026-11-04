@@ -7,7 +7,6 @@ import type {FoundMeeting, FoundMeetings} from '@proxy/contracts/widgets';
 import type {Meeting} from '../records/capabilities';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireViewer} from '../utils/user-org';
-import {requireAskExperiment} from './ask-experiment';
 import {eachSource} from './each-source';
 import {findSources, summarize, withCapability, type Capable} from './sources';
 
@@ -147,7 +146,6 @@ export function handleFindMeetingsRoute(request: AuthenticatedRequest): Promise<
 		const to = query.to ?? dayOf(Date.now() + DAY_MS);
 		const search: MeetingSearch = {from: query.from ?? dayOf(Date.parse(to) - DEFAULT_DAYS * DAY_MS), to, people: query.with, words: query.words};
 		const viewer = $(await requireViewer(request));
-		$(requireAskExperiment(viewer));
 		const sources = withCapability($(await findSources(viewer, 'notes', 'list')), 'meetings');
 		const {found, failed} = await eachSource(sources, (source) => findMeetings(source, search));
 		// Each notetaker's best first, then the next's: one person seldom has two.

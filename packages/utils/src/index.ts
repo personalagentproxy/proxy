@@ -1,5 +1,7 @@
 export {ApiErr, setDbLogger, wrapDb} from './api-error';
 export type {ApiError, DbLogger} from './api-error';
+export {CHAT_MODELS, isChatModel, organizationChatModel} from './chat-models';
+export type {ChatModel} from './chat-models';
 export {Do} from './do';
 export {EXPERIMENTS, hasExperiment, isExperiment, organizationExperiments} from './experiments';
 export type {Experiment} from './experiments';

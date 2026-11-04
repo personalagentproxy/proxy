@@ -20,18 +20,6 @@ its button.
 | Balances, Transactions                  | Accounts connected through Plaid. Transactions can be narrowed by merchant, category, account and dates, or added up.                                                                                                                                                                                                          |
 | Math, Convert units                     | Arithmetic runs in the browser. Unit conversion includes currencies, using the European Central Bank's latest rates through Frankfurter.                                                                                                                                                                                       |
 
-<Callout>
-Ask is being tried out with some organizations first, so it is only offered to an organization that
-has it turned on. On a self-hosted Personal Agent Proxy, turn it on for every organization in its
-database:
-
-```sql
-UPDATE "Organization" SET experiments = array_append(experiments, 'ask')
-WHERE NOT 'ask' = ANY(experiments);
-```
-
-</Callout>
-
 Read actions combine results from every matching connection whose sign-in grants the needed access.
 When a write can use more than one mailbox or calendar, the card starts with a recent or default
 target and lets you choose another. These are actions you take as the owner of the workspace, so an

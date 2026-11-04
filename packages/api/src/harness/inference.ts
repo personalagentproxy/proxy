@@ -1,6 +1,6 @@
 import {Err, type Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
+import {ApiErr, type ApiError, type ChatModel, Do, requirePresent} from '@proxy/utils';
 import type {AssistantTurn, CallPlan, EntryRow, JobRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
 
 import {askForTurn, type ModelTurn} from '../llm/open-router';
@@ -18,20 +18,25 @@ import {toolsFor} from './tool-surface';
  * in the log as an assistant entry, with each call it made planned (conversation.ts planCall): a
  * tool job, due now or, for a sleep, when the sleep ends; or an answer at once, which is what
  * starting a sub-agent gets, with its id, a message to one, with what it was up to, a message to
- * the agent a sub-agent works for, and a call with arguments that are no good. A log that has grown long is first summarized, in a
- * summary entry the model reads in place of what it covers. A model that can't be reached is tried
- * again a few times, then the person is told; any other failure fails the job, which tells them
- * too (conversation.ts failureNote). A sub-agent's answer with no calls goes to the agent it works
- * for, and stops its work for now, unless a message came while it answered. An answer of nothing, no words and no calls, is written as that
- * said: the person would otherwise see nothing, and the model refuses a log with an empty turn in
- * it. The answer is written with the system prompt the model was sent, which is built from the
- * login's grants as they are then and, for the agent talking with the person, its sub-agents as
- * they are then, so that what the model read can be told later; the rest of the request is
- * rebuilt from the log.
+ * the agent a sub-agent works for, and a call with arguments that are no good. A log that has
+ * grown long is first summarized, in a summary entry the model reads in place of what it covers. A
+ * model that can't be reached is tried again a few times, then the person is told; any other
+ * failure fails the job, which tells them too (conversation.ts failureNote). A sub-agent's answer
+ * with no calls goes to the agent it works for, and stops its work for now, unless a message came
+ * while it answered. An answer of nothing, no words and no calls, is written as that said: the
+ * person would otherwise see nothing, and the model refuses a log with an empty turn in it. The
+ * model is the organization's, read at each turn: Claude, or GLM for an insider that switched to
+ * it on Settings. The answer is written with the system prompt the model was sent, which is built
+ * from the login's grants as they are then and, for the agent talking with the person, its
+ * sub-agents as they are then, so that what the model read can be told later; the rest of the
+ * request is rebuilt from the log.
  */
 
 /** What an inference job needs of the store. */
-export type InferenceStore = Pick<HarnessStore, 'getJobThread' | 'getThreadAgent' | 'listEntries' | 'listSubAgents' | 'finishJob' | 'requeueJob' | 'appendSummary' | 'completeInference'>;
+export type InferenceStore = Pick<
+	HarnessStore,
+	'getJobThread' | 'getThreadAgent' | 'getChatModel' | 'listEntries' | 'listSubAgents' | 'finishJob' | 'requeueJob' | 'appendSummary' | 'completeInference'
+>;
 
 // How the agent talking with the person is to go about it: it does nothing itself, and hands
 // every piece of work to a sub-agent, which it can go on talking with.
@@ -157,7 +162,7 @@ function systemPrompt(store: InferenceStore, thread: ThreadRow, subAgents: SubAg
 // Summarizes the log where it has grown long, into a summary entry the model reads in place of
 // what it covers; the log then, as it is. The model gets the log as text, not as the turns it
 // made, which would need the tools sent along: a request with calls in it and no tools is refused.
-function compact(store: InferenceStore, job: JobRow, workerId: string, entries: EntryRow[], subAgents: SubAgentRow[], key: string): Promise<Result<EntryRow[], ApiError>> {
+function compact(store: InferenceStore, job: JobRow, workerId: string, entries: EntryRow[], subAgents: SubAgentRow[], key: string, model: ChatModel): Promise<Result<EntryRow[], ApiError>> {
 	return Do(async ($) => {
 		const cut = compactionCut(entries);
 		const last = cut === null ? undefined : entries[cut - 1];
@@ -167,6 +172,7 @@ function compact(store: InferenceStore, job: JobRow, workerId: string, entries: 
 		const summary = $(
 			await askForTurn({
 				key,
+				model,
 				messages: [
 					{role: 'system', content: SUMMARIZE},
 					{role: 'user', content: `${toTranscript(entries.slice(0, cut), subAgents)}\n\n${SUMMARIZE_NOW}`},
@@ -189,12 +195,14 @@ function compact(store: InferenceStore, job: JobRow, workerId: string, entries: 
 // in the log is; a sub-agent's thread has none.
 function askOnLog(store: InferenceStore, job: JobRow, workerId: string, thread: ThreadRow, entries: EntryRow[], key: string, now: Date): Promise<Result<{turn: ModelTurn; system: string}, ApiError>> {
 	return Do(async ($) => {
+		const model = $(await store.getChatModel(thread.orgId));
 		const subAgents = thread.parentThreadId === null ? $(await store.listSubAgents(thread.id, now)) : [];
-		const current = $(await compact(store, job, workerId, entries, subAgents, key));
+		const current = $(await compact(store, job, workerId, entries, subAgents, key, model));
 		const system = $(await systemPrompt(store, thread, subAgents, now));
 		const turn = $(
 			await askForTurn({
 				key,
+				model,
 				messages: [{role: 'system', content: system}, ...toMessages(current, subAgents, {clearOld: true})],
 				tools: toolsFor(thread),
 				maxTokens: MAX_TOKENS,

@@ -1,5 +1,6 @@
 import {
 	acceptedInvitationSchema,
+	type chatModelBodySchema,
 	invitationLinkSchema,
 	invitationSchema,
 	type inviteBodySchema,
@@ -8,6 +9,7 @@ import {
 	type orgNameBodySchema,
 	orgSchema,
 } from '@proxy/contracts/orgs';
+import type {ChatModel} from '@proxy/utils';
 import type {z} from 'zod';
 import {apiRequest, apiSend, orgApi} from '@/client/request';
 
@@ -38,6 +40,13 @@ export function finishOnboarding(org: string) {
 
 export function renameOrg(org: string, name: string) {
 	return apiSend('PATCH', orgApi(org), {name} satisfies z.input<typeof orgNameBodySchema>);
+}
+
+/** An insider's owner switches the model its built-in agent answers with. */
+export function setChatModel(org: string, chatModel: ChatModel) {
+	return apiSend('PUT', `${orgApi(org)}/chat-model`, {
+		chatModel,
+	} satisfies z.input<typeof chatModelBodySchema>);
 }
 
 /** Its owner deletes it, every connection in it undone at its provider first. */

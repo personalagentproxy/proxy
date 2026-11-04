@@ -5,10 +5,6 @@ mock.module('../utils/env', () => ({env: mockEnv}));
 
 const text = 'Create a calendar invite with Jon Burke and Jacky Doe at One Boulevard Plaza at 7pm tomorrow';
 
-// An organization with no experiment on, and one with Ask.
-const NOBODY = {experiments: []};
-const WITH_ASK = {experiments: ['ask' as const]};
-
 // What Jev picks, and what OpenRouter answers: the model's JSON as the message's text.
 let choice = '';
 let content = '';
@@ -62,9 +58,9 @@ beforeEach(() => {
 });
 
 describe('pickIntent', () => {
-	test('asks Jev which widget fits, among those offered, incomplete and none, and fills nothing in', async () => {
+	test('asks Jev which widget fits, among the widgets, incomplete and none, and fills nothing in', async () => {
 		const {pickIntent} = await import('./classify');
-		expect((await pickIntent(text, NOBODY)).unwrap()).toMatchObject({widget: 'new_event'});
+		expect((await pickIntent(text)).unwrap()).toMatchObject({widget: 'new_event'});
 
 		const [jev] = calls('https://api.typesafe.ai/');
 		expect(jev?.headers.authorization).toBe('Bearer ts-1');
@@ -81,6 +77,7 @@ describe('pickIntent', () => {
 			'reply_email',
 			'find_email',
 			'find_file',
+			'ask',
 			'calculate',
 			'convert_units',
 			'show_balances',
@@ -93,19 +90,12 @@ describe('pickIntent', () => {
 		expect(calls('https://openrouter.ai/')).toHaveLength(0);
 	});
 
-	test('offers Ask only to an organization with the ask experiment, and fills it in only for one', async () => {
-		const {pickIntent, fillIntent} = await import('./classify');
+	test('offers Ask to every organization', async () => {
+		const {pickIntent} = await import('./classify');
 		pick('ask');
 
-		expect((await pickIntent('what did I talk to sam about yesterday', WITH_ASK)).unwrap()).toMatchObject({widget: 'ask'});
+		expect((await pickIntent('what did I talk to sam about yesterday')).unwrap()).toMatchObject({widget: 'ask'});
 		expect(asked().questions.widget.criteria.ask).toContain('Ask what one meeting');
-
-		expect((await pickIntent('what did I talk to sam about yesterday', NOBODY)).unwrap()).toMatchObject({widget: 'none'});
-		expect(asked().questions.widget.criteria).not.toHaveProperty('ask');
-
-		fetchSpy.mockClear();
-		expect((await fillIntent('what did I talk to sam about yesterday', 'ask', NOBODY)).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'widget', id: 'ask'});
-		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
 	test('answers incomplete and none as Jev picks them, and a widget there is no such of as none', async () => {
@@ -116,21 +106,21 @@ describe('pickIntent', () => {
 			['make_coffee', 'none'],
 		]) {
 			pick(picked ?? '');
-			expect((await pickIntent('hi', NOBODY)).unwrap()).toMatchObject({widget});
+			expect((await pickIntent('hi')).unwrap()).toMatchObject({widget});
 		}
 	});
 
 	test('Jev failing is a provider out of reach', async () => {
 		const {pickIntent} = await import('./classify');
 		jevStatus = 503;
-		expect((await pickIntent(text, NOBODY)).unwrapErr().kind).toBe('provider_unreachable');
+		expect((await pickIntent(text)).unwrapErr().kind).toBe('provider_unreachable');
 	});
 });
 
 describe('fillIntent', () => {
 	test("asks gpt-oss-120b, on Cerebras first, for the widget's fields alone", async () => {
 		const {fillIntent} = await import('./classify');
-		await fillIntent(text, 'new_event', NOBODY);
+		await fillIntent(text, 'new_event');
 
 		const body = sent();
 		expect(body.model).toBe('openai/gpt-oss-120b');
@@ -147,7 +137,7 @@ describe('fillIntent', () => {
 
 	test("answers the widget's fields, each value trimmed and once", async () => {
 		const {fillIntent} = await import('./classify');
-		const filled = (await fillIntent(text, 'new_event', NOBODY)).unwrap();
+		const filled = (await fillIntent(text, 'new_event')).unwrap();
 
 		expect(filled.fields).toEqual([
 			{id: 'attendees', name: 'Attendees', values: ['Jon Burke', 'Jacky Doe']},
@@ -159,7 +149,7 @@ describe('fillIntent', () => {
 	test('answers search terms as each one\'s words joined by " | "', async () => {
 		answer({from: null, about: [['flight', ' itinerary ', 'e|ticket'], ['SFO'], []]});
 		const {fillIntent} = await import('./classify');
-		const filled = (await fillIntent('find the email about my flight to sfo', 'find_email', NOBODY)).unwrap();
+		const filled = (await fillIntent('find the email about my flight to sfo', 'find_email')).unwrap();
 
 		expect(filled.fields).toEqual([
 			{id: 'from', name: 'From', values: []},
@@ -172,7 +162,7 @@ describe('fillIntent', () => {
 		const {fillIntent} = await import('./classify');
 		answer({merchant: 'uber', category: 'TRANSPORTATION', flow: 'out', transactionAccount: null});
 
-		expect((await fillIntent('uber charges this month', 'find_transactions', NOBODY)).unwrap().fields).toMatchObject([
+		expect((await fillIntent('uber charges this month', 'find_transactions')).unwrap().fields).toMatchObject([
 			{id: 'merchant', values: ['uber']},
 			{id: 'category', values: ['TRANSPORTATION']},
 			{id: 'flow', values: ['out']},
@@ -182,7 +172,7 @@ describe('fillIntent', () => {
 
 		fetchSpy.mockClear();
 		for (const widget of ['none', 'make_coffee']) {
-			expect((await fillIntent('uber charges this month', widget, NOBODY)).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'widget', id: widget});
+			expect((await fillIntent('uber charges this month', widget)).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'widget', id: widget});
 		}
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
@@ -190,7 +180,7 @@ describe('fillIntent', () => {
 	test('holds a unit to the units there are', async () => {
 		answer({amount: '5', fromUnit: 'mi', toUnit: 'km'});
 		const {fillIntent} = await import('./classify');
-		await fillIntent('5 miles in km', 'convert_units', NOBODY);
+		await fillIntent('5 miles in km', 'convert_units');
 
 		const properties = sent().response_format.json_schema.schema.properties as Record<string, {enum?: Array<string | null>}>;
 		expect(properties.fromUnit?.enum).toContain('mi');
@@ -201,10 +191,10 @@ describe('fillIntent', () => {
 		const {fillIntent} = await import('./classify');
 
 		openRouterStatus = 503;
-		expect((await fillIntent(text, 'new_event', NOBODY)).unwrapErr().kind).toBe('provider_unreachable');
+		expect((await fillIntent(text, 'new_event')).unwrapErr().kind).toBe('provider_unreachable');
 		openRouterStatus = 200;
 		content = 'Sure! Here is the form:';
-		expect((await fillIntent(text, 'new_event', NOBODY)).unwrapErr().kind).toBe('provider_unreachable');
+		expect((await fillIntent(text, 'new_event')).unwrapErr().kind).toBe('provider_unreachable');
 	});
 });
 
@@ -215,7 +205,7 @@ test('picking and filling in are unavailable without either key, and ask nothing
 		mockEnv.TYPESAFE_API_KEY = 'ts-1';
 		mockEnv.OPENROUTER_KEY = 'sk-or-1';
 		delete mockEnv[key];
-		for (const result of [await pickIntent(text, NOBODY), await fillIntent(text, 'new_event', NOBODY)]) {
+		for (const result of [await pickIntent(text), await fillIntent(text, 'new_event')]) {
 			expect(result.unwrapErr()).toMatchObject({kind: 'unavailable', message: 'The home page is not set up: set `TYPESAFE_API_KEY` and `OPENROUTER_KEY`.'});
 		}
 	}

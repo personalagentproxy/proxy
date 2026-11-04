@@ -13,7 +13,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      # The desktop app's checks need no Electron binary, which its install would download.
       - run: bun install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
       - run: bun run typecheck
       - run: bun run test
       - run: bun run build

@@ -11,8 +11,8 @@ import {fillIntent, pickIntent} from './classify';
 export function handlePickIntentRoute(request: AuthenticatedRequest): Promise<Result<Picked, ApiError>> {
 	return Do(async ($) => {
 		const body = $(parseSchema(pickBodySchema, request.body));
-		const viewer = $(await requireViewer(request));
-		return $(await pickIntent(body.text, viewer));
+		$(await requireViewer(request));
+		return $(await pickIntent(body.text));
 	});
 }
 
@@ -20,7 +20,7 @@ export function handlePickIntentRoute(request: AuthenticatedRequest): Promise<Re
 export function handleFillIntentRoute(request: AuthenticatedRequest): Promise<Result<Filled, ApiError>> {
 	return Do(async ($) => {
 		const body = $(parseSchema(fillBodySchema, request.body));
-		const viewer = $(await requireViewer(request));
-		return $(await fillIntent(body.text, body.widget, viewer));
+		$(await requireViewer(request));
+		return $(await fillIntent(body.text, body.widget));
 	});
 }

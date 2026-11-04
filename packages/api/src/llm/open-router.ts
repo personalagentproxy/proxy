@@ -1,7 +1,7 @@
 import {Err, Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, type FetchError, httpRequest, parseSchema} from '@proxy/utils';
+import {ApiErr, type ApiError, type ChatModel, Do, type FetchError, httpRequest, parseSchema} from '@proxy/utils';
 import type {ToolCall} from '@proxy/utils/harness';
 
 /**
@@ -10,9 +10,9 @@ import type {ToolCall} from '@proxy/utils/harness';
  *
  * - `askForJson`: gpt-oss-120b on Cerebras, the fastest host, else Groq, answering JSON held to a
  *   schema: the home page's model, which fills in a widget's fields and answers what Ask asks.
- * - `askForTurn`: the built-in agent's model, Claude Sonnet 5.5, answering a conversation with
- *   text, tool calls, or both. One call per turn; the loop (harness/inference.ts) runs the calls and
- *   asks again.
+ * - `askForTurn`: the built-in agent's model, Claude Sonnet 5.5, or GLM 5.3 for an insider
+ *   organization that switched to it, answering a conversation with text, tool calls, or both. One
+ *   call per turn; the loop (harness/inference.ts) runs the calls and asks again.
  *
  * What goes wrong is told apart alike for both: a model that can't be reached, or answered with
  * something that isn't an answer, is worth trying again; one that turned the server's key down, or
@@ -24,7 +24,11 @@ const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 const JSON_MODEL = 'openai/gpt-oss-120b';
 
-export const TURN_MODEL = 'anthropic/claude-sonnet-5.5';
+/** The built-in agent's models (CHAT_MODELS in @proxy/utils), as OpenRouter names them. */
+export const TURN_MODELS = {
+	claude: 'anthropic/claude-sonnet-5.5',
+	glm: 'z-ai/glm-5.3',
+} as const satisfies Record<ChatModel, string>;
 
 // How much of what OpenRouter said went wrong is kept.
 const MAX_SAID = 500;
@@ -161,6 +165,7 @@ export function askForJson<T>(request: JsonRequest<T>): Promise<Result<T, ApiErr
 
 export type TurnRequest = {
 	key: string;
+	model: ChatModel;
 	messages: ModelMessage[];
 	tools: ModelTool[];
 	maxTokens: number;
@@ -170,14 +175,14 @@ export type TurnRequest = {
 /** What the model answered: its text, the calls it made, and what the turn cost. */
 export type ModelTurn = {text: string; toolCalls: ToolCall[]; inputTokens: number; outputTokens: number};
 
-/** One turn of Claude Sonnet on the conversation. */
+/** One turn of the model on the conversation. */
 export function askForTurn(request: TurnRequest): Promise<Result<ModelTurn, ApiError>> {
 	return Do(async ($) => {
 		const completion = $(
 			await complete(
 				request.key,
 				{
-					model: TURN_MODEL,
+					model: TURN_MODELS[request.model],
 					messages: request.messages,
 					tools: request.tools.map((tool) => ({type: 'function', function: {name: tool.name, description: tool.description, parameters: tool.parameters}})),
 					max_tokens: request.maxTokens,

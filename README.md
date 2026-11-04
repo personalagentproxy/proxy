@@ -12,6 +12,7 @@
 
 <p align="center">
   <a href="https://github.com/personalagentproxy/proxy/stargazers"><img src="https://img.shields.io/github/stars/personalagentproxy/proxy" alt="GitHub stars"></a>
+  <a href="https://github.com/personalagentproxy/proxy/releases"><img src="https://img.shields.io/github/downloads/personalagentproxy/proxy/total" alt="GitHub release downloads"></a>
   <a href="https://github.com/personalagentproxy/proxy/commits/main"><img src="https://img.shields.io/github/last-commit/personalagentproxy/proxy" alt="Last commit"></a>
   <a href="https://github.com/personalagentproxy/proxy/graphs/commit-activity"><img src="https://img.shields.io/github/commit-activity/m/personalagentproxy/proxy" alt="Commit activity"></a>
 </p>

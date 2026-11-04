@@ -18,6 +18,7 @@ const listUserOrgs = mock();
 const markOrganizationOnboarded = mock();
 const removeMembership = mock();
 const renameOrganization = mock();
+const setOrganizationChatModel = mock();
 const getMembership = mock();
 const getMemberOrganization = mock();
 
@@ -28,6 +29,7 @@ mock.module('@proxy/db/organization', () => ({
 	markOrganizationOnboarded,
 	removeMembership,
 	renameOrganization,
+	setOrganizationChatModel,
 	getMembership,
 	getMemberOrganization,
 }));
@@ -79,7 +81,7 @@ function member(userId: string, role: 'owner' | 'member', email = `${userId}@exa
 
 // What a member sees of an organization by its slug, as `requireViewer` reads it.
 function membership(role: 'owner' | 'member') {
-	return {id: 'org-2', slug: 'acme', name: 'Acme', role, onboardedAt: new Date('2026-09-01T00:00:00Z'), experiments: []};
+	return {id: 'org-2', slug: 'acme', name: 'Acme', role, onboardedAt: new Date('2026-09-01T00:00:00Z'), experiments: [], chatModel: null};
 }
 
 beforeEach(() => {
@@ -96,6 +98,7 @@ beforeEach(() => {
 	removeMembership.mockResolvedValue(Ok(undefined));
 	deleteOwnedOrganization.mockResolvedValue(Ok(true));
 	renameOrganization.mockResolvedValue(Ok(undefined));
+	setOrganizationChatModel.mockResolvedValue(Ok(true));
 	beforeDisconnectAll.mockResolvedValue(undefined);
 	getUserByEmail.mockResolvedValue(Ok(null));
 	canSignUp.mockReturnValue(true);
@@ -119,13 +122,20 @@ describe('handleListOrgsRoute', () => {
 
 describe('handleGetOrgRoute', () => {
 	test('answers the organization in the address, with the person’s role and its experiments', async () => {
-		getMemberOrganization.mockResolvedValue(Ok({...membership('member'), experiments: ['ask']}));
+		getMemberOrganization.mockResolvedValue(Ok({...membership('member'), experiments: ['harness']}));
 		listUserOrgs.mockResolvedValue(Ok([mine, {...acme, role: 'member' as const}]));
 		const {handleGetOrgRoute} = await import('./route');
 		const result = await handleGetOrgRoute(makeRequest());
 
 		expect(getMemberOrganization).toHaveBeenCalledWith('user-1', 'acme');
-		expect(result.unwrap()).toEqual({...acme, role: 'member', experiments: ['ask']});
+		expect(result.unwrap()).toEqual({...acme, role: 'member', experiments: ['harness'], chatModel: null});
+	});
+
+	test('answers an insider’s chat model', async () => {
+		getMemberOrganization.mockResolvedValue(Ok({...membership('owner'), chatModel: 'glm'}));
+		const {handleGetOrgRoute} = await import('./route');
+
+		expect((await handleGetOrgRoute(makeRequest())).unwrap().chatModel).toBe('glm');
 	});
 
 	test('one the person isn’t in is not found, as is one that doesn’t exist', async () => {
@@ -144,7 +154,7 @@ describe('handleCreateOrgRoute', () => {
 		const result = await handleCreateOrgRoute(makeRequest({}, {name: '  Lab '}));
 
 		expect(createOrganization).toHaveBeenCalledWith({userId: 'user-1', name: 'Lab'});
-		expect(result.unwrap()).toEqual({id: 'org-3', slug: 'lab', name: 'Lab', role: 'owner', onboarded: true, experiments: [], memberCount: 1, invitationCount: 0});
+		expect(result.unwrap()).toEqual({id: 'org-3', slug: 'lab', name: 'Lab', role: 'owner', onboarded: true, experiments: [], chatModel: null, memberCount: 1, invitationCount: 0});
 	});
 
 	test('needs a name', async () => {
@@ -176,6 +186,43 @@ describe('handleRenameOrgRoute', () => {
 		expect(renameOrganization).toHaveBeenCalledTimes(1);
 		expect(renameOrganization).toHaveBeenCalledWith('org-2', 'Acme Inc', ['vault']);
 		expect(asMember.unwrapErr().kind).toBe('forbidden');
+	});
+});
+
+describe('handleSetChatModelRoute', () => {
+	test('the owner of an insider switches its chat model', async () => {
+		getMemberOrganization.mockResolvedValue(Ok({...membership('owner'), chatModel: 'claude'}));
+		const {handleSetChatModelRoute} = await import('./route');
+		const result = await handleSetChatModelRoute(makeRequest({}, {chatModel: 'glm'}));
+
+		expect(result.isOk()).toBe(true);
+		expect(setOrganizationChatModel).toHaveBeenCalledWith('org-2', 'glm');
+	});
+
+	test('an organization that isn’t an insider has no choice', async () => {
+		const {handleSetChatModelRoute} = await import('./route');
+		const result = await handleSetChatModelRoute(makeRequest({}, {chatModel: 'glm'}));
+
+		expect(result.unwrapErr().kind).toBe('forbidden');
+		expect(setOrganizationChatModel).not.toHaveBeenCalled();
+	});
+
+	test('nor does one that stopped being an insider before it was written', async () => {
+		getMemberOrganization.mockResolvedValue(Ok({...membership('owner'), chatModel: 'claude'}));
+		setOrganizationChatModel.mockResolvedValue(Ok(false));
+		const {handleSetChatModelRoute} = await import('./route');
+
+		expect((await handleSetChatModelRoute(makeRequest({}, {chatModel: 'glm'}))).unwrapErr().kind).toBe('forbidden');
+	});
+
+	test('a member can’t, and a model there isn’t is refused', async () => {
+		const {handleSetChatModelRoute} = await import('./route');
+		getMemberOrganization.mockResolvedValue(Ok({...membership('member'), chatModel: 'claude'}));
+		expect((await handleSetChatModelRoute(makeRequest({}, {chatModel: 'glm'}))).unwrapErr().kind).toBe('forbidden');
+
+		getMemberOrganization.mockResolvedValue(Ok({...membership('owner'), chatModel: 'claude'}));
+		expect((await handleSetChatModelRoute(makeRequest({}, {chatModel: 'gpt'}))).unwrapErr().kind).toBe('parse_error');
+		expect(setOrganizationChatModel).not.toHaveBeenCalled();
 	});
 });
 
