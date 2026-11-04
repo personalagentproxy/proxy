@@ -13,7 +13,7 @@ import {NOTION_INTEGRATION} from './notion/integration';
 import {PARALLEL_INTEGRATION} from './parallel/integration';
 import {PLAID_INTEGRATION} from './plaid/integration';
 import {POSTGRES_INTEGRATION} from './postgres/integration';
-import {VAULT_INTEGRATION} from './vault/integration';
+import {VAULT_INTEGRATION} from '../native/vault/integration';
 
 /**
  * Every integration of the catalog's, as the api knows it (`integration.ts`), by its id: adding one

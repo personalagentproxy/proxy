@@ -526,3 +526,70 @@ describe('google', () => {
 		expect(list?.readOnly).toBe(true);
 	});
 });
+
+// An integration's own tools, beside what its collections give: the vault with a tool counting its
+// entries and one purging them, as a sandbox will have one running a command.
+describe("an integration's own tools", () => {
+	const count = {
+		name: 'entries_count',
+		title: 'Count entries',
+		description: 'How many entries the vault holds, of a type where one is given.',
+		action: 'readEntries',
+		readOnly: true as const,
+		inputSchema: {
+			type: 'object',
+			properties: {type: {type: 'string', description: 'A type of entry'}},
+		},
+	};
+	const purge = {
+		name: 'entries_purge',
+		title: 'Purge entries',
+		description: 'Deletes every entry older than a number of days.',
+		action: 'writeEntries',
+		requires: 'readEntries',
+		inputSchema: {type: 'object', properties: {days: {type: 'number'}}, required: ['days']},
+	};
+	const vault: Integration = {...integration('vault'), tools: [count, purge]};
+
+	test('come after the collections’ tools, with the risk of the action each needs', () => {
+		expect(integrationTools(vault).map((tool) => tool.name)).toEqual([
+			'entries_list',
+			'entries_get',
+			'entries_create',
+			'entries_update',
+			'entries_delete',
+			'entries_count',
+			'entries_purge',
+		]);
+		expect(findTool(vault, 'entries_count')).toEqual({
+			...count,
+			kind: 'native',
+			operation: 'entries_count',
+			readOnly: true,
+			risk: 'low',
+			reachesOthers: false,
+		});
+		expect(findTool(vault, 'entries_purge')).toMatchObject({
+			kind: 'native',
+			action: 'writeEntries',
+			requires: 'readEntries',
+			readOnly: false,
+			risk: 'medium',
+		});
+	});
+
+	test('are allowed with their action, and the one they need beside it', () => {
+		const allowed = (actions: string[]) =>
+			allowedTools(vault, actions)
+				.filter((tool) => tool.kind === 'native')
+				.map((tool) => tool.name);
+		expect(allowed(['readEntries'])).toEqual(['entries_count']);
+		expect(allowed(['readEntries', 'writeEntries'])).toEqual(['entries_count', 'entries_purge']);
+		expect(allowed(['writeEntries'])).toEqual([]);
+	});
+
+	test('one naming an action the integration lacks is left out', () => {
+		const stray = {...vault, tools: [{...count, action: 'readAll'}]};
+		expect(integrationTools(stray).some((tool) => tool.kind === 'native')).toBe(false);
+	});
+});

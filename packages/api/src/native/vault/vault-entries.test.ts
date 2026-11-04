@@ -3,7 +3,7 @@ import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
 
-mock.module('../utils/env', () => ({env: {ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64')}}));
+mock.module('../../utils/env', () => ({env: {ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64')}}));
 
 const listOldVaultRecords = mock();
 const replaceOldVaultRecord = mock();
@@ -18,10 +18,10 @@ mock.module('@proxy/db/vault', () => ({
 }));
 
 const logged = {debug: mock(), info: mock(), warn: mock(), error: mock()};
-mock.module('../observability/log', () => ({log: logged, serializeError: mock(() => ({}))}));
+mock.module('../../observability/log', () => ({log: logged, serializeError: mock(() => ({}))}));
 
 const {convertOldVaultRecords, entryFrom} = await import('./vault-entries');
-const {encryptValues} = await import('./vault-connector');
+const {encryptValues} = await import('./connector');
 
 describe('entryFrom', () => {
 	test('writes an address out a line at a time, titled by its label', () => {

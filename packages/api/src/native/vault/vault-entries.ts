@@ -3,10 +3,10 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import {listOldVaultRecords, replaceOldVaultRecord, type OldVaultRecord} from '@proxy/db/vault';
 
-import {worthRetrying} from '../data-migrations/retry';
-import {log, serializeError} from '../observability/log';
-import type {RecordValues} from './connector';
-import {decryptValues, encryptValues} from './vault-connector';
+import {worthRetrying} from '../../data-migrations/retry';
+import {log, serializeError} from '../../observability/log';
+import type {RecordValues} from '../../records/connector';
+import {decryptValues, encryptValues} from './connector';
 
 /**
  * Turning what Information kept into vault entries, as a data migration (`data-migrations/run.ts`),

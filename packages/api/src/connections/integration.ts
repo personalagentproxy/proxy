@@ -5,15 +5,17 @@ import type {ApiError} from '@proxy/utils';
 import type {IntegrationId} from '@proxy/integrations';
 import type {Connection, plaidLinkTokenSchema} from '@proxy/contracts/connections';
 
+import type {NativeToolRunner} from '../native/tool';
 import type {Connector} from '../records/connector';
 import type {AuthenticatedHandler, AuthenticatedResultHandler} from '../server/middleware/require-auth';
 import type {BuiltInMcp} from './mcp/built-in';
 
 /**
  * Everything the api knows about one integration of the catalog's, each in its provider's own
- * directory (`<provider>/integration.ts`) and all of them in `integrations.ts`: its collections'
- * connectors, how it is connected and so the routes it has, what is undone at the provider when a
- * connection of it is deleted, and the actions a connection's sign-in didn't cover.
+ * directory (`<provider>/integration.ts`, or `native/<id>/integration.ts` for one that lives in
+ * Personal Agent Proxy itself) and all of them in `integrations.ts`: its collections' connectors
+ * and its own tools' runners, how it is connected and so the routes it has, what is undone at the
+ * provider when a connection of it is deleted, and the actions a connection's sign-in didn't cover.
  */
 
 /** A connection about to be deleted, as what undoes it at its provider reads it. */
@@ -55,6 +57,9 @@ export type ApiIntegration = {
 	// Each collection's connector by the catalog's collection id (`records/connectors.ts`); none for
 	// a custom MCP server, whose tools are called as they are.
 	connectors: Partial<Record<string, Connector>>;
+	// Each of the integration's own tools' runner by the tool's name (`native/tool.ts`), for one
+	// with tools of its own.
+	tools?: Partial<Record<string, NativeToolRunner>>;
 	// None for the vault, which is never connected.
 	connect?: ConnectRoutes;
 	// Built on its provider's MCP server (`built-in-mcp.ts`).

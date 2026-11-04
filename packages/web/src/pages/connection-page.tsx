@@ -125,7 +125,7 @@ export function ConnectionPage() {
 							<ListRestartIcon className={refreshing ? 'motion-safe:animate-spin' : undefined} />
 						</IconButton>
 					)}
-					{!integration.builtIn && mayChange && (
+					{!integration.native && mayChange && (
 						<IconButton label="Disconnect" onClick={() => setDisconnecting(true)}>
 							<UnplugIcon />
 						</IconButton>
@@ -185,7 +185,7 @@ export function ConnectionPage() {
 					)}
 					{error && <p className="text-sm text-destructive">{error}</p>}
 				</Section>
-				{!integration.builtIn && (
+				{!integration.native && (
 					<Sharing
 						orgName={activeOrg.name}
 						shared={connection.shared}

@@ -13,6 +13,7 @@ export {
 } from './catalog';
 export {allowedTools, findTool, integrationTools, toolName} from './tools';
 export type {
+	ApiTool,
 	CollectionTool,
 	JsonSchemaObject,
 	JsonSchemaProperty,
@@ -39,4 +40,5 @@ export type {
 	FieldType,
 	Integration,
 	IntegrationId,
+	NativeTool,
 } from './types';
