@@ -118,7 +118,7 @@ export function AuditList({
 							<button
 								type="button"
 								onClick={() => setOpened(entry)}
-								className="flex h-10 w-full items-center gap-3 px-(--bleed) text-left text-sm hover:bg-muted/50 active:bg-muted/50"
+								className="flex h-10 w-full items-center gap-3 px-(--bleed) rounded-md text-left text-sm hover:bg-muted/50 active:bg-muted/50"
 							>
 								<span className={CELLS.at}>{formatDateTime(entry.at)}</span>
 								{showAgent && <EntryAgentLogo entry={entry} agent={agent} task={task} />}

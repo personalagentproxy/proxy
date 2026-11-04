@@ -425,7 +425,7 @@ function AccessGrid({
 								type="button"
 								aria-expanded={open}
 								onClick={() => toggle(connection.id)}
-								className="bleed flex h-10 items-center gap-2 text-left text-sm hover:bg-muted/50"
+								className="bleed flex h-10 items-center gap-2 rounded-md text-left text-sm hover:bg-muted/50"
 							>
 								<ChevronRightIcon
 									className={cn(

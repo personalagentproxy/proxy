@@ -34,13 +34,13 @@ type RowProps = {
 
 // Its item out into the gutter of what holds the list (`--bleed`), and the row filling it, so its
 // hover reaches the gutter while its text stays on the line; beside something else (`after`), the
-// two share the item, the row's hover on its side only.
+// two share the item, and the hover covers both.
 const ITEM = '-mx-(--bleed)';
-const ROW =
-	'flex w-full min-w-0 items-center gap-3 px-(--bleed) text-left text-sm hover:bg-muted/50 active:bg-muted/50';
+const HOVER = 'rounded-md hover:bg-muted/50 active:bg-muted/50';
+const ROW = 'flex w-full min-w-0 items-center gap-3 px-(--bleed) text-left text-sm';
 
 export function Row({to, onClick, icon, title, subtitle, cells, menu, after}: RowProps) {
-	const className = cn(ROW, subtitle ? 'min-h-10 py-2' : 'h-10');
+	const className = cn(ROW, !after && HOVER, subtitle ? 'min-h-10 py-2' : 'h-10');
 	const content = (
 		<>
 			{icon}
@@ -66,7 +66,7 @@ export function Row({to, onClick, icon, title, subtitle, cells, menu, after}: Ro
 			</button>
 		);
 	const control = after ? (
-		<div className="flex items-center">
+		<div className={cn('flex items-center', HOVER)}>
 			{link}
 			<div className="flex shrink-0 items-center pr-(--bleed)">{after}</div>
 		</div>
