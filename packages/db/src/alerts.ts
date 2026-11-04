@@ -1,18 +1,30 @@
-import type {Prisma} from '@prisma/client';
+import {Prisma} from '@prisma/client';
 import type {Result} from 'ts-results-es';
 
 import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
-import {type PersonaRow, personaSelect, toPersona} from './harness';
+import {
+	appendEntry,
+	endJob,
+	lockThread,
+	type PersonaRow,
+	personaSelect,
+	type ThreadRow,
+	toPersona,
+	type Wakes,
+} from './harness';
 
 /**
- * The built-in agent's alerts (AgentAlert): set in a member's conversation by a call of the agent's,
- * once per call; a timed one with its job, due at its time, which fires it (harness.ts fireAlert);
- * a watch with the polls of the connections it watches (ConnectionPoll), each due now where it is
- * new. An alert is deleted when it fires, when the agent cancels it, or when the person deletes it
- * on the Alerts page; a timed one's job goes with it. A poll is claimed by moving its due time on,
- * so one api instance takes each, and deleted by the look that finds no watch on it.
+ * The built-in agent's alerts (AgentAlert) and the polls their watches read (ConnectionPoll). An
+ * alert is set in the transaction that answers the call that set it, so a tool job run again sets
+ * nothing more; a watch's polls are made with it, and kept. Both are taken by the alerts' sweep,
+ * each moved on as it is taken, so one api instance takes each, and what each comes to is written
+ * in one transaction: a timed alert lands as it is deleted, and a poll's look lands what matched,
+ * for every watch on it, as it moves the cursor on from where the look started. A turn that fails,
+ * is cut short, or was taken over by another instance writes nothing, and comes again from where
+ * it was. An alert is deleted when it fires, when the agent cancels it, or when the person deletes
+ * it on the Alerts page; a poll goes with its connection.
  */
 
 export type AlertRow = {
@@ -21,7 +33,6 @@ export type AlertRow = {
 	userId: string;
 	// The conversation it was set in, where what it comes to lands.
 	threadId: string;
-	callId: string;
 	title: string;
 	brief: string;
 	// A timed alert's time; null for a watch.
@@ -45,12 +56,14 @@ export type NewAlert = {title: string; brief: string} & (
 /** Where a connection's collection was last looked at: `cursor` null before the first look. */
 export type PollRow = {connectionId: string; collectionId: string; cursor: string | null};
 
+/** What a look tells a watch that matched: the text that lands in its conversation. */
+export type WatchMatch = {alert: AlertRow; text: string};
+
 const alertSelect = {
 	id: true,
 	orgId: true,
 	userId: true,
 	threadId: true,
-	callId: true,
 	title: true,
 	brief: true,
 	at: true,
@@ -62,57 +75,60 @@ const alertSelect = {
 } as const satisfies Prisma.AgentAlertSelect;
 
 /**
- * Sets an alert in the conversation, from the call that set it: a timed one with its job, a watch
- * with the polls of its connections. The same call again, a tool job run again, gives the alert
- * it set.
+ * Finishes the tool job of a set_alert call: sets the alert in the conversation, a timed one due
+ * at its time and a watch with the polls of its connections, and answers the call as `answer`
+ * says of it, in one transaction. Wakes the agent where the log then `wakes` it. `Ok(false)` when
+ * the job was no longer the worker's, and nothing is set.
  */
-export async function createAlert(
-	thread: {id: string; orgId: string; userId: string},
-	callId: string,
+export async function completeSetAlert(
+	job: {jobId: string; workerId: string; threadId: string; callId: string},
 	alert: NewAlert,
-): Promise<Result<AlertRow, ApiError>> {
+	answer: (alert: AlertRow) => string,
+	wakes: Wakes,
+): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
-		db.$transaction(async (tx) => {
-			const existing = await tx.agentAlert.findUnique({
-				where: {threadId_callId: {threadId: thread.id, callId}},
-				select: alertSelect,
-			});
-			if (existing) {
-				return existing;
-			}
-			const made = await tx.agentAlert.create({
-				data: {
-					orgId: thread.orgId,
-					userId: thread.userId,
-					threadId: thread.id,
-					callId,
-					title: alert.title,
-					brief: alert.brief,
-					...(alert.kind === 'time'
-						? {at: alert.at}
-						: {
-								collectionId: alert.collectionId,
-								connectionIds: alert.connectionIds,
-								terms: alert.terms,
-							}),
-				},
-				select: alertSelect,
-			});
-			if (alert.kind === 'time') {
-				await tx.agentJob.create({
-					data: {threadId: thread.id, kind: 'alert', alertId: made.id, runAt: alert.at},
+		db.$transaction((tx) =>
+			endJob(tx, {...job, status: 'done'}, wakes, async (thread) => {
+				const made = await tx.agentAlert.create({
+					data: {
+						orgId: thread.orgId,
+						userId: thread.userId,
+						threadId: thread.id,
+						title: alert.title,
+						brief: alert.brief,
+						...(alert.kind === 'time'
+							? {at: alert.at, nextAt: alert.at}
+							: {
+									collectionId: alert.collectionId,
+									connectionIds: alert.connectionIds,
+									terms: alert.terms,
+								}),
+					},
+					select: alertSelect,
 				});
-				return made;
-			}
-			for (const connectionId of alert.connectionIds) {
-				await tx.connectionPoll.upsert({
-					where: {connectionId_collectionId: {connectionId, collectionId: alert.collectionId}},
-					create: {connectionId, collectionId: alert.collectionId},
-					update: {},
-				});
-			}
-			return made;
-		}),
+				if (alert.kind === 'watch') {
+					for (const connectionId of alert.connectionIds) {
+						await tx.connectionPoll.upsert({
+							where: {connectionId_collectionId: {connectionId, collectionId: alert.collectionId}},
+							create: {connectionId, collectionId: alert.collectionId},
+							update: {},
+						});
+					}
+				}
+				await appendEntry(
+					tx,
+					thread,
+					{
+						kind: 'tool_result',
+						callId: job.callId,
+						text: answer(made),
+						isError: false,
+						jobId: job.jobId,
+					},
+					wakes,
+				);
+			}),
+		),
 	);
 }
 
@@ -155,75 +171,160 @@ export async function listMemberAlerts(
 	);
 }
 
-/** Notes that the watch matched a record at `at`. */
-export async function markAlertMatched(alertId: string, at: Date): Promise<Result<void, ApiError>> {
-	return (
-		await wrapDb(() => db.agentAlert.updateMany({where: {id: alertId}, data: {lastMatchedAt: at}}))
-	).map(() => undefined);
-}
-
 /**
- * Deletes an alert, with a timed one's job still queued: the conversation's, as the agent cancels
- * one, or the member's, as the Alerts page deletes one. `Ok(false)` when there is none such.
+ * Deletes an alert: the conversation's, as the agent cancels one, or the member's, as the Alerts
+ * page deletes one. `Ok(false)` when there is none such.
  */
 export async function deleteAlert(
 	alertId: string,
 	owner: {threadId: string} | {orgId: string; userId: string},
 ): Promise<Result<boolean, ApiError>> {
+	return (await wrapDb(() => db.agentAlert.deleteMany({where: {id: alertId, ...owner}}))).map(
+		({count}) => count > 0,
+	);
+}
+
+// Prisma writes a DateTime as the UTC wall clock, in a column without a time zone; now() has one,
+// and would be read in the server's, so its UTC wall clock is what is compared and written.
+
+/**
+ * Up to `limit` of the timed alerts due, each moved on by `everyMs` as it is taken, so that one
+ * api instance takes each and one whose turn fails comes again then.
+ */
+export async function claimDueAlerts(
+	everyMs: number,
+	limit: number,
+): Promise<Result<AlertRow[], ApiError>> {
+	const claimed = await wrapDb(
+		() => db.$queryRaw<Array<{id: string}>>`
+			UPDATE "AgentAlert" SET "nextAt" = (now() AT TIME ZONE 'UTC') + make_interval(secs => ${everyMs / 1000})
+			WHERE "id" IN (
+				SELECT "id" FROM "AgentAlert"
+				WHERE "nextAt" <= now() AT TIME ZONE 'UTC'
+				ORDER BY "nextAt"
+				LIMIT ${limit}
+				FOR UPDATE SKIP LOCKED
+			)
+			RETURNING "id"`,
+	);
+	if (claimed.isErr() || claimed.value.length === 0) {
+		return claimed.map(() => []);
+	}
+	const ids = claimed.value.map(({id}) => id);
+	return wrapDb(() =>
+		db.agentAlert.findMany({where: {id: {in: ids}}, select: alertSelect, orderBy: {at: 'asc'}}),
+	);
+}
+
+/**
+ * Fires a timed alert: what `text` says lands in its conversation as an event, and the alert is
+ * deleted, in one transaction. Wakes the agent where the log then `wakes` it. `Ok(false)` when
+ * the alert or its conversation is gone, and nothing is written.
+ */
+export async function fireAlert(
+	alert: AlertRow,
+	text: string,
+	wakes: Wakes,
+): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
-			const {count} = await tx.agentAlert.deleteMany({where: {id: alertId, ...owner}});
+			const thread = await lockThread(tx, alert.threadId);
+			if (!thread) {
+				return false;
+			}
+			const {count} = await tx.agentAlert.deleteMany({where: {id: alert.id}});
 			if (count === 0) {
 				return false;
 			}
-			await tx.agentJob.deleteMany({where: {alertId, status: 'queued'}});
+			await appendEntry(tx, thread, {kind: 'event', text}, wakes);
 			return true;
 		}),
 	);
 }
 
 /**
- * The polls due, each moved on by `everyMs` as it is taken, so that one api instance takes each
- * and a look that fails comes again then.
+ * Up to `limit` of the polls due that a watch is on, each moved on by `everyMs` as it is taken,
+ * so that one api instance takes each and one whose look fails comes again then. A poll due that
+ * no watch is on has its cursor cleared, and is taken no more until a watch is set on it, whose
+ * first look starts from then.
  */
-export async function claimDuePolls(everyMs: number): Promise<Result<PollRow[], ApiError>> {
-	// Prisma writes a DateTime as the UTC wall clock, in a column without a time zone; now() has
-	// one, and would be read in the server's, so its UTC wall clock is what is compared and
-	// written.
-	return wrapDb(
-		() => db.$queryRaw<PollRow[]>`
-			UPDATE "ConnectionPoll" SET "nextAt" = (now() AT TIME ZONE 'UTC') + make_interval(secs => ${everyMs / 1000})
-			WHERE ("connectionId", "collectionId") IN (
-				SELECT "connectionId", "collectionId" FROM "ConnectionPoll"
-				WHERE "nextAt" <= now() AT TIME ZONE 'UTC'
-				FOR UPDATE SKIP LOCKED
-			)
-			RETURNING "connectionId", "collectionId", "cursor"`,
-	);
+export async function claimDuePolls(
+	everyMs: number,
+	limit: number,
+): Promise<Result<PollRow[], ApiError>> {
+	// Whether a watch is on the poll `q`.
+	const watched = Prisma.sql`EXISTS (
+		SELECT 1 FROM "AgentAlert" a
+		WHERE a."collectionId" = q."collectionId" AND q."connectionId" = ANY (a."connectionIds")
+	)`;
+	return (
+		await wrapDb(
+			() => db.$queryRaw<Array<PollRow & {watched: boolean}>>`
+				UPDATE "ConnectionPoll" AS p
+				SET "nextAt" = (now() AT TIME ZONE 'UTC') + make_interval(secs => ${everyMs / 1000}),
+					"cursor" = CASE WHEN due."watched" THEN p."cursor" ELSE NULL END
+				FROM (
+					SELECT q."connectionId", q."collectionId", ${watched} AS "watched"
+					FROM "ConnectionPoll" q
+					WHERE q."nextAt" <= now() AT TIME ZONE 'UTC' AND (q."cursor" IS NOT NULL OR ${watched})
+					ORDER BY q."nextAt"
+					LIMIT ${limit}
+					FOR UPDATE OF q SKIP LOCKED
+				) AS due
+				WHERE p."connectionId" = due."connectionId" AND p."collectionId" = due."collectionId"
+				RETURNING p."connectionId", p."collectionId", p."cursor", due."watched"`,
+		)
+	).map((polls) => polls.flatMap(({watched, ...poll}) => (watched ? [poll] : [])));
 }
 
-/** Where a look left off, for the next to start from. */
-export async function setPollCursor(
+/**
+ * Notes a look at a poll: where it left off, `cursor`, and what it matched, which lands in each
+ * matching watch's conversation as an event, in one transaction, only from where the look started,
+ * the cursor the poll was taken with. A watch deleted since is told nothing. The conversations are
+ * locked in the order of their ids, so two looks never wait on each other in a circle. Wakes each agent where
+ * its log then `wakes` it. `Ok(false)` when the poll was looked at from there since, or is gone,
+ * and nothing is written.
+ */
+export async function recordLook(
 	poll: PollRow,
 	cursor: string,
-): Promise<Result<void, ApiError>> {
-	return (
-		await wrapDb(() =>
-			db.connectionPoll.updateMany({
-				where: {connectionId: poll.connectionId, collectionId: poll.collectionId},
+	matched: WatchMatch[],
+	at: Date,
+	wakes: Wakes,
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			// The conversations first, then the poll, as a watch set takes its conversation, then its polls.
+			const threads = new Map<string, ThreadRow | null>();
+			for (const threadId of [...new Set(matched.map(({alert}) => alert.threadId))].sort()) {
+				threads.set(threadId, await lockThread(tx, threadId));
+			}
+			const {count} = await tx.connectionPoll.updateMany({
+				where: {
+					connectionId: poll.connectionId,
+					collectionId: poll.collectionId,
+					cursor: poll.cursor,
+				},
 				data: {cursor},
-			}),
-		)
-	).map(() => undefined);
-}
-
-/** Deletes a poll, once no watch is on it, or its connection no longer polls. */
-export async function deletePoll(poll: PollRow): Promise<Result<void, ApiError>> {
-	return (
-		await wrapDb(() =>
-			db.connectionPoll.deleteMany({
-				where: {connectionId: poll.connectionId, collectionId: poll.collectionId},
-			}),
-		)
-	).map(() => undefined);
+			});
+			if (count === 0) {
+				return false;
+			}
+			for (const {alert, text} of matched) {
+				const thread = threads.get(alert.threadId);
+				if (!thread) {
+					continue;
+				}
+				const marked = await tx.agentAlert.updateMany({
+					where: {id: alert.id},
+					data: {lastMatchedAt: at},
+				});
+				if (marked.count === 0) {
+					continue;
+				}
+				await appendEntry(tx, thread, {kind: 'event', text}, wakes);
+			}
+			return true;
+		}),
+	);
 }

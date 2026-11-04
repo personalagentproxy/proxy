@@ -9,7 +9,7 @@ import type {PersonaRow} from '@proxy/db/harness';
 import type {Alert, alertListSchema} from '@proxy/contracts/alerts';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
-import {connectionName, WATCHED_COLLECTIONS, type WatchedCollection} from './alerts';
+import {collectionName, connectionName} from './alerts';
 import {requireChat} from './route';
 import type {HarnessStore} from './store';
 
@@ -30,7 +30,7 @@ function toAlert(alert: AlertRow & {persona: PersonaRow}, connections: Map<strin
 		brief: alert.brief,
 		persona: {id: alert.persona.id, name: alert.persona.name, look: alert.persona.look, color: toAvatarColor(alert.persona.color)},
 		at: alert.at?.toISOString() ?? null,
-		collection: alert.collectionId !== null && alert.collectionId in WATCHED_COLLECTIONS ? WATCHED_COLLECTIONS[alert.collectionId as WatchedCollection] : null,
+		collection: collectionName(alert.collectionId),
 		connections: alert.connectionIds.flatMap((id) => {
 			const connection = connections.get(id);
 			return connection ? [{id, integrationId: connection.integrationId, name: connectionName(connection)}] : [];

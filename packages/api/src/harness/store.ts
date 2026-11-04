@@ -3,7 +3,7 @@ import type {Result} from 'ts-results-es';
 import type {ApiError, ChatModel} from '@proxy/utils';
 import {readyForInference} from '@proxy/utils/harness';
 import * as alerts from '@proxy/db/alerts';
-import type {AlertRow, NewAlert, PollRow} from '@proxy/db/alerts';
+import type {AlertRow, NewAlert, PollRow, WatchMatch} from '@proxy/db/alerts';
 import {type ConnectionRow, getConnectionWithCredentialById, listConnectionsByIds} from '@proxy/db/connection';
 import * as harness from '@proxy/db/harness';
 import type {AfterAnswer, AssistantTurn, EntryRow, FailureNote, JobRow, LastMessage, Persona, PersonaRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
@@ -13,8 +13,8 @@ import {getOrganizationChatModel} from '@proxy/db/organization';
 
 /**
  * What the harness reads and writes: the job queue, each thread's log and its jobs, the Chat
- * page's personas, and the alerts set in the conversations with the polls of the connections they
- * watch, in the database (@proxy/db/harness, @proxy/db/alerts). Every write is one transaction, fenced by
+ * page's personas, and the alerts set in the conversations with the polls their watches read, in
+ * the database (@proxy/db/harness, @proxy/db/alerts). Every write is one transaction, fenced by
  * the worker's lease where it is a job's, and takes what it writes as the harness composed it:
  * the rules of the conversation are the harness's own (conversation.ts). The agent is woken where
  * what lands leaves its log ready for it (@proxy/utils/harness readyForInference). Each part of
@@ -52,19 +52,17 @@ export type HarnessStore = {
 	listOpenJobs: (threadId: string) => Promise<Result<JobRow[], ApiError>>;
 	appendPersonMessage: (threadId: string, text: string) => Promise<Result<EntryRow | null, ApiError>>;
 
-	createAlert: (thread: ThreadRow, callId: string, alert: NewAlert) => Promise<Result<AlertRow, ApiError>>;
+	completeSetAlert: (job: {jobId: string; workerId: string; threadId: string; callId: string}, alert: NewAlert, answer: (alert: AlertRow) => string) => Promise<Result<boolean, ApiError>>;
 	deleteAlert: (alertId: string, owner: {threadId: string} | {orgId: string; userId: string}) => Promise<Result<boolean, ApiError>>;
 	listThreadAlerts: (threadId: string) => Promise<Result<AlertRow[], ApiError>>;
 	listMemberAlerts: (orgId: string, userId: string) => Promise<Result<Array<AlertRow & {persona: PersonaRow}>, ApiError>>;
 	listConnectionsByIds: (orgId: string, ids: string[]) => Promise<Result<ConnectionRow[], ApiError>>;
-	fireAlert: (jobId: string, workerId: string, threadId: string, alertId: string, tell: (alert: {title: string; brief: string; at: Date | null}) => string) => Promise<Result<boolean, ApiError>>;
-	claimDuePolls: (everyMs: number) => Promise<Result<PollRow[], ApiError>>;
-	setPollCursor: (poll: PollRow, cursor: string) => Promise<Result<void, ApiError>>;
-	deletePoll: (poll: PollRow) => Promise<Result<void, ApiError>>;
+	claimDueAlerts: (everyMs: number, limit: number) => Promise<Result<AlertRow[], ApiError>>;
+	fireAlert: (alert: AlertRow, text: string) => Promise<Result<boolean, ApiError>>;
+	claimDuePolls: (everyMs: number, limit: number) => Promise<Result<PollRow[], ApiError>>;
 	listWatches: (connectionId: string, collectionId: string) => Promise<Result<AlertRow[], ApiError>>;
-	markAlertMatched: (alertId: string, at: Date) => Promise<Result<void, ApiError>>;
+	recordLook: (poll: PollRow, cursor: string, matched: WatchMatch[], at: Date) => Promise<Result<boolean, ApiError>>;
 	getPollConnection: (connectionId: string) => Promise<Result<(ConnectionRow & {credential: string | null}) | null, ApiError>>;
-	appendEvent: (threadId: string, text: string) => Promise<Result<boolean, ApiError>>;
 };
 
 /** The store in the database. */
@@ -100,17 +98,15 @@ export const harnessStore: HarnessStore = {
 	listOpenJobs: harness.listOpenJobs,
 	appendPersonMessage: (threadId, text) => harness.appendPersonMessage(threadId, text, readyForInference),
 
-	createAlert: alerts.createAlert,
+	completeSetAlert: (job, alert, answer) => alerts.completeSetAlert(job, alert, answer, readyForInference),
 	deleteAlert: alerts.deleteAlert,
 	listThreadAlerts: alerts.listThreadAlerts,
 	listMemberAlerts: alerts.listMemberAlerts,
 	listConnectionsByIds,
-	fireAlert: (jobId, workerId, threadId, alertId, tell) => harness.fireAlert(jobId, workerId, threadId, alertId, tell, readyForInference),
+	claimDueAlerts: alerts.claimDueAlerts,
+	fireAlert: (alert, text) => alerts.fireAlert(alert, text, readyForInference),
 	claimDuePolls: alerts.claimDuePolls,
-	setPollCursor: alerts.setPollCursor,
-	deletePoll: alerts.deletePoll,
 	listWatches: alerts.listWatches,
-	markAlertMatched: alerts.markAlertMatched,
+	recordLook: (poll, cursor, matched, at) => alerts.recordLook(poll, cursor, matched, at, readyForInference),
 	getPollConnection: getConnectionWithCredentialById,
-	appendEvent: (threadId, text) => harness.appendEvent(threadId, text, readyForInference),
 };

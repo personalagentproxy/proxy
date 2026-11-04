@@ -1,13 +1,7 @@
--- Alerts: what the built-in agent sets in a member's conversation, to be woken outside it. A timed
--- alert is a job of a third kind, `alert`, due at its time. A watch is a rule on a collection of
--- some connections, each polled for what is new while any watch is on it, one poll row per
--- connection and collection.
-
--- AlterEnum
-ALTER TYPE "AgentJobKind" ADD VALUE IF NOT EXISTS 'alert';
-
--- AlterTable
-ALTER TABLE "AgentJob" ADD COLUMN     "alertId" TEXT;
+-- Alerts: what the built-in agent sets in a member's conversation, to be woken outside it, at a
+-- time or by a watch on a collection of some connections. A timed alert is due at `nextAt`; a
+-- watch reads each connection's collection through its poll, one row per connection and
+-- collection, which every watch on it shares.
 
 -- CreateTable
 CREATE TABLE "AgentAlert" (
@@ -15,10 +9,10 @@ CREATE TABLE "AgentAlert" (
     "orgId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "threadId" TEXT NOT NULL,
-    "callId" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "brief" TEXT NOT NULL,
     "at" TIMESTAMP(3),
+    "nextAt" TIMESTAMP(3),
     "collectionId" TEXT,
     "connectionIds" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "terms" TEXT[] DEFAULT ARRAY[]::TEXT[],
@@ -39,10 +33,14 @@ CREATE TABLE "ConnectionPoll" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "AgentAlert_threadId_callId_key" ON "AgentAlert"("threadId", "callId");
+CREATE INDEX "AgentAlert_threadId_idx" ON "AgentAlert"("threadId");
 
 -- CreateIndex
 CREATE INDEX "AgentAlert_orgId_userId_idx" ON "AgentAlert"("orgId", "userId");
 
 -- CreateIndex
+CREATE INDEX "AgentAlert_nextAt_idx" ON "AgentAlert"("nextAt");
+
+-- CreateIndex
 CREATE INDEX "ConnectionPoll_nextAt_idx" ON "ConnectionPoll"("nextAt");
+

@@ -11,7 +11,7 @@ import type {Change} from '../records/connector';
  * The built-in agent's alerts: a wake-up outside the conversation, set by the agent talking with
  * the person when they ask to be told at a time, or when something happens in their accounts. A
  * timed alert lands what the agent noted in the conversation when it is due. A watch is a rule on
- * a collection of some connections, polled every so often (watches.ts): a record new or changed
+ * a collection of some connections, polled every so often (alert-sweep.ts): a record new or changed
  * there that carries any of the watch's words, matched as written, lands in the conversation with
  * its link. Here: what set_alert takes, how a record is matched, and the words of it all, for the
  * agent; which connections may be watched is watch-connections.ts.
@@ -20,13 +20,17 @@ import type {Change} from '../records/connector';
 export const SET_ALERT_TOOL = 'set_alert';
 export const CANCEL_ALERT_TOOL = 'cancel_alert';
 
-/** How often a connection's collection is polled while a watch is on it. */
+/** How often a connection's collection is polled while a watch is on it, and a timed alert whose turn failed comes again. */
 export const POLL_EVERY_MS = 10 * 60 * 1000;
 
 /** The collections a watch can be on, by the catalog's id, each as the agent is told of it. */
 export const WATCHED_COLLECTIONS = {emails: 'emails', issues: 'issues', events: 'calendar events'} as const;
 
 export type WatchedCollection = keyof typeof WATCHED_COLLECTIONS;
+
+function isWatchedCollection(collectionId: string): collectionId is WatchedCollection {
+	return collectionId in WATCHED_COLLECTIONS;
+}
 
 const MAX_TITLE = 120;
 const MAX_AHEAD_MS = 366 * 24 * 60 * 60 * 1000;
@@ -38,7 +42,7 @@ const argsSchema = z.object({
 	brief: z.string().trim().min(1),
 	at: z.iso.datetime({offset: true}).optional(),
 	collection: z.enum(['emails', 'issues', 'events']).optional(),
-	connections: z.array(z.string().min(1)).max(50).optional(),
+	connections: z.array(z.string().min(1)).min(1).max(50).optional(),
 	terms: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
 });
 
@@ -125,8 +129,12 @@ function listed(terms: string[]): string {
 	return `${quoted.slice(0, -1).join(', ')} or ${quoted.at(-1) ?? ''}`;
 }
 
-function collectionName(collectionId: string | null): string {
-	return collectionId !== null && collectionId in WATCHED_COLLECTIONS ? WATCHED_COLLECTIONS[collectionId as WatchedCollection] : (collectionId ?? '');
+/** What a watch watches, in words ("emails"); null for a timed alert. */
+export function collectionName(collectionId: string | null): string | null {
+	if (collectionId === null) {
+		return null;
+	}
+	return isWatchedCollection(collectionId) ? WATCHED_COLLECTIONS[collectionId] : collectionId;
 }
 
 /** An alert in a line, as the agent is told of it: its id, its title and what it is. */
@@ -134,7 +142,7 @@ export function describeAlert(alert: AlertRow): string {
 	if (alert.collectionId === null) {
 		return `${alert.id}: “${alert.title}”, due ${alert.at?.toISOString() ?? ''}`;
 	}
-	return `${alert.id}: “${alert.title}”, watching ${collectionName(alert.collectionId)} in connection${alert.connectionIds.length === 1 ? '' : 's'} ${alert.connectionIds.join(', ')} for ${listed(alert.terms)}`;
+	return `${alert.id}: “${alert.title}”, watching ${collectionName(alert.collectionId) ?? ''} in connection${alert.connectionIds.length === 1 ? '' : 's'} ${alert.connectionIds.join(', ')} for ${listed(alert.terms)}`;
 }
 
 /** What the agent is told, in its instructions, of the alerts set in its conversation. */
@@ -146,7 +154,7 @@ export function alertsParagraph(alerts: AlertRow[]): string {
 }
 
 /** What a timed alert lands in the conversation when it is due. */
-export function dueText(alert: {title: string; brief: string; at: Date | null}): string {
+export function dueText(alert: AlertRow): string {
 	return `The alert “${alert.title}” is due now, which you set for ${alert.at?.toISOString() ?? ''}. What you noted for it: ${alert.brief}`;
 }
 
@@ -155,7 +163,7 @@ const MAX_SUMMARY = 300;
 
 /** What a watch's conversation is told of the records that matched it now, with their links, for the agent to pass on. */
 export function matchText(alert: AlertRow, changes: Change[]): string {
-	const name = collectionName(alert.collectionId);
+	const name = collectionName(alert.collectionId) ?? '';
 	const lines = changes.map((change) => `- ${change.title}${change.url ? ` (${change.url})` : ''} — ${cut(change.summary, MAX_SUMMARY)}; id ${change.id}`);
 	return [
 		`The alert “${alert.title}” matched ${changes.length === 1 ? `a new one of the ${name}` : `${changes.length} new ${name}`} it watches, for ${listed(alert.terms)}:`,

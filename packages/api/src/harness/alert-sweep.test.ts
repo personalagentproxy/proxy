@@ -56,7 +56,6 @@ const watch: AlertRow = {
 	orgId: 'org-1',
 	userId: 'user-1',
 	threadId: 'thread-1',
-	callId: 'c1',
 	title: 'Bank',
 	brief: 'Tell me.',
 	at: null,
@@ -71,6 +70,8 @@ const items = [
 	{id: 'm2', title: 'Lunch?', url: null, summary: 'From sam@example.com'},
 ];
 
+const timed: AlertRow = {...watch, id: 'alert-2', title: 'Call Dana', brief: 'Remind them.', at: now, collectionId: null, connectionIds: [], terms: []};
+
 let store: FakeStore;
 
 beforeEach(() => {
@@ -80,10 +81,10 @@ beforeEach(() => {
 	store.getPollConnection.mockResolvedValue(Ok(connection));
 	store.getJobThread.mockResolvedValue(Ok(thread));
 	store.getThreadAgent.mockResolvedValue(Ok(signedIn));
-	store.appendEvent.mockResolvedValue(Ok(true));
-	store.markAlertMatched.mockResolvedValue(Ok(undefined));
-	store.setPollCursor.mockResolvedValue(Ok(undefined));
-	store.deletePoll.mockResolvedValue(Ok(undefined));
+	store.recordLook.mockResolvedValue(Ok(true));
+	store.fireAlert.mockResolvedValue(Ok(true));
+	store.claimDueAlerts.mockResolvedValue(Ok([]));
+	store.claimDuePolls.mockResolvedValue(Ok([]));
 	listAgentConnections.mockResolvedValue(
 		Ok({
 			agent: {id: 'agent-1', providerId: 'proxy', name: 'General'},
@@ -94,53 +95,79 @@ beforeEach(() => {
 });
 
 describe('runPoll', () => {
-	test('looks at the connection since the cursor, tells each watch what matched its words, and moves the cursor on', async () => {
-		const {runPoll} = await import('./watches');
+	test('reads the connection once since the cursor, and notes the new cursor with what matched each watch’s words', async () => {
+		const {runPoll} = await import('./alert-sweep');
+		const other: AlertRow = {...watch, id: 'alert-3', threadId: 'thread-2', terms: ['lunch']};
+		store.getJobThread.mockImplementation(async (id) => Ok({...thread, id}));
 		(await runPoll(store, poll, now)).unwrap();
+		expect(changes).toHaveBeenCalledTimes(1);
 		expect(changes).toHaveBeenCalledWith(expect.objectContaining({connection, collection: {id: 'emails', read: 'read'}}), 'h1', now);
-		expect(store.appendEvent).toHaveBeenCalledTimes(1);
-		const text = store.appendEvent.mock.calls[0]?.[1] ?? '';
-		expect(store.appendEvent.mock.calls[0]?.[0]).toBe('thread-1');
-		expect(text).toContain('Your loan');
-		expect(text).not.toContain('Lunch?');
-		expect(store.markAlertMatched).toHaveBeenCalledWith('alert-1', now);
-		expect(store.setPollCursor).toHaveBeenCalledWith(poll, 'h2');
+		expect(store.recordLook).toHaveBeenCalledTimes(1);
+		const [looked, cursor, matched, at] = store.recordLook.mock.calls[0] ?? [];
+		expect([looked, cursor, at]).toEqual([poll, 'h2', now]);
+		expect(matched).toHaveLength(1);
+		expect(matched?.[0]?.alert).toBe(watch);
+		expect(matched?.[0]?.text).toContain('Your loan');
+		expect(matched?.[0]?.text).not.toContain('Lunch?');
+
+		store.listWatches.mockResolvedValue(Ok([watch, other]));
+		(await runPoll(store, poll, now)).unwrap();
+		expect(changes).toHaveBeenCalledTimes(2);
+		const both = store.recordLook.mock.calls[1]?.[2] ?? [];
+		expect(both.map(({alert, text}) => [alert.id, text.includes('Lunch?')])).toEqual([
+			['alert-1', false],
+			['alert-3', true],
+		]);
 	});
 
-	test('a read the agent no longer has delivers nothing, and the cursor still moves on', async () => {
-		const {runPoll} = await import('./watches');
+	test('a read the agent no longer has tells that watch nothing, and the cursor still moves on', async () => {
+		const {runPoll} = await import('./alert-sweep');
 		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'proxy', name: 'General'}, connections: []}));
 		(await runPoll(store, poll, now)).unwrap();
-		expect(store.appendEvent).not.toHaveBeenCalled();
-		expect(store.setPollCursor).toHaveBeenCalledWith(poll, 'h2');
+		expect(store.recordLook).toHaveBeenCalledWith(poll, 'h2', [], now);
 	});
 
-	test('a look that fails leaves the cursor where it was', async () => {
-		const {runPoll} = await import('./watches');
+	test('a look that fails, or a check of the read that fails, notes nothing, so the next comes again from the cursor', async () => {
+		const {runPoll} = await import('./alert-sweep');
 		changes.mockResolvedValue(Err(ApiErr.providerUnreachable(new Error('down'))));
 		expect((await runPoll(store, poll, now)).isErr()).toBe(true);
-		expect(store.setPollCursor).not.toHaveBeenCalled();
+
+		changes.mockResolvedValue(Ok({items, cursor: 'h2'}));
+		listAgentConnections.mockResolvedValue(Err(ApiErr.dbError(new Error('db down'))));
+		expect((await runPoll(store, poll, now)).isErr()).toBe(true);
+
+		store.getPollConnection.mockResolvedValue(Ok(null));
+		expect((await runPoll(store, poll, now)).isErr()).toBe(true);
+		expect(store.recordLook).not.toHaveBeenCalled();
 	});
 
-	test('no watch on it, or the connection gone: the poll deletes itself without looking', async () => {
-		const {runPoll} = await import('./watches');
+	test('a poll whose last watch went since it was taken is not looked at', async () => {
+		const {runPoll} = await import('./alert-sweep');
 		store.listWatches.mockResolvedValue(Ok([]));
 		(await runPoll(store, poll, now)).unwrap();
-		store.listWatches.mockResolvedValue(Ok([watch]));
-		store.getPollConnection.mockResolvedValue(Ok(null));
-		(await runPoll(store, poll, now)).unwrap();
-		expect(store.deletePoll).toHaveBeenCalledTimes(2);
 		expect(changes).not.toHaveBeenCalled();
+		expect(store.recordLook).not.toHaveBeenCalled();
 	});
 });
 
 describe('sweep', () => {
-	test('takes the polls due and runs each, going on past one that fails', async () => {
-		const {sweep} = await import('./watches');
+	test('fires the timed alerts due with what the agent noted, then looks at each poll due, going on past one that fails', async () => {
+		const {sweep} = await import('./alert-sweep');
+		store.claimDueAlerts.mockResolvedValue(Ok([timed]));
 		store.claimDuePolls.mockResolvedValue(Ok([poll, {...poll, connectionId: 'conn-b'}]));
-		store.getPollConnection.mockResolvedValueOnce(Ok(connection)).mockResolvedValueOnce(Err(ApiErr.internalError(new Error('db down'))));
-		await sweep(store, now);
-		expect(store.claimDuePolls).toHaveBeenCalledWith(10 * 60 * 1000);
-		expect(store.setPollCursor).toHaveBeenCalledTimes(1);
+		store.getPollConnection.mockResolvedValueOnce(Ok(connection)).mockResolvedValueOnce(Err(ApiErr.dbError(new Error('db down'))));
+		await sweep(store);
+		expect(store.claimDueAlerts).toHaveBeenCalledWith(10 * 60 * 1000, 50);
+		expect(store.claimDuePolls).toHaveBeenCalledWith(10 * 60 * 1000, 50);
+		expect(store.fireAlert).toHaveBeenCalledWith(timed, 'The alert “Call Dana” is due now, which you set for 2026-11-04T10:00:00.000Z. What you noted for it: Remind them.');
+		expect(store.recordLook).toHaveBeenCalledTimes(1);
+	});
+
+	test('a timed alert that cannot fire leaves the polls to be looked at', async () => {
+		const {sweep} = await import('./alert-sweep');
+		store.claimDueAlerts.mockResolvedValue(Err(ApiErr.dbError(new Error('db down'))));
+		store.claimDuePolls.mockResolvedValue(Ok([poll]));
+		await sweep(store);
+		expect(store.recordLook).toHaveBeenCalledTimes(1);
 	});
 });

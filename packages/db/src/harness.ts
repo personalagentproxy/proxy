@@ -95,8 +95,6 @@ export type JobRow = {
 	status: AgentJobStatus;
 	entryId: string | null;
 	callId: string | null;
-	// An alert job's alert.
-	alertId: string | null;
 	runAt: Date;
 	claimedBy: string | null;
 	attempts: number;
@@ -189,10 +187,9 @@ const threadSelect = {
 	createdAt: true,
 } as const;
 
-// A thread's jobs still to run or running, as much of them as says what its agent is up to: not a
-// timed alert's, due later, which says nothing of it.
+// A thread's jobs still to run or running, as much of them as says what its agent is up to.
 const openJobsSelect = {
-	where: {status: {in: ['queued', 'running']}, kind: {in: ['inference', 'tool']}},
+	where: {status: {in: ['queued', 'running']}},
 	select: {kind: true, runAt: true},
 } satisfies Prisma.AgentThread$jobsArgs;
 
@@ -239,7 +236,6 @@ const jobSelect = {
 	status: true,
 	entryId: true,
 	callId: true,
-	alertId: true,
 	runAt: true,
 	claimedBy: true,
 	attempts: true,
@@ -509,15 +505,13 @@ export async function listShownEntries(threadId: string): Promise<Result<EntryRo
 
 /**
  * The jobs still to run or running on the thread, and on the sub-agents started from it: what
- * the agent is up to, for the person. Not a timed alert's, due later: the Alerts page says what is
- * set.
+ * the agent is up to, for the person.
  */
 export async function listOpenJobs(threadId: string): Promise<Result<JobRow[], ApiError>> {
 	return wrapDb(() =>
 		db.agentJob.findMany({
 			where: {
 				status: {in: ['queued', 'running']},
-				kind: {in: ['inference', 'tool']},
 				OR: [{threadId}, {thread: {parentThreadId: threadId}}],
 			},
 			select: jobSelect,
@@ -568,7 +562,7 @@ export async function setThreadTask(
 // Locks the conversation the thread is part of, its own row or, a sub-agent's, the row of the
 // thread it was started from, for the rest of the transaction, and gives the thread as it is;
 // null when there is no such thread.
-async function lockThread(tx: Tx, threadId: string): Promise<ThreadRow | null> {
+export async function lockThread(tx: Tx, threadId: string): Promise<ThreadRow | null> {
 	const rows = await tx.$queryRaw<Array<{id: string}>>`
 		SELECT "id" FROM "AgentThread"
 		WHERE "id" = (SELECT COALESCE("parentThreadId", "id") FROM "AgentThread" WHERE "id" = ${threadId})
@@ -647,7 +641,7 @@ async function release(tx: Tx, thread: ThreadRow, wakes: Wakes): Promise<void> {
 // the call; anything else in the log too where nothing holds it, or pending until what holds it
 // ends (`release`). What lands in the log releases what was pending where it can, and wakes the
 // agent where the log then `wakes` it. With the thread locked.
-async function appendEntry(
+export async function appendEntry(
 	tx: Tx,
 	thread: ThreadRow,
 	data: NewEntry & {callId?: string; isError?: boolean; jobId?: string},
@@ -730,58 +724,6 @@ async function endTurn(
 	await tellParent(tx, thread, stop.stopped, jobId, wakes);
 }
 
-/**
- * Lands an event in the thread, something that came on its own, as what a watch matched does,
- * and wakes the agent where the log `wakes` it. `Ok(false)` means no such thread.
- */
-export async function appendEvent(
-	threadId: string,
-	text: string,
-	wakes: Wakes,
-): Promise<Result<boolean, ApiError>> {
-	return wrapDb(() =>
-		db.$transaction(async (tx) => {
-			const thread = await lockThread(tx, threadId);
-			if (!thread) {
-				return false;
-			}
-			await appendEntry(tx, thread, {kind: 'event', text}, wakes);
-			return true;
-		}),
-	);
-}
-
-/**
- * Finishes an alert job: the alert, where it is still set, lands in its conversation as the event
- * `tell` says, and is deleted; one deleted since the job was due is nothing to do. Wakes the agent
- * where the log then `wakes` it. `Ok(false)` when the job was no longer the worker's, and nothing
- * is written.
- */
-export async function fireAlert(
-	jobId: string,
-	workerId: string,
-	threadId: string,
-	alertId: string,
-	tell: (alert: {title: string; brief: string; at: Date | null}) => string,
-	wakes: Wakes,
-): Promise<Result<boolean, ApiError>> {
-	return wrapDb(() =>
-		db.$transaction((tx) =>
-			endJob(tx, {jobId, workerId, threadId, status: 'done'}, wakes, async (thread) => {
-				const alert = await tx.agentAlert.findUnique({
-					where: {id: alertId},
-					select: {title: true, brief: true, at: true},
-				});
-				if (!alert) {
-					return;
-				}
-				await appendEntry(tx, thread, {kind: 'event', text: tell(alert), jobId}, wakes);
-				await tx.agentAlert.delete({where: {id: alertId}});
-			}),
-		),
-	);
-}
-
 /** Lands what the person said, and wakes the agent where the log `wakes` it. `Ok(null)` means no such thread. */
 export async function appendPersonMessage(
 	threadId: string,
@@ -828,7 +770,7 @@ export async function claimJob(
 					LIMIT 1
 					FOR UPDATE SKIP LOCKED
 				)
-				RETURNING "id", "threadId", "kind", "status", "entryId", "callId", "alertId", "runAt", "claimedBy", "attempts"`;
+				RETURNING "id", "threadId", "kind", "status", "entryId", "callId", "runAt", "claimedBy", "attempts"`;
 			const job = rows[0];
 			if (!job) {
 				return null;
@@ -885,7 +827,7 @@ async function fence(
 // writes what `write` does in the thread, then gives what was pending its place in the log and
 // wakes the agent where the log then `wakes` it (`release`), so that no way a job ends leaves a
 // message unread. False when the job is no longer the worker's, and nothing is written.
-async function endJob(
+export async function endJob(
 	tx: Tx,
 	end: {
 		jobId: string;

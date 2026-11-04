@@ -58,7 +58,7 @@ export const MAX_CHANGES = 50;
 /**
  * What is new or changed in a collection since `cursor`, where the last look left off in the
  * connector's own terms, and where this one leaves off; `null` for the first look, which takes
- * nothing but where to start from. For the watches on the collection (harness/watches.ts).
+ * nothing but where to start from. For the watches on the collection (harness/alert-sweep.ts).
  */
 export type Changes = (target: RecordTarget, cursor: string | null, now: Date) => Promise<Result<{items: Change[]; cursor: string}, ApiError>>;
 

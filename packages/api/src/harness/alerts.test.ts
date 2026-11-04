@@ -11,7 +11,6 @@ const watch: AlertRow = {
 	orgId: 'org-1',
 	userId: 'user-1',
 	threadId: 'thread-1',
-	callId: 'c1',
 	title: 'Mail from the bank',
 	brief: 'Tell me what it says.',
 	at: null,
@@ -42,11 +41,12 @@ describe('alertArgs', () => {
 		expect(narrowed.kind === 'watch' && narrowed.connectionIds).toEqual(['conn-a']);
 	});
 
-	test('both or neither of at and collection, a bad time, an unknown collection or no brief are refused, saying what is wrong', () => {
+	test('both or neither of at and collection, a bad time, an unknown collection, no connection or no brief are refused, saying what is wrong', () => {
 		expect(alertArgs({title: 'T', brief: 'B'}, now).unwrapErr()).toContain('one of the two');
 		expect(alertArgs({title: 'T', brief: 'B', at: '2026-12-01T00:00:00Z', collection: 'emails'}, now).unwrapErr()).toContain('one of the two');
 		expect(alertArgs({title: 'T', brief: 'B', at: 'tomorrow'}, now).unwrapErr()).toContain('at');
 		expect(alertArgs({title: 'T', brief: 'B', collection: 'files'}, now).unwrapErr()).toContain('collection');
+		expect(alertArgs({title: 'T', brief: 'B', collection: 'emails', connections: []}, now).unwrapErr()).toContain('connections');
 		expect(alertArgs({title: 'T', brief: '  ', collection: 'emails'}, now).unwrapErr()).toContain('brief');
 		expect(alertArgs('nothing', now).isErr()).toBe(true);
 	});

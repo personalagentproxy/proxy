@@ -1,6 +1,7 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Ok} from 'ts-results-es';
 
+import type {AlertRow} from '@proxy/db/alerts';
 import type {EntryRow, JobRow, ThreadRow} from '@proxy/db/harness';
 import {findCollection, findIntegration} from '@proxy/integrations';
 
@@ -38,7 +39,7 @@ const thread: ThreadRow = {
 const conversation: ThreadRow = {...thread, id: 'thread-0', parentThreadId: null, parentCallId: null, title: null, taskId: null};
 
 function job(callId: string, attempts = 1): JobRow {
-	return {id: 'job-1', threadId: 'thread-1', kind: 'tool', status: 'running', entryId: 'entry-1', callId, alertId: null, runAt: now, claimedBy: 'w1', attempts};
+	return {id: 'job-1', threadId: 'thread-1', kind: 'tool', status: 'running', entryId: 'entry-1', callId, runAt: now, claimedBy: 'w1', attempts};
 }
 
 function entryWith(calls: Array<{id: string; name: string; arguments: string}>): EntryRow {
@@ -184,12 +185,11 @@ describe('runToolJob', () => {
 });
 
 describe('the conversation’s alert calls', () => {
-	const alert = {
+	const alert: AlertRow = {
 		id: 'alert-1',
 		orgId: 'org-1',
 		userId: 'user-1',
 		threadId: 'thread-0',
-		callId: 'c1',
 		title: 'Call Dana',
 		brief: 'Remind them.',
 		at: new Date('2026-10-22T07:30:00Z'),
@@ -200,33 +200,40 @@ describe('the conversation’s alert calls', () => {
 		createdAt: now,
 	};
 	const watchable = {id: 'conn-a', integrationId: 'google', account: 'a@example.com', shared: true, actions: [EMAILS_READ], tools: null, name: null};
+	const set = {jobId: 'job-1', workerId: 'w1', threadId: 'thread-0', callId: 'c1'};
+
+	// How the last set_alert call was answered, with the alert it set.
+	function answered(made: AlertRow): string {
+		return store.completeSetAlert.mock.calls.at(-1)?.[2](made) ?? '';
+	}
 
 	beforeEach(() => {
 		getJobThread.mockResolvedValue(Ok(conversation));
-		store.createAlert.mockResolvedValue(Ok(alert));
+		store.completeSetAlert.mockResolvedValue(Ok(true));
 		store.deleteAlert.mockResolvedValue(Ok(true));
 		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'proxy', name: 'Finance'}, connections: [watchable]}));
 	});
 
-	test('set_alert with a time sets a timed alert in the conversation, from the call, and says so with its id', async () => {
+	test('set_alert with a time sets a timed alert as the call is answered, saying so with its id', async () => {
 		const {runToolJob} = await import('./tool-job');
 		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'set_alert', arguments: '{"title":"Call Dana","brief":"Remind them.","at":"2026-10-22T07:30:00Z"}'}])));
 
 		await runToolJob(store, {...job('c1'), threadId: 'thread-0'}, 'w1', now);
 
-		expect(store.createAlert).toHaveBeenCalledWith(conversation, 'c1', {kind: 'time', title: 'Call Dana', brief: 'Remind them.', at: new Date('2026-10-22T07:30:00Z')});
-		expect(completeToolJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-0', {
-			callId: 'c1',
-			text: 'Set the alert alert-1: “Call Dana”, due 2026-10-22T07:30:00.000Z. The person sees it on their Alerts page.',
-			isError: false,
-		});
+		expect(store.completeSetAlert).toHaveBeenCalledWith(set, {kind: 'time', title: 'Call Dana', brief: 'Remind them.', at: new Date('2026-10-22T07:30:00Z')}, expect.any(Function));
+		expect(answered(alert)).toBe('Set the alert alert-1: “Call Dana”, due 2026-10-22T07:30:00.000Z. The person sees it on their Alerts page.');
+		expect(completeToolJob).not.toHaveBeenCalled();
 	});
 
 	test('set_alert with a collection sets a watch on the connections the agent may read with it, or those named among them', async () => {
 		const {runToolJob} = await import('./tool-job');
 		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'set_alert', arguments: '{"title":"Bank","brief":"Tell me.","collection":"emails","terms":["Loan"]}'}])));
 		await runToolJob(store, {...job('c1'), threadId: 'thread-0'}, 'w1', now);
-		expect(store.createAlert).toHaveBeenLastCalledWith(conversation, 'c1', {kind: 'watch', title: 'Bank', brief: 'Tell me.', collectionId: 'emails', connectionIds: ['conn-a'], terms: ['loan']});
+		expect(store.completeSetAlert).toHaveBeenLastCalledWith(
+			set,
+			{kind: 'watch', title: 'Bank', brief: 'Tell me.', collectionId: 'emails', connectionIds: ['conn-a'], terms: ['loan']},
+			expect.any(Function),
+		);
 
 		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'set_alert', arguments: '{"title":"Bank","brief":"Tell me.","collection":"emails","connections":["conn-b"]}'}])));
 		await runToolJob(store, {...job('c1'), threadId: 'thread-0'}, 'w1', now);
@@ -254,7 +261,7 @@ describe('the conversation’s alert calls', () => {
 			text: 'Give at, for one message at that time, or collection, for a watch: one of the two.',
 			isError: true,
 		});
-		expect(store.createAlert).not.toHaveBeenCalled();
+		expect(store.completeSetAlert).not.toHaveBeenCalled();
 	});
 
 	test('cancel_alert deletes the alert from the conversation, and says when there is none such', async () => {
@@ -279,6 +286,6 @@ describe('the conversation’s alert calls', () => {
 		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'set_alert', arguments: '{"title":"Bank","brief":"Tell me.","collection":"emails"}'}])));
 		await runToolJob(store, job('c1'), 'w1', now);
 		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: 'There is no tool set_alert.', isError: true});
-		expect(store.createAlert).not.toHaveBeenCalled();
+		expect(store.completeSetAlert).not.toHaveBeenCalled();
 	});
 });

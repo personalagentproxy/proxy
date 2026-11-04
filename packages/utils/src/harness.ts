@@ -139,7 +139,10 @@ export function sleepUntil(args: unknown, now: Date): Date | null {
  */
 export type ThreadState = {kind: 'working'} | {kind: 'asleep'; until: Date} | {kind: 'stopped'};
 
-export function threadState(openJobs: Array<{kind: string; runAt: Date}>, now: Date): ThreadState {
+export function threadState(
+	openJobs: Array<{kind: 'inference' | 'tool'; runAt: Date}>,
+	now: Date,
+): ThreadState {
 	if (openJobs.length === 0) {
 		return {kind: 'stopped'};
 	}

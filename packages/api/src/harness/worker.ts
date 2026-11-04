@@ -8,7 +8,6 @@ import type {ApiError} from '@proxy/utils';
 import type {JobRow} from '@proxy/db/harness';
 
 import {log, serializeError} from '../observability/log';
-import {type AlertJobStore, runAlertJob} from './alert-job';
 import {failureNote} from './conversation';
 import {type InferenceStore, runInference} from './inference';
 import type {HarnessStore} from './store';
@@ -37,7 +36,7 @@ const STOP_MS = 8_000;
 export type HarnessWorker = {stop: () => Promise<void>};
 
 /** What the worker needs of the store: the queue, and what the jobs it runs need. */
-export type WorkerStore = Pick<HarnessStore, 'claimJob' | 'renewLease' | 'failJob'> & InferenceStore & ToolJobStore & AlertJobStore;
+export type WorkerStore = Pick<HarnessStore, 'claimJob' | 'renewLease' | 'failJob'> & InferenceStore & ToolJobStore;
 
 // One name per worker, so a lease says who holds it.
 function workerName(): string {
@@ -47,9 +46,6 @@ function workerName(): string {
 function run(store: WorkerStore, job: JobRow, workerId: string): Promise<Result<void, ApiError>> {
 	if (job.kind === 'inference') {
 		return runInference(store, job, workerId);
-	}
-	if (job.kind === 'alert') {
-		return runAlertJob(store, job, workerId);
 	}
 	return runToolJob(store, job, workerId);
 }
