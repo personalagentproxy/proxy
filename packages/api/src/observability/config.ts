@@ -3,7 +3,7 @@ import {fileURLToPath} from 'node:url';
 
 import {config} from 'dotenv';
 
-import type {EnvLabel, LokiConfig, MetricsConfig} from '@proxy/observability';
+import type {EnvLabel, LokiConfig, MetricsConfig, SlackConfig} from '@proxy/observability';
 
 /**
  * What the logger needs of the environment, read here and not from utils/env.ts: that parses the
@@ -36,3 +36,15 @@ export const metricsConfig: Pick<MetricsConfig, 'url' | 'userId' | 'token'> = {
 	userId: read('METRICS_USER_ID'),
 	token: read('GRAFANA_CLOUD_TOKEN'),
 };
+
+/** The team's Slack, where sign-ups and alerts are posted when set. */
+export const slackConfig: Pick<SlackConfig, 'botToken' | 'channels'> = {
+	botToken: read('SLACK_BOT_TOKEN'),
+	channels: {
+		alerts: read('SLACK_CHANNEL_ALERTS') || undefined,
+		signups: read('SLACK_CHANNEL_SIGNUPS') || undefined,
+	},
+};
+
+/** What Grafana's alert webhook has to carry to be taken (grafana-alert.ts); none, none is taken. */
+export const grafanaWebhookSecret: string = read('GRAFANA_WEBHOOK_SECRET');

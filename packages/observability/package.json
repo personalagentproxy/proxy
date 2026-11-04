@@ -10,13 +10,11 @@
 		"./types": "./src/types.ts"
 	},
 	"scripts": {
-		"obs": "bun run src/cli.ts",
 		"test": "bun test",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
 		"@proxy/utils": "workspace:*",
-		"dotenv": "^16.6.1",
 		"ts-results-es": "^7.1.0",
 		"zod": "^4.5.4"
 	},

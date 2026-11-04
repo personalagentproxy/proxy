@@ -33,3 +33,15 @@ export type {
 	LlmRequestSample,
 	LlmRequestStatus,
 } from './agent-metrics';
+export {createNotifier, formatSlackError, formatSlackPayload, slackChannels} from './slack';
+export type {
+	Notifier,
+	NotifierOptions,
+	NotifyHandle,
+	NotifyInput,
+	SlackChannel,
+	SlackConfig,
+	SlackError,
+	SlackPayload,
+	SlackSeverity,
+} from './slack';

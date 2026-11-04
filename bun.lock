@@ -175,7 +175,6 @@
       "version": "0.0.0",
       "dependencies": {
         "@proxy/utils": "workspace:*",
-        "dotenv": "^16.6.1",
         "ts-results-es": "^7.1.0",
         "zod": "^4.5.4",
       },
