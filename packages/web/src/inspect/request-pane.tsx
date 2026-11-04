@@ -7,10 +7,10 @@ import type {
 	ModelMessage,
 	ModelRequest,
 } from '@proxy/contracts/inspect';
-import {getRequest} from '@/client/inspect-client';
+import {getRequest} from '@/inspect/client';
 import {useOrgSlug} from '@/hooks/use-org';
 import {formatTime} from '@/lib/format';
-import {formatDuration, prettyJson, timedEvents} from '@/lib/inspect';
+import {formatDuration, prettyJson, timedEvents} from '@/inspect/derive';
 
 // The inspector's right column: what the model was sent for the answer picked in the log, as the
 // api rebuilds it, the system prompt, the messages and the tools; what came back; and what

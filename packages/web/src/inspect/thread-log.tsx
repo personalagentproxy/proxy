@@ -3,7 +3,7 @@ import {Button} from '@proxy/ui/components/button';
 import {cn} from '@proxy/ui/lib/utils';
 import type {InspectedEntry, InspectedThread, ThreadState} from '@proxy/contracts/inspect';
 import {formatTime} from '@/lib/format';
-import {coveredSeq, prettyJson} from '@/lib/inspect';
+import {coveredSeq, prettyJson} from '@/inspect/derive';
 
 // The inspector's middle: a thread's whole log as the harness has it, every entry with what the
 // model doesn't see (its seq, its cost, its job), and above it where the thread stands for the

@@ -3,7 +3,7 @@ import type {Result} from 'ts-results-es';
 import type {ApiError, ChatModel} from '@proxy/utils';
 import {readyForInference} from '@proxy/utils/harness';
 import * as harness from '@proxy/db/harness';
-import type {AfterAnswer, AssistantTurn, EntryRow, FailureNote, JobDetailRow, JobEventRow, JobRow, LastMessage, Persona, PersonaRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
+import type {AfterAnswer, AssistantTurn, EntryRow, FailureNote, JobRow, LastMessage, Persona, PersonaRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
 import {type AgentTaskRow, createAgentTask, getAgentTask, type NewAgentTask} from '@proxy/db/task';
 import type {SignedInAgent} from '@proxy/db/agent';
 import {getOrganizationChatModel} from '@proxy/db/organization';
@@ -47,11 +47,6 @@ export type HarnessStore = {
 	listShownEntries: (threadId: string) => Promise<Result<EntryRow[], ApiError>>;
 	listOpenJobs: (threadId: string) => Promise<Result<JobRow[], ApiError>>;
 	appendPersonMessage: (threadId: string, text: string) => Promise<Result<EntryRow | null, ApiError>>;
-
-	// The inspector's reads: a thread's log whole, every job of a conversation and what happened to each.
-	listEntriesWithPending: (threadId: string) => Promise<Result<EntryRow[], ApiError>>;
-	listThreadJobs: (threadIds: string[]) => Promise<Result<JobDetailRow[], ApiError>>;
-	listJobEvents: (threadIds: string[]) => Promise<Result<JobEventRow[], ApiError>>;
 };
 
 /** The store in the database. */
@@ -86,8 +81,4 @@ export const harnessStore: HarnessStore = {
 	listShownEntries: harness.listShownEntries,
 	listOpenJobs: harness.listOpenJobs,
 	appendPersonMessage: (threadId, text) => harness.appendPersonMessage(threadId, text, readyForInference),
-
-	listEntriesWithPending: harness.listEntriesWithPending,
-	listThreadJobs: harness.listThreadJobs,
-	listJobEvents: harness.listJobEvents,
 };

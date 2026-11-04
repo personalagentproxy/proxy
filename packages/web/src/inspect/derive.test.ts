@@ -8,7 +8,7 @@ import {
 	lastAttempt,
 	threadStatus,
 	tokensOf,
-} from './inspect';
+} from './derive';
 
 const now = '2026-10-21T10:00:00.000Z';
 

@@ -31,8 +31,6 @@ import {
 	connectionsLoader,
 	desktopAuthLoader,
 	homeLoader,
-	inspectIndexLoader,
-	inspectLoader,
 	inviteLoader,
 	membersLoader,
 	shouldRevalidateHome,
@@ -67,7 +65,8 @@ import {ConnectionsPage} from '@/pages/connections-page';
 import {DesktopAuthPage} from '@/pages/desktop-auth-page';
 import {DesktopReturnPage} from '@/pages/desktop-return-page';
 import {HomePage} from '@/pages/home-page';
-import {InspectPage} from '@/pages/inspect-page';
+import {inspectIndexLoader, inspectLoader} from '@/inspect/loaders';
+import {InspectPage} from '@/inspect/inspect-page';
 import {InvitePage} from '@/pages/invite-page';
 import {LoginPage} from '@/pages/login-page';
 import {MembersPage} from '@/pages/members-page';

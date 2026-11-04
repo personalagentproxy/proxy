@@ -12,6 +12,7 @@
 		"./desktop-auth": "./src/desktop-auth.ts",
 		"./feedback": "./src/feedback.ts",
 		"./harness": "./src/harness.ts",
+		"./inspect": "./src/inspect.ts",
 		"./vault": "./src/vault.ts",
 		"./invitation": "./src/invitation.ts",
 		"./instance-meta": "./src/instance-meta.ts",

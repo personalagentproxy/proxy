@@ -3,31 +3,27 @@ import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, hasExperiment, requirePresent} from '@proxy/utils';
 import {pendingToolCalls, readyForInference} from '@proxy/utils/harness';
-import type {EntryRow, JobDetailRow, JobEventRow, ThreadRow} from '@proxy/db/harness';
+import type {EntryRow, JobEventRow, ThreadRow} from '@proxy/db/harness';
+import type {JobDetailRow} from '@proxy/db/inspect';
 import type {InspectedEntry, InspectedJob, InspectedJobEvent, InspectedThread, inspectionSchema, ModelRequest, ThreadState} from '@proxy/contracts/inspect';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {type OrgViewer, requireViewer} from '../utils/user-org';
-import {COMPACT_AT_TOKENS, compactionCut, type SubAgent, toMessages, toTranscript} from './context';
-import {MAX_TURNS_ALONE, SUMMARIZE, SUMMARIZE_NOW, turnsAlone} from './inference';
-import {requireThread, toPersona} from './route';
-import type {HarnessStore} from './store';
-import {toolsFor} from './tool-surface';
+import {COMPACT_AT_TOKENS, compactionCut, type SubAgent, toMessages, toTranscript} from '../harness/context';
+import {MAX_TURNS_ALONE, SUMMARIZE, SUMMARIZE_NOW, turnsAlone} from '../harness/inference';
+import {requireThread, toPersona} from '../harness/route';
+import type {InspectStore} from './store';
+import {toolsFor} from '../harness/tool-surface';
 
 /**
  * The inspector's routes, for whoever works on the built-in agent, behind the `debug` experiment
  * beside `harness`: the viewer's conversation with a persona as the harness has it, every thread
  * of it with its whole log, its jobs and what happened to each, and, for any answer of the model,
- * the request it was sent, rebuilt from the log with the functions the harness runs (context.ts)
+ * the request it was sent, rebuilt from the log with the functions the harness runs
+ * (../harness/context.ts)
  * and the system prompt the entry kept. The viewer sees their own conversations alone, as on the
  * Chat page: a conversation is theirs, whoever they are in the organization.
  */
-
-/** What the inspector's routes need of the store. */
-export type InspectStore = Pick<
-	HarnessStore,
-	'getPersona' | 'getMemberThread' | 'ensureMemberThread' | 'listSubAgents' | 'listEntriesWithPending' | 'listThreadJobs' | 'listJobEvents' | 'getEntry' | 'getJobThread' | 'listEntries'
->;
 
 function toInspectedEntry(entry: EntryRow): InspectedEntry {
 	return {

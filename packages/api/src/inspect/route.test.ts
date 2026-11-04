@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, mock, test} from 'bun:test';
+import {beforeEach, describe, expect, type Mock, mock, test} from 'bun:test';
 import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
@@ -11,16 +11,17 @@ mock.module('../mcp/tools', () => ({agentInstructions, MCP_TOOLS: []}));
 
 const delegate = {name: 'delegate', description: 'Delegates', parameters: {}};
 const read = {name: 'read', description: 'Reads', parameters: {}};
-mock.module('./tool-surface', () => ({toolsFor: (candidate: {parentThreadId: string | null}) => (candidate.parentThreadId === null ? [delegate] : [read])}));
+mock.module('../harness/tool-surface', () => ({toolsFor: (candidate: {parentThreadId: string | null}) => (candidate.parentThreadId === null ? [delegate] : [read])}));
 
-import {type FakeStore, fakeStore} from './fake-store';
+import {fakeStore} from '../harness/fake-store';
+import type {InspectStore} from './store';
 
 const viewer = {orgId: 'org-1', userId: 'user-1', slug: 'acme', name: 'Acme', role: 'member' as 'member' | 'owner', onboarded: true, experiments: ['harness', 'debug']};
 const requireViewer = mock(async () => Ok(viewer));
 mock.module('../utils/user-org', () => ({requireViewer}));
 
 const ensureBuiltInAgent = mock(async () => Ok({id: 'login-1'}));
-mock.module('./built-in-agent', () => ({ensureBuiltInAgent}));
+mock.module('../harness/built-in-agent', () => ({ensureBuiltInAgent}));
 
 const now = new Date('2026-10-21T10:00:00Z');
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
@@ -123,13 +124,25 @@ function request(params: Record<string, string> = {}) {
 	return {user: {userId: 'user-1', email: 'a@example.com'}, params, body: undefined} as never;
 }
 
-let store: FakeStore;
-let routes: ReturnType<typeof import('./inspect-route').inspectRoutes>;
+// The harness's fake store, with the inspector's own reads as mocks beside it.
+type FakeInspectStore = {[K in keyof InspectStore]: Mock<InspectStore[K]>};
+
+function fakeInspectStore(): FakeInspectStore {
+	return {
+		...fakeStore(),
+		listJobEvents: mock<InspectStore['listJobEvents']>(),
+		listThreadJobs: mock<InspectStore['listThreadJobs']>(),
+		listEntriesWithPending: mock<InspectStore['listEntriesWithPending']>(),
+	};
+}
+
+let store: FakeInspectStore;
+let routes: ReturnType<typeof import('./route').inspectRoutes>;
 
 beforeEach(async () => {
 	mock.clearAllMocks();
 	requireViewer.mockResolvedValue(Ok(viewer));
-	store = fakeStore();
+	store = fakeInspectStore();
 	store.getPersona.mockResolvedValue(Ok(persona));
 	store.getMemberThread.mockResolvedValue(Ok(thread));
 	store.listSubAgents.mockResolvedValue(Ok([{...sub, state: {kind: 'stopped'}}]));
@@ -142,7 +155,7 @@ beforeEach(async () => {
 		return found ? Ok(found) : Err(ApiErr.notFound('entry', id));
 	});
 	store.getJobThread.mockImplementation(async (id) => Ok(id === 'thread-1' ? thread : id === 'thread-2' ? sub : null));
-	const {inspectRoutes} = await import('./inspect-route');
+	const {inspectRoutes} = await import('./route');
 	routes = inspectRoutes(store);
 });
 

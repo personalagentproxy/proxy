@@ -14,7 +14,7 @@ import type {
 	Inspection,
 	ModelRequest,
 } from '@proxy/contracts/inspect';
-import {InspectPage} from '@/pages/inspect-page';
+import {InspectPage} from '@/inspect/inspect-page';
 import {testHuman} from '@/test-org';
 
 const now = '2026-10-21T10:00:00.000Z';

@@ -211,7 +211,8 @@ function toPersona(persona: {
 	return {...persona, look: parseLook(persona.look)};
 }
 
-const entrySelect = {
+/** The columns of an entry, as `EntryRow` has them; the inspector reads with it too. */
+export const entrySelect = {
 	id: true,
 	seq: true,
 	threadId: true,
@@ -229,7 +230,8 @@ const entrySelect = {
 	createdAt: true,
 } as const;
 
-const jobSelect = {
+/** The columns of a job the worker reads; the inspector reads more. */
+export const jobSelect = {
 	id: true,
 	threadId: true,
 	kind: true,
@@ -251,11 +253,12 @@ const jobEventSelect = {
 	at: true,
 } as const;
 
-type EntryRecord = Prisma.AgentEntryGetPayload<{select: typeof entrySelect}>;
+export type EntryRecord = Prisma.AgentEntryGetPayload<{select: typeof entrySelect}>;
 
 type Tx = Prisma.TransactionClient;
 
-function toEntry(entry: EntryRecord): EntryRow {
+/** An entry as read, its calls parsed. */
+export function toEntry(entry: EntryRecord): EntryRow {
 	return {
 		...entry,
 		toolCalls: entry.toolCalls === null ? null : (JSON.parse(entry.toolCalls) as ToolCall[]),
@@ -547,43 +550,6 @@ export async function listJobEvents(threadIds: string[]): Promise<Result<JobEven
 			orderBy: {at: 'asc'},
 		}),
 	);
-}
-
-/** A job with its whole record, for the inspector: beside what the worker reads, why it failed, its lease and when it was made. */
-export type JobDetailRow = JobRow & {
-	leaseExpiresAt: Date | null;
-	error: string | null;
-	createdAt: Date;
-};
-
-const jobDetailSelect = {...jobSelect, leaseExpiresAt: true, error: true, createdAt: true} as const;
-
-/** Every job of the threads, whatever its status, oldest first: the queue and its history, for the inspector. */
-export async function listThreadJobs(
-	threadIds: string[],
-): Promise<Result<JobDetailRow[], ApiError>> {
-	return wrapDb(() =>
-		db.agentJob.findMany({
-			where: {threadId: {in: threadIds}},
-			select: jobDetailSelect,
-			orderBy: {createdAt: 'asc'},
-		}),
-	);
-}
-
-/** The thread's whole log, for the inspector: what the model reads in order, then what is pending, in the order it landed. */
-export async function listEntriesWithPending(
-	threadId: string,
-): Promise<Result<EntryRow[], ApiError>> {
-	return (
-		await wrapDb(() =>
-			db.agentEntry.findMany({
-				where: {threadId},
-				select: entrySelect,
-				orderBy: [{pending: 'asc'}, {seq: 'asc'}],
-			}),
-		)
-	).map((entries) => entries.map(toEntry));
 }
 
 /** A new task for a sub-agent's calls, once the one before was finished while it was at work. */

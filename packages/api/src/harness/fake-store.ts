@@ -36,8 +36,5 @@ export function fakeStore(): FakeStore {
 		listShownEntries: mock<HarnessStore['listShownEntries']>(),
 		listOpenJobs: mock<HarnessStore['listOpenJobs']>(),
 		appendPersonMessage: mock<HarnessStore['appendPersonMessage']>(),
-		listEntriesWithPending: mock<HarnessStore['listEntriesWithPending']>(),
-		listThreadJobs: mock<HarnessStore['listThreadJobs']>(),
-		listJobEvents: mock<HarnessStore['listJobEvents']>(),
 	};
 }

@@ -10,16 +10,16 @@ import {
 } from '@proxy/ui/components/input-group';
 import {postMessage} from '@/client/harness-client';
 import type {Inspection} from '@proxy/contracts/inspect';
-import {getInspection} from '@/client/inspect-client';
+import {getInspection} from '@/inspect/client';
 import {Head} from '@/components/head';
-import {ThreadLog} from '@/components/inspect-log';
-import {RequestPane} from '@/components/inspect-request';
-import {JobQueue, StatusBadge, ThreadTree} from '@/components/inspect-threads';
+import {ThreadLog} from '@/inspect/thread-log';
+import {RequestPane} from '@/inspect/request-pane';
+import {JobQueue, StatusBadge, ThreadTree} from '@/inspect/thread-tree';
 import {useOrgSlug} from '@/hooks/use-org';
 import {formatTime} from '@/lib/format';
-import {threadLabel, threadStatus} from '@/lib/inspect';
+import {threadLabel, threadStatus} from '@/inspect/derive';
 import {describeFetchError} from '@/lib/loader-utils';
-import type {inspectLoader} from '@/loaders';
+import type {inspectLoader} from '@/inspect/loaders';
 
 /**
  * The inspector: the person's conversation with a persona as the harness has it, on a page of

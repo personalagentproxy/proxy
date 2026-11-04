@@ -13,7 +13,7 @@ import {
 	threadStatus,
 	type ThreadStatus,
 	tokensOf,
-} from '@/lib/inspect';
+} from '@/inspect/derive';
 
 // The inspector's left column: the conversation's threads, the conversation first and the
 // sub-agents started from it under it, each with where it stands; and under them the queue,
