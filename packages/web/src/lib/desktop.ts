@@ -15,6 +15,28 @@ export function isDesktopApp(): boolean {
 	return navigator.userAgent.includes(DESKTOP_USER_AGENT);
 }
 
+/**
+ * What the desktop app's window gives its pages (`packages/desktop/src/preload.ts`): the version
+ * of an update it has downloaded, if any, word when it downloads one, and the restart that installs
+ * it.
+ */
+export type DesktopBridge = {
+	updateReady(): Promise<string | null>;
+	onUpdateReady(listener: (version: string) => void): () => void;
+	restart(): void;
+};
+
+declare global {
+	interface Window {
+		personalAgentProxyDesktop?: DesktopBridge;
+	}
+}
+
+/** The desktop app's bridge; null in a browser. */
+export function desktopBridge(): DesktopBridge | null {
+	return window.personalAgentProxyDesktop ?? null;
+}
+
 /** The link that hands the desktop app the one-time code it trades for a session. */
 export function desktopAuthLink(code: string): string {
 	return `${DESKTOP_SCHEME}://auth-callback?code=${encodeURIComponent(code)}`;

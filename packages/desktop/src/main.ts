@@ -17,9 +17,18 @@ app.userAgentFallback = `${app.userAgentFallback} PersonalAgentProxyDesktop/${DE
 
 let mainWindow: BrowserWindow | null = null;
 
-function window(): BrowserWindow {
+function currentWindow(): BrowserWindow | null {
 	if (mainWindow && !mainWindow.isDestroyed()) {
 		return mainWindow;
+	}
+
+	return null;
+}
+
+function window(): BrowserWindow {
+	const open = currentWindow();
+	if (open) {
+		return open;
 	}
 
 	mainWindow = createMainWindow();
@@ -95,7 +104,7 @@ function start(): void {
 		}
 	});
 	app.on('activate', () => {
-		if (mainWindow && !mainWindow.isDestroyed()) {
+		if (currentWindow()) {
 			return;
 		}
 		loadApp(window());
@@ -107,7 +116,7 @@ function start(): void {
 			app.dock?.setIcon(path.join(__dirname, '../build/icon.png'));
 		}
 		loadApp(window());
-		initUpdates();
+		initUpdates(currentWindow);
 		const link = findDeepLink(process.argv);
 		if (link) {
 			void onDeepLink(link);
