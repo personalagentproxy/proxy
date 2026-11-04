@@ -1,35 +1,37 @@
 import {describe, expect, test} from 'bun:test';
 
-import type {EntryRow} from '@proxy/db/harness';
+import {
+	COMPACT_AT_TOKENS,
+	compactionCut,
+	type ContextEntry,
+	toMessages,
+	toTranscript,
+} from './harness-context';
 
-import {COMPACT_AT_TOKENS, compactionCut, toMessages, toTranscript} from './context';
+type Kind = ContextEntry['kind'];
 
-const now = new Date('2026-10-21T10:00:00Z');
-
-type Kind = EntryRow['kind'];
-
-function entry(seq: number, kind: Kind, text: string, extra: Partial<Pick<EntryRow, 'toolCalls' | 'callId' | 'inputTokens' | 'coversSeq'>> = {}): EntryRow {
+function entry(
+	seq: number,
+	kind: Kind,
+	text: string,
+	extra: Partial<Pick<ContextEntry, 'toolCalls' | 'callId' | 'inputTokens' | 'coversSeq'>> = {},
+): ContextEntry {
 	return {
-		id: `e${seq}`,
 		seq,
-		threadId: 'thread-1',
 		kind,
-		pending: false,
 		text,
 		toolCalls: extra.toolCalls ?? null,
 		callId: extra.callId ?? null,
 		isError: false,
 		inputTokens: extra.inputTokens ?? null,
-		outputTokens: null,
 		coversSeq: extra.coversSeq ?? null,
-		system: null,
-		jobId: null,
-		createdAt: now,
 	};
 }
 
-const read = (seq: number, id: string, inputTokens = 10) => entry(seq, 'assistant', '', {toolCalls: [{id, name: 'read', arguments: '{}'}], inputTokens});
-const result = (seq: number, id: string, text = 'rows') => entry(seq, 'tool_result', text, {callId: id});
+const read = (seq: number, id: string, inputTokens = 10) =>
+	entry(seq, 'assistant', '', {toolCalls: [{id, name: 'read', arguments: '{}'}], inputTokens});
+const result = (seq: number, id: string, text = 'rows') =>
+	entry(seq, 'tool_result', text, {callId: id});
 
 // Three turns of the person, each answered after a read.
 const long = [
@@ -50,7 +52,11 @@ describe('toMessages', () => {
 	test('gives the log in the chat form, as it is, where it has no summary', () => {
 		expect(toMessages(long.slice(0, 4), [], {clearOld: true})).toEqual([
 			{role: 'user', content: 'One'},
-			{role: 'assistant', content: null, tool_calls: [{id: 'c1', type: 'function', function: {name: 'read', arguments: '{}'}}]},
+			{
+				role: 'assistant',
+				content: null,
+				tool_calls: [{id: 'c1', type: 'function', function: {name: 'read', arguments: '{}'}}],
+			},
 			{role: 'tool', tool_call_id: 'c1', content: 'rows one'},
 			{role: 'assistant', content: 'Done one'},
 		]);
@@ -61,33 +67,72 @@ describe('toMessages', () => {
 
 		const messages = toMessages(log, [], {clearOld: true});
 
-		expect(messages[0]).toEqual({role: 'user', content: expect.stringContaining('The person asked for one.')});
+		expect(messages[0]).toEqual({
+			role: 'user',
+			content: expect.stringContaining('The person asked for one.'),
+		});
 		expect(String(messages[0]?.content)).toContain('The person did not write this');
 		expect(messages.slice(1)).toEqual([
 			{role: 'user', content: 'Two'},
-			{role: 'assistant', content: null, tool_calls: [{id: 'c2', type: 'function', function: {name: 'read', arguments: '{}'}}]},
+			{
+				role: 'assistant',
+				content: null,
+				tool_calls: [{id: 'c2', type: 'function', function: {name: 'read', arguments: '{}'}}],
+			},
 			{role: 'tool', tool_call_id: 'c2', content: expect.stringContaining('cleared')},
 			{role: 'assistant', content: 'Done two'},
 			{role: 'user', content: 'Three'},
-			{role: 'assistant', content: null, tool_calls: [{id: 'c3', type: 'function', function: {name: 'read', arguments: '{}'}}]},
+			{
+				role: 'assistant',
+				content: null,
+				tool_calls: [{id: 'c3', type: 'function', function: {name: 'read', arguments: '{}'}}],
+			},
 			{role: 'tool', tool_call_id: 'c3', content: 'rows three'},
 		]);
-		expect(toMessages(log, [], {clearOld: false})[3]).toEqual({role: 'tool', tool_call_id: 'c2', content: 'rows two'});
+		expect(toMessages(log, [], {clearOld: false})[3]).toEqual({
+			role: 'tool',
+			tool_call_id: 'c2',
+			content: 'rows two',
+		});
 	});
 
 	test('reads what a sub-agent said as a message, led in with whose it is, by id, and clears old ones too', () => {
 		const delegated = entry(1, 'person', 'Find my invoices');
-		const call = entry(2, 'assistant', 'Looking.', {toolCalls: [{id: 'd1', name: 'create_subagent', arguments: '{"title":"Find the invoices","brief":"Search the mailbox."}'}], inputTokens: 10});
+		const call = entry(2, 'assistant', 'Looking.', {
+			toolCalls: [
+				{
+					id: 'd1',
+					name: 'create_subagent',
+					arguments: '{"title":"Find the invoices","brief":"Search the mailbox."}',
+				},
+			],
+			inputTokens: 10,
+		});
 		const started = entry(3, 'tool_result', 'Started, id sub-1.', {callId: 'd1'});
 		const report = entry(4, 'event', 'Three invoices from Dana.', {callId: 'd1'});
-		const failed = {...entry(5, 'event', 'The sub-agent failed: boom', {callId: 'd1'}), isError: true};
+		const failed = {
+			...entry(5, 'event', 'The sub-agent failed: boom', {callId: 'd1'}),
+			isError: true,
+		};
 		const subAgents = [{id: 'sub-1', parentCallId: 'd1', title: 'Find the invoices'}];
 
-		const messages = toMessages([delegated, call, started, report, failed], subAgents, {clearOld: true});
+		const messages = toMessages([delegated, call, started, report, failed], subAgents, {
+			clearOld: true,
+		});
 
-		expect(messages[3]).toEqual({role: 'user', content: expect.stringContaining('A message from the sub-agent “Find the invoices” (id sub-1)')});
+		expect(messages[3]).toEqual({
+			role: 'user',
+			content: expect.stringContaining(
+				'A message from the sub-agent “Find the invoices” (id sub-1)',
+			),
+		});
 		expect(String(messages[3]?.content)).toContain('Three invoices from Dana.');
-		expect(messages[4]).toEqual({role: 'user', content: expect.stringContaining('What the sub-agent “Find the invoices” (id sub-1) failed with')});
+		expect(messages[4]).toEqual({
+			role: 'user',
+			content: expect.stringContaining(
+				'What the sub-agent “Find the invoices” (id sub-1) failed with',
+			),
+		});
 
 		const later = [
 			delegated,
@@ -104,13 +149,32 @@ describe('toMessages', () => {
 	});
 
 	test('leads a message in by the call where no sub-agent was started by it', () => {
-		const call = entry(2, 'assistant', '', {toolCalls: [{id: 'd1', name: 'create_subagent', arguments: '{"title":'}], inputTokens: 10});
-		const messages = toMessages([entry(1, 'person', 'Go'), call, entry(3, 'tool_result', 'Started.', {callId: 'd1'}), entry(4, 'event', 'Done.', {callId: 'd1'})], [], {clearOld: true});
-		expect(messages[3]).toEqual({role: 'user', content: expect.stringContaining('A message from your call d1')});
+		const call = entry(2, 'assistant', '', {
+			toolCalls: [{id: 'd1', name: 'create_subagent', arguments: '{"title":'}],
+			inputTokens: 10,
+		});
+		const messages = toMessages(
+			[
+				entry(1, 'person', 'Go'),
+				call,
+				entry(3, 'tool_result', 'Started.', {callId: 'd1'}),
+				entry(4, 'event', 'Done.', {callId: 'd1'}),
+			],
+			[],
+			{clearOld: true},
+		);
+		expect(messages[3]).toEqual({
+			role: 'user',
+			content: expect.stringContaining('A message from your call d1'),
+		});
 	});
 
 	test('with summaries on summaries, only the last counts', () => {
-		const log = [...long, entry(12, 'summary', 'First.', {coversSeq: 4}), entry(13, 'summary', 'Second.', {coversSeq: 8})];
+		const log = [
+			...long,
+			entry(12, 'summary', 'First.', {coversSeq: 4}),
+			entry(13, 'summary', 'Second.', {coversSeq: 8}),
+		];
 
 		const messages = toMessages(log, [], {clearOld: true});
 
@@ -130,7 +194,9 @@ describe('compactionCut', () => {
 	});
 
 	test('is nothing where the last turns are the whole log', () => {
-		expect(compactionCut([entry(1, 'person', 'One'), read(2, 'c1', COMPACT_AT_TOKENS), result(3, 'c1')])).toBeNull();
+		expect(
+			compactionCut([entry(1, 'person', 'One'), read(2, 'c1', COMPACT_AT_TOKENS), result(3, 'c1')]),
+		).toBeNull();
 	});
 
 	test('moves back so that no call is left without its result', () => {
@@ -178,7 +244,12 @@ describe('compactionCut', () => {
 		];
 		expect(compactionCut(log)).toBe(3);
 
-		const summarized = [...log, entry(10, 'summary', 'Two reads so far.', {coversSeq: 3}), read(11, 'c5', COMPACT_AT_TOKENS), result(12, 'c5')];
+		const summarized = [
+			...log,
+			entry(10, 'summary', 'Two reads so far.', {coversSeq: 3}),
+			read(11, 'c5', COMPACT_AT_TOKENS),
+			result(12, 'c5'),
+		];
 		expect(compactionCut(summarized)).toBe(5);
 	});
 });
@@ -186,7 +257,16 @@ describe('compactionCut', () => {
 describe('toTranscript', () => {
 	test('writes the log out as text from its last summary on, the calls, their answers and the sub-agents’ messages with whose they are', () => {
 		const delegated = entry(1, 'person', 'Find my invoices');
-		const call = entry(2, 'assistant', 'Looking.', {toolCalls: [{id: 'd1', name: 'create_subagent', arguments: '{"title":"Find the invoices","brief":"Search the mailbox."}'}], inputTokens: 10});
+		const call = entry(2, 'assistant', 'Looking.', {
+			toolCalls: [
+				{
+					id: 'd1',
+					name: 'create_subagent',
+					arguments: '{"title":"Find the invoices","brief":"Search the mailbox."}',
+				},
+			],
+			inputTokens: 10,
+		});
 		const started = entry(3, 'tool_result', 'Started, id sub-1.', {callId: 'd1'});
 		const report = entry(4, 'event', 'Three invoices from Dana.', {callId: 'd1'});
 		const failed = {...entry(5, 'tool_result', 'No such tool.', {callId: 'x9'}), isError: true};
@@ -202,7 +282,10 @@ describe('toTranscript', () => {
 			].join('\n\n'),
 		);
 
-		const transcript = toTranscript([...long, entry(12, 'summary', 'The person asked for one.', {coversSeq: 4})], []);
+		const transcript = toTranscript(
+			[...long, entry(12, 'summary', 'The person asked for one.', {coversSeq: 4})],
+			[],
+		);
 		expect(transcript.startsWith('What came before in this conversation')).toBe(true);
 		expect(transcript).toContain('The person asked for one.\n\nPerson:\nTwo');
 		expect(transcript).not.toContain('rows one');

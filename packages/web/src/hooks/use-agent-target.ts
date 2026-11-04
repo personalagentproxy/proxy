@@ -25,8 +25,8 @@ export function useAgentTask(): AgentTask | null {
 	return useRouteLoaderData<AgentTask>('agent-task') ?? null;
 }
 
-// A built-in connection, which every organization has twice: everyone's and the person's own.
-function builtInPlace(name: string, shared: boolean): string {
+// A native connection, which every organization has twice: everyone's and the person's own.
+function nativePlace(name: string, shared: boolean): string {
 	if (shared) {
 		return `${name} (everyone’s)`;
 	}
@@ -45,8 +45,8 @@ export function useAgentTarget(): AgentTarget | null {
 		return null;
 	}
 
-	const place = integration.builtIn
-		? builtInPlace(integration.name, connection.shared)
+	const place = integration.native
+		? nativePlace(integration.name, connection.shared)
 		: connection.account;
 	return {connection, integration, collection, actions: connection.actions, place};
 }

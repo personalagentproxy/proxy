@@ -53,7 +53,7 @@ export function ConnectionsPage() {
 	const human = useHuman();
 	const [pending, setPending] = useState<Pending | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const listed = all.filter((connection) => !integrationOf(connection)?.builtIn);
+	const listed = all.filter((connection) => !integrationOf(connection)?.native);
 	const side = useSide(listed, {opensOnShared: true});
 	if (!human) {
 		return null;

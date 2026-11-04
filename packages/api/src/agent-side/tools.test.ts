@@ -47,9 +47,9 @@ mock.module('../connections/custom/custom-mcp', () => ({callCustomTool}));
 // Of the integrations' modules, Google's partial consent alone, read from its credential.
 const {unavailableGoogleConnectionActions} = await import('../connections/google/unavailable');
 
-mock.module('../connections/integrations', () => ({
-	apiIntegration: (id: string) => (id === 'google' ? {id, connectors: {}, unavailableActions: unavailableGoogleConnectionActions} : undefined),
-}));
+const apiIntegration = mock((id: string): unknown => (id === 'google' ? {id, connectors: {}, unavailableActions: unavailableGoogleConnectionActions} : undefined));
+
+mock.module('../connections/integrations', () => ({apiIntegration}));
 
 function integration(id: string): Integration {
 	const found = findIntegration(id);
@@ -699,5 +699,90 @@ describe('custom MCP servers', () => {
 		expect(failed).toEqual(ApiErr.validationError('query is required'));
 		expect(logAgentRequest).toHaveBeenCalledTimes(1);
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'tools', action: 'search_docs', query: null, outcome: 'failed', error: 'validation_error'});
+	});
+});
+
+// An integration's own tools, run by the api through the runners its module names: the vault with
+// a tool counting its entries and one purging them.
+describe("an integration's own tools", () => {
+	const count = {
+		name: 'entries_count',
+		title: 'Count entries',
+		description: 'How many entries the vault holds.',
+		action: 'readEntries',
+		readOnly: true as const,
+		inputSchema: {type: 'object', properties: {type: {type: 'string'}}},
+	};
+	const purge = {
+		name: 'entries_purge',
+		title: 'Purge entries',
+		description: 'Deletes every entry older than a number of days.',
+		action: 'writeEntries',
+		requires: 'readEntries',
+		inputSchema: {type: 'object', properties: {days: {type: 'number'}}, required: ['days']},
+	};
+	const vault = {...integration('vault'), tools: [count, purge]};
+	const countEntries = mock();
+	const purgeEntries = mock();
+	const vaultModule = {id: 'vault', connectors: {}, tools: {entries_count: countEntries, entries_purge: purgeEntries}};
+
+	beforeEach(() => {
+		loadConnection.mockResolvedValue(Ok({connection: vaultConnection, integration: vault}));
+		apiIntegration.mockImplementation((id) => (id === 'vault' ? vaultModule : undefined));
+		countEntries.mockResolvedValue(Ok('3 entries'));
+	});
+
+	test('are among the tools the agent has with the connection, as far as its actions go', async () => {
+		const {listAgentTools} = await import('./tools');
+
+		expect((await listAgentTools(signedIn, 'vault-1')).unwrap().map((tool) => tool.name)).toEqual([
+			'entries_list',
+			'entries_get',
+			'entries_create',
+			'entries_update',
+			'entries_delete',
+			'entries_count',
+			'entries_purge',
+		]);
+		getAgentById.mockResolvedValue(Ok({...agent, grants: []}));
+		expect((await listAgentTools(signedIn, 'vault-1')).unwrap().map((tool) => tool.name)).toEqual(['entries_list', 'entries_get', 'entries_count']);
+	});
+
+	test('run by the runner with the params as given, for the caller on the connection, and logged by name with them', async () => {
+		const {runAgentTool} = await import('./tools');
+		const result = await runAgentTool(caller, 'vault-1', 'entries_count', {type: 'Address'}, {readOnly: true});
+
+		expect(result.unwrap()).toEqual({text: '3 entries'});
+		expect(countEntries).toHaveBeenCalledWith({caller, connection: vaultConnection, params: {type: 'Address'}});
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({
+			connectionId: 'vault-1',
+			collectionId: 'tools',
+			action: 'entries_count',
+			query: '{"type":"Address"}',
+			outcome: 'allowed',
+			taskId: 'task-1',
+		});
+	});
+
+	test('one the agent lacks the action for is refused and logged as denied; one that changes something is not run with read', async () => {
+		getAgentById.mockResolvedValue(Ok({...agent, grants: []}));
+		const {runAgentTool} = await import('./tools');
+
+		expect((await runAgentTool(caller, 'vault-1', 'entries_purge', {days: 30})).unwrapErr().kind).toBe('forbidden');
+		expect(purgeEntries).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'tools', action: 'entries_purge', query: '{"days":30}', outcome: 'denied'});
+		expect((await runAgentTool(caller, 'vault-1', 'entries_purge', {days: 30}, {readOnly: true})).unwrapErr().kind).toBe('validation_error');
+		expect(logAgentRequest).toHaveBeenCalledTimes(1);
+	});
+
+	test('what the runner failed with is passed on, logged as failed; a tool without a runner is not found', async () => {
+		countEntries.mockResolvedValue(Err(ApiErr.validationError('Not a type of entry')));
+		const {runAgentTool} = await import('./tools');
+
+		expect((await runAgentTool(caller, 'vault-1', 'entries_count', {type: 'Nope'})).unwrapErr()).toEqual(ApiErr.validationError('Not a type of entry'));
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'entries_count', outcome: 'failed', error: 'validation_error'});
+
+		apiIntegration.mockImplementation((id) => (id === 'vault' ? {...vaultModule, tools: {}} : undefined));
+		expect((await runAgentTool(caller, 'vault-1', 'entries_count', {})).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'tool', id: 'entries_count'});
 	});
 });

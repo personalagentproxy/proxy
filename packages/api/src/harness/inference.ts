@@ -7,8 +7,8 @@ import {askForTurn, type ModelTurn} from '../llm/open-router';
 import {agentInstructions} from '../mcp/tools';
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
+import {compactionCut, toMessages, toTranscript} from '@proxy/utils/harness-context';
 import {alertsParagraph} from './alerts';
-import {compactionCut, toMessages, toTranscript} from './context';
 import {afterAnswer, planCalls} from './conversation';
 import type {HarnessStore} from './store';
 import {toolsFor} from './tool-surface';
@@ -26,8 +26,8 @@ import {toolsFor} from './tool-surface';
  * with no calls goes to the agent it works for, and stops its work for now, unless a message came
  * while it answered. An answer of nothing, no words and no calls, is written as that said: the
  * person would otherwise see nothing, and the model refuses a log with an empty turn in it. The
- * model is the organization's, read at each turn: Claude, or GLM for an insider that switched to
- * it on Settings. The answer is written with the system prompt the model was sent, which is built
+ * model is the thread's persona's, read at each turn, a sub-agent's the persona's it works as:
+ * Claude, or GLM for a persona of an insider that was switched to it. The answer is written with the system prompt the model was sent, which is built
  * from the login's grants as they are then and, for the agent talking with the person, its
  * sub-agents as they are then, so that what the model read can be told later; the rest of the
  * request is rebuilt from the log. The agent talking with the person is told the alerts set in the
@@ -197,7 +197,7 @@ function compact(store: InferenceStore, job: JobRow, workerId: string, entries: 
 // in the log is; a sub-agent's thread has none.
 function askOnLog(store: InferenceStore, job: JobRow, workerId: string, thread: ThreadRow, entries: EntryRow[], key: string, now: Date): Promise<Result<{turn: ModelTurn; system: string}, ApiError>> {
 	return Do(async ($) => {
-		const model = $(await store.getChatModel(thread.orgId));
+		const model = $(await store.getChatModel(thread));
 		const subAgents = thread.parentThreadId === null ? $(await store.listSubAgents(thread.id, now)) : [];
 		const current = $(await compact(store, job, workerId, entries, subAgents, key, model));
 		const system = $(await systemPrompt(store, thread, subAgents, now));

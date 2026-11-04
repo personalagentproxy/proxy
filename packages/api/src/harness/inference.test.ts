@@ -123,8 +123,8 @@ describe('runInference', () => {
 		expect(listSubAgents).toHaveBeenCalledWith('thread-1', now);
 		expect(agentInstructions).toHaveBeenCalledWith(expect.objectContaining({agentId: 'agent-1', ownerUserId: 'user-1'}), expect.stringContaining('You are talking with the person directly'));
 		const request = askForTurn.mock.calls[0]?.[0] as {model: string; messages: Array<Record<string, unknown>>; tools: unknown[]};
-		// With the organization's model.
-		expect(getChatModel).toHaveBeenCalledWith('org-1');
+		// With the model of the persona the thread is with.
+		expect(getChatModel).toHaveBeenCalledWith(thread);
 		expect(request.model).toBe('claude');
 		expect(request.messages[0]).toMatchObject({role: 'system'});
 		expect(String(request.messages[0]?.content)).toContain('- thread-2: “Find the invoices”, stopped; a message takes it up again');
@@ -330,7 +330,7 @@ describe('runInference', () => {
 
 	test('a log grown long is summarized first, and the model reads the summary in place of what it covers', async () => {
 		const {runInference} = await import('./inference');
-		const {COMPACT_AT_TOKENS} = await import('./context');
+		const {COMPACT_AT_TOKENS} = await import('@proxy/utils/harness-context');
 		const long = [
 			entry('person', 'One'),
 			entry('assistant', '', {toolCalls: [{id: 'c1', name: 'read', arguments: '{}'}], inputTokens: 10}),
@@ -344,7 +344,7 @@ describe('runInference', () => {
 		];
 		const summary = entry('summary', 'The person asked for one; it was done.', {coversSeq: long[3]?.seq});
 		listEntries.mockResolvedValueOnce(Ok(long)).mockResolvedValueOnce(Ok([...long, summary]));
-		// An insider that switched to GLM: it summarizes, too.
+		// A persona switched to GLM: it summarizes, too.
 		getChatModel.mockResolvedValue(Ok('glm'));
 		askForTurn
 			.mockResolvedValueOnce(Ok({text: 'The person asked for one; it was done.', toolCalls: [], inputTokens: 90_000, outputTokens: 300}))

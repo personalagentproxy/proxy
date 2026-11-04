@@ -40,8 +40,10 @@ import {
 import {Trace, TraceIcon, TraceLine, TraceTitle} from '@/components/chat/trace';
 import {preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
+import {useHuman} from '@/hooks/use-human';
 import {useOrgSlug} from '@/hooks/use-org';
 import {formatAgo, formatDateTime} from '@/lib/format';
+import type {Pose} from '@/lib/head';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {chatLoader} from '@/loaders';
 import {
@@ -123,12 +125,17 @@ function lastOf(log: ThreadLog): ChatPersona['lastMessage'] {
 }
 
 // The organization's personas in the second sidebar, each with its head, its name and the last
-// thing said between it and the person, the open one lit, its head watching the pointer while it
-// is over the sidebar, and a row at the bottom to make a new one.
+// thing said between it and the person, the open one lit, each head watching the pointer while it
+// is over that agent's row, and a row at the bottom to make a new one.
 function PersonaList({
 	personas,
 	current,
 	currentLog,
+	takeOpeningPersona,
+	rememberOpeningPersona,
+	forgetOpeningPersona,
+	recallHeadPose,
+	rememberHeadPose,
 	onNew,
 	onEdit,
 	onDelete,
@@ -136,18 +143,19 @@ function PersonaList({
 	personas: ChatPersona[];
 	current: string;
 	currentLog: ThreadLog;
+	takeOpeningPersona: () => string | null;
+	rememberOpeningPersona: (personaId: string) => void;
+	forgetOpeningPersona: (personaId: string) => void;
+	recallHeadPose: (personaId: string) => Pose | null;
+	rememberHeadPose: (personaId: string, pose: Pose) => void;
 	onNew: () => void;
 	onEdit: (persona: ChatPersona) => void;
 	onDelete: (persona: ChatPersona) => void;
 }) {
 	const org = useOrgSlug();
-	const [watching, setWatching] = useState(false);
+	const [hovered, setHovered] = useState(takeOpeningPersona);
 	return (
-		<div
-			className="flex h-full min-h-0 flex-col"
-			onPointerEnter={() => setWatching(true)}
-			onPointerLeave={() => setWatching(false)}
-		>
+		<div className="flex h-full min-h-0 flex-col">
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
 				{personas.length === 0 && (
 					<span className="px-2 py-1.5 text-sm text-muted-foreground">No agents yet.</span>
@@ -159,21 +167,39 @@ function PersonaList({
 							<Link
 								to={`/${org}/chat/${persona.id}`}
 								aria-current={persona.id === current ? 'page' : undefined}
+								onPointerEnter={() => setHovered(persona.id)}
+								onPointerLeave={() => {
+									setHovered(null);
+									forgetOpeningPersona(persona.id);
+								}}
+								onPointerUp={(event) => {
+									if (
+										persona.id === current ||
+										event.pointerType !== 'mouse' ||
+										event.button !== 0 ||
+										event.metaKey ||
+										event.ctrlKey ||
+										event.shiftKey ||
+										event.altKey
+									) {
+										return;
+									}
+									rememberOpeningPersona(persona.id);
+								}}
 								className={cn(
 									'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
 									persona.id === current && 'bg-sidebar-accent text-sidebar-accent-foreground',
 								)}
 							>
-								{persona.id === current ? (
-									<LiveHead
-										look={persona.look}
-										color={persona.color}
-										size={40}
-										watching={watching}
-									/>
-								) : (
-									<Head look={persona.look} color={persona.color} size={40} />
-								)}
+								<LiveHead
+									look={persona.look}
+									color={persona.color}
+									size={40}
+									watching={hovered === persona.id}
+									tracking="head"
+									recallPose={() => recallHeadPose(persona.id)}
+									rememberPose={(pose) => rememberHeadPose(persona.id, pose)}
+								/>
 								<span className="flex min-w-0 flex-1 flex-col">
 									<span className="flex items-baseline gap-2">
 										<span className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -230,15 +256,68 @@ type Loaded = Awaited<ReturnType<typeof chatLoader>>;
 // changes, so what one conversation showed never lingers on another.
 export function ChatPage() {
 	const loaded = useLoaderData<typeof chatLoader>();
-	return <Conversation key={loaded.log.persona.id} loaded={loaded} />;
+	// A mouse click can replace the sidebar before its leave event. Hand that one clicked persona
+	// to the replacement list without making ordinary hover rerender the conversation itself.
+	const openingPersona = useRef<string | null>(null);
+	const headPoses = useRef(new Map<string, Pose>());
+	const takeOpeningPersona = useCallback(() => {
+		const personaId = openingPersona.current;
+		openingPersona.current = null;
+		return personaId;
+	}, []);
+	const rememberOpeningPersona = useCallback((personaId: string) => {
+		openingPersona.current = personaId;
+	}, []);
+	const forgetOpeningPersona = useCallback((personaId: string) => {
+		if (openingPersona.current !== personaId) {
+			return;
+		}
+		openingPersona.current = null;
+	}, []);
+	useEffect(() => {
+		openingPersona.current = null;
+	}, [loaded.log.persona.id]);
+	const recallHeadPose = useCallback(
+		(personaId: string) => headPoses.current.get(personaId) ?? null,
+		[],
+	);
+	const rememberHeadPose = useCallback((personaId: string, pose: Pose) => {
+		headPoses.current.set(personaId, pose);
+	}, []);
+	return (
+		<Conversation
+			key={loaded.log.persona.id}
+			loaded={loaded}
+			takeOpeningPersona={takeOpeningPersona}
+			rememberOpeningPersona={rememberOpeningPersona}
+			forgetOpeningPersona={forgetOpeningPersona}
+			recallHeadPose={recallHeadPose}
+			rememberHeadPose={rememberHeadPose}
+		/>
+	);
 }
 
 // The person's conversation with one of the organization's personas: its log, read again as the
 // persona works, and an input. The persona hands each piece of work to a sub-agent it keeps
 // talking with, which acts as the person through the organization's built-in login, whose calls
 // go through the same gate as any agent's, so its activity is in the log by the sub-agent's task.
-function Conversation({loaded}: {loaded: Loaded}) {
+function Conversation({
+	loaded,
+	takeOpeningPersona,
+	rememberOpeningPersona,
+	forgetOpeningPersona,
+	recallHeadPose,
+	rememberHeadPose,
+}: {
+	loaded: Loaded;
+	takeOpeningPersona: () => string | null;
+	rememberOpeningPersona: (personaId: string) => void;
+	forgetOpeningPersona: (personaId: string) => void;
+	recallHeadPose: (personaId: string) => Pose | null;
+	rememberHeadPose: (personaId: string, pose: Pose) => void;
+}) {
 	const org = useOrgSlug();
+	const human = useHuman();
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
 	const [log, setLog] = useState<ThreadLog>(loaded.log);
@@ -299,7 +378,8 @@ function Conversation({loaded}: {loaded: Loaded}) {
 		}
 	};
 
-	// Saves the dialog's persona: a new one, opened; or the selected one, renamed or refaced.
+	// Saves the dialog's persona: a new one, opened; or the selected one, renamed, refaced or
+	// switched to another model.
 	const savePersona = async (persona: Persona): Promise<string | null> => {
 		if (editing === null) {
 			return 'This agent is no longer being edited.';
@@ -368,6 +448,11 @@ function Conversation({loaded}: {loaded: Loaded}) {
 					personas={loaded.personas}
 					current={personaId}
 					currentLog={log}
+					takeOpeningPersona={takeOpeningPersona}
+					rememberOpeningPersona={rememberOpeningPersona}
+					forgetOpeningPersona={forgetOpeningPersona}
+					recallHeadPose={recallHeadPose}
+					rememberHeadPose={rememberHeadPose}
 					onNew={() => setEditing('new')}
 					onEdit={setEditing}
 					onDelete={setDeleting}
@@ -383,8 +468,14 @@ function Conversation({loaded}: {loaded: Loaded}) {
 					initial={
 						editing === 'new'
 							? null
-							: {name: editing.name, look: editing.look, color: editing.color}
+							: {
+									name: editing.name,
+									look: editing.look,
+									color: editing.color,
+									chatModel: editing.chatModel ?? undefined,
+								}
 					}
+					chooseModel={human?.org.insider ?? false}
 					onClose={() => setEditing(null)}
 					onSave={savePersona}
 					onDelete={

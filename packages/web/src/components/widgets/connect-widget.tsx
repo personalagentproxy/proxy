@@ -22,7 +22,7 @@ export function ConnectWidget({icon, name, collectionIds, children}: Props) {
 	const org = useOrgSlug();
 	const offering = INTEGRATIONS.filter(
 		(integration) =>
-			!integration.builtIn &&
+			!integration.native &&
 			integration.collections.some((collection) => collectionIds.includes(collection.id)),
 	);
 

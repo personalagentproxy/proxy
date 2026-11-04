@@ -20,7 +20,7 @@ function sourcesOf(connections: Connection[]): Array<{integration: Integration; 
 	const sources: Array<{integration: Integration; names: string[]}> = [];
 	for (const connection of connections) {
 		const integration = integrationOf(connection);
-		if (!integration || integration.builtIn) {
+		if (!integration || integration.native) {
 			continue;
 		}
 		const name = connectionLabel(connections, connection);

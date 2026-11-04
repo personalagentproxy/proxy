@@ -1560,7 +1560,7 @@ const vault: Integration = {
 	id: VAULT_INTEGRATION_ID,
 	name: 'Vault',
 	description: 'What your agents should know about you, kept in Personal Agent Proxy',
-	builtIn: true,
+	native: true,
 	actions: [
 		{id: 'readEntries', label: 'Read entries', description: 'List and open entries', risk: 'low'},
 		{

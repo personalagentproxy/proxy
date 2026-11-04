@@ -5,7 +5,7 @@ import {hasInstanceMetaKey, setInstanceMetaValue} from '@proxy/db/instance-meta'
 
 import {takeOverCustomConnections} from '../connections/take-over-custom';
 import {log, serializeError} from '../observability/log';
-import {convertOldVaultRecords} from '../records/vault-entries';
+import {convertOldVaultRecords} from '../native/vault/vault-entries';
 
 /**
  * Changes to the data that only the api can make, as reading a credential takes its key, run once

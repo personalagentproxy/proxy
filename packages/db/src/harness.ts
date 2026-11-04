@@ -7,7 +7,14 @@ import type {
 } from '@prisma/client';
 import {Err, Ok, type Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, wrapDb} from '@proxy/utils';
+import {
+	ApiErr,
+	type ApiError,
+	type ChatModel,
+	personaChatModel,
+	toChatModel,
+	wrapDb,
+} from '@proxy/utils';
 import {
 	DEFAULT_LOOK,
 	type Look,
@@ -64,11 +71,21 @@ export type ThreadRow = {
 /** A sub-agent as the agent that started it is told of it: its thread, and what it is up to. */
 export type SubAgentRow = ThreadRow & {state: ThreadState};
 
-/** What a persona is: its name and its head, a look and a color. */
-export type Persona = {name: string; look: Look; color: string};
+/**
+ * What a persona is: its name and its head, a look and a color, and the model it answers with,
+ * where that is chosen (in an insider organization); left as it is otherwise, Claude for a new one.
+ */
+export type Persona = {name: string; look: Look; color: string; chatModel?: ChatModel};
 
-/** A persona as the Chat page lists it, with who made it, who may change it beside the organization's owner. */
-export type PersonaRow = Persona & {id: string; createdById: string | null};
+/**
+ * A persona as the Chat page lists it, with the model chosen for it, and who made it, who may
+ * change it beside the organization's owner.
+ */
+export type PersonaRow = Omit<Persona, 'chatModel'> & {
+	id: string;
+	chatModel: ChatModel;
+	createdById: string | null;
+};
 
 export type EntryRow = LogEntry & {
 	id: string;
@@ -198,6 +215,7 @@ export const personaSelect = {
 	name: true,
 	look: true,
 	color: true,
+	chatModel: true,
 	createdById: true,
 } as const;
 
@@ -206,12 +224,14 @@ export function toPersona(persona: {
 	name: string;
 	look: string;
 	color: string;
+	chatModel: string;
 	createdById: string | null;
 }): PersonaRow {
-	return {...persona, look: parseLook(persona.look)};
+	return {...persona, look: parseLook(persona.look), chatModel: toChatModel(persona.chatModel)};
 }
 
-const entrySelect = {
+/** The columns of an entry, as `EntryRow` has them; the admin reads with it too. */
+export const entrySelect = {
 	id: true,
 	seq: true,
 	threadId: true,
@@ -251,11 +271,12 @@ const jobEventSelect = {
 	at: true,
 } as const;
 
-type EntryRecord = Prisma.AgentEntryGetPayload<{select: typeof entrySelect}>;
+export type EntryRecord = Prisma.AgentEntryGetPayload<{select: typeof entrySelect}>;
 
 type Tx = Prisma.TransactionClient;
 
-function toEntry(entry: EntryRecord): EntryRow {
+/** An entry as read, its calls parsed. */
+export function toEntry(entry: EntryRecord): EntryRow {
 	return {
 		...entry,
 		toolCalls: entry.toolCalls === null ? null : (JSON.parse(entry.toolCalls) as ToolCall[]),
@@ -374,6 +395,7 @@ export async function createPersona(
 					name: persona.name,
 					look: JSON.stringify(persona.look),
 					color: persona.color,
+					chatModel: persona.chatModel,
 				},
 				select: personaSelect,
 			}),
@@ -381,7 +403,7 @@ export async function createPersona(
 	).map(toPersona);
 }
 
-/** Renames a persona or changes its head; `Ok(false)` means no such persona in the organization. */
+/** Renames a persona, changes its head or the model it answers with; `Ok(false)` means no such persona in the organization. */
 export async function updatePersona(
 	orgId: string,
 	personaId: string,
@@ -391,7 +413,12 @@ export async function updatePersona(
 		await wrapDb(() =>
 			db.persona.updateMany({
 				where: {id: personaId, orgId},
-				data: {name: persona.name, look: JSON.stringify(persona.look), color: persona.color},
+				data: {
+					name: persona.name,
+					look: JSON.stringify(persona.look),
+					color: persona.color,
+					chatModel: persona.chatModel,
+				},
 			}),
 		)
 	).map(({count}) => count > 0);
@@ -466,6 +493,25 @@ export async function getThreadAgent(
 		const signedIn = agent ? toSignedInAgent(agent) : null;
 		return signedIn ? {...signedIn, ownerUserId: thread.userId} : null;
 	});
+}
+
+/**
+ * The model the thread's persona answers with, its sub-agents too: the one chosen for it while
+ * its organization is an insider; Claude in any other, and where the persona is gone.
+ */
+export async function getThreadChatModel(thread: ThreadRow): Promise<Result<ChatModel, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.persona.findUnique({
+				where: {id: thread.personaId},
+				select: {chatModel: true, org: {select: {insider: true}}},
+			}),
+		)
+	).map((persona) =>
+		persona
+			? personaChatModel({insider: persona.org.insider, chatModel: persona.chatModel})
+			: 'claude',
+	);
 }
 
 /** The thread a job is for, by the job; `Ok(null)` when it is gone. */

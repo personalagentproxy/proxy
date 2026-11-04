@@ -68,11 +68,7 @@
     },
     "packages/desktop": {
       "name": "desktop",
-      "version": "0.1.0",
-      "dependencies": {
-        "ts-results-es": "^7.1.0",
-        "zod": "^4.5.4",
-      },
+      "version": "0.0.2",
       "devDependencies": {
         "@types/bun": "latest",
         "dotenv": "^16.6.1",
@@ -81,7 +77,9 @@
         "electron-updater": "^6.8.11",
         "esbuild": "^0.27.0",
         "oxlint": "^1.79.0",
+        "ts-results-es": "^7.1.0",
         "typescript": "~6.0.2",
+        "zod": "^4.5.4",
       },
     },
     "packages/docs": {

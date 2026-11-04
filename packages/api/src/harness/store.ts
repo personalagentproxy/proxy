@@ -9,7 +9,6 @@ import * as harness from '@proxy/db/harness';
 import type {AfterAnswer, AssistantTurn, EntryRow, FailureNote, JobRow, LastMessage, Persona, PersonaRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
 import {type AgentTaskRow, createAgentTask, getAgentTask, type NewAgentTask} from '@proxy/db/task';
 import type {SignedInAgent} from '@proxy/db/agent';
-import {getOrganizationChatModel} from '@proxy/db/organization';
 
 /**
  * What the harness reads and writes: the job queue, each thread's log and its jobs, the Chat
@@ -29,7 +28,7 @@ export type HarnessStore = {
 
 	getJobThread: (threadId: string) => Promise<Result<ThreadRow | null, ApiError>>;
 	getThreadAgent: (thread: ThreadRow) => Promise<Result<SignedInAgent | null, ApiError>>;
-	getChatModel: (orgId: string) => Promise<Result<ChatModel, ApiError>>;
+	getChatModel: (thread: ThreadRow) => Promise<Result<ChatModel, ApiError>>;
 	listEntries: (threadId: string) => Promise<Result<EntryRow[], ApiError>>;
 	getEntry: (entryId: string) => Promise<Result<EntryRow, ApiError>>;
 	appendSummary: (jobId: string, workerId: string, threadId: string, summary: {text: string; inputTokens: number; outputTokens: number}, coversSeq: number) => Promise<Result<boolean, ApiError>>;
@@ -75,7 +74,7 @@ export const harnessStore: HarnessStore = {
 
 	getJobThread: harness.getJobThread,
 	getThreadAgent: harness.getThreadAgent,
-	getChatModel: getOrganizationChatModel,
+	getChatModel: harness.getThreadChatModel,
 	listEntries: harness.listEntries,
 	getEntry: harness.getEntry,
 	appendSummary: harness.appendSummary,

@@ -48,6 +48,11 @@ describe('apiIntegrations', () => {
 			expect(Object.keys(moduleOf(integration).connectors).filter((id) => !collections.includes(id))).toEqual([]);
 		});
 
+		test(`${integration.id} has runners for its own tools, and for nothing else`, () => {
+			const tools = (integration.tools ?? []).map((tool) => tool.name).toSorted();
+			expect(Object.keys(moduleOf(integration).tools ?? {}).toSorted()).toEqual(tools);
+		});
+
 		test(`${integration.id} is built on an MCP server only as itself`, () => {
 			expect(moduleOf(integration).builtInMcp?.integrationId ?? integration.id).toBe(integration.id);
 		});

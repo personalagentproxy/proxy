@@ -1,6 +1,12 @@
 import type {SignInMethods} from '@proxy/contracts/auth';
 import type {Org} from '@proxy/contracts/orgs';
-import {Outlet, createBrowserRouter, redirect, redirectDocument} from 'react-router';
+import {
+	Outlet,
+	createBrowserRouter,
+	redirect,
+	redirectDocument,
+	type RouteObject,
+} from 'react-router';
 import {
 	agentCollectionLoader,
 	agentRecordLoader,
@@ -14,6 +20,7 @@ import {getMe} from '@/client/me-client';
 import {isNotFoundError} from '@/client/request';
 import {getOrg, listOrgs} from '@/client/orgs-client';
 import {HumanSide} from '@/components/human-side';
+import {Root} from '@/components/root';
 import {RouteError} from '@/components/route-error';
 import {sanitizeCallbackUrl} from '@/lib/callback-url';
 import {unwrapLoaderResult} from '@/lib/loader-utils';
@@ -187,7 +194,7 @@ async function loginLoader({request}: {request: Request}): Promise<SignInMethods
 	throw redirect(callbackUrl ?? '/');
 }
 
-export const router = createBrowserRouter([
+const routes: RouteObject[] = [
 	{path: '/', loader: rootLoader, element: null, errorElement: <RouteError />},
 	{path: '/login', loader: loginLoader, element: <LoginPage />},
 	{path: '/desktop-auth', loader: desktopAuthLoader, element: <DesktopAuthPage />},
@@ -347,4 +354,6 @@ export const router = createBrowserRouter([
 		],
 	},
 	{path: '*', loader: unknownLoader, element: null, errorElement: <RouteError />},
-]);
+];
+
+export const router = createBrowserRouter([{element: <Root />, children: routes}]);

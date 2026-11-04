@@ -3,6 +3,7 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, type ChatModel, Do, type FetchError, httpRequest, parseSchema} from '@proxy/utils';
 import type {ToolCall} from '@proxy/utils/harness';
+import type {ModelMessage} from '@proxy/utils/harness-context';
 
 /**
  * The models this server asks over OpenRouter's chat completions, with the key in
@@ -10,8 +11,8 @@ import type {ToolCall} from '@proxy/utils/harness';
  *
  * - `askForJson`: gpt-oss-120b on Cerebras, the fastest host, else Groq, answering JSON held to a
  *   schema: the home page's model, which fills in a widget's fields and answers what Ask asks.
- * - `askForTurn`: the built-in agent's model, Claude Sonnet 5.5, or GLM 5.3 for an insider
- *   organization that switched to it, answering a conversation with text, tool calls, or both. One
+ * - `askForTurn`: the built-in agent's model, Claude Sonnet 5.5, or GLM 5.3 for a persona of an
+ *   insider organization that was switched to it, answering a conversation with text, tool calls, or both. One
  *   call per turn; the loop (harness/inference.ts) runs the calls and asks again.
  *
  * What goes wrong is told apart alike for both: a model that can't be reached, or answered with
@@ -36,14 +37,8 @@ const MAX_SAID = 500;
 /** A tool as the model is given it: its name, what it does, and the JSON Schema of its arguments. */
 export type ModelTool = {name: string; description: string; parameters: object};
 
-type ModelToolCall = {id: string; type: 'function'; function: {name: string; arguments: string}};
-
-/** The conversation as the model reads it, in the chat completions form. */
-export type ModelMessage =
-	| {role: 'system'; content: string}
-	| {role: 'user'; content: string}
-	| {role: 'assistant'; content: string | null; tool_calls?: ModelToolCall[]}
-	| {role: 'tool'; tool_call_id: string; content: string};
+/** The conversation as the model reads it, in the chat completions form (@proxy/utils/harness-context, which builds it from a log). */
+export type {ModelMessage};
 
 // Which hosts of the model OpenRouter may send the request to.
 type ProviderPolicy = {order?: string[]; allow_fallbacks?: boolean; data_collection: 'deny'; zdr?: boolean};

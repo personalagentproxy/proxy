@@ -61,7 +61,6 @@ import {
 	handleRemoveMemberRoute,
 	handleRenameOrgRoute,
 	handleRevokeInvitationRoute,
-	handleSetChatModelRoute,
 } from '../orgs/route';
 import {handleAuthorizeRoute, handleConsentRoute, handleGetAuthorizationRequestRoute} from '../oauth/authorize';
 import {handleAuthorizationServerMetadataRoute, handleProtectedResourceMetadataRoute} from '../oauth/metadata';
@@ -129,7 +128,6 @@ export function createApiRouter(): express.Router {
 	org.post('/onboarded', withAuthResult('Finish onboarding route', handleFinishOnboardingRoute));
 	org.patch('/', withAuthResult('Rename organization route', handleRenameOrgRoute));
 	org.delete('/', withAuthResult('Delete organization route', handleDeleteOrgRoute));
-	org.put('/chat-model', withAuthResult('Set chat model route', handleSetChatModelRoute));
 	org.post('/leave', withAuthResult('Leave organization route', handleLeaveOrgRoute));
 	org.get('/members', withAuthResult('List members route', handleListMembersRoute));
 	org.delete('/members/:userId', withAuthResult('Remove member route', handleRemoveMemberRoute));

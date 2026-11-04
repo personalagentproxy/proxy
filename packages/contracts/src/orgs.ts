@@ -1,4 +1,4 @@
-import {CHAT_MODELS, type ChatModel, isExperiment} from '@proxy/utils';
+import {isExperiment} from '@proxy/utils';
 import {z} from 'zod';
 
 /**
@@ -8,8 +8,6 @@ import {z} from 'zod';
  */
 
 const roleSchema = z.enum(['owner', 'member']);
-
-const chatModelSchema = z.enum(Object.keys(CHAT_MODELS) as [ChatModel, ...ChatModel[]]);
 
 export const orgSchema = z.object({
 	id: z.string(),
@@ -21,10 +19,10 @@ export const orgSchema = z.object({
 	/** The experiments on for it, for the web app's `useExperiments`; those it doesn't know are left out. */
 	experiments: z.array(z.string()).transform((ids) => ids.filter(isExperiment)),
 	/**
-	 * The model its built-in agent answers with, for an insider, which switches it on Settings;
-	 * null for any other organization, whose agent answers with Claude. Null in `GET /api/orgs`.
+	 * Whether it is an insider, whose personas each answer with the model chosen for them, where
+	 * any other's answer with Claude. False in `GET /api/orgs`.
 	 */
-	chatModel: chatModelSchema.nullable(),
+	insider: z.boolean(),
 	memberCount: z.number(),
 	/** Invitations not taken up yet. */
 	invitationCount: z.number(),
@@ -48,9 +46,6 @@ export const orgNameBodySchema = z.object({
 		.min(1, 'Give the organization a name')
 		.max(MAX_NAME_LENGTH, `The name can be at most ${MAX_NAME_LENGTH} characters`),
 });
-
-/** `PUT /api/orgs/:org/chat-model`: the model an insider's built-in agent is to answer with. */
-export const chatModelBodySchema = z.object({chatModel: chatModelSchema});
 
 export const memberSchema = z.object({
 	userId: z.string(),

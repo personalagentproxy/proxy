@@ -9,9 +9,10 @@ import {
 import type {Action, Collection, Condition, Field, Integration} from './types';
 
 // What an agent can do with a connection, as tools: listing and opening each collection's
-// records, writing them, and each command, generated from the catalog. The agent side's pages and
-// the MCP server both run them, so the catalog is all an integration needs to describe. A custom
-// MCP server's tools are passed on as they are, each a tool of its own (`call`).
+// records, writing them, and each command, generated from the catalog; and the integration's own
+// tools, where it has any (`native`), with their own params. The agent side's pages and the MCP
+// server both run them, so the catalog is all an integration needs to describe. A custom MCP
+// server's tools are passed on as they are, each a tool of its own (`call`).
 
 // Every input is text: a select's options are its enum.
 export type JsonSchemaProperty = {
@@ -30,9 +31,10 @@ export type JsonSchemaObject = {
 
 // What a tool does with its collection: lists it, opens one record, writes one, or runs one of
 // its commands on a record (`command`) or on values typed in (`newCommand`); or, for a custom MCP
-// server, calls one of the server's own tools (`call`).
+// server, calls one of the server's own tools (`call`); or runs one of the integration's own
+// tools, in the api (`native`).
 export type ToolKind =
-	'list' | 'get' | 'create' | 'update' | 'delete' | 'command' | 'newCommand' | 'call';
+	'list' | 'get' | 'create' | 'update' | 'delete' | 'command' | 'newCommand' | 'call' | 'native';
 
 type ToolBase = {
 	// The collection and what it does, unique within an integration: `emails_archive`; a custom
@@ -56,7 +58,7 @@ type ToolBase = {
 /** A tool generated from the catalog: one of a collection's lists, opens, writes or commands. */
 export type CollectionTool = ToolBase & {
 	collectionId: string;
-	kind: Exclude<ToolKind, 'call'>;
+	kind: Exclude<ToolKind, 'call' | 'native'>;
 	// The records it applies to, when not every one: only drafts are edited or sent.
 	where?: Condition;
 	inputSchema: JsonSchemaObject;
@@ -65,7 +67,10 @@ export type CollectionTool = ToolBase & {
 /** A custom MCP server's own tool, its params as the server describes them. */
 export type ServerTool = ToolBase & {kind: 'call'; inputSchema: McpInputSchema};
 
-export type Tool = CollectionTool | ServerTool;
+/** One of an integration's own tools (`NativeTool`), run by the api, its params as the catalog describes them. */
+export type ApiTool = ToolBase & {kind: 'native'; inputSchema: McpInputSchema};
+
+export type Tool = CollectionTool | ServerTool | ApiTool;
 
 const ID_PROPERTY: JsonSchemaProperty = {
 	type: 'string',
@@ -306,12 +311,41 @@ function serverTools(tools: McpTool[]): ServerTool[] {
 	}));
 }
 
-/** Every tool of an integration, whatever an agent may do. */
+// An integration's own tools, each with the risk of the action it needs; one naming an action the
+// integration lacks is left out, as a collection's would be.
+function nativeTools(integration: Integration): ApiTool[] {
+	return (integration.tools ?? []).flatMap((tool) => {
+		const action = integration.actions.find((candidate) => candidate.id === tool.action);
+		if (!action) {
+			return [];
+		}
+		return [
+			{
+				name: tool.name,
+				title: tool.title,
+				description: tool.description,
+				kind: 'native' as const,
+				operation: tool.name,
+				action: action.id,
+				...(tool.requires ? {requires: tool.requires} : {}),
+				readOnly: tool.readOnly === true,
+				risk: action.risk,
+				reachesOthers: action.reachesOthers ?? false,
+				inputSchema: tool.inputSchema,
+			},
+		];
+	});
+}
+
+/** Every tool of an integration, whatever an agent may do: its collections' and then its own. */
 export function integrationTools(integration: Integration): Tool[] {
 	if (integration.mcpTools) {
 		return serverTools(integration.mcpTools);
 	}
-	return integration.collections.flatMap((collection) => collectionTools(integration, collection));
+	return [
+		...integration.collections.flatMap((collection) => collectionTools(integration, collection)),
+		...nativeTools(integration),
+	];
 }
 
 export function findTool(integration: Integration, name: string): Tool | undefined {

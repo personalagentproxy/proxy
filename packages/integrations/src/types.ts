@@ -1,6 +1,6 @@
 import type {Experiment} from '@proxy/utils';
 
-import type {McpTool} from './mcp-tools';
+import type {McpInputSchema, McpTool} from './mcp-tools';
 
 export type FieldType = 'text' | 'longtext' | 'email' | 'datetime' | 'date' | 'select';
 
@@ -116,6 +116,27 @@ export type IntegrationId =
 	| 'google'
 	| 'plaid';
 
+// A tool of Personal Agent Proxy's own, with params of its own shape, as running a command in a
+// sandbox is: not a collection's list, open, write or command, which the catalog generates, nor a
+// custom server's, which the server describes. The api runs it, by the runner the integration's
+// module there names for it, once the gate has checked the agent has the action it needs, and logs
+// it by its name with its params, as it does a custom server's tools.
+export type NativeTool = {
+	name: string;
+	// "Run command".
+	title: string;
+	// What an agent is told the tool does, and what its params are for.
+	description: string;
+	// The integration's action it needs, whose risk it has, and one it needs beside it.
+	action: string;
+	requires?: string;
+	// Changes nothing: an MCP client may run it as a read.
+	readOnly?: true;
+	// Its params as JSON Schema, numbers and booleans among them, where a collection's fields are
+	// all text.
+	inputSchema: McpInputSchema;
+};
+
 export type Integration = {
 	id: IntegrationId;
 	name: string;
@@ -126,9 +147,9 @@ export type Integration = {
 	// Shown above a connection's permissions: what ticking them hands the person's agents, where a
 	// provider's policy asks for it to be said.
 	disclosure?: string;
-	// The vault lives in Personal Agent Proxy itself: it is always there and never connected or
+	// Lives in Personal Agent Proxy itself, as the vault does: always there, never connected or
 	// disconnected.
-	builtIn?: boolean;
+	native?: true;
 	// A custom MCP server: its actions are a connection's own tools, so the catalog's entry has
 	// none, and `integrationFor` fills them in from the connection.
 	custom?: true;
@@ -150,4 +171,6 @@ export type Integration = {
 	// The experiment an organization needs on to connect it: the catalog, the api's routes and the
 	// MCP server's instructions all leave it out without. Connections already made keep working.
 	experiment?: Experiment;
+	// Its tools of its own, beside what its collections give (`NativeTool`).
+	tools?: NativeTool[];
 };

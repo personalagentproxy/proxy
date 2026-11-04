@@ -38,7 +38,7 @@ export function handleDeleteConnectionRoute(request: AuthenticatedRequest): Prom
 		const viewer = $(await requireViewer(request));
 		const connectionId = request.params.connectionId ?? '';
 		const row = $(await requireManaged(viewer, connectionId));
-		if (integrationOf(row)?.builtIn) {
+		if (integrationOf(row)?.native) {
 			return $(Err(ApiErr.forbidden()));
 		}
 
@@ -61,7 +61,7 @@ export function handleRenameConnectionRoute(request: AuthenticatedRequest): Prom
 		const connectionId = request.params.connectionId ?? '';
 		const row = $(await requireManaged(viewer, connectionId));
 		const integration = $(requireIntegration(row));
-		if (integration.builtIn) {
+		if (integration.native) {
 			return $(Err(ApiErr.forbidden()));
 		}
 		const {name} = $(parseSchema(renameConnectionBodySchema, request.body));
@@ -103,7 +103,7 @@ export function handleShareConnectionRoute(request: AuthenticatedRequest): Promi
 		const viewer = $(await requireViewer(request));
 		const connectionId = request.params.connectionId ?? '';
 		const row = $(await requireManaged(viewer, connectionId));
-		if (integrationOf(row)?.builtIn) {
+		if (integrationOf(row)?.native) {
 			return $(Err(ApiErr.forbidden()));
 		}
 		$(await shareConnection(connectionId));

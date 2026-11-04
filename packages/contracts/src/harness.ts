@@ -1,3 +1,4 @@
+import {CHAT_MODELS, type ChatModel} from '@proxy/utils';
 import {AGENT_NAME_MAX} from '@proxy/utils/agent-providers';
 import {AVATAR_COLORS, lookSchema} from '@proxy/utils/harness';
 import {z} from 'zod';
@@ -8,14 +9,19 @@ import {z} from 'zod';
  * say in it.
  */
 
+const chatModelSchema = z.enum(Object.keys(CHAT_MODELS) as [ChatModel, ...ChatModel[]]);
+
 /**
  * `POST chat/personas`, `PUT chat/personas/:personaId`: a persona as the person makes or changes
- * it, a name, and a head, a look in one of the colors.
+ * it, a name, and a head, a look in one of the colors, and in an insider organization the model it
+ * answers with, its sub-agents too; left out, a new one answers with Claude and one changed keeps
+ * its own. Any other organization's is ignored: its personas answer with Claude.
  */
 export const personaBodySchema = z.object({
 	name: z.string().trim().pipe(z.string().min(1).max(AGENT_NAME_MAX)),
 	look: lookSchema,
 	color: z.enum(AVATAR_COLORS),
+	chatModel: chatModelSchema.optional(),
 });
 
 export type Persona = z.input<typeof personaBodySchema>;
@@ -28,7 +34,15 @@ export const chatPersonaSchema = z.object({
 	name: z.string(),
 	look: lookSchema,
 	color: z.enum(AVATAR_COLORS),
-	/** Whether the person may rename, reface or delete it: they made it, or own the organization. */
+	/**
+	 * The model it answers with, in an insider organization; null in any other, whose personas
+	 * answer with Claude.
+	 */
+	chatModel: chatModelSchema.nullable(),
+	/**
+	 * Whether the person may rename, reface, switch the model of or delete it: they made it, or own
+	 * the organization.
+	 */
 	mayChange: z.boolean(),
 	/**
 	 * The last thing said in the person's conversation with it, cut to a line, for the list; null

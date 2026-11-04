@@ -51,7 +51,7 @@ describe('askForTurn', () => {
 		expect(body.provider.data_collection).toBe('deny');
 	});
 
-	test('asks GLM 5.3 for an organization that switched to it', async () => {
+	test('asks GLM 5.3 for a persona switched to it', async () => {
 		await askForTurn({...request, model: 'glm'});
 
 		expect(sent().model).toBe('z-ai/glm-5.3');
