@@ -1,11 +1,13 @@
-import {callArguments, DELEGATE_TOOL, delegateArgs, pendingToolCalls, type ToolCall} from '@proxy/utils/harness';
+import {pendingToolCalls, type ToolCall} from '@proxy/utils/harness';
 import type {EntryRow} from '@proxy/db/harness';
 
 import type {ModelMessage} from '../llm/open-router';
 
 /**
- * The log as the model reads it. An event, a sub-agent's report, is read as a message, since it
- * came on its own, after the call it answers was answered as started. A log that has grown long
+ * The log as the model reads it. An event, what a sub-agent said to the agent that started it, is
+ * read as a message, since it came on its own, after the call that started the sub-agent was
+ * answered with its id; which sub-agent, by that call, is known from the thread's sub-agents
+ * (`SubAgent`), given alongside the log. A log that has grown long
  * is summarized: a summary entry stands for every entry up to the one it covers, and the model
  * reads the summary, then what came since. Of that, the person's last turns are kept as said,
  * except what tools answered and what events brought in the turns before the current one, which
@@ -28,23 +30,25 @@ const SUMMARY_LEAD = 'What came before in this conversation, summarized so that 
 
 const CLEARED = '(This was cleared from the conversation to save room. Ask again if you need it.)';
 
+/** A sub-agent of the thread, as much of it as the log needs: which call started it, its id and its title. */
+export type SubAgent = {id: string; parentCallId: string | null; title: string | null};
+
 // The call an entry answers, by the id the model gave it, found in the log.
 function callOf(entries: EntryRow[], callId: string | null): ToolCall | undefined {
 	return entries.flatMap((entry) => entry.toolCalls ?? []).find((candidate) => candidate.id === callId);
 }
 
-// How an event is led in: whose report it is, by the call it answers, found in the log.
-function eventLead(entries: EntryRow[], event: EntryRow): string {
-	const call = callOf(entries, event.callId);
-	const parsed = call?.name === DELEGATE_TOOL ? delegateArgs(callArguments(call)) : null;
-	const who = parsed ? `the sub-agent “${parsed.title}”` : `your call ${event.callId ?? ''}`;
+// How an event is led in: which sub-agent said it, by the call that started it.
+function eventLead(subAgents: SubAgent[], event: EntryRow): string {
+	const from = subAgents.find((candidate) => candidate.parentCallId === event.callId);
+	const who = from ? `the sub-agent “${from.title ?? ''}” (id ${from.id})` : `your call ${event.callId ?? ''}`;
 	if (event.isError) {
 		return `What ${who} failed with. The person did not write this.`;
 	}
-	return `The report of ${who}. The person did not write this; it is for you to act on or tell them of.`;
+	return `A message from ${who}. The person did not write this; it is for you to act on or tell them of.`;
 }
 
-function toMessage(entries: EntryRow[], entry: EntryRow): ModelMessage {
+function toMessage(subAgents: SubAgent[], entry: EntryRow): ModelMessage {
 	if (entry.kind === 'person') {
 		return {role: 'user', content: entry.text};
 	}
@@ -52,7 +56,7 @@ function toMessage(entries: EntryRow[], entry: EntryRow): ModelMessage {
 		return {role: 'tool', tool_call_id: entry.callId ?? '', content: entry.text};
 	}
 	if (entry.kind === 'event') {
-		return {role: 'user', content: `${eventLead(entries, entry)}\n\n${entry.text}`};
+		return {role: 'user', content: `${eventLead(subAgents, entry)}\n\n${entry.text}`};
 	}
 	if (entry.kind === 'summary') {
 		return {role: 'user', content: `${SUMMARY_LEAD}\n\n${entry.text}`};
@@ -78,18 +82,18 @@ function sinceSummary(entries: EntryRow[]): {summary: EntryRow | null; tail: Ent
  * what events brought before the person's current turn is cleared, once there is a summary: that
  * is how the model reads a log, where a summary is made from the log as it is.
  */
-export function toMessages(entries: EntryRow[], {clearOld}: {clearOld: boolean}): ModelMessage[] {
+export function toMessages(entries: EntryRow[], subAgents: SubAgent[], {clearOld}: {clearOld: boolean}): ModelMessage[] {
 	const {summary, tail} = sinceSummary(entries);
 	if (!summary) {
-		return tail.map((entry) => toMessage(entries, entry));
+		return tail.map((entry) => toMessage(subAgents, entry));
 	}
 	const current = clearOld ? tail.findLastIndex((entry) => entry.kind === 'person') : -1;
 	const bulky = (entry: EntryRow) => entry.kind === 'tool_result' || entry.kind === 'event';
-	return [toMessage(entries, summary), ...tail.map((entry, index) => (bulky(entry) && index < current ? toMessage(entries, {...entry, text: CLEARED}) : toMessage(entries, entry)))];
+	return [toMessage(subAgents, summary), ...tail.map((entry, index) => (bulky(entry) && index < current ? toMessage(subAgents, {...entry, text: CLEARED}) : toMessage(subAgents, entry)))];
 }
 
 // An entry as the transcript has it.
-function toLine(entries: EntryRow[], entry: EntryRow): string {
+function toLine(entries: EntryRow[], subAgents: SubAgent[], entry: EntryRow): string {
 	if (entry.kind === 'person') {
 		return `Person:\n${entry.text}`;
 	}
@@ -97,7 +101,7 @@ function toLine(entries: EntryRow[], entry: EntryRow): string {
 		return `${callOf(entries, entry.callId)?.name ?? 'The call'} answered${entry.isError ? ' with an error' : ''}:\n${entry.text}`;
 	}
 	if (entry.kind === 'event') {
-		return `${eventLead(entries, entry)}\n${entry.text}`;
+		return `${eventLead(subAgents, entry)}\n${entry.text}`;
 	}
 	if (entry.kind === 'summary') {
 		return `${SUMMARY_LEAD}\n${entry.text}`;
@@ -111,9 +115,9 @@ function toLine(entries: EntryRow[], entry: EntryRow): string {
  * what they answered written out, since a request that carries them as such has to carry the
  * tools too, which a summary needs none of.
  */
-export function toTranscript(entries: EntryRow[]): string {
+export function toTranscript(entries: EntryRow[], subAgents: SubAgent[]): string {
 	const {summary, tail} = sinceSummary(entries);
-	return [...(summary ? [summary] : []), ...tail].map((entry) => toLine(entries, entry)).join('\n\n');
+	return [...(summary ? [summary] : []), ...tail].map((entry) => toLine(entries, subAgents, entry)).join('\n\n');
 }
 
 /**

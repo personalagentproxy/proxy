@@ -18,9 +18,12 @@ organization's. On your own connections it follows their defaults, since a share
 settings of its own there. What it does in your conversation is in your activity log alone.
 
 The agent you talk with does nothing to your accounts itself. It hands each piece of work to a
-sub-agent: a short-lived agent with the same access, started on a brief, which does the work and
-reports back. Each sub-agent is a task in the activity log, titled as the agent titled it, with
-every call it made under it and its report as the outcome.
+sub-agent: an agent with the same access, started on a brief, which does the work and answers.
+The two keep talking: a sub-agent can ask the agent a question or say how far it has got while it
+works, and the agent can send it more to do, or a follow-up to what it found, since the sub-agent
+keeps everything it did and found. A sub-agent's work is one task in the activity log, titled as
+the agent titled the sub-agent, with every call it made under it: finished, with what it answered
+as the outcome, each time the sub-agent stops, and under way again when a message takes it up.
 
 What it does differently from an agent you connect is where it runs: in Personal Agent Proxy, not
 on another company's servers. The model is Claude Sonnet 5.5, reached through OpenRouter with a
@@ -32,15 +35,15 @@ host that neither keeps prompts nor trains on them, so a self-hosted Personal Ag
 Say what you want done. The agent answers, in a conversation and nothing else: the sub-agents it
 starts, what they asked for and what they found are in the activity log, not on the page, each as
 a task with the agent's head beside it. Sub-agents started together run side by side, and the agent
-is free while they work: you can say more, and it answers; a report comes to it as a message when
-the sub-agent is done, and it tells you what matters of it or starts the next piece. A call a
-sub-agent is not allowed is refused and logged as blocked, as it would be for any agent.
+is free while they work: you can say more, and it answers; what a sub-agent says comes to it as a
+message, and it tells you what matters of it, answers the sub-agent, or starts the next piece. A
+call a sub-agent is not allowed is refused and logged as blocked, as it would be for any agent.
 Everything keeps running after you leave the page, and the page shows the conversation as it is
 when you come back.
 
 A sub-agent can also wait: asked to check on something later, or to do something at a time, it
 sleeps until then, and the page says until when. It wakes with its own log and nothing else, so it
-says what it will do before it sleeps.
+says what it will do before it sleeps; a message from the agent wakes it earlier.
 
 A conversation can go on for as long as you like. Once it has grown long, the agent reads a
 summary of the earlier part in place of it, and keeps the last turns as they were; the page shows

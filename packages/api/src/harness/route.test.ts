@@ -26,7 +26,6 @@ const thread: ThreadRow = {
 	parentCallId: null,
 	title: null,
 	taskId: null,
-	finishedAt: null,
 	createdAt: now,
 };
 

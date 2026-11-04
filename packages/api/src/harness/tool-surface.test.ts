@@ -17,9 +17,10 @@ function tool(name: string) {
 }
 
 describe('the main agent’s tools', () => {
-	test('are one: delegating, with a title and a brief', () => {
-		expect(MAIN_AGENT_TOOLS.map((candidate) => candidate.name)).toEqual(['delegate']);
+	test('are two: starting a sub-agent, with a title and a brief, and sending one a message, by id', () => {
+		expect(MAIN_AGENT_TOOLS.map((candidate) => candidate.name)).toEqual(['create_subagent', 'send_to_subagent']);
 		expect((MAIN_AGENT_TOOLS[0]?.parameters as Params).required).toEqual(['title', 'brief']);
+		expect((MAIN_AGENT_TOOLS[1]?.parameters as Params).required).toEqual(['subagent', 'text']);
 	});
 
 	test('are the conversation’s, and a sub-agent gets its own', () => {
@@ -29,8 +30,9 @@ describe('the main agent’s tools', () => {
 });
 
 describe('a sub-agent’s tools', () => {
-	test('are the MCP server’s without the two about tasks, and a sleep', () => {
-		expect(SUB_AGENT_TOOLS.map((candidate) => candidate.name)).toEqual(['list_connections', 'list_tools', 'read', 'run', 'send_feedback', 'sleep_until']);
+	test('are the MCP server’s without the two about tasks, a message to the agent it works for, and a sleep', () => {
+		expect(SUB_AGENT_TOOLS.map((candidate) => candidate.name)).toEqual(['list_connections', 'list_tools', 'read', 'run', 'send_feedback', 'send_to_parent', 'sleep_until']);
+		expect(tool('send_to_parent').parameters.required).toEqual(['text']);
 	});
 
 	test('take no task: the loop fills it in', () => {
@@ -52,6 +54,7 @@ describe('a sub-agent’s tools', () => {
 		expect(isGateTool('send_feedback')).toBe(true);
 		expect(isGateTool('start_task')).toBe(false);
 		expect(isGateTool('sleep_until')).toBe(false);
-		expect(isGateTool('delegate')).toBe(false);
+		expect(isGateTool('send_to_parent')).toBe(false);
+		expect(isGateTool('create_subagent')).toBe(false);
 	});
 });

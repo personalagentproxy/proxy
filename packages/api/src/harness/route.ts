@@ -2,7 +2,7 @@ import {Err, type Result} from 'ts-results-es';
 import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, hasExperiment, parseSchema, requirePresent} from '@proxy/utils';
-import {preview, toAvatarColor} from '@proxy/utils/harness';
+import {preview, threadState, toAvatarColor} from '@proxy/utils/harness';
 import type {EntryRow, LastMessage, PersonaRow, ThreadRow} from '@proxy/db/harness';
 import {
 	type ChatEntry,
@@ -24,8 +24,7 @@ import type {HarnessStore} from './store';
 /**
  * The Chat page's routes, under the organization: its personas, which every member sees, each
  * named and given a head, all acting through the organization's one built-in agent login, and the
- * member's own conversation with each, its log, the sub-agents started from it, and what they say
- * in it. Behind the `harness` experiment. Nothing here runs the model: a message queues a job, and
+ * member's own conversation with each, its log, and what it and its sub-agents are up to. Behind the `harness` experiment. Nothing here runs the model: a message queues a job, and
  * the worker (worker.ts) does the rest; the page reads the log again as it goes.
  */
 
@@ -168,18 +167,13 @@ function handleGetThreadRoute(store: ChatStore, request: AuthenticatedRequest): 
 		const persona = $(await requirePersona(store, viewer, request));
 		const thread = $(await requireThread(store, viewer, persona));
 		const [entries, jobs] = await Promise.all([store.listShownEntries(thread.id), store.listOpenJobs(thread.id)]);
-		const open = $(jobs);
-		const now = Date.now();
-		// Asleep when every open job is a sleep, a tool job due later; the first to be due is when
-		// it wakes. A turn of the model to be tried again later is work under way, not sleep.
-		const sleeping = open.filter((job) => job.kind === 'tool' && job.runAt.getTime() > now);
-		const asleep = open.length > 0 && sleeping.length === open.length;
-		const first = sleeping.map((job) => job.runAt.getTime()).sort((a, b) => a - b)[0];
+		// The conversation's and its sub-agents' jobs together: asleep only when every one of them is.
+		const state = threadState($(jobs), new Date());
 		return {
 			persona: toPersona(viewer, persona),
 			entries: $(entries).filter(isShown).map(toEntry),
-			busy: open.length > 0 && !asleep,
-			sleepingUntil: asleep && first !== undefined ? new Date(first).toISOString() : null,
+			busy: state.kind === 'working',
+			sleepingUntil: state.kind === 'asleep' ? state.until.toISOString() : null,
 		};
 	});
 }
