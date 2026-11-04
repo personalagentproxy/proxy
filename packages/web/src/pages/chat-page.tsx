@@ -40,6 +40,7 @@ import {
 import {Trace, TraceIcon, TraceLine, TraceTitle} from '@/components/chat/trace';
 import {preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
+import {useHuman} from '@/hooks/use-human';
 import {useOrgSlug} from '@/hooks/use-org';
 import {formatAgo, formatDateTime} from '@/lib/format';
 import type {Pose} from '@/lib/head';
@@ -316,6 +317,7 @@ function Conversation({
 	rememberHeadPose: (personaId: string, pose: Pose) => void;
 }) {
 	const org = useOrgSlug();
+	const human = useHuman();
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
 	const [log, setLog] = useState<ThreadLog>(loaded.log);
@@ -376,7 +378,8 @@ function Conversation({
 		}
 	};
 
-	// Saves the dialog's persona: a new one, opened; or the selected one, renamed or refaced.
+	// Saves the dialog's persona: a new one, opened; or the selected one, renamed, refaced or
+	// switched to another model.
 	const savePersona = async (persona: Persona): Promise<string | null> => {
 		if (editing === null) {
 			return 'This agent is no longer being edited.';
@@ -465,8 +468,14 @@ function Conversation({
 					initial={
 						editing === 'new'
 							? null
-							: {name: editing.name, look: editing.look, color: editing.color}
+							: {
+									name: editing.name,
+									look: editing.look,
+									color: editing.color,
+									chatModel: editing.chatModel ?? undefined,
+								}
 					}
+					chooseModel={human?.org.insider ?? false}
 					onClose={() => setEditing(null)}
 					onSave={savePersona}
 					onDelete={

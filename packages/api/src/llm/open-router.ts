@@ -11,8 +11,8 @@ import type {ModelMessage} from '@proxy/utils/harness-context';
  *
  * - `askForJson`: gpt-oss-120b on Cerebras, the fastest host, else Groq, answering JSON held to a
  *   schema: the home page's model, which fills in a widget's fields and answers what Ask asks.
- * - `askForTurn`: the built-in agent's model, Claude Sonnet 5.5, or GLM 5.3 for an insider
- *   organization that switched to it, answering a conversation with text, tool calls, or both. One
+ * - `askForTurn`: the built-in agent's model, Claude Sonnet 5.5, or GLM 5.3 for a persona of an
+ *   insider organization that was switched to it, answering a conversation with text, tool calls, or both. One
  *   call per turn; the loop (harness/inference.ts) runs the calls and asks again.
  *
  * What goes wrong is told apart alike for both: a model that can't be reached, or answered with
