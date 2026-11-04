@@ -99,6 +99,20 @@ export const envSchema = z.object({
 		description: 'Which of Plaid’s environments to use: `sandbox` connects only Plaid’s test banks, signed in to with `user_good` and `pass_good`.',
 	}),
 
+	SANDBOX_BACKEND: documented(z.enum(['off', 'remote', 'dev']).default('off'), {
+		group: 'Connections',
+		description:
+			'What runs the sandboxes agents can ask for, computers of their own to work on: `off` offers none; `remote` a sandbox service reached at `SANDBOX_SERVICE_URL` with `SANDBOX_SERVICE_TOKEN`, speaking the protocol in `@proxy/contracts/sandbox`, as hosted Personal Agent Proxy runs; `dev` a directory on this server with no isolation at all, which only `bun run dev` takes.',
+	}),
+	SANDBOX_SERVICE_URL: documented(originSchema.optional(), {
+		group: 'Connections',
+		description: 'Where the sandbox service is, for `SANDBOX_BACKEND=remote`, such as `https://sandboxes.example.com`.',
+	}),
+	SANDBOX_SERVICE_TOKEN: documented(z.string().min(1).optional(), {
+		group: 'Connections',
+		description: 'What the sandbox service takes as the bearer token, for `SANDBOX_BACKEND=remote`: the same long random string on both sides.',
+	}),
+
 	TYPESAFE_API_KEY: documented(z.string().min(1).optional(), {
 		group: 'Core',
 		description:

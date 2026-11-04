@@ -1,6 +1,5 @@
 import {spawn} from 'node:child_process';
-import {mkdtemp, mkdir, rm, stat} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import {mkdir, rm, stat} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 
 import {Err, Result} from 'ts-results-es';
@@ -10,12 +9,13 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import type {SandboxBackend, SandboxCommand, SandboxOutput, SandboxRef} from './backend';
 
 /**
- * The backend the tests run against: a directory under the temporary directory for each sandbox,
- * commands run in it by this machine's own shell, as this process, with nothing but a path and a
- * locale in their environment. Nothing is isolated: a command reaches the whole machine, so this
- * is never a backend for people, only what the conformance tests, and the tests of what uses
- * sandboxes, run on. A ref is the sandbox's directory, the same asleep as running; sleeping ends
- * what the sandbox was running, as it does on any backend.
+ * The backend the tests run against, and a developer's own machine with `SANDBOX_BACKEND=dev`:
+ * a directory under `root` for each sandbox, commands run in it by this machine's own shell, as
+ * this process, with nothing but a path and a locale in their environment. Nothing is isolated:
+ * a command reaches the whole machine, so this is never a backend for people, only what the
+ * conformance tests, the tests of what uses sandboxes, and a developer trying things run on. A
+ * ref is the sandbox's directory, the same asleep as running; sleeping ends what the sandbox was
+ * running, as it does on any backend.
  */
 
 // How much of what a command wrote is kept.
@@ -85,9 +85,9 @@ function run(directory: string, command: SandboxCommand, groups: Set<number>): P
 	});
 }
 
-/** A backend with its sandboxes under a fresh directory of the temporary directory. */
-export async function tempDirSandboxBackend(): Promise<SandboxBackend> {
-	const root = await mkdtemp(join(tmpdir(), 'proxy-sandboxes-'));
+/** A backend with its sandboxes under `root`, a directory of this machine, made as the first sandbox is. */
+export function tempDirSandboxBackend(root: string): SandboxBackend {
+	const base = resolve(root);
 	// The process groups each sandbox's commands ran in, by its directory, until it sleeps.
 	const running = new Map<string, Set<number>>();
 
@@ -95,7 +95,7 @@ export async function tempDirSandboxBackend(): Promise<SandboxBackend> {
 	const requireDirectory = (ref: SandboxRef): Promise<Result<string, ApiError>> =>
 		Do(async ($) => {
 			const directory = resolve(ref);
-			const found = directory.startsWith(`${root}/`) ? await Result.wrapAsync(() => stat(directory)) : null;
+			const found = directory.startsWith(`${base}/`) ? await Result.wrapAsync(() => stat(directory)) : null;
 			if (!found?.isOk() || !found.value.isDirectory()) {
 				return $(Err(notFound(ref)));
 			}
@@ -111,7 +111,7 @@ export async function tempDirSandboxBackend(): Promise<SandboxBackend> {
 		id: 'temp-dir',
 		create: ({tenant, sandboxId}) =>
 			Do(async ($) => {
-				const directory = join(root, tenant, sandboxId);
+				const directory = join(base, tenant, sandboxId);
 				$((await Result.wrapAsync(() => mkdir(directory, {recursive: true}))).mapErr(ApiErr.internalError));
 				return directory;
 			}),

@@ -1,0 +1,23 @@
+{
+	"name": "@proxy/backends",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"exports": {
+		"./*": "./src/*.ts"
+	},
+	"scripts": {
+		"test": "bun test",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@proxy/contracts": "workspace:*",
+		"@proxy/utils": "workspace:*",
+		"ts-results-es": "^7.1.0",
+		"zod": "^4.5.4"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"typescript": "~6.0.2"
+	}
+}

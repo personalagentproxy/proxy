@@ -33,6 +33,7 @@ services:
         - package.json
         - bun.lock
         - packages/api/**
+        - packages/backends/**
         - packages/db/**
         - packages/integrations/**
         - packages/ui/**
