@@ -10,7 +10,8 @@ everything but the app's own origin out of the window: links out of the app open
   web app can tell where it is, and takes the app's links, `personalagentproxy://…`.
 - `src/window.ts` loads the web app and keeps the window to it. Where the web app would show its
   login page, the window shows a page of its own with a button that opens the browser; with no
-  connection, one that says so.
+  connection, one that says so. On macOS it hides the native title bar while keeping the traffic
+  lights in place; the preload and web app provide the invisible drag surface and content inset.
 - Updates (`src/updates.ts`): a new release of the app, checked for on start and every few hours,
   is downloaded at once and announced to the page through the window's preload
   (`src/preload.ts`, `window.personalAgentProxyDesktop` to the web app), which shows its release
