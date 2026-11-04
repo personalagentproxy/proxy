@@ -28,7 +28,10 @@ const SWEEP_MS = 60 * 1000;
 export type WatchPoller = {stop: () => void};
 
 /** What the poller needs of the store. */
-export type WatchStore = Pick<HarnessStore, 'claimDuePolls' | 'setPollCursor' | 'deletePoll' | 'listWatches' | 'getPollConnection' | 'getJobThread' | 'getThreadAgent' | 'appendEvent'>;
+export type WatchStore = Pick<
+	HarnessStore,
+	'claimDuePolls' | 'setPollCursor' | 'deletePoll' | 'listWatches' | 'markAlertMatched' | 'getPollConnection' | 'getJobThread' | 'getThreadAgent' | 'appendEvent'
+>;
 
 // The connection's collection and its connector's `changes`, where the connection is there and
 // its integration polls the collection.
@@ -63,9 +66,10 @@ async function stillAllowed(store: WatchStore, watch: AlertRow, poll: PollRow): 
 	return watchable.isOk() && watchable.value.some((connection) => connection.id === poll.connectionId);
 }
 
-// Lands each watch's matches among the changes in its conversation; a check per conversation,
-// since the watches set in one share the member and the agent.
-function tellWatches(store: WatchStore, watches: AlertRow[], changes: Change[], poll: PollRow): Promise<Result<void, ApiError>> {
+// Lands each watch's matches among the changes in its conversation, and notes on the watch that
+// it matched; a check per conversation, since the watches set in one share the member and the
+// agent.
+function tellWatches(store: WatchStore, watches: AlertRow[], changes: Change[], poll: PollRow, now: Date): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		const allowed = new Map<string, boolean>();
 		for (const watch of watches) {
@@ -79,6 +83,7 @@ function tellWatches(store: WatchStore, watches: AlertRow[], changes: Change[], 
 				continue;
 			}
 			$(await store.appendEvent(watch.threadId, matchText(watch, matched)));
+			$(await store.markAlertMatched(watch.id, now));
 		}
 	});
 }
@@ -93,7 +98,7 @@ export function runPoll(store: WatchStore, poll: PollRow, now = new Date()): Pro
 			return;
 		}
 		const changed = $(await target.changes(target, poll.cursor, now));
-		$(await tellWatches(store, watches, changed.items, poll));
+		$(await tellWatches(store, watches, changed.items, poll, now));
 		$(await store.setPollCursor(poll, changed.cursor));
 	});
 }

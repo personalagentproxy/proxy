@@ -793,6 +793,8 @@ model AgentAlert {
   collectionId  String?
   connectionIds String[] @default([])
   terms         String[] @default([])
+  // When a watch last matched a record; null for a timed alert, and before the first match.
+  lastMatchedAt DateTime?
 
   createdAt DateTime @default(now())
 

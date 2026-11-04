@@ -62,6 +62,7 @@ export type HarnessStore = {
 	setPollCursor: (poll: PollRow, cursor: string) => Promise<Result<void, ApiError>>;
 	deletePoll: (poll: PollRow) => Promise<Result<void, ApiError>>;
 	listWatches: (connectionId: string, collectionId: string) => Promise<Result<AlertRow[], ApiError>>;
+	markAlertMatched: (alertId: string, at: Date) => Promise<Result<void, ApiError>>;
 	getPollConnection: (connectionId: string) => Promise<Result<(ConnectionRow & {credential: string | null}) | null, ApiError>>;
 	appendEvent: (threadId: string, text: string) => Promise<Result<boolean, ApiError>>;
 };
@@ -109,6 +110,7 @@ export const harnessStore: HarnessStore = {
 	setPollCursor: alerts.setPollCursor,
 	deletePoll: alerts.deletePoll,
 	listWatches: alerts.listWatches,
+	markAlertMatched: alerts.markAlertMatched,
 	getPollConnection: getConnectionWithCredentialById,
 	appendEvent: (threadId, text) => harness.appendEvent(threadId, text, readyForInference),
 };

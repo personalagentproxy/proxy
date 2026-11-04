@@ -46,6 +46,7 @@ export function fakeStore(): FakeStore {
 		setPollCursor: mock<HarnessStore['setPollCursor']>(),
 		deletePoll: mock<HarnessStore['deletePoll']>(),
 		listWatches: mock<HarnessStore['listWatches']>(),
+		markAlertMatched: mock<HarnessStore['markAlertMatched']>(),
 		getPollConnection: mock<HarnessStore['getPollConnection']>(),
 		appendEvent: mock<HarnessStore['appendEvent']>(),
 	};

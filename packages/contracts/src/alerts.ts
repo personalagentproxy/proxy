@@ -26,6 +26,8 @@ export const alertSchema = z.object({
 	collection: z.string().nullable(),
 	connections: z.array(z.object({id: z.string(), name: z.string()})),
 	terms: z.array(z.string()),
+	/** When a watch last matched a record; null before the first match, and for a timed alert. */
+	lastMatchedAt: z.string().nullable(),
 	createdAt: z.string(),
 });
 

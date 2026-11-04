@@ -22,6 +22,7 @@ CREATE TABLE "AgentAlert" (
     "collectionId" TEXT,
     "connectionIds" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "terms" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "lastMatchedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "AgentAlert_pkey" PRIMARY KEY ("id")

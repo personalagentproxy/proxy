@@ -20,6 +20,7 @@ const watch: AlertRow = {
 	collectionId: 'emails',
 	connectionIds: ['conn-a'],
 	terms: ['@bank.com', 'loan'],
+	lastMatchedAt: null,
 	createdAt: now,
 };
 

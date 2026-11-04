@@ -31,6 +31,8 @@ export type AlertRow = {
 	collectionId: string | null;
 	connectionIds: string[];
 	terms: string[];
+	// When a watch last matched a record; null before the first match, and for a timed alert.
+	lastMatchedAt: Date | null;
 	createdAt: Date;
 };
 
@@ -55,6 +57,7 @@ const alertSelect = {
 	collectionId: true,
 	connectionIds: true,
 	terms: true,
+	lastMatchedAt: true,
 	createdAt: true,
 } as const satisfies Prisma.AgentAlertSelect;
 
@@ -150,6 +153,13 @@ export async function listMemberAlerts(
 	).map((alerts) =>
 		alerts.map(({thread, ...alert}) => ({...alert, persona: toPersona(thread.persona)})),
 	);
+}
+
+/** Notes that the watch matched a record at `at`. */
+export async function markAlertMatched(alertId: string, at: Date): Promise<Result<void, ApiError>> {
+	return (
+		await wrapDb(() => db.agentAlert.updateMany({where: {id: alertId}, data: {lastMatchedAt: at}}))
+	).map(() => undefined);
 }
 
 /**

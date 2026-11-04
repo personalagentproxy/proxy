@@ -3,59 +3,40 @@ import {Trash2Icon} from 'lucide-react';
 import {useState} from 'react';
 import {useLoaderData, useRevalidator} from 'react-router';
 import {deleteAlert} from '@/client/alerts-client';
+import {AlertDetailDialog} from '@/components/alert-detail-dialog';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {Head} from '@/components/head';
 import {IconButton} from '@/components/icon-button';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
 import {useOrgSlug} from '@/hooks/use-org';
-import {formatDateTime} from '@/lib/format';
+import {formatAgo, formatDateTime} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {alertsLoader} from '@/loaders';
 
 // Widths and visibility shared by the header and every row, so the columns line up.
 const CELLS = {
+	created: 'hidden w-20 shrink-0 text-right text-muted-foreground tabular-nums sm:block',
+	matched: 'w-36 shrink-0 text-right text-muted-foreground tabular-nums',
 	agent: 'hidden w-28 shrink-0 truncate text-muted-foreground md:block',
-	when: 'w-32 shrink-0 text-right text-muted-foreground tabular-nums',
 };
 
-// "a and b", "a, b or c".
-function joined(names: string[], last: 'and' | 'or'): string {
-	if (names.length <= 1) {
-		return names.join('');
+// When a watch last matched, or when a timed alert is due, which is the one time it matches.
+function matched(alert: Alert): string {
+	if (alert.at !== null) {
+		return `Due ${formatDateTime(alert.at)}`;
 	}
-	return `${names.slice(0, -1).join(', ')} ${last} ${names.at(-1) ?? ''}`;
-}
-
-// "Emails in Gmail (a@example.com), for “loan” or “mortgage”"; "Once, at Nov 4, 9:00 AM".
-function what(alert: Alert): string {
-	if (alert.collection === null) {
-		return alert.at === null ? 'Once' : `Once, at ${formatDateTime(alert.at)}`;
-	}
-	const where =
-		alert.connections.length === 0
-			? 'a connection that is gone'
-			: joined(
-					alert.connections.map((connection) => connection.name),
-					'and',
-				);
-	const terms =
-		alert.terms.length === 0
-			? 'anything new'
-			: joined(
-					alert.terms.map((term) => `“${term}”`),
-					'or',
-				);
-	return `${alert.collection.charAt(0).toUpperCase()}${alert.collection.slice(1)} in ${where}, for ${terms}`;
+	return alert.lastMatchedAt === null ? 'Never' : formatAgo(alert.lastMatchedAt);
 }
 
 // The person's alerts in the organization, newest first: each what an agent set in the person's
-// conversation with it, told there when it is due or something matches. The person deletes them
-// here, and asks the agent for new ones.
+// conversation with it, told there when it is due or something matches. A row opens the alert in
+// full; the person deletes them here, and asks the agent for new ones.
 export function AlertsPage() {
 	const org = useOrgSlug();
 	const {alerts} = useLoaderData<typeof alertsLoader>();
 	const revalidator = useRevalidator();
+	const [shown, setShown] = useState<Alert | null>(null);
 	const [deleting, setDeleting] = useState<Alert | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
@@ -71,6 +52,7 @@ export function AlertsPage() {
 
 	return (
 		<AppShell title={<PageTitle detail={`${alerts.length} set`}>Alerts</PageTitle>}>
+			<AlertDetailDialog alert={shown} onClose={() => setShown(null)} />
 			<ConfirmDialog
 				open={deleting !== null}
 				title={deleting ? `Delete “${deleting.title}”?` : ''}
@@ -92,8 +74,11 @@ export function AlertsPage() {
 					<RowHeader>
 						<span className="size-5 shrink-0" />
 						<span className="min-w-0 flex-1">Alert</span>
+						<span className={CELLS.created}>Created</span>
+						<span className={CELLS.matched}>Last matched</span>
 						<span className={CELLS.agent}>Agent</span>
-						<span className={CELLS.when}>Due</span>
+						{/* As wide as the delete button beside each row, so the columns line up with the header. */}
+						<span className="hidden w-8 shrink-0 sm:block" />
 					</RowHeader>
 				}
 			>
@@ -106,7 +91,7 @@ export function AlertsPage() {
 				{alerts.map((alert) => (
 					<Row
 						key={alert.id}
-						to={`/${org}/chat/${alert.persona.id}`}
+						onClick={() => setShown(alert)}
 						icon={
 							<Head
 								look={alert.persona.look}
@@ -116,13 +101,11 @@ export function AlertsPage() {
 							/>
 						}
 						title={alert.title}
-						subtitle={<span className="line-clamp-2 text-xs">{what(alert)}</span>}
 						cells={
 							<>
+								<span className={CELLS.created}>{formatAgo(alert.createdAt)}</span>
+								<span className={CELLS.matched}>{matched(alert)}</span>
 								<span className={CELLS.agent}>{alert.persona.name}</span>
-								<span className={CELLS.when}>
-									{alert.at === null ? 'Watching' : formatDateTime(alert.at)}
-								</span>
 							</>
 						}
 						after={

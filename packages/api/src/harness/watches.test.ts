@@ -63,6 +63,7 @@ const watch: AlertRow = {
 	collectionId: 'emails',
 	connectionIds: ['conn-a'],
 	terms: ['loan'],
+	lastMatchedAt: null,
 	createdAt: now,
 };
 const items = [
@@ -80,6 +81,7 @@ beforeEach(() => {
 	store.getJobThread.mockResolvedValue(Ok(thread));
 	store.getThreadAgent.mockResolvedValue(Ok(signedIn));
 	store.appendEvent.mockResolvedValue(Ok(true));
+	store.markAlertMatched.mockResolvedValue(Ok(undefined));
 	store.setPollCursor.mockResolvedValue(Ok(undefined));
 	store.deletePoll.mockResolvedValue(Ok(undefined));
 	listAgentConnections.mockResolvedValue(
@@ -101,6 +103,7 @@ describe('runPoll', () => {
 		expect(store.appendEvent.mock.calls[0]?.[0]).toBe('thread-1');
 		expect(text).toContain('Your loan');
 		expect(text).not.toContain('Lunch?');
+		expect(store.markAlertMatched).toHaveBeenCalledWith('alert-1', now);
 		expect(store.setPollCursor).toHaveBeenCalledWith(poll, 'h2');
 	});
 

@@ -36,6 +36,7 @@ function toAlert(alert: AlertRow & {persona: PersonaRow}, connections: Map<strin
 			return connection ? [{id, name: connectionName(connection)}] : [];
 		}),
 		terms: alert.terms,
+		lastMatchedAt: alert.lastMatchedAt?.toISOString() ?? null,
 		createdAt: alert.createdAt.toISOString(),
 	};
 }

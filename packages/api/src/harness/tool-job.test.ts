@@ -196,6 +196,7 @@ describe('the conversation’s alert calls', () => {
 		collectionId: null,
 		connectionIds: [],
 		terms: [],
+		lastMatchedAt: null,
 		createdAt: now,
 	};
 	const watchable = {id: 'conn-a', integrationId: 'google', account: 'a@example.com', shared: true, actions: [EMAILS_READ], tools: null, name: null};

@@ -31,6 +31,7 @@ const alerts: Alert[] = [
 		collection: 'emails',
 		connections: [{id: 'conn-a', name: 'Google (a@example.com)'}],
 		terms: ['loan', 'mortgage'],
+		lastMatchedAt: null,
 		createdAt: '2026-11-04T10:00:00.000Z',
 	},
 	{
@@ -42,6 +43,7 @@ const alerts: Alert[] = [
 		collection: null,
 		connections: [],
 		terms: [],
+		lastMatchedAt: null,
 		createdAt: '2026-11-04T10:00:00.000Z',
 	},
 ];
@@ -70,16 +72,27 @@ function renderPage(listed: Alert[]) {
 }
 
 describe('AlertsPage', () => {
-	test('lists each alert with what it watches or when it is due, linking to its conversation', async () => {
+	test('lists each alert in a line: when it was made, when it last matched or is due, and its agent', async () => {
 		renderPage(alerts);
 		const bank = await screen.findByText('Mail from the bank');
 		const row = bank.closest('li');
-		expect(row?.textContent).toContain(
-			'Emails in Google (a@example.com), for “loan” or “mortgage”',
-		);
-		expect(row?.textContent).toContain('Watching');
-		expect(row?.querySelector('a')?.getAttribute('href')).toBe('/acme/chat/persona-1');
-		expect(screen.getByText('Call Dana').closest('li')?.textContent).toContain('Once, at');
+		expect(row?.textContent).toContain('Never');
+		expect(row?.textContent).toContain('General');
+		expect(row?.textContent).not.toContain('loan');
+		expect(screen.getByText('Call Dana').closest('li')?.textContent).toContain('Due Nov 5');
+	});
+
+	test('a row opens the alert in full: what it watches, its words, the note and a link to the conversation', async () => {
+		renderPage(alerts);
+		const row = (await screen.findByText('Mail from the bank')).closest('button');
+		expect(row).not.toBeNull();
+		fireEvent.click(row as HTMLElement);
+		const dialog = await screen.findByRole('dialog');
+		expect(dialog.textContent).toContain('Google (a@example.com)');
+		expect(dialog.textContent).toContain('loan');
+		expect(dialog.textContent).toContain('mortgage');
+		expect(dialog.textContent).toContain('Tell me what it says.');
+		expect(dialog.querySelector('a')?.getAttribute('href')).toBe('/acme/chat/persona-1');
 	});
 
 	test('deleting one asks first, then deletes it', async () => {
