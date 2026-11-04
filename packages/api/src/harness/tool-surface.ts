@@ -1,14 +1,17 @@
+import {ANY_FIELD, CANCEL_ALERT_TOOL, SET_ALERT_TOOL, WATCH_COLLECTIONS} from '@proxy/utils/alerts';
 import {DELEGATE_TOOL, SLEEP_TOOL} from '@proxy/utils/harness';
 
 import type {ModelTool} from '../llm/open-router';
 import {MCP_TOOLS, type McpToolDefinition} from '../mcp/tools';
 
 /**
- * The tools the built-in agent has. The agent talking with the person has one: to delegate a
- * piece of work to a sub-agent, which reports back. A sub-agent has the MCP server's, as any agent
- * gets them, less the two about tasks, since every call it makes is for its own task and the loop
- * fills it in (tool-job.ts); and one of its own, to be woken later. Nothing else: everything done
- * to the person's accounts goes through the same gate as Claude's calls.
+ * The tools the built-in agent has. The agent talking with the person has three: to delegate a
+ * piece of work to a sub-agent, which reports back; to set an alert, a wake-up outside the
+ * conversation, at a time or a watch on the person's accounts; and to end one. A sub-agent has
+ * the MCP server's, as any agent gets them, less the two about tasks, since every call it makes
+ * is for its own task and the loop fills it in (tool-job.ts); and one of its own, to be woken
+ * later. Nothing else: everything done to the person's accounts goes through the same gate as
+ * Claude's calls.
  */
 
 // The MCP tools a sub-agent doesn't need: its task is its own.
@@ -46,6 +49,52 @@ const SLEEP: ModelTool = {
 	},
 };
 
+// The fields a watch's criteria can name, per collection, as the tool tells the model.
+const WATCH_FIELDS = Object.entries(WATCH_COLLECTIONS)
+	.map(([id, collection]) => `${id}: ${[...collection.fields, ANY_FIELD].join(', ')}`)
+	.join('; ');
+
+const SET_ALERT: ModelTool = {
+	name: SET_ALERT_TOOL,
+	description: `Sets an alert: a wake-up outside this conversation, which comes to you as a message when it is due, for you to tell the person or act on; the person sees it on their Alerts page. Give \`title\`, what it is in a few words, \`brief\`, what you noted for it, and either \`at\`, a time in ISO 8601 with its offset, for one message at that time, the brief being what to tell the person then or what to do; or \`collection\`, for a watch: the person’s connections with that collection are looked at every ten minutes for what is new or changed, and each new record that says what \`match\` asks comes to you as a message, with its link. \`match\` is a list of conditions, all of which must hold, each a field and the words or phrases any of which it must contain, matched as written, not understood: {"field": "from", "terms": ["@bank.com"]}, {"field": "subject", "terms": ["loan", "mortgage"]}; the fields are ${WATCH_FIELDS}, \`any\` being every field. Give several terms for the ways a thing may be written, and concrete ones: the person’s own name or address for “me”, as the connection shows them. No conditions matches everything new. \`connections\` narrows the watch to some of the person’s connections, by id, as your instructions list them; left out, it is every connection you may read that has the collection.`,
+	parameters: {
+		type: 'object',
+		properties: {
+			title: {type: 'string', description: 'What the alert is, in a few words, such as "Reply from the landlord"'},
+			brief: {
+				type: 'string',
+				description: 'What you noted for it: for a time, what to tell the person then or what to do; for a watch, what it is for, in words, which you are reminded of with each match',
+			},
+			at: {type: 'string', description: 'When to be woken once, in ISO 8601 with its offset, such as 2026-10-22T07:30:00-07:00'},
+			collection: {type: 'string', description: `What to watch: one of ${Object.keys(WATCH_COLLECTIONS).join(', ')}`},
+			connections: {type: 'array', items: {type: 'string'}, description: 'The connections to watch, by id; left out for every one you may read with the collection'},
+			match: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {field: {type: 'string'}, terms: {type: 'array', items: {type: 'string'}}},
+					required: ['field', 'terms'],
+					additionalProperties: false,
+				},
+				description: 'The conditions a record must meet, all of them: each a field of the collection and the terms any of which it must contain. Left out, everything new matches.',
+			},
+		},
+		required: ['title', 'brief'],
+		additionalProperties: false,
+	},
+};
+
+const CANCEL_ALERT: ModelTool = {
+	name: CANCEL_ALERT_TOOL,
+	description: 'Ends one of the alerts set in this conversation, by its id, as your instructions list them.',
+	parameters: {
+		type: 'object',
+		properties: {id: {type: 'string', description: 'The alert’s id'}},
+		required: ['id'],
+		additionalProperties: false,
+	},
+};
+
 // What the tools that take a task are for, said without it; every other tool keeps the MCP
 // server's words.
 const DESCRIPTIONS: Record<string, string> = {
@@ -67,8 +116,8 @@ function withoutTask(tool: McpToolDefinition): ModelTool {
 	};
 }
 
-/** The tools the agent talking with the person is given: delegating, and nothing else. */
-export const MAIN_AGENT_TOOLS: ModelTool[] = [DELEGATE];
+/** The tools the agent talking with the person is given: delegating, setting an alert and ending one, and nothing else. */
+export const MAIN_AGENT_TOOLS: ModelTool[] = [DELEGATE, SET_ALERT, CANCEL_ALERT];
 
 /** The tools a sub-agent is given: the MCP server's but the task ones, in the order it lists them, and a sleep. */
 export const SUB_AGENT_TOOLS: ModelTool[] = [...MCP_TOOLS.filter((tool) => !TASK_TOOLS.has(tool.name)).map(withoutTask), SLEEP];

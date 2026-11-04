@@ -7,13 +7,17 @@ import type {NewAgentTask} from '@proxy/db/task';
  * becomes a sub-agent, its thread, its task and the first thing said in it; what ends a
  * sub-agent's work, and what the thread it was started from is told then; and what a failed job
  * leaves in its thread, so that nobody, the person or whoever delegated, is left waiting on it.
+ * The rules of the alerts set in a conversation are their own (alerts.ts).
  */
 
-// How much of a sub-agent's report its task keeps as the outcome, and of its brief as the goal.
-const MAX_TASK_TEXT = 2000;
+/** How much of a sub-agent's report its task keeps as the outcome, and of its brief as the goal. */
+export const MAX_TASK_TEXT = 2000;
 
-/** A task for a sub-agent's work, the member's, as the conversation it was delegated from is, run as the persona. */
-export function taskFor(thread: ThreadRow, work: {title: string; goal: string}): NewAgentTask & {parentId: null} {
+/** How long a sub-agent's title may be: a task's. */
+export const MAX_TITLE = 120;
+
+/** A task for a sub-agent's work, the member's, as the conversation it was delegated from is, or the alert set in it, run as the persona. */
+export function taskFor(thread: Pick<ThreadRow, 'orgId' | 'agentId' | 'userId' | 'personaId'>, work: {title: string; goal: string}): NewAgentTask & {parentId: null} {
 	return {
 		orgId: thread.orgId,
 		agentId: thread.agentId,
@@ -52,14 +56,19 @@ export function afterAnswer(thread: ThreadRow, turn: {text: string; toolCalls: T
 /**
  * What a job that failed with `error` leaves in its thread: a tool job's call is answered with the
  * failure, so the agent isn't left waiting for it (as an event where the call was answered as
- * started already, a delegation, as its report would have come); a sub-agent whose turn failed
- * reports the failure, so whoever delegated to it isn't; and a turn that failed in the member's
- * conversation is answered with the failure, so the person sees it and can go on.
+ * started already, a delegation, as its report would have come); an alert's job that couldn't
+ * run, which ends the alert, is told in the conversation, so the person can have it set again; a
+ * sub-agent whose turn failed reports the failure, so whoever delegated to it isn't; and a turn
+ * that failed in the member's conversation is answered with the failure, so the person sees it
+ * and can go on.
  */
 export function failureNote(error: string): (job: JobRow, thread: ThreadRow) => FailureNote | null {
 	return (job, thread) => {
 		if (job.kind === 'tool' && job.callId !== null) {
 			return {kind: 'answer', callId: job.callId, text: `This call could not be run: ${error}`};
+		}
+		if (job.kind === 'alert') {
+			return {kind: 'event', text: `The alert ${job.alertId ?? ''} could not be run, and has ended: ${error}. Tell the person; set it again if they want it kept.`};
 		}
 		if (job.kind !== 'inference') {
 			return null;

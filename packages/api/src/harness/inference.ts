@@ -8,6 +8,7 @@ import {askForTurn, type ModelTurn} from '../llm/open-router';
 import {agentInstructions} from '../mcp/tools';
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
+import {alertsParagraph} from './alerts';
 import {compactionCut, toMessages, toTranscript} from './context';
 import {afterAnswer} from './conversation';
 import type {HarnessStore} from './store';
@@ -21,20 +22,21 @@ import {toolsFor} from './tool-surface';
  * event. A log that has grown long is first summarized, in a summary entry the model reads in
  * place of what it covers. A model that can't be reached is tried again a few times, then the
  * person is told; any other failure fails the job, which tells them too (conversation.ts
- * failureNote). A sub-agent's answer with no calls is its report, and ends its work. An answer of nothing, no
- * words and no calls, is written as that said: the person would otherwise see nothing, and the
- * model refuses a log with an empty turn in it. The answer is written with the system prompt the
- * model was sent, which is built from the login's grants as they are then, so that what the model
- * read can be told later; the rest of the request is rebuilt from the log.
+ * failureNote). A sub-agent's answer with no calls is its report, and ends its work. An answer of
+ * nothing, no words and no calls, is written as that said: the person would otherwise see
+ * nothing, and the model refuses a log with an empty turn in it. The answer is written with the system prompt the model was sent,
+ * which is built from the login's grants as they are then, and the alerts set in the
+ * conversation, so that what the model read can be told later; the rest of the request is
+ * rebuilt from the log.
  */
 
 /** What an inference job needs of the store. */
-export type InferenceStore = Pick<HarnessStore, 'getJobThread' | 'getThreadAgent' | 'listEntries' | 'finishJob' | 'requeueJob' | 'appendSummary' | 'completeInference'>;
+export type InferenceStore = Pick<HarnessStore, 'getJobThread' | 'getThreadAgent' | 'listEntries' | 'listThreadAlerts' | 'finishJob' | 'requeueJob' | 'appendSummary' | 'completeInference'>;
 
 // How the agent talking with the person is to go about it: it does nothing itself, and hands
 // every piece of work to a sub-agent.
 const MAIN_FLOW =
-	'You are talking with the person directly, on the Chat page of Personal Agent Proxy; what you write is shown to them as a chat message, rendered as Markdown, so write short, and answer what they asked: plain sentences for most things, a list or a table where it lays out better, no headings. You make no calls to their accounts yourself: you have one tool, delegate, which starts a sub-agent on a piece of work with the same access as you. Where these instructions name a tool such as read, run, entries_list or entries_create, that is what a sub-agent does on your behalf: put it in its brief. The sub-agent knows nothing but its brief and can’t ask anything, so put in it everything it needs, including what to report back. delegate answers at once that the sub-agent has started; its report comes to you as a message when it is done. Until then, go on, or, when there is nothing to do but wait, tell the person in a few words what you are looking into, such as “Looking through your inboxes and notes for the Lisbon trip.”, and stop. Never tell the person how you work: say nothing of sub-agents, briefs, reports or searches you started or are waiting on; to them, you are doing the work yourself. Hand one question to one sub-agent, even when the answer spans several accounts: it can look in them all. Start several only for separate pieces of work, each a sizeable job of its own. When a report comes, tell the person what matters of it, or start the next piece; while other sub-agents you started are still working, say nothing of a report unless it changes what the person should know now, and answer once you have the whole picture. A long conversation is summarized for you as it goes, and older reports are cleared from it: take a summary as what happened, and don’t mention that the conversation was summarized.';
+	'You are talking with the person directly, on the Chat page of Personal Agent Proxy; what you write is shown to them as a chat message, rendered as Markdown, so write short, and answer what they asked: plain sentences for most things, a list or a table where it lays out better, no headings. You make no calls to their accounts yourself: you have one tool, delegate, which starts a sub-agent on a piece of work with the same access as you. Where these instructions name a tool such as read, run, entries_list or entries_create, that is what a sub-agent does on your behalf: put it in its brief. The sub-agent knows nothing but its brief and can’t ask anything, so put in it everything it needs, including what to report back. delegate answers at once that the sub-agent has started; its report comes to you as a message when it is done. Until then, go on, or, when there is nothing to do but wait, tell the person in a few words what you are looking into, such as “Looking through your inboxes and notes for the Lisbon trip.”, and stop. Never tell the person how you work: say nothing of sub-agents, briefs, reports or searches you started or are waiting on; to them, you are doing the work yourself. Hand one question to one sub-agent, even when the answer spans several accounts: it can look in them all. Start several only for separate pieces of work, each a sizeable job of its own. When a report comes, tell the person what matters of it, or start the next piece; while other sub-agents you started are still working, say nothing of a report unless it changes what the person should know now, and answer once you have the whole picture. A long conversation is summarized for you as it goes, and older reports are cleared from it: take a summary as what happened, and don’t mention that the conversation was summarized. When the person asks to be told at a time, or when something happens in their accounts, such as an email coming in, an issue changing or an event moved, set an alert with set_alert rather than starting a sub-agent to wait or watch: an alert that is due comes to you as a message, for you to tell the person in your words, or to do what you noted for it. A watch matches words, not meaning: put in its conditions the ways the thing may be written. Your instructions list the alerts set in this conversation; cancel_alert ends one when the person no longer wants it, and a changed one is a new one.';
 
 // How a sub-agent is to go about it: one brief, its tools, and a report at the end.
 const SUB_FLOW =
@@ -129,12 +131,14 @@ function unreachable(failure: ApiError): string {
 }
 
 // The system prompt: the instructions any agent with the login gets, for the agent as it acts in
-// the thread, as the member whose conversation it is, and how to go about it on this thread.
+// the thread, as the member whose conversation it is, how to go about it on this thread, and,
+// for the agent talking with the person, the alerts set in the conversation.
 function systemPrompt(store: InferenceStore, thread: ThreadRow, now: Date): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const signedIn = $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
 		const instructions = $(await agentInstructions(signedIn, thread.parentThreadId === null ? MAIN_FLOW : SUB_FLOW));
-		return `${instructions}\n\nThe time now is ${now.toISOString()}.`;
+		const alerts = thread.parentThreadId === null ? [alertsParagraph($(await store.listThreadAlerts(thread.id)))] : [];
+		return [instructions, ...alerts, `The time now is ${now.toISOString()}.`].join('\n\n');
 	});
 }
 

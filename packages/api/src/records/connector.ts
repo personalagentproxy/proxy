@@ -1,6 +1,7 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
+import type {PollItem} from '@proxy/utils/alerts';
 import type {ConnectionRow} from '@proxy/db/connection';
 import type {Collection} from '@proxy/integrations';
 import type {Crumb, DataRecord, RecordPage} from '@proxy/contracts/records';
@@ -50,14 +51,23 @@ type CommandRunners = Partial<Record<string, CommandRunner>>;
 type NewCommandRunners = Partial<Record<string, NewCommandRunner>>;
 
 /**
+ * What is new or changed in a collection since `cursor`, where the last look left off in the
+ * connector's own terms, and where this one leaves off; `null` for the first look, which takes
+ * nothing but where to start from. At most `MAX_POLL_ITEMS` (@proxy/utils/alerts), the newest,
+ * each with the fields a watch's criteria read.
+ */
+export type Changes = (target: RecordTarget, cursor: string | null, now: Date) => Promise<Result<{items: PollItem[]; cursor: string}, ApiError>>;
+
+/**
  * How one collection's records are read and written. A collection offers only some writes and
  * commands, as the catalog says, and its connector has exactly those, as `connectors.test.ts`
  * checks; callers have checked access and that the collection offers the write or command. A
  * connector reports a missing record as not_found. It may have capabilities for the home page's
- * widgets too (`capabilities.ts`).
+ * widgets too (`capabilities.ts`), and `changes`, for the watches on it (harness/poll.ts).
  */
 export type RecordStore = Capabilities & {
 	list: (target: RecordTarget, query: ListQuery) => Promise<Result<RecordPage, ApiError>>;
+	changes?: Changes;
 	get: (target: RecordTarget, recordId: string) => Promise<Result<DataRecord, ApiError>>;
 	// In a nested collection, inside `parent` when one is given.
 	create?: (target: RecordTarget, values: RecordValues, parent: string | null) => Promise<Result<DataRecord, ApiError>>;

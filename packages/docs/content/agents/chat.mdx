@@ -49,6 +49,33 @@ the whole conversation as before.
 **Activity** under the input opens the activity log, where every sub-agent's task is listed with
 the agent's head and name.
 
+## Alerts
+
+An agent can be woken outside the conversation. Ask to be told at a time ("remind me at nine to
+call the landlord"), or when something happens in your accounts ("tell me when the bank's answer
+about the loan comes in"), and the agent sets itself an alert rather than waiting. When the alert
+is due, what comes of it lands in your conversation, and the agent tells you there, as it would
+anything else.
+
+An alert at a time fires once, with what the agent noted for it. An alert about something
+happening is a watch: a rule on your email, your Linear issues or your calendar, in the
+connections the agent may read. Every ten minutes, Personal Agent Proxy looks at each watched
+connection for what is new or changed since the last look, once however many watches are on it,
+and matches each new record against every watch's criteria: words the agent wrote from what you
+said, such as the sender's domain and a few ways the subject may be put, which the record's fields
+have to contain. A record that matches is told in your conversation with its link, and kept with
+the watch; one that changes again while it still matches is not told twice. The matching is
+mechanical, so a watch for "the loan" misses a mail titled "Your application": the page shows the
+words each watch looks for, and you ask the agent for a new one when they are not the right ones.
+
+A watch lives until you delete it. The agent tells you when the connection a watch was on is gone,
+so you can have it set again on another. Each look is in the activity log as Personal Agent
+Proxy's own, like the home page's reads.
+
+**Alerts** in the sidebar lists yours: what each is about, where it looks and for what, when it was
+last looked at, what it matched and how it ended. You delete one there; to set or change one, ask
+the agent. Alerts set in your conversations are yours alone, as the conversations are.
+
 <Callout>
 Chat is being tried out with some organizations first, so it is only offered to an organization
 that has it turned on. On a self-hosted Personal Agent Proxy, turn it on for every organization in

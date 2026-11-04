@@ -1,4 +1,5 @@
 import {
+	BellIcon,
 	BotIcon,
 	HomeIcon,
 	LogOutIcon,
@@ -35,6 +36,7 @@ const GROUPS: Destination[][] = [
 	[
 		{to: '', label: 'Home', icon: HomeIcon},
 		{to: '/chat', label: 'Chat', icon: MessageSquareIcon, experiment: 'harness'},
+		{to: '/alerts', label: 'Alerts', icon: BellIcon, experiment: 'harness'},
 	],
 	[
 		{to: '/connections', label: 'Connections', icon: PlugIcon},

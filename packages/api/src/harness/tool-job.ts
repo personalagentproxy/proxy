@@ -1,11 +1,14 @@
-import {Err, type Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 
 import {type ApiError, ApiErr, Do, requirePresent} from '@proxy/utils';
+import {alertArgs, type AlertSpec, CANCEL_ALERT_TOOL, SET_ALERT_TOOL, WATCH_COLLECTIONS} from '@proxy/utils/alerts';
 import {callArguments, DELEGATE_TOOL, delegateArgs, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
-import type {JobRow, ThreadRow} from '@proxy/db/harness';
+import type {AlertRow, JobRow, ThreadRow} from '@proxy/db/harness';
 
 import {callMcpTool} from '../mcp/tools';
+import {describeAlert} from './alerts';
 import {failureNote, subAgentStart} from './conversation';
+import {watchableConnections} from './watch-connections';
 import type {HarnessStore} from './store';
 import {ensureThreadTask, type ThreadTaskStore} from './thread-task';
 import {isGateTool} from './tool-surface';
@@ -13,15 +16,19 @@ import {isGateTool} from './tool-surface';
 /**
  * A tool job: one call the model made, run and answered in the log. A delegation starts the
  * sub-agent, whose report answers the call later; the call was answered as started when it was
- * made (inference.ts). The MCP server's tools go through the gate as the sub-agent acting as the
- * member, for its task, logged like any agent's call. A sleep answers with the time, since its job
- * was due when the sleep ended. A call that changes something is never run twice: a worker that
- * was interrupted mid-call leaves the outcome unknown, and the model is told so rather than the
- * call being made again.
+ * made (inference.ts). An alert is set in the conversation, due when it says, or a watch on the
+ * connections the agent may read with the collection (watch-connections.ts), or ended, as the
+ * agent talking with the person asks; a call that set one and is run again, by a worker that lost
+ * the job after, finds the alert it set. The MCP server's tools go through the gate as the
+ * sub-agent acting as the member, for its task, logged like any agent's call. A sleep answers
+ * with the time, since its job was due when the sleep ended. A call that changes something is
+ * never run twice: a worker that was interrupted mid-call leaves the outcome unknown, and the
+ * model is told so rather than the call being made again.
  */
 
 /** What a tool job needs of the store. */
-export type ToolJobStore = Pick<HarnessStore, 'getJobThread' | 'getEntry' | 'getThreadAgent' | 'completeToolJob' | 'failJob' | 'finishJob' | 'startSubAgent'> & ThreadTaskStore;
+export type ToolJobStore = Pick<HarnessStore, 'getJobThread' | 'getEntry' | 'getThreadAgent' | 'completeToolJob' | 'failJob' | 'finishJob' | 'startSubAgent' | 'createAlert' | 'endAlert'> &
+	ThreadTaskStore;
 
 // How much of a result the log keeps, and the model reads.
 const MAX_RESULT_CHARS = 60_000;
@@ -67,6 +74,28 @@ function delegation(thread: ThreadRow, call: ToolCall): {title: string; brief: s
 	return delegateArgs(parseArgs(call));
 }
 
+// Sets the alert: a timed one as given; a watch on the connections the agent may watch for the
+// collection, those named where they are, which is what the model is told where it may not.
+function setAlert(store: ToolJobStore, thread: ThreadRow, callId: string, spec: AlertSpec): Promise<Result<Result<AlertRow, string>, ApiError>> {
+	return Do(async ($) => {
+		if (spec.kind === 'time') {
+			return Ok($(await store.createAlert(thread, callId, {kind: 'time', title: spec.title, brief: spec.brief, at: spec.at})));
+		}
+		const signedIn = $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
+		const watchable = $(await watchableConnections(signedIn, spec.collectionId));
+		const named = watchable.map((connection) => `${connection.id} (${connection.name})`).join(', ');
+		if (watchable.length === 0) {
+			return Err(`No connection you may read has ${WATCH_COLLECTIONS[spec.collectionId].name}: the person has to connect one, or give you access to it.`);
+		}
+		const unknown = (spec.connectionIds ?? []).filter((id) => !watchable.some((connection) => connection.id === id));
+		if (unknown.length > 0) {
+			return Err(`You may not watch ${unknown.join(', ')} for ${WATCH_COLLECTIONS[spec.collectionId].name}. The connections you may watch for it: ${named}.`);
+		}
+		const connectionIds = spec.connectionIds ?? watchable.map((connection) => connection.id);
+		return Ok($(await store.createAlert(thread, callId, {kind: 'watch', title: spec.title, brief: spec.brief, collectionId: spec.collectionId, connectionIds, criteria: spec.criteria})));
+	});
+}
+
 function answer(store: ToolJobStore, thread: ThreadRow, job: JobRow, call: ToolCall, now: Date): Promise<Result<ToolAnswer, ApiError>> {
 	return Do(async ($) => {
 		const args = parseArgs(call);
@@ -75,6 +104,27 @@ function answer(store: ToolJobStore, thread: ThreadRow, job: JobRow, call: ToolC
 		}
 		if (call.name === DELEGATE_TOOL && thread.parentThreadId === null) {
 			return error('Give title, a few words, and brief, what to do.');
+		}
+		if (call.name === SET_ALERT_TOOL && thread.parentThreadId === null) {
+			const spec = alertArgs(args, now);
+			if (spec.isErr()) {
+				return error(spec.error);
+			}
+			const alert = $(await setAlert(store, thread, call.id, spec.value));
+			if (alert.isErr()) {
+				return error(alert.error);
+			}
+			return {text: `Set the alert ${describeAlert(alert.value)}. The person sees it on their Alerts page.`, isError: false};
+		}
+		if (call.name === CANCEL_ALERT_TOOL && thread.parentThreadId === null) {
+			const id = typeof args.id === 'string' ? args.id : '';
+			if (id === '') {
+				return error('Give id, the alert’s id, as your instructions list the alerts set in this conversation.');
+			}
+			if (!$(await store.endAlert(thread.id, id, 'agent', now))) {
+				return error(`There is no alert ${id} still going in this conversation.`);
+			}
+			return {text: `Ended the alert ${id}.`, isError: false};
 		}
 		if (call.name === SLEEP_TOOL && thread.parentThreadId !== null) {
 			if (sleepUntil(args, now) === null) {

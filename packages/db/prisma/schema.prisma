@@ -120,6 +120,8 @@ model Organization {
   tasks       AgentTask[]
   threads     AgentThread[]
   personas    Persona[]
+  alerts      AgentAlert[]
+  polls       ConnectionPoll[]
 
   @@index([ownerUserId])
 }
@@ -610,6 +612,7 @@ model AgentThread {
   entries   AgentEntry[]
   jobs      AgentJob[]
   jobEvents AgentJobEvent[]
+  alerts    AgentAlert[]
 
   @@index([personaId, userId])
   @@index([agentId])
@@ -671,6 +674,7 @@ model AgentEntry {
 enum AgentJobKind {
   inference
   tool
+  alert
 }
 
 enum AgentJobStatus {
@@ -681,8 +685,9 @@ enum AgentJobStatus {
 }
 
 // A unit of the built-in agent's work, claimed by one api instance at a time: run the model on a
-// thread's log (inference), or run one tool call of an assistant entry (tool). `runAt` is when it
-// may run, which is how a call to sleep is kept. A worker claims a job due with a lease, renews
+// thread's log (inference), run one tool call of an assistant entry (tool), or fire a timed alert
+// that is due (alert). `runAt` is when it may run, which is how a call to sleep is kept, and when
+// an alert is due. A worker claims a job due with a lease, renews
 // the lease while it works, and finishes the job in the same transaction as the entries it writes,
 // only while it still holds the lease; a lease that runs out gives the job to the next worker.
 model AgentJob {
@@ -693,6 +698,9 @@ model AgentJob {
   // A tool job's call: the assistant entry it is in and the id the model gave it.
   entryId  String?
   callId   String?
+  // An alert job's alert (AgentAlert; as a column: the job is the conversation's, and an alert
+  // deleted takes its job with it).
+  alertId  String?
   runAt    DateTime       @default(now())
   // Which worker holds it, and until when, while it is running.
   claimedBy      String?
@@ -738,4 +746,108 @@ model AgentJobEvent {
 
   @@index([jobId, at])
   @@index([threadId, at])
+}
+
+// How an alert ended: it fired, for a timed one; the agent ended it, as the person asked; for a
+// watch, every connection it watched is gone; or, for a timed one, its job couldn't run.
+enum AgentAlertEnd {
+  fired
+  agent
+  connection_gone
+  failed
+}
+
+// An alert the built-in agent set for itself in a member's conversation, to be woken outside it.
+// A timed alert (`at`) fires once: what the agent noted for it lands in the conversation as an
+// event, for the agent to tell the person; its job (AgentJob, kind alert) is due at its time. A
+// watch (`collectionId`) is a rule: the records new or changed in the connections it watches,
+// found by their polls (ConnectionPoll), are matched against its criteria, and a match lands in
+// the conversation the same way, and is kept (AlertMatch). The person sees them on the Alerts
+// page, and deletes them there; a watch lives until then.
+model AgentAlert {
+  id        String @id @default(cuid())
+  orgId     String
+  // The organization's built-in agent login, whose grants say which connections may be watched.
+  agentId   String
+  personaId String
+  // The member whose conversation it was set in: the alert is theirs alone to see.
+  userId    String
+  // The member's conversation it was set in, where what it comes to lands.
+  threadId  String
+  // The call that set it, so a tool job tried again sets it once.
+  callId    String
+  // What it is, in a few words, and the agent's brief: what to tell the person at the time, or
+  // what the watch is for, in words.
+  title     String
+  brief     String
+  // A timed alert's time; null for a watch.
+  at        DateTime?
+  // A watch: the collection watched (emails, issues or events), the connections it watches, as
+  // plain ids (a connection gone is dropped from them), and what a record has to say to match, as
+  // JSON (@proxy/utils/alerts Criteria). Null for a timed alert.
+  collectionId  String?
+  connectionIds String[] @default([])
+  criteria      String?
+  endedAt   DateTime?
+  endedBy   AgentAlertEnd?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  thread  AgentThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  matches AlertMatch[]
+
+  @@index([orgId, userId, createdAt])
+  @@index([threadId])
+}
+
+// A record a watch matched, once: the record's id with the watch's, so a record changed again
+// while it still matches doesn't match again. What was told of it is kept for the Alerts page.
+model AlertMatch {
+  id           String @id @default(cuid())
+  alertId      String
+  orgId        String
+  connectionId String
+  collectionId String
+  recordId     String
+  title        String
+  // The record's fields that were matched, in a line or two.
+  summary      String
+  url          String?
+
+  createdAt DateTime @default(now())
+
+  alert AgentAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@unique([alertId, recordId])
+  @@index([alertId, createdAt])
+}
+
+// One collection of one connection, polled for what is new or changed while any watch is on it:
+// made with the first watch, deleted by the poll that finds none. `cursor` is where the last poll
+// left off, in the connector's own terms (a mailbox's last UID, Gmail's history id, a time); null
+// before the first, which only takes a baseline. Claimed by one api instance at a time with a
+// lease, as a job is, and due again a fixed while after each poll. The connection is a plain id:
+// a connection gone leaves its poll to end the watches on it.
+model ConnectionPoll {
+  id           String @id @default(cuid())
+  orgId        String
+  connectionId String
+  collectionId String
+  cursor       String?
+  nextAt       DateTime @default(now())
+  claimedBy      String?
+  leaseExpiresAt DateTime?
+  lastPolledAt   DateTime?
+  // What the last poll failed with, for the Alerts page; null once one went through.
+  lastError      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, collectionId])
+  @@index([nextAt])
 }

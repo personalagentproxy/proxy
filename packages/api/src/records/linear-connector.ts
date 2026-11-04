@@ -1,6 +1,7 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
+import {MAX_POLL_ITEMS, type PollItem} from '@proxy/utils/alerts';
 import {LINEAR_PRIORITIES} from '@proxy/integrations';
 
 import {
@@ -16,7 +17,7 @@ import {
 	type LinearIssue,
 } from '../connections/linear/linear-mcp';
 import {callMcpToolFor} from '../connections/mcp/mcp-session';
-import type {DataRecord, ListQuery, RecordPage, RecordStore, RecordTarget, RecordValues} from './connector';
+import type {Changes, DataRecord, ListQuery, RecordPage, RecordStore, RecordTarget, RecordValues} from './connector';
 
 /**
  * A Linear workspace's issues, fetched live from Linear's MCP server as the person who signed in,
@@ -27,6 +28,9 @@ import type {DataRecord, ListQuery, RecordPage, RecordStore, RecordTarget, Recor
  * Teams, statuses, people, projects and labels are written by name, and Linear finds them,
  * turning down a name it doesn't know. An edit sends only the fields written differently, an empty
  * one clearing it. Issues aren't deleted.
+ *
+ * What is new for the watches on the workspace is the issues updated since the last look, read
+ * off the first page of the list, which is the issues updated last: a look is one request.
  */
 
 const PAGE_SIZE = 50;
@@ -175,8 +179,37 @@ function list(target: RecordTarget, query: ListQuery): Promise<Result<RecordPage
 	});
 }
 
+function pollItem(issue: LinearIssue): PollItem {
+	return {
+		recordId: issue.id,
+		title: issue.title,
+		url: issue.url || null,
+		at: issue.updatedAt,
+		fields: {title: issue.title, team: issue.team, status: issue.status, assignee: issue.assignee},
+	};
+}
+
+// The issues updated since the last look, among the `MAX_POLL_ITEMS` updated last; the cursor is
+// the latest update seen. The first look takes only the time.
+const issuesChanges: Changes = (target, cursor, now) =>
+	Do(async ($) => {
+		if (cursor === null) {
+			return {items: [], cursor: now.toISOString()};
+		}
+		const text = $(await callLinear(target, 'list_issues', {limit: MAX_POLL_ITEMS, orderBy: 'updatedAt', fields: LIST_FIELDS}));
+		const page = $(parseLinearIssues(text));
+		const changed = page.issues.filter((issue) => issue.updatedAt !== '' && issue.updatedAt > cursor);
+		const latest =
+			changed
+				.map((issue) => issue.updatedAt)
+				.sort()
+				.at(-1) ?? cursor;
+		return {items: changed.map(pollItem), cursor: latest};
+	});
+
 export const linearConnector = {
 	list,
+	changes: issuesChanges,
 	get: getIssue,
 	// Every field typed in, the empty ones left out: Linear gives a new issue its team's defaults.
 	create: (target, values) =>

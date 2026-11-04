@@ -24,6 +24,7 @@ import {
 	agentLoader,
 	agentSetupLoader,
 	agentsLoader,
+	alertsLoader,
 	chatIndexLoader,
 	chatLoader,
 	connectAgentLoader,
@@ -49,6 +50,7 @@ import {AccountPage} from '@/pages/account-page';
 import {AgentPage} from '@/pages/agent-page';
 import {AgentSetupPage} from '@/pages/agent-setup-page';
 import {AgentsPage} from '@/pages/agents-page';
+import {AlertsPage} from '@/pages/alerts-page';
 import {AgentCollectionPage} from '@/pages/agent/agent-collection-page';
 import {AgentFeedbackPage} from '@/pages/agent/agent-feedback-page';
 import {AgentHomePage} from '@/pages/agent/agent-home-page';
@@ -276,9 +278,11 @@ export const router = createBrowserRouter([
 			{path: '/:org/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
 			// The vault's page before it was one of the connections.
 			{path: '/:org/vault', loader: oldVaultLoader, element: null},
-			// The built-in agents, behind the `harness` experiment: the api refuses it otherwise.
+			// The built-in agents, behind the `harness` experiment: the api refuses it otherwise; and
+			// the alerts they set.
 			{path: '/:org/chat', loader: chatIndexLoader, element: <ChatPage />},
 			{path: '/:org/chat/:id', loader: chatLoader, element: <ChatPage />},
+			{path: '/:org/alerts', loader: alertsLoader, element: <AlertsPage />},
 			{path: '/:org/agents', loader: agentsLoader, element: <AgentsPage />},
 			{path: '/:org/agents/new', loader: agentsLoader, element: <NewAgentPage />},
 			{path: '/:org/agents/:id', loader: agentLoader, element: <AgentPage />},

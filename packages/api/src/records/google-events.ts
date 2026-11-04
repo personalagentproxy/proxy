@@ -2,6 +2,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
+import {MAX_POLL_ITEMS, type PollItem} from '@proxy/utils/alerts';
 import {addDays} from '@proxy/utils/days';
 
 import {
@@ -10,6 +11,7 @@ import {
 	insertEvent,
 	listCalendars,
 	listEvents,
+	listUpdatedEvents,
 	patchEvent,
 	type Attendee,
 	type EventTime,
@@ -20,7 +22,7 @@ import {
 import {callGoogle} from '../connections/google/google-client';
 import {readTime, realDay, zonedInstant, type Written} from './calendar-time';
 import {findGoogleEvents, googleAgenda} from './google-agenda';
-import {requireFirstPage, type CommandRunner, type DataRecord, type ListQuery, type RecordPage, type RecordStore, type RecordTarget, type RecordValues} from './connector';
+import {requireFirstPage, type Changes, type CommandRunner, type DataRecord, type ListQuery, type RecordPage, type RecordStore, type RecordTarget, type RecordValues} from './connector';
 import {readPageToken, writePageToken} from './page-token';
 
 /**
@@ -39,6 +41,9 @@ import {readPageToken, writePageToken} from './page-token';
  * An event's guests are told by Google of everything done to it: an event made or changed while it
  * has guests sends them Google's invitation or update, and one without them tells no one. Answering
  * an invitation tells its organizer. Events are never deleted here.
+ *
+ * What is new for the watches on the account is every event made, changed or cancelled since the
+ * last look, in the calendars Google Calendar shows, by the time Google says it was changed.
  */
 
 // Google's event ids: base32hex for its own, other letters for an imported one's, and `_` with the
@@ -353,6 +358,49 @@ function listEventsTree(target: RecordTarget, query: ListQuery): Promise<Result<
 	);
 }
 
+// How many calendars a look reads: Google Calendar shows few, and each is a request.
+const POLLED_CALENDARS = 20;
+
+function pollItem(calendarId: string, event: GoogleEvent): PollItem {
+	const values = eventValues(event);
+	return {
+		recordId: eventRecordId(calendarId, event.id),
+		title: values.title || '(No title)',
+		url: event.htmlLink ?? null,
+		at: event.updated ?? NEVER,
+		fields: {
+			title: values.title ?? '',
+			organizer: values.organizer ?? '',
+			guests: values.guests ?? '',
+			status: event.status === 'cancelled' ? 'cancelled' : 'confirmed',
+			start: values.start ?? '',
+			location: values.location ?? '',
+		},
+	};
+}
+
+// The events changed since the last look, in the calendars shown, the latest changed
+// `MAX_POLL_ITEMS` of them; the cursor is the time of this look, so a change made while it ran
+// is seen by the next. The first look takes only the time.
+const eventsChanges: Changes = (target, cursor, now) =>
+	callGoogle(target.connection, (token) =>
+		Do(async ($) => {
+			const next = now.toISOString();
+			if (cursor === null) {
+				return {items: [], cursor: next};
+			}
+			const calendars = $(await listCalendars(token))
+				.filter((calendar) => calendar.selected !== false)
+				.slice(0, POLLED_CALENDARS);
+			const items: PollItem[] = [];
+			for (const calendar of calendars) {
+				const page = $(await listUpdatedEvents(token, calendar.id, cursor, null));
+				items.push(...page.events.map((event) => pollItem(calendar.id, event)));
+			}
+			return {items: items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, MAX_POLL_ITEMS), cursor: next};
+		}),
+	);
+
 function getEventsRecord(target: RecordTarget, recordId: string): Promise<Result<DataRecord, ApiError>> {
 	return callGoogle(target.connection, (token) =>
 		Do(async ($) => {
@@ -446,6 +494,7 @@ function respond(answer: 'accepted' | 'declined' | 'tentative'): CommandRunner {
 
 export const eventsConnector = {
 	list: listEventsTree,
+	changes: eventsChanges,
 	get: getEventsRecord,
 	create: createEvent,
 	update: updateEvent,

@@ -6,6 +6,7 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./agent-providers": "./src/agent-providers.ts",
+		"./alerts": "./src/alerts.ts",
 		"./days": "./src/days.ts",
 		"./email-providers": "./src/email-providers.ts",
 		"./harness": "./src/harness.ts",

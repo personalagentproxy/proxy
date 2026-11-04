@@ -136,6 +136,23 @@ export async function listEvents(accessToken: string, calendarId: string, args: 
 	return answer.map(({items = [], nextPageToken}) => ({events: items, nextPage: nextPageToken ?? null}));
 }
 
+/**
+ * A page of a calendar's events changed since `updatedMin`, cancelled ones included, each time a
+ * repeating event comes round its own, in no particular order: for the watches on the calendar.
+ */
+export async function listUpdatedEvents(accessToken: string, calendarId: string, updatedMin: string, page: string | null): Promise<Result<{events: GoogleEvent[]; nextPage: string | null}, ApiError>> {
+	const url = calendarUrl(calendarId, '/events');
+	url.searchParams.set('singleEvents', 'true');
+	url.searchParams.set('showDeleted', 'true');
+	url.searchParams.set('updatedMin', updatedMin);
+	url.searchParams.set('maxResults', String(EVENTS_PAGE_SIZE));
+	if (page) {
+		url.searchParams.set('pageToken', page);
+	}
+	const answer = await googleRequest(accessToken, url, eventsSchema);
+	return answer.map(({items = [], nextPageToken}) => ({events: items, nextPage: nextPageToken ?? null}));
+}
+
 export function getEvent(accessToken: string, calendarId: string, eventId: string): Promise<Result<GoogleEvent, ApiError>> {
 	return googleRequest(accessToken, eventUrl(calendarId, eventId), eventSchema);
 }

@@ -6,6 +6,7 @@ import type Mail from 'nodemailer/lib/mailer';
 import {Err, Ok, Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, mapWithLimit, requirePresent} from '@proxy/utils';
+import {MAX_POLL_ITEMS, type PollItem} from '@proxy/utils/alerts';
 
 import {callGoogle} from '../connections/google/google-client';
 import {
@@ -17,12 +18,14 @@ import {
 	getAttachment,
 	folderQuery,
 	getDraft,
+	getHistoryId,
 	getMessage,
 	getMessageLabels,
 	getMessageSummaries,
 	GMAIL_ID,
 	headerOf,
 	listDrafts,
+	listHistory,
 	listMessageIds,
 	messageBody,
 	messageHtml,
@@ -37,7 +40,7 @@ import {
 	type MessagePart,
 } from '../connections/google/gmail-api';
 import {attachmentRecord, attachmentsText, pickAttachment, readableKind, requireEmailId} from './attachment-text';
-import type {CommandRunner, DataRecord, ListQuery, NewCommandRunner, RecordPage, RecordStore, RecordTarget, RecordValues, RunOnly} from './connector';
+import type {Changes, CommandRunner, DataRecord, ListQuery, NewCommandRunner, RecordPage, RecordStore, RecordTarget, RecordValues, RunOnly} from './connector';
 import {gmailQuery, type EmailSearch, type MailSearch} from './email-search';
 import {replyCommands, replyHeaders, type MailReply} from './email-reply';
 
@@ -56,6 +59,9 @@ import {replyCommands, replyHeaders, type MailReply} from './email-reply';
  * Nothing is deleted for good but drafts. Email goes out from the connection's own address, a draft
  * as it is saved or a new one written here; Gmail files it in Sent. A reply, the `replies`
  * collection's, is written in the thread of the email it answers, sent or saved as a draft.
+ *
+ * What is new for the watches on the mailbox is the mail that came in since the last look, read
+ * off Gmail's history from where that look left off: drafts, sent mail, spam and trash left out.
  */
 
 type EmailRef = {kind: 'message'; messageId: string} | {kind: 'draft'; draftId: string};
@@ -226,6 +232,41 @@ function listPage(target: RecordTarget, query: ListQuery): Promise<Result<Record
 		}),
 	);
 }
+
+// What a message added to the mailbox is, by its labels: a draft or sent mail is the person's own,
+// and spam or trash isn't mail that came in.
+const NOT_INCOMING = new Set(['DRAFT', 'SENT', 'SPAM', 'TRASH']);
+
+function pollItem(account: string, message: GmailMessage): PollItem {
+	const values = summaryValues(message);
+	return {
+		recordId: message.id,
+		title: values.subject || '(No subject)',
+		url: webUrl(account, message),
+		at: dateOf(message),
+		fields: {from: values.from ?? '', to: values.to ?? '', subject: values.subject ?? '', snippet: message.snippet ?? ''},
+	};
+}
+
+// The mail that came in since the last look, the newest `MAX_POLL_ITEMS` of it, read with its
+// headers and snippet; the cursor is where Gmail's history is now. The first look takes only
+// that, as does one whose history Gmail has let go.
+const inboxChanges: Changes = (target, cursor) =>
+	callGoogle(target.connection, (token) =>
+		Do(async ($) => {
+			if (cursor === null) {
+				return {items: [], cursor: $(await getHistoryId(token))};
+			}
+			const history = await listHistory(token, cursor);
+			if (history.isErr() && history.error.kind === 'not_found') {
+				return {items: [], cursor: $(await getHistoryId(token))};
+			}
+			const {added, historyId} = $(history);
+			const ids = [...new Set(added.filter(({labelIds}) => !labelIds.some((label) => NOT_INCOMING.has(label))).map(({id}) => id))].reverse().slice(0, MAX_POLL_ITEMS);
+			const messages = $(present(await getMessageSummaries(token, ids))).flatMap((message) => (message ? [message] : []));
+			return {items: messages.map((message) => pollItem(target.connection.account, message)), cursor: historyId};
+		}),
+	);
 
 // Searches asked of one account at once: Gmail turns down a burst of them, as of messages.
 const SEARCHES_AT_ONCE = 3;
@@ -475,6 +516,7 @@ export const gmailAttachmentsConnector = {newCommands: {read: readAttachment}} s
 
 export const gmailConnector = {
 	list: listPage,
+	changes: inboxChanges,
 	get: (target, recordId) => callGoogle(target.connection, (token) => readRecord(token, target.connection.account, recordId)),
 	create: createDraftRecord,
 	update: updateDraftRecord,

@@ -5,7 +5,8 @@ import type {ModelMessage} from '../llm/open-router';
 
 /**
  * The log as the model reads it. An event, a sub-agent's report, is read as a message, since it
- * came on its own, after the call it answers was answered as started. A log that has grown long
+ * came on its own, after the call it answers was answered as started; so is an alert's, which
+ * answers no call. A log that has grown long
  * is summarized: a summary entry stands for every entry up to the one it covers, and the model
  * reads the summary, then what came since. Of that, the person's last turns are kept as said,
  * except what tools answered and what events brought in the turns before the current one, which
@@ -33,8 +34,12 @@ function callOf(entries: EntryRow[], callId: string | null): ToolCall | undefine
 	return entries.flatMap((entry) => entry.toolCalls ?? []).find((candidate) => candidate.id === callId);
 }
 
-// How an event is led in: whose report it is, by the call it answers, found in the log.
+// How an event is led in: whose report it is, by the call it answers, found in the log; an
+// alert's, which answers none.
 function eventLead(entries: EntryRow[], event: EntryRow): string {
+	if (event.callId === null) {
+		return 'An alert set in this conversation. The person did not write this; it is for you to tell them of, or to act on as it says.';
+	}
 	const call = callOf(entries, event.callId);
 	const parsed = call?.name === DELEGATE_TOOL ? delegateArgs(callArguments(call)) : null;
 	const who = parsed ? `the sub-agent “${parsed.title}”` : `your call ${event.callId ?? ''}`;

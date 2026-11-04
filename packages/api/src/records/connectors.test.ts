@@ -1,5 +1,6 @@
 import {describe, expect, mock, test} from 'bun:test';
 
+import {isWatchCollection} from '@proxy/utils/alerts';
 import {INTEGRATIONS, type Collection} from '@proxy/integrations';
 
 import type {Capability} from './capabilities';
@@ -44,8 +45,9 @@ function offered(connector: Connector): string[] {
 	].sort();
 }
 
-// The members a connector has besides its capabilities: those `offered` names.
-const MEMBERS = ['list', 'get', 'create', 'update', 'remove', 'commands', 'newCommands'];
+// The members a connector has besides its capabilities: those `offered` names, and `changes`,
+// what is new for the watches on it, which the collections a watch can be on have.
+const MEMBERS = ['list', 'get', 'create', 'update', 'remove', 'commands', 'newCommands', 'changes'];
 
 // The collections each capability belongs to, those whose records it reads or writes; `any` for one
 // every collection may have. A widget works with every connector of the collection that has it.
@@ -81,6 +83,16 @@ describe('connectorFor', () => {
 				throw new Error(`No connector for ${integrationId}/${collection.id}`);
 			}
 			expect(offered(connector)).toEqual(declared(collection));
+		});
+	}
+
+	for (const {integrationId, collection} of COLLECTIONS) {
+		test(`${integrationId}/${collection.id} tells what is new for a watch exactly where a watch can be set`, () => {
+			const connector = connectorFor(integrationId, collection.id);
+			if (!connector) {
+				throw new Error(`No connector for ${integrationId}/${collection.id}`);
+			}
+			expect(isRecordStore(connector) && connector.changes !== undefined).toBe(isWatchCollection(collection.id));
 		});
 	}
 

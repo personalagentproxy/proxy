@@ -35,7 +35,7 @@ const thread: ThreadRow = {
 	createdAt: now,
 };
 const sub: ThreadRow = {...thread, id: 'thread-2', parentThreadId: 'thread-1', parentCallId: 'c0', title: 'Find the invoices', taskId: 'task-2'};
-const job: JobRow = {id: 'job-1', threadId: 'thread-1', kind: 'inference', status: 'running', entryId: null, callId: null, runAt: now, claimedBy: 'w1', attempts: 1};
+const job: JobRow = {id: 'job-1', threadId: 'thread-1', kind: 'inference', status: 'running', entryId: null, callId: null, alertId: null, runAt: now, claimedBy: 'w1', attempts: 1};
 
 let seq = 0;
 
@@ -85,6 +85,7 @@ beforeEach(() => {
 	for (const write of [finishJob, completeInference, requeueJob, appendSummary]) {
 		write.mockResolvedValue(Ok(true));
 	}
+	store.listThreadAlerts.mockResolvedValue(Ok([]));
 	askForTurn.mockResolvedValue(Ok({text: 'Hello', toolCalls: [], inputTokens: 10, outputTokens: 2}));
 });
 
@@ -314,6 +315,41 @@ describe('runInference', () => {
 		listEntries.mockResolvedValue(Ok([entry('person', 'Go'), ...Array.from({length: 30}, (_, i) => entry('assistant', `step ${i}`)), entry('event', 'done', {callId: 'c1'})]));
 		await runInference(store, job, 'w1', now);
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({system: null}), {plans: {}});
+	});
+
+	test('the agent talking with the person is told the alerts set in the conversation; a sub-agent is not', async () => {
+		const {runInference} = await import('./inference');
+		await runInference(store, job, 'w1', now);
+		expect(String((askForTurn.mock.calls[0]?.[0] as {messages: Array<{content: unknown}>}).messages[0]?.content)).toContain('No alert is set in this conversation.');
+
+		store.listThreadAlerts.mockResolvedValue(
+			Ok([
+				{
+					id: 'alert-1',
+					orgId: 'org-1',
+					agentId: 'agent-1',
+					personaId: 'persona-1',
+					userId: 'user-1',
+					threadId: 'thread-1',
+					title: 'Dentist',
+					brief: 'Leave at 8.',
+					at: new Date('2026-10-22T07:30:00Z'),
+					collectionId: null,
+					connectionIds: [],
+					criteria: null,
+					endedAt: null,
+					endedBy: null,
+					createdAt: now,
+				},
+			]),
+		);
+		await runInference(store, job, 'w1', now);
+		expect(String((askForTurn.mock.calls[1]?.[0] as {messages: Array<{content: unknown}>}).messages[0]?.content)).toContain('- alert-1: “Dentist”, due 2026-10-22T07:30:00.000Z');
+
+		getJobThread.mockResolvedValue(Ok(sub));
+		await runInference(store, {...job, threadId: 'thread-2'}, 'w1', now);
+		expect(store.listThreadAlerts).toHaveBeenCalledTimes(2);
+		expect(String((askForTurn.mock.calls[2]?.[0] as {messages: Array<{content: unknown}>}).messages[0]?.content)).not.toContain('alert');
 	});
 
 	test('a report that comes after it stopped is acted on, not answered with the stop again', async () => {

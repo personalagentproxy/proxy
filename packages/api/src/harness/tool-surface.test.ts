@@ -17,9 +17,13 @@ function tool(name: string) {
 }
 
 describe('the main agent’s tools', () => {
-	test('are one: delegating, with a title and a brief', () => {
-		expect(MAIN_AGENT_TOOLS.map((candidate) => candidate.name)).toEqual(['delegate']);
+	test('are three: delegating, with a title and a brief; setting an alert, with a title and a brief too; and ending one, by id', () => {
+		expect(MAIN_AGENT_TOOLS.map((candidate) => candidate.name)).toEqual(['delegate', 'set_alert', 'cancel_alert']);
 		expect((MAIN_AGENT_TOOLS[0]?.parameters as Params).required).toEqual(['title', 'brief']);
+		expect((MAIN_AGENT_TOOLS[1]?.parameters as Params).required).toEqual(['title', 'brief']);
+		expect(Object.keys((MAIN_AGENT_TOOLS[1]?.parameters as Params).properties)).toEqual(['title', 'brief', 'at', 'collection', 'connections', 'match']);
+		expect(MAIN_AGENT_TOOLS[1]?.description).toContain('emails: from, to, subject, snippet, any');
+		expect((MAIN_AGENT_TOOLS[2]?.parameters as Params).required).toEqual(['id']);
 	});
 
 	test('are the conversation’s, and a sub-agent gets its own', () => {

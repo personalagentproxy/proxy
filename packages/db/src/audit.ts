@@ -80,9 +80,10 @@ export async function logAgentRequest(data: {
 
 /**
  * Logs one thing Personal Agent Proxy did itself for a person, such as making an event from the
- * home page: an entry without an agent, always allowed, since the person asked for it. Whose entry
- * it is (`ownerUserId`) is whose own the connection is: everyone's for a shared one; who asked
- * (`userId`) is kept either way.
+ * home page, or for the watches on a connection, polling it: an entry without an agent, always
+ * allowed, since the person asked for it. Whose entry it is (`ownerUserId`) is whose own the
+ * connection is: everyone's for a shared one; who asked (`userId`) is kept either way, null for a
+ * poll, which serves whoever's watches are on the connection.
  */
 export async function logProxyAction(data: {
 	orgId: string;
@@ -91,7 +92,7 @@ export async function logProxyAction(data: {
 	action: string;
 	recordTitle: string | null;
 	ownerUserId: string | null;
-	userId: string;
+	userId: string | null;
 }): Promise<Result<void, ApiError>> {
 	return wrapDb(async () => {
 		await db.auditEntry.create({

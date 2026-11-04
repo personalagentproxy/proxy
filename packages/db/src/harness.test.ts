@@ -9,15 +9,28 @@ import {
 	appendPersonMessage,
 	appendSummary,
 	claimJob,
+	claimPoll,
 	completeInference,
 	completeToolJob,
+	createAlert,
+	deleteAlert,
+	deletePoll,
+	dropConnectionFromWatches,
+	endAlert,
 	ensureFirstPersona,
 	ensureMemberThread,
 	failJob,
 	finishJob,
+	finishPoll,
+	fireAlert,
+	getAlert,
 	listEntries,
 	listJobEvents,
+	listMemberAlerts,
 	listOpenJobs,
+	listPollRules,
+	listPolls,
+	listThreadAlerts,
 	requeueJob,
 	type ThreadRow,
 } from './harness';
@@ -212,5 +225,249 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			[job.id, 'done', 'worker-e'],
 		]);
 		expect(unwrap(await listOpenJobs(thread.id))).toEqual([]);
+	});
+
+	test('a watch makes a poll per connection, which is claimed when due, and what it matches is kept once and told in the conversation', async () => {
+		const watch = {
+			kind: 'watch' as const,
+			title: 'Mail from the bank',
+			brief: 'Mail from the bank about the loan.',
+			collectionId: 'emails',
+			connectionIds: ['conn-a', 'conn-b'],
+			criteria: [{field: 'from', terms: ['@bank.com']}],
+		};
+		const alert = unwrap(await createAlert(thread, 'c-alert', watch));
+		expect(unwrap(await createAlert(thread, 'c-alert', watch)).id).toBe(alert.id);
+		expect(alert).toMatchObject({
+			at: null,
+			collectionId: 'emails',
+			connectionIds: ['conn-a', 'conn-b'],
+			criteria: '[{"field":"from","terms":["@bank.com"]}]',
+		});
+		const other = unwrap(
+			await createAlert(thread, 'c-other', {...watch, title: 'Anything', criteria: []}),
+		);
+		// One poll per connection and collection, however many watch it; due now, for a first look.
+		const polls = unwrap(await listPolls(orgId));
+		expect(polls.map((poll) => [poll.connectionId, poll.collectionId, poll.cursor])).toEqual([
+			['conn-a', 'emails', null],
+			['conn-b', 'emails', null],
+		]);
+		expect(unwrap(await listPollRules('conn-a', 'emails')).map((rule) => rule.id)).toEqual([
+			alert.id,
+			other.id,
+		]);
+		expect(unwrap(await listOpenJobs(thread.id))).toEqual([]);
+
+		const first = unwrap(await claimPoll('worker-f', 60_000));
+		if (!first || first.connectionId !== 'conn-a') {
+			throw new Error(`expected conn-a's poll, got ${JSON.stringify(first)}`);
+		}
+		const second = unwrap(await claimPoll('worker-f', 60_000));
+		expect(second?.connectionId).toBe('conn-b');
+		// Nothing is due while both are claimed.
+		expect(unwrap(await claimPoll('worker-g', 60_000))).toBeNull();
+		if (second) {
+			unwrap(
+				await finishPoll(
+					second.id,
+					'worker-f',
+					{cursor: 'b:1', nextAt: new Date(Date.now() + 600_000), error: null, matches: []},
+					() => '',
+					readyForInference,
+				),
+			);
+		}
+		const before = unwrap(await listEntries(thread.id)).length;
+		const item = {
+			recordId: 'm1',
+			title: 'Your loan',
+			url: 'https://mail.example/m1',
+			at: '2026-11-04T10:00:00Z',
+			fields: {from: 'dana@bank.com', subject: 'Your loan'},
+			summary: 'From dana@bank.com',
+		};
+		const later = new Date(Date.now() + 600_000);
+		unwrap(
+			await finishPoll(
+				first.id,
+				'worker-f',
+				{
+					cursor: '1:10',
+					nextAt: later,
+					error: null,
+					matches: [
+						{alert, items: [item]},
+						{alert: other, items: [item]},
+					],
+				},
+				(matched, items) => `${matched.title}: ${items.map((one) => one.title).join(', ')}`,
+				readyForInference,
+			),
+		);
+		// Not the worker's any more.
+		expect(
+			unwrap(
+				await finishPoll(
+					first.id,
+					'worker-f',
+					{cursor: '1:11', nextAt: later, error: null, matches: []},
+					() => '',
+					readyForInference,
+				),
+			),
+		).toBe(false);
+		const entries = unwrap(await listEntries(thread.id));
+		expect(entries.slice(before).map((entry) => [entry.kind, entry.callId, entry.text])).toEqual([
+			['event', null, 'Mail from the bank: Your loan'],
+			['event', null, 'Anything: Your loan'],
+		]);
+		const woken = unwrap(await claimJob('worker-h', 60_000));
+		expect(woken).toMatchObject({kind: 'inference', threadId: thread.id});
+		if (woken) {
+			unwrap(await finishJob(woken.id, 'worker-h'));
+		}
+		const polled = unwrap(await listPolls(orgId)).find((poll) => poll.id === first.id);
+		expect(polled).toMatchObject({cursor: '1:10', claimedBy: null, lastError: null});
+		expect(polled?.lastPolledAt).not.toBeNull();
+
+		// The same record again matches nothing more; a new one does, and a failure is noted.
+		await db.connectionPoll.update({
+			where: {id: first.id},
+			data: {nextAt: new Date(Date.now() - 1000)},
+		});
+		const again = unwrap(await claimPoll('worker-i', 60_000));
+		expect(again?.id).toBe(first.id);
+		if (!again) {
+			throw new Error('nothing to claim');
+		}
+		unwrap(
+			await finishPoll(
+				again.id,
+				'worker-i',
+				{
+					cursor: '1:12',
+					nextAt: later,
+					error: 'The mailbox could not be reached',
+					matches: [{alert, items: [item, {...item, recordId: 'm2', title: 'Your rate'}]}],
+				},
+				(matched, items) => `${matched.title}: ${items.map((one) => one.title).join(', ')}`,
+				readyForInference,
+			),
+		);
+		expect(unwrap(await listEntries(thread.id)).at(-1)?.text).toBe('Mail from the bank: Your rate');
+		expect(unwrap(await listPolls(orgId)).find((poll) => poll.id === first.id)?.lastError).toBe(
+			'The mailbox could not be reached',
+		);
+		const listed = unwrap(await listMemberAlerts(orgId, userId));
+		expect(
+			listed.map((one) => [
+				one.id,
+				one.persona.name,
+				one.matchCount,
+				one.matches.map((match) => match.recordId),
+			]),
+		).toEqual([
+			[other.id, 'General', 1, ['m1']],
+			[alert.id, 'General', 2, ['m2', 'm1']],
+		]);
+		expect(unwrap(await listThreadAlerts(thread.id)).map((one) => one.id)).toEqual([
+			alert.id,
+			other.id,
+		]);
+
+		// A connection gone: dropped from the watches, and one left with none ends and is told.
+		const narrow = unwrap(
+			await createAlert(thread, 'c-narrow', {...watch, title: 'Only b', connectionIds: ['conn-b']}),
+		);
+		unwrap(
+			await dropConnectionFromWatches(
+				'conn-b',
+				'emails',
+				(one) => `${one.title} ended`,
+				readyForInference,
+			),
+		);
+		expect(unwrap(await getAlert(alert.id))?.connectionIds).toEqual(['conn-a']);
+		expect(unwrap(await getAlert(narrow.id))).toMatchObject({
+			connectionIds: [],
+			endedBy: 'connection_gone',
+		});
+		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
+			kind: 'event',
+			text: 'Only b ended',
+			isError: true,
+		});
+		await db.connectionPoll.updateMany({
+			where: {connectionId: 'conn-b'},
+			data: {nextAt: new Date(Date.now() - 1000)},
+		});
+		const dropped = unwrap(await claimPoll('worker-j', 60_000));
+		if (!dropped || dropped.connectionId !== 'conn-b') {
+			throw new Error(`expected conn-b's poll, got ${JSON.stringify(dropped)}`);
+		}
+		expect(unwrap(await listPollRules('conn-b', 'emails'))).toEqual([]);
+		unwrap(await deletePoll(dropped.id));
+		expect(unwrap(await listPolls(orgId)).map((poll) => poll.connectionId)).toEqual(['conn-a']);
+
+		expect(unwrap(await deleteAlert(orgId, userId, alert.id))).toBe(true);
+		expect(unwrap(await deleteAlert(orgId, userId, alert.id))).toBe(false);
+		expect(unwrap(await listMemberAlerts(orgId, userId)).map((one) => one.id)).toEqual([
+			narrow.id,
+			other.id,
+		]);
+		const lastWoken = unwrap(await claimJob('worker-k', 60_000));
+		if (lastWoken) {
+			unwrap(await finishJob(lastWoken.id, 'worker-k'));
+		}
+	});
+
+	test('a timed alert fires into the conversation once, and the agent can end one', async () => {
+		const now = new Date();
+		const timed = unwrap(
+			await createAlert(thread, 'c-timed', {
+				kind: 'time',
+				title: 'Dentist',
+				brief: 'Tell them to leave for the dentist.',
+				at: new Date(now.getTime() - 1000),
+			}),
+		);
+		const ended = unwrap(
+			await createAlert(thread, 'c-ended', {
+				kind: 'time',
+				title: 'Later',
+				brief: 'Later.',
+				at: new Date(now.getTime() + 3_600_000),
+			}),
+		);
+		expect(unwrap(await endAlert(thread.id, ended.id, 'agent', now))).toBe(true);
+		expect(unwrap(await endAlert(thread.id, ended.id, 'agent', now))).toBe(false);
+		expect(unwrap(await getAlert(ended.id))).toMatchObject({endedBy: 'agent'});
+		const due = unwrap(await claimJob('worker-l', 60_000));
+		if (!due || due.kind !== 'alert' || due.alertId !== timed.id) {
+			throw new Error(`expected the timed alert's job, got ${JSON.stringify(due)}`);
+		}
+		unwrap(
+			await fireAlert(
+				due.id,
+				'worker-l',
+				timed.id,
+				'The alert “Dentist” is due.',
+				readyForInference,
+			),
+		);
+		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
+			kind: 'event',
+			text: 'The alert “Dentist” is due.',
+			isError: false,
+		});
+		expect(unwrap(await getAlert(timed.id))).toMatchObject({endedBy: 'fired'});
+		const woken = unwrap(await claimJob('worker-m', 60_000));
+		expect(woken).toMatchObject({kind: 'inference', threadId: thread.id});
+		if (woken) {
+			unwrap(await finishJob(woken.id, 'worker-m'));
+		}
+		// The ended alert's job was dropped with it.
+		expect(unwrap(await claimJob('worker-n', 60_000))).toBeNull();
 	});
 });
