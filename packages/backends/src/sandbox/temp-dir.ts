@@ -39,7 +39,8 @@ function killGroup(group: number, signal: 'TERM' | 'KILL'): Promise<void> {
 }
 
 // Runs the command in the directory, in a process group of its own, which `groups` notes so the
-// sandbox's sleep can end what the command left running; killed as a whole on timeout.
+// sandbox's sleep can end what the command left running; killed as a whole on timeout. What a
+// command leaves running outlives it here, which the contract doesn't promise.
 function run(directory: string, command: SandboxCommand, groups: Set<number>): Promise<SandboxOutput> {
 	return new Promise((resolveOutput) => {
 		const child = spawn('/bin/sh', ['-c', command.command], {

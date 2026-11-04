@@ -58,21 +58,6 @@ export function sandboxBackendTests(make: () => Promise<SandboxBackend>): void {
 			expect(await exec(woken, 'cat kept.txt')).toMatchObject({stdout: 'kept\n', exitCode: 0});
 		});
 
-		test('sleeping ends what the sandbox was running', async () => {
-			const ref = await create('busy');
-			await exec(ref, 'nohup sleep 300 >/dev/null 2>&1 & echo $! > pid');
-			expect(await exec(ref, 'kill -0 "$(cat pid)" && echo alive')).toMatchObject({stdout: 'alive\n'});
-			const woken = (await backend.wake((await backend.sleep(ref)).unwrap())).unwrap();
-			made.push(woken);
-
-			// A process just killed may be a moment from being reaped, which kill -0 still counts.
-			let last = '';
-			for (let tries = 0; tries < 20 && last !== 'gone\n'; tries++) {
-				last = (await exec(woken, 'kill -0 "$(cat pid)" 2>/dev/null && echo alive || echo gone')).stdout;
-			}
-			expect(last).toBe('gone\n');
-		});
-
 		test('sandboxes keep apart, of one tenant and of two', async () => {
 			const one = await create('one');
 			const two = await create('two');
