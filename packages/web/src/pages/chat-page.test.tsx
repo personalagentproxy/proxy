@@ -44,7 +44,10 @@ function renderChatPage() {
 				children: [
 					{
 						path: '/:org/chat/:id',
-						loader: () => ({log, personas: [general, finance]}),
+						loader: ({params}) => ({
+							log: {...log, persona: params.id === finance.id ? finance : general},
+							personas: [general, finance],
+						}),
 						element: <ChatPage />,
 					},
 				],
@@ -63,6 +66,85 @@ function renderChatPage() {
 }
 
 describe('ChatPage', () => {
+	test('lets each agent head follow the pointer only while that agent row is hovered', async () => {
+		const {container} = renderChatPage();
+
+		await waitFor(() => {
+			expect(container.querySelectorAll('[data-slot="live-head"]')).toHaveLength(2);
+		});
+		const heads = [...container.querySelectorAll('[data-slot="live-head"]')];
+		expect(heads).toHaveLength(2);
+		expect(heads.every((head) => head.getAttribute('data-state') === 'rest')).toBe(true);
+		const [firstHead, secondHead] = heads;
+		if (!firstHead || !secondHead) {
+			throw new Error('Expected two agent heads');
+		}
+		const secondRow = secondHead.closest('a');
+		if (!secondRow) {
+			throw new Error('Expected the agent head inside its row');
+		}
+
+		fireEvent.pointerEnter(secondRow);
+		expect(firstHead.getAttribute('data-state')).toBe('rest');
+		expect(secondHead.getAttribute('data-state')).toBe('watching');
+
+		fireEvent.pointerLeave(secondRow);
+		expect(secondHead.getAttribute('data-state')).toBe('rest');
+	});
+
+	test('keeps a hovered head in place when its chat opens', async () => {
+		const {container} = renderChatPage();
+
+		await waitFor(() => {
+			expect(container.querySelectorAll('[data-slot="live-head"]')).toHaveLength(2);
+		});
+		const secondHead = container.querySelectorAll('[data-slot="live-head"]')[1];
+		const secondRow = secondHead?.closest('a');
+		if (!secondHead || !secondRow) {
+			throw new Error('Expected the second agent head inside its row');
+		}
+
+		fireEvent.pointerEnter(secondRow);
+		expect(secondHead.getAttribute('data-state')).toBe('watching');
+		fireEvent.pointerUp(secondRow, {pointerType: 'mouse', button: 0});
+		fireEvent.click(secondRow);
+
+		await waitFor(() => {
+			const openedHead = container.querySelectorAll('[data-slot="live-head"]')[1];
+			expect(openedHead?.closest('a')?.getAttribute('aria-current')).toBe('page');
+			expect(openedHead?.getAttribute('data-state')).toBe('watching');
+		});
+	});
+
+	test('does not make a keyboard-opened agent head watch an unrelated pointer', async () => {
+		const {container} = renderChatPage();
+		const financeRow = await screen.findByRole('link', {name: /Finance/});
+
+		fireEvent.click(financeRow, {detail: 0});
+
+		await waitFor(() => {
+			const openedHead = container.querySelectorAll('[data-slot="live-head"]')[1];
+			expect(openedHead?.closest('a')?.getAttribute('aria-current')).toBe('page');
+			expect(openedHead?.getAttribute('data-state')).toBe('rest');
+		});
+	});
+
+	test('does not transfer a hover that ended before the next chat opened', async () => {
+		const {container} = renderChatPage();
+		const financeRow = await screen.findByRole('link', {name: /Finance/});
+
+		fireEvent.pointerEnter(financeRow);
+		fireEvent.pointerUp(financeRow, {pointerType: 'mouse', button: 0});
+		fireEvent.pointerLeave(financeRow);
+		fireEvent.click(financeRow);
+
+		await waitFor(() => {
+			const openedHead = container.querySelectorAll('[data-slot="live-head"]')[1];
+			expect(openedHead?.closest('a')?.getAttribute('aria-current')).toBe('page');
+			expect(openedHead?.getAttribute('data-state')).toBe('rest');
+		});
+	});
+
 	test('renames a changeable agent from its right-click menu', async () => {
 		fetchMock.mockImplementation((_input, init) => {
 			if (init?.method === 'PUT') {

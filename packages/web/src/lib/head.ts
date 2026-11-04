@@ -21,6 +21,45 @@ export const REST: Pose = {rotX: -3, rotY: -65, rotZ: -12};
 /** Looking straight at you. */
 export const FACING: Pose = {rotX: 0, rotY: -90, rotZ: 0};
 
+/** Cursor-follow timing, in milliseconds: ordinary tracking and the gentler first response. */
+export const FOLLOW_TIME_MS = 100;
+export const FIRST_HOVER_FOLLOW_TIME_MS = 180;
+export const FIRST_HOVER_DURATION_MS = 600;
+
+/** A refresh-rate-independent share of the distance to travel during one animation frame. */
+export function followAmount(elapsedMs: number, timeConstantMs: number): number {
+	return 1 - Math.exp(-elapsedMs / timeConstantMs);
+}
+
+/** The timing for this frame: gentler only during the first response to a hover. */
+export function followTime(watching: boolean, now: number, firstHoverUntil: number): number {
+	if (watching && now < firstHoverUntil) {
+		return FIRST_HOVER_FOLLOW_TIME_MS;
+	}
+	return FOLLOW_TIME_MS;
+}
+
+// How far the head turns toward the cursor, in degrees, at the edge of its canvas. Measuring
+// against the head itself keeps the movement visible while the pointer is inside its hover area.
+const TURN = 45;
+const NOD = 30;
+const TILT = 10;
+
+function clamp(value: number): number {
+	return Math.max(-1, Math.min(1, value));
+}
+
+/** The pose looking from the center of a head's bounds toward a pointer within or beyond them. */
+export function poseTowardPointer(
+	pointer: {x: number; y: number},
+	bounds: {left: number; top: number; width: number; height: number},
+	range: {width: number; height: number} = bounds,
+): Pose {
+	const dx = clamp((pointer.x - (bounds.left + bounds.width / 2)) / (range.width / 2));
+	const dy = clamp((pointer.y - (bounds.top + bounds.height / 2)) / (range.height / 2));
+	return {rotX: dy * NOD, rotY: FACING.rotY + dx * TURN, rotZ: -dx * TILT};
+}
+
 const DEG = Math.PI / 180;
 // How much darker than the head the nose is, in OKLCH lightness, and how the head fills its box.
 const NOSE_DARK = 0.22;
