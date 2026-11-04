@@ -62,7 +62,7 @@ function cancelZoom(zooming: {current: number | null}) {
 	}
 }
 
-// Under the home page's input: who is doing what for the person. Every agent's row over the tasks
+// Under the home page's input, and over the activity log: who is doing what for the person. Every agent's row over the tasks
 // it was given in a window of time, up to now at the right edge, each with the requests made for
 // it; a task's bar opens its page, and a request opens in full. The window's
 // length is chosen above the timeline, or zoomed with Ctrl or Cmd and the wheel, or a pinch, as a
@@ -286,15 +286,7 @@ export function AgentTimeline({
 	// where it changed: writing the address as it is would read the whole page again (router.tsx).
 	useEffect(() => {
 		const timer = setTimeout(() => {
-			const next = new URLSearchParams(location.search);
-			next.delete('window');
-			next.delete('end');
-			if (Math.round(minutes) !== DEFAULT_MINUTES) {
-				next.set('window', String(Math.round(minutes)));
-			}
-			if (end !== null) {
-				next.set('end', String(Math.round(end)));
-			}
+			const next = new URLSearchParams(windowSearch(location.search, Math.round(minutes), end));
 			if (next.toString() === new URLSearchParams(location.search).toString()) {
 				return;
 			}
@@ -304,8 +296,9 @@ export function AgentTimeline({
 	}, [minutes, end, location.search, setParams]);
 	// The window's length as read: whole minutes, which it is but for a moment while zooming in.
 	const wholeMinutes = Math.round(minutes);
-	// Where a task's page comes back to: this page, with the window as it is now.
-	const backTo = `${location.pathname}${windowSearch(wholeMinutes, end)}`;
+	// Where a task's page comes back to: this page, with the window as it is now and the rest of the
+	// address, as the activity log's filters, as it was.
+	const backTo = `${location.pathname}${windowSearch(location.search, wholeMinutes, end)}`;
 
 	// Scrolled or zoomed to where there is nothing, the timeline stays up, its rows going the way
 	// they do, and only says so once the window has rested a second.
@@ -470,15 +463,18 @@ function windowFromParams(params: URLSearchParams): {minutes: number; end: numbe
 	};
 }
 
-// The search part of the address for a window: empty for the default, ending at now.
-function windowSearch(minutes: number, end: number | null): string {
-	const params = new URLSearchParams();
+// The search part of the address `search` with a window in place of its own: the window left out
+// for the default, ending at now.
+function windowSearch(search: string, minutes: number, end: number | null): string {
+	const params = new URLSearchParams(search);
+	params.delete('window');
+	params.delete('end');
 	if (minutes !== DEFAULT_MINUTES) {
 		params.set('window', String(minutes));
 	}
 	if (end !== null) {
 		params.set('end', String(Math.round(end)));
 	}
-	const search = params.toString();
-	return search ? `?${search}` : '';
+	const written = params.toString();
+	return written ? `?${written}` : '';
 }

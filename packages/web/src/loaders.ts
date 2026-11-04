@@ -50,8 +50,8 @@ export async function homeLoader(args: OrgParams) {
 }
 
 // The timeline writes its window to the address as it moves (agent-timeline.tsx) and reads what
-// that needs itself, so a change of the window alone doesn't load the page again.
-export function shouldRevalidateHome({
+// that needs itself, so a change of the window alone doesn't load its page, home or activity, again.
+export function shouldRevalidateTimeline({
 	currentUrl,
 	nextUrl,
 	defaultShouldRevalidate,
@@ -202,10 +202,11 @@ export async function activityLoader(args: OrgParams & {request: Request}) {
 		outcome:
 			outcome === 'allowed' || outcome === 'denied' || outcome === 'failed' ? outcome : undefined,
 	};
-	const [activity, connections, agents] = await Promise.all([
+	const [activity, connections, agents, timeline] = await Promise.all([
 		listActivity(org, filter),
 		listConnections(org),
 		listAgents(org),
+		getActivityTimeline(org, windowStart(LOADED_MINUTES, new Date()).toISOString()),
 	]);
 	const {entries, tasks} = unwrapLoaderResult(activity);
 	return {
@@ -213,6 +214,8 @@ export async function activityLoader(args: OrgParams & {request: Request}) {
 		tasks,
 		connections: unwrapLoaderResult(connections).connections,
 		agents: unwrapLoaderResult(agents).agents,
+		// The home page's timeline over the log; the log works without it, as home does.
+		timeline: timeline.unwrapOr(null),
 	};
 }
 
