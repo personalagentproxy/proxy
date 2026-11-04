@@ -59,8 +59,9 @@ function TaskRunPage({
 	const [opened, setOpened] = useState<AuditEntry | null>(null);
 	const [shown, setShown] = useState<ShownText>('goal');
 	const textId = useId();
-	// Where the page was come to from, where that page said (lib/back.ts): the home page with its
-	// window as it was, or the task this one was handed on from; else the activity log, at the task.
+	// Where the page was come to from, where that page said (lib/back.ts): the home page or the
+	// activity log with its timeline's window as it was, or the task this one was handed on from;
+	// else the activity log, at the task.
 	const cameFrom = backOf(location);
 	const task = run.tasks.find((candidate) => candidate.id === run.task);
 	const running = run.tasks.some(

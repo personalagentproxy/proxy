@@ -4,6 +4,7 @@ import {taskEndedAt} from '@proxy/utils/tasks';
 import {XIcon} from 'lucide-react';
 import {type ReactNode, useState} from 'react';
 import {Link, useLoaderData, useSearchParams} from 'react-router';
+import {AgentTimeline} from '@/components/agent-timeline';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {
@@ -34,8 +35,8 @@ const OUTCOMES: Option[] = [
 	{value: 'failed', label: 'Failed'},
 ];
 
-// Every request an agent made, and what Personal Agent Proxy did itself from the home page,
-// newest first, narrowed by agent, connection and outcome, and to one agent's task. The filters
+// The home page's timeline of who is doing what, over every request an agent made, and what
+// Personal Agent Proxy did itself from the home page, newest first, narrowed by agent, connection and outcome, and to one agent's task. The filters
 // live in the URL, so the agent and connection pages, the home page's lanes and an entry's task can
 // link straight to their part of the log, and the api applies them (`?agent=proxy` for Personal
 // Agent Proxy's own, `?outcome=denied` for what was refused, `?outcome=failed` for what the provider
@@ -44,6 +45,7 @@ export function ActivityPage() {
 	const {
 		entries,
 		tasks,
+		timeline,
 		agents: allAgents,
 		connections: allConnections,
 	} = useLoaderData<typeof activityLoader>();
@@ -87,6 +89,9 @@ export function ActivityPage() {
 
 	return (
 		<AppShell title={<PageTitle detail={`${entries.length} requests`}>Activity</PageTitle>}>
+			{timeline && (
+				<AgentTimeline initial={timeline} agents={allAgents} connections={allConnections} />
+			)}
 			<div className="flex flex-wrap gap-2 md:flex-nowrap">
 				<Filter
 					label="Agent"
