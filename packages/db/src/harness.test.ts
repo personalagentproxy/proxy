@@ -190,7 +190,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			['assistant', job.id, 'You are signed in.', null],
 			['tool_result', job.id, null, 'c0'],
 		]);
-		const events = unwrap(await listJobEvents([thread.id]));
+		const events = unwrap(await listJobEvents(thread.id));
 		expect(events.map((event) => [event.jobId, event.kind, event.workerId, event.error])).toEqual([
 			[job.id, 'claimed', 'worker-a', null],
 			[job.id, 'done', 'worker-a', null],
@@ -255,7 +255,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			['tool_result', tool.id, false],
 			['assistant', next.id, true],
 		]);
-		const events = unwrap(await listJobEvents([thread.id]));
+		const events = unwrap(await listJobEvents(thread.id));
 		expect(
 			events.slice(2).map((event) => [event.jobId, event.kind, event.workerId, event.error]),
 		).toEqual([
@@ -275,7 +275,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			throw new Error('nothing to claim');
 		}
 		unwrap(await finishJob(job.id, 'worker-e'));
-		const events = unwrap(await listJobEvents([thread.id]));
+		const events = unwrap(await listJobEvents(thread.id));
 		expect(events.slice(-2).map((event) => [event.jobId, event.kind, event.workerId])).toEqual([
 			[job.id, 'claimed', 'worker-e'],
 			[job.id, 'done', 'worker-e'],

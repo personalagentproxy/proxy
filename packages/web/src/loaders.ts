@@ -26,11 +26,9 @@ import {redirect, type ShouldRevalidateFunctionArgs} from 'react-router';
 // page is in an organization, named by its slug in the address (`params.org`), which its api
 // calls are about.
 
-/** The route params of a page in an organization. */
-export type OrgParams = {params: {org?: string}};
+type OrgParams = {params: {org?: string}};
 
-/** The organization's slug from the address. */
-export function orgOf({params}: OrgParams): string {
+function orgOf({params}: OrgParams): string {
 	return params.org ?? '';
 }
 

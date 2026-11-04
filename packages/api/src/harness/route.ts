@@ -49,8 +49,7 @@ function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
 	return manages(viewer, {ownerUserId: null, byId: persona.createdById});
 }
 
-/** A persona for a response, with whether the viewer may change it; the inspector's too. */
-export function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null}): ChatPersona {
+function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null}): ChatPersona {
 	const last = persona.lastMessage ?? null;
 	return {
 		id: persona.id,
@@ -100,8 +99,9 @@ function requireManagedPersona(store: ChatStore, viewer: OrgViewer, request: Aut
 	});
 }
 
-/** The viewer's conversation with the persona, begun the first time, through the organization's built-in login, made with it where there is none yet; the inspector begins it too. */
-export function requireThread(store: Pick<ChatStore, 'getMemberThread' | 'ensureMemberThread'>, viewer: OrgViewer, persona: PersonaRow): Promise<Result<ThreadRow, ApiError>> {
+// The viewer's conversation with the persona, begun the first time, through the organization's
+// built-in login, made with it where there is none yet.
+function requireThread(store: ChatStore, viewer: OrgViewer, persona: PersonaRow): Promise<Result<ThreadRow, ApiError>> {
 	return Do(async ($) => {
 		const existing = $(await store.getMemberThread(persona.id, viewer.userId));
 		if (existing) {

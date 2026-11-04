@@ -211,7 +211,7 @@ function toPersona(persona: {
 	return {...persona, look: parseLook(persona.look)};
 }
 
-/** The columns of an entry, as `EntryRow` has them; the inspector reads with it too. */
+/** The columns of an entry, as `EntryRow` has them; the admin reads with it too. */
 export const entrySelect = {
 	id: true,
 	seq: true,
@@ -230,8 +230,7 @@ export const entrySelect = {
 	createdAt: true,
 } as const;
 
-/** The columns of a job the worker reads; the inspector reads more. */
-export const jobSelect = {
+const jobSelect = {
 	id: true,
 	threadId: true,
 	kind: true,
@@ -541,11 +540,11 @@ export async function listSubAgents(
 	);
 }
 
-/** What happened to the threads' jobs, in order: every claim, requeue, finish and failure. */
-export async function listJobEvents(threadIds: string[]): Promise<Result<JobEventRow[], ApiError>> {
+/** What happened to the thread's jobs, in order: every claim, requeue, finish and failure. */
+export async function listJobEvents(threadId: string): Promise<Result<JobEventRow[], ApiError>> {
 	return wrapDb(() =>
 		db.agentJobEvent.findMany({
-			where: {threadId: {in: threadIds}},
+			where: {threadId},
 			select: jobEventSelect,
 			orderBy: {at: 'asc'},
 		}),

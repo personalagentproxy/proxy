@@ -65,8 +65,6 @@ import {ConnectionsPage} from '@/pages/connections-page';
 import {DesktopAuthPage} from '@/pages/desktop-auth-page';
 import {DesktopReturnPage} from '@/pages/desktop-return-page';
 import {HomePage} from '@/pages/home-page';
-import {inspectIndexLoader, inspectLoader} from '@/inspect/loaders';
-import {InspectPage} from '@/inspect/inspect-page';
 import {InvitePage} from '@/pages/invite-page';
 import {LoginPage} from '@/pages/login-page';
 import {MembersPage} from '@/pages/members-page';
@@ -291,10 +289,6 @@ export const router = createBrowserRouter([
 			// The built-in agents, behind the `harness` experiment: the api refuses it otherwise.
 			{path: '/:org/chat', loader: chatIndexLoader, element: <ChatPage />},
 			{path: '/:org/chat/:id', loader: chatLoader, element: <ChatPage />},
-			// The inspector of the built-in agent, behind the `debug` experiment too, on a
-			// page of its own, reached by its address alone.
-			{path: '/:org/inspect', loader: inspectIndexLoader, element: <InspectPage />},
-			{path: '/:org/inspect/:id', loader: inspectLoader, element: <InspectPage />},
 			{path: '/:org/agents', loader: agentsLoader, element: <AgentsPage />},
 			{path: '/:org/agents/new', loader: agentsLoader, element: <NewAgentPage />},
 			{path: '/:org/agents/:id', loader: agentLoader, element: <AgentPage />},
