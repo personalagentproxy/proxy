@@ -113,6 +113,8 @@ export function createMainWindow(): BrowserWindow {
 		// a packaged app has its own, and no build/ beside it.
 		...(app.isPackaged ? {} : {icon: path.join(__dirname, '../build/icon.png')}),
 		backgroundColor: nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#ffffff',
+		// What the page may ask of the app (src/preload.ts), bundled beside the main process.
+		webPreferences: {preload: path.join(__dirname, 'preload.cjs')},
 	});
 
 	keepWindowBounds(win);

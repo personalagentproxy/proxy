@@ -11,6 +11,10 @@ everything but the app's own origin out of the window: links out of the app open
 - `src/window.ts` loads the web app and keeps the window to it. Where the web app would show its
   login page, the window shows a page of its own with a button that opens the browser; with no
   connection, one that says so.
+- Updates (`src/updates.ts`): a new release of the app, checked for on start and every few hours,
+  is downloaded at once and announced to the page through the window's preload
+  (`src/preload.ts`, `window.personalAgentProxyDesktop` to the web app), which shows its release
+  notice with a restart button. Put off, the update is installed when the app next quits.
 - Signing in (`src/auth.ts`, `packages/api/src/auth/desktop.ts`): the app keeps a PKCE verifier and
   opens the browser at `/login?callbackUrl=/desktop-auth?challenge=…`. Signed in there, the
   `/desktop-auth` page mints a one-time code bound to the challenge and hands it back through
