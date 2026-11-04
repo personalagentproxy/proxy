@@ -7,7 +7,7 @@ import {z} from 'zod';
  */
 
 export type EnvDoc = {
-	group: 'Core' | 'Sign-in' | 'Connections' | 'Deployment';
+	group: 'Core' | 'Sign-in' | 'Connections' | 'Deployment' | 'Observability';
 	description: string;
 	// Personal Agent Proxy does not work without it, though the api still starts so its errors can say why.
 	required?: true;
@@ -142,6 +142,20 @@ export const envSchema = z.object({
 		group: 'Deployment',
 		description: 'The version telemetry reports. The official image sets it.',
 	}),
+	LOKI_URL: documented(originSchema.optional(), {
+		group: 'Observability',
+		description:
+			'Ships the api’s log to Grafana Cloud Loki as well as to stdout, with `LOKI_USER_ID` and `GRAFANA_CLOUD_TOKEN`: the stack’s Loki address, such as `https://logs-prod-021.grafana.net`. Unset, the log is written to stdout alone, one JSON object per line.',
+	}),
+	LOKI_USER_ID: documented(z.string().min(1).optional(), {
+		group: 'Observability',
+		description: 'The numeric user id of the Grafana Cloud stack’s Loki, from its details page.',
+	}),
+	GRAFANA_CLOUD_TOKEN: documented(z.string().min(1).optional(), {
+		group: 'Observability',
+		description: 'A Grafana Cloud access policy token that may write logs and metrics.',
+	}),
+
 	ALLOW_PRIVATE_HOSTS: documented(
 		z
 			.enum(['true', 'false', '1', '0'])

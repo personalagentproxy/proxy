@@ -8,6 +8,7 @@ import type {ApiError} from '@proxy/utils';
 import type {JobRow} from '@proxy/db/harness';
 
 import {log, serializeError} from '../observability/log';
+import {runInContext} from '../observability/request-context';
 import {failureNote} from './conversation';
 import {type InferenceStore, runInference} from './inference';
 import type {HarnessStore} from './store';
@@ -112,7 +113,9 @@ export function startHarnessWorker(store: WorkerStore): HarnessWorker {
 				await sleep(POLL_MS);
 				continue;
 			}
-			const job: Promise<void> = runClaimed(store, claimed.value, workerId).finally(() => running.delete(job));
+			const row = claimed.value;
+			// Every line written for the job says which it was, as a request's say which request.
+			const job: Promise<void> = runInContext({jobId: row.id, jobKind: row.kind, threadId: row.threadId, workerId}, () => runClaimed(store, row, workerId)).finally(() => running.delete(job));
 			running.add(job);
 		}
 	};

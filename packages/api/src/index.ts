@@ -25,6 +25,7 @@ async function startApiServer(): Promise<void> {
 	const connectDbResult = await Result.wrapAsync(() => connectDb());
 	if (connectDbResult.isErr()) {
 		log.error('Failed to connect Prisma to Postgres', serializeError(connectDbResult.error));
+		await log.shutdown();
 		process.exit(1);
 	}
 	startTelemetry();
@@ -58,6 +59,7 @@ async function startApiServer(): Promise<void> {
 			log.error('Failed to disconnect Prisma', serializeError(disconnectResult.error));
 		}
 
+		await log.shutdown();
 		process.exit(0);
 	};
 
