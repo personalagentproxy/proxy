@@ -1,6 +1,5 @@
 import {z} from 'zod';
 
-import {type Experiment, hasExperiment} from '@proxy/utils';
 import {TRANSACTION_CATEGORIES} from '@proxy/utils/transaction-categories';
 import {UNITS} from '@proxy/utils/units';
 
@@ -9,7 +8,7 @@ import {UNITS} from '@proxy/utils/units';
  * and a small, fast LLM fills in its fields from the text (`packages/api/src/intent/`). Most are
  * meant for one kind of data: Calendar, Contacts, Gmail or Drive, or a bank; Math and Convert units
  * are worked out in the web app; Ask reads one meeting, file, email, page or issue and answers from
- * it. A widget behind an experiment is offered only to an organization with it on.
+ * it.
  */
 
 type FieldOf<Id extends string> = {
@@ -38,8 +37,6 @@ type WidgetOf<Id extends string, FieldId extends string> = {
 	/** What Jev reads to tell the widgets apart, and the LLM reads to know what it fills in. */
 	description: string;
 	fields: ReadonlyArray<FieldOf<FieldId>>;
-	/** The experiment an organization needs on to be offered it. */
-	experiment?: Experiment;
 };
 
 // Times aren't fields: the web app reads them from the whole text, which no field holds whole. A
@@ -233,7 +230,6 @@ const LIST = [
 	{
 		id: 'ask',
 		name: 'Ask',
-		experiment: 'ask',
 		description:
 			'Ask what one meeting, call, document, page, email or issue says: what was talked about or decided with someone, what a document or an email says about something, where an issue stands, or a summary of any of them ("what did I talk to sam about on monday", "what does the pricing doc say about discounts", "what did my landlord\'s email say about the deposit", "what\'s the status of the checkout bug", "summarize the board deck")',
 		fields: [
@@ -408,11 +404,6 @@ export const FIELD_IDS = [
 	'flow',
 	'transactionAccount',
 ] as const satisfies readonly FieldId[];
-
-/** The widgets offered to an organization: every one not behind an experiment, and those behind one it has on. */
-export function offeredWidgets(holder: {experiments: Experiment[]}): Widget[] {
-	return WIDGETS.filter((widget) => !widget.experiment || hasExperiment(holder, widget.experiment));
-}
 
 /** The answer when what was asked is whole and none of the widgets does it. */
 export const NO_WIDGET = 'none';

@@ -9,6 +9,7 @@
 		"./audit": "./src/audit.ts",
 		"./auth": "./src/auth.ts",
 		"./connection": "./src/connection.ts",
+		"./desktop-auth": "./src/desktop-auth.ts",
 		"./feedback": "./src/feedback.ts",
 		"./harness": "./src/harness.ts",
 		"./vault": "./src/vault.ts",

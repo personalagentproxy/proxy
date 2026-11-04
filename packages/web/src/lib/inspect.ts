@@ -10,9 +10,9 @@ import type {
  * where a thread stands, what a job is for and how long it took, what a summary covers.
  */
 
-/** Where a thread stands, in a word: at work, queued or asleep on a job, waiting for the person (a conversation), reported or failed (a sub-agent). */
+/** Where a thread stands, in a word: at work, queued or asleep on a job; with nothing open, a conversation waits for the person, and a sub-agent has stopped, or failed where its last job did. */
 export type ThreadStatus = {
-	kind: 'working' | 'queued' | 'asleep' | 'waiting' | 'reported' | 'failed';
+	kind: 'working' | 'queued' | 'asleep' | 'waiting' | 'stopped' | 'failed';
 	// Until when, for one asleep.
 	until: string | null;
 };
@@ -20,16 +20,16 @@ export type ThreadStatus = {
 const SLEEP_SOON_MS = 1000;
 
 export function threadStatus(thread: InspectedThread, now: string): ThreadStatus {
-	if (thread.finishedAt !== null) {
-		const failed = thread.jobs.some((job) => job.status === 'failed');
-		return {kind: failed ? 'failed' : 'reported', until: null};
-	}
 	const open = thread.jobs.filter((job) => job.status === 'queued' || job.status === 'running');
 	if (open.some((job) => job.status === 'running')) {
 		return {kind: 'working', until: null};
 	}
 	if (open.length === 0) {
-		return {kind: 'waiting', until: null};
+		if (thread.parentThreadId === null) {
+			return {kind: 'waiting', until: null};
+		}
+		const last = thread.jobs.at(-1);
+		return {kind: last?.status === 'failed' ? 'failed' : 'stopped', until: null};
 	}
 	const time = new Date(now).getTime();
 	// A queued job due later is a sleep; one due now is about to be claimed.

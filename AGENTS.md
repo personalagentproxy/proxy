@@ -7,11 +7,12 @@
 - `bun run docs` - Start only the docs (http://localhost:5174), without the database, the api or the other apps
 - `bun run website` - Start only the website (http://localhost:5175), without the database, the api or the other apps
 - `bun run map` - Start the screen map (http://localhost:5176), the development-only canvas of every screen of the web app and the ways between them. It shows what `bun run crawl` in `packages/map` last wrote: with `bun run dev` up, the crawl seeds the demo workspace, signs in as a person, as a new organization and as an agent, visits every route in the web app's router, screenshots each and notes its links. Everything it writes is in `packages/map/generated`, which is gitignored
+- `bun run desktop` - Start the desktop app (`packages/desktop`, an Electron window around the web app) on this checkout. A `bun run dev` already running is used as it is; without one the stack is started first and stopped when the window closes. The app loads `.env`'s `APP_URL`; `DESKTOP_APP_URL=<url>` points it at another origin and skips the stack
 - `bun run seed` - With `bun run dev` up, fill the local database with a demo workspace (connections, agents with settings of their own, activity) and print a sign-in link for `demo@proxy.local`. Re-running replaces it
 - `bun run --cwd packages/db db:migrate:diff` - With the database running, print the SQL from the database to `schema.prisma`; save it as `packages/db/prisma/migrations/<name>/migration.sql`, the name `v` and the next three-digit number, such as `v011_add_x`: Prisma applies migrations in the order their names sort as text, so `10_x` would run before `9_mcp_oauth` (a test refuses any other name). `bun run dev` applies pending migrations on start
 - `bun run typecheck` - Typecheck all packages
 - `bun run test` - Run every package's tests (`bun test`; the api's with `--isolate`, since its tests mock modules per file)
-- `bun run lint` - Lint the web app, the docs and the website with oxlint
+- `bun run lint` - Lint the web app, the docs, the website, the screen map and the desktop app with oxlint
 - `bun run build` - Production builds of the web app, the docs and the website
 - `docker build -t proxy .` - The self-hosting image (`Dockerfile`): the api serving the web app's build on one origin, applying the migrations on start (`docker-entrypoint.sh`). `docker-compose.yml` runs it with Postgres and Caddy; `.github/workflows/image.yml` publishes it to `ghcr.io/personalagentproxy/proxy`. Hosted Personal Agent Proxy runs on Render from `render.yaml`: the image as one service (api and web app on one origin, two instances), Render Postgres, and the docs and the website as static sites
 

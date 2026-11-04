@@ -201,7 +201,7 @@ describe('handleExaCallbackRoute', () => {
 		const url = new URL(
 			(
 				await beginBuiltInSignIn(EXA_MCP, begun as never, {
-					viewer: {orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []},
+					viewer: {orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: [], chatModel: null},
 					returnTo: undefined,
 					name: 'Web search',
 					shared: false,

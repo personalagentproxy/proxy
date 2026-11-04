@@ -25,7 +25,6 @@ const thread: ThreadRow = {
 	parentCallId: 'c0',
 	title: 'Find the invoices',
 	taskId: 'task-1',
-	finishedAt: null,
 	createdAt: now,
 };
 const conversation: ThreadRow = {...thread, id: 'thread-0', parentThreadId: null, parentCallId: null, title: null, taskId: null};
@@ -60,13 +59,12 @@ let getEntry: FakeStore['getEntry'];
 let completeToolJob: FakeStore['completeToolJob'];
 let failJob: FakeStore['failJob'];
 let finishJob: FakeStore['finishJob'];
-let startSubAgent: FakeStore['startSubAgent'];
 
 beforeEach(() => {
 	mock.clearAllMocks();
 	store = fakeStore();
-	({getJobThread, getEntry, completeToolJob, failJob, finishJob, startSubAgent} = store);
-	for (const write of [completeToolJob, failJob, finishJob, startSubAgent]) {
+	({getJobThread, getEntry, completeToolJob, failJob, finishJob} = store);
+	for (const write of [completeToolJob, failJob, finishJob]) {
 		write.mockResolvedValue(Ok(true));
 	}
 	store.getThreadAgent.mockResolvedValue(Ok(signedIn));
@@ -102,59 +100,19 @@ describe('runToolJob', () => {
 		expect(completeToolJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: '{"records":[]}', isError: false});
 	});
 
-	test('a delegation from the conversation starts the sub-agent on its title and brief, and answers nothing: the report will', async () => {
+	test('the conversation’s agent has no tool that takes a job, and a sub-agent can’t message one', async () => {
 		const {runToolJob} = await import('./tool-job');
 		getJobThread.mockResolvedValue(Ok(conversation));
-		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'delegate', arguments: '{"title":" Find the invoices ","brief":"Search the mailbox for invoices from Dana."}'}])));
+		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'read', arguments: '{}'}])));
 
-		const result = await runToolJob(store, job('c1'), 'w1', now);
-
-		expect(result.isOk()).toBe(true);
-		expect(startSubAgent).toHaveBeenCalledWith('job-1', 'w1', conversation, {
-			callId: 'c1',
-			title: 'Find the invoices',
-			task: {
-				orgId: 'org-1',
-				agentId: 'agent-1',
-				ownerUserId: 'user-1',
-				personaId: 'persona-1',
-				parentId: null,
-				title: 'Find the invoices',
-				goal: 'Search the mailbox for invoices from Dana.',
-				via: 'harness',
-			},
-			entries: [{kind: 'person', text: 'Search the mailbox for invoices from Dana.'}],
-		});
-		expect(completeToolJob).not.toHaveBeenCalled();
-		expect(callMcpTool).not.toHaveBeenCalled();
-
-		startSubAgent.mockResolvedValueOnce(Ok(false));
-		expect((await runToolJob(store, job('c1'), 'w1', now)).unwrapErr().kind).toBe('conflict');
-	});
-
-	test('the conversation’s agent has no other tool, and a sub-agent can’t delegate', async () => {
-		const {runToolJob} = await import('./tool-job');
-		getJobThread.mockResolvedValue(Ok(conversation));
-		getEntry.mockResolvedValue(
-			Ok(
-				entryWith([
-					{id: 'c1', name: 'delegate', arguments: '{"title":"Find"}'},
-					{id: 'c2', name: 'read', arguments: '{}'},
-				]),
-			),
-		);
-
-		await runToolJob(store, job('c1'), 'w1', now);
-		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-0', {callId: 'c1', text: expect.stringContaining('Give title'), isError: true});
-		await runToolJob(store, job('c2'), 'w1', now);
-		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-0', {callId: 'c2', text: 'There is no tool read.', isError: true});
+		await runToolJob(store, {...job('c1'), threadId: 'thread-0'}, 'w1', now);
+		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-0', {callId: 'c1', text: 'There is no tool read.', isError: true});
 		expect(callMcpTool).not.toHaveBeenCalled();
 
 		getJobThread.mockResolvedValue(Ok(thread));
-		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'delegate', arguments: '{"title":"Find","brief":"Search."}'}])));
+		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'send_to_subagent', arguments: '{"subagent":"thread-2","text":"Go."}'}])));
 		await runToolJob(store, job('c1'), 'w1', now);
-		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: 'There is no tool delegate.', isError: true});
-		expect(startSubAgent).not.toHaveBeenCalled();
+		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: 'There is no tool send_to_subagent.', isError: true});
 	});
 
 	test('a refused call is answered as an error, in the gate’s words', async () => {
@@ -166,14 +124,14 @@ describe('runToolJob', () => {
 		expect(completeToolJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: 'This login may not run emails_list with this connection.', isError: true});
 	});
 
-	test('a sleep answers with the time, since its job was due when the sleep ended', async () => {
+	test('a sleep answers with the time, since its job was due when the sleep ended, or a message woke it', async () => {
 		const {runToolJob} = await import('./tool-job');
 		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'sleep_until', arguments: '{"seconds":60}'}])));
 
 		await runToolJob(store, job('c1'), 'w1', now);
 
 		expect(callMcpTool).not.toHaveBeenCalled();
-		expect(completeToolJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: 'You slept, and it is now 2026-10-21T10:00:00.000Z.', isError: false});
+		expect(completeToolJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: 'You were woken, and it is now 2026-10-21T10:00:00.000Z.', isError: false});
 	});
 
 	test('a write a worker was interrupted in is not made again: the model is told the outcome is unknown', async () => {

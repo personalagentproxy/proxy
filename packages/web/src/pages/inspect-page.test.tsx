@@ -88,7 +88,6 @@ const conversation: InspectedThread = {
 	parentCallId: null,
 	title: null,
 	taskId: null,
-	finishedAt: null,
 	createdAt: now,
 	entries: [
 		entry(1, 'person', 'Find my invoices'),
@@ -143,7 +142,6 @@ const subAgent: InspectedThread = {
 	parentCallId: 'c1',
 	title: 'Find the invoices',
 	taskId: 'task-2',
-	finishedAt: null,
 	createdAt: now,
 	entries: [
 		entry(4, 'person', 'Find them'),

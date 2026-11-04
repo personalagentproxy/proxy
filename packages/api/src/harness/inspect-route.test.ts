@@ -32,7 +32,6 @@ const thread: ThreadRow = {
 	parentCallId: null,
 	title: null,
 	taskId: null,
-	finishedAt: null,
 	createdAt: now,
 };
 const sub = {...thread, id: 'thread-2', parentThreadId: 'thread-1', parentCallId: 'c1', title: 'Find the invoices', taskId: 'task-2'};
@@ -130,7 +129,7 @@ beforeEach(async () => {
 	store = fakeStore();
 	store.getPersona.mockResolvedValue(Ok(persona));
 	store.getMemberThread.mockResolvedValue(Ok(thread));
-	store.listSubAgentThreads.mockResolvedValue(Ok([sub]));
+	store.listSubAgents.mockResolvedValue(Ok([{...sub, state: {kind: 'stopped'}}]));
 	store.listThreadJobs.mockResolvedValue(Ok(jobs));
 	store.listJobEvents.mockResolvedValue(Ok(events));
 	store.listEntriesWithPending.mockImplementation(async (threadId) => Ok(threadId === 'thread-1' ? conversation : subLog));

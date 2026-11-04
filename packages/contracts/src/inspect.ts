@@ -97,7 +97,6 @@ export const inspectedThreadSchema = z.object({
 	parentCallId: z.string().nullable(),
 	title: z.string().nullable(),
 	taskId: z.string().nullable(),
-	finishedAt: z.string().nullable(),
 	createdAt: z.string(),
 	entries: z.array(inspectedEntrySchema),
 	jobs: z.array(inspectedJobSchema),

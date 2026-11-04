@@ -8,7 +8,7 @@ import type {InspectedEntry, InspectedJob, InspectedJobEvent, InspectedThread, i
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {type OrgViewer, requireViewer} from '../utils/user-org';
-import {COMPACT_AT_TOKENS, compactionCut, toMessages, toTranscript} from './context';
+import {COMPACT_AT_TOKENS, compactionCut, type SubAgent, toMessages, toTranscript} from './context';
 import {MAX_TURNS_ALONE, SUMMARIZE, SUMMARIZE_NOW, turnsAlone} from './inference';
 import {toPersona} from './route';
 import type {HarnessStore} from './store';
@@ -26,7 +26,7 @@ import {toolsFor} from './tool-surface';
 /** What the inspector's routes need of the store. */
 export type InspectStore = Pick<
 	HarnessStore,
-	'getPersona' | 'getMemberThread' | 'listSubAgentThreads' | 'listEntriesWithPending' | 'listThreadJobs' | 'listJobEvents' | 'getEntry' | 'getJobThread' | 'listEntries'
+	'getPersona' | 'getMemberThread' | 'listSubAgents' | 'listEntriesWithPending' | 'listThreadJobs' | 'listJobEvents' | 'getEntry' | 'getJobThread' | 'listEntries'
 >;
 
 function toInspectedEntry(entry: EntryRow): InspectedEntry {
@@ -109,7 +109,6 @@ function inspectThread(store: InspectStore, thread: ThreadRow, jobs: JobDetailRo
 			parentCallId: thread.parentCallId,
 			title: thread.title,
 			taskId: thread.taskId,
-			finishedAt: thread.finishedAt?.toISOString() ?? null,
 			createdAt: thread.createdAt.toISOString(),
 			entries: entries.map(toInspectedEntry),
 			jobs: jobs.filter((job) => job.threadId === thread.id).map(toInspectedJob),
@@ -126,8 +125,9 @@ function handleInspectThreadRoute(store: InspectStore, request: AuthenticatedReq
 		const personaId = request.params.personaId ?? '';
 		const persona = $(requirePresent($(await store.getPersona(viewer.orgId, personaId)), ApiErr.notFound('persona', personaId)));
 		const conversation = $(requirePresent($(await store.getMemberThread(persona.id, viewer.userId)), ApiErr.notFound('thread', persona.id)));
-		const subAgents = $(await store.listSubAgentThreads(conversation.id));
-		const threads = [conversation, ...subAgents];
+		const now = new Date();
+		const subAgents = $(await store.listSubAgents(conversation.id, now));
+		const threads: ThreadRow[] = [conversation, ...subAgents];
 		const ids = threads.map((thread) => thread.id);
 		const [jobs, events] = await Promise.all([store.listThreadJobs(ids), store.listJobEvents(ids)]);
 		const allJobs = $(jobs);
@@ -136,27 +136,28 @@ function handleInspectThreadRoute(store: InspectStore, request: AuthenticatedReq
 		for (const thread of threads) {
 			inspected.push($(await inspectThread(store, thread, allJobs, allEvents)));
 		}
-		return {persona: toPersona(viewer, persona), now: new Date().toISOString(), threads: inspected};
+		return {persona: toPersona(viewer, persona), now: now.toISOString(), threads: inspected};
 	});
 }
 
 // The request behind an assistant entry: the log before it, as the model read it, behind the
-// system prompt the entry kept.
-function turnRequest(thread: ThreadRow, entry: EntryRow, log: EntryRow[]): ModelRequest {
+// system prompt the entry kept. The sub-agents are the thread's as they are now: a message of one
+// is led in by its call, which doesn't change.
+function turnRequest(thread: ThreadRow, entry: EntryRow, log: EntryRow[], subAgents: SubAgent[]): ModelRequest {
 	const before = log.filter((candidate) => candidate.seq < entry.seq);
 	const system: ModelRequest['messages'] = entry.system === null ? [] : [{role: 'system', content: entry.system}];
-	return {kind: 'turn', system: entry.system, messages: [...system, ...toMessages(before, {clearOld: true})], tools: toolsFor(thread)};
+	return {kind: 'turn', system: entry.system, messages: [...system, ...toMessages(before, subAgents, {clearOld: true})], tools: toolsFor(thread)};
 }
 
 // The request behind a summary entry: the log it covers, written out for the model to summarize.
-function summaryRequest(entry: EntryRow, log: EntryRow[]): ModelRequest {
+function summaryRequest(entry: EntryRow, log: EntryRow[], subAgents: SubAgent[]): ModelRequest {
 	const covered = log.filter((candidate) => candidate.seq <= (entry.coversSeq ?? -1));
 	return {
 		kind: 'summary',
 		system: SUMMARIZE,
 		messages: [
 			{role: 'system', content: SUMMARIZE},
-			{role: 'user', content: `${toTranscript(covered)}\n\n${SUMMARIZE_NOW}`},
+			{role: 'user', content: `${toTranscript(covered, subAgents)}\n\n${SUMMARIZE_NOW}`},
 		],
 		tools: [],
 	};
@@ -173,11 +174,13 @@ function handleInspectRequestRoute(store: InspectStore, request: AuthenticatedRe
 			return $(Err(ApiErr.notFound('entry', entryId)));
 		}
 		const log = $(await store.listEntries(thread.id));
+		// A conversation's log names its sub-agents; a sub-agent's has none of its own.
+		const subAgents = thread.parentThreadId === null ? $(await store.listSubAgents(thread.id, new Date())) : [];
 		if (entry.kind === 'assistant') {
-			return turnRequest(thread, entry, log);
+			return turnRequest(thread, entry, log, subAgents);
 		}
 		if (entry.kind === 'summary') {
-			return summaryRequest(entry, log);
+			return summaryRequest(entry, log, subAgents);
 		}
 		return $(Err(ApiErr.notFound('entry', entryId)));
 	});

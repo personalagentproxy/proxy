@@ -57,7 +57,6 @@ function thread(extra: Partial<InspectedThread>): InspectedThread {
 		parentCallId: null,
 		title: null,
 		taskId: null,
-		finishedAt: null,
 		createdAt: now,
 		entries: [],
 		jobs: [],
@@ -91,14 +90,14 @@ describe('threadStatus', () => {
 		expect(threadStatus(thread({jobs: [later, job({status: 'queued'})]}), now).kind).toBe('queued');
 	});
 
-	test('waits for the person with nothing open, and a finished sub-agent reported, or failed where a job did', () => {
+	test('waits for the person with nothing open, and a sub-agent with nothing open has stopped, or failed where its last job did', () => {
 		expect(threadStatus(thread({jobs: [job({status: 'done'})]}), now).kind).toBe('waiting');
-		expect(threadStatus(thread({finishedAt: now, jobs: [job({status: 'done'})]}), now).kind).toBe(
-			'reported',
-		);
-		expect(threadStatus(thread({finishedAt: now, jobs: [job({status: 'failed'})]}), now).kind).toBe(
-			'failed',
-		);
+		expect(
+			threadStatus(thread({parentThreadId: 'thread-0', jobs: [job({status: 'done'})]}), now).kind,
+		).toBe('stopped');
+		expect(
+			threadStatus(thread({parentThreadId: 'thread-0', jobs: [job({status: 'failed'})]}), now).kind,
+		).toBe('failed');
 	});
 });
 

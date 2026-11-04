@@ -5,14 +5,17 @@ import {
 	callArguments,
 	cut,
 	DEFAULT_LOOK,
-	delegateArgs,
 	isAvatarColor,
 	type LogEntry,
 	parseLook,
 	pendingToolCalls,
 	readyForInference,
 	shuffleLook,
+	parentMessageArgs,
 	sleepUntil,
+	subAgentArgs,
+	subAgentMessageArgs,
+	threadState,
 } from './harness';
 
 const person = (text: string): LogEntry => ({kind: 'person', text, toolCalls: null, callId: null});
@@ -69,7 +72,7 @@ describe('readyForInference', () => {
 	test('after an event, as after the person, but not while a call is still unanswered', () => {
 		const delegated = [
 			person('hi'),
-			assistant('', [{id: 'd', name: 'delegate'}]),
+			assistant('', [{id: 'd', name: 'create_subagent'}]),
 			result('d'),
 			assistant('Started.'),
 		];
@@ -79,7 +82,7 @@ describe('readyForInference', () => {
 			readyForInference([
 				...delegated,
 				person('and?'),
-				assistant('', [{id: 'e', name: 'delegate'}]),
+				assistant('', [{id: 'e', name: 'create_subagent'}]),
 				event('d'),
 			]),
 		).toBe(false);
@@ -103,16 +106,63 @@ describe('cut', () => {
 	});
 });
 
-describe('delegateArgs', () => {
+describe('subAgentArgs', () => {
 	test('are a title, trimmed and cut to a task’s, and a brief, or nothing', () => {
-		expect(delegateArgs({title: ' Find the invoices ', brief: ' Search the mailbox. '})).toEqual({
+		expect(subAgentArgs({title: ' Find the invoices ', brief: ' Search the mailbox. '})).toEqual({
 			title: 'Find the invoices',
 			brief: 'Search the mailbox.',
 		});
-		expect(delegateArgs({title: 'x'.repeat(130), brief: 'Go'})?.title).toHaveLength(120);
-		expect(delegateArgs({title: 'Find', brief: ' '})).toBeNull();
-		expect(delegateArgs({brief: 'Go'})).toBeNull();
-		expect(delegateArgs('go')).toBeNull();
+		expect(subAgentArgs({title: 'x'.repeat(130), brief: 'Go'})?.title).toHaveLength(120);
+		expect(subAgentArgs({title: 'Find', brief: ' '})).toBeNull();
+		expect(subAgentArgs({brief: 'Go'})).toBeNull();
+		expect(subAgentArgs('go')).toBeNull();
+	});
+});
+
+describe('subAgentMessageArgs and parentMessageArgs', () => {
+	test('are which sub-agent and the message, trimmed, or the message alone, or nothing', () => {
+		expect(subAgentMessageArgs({subagent: ' sub-1 ', text: ' Also the shared mailbox. '})).toEqual({
+			subagent: 'sub-1',
+			text: 'Also the shared mailbox.',
+		});
+		expect(subAgentMessageArgs({subagent: 'sub-1'})).toBeNull();
+		expect(subAgentMessageArgs({subagent: '', text: 'Go'})).toBeNull();
+		expect(subAgentMessageArgs(['sub-1', 'Go'])).toBeNull();
+		expect(parentMessageArgs({text: ' Which mailbox? '})).toEqual({text: 'Which mailbox?'});
+		expect(parentMessageArgs({text: ' '})).toBeNull();
+		expect(parentMessageArgs(null)).toBeNull();
+	});
+});
+
+describe('threadState', () => {
+	const now = new Date('2026-10-21T10:00:00Z');
+	const later = new Date('2026-10-21T11:00:00Z');
+
+	test('is stopped with no job, asleep while every job is a tool job due later, and at work otherwise', () => {
+		expect(threadState([], now)).toEqual({kind: 'stopped'});
+		expect(threadState([{kind: 'tool', runAt: later}], now)).toEqual({
+			kind: 'asleep',
+			until: later,
+		});
+		expect(
+			threadState(
+				[
+					{kind: 'tool', runAt: new Date('2026-10-21T12:00:00Z')},
+					{kind: 'tool', runAt: later},
+				],
+				now,
+			),
+		).toEqual({kind: 'asleep', until: later});
+		expect(
+			threadState(
+				[
+					{kind: 'tool', runAt: later},
+					{kind: 'inference', runAt: later},
+				],
+				now,
+			),
+		).toEqual({kind: 'working'});
+		expect(threadState([{kind: 'tool', runAt: now}], now)).toEqual({kind: 'working'});
 	});
 });
 

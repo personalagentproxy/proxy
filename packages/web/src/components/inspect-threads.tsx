@@ -24,7 +24,7 @@ const STATUS_LABEL: Record<ThreadStatus['kind'], string> = {
 	queued: 'queued',
 	asleep: 'asleep',
 	waiting: 'waiting',
-	reported: 'reported',
+	stopped: 'stopped',
 	failed: 'failed',
 };
 
@@ -33,7 +33,7 @@ const STATUS_CLASS: Record<ThreadStatus['kind'], string> = {
 	queued: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
 	asleep: 'bg-violet-500/15 text-violet-700 dark:text-violet-300',
 	waiting: 'bg-muted text-muted-foreground',
-	reported: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+	stopped: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
 	failed: 'bg-destructive/10 text-destructive',
 };
 
@@ -132,7 +132,7 @@ export function ThreadTree({
 const JOB_CLASS: Record<InspectedJob['status'], string> = {
 	running: STATUS_CLASS.working,
 	queued: STATUS_CLASS.queued,
-	done: STATUS_CLASS.reported,
+	done: STATUS_CLASS.stopped,
 	failed: STATUS_CLASS.failed,
 };
 
