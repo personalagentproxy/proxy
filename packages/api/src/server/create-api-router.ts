@@ -43,6 +43,7 @@ import {
 } from '../connections/route';
 import {handleFaviconRoute} from '../favicons/route';
 import {alertRoutes} from '../harness/alerts-route';
+import {handleClientLogsRoute} from '../observability/client-logs';
 import {chatRoutes} from '../harness/route';
 import {harnessStore} from '../harness/store';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
@@ -106,6 +107,10 @@ export function createApiRouter(): express.Router {
 	// session and sends no Origin, so the code and its verifier are the guard there.
 	router.post('/auth/desktop/code', requireBrowserOrigin, withAuthResult('Desktop code route', handleDesktopCodeRoute));
 	router.post('/auth/desktop/session', wrapAsyncRoute('Desktop session route', handleDesktopSessionRoute));
+
+	// The web app's log lines, written on as its (observability/client-logs.ts).
+	router.use('/api/client-logs', requireBrowserOrigin);
+	router.post('/api/client-logs', withAuthResult('Client logs route', handleClientLogsRoute));
 
 	router.use('/api/me', requireBrowserOrigin);
 	router.get('/api/me', withAuthResult('Me route', handleMeRoute));

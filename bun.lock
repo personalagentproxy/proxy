@@ -229,6 +229,7 @@
         "@base-ui/react": "^1.8.0",
         "@proxy/contracts": "workspace:*",
         "@proxy/integrations": "workspace:*",
+        "@proxy/observability": "workspace:*",
         "@proxy/ui": "workspace:*",
         "@proxy/utils": "workspace:*",
         "@shadcn/react": "^0.3.1",

@@ -23,23 +23,6 @@ export const clientLogBatchSchema = z.object({
 });
 export type ClientLogBatch = z.infer<typeof clientLogBatchSchema>;
 
-// Metric names follow Prometheus naming. Labels are key/value strings; the api's registry decides
-// which names and labels it takes from the web app, so a browser can't inflate cardinality.
-const metricNameRegex = /^[a-z_][a-z0-9_]*$/;
-
-export const clientMetricEntrySchema = z.object({
-	ts: z.number().int().positive(),
-	name: z.string().min(1).max(120).regex(metricNameRegex),
-	value: z.number().finite(),
-	labels: z.record(z.string().regex(metricNameRegex), z.string().min(1).max(64)).optional(),
-});
-export type ClientMetricEntry = z.infer<typeof clientMetricEntrySchema>;
-
-export const clientMetricBatchSchema = z.object({
-	entries: z.array(clientMetricEntrySchema).min(1).max(100),
-});
-export type ClientMetricBatch = z.infer<typeof clientMetricBatchSchema>;
-
 /**
  * Who wrote a line: the api; the web app in a browser, or in the desktop app's window, which the
  * api tells apart by the user agent the desktop app sets; and, beside hosted Personal Agent
