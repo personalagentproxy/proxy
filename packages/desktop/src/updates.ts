@@ -1,14 +1,8 @@
-import {
-	app,
-	ipcMain,
-	type BrowserWindow,
-	type IpcMainEvent,
-	type IpcMainInvokeEvent,
-} from 'electron';
+import {app, ipcMain, type BrowserWindow} from 'electron';
 import {autoUpdater} from 'electron-updater';
 
 import {RESTART_CHANNEL, UPDATE_READY_CHANNEL} from './channels';
-import {APP_ORIGIN} from './env';
+import {fromApp} from './ipc';
 
 // Updates, from the feed electron-builder.yml names: checked on start and every few hours. A new
 // version is downloaded as soon as it is found and announced to the page, which shows its notice
@@ -18,12 +12,6 @@ import {APP_ORIGIN} from './env';
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 let readyVersion: string | null = null;
-
-// Only a page of the app's may ask: a bank's sign-in popup has the window's preload too.
-function fromApp(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
-	const url = event.senderFrame?.url;
-	return url !== undefined && URL.canParse(url) && new URL(url).origin === APP_ORIGIN;
-}
 
 export function initUpdates(currentWindow: () => BrowserWindow | null): void {
 	// A page loaded after the download, as one opened again from the Dock, asks.

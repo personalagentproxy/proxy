@@ -205,6 +205,7 @@ export function createApiRouter(): express.Router {
 	org.delete('/chat/personas/:personaId', withAuthResult('Delete persona route', chat.handleDeletePersonaRoute));
 	org.get('/chat/personas/:personaId/thread', withAuthResult('Get chat thread route', chat.handleGetThreadRoute));
 	org.post('/chat/personas/:personaId/messages', withAuthResult('Post chat message route', chat.handlePostMessageRoute));
+	org.post('/chat/personas/:personaId/read', withAuthResult('Mark chat read route', chat.handleMarkReadRoute));
 	// The Alerts page: what the agents set in the member's conversations, to be woken outside them.
 	const alerts = alertRoutes(harnessStore);
 	org.get('/alerts', withAuthResult('List alerts route', alerts.handleListAlertsRoute));

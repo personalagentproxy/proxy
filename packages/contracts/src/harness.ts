@@ -48,7 +48,14 @@ export const chatPersonaSchema = z.object({
 	 * The last thing said in the person's conversation with it, cut to a line, for the list; null
 	 * before anything was said.
 	 */
-	lastMessage: z.object({kind: speakerSchema, text: z.string(), at: z.string()}).nullable(),
+	lastMessage: z
+		.object({id: z.string(), kind: speakerSchema, text: z.string(), at: z.string()})
+		.nullable(),
+	/**
+	 * Whether the persona has said something the person hasn't seen: its last word in the
+	 * conversation came after the person last read it (`POST chat/personas/:personaId/read`).
+	 */
+	unread: z.boolean(),
 });
 
 export type ChatPersona = z.infer<typeof chatPersonaSchema>;

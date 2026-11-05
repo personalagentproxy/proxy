@@ -16,6 +16,12 @@ everything but the app's own origin out of the window: links out of the app open
   is downloaded at once and announced to the page through the window's preload
   (`src/preload.ts`, `window.personalAgentProxyDesktop` to the web app), which shows its release
   notice with a restart button. Put off, the update is installed when the app next quits.
+- Notifications (`src/notifications.ts`): the web app asks for one through the preload, with the
+  agent's name, what it said and the page of the app it is on, when an agent answers in Chat
+  while the person is elsewhere and they have turned notifications on; the app shows it as the
+  system's, and, clicked, focuses the window and hands the page back to the web app, which opens
+  it, or opens a new window on it where there is none. The web app sets the count of conversations
+  with something unread on the app's badge the same way.
 - Signing in (`src/auth.ts`, `packages/api/src/auth/desktop.ts`): the app keeps a PKCE verifier and
   opens the browser at `/login?callbackUrl=/desktop-auth?challenge=…`. Signed in there, the
   `/desktop-auth` page mints a one-time code bound to the challenge and hands it back through

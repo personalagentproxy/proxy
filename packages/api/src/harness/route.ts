@@ -42,6 +42,7 @@ export type ChatStore = Pick<
 	| 'listShownEntries'
 	| 'listOpenJobs'
 	| 'appendPersonMessage'
+	| 'markThreadRead'
 >;
 
 // Whether the viewer may rename, reface, switch the model of or delete the persona: whoever made it, or the organization's owner (utils/manages.ts).
@@ -49,7 +50,8 @@ function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
 	return manages(viewer, {ownerUserId: null, byId: persona.createdById});
 }
 
-function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null}): ChatPersona {
+// A persona for the response; one made or changed just now has nothing said with it, and nothing unread.
+function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null; unread?: boolean}): ChatPersona {
 	const last = persona.lastMessage ?? null;
 	return {
 		id: persona.id,
@@ -58,7 +60,8 @@ function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastM
 		color: toAvatarColor(persona.color),
 		chatModel: viewer.insider ? persona.chatModel : null,
 		mayChange: managesPersona(viewer, persona),
-		lastMessage: last && {kind: last.kind, text: preview(last.text), at: last.createdAt.toISOString()},
+		lastMessage: last && {id: last.id, kind: last.kind, text: preview(last.text), at: last.createdAt.toISOString()},
+		unread: persona.unread ?? false,
 	};
 }
 
@@ -120,7 +123,7 @@ function requireThread(store: ChatStore, viewer: OrgViewer, persona: PersonaRow)
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas`: the organization's personas, in the order they were made, with the viewer's conversations; a General one is made where it has none. */
+/** `GET /api/orgs/:org/chat/personas`: the organization's personas, in the order they were made, with the viewer's conversations, each with whether the persona said something the viewer hasn't seen; a General one is made where it has none. */
 function handleListPersonasRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
@@ -198,6 +201,18 @@ function handlePostMessageRoute(store: ChatStore, request: AuthenticatedRequest)
 	});
 }
 
+/** `POST /api/orgs/:org/chat/personas/:personaId/read`: the viewer has seen their conversation with the persona as it is now; what the persona says next is unread again. */
+function handleMarkReadRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireChat(request));
+		const persona = $(await requirePersona(store, viewer, request));
+		const thread = $(await requireThread(store, viewer, persona));
+		if (!$(await store.markThreadRead(thread.id))) {
+			return $(Err(ApiErr.notFound('thread', thread.id)));
+		}
+	});
+}
+
 /** The Chat page's routes, on the store. */
 export function chatRoutes(store: ChatStore) {
 	return {
@@ -207,5 +222,6 @@ export function chatRoutes(store: ChatStore) {
 		handleDeletePersonaRoute: (request: AuthenticatedRequest) => handleDeletePersonaRoute(store, request),
 		handleGetThreadRoute: (request: AuthenticatedRequest) => handleGetThreadRoute(store, request),
 		handlePostMessageRoute: (request: AuthenticatedRequest) => handlePostMessageRoute(store, request),
+		handleMarkReadRoute: (request: AuthenticatedRequest) => handleMarkReadRoute(store, request),
 	};
 }

@@ -283,11 +283,16 @@ export function toEntry(entry: EntryRecord): EntryRow {
 	};
 }
 
-/** The organization's personas, oldest first, with the last thing said in the member's conversation with each. */
+/**
+ * The organization's personas, oldest first, with the last thing said in the member's conversation
+ * with each, and whether it is unread: the persona's, said past where the member has read to.
+ */
 export async function listPersonas(
 	orgId: string,
 	userId: string,
-): Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null}>, ApiError>> {
+): Promise<
+	Result<Array<PersonaRow & {lastMessage: LastMessage | null; unread: boolean}>, ApiError>
+> {
 	return (
 		await wrapDb(() =>
 			db.persona.findMany({
@@ -297,12 +302,13 @@ export async function listPersonas(
 					threads: {
 						where: {userId, parentThreadId: null},
 						select: {
+							readSeq: true,
 							// The agent's turns that only made calls say nothing, so the last with words.
 							entries: {
 								where: {kind: {in: ['person', 'assistant']}, text: {not: ''}},
 								orderBy: {seq: 'desc'},
 								take: 1,
-								select: {kind: true, text: true, createdAt: true},
+								select: {id: true, seq: true, kind: true, text: true, createdAt: true},
 							},
 						},
 					},
@@ -312,13 +318,15 @@ export async function listPersonas(
 		)
 	).map((personas) =>
 		personas.map(({threads, ...persona}) => {
-			const last = threads[0]?.entries[0];
+			const thread = threads[0];
+			const last = thread?.entries[0];
+			if (!thread || !last || (last.kind !== 'person' && last.kind !== 'assistant')) {
+				return {...toPersona(persona), lastMessage: null, unread: false};
+			}
 			return {
 				...toPersona(persona),
-				lastMessage:
-					last && (last.kind === 'person' || last.kind === 'assistant')
-						? {kind: last.kind, text: last.text, createdAt: last.createdAt}
-						: null,
+				lastMessage: {id: last.id, kind: last.kind, text: last.text, createdAt: last.createdAt},
+				unread: last.kind === 'assistant' && last.seq > thread.readSeq,
 			};
 		}),
 	);
@@ -475,7 +483,20 @@ export async function ensureMemberThread(data: {
 }
 
 /** The last thing said in a thread, by the person or the agent. */
-export type LastMessage = {kind: 'person' | 'assistant'; text: string; createdAt: Date};
+export type LastMessage = {id: string; kind: 'person' | 'assistant'; text: string; createdAt: Date};
+
+/**
+ * Marks the thread read to its end: everything in it now, so what the persona says next is
+ * unread. `Ok(false)` means no such thread.
+ */
+export async function markThreadRead(threadId: string): Promise<Result<boolean, ApiError>> {
+	return (
+		await wrapDb(
+			() =>
+				db.$executeRaw`UPDATE "AgentThread" SET "readSeq" = GREATEST("readSeq", COALESCE((SELECT MAX("seq") FROM "AgentEntry" WHERE "threadId" = ${threadId}), 0)) WHERE "id" = ${threadId}`,
+		)
+	).map((count) => count > 0);
+}
 
 /**
  * The thread's agent as it acts in the thread: signed in as the member whose conversation it is,
@@ -770,7 +791,10 @@ async function endTurn(
 	await tellParent(tx, thread, stop.stopped, jobId, wakes);
 }
 
-/** Lands what the person said, and wakes the agent where the log `wakes` it. `Ok(null)` means no such thread. */
+/**
+ * Lands what the person said, and wakes the agent where the log `wakes` it. The person has read
+ * everything before what they say, so the thread is read to it. `Ok(null)` means no such thread.
+ */
 export async function appendPersonMessage(
 	threadId: string,
 	text: string,
@@ -782,7 +806,9 @@ export async function appendPersonMessage(
 			if (!thread) {
 				return null;
 			}
-			return appendEntry(tx, thread, {kind: 'person', text}, wakes);
+			const entry = await appendEntry(tx, thread, {kind: 'person', text}, wakes);
+			await tx.$executeRaw`UPDATE "AgentThread" SET "readSeq" = GREATEST("readSeq", ${entry.seq}) WHERE "id" = ${threadId}`;
+			return entry;
 		}),
 	);
 }

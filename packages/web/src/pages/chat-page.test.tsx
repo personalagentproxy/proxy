@@ -4,7 +4,7 @@ import type {ChatPersona, ThreadLog} from '@proxy/contracts/harness';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
-import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {HumanSide} from '@/components/human-side';
 import {ChatPage} from '@/pages/chat-page';
@@ -15,7 +15,16 @@ const fetchMock = mock<(input: string, init?: RequestInit) => Promise<Response>>
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
 
 function persona(id: string, name: string, mayChange: boolean): ChatPersona {
-	return {id, name, mayChange, look, color: 'blue', chatModel: null, lastMessage: null};
+	return {
+		id,
+		name,
+		mayChange,
+		look,
+		color: 'blue',
+		chatModel: null,
+		lastMessage: null,
+		unread: false,
+	};
 }
 
 const general = persona('general', 'General', false);
@@ -34,7 +43,10 @@ afterEach(() => {
 	globalThis.fetch = realFetch;
 });
 
-function renderChatPage() {
+function renderChatPage({
+	personas = [general, finance],
+	entries = [],
+}: {personas?: ChatPersona[]; entries?: ThreadLog['entries']} = {}) {
 	const router = createMemoryRouter(
 		[
 			{
@@ -45,8 +57,12 @@ function renderChatPage() {
 					{
 						path: '/:org/chat/:id',
 						loader: ({params}) => ({
-							log: {...log, persona: params.id === finance.id ? finance : general},
-							personas: [general, finance],
+							log: {
+								...log,
+								entries,
+								persona: personas.find((candidate) => candidate.id === params.id) ?? general,
+							},
+							personas,
 						}),
 						element: <ChatPage />,
 					},
@@ -199,5 +215,49 @@ describe('ChatPage', () => {
 
 		expect(screen.queryByRole('menuitem', {name: 'Rename'})).toBeNull();
 		expect(screen.queryByRole('menuitem', {name: 'Delete'})).toBeNull();
+	});
+
+	test('marks the agents with something unread in the list, never the open one', async () => {
+		renderChatPage({
+			personas: [
+				{...general, unread: true},
+				{...finance, unread: true},
+			],
+		});
+
+		const financeRow = await screen.findByRole('link', {name: /Finance/});
+		expect(within(financeRow).getByRole('status', {name: 'Unread'})).toBeDefined();
+		const generalRow = screen.getByRole('link', {name: /General/});
+		expect(within(generalRow).queryByRole('status', {name: 'Unread'})).toBeNull();
+	});
+
+	test('marks the conversation read when an answer shows while the page is in view', async () => {
+		renderChatPage({
+			entries: [
+				{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00Z'},
+				{id: 'e2', kind: 'assistant', text: 'Hello', isError: false, at: '2026-10-21T10:00:01Z'},
+			],
+		});
+
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledWith(
+				'/api/orgs/acme/chat/personas/general/read',
+				expect.objectContaining({method: 'POST'}),
+			);
+		});
+		expect(
+			fetchMock.mock.calls.filter(([url]) => url === '/api/orgs/acme/chat/personas/general/read'),
+		).toHaveLength(1);
+	});
+
+	test('marks nothing read while the last word is the person’s', async () => {
+		renderChatPage({
+			entries: [{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00Z'}],
+		});
+
+		await screen.findByRole('link', {name: /Finance/});
+		expect(
+			fetchMock.mock.calls.filter(([url]) => url === '/api/orgs/acme/chat/personas/general/read'),
+		).toHaveLength(0);
 	});
 });

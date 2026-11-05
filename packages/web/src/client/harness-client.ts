@@ -10,7 +10,8 @@ import type {z} from 'zod';
 import {apiRequest, apiSend, orgApi} from '@/client/request';
 
 // The Chat page's api: the organization's personas, each named and given a head, which every
-// member sees, the person's own conversation with each, its turns, and what they say in it.
+// member sees, the person's own conversation with each, its turns, what they say in it, and how
+// far they have read it.
 
 export function listPersonas(org: string) {
 	return apiRequest('GET', `${orgApi(org)}/chat/personas`, personaListSchema);
@@ -44,4 +45,8 @@ export function postMessage(org: string, personaId: string, text: string) {
 		postedMessageSchema,
 		{text} satisfies z.input<typeof postMessageBodySchema>,
 	);
+}
+
+export function markRead(org: string, personaId: string) {
+	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/read`);
 }

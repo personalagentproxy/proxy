@@ -13,6 +13,7 @@ import {
 	createPersona,
 	deletePersona,
 	getThread,
+	markRead,
 	postMessage,
 	updatePersona,
 } from '@/client/harness-client';
@@ -42,6 +43,7 @@ import {preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
 import {useHuman} from '@/hooks/use-human';
 import {useOrgSlug} from '@/hooks/use-org';
+import {useUnread} from '@/hooks/use-unread';
 import {formatAgo, formatDateTime} from '@/lib/format';
 import type {Pose} from '@/lib/head';
 import {describeFetchError} from '@/lib/loader-utils';
@@ -121,12 +123,13 @@ function subtitle(last: ChatPersona['lastMessage']): string {
 // to a line as the list has it.
 function lastOf(log: ThreadLog): ChatPersona['lastMessage'] {
 	const last = log.entries.at(-1);
-	return last ? {kind: last.kind, text: preview(last.text), at: last.at} : null;
+	return last ? {id: last.id, kind: last.kind, text: preview(last.text), at: last.at} : null;
 }
 
 // The organization's personas in the second sidebar, each with its head, its name and the last
-// thing said between it and the person, the open one lit, each head watching the pointer while it
-// is over that agent's row, and a row at the bottom to make a new one.
+// thing said between it and the person, marked where the person hasn't seen it, the open one lit,
+// each head watching the pointer while it is over that agent's row, and a row at the bottom to
+// make a new one.
 function PersonaList({
 	personas,
 	current,
@@ -153,7 +156,12 @@ function PersonaList({
 	onDelete: (persona: ChatPersona) => void;
 }) {
 	const org = useOrgSlug();
+	const unread = useUnread();
 	const [hovered, setHovered] = useState(takeOpeningPersona);
+	// Whether the persona said something the person hasn't seen: as the provider has it, which
+	// follows along, or as the page was loaded, until the provider has asked.
+	const isUnread = (persona: ChatPersona) =>
+		persona.id !== current && (unread.loaded ? unread.unreadIds.has(persona.id) : persona.unread);
 	return (
 		<div className="flex h-full min-h-0 flex-col">
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
@@ -163,6 +171,7 @@ function PersonaList({
 				<ul className="flex flex-col gap-0.5">
 					{personas.map((persona) => {
 						const last = persona.id === current ? lastOf(currentLog) : persona.lastMessage;
+						const fresh = isUnread(persona);
 						const row = (
 							<Link
 								to={`/${org}/chat/${persona.id}`}
@@ -211,7 +220,23 @@ function PersonaList({
 											</span>
 										)}
 									</span>
-									<span className="truncate text-xs text-muted-foreground">{subtitle(last)}</span>
+									<span className="flex items-center gap-2">
+										<span
+											className={cn(
+												'min-w-0 flex-1 truncate text-xs',
+												fresh ? 'font-medium' : 'text-muted-foreground',
+											)}
+										>
+											{subtitle(last)}
+										</span>
+										{fresh && (
+											<span
+												role="status"
+												aria-label="Unread"
+												className="size-2 shrink-0 rounded-full bg-primary"
+											/>
+										)}
+									</span>
 								</span>
 							</Link>
 						);
@@ -320,6 +345,7 @@ function Conversation({
 	const human = useHuman();
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
+	const unread = useUnread();
 	const [log, setLog] = useState<ThreadLog>(loaded.log);
 	const [text, setText] = useState('');
 	const [sending, setSending] = useState(false);
@@ -351,6 +377,39 @@ function Conversation({
 			clearInterval(timer);
 		};
 	}, [readLog, log.busy]);
+
+	// The conversation is read as far as the page shows it while the page is in view: each answer
+	// that shows then is marked read, once, and the provider is told which conversation is open,
+	// so it is neither counted nor notified of. Out of view, as in a tab behind another, nothing
+	// is read, and what comes is told of as anywhere else.
+	const lastEntry = log.entries.at(-1);
+	const lastAnswerId = lastEntry?.kind === 'assistant' ? lastEntry.id : null;
+	const marked = useRef<string | null>(null);
+	useEffect(() => {
+		const {setOpen, markSeen} = unread;
+		const read = () => {
+			if (document.visibilityState !== 'visible') {
+				setOpen(null);
+				return;
+			}
+			setOpen(personaId);
+			if (lastAnswerId === null || marked.current === lastAnswerId) {
+				return;
+			}
+			marked.current = lastAnswerId;
+			void markRead(org, personaId).then((result) => {
+				if (result.isOk()) {
+					markSeen(personaId);
+				}
+			});
+		};
+		read();
+		document.addEventListener('visibilitychange', read);
+		return () => {
+			document.removeEventListener('visibilitychange', read);
+			setOpen(null);
+		};
+	}, [org, personaId, lastAnswerId, unread]);
 
 	const send = async (event: FormEvent) => {
 		event.preventDefault();
