@@ -314,6 +314,25 @@ describe('get', () => {
 		expect(record.values).toMatchObject({messageId: '<q3@example.com>', thread: 'thread-m1'});
 	});
 
+	test('an email opens with the names of the labels the account made on it, Gmail’s own left out', async () => {
+		gmail.messages.m1?.labelIds.push('Label_7');
+		gmail.answer = (call) =>
+			call.url.pathname.endsWith('/labels')
+				? Response.json({
+						labels: [
+							{id: 'INBOX', name: 'INBOX', type: 'system'},
+							{id: 'Label_7', name: 'Clients/Acme', type: 'user'},
+							{id: 'Label_8', name: 'Receipts', type: 'user'},
+						],
+					})
+				: null;
+		const c = await connector();
+
+		expect((await c.get(target, 'm1')).unwrap().values.labels).toBe('Clients/Acme');
+		expect((await c.get(target, 'm2')).unwrap().values.labels).toBe('');
+		expect(calls('GET', '/labels')).toHaveLength(1);
+	});
+
 	test('an email with only HTML opens as its text', async () => {
 		const record = (await (await connector()).get(target, 'm2')).unwrap();
 

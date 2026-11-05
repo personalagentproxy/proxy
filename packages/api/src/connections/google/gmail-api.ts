@@ -383,3 +383,33 @@ export function deleteDraft(accessToken: string, draftId: string): Promise<Resul
 export function sendDraft(accessToken: string, draftId: string): Promise<Result<GmailMessage, ApiError>> {
 	return googleWrite(accessToken, 'POST', gmailUrl('/drafts/send'), {id: draftId}, messageSchema);
 }
+
+const labelSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	// Gmail's own, such as INBOX, STARRED and CATEGORY_PROMOTIONS, or one the account made.
+	type: z.enum(['system', 'user']).optional(),
+	// Only when the label is asked for on its own.
+	messagesTotal: z.number().optional(),
+	messagesUnread: z.number().optional(),
+});
+
+export type GmailLabel = z.infer<typeof labelSchema>;
+
+const labelListSchema = z.object({labels: z.array(labelSchema).optional()});
+
+/** Every label of the account, Gmail's own and the account's, all at once: Gmail lists them on one page. */
+export async function listLabels(accessToken: string): Promise<Result<GmailLabel[], ApiError>> {
+	const answer = await googleRequest(accessToken, gmailUrl('/labels'), labelListSchema);
+	return answer.map(({labels}) => labels ?? []);
+}
+
+/** A label with how many messages it is on, and how many of them are unread. */
+export function getLabel(accessToken: string, labelId: string): Promise<Result<GmailLabel, ApiError>> {
+	return googleRequest(accessToken, gmailUrl(`/labels/${labelId}`), labelSchema);
+}
+
+/** Makes a label of the account's own, shown in Gmail's label list and on the messages it is on, as Gmail's own Create label does. */
+export function createLabel(accessToken: string, name: string): Promise<Result<GmailLabel, ApiError>> {
+	return googleWrite(accessToken, 'POST', gmailUrl('/labels'), {name, labelListVisibility: 'labelShow', messageListVisibility: 'show'}, labelSchema);
+}

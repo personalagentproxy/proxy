@@ -326,9 +326,13 @@ describe('cloudflare', () => {
 describe('google', () => {
 	const google = integration('google');
 
-	test('email has the same tools as any mailbox’s, files are never deleted, only moved to Trash, ranges and availability are only run, other contacts are only read and saved, and events, contacts and tasks are never deleted', () => {
+	test('email has the same tools as any mailbox’s, and labels beside them, files are never deleted, only moved to Trash, ranges and availability are only run, other contacts are only read and saved, and events, contacts and tasks are never deleted', () => {
 		expect(integrationTools(google).map((tool) => tool.name)).toEqual([
 			...integrationTools(email).map((tool) => tool.name),
+			'labels_list',
+			'labels_get',
+			'labels_add',
+			'labels_remove',
 			'events_list',
 			'events_get',
 			'events_create',
@@ -502,6 +506,27 @@ describe('google', () => {
 			field: 'folder',
 			values: ['Draft'],
 		});
+	});
+
+	test('labels are listed with Read email, and put on and taken off an email with Label', () => {
+		expect(findTool(google, 'labels_list')).toMatchObject({action: 'readEmails', readOnly: true});
+		expect(findTool(google, 'labels_add')).toMatchObject({
+			action: 'labelEmails',
+			risk: 'low',
+			readOnly: false,
+		});
+		expect(findTool(google, 'labels_remove')).toMatchObject({
+			action: 'labelEmails',
+			readOnly: false,
+		});
+		expect(Object.keys(findTool(google, 'labels_add')?.inputSchema.properties ?? {})).toEqual([
+			'label',
+			'email',
+		]);
+		expect(effectiveActions(google, ['labelEmails'])).toEqual([]);
+		expect(allowedTools(google, ['readEmails', 'labelEmails']).map((tool) => tool.name)).toContain(
+			'labels_add',
+		);
 	});
 
 	test('Gmail’s lists and opens say each email has its link in Gmail; a mailbox’s have none', () => {

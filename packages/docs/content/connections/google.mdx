@@ -143,6 +143,13 @@ can allow each action separately:
 - **Mark read or unread**, **Star**, **Archive** and **Move email to Trash** act on messages in
   the inbox, and require Read email. Archived email stays in All Mail, and Gmail keeps Trash 30
   days before deleting it; nothing is deleted for good.
+- **Label** puts the account's own labels on email and takes them off, in any folder, and requires
+  Read email. A label is named as Gmail shows it, a nested one with slashes, such as
+  `Clients/Acme`; putting on a label the account has none of makes it. Taking a label off leaves
+  the label, and the email, where they are. Gmail's own labels, such as Inbox, Starred and Unread,
+  are only changed by the actions above, and drafts aren't labelled. With Read email alone, agents
+  list the account's labels and see those on an email they open, and a search such as
+  `label:receipts` finds the email under one.
 - **Write drafts** creates, edits and deletes drafts, and requires Read email. An edit keeps the
   draft's Cc, Bcc and thread, and its formatting while its text is unchanged; text written anew
   goes out as plain text. A draft with attachments isn't edited, since it would lose them.

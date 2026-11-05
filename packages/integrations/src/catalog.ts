@@ -154,6 +154,9 @@ function emailsCollection(args: {
 			{key: 'messageId', label: 'Message-ID', type: 'text', system: true},
 			// Gmail's id of the conversation it is in, which a reply to it joins; other mailboxes have none.
 			{key: 'thread', label: 'Thread', type: 'text', system: true},
+			// The labels of the account's own on it, comma-separated, when it is opened: Clients/Acme,
+			// Follow up. Gmail's own, as its folder and status say, are left out; other mailboxes have none.
+			{key: 'labels', label: 'Labels', type: 'text', system: true},
 		],
 	};
 }
@@ -928,8 +931,8 @@ const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet'
 // action ids carry the product, such as `readEmails` and `sendEmails`, and each action
 // names its product as its group. Gmail is the same email as any mailbox's, its labels as folders:
 // all mail but Spam and Trash in one list, narrowed to the inbox, drafts, sent mail, the archive,
-// Trash or Spam. Drafts are the only email edited or deleted; nothing else is deleted for good, only
-// moved to Trash. Calendar is one tree of the calendars and their events. Drive is one tree: My
+// Trash or Spam; the labels the account made are put on email and taken off on their own. Drafts
+// are the only email edited or deleted; nothing else is deleted for good, only moved to Trash. Calendar is one tree of the calendars and their events. Drive is one tree: My
 // Drive, Shared with me, Shared drives and Recent at the top, folders holding files, a spreadsheet
 // holding its tabs and a tab its rows. Documents read as Markdown, presentations as text, rows as
 // "Header: value" lines; new documents are written as Markdown and new spreadsheets as CSV, which
@@ -966,6 +969,15 @@ const google: Integration = {
 			id: 'flagEmails',
 			label: 'Star',
 			description: 'Star and unstar emails in the inbox',
+			risk: 'low',
+			requires: 'readEmails',
+			group: 'Gmail',
+		},
+		{
+			id: 'labelEmails',
+			label: 'Label',
+			description:
+				'Put your own labels on emails and take them off, making a label where none has the name',
 			risk: 'low',
 			requires: 'readEmails',
 			group: 'Gmail',
@@ -1135,6 +1147,52 @@ const google: Integration = {
 		}),
 		attachmentsCollection('readEmails'),
 		repliesCollection({read: 'readEmails', write: 'writeEmails', send: 'sendEmails'}),
+		// The labels the account made, by name, all on one page: listed and opened with Read email,
+		// put on an email and taken off with Label. Gmail's own, Inbox, Starred, Unread, Spam, Trash
+		// and the categories, are left out: the email's own commands change those.
+		{
+			id: 'labels',
+			name: 'Labels',
+			singular: 'label',
+			titleField: 'label',
+			searchHint: 'Words in a label’s name.',
+			openIn: 'Gmail',
+			read: 'readEmails',
+			writes: {},
+			commands: [
+				{
+					id: 'add',
+					on: 'new',
+					label: 'Add label',
+					description:
+						'Put one of your own labels on an email. Name the email by its id, as a list gives it, and the label by its name, as labels_list gives it, a nested one with slashes: Clients/Acme. Where the account has no label of the name, it is made, and made answers Yes. Gmail’s own labels, such as Inbox, Starred or Unread, aren’t put on here, and drafts aren’t labelled.',
+					action: 'labelEmails',
+					done: 'Put {} on an email',
+					tried: 'put {} on an email',
+				},
+				{
+					id: 'remove',
+					on: 'new',
+					label: 'Remove label',
+					description:
+						'Take one of your own labels off an email, which leaves the label and the email where they are. Name the email by its id, as a list gives it, and the label by its name, as labels_list gives it.',
+					action: 'labelEmails',
+					done: 'Took {} off an email',
+					tried: 'take {} off an email',
+				},
+			],
+			fields: [
+				// Its name, as Gmail shows it, a nested label's with slashes: Clients/Acme.
+				{key: 'label', label: 'Label', type: 'text'},
+				// The email Add label and Remove label work on, by its id.
+				{key: 'email', label: 'Email', type: 'text'},
+				// How many emails it is on, and how many of them are unread, when a label is opened.
+				{key: 'messages', label: 'Emails', type: 'text', system: true},
+				{key: 'unread', label: 'Unread', type: 'text', system: true},
+				// Whether Add label made the label, the account having none of the name.
+				{key: 'made', label: 'Made', type: 'select', options: ['Yes', 'No'], system: true},
+			],
+		},
 		// The calendars the account sees, each holding its events: from now on, soonest first, every
 		// time a repeating event comes round its own record. Times are written as Google takes them,
 		// 2026-10-15T14:00 in the calendar's time zone or with an offset, and a day alone, 2026-10-15,
