@@ -73,10 +73,11 @@ services:
         sync: false
       - key: PLAID_SECRET
         sync: false
-      # The sandbox service (personalagentproxy/internal, proxy-sandboxes), which runs the
-      # sandboxes agents ask for: its address, and the token set on it there, the same here.
+      # The internal service (personalagentproxy/internal, proxy-internal), which runs the
+      # sandboxes agents ask for: its address on Render's private network, which its Blueprint
+      # fixes, and the token set on it there, the same here.
       - key: SANDBOX_SERVICE_URL
-        sync: false
+        value: http://proxy-internal:3100
       - key: SANDBOX_SERVICE_TOKEN
         sync: false
       # Hosted Personal Agent Proxy is not an installation to count.
