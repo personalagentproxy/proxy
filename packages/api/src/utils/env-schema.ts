@@ -142,10 +142,10 @@ export const envSchema = z.object({
 		group: 'Deployment',
 		description: 'The version telemetry reports. The official image sets it.',
 	}),
-	LOKI_URL: documented(originSchema.optional(), {
+	LOKI_URL: documented(z.string().min(1).optional(), {
 		group: 'Observability',
 		description:
-			'Ships the api’s log to a Loki as well as to stdout: its address, such as `http://loki:3100` for one of your own, which takes no more, or `https://logs-prod-021.grafana.net` for Grafana Cloud’s, with `LOKI_USER_ID` and `GRAFANA_CLOUD_TOKEN`. Unset, the log is written to stdout alone, one JSON object per line.',
+			'Ships the api’s log to a Loki as well as to stdout: its address, such as `loki-ab12:3100` for one of your own on the same private network, which takes no more and no scheme, or `https://logs-prod-021.grafana.net` for Grafana Cloud’s, with `LOKI_USER_ID` and `GRAFANA_CLOUD_TOKEN`. Unset, the log is written to stdout alone, one JSON object per line.',
 	}),
 	LOKI_USER_ID: documented(z.string().min(1).optional(), {
 		group: 'Observability',
@@ -155,10 +155,10 @@ export const envSchema = z.object({
 		group: 'Observability',
 		description: 'A Grafana Cloud access policy token that may write logs and metrics.',
 	}),
-	METRICS_OTLP_URL: documented(z.url().optional(), {
+	METRICS_OTLP_URL: documented(z.string().min(1).optional(), {
 		group: 'Observability',
 		description:
-			'Pushes the api’s metrics, such as request and query counts and latencies, over OTLP: to a Prometheus of your own taking OTLP, such as `http://prometheus:9090/api/v1/otlp/v1/metrics`, which takes no more, or to Grafana Cloud’s gateway, such as `https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/metrics`, with `METRICS_USER_ID` and `GRAFANA_CLOUD_TOKEN`. Unset, nothing is pushed.',
+			'Pushes the api’s metrics, such as request and query counts and latencies, over OTLP: to a Prometheus of your own taking OTLP, by its address alone, such as `prometheus-ab12:9090`, which takes no more and no scheme, or to Grafana Cloud’s gateway, such as `https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/metrics`, with `METRICS_USER_ID` and `GRAFANA_CLOUD_TOKEN`. Unset, nothing is pushed.',
 	}),
 	METRICS_USER_ID: documented(z.string().min(1).optional(), {
 		group: 'Observability',

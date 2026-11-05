@@ -157,3 +157,33 @@ describe('createMetricsClient', () => {
 		await metrics.shutdown();
 	});
 });
+
+describe('where metrics go', () => {
+	it('takes a Prometheus by its address alone, and a gateway by its whole URL', async () => {
+		const urls: string[] = [];
+		spyOn(globalThis, 'fetch').mockImplementation(
+			Object.assign(
+				async (url: string | URL | Request) => {
+					urls.push(String(url));
+					return new Response(null, {status: 200});
+				},
+				{preconnect: fetch.preconnect},
+			),
+		);
+		for (const url of [
+			'prometheus-ab12:9090',
+			'http://prometheus:9090/',
+			'https://otlp-gateway.grafana.net/otlp/v1/metrics',
+		]) {
+			const metrics = createMetricsClient({...config, url});
+			metrics.counter('x_total').inc();
+			await metrics.shutdown();
+		}
+		expect(urls).toEqual([
+			'http://prometheus-ab12:9090/api/v1/otlp/v1/metrics',
+			'http://prometheus:9090/api/v1/otlp/v1/metrics',
+			'https://otlp-gateway.grafana.net/otlp/v1/metrics',
+		]);
+		mock.restore();
+	});
+});

@@ -25,7 +25,7 @@ export const envLabel: EnvLabel = read('NODE_ENV') === 'production' ? 'productio
 
 /** Grafana Cloud Loki, where the api ships its log when set; an empty address means stdout alone. */
 export const lokiConfig: LokiConfig = {
-	url: read('LOKI_URL').replace(/\/+$/, ''),
+	url: read('LOKI_URL'),
 	userId: read('LOKI_USER_ID'),
 	token: read('GRAFANA_CLOUD_TOKEN'),
 };
