@@ -58,7 +58,7 @@ describe('unavailableActions', () => {
 		const {unavailableActions} = await import('./unavailable');
 
 		const withoutModify = ALL_SCOPES.filter((scope) => !scope.endsWith('/gmail.modify'));
-		expect(unavailableActions(google(withoutModify))).toEqual(['readEmails', 'markEmails', 'flagEmails', 'archiveEmails', 'writeEmails', 'trashEmails']);
+		expect(unavailableActions(google(withoutModify))).toEqual(['readEmails', 'markEmails', 'flagEmails', 'labelEmails', 'archiveEmails', 'writeEmails', 'trashEmails']);
 		expect(unavailableActions(google(withoutModify.filter((scope) => !scope.endsWith('/gmail.send'))))).toContain('sendEmails');
 	});
 

@@ -5,6 +5,9 @@ import {ApiErr, type ApiError, type ChatModel, Do, type FetchError, httpRequest,
 import type {ToolCall} from '@proxy/utils/harness';
 import type {ModelMessage} from '@proxy/utils/harness-context';
 
+import {agentMetrics} from '../observability/metrics';
+import type {LlmRequestStatus} from '@proxy/observability';
+
 /**
  * The models this server asks over OpenRouter's chat completions, with the key in
  * `OPENROUTER_KEY`, each with a host policy of its own:
@@ -94,8 +97,21 @@ function toApiError(error: FetchError): ApiError {
 	return ApiErr.internalError(new Error(`OpenRouter refused the request (${error.status}): ${said(error)}`));
 }
 
-// One chat completion from OpenRouter.
-async function complete(key: string, body: CompletionBody, timeoutMs: number): Promise<Result<Completion, ApiError>> {
+// How a request ended, for the metrics: by what its failure means (toApiError).
+function statusOf(error: ApiError): LlmRequestStatus {
+	if (error.kind === 'provider_unreachable') {
+		return 'unreachable';
+	}
+	if (error.kind === 'unavailable') {
+		return 'unavailable';
+	}
+	return 'refused';
+}
+
+// One chat completion from OpenRouter, recorded as a request of `model`, the server's name for
+// it, for `purpose`.
+async function complete(key: string, body: CompletionBody, timeoutMs: number, sample: {model: string; purpose: string}): Promise<Result<Completion, ApiError>> {
+	const startedAt = performance.now();
 	const answered = await httpRequest(
 		OPENROUTER_URL,
 		{
@@ -105,7 +121,15 @@ async function complete(key: string, body: CompletionBody, timeoutMs: number): P
 		},
 		{schema: completionSchema, timeoutMs},
 	);
-	return answered.mapErr(toApiError);
+	const result = answered.mapErr(toApiError);
+	agentMetrics.recordLlmRequest({
+		...sample,
+		status: result.isOk() ? 'ok' : statusOf(result.error),
+		durationMs: Math.round(performance.now() - startedAt),
+		inputTokens: result.isOk() ? result.value.usage?.prompt_tokens : undefined,
+		outputTokens: result.isOk() ? result.value.usage?.completion_tokens : undefined,
+	});
+	return result;
 }
 
 export type JsonRequest<T> = {
@@ -146,6 +170,7 @@ export function askForJson<T>(request: JsonRequest<T>): Promise<Result<T, ApiErr
 					provider: {order: ['Cerebras', 'Groq'], allow_fallbacks: true, data_collection: 'deny', zdr: true},
 				},
 				request.timeoutMs,
+				{model: 'gpt-oss', purpose: 'json'},
 			),
 		);
 
@@ -186,6 +211,7 @@ export function askForTurn(request: TurnRequest): Promise<Result<ModelTurn, ApiE
 					provider: {data_collection: 'deny'},
 				},
 				request.timeoutMs,
+				{model: request.model, purpose: 'turn'},
 			),
 		);
 		const {message} = completion.choices[0] ?? {};

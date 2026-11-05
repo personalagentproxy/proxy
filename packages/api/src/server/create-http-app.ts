@@ -7,6 +7,7 @@ import express from 'express';
 import {log} from '../observability/log';
 import {env} from '../utils/env';
 import {createApiRouter} from './create-api-router';
+import {requestLogger} from './middleware/request-logger';
 import {setSecurityHeaders} from './security-headers';
 import {serveWeb} from './serve-web';
 
@@ -22,6 +23,8 @@ export function createHttpApp({webDist = defaultWebDist}: {webDist?: string} = {
 	// describe the original request.
 	app.set('trust proxy', true);
 	app.disable('x-powered-by');
+	// First, so every line written for the request, by any middleware, is in its scope.
+	app.use(requestLogger);
 	app.use(setSecurityHeaders);
 
 	app.get('/health', (_req, res) => {

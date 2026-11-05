@@ -6,6 +6,7 @@ import {remoteSandboxBackend} from '@proxy/backends/sandbox/remote';
 import {tempDirSandboxBackend} from '@proxy/backends/sandbox/temp-dir';
 
 import {log} from '../observability/log';
+import {getContext} from '../observability/request-context';
 
 /**
  * The backends this server runs with: what runs the machines a capability of Personal Agent
@@ -38,7 +39,16 @@ async function chooseSandboxBackend(): Promise<SandboxBackend | null> {
 		log.error('SANDBOX_SERVICE_URL needs SANDBOX_SERVICE_TOKEN beside it; sandboxes are off');
 		return null;
 	}
-	return remoteSandboxBackend({url: env.SANDBOX_SERVICE_URL, token: env.SANDBOX_SERVICE_TOKEN});
+	return remoteSandboxBackend({
+		url: env.SANDBOX_SERVICE_URL,
+		token: env.SANDBOX_SERVICE_TOKEN,
+		// The request's id, or the built-in agent's job's, so the service's lines carry it too.
+		headers: (): Record<string, string> => {
+			const context = getContext();
+			const id = context?.requestId ?? context?.jobId;
+			return id === undefined ? {} : {'x-request-id': id};
+		},
+	});
 }
 
 /** The server's sandbox backend, or null where sandboxes are off. */

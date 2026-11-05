@@ -52,6 +52,7 @@ const ACTION_SCOPES: Partial<Record<string, string[][]>> = {
 	readEmails: GMAIL,
 	markEmails: GMAIL,
 	flagEmails: GMAIL,
+	labelEmails: GMAIL,
 	archiveEmails: GMAIL,
 	writeEmails: GMAIL,
 	trashEmails: GMAIL,

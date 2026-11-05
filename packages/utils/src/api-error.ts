@@ -63,30 +63,40 @@ function isApiError(error: unknown): error is ApiError {
 	return 'kind' in error && 'statusCode' in error;
 }
 
-// Where `wrapDb` reports failed queries. Server packages set it once at boot, so this package
-// needs no logger of its own.
+// Where `wrapDb` reports failed queries, and where it records every query. Server packages set
+// them once at boot, so this package needs no logger or metrics of its own.
 export interface DbLogger {
 	warn(msg: string, ctx?: Record<string, unknown>): void;
 }
 
+export interface DbMetrics {
+	recordQuery(query: {success: boolean; durationMs: number; errorKind?: string}): void;
+}
+
 let dbLogger: DbLogger | undefined;
+let dbMetrics: DbMetrics | undefined;
 
 export function setDbLogger(logger: DbLogger | undefined): void {
 	dbLogger = logger;
+}
+
+export function setDbMetrics(metrics: DbMetrics | undefined): void {
+	dbMetrics = metrics;
 }
 
 // Runs a query and turns a throw into a `db_error`, or passes an `ApiError` thrown inside through.
 export async function wrapDb<T>(op: () => Promise<T>): Promise<Result<T, ApiError>> {
 	const start = performance.now();
 	const result = await Result.wrapAsync(op);
+	const durationMs = Math.round(performance.now() - start);
 	if (result.isOk()) {
+		dbMetrics?.recordQuery({success: true, durationMs});
 		return Ok(result.value);
 	}
 
 	const apiError = isApiError(result.error) ? result.error : ApiErr.dbError(result.error);
-	dbLogger?.warn('db query failed', {
-		durationMs: Math.round(performance.now() - start),
-		errorKind: apiError.kind,
-	});
+	dbMetrics?.recordQuery({success: false, durationMs, errorKind: apiError.kind});
+	// A failure keeps a log line too, with its request's context beside the count.
+	dbLogger?.warn('db query failed', {durationMs, errorKind: apiError.kind});
 	return Err(apiError);
 }

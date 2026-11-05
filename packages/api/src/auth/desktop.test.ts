@@ -101,12 +101,15 @@ describe('handleDesktopSessionRoute', () => {
 		const {handleDesktopSessionRoute} = await import('./desktop');
 		const res = makeRes();
 
-		await handleDesktopSessionRoute({body: {code: 'code-1', verifier}} as never, res as never);
+		const userAgent = 'Mozilla/5.0 (Macintosh) Chrome/130.0 Electron/33.2.0 Safari/537.36';
+		await handleDesktopSessionRoute({body: {code: 'code-1', verifier}, headers: {'user-agent': userAgent}} as never, res as never);
 
 		expect(getDesktopAuthCode).toHaveBeenCalledWith(sha256('code-1'));
 		expect(takeDesktopAuthCode).toHaveBeenCalledWith(sha256('code-1'));
-		const session = createSession.mock.calls[0]?.[0] as {tokenHash: string; userId: string};
+		const session = createSession.mock.calls[0]?.[0] as {tokenHash: string; userId: string; userAgent: string | null};
 		expect(session.userId).toBe('user-1');
+		// The app's own header, so the account page says it is the desktop app.
+		expect(session.userAgent).toBe(userAgent);
 		// The cookie has the token, the database its hash, as any sign-in's.
 		expect(res.cookies).toHaveLength(1);
 		expect(res.cookies[0]?.name).toBe('__Secure-proxy.session-token');
@@ -120,7 +123,7 @@ describe('handleDesktopSessionRoute', () => {
 		const {handleDesktopSessionRoute} = await import('./desktop');
 		const res = makeRes();
 
-		await handleDesktopSessionRoute({body: {code: 'code-1', verifier: 'w'.repeat(43)}} as never, res as never);
+		await handleDesktopSessionRoute({body: {code: 'code-1', verifier: 'w'.repeat(43)}, headers: {}} as never, res as never);
 
 		expect(res.status).toHaveBeenCalledWith(400);
 		expect(res.json).toHaveBeenCalledWith({error: 'invalid_code'});
@@ -135,7 +138,7 @@ describe('handleDesktopSessionRoute', () => {
 		const {handleDesktopSessionRoute} = await import('./desktop');
 		const res = makeRes();
 
-		await handleDesktopSessionRoute({body: {code: 'nope', verifier}} as never, res as never);
+		await handleDesktopSessionRoute({body: {code: 'nope', verifier}, headers: {}} as never, res as never);
 
 		expect(res.status).toHaveBeenCalledWith(400);
 		expect(res.json).toHaveBeenCalledWith({error: 'invalid_code'});
@@ -147,7 +150,7 @@ describe('handleDesktopSessionRoute', () => {
 		const {handleDesktopSessionRoute} = await import('./desktop');
 		const res = makeRes();
 
-		await handleDesktopSessionRoute({body: {code: 'code-1', verifier}} as never, res as never);
+		await handleDesktopSessionRoute({body: {code: 'code-1', verifier}, headers: {}} as never, res as never);
 
 		expect(res.status).toHaveBeenCalledWith(400);
 		expect(res.json).toHaveBeenCalledWith({error: 'invalid_code'});
@@ -159,7 +162,7 @@ describe('handleDesktopSessionRoute', () => {
 		const {handleDesktopSessionRoute} = await import('./desktop');
 		const res = makeRes();
 
-		await handleDesktopSessionRoute({body: {code: 'code-1', verifier}} as never, res as never);
+		await handleDesktopSessionRoute({body: {code: 'code-1', verifier}, headers: {}} as never, res as never);
 
 		expect(res.status).toHaveBeenCalledWith(400);
 		expect(res.json).toHaveBeenCalledWith({error: 'invalid_code'});
@@ -170,7 +173,7 @@ describe('handleDesktopSessionRoute', () => {
 		const {handleDesktopSessionRoute} = await import('./desktop');
 		const res = makeRes();
 
-		await handleDesktopSessionRoute({body: {code: 'code-1'}} as never, res as never);
+		await handleDesktopSessionRoute({body: {code: 'code-1'}, headers: {}} as never, res as never);
 
 		expect(res.status).toHaveBeenCalledWith(400);
 		expect(res.json).toHaveBeenCalledWith({error: 'invalid_body'});
@@ -182,7 +185,7 @@ describe('handleDesktopSessionRoute', () => {
 		const {handleDesktopSessionRoute} = await import('./desktop');
 		const res = makeRes();
 
-		await handleDesktopSessionRoute({body: {code: 'code-1', verifier}} as never, res as never);
+		await handleDesktopSessionRoute({body: {code: 'code-1', verifier}, headers: {}} as never, res as never);
 
 		expect(res.status).toHaveBeenCalledWith(500);
 		expect(res.json).toHaveBeenCalledWith({error: 'internal_error'});

@@ -43,11 +43,14 @@ import {
 } from '../connections/route';
 import {handleFaviconRoute} from '../favicons/route';
 import {alertRoutes} from '../harness/alerts-route';
+import {handleClientLogsRoute} from '../observability/client-logs';
+import {handleGrafanaAlertRoute} from '../observability/grafana-alert';
 import {chatRoutes} from '../harness/route';
 import {harnessStore} from '../harness/store';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
 import {handleDeleteMeRoute, handleMeRoute} from '../me/route';
+import {handleDeleteOtherSessionsRoute, handleDeleteSessionRoute, handleListSessionsRoute} from '../me/sessions';
 import {handleAcceptInvitationRoute, handleGetInvitationRoute} from '../orgs/invitation-link';
 import {
 	handleCreateOrgRoute,
@@ -106,9 +109,20 @@ export function createApiRouter(): express.Router {
 	router.post('/auth/desktop/code', requireBrowserOrigin, withAuthResult('Desktop code route', handleDesktopCodeRoute));
 	router.post('/auth/desktop/session', wrapAsyncRoute('Desktop session route', handleDesktopSessionRoute));
 
+	// Grafana's alerts, posted to Slack; the secret it sends is its auth (observability/grafana-alert.ts).
+	router.post('/internal/grafana-alert', wrapAsyncRoute('Grafana alert webhook', handleGrafanaAlertRoute));
+
+	// The web app's log lines, written on as its (observability/client-logs.ts).
+	router.use('/api/client-logs', requireBrowserOrigin);
+	router.post('/api/client-logs', withAuthResult('Client logs route', handleClientLogsRoute));
+
 	router.use('/api/me', requireBrowserOrigin);
 	router.get('/api/me', withAuthResult('Me route', handleMeRoute));
 	router.delete('/api/me', withAuth('Delete account route', handleDeleteMeRoute));
+	// The person's sessions, for the account page: `others` before `:sessionId`, which a cuid never is.
+	router.get('/api/me/sessions', withAuthResult('List sessions route', handleListSessionsRoute));
+	router.delete('/api/me/sessions/others', withAuthResult('Delete other sessions route', handleDeleteOtherSessionsRoute));
+	router.delete('/api/me/sessions/:sessionId', withAuthResult('Delete session route', handleDeleteSessionRoute));
 
 	router.use('/api/orgs', requireBrowserOrigin);
 	router.get('/api/orgs', withAuthResult('List organizations route', handleListOrgsRoute));

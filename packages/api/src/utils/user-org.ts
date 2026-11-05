@@ -3,6 +3,7 @@ import {Err, type Result} from 'ts-results-es';
 import {ApiErr, type ApiError, Do, requirePresent, type Experiment} from '@proxy/utils';
 import {getMemberOrganization, type OrgRole} from '@proxy/db/organization';
 
+import {addContext} from '../observability/request-context';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 
 /**
@@ -18,6 +19,7 @@ export async function requireViewer(request: AuthenticatedRequest): Promise<Resu
 	return Do(async ($) => {
 		const slug = request.params.org ?? '';
 		const org = $(requirePresent($(await getMemberOrganization(request.user.userId, slug)), ApiErr.notFound('organization', slug)));
+		addContext({orgId: org.id});
 		return {orgId: org.id, userId: request.user.userId, slug: org.slug, name: org.name, role: org.role, onboarded: org.onboardedAt !== null, experiments: org.experiments, insider: org.insider};
 	});
 }

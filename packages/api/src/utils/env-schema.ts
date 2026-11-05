@@ -7,7 +7,7 @@ import {z} from 'zod';
  */
 
 export type EnvDoc = {
-	group: 'Core' | 'Sign-in' | 'Connections' | 'Deployment';
+	group: 'Core' | 'Sign-in' | 'Connections' | 'Deployment' | 'Observability';
 	description: string;
 	// Personal Agent Proxy does not work without it, though the api still starts so its errors can say why.
 	required?: true;
@@ -142,6 +142,46 @@ export const envSchema = z.object({
 		group: 'Deployment',
 		description: 'The version telemetry reports. The official image sets it.',
 	}),
+	LOKI_URL: documented(z.string().min(1).optional(), {
+		group: 'Observability',
+		description:
+			'Ships the api’s log to a Loki as well as to stdout: its address, such as `loki-ab12:3100` for one of your own on the same private network, which takes no more and no scheme, or `https://logs-prod-021.grafana.net` for Grafana Cloud’s, with `LOKI_USER_ID` and `GRAFANA_CLOUD_TOKEN`. Unset, the log is written to stdout alone, one JSON object per line.',
+	}),
+	LOKI_USER_ID: documented(z.string().min(1).optional(), {
+		group: 'Observability',
+		description: 'The numeric user id of the Grafana Cloud stack’s Loki, from its details page; unset for a Loki of your own.',
+	}),
+	GRAFANA_CLOUD_TOKEN: documented(z.string().min(1).optional(), {
+		group: 'Observability',
+		description: 'A Grafana Cloud access policy token that may write logs and metrics.',
+	}),
+	METRICS_OTLP_URL: documented(z.string().min(1).optional(), {
+		group: 'Observability',
+		description:
+			'Pushes the api’s metrics, such as request and query counts and latencies, over OTLP: to a Prometheus of your own taking OTLP, by its address alone, such as `prometheus-ab12:9090`, which takes no more and no scheme, or to Grafana Cloud’s gateway, such as `https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/metrics`, with `METRICS_USER_ID` and `GRAFANA_CLOUD_TOKEN`. Unset, nothing is pushed.',
+	}),
+	METRICS_USER_ID: documented(z.string().min(1).optional(), {
+		group: 'Observability',
+		description: 'The numeric instance id of the Grafana Cloud stack’s OTLP gateway, from its details page; unset for a Prometheus of your own.',
+	}),
+	SLACK_BOT_TOKEN: documented(z.string().min(1).optional(), {
+		group: 'Observability',
+		description:
+			'Posts sign-ups and alerts to Slack, with `SLACK_CHANNEL_SIGNUPS` and `SLACK_CHANNEL_ALERTS`: a bot token (`xoxb-…`) of an app with `chat:write`, invited to both channels. Unset, nothing is posted.',
+	}),
+	SLACK_CHANNEL_SIGNUPS: documented(z.string().min(1).optional(), {
+		group: 'Observability',
+		description: 'The id of the channel each sign-up is posted to, such as `C0123456789`, at the bottom of the channel’s About pane.',
+	}),
+	SLACK_CHANNEL_ALERTS: documented(z.string().min(1).optional(), {
+		group: 'Observability',
+		description: 'The id of the channel Grafana’s alerts are posted to.',
+	}),
+	GRAFANA_WEBHOOK_SECRET: documented(z.string().min(1).optional(), {
+		group: 'Observability',
+		description: 'Takes Grafana’s alerts at `/internal/grafana-alert` and posts them to Slack: the bearer token the contact point sends, any long random string. Unset, the route answers 401.',
+	}),
+
 	ALLOW_PRIVATE_HOSTS: documented(
 		z
 			.enum(['true', 'false', '1', '0'])

@@ -325,6 +325,18 @@ export type MemberRow = {
 	joinedAt: Date;
 };
 
+/** The slugs of the organizations with these ids, for naming them where only their ids are at hand. */
+export async function listOrganizationSlugs(
+	orgIds: string[],
+): Promise<Result<Array<{id: string; slug: string}>, ApiError>> {
+	if (orgIds.length === 0) {
+		return Ok([]);
+	}
+	return wrapDb(() =>
+		db.organization.findMany({where: {id: {in: orgIds}}, select: {id: true, slug: true}}),
+	);
+}
+
 /** The organization's members, the first one joined first. */
 export async function listMembers(orgId: string): Promise<Result<MemberRow[], ApiError>> {
 	return (

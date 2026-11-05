@@ -36,6 +36,7 @@ services:
         - packages/backends/**
         - packages/db/**
         - packages/integrations/**
+        - packages/observability/**
         - packages/ui/**
         - packages/utils/**
         - packages/web/**
@@ -83,6 +84,26 @@ services:
       # Hosted Personal Agent Proxy is not an installation to count.
       - key: TELEMETRY_ENABLED
         value: 'false'
+      # Where the log and the metrics go: the Loki and the Prometheus the internal repo
+      # (personalagentproxy/internal) runs beside this service, each by the address Render gives
+      # it on the private network, `host:port` with no scheme, such as `loki-ab12:3100`, shown
+      # under the service's Connect menu; neither takes auth. A Blueprint only fills in its own
+      # services' addresses, so these are set by hand. Unset, the log stays on stdout.
+      - key: LOKI_URL
+        sync: false
+      - key: METRICS_OTLP_URL
+        sync: false
+      # Where alerts and sign-ups are posted (packages/observability/README.md); optional.
+      - key: SLACK_BOT_TOKEN
+        sync: false
+      - key: SLACK_CHANNEL_ALERTS
+        sync: false
+      - key: SLACK_CHANNEL_SIGNUPS
+        sync: false
+      # The same value the internal repo's `bun run obs alerts push` reads, which puts it in
+      # Grafana's contact point.
+      - key: GRAFANA_WEBHOOK_SECRET
+        sync: false
 
   # The docs, exported as plain files (packages/docs/next.config.ts). Render serves out/404.html
   # for a missing path.

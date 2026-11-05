@@ -29,6 +29,7 @@ COPY packages/db/package.json packages/db/
 COPY packages/db/prisma packages/db/prisma
 COPY packages/docs/package.json packages/docs/
 COPY packages/integrations/package.json packages/integrations/
+COPY packages/observability/package.json packages/observability/
 COPY packages/ui/package.json packages/ui/
 COPY packages/utils/package.json packages/utils/
 COPY packages/web/package.json packages/web/
@@ -42,6 +43,7 @@ COPY packages/backends/src packages/backends/src
 COPY packages/contracts/src packages/contracts/src
 COPY packages/db/src packages/db/src
 COPY packages/integrations/src packages/integrations/src
+COPY packages/observability/src packages/observability/src
 COPY packages/utils/src packages/utils/src
 COPY --from=build /app/packages/web/dist packages/web/dist
 COPY docker-entrypoint.sh ./

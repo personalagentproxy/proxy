@@ -4,6 +4,7 @@ import type {ApiError} from '@proxy/utils';
 import {buildBaseSlug, provisionOrganization, type NewUser} from '@proxy/db/organization';
 import type {CreatedUser} from '@proxy/db/user';
 
+import {notify} from '../observability/notify';
 import {ORGANIZATION_CONNECTIONS} from './starter-connections';
 
 // A person signing up gets an organization of their own, named after them; one made later has
@@ -42,7 +43,10 @@ export async function signUp(user: Omit<NewUser, 'termsAcceptedAt' | 'createdAt'
 		onboardedAt: null,
 		connections: ORGANIZATION_CONNECTIONS,
 	});
-	return made.map(({ownerUserId}) => ({id: ownerUserId, email: user.email, name: user.name}));
+	return made.map(({ownerUserId}) => {
+		void notify.notify({channel: 'signups', title: 'New sign-up', ctx: {email: user.email, userId: ownerUserId}});
+		return {id: ownerUserId, email: user.email, name: user.name};
+	});
 }
 
 /** Another organization the person makes, which they own, named as they say. */

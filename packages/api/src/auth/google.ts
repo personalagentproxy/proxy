@@ -311,7 +311,7 @@ export async function handleGoogleCallbackRoute(req: Request, res: Response): Pr
 			}
 		}
 
-		await establishSessionAndRedirect(res, {appUrl: config.appUrl, callbackUrl, userId: userResult.value.id});
+		await establishSessionAndRedirect(res, {appUrl: config.appUrl, callbackUrl, userId: userResult.value.id, userAgent: req.headers['user-agent']});
 		return;
 	}
 
@@ -370,5 +370,5 @@ export async function handleGoogleCallbackRoute(req: Request, res: Response): Pr
 		return;
 	}
 
-	await establishSessionAndRedirect(res, {appUrl: config.appUrl, callbackUrl, userId: created.id});
+	await establishSessionAndRedirect(res, {appUrl: config.appUrl, callbackUrl, userId: created.id, userAgent: req.headers['user-agent']});
 }
