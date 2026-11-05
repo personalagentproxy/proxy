@@ -37,14 +37,8 @@ export const metricsConfig: Pick<MetricsConfig, 'url' | 'userId' | 'token'> = {
 	token: read('GRAFANA_CLOUD_TOKEN'),
 };
 
-/** The team's Slack, where sign-ups and alerts are posted when set. */
+/** The team's Slack, where sign-ups are posted when set. */
 export const slackConfig: Pick<SlackConfig, 'botToken' | 'channels'> = {
 	botToken: read('SLACK_BOT_TOKEN'),
-	channels: {
-		alerts: read('SLACK_CHANNEL_ALERTS') || undefined,
-		signups: read('SLACK_CHANNEL_SIGNUPS') || undefined,
-	},
+	channels: {signups: read('SLACK_CHANNEL_SIGNUPS') || undefined},
 };
-
-/** What Grafana's alert webhook has to carry to be taken (grafana-alert.ts); none, none is taken. */
-export const grafanaWebhookSecret: string = read('GRAFANA_WEBHOOK_SECRET');

@@ -12,9 +12,10 @@ to stdout alone, one JSON object per line, and sums its metrics up for nothing.
   half minute. On it `db-metrics.ts` (every query), `tool-metrics.ts` (every request of an agent),
   `agent-metrics.ts` (the built-in agent's jobs and every request of a model), and the probes
   `db-pool-probe.ts` (`SELECT 1` each second) and `job-queue-probe.ts` (the AgentJob queue).
-- `src/slack.ts`: the Slack notifier the api posts alerts and sign-ups with.
-- `src/loki-client.ts`: pushing lines to Loki, and querying it, as the api does for an alert's
-  thread (`packages/api/src/observability/grafana-alert.ts`).
+- `src/slack.ts`: the Slack notifier the api posts sign-ups with, and the internal repo's admin
+  Grafana's alerts.
+- `src/loki-client.ts`: pushing lines to Loki, and querying it, as the admin does for an alert's
+  thread.
 
 The Grafana side of hosted Personal Agent Proxy, its dashboards, alert rules, saved queries and
 the `obs` command that pushes and queries them, is in the internal repo, which takes this package
@@ -27,6 +28,5 @@ in `packages/api/src/utils/env-schema.ts`:
 
 - `LOKI_URL`, `LOKI_USER_ID`, `GRAFANA_CLOUD_TOKEN`: the log to Loki.
 - `METRICS_OTLP_URL`, `METRICS_USER_ID`, `GRAFANA_CLOUD_TOKEN`: the metrics to the OTLP gateway.
-- `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ALERTS`, `SLACK_CHANNEL_SIGNUPS`: the notifier.
-- `GRAFANA_WEBHOOK_SECRET`: what Grafana's webhook bears at `/internal/grafana-alert`, and the
-  api checks.
+- `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_SIGNUPS`: the sign-up notice. Grafana's alerts are the
+  internal repo's admin's, at its `/alerts/grafana`.
