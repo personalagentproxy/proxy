@@ -68,7 +68,9 @@ function AlertDetailContent({alert}: {alert: Alert}) {
 			<DialogHeader>
 				<DialogTitle className="pr-8 leading-snug break-words">{alert.title}</DialogTitle>
 				<DialogDescription>
-					{alert.at === null ? `Watching ${collection}` : `Once, ${formatMoment(alert.at)}`}
+					{alert.at === null
+						? `Watching ${collection}`
+						: `Once, ${formatMoment(alert.at)}`}
 				</DialogDescription>
 			</DialogHeader>
 			<dl className="divide-y text-sm">
