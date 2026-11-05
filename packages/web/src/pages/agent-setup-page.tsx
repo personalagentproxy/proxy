@@ -1,7 +1,6 @@
 import {useLoaderData, useNavigate} from 'react-router';
 import {AgentSetup} from '@/components/agent-setup';
 import {AppShell, PageTitle} from '@/components/app-shell';
-import {BackButton} from '@/components/back-button';
 import {NotFound} from '@/components/not-found';
 import type {agentSetupLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -13,18 +12,11 @@ export function AgentSetupPage() {
 	const {agent} = useLoaderData<typeof agentSetupLoader>();
 	const navigate = useNavigate();
 	if (!agent) {
-		return <NotFound what="agent" back={`/${org}/agents`} backLabel="Back to agents" />;
+		return <NotFound what="agent" />;
 	}
 
 	return (
-		<AppShell
-			title={
-				<>
-					<BackButton to={`/${org}/agents/${agent.id}`} label={`Back to ${agent.name}`} />
-					<PageTitle>Set up {agent.name}</PageTitle>
-				</>
-			}
-		>
+		<AppShell title={<PageTitle>Set up {agent.name}</PageTitle>}>
 			{agent.revokedAt === null ? (
 				<AgentSetup
 					agent={agent}

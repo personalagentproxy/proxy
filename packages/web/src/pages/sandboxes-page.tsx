@@ -3,7 +3,6 @@ import {useState} from 'react';
 import {useLoaderData, useRevalidator} from 'react-router';
 import {deleteRecord} from '@/client/records-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
-import {BackButton} from '@/components/back-button';
 import {Row, RowHeader, RowList} from '@/components/row-list';
 import {SideEmpty, SideToggle} from '@/components/share-toggle';
 import {Badge} from '@proxy/ui/components/badge';
@@ -74,14 +73,7 @@ export function SandboxesPage() {
 	};
 
 	return (
-		<AppShell
-			title={
-				<>
-					<BackButton to={`/${org}/connections`} label="Back to connections" />
-					<PageTitle>Sandboxes</PageTitle>
-				</>
-			}
-		>
+		<AppShell title={<PageTitle>Sandboxes</PageTitle>}>
 			<SideToggle side={side} orgName={activeOrg.name} />
 			<RowList
 				header={

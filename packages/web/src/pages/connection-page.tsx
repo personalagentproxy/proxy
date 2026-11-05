@@ -12,7 +12,6 @@ import {
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {SignInToBankAgain} from '@/components/connect-bank-form';
-import {BackButton} from '@/components/back-button';
 import {ConnectWithKeyDialog} from '@/components/connect-with-key-dialog';
 import {ConnectionAccess, SignInAgain} from '@/components/connection-access';
 import {Sharing} from '@/components/sharing';
@@ -57,9 +56,7 @@ export function ConnectionPage() {
 	const human = useHuman();
 	const integration = connection && integrationOf(connection);
 	if (!connection || !integration || !human) {
-		return (
-			<NotFound what="connection" back={`/${org}/connections`} backLabel="Back to connections" />
-		);
+		return <NotFound what="connection" />;
 	}
 
 	const withAccess = agentsWithAccess(agents, connection);
@@ -88,21 +85,18 @@ export function ConnectionPage() {
 	return (
 		<AppShell
 			title={
-				<>
-					<BackButton to={`/${org}/connections`} label="Back to connections" />
-					<PageTitle
-						detail={
-							connection.name === null
-								? connection.account
-								: `${integration.name} · ${connection.account}`
-						}
-					>
-						<span className="flex items-center gap-2">
-							<IntegrationLogo integration={integration} />
-							{connection.name ?? integration.name}
-						</span>
-					</PageTitle>
-				</>
+				<PageTitle
+					detail={
+						connection.name === null
+							? connection.account
+							: `${integration.name} · ${connection.account}`
+					}
+				>
+					<span className="flex items-center gap-2">
+						<IntegrationLogo integration={integration} />
+						{connection.name ?? integration.name}
+					</span>
+				</PageTitle>
 			}
 			actions={
 				<>

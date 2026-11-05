@@ -21,6 +21,17 @@
 	-webkit-app-region: drag;
 }
 
+/* Back and forward (components/desktop-history.tsx), in the title bar to the right of the traffic
+   lights, over the drag surface and taking clicks rather than dragging the window. */
+.desktop-app [data-desktop-history] {
+	position: fixed;
+	z-index: 61;
+	top: 0;
+	left: 5rem;
+	height: var(--desktop-title-bar-height);
+	-webkit-app-region: no-drag;
+}
+
 /* The columns themselves reach the window's top, so their backgrounds continue under the traffic
    lights. Only their contents make room for the controls and transparent drag surface. */
 .desktop-app [data-slot='sidebar-inner'],

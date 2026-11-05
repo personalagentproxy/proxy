@@ -14,7 +14,6 @@ import {useState} from 'react';
 import {useLoaderData} from 'react-router';
 import {createRecord, deleteRecord, updateRecord} from '@/client/records-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
-import {BackButton} from '@/components/back-button';
 import {RecordForm} from '@/components/record-form';
 import {Row, RowHeader, RowList} from '@/components/row-list';
 import {SideEmpty, SideToggle} from '@/components/share-toggle';
@@ -103,12 +102,7 @@ export function VaultPage() {
 
 	return (
 		<AppShell
-			title={
-				<>
-					<BackButton to={`/${org}/connections`} label="Back to connections" />
-					<PageTitle>Vault</PageTitle>
-				</>
-			}
+			title={<PageTitle>Vault</PageTitle>}
 			actions={
 				<Button size="sm" variant="outline" onClick={() => open({listed: null})}>
 					<PlusIcon data-icon="inline-start" />

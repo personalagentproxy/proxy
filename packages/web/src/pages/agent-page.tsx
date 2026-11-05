@@ -27,7 +27,6 @@ import {setConnectionDefaults} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
-import {BackButton} from '@/components/back-button';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {ConnectionAccess} from '@/components/connection-access';
 import {IconButton} from '@/components/icon-button';
@@ -73,7 +72,7 @@ function AgentDetail({id}: {id: string}) {
 	const apply = useApply(setError);
 	const human = useHuman();
 	if (!agent || agent.id !== id || !human) {
-		return <NotFound what="agent" back={`/${org}/agents`} backLabel="Back to agents" />;
+		return <NotFound what="agent" />;
 	}
 
 	const revoked = agent.revokedAt !== null;
@@ -95,23 +94,20 @@ function AgentDetail({id}: {id: string}) {
 	return (
 		<AppShell
 			title={
-				<>
-					<BackButton to={`/${org}/agents`} label="Back to agents" />
-					<PageTitle
-						detail={
-							builtIn
-								? 'Built in · the agents on the Chat page act through it, with its access'
-								: revoked
-									? `${company} · revoked ${formatDate(agent.revokedAt ?? '')}`
-									: `${company} · added ${formatDate(agent.createdAt)}`
-						}
-					>
-						<span className="flex items-center gap-2">
-							<AgentLogo providerId={agent.providerId} />
-							{agent.name}
-						</span>
-					</PageTitle>
-				</>
+				<PageTitle
+					detail={
+						builtIn
+							? 'Built in · the agents on the Chat page act through it, with its access'
+							: revoked
+								? `${company} · revoked ${formatDate(agent.revokedAt ?? '')}`
+								: `${company} · added ${formatDate(agent.createdAt)}`
+					}
+				>
+					<span className="flex items-center gap-2">
+						<AgentLogo providerId={agent.providerId} />
+						{agent.name}
+					</span>
+				</PageTitle>
 			}
 			actions={
 				mayChange && (

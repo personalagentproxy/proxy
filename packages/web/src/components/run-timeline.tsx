@@ -2,7 +2,7 @@ import type {ActivityTask, AuditEntry} from '@proxy/contracts/activity';
 import type {Connection} from '@proxy/contracts/connections';
 import {ChevronDownIcon, ChevronRightIcon, CornerDownRightIcon} from 'lucide-react';
 import {Fragment, useId, useMemo, useState} from 'react';
-import {Link, useLocation} from 'react-router';
+import {Link} from 'react-router';
 import {
 	AxisLabels,
 	ChartLegend,
@@ -20,7 +20,6 @@ import {useRequestTooltip} from '@/hooks/use-request-tooltip';
 import {useTitleOf} from '@/hooks/use-title-of';
 import {useChartWidth} from '@/hooks/use-chart-width';
 import {useOrgSlug} from '@/hooks/use-org';
-import {backFrom} from '@/lib/back';
 import {formatTime} from '@/lib/format';
 import {
 	buildRunTimeline,
@@ -264,7 +263,6 @@ function RowLabel({
 	onHover: (over: boolean) => void;
 }) {
 	const org = useOrgSlug();
-	const back = backFrom(useLocation());
 	const [task] = row.tasks;
 	const own = row.depth === 0;
 	const foldable = row.kind === 'group' || row.rolledIn > 0 || open;
@@ -326,7 +324,6 @@ function RowLabel({
 			{row.kind === 'task' && task && !own && (
 				<Link
 					to={`/${org}/activity/tasks/${encodeURIComponent(task.id)}`}
-					state={back}
 					preventScrollReset
 					className="flex h-full min-w-0 flex-1 items-center pr-3 pl-1 hover:text-foreground"
 				>
@@ -353,7 +350,6 @@ function RowTarget({
 	onHover: (over: boolean) => void;
 }) {
 	const org = useOrgSlug();
-	const back = backFrom(useLocation());
 	const [task] = row.tasks;
 	const style = {
 		left: row.start,
@@ -383,9 +379,7 @@ function RowTarget({
 	return (
 		<ChartTarget
 			action={
-				row.depth === 0
-					? null
-					: {to: `/${org}/activity/tasks/${encodeURIComponent(task.id)}`, state: back}
+				row.depth === 0 ? null : {to: `/${org}/activity/tasks/${encodeURIComponent(task.id)}`}
 			}
 			label={task.title}
 			style={style}

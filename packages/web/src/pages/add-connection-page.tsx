@@ -1,6 +1,5 @@
 import {useLoaderData, useNavigate, useSearchParams} from 'react-router';
 import {AppShell, PageTitle} from '@/components/app-shell';
-import {BackButton} from '@/components/back-button';
 import {IntegrationCatalog, SignInFailed} from '@/components/integration-catalog';
 import {SharePicker} from '@/components/share-choice';
 import {useExperiments} from '@/hooks/use-experiment';
@@ -22,14 +21,7 @@ export function AddConnectionPage() {
 	const {shared, query} = useShareChoice();
 
 	return (
-		<AppShell
-			title={
-				<>
-					<BackButton to={`/${org}/connections`} label="Back to connections" />
-					<PageTitle>Add connection</PageTitle>
-				</>
-			}
-		>
+		<AppShell title={<PageTitle>Add connection</PageTitle>}>
 			<SignInFailed error={params.get('error')} configured={configured} />
 			<SharePicker />
 			<IntegrationCatalog
