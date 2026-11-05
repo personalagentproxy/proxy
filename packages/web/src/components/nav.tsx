@@ -9,8 +9,10 @@ import {
 	type LucideIcon,
 } from 'lucide-react';
 import type {Experiment} from '@proxy/utils';
+import {useState} from 'react';
 import {Link, useLocation} from 'react-router';
 import {signOut} from '@/client/auth-client';
+import {ConfirmDialog} from '@/components/confirm-dialog';
 import {OrgSwitcher} from '@/components/org-switcher';
 import {PersonAvatar} from '@/components/person-avatar';
 import {useExperiments} from '@/hooks/use-experiment';
@@ -56,9 +58,11 @@ function isActive(pathname: string, path: string, home: string): boolean {
 // The stock shadcn sidebar: always a rail in icon mode on desktop, labels in tooltips; a sheet from
 // the left on phones, opened from the header and closed again on every pick. The organization
 // switcher sits at its top, with the organization's pages in groups under it; the person's own,
-// their account and signing out, at its foot.
+// their account and signing out, at its foot. Signing out asks first, since it sits right under
+// Account.
 export function AppSidebar() {
 	const {pathname} = useLocation();
+	const [confirmingSignOut, setConfirmingSignOut] = useState(false);
 	const human = useHuman();
 	const experiments = useExperiments();
 	const {setOpenMobile} = useSidebar();
@@ -118,7 +122,7 @@ export function AppSidebar() {
 					<SidebarMenuItem>
 						<SidebarMenuButton
 							tooltip={human ? `Sign out ${human.user.email}` : 'Sign out'}
-							onClick={() => void signOut()}
+							onClick={() => setConfirmingSignOut(true)}
 						>
 							<LogOutIcon />
 							<span>Sign out</span>
@@ -126,6 +130,18 @@ export function AppSidebar() {
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarFooter>
+			<ConfirmDialog
+				open={confirmingSignOut}
+				title="Sign out?"
+				description={
+					human
+						? `You're signed in as ${human.user.email}. You'll need to sign in again to use Personal Agent Proxy in this browser.`
+						: "You'll need to sign in again to use Personal Agent Proxy in this browser."
+				}
+				confirmLabel="Sign out"
+				onClose={() => setConfirmingSignOut(false)}
+				onConfirm={() => void signOut()}
+			/>
 		</Sidebar>
 	);
 }
