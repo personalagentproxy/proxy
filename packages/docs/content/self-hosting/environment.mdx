@@ -24,3 +24,11 @@ variables turn on quick actions on the home page.
 ## Deployment
 
 <EnvTable group="Deployment" />
+
+## Observability
+
+The api writes its log to stdout, one JSON object per line, which `docker compose logs api` shows.
+These ship it to [Grafana Cloud](https://grafana.com/products/cloud/) as well, which hosted
+Personal Agent Proxy does; a self-hosted server needs none of them.
+
+<EnvTable group="Observability" />

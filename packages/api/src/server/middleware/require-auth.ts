@@ -4,6 +4,7 @@ import type {Result} from 'ts-results-es';
 import type {ApiError} from '@proxy/utils';
 
 import {log, serializeError} from '../../observability/log';
+import {addContext} from '../../observability/request-context';
 import {authenticateApiRequest, type AuthenticatedApiRequest} from '../../utils/auth';
 import {sendApiError, sendResult} from '../response';
 
@@ -33,6 +34,7 @@ export function withAuth(routeLabel: string, handler: AuthenticatedHandler): Req
 			}
 			const authed = req as AuthenticatedRequest;
 			authed.user = result.value;
+			addContext({userId: result.value.userId});
 			await handler(authed, res);
 		})().catch((error: unknown) => {
 			log.error('route handler threw', {routeLabel, ...serializeError(error)});

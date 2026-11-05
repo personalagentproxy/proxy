@@ -26,7 +26,15 @@ import type {SandboxBackend} from './backend';
 // How long a request may take beyond what the command itself may.
 const REQUEST_MS = 30_000;
 
-export type RemoteSandboxOptions = {url: string; token: string};
+export type RemoteSandboxOptions = {
+	url: string;
+	token: string;
+	/**
+	 * Headers for every request beside the token, read as each is sent: the api gives its request
+	 * id, so a command's lines on the service carry the id its lines on the api do.
+	 */
+	headers?: () => Record<string, string>;
+};
 
 const SERVICE_UNREACHABLE = 'The sandbox service could not be reached. Try again in a moment.';
 
@@ -59,7 +67,7 @@ function toApiError(error: FetchError): ApiError {
 }
 
 /** A backend at `url`, every request carrying `token`. */
-export function remoteSandboxBackend({url, token}: RemoteSandboxOptions): SandboxBackend {
+export function remoteSandboxBackend({url, token, headers}: RemoteSandboxOptions): SandboxBackend {
 	const base = url.replace(/\/+$/, '');
 
 	const call = async <S extends z.ZodType>(
@@ -73,7 +81,7 @@ export function remoteSandboxBackend({url, token}: RemoteSandboxOptions): Sandbo
 			`${base}${path}`,
 			{
 				method,
-				headers: {authorization: `Bearer ${token}`, ...(body === null ? {} : {'content-type': 'application/json'})},
+				headers: {...headers?.(), authorization: `Bearer ${token}`, ...(body === null ? {} : {'content-type': 'application/json'})},
 				...(body === null ? {} : {body: JSON.stringify(body)}),
 			},
 			{schema, timeoutMs},

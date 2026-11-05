@@ -6,6 +6,7 @@ import type {ApiError} from '@proxy/utils';
 
 import {authenticateAgentRequest} from '../../agent-auth/session';
 import {log, serializeError} from '../../observability/log';
+import {addContext} from '../../observability/request-context';
 import {sendApiError, sendResult} from '../response';
 
 /** A request that has passed through `withAgentAuthResult`: `agent` is the signed-in agent. */
@@ -22,6 +23,7 @@ export function withAgentAuthResult<T>(routeLabel: string, handler: (req: AgentR
 			}
 			const authed = req as AgentRequest;
 			authed.agent = result.value;
+			addContext({agentId: result.value.agentId, orgId: result.value.orgId});
 			sendResult(res, await handler(authed));
 		})().catch((error: unknown) => {
 			log.error('route handler threw', {routeLabel, ...serializeError(error)});

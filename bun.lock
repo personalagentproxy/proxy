@@ -16,6 +16,7 @@
         "@proxy/contracts": "workspace:*",
         "@proxy/db": "workspace:*",
         "@proxy/integrations": "workspace:*",
+        "@proxy/observability": "workspace:*",
         "@proxy/utils": "workspace:*",
         "dotenv": "^16.6.1",
         "express": "^4.21.2",
@@ -169,6 +170,19 @@
         "vite": "^8.2.2",
       },
     },
+    "packages/observability": {
+      "name": "@proxy/observability",
+      "version": "0.0.0",
+      "dependencies": {
+        "@proxy/utils": "workspace:*",
+        "ts-results-es": "^7.1.0",
+        "zod": "^4.5.4",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "~6.0.2",
+      },
+    },
     "packages/ui": {
       "name": "@proxy/ui",
       "version": "0.0.0",
@@ -214,6 +228,7 @@
         "@base-ui/react": "^1.8.0",
         "@proxy/contracts": "workspace:*",
         "@proxy/integrations": "workspace:*",
+        "@proxy/observability": "workspace:*",
         "@proxy/ui": "workspace:*",
         "@proxy/utils": "workspace:*",
         "@shadcn/react": "^0.3.1",
@@ -624,6 +639,8 @@
     "@proxy/db": ["@proxy/db@workspace:packages/db"],
 
     "@proxy/integrations": ["@proxy/integrations@workspace:packages/integrations"],
+
+    "@proxy/observability": ["@proxy/observability@workspace:packages/observability"],
 
     "@proxy/ui": ["@proxy/ui@workspace:packages/ui"],
 

@@ -8,6 +8,8 @@ import type {ApiError} from '@proxy/utils';
 import type {JobRow} from '@proxy/db/harness';
 
 import {log, serializeError} from '../observability/log';
+import {agentMetrics} from '../observability/metrics';
+import {runInContext} from '../observability/request-context';
 import {failureNote} from './conversation';
 import {type InferenceStore, runInference} from './inference';
 import type {HarnessStore} from './store';
@@ -78,10 +80,16 @@ async function runClaimed(store: WorkerStore, job: JobRow, workerId: string): Pr
 	const renewal = setInterval(() => {
 		void store.renewLease(job.id, workerId, LEASE_MS);
 	}, RENEW_MS);
+	const startedAt = performance.now();
 	const result = await Result.wrapAsync(() => run(store, job, workerId));
 	clearInterval(renewal);
 	const thrown = result.isErr() ? result.error : null;
 	const failed = result.isOk() && result.value.isErr() ? result.value.error : null;
+	agentMetrics.recordJob({
+		kind: job.kind,
+		status: thrown !== null ? 'thrown' : failed !== null ? 'failed' : 'done',
+		durationMs: Math.round(performance.now() - startedAt),
+	});
 	if (thrown === null && failed === null) {
 		return;
 	}
@@ -112,7 +120,9 @@ export function startHarnessWorker(store: WorkerStore): HarnessWorker {
 				await sleep(POLL_MS);
 				continue;
 			}
-			const job: Promise<void> = runClaimed(store, claimed.value, workerId).finally(() => running.delete(job));
+			const row = claimed.value;
+			// Every line written for the job says which it was, as a request's say which request.
+			const job: Promise<void> = runInContext({jobId: row.id, jobKind: row.kind, threadId: row.threadId, workerId}, () => runClaimed(store, row, workerId)).finally(() => running.delete(job));
 			running.add(job);
 		}
 	};

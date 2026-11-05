@@ -1,0 +1,25 @@
+{
+	"name": "@proxy/observability",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./server": "./src/server.ts",
+		"./client": "./src/client.ts",
+		"./types": "./src/types.ts"
+	},
+	"scripts": {
+		"test": "bun test",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@proxy/utils": "workspace:*",
+		"ts-results-es": "^7.1.0",
+		"zod": "^4.5.4"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"typescript": "~6.0.2"
+	}
+}

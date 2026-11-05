@@ -3,6 +3,7 @@ import {data, redirect} from 'react-router';
 import type {Result} from 'ts-results-es';
 import {isNotFoundError, isUnauthenticatedError} from '@/client/request';
 import {apiMessage} from '@/lib/agent-errors';
+import {log} from '@/lib/log';
 
 /**
  * A loader's answer, or the response its failure stands for: a 401 sends to `signIn` (by default
@@ -44,6 +45,12 @@ function fetchErrorToResponse(error: FetchError, signIn: string | undefined): ne
 		throw data(null, {status: 404});
 	}
 
+	// The path alone, never its query, which may hold what the person searched for.
+	log.warn('loader request failed', {
+		kind: error.kind,
+		path: new URL(error.url, window.location.origin).pathname,
+		...(error.kind === 'http' ? {status: error.status} : {}),
+	});
 	throw data(error.kind, {status: 500});
 }
 

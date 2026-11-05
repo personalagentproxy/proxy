@@ -18,6 +18,7 @@
 		"@proxy/contracts": "workspace:*",
 		"@proxy/db": "workspace:*",
 		"@proxy/integrations": "workspace:*",
+		"@proxy/observability": "workspace:*",
 		"@proxy/utils": "workspace:*",
 		"dotenv": "^16.6.1",
 		"express": "^4.21.2",

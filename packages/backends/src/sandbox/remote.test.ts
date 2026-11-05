@@ -10,7 +10,7 @@ import {remoteSandboxBackend} from './remote';
 
 const TOKEN = 'a-token-long-enough-for-the-tests-to-use';
 
-type Seen = {method: string; path: string; authorization: string | null; body: string};
+type Seen = {method: string; path: string; authorization: string | null; requestId: string | null; body: string};
 const seen: Seen[] = [];
 
 function json(body: unknown, status = 200): Response {
@@ -21,7 +21,7 @@ const service = Bun.serve({
 	port: 0,
 	async fetch(request) {
 		const {pathname} = new URL(request.url);
-		seen.push({method: request.method, path: pathname, authorization: request.headers.get('authorization'), body: await request.text()});
+		seen.push({method: request.method, path: pathname, authorization: request.headers.get('authorization'), requestId: request.headers.get('x-request-id'), body: await request.text()});
 		if (request.headers.get('authorization') !== `Bearer ${TOKEN}`) {
 			return json({error: {kind: 'unauthenticated'}}, 401);
 		}
@@ -75,6 +75,16 @@ describe('the remote sandbox backend', () => {
 		expect((await remote.create({tenant: 'org-1', sandboxId: 'taken'})).unwrapErr()).toMatchObject({kind: 'validation_error', message: 'that id is taken'});
 		expect((await remote.exec('asleep', {command: 'ls', timeoutMs: 1000})).unwrapErr()).toMatchObject({kind: 'conflict', message: 'The sandbox is asleep'});
 		expect((await remote.destroy('gone')).unwrapErr()).toMatchObject({kind: 'not_found', message: 'There is no such sandbox'});
+	});
+
+	test('sends the headers it is given with each request, such as the api’s request id', async () => {
+		let requestId = 'first';
+		const withId = remoteSandboxBackend({url: `http://localhost:${service.port}`, token: TOKEN, headers: () => ({'x-request-id': requestId})});
+		await withId.sleep('r1');
+		requestId = 'second';
+		await withId.wake('r1');
+		expect(seen.slice(-2).map((request) => request.requestId)).toEqual(['first', 'second']);
+		expect(seen.at(-1)?.authorization).toBe(`Bearer ${TOKEN}`);
 	});
 
 	test('a wrong token is the service being unavailable to this server', async () => {
