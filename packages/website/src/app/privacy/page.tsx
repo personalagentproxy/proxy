@@ -90,10 +90,11 @@ export default function PrivacyPage() {
 					providers you sign in with, and from service providers that help us run the Services.
 				</p>
 				<p>
-					<span className="text-foreground">Deidentified information.</span> We may deidentify or
-					aggregate information so that it no longer identifies you, keep it in that form, and use
-					it for any lawful purpose. We don&apos;t try to reidentify it, except to check that it
-					stays deidentified.
+					<span className="text-foreground">Deidentified information.</span> Except for Google user
+					data covered by the &quot;Information from Google Workspace&quot; section, we may
+					deidentify or aggregate information so that it no longer identifies you, keep it in that
+					form, and use it for any lawful purpose. We don&apos;t try to reidentify it, except to
+					check that it stays deidentified.
 				</p>
 			</LegalSection>
 
@@ -126,6 +127,10 @@ export default function PrivacyPage() {
 			</LegalSection>
 
 			<LegalSection title="Information from Google Workspace">
+				<p>
+					In this section, Google user data includes raw data received from Google Workspace APIs
+					and any data derived, aggregated, anonymized or deidentified from it.
+				</p>
 				<p>
 					When you connect a Google account, Google asks you to grant the Services access to parts
 					of that account. Depending on what you grant, the Services may access your Google account
@@ -230,7 +235,10 @@ export default function PrivacyPage() {
 						to enforce our terms, or to protect the rights, safety and security of anyone;
 					</li>
 					<li>with your direction or consent;</li>
-					<li>in aggregated or deidentified form, with anyone.</li>
+					<li>
+						in aggregated or deidentified form, with anyone, except Google user data, which we
+						disclose only as described under &quot;Information from Google Workspace&quot;.
+					</li>
 				</LegalList>
 				<p>We don&apos;t sell personal information and don&apos;t disclose it to data brokers.</p>
 			</LegalSection>
