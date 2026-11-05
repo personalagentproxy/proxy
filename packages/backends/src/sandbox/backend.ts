@@ -16,10 +16,15 @@ import type {ApiError} from '@proxy/utils';
 
 export type SandboxRef = string;
 
-/** A command for the sandbox's shell, run in `cwd` or the sandbox's home, fed `stdin` where given, and stopped after `timeoutMs`. */
+/**
+ * A command for the sandbox's shell, run in `cwd` or the sandbox's home, fed `stdin` where given
+ * and nothing otherwise, and stopped after `timeoutMs`. A command is one sitting: what it leaves
+ * running in the background may not outlive it, as it doesn't on every backend, so long work is
+ * done within the timeout, or in parts.
+ */
 export type SandboxCommand = {command: string; stdin?: string; cwd?: string; timeoutMs: number};
 
-/** What a command wrote and how it ended: `exitCode` null where it was stopped, `timedOut` whether by the timeout. */
+/** What a command wrote and how it ended: `exitCode` null where it was stopped, `timedOut` whether by the timeout; what it wrote before being stopped as far as the backend kept it. */
 export type SandboxOutput = {stdout: string; stderr: string; exitCode: number | null; timedOut: boolean};
 
 export type SandboxBackend = {
@@ -29,7 +34,7 @@ export type SandboxBackend = {
 	create: (sandbox: {tenant: string; sandboxId: string}) => Promise<Result<SandboxRef, ApiError>>;
 	/** Runs a command in a running sandbox; conflict for one asleep, not found for a ref it doesn't know. */
 	exec: (ref: SandboxRef, command: SandboxCommand) => Promise<Result<SandboxOutput, ApiError>>;
-	/** Stops the sandbox's compute, keeping its disk, and gives its ref from now on. What was running is gone. */
+	/** Stops the sandbox's compute, keeping its disk, and gives its ref from now on. Whatever a command left running is gone. */
 	sleep: (ref: SandboxRef) => Promise<Result<SandboxRef, ApiError>>;
 	/** Starts an asleep sandbox again, its disk as it was, and gives its ref from now on. */
 	wake: (ref: SandboxRef) => Promise<Result<SandboxRef, ApiError>>;
