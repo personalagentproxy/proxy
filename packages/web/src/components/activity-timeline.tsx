@@ -79,8 +79,6 @@ type Props = {
 	// The windows the view is about to pass through, zooming in on a bar, in order; none otherwise.
 	// Rows make room for every one of them as the zoom sets off, so they move with it.
 	ahead: Window[];
-	// Where a task's page comes back to: this page, with the window as it is.
-	backTo: string;
 };
 
 // Who is doing what (the layout in lib/activity-timeline.ts): every agent's row over a window of
@@ -103,7 +101,6 @@ export function ActivityTimeline({
 	onOpenEntry,
 	onZoom,
 	ahead,
-	backTo,
 }: Props) {
 	const [measure, width] = useChartWidth();
 	const requestTooltip = useRequestTooltip();
@@ -249,7 +246,6 @@ export function ActivityTimeline({
 												top={barTop(laneIndex)}
 												windowMs={window.to.getTime() - window.from.getTime()}
 												onZoom={onZoom}
-												backTo={backTo}
 											/>
 											<RequestTargets
 												requests={bar.requests}
@@ -500,13 +496,11 @@ function BarTarget({
 	top,
 	windowMs,
 	onZoom,
-	backTo,
 }: {
 	bar: ActivityBar;
 	top: number;
 	windowMs: number;
 	onZoom: (from: number, to: number) => void;
-	backTo: string;
 }) {
 	const org = useOrgSlug();
 	const [task] = bar.tasks;
@@ -519,7 +513,6 @@ function BarTarget({
 	const className = cn(MOVES, 'hover:bg-foreground/5');
 	const pageOf = (one: ActivityTask) => ({
 		to: `/${org}/activity/tasks/${encodeURIComponent(one.id)}`,
-		state: {back: backTo, then: null},
 	});
 	if (!task) {
 		return null;
