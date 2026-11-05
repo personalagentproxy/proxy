@@ -226,3 +226,35 @@ describe('createServerLogger', () => {
 		expect(logs).toHaveLength(2);
 	});
 });
+
+describe('how Loki is reached', () => {
+	it('sends basic auth with a user id, a bearer with a token alone, and nothing with neither', async () => {
+		const auths: Array<string | null> = [];
+		spyOn(globalThis, 'fetch').mockImplementation(
+			Object.assign(
+				async (_url: string | URL | Request, init?: RequestInit) => {
+					auths.push(new Headers(init?.headers).get('authorization'));
+					return new Response(null, {status: 204});
+				},
+				{preconnect: fetch.preconnect},
+			),
+		);
+		for (const loki of [
+			{url: 'http://loki', userId: '42', token: 't'},
+			{url: 'http://loki', userId: '', token: 'glsa_t'},
+			{url: 'http://loki', userId: '', token: ''},
+		]) {
+			const log = createServerLogger({
+				loki,
+				service: 'api',
+				env: 'production',
+				stdout: 'off',
+				flushIntervalMs: 1_000_000,
+			});
+			log.info('x');
+			await log.shutdown();
+		}
+		expect(auths).toEqual([`Basic ${btoa('42:t')}`, 'Bearer glsa_t', null]);
+		mock.restore();
+	});
+});

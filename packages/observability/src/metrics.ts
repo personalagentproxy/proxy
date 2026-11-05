@@ -230,7 +230,11 @@ export function createMetricsClient(config: MetricsConfig): MetricsClient {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
-					Authorization: `Basic ${btoa(`${config.userId}:${config.token}`)}`,
+					// Grafana Cloud's gateway takes the stack's id and a token; a Prometheus of your own
+					// takes no auth.
+					...(config.userId
+						? {Authorization: `Basic ${btoa(`${config.userId}:${config.token}`)}`}
+						: {}),
 				},
 				body: JSON.stringify(payload),
 				signal: AbortSignal.timeout(10_000),

@@ -145,11 +145,11 @@ export const envSchema = z.object({
 	LOKI_URL: documented(originSchema.optional(), {
 		group: 'Observability',
 		description:
-			'Ships the api’s log to Grafana Cloud Loki as well as to stdout, with `LOKI_USER_ID` and `GRAFANA_CLOUD_TOKEN`: the stack’s Loki address, such as `https://logs-prod-021.grafana.net`. Unset, the log is written to stdout alone, one JSON object per line.',
+			'Ships the api’s log to a Loki as well as to stdout: its address, such as `http://loki:3100` for one of your own, which takes no more, or `https://logs-prod-021.grafana.net` for Grafana Cloud’s, with `LOKI_USER_ID` and `GRAFANA_CLOUD_TOKEN`. Unset, the log is written to stdout alone, one JSON object per line.',
 	}),
 	LOKI_USER_ID: documented(z.string().min(1).optional(), {
 		group: 'Observability',
-		description: 'The numeric user id of the Grafana Cloud stack’s Loki, from its details page.',
+		description: 'The numeric user id of the Grafana Cloud stack’s Loki, from its details page; unset for a Loki of your own.',
 	}),
 	GRAFANA_CLOUD_TOKEN: documented(z.string().min(1).optional(), {
 		group: 'Observability',
@@ -158,11 +158,11 @@ export const envSchema = z.object({
 	METRICS_OTLP_URL: documented(z.url().optional(), {
 		group: 'Observability',
 		description:
-			'Pushes the api’s metrics, such as request and query counts and latencies, to Grafana Cloud, with `METRICS_USER_ID` and `GRAFANA_CLOUD_TOKEN`: the stack’s OTLP metrics address, such as `https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/metrics`. Unset, nothing is pushed.',
+			'Pushes the api’s metrics, such as request and query counts and latencies, over OTLP: to a Prometheus of your own taking OTLP, such as `http://prometheus:9090/api/v1/otlp/v1/metrics`, which takes no more, or to Grafana Cloud’s gateway, such as `https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/metrics`, with `METRICS_USER_ID` and `GRAFANA_CLOUD_TOKEN`. Unset, nothing is pushed.',
 	}),
 	METRICS_USER_ID: documented(z.string().min(1).optional(), {
 		group: 'Observability',
-		description: 'The numeric instance id of the Grafana Cloud stack’s OTLP gateway, from its details page.',
+		description: 'The numeric instance id of the Grafana Cloud stack’s OTLP gateway, from its details page; unset for a Prometheus of your own.',
 	}),
 	SLACK_BOT_TOKEN: documented(z.string().min(1).optional(), {
 		group: 'Observability',
