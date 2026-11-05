@@ -84,18 +84,14 @@ services:
       # Hosted Personal Agent Proxy is not an installation to count.
       - key: TELEMETRY_ENABLED
         value: 'false'
-      # Where the log and the metrics go, and where alerts and sign-ups are posted
-      # (packages/observability/README.md). Each is optional: unset, the log stays on stdout.
+      # Where the log and the metrics go: the Loki and the Prometheus the internal repo
+      # (personalagentproxy/internal) runs beside this service, by their names on Render's private
+      # network, as the sandbox service above; neither takes auth. Unset, the log stays on stdout.
       - key: LOKI_URL
-        sync: false
-      - key: LOKI_USER_ID
-        sync: false
-      - key: GRAFANA_CLOUD_TOKEN
-        sync: false
+        value: http://loki:3100
       - key: METRICS_OTLP_URL
-        sync: false
-      - key: METRICS_USER_ID
-        sync: false
+        value: http://prometheus:9090/api/v1/otlp/v1/metrics
+      # Where alerts and sign-ups are posted (packages/observability/README.md); optional.
       - key: SLACK_BOT_TOKEN
         sync: false
       - key: SLACK_CHANNEL_ALERTS
