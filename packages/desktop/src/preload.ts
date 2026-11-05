@@ -1,7 +1,13 @@
 import {contextBridge, ipcRenderer, type IpcRendererEvent, webFrame} from 'electron';
 
 import {PRODUCTION_APP_URL} from './app-url';
-import {RESTART_CHANNEL, UPDATE_READY_CHANNEL} from './channels';
+import {
+	BADGE_CHANNEL,
+	NOTIFY_CHANNEL,
+	OPEN_PATH_CHANNEL,
+	RESTART_CHANNEL,
+	UPDATE_READY_CHANNEL,
+} from './channels';
 
 const APP_ORIGIN = new URL(
 	process.env.NODE_ENV === 'production'
@@ -41,7 +47,23 @@ if (process.platform === 'darwin' && window.location.origin === APP_ORIGIN) {
 
 // What the page may ask of the app, as `window.personalAgentProxyDesktop`, typed on the web app's
 // side in packages/web/src/lib/desktop.ts: whether an update is downloaded, word when one is, and
-// the restart that installs it. The main process answers the app's own pages only (updates.ts).
+// the restart that installs it; a notification shown, word of the page one opens when clicked,
+// and the count on the app's badge. The main process answers the app's own pages only
+// (updates.ts, notifications.ts).
+
+// The page's listeners for a notification clicked. Where none listens, as on the sign-in page or
+// the agents' pages, the page goes to the notification's own: a path of the app's, as the main
+// process has checked.
+const openPathListeners = new Set<(path: string) => void>();
+ipcRenderer.on(OPEN_PATH_CHANNEL, (_event: IpcRendererEvent, path: string) => {
+	if (openPathListeners.size === 0) {
+		window.location.assign(path);
+		return;
+	}
+	for (const listener of openPathListeners) {
+		listener(path);
+	}
+});
 
 contextBridge.exposeInMainWorld('personalAgentProxyDesktop', {
 	titleBarHidden: process.platform === 'darwin',
@@ -52,4 +74,13 @@ contextBridge.exposeInMainWorld('personalAgentProxyDesktop', {
 		return () => ipcRenderer.removeListener(UPDATE_READY_CHANNEL, handler);
 	},
 	restart: (): void => ipcRenderer.send(RESTART_CHANNEL),
+	notify: (notice: {title: string; body: string; path: string; tag: string}): void =>
+		ipcRenderer.send(NOTIFY_CHANNEL, notice),
+	onOpenPath: (listener: (path: string) => void): (() => void) => {
+		openPathListeners.add(listener);
+		return () => {
+			openPathListeners.delete(listener);
+		};
+	},
+	setBadge: (count: number): void => ipcRenderer.send(BADGE_CHANNEL, count),
 });

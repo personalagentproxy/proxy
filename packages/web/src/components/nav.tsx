@@ -24,9 +24,26 @@ import {
 	useSidebar,
 } from '@proxy/ui/components/sidebar';
 import {useHuman} from '@/hooks/use-human';
+import {useUnread} from '@/hooks/use-unread';
 
 // `experiment` is the experiment a destination is behind, shown only with it on.
 type Destination = {to: string; label: string; icon: LucideIcon; experiment?: Experiment};
+
+const CHAT = '/chat';
+
+// How many conversations have something unread, on Chat: over the icon's corner on the rail, at
+// the row's end where the labels show.
+function UnreadBadge({count}: {count: number}) {
+	return (
+		<span
+			role="status"
+			aria-label={`${count} unread`}
+			className="pointer-events-none absolute top-1/2 right-2 flex h-4 min-w-4 -translate-y-1/2 items-center justify-center rounded-full bg-primary px-1 text-[10px] leading-none font-medium text-primary-foreground group-data-[collapsible=icon]:top-0 group-data-[collapsible=icon]:right-0 group-data-[collapsible=icon]:translate-y-0"
+		>
+			{count}
+		</span>
+	);
+}
 
 // The organization's, under the switcher, each under its slug, in groups set apart from each
 // other. Its members and settings are in the switcher.
@@ -59,6 +76,7 @@ export function AppSidebar() {
 	const {pathname} = useLocation();
 	const human = useHuman();
 	const experiments = useExperiments();
+	const unread = useUnread();
 	const {setOpenMobile} = useSidebar();
 	const home = `/${human?.org.slug ?? ''}`;
 	const groups = GROUPS.map((group) =>
@@ -93,6 +111,9 @@ export function AppSidebar() {
 										<destination.icon />
 										<span>{destination.label}</span>
 									</SidebarMenuButton>
+									{destination.to === CHAT && unread.unreadIds.size > 0 && (
+										<UnreadBadge count={unread.unreadIds.size} />
+									)}
 								</SidebarMenuItem>
 							))}
 						</SidebarMenu>

@@ -18,7 +18,9 @@ import {
 	listEntries,
 	listJobEvents,
 	listOpenJobs,
+	listAnswers,
 	listSubAgents,
+	markThreadRead,
 	requeueJob,
 	type JobRow,
 	type NewEntry,
@@ -266,6 +268,59 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			[next.id, 'claimed', 'worker-d', null],
 			[next.id, 'failed', 'worker-d', 'Given up after 4 attempts'],
 		]);
+	});
+
+	test('the persona’s last answer is unread until the thread is read up to it, never back, and what the person says after it reads nothing', async () => {
+		const persona = unwrap(await ensureFirstPersona(orgId));
+		const lastAnswer = async () =>
+			unwrap(await listAnswers(orgId, userId)).find(
+				(candidate) => candidate.personaId === persona.id,
+			);
+		const answer = async (workerId: string, text: string) => {
+			const job = unwrap(await claimJob(workerId, 60_000));
+			if (!job) {
+				throw new Error('nothing to claim');
+			}
+			unwrap(
+				await completeInference(
+					job.id,
+					workerId,
+					thread.id,
+					subTurn(text),
+					{plans: {}},
+					readyForInference,
+				),
+			);
+			const last = await lastAnswer();
+			if (last?.answer.text !== text) {
+				throw new Error(`expected the answer ${text}, got ${JSON.stringify(last)}`);
+			}
+			return last.answer.id;
+		};
+
+		unwrap(await appendPersonMessage(thread.id, 'Anything new?', readyForInference));
+		const first = await answer('worker-r', 'Nothing new.');
+		expect((await lastAnswer())?.unread).toBe(true);
+
+		unwrap(await appendPersonMessage(thread.id, 'And now?', readyForInference));
+		expect(await lastAnswer()).toEqual({
+			personaId: persona.id,
+			personaName: persona.name,
+			answer: {id: first, text: 'Nothing new.'},
+			unread: true,
+		});
+
+		const second = await answer('worker-r2', 'Still nothing.');
+		expect(unwrap(await markThreadRead(thread.id, first))).toBe(true);
+		expect((await lastAnswer())?.unread).toBe(true);
+
+		expect(unwrap(await markThreadRead(thread.id, second))).toBe(true);
+		expect((await lastAnswer())?.unread).toBe(false);
+		expect(unwrap(await markThreadRead(thread.id, first))).toBe(true);
+		expect((await lastAnswer())?.unread).toBe(false);
+
+		expect(unwrap(await markThreadRead(thread.id, 'no-such-entry'))).toBe(false);
+		expect(unwrap(await markThreadRead('no-such-thread', second))).toBe(false);
 	});
 
 	test('a finish with nothing written is a done event too', async () => {

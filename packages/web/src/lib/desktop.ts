@@ -18,7 +18,8 @@ export function isDesktopApp(): boolean {
 /**
  * What the desktop app's window gives its pages (`packages/desktop/src/preload.ts`): the version
  * of an update it has downloaded, if any, word when it downloads one, and the restart that installs
- * it.
+ * it; and notifications, shown by the app, which hands back the page one opens when clicked, and
+ * the count on its badge.
  */
 export type DesktopBridge = {
 	// Optional while installed desktop apps from before the hidden title bar still load this page.
@@ -26,6 +27,10 @@ export type DesktopBridge = {
 	updateReady(): Promise<string | null>;
 	onUpdateReady(listener: (version: string) => void): () => void;
 	restart(): void;
+	// Optional while installed desktop apps from before notifications still load this page.
+	notify?(notice: {title: string; body: string; path: string; tag: string}): void;
+	onOpenPath?(listener: (path: string) => void): () => void;
+	setBadge?(count: number): void;
 };
 
 declare global {

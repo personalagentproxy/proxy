@@ -76,10 +76,11 @@ beforeEach(async () => {
 
 describe('the chat routes', () => {
 	test('are refused without the experiment', async () => {
-		const {handleListPersonasRoute, handlePostMessageRoute} = routes;
+		const {handleListPersonasRoute, handleListAnswersRoute, handlePostMessageRoute} = routes;
 		requireViewer.mockResolvedValue(Ok({...viewer, experiments: []}));
 
 		expect((await handleListPersonasRoute(request())).unwrapErr().kind).toBe('forbidden');
+		expect((await handleListAnswersRoute(request())).unwrapErr().kind).toBe('forbidden');
 		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: 'Hi'}))).unwrapErr().kind).toBe('forbidden');
 		expect(store.appendPersonMessage).not.toHaveBeenCalled();
 	});
@@ -108,6 +109,17 @@ describe('the chat routes', () => {
 				{...personaResponse, id: 'persona-4', lastMessage: {kind: 'assistant', text: 'Found Three invoices, see the list Who Sum Dana 40', at: '2026-10-21T10:00:00.000Z'}},
 			],
 		});
+	});
+
+	test('list the persona’s last answer in each of the viewer’s conversations, on one line, and whether it is unread, making nothing', async () => {
+		const {handleListAnswersRoute} = routes;
+		store.listAnswers.mockResolvedValue(Ok([{personaId: 'persona-1', personaName: 'Finance', answer: {id: 'e9', text: 'Your vault\n has  one entry.'}, unread: true}]));
+
+		const listed = (await handleListAnswersRoute(request())).unwrap();
+
+		expect(store.listAnswers).toHaveBeenCalledWith('org-1', 'user-1');
+		expect(store.ensureFirstPersona).not.toHaveBeenCalled();
+		expect(listed).toEqual({answers: [{personaId: 'persona-1', name: 'Finance', answer: {id: 'e9', text: 'Your vault has one entry.'}, unread: true}]});
 	});
 
 	test('an organization without a persona gets a General one, nobody’s, on its first listing', async () => {
@@ -233,5 +245,27 @@ describe('the chat routes', () => {
 
 		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: '   '}))).unwrapErr().kind).toBe('parse_error');
 		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: 'x'.repeat(20_001)}))).unwrapErr().kind).toBe('parse_error');
+	});
+
+	test('mark the viewer’s conversation with the persona read up to the answer shown, beginning none, and say where the answer, the conversation or the persona is gone', async () => {
+		const {handleMarkReadRoute} = routes;
+		store.markThreadRead.mockResolvedValue(Ok(true));
+
+		expect((await handleMarkReadRoute(request({personaId: 'persona-1'}, {entryId: 'e9'}))).isOk()).toBe(true);
+		expect(store.markThreadRead).toHaveBeenCalledWith('thread-1', 'e9');
+
+		expect((await handleMarkReadRoute(request({personaId: 'persona-1'}, {}))).unwrapErr().kind).toBe('parse_error');
+
+		store.markThreadRead.mockResolvedValue(Ok(false));
+		expect((await handleMarkReadRoute(request({personaId: 'persona-1'}, {entryId: 'elsewhere'}))).unwrapErr().kind).toBe('not_found');
+
+		store.getMemberThread.mockResolvedValue(Ok(null));
+		expect((await handleMarkReadRoute(request({personaId: 'persona-1'}, {entryId: 'e9'}))).unwrapErr().kind).toBe('not_found');
+		expect(store.ensureMemberThread).not.toHaveBeenCalled();
+		expect(ensureBuiltInAgent).not.toHaveBeenCalled();
+
+		store.getPersona.mockResolvedValue(Ok(null));
+		expect((await handleMarkReadRoute(request({personaId: 'persona-9'}, {entryId: 'e9'}))).unwrapErr().kind).toBe('not_found');
+		expect(store.markThreadRead).toHaveBeenCalledTimes(2);
 	});
 });

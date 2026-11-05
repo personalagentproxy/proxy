@@ -15,6 +15,7 @@ import {deleteAccount, deleteOtherSessions, deleteSession} from '@/client/me-cli
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {DangerCard} from '@/components/danger-card';
 import {IconButton} from '@/components/icon-button';
+import {NotificationSetting} from '@/components/notification-setting';
 import {OrgTile} from '@/components/org-switcher';
 import {RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
@@ -25,11 +26,14 @@ import {useApply} from '@/hooks/use-apply';
 import {useHuman} from '@/hooks/use-human';
 import {formatDate} from '@/lib/format';
 import {describeApiError} from '@/lib/loader-utils';
+import {notificationSupport} from '@/lib/notifications';
 import {hasOtherPeople} from '@/lib/orgs';
 
-// The person's account, in no organization: who is signed in, how the app looks to them, the
-// organizations they are in, each to its own settings, every browser and desktop app they are
-// signed in on, each to sign out, and deleting the account, which deletes every one they own.
+// The person's account, in no organization: who is signed in, how the app looks to them, whether
+// this device tells them what the agents say while they are elsewhere (where any of their
+// organizations has Chat, and the device can), the organizations they are in, each to its own
+// settings, every browser and desktop app they are signed in on, each to sign out, and deleting
+// the account, which deletes every one they own.
 export function AccountPage() {
 	const human = useHuman();
 	const {sessions} = useLoaderData<Sessions>();
@@ -52,6 +56,7 @@ export function AccountPage() {
 
 	// The organizations deleted with the account that others are in or invited to.
 	const shared = human.orgs.filter((org) => org.role === 'owner' && hasOtherPeople(org));
+	const chats = human.orgs.some((org) => org.experiments.includes('harness'));
 
 	return (
 		<AppShell title={<PageTitle>Account</PageTitle>}>
@@ -69,6 +74,18 @@ export function AccountPage() {
 						</SettingRow>
 					</RowList>
 				</Section>
+				{chats && notificationSupport() !== 'none' && (
+					<Section title="Notifications">
+						<RowList>
+							<SettingRow label="Messages">
+								<NotificationSetting />
+							</SettingRow>
+						</RowList>
+						<p className="text-sm text-muted-foreground">
+							A notification on this device when an agent answers in Chat while you are elsewhere.
+						</p>
+					</Section>
+				)}
 				<Section title="Organizations" detail={human.orgs.length}>
 					<RowList>
 						{human.orgs.map((org) => (

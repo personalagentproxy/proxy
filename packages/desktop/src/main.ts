@@ -3,14 +3,17 @@ import path from 'node:path';
 import {app, dialog, type BrowserWindow} from 'electron';
 
 import {finishSignIn} from './auth';
+import {OPEN_PATH_CHANNEL} from './channels';
 import {DEEP_LINK_SCHEME, findDeepLink, parseDeepLink, type DeepLink} from './deep-link';
 import {DESKTOP_VERSION} from './env';
+import {initNotifications} from './notifications';
 import {initUpdates} from './updates';
-import {createMainWindow, loadApp, showSignIn} from './window';
+import {createMainWindow, isAppPage, loadApp, showSignIn} from './window';
 
 // The desktop app: a window around the web app, hosted, with nothing of it bundled. The main
-// process keeps the window, signs in through the browser, and takes the app's links: the browser
-// coming back from the sign-in, and from what the app hands it, as a service's sign-in is.
+// process keeps the window, signs in through the browser, takes the app's links: the browser
+// coming back from the sign-in, and from what the app hands it, as a service's sign-in is; and
+// shows the notifications the page asks for.
 
 // So the web app can tell it is in the desktop app, and which version.
 app.userAgentFallback = `${app.userAgentFallback} PersonalAgentProxyDesktop/${DESKTOP_VERSION}`;
@@ -42,6 +45,20 @@ function focusWindow(): BrowserWindow {
 	}
 	win.focus();
 	return win;
+}
+
+// Opens a page of the app, as a notification clicked asks: in the window's page of the app, which
+// moves there itself, or goes there where nothing on it listens (preload.ts), or loaded where the
+// window has none, as on macOS after the window was closed, or on the splash pages, which can't.
+function openPath(path: string): void {
+	const open = currentWindow();
+	const showsApp = open !== null && isAppPage(open.webContents.getURL());
+	const win = focusWindow();
+	if (!showsApp) {
+		loadApp(win, path);
+		return;
+	}
+	win.webContents.send(OPEN_PATH_CHANNEL, path);
 }
 
 async function onDeepLink(link: DeepLink): Promise<void> {
@@ -117,6 +134,7 @@ function start(): void {
 		}
 		loadApp(window());
 		initUpdates(currentWindow);
+		initNotifications(openPath);
 		const link = findDeepLink(process.argv);
 		if (link) {
 			void onDeepLink(link);

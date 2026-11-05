@@ -6,7 +6,9 @@ import {preview, threadState, toAvatarColor} from '@proxy/utils/harness';
 import type {EntryRow, LastMessage, Persona, PersonaRow, ThreadRow} from '@proxy/db/harness';
 import {
 	type ChatEntry,
+	type chatAnswersSchema,
 	type ChatPersona,
+	markReadBodySchema,
 	personaBodySchema,
 	type personaAnswerSchema,
 	type personaListSchema,
@@ -32,6 +34,7 @@ import type {HarnessStore} from './store';
 export type ChatStore = Pick<
 	HarnessStore,
 	| 'listPersonas'
+	| 'listAnswers'
 	| 'ensureFirstPersona'
 	| 'getPersona'
 	| 'createPersona'
@@ -42,6 +45,7 @@ export type ChatStore = Pick<
 	| 'listShownEntries'
 	| 'listOpenJobs'
 	| 'appendPersonMessage'
+	| 'markThreadRead'
 >;
 
 // Whether the viewer may rename, reface, switch the model of or delete the persona: whoever made it, or the organization's owner (utils/manages.ts).
@@ -133,6 +137,22 @@ function handleListPersonasRoute(store: ChatStore, request: AuthenticatedRequest
 	});
 }
 
+/** `GET /api/orgs/:org/chat/answers`: the persona's last answer in each of the viewer's conversations that has one, and whether they haven't seen it; read only, for every page to ask every so often. */
+function handleListAnswersRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof chatAnswersSchema>, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireChat(request));
+		const answers = $(await store.listAnswers(viewer.orgId, viewer.userId));
+		return {
+			answers: answers.map(({personaId, personaName, answer, unread}) => ({
+				personaId,
+				name: personaName,
+				answer: {id: answer.id, text: preview(answer.text)},
+				unread,
+			})),
+		};
+	});
+}
+
 /** `POST /api/orgs/:org/chat/personas` with `{name, look, color, chatModel?}`: a new persona, every member's, and the organization's built-in login with it where there is none yet. */
 function handleCreatePersonaRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaAnswerSchema>, ApiError>> {
 	return Do(async ($) => {
@@ -198,14 +218,30 @@ function handlePostMessageRoute(store: ChatStore, request: AuthenticatedRequest)
 	});
 }
 
+/** `POST /api/orgs/:org/chat/personas/:personaId/read` with `{entryId}`: the viewer was shown their conversation with the persona up to that answer; what the persona said after it stays unread. */
+function handleMarkReadRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireChat(request));
+		const {entryId} = $(parseSchema(markReadBodySchema, request.body));
+		const persona = $(await requirePersona(store, viewer, request));
+		// Read, never begun: a viewer without a conversation has no answer in it to have seen.
+		const thread = $(await store.getMemberThread(persona.id, viewer.userId));
+		if (!thread || !$(await store.markThreadRead(thread.id, entryId))) {
+			return $(Err(ApiErr.notFound('entry', entryId)));
+		}
+	});
+}
+
 /** The Chat page's routes, on the store. */
 export function chatRoutes(store: ChatStore) {
 	return {
 		handleListPersonasRoute: (request: AuthenticatedRequest) => handleListPersonasRoute(store, request),
+		handleListAnswersRoute: (request: AuthenticatedRequest) => handleListAnswersRoute(store, request),
 		handleCreatePersonaRoute: (request: AuthenticatedRequest) => handleCreatePersonaRoute(store, request),
 		handleUpdatePersonaRoute: (request: AuthenticatedRequest) => handleUpdatePersonaRoute(store, request),
 		handleDeletePersonaRoute: (request: AuthenticatedRequest) => handleDeletePersonaRoute(store, request),
 		handleGetThreadRoute: (request: AuthenticatedRequest) => handleGetThreadRoute(store, request),
 		handlePostMessageRoute: (request: AuthenticatedRequest) => handlePostMessageRoute(store, request),
+		handleMarkReadRoute: (request: AuthenticatedRequest) => handleMarkReadRoute(store, request),
 	};
 }

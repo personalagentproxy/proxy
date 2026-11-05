@@ -324,6 +324,59 @@ export async function listPersonas(
 	);
 }
 
+/** The persona's last answer in a member's conversation with it, and whether they haven't seen it. */
+export type ConversationAnswer = {
+	personaId: string;
+	personaName: string;
+	answer: LastAnswer;
+	unread: boolean;
+};
+
+/**
+ * The persona's last answer in each of the member's conversations that has one, and whether it is
+ * unread; one query, and nothing made, for what is asked every so often. Each conversation's
+ * answer is found on its own, from the newest entry back by the `(threadId, seq)` index, so a long
+ * conversation is not read whole for its last answer.
+ */
+export async function listAnswers(
+	orgId: string,
+	userId: string,
+): Promise<Result<ConversationAnswer[], ApiError>> {
+	return (
+		await wrapDb(
+			() => db.$queryRaw<
+				Array<{
+					personaId: string;
+					personaName: string;
+					id: string;
+					text: string;
+					unread: boolean;
+				}>
+			>`
+				SELECT t."personaId", p."name" AS "personaName", e."id", e."text",
+					e."seq" > t."readSeq" AS "unread"
+				FROM "AgentThread" AS t
+				JOIN "Persona" AS p ON p."id" = t."personaId"
+				CROSS JOIN LATERAL (
+					SELECT "id", "seq", "text"
+					FROM "AgentEntry"
+					WHERE "threadId" = t."id" AND "kind" = 'assistant' AND "text" <> ''
+					ORDER BY "seq" DESC
+					LIMIT 1
+				) AS e
+				WHERE t."orgId" = ${orgId} AND t."userId" = ${userId} AND t."parentThreadId" IS NULL
+			`,
+		)
+	).map((rows) =>
+		rows.map(({personaId, personaName, id, text, unread}) => ({
+			personaId,
+			personaName,
+			answer: {id, text},
+			unread,
+		})),
+	);
+}
+
 /**
  * The organization's first persona, General, made by nobody in particular where it has none: the
  * organization's row is locked meanwhile, so two first openings of Chat make one. The one there
@@ -476,6 +529,25 @@ export async function ensureMemberThread(data: {
 
 /** The last thing said in a thread, by the person or the agent. */
 export type LastMessage = {kind: 'person' | 'assistant'; text: string; createdAt: Date};
+
+/** The persona's last answer in a conversation, which the member may not have seen. */
+export type LastAnswer = {id: string; text: string};
+
+/**
+ * Marks the thread read up to the entry, as far as the member was shown it, never back: what the
+ * persona said after it stays unread. `Ok(false)` means no such entry in the thread.
+ */
+export async function markThreadRead(
+	threadId: string,
+	entryId: string,
+): Promise<Result<boolean, ApiError>> {
+	return (
+		await wrapDb(
+			() =>
+				db.$executeRaw`UPDATE "AgentThread" AS t SET "readSeq" = GREATEST(t."readSeq", e."seq") FROM "AgentEntry" AS e WHERE t."id" = ${threadId} AND e."id" = ${entryId} AND e."threadId" = t."id"`,
+		)
+	).map((count) => count > 0);
+}
 
 /**
  * The thread's agent as it acts in the thread: signed in as the member whose conversation it is,

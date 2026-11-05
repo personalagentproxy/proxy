@@ -665,6 +665,10 @@ model AgentThread {
   // and made anew when it is taken up again; a conversation has none: its agent makes no calls
   // but to its sub-agents.
   taskId  String?
+  // How far the member has read their conversation: the `seq` of the last answer the Chat page
+  // showed them while they looked at it, never back. What the persona said past it is unread. A
+  // sub-agent's thread, which nobody reads, keeps 0.
+  readSeq Int     @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

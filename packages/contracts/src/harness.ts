@@ -56,6 +56,26 @@ export type ChatPersona = z.infer<typeof chatPersonaSchema>;
 /** `GET chat/personas`: the organization's personas, in the order they were made. */
 export const personaListSchema = z.object({personas: z.array(chatPersonaSchema)});
 
+/**
+ * The persona's last answer in one of the person's conversations, cut to a line, which may come
+ * before what the person said last, and whether they haven't seen it: the page hasn't shown it to
+ * them since it came (`POST chat/personas/:personaId/read`).
+ */
+export const chatAnswerSchema = z.object({
+	personaId: z.string(),
+	name: z.string(),
+	answer: z.object({id: z.string(), text: z.string()}),
+	unread: z.boolean(),
+});
+
+export type ChatAnswer = z.infer<typeof chatAnswerSchema>;
+
+/**
+ * `GET chat/answers`: the last answer in each of the person's conversations that has one, as
+ * every page asks every so often; it makes nothing, where `GET chat/personas` makes General.
+ */
+export const chatAnswersSchema = z.object({answers: z.array(chatAnswerSchema)});
+
 /** The persona made or changed. */
 export const personaAnswerSchema = z.object({persona: chatPersonaSchema});
 
@@ -93,6 +113,12 @@ const MAX_MESSAGE = 20_000;
 
 /** `POST chat/personas/:personaId/messages`: what the person says to the persona; it is woken. */
 export const postMessageBodySchema = z.object({text: z.string().trim().min(1).max(MAX_MESSAGE)});
+
+/**
+ * `POST chat/personas/:personaId/read`: the persona's answer the page showed the person, which
+ * the conversation is read up to.
+ */
+export const markReadBodySchema = z.object({entryId: z.string().min(1)});
 
 /** What the person said, as a turn of the conversation. */
 export const postedMessageSchema = z.object({entry: chatEntrySchema});

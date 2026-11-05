@@ -42,6 +42,7 @@ import {preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
 import {useHuman} from '@/hooks/use-human';
 import {useOrgSlug} from '@/hooks/use-org';
+import {useUnread} from '@/hooks/use-unread';
 import {formatAgo, formatDateTime} from '@/lib/format';
 import type {Pose} from '@/lib/head';
 import {describeFetchError} from '@/lib/loader-utils';
@@ -125,8 +126,9 @@ function lastOf(log: ThreadLog): ChatPersona['lastMessage'] {
 }
 
 // The organization's personas in the second sidebar, each with its head, its name and the last
-// thing said between it and the person, the open one lit, each head watching the pointer while it
-// is over that agent's row, and a row at the bottom to make a new one.
+// thing said between it and the person, marked where the person hasn't seen it, the open one lit,
+// each head watching the pointer while it is over that agent's row, and a row at the bottom to
+// make a new one.
 function PersonaList({
 	personas,
 	current,
@@ -153,7 +155,11 @@ function PersonaList({
 	onDelete: (persona: ChatPersona) => void;
 }) {
 	const org = useOrgSlug();
+	const unread = useUnread();
 	const [hovered, setHovered] = useState(takeOpeningPersona);
+	// Whether the persona said something the person hasn't seen, as the provider has it.
+	const isUnread = (persona: ChatPersona) =>
+		persona.id !== current && unread.unreadIds.has(persona.id);
 	return (
 		<div className="flex h-full min-h-0 flex-col">
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
@@ -163,6 +169,7 @@ function PersonaList({
 				<ul className="flex flex-col gap-0.5">
 					{personas.map((persona) => {
 						const last = persona.id === current ? lastOf(currentLog) : persona.lastMessage;
+						const fresh = isUnread(persona);
 						const row = (
 							<Link
 								to={`/${org}/chat/${persona.id}`}
@@ -211,7 +218,23 @@ function PersonaList({
 											</span>
 										)}
 									</span>
-									<span className="truncate text-xs text-muted-foreground">{subtitle(last)}</span>
+									<span className="flex items-center gap-2">
+										<span
+											className={cn(
+												'min-w-0 flex-1 truncate text-xs',
+												fresh ? 'font-medium' : 'text-muted-foreground',
+											)}
+										>
+											{subtitle(last)}
+										</span>
+										{fresh && (
+											<span
+												role="status"
+												aria-label="Unread"
+												className="size-2 shrink-0 rounded-full bg-primary"
+											/>
+										)}
+									</span>
 								</span>
 							</Link>
 						);
@@ -351,6 +374,17 @@ function Conversation({
 			clearInterval(timer);
 		};
 	}, [readLog, log.busy]);
+
+	// The provider is told which conversation the page shows, and its last answer: while the person
+	// looks at it, it is neither counted nor notified of, and is read up to that answer.
+	const lastAnswerId = log.entries.findLast((entry) => entry.kind === 'assistant')?.id ?? null;
+	const {setViewing} = useUnread();
+	useEffect(() => {
+		setViewing({personaId, answerId: lastAnswerId});
+		return () => {
+			setViewing(null);
+		};
+	}, [setViewing, personaId, lastAnswerId]);
 
 	const send = async (event: FormEvent) => {
 		event.preventDefault();

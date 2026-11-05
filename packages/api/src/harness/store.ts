@@ -6,7 +6,7 @@ import * as alerts from '@proxy/db/alerts';
 import type {AlertRow, NewAlert, PollRow, WatchMatch} from '@proxy/db/alerts';
 import {type ConnectionRow, getConnectionWithCredentialById, listConnectionsByIds} from '@proxy/db/connection';
 import * as harness from '@proxy/db/harness';
-import type {AfterAnswer, AssistantTurn, EntryRow, FailureNote, JobRow, LastMessage, Persona, PersonaRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
+import type {AfterAnswer, AssistantTurn, ConversationAnswer, EntryRow, FailureNote, JobRow, LastMessage, Persona, PersonaRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
 import {type AgentTaskRow, createAgentTask, getAgentTask, type NewAgentTask} from '@proxy/db/task';
 import type {SignedInAgent} from '@proxy/db/agent';
 
@@ -40,6 +40,7 @@ export type HarnessStore = {
 	createAgentTask: (task: NewAgentTask) => Promise<Result<AgentTaskRow | null, ApiError>>;
 
 	listPersonas: (orgId: string, userId: string) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null}>, ApiError>>;
+	listAnswers: (orgId: string, userId: string) => Promise<Result<ConversationAnswer[], ApiError>>;
 	ensureFirstPersona: (orgId: string) => Promise<Result<PersonaRow, ApiError>>;
 	getPersona: (orgId: string, personaId: string) => Promise<Result<PersonaRow | null, ApiError>>;
 	createPersona: (orgId: string, createdById: string, persona: Persona) => Promise<Result<PersonaRow, ApiError>>;
@@ -50,6 +51,7 @@ export type HarnessStore = {
 	listShownEntries: (threadId: string) => Promise<Result<EntryRow[], ApiError>>;
 	listOpenJobs: (threadId: string) => Promise<Result<JobRow[], ApiError>>;
 	appendPersonMessage: (threadId: string, text: string) => Promise<Result<EntryRow | null, ApiError>>;
+	markThreadRead: (threadId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
 
 	completeSetAlert: (job: {jobId: string; workerId: string; threadId: string; callId: string}, alert: NewAlert, answer: (alert: AlertRow) => string) => Promise<Result<boolean, ApiError>>;
 	deleteAlert: (alertId: string, owner: {threadId: string} | {orgId: string; userId: string}) => Promise<Result<boolean, ApiError>>;
@@ -86,6 +88,7 @@ export const harnessStore: HarnessStore = {
 	createAgentTask,
 
 	listPersonas: harness.listPersonas,
+	listAnswers: harness.listAnswers,
 	ensureFirstPersona: harness.ensureFirstPersona,
 	getPersona: harness.getPersona,
 	createPersona: harness.createPersona,
@@ -96,6 +99,7 @@ export const harnessStore: HarnessStore = {
 	listShownEntries: harness.listShownEntries,
 	listOpenJobs: harness.listOpenJobs,
 	appendPersonMessage: (threadId, text) => harness.appendPersonMessage(threadId, text, readyForInference),
+	markThreadRead: harness.markThreadRead,
 
 	completeSetAlert: (job, alert, answer) => alerts.completeSetAlert(job, alert, answer, readyForInference),
 	deleteAlert: alerts.deleteAlert,

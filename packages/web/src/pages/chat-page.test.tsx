@@ -1,30 +1,48 @@
 /// <reference types="bun" />
 
-import type {ChatPersona, ThreadLog} from '@proxy/contracts/harness';
+import type {ChatAnswer, ChatPersona, ThreadLog} from '@proxy/contracts/harness';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
-import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {HumanSide} from '@/components/human-side';
 import {ChatPage} from '@/pages/chat-page';
-import {testHuman} from '@/test-org';
+import {testHuman, testOrg} from '@/test-org';
 
 const realFetch = globalThis.fetch;
 const fetchMock = mock<(input: string, init?: RequestInit) => Promise<Response>>();
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
 
 function persona(id: string, name: string, mayChange: boolean): ChatPersona {
-	return {id, name, mayChange, look, color: 'blue', chatModel: null, lastMessage: null};
+	return {
+		id,
+		name,
+		mayChange,
+		look,
+		color: 'blue',
+		chatModel: null,
+		lastMessage: null,
+	};
 }
 
 const general = persona('general', 'General', false);
 const finance = persona('finance', 'Finance', true);
 const log: ThreadLog = {persona: general, entries: [], busy: false, sleepingUntil: null};
+// The last answers the provider around the page is given: none, unless a test says otherwise.
+let answers: ChatAnswer[] = [];
 
 beforeEach(() => {
 	fetchMock.mockReset();
-	fetchMock.mockImplementation(() => Promise.resolve(new Response(null, {status: 204})));
+	answers = [];
+	// The provider around the page asks for the last answers; the rest lands with nothing.
+	fetchMock.mockImplementation((input) =>
+		Promise.resolve(
+			input.endsWith('/chat/answers')
+				? Response.json({answers})
+				: new Response(null, {status: 204}),
+		),
+	);
 	globalThis.fetch = ((input: string, init?: RequestInit) =>
 		fetchMock(input, init)) as typeof fetch;
 });
@@ -34,19 +52,26 @@ afterEach(() => {
 	globalThis.fetch = realFetch;
 });
 
-function renderChatPage() {
+function renderChatPage({
+	personas = [general, finance],
+	entries = [],
+}: {personas?: ChatPersona[]; entries?: ThreadLog['entries']} = {}) {
 	const router = createMemoryRouter(
 		[
 			{
 				id: 'human',
-				loader: () => testHuman(),
+				loader: () => testHuman({...testOrg, experiments: ['harness']}),
 				element: <HumanSide />,
 				children: [
 					{
 						path: '/:org/chat/:id',
 						loader: ({params}) => ({
-							log: {...log, persona: params.id === finance.id ? finance : general},
-							personas: [general, finance],
+							log: {
+								...log,
+								entries,
+								persona: personas.find((candidate) => candidate.id === params.id) ?? general,
+							},
+							personas,
 						}),
 						element: <ChatPage />,
 					},
@@ -199,5 +224,53 @@ describe('ChatPage', () => {
 
 		expect(screen.queryByRole('menuitem', {name: 'Rename'})).toBeNull();
 		expect(screen.queryByRole('menuitem', {name: 'Delete'})).toBeNull();
+	});
+
+	test('marks the agents with something unread in the list, never the open one', async () => {
+		answers = [general, finance].map(({id, name}) => ({
+			personaId: id,
+			name,
+			answer: {id: `${id}-answer`, text: 'Done.'},
+			unread: true,
+		}));
+		renderChatPage();
+
+		const financeRow = await screen.findByRole('link', {name: /Finance/});
+		await waitFor(() => {
+			expect(within(financeRow).getByRole('status', {name: 'Unread'})).toBeDefined();
+		});
+		const generalRow = screen.getByRole('link', {name: /General/});
+		expect(within(generalRow).queryByRole('status', {name: 'Unread'})).toBeNull();
+	});
+
+	test('reads the conversation up to the last answer it shows, what the person said after it aside', async () => {
+		renderChatPage({
+			entries: [
+				{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00Z'},
+				{id: 'e2', kind: 'assistant', text: 'Hello', isError: false, at: '2026-10-21T10:00:01Z'},
+				{id: 'e3', kind: 'person', text: 'And?', isError: false, at: '2026-10-21T10:00:02Z'},
+			],
+		});
+
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledWith(
+				'/api/orgs/acme/chat/personas/general/read',
+				expect.objectContaining({method: 'POST', body: JSON.stringify({entryId: 'e2'})}),
+			);
+		});
+		expect(
+			fetchMock.mock.calls.filter(([url]) => url === '/api/orgs/acme/chat/personas/general/read'),
+		).toHaveLength(1);
+	});
+
+	test('marks nothing read before the agent has answered', async () => {
+		renderChatPage({
+			entries: [{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00Z'}],
+		});
+
+		await screen.findByRole('link', {name: /Finance/});
+		expect(
+			fetchMock.mock.calls.filter(([url]) => url === '/api/orgs/acme/chat/personas/general/read'),
+		).toHaveLength(0);
 	});
 });

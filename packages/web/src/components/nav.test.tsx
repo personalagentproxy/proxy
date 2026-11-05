@@ -7,6 +7,7 @@ import {SidebarProvider} from '@proxy/ui/components/sidebar';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {AppSidebar} from '@/components/nav';
+import {type Unread, UnreadContext} from '@/hooks/use-unread';
 import type {Human} from '@/lib/orgs';
 import {testHuman, testOrg} from '@/test-org';
 
@@ -14,7 +15,15 @@ afterEach(() => {
 	cleanup();
 });
 
-function renderSidebar(human: Human, entry = '/acme') {
+// What is unread, as the provider around the human side would have it.
+function unreadOf(ids: string[]): Unread {
+	return {
+		unreadIds: new Set(ids),
+		setViewing: () => undefined,
+	};
+}
+
+function renderSidebar(human: Human, entry = '/acme', unread = unreadOf([])) {
 	const router = createMemoryRouter(
 		[
 			{
@@ -31,7 +40,9 @@ function renderSidebar(human: Human, entry = '/acme') {
 		<ThemeProvider>
 			<TooltipProvider>
 				<SidebarProvider collapsed>
-					<RouterProvider router={router} />
+					<UnreadContext.Provider value={unread}>
+						<RouterProvider router={router} />
+					</UnreadContext.Provider>
 				</SidebarProvider>
 			</TooltipProvider>
 		</ThemeProvider>,
@@ -75,6 +86,19 @@ describe('AppSidebar', () => {
 			['Connections', 'Agent permissions'],
 			['Activity', 'Alerts'],
 		]);
+	});
+
+	test('counts the conversations with something unread on Chat', async () => {
+		renderSidebar(
+			testHuman({...testOrg, experiments: ['harness']}),
+			'/acme',
+			unreadOf(['general', 'finance']),
+		);
+		await screen.findByRole('link', {name: 'Chat'});
+
+		const badge = screen.getByRole('status', {name: '2 unread'});
+		expect(badge.textContent).toBe('2');
+		expect(badge.closest('li')?.querySelector('a')?.textContent).toBe('Chat');
 	});
 
 	test("lights the switcher on the organization's members and settings", async () => {

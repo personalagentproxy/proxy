@@ -52,6 +52,11 @@ function isAllowed(url: URL): boolean {
 	return url.protocol === 'data:' || url.origin === APP_ORIGIN;
 }
 
+/** Whether the window is on a page of the web app, rather than a splash page or none. */
+export function isAppPage(raw: string): boolean {
+	return urlOf(raw)?.origin === APP_ORIGIN;
+}
+
 // The person's sign-in page. Not the agents' (/agent/login), which works in the window as it is.
 function isLoginPage(url: URL): boolean {
 	return url.origin === APP_ORIGIN && url.pathname === '/login';
