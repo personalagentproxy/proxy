@@ -1,8 +1,8 @@
 @import '@proxy/ui/styles.css';
 
-/* The macOS desktop window uses a hidden native title bar. The transparent drag surface leaves the
-   traffic lights over each column's own background, with no separate bar; browsers keep the page's
-   normal edge-to-edge layout. */
+/* The macOS desktop window uses a hidden native title bar. Its drag surface covers the column seams
+   below it while the native traffic lights remain above; browsers keep the page's normal
+   edge-to-edge layout. */
 .desktop-app {
 	/* Keep in step with the fallback in preload.ts and desktop's splash.css. */
 	--desktop-title-bar-height: 2rem;
@@ -16,6 +16,7 @@
 	left: 0;
 	box-sizing: border-box;
 	height: var(--desktop-title-bar-height);
+	background: var(--background);
 	border-bottom: 1px solid var(--border);
 	content: '';
 	-webkit-app-region: drag;
@@ -33,7 +34,7 @@
 }
 
 /* The columns themselves reach the window's top, so their backgrounds continue under the traffic
-   lights. Only their contents make room for the controls and transparent drag surface. */
+   lights. Only their contents make room for the controls and drag surface. */
 .desktop-app [data-slot='sidebar-inner'],
 .desktop-app [data-desktop-panel],
 .desktop-app [data-desktop-page] {
