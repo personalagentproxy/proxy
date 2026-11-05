@@ -41,7 +41,7 @@
 	padding-top: var(--desktop-title-bar-height);
 }
 
-.desktop-app [data-desktop-page] > header.sticky {
+.desktop-app [data-desktop-page] > header {
 	top: var(--desktop-title-bar-height);
 }
 

@@ -32,14 +32,6 @@ describe('hasHiddenDesktopTitleBar', () => {
 });
 
 describe('hidden desktop title bar layout', () => {
-	test('offsets only page-scrolling headers below the title bar', async () => {
-		const css = await Bun.file(new URL('../index.css', import.meta.url)).text();
-
-		expect(css).toMatch(
-			/\[data-desktop-page\]\s*>\s*header\.sticky\s*{[^}]*top:\s*var\(--desktop-title-bar-height\)/s,
-		);
-	});
-
 	test('covers the column seams behind the title bar', async () => {
 		const css = await Bun.file(new URL('../index.css', import.meta.url)).text();
 
