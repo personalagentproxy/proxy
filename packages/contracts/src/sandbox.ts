@@ -2,7 +2,7 @@ import {z} from 'zod';
 
 /**
  * The sandbox protocol: how the api reaches a sandbox backend run as a service elsewhere
- * (`@proxy/backends/sandbox/remote`), and how such a service answers (`…/serve`), one route per
+ * (`@proxy/backends/sandbox/remote`), and how such a service answers, one route per
  * method of the contract (`…/backend`), each a JSON body in and out, with
  * `Authorization: Bearer <token>`:
  * - `POST /sandboxes` with `createSandboxBodySchema`: a new sandbox, running; its ref.
