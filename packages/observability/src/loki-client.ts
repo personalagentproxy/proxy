@@ -58,6 +58,15 @@ export interface LokiQueryParams {
 	direction?: 'forward' | 'backward';
 }
 
+/**
+ * The address as a URL: Render hands a service another's address as `host:port`, with no scheme,
+ * and the private network is plain http. A trailing slash is dropped, so paths append cleanly.
+ */
+export function serviceUrl(address: string): string {
+	const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(address) ? address : `http://${address}`;
+	return withScheme.replace(/\/+$/, '');
+}
+
 function authHeaders(config: LokiConfig): Record<string, string> {
 	if (config.userId) {
 		return {Authorization: `Basic ${btoa(`${config.userId}:${config.token}`)}`};
@@ -73,7 +82,7 @@ export function pushLoki(
 	payload: LokiPushPayload,
 ): Promise<Result<void, FetchError>> {
 	return httpRequest(
-		`${config.url}/loki/api/v1/push`,
+		`${serviceUrl(config.url)}/loki/api/v1/push`,
 		{
 			method: 'POST',
 			headers: {'Content-Type': 'application/json', ...authHeaders(config)},
@@ -103,7 +112,7 @@ export function queryLokiRange(
 	}
 
 	return httpRequest(
-		`${config.url}/loki/api/v1/query_range?${search.toString()}`,
+		`${serviceUrl(config.url)}/loki/api/v1/query_range?${search.toString()}`,
 		{method: 'GET', headers: authHeaders(config)},
 		{schema: lokiQueryResultSchema, timeoutMs: 30_000},
 	);

@@ -1,5 +1,6 @@
 import {Err, Ok, Result} from 'ts-results-es';
 
+import {serviceUrl} from './loki-client';
 import type {EnvLabel, ServiceLabel} from './types';
 
 /**
@@ -120,9 +121,20 @@ function msToNs(ms: number): string {
 	return (BigInt(ms) * NS_PER_MS).toString();
 }
 
+// Where OTLP metrics are taken, on a Prometheus or a gateway given by address alone.
+const OTLP_METRICS_PATH = '/api/v1/otlp/v1/metrics';
+
+// The gateway's address as a URL: Grafana Cloud's comes whole; a Prometheus of your own comes as
+// Render hands it, `host:port`, and takes OTLP on its one path.
+function otlpUrl(address: string): string {
+	const url = serviceUrl(address);
+	return new URL(url).pathname === '/' ? `${url}${OTLP_METRICS_PATH}` : url;
+}
+
 export function createMetricsClient(config: MetricsConfig): MetricsClient {
 	const flushIntervalMs = config.flushIntervalMs ?? 30_000;
 	const disabled = config.url.length === 0;
+	const url = disabled ? '' : otlpUrl(config.url);
 	const startTimeUnixNano = msToNs(Date.now());
 	const instanceId = config.instanceId ?? crypto.randomUUID();
 	const metrics = new Map<string, MetricState>();
@@ -226,7 +238,7 @@ export function createMetricsClient(config: MetricsConfig): MetricsClient {
 
 	async function push(payload: Record<string, unknown>): Promise<Result<void, MetricsError>> {
 		const response = await Result.wrapAsync(() =>
-			fetch(config.url, {
+			fetch(url, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',

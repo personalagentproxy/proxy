@@ -258,3 +258,34 @@ describe('how Loki is reached', () => {
 		mock.restore();
 	});
 });
+
+describe('where the log goes', () => {
+	it('takes a Loki by its address alone, as Render hands it, or by its URL', async () => {
+		const urls: string[] = [];
+		spyOn(globalThis, 'fetch').mockImplementation(
+			Object.assign(
+				async (url: string | URL | Request) => {
+					urls.push(String(url));
+					return new Response(null, {status: 204});
+				},
+				{preconnect: fetch.preconnect},
+			),
+		);
+		for (const url of ['loki-ab12:3100', 'https://logs-prod-021.grafana.net/']) {
+			const log = createServerLogger({
+				loki: {url, userId: '', token: ''},
+				service: 'api',
+				env: 'production',
+				stdout: 'off',
+				flushIntervalMs: 1_000_000,
+			});
+			log.info('x');
+			await log.shutdown();
+		}
+		expect(urls).toEqual([
+			'http://loki-ab12:3100/loki/api/v1/push',
+			'https://logs-prod-021.grafana.net/loki/api/v1/push',
+		]);
+		mock.restore();
+	});
+});

@@ -7,7 +7,7 @@ export {
 } from './types';
 export type {ClientLogBatch, EnvLabel, LogEntry, LogLevel, ServiceLabel} from './types';
 export {expandErrors, serializeError} from './serialize-error';
-export {pushLoki, queryLokiRange} from './loki-client';
+export {pushLoki, queryLokiRange, serviceUrl} from './loki-client';
 export type {
 	LokiConfig,
 	LokiMatrixSeries,
