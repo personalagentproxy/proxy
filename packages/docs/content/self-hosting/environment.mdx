@@ -28,7 +28,8 @@ variables turn on quick actions on the home page.
 ## Observability
 
 The api writes its log to stdout, one JSON object per line, which `docker compose logs api` shows.
-These ship it to [Grafana Cloud](https://grafana.com/products/cloud/) as well, which hosted
-Personal Agent Proxy does; a self-hosted server needs none of them.
+These ship it to a [Loki](https://grafana.com/oss/loki/) as well, and its metrics to a Prometheus
+or any other store taking OTLP, as hosted Personal Agent Proxy does; a self-hosted server needs
+none of them.
 
 <EnvTable group="Observability" />
