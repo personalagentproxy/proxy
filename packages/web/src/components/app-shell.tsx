@@ -78,7 +78,14 @@ export function AppShell({
 				)}
 			>
 				{title !== undefined && (
-					<header className="sticky top-0 z-20 flex h-12 items-center justify-between gap-4 border-b bg-background px-4">
+					// Sticky only when the window scrolls: scrolling inside, the page is the header's
+					// scroll container, and its desktop title bar padding would count twice.
+					<header
+						className={cn(
+							'z-20 flex h-12 shrink-0 items-center justify-between gap-4 border-b bg-background px-4',
+							scroll === 'page' && 'sticky top-0',
+						)}
+					>
 						<div className="flex min-w-0 flex-1 items-center gap-2">
 							{!desktop && <SidebarTrigger />}
 							{!desktop && panel !== undefined && (
