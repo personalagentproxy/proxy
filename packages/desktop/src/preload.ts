@@ -21,7 +21,9 @@ if (process.platform === 'darwin' && window.location.origin === APP_ORIGIN) {
 			top: 0;
 			right: 0;
 			left: 0;
+			box-sizing: border-box;
 			height: 2rem;
+			border-bottom: 1px solid var(--border);
 			content: '';
 			-webkit-app-region: drag;
 		}

@@ -5,6 +5,7 @@
 	--background: oklch(1 0 0);
 	--foreground: oklch(0.145 0 0);
 	--muted-foreground: oklch(0.556 0 0);
+	--border: oklch(0.922 0 0);
 	--primary: oklch(0.205 0 0);
 	--primary-foreground: oklch(0.985 0 0);
 }
@@ -13,6 +14,7 @@
 	--background: oklch(0.145 0 0);
 	--foreground: oklch(0.985 0 0);
 	--muted-foreground: oklch(0.708 0 0);
+	--border: oklch(1 0 0 / 10%);
 	--primary: oklch(0.922 0 0);
 	--primary-foreground: oklch(0.205 0 0);
 }
@@ -39,8 +41,10 @@ body::before {
 	top: 0;
 	right: 0;
 	left: 0;
+	box-sizing: border-box;
 	/* Keep in step with the fallback in preload.ts and the variable in packages/web/src/index.css. */
 	height: 2rem;
+	border-bottom: 1px solid var(--border);
 	content: '';
 	-webkit-app-region: drag;
 }
