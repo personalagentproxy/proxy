@@ -210,7 +210,7 @@ const openJobsSelect = {
 	select: {kind: true, runAt: true},
 } satisfies Prisma.AgentThread$jobsArgs;
 
-const personaSelect = {
+export const personaSelect = {
 	id: true,
 	name: true,
 	look: true,
@@ -219,7 +219,7 @@ const personaSelect = {
 	createdById: true,
 } as const;
 
-function toPersona(persona: {
+export function toPersona(persona: {
 	id: string;
 	name: string;
 	look: string;
@@ -608,7 +608,7 @@ export async function setThreadTask(
 // Locks the conversation the thread is part of, its own row or, a sub-agent's, the row of the
 // thread it was started from, for the rest of the transaction, and gives the thread as it is;
 // null when there is no such thread.
-async function lockThread(tx: Tx, threadId: string): Promise<ThreadRow | null> {
+export async function lockThread(tx: Tx, threadId: string): Promise<ThreadRow | null> {
 	const rows = await tx.$queryRaw<Array<{id: string}>>`
 		SELECT "id" FROM "AgentThread"
 		WHERE "id" = (SELECT COALESCE("parentThreadId", "id") FROM "AgentThread" WHERE "id" = ${threadId})
@@ -687,7 +687,7 @@ async function release(tx: Tx, thread: ThreadRow, wakes: Wakes): Promise<void> {
 // the call; anything else in the log too where nothing holds it, or pending until what holds it
 // ends (`release`). What lands in the log releases what was pending where it can, and wakes the
 // agent where the log then `wakes` it. With the thread locked.
-async function appendEntry(
+export async function appendEntry(
 	tx: Tx,
 	thread: ThreadRow,
 	data: NewEntry & {callId?: string; isError?: boolean; jobId?: string},
@@ -873,7 +873,7 @@ async function fence(
 // writes what `write` does in the thread, then gives what was pending its place in the log and
 // wakes the agent where the log then `wakes` it (`release`), so that no way a job ends leaves a
 // message unread. False when the job is no longer the worker's, and nothing is written.
-async function endJob(
+export async function endJob(
 	tx: Tx,
 	end: {
 		jobId: string;

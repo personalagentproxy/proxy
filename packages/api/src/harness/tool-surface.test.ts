@@ -17,10 +17,12 @@ function tool(name: string) {
 }
 
 describe('the main agent’s tools', () => {
-	test('are two: starting a sub-agent, with a title and a brief, and sending one a message, by id', () => {
-		expect(MAIN_AGENT_TOOLS.map((candidate) => candidate.name)).toEqual(['create_subagent', 'send_to_subagent']);
+	test('are four: starting a sub-agent, with a title and a brief, sending one a message, by id, setting an alert and cancelling one', () => {
+		expect(MAIN_AGENT_TOOLS.map((candidate) => candidate.name)).toEqual(['create_subagent', 'send_to_subagent', 'set_alert', 'cancel_alert']);
 		expect((MAIN_AGENT_TOOLS[0]?.parameters as Params).required).toEqual(['title', 'brief']);
 		expect((MAIN_AGENT_TOOLS[1]?.parameters as Params).required).toEqual(['subagent', 'text']);
+		expect((MAIN_AGENT_TOOLS[2]?.parameters as Params).required).toEqual(['title', 'brief']);
+		expect((MAIN_AGENT_TOOLS[3]?.parameters as Params).required).toEqual(['id']);
 	});
 
 	test('are the conversation’s, and a sub-agent gets its own', () => {

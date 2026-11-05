@@ -2,11 +2,13 @@ import {CREATE_SUBAGENT_TOOL, SEND_TO_PARENT_TOOL, SEND_TO_SUBAGENT_TOOL, SLEEP_
 
 import type {ModelTool} from '../llm/open-router';
 import {MCP_TOOLS, type McpToolDefinition} from '../mcp/tools';
+import {CANCEL_ALERT_TOOL, SET_ALERT_PARAMETERS, SET_ALERT_TOOL} from './alerts';
 
 /**
- * The tools the built-in agent has. The agent talking with the person has two: to start a
- * sub-agent on a brief, and to send a message to one it started, which keeps what it did and
- * found and takes the message up. A sub-agent has the MCP server's, as any agent gets them, less
+ * The tools the built-in agent has. The agent talking with the person has four: to start a
+ * sub-agent on a brief, to send a message to one it started, which keeps what it did and found
+ * and takes the message up, to set an alert, a wake-up outside the conversation, at a time or when
+ * something new in the person's accounts carries certain words, and to cancel one. A sub-agent has the MCP server's, as any agent gets them, less
  * the two about tasks, since every call it makes is for its own task and the loop fills it in
  * (tool-job.ts); and two of its own, to send a message to the agent it works for, and to be woken
  * later. Nothing else: everything done to the person's accounts goes through the same gate as
@@ -77,6 +79,24 @@ const SLEEP: ModelTool = {
 	},
 };
 
+const SET_ALERT: ModelTool = {
+	name: SET_ALERT_TOOL,
+	description:
+		'Sets an alert: a wake-up outside this conversation, which comes to you as a message when it is due, for you to tell the person or act on; the person sees it on their Alerts page. Give `title`, what it is in a few words, `brief`, what you noted for it, and either `at`, a time in ISO 8601 with its offset, for one message at that time; or `collection`, for a watch: the person’s connections with that collection are watched for what is new, and each new record that contains any of `terms` comes to you as a message, with its link. Terms are matched as written, not understood: give the ways a thing may be written, and concrete ones, such as the sender’s address rather than “the bank”; no terms matches everything new. `connections` narrows the watch to some of the person’s connections, by id, as your instructions list them; left out, it is every connection you may read that has the collection.',
+	parameters: SET_ALERT_PARAMETERS,
+};
+
+const CANCEL_ALERT: ModelTool = {
+	name: CANCEL_ALERT_TOOL,
+	description: 'Cancels one of the alerts set in this conversation, by its id, as your instructions list them.',
+	parameters: {
+		type: 'object',
+		properties: {id: {type: 'string', description: 'The alert’s id'}},
+		required: ['id'],
+		additionalProperties: false,
+	},
+};
+
 // What the tools that take a task are for, said without it; every other tool keeps the MCP
 // server's words.
 const DESCRIPTIONS: Record<string, string> = {
@@ -98,8 +118,8 @@ function withoutTask(tool: McpToolDefinition): ModelTool {
 	};
 }
 
-/** The tools the agent talking with the person is given: starting a sub-agent and messaging one, and nothing else. */
-export const MAIN_AGENT_TOOLS: ModelTool[] = [CREATE_SUBAGENT, SEND_TO_SUBAGENT];
+/** The tools the agent talking with the person is given: starting a sub-agent and messaging one, setting an alert and cancelling one, and nothing else. */
+export const MAIN_AGENT_TOOLS: ModelTool[] = [CREATE_SUBAGENT, SEND_TO_SUBAGENT, SET_ALERT, CANCEL_ALERT];
 
 /** The tools a sub-agent is given: the MCP server's but the task ones, in the order it lists them, a message to the agent it works for, and a sleep. */
 export const SUB_AGENT_TOOLS: ModelTool[] = [...MCP_TOOLS.filter((tool) => !TASK_TOOLS.has(tool.name)).map(withoutTask), SEND_TO_PARENT, SLEEP];

@@ -1,8 +1,14 @@
 import {Window} from 'happy-dom';
 
+// Navigating the window is off: a page that sends the browser elsewhere, as the desktop pages do
+// with their app links, would otherwise move every later test's window to it, leaving
+// `location.origin` as "null" for them, at a time that depends on the order the files run in.
 export const testWindow = new Window({
 	url: 'http://localhost/',
-	settings: {device: {prefersColorScheme: 'light'}},
+	settings: {
+		device: {prefersColorScheme: 'light'},
+		navigation: {disableMainFrameNavigation: true, disableFallbackToSetURL: true},
+	},
 });
 
 Object.assign(globalThis, {

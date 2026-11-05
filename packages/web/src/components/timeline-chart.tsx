@@ -375,7 +375,7 @@ export function ChartTarget({
 	const tooltip = (
 		<Tooltip open={tooltipOpen && !menuOpen} onOpenChange={setTooltipOpen} disableHoverablePopup>
 			<TooltipTrigger render={trigger()} />
-			<TooltipContent className="pointer-events-none max-w-xs">{children}</TooltipContent>
+			<TooltipContent className="max-w-xs">{children}</TooltipContent>
 		</Tooltip>
 	);
 	if (action === null || !('menu' in action)) {
@@ -413,7 +413,7 @@ export function RequestTooltip({
 		<Tooltip handle={handle} disableHoverablePopup>
 			{({payload}) =>
 				payload && (
-					<TooltipContent className="pointer-events-none max-w-xs">
+					<TooltipContent className="max-w-xs">
 						<RequestDetails
 							entry={payload.entry}
 							connections={connections}

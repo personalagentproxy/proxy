@@ -36,5 +36,16 @@ export function fakeStore(): FakeStore {
 		listShownEntries: mock<HarnessStore['listShownEntries']>(),
 		listOpenJobs: mock<HarnessStore['listOpenJobs']>(),
 		appendPersonMessage: mock<HarnessStore['appendPersonMessage']>(),
+		completeSetAlert: mock<HarnessStore['completeSetAlert']>(),
+		deleteAlert: mock<HarnessStore['deleteAlert']>(),
+		listThreadAlerts: mock<HarnessStore['listThreadAlerts']>(),
+		listMemberAlerts: mock<HarnessStore['listMemberAlerts']>(),
+		listConnectionsByIds: mock<HarnessStore['listConnectionsByIds']>(),
+		claimDueAlerts: mock<HarnessStore['claimDueAlerts']>(),
+		fireAlert: mock<HarnessStore['fireAlert']>(),
+		claimDuePolls: mock<HarnessStore['claimDuePolls']>(),
+		listWatches: mock<HarnessStore['listWatches']>(),
+		recordLook: mock<HarnessStore['recordLook']>(),
+		getPollConnection: mock<HarnessStore['getPollConnection']>(),
 	};
 }

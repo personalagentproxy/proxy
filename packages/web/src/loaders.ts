@@ -9,6 +9,7 @@ import {
 	listMcpClients,
 } from '@/client/agents-client';
 import {getConnection, listConnections} from '@/client/connections-client';
+import {listAlerts} from '@/client/alerts-client';
 import {getThread, listPersonas} from '@/client/harness-client';
 import {getMe} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
@@ -132,6 +133,11 @@ export async function chatLoader(args: OrgParams & {params: {id?: string}}) {
 		listPersonas(org),
 	]);
 	return {log: unwrapLoaderResult(log), personas: unwrapLoaderResult(personas).personas};
+}
+
+// The person's alerts, those the agents set in their conversations.
+export async function alertsLoader(args: OrgParams) {
+	return unwrapLoaderResult(await listAlerts(orgOf(args)));
 }
 
 // The vault is the one built-in connection, which every organization has twice: the person's own
