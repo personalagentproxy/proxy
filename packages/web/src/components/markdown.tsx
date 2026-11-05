@@ -82,7 +82,7 @@ const components: Components = {
 	pre: ({node: _node, className, ...props}) => (
 		<pre
 			className={cn(
-				'overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-xs leading-relaxed',
+				'overflow-x-auto rounded-md bg-background px-3 py-2 font-mono text-xs leading-relaxed',
 				className,
 			)}
 			{...props}
@@ -90,7 +90,7 @@ const components: Components = {
 	),
 	code: ({node: _node, className, ...props}) => (
 		<code
-			className={cn('rounded bg-muted px-1 py-0.5 font-mono text-xs in-[pre]:p-0', className)}
+			className={cn('rounded bg-background px-1 py-0.5 font-mono text-xs in-[pre]:p-0', className)}
 			{...props}
 		/>
 	),
