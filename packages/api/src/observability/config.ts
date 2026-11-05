@@ -23,14 +23,14 @@ function read(name: string): string {
 /** Which of Grafana's environments this server's lines and metrics are labelled with. */
 export const envLabel: EnvLabel = read('NODE_ENV') === 'production' ? 'production' : 'development';
 
-/** Grafana Cloud Loki, where the api ships its log when set; an empty address means stdout alone. */
+/** The Loki the api ships its log to when set; an empty address means stdout alone. */
 export const lokiConfig: LokiConfig = {
 	url: read('LOKI_URL'),
 	userId: read('LOKI_USER_ID'),
 	token: read('GRAFANA_CLOUD_TOKEN'),
 };
 
-/** Grafana Cloud's OTLP gateway, where the api pushes its metrics when set; nothing is pushed otherwise. */
+/** Where the api pushes its metrics over OTLP when set; nothing is pushed otherwise. */
 export const metricsConfig: Pick<MetricsConfig, 'url' | 'userId' | 'token'> = {
 	url: read('METRICS_OTLP_URL'),
 	userId: read('METRICS_USER_ID'),

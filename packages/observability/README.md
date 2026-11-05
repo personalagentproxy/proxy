@@ -5,11 +5,11 @@ goes. A self-hosted server needs none of it: without the variables below, the ap
 to stdout alone, one JSON object per line, and sums its metrics up for nothing.
 
 - `src/server.ts`: the server's logger. Stdout always, as text in development and as JSON lines in
-  production; Grafana Cloud Loki in batches when set, labelled by service, env and level.
+  production; a Loki in batches when set, labelled by service, env and level.
 - `src/client.ts`: the web app's logger, posted to the api in batches, which writes it on as the
   web app's or the desktop app's (`packages/api/src/observability/client-logs.ts`).
-- `src/metrics.ts`: counters, histograms and gauges, pushed to Grafana Cloud's OTLP gateway every
-  half minute. On it `db-metrics.ts` (every query), `tool-metrics.ts` (every request of an agent),
+- `src/metrics.ts`: counters, histograms and gauges, pushed over OTLP every half minute, to a
+  Prometheus or Grafana Cloud's gateway. On it `db-metrics.ts` (every query), `tool-metrics.ts` (every request of an agent),
   `agent-metrics.ts` (the built-in agent's jobs and every request of a model), and the probes
   `db-pool-probe.ts` (`SELECT 1` each second) and `job-queue-probe.ts` (the AgentJob queue).
 - `src/slack.ts`: the Slack notifier the api posts sign-ups with, and the internal repo's admin
