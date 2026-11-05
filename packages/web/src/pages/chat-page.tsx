@@ -157,10 +157,9 @@ function PersonaList({
 	const org = useOrgSlug();
 	const unread = useUnread();
 	const [hovered, setHovered] = useState(takeOpeningPersona);
-	// Whether the persona said something the person hasn't seen: as the provider has it, which
-	// follows along, or as the page was loaded, until the provider has asked.
+	// Whether the persona said something the person hasn't seen, as the provider has it.
 	const isUnread = (persona: ChatPersona) =>
-		persona.id !== current && (unread.loaded ? unread.unreadIds.has(persona.id) : persona.unread);
+		persona.id !== current && unread.unreadIds.has(persona.id);
 	return (
 		<div className="flex h-full min-h-0 flex-col">
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">

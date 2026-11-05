@@ -8,8 +8,6 @@ export type Viewing = {personaId: string; answerId: string | null};
  * the provider around the human side keeps it (components/unread-provider.tsx).
  */
 export type Unread = {
-	// Whether the conversations have been asked about since the page opened.
-	loaded: boolean;
 	// The personas with something unread, the one the person is looking at left out.
 	unreadIds: ReadonlySet<string>;
 	// Which conversation the Chat page shows, and up to which answer; null elsewhere. What it shows
@@ -18,7 +16,6 @@ export type Unread = {
 };
 
 const NOTHING: Unread = {
-	loaded: false,
 	unreadIds: new Set(),
 	setViewing: () => undefined,
 };

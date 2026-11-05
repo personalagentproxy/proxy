@@ -10,8 +10,9 @@ import {
 } from '@/lib/notifications';
 
 // A browser's Notification, as far as the page uses it: the leave it has, the one it asks for,
-// and what was shown.
-const shown: Array<{title: string; options?: NotificationOptions}> = [];
+// and what was shown, `renotify` with it, which TypeScript's DOM types leave out.
+type ShownOptions = NotificationOptions & {renotify?: boolean};
+const shown: Array<{title: string; options?: ShownOptions}> = [];
 let permission: NotificationPermission = 'default';
 // Whether the page may make one itself: not on Android, whose browser throws.
 let constructible = true;
@@ -22,7 +23,7 @@ class FakeNotification {
 	static requestPermission = mock(() => Promise.resolve(permission));
 	onclick: (() => void) | null = null;
 	close = mock(() => undefined);
-	constructor(title: string, options?: NotificationOptions) {
+	constructor(title: string, options?: ShownOptions) {
 		if (!constructible) {
 			throw new TypeError('Illegal constructor.');
 		}
@@ -72,6 +73,17 @@ describe('notifications', () => {
 		expect(notificationsOn()).toBe(false);
 	});
 
+	test('are off where the browser has taken its leave back since, so turning them on asks again', async () => {
+		permission = 'granted';
+		await turnNotificationsOn();
+		expect(notificationsOn()).toBe(true);
+
+		permission = 'default';
+		expect(notificationsOn()).toBe(false);
+		notify(notice, open);
+		expect(shown).toEqual([]);
+	});
+
 	test('show nothing while off, and through the browser once on, opening the page when clicked', async () => {
 		permission = 'granted';
 		notify(notice, open);
@@ -80,7 +92,10 @@ describe('notifications', () => {
 		await turnNotificationsOn();
 		notify(notice, open);
 		expect(shown).toEqual([
-			{title: 'Finance', options: {body: 'Three invoices are due.', tag: 'finance'}},
+			{
+				title: 'Finance',
+				options: {body: 'Three invoices are due.', tag: 'finance', renotify: true},
+			},
 		]);
 		expect(open).not.toHaveBeenCalled();
 	});

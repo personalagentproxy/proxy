@@ -1,6 +1,6 @@
 /// <reference types="bun" />
 
-import type {ChatPersona, ThreadLog} from '@proxy/contracts/harness';
+import type {ChatAnswer, ChatPersona, ThreadLog} from '@proxy/contracts/harness';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
@@ -23,21 +23,23 @@ function persona(id: string, name: string, mayChange: boolean): ChatPersona {
 		color: 'blue',
 		chatModel: null,
 		lastMessage: null,
-		unread: false,
 	};
 }
 
 const general = persona('general', 'General', false);
 const finance = persona('finance', 'Finance', true);
 const log: ThreadLog = {persona: general, entries: [], busy: false, sleepingUntil: null};
+// The last answers the provider around the page is given: none, unless a test says otherwise.
+let answers: ChatAnswer[] = [];
 
 beforeEach(() => {
 	fetchMock.mockReset();
-	// The provider around the page asks for the last answers, none here; the rest lands with nothing.
+	answers = [];
+	// The provider around the page asks for the last answers; the rest lands with nothing.
 	fetchMock.mockImplementation((input) =>
 		Promise.resolve(
 			input.endsWith('/chat/answers')
-				? Response.json({answers: []})
+				? Response.json({answers})
 				: new Response(null, {status: 204}),
 		),
 	);
@@ -225,15 +227,18 @@ describe('ChatPage', () => {
 	});
 
 	test('marks the agents with something unread in the list, never the open one', async () => {
-		renderChatPage({
-			personas: [
-				{...general, unread: true},
-				{...finance, unread: true},
-			],
-		});
+		answers = [general, finance].map(({id, name}) => ({
+			personaId: id,
+			name,
+			answer: {id: `${id}-answer`, text: 'Done.'},
+			unread: true,
+		}));
+		renderChatPage();
 
 		const financeRow = await screen.findByRole('link', {name: /Finance/});
-		expect(within(financeRow).getByRole('status', {name: 'Unread'})).toBeDefined();
+		await waitFor(() => {
+			expect(within(financeRow).getByRole('status', {name: 'Unread'})).toBeDefined();
+		});
 		const generalRow = screen.getByRole('link', {name: /General/});
 		expect(within(generalRow).queryByRole('status', {name: 'Unread'})).toBeNull();
 	});

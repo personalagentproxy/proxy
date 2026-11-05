@@ -21,12 +21,16 @@ function persona(id: string, unread: boolean): ChatAnswer {
 }
 
 // The api: the last answers as `listed` has them, and a read that lands, or fails where `read`
-// says so; `read` is called with what it was sent.
-function serve(listed: () => ChatAnswer[], read: (body: string) => boolean | void = () => true) {
+// says so, with its status, or 503; `read` is called with what it was sent.
+function serve(
+	listed: () => ChatAnswer[],
+	read: (body: string) => boolean | number | void = () => true,
+) {
 	fetchMock.mockImplementation((input, init) => {
 		if (input.endsWith('/read')) {
-			const landed = read(String(init?.body)) !== false;
-			return Promise.resolve(new Response(null, {status: landed ? 204 : 503}));
+			const landed = read(String(init?.body));
+			const status = typeof landed === 'number' ? landed : landed === false ? 503 : 204;
+			return Promise.resolve(new Response(null, {status}));
 		}
 		return Promise.resolve(Response.json({answers: listed()}));
 	});
@@ -168,7 +172,8 @@ describe('UnreadProvider', () => {
 			expect(screen.getByTestId('ids').textContent).toBe('finance');
 		});
 		expect(document.title).toBe('(1) Personal Agent Proxy');
-		expect(setBadge).toHaveBeenLastCalledWith(1);
+		// The badge goes from one count to the next, never to none between.
+		expect(setBadge.mock.calls.map(([count]) => count)).toEqual([0, 2, 1]);
 		expect(readCalls()).toHaveLength(1);
 	});
 
@@ -266,6 +271,33 @@ describe('UnreadProvider', () => {
 		await waitFor(() => {
 			expect(readCalls()).toHaveLength(2);
 		});
+	});
+
+	test('sends no read the api refused again, as of an answer gone', async () => {
+		serve(
+			() => [persona('general', true)],
+			() => 404,
+		);
+		renderProvider();
+		await waitFor(() => {
+			expect(listCalls()).toHaveLength(1);
+		});
+		act(() => {
+			screen.getByRole('button', {name: 'View General'}).click();
+		});
+		await waitFor(() => {
+			expect(readCalls()).toHaveLength(1);
+		});
+
+		comeBack();
+		await waitFor(() => {
+			expect(listCalls()).toHaveLength(2);
+		});
+		comeBack();
+		await waitFor(() => {
+			expect(listCalls()).toHaveLength(3);
+		});
+		expect(readCalls()).toHaveLength(1);
 	});
 
 	test('keeps the count of the organization in the sidebar on the person’s account page', async () => {

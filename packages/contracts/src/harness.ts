@@ -49,11 +49,6 @@ export const chatPersonaSchema = z.object({
 	 * before anything was said.
 	 */
 	lastMessage: z.object({kind: speakerSchema, text: z.string(), at: z.string()}).nullable(),
-	/**
-	 * Whether the person hasn't seen the last answer: the page hasn't shown it to them since it
-	 * came (`POST chat/personas/:personaId/read`).
-	 */
-	unread: z.boolean(),
 });
 
 export type ChatPersona = z.infer<typeof chatPersonaSchema>;
@@ -63,7 +58,8 @@ export const personaListSchema = z.object({personas: z.array(chatPersonaSchema)}
 
 /**
  * The persona's last answer in one of the person's conversations, cut to a line, which may come
- * before what the person said last, and whether they haven't seen it.
+ * before what the person said last, and whether they haven't seen it: the page hasn't shown it to
+ * them since it came (`POST chat/personas/:personaId/read`).
  */
 export const chatAnswerSchema = z.object({
 	personaId: z.string(),

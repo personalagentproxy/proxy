@@ -28,9 +28,19 @@ export function notificationSupport(): NotificationSupport {
 	return 'none';
 }
 
-/** Whether the person turned notifications on, on this device. */
+/**
+ * Whether the person turned notifications on, on this device, and they can be shown: in the
+ * browser, while it still lets the page, which may have been taken back in its settings since.
+ */
 export function notificationsOn(): boolean {
-	return localStorage.getItem(SETTING_KEY) === 'on';
+	if (localStorage.getItem(SETTING_KEY) !== 'on') {
+		return false;
+	}
+	const support = notificationSupport();
+	if (support === 'browser') {
+		return Notification.permission === 'granted';
+	}
+	return support === 'desktop';
 }
 
 /** Whether the browser lets the page notify; a desktop app needs no leave, and takes the system's. */
@@ -62,7 +72,7 @@ export function turnNotificationsOff(): void {
  * Shows the notice, where notifications are on and no other tab of the page has; `open` is called
  * with its path when it is clicked in the browser (the desktop app hands that back through its
  * bridge, `onOpenPath`). One per conversation at a time: a newer notice of the same `tag`
- * replaces the one showing.
+ * replaces the one showing, and alerts again.
  */
 export function notify(notice: Notice, open: (path: string) => void): void {
 	if (!notificationsOn()) {
@@ -79,14 +89,16 @@ export function notify(notice: Notice, open: (path: string) => void): void {
 		bridge.notify(shownNotice);
 		return;
 	}
-	if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
-		return;
-	}
+	// A newer notice of the conversation alerts again as it replaces the one showing, as the
+	// desktop app's does; `renotify` is the browsers', missing from TypeScript's DOM types.
+	const options: NotificationOptions & {renotify: boolean} = {
+		body: notice.body,
+		tag: notice.tag,
+		renotify: true,
+	};
 	// Where the page may not make one itself, as on Android, which shows them through a service
 	// worker only, nothing is shown.
-	const made = Result.wrap(
-		() => new Notification(notice.title, {body: notice.body, tag: notice.tag}),
-	);
+	const made = Result.wrap(() => new Notification(notice.title, options));
 	if (made.isErr()) {
 		return;
 	}

@@ -1,4 +1,5 @@
 import type {ChatAnswer} from '@proxy/contracts/harness';
+import type {FetchError} from '@proxy/utils';
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useNavigate} from 'react-router';
 import {listAnswers, markRead} from '@/client/harness-client';
@@ -21,7 +22,18 @@ import {notify} from '@/lib/notifications';
 
 const POLL_MS = 20 * 1000;
 const VISIBLE_POLL_GAP_MS = 5 * 1000;
+// How long an answer stays unread before it is told of: past what the Chat page takes to show it
+// and send it as read, in the window the person reads it in, as it reads the conversation again
+// every 4 seconds (pages/chat-page.tsx).
 const CONFIRM_MS = 5 * 1000;
+
+// Whether a read that failed may land sent again: not one the api refused, as for an answer or a
+// persona gone, which never will.
+function mayLandLater(error: FetchError): boolean {
+	return (
+		error.kind !== 'http' || error.status >= 500 || error.status === 408 || error.status === 429
+	);
+}
 
 // Whether the person is looking at the page: in view, and in the window they are in.
 function isAttending(): boolean {
@@ -157,7 +169,7 @@ export function UnreadProvider({children}: {children: ReactNode}) {
 
 	// The answer the person is looking at is read: sent once the first poll has said whether the
 	// api has it read already, unless it has, and asked about again once it lands. One that failed
-	// to send is sent again after the next poll.
+	// to send is sent again after the next poll, unless the api refused it.
 	const sent = useRef<string | null>(null);
 	useEffect(() => {
 		if (!enabled || !answers || !looking?.answerId) {
@@ -172,8 +184,10 @@ export function UnreadProvider({children}: {children: ReactNode}) {
 		sent.current = answerId;
 		void markRead(org, personaId, answerId).then((result) => {
 			if (result.isErr()) {
-				sent.current = null;
-				resendAfterPoll.current = true;
+				if (mayLandLater(result.error)) {
+					sent.current = null;
+					resendAfterPoll.current = true;
+				}
 				return;
 			}
 			askNow();
@@ -208,17 +222,15 @@ export function UnreadProvider({children}: {children: ReactNode}) {
 		};
 	}, [count]);
 	useEffect(() => {
-		const bridge = desktopBridge();
-		bridge?.setBadge?.(count);
-		if (count === 0) {
-			return;
-		}
-		return () => {
-			bridge?.setBadge?.(0);
-		};
+		desktopBridge()?.setBadge?.(count);
 	}, [count]);
+	useEffect(
+		() => () => {
+			desktopBridge()?.setBadge?.(0);
+		},
+		[],
+	);
 
-	const loaded = answers !== null;
-	const value = useMemo<Unread>(() => ({loaded, unreadIds, setViewing}), [loaded, unreadIds]);
+	const value = useMemo<Unread>(() => ({unreadIds, setViewing}), [unreadIds]);
 	return <UnreadContext.Provider value={value}>{children}</UnreadContext.Provider>;
 }

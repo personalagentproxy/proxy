@@ -18,7 +18,6 @@ afterEach(() => {
 // What is unread, as the provider around the human side would have it.
 function unreadOf(ids: string[]): Unread {
 	return {
-		loaded: true,
 		unreadIds: new Set(ids),
 		setViewing: () => undefined,
 	};

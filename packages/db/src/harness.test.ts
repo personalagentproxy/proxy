@@ -19,7 +19,6 @@ import {
 	listJobEvents,
 	listOpenJobs,
 	listAnswers,
-	listPersonas,
 	listSubAgents,
 	markThreadRead,
 	requeueJob,
@@ -271,17 +270,8 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		]);
 	});
 
-	test('the persona’s answer is unread until the thread is read up to it, never back, and what the person says after it reads nothing', async () => {
+	test('the persona’s last answer is unread until the thread is read up to it, never back, and what the person says after it reads nothing', async () => {
 		const persona = unwrap(await ensureFirstPersona(orgId));
-		const listed = async () => {
-			const found = unwrap(await listPersonas(orgId, userId)).find(
-				(candidate) => candidate.id === persona.id,
-			);
-			if (!found) {
-				throw new Error('the persona is gone');
-			}
-			return found;
-		};
 		const lastAnswer = async () =>
 			unwrap(await listAnswers(orgId, userId)).find(
 				(candidate) => candidate.personaId === persona.id,
@@ -310,13 +300,9 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 
 		unwrap(await appendPersonMessage(thread.id, 'Anything new?', readyForInference));
 		const first = await answer('worker-r', 'Nothing new.');
-		expect((await listed()).unread).toBe(true);
+		expect((await lastAnswer())?.unread).toBe(true);
 
 		unwrap(await appendPersonMessage(thread.id, 'And now?', readyForInference));
-		expect(await listed()).toMatchObject({
-			lastMessage: {kind: 'person', text: 'And now?'},
-			unread: true,
-		});
 		expect(await lastAnswer()).toEqual({
 			personaId: persona.id,
 			personaName: persona.name,
@@ -326,13 +312,12 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 
 		const second = await answer('worker-r2', 'Still nothing.');
 		expect(unwrap(await markThreadRead(thread.id, first))).toBe(true);
-		expect((await listed()).unread).toBe(true);
+		expect((await lastAnswer())?.unread).toBe(true);
 
 		expect(unwrap(await markThreadRead(thread.id, second))).toBe(true);
-		expect((await listed()).unread).toBe(false);
 		expect((await lastAnswer())?.unread).toBe(false);
 		expect(unwrap(await markThreadRead(thread.id, first))).toBe(true);
-		expect((await listed()).unread).toBe(false);
+		expect((await lastAnswer())?.unread).toBe(false);
 
 		expect(unwrap(await markThreadRead(thread.id, 'no-such-entry'))).toBe(false);
 		expect(unwrap(await markThreadRead('no-such-thread', second))).toBe(false);
