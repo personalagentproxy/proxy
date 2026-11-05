@@ -15,7 +15,7 @@ mock.module('./built-in-agent', () => ({ensureBuiltInAgent}));
 const now = new Date('2026-10-21T10:00:00Z');
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
 const persona = {id: 'persona-1', name: 'Finance', look, color: 'blue', chatModel: 'claude' as 'claude' | 'glm', createdById: 'user-1'};
-const personaResponse = {id: 'persona-1', name: 'Finance', look, color: 'blue' as const, chatModel: null, mayChange: true, lastMessage: null, lastAnswer: null, unread: false};
+const personaResponse = {id: 'persona-1', name: 'Finance', look, color: 'blue' as const, chatModel: null, mayChange: true, lastMessage: null, unread: false};
 const thread: ThreadRow = {
 	id: 'thread-1',
 	orgId: 'org-1',
@@ -62,7 +62,7 @@ beforeEach(async () => {
 	deletePersona.mockResolvedValue(Ok(true));
 	requireViewer.mockResolvedValue(Ok(viewer));
 	listPersonas.mockResolvedValue(
-		Ok([{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, lastAnswer: {id: 'e9', text: 'Your vault\n has  one entry.'}, unread: false}]),
+		Ok([{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, unread: false}]),
 	);
 	getPersona.mockResolvedValue(Ok(persona));
 	createPersona.mockResolvedValue(Ok({...persona, id: 'persona-2'}));
@@ -78,20 +78,21 @@ beforeEach(async () => {
 
 describe('the chat routes', () => {
 	test('are refused without the experiment', async () => {
-		const {handleListPersonasRoute, handlePostMessageRoute} = routes;
+		const {handleListPersonasRoute, handleListAnswersRoute, handlePostMessageRoute} = routes;
 		requireViewer.mockResolvedValue(Ok({...viewer, experiments: []}));
 
 		expect((await handleListPersonasRoute(request())).unwrapErr().kind).toBe('forbidden');
+		expect((await handleListAnswersRoute(request())).unwrapErr().kind).toBe('forbidden');
 		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: 'Hi'}))).unwrapErr().kind).toBe('forbidden');
 		expect(store.appendPersonMessage).not.toHaveBeenCalled();
 	});
 
-	test('list the organization’s personas, with their heads, whether the viewer may change each, the last thing said with each and its last answer, on one line, and whether that is unread', async () => {
+	test('list the organization’s personas, with their heads, whether the viewer may change each, the last thing said with each, on one line, and whether its last answer is unread', async () => {
 		const {handleListPersonasRoute} = routes;
 		store.listPersonas.mockResolvedValue(
 			Ok([
-				{...persona, lastMessage: {kind: 'person', text: 'And\n the  rest?', createdAt: now}, lastAnswer: {id: 'e9', text: 'Your vault\n has  one entry.'}, unread: true},
-				{...persona, id: 'persona-3', createdById: 'user-2', lastMessage: null, lastAnswer: null, unread: false},
+				{...persona, lastMessage: {kind: 'person', text: 'And\n the  rest?', createdAt: now}, unread: true},
+				{...persona, id: 'persona-3', createdById: 'user-2', lastMessage: null, unread: false},
 				{
 					...persona,
 					id: 'persona-4',
@@ -100,7 +101,6 @@ describe('the chat routes', () => {
 						text: '## Found\n\n- **Three** invoices, see [the list](https://x.test)\n\n| Who | Sum |\n| --- | --- |\n| Dana | 40 |\n\n```\ncode\n```',
 						createdAt: now,
 					},
-					lastAnswer: {id: 'e10', text: 'Found'},
 					unread: false,
 				},
 			]),
@@ -111,16 +111,28 @@ describe('the chat routes', () => {
 		expect(store.listPersonas).toHaveBeenCalledWith('org-1', 'user-1');
 		expect(listed).toEqual({
 			personas: [
-				{...personaResponse, lastMessage: {kind: 'person', text: 'And the rest?', at: '2026-10-21T10:00:00.000Z'}, lastAnswer: {id: 'e9', text: 'Your vault has one entry.'}, unread: true},
+				{...personaResponse, lastMessage: {kind: 'person', text: 'And the rest?', at: '2026-10-21T10:00:00.000Z'}, unread: true},
 				{...personaResponse, id: 'persona-3', mayChange: false},
 				{
 					...personaResponse,
 					id: 'persona-4',
 					lastMessage: {kind: 'assistant', text: 'Found Three invoices, see the list Who Sum Dana 40', at: '2026-10-21T10:00:00.000Z'},
-					lastAnswer: {id: 'e10', text: 'Found'},
 				},
 			],
 		});
+	});
+
+	test('list the persona’s last answer in each of the viewer’s conversations, on one line, and whether it is unread, making nothing', async () => {
+		const {handleListAnswersRoute} = routes;
+		store.listAnswers.mockResolvedValue(
+			Ok([{personaId: 'persona-1', personaName: 'Finance', answer: {id: 'e9', text: 'Your vault\n has  one entry.'}, unread: true}]),
+		);
+
+		const listed = (await handleListAnswersRoute(request())).unwrap();
+
+		expect(store.listAnswers).toHaveBeenCalledWith('org-1', 'user-1');
+		expect(store.ensureFirstPersona).not.toHaveBeenCalled();
+		expect(listed).toEqual({answers: [{personaId: 'persona-1', name: 'Finance', answer: {id: 'e9', text: 'Your vault has one entry.'}, unread: true}]});
 	});
 
 	test('an organization without a persona gets a General one, nobody’s, on its first listing', async () => {

@@ -1,4 +1,5 @@
 import {
+	chatAnswersSchema,
 	type markReadBodySchema,
 	personaAnswerSchema,
 	personaListSchema,
@@ -16,6 +17,10 @@ import {apiRequest, apiSend, orgApi} from '@/client/request';
 
 export function listPersonas(org: string) {
 	return apiRequest('GET', `${orgApi(org)}/chat/personas`, personaListSchema);
+}
+
+export function listAnswers(org: string) {
+	return apiRequest('GET', `${orgApi(org)}/chat/answers`, chatAnswersSchema);
 }
 
 export function createPersona(org: string, persona: Persona) {

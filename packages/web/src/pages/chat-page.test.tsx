@@ -23,7 +23,6 @@ function persona(id: string, name: string, mayChange: boolean): ChatPersona {
 		color: 'blue',
 		chatModel: null,
 		lastMessage: null,
-		lastAnswer: null,
 		unread: false,
 	};
 }
@@ -34,7 +33,14 @@ const log: ThreadLog = {persona: general, entries: [], busy: false, sleepingUnti
 
 beforeEach(() => {
 	fetchMock.mockReset();
-	fetchMock.mockImplementation(() => Promise.resolve(new Response(null, {status: 204})));
+	// The provider around the page asks for the last answers, none here; the rest lands with nothing.
+	fetchMock.mockImplementation((input) =>
+		Promise.resolve(
+			input.endsWith('/chat/answers')
+				? Response.json({answers: []})
+				: new Response(null, {status: 204}),
+		),
+	);
 	globalThis.fetch = ((input: string, init?: RequestInit) =>
 		fetchMock(input, init)) as typeof fetch;
 });

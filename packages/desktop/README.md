@@ -20,7 +20,8 @@ everything but the app's own origin out of the window: links out of the app open
   agent's name, what it said, the page of the app it is on and a tag, one per conversation, when
   an agent answers in Chat while the person is elsewhere and they have turned notifications on;
   the app shows it as the system's, closing the one of the same tag before it, and, clicked,
-  focuses the window and hands the page back to the web app, which opens it, or loads the page
+  focuses the window and hands the page back to the web app, which opens it (the preload goes
+  there itself where nothing on the page listens, as on the agents' pages), or loads the page
   where the window has none of the web app's, as on the sign-in and offline pages, or opens a new
   window on it where there is none. The web app sets the count of conversations with something
   unread on the app's badge the same way.

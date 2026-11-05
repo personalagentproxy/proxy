@@ -48,8 +48,8 @@ function focusWindow(): BrowserWindow {
 }
 
 // Opens a page of the app, as a notification clicked asks: in the window's page of the app, which
-// moves there itself, or loaded where the window has none, as on macOS after the window was closed,
-// or on the sign-in and offline pages, which can't.
+// moves there itself, or goes there where nothing on it listens (preload.ts), or loaded where the
+// window has none, as on macOS after the window was closed, or on the splash pages, which can't.
 function openPath(path: string): void {
 	const open = currentWindow();
 	const showsApp = open !== null && isAppPage(open.webContents.getURL());

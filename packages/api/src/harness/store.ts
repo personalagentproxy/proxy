@@ -6,7 +6,7 @@ import * as alerts from '@proxy/db/alerts';
 import type {AlertRow, NewAlert, PollRow, WatchMatch} from '@proxy/db/alerts';
 import {type ConnectionRow, getConnectionWithCredentialById, listConnectionsByIds} from '@proxy/db/connection';
 import * as harness from '@proxy/db/harness';
-import type {AfterAnswer, AssistantTurn, EntryRow, FailureNote, JobRow, LastAnswer, LastMessage, Persona, PersonaRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
+import type {AfterAnswer, AssistantTurn, ConversationAnswer, EntryRow, FailureNote, JobRow, LastMessage, Persona, PersonaRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
 import {type AgentTaskRow, createAgentTask, getAgentTask, type NewAgentTask} from '@proxy/db/task';
 import type {SignedInAgent} from '@proxy/db/agent';
 
@@ -39,7 +39,8 @@ export type HarnessStore = {
 	getAgentTask: (orgId: string, agentId: string, taskId: string) => Promise<Result<AgentTaskRow | null, ApiError>>;
 	createAgentTask: (task: NewAgentTask) => Promise<Result<AgentTaskRow | null, ApiError>>;
 
-	listPersonas: (orgId: string, userId: string) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; lastAnswer: LastAnswer | null; unread: boolean}>, ApiError>>;
+	listPersonas: (orgId: string, userId: string) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; unread: boolean}>, ApiError>>;
+	listAnswers: (orgId: string, userId: string) => Promise<Result<ConversationAnswer[], ApiError>>;
 	ensureFirstPersona: (orgId: string) => Promise<Result<PersonaRow, ApiError>>;
 	getPersona: (orgId: string, personaId: string) => Promise<Result<PersonaRow | null, ApiError>>;
 	createPersona: (orgId: string, createdById: string, persona: Persona) => Promise<Result<PersonaRow, ApiError>>;
@@ -87,6 +88,7 @@ export const harnessStore: HarnessStore = {
 	createAgentTask,
 
 	listPersonas: harness.listPersonas,
+	listAnswers: harness.listAnswers,
 	ensureFirstPersona: harness.ensureFirstPersona,
 	getPersona: harness.getPersona,
 	createPersona: harness.createPersona,

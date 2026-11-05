@@ -200,6 +200,7 @@ export function createApiRouter(): express.Router {
 	// message queues its work.
 	const chat = chatRoutes(harnessStore);
 	org.get('/chat/personas', withAuthResult('List personas route', chat.handleListPersonasRoute));
+	org.get('/chat/answers', withAuthResult('List answers route', chat.handleListAnswersRoute));
 	org.post('/chat/personas', withAuthResult('Create persona route', chat.handleCreatePersonaRoute));
 	org.put('/chat/personas/:personaId', withAuthResult('Update persona route', chat.handleUpdatePersonaRoute));
 	org.delete('/chat/personas/:personaId', withAuthResult('Delete persona route', chat.handleDeletePersonaRoute));

@@ -26,6 +26,7 @@ export function fakeStore(): FakeStore {
 		getAgentTask: mock<HarnessStore['getAgentTask']>(),
 		createAgentTask: mock<HarnessStore['createAgentTask']>(),
 		listPersonas: mock<HarnessStore['listPersonas']>(),
+		listAnswers: mock<HarnessStore['listAnswers']>(),
 		ensureFirstPersona: mock<HarnessStore['ensureFirstPersona']>(),
 		getPersona: mock<HarnessStore['getPersona']>(),
 		createPersona: mock<HarnessStore['createPersona']>(),

@@ -3,9 +3,10 @@ import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, hasExperiment, parseSchema, requirePresent} from '@proxy/utils';
 import {preview, threadState, toAvatarColor} from '@proxy/utils/harness';
-import type {EntryRow, LastAnswer, LastMessage, Persona, PersonaRow, ThreadRow} from '@proxy/db/harness';
+import type {EntryRow, LastMessage, Persona, PersonaRow, ThreadRow} from '@proxy/db/harness';
 import {
 	type ChatEntry,
+	type chatAnswersSchema,
 	type ChatPersona,
 	markReadBodySchema,
 	personaBodySchema,
@@ -33,6 +34,7 @@ import type {HarnessStore} from './store';
 export type ChatStore = Pick<
 	HarnessStore,
 	| 'listPersonas'
+	| 'listAnswers'
 	| 'ensureFirstPersona'
 	| 'getPersona'
 	| 'createPersona'
@@ -52,9 +54,8 @@ function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
 }
 
 // A persona for the response; one made or changed just now has nothing said with it, and nothing unread.
-function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null; lastAnswer?: LastAnswer | null; unread?: boolean}): ChatPersona {
+function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null; unread?: boolean}): ChatPersona {
 	const last = persona.lastMessage ?? null;
-	const answer = persona.lastAnswer ?? null;
 	return {
 		id: persona.id,
 		name: persona.name,
@@ -63,7 +64,6 @@ function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastM
 		chatModel: viewer.insider ? persona.chatModel : null,
 		mayChange: managesPersona(viewer, persona),
 		lastMessage: last && {kind: last.kind, text: preview(last.text), at: last.createdAt.toISOString()},
-		lastAnswer: answer && {id: answer.id, text: preview(answer.text)},
 		unread: persona.unread ?? false,
 	};
 }
@@ -136,6 +136,22 @@ function handleListPersonasRoute(store: ChatStore, request: AuthenticatedRequest
 		}
 		const first = $(await store.ensureFirstPersona(viewer.orgId));
 		return {personas: [toPersona(viewer, first)]};
+	});
+}
+
+/** `GET /api/orgs/:org/chat/answers`: the persona's last answer in each of the viewer's conversations that has one, and whether they haven't seen it; read only, for every page to ask every so often. */
+function handleListAnswersRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof chatAnswersSchema>, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireChat(request));
+		const answers = $(await store.listAnswers(viewer.orgId, viewer.userId));
+		return {
+			answers: answers.map(({personaId, personaName, answer, unread}) => ({
+				personaId,
+				name: personaName,
+				answer: {id: answer.id, text: preview(answer.text)},
+				unread,
+			})),
+		};
 	});
 }
 
@@ -222,6 +238,7 @@ function handleMarkReadRoute(store: ChatStore, request: AuthenticatedRequest): P
 export function chatRoutes(store: ChatStore) {
 	return {
 		handleListPersonasRoute: (request: AuthenticatedRequest) => handleListPersonasRoute(store, request),
+		handleListAnswersRoute: (request: AuthenticatedRequest) => handleListAnswersRoute(store, request),
 		handleCreatePersonaRoute: (request: AuthenticatedRequest) => handleCreatePersonaRoute(store, request),
 		handleUpdatePersonaRoute: (request: AuthenticatedRequest) => handleUpdatePersonaRoute(store, request),
 		handleDeletePersonaRoute: (request: AuthenticatedRequest) => handleDeletePersonaRoute(store, request),

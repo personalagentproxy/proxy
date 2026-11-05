@@ -18,6 +18,7 @@ import {
 	listEntries,
 	listJobEvents,
 	listOpenJobs,
+	listAnswers,
 	listPersonas,
 	listSubAgents,
 	markThreadRead,
@@ -281,6 +282,10 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			}
 			return found;
 		};
+		const lastAnswer = async () =>
+			unwrap(await listAnswers(orgId, userId)).find(
+				(candidate) => candidate.personaId === persona.id,
+			);
 		const answer = async (workerId: string, text: string) => {
 			const job = unwrap(await claimJob(workerId, 60_000));
 			if (!job) {
@@ -296,11 +301,11 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 					readyForInference,
 				),
 			);
-			const {lastAnswer} = await listed();
-			if (lastAnswer?.text !== text) {
-				throw new Error(`expected the answer ${text}, got ${JSON.stringify(lastAnswer)}`);
+			const last = await lastAnswer();
+			if (last?.answer.text !== text) {
+				throw new Error(`expected the answer ${text}, got ${JSON.stringify(last)}`);
 			}
-			return lastAnswer.id;
+			return last.answer.id;
 		};
 
 		unwrap(await appendPersonMessage(thread.id, 'Anything new?', readyForInference));
@@ -310,7 +315,12 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		unwrap(await appendPersonMessage(thread.id, 'And now?', readyForInference));
 		expect(await listed()).toMatchObject({
 			lastMessage: {kind: 'person', text: 'And now?'},
-			lastAnswer: {id: first, text: 'Nothing new.'},
+			unread: true,
+		});
+		expect(await lastAnswer()).toEqual({
+			personaId: persona.id,
+			personaName: persona.name,
+			answer: {id: first, text: 'Nothing new.'},
 			unread: true,
 		});
 
@@ -320,6 +330,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 
 		expect(unwrap(await markThreadRead(thread.id, second))).toBe(true);
 		expect((await listed()).unread).toBe(false);
+		expect((await lastAnswer())?.unread).toBe(false);
 		expect(unwrap(await markThreadRead(thread.id, first))).toBe(true);
 		expect((await listed()).unread).toBe(false);
 

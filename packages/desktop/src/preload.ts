@@ -51,6 +51,20 @@ if (process.platform === 'darwin' && window.location.origin === APP_ORIGIN) {
 // and the count on the app's badge. The main process answers the app's own pages only
 // (updates.ts, notifications.ts).
 
+// The page's listeners for a notification clicked. Where none listens, as on the sign-in page or
+// the agents' pages, the page goes to the notification's own: a path of the app's, as the main
+// process has checked.
+const openPathListeners = new Set<(path: string) => void>();
+ipcRenderer.on(OPEN_PATH_CHANNEL, (_event: IpcRendererEvent, path: string) => {
+	if (openPathListeners.size === 0) {
+		window.location.assign(path);
+		return;
+	}
+	for (const listener of openPathListeners) {
+		listener(path);
+	}
+});
+
 contextBridge.exposeInMainWorld('personalAgentProxyDesktop', {
 	titleBarHidden: process.platform === 'darwin',
 	updateReady: (): Promise<string | null> => ipcRenderer.invoke(UPDATE_READY_CHANNEL),
@@ -63,9 +77,10 @@ contextBridge.exposeInMainWorld('personalAgentProxyDesktop', {
 	notify: (notice: {title: string; body: string; path: string; tag: string}): void =>
 		ipcRenderer.send(NOTIFY_CHANNEL, notice),
 	onOpenPath: (listener: (path: string) => void): (() => void) => {
-		const handler = (_event: IpcRendererEvent, path: string) => listener(path);
-		ipcRenderer.on(OPEN_PATH_CHANNEL, handler);
-		return () => ipcRenderer.removeListener(OPEN_PATH_CHANNEL, handler);
+		openPathListeners.add(listener);
+		return () => {
+			openPathListeners.delete(listener);
+		};
 	},
 	setBadge: (count: number): void => ipcRenderer.send(BADGE_CHANNEL, count),
 });

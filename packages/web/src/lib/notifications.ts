@@ -1,3 +1,4 @@
+import {Result} from 'ts-results-es';
 import {desktopBridge} from '@/lib/desktop';
 
 // Word of a message from an agent that came while the person was elsewhere: a notification of
@@ -72,16 +73,25 @@ export function notify(notice: Notice, open: (path: string) => void): void {
 	if (localStorage.getItem(toldKey) === id) {
 		return;
 	}
-	localStorage.setItem(toldKey, id);
 	const bridge = desktopBridge();
 	if (bridge?.notify) {
+		localStorage.setItem(toldKey, id);
 		bridge.notify(shownNotice);
 		return;
 	}
 	if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
 		return;
 	}
-	const shown = new Notification(notice.title, {body: notice.body, tag: notice.tag});
+	// Where the page may not make one itself, as on Android, which shows them through a service
+	// worker only, nothing is shown.
+	const made = Result.wrap(
+		() => new Notification(notice.title, {body: notice.body, tag: notice.tag}),
+	);
+	if (made.isErr()) {
+		return;
+	}
+	localStorage.setItem(toldKey, id);
+	const shown = made.value;
 	shown.onclick = () => {
 		window.focus();
 		open(notice.path);

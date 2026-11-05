@@ -50,11 +50,6 @@ export const chatPersonaSchema = z.object({
 	 */
 	lastMessage: z.object({kind: speakerSchema, text: z.string(), at: z.string()}).nullable(),
 	/**
-	 * The persona's last answer in the person's conversation with it, cut to a line, which may come
-	 * before what the person said last; null before it answered.
-	 */
-	lastAnswer: z.object({id: z.string(), text: z.string()}).nullable(),
-	/**
 	 * Whether the person hasn't seen the last answer: the page hasn't shown it to them since it
 	 * came (`POST chat/personas/:personaId/read`).
 	 */
@@ -65,6 +60,25 @@ export type ChatPersona = z.infer<typeof chatPersonaSchema>;
 
 /** `GET chat/personas`: the organization's personas, in the order they were made. */
 export const personaListSchema = z.object({personas: z.array(chatPersonaSchema)});
+
+/**
+ * The persona's last answer in one of the person's conversations, cut to a line, which may come
+ * before what the person said last, and whether they haven't seen it.
+ */
+export const chatAnswerSchema = z.object({
+	personaId: z.string(),
+	name: z.string(),
+	answer: z.object({id: z.string(), text: z.string()}),
+	unread: z.boolean(),
+});
+
+export type ChatAnswer = z.infer<typeof chatAnswerSchema>;
+
+/**
+ * `GET chat/answers`: the last answer in each of the person's conversations that has one, as
+ * every page asks every so often; it makes nothing, where `GET chat/personas` makes General.
+ */
+export const chatAnswersSchema = z.object({answers: z.array(chatAnswerSchema)});
 
 /** The persona made or changed. */
 export const personaAnswerSchema = z.object({persona: chatPersonaSchema});

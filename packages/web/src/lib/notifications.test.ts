@@ -13,6 +13,8 @@ import {
 // and what was shown.
 const shown: Array<{title: string; options?: NotificationOptions}> = [];
 let permission: NotificationPermission = 'default';
+// Whether the page may make one itself: not on Android, whose browser throws.
+let constructible = true;
 class FakeNotification {
 	static get permission() {
 		return permission;
@@ -21,6 +23,9 @@ class FakeNotification {
 	onclick: (() => void) | null = null;
 	close = mock(() => undefined);
 	constructor(title: string, options?: NotificationOptions) {
+		if (!constructible) {
+			throw new TypeError('Illegal constructor.');
+		}
 		shown.push({title, options});
 	}
 }
@@ -37,6 +42,7 @@ const notice = {
 beforeEach(() => {
 	shown.length = 0;
 	permission = 'default';
+	constructible = true;
 	open.mockClear();
 	FakeNotification.requestPermission.mockClear();
 	turnNotificationsOff();
@@ -90,6 +96,22 @@ describe('notifications', () => {
 		notify({...notice, body: 'And one more.', id: 'answer-2'}, open);
 		expect(shown).toHaveLength(2);
 		expect(shown[1]?.options?.body).toBe('And one more.');
+	});
+
+	test('tell of a message again that could not be shown, where the leave was taken back or the browser refused to make it', async () => {
+		permission = 'granted';
+		await turnNotificationsOn();
+
+		permission = 'denied';
+		notify(notice, open);
+		constructible = false;
+		permission = 'granted';
+		notify(notice, open);
+		expect(shown).toEqual([]);
+
+		constructible = true;
+		notify(notice, open);
+		expect(shown).toHaveLength(1);
 	});
 
 	test('go through the desktop app where the page is in it, which needs no leave', async () => {

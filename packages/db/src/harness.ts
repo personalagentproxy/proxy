@@ -283,22 +283,28 @@ export function toEntry(entry: EntryRecord): EntryRow {
 	};
 }
 
+// The persona's last answer in a member's conversation, which may come before what the person said
+// last, and how far they have read it.
+const lastAnswerSelect = {
+	personaId: true,
+	readSeq: true,
+	entries: {
+		where: {kind: 'assistant', text: {not: ''}},
+		orderBy: {seq: 'desc'},
+		take: 1,
+		select: {id: true, seq: true, text: true},
+	},
+} satisfies Prisma.AgentThreadSelect;
+
 /**
  * The organization's personas, oldest first, with the last thing said in the member's conversation
- * with each, the persona's last answer in it, and whether that is unread: said past where the
- * member has read to.
+ * with each, and whether the persona's last answer in it is unread: said past where the member has
+ * read to.
  */
 export async function listPersonas(
 	orgId: string,
 	userId: string,
-): Promise<
-	Result<
-		Array<
-			PersonaRow & {lastMessage: LastMessage | null; lastAnswer: LastAnswer | null; unread: boolean}
-		>,
-		ApiError
-	>
-> {
+): Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; unread: boolean}>, ApiError>> {
 	return (
 		await wrapDb(() =>
 			// One snapshot for both, so an answer landing between them can't leave the last thing said
@@ -324,47 +330,71 @@ export async function listPersonas(
 						},
 						orderBy: {createdAt: 'asc'},
 					}),
-					// The persona's last answer in each of the member's conversations, which may come
-					// before what the person said last, and how far they have read it.
 					db.agentThread.findMany({
 						where: {orgId, userId, parentThreadId: null},
-						select: {
-							personaId: true,
-							readSeq: true,
-							entries: {
-								where: {kind: 'assistant', text: {not: ''}},
-								orderBy: {seq: 'desc'},
-								take: 1,
-								select: {id: true, seq: true, text: true},
-							},
-						},
+						select: lastAnswerSelect,
 					}),
 				],
 				{isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead},
 			),
 		)
 	).map(([personas, threads]) => {
-		const answers = new Map(
+		const unread = new Set(
 			threads.flatMap(({personaId, readSeq, entries: [answer]}) =>
-				answer
-					? [[personaId, {id: answer.id, text: answer.text, unread: answer.seq > readSeq}] as const]
-					: [],
+				answer && answer.seq > readSeq ? [personaId] : [],
 			),
 		);
 		return personas.map(({threads: [thread], ...persona}) => {
 			const last = thread?.entries[0];
-			const answer = answers.get(persona.id);
 			return {
 				...toPersona(persona),
 				lastMessage:
 					last && (last.kind === 'person' || last.kind === 'assistant')
 						? {kind: last.kind, text: last.text, createdAt: last.createdAt}
 						: null,
-				lastAnswer: answer ? {id: answer.id, text: answer.text} : null,
-				unread: answer?.unread ?? false,
+				unread: unread.has(persona.id),
 			};
 		});
 	});
+}
+
+/** The persona's last answer in a member's conversation with it, and whether they haven't seen it. */
+export type ConversationAnswer = {
+	personaId: string;
+	personaName: string;
+	answer: LastAnswer;
+	unread: boolean;
+};
+
+/**
+ * The persona's last answer in each of the member's conversations that has one, and whether it is
+ * unread; one query, and nothing made, for what is asked every so often.
+ */
+export async function listAnswers(
+	orgId: string,
+	userId: string,
+): Promise<Result<ConversationAnswer[], ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentThread.findMany({
+				where: {orgId, userId, parentThreadId: null},
+				select: {...lastAnswerSelect, persona: {select: {name: true}}},
+			}),
+		)
+	).map((threads) =>
+		threads.flatMap(({personaId, readSeq, persona, entries: [answer]}) =>
+			answer
+				? [
+						{
+							personaId,
+							personaName: persona.name,
+							answer: {id: answer.id, text: answer.text},
+							unread: answer.seq > readSeq,
+						},
+					]
+				: [],
+		),
+	);
 }
 
 /**

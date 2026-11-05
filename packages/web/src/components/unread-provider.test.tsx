@@ -1,6 +1,6 @@
 /// <reference types="bun" />
 
-import type {ChatPersona} from '@proxy/contracts/harness';
+import type {ChatAnswer} from '@proxy/contracts/harness';
 import type {Experiment} from '@proxy/utils';
 import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
 import {act, cleanup, render, screen, waitFor} from '@testing-library/react';
@@ -12,34 +12,23 @@ import {testHuman, testOrg} from '@/test-org';
 const realFetch = globalThis.fetch;
 const realHasFocus = document.hasFocus.bind(document);
 const fetchMock = mock<(input: string, init?: RequestInit) => Promise<Response>>();
-const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
 
-const LIST = '/api/orgs/acme/chat/personas';
+const LIST = '/api/orgs/acme/chat/answers';
 const READ_GENERAL = '/api/orgs/acme/chat/personas/general/read';
 
-function persona(id: string, unread: boolean): ChatPersona {
-	return {
-		id,
-		name: id,
-		mayChange: false,
-		look,
-		color: 'blue',
-		chatModel: null,
-		unread,
-		lastMessage: {kind: 'person', text: 'Thanks', at: '2026-10-21T10:00:00Z'},
-		lastAnswer: {id: `${id}-answer`, text: 'Done.'},
-	};
+function persona(id: string, unread: boolean): ChatAnswer {
+	return {personaId: id, name: id, answer: {id: `${id}-answer`, text: 'Done.'}, unread};
 }
 
-// The api: the personas as `listed` has them, and a read that lands; `read` is called with what
-// it was sent.
-function serve(listed: () => ChatPersona[], read: (body: string) => void = () => undefined) {
+// The api: the last answers as `listed` has them, and a read that lands, or fails where `read`
+// says so; `read` is called with what it was sent.
+function serve(listed: () => ChatAnswer[], read: (body: string) => boolean | void = () => true) {
 	fetchMock.mockImplementation((input, init) => {
 		if (input.endsWith('/read')) {
-			read(String(init?.body));
-			return Promise.resolve(new Response(null, {status: 204}));
+			const landed = read(String(init?.body)) !== false;
+			return Promise.resolve(new Response(null, {status: landed ? 204 : 503}));
 		}
-		return Promise.resolve(Response.json({personas: listed()}));
+		return Promise.resolve(Response.json({answers: listed()}));
 	});
 }
 
@@ -225,6 +214,60 @@ describe('UnreadProvider', () => {
 		expect(readCalls()).toHaveLength(0);
 	});
 
+	test('sends no read before it has asked whether the api has it read already', async () => {
+		let answer: () => void = () => undefined;
+		const listed = new Promise<void>((resolve) => {
+			answer = resolve;
+		});
+		fetchMock.mockImplementation(async (input) => {
+			if (input.endsWith('/read')) {
+				return new Response(null, {status: 204});
+			}
+			await listed;
+			return Response.json({answers: [persona('general', false)]});
+		});
+		renderProvider();
+		const view = await screen.findByRole('button', {name: 'View General'});
+		act(() => {
+			view.click();
+		});
+		await waitFor(() => {
+			expect(listCalls()).toHaveLength(1);
+		});
+		expect(readCalls()).toHaveLength(0);
+
+		answer();
+		await waitFor(() => {
+			expect(screen.getByTestId('count').textContent).toBe('0');
+		});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(readCalls()).toHaveLength(0);
+	});
+
+	test('sends a read that failed again once the next poll lands', async () => {
+		let failing = true;
+		serve(
+			() => [persona('general', true)],
+			() => !failing,
+		);
+		renderProvider();
+		await waitFor(() => {
+			expect(listCalls()).toHaveLength(1);
+		});
+		act(() => {
+			screen.getByRole('button', {name: 'View General'}).click();
+		});
+		await waitFor(() => {
+			expect(readCalls()).toHaveLength(1);
+		});
+
+		failing = false;
+		comeBack();
+		await waitFor(() => {
+			expect(readCalls()).toHaveLength(2);
+		});
+	});
+
 	test('keeps the count of the organization in the sidebar on the person’s account page', async () => {
 		renderProvider(['harness'], '/account');
 
@@ -240,8 +283,8 @@ describe('UnreadProvider', () => {
 		let answers = {general: 'general-1', finance: 'finance-1'};
 		let financeRead = false;
 		serve(() => [
-			{...persona('general', true), lastAnswer: {id: answers.general, text: 'Filed.'}},
-			{...persona('finance', !financeRead), lastAnswer: {id: answers.finance, text: 'Paid.'}},
+			{...persona('general', true), answer: {id: answers.general, text: 'Filed.'}},
+			{...persona('finance', !financeRead), answer: {id: answers.finance, text: 'Paid.'}},
 		]);
 		renderProvider();
 		await waitFor(() => {
@@ -274,6 +317,41 @@ describe('UnreadProvider', () => {
 			expect(listCalls()).toHaveLength(4);
 		});
 		expect(notifyDesktop).toHaveBeenCalledTimes(1);
+	});
+
+	test('tells of an answer the page looked at has not shown yet, once the person looks away', async () => {
+		localStorage.setItem('proxy-notifications', 'on');
+		let general = 'general-answer';
+		serve(
+			() => [{...persona('general', true), answer: {id: general, text: 'Filed.'}}],
+			() => false,
+		);
+		renderProvider();
+		await waitFor(() => {
+			expect(listCalls()).toHaveLength(1);
+		});
+		act(() => {
+			screen.getByRole('button', {name: 'View General'}).click();
+		});
+
+		// A newer answer than the page shows comes while the person looks: nothing is told yet.
+		general = 'general-2';
+		comeBack();
+		await waitFor(() => {
+			expect(listCalls()).toHaveLength(2);
+		});
+		expect(notifyDesktop).not.toHaveBeenCalled();
+
+		// The person looks away before the page shows it: it is told of.
+		act(() => {
+			screen.getByRole('button', {name: 'Leave'}).click();
+		});
+		moveOn(6000);
+		comeBack();
+		await waitFor(() => {
+			expect(notifyDesktop).toHaveBeenCalledTimes(1);
+		});
+		expect(notifyDesktop).toHaveBeenCalledWith(expect.objectContaining({tag: 'general'}));
 	});
 
 	test('takes the count off the badge when it goes, as when the person signs out', async () => {
