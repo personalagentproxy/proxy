@@ -70,6 +70,9 @@ model Session {
   tokenHash String   @unique
   userId    String
   expires   DateTime
+  // The User-Agent of the browser or desktop app that signed in, so the account page can say
+  // which session is which. Null for sessions from before it was kept.
+  userAgent String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

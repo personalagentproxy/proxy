@@ -36,7 +36,7 @@ export async function handleDevLoginRoute(req: Request, res: Response): Promise<
 	}
 	const user = userResult.value;
 
-	const sessionResult = await establishSession(res, user.id);
+	const sessionResult = await establishSession(res, {userId: user.id, userAgent: req.headers['user-agent']});
 	if (sessionResult.isErr()) {
 		log.error('[Dev Login] Failed to create session', {userId: user.id});
 		res.status(500).json({error: 'session_creation_failed'});

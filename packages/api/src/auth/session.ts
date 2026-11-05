@@ -115,11 +115,18 @@ export function hashToken(token: string): string {
 	return createHash('sha256').update(token).digest('hex');
 }
 
-/** Signs the browser in: a Session row with the token's hash, and the cookie with the token. */
-export async function establishSession(res: Response, userId: string): Promise<Result<void, ApiError>> {
+// Long enough for any real browser's; a longer header is cut, not refused.
+const maxUserAgentLength = 512;
+
+/**
+ * Signs the browser in: a Session row with the token's hash and the User-Agent it signed in with,
+ * for the account page's list of sessions, and the cookie with the token.
+ */
+export async function establishSession(res: Response, args: {userId: string; userAgent: string | undefined}): Promise<Result<void, ApiError>> {
 	const token = randomBytes(32).toString('hex');
 	const expires = new Date(Date.now() + sessionMaxAgeSeconds * 1000);
-	const sessionResult = await createSession({tokenHash: hashToken(token), userId, expires});
+	const userAgent = args.userAgent ? args.userAgent.slice(0, maxUserAgentLength) : null;
+	const sessionResult = await createSession({tokenHash: hashToken(token), userId: args.userId, expires, userAgent});
 	if (sessionResult.isOk()) {
 		res.cookie(sessionCookieName(), token, {...sessionCookieOptions(), expires});
 	}
@@ -128,9 +135,9 @@ export async function establishSession(res: Response, userId: string): Promise<R
 }
 
 /** The shared tail of every sign-in and sign-up: the session, then back to the app. */
-export async function establishSessionAndRedirect(res: Response, args: {appUrl: string; callbackUrl: string; userId: string}): Promise<void> {
-	const {appUrl, callbackUrl, userId} = args;
-	const sessionResult = await establishSession(res, userId);
+export async function establishSessionAndRedirect(res: Response, args: {appUrl: string; callbackUrl: string; userId: string; userAgent: string | undefined}): Promise<void> {
+	const {appUrl, callbackUrl, userId, userAgent} = args;
+	const sessionResult = await establishSession(res, {userId, userAgent});
 	if (sessionResult.isErr()) {
 		log.error('Sign-in failed to create session', serializeError(sessionResult.error));
 		redirectToLoginError(res, appUrl, 'Callback');

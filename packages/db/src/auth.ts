@@ -5,6 +5,7 @@ import {type ApiError, wrapDb} from '@proxy/utils';
 import {db, Prisma} from '.';
 
 export type AuthenticatedSession = {
+	id: string;
 	userId: string;
 	user: {
 		email: string;
@@ -21,6 +22,7 @@ export async function getAuthenticatedSessionDatabase(
 		db.session.findUnique({
 			where: {tokenHash},
 			select: {
+				id: true,
 				userId: true,
 				user: {
 					select: {
@@ -46,6 +48,7 @@ export async function getAuthenticatedSessionDatabase(
 	}
 
 	return Ok({
+		id: session.id,
 		userId: session.userId,
 		user: {
 			email: session.user.email,
@@ -59,12 +62,52 @@ export async function createSession(data: {
 	tokenHash: string;
 	userId: string;
 	expires: Date;
+	userAgent: string | null;
 }): Promise<Result<void, ApiError>> {
 	return (await wrapDb(() => db.session.create({data}))).map(() => undefined);
 }
 
 export async function deleteSession(tokenHash: string): Promise<Result<void, ApiError>> {
 	return (await wrapDb(() => db.session.deleteMany({where: {tokenHash}}))).map(() => undefined);
+}
+
+export type UserSession = {
+	id: string;
+	userAgent: string | null;
+	createdAt: Date;
+};
+
+/** A person's live sessions, the newest first; expired ones are left out, as signing in ignores them. */
+export async function listUserSessions(userId: string): Promise<Result<UserSession[], ApiError>> {
+	return wrapDb(() =>
+		db.session.findMany({
+			where: {userId, expires: {gt: new Date()}},
+			select: {id: true, userAgent: true, createdAt: true},
+			orderBy: {createdAt: 'desc'},
+		}),
+	);
+}
+
+/** Signs one of a person's sessions out. `Ok(false)` means they have no session by that id. */
+export async function deleteUserSession(args: {
+	userId: string;
+	sessionId: string;
+}): Promise<Result<boolean, ApiError>> {
+	const result = await wrapDb(() =>
+		db.session.deleteMany({where: {id: args.sessionId, userId: args.userId}}),
+	);
+	return result.map((deleted) => deleted.count > 0);
+}
+
+/** Signs a person out everywhere but the session they are using; how many went. */
+export async function deleteOtherUserSessions(args: {
+	userId: string;
+	keepSessionId: string;
+}): Promise<Result<number, ApiError>> {
+	const result = await wrapDb(() =>
+		db.session.deleteMany({where: {userId: args.userId, id: {not: args.keepSessionId}}}),
+	);
+	return result.map((deleted) => deleted.count);
 }
 
 /** `Ok(null)` means the provider identity has never signed in here. */

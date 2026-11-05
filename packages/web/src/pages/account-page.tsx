@@ -1,27 +1,51 @@
+import type {Session, Sessions} from '@proxy/contracts/me';
 import type {Org} from '@proxy/contracts/orgs';
+import {
+	AppWindowIcon,
+	LogOutIcon,
+	MonitorIcon,
+	SmartphoneIcon,
+	type LucideIcon,
+} from 'lucide-react';
 import {useState} from 'react';
-import {Link} from 'react-router';
+import {Link, useLoaderData} from 'react-router';
 import {Button} from '@proxy/ui/components/button';
 import {signOut} from '@/client/auth-client';
-import {deleteAccount} from '@/client/me-client';
+import {deleteAccount, deleteOtherSessions, deleteSession} from '@/client/me-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {DangerCard} from '@/components/danger-card';
+import {IconButton} from '@/components/icon-button';
 import {OrgTile} from '@/components/org-switcher';
 import {RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {SettingRow} from '@/components/setting-row';
 import {ThemePicker} from '@/components/theme-picker';
 import {TypeToConfirmDialog} from '@/components/type-to-confirm-dialog';
+import {useApply} from '@/hooks/use-apply';
 import {useHuman} from '@/hooks/use-human';
+import {formatDate} from '@/lib/format';
 import {describeApiError} from '@/lib/loader-utils';
 import {hasOtherPeople} from '@/lib/orgs';
 
 // The person's account, in no organization: who is signed in, how the app looks to them, the
-// organizations they are in, each to its own settings, signing out of this browser, and deleting
-// the account, which deletes every one they own.
+// organizations they are in, each to its own settings, every browser and desktop app they are
+// signed in on, each to sign out, and deleting the account, which deletes every one they own.
 export function AccountPage() {
 	const human = useHuman();
+	const {sessions} = useLoaderData<Sessions>();
 	const [deleting, setDeleting] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const apply = useApply(setError);
+
+	// Everywhere: the others first, so a failure leaves this browser signed in to say so, then here.
+	async function signOutAll() {
+		const result = await deleteOtherSessions();
+		if (result.isErr()) {
+			setError(describeApiError(result.error));
+			return;
+		}
+		await signOut();
+	}
 	if (!human) {
 		return null;
 	}
@@ -63,18 +87,52 @@ export function AccountPage() {
 						))}
 					</RowList>
 				</Section>
-				<Section title="Session">
+				<Section
+					title="Sessions"
+					detail={sessions.length}
+					action={
+						sessions.some((session) => !session.current) && (
+							<Button size="sm" variant="outline" onClick={() => void signOutAll()}>
+								Sign out all
+							</Button>
+						)
+					}
+				>
+					{error && <p className="text-sm text-destructive">{error}</p>}
 					<RowList>
-						<SettingRow
-							label="This browser"
-							action={
-								<Button size="sm" variant="outline" onClick={() => void signOut()}>
-									Sign out
-								</Button>
-							}
-						>
-							Signed in as {human.user.email}
-						</SettingRow>
+						{sessions.map((session) => {
+							const Icon = iconOf(session);
+							return (
+								<li key={session.id} className="bleed flex h-10 min-w-0 items-center gap-3 text-sm">
+									<Icon className="size-4 shrink-0 text-muted-foreground" />
+									<span className="min-w-0 flex-1 truncate">
+										{nameOf(session)}
+										{session.current && (
+											<span className="text-muted-foreground"> · {hereOf(session)}</span>
+										)}
+									</span>
+									<span className="hidden shrink-0 text-muted-foreground tabular-nums sm:block">
+										Signed in {formatDate(session.createdAt)}
+									</span>
+									<IconButton
+										label={
+											session.current
+												? `Sign out of ${hereOf(session).toLowerCase()}`
+												: `Sign out ${nameOf(session)}`
+										}
+										onClick={() => {
+											if (session.current) {
+												void signOut();
+												return;
+											}
+											void apply(deleteSession(session.id));
+										}}
+									>
+										<LogOutIcon className="rotate-180" />
+									</IconButton>
+								</li>
+							);
+						})}
 					</RowList>
 				</Section>
 				<DangerCard
@@ -113,4 +171,38 @@ function deletedWith(shared: Org[]): string {
 		return 'The organizations you own are deleted with it.';
 	}
 	return `The organizations you own are deleted with it, everything in them included, for everyone in them: ${shared.map((org) => org.name).join(', ')}.`;
+}
+
+// "Chrome on macOS", or as much of it as the session's User-Agent said.
+function nameOf(session: Session): string {
+	if (session.client && session.os) {
+		return `${session.client} on ${session.os}`;
+	}
+
+	if (session.client) {
+		return session.client;
+	}
+
+	if (session.os) {
+		return `A browser on ${session.os}`;
+	}
+
+	return 'An unknown browser';
+}
+
+// What the session asking is called: the desktop app is no browser.
+function hereOf(session: Session): string {
+	return session.client === 'Desktop app' ? 'This app' : 'This browser';
+}
+
+function iconOf(session: Session): LucideIcon {
+	if (session.client === 'Desktop app') {
+		return AppWindowIcon;
+	}
+
+	if (session.os === 'iOS' || session.os === 'Android') {
+		return SmartphoneIcon;
+	}
+
+	return MonitorIcon;
 }

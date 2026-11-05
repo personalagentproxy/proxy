@@ -180,7 +180,7 @@ export async function handleEmailVerifyRoute(req: Request, res: Response): Promi
 			return;
 		}
 
-		await establishSessionAndRedirect(res, {appUrl: config.appUrl, callbackUrl, userId: updatedResult.value.id});
+		await establishSessionAndRedirect(res, {appUrl: config.appUrl, callbackUrl, userId: updatedResult.value.id, userAgent: req.headers['user-agent']});
 		return;
 	}
 
@@ -197,5 +197,5 @@ export async function handleEmailVerifyRoute(req: Request, res: Response): Promi
 		return;
 	}
 
-	await establishSessionAndRedirect(res, {appUrl: config.appUrl, callbackUrl, userId: createdResult.value.id});
+	await establishSessionAndRedirect(res, {appUrl: config.appUrl, callbackUrl, userId: createdResult.value.id, userAgent: req.headers['user-agent']});
 }
