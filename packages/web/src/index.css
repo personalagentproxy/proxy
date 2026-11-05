@@ -14,7 +14,9 @@
 	top: 0;
 	right: 0;
 	left: 0;
+	box-sizing: border-box;
 	height: var(--desktop-title-bar-height);
+	border-bottom: 1px solid var(--border);
 	content: '';
 	-webkit-app-region: drag;
 }
@@ -29,6 +31,30 @@
 
 .desktop-app [data-desktop-page] > header {
 	top: var(--desktop-title-bar-height);
+}
+
+/* The sidebar dividers begin below the title bar. Its bottom border meets them at a clean corner
+   instead of a vertical line running between the traffic lights. */
+.desktop-app [data-slot='sidebar-container'],
+.desktop-app [data-desktop-panel] {
+	border-right-width: 0;
+}
+
+.desktop-app [data-slot='sidebar-inner'],
+.desktop-app [data-desktop-panel] {
+	position: relative;
+}
+
+.desktop-app [data-slot='sidebar-inner']::after,
+.desktop-app [data-desktop-panel]::after {
+	position: absolute;
+	top: var(--desktop-title-bar-height);
+	right: 0;
+	bottom: 0;
+	width: 1px;
+	background: var(--sidebar-border);
+	content: '';
+	pointer-events: none;
 }
 
 /* Zoom can move the 800px desktop window into the responsive layout. Keep its floating menu and
