@@ -114,7 +114,8 @@ export type IntegrationId =
 	| 'mysql'
 	| 'mcp'
 	| 'google'
-	| 'plaid';
+	| 'plaid'
+	| 'sandbox';
 
 // A tool of Personal Agent Proxy's own, with params of its own shape, as running a command in a
 // sandbox is: not a collection's list, open, write or command, which the catalog generates, nor a

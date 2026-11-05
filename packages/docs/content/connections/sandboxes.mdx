@@ -1,0 +1,57 @@
+---
+title: Sandboxes
+description: Computers of their own for your agents to work on, kept while they are away.
+---
+
+Sandboxes are built in, like the [Vault](/connections/vault): computers an agent asks for when
+its work needs one, such as changing code in a repository or running a script, rather than an
+outside service you connect. Each is a Linux shell with git, curl, node and python and the
+internet, and nothing of yours on it but what the agent puts there. A sandbox keeps its disk
+while the agent is away: idle for a while, it goes to sleep, and the next command wakes it with
+everything as it was, so an agent comes back to the work it started.
+
+Every organization has two Sandboxes connections, as it has two vaults: yours, which nobody else
+in the organization sees, and the organization's, shared with everyone in it
+([Organizations](/organizations)). Your own agents reach both; a shared agent reaches the
+organization's alone.
+
+<Callout>
+Sandboxes are being tried out with some organizations first, so they are only offered to an
+organization that has them turned on, and on a Personal Agent Proxy set up with a sandbox
+service (`SANDBOX_SERVICE_URL` under [Environment variables](/self-hosting/environment)). Hosted
+Personal Agent Proxy runs its own.
+</Callout>
+
+<Steps>
+
+### Choose what agents can do
+
+Sandboxes have three actions: **See sandboxes**, which lists them and opens one; **Use
+sandboxes**, which makes sandboxes, wakes them and runs commands in them, and so can do anything
+a computer with the internet can; and **Delete sandboxes**, which deletes one and everything in
+it for good. Your own agents get the first two on your Sandboxes by default; nothing is on for
+the organization's until its owner turns it on. Change either on an agent's page, or for every
+agent there as the default.
+
+### See what your agents made
+
+Open **Connections** in the sidebar, then **Sandboxes**, for the sandboxes there are: each with
+its name, whether it is running or asleep, the task using it, and when it was last used. Delete
+one there once its work is done.
+
+</Steps>
+
+## Agents and sandboxes
+
+An agent that may use sandboxes is told what they are and how to get one: to list them, to make
+one with a name for a new piece of work, and to run commands in it with the console, its one tool
+beyond the list. Reading and writing files is done through the console too. A command is stopped
+after its timeout, 60 seconds unless the agent gives one and at most 120, and what it leaves
+running in the background may not outlive it, so an agent does long work in parts.
+
+A sandbox is one task's at a time: the first command a task runs in it takes it, it stays that
+task's while the task is under way, and another task's command on it is refused, naming the task
+that has it. Once the task is finished, or left open for twenty minutes, the sandbox is free
+again, so an agent coming back later picks up where it left off, and two agents never work on one
+at once. Every command is in the [activity log](/agents/mcp) under the task it was run for, with
+the command itself.

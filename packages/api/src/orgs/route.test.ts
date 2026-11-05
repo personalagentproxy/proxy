@@ -181,7 +181,7 @@ describe('handleRenameOrgRoute', () => {
 		const asMember = await handleRenameOrgRoute(makeRequest({}, {name: 'Mine now'}));
 
 		expect(renameOrganization).toHaveBeenCalledTimes(1);
-		expect(renameOrganization).toHaveBeenCalledWith('org-2', 'Acme Inc', ['vault']);
+		expect(renameOrganization).toHaveBeenCalledWith('org-2', 'Acme Inc', ['vault', 'sandbox']);
 		expect(asMember.unwrapErr().kind).toBe('forbidden');
 	});
 });

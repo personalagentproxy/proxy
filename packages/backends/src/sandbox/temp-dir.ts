@@ -9,7 +9,7 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import type {SandboxBackend, SandboxCommand, SandboxOutput, SandboxRef} from './backend';
 
 /**
- * The backend the tests run against, and a developer's own machine with `SANDBOX_BACKEND=dev`:
+ * The backend the tests run against, and a developer's own machine with `SANDBOX_SERVICE_URL=dev`:
  * a directory under `root` for each sandbox, commands run in it by this machine's own shell, as
  * this process, with nothing but a path and a locale in their environment. Nothing is isolated:
  * a command reaches the whole machine, so this is never a backend for people, only what the

@@ -1594,6 +1594,127 @@ const vault: Integration = {
 // it, and keep what they learn there, unless told otherwise.
 export const VAULT_DEFAULT_ACTIONS: string[] = vault.actions.map((action) => action.id);
 
+export const SANDBOX_INTEGRATION_ID = 'sandbox';
+
+/** The longest a command may run in a sandbox, and how long one runs unless told otherwise. */
+export const SANDBOX_EXEC_MAX_SECONDS = 120;
+export const SANDBOX_EXEC_DEFAULT_SECONDS = 60;
+
+// Sandboxes live in Personal Agent Proxy itself, as the vault does: computers an agent asks for
+// and works on, each kept while it is away, asleep, and woken by its next command. Every
+// organization and member has a Sandboxes connection, as they have a vault; what an agent may
+// do there is set per action, as on any connection. The sandboxes are the collection, listed
+// and made as records; the console is the one tool of the integration's own, since reading and
+// writing files is done through it. Offered where the organization has the experiment and the
+// server a sandbox backend (SANDBOX_SERVICE_URL).
+const sandbox: Integration = {
+	id: SANDBOX_INTEGRATION_ID,
+	name: 'Sandboxes',
+	description: 'Computers of their own for your agents to work on, kept while they are away',
+	native: true,
+	experiment: 'sandboxes',
+	actions: [
+		{
+			id: 'read',
+			label: 'See sandboxes',
+			description: 'List the sandboxes and open one',
+			risk: 'low',
+		},
+		{
+			id: 'run',
+			label: 'Use sandboxes',
+			description:
+				'Make sandboxes, wake them and run commands in them, which can do anything a computer with the internet can',
+			risk: 'high',
+			requires: 'read',
+		},
+		{
+			id: 'delete',
+			label: 'Delete sandboxes',
+			description: 'Delete a sandbox and everything in it, for good',
+			risk: 'high',
+			requires: 'read',
+		},
+	],
+	collections: [
+		{
+			id: 'sandboxes',
+			name: 'Sandboxes',
+			singular: 'sandbox',
+			titleField: 'name',
+			summaryField: 'state',
+			read: 'read',
+			writes: {create: 'run', delete: 'delete'},
+			fields: [
+				{key: 'name', label: 'Name', type: 'text'},
+				{
+					key: 'state',
+					label: 'State',
+					type: 'select',
+					options: ['Running', 'Asleep'],
+					system: true,
+				},
+				{key: 'heldBy', label: 'In use by', type: 'text', system: true},
+				{key: 'lastUsedAt', label: 'Last used', type: 'datetime', system: true},
+			],
+			commands: [
+				{
+					id: 'sleep',
+					on: 'record',
+					label: 'Put to sleep',
+					description:
+						'Puts a sandbox to sleep, keeping everything on its disk; its next command wakes it. Whatever a command left running is gone.',
+					action: 'run',
+					where: {field: 'state', values: ['Running']},
+					done: 'Put {} to sleep',
+					tried: 'put {} to sleep',
+				},
+				{
+					id: 'wake',
+					on: 'record',
+					label: 'Wake',
+					description: 'Wakes a sandbox that is asleep, with its disk as it was.',
+					action: 'run',
+					where: {field: 'state', values: ['Asleep']},
+					done: 'Woke {}',
+					tried: 'wake {}',
+				},
+			],
+		},
+	],
+	tools: [
+		{
+			name: 'sandbox_exec',
+			title: 'Run command',
+			description: `Runs a command in a sandbox’s shell, in its home or in cwd under it, and answers with what it wrote and how it ended. A sandbox asleep is woken first. Reading and writing files is done here too: cat a file to read it; to write one, give the content as stdin and run cat > the file. The command is stopped after timeout seconds, ${SANDBOX_EXEC_DEFAULT_SECONDS} unless given and at most ${SANDBOX_EXEC_MAX_SECONDS}; what it left running in the background may not outlive it, so do long work in parts.`,
+			action: 'run',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					sandbox: {
+						type: 'string',
+						description: 'The sandbox’s id, from sandboxes_list or sandboxes_create',
+					},
+					command: {type: 'string', description: 'The command, for sh'},
+					stdin: {
+						type: 'string',
+						description: 'What the command reads on stdin, such as the content of a file to write',
+					},
+					cwd: {
+						type: 'string',
+						description: 'The directory to run in, under the sandbox’s home; the home unless given',
+					},
+					timeout: {
+						type: 'number',
+						description: `Seconds before the command is stopped: ${SANDBOX_EXEC_DEFAULT_SECONDS} unless given, at most ${SANDBOX_EXEC_MAX_SECONDS}`,
+					},
+				},
+				required: ['sandbox', 'command'],
+			},
+		},
+	],
+};
+
 // Any MCP server, by its address: what it lists as its tools is what an agent can be allowed, one
 // by one, so the catalog's entry has no actions of its own. A server that asks for a sign-in gets
 // one as Granola's does; one that takes a token typed in, or none, is connected with that. A tool's
@@ -1622,6 +1743,7 @@ export const INTEGRATIONS: Integration[] = [
 	plaid,
 	postgres,
 	mysql,
+	sandbox,
 	mcp,
 ];
 

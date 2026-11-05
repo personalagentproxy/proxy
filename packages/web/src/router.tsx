@@ -43,6 +43,7 @@ import {
 	membersLoader,
 	shouldRevalidateTimeline,
 	taskLoader,
+	sandboxesLoader,
 	vaultLoader,
 	welcomeConnectionLoader,
 	welcomeLoader,
@@ -79,6 +80,7 @@ import {LoginPage} from '@/pages/login-page';
 import {MembersPage} from '@/pages/members-page';
 import {NewAgentPage} from '@/pages/new-agent-page';
 import {OrgSettingsPage} from '@/pages/org-settings-page';
+import {SandboxesPage} from '@/pages/sandboxes-page';
 import {VaultPage} from '@/pages/vault-page';
 import {WelcomeConnectionPage, WelcomePage} from '@/pages/welcome-page';
 
@@ -292,6 +294,7 @@ const routes: RouteObject[] = [
 			{path: '/:org/connections/new/plaid', element: <AddBankPage />},
 			{path: '/:org/connections/new/mcp', element: <AddMcpPage />},
 			{path: '/:org/connections/vault', loader: vaultLoader, element: <VaultPage />},
+			{path: '/:org/connections/sandboxes', loader: sandboxesLoader, element: <SandboxesPage />},
 			{path: '/:org/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
 			// The vault's page before it was one of the connections.
 			{path: '/:org/vault', loader: oldVaultLoader, element: null},

@@ -1,4 +1,4 @@
-import {LibraryIcon, MailIcon, type LucideIcon} from 'lucide-react';
+import {LibraryIcon, MailIcon, SquareTerminalIcon, type LucideIcon} from 'lucide-react';
 import {
 	INTEGRATIONS as CATALOG,
 	integrationFor,
@@ -42,12 +42,13 @@ const NEEDED_BY: Partial<Record<IntegrationId, Need>> = {google: 'google', plaid
 const MCP_MARK = '/favicon.svg';
 
 // The integrations whose logo isn't `public/integrations/<id>.svg` as it is: an icon for those
-// that are no one brand's, the vault being ours and Email any mailbox, and our mark for custom
+// that are no one brand's, the vault and the sandboxes being ours and Email any mailbox, and our mark for custom
 // MCP servers until a connection has its server's site's icon (`serverLogo`); another kind of file;
 // or a logo that is already a square tile, as Granola's and Linear's are, which fills the tile
 // edge to edge.
 const LOGOS: Partial<Record<IntegrationId, LucideIcon | IntegrationLogoImage>> = {
 	vault: LibraryIcon,
+	sandbox: SquareTerminalIcon,
 	email: MailIcon,
 	mcp: {src: MCP_MARK},
 	granola: {src: '/integrations/granola.png', fill: true},

@@ -18,7 +18,8 @@ export const agentConnectionSchema = z.object({
 	/** The actions the agent can take with the connection. */
 	actions: z.array(z.string()),
 	/**
-	 * A custom MCP server's tools the agent may run, as the server describes them; null for every
+	 * A custom MCP server's tools the agent may run, as the server describes them, or an
+	 * integration's own tools where it has any, as the catalog describes them; null for every
 	 * other integration.
 	 */
 	tools: z.array(mcpToolSchema).nullable(),

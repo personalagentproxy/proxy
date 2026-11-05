@@ -1,6 +1,6 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
-import {VAULT_INTEGRATION_ID} from '@proxy/integrations';
+import {SANDBOX_INTEGRATION_ID, VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import {PencilIcon, PlusIcon, Trash2Icon} from 'lucide-react';
 import {useState} from 'react';
 import {Link, useLoaderData, useRevalidator} from 'react-router';
@@ -64,6 +64,11 @@ export function ConnectionsPage() {
 			connection.integrationId === VAULT_INTEGRATION_ID &&
 			(!side.others || connection.shared === side.shared),
 	);
+	const sandboxes = all.filter(
+		(connection) =>
+			connection.integrationId === SANDBOX_INTEGRATION_ID &&
+			(!side.others || connection.shared === side.shared),
+	);
 
 	const activeOrg = human.org;
 	const connections = side.shown;
@@ -105,7 +110,13 @@ export function ConnectionsPage() {
 					</RowHeader>
 				}
 			>
-				<VaultRow vaults={vaults} agents={agents} showingShared={showingShared} />
+				<NativeRow connections={vaults} to="vault" agents={agents} showingShared={showingShared} />
+				<NativeRow
+					connections={sandboxes}
+					to="sandboxes"
+					agents={agents}
+					showingShared={showingShared}
+				/>
 				{connections.length === 0 && (
 					<SideEmpty
 						side={side}
@@ -215,31 +226,35 @@ export function ConnectionsPage() {
 
 // The vault the list shows, or both alone, as one row: what agents know, kept in Personal Agent
 // Proxy, so never renamed or deleted. Its page opens on the same side.
-function VaultRow({
-	vaults,
+// A native integration's connections as one row, the vault's or the sandboxes', opening its page
+// on the side shown; none without any, as an organization not offered sandboxes has.
+function NativeRow({
+	connections,
+	to,
 	agents,
 	showingShared,
 }: {
-	vaults: Connection[];
+	connections: Connection[];
+	to: 'vault' | 'sandboxes';
 	agents: AgentLogin[];
 	showingShared: boolean;
 }) {
 	const org = useOrgSlug();
 	const human = useHuman();
-	const [first] = vaults;
+	const [first] = connections;
 	const integration = first && integrationOf(first);
 	if (!first || !integration || !human) {
 		return null;
 	}
 
 	const withAccess = new Set(
-		vaults.flatMap((vault) => agentsWithAccess(agents, vault).map((agent) => agent.id)),
+		connections.flatMap((one) => agentsWithAccess(agents, one).map((agent) => agent.id)),
 	);
-	const side = vaults.length > 1 ? '' : `?for=${first.shared ? 'everyone' : 'me'}`;
+	const side = connections.length > 1 ? '' : `?for=${first.shared ? 'everyone' : 'me'}`;
 
 	return (
 		<Row
-			to={`/${org}/connections/vault${side}`}
+			to={`/${org}/connections/${to}${side}`}
 			icon={<IntegrationLogo integration={integration} />}
 			title={integration.name}
 			cells={
