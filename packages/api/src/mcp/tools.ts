@@ -314,6 +314,9 @@ function errorMessage(error: ApiError, args: Record<string, unknown>): string {
 	if (error.kind === 'unauthenticated') {
 		return 'This login has been signed out.';
 	}
+	if (error.kind === 'unavailable') {
+		return error.message;
+	}
 	log.error('MCP tool call failed', {kind: error.kind, ...('cause' in error ? serializeError(error.cause) : {})});
 	return 'Something went wrong. Try again in a moment.';
 }

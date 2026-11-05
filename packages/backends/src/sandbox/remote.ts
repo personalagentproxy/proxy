@@ -52,6 +52,9 @@ function toApiError(error: FetchError): ApiError {
 	if (kind === 'forbidden' || kind === 'unauthenticated') {
 		return ApiErr.unavailable('The sandbox service refused this server’s token');
 	}
+	if (kind === 'internal_error' || kind === 'db_error') {
+		return ApiErr.providerUnreachable(error, 'The sandbox service failed on this. Try again in a moment; if it keeps failing, the people who run it have to look.');
+	}
 	return ApiErr.providerUnreachable(error, message ?? SERVICE_UNREACHABLE);
 }
 
