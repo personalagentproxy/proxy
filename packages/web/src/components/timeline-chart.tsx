@@ -3,7 +3,6 @@ import type {Connection} from '@proxy/contracts/connections';
 import {type CSSProperties, memo, type ReactNode, useId, useState} from 'react';
 import {Link} from 'react-router';
 import type {RequestTooltipHandle} from '@/hooks/use-request-tooltip';
-import type {Back} from '@/lib/back';
 import {connectionLabel, describeEntry, locateEntry} from '@/lib/access';
 import {formatTime} from '@/lib/format';
 import {
@@ -300,7 +299,7 @@ export function TasksMenu({
 	durationMs: number;
 	requests: TimelineRequest[];
 	tasks: ActivityTask[];
-	pageOf: (task: ActivityTask) => {to: string; state: Back};
+	pageOf: (task: ActivityTask) => {to: string};
 }) {
 	return (
 		<DropdownMenuGroup className="flex flex-col gap-1">
@@ -328,9 +327,9 @@ export function TasksMenu({
 
 /**
  * A hit target over a track, in the layer over the chart, saying more on hover or focus: a link to
- * a task's page, coming back the way `state` says (lib/back.ts); a button; a menu, opening where
- * the tooltip would, the tooltip kept shut while it is open; or, where it opens nothing, a stop
- * for the keyboard all the same, so what it says can be reached.
+ * a task's page; a button; a menu, opening where the tooltip would, the tooltip kept shut while it
+ * is open; or, where it opens nothing, a stop for the keyboard all the same, so what it says can be
+ * reached.
  */
 export function ChartTarget({
 	action,
@@ -340,7 +339,7 @@ export function ChartTarget({
 	onHover,
 	children,
 }: {
-	action: {to: string; state: Back} | {onClick: () => void} | {menu: ReactNode} | null;
+	action: {to: string} | {onClick: () => void} | {menu: ReactNode} | null;
 	label: string;
 	className?: string;
 	style: CSSProperties;
@@ -365,7 +364,7 @@ export function ChartTarget({
 			return <span tabIndex={0} role="img" {...shared} />;
 		}
 		if ('to' in action) {
-			return <Link to={action.to} state={action.state} preventScrollReset {...shared} />;
+			return <Link to={action.to} preventScrollReset {...shared} />;
 		}
 		if ('menu' in action) {
 			return <DropdownMenuTrigger render={<button type="button" {...shared} />} />;

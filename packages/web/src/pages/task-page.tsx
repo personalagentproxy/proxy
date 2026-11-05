@@ -2,19 +2,17 @@ import type {AuditEntry, TaskRun} from '@proxy/contracts/activity';
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import {useEffect, useId, useState} from 'react';
-import {Link, useLoaderData, useLocation} from 'react-router';
+import {Link, useLoaderData} from 'react-router';
 import {getTaskRun} from '@/client/agents-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditEntryDialog} from '@/components/audit-entry-dialog';
 import {AuditList} from '@/components/audit-list';
-import {BackButton} from '@/components/back-button';
 import {AgentLogo} from '@/components/brand-logo';
 import {Head} from '@/components/head';
 import {type ShownText, TextPanel, TextSwitch} from '@/components/goal-and-outcome';
 import {NotFound} from '@/components/not-found';
 import {RunTimeline} from '@/components/run-timeline';
 import {useOrgSlug} from '@/hooks/use-org';
-import {backFrom, backOf} from '@/lib/back';
 import {endsOf, STATUS_LABEL, taskStatus} from '@/lib/timeline-window';
 import {counted, formatDateTime} from '@/lib/format';
 import {formatDuration, outcomeSummary} from '@/lib/timeline';
@@ -33,10 +31,9 @@ const REFRESH_MS = 5 * 1000;
 // sub-agents, so each task is one of them at work. Read again every few seconds while any of the
 // tasks is under way.
 export function TaskPage() {
-	const org = useOrgSlug();
 	const {run, agents, connections} = useLoaderData<typeof taskLoader>();
 	if (!run) {
-		return <NotFound what="task" back={`/${org}/activity`} backLabel="Back to activity" />;
+		return <NotFound what="task" />;
 	}
 	// Keyed by the task, so following a link to another task's page starts it afresh, its timeline
 	// laid out and its description shown, rather than as the last task's was left.
@@ -53,16 +50,11 @@ function TaskRunPage({
 	connections: Connection[];
 }) {
 	const org = useOrgSlug();
-	const location = useLocation();
 	// The run shown: the first came with the page, and every later reading of it replaces it.
 	const [run, setRun] = useState(initial);
 	const [opened, setOpened] = useState<AuditEntry | null>(null);
 	const [shown, setShown] = useState<ShownText>('goal');
 	const textId = useId();
-	// Where the page was come to from, where that page said (lib/back.ts): the home page or the
-	// activity log with its timeline's window as it was, or the task this one was handed on from;
-	// else the activity log, at the task.
-	const cameFrom = backOf(location);
 	const task = run.tasks.find((candidate) => candidate.id === run.task);
 	const running = run.tasks.some(
 		(candidate) => taskStatus(candidate, new Date(run.now)) === 'running',
@@ -92,7 +84,7 @@ function TaskRunPage({
 	}, [running, org, run.task]);
 
 	if (!task) {
-		return <NotFound what="task" back={`/${org}/activity`} backLabel="Back to activity" />;
+		return <NotFound what="task" />;
 	}
 
 	const now = new Date(run.now);
@@ -107,18 +99,7 @@ function TaskRunPage({
 		...outcomeSummary(own),
 	];
 	return (
-		<AppShell
-			title={
-				<>
-					<BackButton
-						to={cameFrom?.back ?? `/${org}/activity?task=${encodeURIComponent(task.id)}`}
-						state={cameFrom?.then}
-						label={cameFrom ? 'Back' : 'Back to activity'}
-					/>
-					<PageTitle>{task.title}</PageTitle>
-				</>
-			}
-		>
+		<AppShell title={<PageTitle>{task.title}</PageTitle>}>
 			{/* The page in four blocks, a little further apart than the shell sets them. */}
 			<div className="flex flex-col gap-5">
 				<div className="flex flex-col gap-2 text-sm">
@@ -164,7 +145,6 @@ function TaskRunPage({
 									Handed on from{' '}
 									<Link
 										to={`/${org}/activity/tasks/${encodeURIComponent(run.parent.id)}`}
-										state={backFrom(location)}
 										className="text-foreground hover:underline"
 									>
 										{run.parent.title}

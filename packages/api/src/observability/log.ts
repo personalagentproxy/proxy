@@ -8,7 +8,7 @@ export type {Logger};
 export {serializeError} from '@proxy/observability';
 
 /**
- * The api's logger: stdout always, and Grafana Cloud Loki when LOKI_URL is set (config.ts). Every
+ * The api's logger: stdout always, and a Loki when LOKI_URL is set (config.ts). Every
  * line carries the request or job it was written in (request-context.ts).
  */
 export const log: Logger = createServerLogger({

@@ -1,6 +1,5 @@
 import {useNavigate} from 'react-router';
 import {AppShell, PageTitle} from '@/components/app-shell';
-import {BackButton} from '@/components/back-button';
 import {ConnectBankForm} from '@/components/connect-bank-form';
 import {ShareNote} from '@/components/share-choice';
 import {PLAID_FORM} from '@/lib/integrations';
@@ -12,17 +11,10 @@ import {useOrgSlug} from '@/hooks/use-org';
 export function AddBankPage() {
 	const org = useOrgSlug();
 	const navigate = useNavigate();
-	const {shared, query} = useShareChoice();
+	const {shared} = useShareChoice();
 
 	return (
-		<AppShell
-			title={
-				<>
-					<BackButton to={`/${org}/connections/new${query}`} label="Back to the catalog" />
-					<PageTitle>{PLAID_FORM.title}</PageTitle>
-				</>
-			}
-		>
+		<AppShell title={<PageTitle>{PLAID_FORM.title}</PageTitle>}>
 			<div className="grid gap-4">
 				<ShareNote actsAs="the bank login" />
 				<p className="text-sm text-muted-foreground">{PLAID_FORM.intro}</p>

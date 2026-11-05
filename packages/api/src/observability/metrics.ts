@@ -6,7 +6,7 @@ import {type AgentMetrics, createAgentMetrics, createDbMetricsRecorder, createMe
 import {envLabel, metricsConfig} from './config';
 
 /**
- * The api's metrics, pushed to Grafana Cloud when METRICS_OTLP_URL is set (config.ts) and
+ * The api's metrics, pushed over OTLP when METRICS_OTLP_URL is set (config.ts) and
  * summed up for nothing otherwise. Each instance pushes as itself: Render names it, and a machine
  * elsewhere is its host and process.
  */

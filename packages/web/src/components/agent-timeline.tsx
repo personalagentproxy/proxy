@@ -83,8 +83,7 @@ export function AgentTimeline({
 	connections: Connection[];
 }) {
 	const org = useOrgSlug();
-	// The window is kept in the address, so coming back to the page, by the browser's back button
-	// or a task page's, finds it as it was.
+	// The window is kept in the address, so going back to the page finds it as it was.
 	const [params, setParams] = useSearchParams();
 	const location = useLocation();
 	const [minutes, setMinutes] = useState(() => windowFromParams(params).minutes);
@@ -296,9 +295,6 @@ export function AgentTimeline({
 	}, [minutes, end, location.search, setParams]);
 	// The window's length as read: whole minutes, which it is but for a moment while zooming in.
 	const wholeMinutes = Math.round(minutes);
-	// Where a task's page comes back to: this page, with the window as it is now and the rest of the
-	// address, as the activity log's filters, as it was.
-	const backTo = `${location.pathname}${windowSearch(location.search, wholeMinutes, end)}`;
 
 	// Scrolled or zoomed to where there is nothing, the timeline stays up, its rows going the way
 	// they do, and only says so once the window has rested a second.
@@ -393,7 +389,6 @@ export function AgentTimeline({
 						onOpenEntry={setOpened}
 						onZoom={zoomTo}
 						ahead={ahead}
-						backTo={backTo}
 					/>
 				)}
 				{!inWindow && resting && (

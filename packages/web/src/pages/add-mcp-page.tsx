@@ -1,6 +1,5 @@
 import {useNavigate} from 'react-router';
 import {AppShell, PageTitle} from '@/components/app-shell';
-import {BackButton} from '@/components/back-button';
 import {ConnectMcpForm} from '@/components/connect-mcp-form';
 import {ShareNote} from '@/components/share-choice';
 import {useShareChoice} from '@/hooks/use-share-choice';
@@ -11,17 +10,10 @@ import {useOrgSlug} from '@/hooks/use-org';
 export function AddMcpPage() {
 	const org = useOrgSlug();
 	const navigate = useNavigate();
-	const {shared, query} = useShareChoice();
+	const {shared} = useShareChoice();
 
 	return (
-		<AppShell
-			title={
-				<>
-					<BackButton to={`/${org}/connections/new${query}`} label="Back to the catalog" />
-					<PageTitle>Connect an MCP server</PageTitle>
-				</>
-			}
-		>
+		<AppShell title={<PageTitle>Connect an MCP server</PageTitle>}>
 			<div className="grid gap-4">
 				<ShareNote actsAs="you, or the token you give" />
 				<p className="text-sm text-muted-foreground">

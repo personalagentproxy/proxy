@@ -1,7 +1,6 @@
 import {useLoaderData, useNavigate, useSearchParams} from 'react-router';
 import {AddAgent} from '@/components/agent-setup';
 import {AppShell, PageTitle} from '@/components/app-shell';
-import {BackButton} from '@/components/back-button';
 import {SharePicker} from '@/components/share-choice';
 import {useShareChoice} from '@/hooks/use-share-choice';
 import type {agentsLoader} from '@/loaders';
@@ -17,14 +16,7 @@ export function NewAgentPage() {
 	const [params] = useSearchParams();
 
 	return (
-		<AppShell
-			title={
-				<>
-					<BackButton to={`/${org}/agents`} label="Back to agents" />
-					<PageTitle>New agent</PageTitle>
-				</>
-			}
-		>
+		<AppShell title={<PageTitle>New agent</PageTitle>}>
 			{!params.has('agent') && (
 				<SharePicker
 					descriptions={{
