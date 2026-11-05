@@ -54,6 +54,7 @@ import {
 	type RunOnly,
 } from './connector';
 import {gmailQuery, type EmailSearch, type MailSearch} from './email-search';
+import {labelNames} from './google-labels';
 import {replyCommands, replyHeaders, type MailReply} from './email-reply';
 
 /**
@@ -68,6 +69,8 @@ import {replyCommands, replyHeaders, type MailReply} from './email-reply';
  *
  * Marking read or unread takes the UNREAD label off or puts it on, starring the STARRED label,
  * archiving takes INBOX off, and moving to Trash is Gmail's trash, which keeps the email 30 days.
+ * An email opens with the labels of the account's own on it; the `labels` collection puts them on
+ * and takes them off.
  * Nothing is deleted for good but drafts. Email goes out from the connection's own address, a draft
  * as it is saved or a new one written here; Gmail files it in Sent. A reply, the `replies`
  * collection's, is written in the thread of the email it answers, sent or saved as a draft.
@@ -178,13 +181,18 @@ function toRecord(account: string, recordId: string, message: GmailMessage, valu
 	return {id: recordId, values, updatedAt: dateOf(message) || new Date(0).toISOString(), url: webUrl(account, message)};
 }
 
-function fullRecord(account: string, recordId: string, message: GmailMessage): DataRecord {
-	return toRecord(account, recordId, message, {
-		...summaryValues(message),
-		body: messageBody(message.payload),
-		attachments: attachmentsText(attachmentsOf(message.payload)),
-		messageId: headerOf(message.payload, 'Message-ID'),
-		thread: message.threadId ?? '',
+// An email opened whole, with the names of the labels of the account's own on it.
+function fullRecord(token: string, account: string, recordId: string, message: GmailMessage): Promise<Result<DataRecord, ApiError>> {
+	return Do(async ($) => {
+		const labels = $(await labelNames(token, message.labelIds ?? []));
+		return toRecord(account, recordId, message, {
+			...summaryValues(message),
+			body: messageBody(message.payload),
+			attachments: attachmentsText(attachmentsOf(message.payload)),
+			messageId: headerOf(message.payload, 'Message-ID'),
+			thread: message.threadId ?? '',
+			labels,
+		});
 	});
 }
 
@@ -302,7 +310,7 @@ const findGmailEmails: MailSearch = (target, searches, limit) =>
 function readDraft(token: string, account: string, recordId: string, draftId: string): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
 		const draft = $((await getDraft(token, draftId)).mapErr(notFoundAs(recordId)));
-		return fullRecord(account, `draft-${draft.id}`, draft.message);
+		return $(await fullRecord(token, account, `draft-${draft.id}`, draft.message));
 	});
 }
 
@@ -311,7 +319,7 @@ function readMessage(token: string, account: string, recordId: string, messageId
 	return Do(async ($) => {
 		const message = $((await getMessage(token, messageId)).mapErr(notFoundAs(recordId)));
 		const draftId = isDraft(message) ? $(await findDraftIds(token, [message.id])).get(message.id) : undefined;
-		return fullRecord(account, draftId ? `draft-${draftId}` : message.id, message);
+		return $(await fullRecord(token, account, draftId ? `draft-${draftId}` : message.id, message));
 	});
 }
 

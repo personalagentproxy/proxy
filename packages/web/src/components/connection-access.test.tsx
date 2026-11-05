@@ -573,7 +573,7 @@ describe('ConnectionAccess with what the sign-in covered', () => {
 			'Tasks',
 		]);
 		expect(sections.map((section) => section.querySelector('h3 + span')?.textContent)).toEqual([
-			'1 of 7 on',
+			'1 of 8 on',
 			'None on',
 			'2 of 4 on',
 			'None on',

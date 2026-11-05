@@ -1,6 +1,7 @@
 import {availabilityConnector} from '../../records/google-availability';
 import {contactsConnector} from '../../records/google-contacts';
 import {gmailAttachmentsConnector, gmailConnector, gmailRepliesConnector} from '../../records/google-emails';
+import {gmailLabelsConnector} from '../../records/google-labels';
 import {eventsConnector} from '../../records/google-events';
 import {filesConnector} from '../../records/google-files';
 import {otherContactsConnector} from '../../records/google-other-contacts';
@@ -23,6 +24,7 @@ export const GOOGLE_INTEGRATION: ApiIntegration = {
 		emails: gmailConnector,
 		attachments: gmailAttachmentsConnector,
 		replies: gmailRepliesConnector,
+		labels: gmailLabelsConnector,
 		events: eventsConnector,
 		availability: availabilityConnector,
 		files: filesConnector,
