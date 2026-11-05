@@ -60,7 +60,7 @@ contextBridge.exposeInMainWorld('personalAgentProxyDesktop', {
 		return () => ipcRenderer.removeListener(UPDATE_READY_CHANNEL, handler);
 	},
 	restart: (): void => ipcRenderer.send(RESTART_CHANNEL),
-	notify: (notice: {title: string; body: string; path: string}): void =>
+	notify: (notice: {title: string; body: string; path: string; tag: string}): void =>
 		ipcRenderer.send(NOTIFY_CHANNEL, notice),
 	onOpenPath: (listener: (path: string) => void): (() => void) => {
 		const handler = (_event: IpcRendererEvent, path: string) => listener(path);

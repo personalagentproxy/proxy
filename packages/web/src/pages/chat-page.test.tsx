@@ -8,7 +8,7 @@ import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-libr
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {HumanSide} from '@/components/human-side';
 import {ChatPage} from '@/pages/chat-page';
-import {testHuman} from '@/test-org';
+import {testHuman, testOrg} from '@/test-org';
 
 const realFetch = globalThis.fetch;
 const fetchMock = mock<(input: string, init?: RequestInit) => Promise<Response>>();
@@ -23,6 +23,7 @@ function persona(id: string, name: string, mayChange: boolean): ChatPersona {
 		color: 'blue',
 		chatModel: null,
 		lastMessage: null,
+		lastAnswer: null,
 		unread: false,
 	};
 }
@@ -51,7 +52,7 @@ function renderChatPage({
 		[
 			{
 				id: 'human',
-				loader: () => testHuman(),
+				loader: () => testHuman({...testOrg, experiments: ['harness']}),
 				element: <HumanSide />,
 				children: [
 					{
@@ -231,18 +232,19 @@ describe('ChatPage', () => {
 		expect(within(generalRow).queryByRole('status', {name: 'Unread'})).toBeNull();
 	});
 
-	test('marks the conversation read when an answer shows while the page is in view', async () => {
+	test('reads the conversation up to the last answer it shows, what the person said after it aside', async () => {
 		renderChatPage({
 			entries: [
 				{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00Z'},
 				{id: 'e2', kind: 'assistant', text: 'Hello', isError: false, at: '2026-10-21T10:00:01Z'},
+				{id: 'e3', kind: 'person', text: 'And?', isError: false, at: '2026-10-21T10:00:02Z'},
 			],
 		});
 
 		await waitFor(() => {
 			expect(fetchMock).toHaveBeenCalledWith(
 				'/api/orgs/acme/chat/personas/general/read',
-				expect.objectContaining({method: 'POST'}),
+				expect.objectContaining({method: 'POST', body: JSON.stringify({entryId: 'e2'})}),
 			);
 		});
 		expect(
@@ -250,7 +252,7 @@ describe('ChatPage', () => {
 		).toHaveLength(1);
 	});
 
-	test('marks nothing read while the last word is the person’s', async () => {
+	test('marks nothing read before the agent has answered', async () => {
 		renderChatPage({
 			entries: [{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00Z'}],
 		});

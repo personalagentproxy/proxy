@@ -5,9 +5,14 @@ import {desktopBridge} from '@/lib/desktop';
 // Notification API otherwise. Off until the person turns it on, on each device (Account page).
 
 const SETTING_KEY = 'proxy-notifications';
+// What was last told of, by the tag: shared by the page's tabs, so one tells of it and the rest don't.
+const TOLD_KEY_PREFIX = 'proxy-notified:';
 
-/** A message as it is told of: whose, what it said, and the page of the app it is on. */
-export type Notice = {title: string; body: string; path: string};
+/**
+ * A message as it is told of: whose, what it said, and the page of the app it is on; its tag, one
+ * per conversation, and its id, the message's.
+ */
+export type Notice = {title: string; body: string; path: string; tag: string; id: string};
 
 /** How this device can show notifications: through the desktop app, the browser, or not at all. */
 export type NotificationSupport = 'desktop' | 'browser' | 'none';
@@ -53,23 +58,30 @@ export function turnNotificationsOff(): void {
 }
 
 /**
- * Shows the notice, where notifications are on; `open` is called with its path when it is clicked
- * in the browser (the desktop app hands that back through its bridge, `onOpenPath`). One per
- * conversation at a time: a newer notice of the same `tag` replaces the one showing.
+ * Shows the notice, where notifications are on and no other tab of the page has; `open` is called
+ * with its path when it is clicked in the browser (the desktop app hands that back through its
+ * bridge, `onOpenPath`). One per conversation at a time: a newer notice of the same `tag`
+ * replaces the one showing.
  */
-export function notify(notice: Notice, tag: string, open: (path: string) => void): void {
+export function notify(notice: Notice, open: (path: string) => void): void {
 	if (!notificationsOn()) {
 		return;
 	}
+	const {id, ...shownNotice} = notice;
+	const toldKey = `${TOLD_KEY_PREFIX}${notice.tag}`;
+	if (localStorage.getItem(toldKey) === id) {
+		return;
+	}
+	localStorage.setItem(toldKey, id);
 	const bridge = desktopBridge();
 	if (bridge?.notify) {
-		bridge.notify(notice);
+		bridge.notify(shownNotice);
 		return;
 	}
 	if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
 		return;
 	}
-	const shown = new Notification(notice.title, {body: notice.body, tag});
+	const shown = new Notification(notice.title, {body: notice.body, tag: notice.tag});
 	shown.onclick = () => {
 		window.focus();
 		open(notice.path);

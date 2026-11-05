@@ -48,12 +48,15 @@ export const chatPersonaSchema = z.object({
 	 * The last thing said in the person's conversation with it, cut to a line, for the list; null
 	 * before anything was said.
 	 */
-	lastMessage: z
-		.object({id: z.string(), kind: speakerSchema, text: z.string(), at: z.string()})
-		.nullable(),
+	lastMessage: z.object({kind: speakerSchema, text: z.string(), at: z.string()}).nullable(),
 	/**
-	 * Whether the persona has said something the person hasn't seen: its last word in the
-	 * conversation came after the person last read it (`POST chat/personas/:personaId/read`).
+	 * The persona's last answer in the person's conversation with it, cut to a line, which may come
+	 * before what the person said last; null before it answered.
+	 */
+	lastAnswer: z.object({id: z.string(), text: z.string()}).nullable(),
+	/**
+	 * Whether the person hasn't seen the last answer: the page hasn't shown it to them since it
+	 * came (`POST chat/personas/:personaId/read`).
 	 */
 	unread: z.boolean(),
 });
@@ -100,6 +103,12 @@ const MAX_MESSAGE = 20_000;
 
 /** `POST chat/personas/:personaId/messages`: what the person says to the persona; it is woken. */
 export const postMessageBodySchema = z.object({text: z.string().trim().min(1).max(MAX_MESSAGE)});
+
+/**
+ * `POST chat/personas/:personaId/read`: the persona's answer the page showed the person, which
+ * the conversation is read up to.
+ */
+export const markReadBodySchema = z.object({entryId: z.string().min(1)});
 
 /** What the person said, as a turn of the conversation. */
 export const postedMessageSchema = z.object({entry: chatEntrySchema});

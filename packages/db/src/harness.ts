@@ -1,8 +1,8 @@
-import type {
-	AgentEntryKind,
-	AgentJobEventKind,
-	AgentJobKind,
-	AgentJobStatus,
+import {
+	type AgentEntryKind,
+	type AgentJobEventKind,
+	type AgentJobKind,
+	type AgentJobStatus,
 	Prisma,
 } from '@prisma/client';
 import {Err, Ok, type Result} from 'ts-results-es';
@@ -285,51 +285,86 @@ export function toEntry(entry: EntryRecord): EntryRow {
 
 /**
  * The organization's personas, oldest first, with the last thing said in the member's conversation
- * with each, and whether it is unread: the persona's, said past where the member has read to.
+ * with each, the persona's last answer in it, and whether that is unread: said past where the
+ * member has read to.
  */
 export async function listPersonas(
 	orgId: string,
 	userId: string,
 ): Promise<
-	Result<Array<PersonaRow & {lastMessage: LastMessage | null; unread: boolean}>, ApiError>
+	Result<
+		Array<
+			PersonaRow & {lastMessage: LastMessage | null; lastAnswer: LastAnswer | null; unread: boolean}
+		>,
+		ApiError
+	>
 > {
 	return (
 		await wrapDb(() =>
-			db.persona.findMany({
-				where: {orgId},
-				select: {
-					...personaSelect,
-					threads: {
-						where: {userId, parentThreadId: null},
+			// One snapshot for both, so an answer landing between them can't leave the last thing said
+			// newer than the last answer, or the other way round.
+			db.$transaction(
+				[
+					db.persona.findMany({
+						where: {orgId},
 						select: {
-							readSeq: true,
-							// The agent's turns that only made calls say nothing, so the last with words.
-							entries: {
-								where: {kind: {in: ['person', 'assistant']}, text: {not: ''}},
-								orderBy: {seq: 'desc'},
-								take: 1,
-								select: {id: true, seq: true, kind: true, text: true, createdAt: true},
+							...personaSelect,
+							threads: {
+								where: {userId, parentThreadId: null},
+								select: {
+									// The agent's turns that only made calls say nothing, so the last with words.
+									entries: {
+										where: {kind: {in: ['person', 'assistant']}, text: {not: ''}},
+										orderBy: {seq: 'desc'},
+										take: 1,
+										select: {kind: true, text: true, createdAt: true},
+									},
+								},
 							},
 						},
-					},
-				},
-				orderBy: {createdAt: 'asc'},
-			}),
+						orderBy: {createdAt: 'asc'},
+					}),
+					// The persona's last answer in each of the member's conversations, which may come
+					// before what the person said last, and how far they have read it.
+					db.agentThread.findMany({
+						where: {orgId, userId, parentThreadId: null},
+						select: {
+							personaId: true,
+							readSeq: true,
+							entries: {
+								where: {kind: 'assistant', text: {not: ''}},
+								orderBy: {seq: 'desc'},
+								take: 1,
+								select: {id: true, seq: true, text: true},
+							},
+						},
+					}),
+				],
+				{isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead},
+			),
 		)
-	).map((personas) =>
-		personas.map(({threads, ...persona}) => {
-			const thread = threads[0];
+	).map(([personas, threads]) => {
+		const answers = new Map(
+			threads.flatMap(({personaId, readSeq, entries: [answer]}) =>
+				answer
+					? [[personaId, {id: answer.id, text: answer.text, unread: answer.seq > readSeq}] as const]
+					: [],
+			),
+		);
+		return personas.map(({threads: [thread], ...persona}) => {
 			const last = thread?.entries[0];
-			if (!thread || !last || (last.kind !== 'person' && last.kind !== 'assistant')) {
-				return {...toPersona(persona), lastMessage: null, unread: false};
-			}
+			const answer = answers.get(persona.id);
 			return {
 				...toPersona(persona),
-				lastMessage: {id: last.id, kind: last.kind, text: last.text, createdAt: last.createdAt},
-				unread: last.kind === 'assistant' && last.seq > thread.readSeq,
+				lastMessage:
+					last && (last.kind === 'person' || last.kind === 'assistant')
+						? {kind: last.kind, text: last.text, createdAt: last.createdAt}
+						: null,
+				lastAnswer: answer ? {id: answer.id, text: answer.text} : null,
+				unread: answer?.unread ?? false,
 			};
-		}),
-	);
+		});
+	});
 }
 
 /**
@@ -483,17 +518,23 @@ export async function ensureMemberThread(data: {
 }
 
 /** The last thing said in a thread, by the person or the agent. */
-export type LastMessage = {id: string; kind: 'person' | 'assistant'; text: string; createdAt: Date};
+export type LastMessage = {kind: 'person' | 'assistant'; text: string; createdAt: Date};
+
+/** The persona's last answer in a conversation, which the member may not have seen. */
+export type LastAnswer = {id: string; text: string};
 
 /**
- * Marks the thread read to its end: everything in it now, so what the persona says next is
- * unread. `Ok(false)` means no such thread.
+ * Marks the thread read up to the entry, as far as the member was shown it, never back: what the
+ * persona said after it stays unread. `Ok(false)` means no such entry in the thread.
  */
-export async function markThreadRead(threadId: string): Promise<Result<boolean, ApiError>> {
+export async function markThreadRead(
+	threadId: string,
+	entryId: string,
+): Promise<Result<boolean, ApiError>> {
 	return (
 		await wrapDb(
 			() =>
-				db.$executeRaw`UPDATE "AgentThread" SET "readSeq" = GREATEST("readSeq", COALESCE((SELECT MAX("seq") FROM "AgentEntry" WHERE "threadId" = ${threadId}), 0)) WHERE "id" = ${threadId}`,
+				db.$executeRaw`UPDATE "AgentThread" AS t SET "readSeq" = GREATEST(t."readSeq", e."seq") FROM "AgentEntry" AS e WHERE t."id" = ${threadId} AND e."id" = ${entryId} AND e."threadId" = t."id"`,
 		)
 	).map((count) => count > 0);
 }
@@ -791,10 +832,7 @@ async function endTurn(
 	await tellParent(tx, thread, stop.stopped, jobId, wakes);
 }
 
-/**
- * Lands what the person said, and wakes the agent where the log `wakes` it. The person has read
- * everything before what they say, so the thread is read to it. `Ok(null)` means no such thread.
- */
+/** Lands what the person said, and wakes the agent where the log `wakes` it. `Ok(null)` means no such thread. */
 export async function appendPersonMessage(
 	threadId: string,
 	text: string,
@@ -806,9 +844,7 @@ export async function appendPersonMessage(
 			if (!thread) {
 				return null;
 			}
-			const entry = await appendEntry(tx, thread, {kind: 'person', text}, wakes);
-			await tx.$executeRaw`UPDATE "AgentThread" SET "readSeq" = GREATEST("readSeq", ${entry.seq}) WHERE "id" = ${threadId}`;
-			return entry;
+			return appendEntry(tx, thread, {kind: 'person', text}, wakes);
 		}),
 	);
 }

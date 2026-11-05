@@ -117,8 +117,8 @@ export function AppSidebar() {
 										<destination.icon />
 										<span>{destination.label}</span>
 									</SidebarMenuButton>
-									{destination.to === CHAT && unread.count > 0 && (
-										<UnreadBadge count={unread.count} />
+									{destination.to === CHAT && unread.unreadIds.size > 0 && (
+										<UnreadBadge count={unread.unreadIds.size} />
 									)}
 								</SidebarMenuItem>
 							))}

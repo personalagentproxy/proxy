@@ -28,7 +28,7 @@ export type DesktopBridge = {
 	onUpdateReady(listener: (version: string) => void): () => void;
 	restart(): void;
 	// Optional while installed desktop apps from before notifications still load this page.
-	notify?(notice: {title: string; body: string; path: string}): void;
+	notify?(notice: {title: string; body: string; path: string; tag: string}): void;
 	onOpenPath?(listener: (path: string) => void): () => void;
 	setBadge?(count: number): void;
 };

@@ -270,45 +270,61 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		]);
 	});
 
-	test('the persona’s answer is unread until the thread is marked read, and what the person says reads everything before it', async () => {
+	test('the persona’s answer is unread until the thread is read up to it, never back, and what the person says after it reads nothing', async () => {
 		const persona = unwrap(await ensureFirstPersona(orgId));
-		const unreadOf = async () =>
-			unwrap(await listPersonas(orgId, userId)).find((candidate) => candidate.id === persona.id)
-				?.unread;
+		const listed = async () => {
+			const found = unwrap(await listPersonas(orgId, userId)).find(
+				(candidate) => candidate.id === persona.id,
+			);
+			if (!found) {
+				throw new Error('the persona is gone');
+			}
+			return found;
+		};
+		const answer = async (workerId: string, text: string) => {
+			const job = unwrap(await claimJob(workerId, 60_000));
+			if (!job) {
+				throw new Error('nothing to claim');
+			}
+			unwrap(
+				await completeInference(
+					job.id,
+					workerId,
+					thread.id,
+					subTurn(text),
+					{plans: {}},
+					readyForInference,
+				),
+			);
+			const {lastAnswer} = await listed();
+			if (lastAnswer?.text !== text) {
+				throw new Error(`expected the answer ${text}, got ${JSON.stringify(lastAnswer)}`);
+			}
+			return lastAnswer.id;
+		};
 
 		unwrap(await appendPersonMessage(thread.id, 'Anything new?', readyForInference));
-		expect(await unreadOf()).toBe(false);
+		const first = await answer('worker-r', 'Nothing new.');
+		expect((await listed()).unread).toBe(true);
 
-		const job = unwrap(await claimJob('worker-r', 60_000));
-		if (!job) {
-			throw new Error('nothing to claim');
-		}
-		unwrap(
-			await completeInference(
-				job.id,
-				'worker-r',
-				thread.id,
-				subTurn('Nothing new.'),
-				{plans: {}},
-				readyForInference,
-			),
-		);
-		expect(await unreadOf()).toBe(true);
-
-		expect(unwrap(await markThreadRead(thread.id))).toBe(true);
-		expect(await unreadOf()).toBe(false);
-		expect(unwrap(await markThreadRead('no-such-thread'))).toBe(false);
-
-		const said = unwrap(await appendPersonMessage(thread.id, 'Thanks', readyForInference));
-		if (!said) {
-			throw new Error('the thread is gone');
-		}
-		const read = await db.agentThread.findUniqueOrThrow({
-			where: {id: thread.id},
-			select: {readSeq: true},
+		unwrap(await appendPersonMessage(thread.id, 'And now?', readyForInference));
+		expect(await listed()).toMatchObject({
+			lastMessage: {kind: 'person', text: 'And now?'},
+			lastAnswer: {id: first, text: 'Nothing new.'},
+			unread: true,
 		});
-		expect(read.readSeq).toBe(said.seq);
-		expect(await unreadOf()).toBe(false);
+
+		const second = await answer('worker-r2', 'Still nothing.');
+		expect(unwrap(await markThreadRead(thread.id, first))).toBe(true);
+		expect((await listed()).unread).toBe(true);
+
+		expect(unwrap(await markThreadRead(thread.id, second))).toBe(true);
+		expect((await listed()).unread).toBe(false);
+		expect(unwrap(await markThreadRead(thread.id, first))).toBe(true);
+		expect((await listed()).unread).toBe(false);
+
+		expect(unwrap(await markThreadRead(thread.id, 'no-such-entry'))).toBe(false);
+		expect(unwrap(await markThreadRead('no-such-thread', second))).toBe(false);
 	});
 
 	test('a finish with nothing written is a done event too', async () => {

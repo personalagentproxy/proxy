@@ -13,7 +13,6 @@ import {
 	createPersona,
 	deletePersona,
 	getThread,
-	markRead,
 	postMessage,
 	updatePersona,
 } from '@/client/harness-client';
@@ -123,7 +122,7 @@ function subtitle(last: ChatPersona['lastMessage']): string {
 // to a line as the list has it.
 function lastOf(log: ThreadLog): ChatPersona['lastMessage'] {
 	const last = log.entries.at(-1);
-	return last ? {id: last.id, kind: last.kind, text: preview(last.text), at: last.at} : null;
+	return last ? {kind: last.kind, text: preview(last.text), at: last.at} : null;
 }
 
 // The organization's personas in the second sidebar, each with its head, its name and the last
@@ -345,7 +344,6 @@ function Conversation({
 	const human = useHuman();
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
-	const unread = useUnread();
 	const [log, setLog] = useState<ThreadLog>(loaded.log);
 	const [text, setText] = useState('');
 	const [sending, setSending] = useState(false);
@@ -378,38 +376,16 @@ function Conversation({
 		};
 	}, [readLog, log.busy]);
 
-	// The conversation is read as far as the page shows it while the page is in view: each answer
-	// that shows then is marked read, once, and the provider is told which conversation is open,
-	// so it is neither counted nor notified of. Out of view, as in a tab behind another, nothing
-	// is read, and what comes is told of as anywhere else.
-	const lastEntry = log.entries.at(-1);
-	const lastAnswerId = lastEntry?.kind === 'assistant' ? lastEntry.id : null;
-	const marked = useRef<string | null>(null);
+	// The provider is told which conversation the page shows, and its last answer: while the person
+	// looks at it, it is neither counted nor notified of, and is read up to that answer.
+	const lastAnswerId = log.entries.findLast((entry) => entry.kind === 'assistant')?.id ?? null;
+	const {setViewing} = useUnread();
 	useEffect(() => {
-		const {setOpen, markSeen} = unread;
-		const read = () => {
-			if (document.visibilityState !== 'visible') {
-				setOpen(null);
-				return;
-			}
-			setOpen(personaId);
-			if (lastAnswerId === null || marked.current === lastAnswerId) {
-				return;
-			}
-			marked.current = lastAnswerId;
-			void markRead(org, personaId).then((result) => {
-				if (result.isOk()) {
-					markSeen(personaId);
-				}
-			});
-		};
-		read();
-		document.addEventListener('visibilitychange', read);
+		setViewing({personaId, answerId: lastAnswerId});
 		return () => {
-			document.removeEventListener('visibilitychange', read);
-			setOpen(null);
+			setViewing(null);
 		};
-	}, [org, personaId, lastAnswerId, unread]);
+	}, [setViewing, personaId, lastAnswerId]);
 
 	const send = async (event: FormEvent) => {
 		event.preventDefault();

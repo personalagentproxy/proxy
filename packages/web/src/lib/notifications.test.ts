@@ -26,7 +26,13 @@ class FakeNotification {
 }
 
 const open = mock((_path: string) => undefined);
-const notice = {title: 'Finance', body: 'Three invoices are due.', path: '/acme/chat/finance'};
+const notice = {
+	title: 'Finance',
+	body: 'Three invoices are due.',
+	path: '/acme/chat/finance',
+	tag: 'finance',
+	id: 'answer-1',
+};
 
 beforeEach(() => {
 	shown.length = 0;
@@ -34,6 +40,7 @@ beforeEach(() => {
 	open.mockClear();
 	FakeNotification.requestPermission.mockClear();
 	turnNotificationsOff();
+	localStorage.clear();
 	Object.assign(globalThis, {Notification: FakeNotification});
 });
 
@@ -61,15 +68,28 @@ describe('notifications', () => {
 
 	test('show nothing while off, and through the browser once on, opening the page when clicked', async () => {
 		permission = 'granted';
-		notify(notice, 'finance', open);
+		notify(notice, open);
 		expect(shown).toEqual([]);
 
 		await turnNotificationsOn();
-		notify(notice, 'finance', open);
+		notify(notice, open);
 		expect(shown).toEqual([
 			{title: 'Finance', options: {body: 'Three invoices are due.', tag: 'finance'}},
 		]);
 		expect(open).not.toHaveBeenCalled();
+	});
+
+	test('tell of a message once across the page’s tabs, and of the next one again', async () => {
+		permission = 'granted';
+		await turnNotificationsOn();
+
+		notify(notice, open);
+		notify(notice, open);
+		expect(shown).toHaveLength(1);
+
+		notify({...notice, body: 'And one more.', id: 'answer-2'}, open);
+		expect(shown).toHaveLength(2);
+		expect(shown[1]?.options?.body).toBe('And one more.');
 	});
 
 	test('go through the desktop app where the page is in it, which needs no leave', async () => {
@@ -77,7 +97,7 @@ describe('notifications', () => {
 			updateReady: () => Promise.resolve(null),
 			onUpdateReady: () => () => undefined,
 			restart: () => undefined,
-			notify: mock((_notice: typeof notice) => undefined),
+			notify: mock((_notice: Omit<typeof notice, 'id'>) => undefined),
 			onOpenPath: () => () => undefined,
 			setBadge: () => undefined,
 		};
@@ -86,8 +106,13 @@ describe('notifications', () => {
 
 		expect(await turnNotificationsOn()).toBe(true);
 		expect(FakeNotification.requestPermission).not.toHaveBeenCalled();
-		notify(notice, 'finance', open);
-		expect(bridge.notify).toHaveBeenCalledWith(notice);
+		notify(notice, open);
+		expect(bridge.notify).toHaveBeenCalledWith({
+			title: 'Finance',
+			body: 'Three invoices are due.',
+			path: '/acme/chat/finance',
+			tag: 'finance',
+		});
 		expect(shown).toEqual([]);
 	});
 

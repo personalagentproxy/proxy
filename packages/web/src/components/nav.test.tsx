@@ -20,9 +20,7 @@ function unreadOf(ids: string[]): Unread {
 	return {
 		loaded: true,
 		unreadIds: new Set(ids),
-		count: ids.length,
-		setOpen: () => undefined,
-		markSeen: () => undefined,
+		setViewing: () => undefined,
 	};
 }
 

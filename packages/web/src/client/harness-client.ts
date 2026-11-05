@@ -1,4 +1,5 @@
 import {
+	type markReadBodySchema,
 	personaAnswerSchema,
 	personaListSchema,
 	type Persona,
@@ -47,6 +48,8 @@ export function postMessage(org: string, personaId: string, text: string) {
 	);
 }
 
-export function markRead(org: string, personaId: string) {
-	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/read`);
+export function markRead(org: string, personaId: string, entryId: string) {
+	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/read`, {
+		entryId,
+	} satisfies z.input<typeof markReadBodySchema>);
 }
