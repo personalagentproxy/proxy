@@ -1,6 +1,8 @@
 import type {Org} from '@proxy/contracts/orgs';
 import {useState} from 'react';
 import {Link} from 'react-router';
+import {Button} from '@proxy/ui/components/button';
+import {signOut} from '@/client/auth-client';
 import {deleteAccount} from '@/client/me-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {DangerCard} from '@/components/danger-card';
@@ -15,8 +17,8 @@ import {describeApiError} from '@/lib/loader-utils';
 import {hasOtherPeople} from '@/lib/orgs';
 
 // The person's account, in no organization: who is signed in, how the app looks to them, the
-// organizations they are in, each to its own settings, and deleting the account, which deletes
-// every one they own.
+// organizations they are in, each to its own settings, signing out of this browser, and deleting
+// the account, which deletes every one they own.
 export function AccountPage() {
 	const human = useHuman();
 	const [deleting, setDeleting] = useState(false);
@@ -59,6 +61,20 @@ export function AccountPage() {
 								</span>
 							</li>
 						))}
+					</RowList>
+				</Section>
+				<Section title="Session">
+					<RowList>
+						<SettingRow
+							label="This browser"
+							action={
+								<Button size="sm" variant="outline" onClick={() => void signOut()}>
+									Sign out
+								</Button>
+							}
+						>
+							Signed in as {human.user.email}
+						</SettingRow>
 					</RowList>
 				</Section>
 				<DangerCard
