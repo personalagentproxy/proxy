@@ -58,16 +58,16 @@ import {
 const BUSY_POLL_MS = 1000;
 const IDLE_POLL_MS = 4000;
 
-// One turn of the conversation: what the person said in a bubble on the right, as they typed it,
-// or what the persona answered in an outlined one on the left, as Markdown, in a red one where
-// its turn failed. What it did in between, the sub-agents it started and what they said, is in
-// the activity log, not here: this is a conversation.
+// One turn of the conversation: what the person said in a dark bubble on the right (a light one
+// in dark mode), as they typed it, or what the persona answered in a gray one on the left, as
+// Markdown, in a red one where its turn failed. What it did in between, the sub-agents it started
+// and what they said, is in the activity log, not here: this is a conversation.
 function Turn({entry}: {entry: ChatEntry}) {
 	if (entry.kind === 'person') {
 		return (
 			<Message align="end">
 				<MessageContent>
-					<Bubble align="end" variant="muted">
+					<Bubble align="end" variant="inverted">
 						<BubbleContent className="whitespace-pre-wrap">{entry.text}</BubbleContent>
 					</Bubble>
 				</MessageContent>
@@ -77,7 +77,7 @@ function Turn({entry}: {entry: ChatEntry}) {
 	return (
 		<Message>
 			<MessageContent>
-				<Bubble variant={entry.isError ? 'destructive' : 'outline'}>
+				<Bubble variant={entry.isError ? 'destructive' : 'muted'}>
 					<BubbleContent>
 						<Markdown text={entry.text} />
 					</BubbleContent>
