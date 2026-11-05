@@ -140,6 +140,7 @@ model Organization {
   threads     AgentThread[]
   personas    Persona[]
   alerts      AgentAlert[]
+  sandboxes   Sandbox[]
 
   @@index([ownerUserId])
 }
@@ -221,6 +222,7 @@ model Connection {
   agentGrants  AgentGrant[]
   writeTargets WriteTarget[]
   polls        ConnectionPoll[]
+  sandboxes    Sandbox[]
 
   @@index([orgId])
   @@index([ownerUserId])
@@ -599,6 +601,43 @@ model Persona {
 // long. A conversation has no task: its agent makes no calls but to delegate. Everything that
 // happens to the agent is an entry (AgentEntry), and everything that makes it do something is a
 // job (AgentJob).
+enum SandboxState {
+  running
+  asleep
+}
+
+// A sandbox: a computer an agent asked for on a Sandboxes connection, run by the server's sandbox
+// backend, which names it by `backendRef` as it is now (@proxy/backends). Its disk is kept while it
+// is asleep; its next command wakes it; deleting it deletes the row. In use by one task at a time
+// (`heldByTaskId`, an AgentTask): taken by the first call a task makes on it, and free again once
+// that task is finished or left open (@proxy/utils/tasks), so two agents never work on one at once.
+model Sandbox {
+  id               String       @id @default(cuid())
+  orgId            String
+  connectionId     String
+  // What the agent called it, shown in the list and the activity log.
+  name             String
+  state            SandboxState
+  // Which backend made it, so one backend is never asked for another's, and its ref there.
+  backendId        String
+  backendRef       String
+  heldByTaskId     String?
+  heldAt           DateTime?
+  // When a command last ran in it, or it was made, woken or put to sleep: what the idle sweeper
+  // reads, and the list shows.
+  lastUsedAt       DateTime     @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  connection Connection   @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId, createdAt])
+  @@index([orgId])
+  @@index([state, lastUsedAt])
+}
+
 model AgentThread {
   id      String @id @default(cuid())
   orgId   String

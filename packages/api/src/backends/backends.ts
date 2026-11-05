@@ -6,7 +6,6 @@ import {remoteSandboxBackend} from '@proxy/backends/sandbox/remote';
 import {tempDirSandboxBackend} from '@proxy/backends/sandbox/temp-dir';
 
 import {log} from '../observability/log';
-import {env} from '../utils/env';
 
 /**
  * The backends this server runs with: what runs the machines a capability of Personal Agent
@@ -15,14 +14,16 @@ import {env} from '../utils/env';
  * with it, which the catalog then leaves out; `remote` a service elsewhere that speaks the
  * protocol, hosted Personal Agent Proxy's own among them; `dev` the one the tests run on, a
  * directory on this machine with no isolation at all, which only a development server takes.
- * Read once as the server starts, as the environment is; a choice that can't be made is logged
- * and is none.
+ * Chosen once, the first time anything asks; a choice that can't be made is logged and is none.
  */
 
-export type Backends = {sandbox: SandboxBackend | null};
+// Chosen once, the first time anything asks, rather than as this module loads: the environment
+// is read then, as host-check.ts reads it, which the tests of what reaches sandboxes never do.
+let chosen: Promise<SandboxBackend | null> | undefined;
 
-function sandboxBackend(): SandboxBackend | null {
-	if (env.SANDBOX_BACKEND === 'off') {
+async function chooseSandboxBackend(): Promise<SandboxBackend | null> {
+	const {env} = await import('../utils/env');
+	if (env.SANDBOX_BACKEND !== 'remote' && env.SANDBOX_BACKEND !== 'dev') {
 		return null;
 	}
 	if (env.SANDBOX_BACKEND === 'dev') {
@@ -39,4 +40,8 @@ function sandboxBackend(): SandboxBackend | null {
 	return remoteSandboxBackend({url: env.SANDBOX_SERVICE_URL, token: env.SANDBOX_SERVICE_TOKEN});
 }
 
-export const backends: Backends = {sandbox: sandboxBackend()};
+/** The server's sandbox backend, or null where sandboxes are off. */
+export function sandboxBackend(): Promise<SandboxBackend | null> {
+	chosen ??= chooseSandboxBackend();
+	return chosen;
+}

@@ -9,6 +9,9 @@ export const EXPERIMENTS = {
 	// The built-in agent: a conversation with an agent Personal Agent Proxy runs itself, behind its
 	// own gate, on the Chat page.
 	harness: 'Built-in agent',
+	// Sandboxes: computers of their own that agents ask for, kept while they are away, run by the
+	// sandbox backend the server is set up with.
+	sandboxes: 'Sandboxes',
 } as const satisfies Record<string, string>;
 
 export type Experiment = keyof typeof EXPERIMENTS;

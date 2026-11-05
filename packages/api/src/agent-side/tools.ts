@@ -18,6 +18,7 @@ import {
 	type CollectionTool,
 	type Integration,
 	type Condition,
+	type McpTool,
 	type OwnSettings,
 	type ServerTool,
 	type Tool,
@@ -33,6 +34,7 @@ import {parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
 import {integrationOf} from '../utils/connection-actions';
 import {requireOpenTaskIfAny} from '../mcp/pre-task-clients';
+import {ensureSandboxConnections} from '../native/sandbox/connections';
 import type {NativeToolRun} from '../native/tool';
 import {isPlainObject, parseToolParams} from './tool-params';
 
@@ -74,10 +76,22 @@ export function requireAgent(signedIn: SignedInAgent): Promise<Result<AgentRow, 
 	});
 }
 
+// An integration's own tools the actions allow, as the agent pages list a custom server's: by
+// name, with their params, read-only where they say so.
+function nativeToolsOf(integration: Integration, actions: string[]): McpTool[] | null {
+	if (!integration.tools) {
+		return null;
+	}
+	return allowedTools(integration, actions)
+		.filter((tool) => tool.kind === 'native')
+		.map((tool) => ({name: tool.name, title: tool.title, description: tool.description, inputSchema: tool.inputSchema, annotations: {title: tool.title, readOnlyHint: tool.readOnly}}));
+}
+
 /** Who the agent is and what it can do with each connection it reaches; connections it can't use are left out. */
 export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.infer<typeof agentMeSchema>, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
+		$(await ensureSandboxConnections({orgId: signedIn.orgId, userId: signedIn.ownerUserId, experiments: signedIn.experiments}));
 		const connections = $(await listConnectionsWithCredential(agentViewer(signedIn)))
 			.flatMap((connection) => {
 				const integration = integrationOf(connection);
@@ -92,7 +106,7 @@ export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.
 						account: connection.account,
 						shared: connection.ownerUserId === null,
 						actions,
-						tools: integration.mcpTools?.filter((tool) => actions.includes(tool.name)) ?? null,
+						tools: integration.mcpTools?.filter((tool) => actions.includes(tool.name)) ?? nativeToolsOf(integration, actions),
 						name: connection.name,
 					},
 				];

@@ -8,6 +8,7 @@ import {runDataMigrations} from './data-migrations/run';
 import {harnessStore} from './harness/store';
 import {startAlertSweeper, type AlertSweeper} from './harness/alert-sweep';
 import {startHarnessWorker, type HarnessWorker} from './harness/worker';
+import {startSandboxSweeper} from './native/sandbox/sweeper';
 import {log, serializeError} from './observability/log';
 import {createHttpApp} from './server/create-http-app';
 import {startTelemetry} from './telemetry';
@@ -73,5 +74,6 @@ async function startApiServer(): Promise<void> {
 		void runDataMigrations();
 		worker = startHarnessWorker(harnessStore);
 		sweeper = startAlertSweeper(harnessStore);
+		void startSandboxSweeper();
 	});
 }

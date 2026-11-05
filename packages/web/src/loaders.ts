@@ -15,7 +15,7 @@ import {getMe} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {getInvitation, getOrg, listMembers, listOrgs} from '@/client/orgs-client';
 import {listRecords} from '@/client/records-client';
-import {VAULT_INTEGRATION_ID} from '@proxy/integrations';
+import {SANDBOX_INTEGRATION_ID, VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import {desktopChallengeSchema} from '@proxy/contracts/auth';
 import {desktopAuthLink} from '@/lib/desktop';
 import {LOADED_MINUTES, windowStart} from '@/lib/timeline-window';
@@ -163,6 +163,28 @@ export async function vaultLoader(args: OrgParams) {
 		own: {connectionId: own.id, entries: unwrapLoaderResult(ownEntries).records},
 		shared: {connectionId: shared.id, entries: unwrapLoaderResult(sharedEntries).records},
 	};
+}
+
+// The sandboxes the person's agents made and the organization's: none where the organization
+// isn't offered sandboxes, which have no connections then.
+export async function sandboxesLoader(args: OrgParams) {
+	const org = orgOf(args);
+	const {connections} = unwrapLoaderResult(await listConnections(org));
+	const own = connections.find(
+		(candidate) => candidate.integrationId === SANDBOX_INTEGRATION_ID && !candidate.shared,
+	);
+	const shared = connections.find(
+		(candidate) => candidate.integrationId === SANDBOX_INTEGRATION_ID && candidate.shared,
+	);
+	const listed = async (connection: {id: string} | undefined) => {
+		if (!connection) {
+			return null;
+		}
+		const page = unwrapLoaderResult(await listRecords(org, connection.id, 'sandboxes'));
+		return {connectionId: connection.id, sandboxes: page.records};
+	};
+	const [ownListed, sharedListed] = await Promise.all([listed(own), listed(shared)]);
+	return {own: ownListed, shared: sharedListed};
 }
 
 export async function agentsLoader(args: OrgParams) {

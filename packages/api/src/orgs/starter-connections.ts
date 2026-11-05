@@ -1,4 +1,4 @@
-import {VAULT_DEFAULT_ACTIONS, VAULT_INTEGRATION_ID} from '@proxy/integrations';
+import {SANDBOX_INTEGRATION_ID, VAULT_DEFAULT_ACTIONS, VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import type {StarterConnection} from '@proxy/db/organization';
 
 /**
@@ -17,5 +17,5 @@ export const MEMBER_CONNECTIONS: StarterConnection[] = [OWN_VAULT];
 /** What an organization is made with: its owner's own vault, and the organization's shared one. */
 export const ORGANIZATION_CONNECTIONS: StarterConnection[] = [OWN_VAULT, {...OWN_VAULT, shared: true}];
 
-/** The integrations whose connections are called by the organization's name. */
-export const NAMED_AFTER_ORGANIZATION: string[] = [...new Set(ORGANIZATION_CONNECTIONS.map((connection) => connection.integrationId))];
+/** The integrations whose connections are called by the organization's name: the starters', and the Sandboxes made later (native/sandbox/connections.ts). */
+export const NAMED_AFTER_ORGANIZATION: string[] = [...new Set([...ORGANIZATION_CONNECTIONS.map((connection) => connection.integrationId), SANDBOX_INTEGRATION_ID])];

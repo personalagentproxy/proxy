@@ -8,6 +8,7 @@ import {deleteConnection, listConnectionsWithCredential, setConnectionDefaults, 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {integrationOf, parseActionChanges, requireIntegration} from '../utils/connection-actions';
 import {requireViewer} from '../utils/user-org';
+import {ensureSandboxConnections} from '../native/sandbox/connections';
 import {respond, respondAll} from './connection-response';
 import {beforeDisconnect} from './disconnect';
 import {requireConnection, requireManaged} from './managed';
@@ -17,6 +18,7 @@ import {refuseUnavailable, unavailableActions} from './unavailable';
 export function handleListConnectionsRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof connectionListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
+		$(await ensureSandboxConnections(viewer));
 		return {connections: $(await respondAll($(await listConnectionsWithCredential(viewer))))};
 	});
 }
