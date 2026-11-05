@@ -44,7 +44,6 @@ import {
 import {handleFaviconRoute} from '../favicons/route';
 import {alertRoutes} from '../harness/alerts-route';
 import {handleClientLogsRoute} from '../observability/client-logs';
-import {handleGrafanaAlertRoute} from '../observability/grafana-alert';
 import {chatRoutes} from '../harness/route';
 import {harnessStore} from '../harness/store';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
@@ -108,9 +107,6 @@ export function createApiRouter(): express.Router {
 	// session and sends no Origin, so the code and its verifier are the guard there.
 	router.post('/auth/desktop/code', requireBrowserOrigin, withAuthResult('Desktop code route', handleDesktopCodeRoute));
 	router.post('/auth/desktop/session', wrapAsyncRoute('Desktop session route', handleDesktopSessionRoute));
-
-	// Grafana's alerts, posted to Slack; the secret it sends is its auth (observability/grafana-alert.ts).
-	router.post('/internal/grafana-alert', wrapAsyncRoute('Grafana alert webhook', handleGrafanaAlertRoute));
 
 	// The web app's log lines, written on as its (observability/client-logs.ts).
 	router.use('/api/client-logs', requireBrowserOrigin);

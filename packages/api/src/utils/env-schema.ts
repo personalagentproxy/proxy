@@ -166,20 +166,11 @@ export const envSchema = z.object({
 	}),
 	SLACK_BOT_TOKEN: documented(z.string().min(1).optional(), {
 		group: 'Observability',
-		description:
-			'Posts sign-ups and alerts to Slack, with `SLACK_CHANNEL_SIGNUPS` and `SLACK_CHANNEL_ALERTS`: a bot token (`xoxb-…`) of an app with `chat:write`, invited to both channels. Unset, nothing is posted.',
+		description: 'Posts each sign-up to Slack, with `SLACK_CHANNEL_SIGNUPS`: a bot token (`xoxb-…`) of an app with `chat:write`, invited to the channel. Unset, nothing is posted.',
 	}),
 	SLACK_CHANNEL_SIGNUPS: documented(z.string().min(1).optional(), {
 		group: 'Observability',
 		description: 'The id of the channel each sign-up is posted to, such as `C0123456789`, at the bottom of the channel’s About pane.',
-	}),
-	SLACK_CHANNEL_ALERTS: documented(z.string().min(1).optional(), {
-		group: 'Observability',
-		description: 'The id of the channel Grafana’s alerts are posted to.',
-	}),
-	GRAFANA_WEBHOOK_SECRET: documented(z.string().min(1).optional(), {
-		group: 'Observability',
-		description: 'Takes Grafana’s alerts at `/internal/grafana-alert` and posts them to Slack: the bearer token the contact point sends, any long random string. Unset, the route answers 401.',
 	}),
 
 	ALLOW_PRIVATE_HOSTS: documented(
