@@ -26,6 +26,7 @@ import {sanitizeCallbackUrl} from '@/lib/callback-url';
 import {unwrapLoaderResult} from '@/lib/loader-utils';
 import type {Human} from '@/lib/orgs';
 import {
+	accountLoader,
 	activityLoader,
 	addConnectionLoader,
 	alertsLoader,
@@ -279,7 +280,7 @@ const routes: RouteObject[] = [
 		element: <HumanSide />,
 		errorElement: <RouteError />,
 		children: [
-			{path: '/account', element: <AccountPage />},
+			{path: '/account', loader: accountLoader, element: <AccountPage />},
 			{
 				path: '/:org',
 				loader: homeLoader,

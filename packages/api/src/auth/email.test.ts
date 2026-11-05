@@ -108,7 +108,7 @@ async function sendFlow(args?: {email?: string; callbackUrl?: string}) {
 }
 
 function makeVerifyRequest(query: Record<string, string>) {
-	return {query};
+	return {query, headers: {'user-agent': 'Mozilla/5.0 (Macintosh) Safari/605.1.15'}};
 }
 
 const storedRow = () => createVerificationToken.mock.calls[0]?.[0] as {identifier: string; token: string; expires: Date};
@@ -306,7 +306,9 @@ describe('handleEmailVerifyRoute', () => {
 		expect(signUp).not.toHaveBeenCalled();
 
 		expect(createSession).toHaveBeenCalledTimes(1);
-		const sessionArgs = createSession.mock.calls[0]?.[0] as {tokenHash: string; userId: string; expires: Date};
+		const sessionArgs = createSession.mock.calls[0]?.[0] as {tokenHash: string; userId: string; expires: Date; userAgent: string | null};
+		// The browser the link was opened in, which is the one signed in.
+		expect(sessionArgs.userAgent).toBe('Mozilla/5.0 (Macintosh) Safari/605.1.15');
 		expect(sessionArgs.userId).toBe('user-1');
 		expect(sessionArgs.tokenHash).toMatch(/^[0-9a-f]{64}$/);
 

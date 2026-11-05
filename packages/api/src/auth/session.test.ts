@@ -53,11 +53,12 @@ describe('establishSession', () => {
 		const res = makeRes();
 		const before = Date.now();
 
-		const result = await establishSession(res as never, 'user-1');
+		const result = await establishSession(res as never, {userId: 'user-1', userAgent: 'Mozilla/5.0 (Macintosh) Chrome/130.0'});
 
 		expect(result.isOk()).toBe(true);
-		const sessionArgs = createSession.mock.calls[0]?.[0] as {tokenHash: string; userId: string; expires: Date};
+		const sessionArgs = createSession.mock.calls[0]?.[0] as {tokenHash: string; userId: string; expires: Date; userAgent: string | null};
 		expect(sessionArgs.userId).toBe('user-1');
+		expect(sessionArgs.userAgent).toBe('Mozilla/5.0 (Macintosh) Chrome/130.0');
 		expect(sessionArgs.tokenHash).toMatch(/^[0-9a-f]{64}$/);
 		expect(sessionArgs.expires.valueOf() - before).toBeGreaterThanOrEqual(sessionMaxAgeSeconds * 1000 - 1000);
 
@@ -72,13 +73,24 @@ describe('establishSession', () => {
 		]);
 	});
 
+	test('keeps no User-Agent when there is none, and cuts a long one', async () => {
+		const {establishSession} = await import('./session');
+
+		await establishSession(makeRes() as never, {userId: 'user-1', userAgent: undefined});
+		await establishSession(makeRes() as never, {userId: 'user-1', userAgent: 'x'.repeat(2000)});
+
+		const stored = createSession.mock.calls.map((call) => (call[0] as {userAgent: string | null}).userAgent);
+		expect(stored[0]).toBeNull();
+		expect(stored[1]).toHaveLength(512);
+	});
+
 	test('session creation failure → Err, no cookie', async () => {
 		createSession.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
 
 		const {establishSession} = await import('./session');
 		const res = makeRes();
 
-		const result = await establishSession(res as never, 'user-1');
+		const result = await establishSession(res as never, {userId: 'user-1', userAgent: undefined});
 
 		expect(result.isErr()).toBe(true);
 		expect(res.cookies).toHaveLength(0);
@@ -90,7 +102,7 @@ describe('establishSessionAndRedirect', () => {
 		const {establishSessionAndRedirect} = await import('./session');
 		const res = makeRes();
 
-		await establishSessionAndRedirect(res as never, {appUrl: 'https://app.test', callbackUrl: '/editor/x', userId: 'user-1'});
+		await establishSessionAndRedirect(res as never, {appUrl: 'https://app.test', callbackUrl: '/editor/x', userId: 'user-1', userAgent: undefined});
 
 		const cookie = res.cookies.find((c) => c.name === 'proxy.session-token');
 		expect(cookie?.value).toMatch(/^[0-9a-f]{64}$/);
@@ -103,7 +115,7 @@ describe('establishSessionAndRedirect', () => {
 		const {establishSessionAndRedirect} = await import('./session');
 		const res = makeRes();
 
-		await establishSessionAndRedirect(res as never, {appUrl: 'https://app.test', callbackUrl: '/editor/x', userId: 'user-1'});
+		await establishSessionAndRedirect(res as never, {appUrl: 'https://app.test', callbackUrl: '/editor/x', userId: 'user-1', userAgent: undefined});
 
 		expect(res.cookies).toHaveLength(0);
 		expect(logError).toHaveBeenCalledTimes(1);

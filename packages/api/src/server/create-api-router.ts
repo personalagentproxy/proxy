@@ -48,6 +48,7 @@ import {harnessStore} from '../harness/store';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
 import {handleDeleteMeRoute, handleMeRoute} from '../me/route';
+import {handleDeleteOtherSessionsRoute, handleDeleteSessionRoute, handleListSessionsRoute} from '../me/sessions';
 import {handleAcceptInvitationRoute, handleGetInvitationRoute} from '../orgs/invitation-link';
 import {
 	handleCreateOrgRoute,
@@ -109,6 +110,10 @@ export function createApiRouter(): express.Router {
 	router.use('/api/me', requireBrowserOrigin);
 	router.get('/api/me', withAuthResult('Me route', handleMeRoute));
 	router.delete('/api/me', withAuth('Delete account route', handleDeleteMeRoute));
+	// The person's sessions, for the account page: `others` before `:sessionId`, which a cuid never is.
+	router.get('/api/me/sessions', withAuthResult('List sessions route', handleListSessionsRoute));
+	router.delete('/api/me/sessions/others', withAuthResult('Delete other sessions route', handleDeleteOtherSessionsRoute));
+	router.delete('/api/me/sessions/:sessionId', withAuthResult('Delete session route', handleDeleteSessionRoute));
 
 	router.use('/api/orgs', requireBrowserOrigin);
 	router.get('/api/orgs', withAuthResult('List organizations route', handleListOrgsRoute));

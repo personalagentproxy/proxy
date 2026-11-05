@@ -102,7 +102,7 @@ export async function handleDesktopSessionRoute(req: Request, res: Response): Pr
 		return;
 	}
 
-	const sessionResult = await establishSession(res, authCode.userId);
+	const sessionResult = await establishSession(res, {userId: authCode.userId, userAgent: req.headers['user-agent']});
 	if (sessionResult.isErr()) {
 		log.error('Desktop sign-in failed to create the session', serializeError(sessionResult.error));
 		res.status(500).json({error: 'internal_error'});

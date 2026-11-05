@@ -7,6 +7,8 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {hashToken} from '../auth/session';
 
 export type AuthenticatedApiRequest = {
+	// The Session row the cookie points at, so a route can tell it from the person's others.
+	sessionId: string;
 	userId: string;
 	email: string;
 	name?: string;
@@ -29,6 +31,7 @@ export async function authenticateApiRequest(headers: IncomingHttpHeaders): Prom
 	}
 
 	return Ok({
+		sessionId: sessionResult.value.id,
 		userId: sessionResult.value.userId,
 		email: sessionResult.value.user.email,
 		name: sessionResult.value.user.name ?? undefined,
