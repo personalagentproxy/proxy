@@ -231,6 +231,6 @@ export function UnreadProvider({children}: {children: ReactNode}) {
 		[],
 	);
 
-	const value = useMemo<Unread>(() => ({unreadIds, setViewing}), [unreadIds]);
+	const value = useMemo<Unread>(() => ({unreadIds, answers, setViewing}), [unreadIds, answers]);
 	return <UnreadContext.Provider value={value}>{children}</UnreadContext.Provider>;
 }

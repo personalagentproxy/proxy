@@ -378,13 +378,37 @@ function Conversation({
 	// The provider is told which conversation the page shows, and its last answer: while the person
 	// looks at it, it is neither counted nor notified of, and is read up to that answer.
 	const lastAnswerId = log.entries.findLast((entry) => entry.kind === 'assistant')?.id ?? null;
-	const {setViewing} = useUnread();
+	const {setViewing, answers} = useUnread();
 	useEffect(() => {
 		setViewing({personaId, answerId: lastAnswerId});
 		return () => {
 			setViewing(null);
 		};
 	}, [setViewing, personaId, lastAnswerId]);
+
+	// The list's previews are read with the page: when another conversation's last answer changes,
+	// as the provider asks every so often, the list is read again, so a row marked unread shows
+	// what came rather than what was said before it. The open one's row shows the log.
+	const answered =
+		answers === null
+			? null
+			: answers
+					.filter((answer) => answer.personaId !== personaId)
+					.map((answer) => `${answer.personaId}:${answer.answer.id}`)
+					.toSorted()
+					.join(' ');
+	const listedAnswers = useRef(answered);
+	useEffect(() => {
+		if (answered === null || listedAnswers.current === answered) {
+			return;
+		}
+		const before = listedAnswers.current;
+		listedAnswers.current = answered;
+		if (before === null) {
+			return;
+		}
+		void revalidator.revalidate();
+	}, [answered, revalidator]);
 
 	const send = async (event: FormEvent) => {
 		event.preventDefault();
