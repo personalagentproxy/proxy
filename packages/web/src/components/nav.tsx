@@ -1,7 +1,7 @@
 import {
 	BellIcon,
-	BotIcon,
 	HomeIcon,
+	ListChecksIcon,
 	MessageSquareIcon,
 	PlugIcon,
 	ScrollTextIcon,
@@ -54,7 +54,7 @@ const GROUPS: Destination[][] = [
 	],
 	[
 		{to: '/connections', label: 'Connections', icon: PlugIcon},
-		{to: '/agents', label: 'Agent permissions', icon: BotIcon},
+		{to: '/agents', label: 'Agent permissions', icon: ListChecksIcon},
 	],
 	[
 		{to: '/activity', label: 'Activity', icon: ScrollTextIcon},
