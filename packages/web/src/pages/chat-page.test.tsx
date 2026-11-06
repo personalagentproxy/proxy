@@ -55,7 +55,12 @@ afterEach(() => {
 function renderChatPage({
 	personas = [general, finance],
 	entries = [],
-}: {personas?: ChatPersona[]; entries?: ThreadLog['entries']} = {}) {
+	listPersonas = () => personas,
+}: {
+	personas?: ChatPersona[];
+	entries?: ThreadLog['entries'];
+	listPersonas?: () => ChatPersona[];
+} = {}) {
 	const router = createMemoryRouter(
 		[
 			{
@@ -71,7 +76,7 @@ function renderChatPage({
 								entries,
 								persona: personas.find((candidate) => candidate.id === params.id) ?? general,
 							},
-							personas,
+							personas: listPersonas(),
 						}),
 						element: <ChatPage />,
 					},
@@ -241,6 +246,50 @@ describe('ChatPage', () => {
 		});
 		const generalRow = screen.getByRole('link', {name: /General/});
 		expect(within(generalRow).queryByRole('status', {name: 'Unread'})).toBeNull();
+	});
+
+	test("shows another agent's new answer in its row, not what was said before it", async () => {
+		const said = (text: string) => ({
+			...finance,
+			lastMessage: {kind: 'assistant' as const, text, at: '2026-10-21T10:00:00Z'},
+		});
+		let listed = [general, said('Old news.')];
+		// The provider asks again once the open conversation is read: by then Finance has answered.
+		fetchMock.mockImplementation((input) => {
+			if (input.endsWith('/read')) {
+				answers = [
+					{
+						personaId: 'finance',
+						name: 'Finance',
+						answer: {id: 'finance-new', text: 'New news.'},
+						unread: true,
+					},
+				];
+				listed = [general, said('New news.')];
+			}
+			return Promise.resolve(
+				input.endsWith('/chat/answers')
+					? Response.json({answers})
+					: new Response(null, {status: 204}),
+			);
+		});
+		renderChatPage({
+			entries: [
+				{id: 'e1', kind: 'assistant', text: 'Hello', isError: false, at: '2026-10-21T10:00:01Z'},
+			],
+			listPersonas: () => listed,
+		});
+
+		const financeRow = await screen.findByRole('link', {name: /Finance/});
+		expect(within(financeRow).getByText('Old news.')).toBeDefined();
+		await waitFor(() => {
+			expect(within(financeRow).getByRole('status', {name: 'Unread'})).toBeDefined();
+		});
+		await waitFor(() => {
+			expect(
+				within(screen.getByRole('link', {name: /Finance/})).getByText('New news.'),
+			).toBeDefined();
+		});
 	});
 
 	test('reads the conversation up to the last answer it shows, what the person said after it aside', async () => {

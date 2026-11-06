@@ -19,6 +19,7 @@ afterEach(() => {
 function unreadOf(ids: string[]): Unread {
 	return {
 		unreadIds: new Set(ids),
+		answers: null,
 		setViewing: () => undefined,
 	};
 }
