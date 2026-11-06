@@ -42,6 +42,7 @@ import {preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
 import {useHuman} from '@/hooks/use-human';
 import {useOrgSlug} from '@/hooks/use-org';
+import {useOverflowing} from '@/hooks/use-overflowing';
 import {useUnread} from '@/hooks/use-unread';
 import {formatAgo, formatDateTime} from '@/lib/format';
 import type {Pose} from '@/lib/head';
@@ -128,7 +129,7 @@ function lastOf(log: ThreadLog): ChatPersona['lastMessage'] {
 // The organization's personas in the second sidebar, each with its head, its name and the last
 // thing said between it and the person, marked where the person hasn't seen it, the open one lit,
 // each head watching the pointer while it is over that agent's row, and a row at the bottom to
-// make a new one.
+// make a new one, set off by a line only while the list scrolls under it.
 function PersonaList({
 	personas,
 	current,
@@ -157,12 +158,13 @@ function PersonaList({
 	const org = useOrgSlug();
 	const unread = useUnread();
 	const [hovered, setHovered] = useState(takeOpeningPersona);
+	const [measureList, listOverflows] = useOverflowing();
 	// Whether the persona said something the person hasn't seen, as the provider has it.
 	const isUnread = (persona: ChatPersona) =>
 		persona.id !== current && unread.unreadIds.has(persona.id);
 	return (
 		<div className="flex h-full min-h-0 flex-col">
-			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
+			<div ref={measureList} className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
 				{personas.length === 0 && (
 					<span className="px-2 py-1.5 text-sm text-muted-foreground">No agents yet.</span>
 				)}
@@ -259,7 +261,7 @@ function PersonaList({
 					})}
 				</ul>
 			</div>
-			<div className="shrink-0 border-t p-2">
+			<div className={cn('shrink-0 p-2', listOverflows && 'border-t')}>
 				<button
 					type="button"
 					onClick={onNew}
