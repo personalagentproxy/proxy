@@ -157,9 +157,10 @@ function toolSummary(tool: Tool) {
 }
 
 // "Email, Granola, Notion, Linear and any custom MCP server": the services the agent's organization
-// can connect, the vault being built in and one behind an experiment it doesn't have left out.
+// can connect, those that live in Personal Agent Proxy itself, the vault and the sandboxes, and
+// one behind an experiment it doesn't have left out.
 function connectableServices(signedIn: SignedInAgent): string {
-	const offered = INTEGRATIONS.filter((integration) => integration.id !== VAULT_INTEGRATION_ID && isOffered(integration, signedIn));
+	const offered = INTEGRATIONS.filter((integration) => !integration.native && isOffered(integration, signedIn));
 	const names = offered.map((integration) => (integration.custom ? `any ${integration.name.charAt(0).toLowerCase()}${integration.name.slice(1)}` : integration.name));
 	return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 }
