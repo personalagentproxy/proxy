@@ -75,10 +75,13 @@ services:
       - key: PLAID_SECRET
         sync: false
       # The internal service (personalagentproxy/internal, proxy-internal), which runs the
-      # sandboxes agents ask for: its address on Render's private network, which its Blueprint
-      # fixes, and the token set on it there, the same here.
+      # sandboxes agents ask for: its address on Render's private network with `http://` before
+      # it, as the dashboard shows it under the service's Connect menu, `proxy-internal-<suffix>`
+      # with the suffix Render adds (a service made anew gets a new one), since a Blueprint only
+      # fills in its own services' addresses, as with LOKI_URL below; and the token set on it
+      # there, the same here.
       - key: SANDBOX_SERVICE_URL
-        value: http://proxy-internal:3100
+        sync: false
       - key: SANDBOX_SERVICE_TOKEN
         sync: false
       # Hosted Personal Agent Proxy is not an installation to count.

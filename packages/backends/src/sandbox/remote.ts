@@ -41,7 +41,9 @@ const SERVICE_UNREACHABLE = 'The sandbox service could not be reached. Try again
 // The service's error as the api's: its kind where the api has it, with what the service said.
 function toApiError(error: FetchError): ApiError {
 	if (error.kind !== 'http') {
-		return ApiErr.providerUnreachable(error, SERVICE_UNREACHABLE);
+		// The network error itself as the cause, so the server's log says what it was: a name that
+		// didn't resolve, a connection refused, a timeout.
+		return ApiErr.providerUnreachable(error.kind === 'network' ? error.cause : error, SERVICE_UNREACHABLE);
 	}
 	const parsed = sandboxErrorSchema.safeParse(error.body);
 	if (!parsed.success) {

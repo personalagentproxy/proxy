@@ -33,6 +33,7 @@ import {isRecordStore, type Connector, type DataRecord, type RecordStore, type R
 import {connectorFor} from '../records/connectors';
 import {parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
+import {log as serverLog} from '../observability/log';
 import {integrationOf} from '../utils/connection-actions';
 import {requireOpenTaskIfAny} from '../mcp/pre-task-clients';
 import {ensureSandboxConnections} from '../native/sandbox/connections';
@@ -199,9 +200,26 @@ function failureOf(error: ApiError): string {
 
 // What a call to the provider answered; one that failed is logged as failed first, with `title`
 // and `query` as an allowed one would have been.
+// The server's log of a provider failing: the error's kind and, for a request that failed, where
+// it went and what came back as far as its status, never the provider's words.
+const fetchCauseSchema = z.object({kind: z.string(), url: z.string().optional(), status: z.number().optional()});
+
+function warnFailure(run: ToolRun, error: ApiError): void {
+	const cause = 'cause' in error ? fetchCauseSchema.safeParse(error.cause) : null;
+	const inner = 'cause' in error && error.cause instanceof Error ? {causeName: error.cause.name, causeMessage: error.cause.message} : {};
+	serverLog.warn('A tool run failed at the provider', {
+		kind: error.kind,
+		integrationId: run.target.connection.integrationId,
+		tool: run.tool.name,
+		...(cause?.success ? {cause: cause.data} : {}),
+		...inner,
+	});
+}
+
 function logFailure<T>(run: ToolRun, answer: Result<T, ApiError>, title: string | null, query: string | null = null): Promise<Result<T, ApiError>> {
 	return Do(async ($) => {
 		if (answer.isErr()) {
+			warnFailure(run, answer.error);
 			$(await log(run, 'failed', title, query, failureOf(answer.error)));
 		}
 		return $(answer);
