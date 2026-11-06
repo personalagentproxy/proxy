@@ -254,7 +254,8 @@ describe('AgentSetup', () => {
 		expect(
 			await screen.findByText('Cursor is signed in as Coding agent.', undefined, {timeout: 5000}),
 		).toBeDefined();
-		expect(pendingAgent()).toBeNull();
+		// Forgotten in an effect after the render that says so, which a slow runner flushes later.
+		await waitFor(() => expect(pendingAgent()).toBeNull());
 	}, 10_000);
 
 	test('sets a login up again with a new password', async () => {
