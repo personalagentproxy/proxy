@@ -1,5 +1,12 @@
 @import '@proxy/ui/styles.css';
 
+/* The sidebars, the navigation and Chat's agents, take the page's background: their borders alone
+   set them apart. */
+:root,
+.dark {
+	--sidebar: var(--background);
+}
+
 /* The macOS desktop window uses a hidden native title bar. Its drag surface covers the column seams
    below it while the native traffic lights remain above; browsers keep the page's normal
    edge-to-edge layout. */
