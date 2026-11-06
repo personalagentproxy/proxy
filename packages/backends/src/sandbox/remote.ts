@@ -26,6 +26,11 @@ import type {SandboxBackend} from './backend';
 // How long a request may take beyond what the command itself may.
 const REQUEST_MS = 30_000;
 
+// How long making or waking a sandbox may take: a boot on a small machine, the first after a
+// start with the software to fetch, runs to a minute or two; and a command may wake the sandbox
+// it runs in first.
+const BOOT_MS = 180_000;
+
 export type RemoteSandboxOptions = {
 	url: string;
 	token: string;
@@ -94,10 +99,10 @@ export function remoteSandboxBackend({url, token, headers}: RemoteSandboxOptions
 
 	return {
 		id: 'remote',
-		create: async (sandbox) => (await call('POST', '/sandboxes', createSandboxBodySchema.parse(sandbox), sandboxRefSchema)).map(({ref}) => ref),
-		exec: (ref, command) => call('POST', at(ref, '/exec'), execSandboxBodySchema.parse(command), sandboxOutputSchema, command.timeoutMs + REQUEST_MS),
+		create: async (sandbox) => (await call('POST', '/sandboxes', createSandboxBodySchema.parse(sandbox), sandboxRefSchema, BOOT_MS)).map(({ref}) => ref),
+		exec: (ref, command) => call('POST', at(ref, '/exec'), execSandboxBodySchema.parse(command), sandboxOutputSchema, command.timeoutMs + BOOT_MS),
 		sleep: async (ref) => (await call('POST', at(ref, '/sleep'), null, sandboxRefSchema)).map((answer) => answer.ref),
-		wake: async (ref) => (await call('POST', at(ref, '/wake'), null, sandboxRefSchema)).map((answer) => answer.ref),
+		wake: async (ref) => (await call('POST', at(ref, '/wake'), null, sandboxRefSchema, BOOT_MS)).map((answer) => answer.ref),
 		destroy: async (ref) => (await call('DELETE', at(ref), null, sandboxDestroyedSchema)).map(() => undefined),
 	};
 }
