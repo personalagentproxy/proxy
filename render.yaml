@@ -85,14 +85,14 @@ services:
       - key: TELEMETRY_ENABLED
         value: 'false'
       # Where the log and the metrics go: the Loki and the Prometheus the internal repo
-      # (personalagentproxy/internal) runs beside this service, each by the address Render gives
-      # it on the private network, `host:port` with no scheme, such as `loki-ab12:3100`, shown
-      # under the service's Connect menu; neither takes auth. A Blueprint only fills in its own
-      # services' addresses, so these are set by hand. Unset, the log stays on stdout.
+      # (personalagentproxy/internal) runs beside this service, each by the address Render gave it
+      # on the private network, `host:port` with no scheme, as the sandbox service above; neither
+      # takes auth. A Blueprint only fills in its own services' addresses, so these are written
+      # here: a service made anew in Render gets a new suffix, and its address here has to follow.
       - key: LOKI_URL
-        sync: false
+        value: loki-6lgn:3100
       - key: METRICS_OTLP_URL
-        sync: false
+        value: prometheus-zk70:9090
       # Where sign-ups are posted (packages/observability/README.md); optional.
       - key: SLACK_BOT_TOKEN
         sync: false
