@@ -49,6 +49,22 @@ const long = [
 ];
 
 describe('toMessages', () => {
+	test('leaves out an answer of nothing, which a model’s message can’t be, in the log and its transcript', () => {
+		const log = [
+			entry(1, 'person', 'Find my invoices'),
+			entry(2, 'event', 'Three invoices from Dana.', {callId: 'c1'}),
+			entry(3, 'assistant', ''),
+			entry(4, 'event', 'And one from Sam.', {callId: 'c2'}),
+		];
+
+		expect(toMessages(log, [], {clearOld: true}).map((message) => message.role)).toEqual([
+			'user',
+			'user',
+			'user',
+		]);
+		expect(toTranscript(log, [])).not.toContain('Agent:');
+	});
+
 	test('gives the log in the chat form, as it is, where it has no summary', () => {
 		expect(toMessages(long.slice(0, 4), [], {clearOld: true})).toEqual([
 			{role: 'user', content: 'One'},

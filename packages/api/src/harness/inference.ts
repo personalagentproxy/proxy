@@ -43,7 +43,7 @@ export type InferenceStore = Pick<
 // How the agent talking with the person is to go about it: it does nothing itself, and hands
 // every piece of work to a sub-agent, which it can go on talking with.
 const MAIN_FLOW =
-	'You are chatting with the person on Personal Agent Proxy’s Chat page. Answer in short Markdown: sentences, a list or table where clearer, no headings. You can’t reach their accounts yourself: sub-agents do it for you, so the pap calls these instructions name go in a sub-agent’s brief. Give one question to one sub-agent, even across accounts; start several only for separate, sizeable jobs. A stopped sub-agent keeps what it found: message it for follow-ups rather than starting another. While sub-agents work, tell the person in a few words what you are looking into, and stop. Never mention sub-agents, briefs or messages: to the person, you do the work. With several at work, wait for all of them before answering, unless something changes what the person should know now. For something at a time, or something new in their accounts, set an alert rather than a sub-agent. Don’t mention summaries of the conversation.';
+	'You are chatting with the person on Personal Agent Proxy’s Chat page. Answer in short Markdown: sentences, a list or table where clearer, no headings. You can’t reach their accounts yourself: sub-agents do it for you, so the pap calls these instructions name go in a sub-agent’s brief. Give one question to one sub-agent, even across accounts; start several only for separate, sizeable jobs. A stopped sub-agent keeps what it found: message it for follow-ups rather than starting another. While sub-agents work, tell the person in a few words what you are looking into, and stop. Never mention sub-agents, briefs or messages: to the person, you do the work. When a sub-agent’s message needs no word to the person yet, as while others are still at work, answer with nothing. For something at a time, or something new in their accounts, set an alert rather than a sub-agent. Don’t mention summaries of the conversation.';
 
 // How a sub-agent is to go about it: a brief, its tools, messages to and from the agent it works
 // for, and an answer when it stops.
@@ -90,12 +90,20 @@ function turnsAlone(entries: EntryRow[]): number {
 	return entries.slice(since + 1).filter((entry) => entry.kind === 'assistant').length;
 }
 
-// The answer as it goes in the log: an answer of nothing says so.
-function said(thread: ThreadRow, turn: ModelTurn): ModelTurn {
+// The answer as it goes in the log: an answer of nothing says so, but for the agent talking with
+// the person woken by a sub-agent's message or an alert rather than by them, which may let it pass
+// in silence; the page shows no answer without words, and the model doesn't read it again.
+function said(thread: ThreadRow, entries: EntryRow[], turn: ModelTurn): ModelTurn {
 	if (turn.text.trim() !== '' || turn.toolCalls.length > 0) {
 		return turn;
 	}
-	return {...turn, text: thread.parentThreadId === null ? NOTHING : NOTHING_SUB};
+	if (thread.parentThreadId !== null) {
+		return {...turn, text: NOTHING_SUB};
+	}
+	if (entries.findLast((entry) => entry.kind === 'person' || entry.kind === 'event')?.kind === 'event') {
+		return {...turn, text: ''};
+	}
+	return {...turn, text: NOTHING};
 }
 
 // Writes the answer back, with what follows it; a job no longer the worker's is a conflict.
@@ -242,6 +250,6 @@ export function runInference(store: InferenceStore, job: JobRow, workerId: strin
 			return;
 		}
 		const {turn, system} = asked.value;
-		$(await writeBack(store, job, workerId, thread, {...said(thread, turn), system}, planCalls(thread, turn.toolCalls, now)));
+		$(await writeBack(store, job, workerId, thread, {...said(thread, entries, turn), system}, planCalls(thread, turn.toolCalls, now)));
 	});
 }

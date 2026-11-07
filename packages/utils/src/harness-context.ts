@@ -129,12 +129,20 @@ function sinceSummary(entries: ContextEntry[]): {
  * what events brought before the person's current turn is cleared, once there is a summary: that
  * is how the model reads a log, where a summary is made from the log as it is.
  */
+/** Whether the entry is an answer of nothing: no words and no calls. */
+export function isSilent(entry: ContextEntry): boolean {
+	return entry.kind === 'assistant' && entry.text === '' && (entry.toolCalls ?? []).length === 0;
+}
+
 export function toMessages(
 	entries: ContextEntry[],
 	subAgents: SubAgent[],
 	{clearOld}: {clearOld: boolean},
 ): ModelMessage[] {
-	const {summary, tail} = sinceSummary(entries);
+	const {summary, tail: all} = sinceSummary(entries);
+	// An answer of nothing, as the agent talking with the person may give, isn't sent again: a
+	// model's message has to say something or make a call.
+	const tail = all.filter((entry) => !isSilent(entry));
 	if (!summary) {
 		return tail.map((entry) => toMessage(subAgents, entry));
 	}
@@ -177,7 +185,7 @@ function toLine(entries: ContextEntry[], subAgents: SubAgent[], entry: ContextEn
  */
 export function toTranscript(entries: ContextEntry[], subAgents: SubAgent[]): string {
 	const {summary, tail} = sinceSummary(entries);
-	return [...(summary ? [summary] : []), ...tail]
+	return [...(summary ? [summary] : []), ...tail.filter((entry) => !isSilent(entry))]
 		.map((entry) => toLine(entries, subAgents, entry))
 		.join('\n\n');
 }

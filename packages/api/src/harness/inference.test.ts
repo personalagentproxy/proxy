@@ -281,6 +281,15 @@ describe('runInference', () => {
 		});
 	});
 
+	test('the agent talking with the person may answer a sub-agent’s message or an alert with nothing, kept as no words', async () => {
+		const {runInference} = await import('./inference');
+		askForTurn.mockResolvedValue(Ok({text: ' ', toolCalls: [], inputTokens: 10, outputTokens: 0}));
+		listEntries.mockResolvedValue(Ok([entry('person', 'Find my invoices'), entry('event', 'Three invoices from Dana.', {callId: 'c1'})]));
+
+		await runInference(store, job, 'w1', now);
+		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: '', toolCalls: []}), {plans: {}});
+	});
+
 	test('a job that was no longer the worker’s by the time the answer came is a conflict', async () => {
 		const {runInference} = await import('./inference');
 		completeInference.mockResolvedValueOnce(Ok(false));
