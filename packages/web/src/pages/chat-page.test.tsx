@@ -189,7 +189,7 @@ describe('ChatPage', () => {
 		});
 	});
 
-	test('renames a changeable agent from its right-click menu', async () => {
+	test('edits a changeable agent from its right-click menu', async () => {
 		fetchMock.mockImplementation((_input, init) => {
 			if (init?.method === 'PUT') {
 				return Promise.resolve(Response.json({persona: {...finance, name: 'Accounting'}}));
@@ -199,7 +199,7 @@ describe('ChatPage', () => {
 		renderChatPage();
 
 		fireEvent.contextMenu(await screen.findByRole('link', {name: /Finance/}));
-		fireEvent.click(await screen.findByRole('menuitem', {name: 'Rename'}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Edit'}));
 		expect(screen.getByRole('heading', {name: 'Edit agent'})).toBeDefined();
 		expect(
 			screen.getByText('Its name and its head. The conversation stays as it is.'),
@@ -241,7 +241,7 @@ describe('ChatPage', () => {
 
 		fireEvent.contextMenu(await screen.findByRole('link', {name: /General/}));
 
-		expect(screen.queryByRole('menuitem', {name: 'Rename'})).toBeNull();
+		expect(screen.queryByRole('menuitem', {name: 'Edit'})).toBeNull();
 		expect(screen.queryByRole('menuitem', {name: 'Delete'})).toBeNull();
 	});
 
