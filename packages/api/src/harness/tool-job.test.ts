@@ -90,7 +90,8 @@ beforeEach(() => {
 			createdAt: now,
 			finishedAt: null,
 			outcome: null,
-			lastActiveAt: now,
+			// Just now, whenever the test runs.
+			lastActiveAt: new Date(),
 		}),
 	);
 	getJobThread.mockResolvedValue(Ok(thread));

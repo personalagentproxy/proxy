@@ -5,6 +5,9 @@ import {AppSidebar} from '@/components/nav';
 import {Button} from '@proxy/ui/components/button';
 import {Sheet, SheetContent, SheetTitle} from '@proxy/ui/components/sheet';
 import {SidebarTrigger} from '@proxy/ui/components/sidebar';
+import {InTitleBar} from '@/components/title-bar-slot';
+import {useTitleBarHeader} from '@/hooks/use-title-bar-header';
+import {hasHiddenDesktopTitleBar} from '@/lib/desktop';
 import {useDesktop} from '@proxy/ui/hooks/use-media-query';
 import {cn} from '@proxy/ui/lib/utils';
 
@@ -46,8 +49,8 @@ function PanelSheet({panel, label}: {panel: ReactNode; label: string}) {
 	);
 }
 
-// The human side's frame: the sidebar, a header with the page's title and actions, and the page
-// in one centered column.
+// The human side's frame: the sidebar, a header with the page's title and actions, in the desktop
+// app the window's title bar, and the page in one centered column.
 export function AppShell({
 	children,
 	title,
@@ -58,6 +61,7 @@ export function AppShell({
 }: Props) {
 	const desktop = useDesktop();
 	const {pathname} = useLocation();
+	const titleBarHeader = useTitleBarHeader();
 
 	return (
 		<>
@@ -78,9 +82,10 @@ export function AppShell({
 				)}
 			>
 				{title !== undefined && (
-					// Sticky only when the window scrolls: scrolling inside, the page is the header's
-					// scroll container, and its desktop title bar padding would count twice.
+					// Sticky only when the window scrolls. In the desktop app it is the title bar over
+					// the page's column (index.css), its title after back and forward.
 					<header
+						ref={titleBarHeader}
 						className={cn(
 							'z-20 flex h-12 shrink-0 items-center justify-between gap-4 border-b bg-background px-4',
 							scroll === 'page' && 'sticky top-0',
@@ -91,7 +96,7 @@ export function AppShell({
 							{!desktop && panel !== undefined && (
 								<PanelSheet key={pathname} panel={panel} label={panelLabel} />
 							)}
-							{title}
+							{hasHiddenDesktopTitleBar() ? <InTitleBar place="title">{title}</InTitleBar> : title}
 						</div>
 						{actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
 					</header>

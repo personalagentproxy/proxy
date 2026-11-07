@@ -687,5 +687,42 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 				),
 			),
 		).toBe(false);
+
+		// One that stopped more than 20 minutes ago keeps its task finished as it was, and takes a
+		// message up with a new task for the same work.
+		const anHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+		await db.agentTask.update({
+			where: {id: sub.taskId ?? ''},
+			data: {finishedAt: anHourAgo, lastActiveAt: anHourAgo},
+		});
+		const longAfter = unwrap(await claimJob('worker-o', 60_000));
+		if (!longAfter || longAfter.threadId !== thread.id) {
+			throw new Error(`expected the parent’s turn, got ${JSON.stringify(longAfter)}`);
+		}
+		unwrap(
+			await completeInference(
+				longAfter.id,
+				'worker-o',
+				thread.id,
+				parentTurn([{id: 'm4', name: 'send_to_subagent', arguments: '{}'}]),
+				{
+					plans: {
+						m4: {kind: 'send_to_subagent', subAgentId: sub.id, entry: say('Any from July?'), sent},
+					},
+				},
+				readyForInference,
+			),
+		);
+		const [renewed] = unwrap(await listSubAgents(thread.id));
+		if (!renewed) {
+			throw new Error('expected the sub-agent');
+		}
+		expect(renewed.state).toEqual({kind: 'working'});
+		expect(renewed.taskId).not.toBe(sub.taskId);
+		expect(await taskOf(sub)).toMatchObject({
+			outcome: 'The sub-agent failed: boom',
+			finishedAt: anHourAgo,
+		});
+		expect(await taskOf(renewed)).toMatchObject({...task, finishedAt: null, outcome: null});
 	});
 });

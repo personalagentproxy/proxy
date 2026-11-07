@@ -1,6 +1,7 @@
 import {Err, type Result} from 'ts-results-es';
 
 import {type ApiError, ApiErr, Do, requirePresent} from '@proxy/utils';
+import {taskEndedLongAgo} from '@proxy/utils/tasks';
 import type {ThreadRow} from '@proxy/db/harness';
 
 import {taskFor} from './conversation';
@@ -12,25 +13,26 @@ import type {HarnessStore} from './store';
  * started from is, so what the sub-agent did is theirs alone to see. A sub-agent starts with one,
  * made as it is (conversation.ts subAgentStart). It is finished each time the sub-agent stops, and
  * under way again once a message takes the sub-agent up (db/harness). One left open, as when it
- * slept long, is taken up again by its next call (@proxy/utils/tasks); one finished by
- * pap.finishTask from the agent's login elsewhere while the sub-agent is still at work is replaced
- * with a new one for the same piece of work, the title and goal the one before had, once the
- * sub-agent makes a call again, since the gate refuses calls for it and the sub-agent starts no
- * task of its own (tool-surface). The agent talking with the person has none: it makes no calls but to
+ * slept a while, is taken up again by its next call, unless it was left open more than 20 minutes
+ * before, as when it slept long (@proxy/utils/tasks); that one, and one finished by
+ * pap.finishTask from the agent's login elsewhere while the sub-agent is still at work, is
+ * replaced with a new one for the same piece of work, the title and goal the one before had, once
+ * the sub-agent makes a call again, since the gate refuses calls for it and the sub-agent starts
+ * no task of its own (tool-surface). The agent talking with the person has none: it makes no calls but to
  * its sub-agents.
  */
 
 /** What a sub-agent's task needs of the store. */
 export type ThreadTaskStore = Pick<HarnessStore, 'getAgentTask' | 'createAgentTask' | 'setThreadTask'>;
 
-/** The sub-agent's task, not finished: the one it has, or a new one in its place. */
+/** The sub-agent's task, not finished nor left open long ago: the one it has, or a new one in its place. */
 export function ensureThreadTask(store: ThreadTaskStore, thread: ThreadRow): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		if (thread.taskId === null) {
 			return $(Err(ApiErr.conflict('The agent talking with the person makes no calls of its own')));
 		}
 		const task = $(requirePresent($(await store.getAgentTask(thread.orgId, thread.agentId, thread.taskId)), ApiErr.notFound('task', thread.taskId)));
-		if (task.finishedAt === null) {
+		if (task.finishedAt === null && !taskEndedLongAgo(task, new Date())) {
 			return task.id;
 		}
 		const made = $(await store.createAgentTask(taskFor(thread, {title: task.title, goal: task.goal})));

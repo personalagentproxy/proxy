@@ -67,7 +67,7 @@ export function AlertsPage() {
 	};
 
 	return (
-		<AppShell title={<PageTitle detail={`${alerts.length} set`}>Alerts</PageTitle>}>
+		<AppShell title={<PageTitle>Alerts</PageTitle>}>
 			<AlertDetailDialog alert={shown} onClose={() => setShown(null)} />
 			<ConfirmDialog
 				open={deleting !== null}

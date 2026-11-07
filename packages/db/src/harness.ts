@@ -25,6 +25,7 @@ import {
 	threadState,
 	type ToolCall,
 } from '@proxy/utils/harness';
+import {taskEndedLongAgo} from '@proxy/utils/tasks';
 
 import {db} from '.';
 import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed-in-agent';
@@ -1171,7 +1172,7 @@ async function createSubAgent(
 }
 
 // Lands a message from the agent that started the sub-agent in the sub-agent's log, and wakes the
-// sub-agent: one that had stopped takes it up, its task under way again; one at work reads it once
+// sub-agent: one that had stopped takes it up, its task under way again (takeUpSubAgentTask); one at work reads it once
 // its current call is answered; and one asleep is woken now, its sleep's job due now, which answers
 // the sleep as any wake-up does, the message after it. The sub-agent as it was before the message;
 // null when the thread has no such sub-agent. With the conversation locked.
@@ -1192,10 +1193,7 @@ async function messageSubAgent(
 	const {jobs, ...thread} = found;
 	const now = new Date();
 	if (thread.taskId !== null) {
-		await tx.agentTask.updateMany({
-			where: {id: thread.taskId},
-			data: {finishedAt: null, outcome: null, lastActiveAt: now},
-		});
+		await takeUpSubAgentTask(tx, {...thread, taskId: thread.taskId}, now);
 	}
 	// Only a sleep's job is due later; one a worker has claimed is no longer queued, and answers as it
 	// would.
@@ -1205,6 +1203,51 @@ async function messageSubAgent(
 	});
 	await appendEntry(tx, thread, entry, wakes);
 	return {...thread, state: threadState(jobs, now)};
+}
+
+// Puts the sub-agent's task under way again from `now`, as a message wakes it. One that ended,
+// finished or left open, more than 20 minutes before stays as it was, and a new one for the same
+// work takes its place, so a task long over isn't drawn as under way again (@proxy/utils/tasks).
+// With the conversation locked.
+async function takeUpSubAgentTask(
+	tx: Tx,
+	thread: ThreadRow & {taskId: string},
+	now: Date,
+): Promise<void> {
+	const task = await tx.agentTask.findUnique({
+		where: {id: thread.taskId},
+		select: {
+			orgId: true,
+			agentId: true,
+			ownerUserId: true,
+			personaId: true,
+			title: true,
+			goal: true,
+			via: true,
+			finishedAt: true,
+			lastActiveAt: true,
+		},
+	});
+	if (task === null) {
+		return;
+	}
+	if (!taskEndedLongAgo(task, now)) {
+		await tx.agentTask.updateMany({
+			where: {id: thread.taskId},
+			data: {finishedAt: null, outcome: null, lastActiveAt: now},
+		});
+		return;
+	}
+	const {finishedAt: _finishedAt, lastActiveAt: _lastActiveAt, ...work} = task;
+	const fresh = await tx.agentTask.create({
+		data: {...work, parentId: null, createdAt: now, lastActiveAt: now},
+		select: {id: true},
+	});
+	await tx.agentThread.update({
+		where: {id: thread.id},
+		data: {taskId: fresh.id},
+		select: {id: true},
+	});
 }
 
 // What a call is answered with at once, by its plan, done. With the conversation locked.

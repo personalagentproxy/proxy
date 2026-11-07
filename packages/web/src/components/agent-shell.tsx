@@ -6,6 +6,7 @@ import {AgentLogo} from '@/components/brand-logo';
 import {Button} from '@proxy/ui/components/button';
 import {cn} from '@proxy/ui/lib/utils';
 import {useAgentMe, useAgentTask} from '@/hooks/use-agent-target';
+import {useTitleBarHeader} from '@/hooks/use-title-bar-header';
 import {agentErrorMessage} from '@/lib/agent-errors';
 import {taskHome, TASKS_PATH} from '@/lib/agent-task';
 
@@ -19,6 +20,7 @@ export function AgentShell({children, feedback = true}: {children: ReactNode; fe
 	const agent = useAgentMe()?.agent;
 	const {connectionId, toolName} = useParams();
 	const task = useAgentTask();
+	const titleBarHeader = useTitleBarHeader();
 	const about = new URLSearchParams({
 		...(task ? {task: task.task} : {}),
 		...(connectionId ? {connection: connectionId} : {}),
@@ -27,7 +29,10 @@ export function AgentShell({children, feedback = true}: {children: ReactNode; fe
 
 	return (
 		<div data-desktop-page className="flex min-h-dvh w-full flex-col bg-background text-foreground">
-			<header className="sticky top-0 z-20 flex h-12 items-center justify-between gap-4 border-b bg-background px-4">
+			<header
+				ref={titleBarHeader}
+				className="sticky top-0 z-20 flex h-12 items-center justify-between gap-4 border-b bg-background px-4"
+			>
 				<Link
 					to={task ? taskHome(task.task) : TASKS_PATH}
 					className="shrink-0 text-sm font-medium whitespace-nowrap"
