@@ -88,8 +88,9 @@ in a sentence or two. Every call it makes after that names the task, and a call 
 a task that is finished, is refused. When the agent has done what you asked, or given it up, it
 finishes the task, saying what it did, and starts a new one for the next thing you ask for. Agents
 don't always say so: a task the agent never finishes is taken as left open once 20 minutes pass
-with nothing done for it or its sub-tasks. If the agent comes back to it, say after you stepped
-away, its next call picks the task up again where it was. An agent can have any number of tasks
+with nothing done for it or its sub-tasks. If the agent comes back to it within 20 minutes more,
+its next call picks the task up again where it was; after that the task stays ended, and the agent
+starts a new one for what it does next. An agent can have any number of tasks
 under way at once, each with its own requests.
 
 An agent may split what you asked for among sub-agents of its own, which sign in as it does and

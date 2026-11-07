@@ -3,6 +3,7 @@ import type {z} from 'zod';
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import type {SignedInAgent} from '@proxy/db/agent';
 import {type AgentTask, type agentTaskListSchema, finishTaskBodySchema, startTaskBodySchema} from '@proxy/contracts/agent-side';
+import {taskEndedLongAgo} from '@proxy/utils/tasks';
 import {type AgentTaskRow, createAgentTask, finishAgentTask as markAgentTaskFinished, getAgentTask, isAgentTaskOpen, listOpenAgentTasks, touchAgentTask} from '@proxy/db/task';
 
 import type {AgentCaller} from './tools';
@@ -18,17 +19,22 @@ import type {AgentCaller} from './tools';
  * sub-task for each part, with the task as its parent, so the tasks of one job form a tree the
  * person can follow. The parent is one of the agent's own tasks not finished. Finishing a task
  * finishes its sub-tasks still under way too. A task the agent left open, never finished with
- * nothing done for it in 20 minutes, is taken up again by the next call made for it
- * (@proxy/utils/tasks).
+ * nothing done for it in 20 minutes, is taken up again by the next call made for it within 20
+ * minutes more; after that it stays ended, and a call for it is refused as one for a task finished
+ * is (@proxy/utils/tasks).
  */
 
 const MAX_TITLE = 120;
 const MAX_GOAL = 2000;
 const MAX_OUTCOME = 2000;
 // Why a task can't be worked on any more, where it, or a task above it, was finished since it was
-// read; or, left open, a task above it was finished without it (@proxy/utils/tasks).
+// read, or left open too long ago to be taken up again; or, left open, a task above it was
+// finished without it (@proxy/utils/tasks).
 const finishedAbove = (task: Pick<AgentTaskRow, 'id' | 'title'>) =>
 	`Task ${task.id} (${task.title}), or a task it is part of, is finished. Start a new task for what you are doing now, and give its id as task.`;
+// Why a task left open more than 20 minutes ago can't be worked on, nor finished (@proxy/utils/tasks).
+const leftOpenLongAgo = (task: Pick<AgentTaskRow, 'id' | 'title'>) =>
+	`Task ${task.id} (${task.title}) has ended: it was left open, with nothing done for it for too long. Start a new task for what you are doing now, and give its id as task.`;
 
 function toResponse(task: AgentTaskRow): AgentTask {
 	return {
@@ -102,8 +108,9 @@ export function getAgentOpenTask(agent: SignedInAgent, taskId: string): Promise<
  * Marks the agent's task `{task}` finished, with `outcome`, what was done or found, where the
  * agent gives one; its sub-tasks still under way are finished with it. One finished already keeps
  * when it was, taking the outcome only where it has none, such as a sub-task finished with its
- * parent. One left open (@proxy/utils/tasks) is taken up again to be finished, unless a task it is
- * part of was finished without it, when it is refused as a conflict.
+ * parent. One left open (@proxy/utils/tasks) is taken up again to be finished, unless it was left
+ * open more than 20 minutes ago, or a task it is part of was finished without it, when it is
+ * refused as a conflict.
  */
 export function finishAgentTask(caller: AgentCaller, args: unknown): Promise<Result<AgentTask, ApiError>> {
 	return Do(async ($) => {
@@ -113,6 +120,9 @@ export function finishAgentTask(caller: AgentCaller, args: unknown): Promise<Res
 			return $(Err(ApiErr.validationError(`The outcome is ${outcome.length} characters long; keep it under ${MAX_OUTCOME}, a sentence or two.`)));
 		}
 		const task = $(requirePresent($(await markAgentTaskFinished(caller.agent.orgId, caller.agent.agentId, taskId, outcome)), ApiErr.notFound('task', taskId)));
+		if (task.finishedAt === null && taskEndedLongAgo(task, new Date())) {
+			return $(Err(ApiErr.conflict(leftOpenLongAgo(task))));
+		}
 		if (task.finishedAt === null) {
 			return $(Err(ApiErr.conflict(`Task ${taskId} (${task.title}) was left open, and a task it is part of was finished without it, so it can't be finished any more.`)));
 		}
@@ -125,7 +135,7 @@ export function finishAgentTask(caller: AgentCaller, args: unknown): Promise<Res
  * finished already, or under a task finished, is refused as a conflict, saying to start a new one,
  * so the agent pages can tell it from any other refusal of the call. The call counts as something
  * done for the task and every task above it, so none is left open while it is worked on, and one
- * left open is taken up again (@proxy/utils/tasks).
+ * left open is taken up again, unless that was more than 20 minutes ago (@proxy/utils/tasks).
  */
 export function requireOpenTask(agent: SignedInAgent, taskId: string): Promise<Result<AgentTaskRow, ApiError>> {
 	return Do(async ($) => {
@@ -138,13 +148,16 @@ export function requireOpenTask(agent: SignedInAgent, taskId: string): Promise<R
 	});
 }
 
-// The agent's task `taskId`, read: unknown, or another agent's, is not found, and one finished a
-// conflict.
+// The agent's task `taskId`, read: unknown, or another agent's, is not found, and one finished, or
+// left open more than 20 minutes ago, a conflict.
 function readUnfinishedTask(agent: SignedInAgent, taskId: string): Promise<Result<AgentTaskRow, ApiError>> {
 	return Do(async ($) => {
 		const task = $(requirePresent($(await getAgentTask(agent.orgId, agent.agentId, taskId)), ApiErr.notFound('task', taskId)));
 		if (task.finishedAt !== null) {
 			return $(Err(ApiErr.conflict(`Task ${taskId} (${task.title}) is finished. Start a new task for what you are doing now, and give its id as task.`)));
+		}
+		if (taskEndedLongAgo(task, new Date())) {
+			return $(Err(ApiErr.conflict(leftOpenLongAgo(task))));
 		}
 		return task;
 	});
