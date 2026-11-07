@@ -95,14 +95,28 @@ function renderChatPage({
 	);
 }
 
+// The heads in the agent rows: each row is a link. The empty chat's own head is beside them, not in one.
+function rowHeads(container: HTMLElement): Element[] {
+	return [...container.querySelectorAll('a [data-slot="live-head"]')];
+}
+
 describe('ChatPage', () => {
+	test('lets the head of an empty chat follow the pointer', async () => {
+		const {container} = renderChatPage();
+
+		await screen.findByText('What should General do?');
+		const heads = [...container.querySelectorAll('[data-slot="live-head"]')];
+		const emptyChatHead = heads.find((head) => head.closest('a') === null);
+		expect(emptyChatHead?.getAttribute('data-state')).toBe('watching');
+	});
+
 	test('lets each agent head follow the pointer only while that agent row is hovered', async () => {
 		const {container} = renderChatPage();
 
 		await waitFor(() => {
-			expect(container.querySelectorAll('[data-slot="live-head"]')).toHaveLength(2);
+			expect(rowHeads(container)).toHaveLength(2);
 		});
-		const heads = [...container.querySelectorAll('[data-slot="live-head"]')];
+		const heads = rowHeads(container);
 		expect(heads).toHaveLength(2);
 		expect(heads.every((head) => head.getAttribute('data-state') === 'rest')).toBe(true);
 		const [firstHead, secondHead] = heads;
@@ -126,9 +140,9 @@ describe('ChatPage', () => {
 		const {container} = renderChatPage();
 
 		await waitFor(() => {
-			expect(container.querySelectorAll('[data-slot="live-head"]')).toHaveLength(2);
+			expect(rowHeads(container)).toHaveLength(2);
 		});
-		const secondHead = container.querySelectorAll('[data-slot="live-head"]')[1];
+		const secondHead = rowHeads(container)[1];
 		const secondRow = secondHead?.closest('a');
 		if (!secondHead || !secondRow) {
 			throw new Error('Expected the second agent head inside its row');
@@ -140,7 +154,7 @@ describe('ChatPage', () => {
 		fireEvent.click(secondRow);
 
 		await waitFor(() => {
-			const openedHead = container.querySelectorAll('[data-slot="live-head"]')[1];
+			const openedHead = rowHeads(container)[1];
 			expect(openedHead?.closest('a')?.getAttribute('aria-current')).toBe('page');
 			expect(openedHead?.getAttribute('data-state')).toBe('watching');
 		});
@@ -153,7 +167,7 @@ describe('ChatPage', () => {
 		fireEvent.click(financeRow, {detail: 0});
 
 		await waitFor(() => {
-			const openedHead = container.querySelectorAll('[data-slot="live-head"]')[1];
+			const openedHead = rowHeads(container)[1];
 			expect(openedHead?.closest('a')?.getAttribute('aria-current')).toBe('page');
 			expect(openedHead?.getAttribute('data-state')).toBe('rest');
 		});
@@ -169,7 +183,7 @@ describe('ChatPage', () => {
 		fireEvent.click(financeRow);
 
 		await waitFor(() => {
-			const openedHead = container.querySelectorAll('[data-slot="live-head"]')[1];
+			const openedHead = rowHeads(container)[1];
 			expect(openedHead?.closest('a')?.getAttribute('aria-current')).toBe('page');
 			expect(openedHead?.getAttribute('data-state')).toBe('rest');
 		});

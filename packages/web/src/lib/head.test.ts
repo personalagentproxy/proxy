@@ -2,11 +2,14 @@
 
 import {describe, expect, test} from 'bun:test';
 import {
+	BLINK_MS,
+	blinkAmount,
 	FACING,
 	FIRST_HOVER_FOLLOW_TIME_MS,
 	FOLLOW_TIME_MS,
 	followAmount,
 	followTime,
+	nextBlinkDelay,
 	poseTowardPointer,
 } from '@/lib/head';
 
@@ -70,5 +73,22 @@ describe('followAmount', () => {
 		expect(followTime(true, 599, 600)).toBe(FIRST_HOVER_FOLLOW_TIME_MS);
 		expect(followTime(true, 600, 600)).toBe(FOLLOW_TIME_MS);
 		expect(followTime(false, 599, 600)).toBe(FOLLOW_TIME_MS);
+	});
+});
+
+describe('blinking', () => {
+	test('closes the eyes fully halfway through a blink and opens them again', () => {
+		expect(blinkAmount(1000, null)).toBe(0);
+		expect(blinkAmount(1000, 1000)).toBe(0);
+		expect(blinkAmount(1000 + BLINK_MS / 4, 1000)).toBeCloseTo(0.5);
+		expect(blinkAmount(1000 + BLINK_MS / 2, 1000)).toBe(1);
+		expect(blinkAmount(1000 + BLINK_MS, 1000)).toBe(0);
+		expect(blinkAmount(900, 1000)).toBe(0);
+	});
+
+	test('waits between two and six seconds before blinking again', () => {
+		expect(nextBlinkDelay(() => 0)).toBe(2000);
+		expect(nextBlinkDelay(() => 0.5)).toBe(4000);
+		expect(nextBlinkDelay(() => 0.999999)).toBeLessThan(6000);
 	});
 });

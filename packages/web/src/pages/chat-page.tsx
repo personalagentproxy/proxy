@@ -18,7 +18,7 @@ import {
 } from '@/client/harness-client';
 import {AppShell} from '@/components/app-shell';
 import {ConfirmDialog} from '@/components/confirm-dialog';
-import {Head, LiveHead} from '@/components/head';
+import {LiveHead} from '@/components/head';
 import {Markdown} from '@/components/markdown';
 import {PersonaDialog} from '@/components/persona-dialog';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
@@ -572,7 +572,7 @@ function Conversation({
 						<MessageScrollerContent className="page-column mx-auto w-full max-w-3xl pt-6 pb-4">
 							{runs.length === 0 && (
 								<div className="flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
-									<Head look={current.look} color={current.color} size={64} />
+									<LiveHead look={current.look} color={current.color} size={64} />
 									<p className="text-lg font-medium">What should {current.name} do?</p>
 									<p className="max-w-md text-sm text-muted-foreground">
 										This conversation is yours alone. {current.name} can use what is shared with

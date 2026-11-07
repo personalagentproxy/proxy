@@ -157,12 +157,14 @@ export function threadState(
 }
 
 /**
- * A built-in agent's head, as the head lab (design/head-lab) makes it: a sphere in one of eight
- * colors, with painted eyes and a darker nose sphere. A look is what the person keeps beside its
- * name: the shape of its features, in the lab's units; the color is kept beside it. How it is
- * turned is not part of a look: the app poses a head as the moment asks.
+ * A built-in agent's head: a ball of fur in one of nine colors, with two ink pills for eyes. A look
+ * is what the person keeps beside its name: the shape of its features, in the head lab's units,
+ * from which the web app seeds its fur; the color is kept beside it. How it is turned is not part
+ * of a look: the app poses a head as the moment asks.
  */
 export const AVATAR_COLORS = [
+	// The page's own ink: near-black on a light page, white on a dark one.
+	'mono',
 	'red',
 	'orange',
 	'yellow',
@@ -179,7 +181,7 @@ export function isAvatarColor(value: string): value is AvatarColor {
 	return (AVATAR_COLORS as readonly string[]).includes(value);
 }
 
-/** A color as it is kept, one of the eight; blue, the first head's, for one that isn't. */
+/** A color as it is kept, one of the nine; blue, the first head's, for one that isn't. */
 export function toAvatarColor(value: string): AvatarColor {
 	if (isAvatarColor(value)) {
 		return value;
