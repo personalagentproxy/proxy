@@ -67,7 +67,7 @@ describe('the words', () => {
 	test('an alert is described by its id, what it watches and its terms, or its time', () => {
 		expect(describeAlert(watch)).toBe('alert-1: “Mail from the bank”, watching emails in connection conn-a for “@bank.com” or “loan”');
 		expect(describeAlert({...watch, collectionId: null, connectionIds: [], terms: [], at: now})).toBe('alert-1: “Mail from the bank”, due 2026-11-04T10:00:00.000Z');
-		expect(alertsParagraph([])).toBe('No alert is set in this conversation.');
+		expect(alertsParagraph([])).toBe('No alerts.');
 		expect(alertsParagraph([watch])).toContain('- alert-1:');
 	});
 

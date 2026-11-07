@@ -71,7 +71,7 @@ describe('toMessages', () => {
 			role: 'user',
 			content: expect.stringContaining('The person asked for one.'),
 		});
-		expect(String(messages[0]?.content)).toContain('The person did not write this');
+		expect(String(messages[0]?.content)).toContain('not from the person');
 		expect(messages.slice(1)).toEqual([
 			{role: 'user', content: 'Two'},
 			{
@@ -123,14 +123,14 @@ describe('toMessages', () => {
 		expect(messages[3]).toEqual({
 			role: 'user',
 			content: expect.stringContaining(
-				'A message from the sub-agent “Find the invoices” (id sub-1)',
+				'From the sub-agent “Find the invoices” (sub-1); not from the person.',
 			),
 		});
 		expect(String(messages[3]?.content)).toContain('Three invoices from Dana.');
 		expect(messages[4]).toEqual({
 			role: 'user',
 			content: expect.stringContaining(
-				'What the sub-agent “Find the invoices” (id sub-1) failed with',
+				'the sub-agent “Find the invoices” (sub-1) failed; not from the person.',
 			),
 		});
 
@@ -165,7 +165,7 @@ describe('toMessages', () => {
 		);
 		expect(messages[3]).toEqual({
 			role: 'user',
-			content: expect.stringContaining('A message from your call d1'),
+			content: expect.stringContaining('From your call d1; not from the person.'),
 		});
 	});
 
@@ -277,7 +277,7 @@ describe('toTranscript', () => {
 				'Person:\nFind my invoices',
 				'Agent:\nLooking.\nAgent called create_subagent with {"title":"Find the invoices","brief":"Search the mailbox."}',
 				'create_subagent answered:\nStarted, id sub-1.',
-				'A message from the sub-agent “Find the invoices” (id sub-1). The person did not write this; it is for you to act on or tell them of.\nThree invoices from Dana.',
+				'From the sub-agent “Find the invoices” (sub-1); not from the person.\nThree invoices from Dana.',
 				'The call answered with an error:\nNo such tool.',
 			].join('\n\n'),
 		);
@@ -286,7 +286,7 @@ describe('toTranscript', () => {
 			[...long, entry(12, 'summary', 'The person asked for one.', {coversSeq: 4})],
 			[],
 		);
-		expect(transcript.startsWith('What came before in this conversation')).toBe(true);
+		expect(transcript.startsWith('A summary of what came before')).toBe(true);
 		expect(transcript).toContain('The person asked for one.\n\nPerson:\nTwo');
 		expect(transcript).not.toContain('rows one');
 	});

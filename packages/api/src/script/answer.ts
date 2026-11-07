@@ -13,38 +13,38 @@ function cut(text: string): string {
 	if (text.length <= MAX_ANSWER_CHARS) {
 		return text;
 	}
-	return `${text.slice(0, MAX_ANSWER_CHARS)}\n\n[Cut: the answer was ${text.length} characters long. Return only what you need, such as the fields you will use.]`;
+	return `${text.slice(0, MAX_ANSWER_CHARS)}\n\n[Cut at ${MAX_ANSWER_CHARS} of ${text.length} characters.]`;
 }
 
 function stopped(reason: 'timeout' | 'output' | 'crashed' | 'protocol', limits: ScriptLimits): string {
 	if (reason === 'timeout') {
-		return `The script was stopped after ${Math.round(limits.wallMs / 1000)} seconds, before it finished. What it did until then was done: check before doing it again, and do long work in several scripts.`;
+		return `Stopped after ${Math.round(limits.wallMs / 1000)} s; its calls until then took effect.`;
 	}
 	if (reason === 'output') {
-		return `The script was stopped: it wrote more than ${Math.round(limits.maxOutputBytes / 1_000_000)} MB. What it did until then was done. Return and log less, such as only the fields you need.`;
+		return `Stopped: over ${Math.round(limits.maxOutputBytes / 1_000_000)} MB of output; its calls until then took effect.`;
 	}
-	return 'The script stopped unexpectedly. What it did until then was done: check before running it again.';
+	return 'Stopped unexpectedly; its calls until then took effect.';
 }
 
 /** The run in words, and whether it failed. */
 export function describeRun(run: ScriptRun, startedTask: string | null, limits: ScriptLimits): {text: string; isError: boolean} {
 	const parts: string[] = [];
 	if (run.logs.length > 0) {
-		parts.push(`Logged:\n${run.logs.join('\n')}`);
+		parts.push(run.logs.join('\n'));
 	}
 	const {outcome} = run;
 	if (outcome.type === 'returned') {
-		parts.push(run.logs.length > 0 ? `Returned:\n${outcome.json}` : outcome.json);
+		parts.push(run.logs.length > 0 ? `Returned: ${outcome.json}` : outcome.json);
 	}
 	if (outcome.type === 'threw') {
 		const where = outcome.error.stack ? `\n${outcome.error.stack}` : '';
-		parts.push(`The script threw ${outcome.error.name}: ${outcome.error.message}${where}`);
+		parts.push(`${outcome.error.name}: ${outcome.error.message}${where}`);
 	}
 	if (outcome.type === 'stopped') {
 		parts.push(stopped(outcome.reason, limits));
 	}
 	if (startedTask !== null) {
-		parts.push(`This script started the task ${startedTask}: give it as task to the next scripts for it.`);
+		parts.push(`Task: ${startedTask}`);
 	}
 	return {text: cut(parts.join('\n\n')), isError: outcome.type !== 'returned'};
 }

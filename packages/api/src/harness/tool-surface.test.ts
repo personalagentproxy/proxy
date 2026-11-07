@@ -40,7 +40,6 @@ describe('a sub-agent’s tools', () => {
 		expect(tool('script').parameters.properties).not.toHaveProperty('task');
 		expect(tool('script').parameters.required).toEqual(['code']);
 		expect(tool('script').description).toContain('pap.call(connection, tool, params?)');
-		expect(tool('script').description).toContain('Every call is made for your task, kept for you.');
 		expect(tool('script').description).not.toContain('pap.startTask');
 		expect(tool('script').description).not.toContain('pap.finishTask');
 	});

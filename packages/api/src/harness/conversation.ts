@@ -28,7 +28,7 @@ import type {NewAgentTask} from '@proxy/db/task';
 const MAX_TASK_TEXT = 2000;
 
 /** What a sub-agent's answer is followed by when it stops, so the agent it works for knows it did and how to go on. */
-export const STOPPED_NOTE = '(The sub-agent has stopped for now. It keeps what it did and found: a message to it takes it up again.)';
+export const STOPPED_NOTE = '(It has stopped; a message takes it up again.)';
 
 /** A task for a sub-agent's work, the member's, as the conversation it was started from is, run as the persona. */
 export function taskFor(thread: ThreadRow, work: {title: string; goal: string}): NewAgentTask & {parentId: null} {
@@ -66,17 +66,17 @@ export function subAgentStop(said: {text: string; isError: boolean}): SubAgentSt
 // What a create_subagent call is answered with at once, the sub-agent's id in it, since every message
 // to it takes the id.
 function started(title: string): (id: string) => string {
-	return (id) => `Started the sub-agent “${title}”, id ${id}. What it says will come to you as a message.`;
+	return (id) => `Started “${title}”, id ${id}.`;
 }
 
-const SENT_TO_PARENT = 'Sent to the agent you work for. Its answer, if any, will come to you as a message.';
+const SENT_TO_PARENT = 'Sent.';
 
 // What a send_to_subagent call is answered with at once: what the sub-agent was up to as the
 // message came, or that there is no such sub-agent of the agent's.
 function sentToSubAgent(id: string): (subAgent: SubAgentRow | null) => {text: string; isError: boolean} {
 	return (subAgent) => {
 		if (!subAgent) {
-			return {text: `You have no sub-agent with id ${id}. Your sub-agents and their ids are listed in your instructions.`, isError: true};
+			return {text: `No sub-agent ${id}.`, isError: true};
 		}
 		const was =
 			subAgent.state.kind === 'stopped'
@@ -84,7 +84,7 @@ function sentToSubAgent(id: string): (subAgent: SubAgentRow | null) => {text: st
 				: subAgent.state.kind === 'asleep'
 					? 'was asleep, and is woken by it'
 					: 'is at work, and reads it when its current call is answered';
-		return {text: `Sent to the sub-agent “${subAgent.title ?? ''}”, which ${was}. What it says back will come to you as a message.`, isError: false};
+		return {text: `Sent to “${subAgent.title ?? ''}”, which ${was}.`, isError: false};
 	};
 }
 

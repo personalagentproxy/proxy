@@ -28,7 +28,7 @@ export function connectionSummary(connection: AgentConnection) {
 	};
 }
 
-/** A tool: what it does, whether it only reads, its risk, and its params as JSON Schema. */
+/** A tool: what it does, and its params as JSON Schema. */
 export function toolSummary(tool: Tool) {
-	return {name: tool.name, title: tool.title, description: tool.description, readOnly: tool.readOnly === true, risk: tool.risk, params: tool.inputSchema};
+	return {name: tool.name, description: tool.description, params: tool.inputSchema};
 }

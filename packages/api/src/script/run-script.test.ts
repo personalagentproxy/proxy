@@ -6,6 +6,9 @@ import {DEFAULT_SCRIPT_LIMITS, type PapAnswer, runScript, type ScriptHost, type 
 
 const LIMITS: ScriptLimits = {...DEFAULT_SCRIPT_LIMITS, wallMs: 5_000, cpuMs: 500, memoryBytes: 16 * 1024 * 1024};
 
+// For the tests of the other limits, enough time that a loaded machine doesn't stop the script first.
+const ROOMY: ScriptLimits = {...LIMITS, wallMs: 15_000, cpuMs: 10_000};
+
 // Answers every call with what it was called with, after a moment; a tool named `refused` is refused.
 const echo: ScriptHost = async (method: PapMethod, args: Json[]): Promise<PapAnswer> => {
 	await Bun.sleep(5);
@@ -105,15 +108,15 @@ describe('runScript', () => {
 	});
 
 	test('stops a script that takes too much memory', async () => {
-		const error = threw(await run(`const kept = []; while (true) kept.push(new Array(100000).fill(1));`));
+		const error = threw(await run(`const kept = []; while (true) kept.push(new Array(100000).fill(1));`, echo, ROOMY));
 		expect(error.message).toContain('out of memory');
-	});
+	}, 20_000);
 
 	test('stops runaway recursion, telling of the first few calls', async () => {
-		const error = threw(await run('const f = (n) => f(n + 1) + 1; return f(0);'));
+		const error = threw(await run('const f = (n) => f(n + 1) + 1; return f(0);', echo, ROOMY));
 		expect(error.message).toBe('stack overflow');
 		expect(error.stack?.split('\n').length).toBeLessThanOrEqual(11);
-	});
+	}, 20_000);
 
 	test('stops a run past its wall clock, as when a call never answers', async () => {
 		const never: ScriptHost = () => new Promise(() => {});

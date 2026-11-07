@@ -31,8 +31,8 @@ import type {PapAnswer, ScriptHost} from './run-script';
 /** Which way the script came in: the MCP server, or the built-in agent's loop. */
 export type ScriptVia = Exclude<AgentCaller['via'], 'web'>;
 
-const NO_TASK = 'Every call is made for a task. Start one first with `await pap.startTask({title, goal})`, or give the task you are on as `task`.';
-const OWN_TASK = 'Your task is kept for you: there is no task to start or finish.';
+const NO_TASK = 'No task: call pap.startTask first, or give `task`.';
+const OWN_TASK = 'Your task is kept for you.';
 
 const ARGS = {
 	connections: z.tuple([]),
@@ -55,7 +55,7 @@ const USAGE: Record<PapMethod, string> = {
 function argsOf<T>(method: PapMethod, schema: z.ZodType<T>, args: Json[]): Result<T, ApiError> {
 	const parsed = schema.safeParse(args);
 	if (!parsed.success) {
-		return Err(ApiErr.validationError(`${USAGE[method]} is how it is called: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'arguments'}: ${issue.message}`).join('; ')}`));
+		return Err(ApiErr.validationError(`Takes ${USAGE[method]}: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'arguments'}: ${issue.message}`).join('; ')}`));
 	}
 	return Ok(parsed.data);
 }
@@ -63,40 +63,40 @@ function argsOf<T>(method: PapMethod, schema: z.ZodType<T>, args: Json[]): Resul
 /** What went wrong, in words a model can act on: what to call instead, or who can fix it. */
 export function errorMessage(error: ApiError, tool: string | undefined): string {
 	if (error.kind === 'not_found' && error.resource === 'connection') {
-		return `There is no connection ${error.id ?? ''} for this login: pap.connections() lists the ones it can use.`;
+		return `No connection ${error.id ?? ''}; see pap.connections().`;
 	}
 	if (error.kind === 'not_found' && error.resource === 'tool') {
-		return `This connection has no tool ${error.id ?? ''}: pap.tools(connection) lists the ones this login has with it.`;
+		return `No tool ${error.id ?? ''}; see pap.tools(connection).`;
 	}
 	if (error.kind === 'not_found' && error.resource === 'task') {
-		return `There is no task ${error.id ?? ''} for this login: start one with pap.startTask({title, goal}).`;
+		return `No task ${error.id ?? ''}; start one with pap.startTask.`;
 	}
 	if (error.kind === 'not_found' && error.message) {
 		return error.message;
 	}
 	if (error.kind === 'not_found') {
-		return `There is no ${error.resource}${error.id ? ` ${error.id}` : ''}.`;
+		return `No ${error.resource}${error.id ? ` ${error.id}` : ''}.`;
 	}
 	if (error.kind === 'forbidden') {
-		return `This login may not run ${tool ?? 'that'} with this connection: pap.tools(connection) lists what it may do, or ask the person who made the login for access.`;
+		return `Not allowed: ${tool ?? 'that'}. The person who made this login can allow it.`;
 	}
 	if (error.kind === 'validation_error' || error.kind === 'parse_error' || error.kind === 'conflict') {
 		return error.message;
 	}
 	if (error.kind === 'credentials_rejected') {
-		return 'The provider turned this connection’s sign-in down. The person who made this login needs to reconnect it: trying again won’t help until they do.';
+		return 'Sign-in rejected: the person must reconnect this account. Retrying won’t help.';
 	}
 	if (error.kind === 'provider_unreachable') {
-		return error.message ?? 'The provider could not be reached. Try again in a moment.';
+		return error.message ?? 'The provider could not be reached; try again.';
 	}
 	if (error.kind === 'unauthenticated') {
-		return 'This login has been signed out.';
+		return 'This login is signed out.';
 	}
 	if (error.kind === 'unavailable') {
 		return error.message;
 	}
 	log.error('A pap call failed', {kind: error.kind, ...('cause' in error ? serializeError(error.cause) : {})});
-	return 'Something went wrong. Try again in a moment.';
+	return 'Something went wrong; try again.';
 }
 
 type HostState = {taskId: string | null; started: string | null};
