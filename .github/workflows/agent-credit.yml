@@ -1,0 +1,47 @@
+name: agent-credit
+
+# Claude and Codex are never credited in a commit or a pull request (AGENTS.md). Apart from ci, so
+# that editing a pull request's description checks it again without typechecking, testing and
+# building once more.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  no-agent-credit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # A squash merge carries every commit's message into main, trailers and all, so each commit
+      # of the pull request is checked, and the description, which people read on GitHub.
+      - shell: bash
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          pattern='co-authored-by:.*(claude|anthropic|codex|openai)|generated (with|by) .*(claude|codex)|@anthropic\.com|@openai\.com'
+          found=0
+          for sha in $(git rev-list "$BASE..$HEAD"); do
+            lines=$(git log -1 --format='Author: %an <%ae>%nCommitter: %cn <%ce>%n%B' "$sha" | grep -iE "$pattern" || true)
+            if [[ -z "$lines" ]]; then
+              continue
+            fi
+            found=1
+            echo "::error::$(git log -1 --format='%h %s' "$sha") credits an agent:"
+            echo "$lines" | sed 's/^/    /'
+            echo "Reword it without the credit, then force-push."
+          done
+          lines=$(printf '%s\n' "$BODY" | grep -iE "$pattern" || true)
+          if [[ -n "$lines" ]]; then
+            found=1
+            echo "::error::The pull request's description credits an agent:"
+            echo "$lines" | sed 's/^/    /'
+            echo "Edit the description without the credit; the check runs again on the edit."
+          fi
+          if [[ "$found" == 1 ]]; then
+            exit 1
+          fi
+          echo "Neither a commit nor the description credits an agent."
