@@ -84,7 +84,7 @@
     },
     "packages/desktop": {
       "name": "desktop",
-      "version": "0.0.3",
+      "version": "0.0.4",
       "devDependencies": {
         "@types/bun": "latest",
         "dotenv": "^16.6.1",
