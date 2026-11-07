@@ -1,12 +1,5 @@
 import type {ChatEntry, ChatPersona, Persona, ThreadLog} from '@proxy/contracts/harness';
-import {
-	ArrowUpIcon,
-	ChevronDownIcon,
-	MoonIcon,
-	PencilIcon,
-	PlusIcon,
-	Trash2Icon,
-} from 'lucide-react';
+import {ArrowUpIcon, MoonIcon, PencilIcon, Trash2Icon} from 'lucide-react';
 import {type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
 import {
@@ -16,7 +9,8 @@ import {
 	postMessage,
 	updatePersona,
 } from '@/client/harness-client';
-import {AppShell} from '@/components/app-shell';
+import {AddButton} from '@/components/add-button';
+import {AppShell, PageTitle} from '@/components/app-shell';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {LiveHead} from '@/components/head';
 import {Markdown} from '@/components/markdown';
@@ -42,7 +36,6 @@ import {preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
 import {useHuman} from '@/hooks/use-human';
 import {useOrgSlug} from '@/hooks/use-org';
-import {useOverflowing} from '@/hooks/use-overflowing';
 import {useUnread} from '@/hooks/use-unread';
 import {formatAgo, formatDateTime} from '@/lib/format';
 import type {Pose} from '@/lib/head';
@@ -128,8 +121,7 @@ function lastOf(log: ThreadLog): ChatPersona['lastMessage'] {
 
 // The organization's personas in the second sidebar, each with its head, its name and the last
 // thing said between it and the person, marked where the person hasn't seen it, the open one lit,
-// each head watching the pointer while it is over that agent's row, and a row at the bottom to
-// make a new one, set off by a line only while the list scrolls under it.
+// each head watching the pointer while it is over that agent's row.
 function PersonaList({
 	personas,
 	current,
@@ -139,7 +131,6 @@ function PersonaList({
 	forgetOpeningPersona,
 	recallHeadPose,
 	rememberHeadPose,
-	onNew,
 	onEdit,
 	onDelete,
 }: {
@@ -151,126 +142,112 @@ function PersonaList({
 	forgetOpeningPersona: (personaId: string) => void;
 	recallHeadPose: (personaId: string) => Pose | null;
 	rememberHeadPose: (personaId: string, pose: Pose) => void;
-	onNew: () => void;
 	onEdit: (persona: ChatPersona) => void;
 	onDelete: (persona: ChatPersona) => void;
 }) {
 	const org = useOrgSlug();
 	const unread = useUnread();
 	const [hovered, setHovered] = useState(takeOpeningPersona);
-	const [measureList, listOverflows] = useOverflowing();
 	// Whether the persona said something the person hasn't seen, as the provider has it.
 	const isUnread = (persona: ChatPersona) =>
 		persona.id !== current && unread.unreadIds.has(persona.id);
 	return (
-		<div className="flex h-full min-h-0 flex-col">
-			<div ref={measureList} className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
-				{personas.length === 0 && (
-					<span className="px-2 py-1.5 text-sm text-muted-foreground">No agents yet.</span>
-				)}
-				<ul className="flex flex-col gap-0.5">
-					{personas.map((persona) => {
-						const last = persona.id === current ? lastOf(currentLog) : persona.lastMessage;
-						const fresh = isUnread(persona);
-						const row = (
-							<Link
-								to={`/${org}/chat/${persona.id}`}
-								aria-current={persona.id === current ? 'page' : undefined}
-								onPointerEnter={() => setHovered(persona.id)}
-								onPointerLeave={() => {
-									setHovered(null);
-									forgetOpeningPersona(persona.id);
-								}}
-								onPointerUp={(event) => {
-									if (
-										persona.id === current ||
-										event.pointerType !== 'mouse' ||
-										event.button !== 0 ||
-										event.metaKey ||
-										event.ctrlKey ||
-										event.shiftKey ||
-										event.altKey
-									) {
-										return;
-									}
-									rememberOpeningPersona(persona.id);
-								}}
-								className={cn(
-									'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-									persona.id === current && 'bg-sidebar-accent text-sidebar-accent-foreground',
-								)}
-							>
-								<LiveHead
-									look={persona.look}
-									color={persona.color}
-									size={40}
-									watching={hovered === persona.id}
-									tracking="head"
-									recallPose={() => recallHeadPose(persona.id)}
-									rememberPose={(pose) => rememberHeadPose(persona.id, pose)}
-								/>
-								<span className="flex min-w-0 flex-1 flex-col">
-									<span className="flex items-baseline gap-2">
-										<span className="min-w-0 flex-1 truncate text-sm font-medium">
-											{persona.name}
-										</span>
-										{last && (
-											<span className="shrink-0 text-xs text-muted-foreground">
-												{formatAgo(last.at)}
-											</span>
-										)}
+		<div className="flex h-full min-h-0 flex-col overflow-y-auto p-2">
+			{personas.length === 0 && (
+				<span className="px-2 py-1.5 text-sm text-muted-foreground">No agents yet.</span>
+			)}
+			<ul className="flex flex-col gap-0.5">
+				{personas.map((persona) => {
+					const last = persona.id === current ? lastOf(currentLog) : persona.lastMessage;
+					const fresh = isUnread(persona);
+					const row = (
+						<Link
+							to={`/${org}/chat/${persona.id}`}
+							aria-current={persona.id === current ? 'page' : undefined}
+							onPointerEnter={() => setHovered(persona.id)}
+							onPointerLeave={() => {
+								setHovered(null);
+								forgetOpeningPersona(persona.id);
+							}}
+							onPointerUp={(event) => {
+								if (
+									persona.id === current ||
+									event.pointerType !== 'mouse' ||
+									event.button !== 0 ||
+									event.metaKey ||
+									event.ctrlKey ||
+									event.shiftKey ||
+									event.altKey
+								) {
+									return;
+								}
+								rememberOpeningPersona(persona.id);
+							}}
+							className={cn(
+								'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+								persona.id === current && 'bg-sidebar-accent text-sidebar-accent-foreground',
+							)}
+						>
+							<LiveHead
+								look={persona.look}
+								color={persona.color}
+								size={40}
+								watching={hovered === persona.id}
+								tracking="head"
+								recallPose={() => recallHeadPose(persona.id)}
+								rememberPose={(pose) => rememberHeadPose(persona.id, pose)}
+							/>
+							<span className="flex min-w-0 flex-1 flex-col">
+								<span className="flex items-baseline gap-2">
+									<span className="min-w-0 flex-1 truncate text-sm font-medium">
+										{persona.name}
 									</span>
-									<span className="flex items-center gap-2">
-										<span
-											className={cn(
-												'min-w-0 flex-1 truncate text-xs',
-												fresh ? 'font-medium' : 'text-muted-foreground',
-											)}
-										>
-											{subtitle(last)}
+									{last && (
+										<span className="shrink-0 text-xs text-muted-foreground">
+											{formatAgo(last.at)}
 										</span>
-										{fresh && (
-											<span
-												role="status"
-												aria-label="Unread"
-												className="size-2 shrink-0 rounded-full bg-primary"
-											/>
-										)}
-									</span>
+									)}
 								</span>
-							</Link>
-						);
-						if (!persona.mayChange) {
-							return <li key={persona.id}>{row}</li>;
-						}
-						return (
-							<ContextMenu key={persona.id}>
-								<ContextMenuTrigger render={<li />}>{row}</ContextMenuTrigger>
-								<ContextMenuContent>
-									<ContextMenuItem onClick={() => onEdit(persona)}>
-										<PencilIcon />
-										Rename
-									</ContextMenuItem>
-									<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
-										<Trash2Icon />
-										Delete
-									</ContextMenuItem>
-								</ContextMenuContent>
-							</ContextMenu>
-						);
-					})}
-				</ul>
-			</div>
-			<div className={cn('shrink-0 p-2', listOverflows && 'border-t')}>
-				<button
-					type="button"
-					onClick={onNew}
-					className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-				>
-					<PlusIcon className="size-4" />
-					New
-				</button>
-			</div>
+								<span className="flex items-center gap-2">
+									<span
+										className={cn(
+											'min-w-0 flex-1 truncate text-xs',
+											fresh ? 'font-medium' : 'text-muted-foreground',
+										)}
+									>
+										{subtitle(last)}
+									</span>
+									{fresh && (
+										<span
+											role="status"
+											aria-label="Unread"
+											className="size-2 shrink-0 rounded-full bg-primary"
+										/>
+									)}
+								</span>
+							</span>
+						</Link>
+					);
+					if (!persona.mayChange) {
+						return <li key={persona.id}>{row}</li>;
+					}
+					return (
+						<ContextMenu key={persona.id}>
+							<ContextMenuTrigger render={<li />}>{row}</ContextMenuTrigger>
+							<ContextMenuContent>
+								<ContextMenuItem onClick={() => onEdit(persona)}>
+									<PencilIcon />
+									Rename
+								</ContextMenuItem>
+								<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
+									<Trash2Icon />
+									Delete
+								</ContextMenuItem>
+							</ContextMenuContent>
+						</ContextMenu>
+					);
+				})}
+			</ul>
 		</div>
 	);
 }
@@ -487,22 +464,8 @@ function Conversation({
 
 	return (
 		<AppShell
-			title={
-				current.mayChange ? (
-					<button
-						type="button"
-						onClick={() => setEditing(current)}
-						className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-sm font-medium outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
-					>
-						<span className="truncate">{current.name}</span>
-						<ChevronDownIcon className="size-4 text-muted-foreground" />
-					</button>
-				) : (
-					<span className="flex min-w-0 items-center px-1.5 py-1 text-sm font-medium">
-						<span className="truncate">{current.name}</span>
-					</span>
-				)
-			}
+			title={<PageTitle>{current.name}</PageTitle>}
+			actions={<AddButton label="New agent" onClick={() => setEditing('new')} />}
 			panel={
 				<PersonaList
 					personas={loaded.personas}
@@ -513,7 +476,6 @@ function Conversation({
 					forgetOpeningPersona={forgetOpeningPersona}
 					recallHeadPose={recallHeadPose}
 					rememberHeadPose={rememberHeadPose}
-					onNew={() => setEditing('new')}
 					onEdit={setEditing}
 					onDelete={setDeleting}
 				/>

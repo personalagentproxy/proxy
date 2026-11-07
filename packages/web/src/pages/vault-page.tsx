@@ -6,7 +6,6 @@ import {
 	MailIcon,
 	MapPinIcon,
 	PhoneIcon,
-	PlusIcon,
 	TextIcon,
 	type LucideIcon,
 } from 'lucide-react';
@@ -14,6 +13,7 @@ import {useState} from 'react';
 import {useLoaderData} from 'react-router';
 import {createRecord, deleteRecord, updateRecord} from '@/client/records-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
+import {AddButton} from '@/components/add-button';
 import {RecordForm} from '@/components/record-form';
 import {Row, RowHeader, RowList} from '@/components/row-list';
 import {SideEmpty, SideToggle} from '@/components/share-toggle';
@@ -104,10 +104,7 @@ export function VaultPage() {
 		<AppShell
 			title={<PageTitle>Vault</PageTitle>}
 			actions={
-				<Button size="sm" variant="outline" onClick={() => open({listed: null})}>
-					<PlusIcon data-icon="inline-start" />
-					Add entry
-				</Button>
+				<AddButton label="Add entry" variant="outline" onClick={() => open({listed: null})} />
 			}
 		>
 			<SideToggle side={side} orgName={activeOrg.name} />

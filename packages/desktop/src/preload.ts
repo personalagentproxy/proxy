@@ -17,7 +17,7 @@ const APP_ORIGIN = new URL(
 
 // A newly installed shell can briefly load an older hosted web build during a rollout or rollback.
 // Keep that page draggable and below the traffic lights until a title-bar-aware build adds the
-// `desktop-app` class and takes over with its column-specific layout. Keep its 2rem height in step
+// `desktop-app` class and takes over with its column-specific layout. Keep its 2.75rem height in step
 // with packages/desktop/src/templates/splash.css and packages/web/src/index.css.
 if (process.platform === 'darwin' && window.location.origin === APP_ORIGIN) {
 	void webFrame.insertCSS(`
@@ -28,7 +28,7 @@ if (process.platform === 'darwin' && window.location.origin === APP_ORIGIN) {
 			right: 0;
 			left: 0;
 			box-sizing: border-box;
-			height: 2rem;
+			height: 2.75rem;
 			border-bottom: 1px solid var(--border);
 			content: '';
 			-webkit-app-region: drag;
@@ -36,11 +36,11 @@ if (process.platform === 'darwin' && window.location.origin === APP_ORIGIN) {
 
 		html:not(.desktop-app) #root > :first-child {
 			box-sizing: border-box;
-			padding-top: 2rem;
+			padding-top: 2.75rem;
 		}
 
 		html:not(.desktop-app) [data-slot='sidebar-inner'] {
-			padding-top: 2rem;
+			padding-top: 2.75rem;
 		}
 	`);
 }
