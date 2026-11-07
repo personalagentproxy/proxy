@@ -8,6 +8,7 @@ import {type FakeStore, fakeStore} from './fake-store';
 import {ensureThreadTask} from './thread-task';
 
 const now = new Date('2026-10-21T10:00:00Z');
+const MINUTE = 60 * 1000;
 // A sub-agent's thread, at work on its task.
 const thread: ThreadRow = {
 	id: 'thread-1',
@@ -44,12 +45,21 @@ beforeEach(() => {
 });
 
 describe('ensureThreadTask', () => {
-	test('keeps the task it has while it is not finished, left open included', async () => {
-		store.getAgentTask.mockResolvedValue(Ok({...task, lastActiveAt: new Date('2026-10-20T10:00:00Z')}));
+	test('keeps the task it has while it is not finished, left open 20 minutes ago or less included', async () => {
+		store.getAgentTask.mockResolvedValue(Ok({...task, lastActiveAt: new Date(Date.now() - 30 * MINUTE)}));
 		const result = await ensureThreadTask(store, thread);
 
 		expect(result.unwrap()).toBe('task-1');
 		expect(store.createAgentTask).not.toHaveBeenCalled();
+	});
+
+	test('one left open more than 20 minutes ago is replaced with a new one for the same work', async () => {
+		store.getAgentTask.mockResolvedValue(Ok({...task, lastActiveAt: new Date(Date.now() - 41 * MINUTE)}));
+		const result = await ensureThreadTask(store, thread);
+
+		expect(result.unwrap()).toBe('task-2');
+		expect(store.createAgentTask).toHaveBeenCalledWith(expect.objectContaining({title: 'Find the invoices', parentId: null}));
+		expect(store.setThreadTask).toHaveBeenCalledWith('thread-1', 'task-2');
 	});
 
 	test('one finished while the sub-agent is at work is replaced with a new one for the same work', async () => {

@@ -449,7 +449,7 @@ model AgentTask {
   personaId String?
   // When it, or the last of its sub-tasks at any depth, was started or had a request made for it:
   // one never finished is taken as left open 20 minutes after, until the next request takes it up
-  // again (@proxy/utils/tasks). Never before any of its sub-tasks', so a parent is never left open
+  // again, which it can for 20 minutes more (@proxy/utils/tasks). Never before any of its sub-tasks', so a parent is never left open
   // while one is under way. Set with createdAt, and on it and every task above it when a sub-task
   // starts, a request is made or it is finished.
   lastActiveAt  DateTime @default(now())

@@ -20,7 +20,7 @@ import {
 // is skipped. Everything made here is one organization's, deleted at the end.
 const databaseUrl = process.env.DATABASE_URL;
 
-const HOUR = 60 * 60 * 1000;
+const MINUTE = 60 * 1000;
 
 function unwrap<T>(result: Result<T, ApiError>): T {
 	if (result.isErr()) {
@@ -64,8 +64,12 @@ describe.skipIf(!databaseUrl)('tasks, against the database', () => {
 		await db.$disconnect();
 	});
 
-	// A task with a sub-task, both started and last worked on an hour ago, so both left open.
-	async function leftOpenLine(title: string): Promise<{parentId: string; childId: string}> {
+	// A task with a sub-task, both started and last worked on half an hour ago, so both left open ten
+	// minutes ago, or `ago` before now where given.
+	async function leftOpenLine(
+		title: string,
+		ago = 30 * MINUTE,
+	): Promise<{parentId: string; childId: string}> {
 		const base = {
 			orgId,
 			agentId,
@@ -80,10 +84,10 @@ describe.skipIf(!databaseUrl)('tasks, against the database', () => {
 		if (!parent || !child) {
 			throw new Error('the tasks were not made');
 		}
-		const anHourAgo = new Date(Date.now() - HOUR);
+		const then = new Date(Date.now() - ago);
 		await db.agentTask.updateMany({
 			where: {id: {in: [parent.id, child.id]}},
-			data: {createdAt: anHourAgo, lastActiveAt: anHourAgo},
+			data: {createdAt: then, lastActiveAt: then},
 		});
 		return {parentId: parent.id, childId: child.id};
 	}
@@ -128,6 +132,20 @@ describe.skipIf(!databaseUrl)('tasks, against the database', () => {
 
 		expect(finished?.finishedAt).toBeNull();
 		expect(finished?.lastActiveAt).toEqual(before?.lastActiveAt);
+	});
+
+	test('a task left open more than 20 minutes ago is not taken up again, nor finished', async () => {
+		const {parentId, childId} = await leftOpenLine('Sort the photos', 41 * MINUTE);
+		const before = await read(childId);
+
+		expect(unwrap(await isAgentTaskOpen(orgId, agentId, childId))).toBe(false);
+		expect(unwrap(await touchAgentTask(orgId, agentId, before))).toBe(false);
+		const finished = unwrap(await finishAgentTask(orgId, agentId, parentId, 'Sorted them'));
+
+		expect(finished?.finishedAt).toBeNull();
+		expect(finished?.outcome).toBeNull();
+		expect((await read(childId)).lastActiveAt).toEqual(before.lastActiveAt);
+		expect((await read(parentId)).lastActiveAt).toEqual(before.lastActiveAt);
 	});
 
 	test('a task finished is not taken up again', async () => {

@@ -2,7 +2,7 @@ import {type AuditVia, Prisma} from '@prisma/client';
 import {Ok, type Result} from 'ts-results-es';
 
 import {type ApiError, wrapDb} from '@proxy/utils';
-import {TASK_LEFT_OPEN_AFTER_MS} from '@proxy/utils/tasks';
+import {TASK_LEFT_OPEN_AFTER_MS, taskEndedLongAgo} from '@proxy/utils/tasks';
 
 import {db} from '.';
 import {type Viewer, visibleTo} from './viewer';
@@ -24,7 +24,8 @@ export type AgentTaskRow = {
 	// What was done or found, as the agent said when it finished; null where it said nothing.
 	outcome: string | null;
 	// When it, or one of its sub-tasks at any depth, was last started or had a request made for it:
-	// one never finished is taken as left open 20 minutes after (@proxy/utils/tasks).
+	// one never finished is taken as left open 20 minutes after, and can't be taken up again 20
+	// minutes after that (@proxy/utils/tasks).
 	lastActiveAt: Date;
 };
 
@@ -65,7 +66,7 @@ export type NewAgentTask = {
  * the sub-task is made, so none can be finished in between and leave the sub-task open, and each
  * takes the sub-task's start as the last thing done for it (`lastActiveAt`), so none is left open
  * before it, and one left open is taken up again; `Ok(null)` means the parent, or a task above it,
- * is finished (@proxy/utils/tasks). `ownerUserId` is the member whose own the agent is, who alone
+ * is finished, or was left open too long ago to be taken up again (@proxy/utils/tasks). `ownerUserId` is the member whose own the agent is, who alone
  * sees the task; null for a shared agent's.
  */
 export async function createAgentTask(
@@ -99,7 +100,7 @@ export async function createAgentTask(
  * Takes now as the last thing done for the agent's task and every task above it, as a request made
  * for it is (`lastActiveAt`), so none is left open while the agent is still at work on it, and one
  * left open is taken up again (@proxy/utils/tasks). `Ok(false)` means it, or a task above it, is
- * finished, or the agent has no such task. One read unfinished and done for within the last
+ * finished, or was left open too long ago to be taken up again, or the agent has no such task. One read unfinished and done for within the last
  * minute isn't written again, nor the tasks above it read: none of them can have been finished
  * since without finishing it too (finishSubTasks).
  */
@@ -120,8 +121,9 @@ export async function touchAgentTask(
 }
 
 /**
- * Whether the agent's task and every task above it are not finished, read without taking any of
- * them up; `Ok(false)` where the agent has no such task.
+ * Whether the agent's task and every task above it are not finished, nor left open too long ago to
+ * be taken up again, read without taking any of them up; `Ok(false)` where the agent has no such
+ * task.
  */
 export async function isAgentTaskOpen(
 	orgId: string,
@@ -130,11 +132,11 @@ export async function isAgentTaskOpen(
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(async () => {
 		const line = await lineOf(db, {orgId, agentId, taskId}, {lock: false});
-		return isOpen(line, taskId);
+		return isOpen(line, taskId, new Date());
 	});
 }
 
-type LineRow = {id: string; finishedAt: Date | null};
+type LineRow = {id: string; finishedAt: Date | null; lastActiveAt: Date};
 
 // The task and every task above it, from the top down; with `lock`, locked for the rest of the
 // transaction in that order, the one finishing a task locks its sub-tasks in (finishSubTasks), so
@@ -153,20 +155,25 @@ function lineOf(
 			FROM "AgentTask" AS "task"
 			JOIN "line" ON "task"."id" = "line"."parentId"
 		)
-		SELECT "task"."id", "task"."finishedAt"
+		SELECT "task"."id", "task"."finishedAt", "task"."lastActiveAt"
 		FROM "AgentTask" AS "task"
 		JOIN "line" ON "task"."id" = "line"."id"
 		ORDER BY "line"."depth" DESC
 		${lock ? Prisma.sql`FOR UPDATE OF "task"` : Prisma.empty}`;
 }
 
-// Whether the line of `taskId` holds it, with none of it finished.
-function isOpen(line: LineRow[], taskId: string): boolean {
-	return line.some((row) => row.id === taskId) && line.every((row) => row.finishedAt === null);
+// Whether the line of `taskId` holds it, with none of it finished, nor left open more than 20
+// minutes before `now` (@proxy/utils/tasks).
+function isOpen(line: LineRow[], taskId: string, now: Date): boolean {
+	return (
+		line.some((row) => row.id === taskId) &&
+		line.every((row) => row.finishedAt === null && !taskEndedLongAgo(row, now))
+	);
 }
 
 // Locks the task and every task above it, and takes `now` as the last thing done for each; false,
-// with none changed, where any of them is finished. So a task taken up again takes up every task
+// with none changed, where any of them is finished, or was left open too long ago to be taken up
+// again. So a task taken up again takes up every task
 // above it too, none left open before it; and one left open when its parent was finished, which
 // it was not finished with (finishSubTasks), stays as it is.
 async function touchLine(
@@ -175,7 +182,7 @@ async function touchLine(
 	now: Date,
 ): Promise<boolean> {
 	const line = await lineOf(tx, {orgId, agentId, taskId}, {lock: true});
-	if (!isOpen(line, taskId)) {
+	if (!isOpen(line, taskId, now)) {
 		return false;
 	}
 	// Where another instance's clock is ahead, one may have set a later time already.
@@ -201,7 +208,8 @@ export async function getAgentTask(
  * Marks the agent's task finished now, with what was done where the agent said, and its sub-tasks
  * still under way finished with it, in one transaction. Finishing is something done for it and
  * every task above it, as a request is (touchLine), so one left open (@proxy/utils/tasks) is taken
- * up again to be finished. One already finished keeps the time it was, and takes the outcome only
+ * up again to be finished, unless it was left open too long ago, when it stays as it is. One
+ * already finished keeps the time it was, and takes the outcome only
  * where it has none, as a sub-task finished with its parent does; one left open under a task
  * finished without it stays as it is, ended when it was left open. `Ok(null)` means the agent has
  * no such task.
