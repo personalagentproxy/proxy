@@ -1,5 +1,5 @@
 import type {Persona} from '@proxy/contracts/harness';
-import {RotateCcwIcon, ShuffleIcon} from 'lucide-react';
+import {ShuffleIcon} from 'lucide-react';
 import {useState} from 'react';
 import {CHAT_MODELS, type ChatModel} from '@proxy/utils';
 import {AGENT_NAME_MAX} from '@proxy/utils/agent-providers';
@@ -35,6 +35,7 @@ type Props = {
 
 // The colors as the stylesheet has them, for the swatches.
 const BACKGROUND: Record<AvatarColor, string> = {
+	mono: 'bg-avatar-mono',
 	red: 'bg-avatar-red',
 	orange: 'bg-avatar-orange',
 	yellow: 'bg-avatar-yellow',
@@ -45,7 +46,7 @@ const BACKGROUND: Record<AvatarColor, string> = {
 	pink: 'bg-avatar-pink',
 };
 
-// A new persona starts with a look of its own, and a color drawn from the eight.
+// A new persona starts with a look of its own, and a color drawn from the nine.
 function fresh(): Persona {
 	return {
 		name: '',
@@ -85,17 +86,16 @@ function ModelChoice({
 	);
 }
 
-// A round button the size of a swatch, for the colors and the two about the look.
+// A round button the size of a swatch, for the colors and the one for another look.
 const ROUND =
 	'flex size-9 shrink-0 items-center justify-center rounded-full transition-[box-shadow,background-color] outline-none focus-visible:ring-3 focus-visible:ring-ring/50';
 
 // Making a persona, or changing one: its name, and its head, which looks at the cursor as the
-// person works, in one of the colors, with another look a click away and the way back to the one
-// it opened with; in an insider organization, the model it answers with too. Mount it keyed by
-// what is edited, so the fields start from it.
+// person works, in one of the colors, with another look a click away; in an insider
+// organization, the model it answers with too. Mount it keyed by what is edited, so the fields
+// start from it.
 export function PersonaDialog({open, initial, chooseModel, onClose, onSave, onDelete}: Props) {
-	const [opened] = useState<Persona>(() => initial ?? fresh());
-	const [persona, setPersona] = useState<Persona>(opened);
+	const [persona, setPersona] = useState<Persona>(() => initial ?? fresh());
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const ready = persona.name.trim() !== '';
@@ -194,19 +194,6 @@ export function PersonaDialog({open, initial, chooseModel, onClose, onSave, onDe
 									)}
 								>
 									<ShuffleIcon className="size-4" />
-								</button>
-								<button
-									type="button"
-									aria-label="The look it opened with"
-									title="The look it opened with"
-									disabled={persona.look === opened.look}
-									onClick={() => setPersona({...persona, look: opened.look})}
-									className={cn(
-										ROUND,
-										'border text-muted-foreground hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40',
-									)}
-								>
-									<RotateCcwIcon className="size-4" />
 								</button>
 							</div>
 						</div>

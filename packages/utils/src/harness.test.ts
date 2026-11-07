@@ -186,8 +186,8 @@ describe('sleepUntil', () => {
 });
 
 describe('heads', () => {
-	test('are one of eight colors, told from anything else', () => {
-		expect(AVATAR_COLORS).toHaveLength(8);
+	test('are one of nine colors, told from anything else', () => {
+		expect(AVATAR_COLORS).toHaveLength(9);
 		expect(isAvatarColor('blue')).toBe(true);
 		expect(isAvatarColor('brown')).toBe(false);
 	});

@@ -1,13 +1,15 @@
 import {Result} from 'ts-results-es';
 import {type AvatarColor, isAvatarColor, type Look} from '@proxy/utils/harness';
+import type {Group, PerspectiveCamera, Scene, Vector3, WebGLRenderer} from 'three';
 
 /**
- * A persona's head, drawn as the head lab draws it (design/head-lab): a sphere in the persona's
- * color with the eyes painted on, and a darker sphere for the nose, unlit, under a perspective
- * camera. One three.js renderer serves every head on the page, loaded the first time a head is
- * drawn, as its own chunk: a head is rendered into the renderer's canvas and copied into its own.
- * A still head is rendered once per look, color, pose and size, and copied from then on; a live
- * one is rendered every frame.
+ * A persona's head: a ball in the persona's color covered in straight strands with round tips,
+ * unlit, under a perspective camera, with two upright ink pills painted flat on top where its eyes are, so they follow the
+ * turning ball without ever turning themselves. The strands are laid out from a seed taken from the
+ * persona's look, so every persona has fur of its own. One three.js renderer serves every head on
+ * the page, loaded the first time a head is drawn, as its own chunk: a head is rendered into the
+ * renderer's canvas and copied into its own. A still head is rendered once per look, color, pose
+ * and size, and copied from then on; a live one is rendered every frame.
  */
 
 type Three = typeof import('three');
@@ -61,11 +63,8 @@ export function poseTowardPointer(
 }
 
 const DEG = Math.PI / 180;
-// How much darker than the head the nose is, in OKLCH lightness, and how the head fills its box.
-const NOSE_DARK = 0.22;
-const ZOOM = 1.25;
-// The lab's palette, as OKLCH, the same hues as the stylesheet's avatar colors.
-const HUES: Record<AvatarColor, [number, number, number]> = {
+// The palette, as OKLCH, the same hues as the stylesheet's avatar colors.
+const HUES: Record<Exclude<AvatarColor, 'mono'>, [number, number, number]> = {
 	red: [0.64, 0.21, 25],
 	orange: [0.72, 0.17, 55],
 	yellow: [0.8, 0.16, 90],
@@ -75,8 +74,74 @@ const HUES: Record<AvatarColor, [number, number, number]> = {
 	purple: [0.62, 0.2, 300],
 	pink: [0.7, 0.19, 350],
 };
-// How many rendered heads are kept.
+// The fur and the eyes: how many strands, how far they reach past the ball and how thick they are,
+// both as shares of its radius, and how much they vary; the eyes' size, how far apart they sit in
+// degrees, and their ink.
+const FUR = {count: 60, length: 0.36, width: 0.18, messiness: 0.45};
+const EYES = {size: 0.385, spread: 21, ink: '#18181b'};
+// How far the ink pills slide toward where the head looks, as a share of their size.
+const PILL_SLIDE = 0.3;
+// Strands start inside the ball, this far from its center, and reach this much further than their
+// length past its surface, so their roots never show.
+const STRAND_START = 0.82;
+const STRAND_INSET = 0.18;
+// How far from the middle of the camera's view the farthest strand may reach, in degrees: a little
+// short of the edge, half of its 30°, so a head is never clipped.
+const FRAME = 14;
+
+/** How long a blink takes, in milliseconds: the eyes closing and opening again. */
+export const BLINK_MS = 160;
+// How far the eyes close at the middle of a blink, as a share of their height.
+const BLINK_CLOSE = 0.88;
+// How long a head following the cursor goes between blinks of its own, in milliseconds.
+const BLINK_EVERY_MS = {least: 2000, most: 6000};
+
+/** How closed the eyes are, 0 to 1, at `now` in a blink that started at `start`; open with none. */
+export function blinkAmount(now: number, start: number | null): number {
+	if (start === null || now < start || now - start >= BLINK_MS) {
+		return 0;
+	}
+	return 1 - Math.abs((2 * (now - start)) / BLINK_MS - 1);
+}
+
+/** How long until a head following the cursor blinks again, in milliseconds. */
+export function nextBlinkDelay(random: () => number = Math.random): number {
+	return BLINK_EVERY_MS.least + random() * (BLINK_EVERY_MS.most - BLINK_EVERY_MS.least);
+}
+
+// How many times the heads have had to draw themselves again since the page opened, as its theme
+// changed, which mono heads take their color from.
+let redraws = 0;
+const redrawListeners = new Set<() => void>();
+let themeWatch: MutationObserver | null = null;
+
+function redrawAll(): void {
+	redraws++;
+	for (const listener of redrawListeners) {
+		listener();
+	}
+}
+
+/** Calls `listener` whenever the heads should be drawn again; returns what stops it. */
+export function subscribeRedraw(listener: () => void): () => void {
+	redrawListeners.add(listener);
+	if (themeWatch === null && typeof MutationObserver !== 'undefined') {
+		themeWatch = new MutationObserver(redrawAll);
+		themeWatch.observe(document.documentElement, {attributes: true, attributeFilter: ['class']});
+	}
+	return () => {
+		redrawListeners.delete(listener);
+	};
+}
+
+/** How many times the heads have had to be drawn again, as a version for `useSyncExternalStore`. */
+export function redrawVersion(): number {
+	return redraws;
+}
+
+// How many rendered heads are kept, and how many models.
 const CACHE_MAX = 300;
+const MODELS_MAX = 100;
 
 function oklchToHex(L: number, C: number, h: number): string {
 	const a = C * Math.cos(h * DEG);
@@ -103,39 +168,72 @@ function oklchToHex(L: number, C: number, h: number): string {
 		.join('')}`;
 }
 
-function hues(color: string): [number, number, number] {
-	return HUES[isAvatarColor(color) ? color : 'blue'];
+// Mono, the page's ink, on a light page and on a dark one.
+const MONO = {light: '#18181b', dark: '#fafafa'};
+
+// Whether the page is in its dark theme, as the theme provider marks it on the root element.
+function pageIsDark(): boolean {
+	return typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
 }
 
 function hexOf(color: string): string {
-	return oklchToHex(...hues(color));
+	if (color === 'mono') {
+		return pageIsDark() ? MONO.dark : MONO.light;
+	}
+	return oklchToHex(...HUES[isAvatarColor(color) && color !== 'mono' ? color : 'blue']);
 }
 
-function noseOf(color: string): string {
-	const [L, C, h] = hues(color);
-	return oklchToHex(L - NOSE_DARK, C * 0.9, h);
+// The eyes' ink: near-black, but white on mono's near-black body, so they still show.
+function inkOf(color: string): string {
+	if (color === 'mono' && !pageIsDark()) {
+		return '#ffffff';
+	}
+	return EYES.ink;
+}
+
+// A number from the look, so the same persona always gets the same fur.
+function seedOf(look: Look): number {
+	const text = JSON.stringify(look);
+	let h = 1779033703 ^ text.length;
+	for (let i = 0; i < text.length; i++) {
+		h = Math.imul(h ^ text.charCodeAt(i), 3432918353);
+		h = (h << 13) | (h >>> 19);
+	}
+	return h >>> 0;
+}
+
+// A random number generator from a seed (mulberry32).
+function random(seed: number): () => number {
+	let a = seed;
+	return () => {
+		a = (a + 0x6d2b79f5) | 0;
+		let t = Math.imul(a ^ (a >>> 15), 1 | a);
+		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
 }
 
 /** What makes one head: its look and its color. */
 export type HeadSpec = {look: Look; color: string};
 
+// One head's model: the ball and its fur, how far the fur reaches, and where on the ball its eyes are.
+type Model = {group: Group; reach: number; eyes: Vector3[]};
+
 type Stage = {
 	three: Three;
-	renderer: import('three').WebGLRenderer;
-	scene: import('three').Scene;
-	camera: import('three').PerspectiveCamera;
-	head: import('three').Mesh<import('three').SphereGeometry, import('three').MeshBasicMaterial>;
-	nose: import('three').Mesh<import('three').SphereGeometry, import('three').MeshBasicMaterial>;
-	group: import('three').Group;
-	outer: import('three').Group;
-	textures: Map<string, import('three').CanvasTexture>;
+	renderer: WebGLRenderer;
+	scene: Scene;
+	camera: PerspectiveCamera;
+	sphere: import('three').SphereGeometry;
+	strand: import('three').CylinderGeometry;
+	models: Map<string, Model>;
 	rendered: Map<string, HTMLCanvasElement>;
 };
 
 let loading: Promise<Stage | null> | null = null;
 
-// Builds the stage once: the renderer, the two spheres and the camera, as the lab has them. Null
-// where there is no WebGL, as in tests, so a head is left blank rather than thrown on.
+// Builds the stage once: the renderer, the shapes every head is made of and the camera. Null where
+// there is no WebGL, as in tests, so a head is left blank rather than thrown on.
 async function build(): Promise<Stage | null> {
 	if (typeof window === 'undefined' || typeof WebGLRenderingContext === 'undefined') {
 		return null;
@@ -154,28 +252,14 @@ async function build(): Promise<Stage | null> {
 		return null;
 	}
 	renderer.value.setClearColor(0, 0);
-	const sphere = new three.SphereGeometry(1, 96, 64);
-	const camera = new three.PerspectiveCamera(35, 1, 0.1, 100);
-	camera.position.z = 7;
-	const scene = new three.Scene();
-	const head = new three.Mesh(sphere, new three.MeshBasicMaterial());
-	const nose = new three.Mesh(sphere, new three.MeshBasicMaterial());
-	const group = new three.Group();
-	group.add(head);
-	group.add(nose);
-	const outer = new three.Group();
-	outer.add(group);
-	scene.add(outer);
 	return {
 		three,
 		renderer: renderer.value,
-		scene,
-		camera,
-		head,
-		nose,
-		group,
-		outer,
-		textures: new Map(),
+		scene: new three.Scene(),
+		camera: new three.PerspectiveCamera(30, 1, 0.1, 100),
+		sphere: new three.SphereGeometry(1, 32, 24),
+		strand: new three.CylinderGeometry(1, 1, 1, 8, 1).translate(0, 0.5, 0),
+		models: new Map(),
 		rendered: new Map(),
 	};
 }
@@ -188,88 +272,185 @@ export function loadStage(): Promise<Stage | null> {
 	return loading;
 }
 
-// The head's skin: its color, with the eyes painted where the look puts them, as the lab paints it.
-function skin(stage: Stage, spec: HeadSpec): import('three').CanvasTexture {
-	const key = JSON.stringify([
-		spec.color,
-		spec.look.eye,
-		spec.look.eyeTheta,
-		spec.look.eyeLat,
-		spec.look.eyes,
-	]);
-	const cached = stage.textures.get(key);
+// The head's model, facing +z: a ball, and strands spread evenly over it from the persona's seed,
+// each leaning a little and ending in a ball as wide as itself, kept clear of where the eyes are.
+function model(stage: Stage, spec: HeadSpec): Model {
+	const key = JSON.stringify([spec.look, hexOf(spec.color)]);
+	const cached = stage.models.get(key);
 	if (cached) {
 		return cached;
 	}
-	const width = 2048;
-	const height = 1024;
-	const canvas = document.createElement('canvas');
-	canvas.width = width;
-	canvas.height = height;
-	const context = canvas.getContext('2d');
-	if (!context) {
-		throw new Error('No 2d context for a head');
-	}
-	context.fillStyle = hexOf(spec.color);
-	context.fillRect(0, 0, width, height);
-	const v = 0.5 + (spec.look.eyeLat * DEG) / Math.PI;
-	const radius = (height / Math.PI) * spec.look.eye * DEG;
-	const sides = spec.look.eyes === 1 ? [-1] : [-1, 1];
-	for (const side of sides) {
-		const phi = Math.PI + side * spec.look.eyeTheta * DEG;
-		const u = phi / (2 * Math.PI);
-		context.fillStyle = '#ffffff';
-		context.beginPath();
-		context.ellipse(
-			u * width,
-			(1 - v) * height,
-			radius / Math.cos(spec.look.eyeLat * DEG),
-			radius,
-			0,
-			0,
-			Math.PI * 2,
+	const {three} = stage;
+	const next = random(seedOf(spec.look));
+	const material = new three.MeshBasicMaterial({color: hexOf(spec.color)});
+	const group = new three.Group();
+	group.add(new three.Mesh(stage.sphere, material));
+	const eyes = [-1, 1].map(
+		(side) => new three.Vector3(Math.sin(side * EYES.spread * DEG), 0, Math.cos(EYES.spread * DEG)),
+	);
+	const {count, width} = FUR;
+	const strands = new three.InstancedMesh(stage.strand, material, count);
+	const tips = new three.InstancedMesh(stage.sphere, material, count);
+	const clear = Math.cos(EYES.size * 1.15);
+	const golden = Math.PI * (3 - Math.sqrt(5));
+	const up = new three.Vector3(0, 1, 0);
+	const matrix = new three.Matrix4();
+	const turn = new three.Quaternion();
+	const none = new three.Quaternion();
+	const base = new three.Vector3();
+	const tip = new three.Vector3();
+	let placed = 0;
+	for (let i = 0; i < count; i++) {
+		const y = 1 - (i / (count - 1)) * 2;
+		const ring = Math.sqrt(1 - y * y);
+		const direction = new three.Vector3(
+			Math.cos(golden * i) * ring,
+			y,
+			Math.sin(golden * i) * ring,
 		);
-		context.fill();
-	}
-	const texture = new stage.three.CanvasTexture(canvas);
-	texture.colorSpace = stage.three.SRGBColorSpace;
-	texture.anisotropy = 8;
-	if (stage.textures.size > 50) {
-		for (const old of stage.textures.values()) {
-			old.dispose();
+		direction.x += (next() - 0.5) * 0.12 * FUR.messiness;
+		direction.y += (next() - 0.5) * 0.12 * FUR.messiness;
+		direction.z += (next() - 0.5) * 0.12 * FUR.messiness;
+		direction.normalize();
+		const length = FUR.length * (1 - FUR.messiness * 0.5 + next() * FUR.messiness) + STRAND_INSET;
+		const lean = direction
+			.clone()
+			.add(
+				new three.Vector3(next() - 0.5, next() - 0.5, next() - 0.5).multiplyScalar(
+					0.35 * FUR.messiness,
+				),
+			)
+			.normalize();
+		if (eyes.some((eye) => eye.dot(direction) > clear)) {
+			continue;
 		}
-		stage.textures.clear();
+		base.copy(direction).multiplyScalar(STRAND_START);
+		turn.setFromUnitVectors(up, lean);
+		matrix.compose(base, turn, new three.Vector3(width, length, width));
+		strands.setMatrixAt(placed, matrix);
+		tip.copy(lean).multiplyScalar(length).add(base);
+		matrix.compose(tip, none, new three.Vector3(width, width, width));
+		tips.setMatrixAt(placed, matrix);
+		placed++;
 	}
-	stage.textures.set(key, texture);
-	return texture;
+	strands.count = placed;
+	tips.count = placed;
+	group.add(strands, tips);
+	// The farthest any strand can reach from the center: where strands start, the longest one,
+	// and the ball on its tip.
+	const reach = STRAND_START + FUR.length * (1 + FUR.messiness * 0.5) + STRAND_INSET + width;
+	const made = {group, reach, eyes};
+	if (stage.models.size >= MODELS_MAX) {
+		forget(stage);
+	}
+	stage.models.set(key, made);
+	return made;
 }
 
-// Renders the head into the renderer's canvas, `px` wide and high.
-function render(stage: Stage, spec: HeadSpec, pose: Pose, px: number): HTMLCanvasElement {
+// Lets go of every model kept, and what each holds on the graphics card; the shapes they share stay.
+function forget(stage: Stage): void {
+	for (const kept of stage.models.values()) {
+		kept.group.traverse((part) => {
+			if (part instanceof stage.three.InstancedMesh) {
+				part.dispose();
+			}
+			if (part instanceof stage.three.Mesh && part.material instanceof stage.three.Material) {
+				part.material.dispose();
+			}
+		});
+	}
+	stage.models.clear();
+}
+
+// Paints the eyes flat on the rendered head: for each eye, where its spot on the ball lands on the
+// canvas, an upright ink pill, slid a little toward where the head looks. The pills are kept level
+// and alike, at the height and size the two would have on average, so a tilted or turned head
+// never shows one eye higher or larger than the other. An eye turned to the far side of the ball
+// isn't painted.
+function paintEyes(
+	stage: Stage,
+	context: CanvasRenderingContext2D,
+	made: Model,
+	spec: HeadSpec,
+	pose: Pose,
+	px: number,
+	blink: number,
+): void {
+	const {camera} = stage;
+	const lookX = Math.sin((pose.rotY - FACING.rotY) * DEG);
+	const lookY = Math.sin(pose.rotX * DEG);
+	const at = new stage.three.Vector3();
+	const inCamera = new stage.three.Vector3();
+	const spots: {x: number; y: number; radius: number}[] = [];
+	for (const eye of made.eyes) {
+		at.copy(eye).applyMatrix4(made.group.matrixWorld);
+		if (at.dot(camera.position.clone().sub(at)) <= 0) {
+			continue;
+		}
+		inCamera.copy(at).applyMatrix4(camera.matrixWorldInverse);
+		const radius = (EYES.size * px) / (2 * -inCamera.z * Math.tan((camera.fov / 2) * DEG));
+		at.project(camera);
+		spots.push({x: ((at.x + 1) / 2) * px, y: ((1 - at.y) / 2) * px, radius});
+	}
+	if (spots.length === 0) {
+		return;
+	}
+	const radius = spots.reduce((sum, spot) => sum + spot.radius, 0) / spots.length;
+	const y =
+		spots.reduce((sum, spot) => sum + spot.y, 0) / spots.length + lookY * radius * PILL_SLIDE;
+	const width = radius * 0.72;
+	// Blinking, the pills close toward their middle, rounded at whichever side is shorter.
+	const height = Math.max(radius * 1.85 * (1 - blink * BLINK_CLOSE), 1);
+	context.fillStyle = inkOf(spec.color);
+	for (const spot of spots) {
+		const x = spot.x + lookX * radius * PILL_SLIDE;
+		context.beginPath();
+		context.roundRect(x - width / 2, y - height / 2, width, height, Math.min(width, height) / 2);
+		context.fill();
+	}
+}
+
+// Renders the head, eyes and all, onto `target`, `px` wide and high.
+function render(
+	stage: Stage,
+	target: HTMLCanvasElement,
+	spec: HeadSpec,
+	pose: Pose,
+	px: number,
+	blink: number,
+): void {
+	const made = model(stage, spec);
 	stage.renderer.setSize(px, px, false);
-	stage.head.material.map = skin(stage, spec);
-	stage.head.material.needsUpdate = true;
-	stage.nose.material.color.set(noseOf(spec.color));
-	stage.nose.scale.setScalar(spec.look.nose);
-	stage.nose.position.set(1 + spec.look.noseOut * spec.look.nose, 0, 0);
-	stage.group.rotation.set(pose.rotX * DEG, pose.rotY * DEG, pose.rotZ * DEG);
-	stage.outer.scale.setScalar(ZOOM);
+	stage.camera.position.set(0, 0, made.reach / Math.sin(FRAME * DEG));
+	stage.camera.lookAt(0, 0, 0);
+	stage.camera.updateMatrixWorld();
+	made.group.rotation.set(pose.rotX * DEG, (pose.rotY - FACING.rotY) * DEG, pose.rotZ * DEG);
+	stage.scene.add(made.group);
 	stage.renderer.render(stage.scene, stage.camera);
-	return stage.renderer.domElement;
+	stage.scene.remove(made.group);
+	made.group.updateMatrixWorld();
+	if (target.width !== px || target.height !== px) {
+		target.width = px;
+		target.height = px;
+	}
+	const context = target.getContext('2d');
+	if (!context) {
+		return;
+	}
+	context.clearRect(0, 0, px, px);
+	context.drawImage(stage.renderer.domElement, 0, 0);
+	paintEyes(stage, context, made, spec, pose, px, blink);
 }
 
 // The head rendered once, kept as a canvas of its own for every other time it is drawn.
 function still(stage: Stage, spec: HeadSpec, pose: Pose, px: number): HTMLCanvasElement {
-	const key = JSON.stringify([spec, pose, px]);
+	const key = JSON.stringify([spec, hexOf(spec.color), pose, px]);
 	const cached = stage.rendered.get(key);
 	if (cached) {
 		return cached;
 	}
-	const source = render(stage, spec, pose, px);
 	const copy = document.createElement('canvas');
-	copy.width = px;
-	copy.height = px;
-	copy.getContext('2d')?.drawImage(source, 0, 0);
+	render(stage, copy, spec, pose, px, 0);
 	if (stage.rendered.size >= CACHE_MAX) {
 		stage.rendered.clear();
 	}
@@ -279,7 +460,7 @@ function still(stage: Stage, spec: HeadSpec, pose: Pose, px: number): HTMLCanvas
 
 /**
  * Draws the head on `target`, `px` wide and high: a still one from the cache, a live one rendered
- * now.
+ * now, its eyes `blink` closed (0 to 1).
  */
 export function paintHead(
 	stage: Stage,
@@ -288,8 +469,13 @@ export function paintHead(
 	pose: Pose,
 	px: number,
 	live: boolean,
+	blink = 0,
 ): void {
-	const source = live ? render(stage, spec, pose, px) : still(stage, spec, pose, px);
+	if (live) {
+		render(stage, target, spec, pose, px, blink);
+		return;
+	}
+	const source = still(stage, spec, pose, px);
 	if (target.width !== px || target.height !== px) {
 		target.width = px;
 		target.height = px;

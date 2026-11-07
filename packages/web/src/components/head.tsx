@@ -1,20 +1,25 @@
-import {useCallback, useEffect, useRef} from 'react';
+import {useCallback, useEffect, useRef, useSyncExternalStore} from 'react';
 import type {Look} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
 import {
+	BLINK_MS,
+	blinkAmount,
 	FACING,
 	FIRST_HOVER_DURATION_MS,
 	followAmount,
 	followTime,
 	loadStage,
+	nextBlinkDelay,
 	paintHead,
 	pixels,
 	poseTowardPointer,
 	type Pose,
 	REST,
+	redrawVersion,
+	subscribeRedraw,
 } from '@/lib/head';
 
-// A persona's head, drawn as the head lab draws it (lib/head.ts). It is decorative: the text
+// A persona's head, drawn as lib/head.ts draws it. It is decorative: the text
 // beside one always names it.
 
 /** A still head, `size` CSS pixels wide, in its pose; at rest unless another is given. */
@@ -32,8 +37,9 @@ export function Head({
 	className?: string;
 }) {
 	const ref = useRef<HTMLCanvasElement>(null);
-	// Drawn again only when the head itself changes, by value: the page reads its agents again as
-	// it goes, and gets new objects of the same heads each time.
+	const redraws = useSyncExternalStore(subscribeRedraw, redrawVersion);
+	// Drawn again only when the head itself changes, by value, or the page's theme does:
+	// the page reads its agents again as it goes, and gets new objects of the same heads each time.
 	const key = JSON.stringify([look, color, pose]);
 	const latest = useRef({look, color, pose});
 	useEffect(() => {
@@ -58,7 +64,7 @@ export function Head({
 		return () => {
 			current = false;
 		};
-	}, [key, size]);
+	}, [key, size, redraws]);
 	return (
 		<canvas
 			ref={ref}
@@ -105,9 +111,10 @@ function toward(canvas: HTMLCanvasElement, tracking: 'head' | 'viewport'): Pose 
 
 /**
  * A head that looks at the cursor while `watching`: facing you, turning toward the pointer
- * wherever it goes on the page; once it stops watching, it settles back to rest. Either way it is
- * drawn only while it has somewhere to go: once it is where it should look, it stays, drawn no
- * more until the pointer moves, or it is to look elsewhere.
+ * wherever it goes on the page, and blinking every few seconds; once it stops watching, it settles
+ * back to rest. Clicked, it blinks, watching or not. Either way it is drawn only while it has
+ * somewhere to go or is blinking: once it is where it should look, it stays, drawn no more until
+ * the pointer moves, it is to look elsewhere, or it blinks.
  */
 export function LiveHead({
 	look,
@@ -137,16 +144,42 @@ export function LiveHead({
 	const trackingMode = useRef(tracking);
 	const memory = useRef({recallPose, rememberPose});
 	const firstHoverUntil = useRef(0);
+	// When the blink under way started; none between blinks.
+	const blinkStart = useRef<number | null>(null);
 	const wake = useRef<(() => void) | null>(null);
+	const blink = useCallback(() => {
+		blinkStart.current = performance.now();
+		wake.current?.();
+	}, []);
 	const wakeFromPointer = useCallback(() => {
 		if (!watch.current) {
 			return;
 		}
 		wake.current?.();
 	}, []);
+	const redraws = useSyncExternalStore(subscribeRedraw, redrawVersion);
 	useEffect(() => {
 		memory.current = {recallPose, rememberPose};
 	}, [recallPose, rememberPose]);
+	// Blinks now and then, while it follows the cursor.
+	useEffect(() => {
+		if (!watching) {
+			return;
+		}
+		let timer = 0;
+		const plan = () => {
+			timer = window.setTimeout(() => {
+				blink();
+				plan();
+			}, nextBlinkDelay());
+		};
+		plan();
+		return () => window.clearTimeout(timer);
+	}, [watching, blink]);
+	// Drawn again with the page's theme as it is now.
+	useEffect(() => {
+		wake.current?.();
+	}, [redraws]);
 	useEffect(() => {
 		if (!watch.current && watching) {
 			firstHoverUntil.current = performance.now() + FIRST_HOVER_DURATION_MS;
@@ -206,9 +239,22 @@ export function LiveHead({
 					pose.rotY += (target.rotY - pose.rotY) * amount;
 					pose.rotZ += (target.rotZ - pose.rotZ) * amount;
 				}
+				const blinking = blinkStart.current !== null && now - blinkStart.current < BLINK_MS;
+				const closed = blinkAmount(now, blinkStart.current);
+				if (!blinking) {
+					blinkStart.current = null;
+				}
 				memory.current.rememberPose?.({...pose});
-				paintHead(stage, canvas, spec.current, pose, pixels(size), watch.current || !settled);
-				if (settled) {
+				paintHead(
+					stage,
+					canvas,
+					spec.current,
+					pose,
+					pixels(size),
+					watch.current || !settled || blinking,
+					closed,
+				);
+				if (settled && !blinking) {
 					running = false;
 					return;
 				}
@@ -240,6 +286,7 @@ export function LiveHead({
 			aria-hidden
 			data-slot="live-head"
 			data-state={watching ? 'watching' : 'rest'}
+			onClick={blink}
 			className={cn('shrink-0', className)}
 			style={{width: size, height: size}}
 		/>
