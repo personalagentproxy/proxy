@@ -330,18 +330,6 @@ describe('runAgentTool', () => {
 		expect(connector.list.mock.calls[0]?.[1]).toMatchObject({filter: null});
 	});
 
-	test('limited to tools that read, or to those that change something, any other is refused unlogged', async () => {
-		const {runAgentTool} = await import('./tools');
-		const readingAWrite = await runAgentTool(caller, 'vault-1', 'entries_create', {title: 'New'}, {readOnly: true});
-		const runningARead = await runAgentTool(caller, 'vault-1', 'entries_list', {}, {readOnly: false});
-
-		expect(readingAWrite.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'entries_create changes something: use run for it'});
-		expect(runningARead.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'entries_list only reads: use read for it'});
-		expect(connector.create).not.toHaveBeenCalled();
-		expect(connector.list).not.toHaveBeenCalled();
-		expect(logAgentRequest).not.toHaveBeenCalled();
-	});
-
 	test('a connection outside the organization or a tool the integration lacks is not found and not logged', async () => {
 		const {runAgentTool} = await import('./tools');
 		const tool = await runAgentTool(caller, 'vault-1', 'entries_send', {});
@@ -665,7 +653,7 @@ describe('custom MCP servers', () => {
 
 	test('runs a tool the agent may run with its params as given, and logs it by name with them', async () => {
 		const {runAgentTool} = await import('./tools');
-		const result = await runAgentTool(caller, 'mcp-1', 'search_docs', {query: 'invoices', limit: 3}, {readOnly: true});
+		const result = await runAgentTool(caller, 'mcp-1', 'search_docs', {query: 'invoices', limit: 3});
 
 		expect(result.unwrap()).toEqual({text: '3 results'});
 		expect(callCustomTool).toHaveBeenCalledWith(customConnection, 'search_docs', {query: 'invoices', limit: 3});
@@ -680,13 +668,12 @@ describe('custom MCP servers', () => {
 		});
 	});
 
-	test('a tool the agent may not run is refused and logged as denied; a tool that changes something is not run with read', async () => {
+	test('a tool the agent may not run is refused and logged as denied; params that are not an object are refused unlogged', async () => {
 		const {runAgentTool} = await import('./tools');
 		expect((await runAgentTool(caller, 'mcp-1', 'publish_doc', {id: 'doc-1'})).unwrapErr().kind).toBe('forbidden');
 		expect(callCustomTool).not.toHaveBeenCalled();
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'tools', action: 'publish_doc', query: '{"id":"doc-1"}', outcome: 'denied'});
 
-		expect((await runAgentTool(caller, 'mcp-1', 'publish_doc', {}, {readOnly: true})).unwrapErr().kind).toBe('validation_error');
 		expect((await runAgentTool(caller, 'mcp-1', 'search_docs', 'invoices')).unwrapErr().kind).toBe('validation_error');
 		expect(logAgentRequest).toHaveBeenCalledTimes(1);
 	});
@@ -750,7 +737,7 @@ describe("an integration's own tools", () => {
 
 	test('run by the runner with the params as given, for the caller on the connection, and logged by name with them', async () => {
 		const {runAgentTool} = await import('./tools');
-		const result = await runAgentTool(caller, 'vault-1', 'entries_count', {type: 'Address'}, {readOnly: true});
+		const result = await runAgentTool(caller, 'vault-1', 'entries_count', {type: 'Address'});
 
 		expect(result.unwrap()).toEqual({text: '3 entries'});
 		expect(countEntries).toHaveBeenCalledWith({caller, connection: vaultConnection, params: {type: 'Address'}});
@@ -764,14 +751,13 @@ describe("an integration's own tools", () => {
 		});
 	});
 
-	test('one the agent lacks the action for is refused and logged as denied; one that changes something is not run with read', async () => {
+	test('one the agent lacks the action for is refused and logged as denied', async () => {
 		getAgentById.mockResolvedValue(Ok({...agent, grants: []}));
 		const {runAgentTool} = await import('./tools');
 
 		expect((await runAgentTool(caller, 'vault-1', 'entries_purge', {days: 30})).unwrapErr().kind).toBe('forbidden');
 		expect(purgeEntries).not.toHaveBeenCalled();
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'tools', action: 'entries_purge', query: '{"days":30}', outcome: 'denied'});
-		expect((await runAgentTool(caller, 'vault-1', 'entries_purge', {days: 30}, {readOnly: true})).unwrapErr().kind).toBe('validation_error');
 		expect(logAgentRequest).toHaveBeenCalledTimes(1);
 	});
 

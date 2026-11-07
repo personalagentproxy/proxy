@@ -12,11 +12,11 @@ import type {HarnessStore} from './store';
  * started from is, so what the sub-agent did is theirs alone to see. A sub-agent starts with one,
  * made as it is (conversation.ts subAgentStart). It is finished each time the sub-agent stops, and
  * under way again once a message takes the sub-agent up (db/harness). One left open, as when it
- * slept long, is taken up again by its next call (@proxy/utils/tasks); one finished by finish_task
- * from the agent's login elsewhere while the sub-agent is still at work is replaced with a new one
- * for the same piece of work, the title and goal the one before had, once the sub-agent makes a
- * call again, since the gate refuses calls for it and the sub-agent has no start_task of its own
- * (tool-surface). The agent talking with the person has none: it makes no calls but to
+ * slept long, is taken up again by its next call (@proxy/utils/tasks); one finished by
+ * pap.finishTask from the agent's login elsewhere while the sub-agent is still at work is replaced
+ * with a new one for the same piece of work, the title and goal the one before had, once the
+ * sub-agent makes a call again, since the gate refuses calls for it and the sub-agent starts no
+ * task of its own (tool-surface). The agent talking with the person has none: it makes no calls but to
  * its sub-agents.
  */
 

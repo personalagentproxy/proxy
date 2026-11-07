@@ -17,12 +17,12 @@ import {isGateTool} from './tool-surface';
  * A tool job: one call the model made, run and answered in the log. The agent talking with the
  * person has two: setting an alert, at a time or a watch on the connections it may read with the
  * collection (alerts.ts), and cancelling one; starting a sub-agent and messaging one are done as
- * the answer is written (conversation.ts planCall). A sub-agent's calls to the MCP server's tools
- * go through the gate as the sub-agent acting as the member, for its task, logged like any agent's
- * call. A sleep answers with the time, since its job was due when the sleep ended, or when a
- * message woke it, which follows the answer. A call that changes something is never run twice: a
- * worker that was interrupted mid-call leaves the outcome unknown, and the model is told so rather
- * than the call being made again; a call that sets an alert sets it in the transaction that answers
+ * the answer is written (conversation.ts planCall). A sub-agent's scripts make their calls through
+ * the gate as the sub-agent acting as the member, for its task, logged like any agent's call. A
+ * sleep answers with the time, since its job was due when the sleep ended, or when a message woke
+ * it, which follows the answer. A script, which may change something, is never run twice: a worker
+ * that was interrupted mid-script leaves the outcome unknown, and the model is told so rather than
+ * the script being run again; a call that sets an alert sets it in the transaction that answers
  * it, so a job run again after it was answered sets nothing more.
  */
 
@@ -55,7 +55,7 @@ function runGateTool(store: ToolJobStore, thread: ThreadRow, name: string, args:
 	return Do(async ($) => {
 		const signedIn = $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
 		const taskId = $(await ensureThreadTask(store, thread));
-		const result = await callMcpTool(signedIn, name, {...args, task: taskId}, false, 'harness');
+		const result = await callMcpTool(signedIn, name, {...args, task: taskId}, 'harness');
 		return {text: cutResult(result.content.map((part) => part.text).join('\n')), isError: result.isError === true};
 	});
 }
@@ -127,8 +127,8 @@ function answer(store: ToolJobStore, thread: ThreadRow, job: JobRow, call: ToolC
 		if (!isGateTool(call.name) || thread.parentThreadId === null) {
 			return error(`There is no tool ${call.name}.`);
 		}
-		// A write run by a worker that lost the job mid-call may have gone through.
-		if (call.name === 'run' && job.attempts > 1) {
+		// A script run by a worker that lost the job mid-call may have changed something.
+		if (job.attempts > 1) {
 			return error('The outcome of this call is unknown: the worker running it was interrupted before it could record the answer. Check what it changed before making it again.');
 		}
 		return $(await runGateTool(store, thread, call.name, args));

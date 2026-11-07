@@ -13,7 +13,7 @@ const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', pro
 const callMcpTool = mock();
 mock.module('../mcp/tools', () => ({callMcpTool}));
 
-mock.module('./tool-surface', () => ({isGateTool: (name: string) => ['read', 'run', 'list_connections', 'list_tools', 'send_feedback'].includes(name)}));
+mock.module('./tool-surface', () => ({isGateTool: (name: string) => name === 'script'}));
 
 // What the agent reaches, acting as the member, for a watch (alerts.ts watchableConnections), and
 // the connectors, each polling its collection.
@@ -94,8 +94,8 @@ beforeEach(() => {
 		}),
 	);
 	getJobThread.mockResolvedValue(Ok(thread));
-	getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'read', arguments: '{"connection":"mail-1","tool":"emails_list"}'}])));
-	callMcpTool.mockResolvedValue({content: [{type: 'text', text: '{"records":[]}'}], structuredContent: {records: []}});
+	getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'script', arguments: '{"code":"return await pap.call(\\"mail-1\\", \\"emails_list\\");"}'}])));
+	callMcpTool.mockResolvedValue({content: [{type: 'text', text: '{"records":[]}'}]});
 });
 
 describe('runToolJob', () => {
@@ -105,17 +105,17 @@ describe('runToolJob', () => {
 		const result = await runToolJob(store, job('c1'), 'w1', now);
 
 		expect(result.isOk()).toBe(true);
-		expect(callMcpTool).toHaveBeenCalledWith(signedIn, 'read', {connection: 'mail-1', tool: 'emails_list', task: 'task-1'}, false, 'harness');
+		expect(callMcpTool).toHaveBeenCalledWith(signedIn, 'script', {code: 'return await pap.call("mail-1", "emails_list");', task: 'task-1'}, 'harness');
 		expect(completeToolJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: '{"records":[]}', isError: false});
 	});
 
 	test('the conversation’s agent has no tool that takes a job, and a sub-agent can’t message one', async () => {
 		const {runToolJob} = await import('./tool-job');
 		getJobThread.mockResolvedValue(Ok(conversation));
-		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'read', arguments: '{}'}])));
+		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'script', arguments: '{}'}])));
 
 		await runToolJob(store, {...job('c1'), threadId: 'thread-0'}, 'w1', now);
-		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-0', {callId: 'c1', text: 'There is no tool read.', isError: true});
+		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-0', {callId: 'c1', text: 'There is no tool script.', isError: true});
 		expect(callMcpTool).not.toHaveBeenCalled();
 
 		getJobThread.mockResolvedValue(Ok(thread));
@@ -143,19 +143,14 @@ describe('runToolJob', () => {
 		expect(completeToolJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: 'You were woken, and it is now 2026-10-21T10:00:00.000Z.', isError: false});
 	});
 
-	test('a write a worker was interrupted in is not made again: the model is told the outcome is unknown', async () => {
+	test('a script a worker was interrupted in is not run again, since it may have changed something: the model is told the outcome is unknown', async () => {
 		const {runToolJob} = await import('./tool-job');
-		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'run', arguments: '{"connection":"mail-1","tool":"emails_send","params":{"id":"m1"}}'}])));
+		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'script', arguments: '{"code":"await pap.call(\\"mail-1\\", \\"emails_send\\", {id: \\"m1\\"});"}'}])));
 
 		await runToolJob(store, job('c1', 2), 'w1', now);
 
 		expect(callMcpTool).not.toHaveBeenCalled();
 		expect(completeToolJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: expect.stringContaining('outcome of this call is unknown'), isError: true});
-
-		// A read is simply made again.
-		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'read', arguments: '{}'}])));
-		await runToolJob(store, job('c1', 2), 'w1', now);
-		expect(callMcpTool).toHaveBeenCalledTimes(1);
 	});
 
 	test('bad arguments, an unknown tool and a missing call are answered or failed, never thrown', async () => {
@@ -163,7 +158,7 @@ describe('runToolJob', () => {
 		getEntry.mockResolvedValue(
 			Ok(
 				entryWith([
-					{id: 'c1', name: 'read', arguments: 'not json'},
+					{id: 'c1', name: 'script', arguments: 'not json'},
 					{id: 'c2', name: 'fly', arguments: '{}'},
 				]),
 			),

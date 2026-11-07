@@ -1,22 +1,19 @@
 import {CREATE_SUBAGENT_TOOL, SEND_TO_PARENT_TOOL, SEND_TO_SUBAGENT_TOOL, SLEEP_TOOL} from '@proxy/utils/harness';
 
 import type {ModelTool} from '../llm/open-router';
-import {MCP_TOOLS, type McpToolDefinition} from '../mcp/tools';
+import {SCRIPT_TOOL, scriptToolDescription} from '../mcp/tools';
 import {CANCEL_ALERT_TOOL, SET_ALERT_PARAMETERS, SET_ALERT_TOOL} from './alerts';
 
 /**
  * The tools the built-in agent has. The agent talking with the person has four: to start a
  * sub-agent on a brief, to send a message to one it started, which keeps what it did and found
  * and takes the message up, to set an alert, a wake-up outside the conversation, at a time or when
- * something new in the person's accounts carries certain words, and to cancel one. A sub-agent has the MCP server's, as any agent gets them, less
- * the two about tasks, since every call it makes is for its own task and the loop fills it in
- * (tool-job.ts); and two of its own, to send a message to the agent it works for, and to be woken
- * later. Nothing else: everything done to the person's accounts goes through the same gate as
- * Claude's calls.
+ * something new in the person's accounts carries certain words, and to cancel one. A sub-agent has
+ * the MCP server's script, as any agent gets it, less starting and finishing tasks, since every
+ * call it makes is for its own task and the loop fills it in (tool-job.ts); and two of its own, to
+ * send a message to the agent it works for, and to be woken later. Nothing else: everything done
+ * to the person's accounts goes through the same gate as Claude's calls.
  */
-
-// The MCP tools a sub-agent doesn't need: its task is its own.
-const TASK_TOOLS = new Set(['start_task', 'finish_task']);
 
 const CREATE_SUBAGENT: ModelTool = {
 	name: CREATE_SUBAGENT_TOOL,
@@ -97,39 +94,31 @@ const CANCEL_ALERT: ModelTool = {
 	},
 };
 
-// What the tools that take a task are for, said without it; every other tool keeps the MCP
-// server's words.
-const DESCRIPTIONS: Record<string, string> = {
-	list_connections:
-		'Call this before reporting that a service isn’t connected: the person’s email, meeting notes, documents or issues may well be here. The accounts and information you can use, such as a mailbox or the person’s vault, each with its id and what you may do with it.',
-	list_tools:
-		'The tools you have with one connection: each one’s name, what it does, whether it runs with read or run, its risk, and the JSON Schema of its params. Take `connection` from list_connections.',
-	read: 'Runs a tool that only reads, such as listing or opening emails: never changes anything. Take `connection` from list_connections and `tool` from list_tools.',
-	run: 'Runs a tool that changes something or reaches other people, such as archiving an email, saving a draft or sending one. Take `connection` from list_connections and `tool` from list_tools.',
+// The script tool without its `task` param, which the loop fills in, and without starting or
+// finishing a task, which the loop does.
+const SCRIPT: ModelTool = {
+	name: SCRIPT_TOOL,
+	description: scriptToolDescription(false),
+	parameters: {
+		type: 'object',
+		properties: {code: {type: 'string', description: 'The script: JavaScript or TypeScript, the body of an async function'}},
+		required: ['code'],
+		additionalProperties: false,
+	},
 };
-
-// The MCP tool without its `task` param, which the loop fills in.
-function withoutTask(tool: McpToolDefinition): ModelTool {
-	const {task: _task, ...properties} = tool.inputSchema.properties;
-	return {
-		name: tool.name,
-		description: DESCRIPTIONS[tool.name] ?? tool.description,
-		parameters: {...tool.inputSchema, properties, required: tool.inputSchema.required.filter((name) => name !== 'task')},
-	};
-}
 
 /** The tools the agent talking with the person is given: starting a sub-agent and messaging one, setting an alert and cancelling one, and nothing else. */
 export const MAIN_AGENT_TOOLS: ModelTool[] = [CREATE_SUBAGENT, SEND_TO_SUBAGENT, SET_ALERT, CANCEL_ALERT];
 
-/** The tools a sub-agent is given: the MCP server's but the task ones, in the order it lists them, a message to the agent it works for, and a sleep. */
-export const SUB_AGENT_TOOLS: ModelTool[] = [...MCP_TOOLS.filter((tool) => !TASK_TOOLS.has(tool.name)).map(withoutTask), SEND_TO_PARENT, SLEEP];
+/** The tools a sub-agent is given: the MCP server's script, a message to the agent it works for, and a sleep. */
+export const SUB_AGENT_TOOLS: ModelTool[] = [SCRIPT, SEND_TO_PARENT, SLEEP];
 
 /** The tools the model is given on a thread: a sub-agent's, or the main agent's. */
 export function toolsFor(thread: {parentThreadId: string | null}): ModelTool[] {
 	return thread.parentThreadId === null ? MAIN_AGENT_TOOLS : SUB_AGENT_TOOLS;
 }
 
-/** Whether a tool call is for one of the MCP server's tools, run through the gate. */
+/** Whether a tool call is a script, whose calls go through the gate. */
 export function isGateTool(name: string): boolean {
-	return MCP_TOOLS.some((tool) => tool.name === name && !TASK_TOOLS.has(tool.name));
+	return name === SCRIPT_TOOL;
 }

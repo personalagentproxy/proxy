@@ -1,5 +1,4 @@
 import {createHash, randomUUID} from 'node:crypto';
-import type {IncomingHttpHeaders} from 'node:http';
 
 import type {Request, Response} from 'express';
 import {z} from 'zod';
@@ -9,7 +8,6 @@ import type {SignedInAgent} from '@proxy/db/agent';
 import {authenticateBearer, wwwAuthenticate} from '../oauth/authenticate';
 import {requireAppUrl} from '../oauth/oauth-config';
 import {log, serializeError} from '../observability/log';
-import {isPreTaskCall} from './pre-task-clients';
 import {callMcpTool, MCP_TOOLS, serverInstructions} from './tools';
 
 /**
@@ -19,7 +17,8 @@ import {callMcpTool, MCP_TOOLS, serverInstructions} from './tools';
  *
  * The session id `initialize` hands out ends in the version of the tool list, the only thing a
  * session holds. When a client calls a tool on a session from before the list changed, as after a
- * deploy, the answer comes as a stream that first says the list changed, so the client fetches it
+ * deploy, or calls one the list no longer has, as a client from before there was only `script`
+ * does, the answer comes as a stream that first says the list changed, so the client fetches it
  * again. That is the only push; there is no stream to GET.
  */
 
@@ -62,7 +61,7 @@ async function initialize(signedIn: SignedInAgent, params: Record<string, unknow
 
 // The answer to one message: null for a notification, or for a client's answer to a request,
 // which this server never makes.
-async function answer(signedIn: SignedInAgent, message: unknown, headers: IncomingHttpHeaders): Promise<JsonRpcResponse | null> {
+async function answer(signedIn: SignedInAgent, message: unknown): Promise<JsonRpcResponse | null> {
 	const parsed = messageSchema.safeParse(message);
 	if (!parsed.success) {
 		return failure(null, -32600, 'Invalid request');
@@ -82,13 +81,10 @@ async function answer(signedIn: SignedInAgent, message: unknown, headers: Incomi
 	}
 	if (method === 'tools/call') {
 		const call = callParamsSchema.safeParse(params);
-		if (!call.success || !MCP_TOOLS.some((tool) => tool.name === call.data.name)) {
-			return failure(id, -32602, `Unknown tool. The tools are ${MCP_TOOLS.map((tool) => tool.name).join(', ')}.`);
+		if (!call.success || !isListed(call.data.name)) {
+			return failure(id, -32602, `Unknown tool. Personal Agent Proxy has one tool, ${MCP_TOOLS.map((tool) => tool.name).join(', ')}: fetch the tool list again.`);
 		}
-		const args = call.data.arguments ?? {};
-		// PRE-TASK CLIENTS: whether the call is a pre-task client's (pre-task-clients.ts).
-		const preTask = isPreTaskCall(headers, call.data.name, args);
-		return {jsonrpc: '2.0', id, result: await callMcpTool(signedIn, call.data.name, args, preTask)};
+		return {jsonrpc: '2.0', id, result: await callMcpTool(signedIn, call.data.name, call.data.arguments ?? {})};
 	}
 	return failure(id, -32601, `Method not found: ${method}`);
 }
@@ -121,7 +117,7 @@ export async function handleMcpRoute(req: Request, res: Response): Promise<void>
 	const messages: unknown[] = Array.isArray(body) ? body : [body];
 	const answers: JsonRpcResponse[] = [];
 	for (const message of messages) {
-		const reply = await answer(signedIn.value, message, req.headers);
+		const reply = await answer(signedIn.value, message);
 		if (reply) {
 			answers.push(reply);
 		}
@@ -141,6 +137,10 @@ export async function handleMcpRoute(req: Request, res: Response): Promise<void>
 	res.json(Array.isArray(body) ? answers : answers[0]);
 }
 
+function isListed(name: string): boolean {
+	return MCP_TOOLS.some((tool) => tool.name === name);
+}
+
 function isMethod(message: unknown, method: string): boolean {
 	return messageSchema.safeParse(message).data?.method === method;
 }
@@ -156,17 +156,16 @@ function toolCalls(messages: unknown[]): Array<z.infer<typeof callParamsSchema>>
 	});
 }
 
-// Whether the request calls a tool from a session from before the tool list last changed, and
-// the client can take a stream to be told so. A client with no session, or one that only takes
-// JSON, can't be told.
+// Whether the request calls a tool from a session from before the tool list last changed, or one
+// the list doesn't have, and the client can take a stream to be told so. A client that only takes
+// JSON can't be told.
 function holdsOldTools(req: Request, messages: unknown[]): boolean {
 	const calls = toolCalls(messages);
 	const accept = req.headers.accept ?? '';
 	if (calls.length === 0 || !accept.includes('text/event-stream')) {
 		return false;
 	}
-	// PRE-TASK CLIENTS: a pre-task client's call is told too, so it fetches the list with start_task.
-	if (calls.some((call) => isPreTaskCall(req.headers, call.name, call.arguments ?? {}))) {
+	if (calls.some((call) => !isListed(call.name))) {
 		return true;
 	}
 	const session = req.headers['mcp-session-id'];
