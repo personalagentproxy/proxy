@@ -456,3 +456,17 @@ export async function markOrganizationOnboarded(orgId: string): Promise<Result<v
 		)
 	).map(() => undefined);
 }
+
+/** Makes every organization the person owns an insider; development's dev sign-in, never the app's. */
+export async function markOwnedOrganizationsInsider(
+	userId: string,
+): Promise<Result<void, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.organization.updateMany({
+				where: {ownerUserId: userId, insider: false},
+				data: {insider: true},
+			}),
+		)
+	).map(() => undefined);
+}

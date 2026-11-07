@@ -25,6 +25,10 @@ mock.module('@proxy/db/user', () => ({
 
 mock.module('../orgs/provision', () => ({signUp: createUser}));
 
+const markOwnedOrganizationsInsider = mock();
+
+mock.module('@proxy/db/organization', () => ({markOwnedOrganizationsInsider}));
+
 mock.module('../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
 	serializeError: mock(() => ({})),
@@ -61,6 +65,7 @@ beforeEach(() => {
 	getUserByEmail.mockResolvedValue(Ok(null));
 	createUser.mockResolvedValue(Ok(devUser));
 	createSession.mockResolvedValue(Ok(undefined));
+	markOwnedOrganizationsInsider.mockResolvedValue(Ok(undefined));
 });
 
 describe('handleDevLoginRoute', () => {
@@ -86,6 +91,7 @@ describe('handleDevLoginRoute', () => {
 		expect(createUserArgs.email).toBe('dev@dev.proxy.local');
 		expect(createUserArgs.name).toBe('Dev User');
 		expect(createUserArgs.emailVerified).toBeInstanceOf(Date);
+		expect(markOwnedOrganizationsInsider).toHaveBeenCalledWith(devUser.id);
 
 		const sessionArgs = createSession.mock.calls[0]?.[0] as {tokenHash: string; userId: string; expires: Date};
 		expect(sessionArgs.userId).toBe(devUser.id);
@@ -115,6 +121,7 @@ describe('handleDevLoginRoute', () => {
 		await handleDevLoginRoute({body: {}, headers: {}} as never, res as never);
 
 		expect(createUser).not.toHaveBeenCalled();
+		expect(markOwnedOrganizationsInsider).toHaveBeenCalledWith(devUser.id);
 		const sessionArgs = createSession.mock.calls[0]?.[0] as {userId: string};
 		expect(sessionArgs.userId).toBe(devUser.id);
 		expect(res.json).toHaveBeenCalledWith({ok: true});
@@ -130,6 +137,7 @@ describe('handleDevLoginRoute', () => {
 		expect(getUserByEmail).not.toHaveBeenCalled();
 		const createUserArgs = createUser.mock.calls[0]?.[0] as {email: string};
 		expect(createUserArgs.email).toMatch(/^dev-[0-9a-f]{16}@dev\.proxy\.local$/);
+		expect(markOwnedOrganizationsInsider).not.toHaveBeenCalled();
 		const sessionArgs = createSession.mock.calls[0]?.[0] as {userId: string};
 		expect(sessionArgs.userId).toBe(throwawayUser.id);
 	});
@@ -158,6 +166,19 @@ describe('handleDevLoginRoute', () => {
 		expect(res.json).toHaveBeenCalledWith({error: 'user_creation_failed'});
 		expect(createSession).not.toHaveBeenCalled();
 		expect(res.cookies).toHaveLength(0);
+	});
+
+	test('insider marking failure → 500, no session', async () => {
+		getUserByEmail.mockResolvedValue(Ok(devUser));
+		markOwnedOrganizationsInsider.mockResolvedValue(Err(ApiErr.dbError(new Error('boom'))));
+
+		const {handleDevLoginRoute} = await import('./dev-login');
+		const res = makeRes();
+		await handleDevLoginRoute({body: {}, headers: {}} as never, res as never);
+
+		expect(res.status).toHaveBeenCalledWith(500);
+		expect(res.json).toHaveBeenCalledWith({error: 'user_creation_failed'});
+		expect(createSession).not.toHaveBeenCalled();
 	});
 
 	test('session creation failure → 500, no cookie', async () => {
