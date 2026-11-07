@@ -237,7 +237,7 @@ function PersonaList({
 							<ContextMenuContent>
 								<ContextMenuItem onClick={() => onEdit(persona)}>
 									<PencilIcon />
-									Rename
+									Edit
 								</ContextMenuItem>
 								<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
 									<Trash2Icon />
