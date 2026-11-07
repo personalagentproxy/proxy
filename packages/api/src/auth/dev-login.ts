@@ -3,8 +3,9 @@ import {randomBytes} from 'node:crypto';
 import type {Request, Response} from 'express';
 import {Ok, type Result} from 'ts-results-es';
 
+import {markOwnedOrganizationsInsider} from '@proxy/db/organization';
 import {type CreatedUser, getUserByEmail} from '@proxy/db/user';
-import type {ApiError} from '@proxy/utils';
+import {type ApiError, Do} from '@proxy/utils';
 
 import {log} from '../observability/log';
 import {signUp} from '../orgs/provision';
@@ -17,7 +18,9 @@ const DEV_USER_EMAIL = `dev@${DEV_USER_EMAIL_DOMAIN}`;
 
 /**
  * `POST /auth/dev/login` — signs the browser in as the dev user, made on its first sign-in and the
- * same one every time after, skipping Google and the magic link. With `{fresh: true}` it makes a
+ * same one every time after, skipping Google and the magic link. Every organization the dev user
+ * owns is made an insider on each sign-in, so it has every experiment and its personas' model to
+ * choose, one made since too. With `{fresh: true}` it makes a
  * throwaway user instead, whose organization still has the welcome flow ahead of it, as the screen
  * map's crawl needs. Any NODE_ENV but development gets a 404, as if the route did not exist.
  */
@@ -48,6 +51,14 @@ export async function handleDevLoginRoute(req: Request, res: Response): Promise<
 }
 
 async function findOrCreateDevUser(): Promise<Result<CreatedUser, ApiError>> {
+	return Do(async ($) => {
+		const user = $(await getOrSignUpDevUser());
+		$(await markOwnedOrganizationsInsider(user.id));
+		return user;
+	});
+}
+
+async function getOrSignUpDevUser(): Promise<Result<CreatedUser, ApiError>> {
 	const existing = await getUserByEmail(DEV_USER_EMAIL);
 	if (existing.isErr()) {
 		return existing;
