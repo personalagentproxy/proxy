@@ -44,7 +44,16 @@ export type ModelTool = {name: string; description: string; parameters: object};
 export type {ModelMessage};
 
 // Which hosts of the model OpenRouter may send the request to.
-type ProviderPolicy = {order?: string[]; allow_fallbacks?: boolean; data_collection: 'deny'; zdr?: boolean};
+type ProviderPolicy = {order?: string[]; only?: string[]; allow_fallbacks?: boolean; data_collection: 'deny'; zdr?: boolean};
+
+// Only a host that neither keeps prompts nor trains on them: the conversation is the person's,
+// and what their email and notes say is in it. GLM is open, served by dozens of hosts, the
+// cheapest of them the least known: it goes only to these, American, and only where OpenRouter
+// records them as keeping nothing, not even for a while to check for abuse.
+const TURN_PROVIDERS: Record<ChatModel, ProviderPolicy> = {
+	claude: {data_collection: 'deny'},
+	glm: {only: ['together', 'fireworks', 'deepinfra', 'baseten'], data_collection: 'deny', zdr: true},
+};
 
 // What is sent to OpenRouter.
 type CompletionBody = {
@@ -206,9 +215,7 @@ export function askForTurn(request: TurnRequest): Promise<Result<ModelTurn, ApiE
 					messages: request.messages,
 					tools: request.tools.map((tool) => ({type: 'function', function: {name: tool.name, description: tool.description, parameters: tool.parameters}})),
 					max_tokens: request.maxTokens,
-					// Only a host that neither keeps prompts nor trains on them: the conversation is
-					// the person's, and what their email and notes say is in it.
-					provider: {data_collection: 'deny'},
+					provider: TURN_PROVIDERS[request.model],
 				},
 				request.timeoutMs,
 				{model: request.model, purpose: 'turn'},

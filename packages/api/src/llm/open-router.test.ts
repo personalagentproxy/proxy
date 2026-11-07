@@ -32,7 +32,7 @@ const request = {
 };
 
 // The body of the request made to OpenRouter.
-function sent(): {model: string; messages: unknown[]; tools: unknown[]; max_tokens: number; provider: {data_collection: string}} {
+function sent(): {model: string; messages: unknown[]; tools: unknown[]; max_tokens: number; provider: Record<string, unknown>} {
 	return JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
 }
 
@@ -48,14 +48,14 @@ describe('askForTurn', () => {
 		expect(body.messages).toEqual(request.messages);
 		expect(body.tools).toEqual([{type: 'function', function: {name: 'read', description: 'Reads', parameters: {type: 'object', properties: {}}}}]);
 		expect(body.max_tokens).toBe(100);
-		expect(body.provider.data_collection).toBe('deny');
+		expect(body.provider).toEqual({data_collection: 'deny'});
 	});
 
-	test('asks GLM 5.3 for a persona switched to it', async () => {
+	test('asks GLM 5.3 for a persona switched to it, only of the hosts chosen, and only where they keep nothing', async () => {
 		await askForTurn({...request, model: 'glm'});
 
 		expect(sent().model).toBe('z-ai/glm-5.3');
-		expect(sent().provider.data_collection).toBe('deny');
+		expect(sent().provider).toEqual({only: ['together', 'fireworks', 'deepinfra', 'baseten'], data_collection: 'deny', zdr: true});
 	});
 
 	test('reads the calls the model made, with their arguments as it wrote them', async () => {
