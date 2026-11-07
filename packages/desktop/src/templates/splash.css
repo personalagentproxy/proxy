@@ -43,7 +43,7 @@ body::before {
 	left: 0;
 	box-sizing: border-box;
 	/* Keep in step with the fallback in preload.ts and the variable in packages/web/src/index.css. */
-	height: 2rem;
+	height: 2.75rem;
 	border-bottom: 1px solid var(--border);
 	content: '';
 	-webkit-app-region: drag;

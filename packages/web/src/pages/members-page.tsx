@@ -70,7 +70,7 @@ export function MembersPage() {
 	return (
 		<AppShell
 			title={
-				<PageTitle detail={`${members.length} ${members.length === 1 ? 'member' : 'members'}`}>
+				<PageTitle>
 					<span className="flex items-center gap-2">
 						<OrgTile org={organization} />
 						{organization.name}

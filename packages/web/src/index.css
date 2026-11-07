@@ -11,8 +11,9 @@
    below it while the native traffic lights remain above; browsers keep the page's normal
    edge-to-edge layout. */
 .desktop-app {
-	/* Keep in step with the fallback in preload.ts and desktop's splash.css. */
-	--desktop-title-bar-height: 2rem;
+	/* Keep in step with the traffic lights' position in desktop's window.ts, which centers them in
+	   it, the fallback in preload.ts and desktop's splash.css. */
+	--desktop-title-bar-height: 2.75rem;
 }
 
 .desktop-app body::before {
@@ -33,9 +34,9 @@
    lights, over the drag surface and taking clicks rather than dragging the window. */
 .desktop-app [data-desktop-history] {
 	position: fixed;
-	z-index: 61;
+	z-index: 62;
 	top: 0;
-	left: 5rem;
+	left: 5.5rem;
 	height: var(--desktop-title-bar-height);
 	-webkit-app-region: no-drag;
 }
@@ -48,8 +49,56 @@
 	padding-top: var(--desktop-title-bar-height);
 }
 
+/* A page's header is the title bar over its column, where a browser shows it below: as tall as the
+   bar, over its drag surface and dragging the window itself from anywhere but its controls, with
+   its contents clear of the traffic lights, back and forward and the page's controls and title
+   after them where the column begins under them, as useTitleBarHeader measures. The column then
+   starts at the window's top rather than under the bar. */
+.desktop-app [data-desktop-page]:has(> header) {
+	padding-top: 0;
+}
+
 .desktop-app [data-desktop-page] > header {
-	top: var(--desktop-title-bar-height);
+	position: sticky;
+	z-index: 61;
+	top: 0;
+	height: var(--desktop-title-bar-height);
+	padding-left: var(--desktop-header-inset, 1rem);
+	-webkit-app-region: drag;
+}
+
+/* The page's title, after back and forward and the page's controls: in a detail's weight, dragging
+   the window as the rest of the bar does, and cut short before the right edge. */
+.desktop-app [data-desktop-title] {
+	max-width: 40vw;
+	-webkit-app-region: drag;
+}
+
+.desktop-app [data-desktop-title] * {
+	font-weight: 400;
+}
+
+.desktop-app
+	[data-desktop-page]
+	> header
+	:is(a, button, input, select, textarea, [role='button'], [tabindex]) {
+	-webkit-app-region: no-drag;
+}
+
+/* Tooltips and menus float over the title bar and the headers in it, rather than under them, as
+   the back and forward tooltips, which open below the bar, would. */
+.desktop-app
+	:has(
+		> :is(
+			[data-slot='tooltip-content'],
+			[data-slot='dropdown-menu-content'],
+			[data-slot='dropdown-menu-sub-content'],
+			[data-slot='context-menu-content'],
+			[data-slot='context-menu-sub-content'],
+			[data-slot='select-content']
+		)
+	) {
+	z-index: 70;
 }
 
 /* The sidebar dividers begin below the title bar. Its bottom border meets them at a clean corner

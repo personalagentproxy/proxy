@@ -1,18 +1,18 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import {SANDBOX_INTEGRATION_ID, VAULT_INTEGRATION_ID} from '@proxy/integrations';
-import {PencilIcon, PlusIcon, Trash2Icon} from 'lucide-react';
+import {PencilIcon, Trash2Icon} from 'lucide-react';
 import {useState} from 'react';
 import {Link, useLoaderData, useRevalidator} from 'react-router';
 import {deleteConnection, renameConnection} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
+import {AddButton} from '@/components/add-button';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {OrgNotice} from '@/components/org-notice';
 import {RenameDialog} from '@/components/rename-dialog';
 import {Row, RowHeader, RowList} from '@/components/row-list';
 import {SideEmpty, SideToggle} from '@/components/share-toggle';
-import {Button} from '@proxy/ui/components/button';
 import {ContextMenuItem} from '@proxy/ui/components/context-menu';
 import {useHuman} from '@/hooks/use-human';
 import {useSide} from '@/hooks/use-side';
@@ -78,22 +78,12 @@ export function ConnectionsPage() {
 
 	return (
 		<AppShell
-			title={<PageTitle detail={`${listed.length} connected`}>Connections</PageTitle>}
+			title={<PageTitle>Connections</PageTitle>}
 			actions={
-				<Button
-					size="sm"
-					nativeButton={false}
-					render={
-						<Link
-							to={
-								showingShared ? `/${org}/connections/new?for=everyone` : `/${org}/connections/new`
-							}
-						/>
-					}
-				>
-					<PlusIcon data-icon="inline-start" />
-					Add connection
-				</Button>
+				<AddButton
+					label="Add connection"
+					to={showingShared ? `/${org}/connections/new?for=everyone` : `/${org}/connections/new`}
+				/>
 			}
 		>
 			<OrgNotice />

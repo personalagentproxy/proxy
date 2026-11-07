@@ -1,4 +1,4 @@
-import {ChevronLeftIcon, ChevronRightIcon} from 'lucide-react';
+import {ArrowLeftIcon, ArrowRightIcon} from 'lucide-react';
 import {useEffect, useSyncExternalStore} from 'react';
 import {useNavigate} from 'react-router';
 import {IconButton} from '@/components/icon-button';
@@ -15,8 +15,15 @@ function subscribe(onChange: () => void): () => void {
 // Back and forward in the desktop app's title bar, beside the traffic lights, where a browser has
 // its own: the window has none. They step through the window's history, kept by the Navigation
 // API, which counts only the app's own pages, never the splash pages (`data:`) shown before it.
-// ⌘[ and ⌘], and a mouse's side buttons, do the same.
-export function DesktopHistory() {
+// ⌘[ and ⌘], and a mouse's side buttons, do the same. After them come the page's controls, then
+// its title, in the slots given to `controlsRef` and `titleRef` (title-bar-slot.tsx).
+export function DesktopHistory({
+	controlsRef,
+	titleRef,
+}: {
+	controlsRef?: (slot: HTMLElement | null) => void;
+	titleRef?: (slot: HTMLElement | null) => void;
+}) {
 	const navigate = useNavigate();
 	const canGoBack = useSyncExternalStore(subscribe, () => navigation.canGoBack);
 	const canGoForward = useSyncExternalStore(subscribe, () => navigation.canGoForward);
@@ -56,7 +63,7 @@ export function DesktopHistory() {
 	return (
 		<div data-desktop-history className="flex items-center gap-0.5">
 			<IconButton label="Back" size="xs" disabled={!canGoBack} onClick={() => void navigate(-1)}>
-				<ChevronLeftIcon className="size-4" />
+				<ArrowLeftIcon className="size-4" />
 			</IconButton>
 			<IconButton
 				label="Forward"
@@ -64,8 +71,10 @@ export function DesktopHistory() {
 				disabled={!canGoForward}
 				onClick={() => void navigate(1)}
 			>
-				<ChevronRightIcon className="size-4" />
+				<ArrowRightIcon className="size-4" />
 			</IconButton>
+			<div ref={controlsRef} className="contents" />
+			<div ref={titleRef} data-desktop-title className="flex min-w-0 items-center gap-2 pl-2.5" />
 		</div>
 	);
 }

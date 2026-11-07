@@ -88,7 +88,7 @@ export function ActivityPage() {
 	];
 
 	return (
-		<AppShell title={<PageTitle detail={`${entries.length} requests`}>Activity</PageTitle>}>
+		<AppShell title={<PageTitle>Activity</PageTitle>}>
 			{timeline && (
 				<AgentTimeline initial={timeline} agents={allAgents} connections={allConnections} />
 			)}

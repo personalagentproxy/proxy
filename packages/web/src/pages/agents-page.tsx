@@ -1,12 +1,11 @@
-import {PlusIcon} from 'lucide-react';
-import {Link, useLoaderData} from 'react-router';
+import {useLoaderData} from 'react-router';
 import {findAgentProvider} from '@proxy/utils/agent-providers';
 import {AgentLogo} from '@/components/brand-logo';
 import {Badge} from '@proxy/ui/components/badge';
 import {AppShell, PageTitle} from '@/components/app-shell';
+import {AddButton} from '@/components/add-button';
 import {Row, RowHeader, RowList} from '@/components/row-list';
 import {SideEmpty, SideToggle} from '@/components/share-toggle';
-import {Button} from '@proxy/ui/components/button';
 import {useHuman} from '@/hooks/use-human';
 import {useSide} from '@/hooks/use-side';
 import {formatAgo} from '@/lib/format';
@@ -36,22 +35,15 @@ export function AgentsPage() {
 
 	const activeOrg = human.org;
 	const agents = side.shown;
-	const active = all.filter((agent) => agent.revokedAt === null).length;
 
 	return (
 		<AppShell
-			title={<PageTitle detail={`${active} active`}>Agent permissions</PageTitle>}
+			title={<PageTitle>Agent permissions</PageTitle>}
 			actions={
-				<Button
-					size="sm"
-					nativeButton={false}
-					render={
-						<Link to={side.shared ? `/${org}/agents/new?for=everyone` : `/${org}/agents/new`} />
-					}
-				>
-					<PlusIcon data-icon="inline-start" />
-					New agent
-				</Button>
+				<AddButton
+					label="New agent"
+					to={side.shared ? `/${org}/agents/new?for=everyone` : `/${org}/agents/new`}
+				/>
 			}
 		>
 			<SideToggle side={side} orgName={activeOrg.name} />
