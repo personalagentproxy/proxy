@@ -84,7 +84,7 @@ export function errorMessage(error: ApiError, tool: string | undefined): string 
 		return error.message;
 	}
 	if (error.kind === 'credentials_rejected') {
-		return 'The provider turned this connection’s sign-in down. The person who made this login needs to reconnect it.';
+		return 'The provider turned this connection’s sign-in down. The person who made this login needs to reconnect it: trying again won’t help until they do.';
 	}
 	if (error.kind === 'provider_unreachable') {
 		return error.message ?? 'The provider could not be reached. Try again in a moment.';
@@ -145,6 +145,16 @@ function answer(signedIn: SignedInAgent, options: HostOptions, state: HostState,
 	});
 }
 
+// What went wrong, for a tool run naming the tool and the connection first, so a script that ran
+// several at once can tell which failed.
+function callError(method: PapMethod, args: Json[], error: ApiError): string {
+	const [connection, tool] = args;
+	if (method !== 'call' || typeof connection !== 'string' || typeof tool !== 'string') {
+		return errorMessage(error, undefined);
+	}
+	return `${tool} on ${connection}: ${errorMessage(error, tool)}`;
+}
+
 /** A script's `pap` functions, and the task it started for itself, where it did. */
 export type AgentScriptHost = {answer: ScriptHost; startedTask: () => string | null};
 
@@ -158,8 +168,7 @@ export function agentScriptHost(signedIn: SignedInAgent, options: HostOptions): 
 		answer: async (method, args): Promise<PapAnswer> => {
 			const result = await answer(signedIn, options, state, method, args);
 			if (result.isErr()) {
-				const tool = method === 'call' && typeof args[1] === 'string' ? args[1] : undefined;
-				return Err({kind: result.error.kind, message: errorMessage(result.error, tool)});
+				return Err({kind: result.error.kind, message: callError(method, args, result.error)});
 			}
 			return Ok(JSON.stringify(result.value));
 		},

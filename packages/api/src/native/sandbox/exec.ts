@@ -62,7 +62,11 @@ export const runSandboxCommand: NativeToolRunner = ({caller, connection, params}
 		const found = $(
 			requirePresent(
 				$(await getSandbox(connection.id, sandboxId)),
-				ApiErr.notFound('sandbox', sandboxId, `There is no sandbox ${sandboxId} on this connection. Call sandboxes_list for the ones there are, or sandboxes_create for a new one.`),
+				ApiErr.notFound(
+					'sandbox',
+					sandboxId,
+					`There is no sandbox ${sandboxId} on this connection. sandbox_exec takes a sandbox’s id, not its name: sandboxes_list gives the ones there are, with their ids, and sandboxes_create answers with the one it made.`,
+				),
 			),
 		);
 		$(await holdForTask(found, caller.taskId));

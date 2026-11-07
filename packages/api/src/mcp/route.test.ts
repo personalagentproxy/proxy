@@ -250,7 +250,7 @@ describe('handleMcpRoute', () => {
 		expect(finished.text).toContain('Task task-1 (Triage inbox) is finished');
 	});
 
-	test('a refused call throws an error the script can catch, in words a model can act on', async () => {
+	test('a refused call throws an error the script can catch, naming the tool and the connection, in words a model can act on', async () => {
 		runAgentTool.mockResolvedValue(Err(ApiErr.forbidden()));
 		const forbidden = await script(`try { await pap.call('mail-1', 'emails_send', {id: 'drafts-1'}); } catch (error) { return [error.kind, error.message]; }`, 'task-1');
 		runAgentTool.mockResolvedValue(Err(ApiErr.notFound('connection', 'nope')));
@@ -258,9 +258,9 @@ describe('handleMcpRoute', () => {
 
 		expect(JSON.parse(forbidden.text)).toEqual([
 			'forbidden',
-			'This login may not run emails_send with this connection: pap.tools(connection) lists what it may do, or ask the person who made the login for access.',
+			'emails_send on mail-1: This login may not run emails_send with this connection: pap.tools(connection) lists what it may do, or ask the person who made the login for access.',
 		]);
-		expect(missing).toEqual({text: expect.stringContaining('There is no connection nope for this login: pap.connections() lists the ones it can use.'), isError: true});
+		expect(missing).toEqual({text: expect.stringContaining('emails_list on nope: There is no connection nope for this login: pap.connections() lists the ones it can use.'), isError: true});
 	});
 
 	test('a not found or out-of-reach error says so in the words it came with, and one without any in the usual ones', async () => {
@@ -275,7 +275,11 @@ describe('handleMcpRoute', () => {
 			texts.push(JSON.parse(answer.text));
 		}
 
-		expect(texts).toEqual(['Exa found no page at https://example.com/gone.', 'Exa timed out reading https://example.com/slow.', 'The provider could not be reached. Try again in a moment.']);
+		expect(texts).toEqual([
+			'pages_read on web-1: Exa found no page at https://example.com/gone.',
+			'pages_read on web-1: Exa timed out reading https://example.com/slow.',
+			'pages_read on web-1: The provider could not be reached. Try again in a moment.',
+		]);
 	});
 
 	test('a script that does not parse, or is missing, is a tool error saying so', async () => {
