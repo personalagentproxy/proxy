@@ -38,7 +38,7 @@ export function AgentsPage() {
 
 	return (
 		<AppShell
-			title={<PageTitle>Agent permissions</PageTitle>}
+			title={<PageTitle>External agents and permissions</PageTitle>}
 			actions={
 				<AddButton
 					label="New agent"
