@@ -31,7 +31,7 @@ type JsonSchema = {type: 'object'; properties: Record<string, {type: 'string' | 
 
 type Annotations = {title: string; readOnlyHint: boolean; destructiveHint: boolean; idempotentHint: boolean; openWorldHint: boolean};
 
-export type McpToolDefinition = {name: string; title: string; description: string; inputSchema: JsonSchema; annotations: Annotations};
+type McpToolDefinition = {name: string; title: string; description: string; inputSchema: JsonSchema; annotations: Annotations};
 
 export const SCRIPT_TOOL = 'script';
 
@@ -165,10 +165,7 @@ const scriptArgsSchema = z.object({code: z.string(), task: z.string().optional()
  * it came in, which for the built-in agent's loop also means a task kept for it, so the script
  * starts and finishes none.
  */
-export async function callMcpTool(signedIn: SignedInAgent, name: string, args: Record<string, unknown>, via: ScriptVia = 'mcp'): Promise<McpToolResult> {
-	if (name !== SCRIPT_TOOL) {
-		return failed(`No tool ${name}; the one tool is script.`);
-	}
+export async function callMcpTool(signedIn: SignedInAgent, args: Record<string, unknown>, via: ScriptVia = 'mcp'): Promise<McpToolResult> {
 	const parsed = scriptArgsSchema.safeParse(args);
 	if (!parsed.success || parsed.data.code.trim() === '') {
 		return failed('script takes code, and task where one was started.');

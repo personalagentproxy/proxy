@@ -84,7 +84,7 @@ async function answer(signedIn: SignedInAgent, message: unknown): Promise<JsonRp
 		if (!call.success || !isListed(call.data.name)) {
 			return failure(id, -32602, `Unknown tool. Personal Agent Proxy has one tool, ${MCP_TOOLS.map((tool) => tool.name).join(', ')}: fetch the tool list again.`);
 		}
-		return {jsonrpc: '2.0', id, result: await callMcpTool(signedIn, call.data.name, call.data.arguments ?? {})};
+		return {jsonrpc: '2.0', id, result: await callMcpTool(signedIn, call.data.arguments ?? {})};
 	}
 	return failure(id, -32601, `Method not found: ${method}`);
 }

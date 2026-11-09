@@ -124,15 +124,16 @@ function sinceSummary(entries: ContextEntry[]): {
 	};
 }
 
+/** Whether the entry is an answer of nothing: no words and no calls. */
+export function isSilent(entry: ContextEntry): boolean {
+	return entry.kind === 'assistant' && entry.text === '' && (entry.toolCalls ?? []).length === 0;
+}
+
 /**
  * The log in the chat form, from its last summary on. With `clearOld`, what tools answered and
  * what events brought before the person's current turn is cleared, once there is a summary: that
  * is how the model reads a log, where a summary is made from the log as it is.
  */
-/** Whether the entry is an answer of nothing: no words and no calls. */
-export function isSilent(entry: ContextEntry): boolean {
-	return entry.kind === 'assistant' && entry.text === '' && (entry.toolCalls ?? []).length === 0;
-}
 
 export function toMessages(
 	entries: ContextEntry[],

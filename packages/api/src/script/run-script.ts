@@ -63,6 +63,11 @@ const RUNNER_PATH = fileURLToPath(new URL('./runner.ts', import.meta.url));
 
 type Runner = {process: Subprocess<'pipe', 'pipe', 'ignore'>; lines: AsyncGenerator<string>; budget: {bytes: number; max: number}};
 
+// A runner killed, by the api or by the system, has a signal and no exit code.
+function isRunning(runner: Runner): boolean {
+	return runner.process.exitCode === null && runner.process.signalCode === null;
+}
+
 function spawnRunner(maxOutputBytes: number): Result<Runner, ApiError> {
 	const spawned = Result.wrap(() => Bun.spawn([process.execPath, RUNNER_PATH], {stdin: 'pipe', stdout: 'pipe', stderr: 'ignore', env: {}, cwd: tmpdir()}));
 	if (spawned.isErr()) {
@@ -76,7 +81,7 @@ function spawnRunner(maxOutputBytes: number): Result<Runner, ApiError> {
 let spare: Runner | null = null;
 
 function takeRunner(maxOutputBytes: number): Result<Runner, ApiError> {
-	const ready = spare !== null && spare.process.exitCode === null && spare.budget.max === maxOutputBytes ? spare : null;
+	const ready = spare !== null && isRunning(spare) && spare.budget.max === maxOutputBytes ? spare : null;
 	if (spare !== null && ready === null) {
 		spare.process.kill(9);
 	}
@@ -147,23 +152,36 @@ export async function runScript(source: string, host: ScriptHost, limits: Script
 		return taken;
 	}
 	const runner = taken.value;
+
+	// The calls past the first `maxConcurrentCalls` wait their turn here, and are dropped when the
+	// run ends: what the agent is told took effect is all that does.
+	let running = 0;
+	const waiting: Array<() => void> = [];
+	let ended = false;
+	const end = () => {
+		ended = true;
+		waiting.length = 0;
+		runner.process.kill(9);
+	};
+
+	// A runner may die at any moment, so a write to it that fails is let go: the run ends as it does.
 	const write = (message: object) => {
-		if (runner.process.exitCode !== null) {
+		if (ended || !isRunning(runner)) {
 			return;
 		}
-		runner.process.stdin.write(`${JSON.stringify(message)}\n`);
-		void runner.process.stdin.flush();
+		const written = Result.wrap(() => runner.process.stdin.write(`${JSON.stringify(message)}\n`));
+		if (written.isErr()) {
+			return;
+		}
+		void Result.wrapAsync(async () => runner.process.stdin.flush());
 	};
 
 	let timedOut = false;
 	const timer = setTimeout(() => {
 		timedOut = true;
-		runner.process.kill(9);
+		end();
 	}, limits.wallMs);
 
-	// The calls past the first `maxConcurrentCalls` wait their turn here.
-	let running = 0;
-	const waiting: Array<() => void> = [];
 	const answer = async (id: number, method: PapMethod, args: Json[]) => {
 		running++;
 		const answered = await Result.wrapAsync(() => host(method, args));
@@ -180,13 +198,16 @@ export async function runScript(source: string, host: ScriptHost, limits: Script
 	const ready = await runner.lines.next();
 	if (ready.done || parseMessage(ready.value)?.type !== 'ready') {
 		clearTimeout(timer);
-		runner.process.kill(9);
+		end();
 		return Err(ApiErr.internalError(new Error('The script runner did not start')));
 	}
 	write({type: 'start', code: code.value, cpuMs: limits.cpuMs, memoryBytes: limits.memoryBytes, stackBytes: limits.stackBytes});
 
 	let outcome: ScriptOutcome | null = null;
 	for await (const line of runner.lines) {
+		if (ended) {
+			break;
+		}
 		const message = parseMessage(line);
 		if (message === null || message.type === 'ready') {
 			outcome = {type: 'stopped', reason: 'protocol'};
@@ -218,7 +239,7 @@ export async function runScript(source: string, host: ScriptHost, limits: Script
 		waiting.push(call);
 	}
 	clearTimeout(timer);
-	runner.process.kill(9);
+	end();
 
 	if (outcome !== null) {
 		return finished(outcome);

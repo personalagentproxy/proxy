@@ -106,7 +106,7 @@ describe('runToolJob', () => {
 		const result = await runToolJob(store, job('c1'), 'w1', now);
 
 		expect(result.isOk()).toBe(true);
-		expect(callMcpTool).toHaveBeenCalledWith(signedIn, 'script', {code: 'return await pap.call("mail-1", "emails_list");', task: 'task-1'}, 'harness');
+		expect(callMcpTool).toHaveBeenCalledWith(signedIn, {code: 'return await pap.call("mail-1", "emails_list");', task: 'task-1'}, 'harness');
 		expect(completeToolJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: '{"records":[]}', isError: false});
 	});
 

@@ -8,7 +8,7 @@ import type {AgentConnection} from '@proxy/contracts/agent-side';
 
 // "Read, Archive, Send": what the actions are called, in the catalog's order; a custom server's
 // tools by their titles.
-export function describeActions(connection: AgentConnection): string {
+function describeActions(connection: AgentConnection): string {
 	const integration = integrationFor(connection);
 	return (integration?.actions ?? [])
 		.filter((action) => connection.actions.includes(action.id))

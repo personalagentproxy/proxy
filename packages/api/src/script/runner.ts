@@ -16,6 +16,8 @@ import {type AnswerMessage, apiMessageSchema, PAP_METHODS, type RunnerMessage, t
  * script's own code may run, time waiting on the api not counted; the api keeps the wall clock.
  */
 
+type Outcome = Extract<RunnerMessage, {type: 'done'}>['outcome'];
+
 // Written at once, so nothing is left unsent when the runner exits.
 function send(message: RunnerMessage): void {
 	writeSync(1, `${JSON.stringify(message)}\n`);
@@ -86,18 +88,26 @@ function toError(context: QuickJSContext, builtins: Builtins, thrown: QuickJSHan
 }
 
 // Runs what the script does in QuickJS, counting the time against its budget: the interrupt
-// handler stops it once its own code has run for `cpuMs` in all.
+// handler stops it once its own code has run for `cpuMs` in all, and counts the times it did.
 function cpuClock(runtime: QuickJSRuntime, cpuMs: number) {
 	let used = 0;
 	let enteredAt: number | null = null;
-	runtime.setInterruptHandler(() => enteredAt !== null && used + (performance.now() - enteredAt) > cpuMs);
-	return <T>(work: () => T): T => {
+	let interrupts = 0;
+	runtime.setInterruptHandler(() => {
+		const over = enteredAt !== null && used + (performance.now() - enteredAt) > cpuMs;
+		if (over) {
+			interrupts++;
+		}
+		return over;
+	});
+	const inVm = <T>(work: () => T): T => {
 		enteredAt = performance.now();
 		const result = work();
 		used += performance.now() - enteredAt;
 		enteredAt = null;
 		return result;
 	};
+	return {inVm, interrupts: () => interrupts};
 }
 
 async function run(start: StartMessage, answers: AsyncGenerator<string>): Promise<void> {
@@ -105,7 +115,8 @@ async function run(start: StartMessage, answers: AsyncGenerator<string>): Promis
 	const runtime = module.newRuntime();
 	runtime.setMemoryLimit(start.memoryBytes);
 	runtime.setMaxStackSize(start.stackBytes);
-	const inVm = cpuClock(runtime, start.cpuMs);
+	const clock = cpuClock(runtime, start.cpuMs);
+	const inVm = clock.inVm;
 	const context = runtime.newContext();
 	const builtins = takeBuiltins(context);
 
@@ -148,31 +159,36 @@ async function run(start: StartMessage, answers: AsyncGenerator<string>): Promis
 	context.setProp(context.global, 'console', consoleObject);
 	consoleObject.dispose();
 
-	const finish = (outcome: Extract<RunnerMessage, {type: 'done'}>['outcome']): never => {
-		send({type: 'done', outcome});
+	// What the script returned or threw, made into text in QuickJS on the script's own time: its
+	// toJSON, getters and toString are its code, and stopped as the rest of it is once its time is up.
+	const finish = (outcomeOf: () => Outcome): never => {
+		const interrupted = clock.interrupts();
+		const outcome = inVm(outcomeOf);
+		send({type: 'done', outcome: clock.interrupts() > interrupted ? {ok: false, error: {name: 'InternalError', message: 'interrupted'}} : outcome});
 		process.exit(0);
 	};
+	const threw = (thrown: QuickJSHandle) => finish(() => ({ok: false, error: toError(context, builtins, thrown)}));
 
 	// What a job left over from an answer threw out of the script, as an interrupt does; an
 	// error thrown in the script's own code rejects its promise instead.
 	const pump = () => {
 		const ran = inVm(() => runtime.executePendingJobs());
 		if (ran.error) {
-			finish({ok: false, error: toError(context, builtins, ran.error)});
+			threw(ran.error);
 		}
 	};
 
 	const evaluated = inVm(() => context.evalCode(start.code, 'script.js', {type: 'global'}));
 	if (evaluated.error) {
-		finish({ok: false, error: toError(context, builtins, evaluated.error)});
+		threw(evaluated.error);
 		return;
 	}
 	void context.resolvePromise(evaluated.value).then((settled) => {
 		if (settled.error) {
-			finish({ok: false, error: toError(context, builtins, settled.error)});
+			threw(settled.error);
 			return;
 		}
-		finish({ok: true, json: toJson(context, builtins, settled.value) ?? 'null'});
+		finish(() => ({ok: true, json: toJson(context, builtins, settled.value) ?? 'null'}));
 	});
 	evaluated.value.dispose();
 	pump();

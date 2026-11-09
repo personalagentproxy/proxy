@@ -51,11 +51,11 @@ function cutResult(text: string): string {
 }
 
 // Runs the call through the gate, as the sub-agent acts in the thread, for its task.
-function runGateTool(store: ToolJobStore, thread: ThreadRow, name: string, args: Record<string, unknown>): Promise<Result<ToolAnswer, ApiError>> {
+function runGateTool(store: ToolJobStore, thread: ThreadRow, args: Record<string, unknown>): Promise<Result<ToolAnswer, ApiError>> {
 	return Do(async ($) => {
 		const signedIn = $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
 		const taskId = $(await ensureThreadTask(store, thread));
-		const result = await callMcpTool(signedIn, name, {...args, task: taskId}, 'harness');
+		const result = await callMcpTool(signedIn, {...args, task: taskId}, 'harness');
 		return {text: cutResult(result.content.map((part) => part.text).join('\n')), isError: result.isError === true};
 	});
 }
@@ -131,7 +131,7 @@ function answer(store: ToolJobStore, thread: ThreadRow, job: JobRow, call: ToolC
 		if (job.attempts > 1) {
 			return error('Interrupted: the outcome of this call is unknown. Check what it changed before running it again.');
 		}
-		return $(await runGateTool(store, thread, call.name, args));
+		return $(await runGateTool(store, thread, args));
 	});
 }
 

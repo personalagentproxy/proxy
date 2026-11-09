@@ -148,4 +148,34 @@ describe('runScript', () => {
 		expect(returned(result)).toBe(20);
 		expect(most).toBe(3);
 	});
+
+	test('starts none of the calls still waiting their turn once the script has returned', async () => {
+		const started: string[] = [];
+		const slow: ScriptHost = async (_method, args) => {
+			started.push(String(args[1]));
+			await Bun.sleep(100);
+			return Ok('1');
+		};
+		const result = await run(`pap.call('c', 'a', {}); pap.call('c', 'b', {}); pap.call('c', 'c', {}); return 'done';`, slow, {...LIMITS, maxConcurrentCalls: 1});
+		expect(returned(result)).toBe('done');
+		await Bun.sleep(300);
+		expect(started).toEqual(['a']);
+	});
+
+	test('lets go of an answer that comes after the runner was stopped', async () => {
+		const late: ScriptHost = async () => {
+			await Bun.sleep(400);
+			return Ok('1');
+		};
+		const result = await run(`await pap.call('c', 't', {});`, late, {...LIMITS, wallMs: 200});
+		expect(result.outcome).toEqual({type: 'stopped', reason: 'timeout'});
+		await Bun.sleep(400);
+	});
+
+	test('counts what the script runs to make its result into text against its time', async () => {
+		const startedAt = performance.now();
+		expect(threw(await run('return {toJSON() { while (true) {} }};')).message).toBe('interrupted');
+		expect(threw(await run('throw {get message() { while (true) {} }};')).message).toBe('interrupted');
+		expect(performance.now() - startedAt).toBeLessThan(LIMITS.wallMs);
+	});
 });

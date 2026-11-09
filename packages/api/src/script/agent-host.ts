@@ -61,7 +61,7 @@ function argsOf<T>(method: PapMethod, schema: z.ZodType<T>, args: Json[]): Resul
 }
 
 /** What went wrong, in words a model can act on: what to call instead, or who can fix it. */
-export function errorMessage(error: ApiError, tool: string | undefined): string {
+function errorMessage(error: ApiError, tool: string | undefined): string {
 	if (error.kind === 'not_found' && error.resource === 'connection') {
 		return `No connection ${error.id ?? ''}; see pap.connections().`;
 	}
