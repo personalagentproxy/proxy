@@ -11,6 +11,7 @@ import {
 	claimJob,
 	completeInference,
 	completeToolJob,
+	createPersona,
 	ensureFirstPersona,
 	ensureMemberThread,
 	failJob,
@@ -19,6 +20,7 @@ import {
 	listJobEvents,
 	listOpenJobs,
 	listAnswers,
+	listPersonas,
 	listSubAgents,
 	markThreadRead,
 	requeueJob,
@@ -321,6 +323,36 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 
 		expect(unwrap(await markThreadRead(thread.id, 'no-such-entry'))).toBe(false);
 		expect(unwrap(await markThreadRead('no-such-thread', second))).toBe(false);
+	});
+
+	test('the personas are listed the one last active first: the last thing said in it, or its making before anything was', async () => {
+		const general = unwrap(await ensureFirstPersona(orgId));
+		const look = {nose: 0.5, noseOut: 0.3, eye: 25, eyeTheta: 50, eyeLat: 8, eyes: 2 as const};
+		const travel = unwrap(
+			await createPersona(orgId, userId, {name: 'Travel', look, color: 'teal'}),
+		);
+		const billing = unwrap(
+			await createPersona(orgId, userId, {name: 'Billing', look, color: 'pink'}),
+		);
+		const listed = async () =>
+			unwrap(await listPersonas(orgId, userId)).map((persona) => persona.id);
+
+		expect(await listed()).toEqual([billing.id, travel.id, general.id]);
+
+		const travelThread = unwrap(
+			await ensureMemberThread({orgId, agentId, personaId: travel.id, userId}),
+		);
+		unwrap(
+			await appendPersonMessage(travelThread.id, 'Book the train to Lyon.', readyForInference),
+		);
+		expect(await listed()).toEqual([travel.id, billing.id, general.id]);
+
+		// The job the message woke is done with, so the tests after this claim only their own.
+		const job = unwrap(await claimJob('worker-p', 60_000));
+		if (job?.threadId !== travelThread.id) {
+			throw new Error(`expected the travel thread's job, got ${JSON.stringify(job)}`);
+		}
+		unwrap(await finishJob(job.id, 'worker-p'));
 	});
 
 	test('a finish with nothing written is a done event too', async () => {

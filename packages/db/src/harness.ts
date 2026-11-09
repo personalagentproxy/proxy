@@ -86,6 +86,7 @@ export type PersonaRow = Omit<Persona, 'chatModel'> & {
 	id: string;
 	chatModel: ChatModel;
 	createdById: string | null;
+	createdAt: Date;
 };
 
 export type EntryRow = LogEntry & {
@@ -218,6 +219,7 @@ export const personaSelect = {
 	color: true,
 	chatModel: true,
 	createdById: true,
+	createdAt: true,
 } as const;
 
 export function toPersona(persona: {
@@ -227,6 +229,7 @@ export function toPersona(persona: {
 	color: string;
 	chatModel: string;
 	createdById: string | null;
+	createdAt: Date;
 }): PersonaRow {
 	return {...persona, look: parseLook(persona.look), chatModel: toChatModel(persona.chatModel)};
 }
@@ -284,7 +287,10 @@ export function toEntry(entry: EntryRecord): EntryRow {
 	};
 }
 
-/** The organization's personas, oldest first, with the last thing said in the member's conversation with each. */
+/**
+ * The organization's personas with the last thing said in the member's conversation with each,
+ * the one last active first: the last thing said in it, or, before anything was, its making.
+ */
 export async function listPersonas(
 	orgId: string,
 	userId: string,
@@ -308,21 +314,29 @@ export async function listPersonas(
 						},
 					},
 				},
-				orderBy: {createdAt: 'asc'},
+				orderBy: {createdAt: 'desc'},
 			}),
 		)
 	).map((personas) =>
-		personas.map(({threads, ...persona}) => {
-			const last = threads[0]?.entries[0];
-			return {
-				...toPersona(persona),
-				lastMessage:
-					last && (last.kind === 'person' || last.kind === 'assistant')
-						? {kind: last.kind, text: last.text, createdAt: last.createdAt}
-						: null,
-			};
-		}),
+		personas
+			.map(({threads, ...persona}) => {
+				const last = threads[0]?.entries[0];
+				return {
+					...toPersona(persona),
+					lastMessage:
+						last && (last.kind === 'person' || last.kind === 'assistant')
+							? {kind: last.kind, text: last.text, createdAt: last.createdAt}
+							: null,
+				};
+			})
+			.toSorted((a, b) => lastActive(b).getTime() - lastActive(a).getTime()),
 	);
+}
+
+// When a persona was last active in the member's conversation with it: the last thing said, or
+// its making before anything was.
+function lastActive(persona: PersonaRow & {lastMessage: LastMessage | null}): Date {
+	return persona.lastMessage?.createdAt ?? persona.createdAt;
 }
 
 /** The persona's last answer in a member's conversation with it, and whether they haven't seen it. */

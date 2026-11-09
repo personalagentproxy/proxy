@@ -23,6 +23,7 @@ function persona(id: string, name: string, mayChange: boolean): ChatPersona {
 		color: 'blue',
 		chatModel: null,
 		lastMessage: null,
+		createdAt: '2026-10-20T10:00:00Z',
 	};
 }
 
@@ -304,6 +305,35 @@ describe('ChatPage', () => {
 				within(screen.getByRole('link', {name: /Finance/})).getByText('New news.'),
 			).toBeDefined();
 		});
+	});
+
+	test('lists the agent last active first, the open one by its conversation', async () => {
+		// Travel was made after Finance last answered; General, open, was made before both.
+		const travel = {...persona('travel', 'Travel', true), createdAt: '2026-10-22T10:00:00Z'};
+		const answered = {
+			...finance,
+			lastMessage: {kind: 'assistant' as const, text: 'Paid.', at: '2026-10-21T10:00:00Z'},
+		};
+		const order = () =>
+			screen
+				.getAllByRole('link')
+				.map((row) =>
+					['General', 'Finance', 'Travel'].find((name) => row.textContent?.includes(name)),
+				)
+				.filter((name) => name !== undefined);
+
+		renderChatPage({personas: [general, answered, travel]});
+		await screen.findByRole('link', {name: /Travel/});
+		expect(order()).toEqual(['Travel', 'Finance', 'General']);
+		cleanup();
+
+		// What the person said in the open conversation since puts General on top.
+		renderChatPage({
+			personas: [general, answered, travel],
+			entries: [{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-23T10:00:00Z'}],
+		});
+		await screen.findByRole('link', {name: /Travel/});
+		expect(order()).toEqual(['General', 'Travel', 'Finance']);
 	});
 
 	test('reads the conversation up to the last answer it shows, what the person said after it aside', async () => {

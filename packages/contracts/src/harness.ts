@@ -49,11 +49,16 @@ export const chatPersonaSchema = z.object({
 	 * before anything was said.
 	 */
 	lastMessage: z.object({kind: speakerSchema, text: z.string(), at: z.string()}).nullable(),
+	/** When it was made, which stands for its last activity before anything was said. */
+	createdAt: z.string(),
 });
 
 export type ChatPersona = z.infer<typeof chatPersonaSchema>;
 
-/** `GET chat/personas`: the organization's personas, in the order they were made. */
+/**
+ * `GET chat/personas`: the organization's personas, the one last active in the person's
+ * conversation first: the last thing said in it, or, before anything was, its making.
+ */
 export const personaListSchema = z.object({personas: z.array(chatPersonaSchema)});
 
 /**
