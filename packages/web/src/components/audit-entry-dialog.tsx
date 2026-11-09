@@ -133,7 +133,7 @@ function AuditEntryContent({
 						{task ? (
 							<span className="flex min-w-0 flex-col gap-0.5">
 								<Link
-									to={`/${org}/activity?task=${encodeURIComponent(task.id)}`}
+									to={`/${org}/activity/tasks/${encodeURIComponent(task.id)}`}
 									className="min-w-0 break-words hover:underline"
 								>
 									{task.title}

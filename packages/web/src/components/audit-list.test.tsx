@@ -107,7 +107,7 @@ describe('AuditList', () => {
 		const dialog = await screen.findByRole('dialog');
 		expect(within(dialog).getByText('Denied')).toBeDefined();
 		expect(within(dialog).getByRole('link', {name: 'Triage inbox'}).getAttribute('href')).toBe(
-			'/org-1/activity?task=task-1',
+			'/org-1/activity/tasks/task-1',
 		);
 		expect(within(dialog).getByText('Archive the newsletters')).toBeDefined();
 		expect(within(dialog).getByRole('link', {name: 'Claude'}).getAttribute('href')).toBe(
