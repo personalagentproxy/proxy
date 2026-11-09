@@ -12,12 +12,15 @@ import type {
 	ConversationAnswer,
 	EntryRow,
 	FailureNote,
+	InlineJob,
 	JobRow,
 	LastMessage,
+	NewEntry,
 	NewTurnEntry,
 	Persona,
 	PersonaRow,
 	SubAgentRow,
+	SubAgentStart,
 	ThreadRow,
 	ThreadSession,
 } from '@proxy/db/harness';
@@ -34,10 +37,11 @@ import type {SignedInAgent} from '@proxy/db/agent';
  * the rules of the conversation are the harness's own (conversation.ts). The agent is woken where
  * what lands leaves its log ready for it (@proxy/utils/harness readyForInference). Each part of
  * the harness takes the store, or the part of it it uses, so its tests give it a fake one. A turn
- * whose harness runs its tools itself writes its output as it goes (`appendTurnEntries`), has the
- * thread woken after a sleep it answered (`scheduleWake`), and leaves its session on the thread
- * as the job ends; the Claude Agent SDK's transcripts are kept through the transcript methods
- * (session-store.ts), the model's memory beside the log.
+ * whose harness runs its tools itself writes its output as it goes (`appendTurnEntries`), does
+ * what its calls do beside the log in transactions of their own, each fenced by the job (the
+ * `Inline` methods), has the thread woken after a sleep it answered (`scheduleWake`), and leaves
+ * its session on the thread as the job ends; the Claude Agent SDK's transcripts are kept through
+ * the transcript methods (session-store.ts), the model's memory beside the log.
  */
 export type HarnessStore = {
 	claimJob: (workerId: string, leaseMs: number) => Promise<Result<JobRow | null, ApiError>>;
@@ -54,6 +58,9 @@ export type HarnessStore = {
 	appendSummary: (jobId: string, workerId: string, threadId: string, summary: {text: string; inputTokens: number; outputTokens: number}, coversSeq: number) => Promise<Result<boolean, ApiError>>;
 	appendTurnEntries: (jobId: string, workerId: string, threadId: string, entries: NewTurnEntry[]) => Promise<Result<boolean, ApiError>>;
 	scheduleWake: (jobId: string, workerId: string, threadId: string, runAt: Date) => Promise<Result<boolean, ApiError>>;
+	startSubAgentInline: (job: InlineJob, start: SubAgentStart) => Promise<Result<string | null, ApiError>>;
+	messageSubAgentInline: (job: InlineJob, subAgentId: string, entry: NewEntry) => Promise<Result<{subAgent: SubAgentRow | null} | null, ApiError>>;
+	tellParentInline: (job: InlineJob, message: {text: string; isError: boolean}) => Promise<Result<boolean, ApiError>>;
 	completeInference: (jobId: string, workerId: string, threadId: string, turn: AssistantTurn | null, after: AfterAnswer, session?: ThreadSession) => Promise<Result<boolean, ApiError>>;
 	completeToolJob: (jobId: string, workerId: string, threadId: string, result: {callId: string; text: string; isError: boolean}) => Promise<Result<boolean, ApiError>>;
 	listSubAgents: (parentThreadId: string, now: Date) => Promise<Result<SubAgentRow[], ApiError>>;
@@ -76,6 +83,7 @@ export type HarnessStore = {
 	markThreadRead: (threadId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
 
 	completeSetAlert: (job: {jobId: string; workerId: string; threadId: string; callId: string}, alert: NewAlert, answer: (alert: AlertRow) => string) => Promise<Result<boolean, ApiError>>;
+	setAlertInline: (job: InlineJob, alert: NewAlert) => Promise<Result<AlertRow | null, ApiError>>;
 	deleteAlert: (alertId: string, owner: {threadId: string} | {orgId: string; userId: string}) => Promise<Result<boolean, ApiError>>;
 	listThreadAlerts: (threadId: string) => Promise<Result<AlertRow[], ApiError>>;
 	listMemberAlerts: (orgId: string, userId: string) => Promise<Result<Array<AlertRow & {persona: PersonaRow}>, ApiError>>;
@@ -112,6 +120,9 @@ export const harnessStore: HarnessStore = {
 	appendSummary: harness.appendSummary,
 	appendTurnEntries: harness.appendTurnEntries,
 	scheduleWake: harness.scheduleWake,
+	startSubAgentInline: (job, start) => harness.startSubAgentInline(job, start, readyForInference),
+	messageSubAgentInline: (job, subAgentId, entry) => harness.messageSubAgentInline(job, subAgentId, entry, readyForInference),
+	tellParentInline: (job, message) => harness.tellParentInline(job, message, readyForInference),
 	completeInference: (jobId, workerId, threadId, turn, after, session) => harness.completeInference(jobId, workerId, threadId, turn, after, readyForInference, session),
 	completeToolJob: (jobId, workerId, threadId, result) => harness.completeToolJob(jobId, workerId, threadId, result, readyForInference),
 	listSubAgents: harness.listSubAgents,
@@ -134,6 +145,7 @@ export const harnessStore: HarnessStore = {
 	markThreadRead: harness.markThreadRead,
 
 	completeSetAlert: (job, alert, answer) => alerts.completeSetAlert(job, alert, answer, readyForInference),
+	setAlertInline: alerts.setAlertInline,
 	deleteAlert: alerts.deleteAlert,
 	listThreadAlerts: alerts.listThreadAlerts,
 	listMemberAlerts: alerts.listMemberAlerts,

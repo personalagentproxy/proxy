@@ -11,6 +11,7 @@ import {
 	subAgentMessageArgs,
 	type ToolCall,
 } from '@proxy/utils/harness';
+import {ApiErr, type ApiError} from '@proxy/utils';
 import type {AfterAnswer, CallPlan, FailureNote, JobRow, SubAgentRow, SubAgentStart, SubAgentStop, ThreadRow} from '@proxy/db/harness';
 import type {NewAgentTask} from '@proxy/db/task';
 
@@ -20,8 +21,15 @@ import type {NewAgentTask} from '@proxy/db/task';
  * its task and the first thing said in it; what the agent and its sub-agents say to each other,
  * and what a sub-agent's stop is, its task's outcome and what the thread it was started from is
  * told; and what a failed job leaves in its thread, so that nobody, the person or the agent a
- * sub-agent works for, is left waiting on it.
+ * sub-agent works for, is left waiting on it. The words a call to start a sub-agent, to message
+ * one or to message the agent a sub-agent works for is answered with are here too, since a
+ * harness that runs its tools itself answers them inline (tool-surface.ts) with the same words.
  */
+
+/** What a write fenced by the job's lease that went nowhere means: the job was no longer the worker's, and the turn goes no further. */
+export function jobLost(): ApiError {
+	return ApiErr.conflict('The job was no longer this worker’s');
+}
 
 // How much of what a sub-agent said as it stopped its task keeps as the outcome, and of its brief
 // as the goal.
@@ -63,17 +71,20 @@ export function subAgentStop(said: {text: string; isError: boolean}): SubAgentSt
 	return {outcome: cut(said.text, MAX_TASK_TEXT), stopped: {...said, text: `${said.text}\n\n${STOPPED_NOTE}`}, goingOn: said};
 }
 
-// What a create_subagent call is answered with at once, the sub-agent's id in it, since every message
-// to it takes the id.
-function started(title: string): (id: string) => string {
+/** What a create_subagent call is answered with at once, the sub-agent's id in it, since every message to it takes the id. */
+export function started(title: string): (id: string) => string {
 	return (id) => `Started the sub-agent “${title}”, id ${id}. What it says will come to you as a message.`;
 }
 
-const SENT_TO_PARENT = 'Sent to the agent you work for. Its answer, if any, will come to you as a message.';
+export const SENT_TO_PARENT = 'Sent to the agent you work for. Its answer, if any, will come to you as a message.';
 
-// What a send_to_subagent call is answered with at once: what the sub-agent was up to as the
-// message came, or that there is no such sub-agent of the agent's.
-function sentToSubAgent(id: string): (subAgent: SubAgentRow | null) => {text: string; isError: boolean} {
+/** What the three calls are answered with where their arguments are no good. */
+export const BAD_SUBAGENT_ARGS = 'Give title, a few words, and brief, what to do.';
+export const BAD_SUBAGENT_MESSAGE_ARGS = 'Give subagent, the sub-agent’s id, and text, the message.';
+export const BAD_PARENT_MESSAGE_ARGS = 'Give text, the message.';
+
+/** What a send_to_subagent call is answered with at once: what the sub-agent was up to as the message came, or that there is no such sub-agent of the agent's. */
+export function sentToSubAgent(id: string): (subAgent: SubAgentRow | null) => {text: string; isError: boolean} {
 	return (subAgent) => {
 		if (!subAgent) {
 			return {text: `You have no sub-agent with id ${id}. Your sub-agents and their ids are listed in your instructions.`, isError: true};
@@ -102,21 +113,21 @@ export function planCall(thread: ThreadRow, call: ToolCall, now: Date): CallPlan
 	if (call.name === CREATE_SUBAGENT_TOOL && thread.parentThreadId === null) {
 		const parsed = subAgentArgs(args);
 		if (!parsed) {
-			return {kind: 'answer', text: 'Give title, a few words, and brief, what to do.', isError: true};
+			return {kind: 'answer', text: BAD_SUBAGENT_ARGS, isError: true};
 		}
 		return {kind: 'create_subagent', start: subAgentStart(thread, {id: call.id, ...parsed}), started: started(parsed.title)};
 	}
 	if (call.name === SEND_TO_SUBAGENT_TOOL && thread.parentThreadId === null) {
 		const parsed = subAgentMessageArgs(args);
 		if (!parsed) {
-			return {kind: 'answer', text: 'Give subagent, the sub-agent’s id, and text, the message.', isError: true};
+			return {kind: 'answer', text: BAD_SUBAGENT_MESSAGE_ARGS, isError: true};
 		}
 		return {kind: 'send_to_subagent', subAgentId: parsed.subagent, entry: {kind: 'person', text: parsed.text}, sent: sentToSubAgent(parsed.subagent)};
 	}
 	if (call.name === SEND_TO_PARENT_TOOL && thread.parentThreadId !== null) {
 		const parsed = parentMessageArgs(args);
 		if (!parsed) {
-			return {kind: 'answer', text: 'Give text, the message.', isError: true};
+			return {kind: 'answer', text: BAD_PARENT_MESSAGE_ARGS, isError: true};
 		}
 		return {kind: 'send_to_parent', message: {text: parsed.text, isError: false}, sent: SENT_TO_PARENT};
 	}

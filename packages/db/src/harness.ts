@@ -1293,6 +1293,82 @@ export async function scheduleWake(
 	);
 }
 
+/** The job a harness that runs its tools itself writes from mid-turn: the inference job running the turn, the worker it is leased to, and the thread it is on. */
+export type InlineJob = {jobId: string; workerId: string; threadId: string};
+
+/**
+ * Runs `write` with the job's conversation locked, where the job is still the worker's and its
+ * thread is there: what a call the harness runs itself, mid-turn, writes beside the log, each in a
+ * transaction of its own. `absent` when the job is no longer the worker's, or the thread is gone,
+ * and nothing is written.
+ */
+export function writeInline<T, A>(
+	job: InlineJob,
+	absent: A,
+	write: (tx: Tx, thread: ThreadRow) => Promise<T>,
+): Promise<Result<T | A, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const thread = await lockThread(tx, job.threadId);
+			if (!thread || !(await held(tx, job.jobId, job.workerId))) {
+				return absent;
+			}
+			return write(tx, thread);
+		}),
+	);
+}
+
+/**
+ * Starts a sub-agent of the thread's agent from the inference job that runs its turn, where the
+ * harness runs the create_subagent call itself: the sub-agent as `completeInference` would start
+ * it for a planned call, its task, its thread and its brief, which wakes it; the call's answer,
+ * with the id given here, is the turn's to write (appendTurnEntries). `Ok(null)` when the job was
+ * no longer the worker's, and nothing is started.
+ */
+export function startSubAgentInline(
+	job: InlineJob,
+	start: SubAgentStart,
+	wakes: Wakes,
+): Promise<Result<string | null, ApiError>> {
+	return writeInline(job, null, (tx, thread) => createSubAgent(tx, thread, start, wakes));
+}
+
+/**
+ * Sends a message to one of the thread's sub-agents from the inference job that runs its turn,
+ * where the harness runs the send_to_subagent call itself: as `completeInference` sends one for a
+ * planned call, the message in the sub-agent's log, the sub-agent woken or taken up again. What
+ * it got: the sub-agent as it was before the message, or `subAgent` null where the thread has no
+ * such sub-agent; `Ok(null)` when the job was no longer the worker's, and nothing is sent.
+ */
+export function messageSubAgentInline(
+	job: InlineJob,
+	subAgentId: string,
+	entry: NewEntry,
+	wakes: Wakes,
+): Promise<Result<{subAgent: SubAgentRow | null} | null, ApiError>> {
+	return writeInline(job, null, async (tx, thread) => ({
+		subAgent: await messageSubAgent(tx, thread, subAgentId, entry, wakes),
+	}));
+}
+
+/**
+ * Lands what a sub-agent said in the thread it was started from, from the inference job that
+ * runs the sub-agent's turn, where the harness runs the send_to_parent call itself: as
+ * `completeInference` does for a planned call, an event answering the call that started the
+ * sub-agent, pending where the parent's turn runs. `Ok(false)` when the job was no longer the
+ * worker's, and nothing is sent.
+ */
+export function tellParentInline(
+	job: InlineJob,
+	message: {text: string; isError: boolean},
+	wakes: Wakes,
+): Promise<Result<boolean, ApiError>> {
+	return writeInline(job, false, async (tx, thread) => {
+		await tellParent(tx, thread, message, job.jobId, wakes);
+		return true;
+	});
+}
+
 // Makes a sub-agent of the thread's agent, as a call of its starts one: its task, its thread, and
 // the first entries of its log, which wake it. The thread is new, so nothing else holds it. With
 // the conversation locked.

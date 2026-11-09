@@ -16,7 +16,10 @@ import {
 	listEntries,
 	listOpenJobs,
 	listSubAgents,
+	messageSubAgentInline,
 	scheduleWake,
+	startSubAgentInline,
+	tellParentInline,
 	type JobRow,
 	type ThreadRow,
 } from './harness';
@@ -24,7 +27,8 @@ import {
 // What a harness that runs its tools itself writes, against the local database, as harness.test.ts
 // runs: with the database up and the environment loaded, `bun --env-file=../../.env test` from
 // this package; skipped without DATABASE_URL. A turn's output appended as it goes, the session
-// kept on the thread as the job ends, and a sleep as a wake job. Everything made here is one
+// kept on the thread as the job ends, a sleep as a wake job, and what the calls a harness runs
+// itself write beside the log, each fenced by the turn's job. Everything made here is one
 // organization's, deleted at the end.
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -420,6 +424,173 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 		expect(unwrap(await listOpenJobs(sub.id)).map((job) => [job.kind, job.status])).toEqual([
 			['inference', 'queued'],
 		]);
-		// The parent's turn, woken by the answers to its calls, is left for the next test's clean-up.
+		// The parent's turn, woken by the answers to its calls, is left for the next test.
+	});
+
+	test('a sub-agent started, a message to one and a message to the parent, each from the running turn’s job, land as the planned calls would, pending where a turn runs, and the job goes on; a worker that lost the job writes none', async () => {
+		const [sub] = unwrap(await listSubAgents(thread.id));
+		if (!sub) {
+			throw new Error('expected a sub-agent');
+		}
+		// Both turns under way: the parent's and the sub-agent's.
+		const {parent, sub: subTurn} = await claimBoth('worker-g', thread.id, sub.id);
+		const parentJob = (workerId: string) => ({jobId: parent.id, workerId, threadId: thread.id});
+		const subJob = (workerId: string) => ({jobId: subTurn.id, workerId, threadId: sub.id});
+		const start = {
+			callId: 'n1',
+			title: 'File the invoices',
+			task: {
+				orgId,
+				agentId,
+				ownerUserId: userId,
+				personaId: thread.personaId,
+				parentId: null,
+				title: 'File the invoices',
+				goal: 'Save them to the vault.',
+				via: 'harness' as const,
+			},
+			entries: [{kind: 'person' as const, text: 'Save them to the vault.'}] as [
+				{kind: 'person'; text: string},
+			],
+		};
+
+		expect(
+			unwrap(await startSubAgentInline(parentJob('worker-z'), start, readyForInference)),
+		).toBeNull();
+		expect(
+			unwrap(
+				await messageSubAgentInline(
+					parentJob('worker-z'),
+					sub.id,
+					{kind: 'person', text: 'x'},
+					readyForInference,
+				),
+			),
+		).toBeNull();
+		expect(
+			unwrap(
+				await tellParentInline(subJob('worker-z'), {text: 'x', isError: false}, readyForInference),
+			),
+		).toBe(false);
+		expect(unwrap(await listSubAgents(thread.id))).toHaveLength(1);
+
+		// A sub-agent started: its thread, its task and its brief, which wakes it.
+		const startedId = unwrap(
+			await startSubAgentInline(parentJob('worker-g'), start, readyForInference),
+		);
+		expect(startedId).not.toBeNull();
+		const started = unwrap(await listSubAgents(thread.id)).find(
+			(candidate) => candidate.id === startedId,
+		);
+		expect(started).toMatchObject({
+			parentThreadId: thread.id,
+			parentCallId: 'n1',
+			title: 'File the invoices',
+			state: {kind: 'working'},
+		});
+		expect(
+			unwrap(await listEntries(startedId ?? '')).map((entry) => [entry.kind, entry.text]),
+		).toEqual([['person', 'Save them to the vault.']]);
+		expect(
+			await db.agentTask.findUniqueOrThrow({where: {id: started?.taskId ?? ''}}),
+		).toMatchObject({
+			...start.task,
+			finishedAt: null,
+		});
+		expect(
+			unwrap(await listOpenJobs(startedId ?? '')).map((job) => [job.kind, job.status]),
+		).toEqual([['inference', 'queued']]);
+
+		// A message to the sub-agent at work: it waits for its turn, and its sleep, had it one, is due now.
+		const inAnHour = new Date(Date.now() + 60 * 60 * 1000);
+		unwrap(await scheduleWake(subTurn.id, 'worker-g', sub.id, inAnHour));
+		const before = unwrap(await listEntries(sub.id)).length;
+		expect(
+			unwrap(
+				await messageSubAgentInline(
+					parentJob('worker-g'),
+					'no-such-thread',
+					{kind: 'person', text: 'x'},
+					readyForInference,
+				),
+			),
+		).toEqual({subAgent: null});
+		const sent = unwrap(
+			await messageSubAgentInline(
+				parentJob('worker-g'),
+				sub.id,
+				{kind: 'person', text: 'Still there?'},
+				readyForInference,
+			),
+		);
+		expect(sent?.subAgent).toMatchObject({id: sub.id, state: {kind: 'working'}});
+		expect(unwrap(await listEntries(sub.id))).toHaveLength(before);
+		expect(await db.agentEntry.count({where: {threadId: sub.id, pending: true}})).toBe(1);
+		const wake = await db.agentJob.findFirst({
+			where: {threadId: sub.id, kind: 'wake', status: 'queued'},
+		});
+		expect(wake?.runAt.getTime()).toBeLessThanOrEqual(Date.now());
+
+		// A message to the parent, whose turn runs: it waits too.
+		const parentBefore = unwrap(await listEntries(thread.id)).length;
+		expect(
+			unwrap(
+				await tellParentInline(
+					subJob('worker-g'),
+					{text: 'Found it.', isError: false},
+					readyForInference,
+				),
+			),
+		).toBe(true);
+		expect(unwrap(await listEntries(thread.id))).toHaveLength(parentBefore);
+		expect(await db.agentEntry.count({where: {threadId: thread.id, pending: true}})).toBe(1);
+		// Both jobs still run.
+		expect(
+			await db.agentJob.count({where: {id: {in: [parent.id, subTurn.id]}, status: 'running'}}),
+		).toBe(2);
+
+		// As each turn ends, what waited takes its place and wakes the agent: the sub-agent's wake-up
+		// is turn enough, the parent gets a turn.
+		unwrap(
+			await appendTurnEntries(subTurn.id, 'worker-g', sub.id, [
+				{kind: 'assistant', text: 'Checking.', toolCalls: null},
+			]),
+		);
+		unwrap(
+			await completeInference(subTurn.id, 'worker-g', sub.id, null, {plans: {}}, readyForInference),
+		);
+		expect(
+			unwrap(await listEntries(sub.id))
+				.slice(-2)
+				.map((entry) => [entry.kind, entry.text]),
+		).toEqual([
+			['assistant', 'Checking.'],
+			['person', 'Still there?'],
+		]);
+		expect(unwrap(await listOpenJobs(sub.id)).map((job) => job.kind)).toEqual(['wake']);
+
+		unwrap(
+			await completeInference(
+				parent.id,
+				'worker-g',
+				thread.id,
+				{text: 'Noted.', toolCalls: [], inputTokens: 1, outputTokens: 1, system: null},
+				{plans: {}},
+				readyForInference,
+			),
+		);
+		expect(
+			unwrap(await listEntries(thread.id))
+				.slice(-2)
+				.map((entry) => [entry.kind, entry.callId, entry.text]),
+		).toEqual([
+			['assistant', null, 'Noted.'],
+			['event', sub.parentCallId, 'Found it.'],
+		]);
+		expect(
+			unwrap(await listOpenJobs(thread.id))
+				.filter((job) => job.threadId === thread.id)
+				.map((job) => [job.kind, job.status]),
+		).toEqual([['inference', 'queued']]);
 	});
 });

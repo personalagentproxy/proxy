@@ -1,15 +1,15 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Err, Ok, type Result} from 'ts-results-es';
 
-import type {HarnessBackend} from '@proxy/backends/harness/backend';
 import {fakeHarness} from '@proxy/backends/harness/fake';
 import {ApiErr, type ApiError} from '@proxy/utils';
 import type {JobRow} from '@proxy/db/harness';
 
+import type {Harnesses} from '../backends/harness';
 import {type FakeStore, fakeStore} from './fake-store';
 
 type Run = (store: FakeStore, job: JobRow, workerId: string) => Promise<Result<void, ApiError>>;
-type RunTurn = (store: FakeStore, harness: HarnessBackend | null, job: JobRow, workerId: string, woken: boolean) => Promise<Result<void, ApiError>>;
+type RunTurn = (store: FakeStore, harnesses: Harnesses, job: JobRow, workerId: string, woken: boolean) => Promise<Result<void, ApiError>>;
 
 const runInference = mock<RunTurn>(async () => Ok(undefined));
 mock.module('./inference', () => ({runInference}));
@@ -17,7 +17,7 @@ mock.module('./inference', () => ({runInference}));
 const runToolJob = mock<Run>(async () => Ok(undefined));
 mock.module('./tool-job', () => ({runToolJob}));
 
-const harness = fakeHarness();
+const harness: Harnesses = {registry: {proxy: fakeHarness(), claudeAgentSdk: null}, credentials: {claudeCredentialFor: async () => Ok(null)}};
 const now = new Date();
 const inference: JobRow = {id: 'j1', threadId: 't1', kind: 'inference', status: 'running', entryId: null, callId: null, runAt: now, claimedBy: 'w', attempts: 1};
 const tool: JobRow = {...inference, id: 'j2', kind: 'tool', entryId: 'e1', callId: 'c1'};
@@ -36,7 +36,7 @@ beforeEach(() => {
 });
 
 describe('the worker', () => {
-	test('claims jobs one after another and runs each by its kind, on the store and the harness, then stops claiming', async () => {
+	test('claims jobs one after another and runs each by its kind, on the store and the harnesses, then stops claiming', async () => {
 		const {startHarnessWorker} = await import('./worker');
 		store.claimJob.mockResolvedValueOnce(Ok(inference)).mockResolvedValueOnce(Ok(tool)).mockResolvedValueOnce(Ok(wake)).mockResolvedValue(Ok(null));
 

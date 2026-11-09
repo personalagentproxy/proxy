@@ -26,7 +26,14 @@ import type {ContextEntry, SubAgent} from '@proxy/utils/harness-context';
  * compacted the log, into a summary standing for every entry up to `coversSeq`, which the api
  * stores for the model to read in place of what it covers. `done` carries the session to keep for
  * the next turn, the system prompt the model was sent, and what the turn cost. `failed` says why,
- * and whether the turn is worth trying again as it is, as when the model couldn't be reached.
+ * and whether the turn is worth trying again as it is, as when the model couldn't be reached; a
+ * failure of kind `credentials_rejected` says the credential the turn was given (`auth`) was
+ * turned down, which the api answers by refreshing it once and running the turn again.
+ *
+ * A harness says, beside its id, how it works, so the api can give it a turn that fits:
+ * `stepsPerTurn` whether it answers calls itself and asks the model again within a turn, and
+ * `maxConcurrentTurns` how many turns it can run at once in one process, where each is a
+ * subprocess with memory of its own.
  */
 
 /** What a harness keeps per thread between turns, as the api stores it on the thread, opaque to the api (@proxy/utils/harness); null for a harness that keeps nothing. */
@@ -52,9 +59,19 @@ export type HarnessEvent =
 	| {kind: 'done'; session: HarnessSession; system: string; inputTokens: number; outputTokens: number}
 	| {kind: 'failed'; error: ApiError; retry: boolean};
 
+/**
+ * The credential a turn runs under where the model is reached as the member rather than with the
+ * server's key: a Claude sign-in's access token with its scopes, a setup token handed over the
+ * same way with no scopes, or an API key. A harness that reaches the model with the server's key,
+ * as the proxy harness does over OpenRouter, ignores it.
+ */
+export type HarnessAuth = {kind: 'oauth'; accessToken: string; scopes: string[]} | {kind: 'api_key'; key: string};
+
 export type HarnessTurn = {
 	/** The thread the turn is on; a sub-agent's has the thread it was started from. */
 	thread: {id: string; parentThreadId: string | null};
+	/** The member's credential to reach the model with, where the harness is chosen for one; none where the harness runs with the server's key. */
+	auth?: HarnessAuth;
 	/** What the harness kept from the thread's last turn, as `done` gave it; null before the first. */
 	session: HarnessSession;
 	/** The whole log as the api has it; a harness with a session reads what came after it. */
@@ -77,6 +94,15 @@ export type HarnessTurn = {
 export type HarnessBackend = {
 	/** Which harness it is, kept with each thread's session, so one harness is never given another's. */
 	id: string;
+	/**
+	 * How many steps a turn takes: `one`, the default, for a harness that asks the model once and
+	 * leaves its calls open for the api to run, whose `maxSteps` is then one; `many` for a harness
+	 * that answers calls itself and asks the model again, which is given as many steps as the thread
+	 * has left before it has to stop and wait for the person.
+	 */
+	stepsPerTurn?: 'one' | 'many';
+	/** How many turns of this harness one process runs at once at most; unset for a harness that is only a request to a model, which needs no cap. */
+	maxConcurrentTurns?: number;
 	/** One turn of the model on the thread, told as it goes. */
 	turn: (input: HarnessTurn) => AsyncIterable<HarnessEvent>;
 };
