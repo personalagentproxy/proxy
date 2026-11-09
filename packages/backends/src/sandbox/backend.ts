@@ -18,11 +18,11 @@ export type SandboxRef = string;
 
 /**
  * A command for the sandbox's shell, run in `cwd` or the sandbox's home, fed `stdin` where given
- * and nothing otherwise, and stopped after `timeoutMs`. A command is one sitting: what it leaves
- * running in the background may not outlive it, as it doesn't on every backend, so long work is
- * done within the timeout, or in parts.
+ * and nothing otherwise, with `env` in its environment beside the sandbox's own, and stopped after
+ * `timeoutMs`. A command is one sitting: what it leaves running in the background may not outlive
+ * it, as it doesn't on every backend, so long work is done within the timeout, or in parts.
  */
-export type SandboxCommand = {command: string; stdin?: string; cwd?: string; timeoutMs: number};
+export type SandboxCommand = {command: string; stdin?: string; cwd?: string; env?: Record<string, string>; timeoutMs: number};
 
 /** What a command wrote and how it ended: `exitCode` null where it was stopped, `timedOut` whether by the timeout; what it wrote before being stopped as far as the backend kept it. */
 export type SandboxOutput = {stdout: string; stderr: string; exitCode: number | null; timedOut: boolean};
