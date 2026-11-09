@@ -1,4 +1,4 @@
-import type {Session, Sessions} from '@proxy/contracts/me';
+import type {Session} from '@proxy/contracts/me';
 import type {Org} from '@proxy/contracts/orgs';
 import {
 	AppWindowIcon,
@@ -13,6 +13,7 @@ import {Button} from '@proxy/ui/components/button';
 import {signOut} from '@/client/auth-client';
 import {deleteAccount, deleteOtherSessions, deleteSession} from '@/client/me-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
+import {ClaudeCard} from '@/components/claude-card';
 import {DangerCard} from '@/components/danger-card';
 import {IconButton} from '@/components/icon-button';
 import {NotificationSetting} from '@/components/notification-setting';
@@ -28,15 +29,17 @@ import {formatDate} from '@/lib/format';
 import {describeApiError} from '@/lib/loader-utils';
 import {notificationSupport} from '@/lib/notifications';
 import {hasOtherPeople} from '@/lib/orgs';
+import type {AccountData} from '@/loaders';
 
 // The person's account, in no organization: who is signed in, how the app looks to them, whether
 // this device tells them what the agents say while they are elsewhere (where any of their
-// organizations has Chat, and the device can), the organizations they are in, each to its own
+// organizations has Chat, and the device can), their own Claude account, which the built-in agent
+// runs under for them, the organizations they are in, each to its own
 // settings, every browser and desktop app they are signed in on, each to sign out, and deleting
 // the account, which deletes every one they own.
 export function AccountPage() {
 	const human = useHuman();
-	const {sessions} = useLoaderData<Sessions>();
+	const {sessions, claude} = useLoaderData<AccountData>();
 	const [deleting, setDeleting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const apply = useApply(setError);
@@ -86,6 +89,7 @@ export function AccountPage() {
 						</p>
 					</Section>
 				)}
+				<ClaudeCard account={claude} />
 				<Section title="Organizations" detail={human.orgs.length}>
 					<RowList>
 						{human.orgs.map((org) => (

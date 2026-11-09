@@ -43,6 +43,7 @@ model User {
   threads      AgentThread[]
   writeTargets WriteTarget[]
   desktopCodes DesktopAuthCode[]
+  claudeAccount ClaudeAccount?
 }
 
 // A sign-in provider identity linked to a user, such as their Google account. Only who it is:
@@ -900,4 +901,40 @@ model ConnectionPoll {
 
   @@id([connectionId, collectionId])
   @@index([nextAt])
+}
+
+// How a member connected their Claude account: a sign-in to their Claude subscription with Claude
+// Code's public OAuth client, a long-lived token from `claude setup-token`, or an Anthropic API key.
+enum ClaudeAccountKind {
+  oauth
+  setup_token
+  api_key
+}
+
+// The member's own Claude credential, which the built-in agent runs under for them: the person's,
+// in every organization they are in, not an organization's, and nobody else's agents run under
+// it. `credential` is JSON encrypted with ENCRYPTION_KEY: for a sign-in, the access and refresh
+// tokens with the access token's expiry and scopes; for a setup token, the token; for an API key,
+// the key. The api refreshes a sign-in's tokens itself, with the row locked so two instances never
+// refresh at once, and the refresh token never leaves it: the web app sees the kind, the account
+// and the expiry alone. `email` and `subscriptionType` are what Claude said of the account, once it
+// has been asked. `failedAt` and `failure` say the refresh was refused, until the person connects
+// again.
+model ClaudeAccount {
+  id               String            @id @default(cuid())
+  userId           String            @unique
+  kind             ClaudeAccountKind
+  credential       String
+  email            String?
+  subscriptionType String?
+  // When the access token runs out; null but for a sign-in.
+  expiresAt        DateTime?
+  lastRefreshedAt  DateTime?
+  failedAt         DateTime?
+  failure          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

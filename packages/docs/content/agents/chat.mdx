@@ -69,6 +69,30 @@ on the app's icon too.
 **Activity** under the input opens the activity log, where every sub-agent's task is listed with
 the agent's head and name.
 
+## Your Claude subscription
+
+The agent can run on your own Claude subscription rather than on the server's key, so what you say
+to it goes to Anthropic under your account, as it would from Claude Code, and counts against your
+plan rather than the server's. Connect it under **Claude** on the **Account** page; it is yours, in
+every organization you are in, and nobody else's agents run under it.
+
+There are three ways to connect. **Connect Claude** opens Claude's sign-in in a new tab, where you
+allow Personal Agent Proxy as you would allow Claude Code; Claude then shows a code, which you paste
+back on the Account page. This is the sign-in `claude setup-token` runs, done for you, and the card
+then shows the account, the plan and when the sign-in runs out. Or paste a token from
+`claude setup-token` run on your own computer, or an Anthropic API key, behind **Paste a setup
+token or API key instead**; a token is stored as it is, and an API key is billed to that key.
+
+What is stored is the credential alone, encrypted in the database as every connection's credential
+is: for a sign-in, the access token and the refresh token Claude gave. The server refreshes the
+sign-in itself when the access token nears its end, and the refresh token never leaves it: the
+Account page sees the kind of credential, the account and when the current token runs out, nothing
+more. A refresh Claude refuses, as when the sign-in was revoked, is shown on the card, and
+**Connect again** signs in afresh.
+
+Nothing uses the credential yet: running the agent on it is coming, and until then connecting only
+keeps it ready. **Disconnect** on the card deletes it, and deleting your account deletes it too.
+
 <Callout>
 Chat is being tried out with some organizations first, so it is only offered to an organization
 that has it turned on. On a self-hosted Personal Agent Proxy, turn it on for every organization in

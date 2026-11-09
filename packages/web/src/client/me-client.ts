@@ -1,4 +1,12 @@
-import {meSchema, sessionsSchema} from '@proxy/contracts/me';
+import {
+	claudeAccountSchema,
+	claudeSignInSchema,
+	type claudeCodeBodySchema,
+	type claudeTokenBodySchema,
+	meSchema,
+	sessionsSchema,
+} from '@proxy/contracts/me';
+import type {z} from 'zod';
 import {apiRequest, apiSend} from '@/client/request';
 
 /** Who is signed in (`GET /api/me`). A 401 means "redirect to /login". The organizations they are in are `listOrgs`. */
@@ -27,4 +35,33 @@ export function deleteSession(sessionId: string) {
 /** Signs the person out everywhere but this browser. */
 export function deleteOtherSessions() {
 	return apiSend('DELETE', '/api/me/sessions/others');
+}
+
+/** How the person's own Claude account is connected, for the Account page's card; `account` null for none. */
+export function getClaudeAccount() {
+	return apiRequest('GET', '/api/me/claude', claudeAccountSchema);
+}
+
+/** Begins a sign-in to the person's Claude subscription: Claude's page to open, which shows a code to paste back. */
+export function beginClaudeSignIn() {
+	return apiRequest('POST', '/api/me/claude/sign-in', claudeSignInSchema);
+}
+
+/** Finishes the sign-in with the code Claude showed, pasted as it was. */
+export function finishClaudeSignIn(code: string) {
+	return apiRequest('POST', '/api/me/claude/code', claudeAccountSchema, {
+		code,
+	} satisfies z.input<typeof claudeCodeBodySchema>);
+}
+
+/** Connects a `claude setup-token` value or an Anthropic API key instead of signing in. */
+export function connectClaudeToken(token: string) {
+	return apiRequest('POST', '/api/me/claude/token', claudeAccountSchema, {
+		token,
+	} satisfies z.input<typeof claudeTokenBodySchema>);
+}
+
+/** Disconnects the person's Claude account. */
+export function disconnectClaude() {
+	return apiRequest('DELETE', '/api/me/claude', claudeAccountSchema);
 }

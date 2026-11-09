@@ -11,7 +11,7 @@ import {
 import {getConnection, listConnections} from '@/client/connections-client';
 import {listAlerts} from '@/client/alerts-client';
 import {getThread, listPersonas} from '@/client/harness-client';
-import {getMe, listSessions} from '@/client/me-client';
+import {getClaudeAccount, getMe, listSessions} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {getInvitation, getOrg, listMembers, listOrgs} from '@/client/orgs-client';
 import {listRecords} from '@/client/records-client';
@@ -301,10 +301,14 @@ export async function connectAgentLoader({request}: {request: Request}) {
 
 export type ConnectAgentData = Awaited<ReturnType<typeof connectAgentLoader>>;
 
-// The person's account: their sessions, every browser and desktop app they are signed in on.
+// The person's account: their sessions, every browser and desktop app they are signed in on, and
+// how their own Claude account is connected, if it is.
 export async function accountLoader() {
-	return unwrapLoaderResult(await listSessions());
+	const [sessions, claude] = await Promise.all([listSessions(), getClaudeAccount()]);
+	return {...unwrapLoaderResult(sessions), claude: unwrapLoaderResult(claude).account};
 }
+
+export type AccountData = Awaited<ReturnType<typeof accountLoader>>;
 
 // The organization's members and invitations.
 export async function membersLoader(args: OrgParams) {

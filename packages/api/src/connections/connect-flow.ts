@@ -81,7 +81,7 @@ type SignInAnswer<E> = {redirectUri: string; code: string; verifier: string; kep
 export type Connected<C> = {account: string; accountId?: string; credential: C; defaults: string[]; tools?: McpTool[]; name?: string; anonymous?: true};
 
 /** A PKCE verifier and the challenge the provider is sent in its place. */
-function makePkce(): {verifier: string; challenge: string} {
+export function makePkce(): {verifier: string; challenge: string} {
 	const verifier = randomBytes(32).toString('base64url');
 	return {verifier, challenge: createHash('sha256').update(verifier).digest('base64url')};
 }
