@@ -222,11 +222,15 @@ export async function agentSetupLoader(args: {params: {org?: string; id?: string
 export async function activityLoader(args: OrgParams & {request: Request}) {
 	const org = orgOf(args);
 	const search = new URL(args.request.url).searchParams;
+	// The log narrowed to one task, as it once was: that task's page.
+	const task = search.get('task');
+	if (task) {
+		throw redirect(`/${org}/activity/tasks/${encodeURIComponent(task)}`);
+	}
 	const outcome = search.get('outcome');
 	const filter: ActivityFilter = {
 		agentId: search.get('agent') ?? undefined,
 		connectionId: search.get('connection') ?? undefined,
-		taskId: search.get('task') ?? undefined,
 		outcome:
 			outcome === 'allowed' || outcome === 'denied' || outcome === 'failed' ? outcome : undefined,
 	};

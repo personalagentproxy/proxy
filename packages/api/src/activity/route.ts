@@ -38,21 +38,19 @@ const PROXY = 'proxy';
 
 /**
  * The requests the person sees in the organization, newest first, the latest 500: shared agents'
- * and their own agents', on shared connections and their own; and the tasks they were made for;
- * with `?taskId=`, that task too, even before any request was made for it.
+ * and their own agents', on shared connections and their own; and the tasks they were made for.
  */
 export function handleListActivityRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof activityListSchema>, ApiError>> {
 	return Do(async ($) => {
-		const {agentId, connectionId, taskId, outcome} = $(parseSchema(activityQuerySchema, request.query));
+		const {agentId, connectionId, outcome} = $(parseSchema(activityQuerySchema, request.query));
 		const viewer = $(await requireViewer(request));
 		const filter = {
 			...(agentId === undefined ? {} : {agentId: agentId === PROXY ? null : agentId}),
 			...(connectionId === undefined ? {} : {connectionId}),
-			...(taskId === undefined ? {} : {taskId}),
 			...(outcome === undefined ? {} : {outcome}),
 		};
 		const rows = $(await listAuditEntries(viewer, filter, MAX_ENTRIES));
-		const taskIds = new Set([...rows.flatMap((row) => (row.taskId === null ? [] : [row.taskId])), ...(taskId === undefined ? [] : [taskId])]);
+		const taskIds = new Set(rows.flatMap((row) => (row.taskId === null ? [] : [row.taskId])));
 		const tasks = $(await listAgentTasks(viewer, [...taskIds]));
 		return {entries: $(await toEntries(viewer, rows)), tasks: $(await toActivityTasks(viewer, tasks))};
 	});

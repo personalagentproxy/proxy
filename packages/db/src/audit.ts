@@ -110,8 +110,8 @@ export async function logProxyAction(data: {
 
 /**
  * The entries the viewer sees, newest first: the organization's shared agents' and shared
- * connections', and their own; optionally only one agent's or one connection's requests, only one
- * task's, or only allowed, denied or failed ones; an `agentId` of null is what Personal Agent Proxy
+ * connections', and their own; optionally only one agent's or one connection's requests, or only
+ * allowed, denied or failed ones; an `agentId` of null is what Personal Agent Proxy
  * did itself.
  */
 export async function listAuditEntries(
@@ -119,7 +119,6 @@ export async function listAuditEntries(
 	filter: {
 		agentId?: string | null;
 		connectionId?: string;
-		taskId?: string;
 		outcome?: AuditOutcome;
 	},
 	take: number,
