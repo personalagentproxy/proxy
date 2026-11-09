@@ -5,7 +5,7 @@ import {
 } from '@proxy/contracts/auth';
 import {httpRequest} from '@proxy/utils';
 import {apiRequest, apiSend} from '@/client/request';
-import {trackWrite} from '@/lib/unsaved-work';
+import {trackWrite} from '@/lib/writes-in-flight';
 
 /**
  * Requests a magic-link email. Pre-auth, so no session cookie; the api still requires the app's

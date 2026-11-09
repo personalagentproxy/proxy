@@ -36,6 +36,7 @@ import {preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
 import {useHuman} from '@/hooks/use-human';
 import {useOrgSlug} from '@/hooks/use-org';
+import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
 import {useUnread} from '@/hooks/use-unread';
 import {formatAgo, formatDateTime} from '@/lib/format';
 import type {Pose} from '@/lib/head';
@@ -343,6 +344,9 @@ function Conversation({
 	const form = useRef<HTMLFormElement>(null);
 	const personaId = loaded.log.persona.id;
 	const current = loaded.log.persona;
+	// A conversation is open all day: a new release is loaded while it is out of view, as long as
+	// nothing is typed in it and no dialog is open, since the log comes back from the server.
+	useReloadWhileHidden(text === '' && !sending && editing === null && deleting === null);
 
 	// Which read of the log was asked for last: one asked for before it that answers after it is
 	// dropped, so a poll begun before a send can't put back the log as it was without the message.

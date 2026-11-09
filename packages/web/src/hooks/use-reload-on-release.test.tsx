@@ -1,11 +1,11 @@
 /// <reference types="bun" />
 
 import {afterEach, beforeEach, describe, expect, test} from 'bun:test';
-import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {act, cleanup, fireEvent, render, screen} from '@testing-library/react';
 import {useState} from 'react';
 import {createMemoryRouter, Link, Outlet, RouterProvider} from 'react-router';
-import {useReloadOnRelease} from '@/hooks/use-reload-on-release';
-import {trackWrite} from '@/lib/unsaved-work';
+import {useReloadOnRelease, useReloadWhileHidden} from '@/hooks/use-reload-on-release';
+import {trackWrite} from '@/lib/writes-in-flight';
 
 const realFetch = globalThis.fetch;
 let serverBundle = '/assets/index-Old.js';
@@ -27,11 +27,10 @@ function Root({reload}: {reload: () => void}) {
 	return <Outlet />;
 }
 
-// A page with what can hold a reload back: a chat box, a field the page filled in itself, and a
-// dialog to open.
+// A page that says a reload loses it nothing until something is typed in its box.
 function Page() {
 	const [message, setMessage] = useState('');
-	const [dialogOpen, setDialogOpen] = useState(false);
+	useReloadWhileHidden(message === '');
 	return (
 		<>
 			<Link to="/second">Second</Link>
@@ -40,16 +39,13 @@ function Page() {
 				value={message}
 				onChange={(event) => setMessage(event.target.value)}
 			/>
-			<button type="button" onClick={() => setMessage('')}>
-				Send
-			</button>
-			<input aria-label="Name" defaultValue="Dana" />
-			<button type="button" onClick={() => setDialogOpen(!dialogOpen)}>
-				Dialog
-			</button>
-			{dialogOpen ? <div role="dialog">Rename</div> : null}
 		</>
 	);
+}
+
+// A page that says nothing of reloads.
+function SecondPage() {
+	return <Link to="/first">First</Link>;
 }
 
 function renderPage(reload: () => void) {
@@ -59,7 +55,7 @@ function renderPage(reload: () => void) {
 				element: <Root reload={reload} />,
 				children: [
 					{path: '/first', element: <Page />},
-					{path: '/second', element: <p>Second page</p>},
+					{path: '/second', element: <SecondPage />},
 				],
 			},
 		],
@@ -79,11 +75,42 @@ function comeBackIntoView() {
 	Date.now = now;
 }
 
-// The tab going out of view or coming back, which looks again at a held reload.
-function changeVisibility() {
+let visibility: DocumentVisibilityState = 'visible';
+
+// The tab going out of view or coming back.
+function setVisibility(next: DocumentVisibilityState) {
+	visibility = next;
 	act(() => {
 		document.dispatchEvent(new Event('visibilitychange'));
 	});
+}
+
+// A page found to be behind the server's release, while in view.
+async function findNewRelease() {
+	serverBundle = '/assets/index-New.js';
+	comeBackIntoView();
+	await settle();
+}
+
+async function goTo(name: string) {
+	fireEvent.click(screen.getByRole('link', {name}));
+	await settle();
+}
+
+// A write on its way until the returned function is called.
+function startWrite(): () => Promise<void> {
+	let finish = () => {};
+	const write = trackWrite(
+		new Promise<void>((resolve) => {
+			finish = resolve;
+		}),
+	);
+	return async () => {
+		finish();
+		await act(async () => {
+			await write;
+		});
+	};
 }
 
 // Lets the check for a new release answer.
@@ -94,6 +121,8 @@ async function settle() {
 }
 
 beforeEach(() => {
+	visibility = 'visible';
+	Object.defineProperty(document, 'visibilityState', {configurable: true, get: () => visibility});
 	pageWith('/assets/index-Old.js');
 	globalThis.fetch = ((input: string) =>
 		Promise.resolve(
@@ -107,6 +136,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	cleanup();
+	Reflect.deleteProperty(document, 'visibilityState');
 	globalThis.fetch = realFetch;
 	pageWith(null);
 });
@@ -118,91 +148,86 @@ describe('useReloadOnRelease', () => {
 		renderPage(() => reloads++);
 		comeBackIntoView();
 		await settle();
+		await goTo('Second');
+		setVisibility('hidden');
 		expect(reloads).toBe(0);
 	});
 
-	test('reloads at once, once, when the server has a new release', async () => {
-		serverBundle = '/assets/index-New.js';
+	test('reloads at the next page, once, not in front of the person', async () => {
 		let reloads = 0;
 		renderPage(() => reloads++);
-		comeBackIntoView();
+		await findNewRelease();
+		expect(reloads).toBe(0);
 
-		await waitFor(() => expect(reloads).toBe(1));
-		changeVisibility();
+		await goTo('Second');
+		expect(reloads).toBe(1);
+		await goTo('First');
 		expect(reloads).toBe(1);
 	});
 
-	test('is not held back by a field the page filled in itself', async () => {
-		serverBundle = '/assets/index-New.js';
+	test('reloads at the next page even with something typed on the last one', async () => {
 		let reloads = 0;
 		renderPage(() => reloads++);
-		expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Dana');
-		comeBackIntoView();
+		fireEvent.change(screen.getByLabelText('Message'), {target: {value: 'Pricing review'}});
+		await findNewRelease();
 
-		await waitFor(() => expect(reloads).toBe(1));
-	});
-
-	test('waits while something typed is in a field, until it is sent', async () => {
-		serverBundle = '/assets/index-New.js';
-		let reloads = 0;
-		renderPage(() => reloads++);
-		fireEvent.input(screen.getByLabelText('Message'), {target: {value: 'Pricing review'}});
-		comeBackIntoView();
-		await settle();
-		changeVisibility();
-		expect(reloads).toBe(0);
-
-		fireEvent.click(screen.getByRole('button', {name: 'Send'}));
-		changeVisibility();
+		await goTo('Second');
 		expect(reloads).toBe(1);
 	});
 
-	test('waits while a dialog is open', async () => {
-		serverBundle = '/assets/index-New.js';
+	test('waits for the page after the next while a write is on its way', async () => {
 		let reloads = 0;
 		renderPage(() => reloads++);
-		fireEvent.click(screen.getByRole('button', {name: 'Dialog'}));
-		comeBackIntoView();
-		await settle();
+		await findNewRelease();
+		const finish = startWrite();
+		await goTo('Second');
 		expect(reloads).toBe(0);
 
-		fireEvent.click(screen.getByRole('button', {name: 'Dialog'}));
-		changeVisibility();
+		await finish();
+		await goTo('First');
 		expect(reloads).toBe(1);
 	});
 
-	test('waits while a write is on its way', async () => {
-		serverBundle = '/assets/index-New.js';
+	test('reloads out of view a page that says it loses nothing', async () => {
 		let reloads = 0;
-		let finish = () => {};
-		const write = trackWrite(
-			new Promise<void>((resolve) => {
-				finish = resolve;
-			}),
-		);
 		renderPage(() => reloads++);
-		comeBackIntoView();
-		await settle();
+		await findNewRelease();
 		expect(reloads).toBe(0);
 
-		finish();
-		await act(async () => {
-			await write;
-		});
-		changeVisibility();
+		setVisibility('hidden');
 		expect(reloads).toBe(1);
 	});
 
-	test('reloads at the next page once the typing is left behind', async () => {
-		serverBundle = '/assets/index-New.js';
+	test('does not reload out of view a page that says nothing', async () => {
 		let reloads = 0;
 		renderPage(() => reloads++);
-		fireEvent.input(screen.getByLabelText('Message'), {target: {value: 'Pricing review'}});
-		comeBackIntoView();
-		await settle();
+		await goTo('Second');
+		await findNewRelease();
+
+		setVisibility('hidden');
+		expect(reloads).toBe(0);
+	});
+
+	test('does not reload out of view a page once it holds something', async () => {
+		let reloads = 0;
+		renderPage(() => reloads++);
+		fireEvent.change(screen.getByLabelText('Message'), {target: {value: 'Pricing review'}});
+		await findNewRelease();
+
+		setVisibility('hidden');
+		expect(reloads).toBe(0);
+	});
+
+	test('reloads out of view once a write on its way has landed', async () => {
+		let reloads = 0;
+		renderPage(() => reloads++);
+		await findNewRelease();
+		const finish = startWrite();
+		setVisibility('hidden');
 		expect(reloads).toBe(0);
 
-		fireEvent.click(screen.getByRole('link', {name: 'Second'}));
-		await waitFor(() => expect(reloads).toBe(1));
+		await finish();
+		setVisibility('hidden');
+		expect(reloads).toBe(1);
 	});
 });

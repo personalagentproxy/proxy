@@ -1,6 +1,6 @@
 import {httpRequest, type FetchError} from '@proxy/utils';
 import type {z} from 'zod';
-import {trackWrite} from '@/lib/unsaved-work';
+import {trackWrite} from '@/lib/writes-in-flight';
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
