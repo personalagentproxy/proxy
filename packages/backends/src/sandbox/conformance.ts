@@ -41,11 +41,12 @@ export function sandboxBackendTests(make: () => Promise<SandboxBackend>): void {
 			expect(await exec(ref, 'test "$(pwd)" = "$HOME" && test -f "$HOME/note.txt" && echo home')).toMatchObject({stdout: 'home\n', exitCode: 0});
 		});
 
-		test('a command runs where cwd says, under the home', async () => {
+		test('a command runs where cwd says, under the home, with the environment it is sent', async () => {
 			const ref = await create('cwd');
 			await exec(ref, 'mkdir -p repo && echo inside > repo/file');
 
 			expect((await backend.exec(ref, {command: 'cat file', cwd: 'repo', timeoutMs: TIMEOUT_MS})).unwrap()).toMatchObject({stdout: 'inside\n', exitCode: 0});
+			expect((await backend.exec(ref, {command: 'echo "$GREETING"', env: {GREETING: 'hi there'}, timeoutMs: TIMEOUT_MS})).unwrap()).toMatchObject({stdout: 'hi there\n', exitCode: 0});
 		});
 
 		test('what was written stays while the sandbox is asleep, and is there once it is woken', async () => {

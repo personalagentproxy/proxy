@@ -29,6 +29,8 @@ export const execSandboxBodySchema = z.object({
 	command: z.string(),
 	stdin: z.string().optional(),
 	cwd: z.string().optional(),
+	/** Set in the command's environment, beside the sandbox's own. */
+	env: z.record(z.string(), z.string()).optional(),
 	timeoutMs: z.number().int().positive(),
 });
 
