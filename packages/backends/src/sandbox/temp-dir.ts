@@ -11,7 +11,7 @@ import type {SandboxBackend, SandboxCommand, SandboxOutput, SandboxRef} from './
 /**
  * The backend the tests run against, and a developer's own machine with `SANDBOX_SERVICE_URL=dev`:
  * a directory under `root` for each sandbox, commands run in it by this machine's own shell, as
- * this process, with nothing but a path and a locale in their environment. Nothing is isolated:
+ * this process, with nothing in their environment but a path, a locale and what the command brings. Nothing is isolated:
  * a command reaches the whole machine, so this is never a backend for people, only what the
  * conformance tests, the tests of what uses sandboxes, and a developer trying things run on. A
  * ref is the sandbox's directory, the same asleep as running; sleeping ends what the sandbox was
@@ -45,7 +45,7 @@ function run(directory: string, command: SandboxCommand, groups: Set<number>): P
 	return new Promise((resolveOutput) => {
 		const child = spawn('/bin/sh', ['-c', command.command], {
 			cwd: command.cwd === undefined ? directory : resolve(directory, command.cwd),
-			env: {PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: directory, LANG: 'C.UTF-8'},
+			env: {...command.env, PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: directory, LANG: 'C.UTF-8'},
 			detached: true,
 			stdio: ['pipe', 'pipe', 'pipe'],
 		});
