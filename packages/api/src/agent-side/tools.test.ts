@@ -135,7 +135,11 @@ const triage = {
 
 const entry = {id: 'rec-1', values: {title: 'Home address', type: 'Address', content: '1 Main St'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 const inboxEmail = {id: 'inbox-7-12', values: {folder: 'Inbox', subject: 'Invoice #20931'}, updatedAt: '2026-10-01T00:00:00.000Z'};
-const draft = {id: 'drafts-7-3', values: {folder: 'Draft', from: 'alex@example.com', to: 'sam@example.com', subject: 'Re: Q3 planning', body: 'Draft body'}, updatedAt: '2026-10-01T00:00:00.000Z'};
+const draft = {
+	id: 'drafts-7-3',
+	values: {folder: 'Draft', from: 'alex@example.com', to: 'sam@example.com', cc: 'jo@example.com', subject: 'Re: Q3 planning', body: 'Draft body'},
+	updatedAt: '2026-10-01T00:00:00.000Z',
+};
 
 const archive = mock();
 const send = mock();
@@ -351,7 +355,7 @@ describe('runAgentTool', () => {
 		const result = await runAgentTool(caller, 'mail-1', 'emails_update', {id: draft.id, subject: 'Re: Q4 planning'});
 
 		expect(result.isOk()).toBe(true);
-		expect(connector.update.mock.calls[0]?.slice(1)).toEqual([draft.id, {to: 'sam@example.com', subject: 'Re: Q4 planning', body: 'Draft body'}, draft]);
+		expect(connector.update.mock.calls[0]?.slice(1)).toEqual([draft.id, {to: 'sam@example.com', cc: 'jo@example.com', bcc: '', subject: 'Re: Q4 planning', body: 'Draft body'}, draft]);
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'update', recordTitle: 'Re: Q4 planning'});
 	});
 
@@ -405,7 +409,7 @@ describe('runAgentTool', () => {
 		const result = await runAgentTool(caller, 'mail-1', 'emails_send_new', values);
 
 		expect(result.unwrap()).toEqual({record: null});
-		expect(sendNew.mock.calls[0]?.[1]).toEqual(values);
+		expect(sendNew.mock.calls[0]?.[1]).toEqual({...values, cc: '', bcc: ''});
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'sendNew', recordTitle: 'Friday', outcome: 'allowed'});
 	});
 
