@@ -114,7 +114,8 @@ export async function connectionLoader(args: {params: {org?: string; id?: string
 	};
 }
 
-// Chat opens on the organization's first persona, which the api makes where it has none yet.
+// Chat opens on the persona the person was last active with, the first the api lists, which makes
+// one where the organization has none yet.
 export async function chatIndexLoader(args: OrgParams) {
 	const org = orgOf(args);
 	const {personas} = unwrapLoaderResult(await listPersonas(org));

@@ -14,8 +14,8 @@ mock.module('./built-in-agent', () => ({ensureBuiltInAgent}));
 
 const now = new Date('2026-10-21T10:00:00Z');
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
-const persona = {id: 'persona-1', name: 'Finance', look, color: 'blue', chatModel: 'claude' as 'claude' | 'glm', createdById: 'user-1'};
-const personaResponse = {id: 'persona-1', name: 'Finance', look, color: 'blue' as const, chatModel: null, mayChange: true, lastMessage: null};
+const persona = {id: 'persona-1', name: 'Finance', look, color: 'blue', chatModel: 'claude' as 'claude' | 'glm', createdById: 'user-1', createdAt: now};
+const personaResponse = {id: 'persona-1', name: 'Finance', look, color: 'blue' as const, chatModel: null, mayChange: true, lastMessage: null, createdAt: '2026-10-21T10:00:00.000Z'};
 const thread: ThreadRow = {
 	id: 'thread-1',
 	orgId: 'org-1',

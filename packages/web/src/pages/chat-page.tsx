@@ -119,9 +119,15 @@ function lastOf(log: ThreadLog): ChatPersona['lastMessage'] {
 	return last ? {kind: last.kind, text: preview(last.text), at: last.at} : null;
 }
 
+// When the persona was last active: the last thing said, or its making before anything was.
+function lastActive(persona: ChatPersona, last: ChatPersona['lastMessage']): number {
+	return Date.parse(last?.at ?? persona.createdAt);
+}
+
 // The organization's personas in the second sidebar, each with its head, its name and the last
 // thing said between it and the person, marked where the person hasn't seen it, the open one lit,
-// each head watching the pointer while it is over that agent's row.
+// each head watching the pointer while it is over that agent's row. The one last active is on
+// top, the open one by its log, so what the person just said moves it up at once.
 function PersonaList({
 	personas,
 	current,
@@ -151,14 +157,19 @@ function PersonaList({
 	// Whether the persona said something the person hasn't seen, as the provider has it.
 	const isUnread = (persona: ChatPersona) =>
 		persona.id !== current && unread.unreadIds.has(persona.id);
+	const rows = personas
+		.map((persona) => ({
+			persona,
+			last: persona.id === current ? lastOf(currentLog) : persona.lastMessage,
+		}))
+		.toSorted((a, b) => lastActive(b.persona, b.last) - lastActive(a.persona, a.last));
 	return (
 		<div className="flex h-full min-h-0 flex-col overflow-y-auto p-2">
 			{personas.length === 0 && (
 				<span className="px-2 py-1.5 text-sm text-muted-foreground">No agents yet.</span>
 			)}
 			<ul className="flex flex-col gap-0.5">
-				{personas.map((persona) => {
-					const last = persona.id === current ? lastOf(currentLog) : persona.lastMessage;
+				{rows.map(({persona, last}) => {
 					const fresh = isUnread(persona);
 					const row = (
 						<Link
