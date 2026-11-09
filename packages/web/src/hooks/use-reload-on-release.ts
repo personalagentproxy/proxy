@@ -9,6 +9,11 @@ const RETRY_MS = 3 * 1000;
 // How many pages say a reload loses them nothing, for now (`useReloadWhileHidden`).
 let pagesSafeToReload = 0;
 
+/** Whether the page in view says a reload loses it nothing, for now (`useReloadWhileHidden`). */
+export function pageSaysSafeToReload(): boolean {
+	return pagesSafeToReload > 0;
+}
+
 function reloadPage(): void {
 	window.location.reload();
 }
@@ -66,7 +71,7 @@ export function useReloadOnRelease(reload: () => void = reloadPage): void {
 				return;
 			}
 
-			if (pagesSafeToReload === 0 || hasWriteInFlight()) {
+			if (!pageSaysSafeToReload() || hasWriteInFlight()) {
 				return;
 			}
 

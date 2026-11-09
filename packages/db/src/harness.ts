@@ -289,12 +289,14 @@ export function toEntry(entry: EntryRecord): EntryRow {
 
 /**
  * The organization's personas with the last thing said in the member's conversation with each,
- * the one last active first: the last thing said in it, or, before anything was, its making.
+ * and what they typed in it and haven't sent, the one last active first: the last thing said in it, or, before anything was, its making.
  */
 export async function listPersonas(
 	orgId: string,
 	userId: string,
-): Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null}>, ApiError>> {
+): Promise<
+	Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null}>, ApiError>
+> {
 	return (
 		await wrapDb(() =>
 			db.persona.findMany({
@@ -304,6 +306,7 @@ export async function listPersonas(
 					threads: {
 						where: {userId, parentThreadId: null},
 						select: {
+							draft: true,
 							// The agent's turns that only made calls say nothing, so the last with words.
 							entries: {
 								where: {kind: {in: ['person', 'assistant']}, text: {not: ''}},
@@ -327,6 +330,7 @@ export async function listPersonas(
 						last && (last.kind === 'person' || last.kind === 'assistant')
 							? {kind: last.kind, text: last.text, createdAt: last.createdAt}
 							: null,
+					draft: threads[0]?.draft ?? null,
 				};
 			})
 			.toSorted((a, b) => lastActive(b).getTime() - lastActive(a).getTime()),
@@ -562,6 +566,28 @@ export async function markThreadRead(
 				db.$executeRaw`UPDATE "AgentThread" AS t SET "readSeq" = GREATEST(t."readSeq", e."seq") FROM "AgentEntry" AS e WHERE t."id" = ${threadId} AND e."id" = ${entryId} AND e."threadId" = t."id"`,
 		)
 	).map((count) => count > 0);
+}
+
+/** What the member typed in their conversation and hasn't sent; `Ok(null)` for none, or no such thread. */
+export async function getThreadDraft(threadId: string): Promise<Result<string | null, ApiError>> {
+	return (
+		await wrapDb(() => db.agentThread.findUnique({where: {id: threadId}, select: {draft: true}}))
+	).map((thread) => thread?.draft ?? null);
+}
+
+/**
+ * Keeps what the member typed in their conversation and hasn't sent, in place of what was kept;
+ * null forgets it. `Ok(false)` means no such conversation: a sub-agent's thread keeps none.
+ */
+export async function saveThreadDraft(
+	threadId: string,
+	draft: string | null,
+): Promise<Result<boolean, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentThread.updateMany({where: {id: threadId, parentThreadId: null}, data: {draft}}),
+		)
+	).map(({count}) => count > 0);
 }
 
 /**
@@ -857,7 +883,10 @@ async function endTurn(
 	await tellParent(tx, thread, stop.stopped, jobId, wakes);
 }
 
-/** Lands what the person said, and wakes the agent where the log `wakes` it. `Ok(null)` means no such thread. */
+/**
+ * Lands what the person said, and wakes the agent where the log `wakes` it; what they had typed
+ * and not sent goes with it, since this is it sent. `Ok(null)` means no such thread.
+ */
 export async function appendPersonMessage(
 	threadId: string,
 	text: string,
@@ -869,6 +898,7 @@ export async function appendPersonMessage(
 			if (!thread) {
 				return null;
 			}
+			await tx.agentThread.update({where: {id: threadId}, data: {draft: null}});
 			return appendEntry(tx, thread, {kind: 'person', text}, wakes);
 		}),
 	);

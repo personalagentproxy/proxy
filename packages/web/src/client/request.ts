@@ -39,10 +39,19 @@ export function apiRequest<S extends z.ZodType>(
 	return method === 'GET' ? request : trackWrite(request);
 }
 
-/** The same for calls that answer 204 No Content. */
-export function apiSend(method: Method, path: string, body?: unknown) {
+/**
+ * The same for calls that answer 204 No Content. `keepalive` lets the call finish after the page
+ * is gone, for what is sent as it closes; the browser allows it only a small body.
+ */
+export function apiSend(
+	method: Method,
+	path: string,
+	body?: unknown,
+	options: {keepalive?: boolean} = {},
+) {
 	const request = httpRequest(path, {
 		method,
+		...(options.keepalive ? {keepalive: true} : {}),
 		...(body === undefined
 			? {}
 			: {headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}),
