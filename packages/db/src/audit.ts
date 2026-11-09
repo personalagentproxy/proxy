@@ -60,8 +60,7 @@ export async function logAgentRequest(data: {
 	query: string | null;
 	outcome: AuditOutcome;
 	via: AuditVia;
-	// PRE-TASK CLIENTS: null for a call of an MCP client from before tasks (api's mcp/pre-task-clients.ts).
-	taskId: string | null;
+	taskId: string;
 	// The member whose own the agent is, who alone sees the entry; null for a shared agent's.
 	ownerUserId: string | null;
 	// When the request came in, in ms since the epoch, so the entry says how long it took.

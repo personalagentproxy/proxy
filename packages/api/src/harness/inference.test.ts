@@ -121,13 +121,13 @@ describe('runInference', () => {
 		// The agent acts as the member whose conversation it is.
 		expect(getThreadAgent).toHaveBeenCalledWith(thread);
 		expect(listSubAgents).toHaveBeenCalledWith('thread-1', now);
-		expect(agentInstructions).toHaveBeenCalledWith(expect.objectContaining({agentId: 'agent-1', ownerUserId: 'user-1'}), expect.stringContaining('You are talking with the person directly'));
+		expect(agentInstructions).toHaveBeenCalledWith(expect.objectContaining({agentId: 'agent-1', ownerUserId: 'user-1'}), expect.stringContaining('You are chatting with the person'));
 		const request = askForTurn.mock.calls[0]?.[0] as {model: string; messages: Array<Record<string, unknown>>; tools: unknown[]};
 		// With the model of the persona the thread is with.
 		expect(getChatModel).toHaveBeenCalledWith(thread);
 		expect(request.model).toBe('claude');
 		expect(request.messages[0]).toMatchObject({role: 'system'});
-		expect(String(request.messages[0]?.content)).toContain('- thread-2: “Find the invoices”, stopped; a message takes it up again');
+		expect(String(request.messages[0]?.content)).toContain('- thread-2: “Find the invoices”, stopped');
 		expect(String(request.messages[0]?.content)).toContain('The time now is 2026-10-21T10:00:00.000Z');
 		expect(request.messages.slice(1)).toEqual([
 			{role: 'user', content: 'Find my invoices'},
@@ -137,7 +137,7 @@ describe('runInference', () => {
 				tool_calls: [{id: 'c1', type: 'function', function: {name: 'create_subagent', arguments: '{"title":"Find the invoices","brief":"Search the mailbox."}'}}],
 			},
 			{role: 'tool', tool_call_id: 'c1', content: 'Started the sub-agent “Find the invoices”, id thread-2.'},
-			{role: 'user', content: expect.stringContaining('A message from the sub-agent “Find the invoices” (id thread-2)')},
+			{role: 'user', content: expect.stringContaining('From the sub-agent “Find the invoices” (thread-2); not from the person.')},
 		]);
 		expect(String(request.messages[4]?.content)).toContain('Three invoices from Dana.');
 		expect(request.tools).toEqual([create]);
@@ -174,7 +174,7 @@ describe('runInference', () => {
 		await runInference(store, job, 'w1', now);
 
 		const system = String((askForTurn.mock.calls[0]?.[0] as {messages: Array<{content: string}>}).messages[0]?.content);
-		expect(system).toContain('- 3 older sub-agents that have stopped, not listed');
+		expect(system).toContain('- 3 older stopped ones, not listed');
 		expect(system).toContain('- working-0: “Find the invoices”, at work');
 		expect(system).not.toContain('stopped-2:');
 		expect(system).toContain('- stopped-3: ');
@@ -184,7 +184,7 @@ describe('runInference', () => {
 	test('tells the agent talking with the person when it has no sub-agents yet, and a sub-agent nothing of any', async () => {
 		const {runInference} = await import('./inference');
 		await runInference(store, job, 'w1', now);
-		expect(String((askForTurn.mock.calls[0]?.[0] as {messages: Array<{content: string}>}).messages[0]?.content)).toContain('You have started no sub-agents yet.');
+		expect(String((askForTurn.mock.calls[0]?.[0] as {messages: Array<{content: string}>}).messages[0]?.content)).toContain('No sub-agents yet.');
 
 		getJobThread.mockResolvedValue(Ok(sub));
 		listSubAgents.mockClear();
@@ -232,7 +232,7 @@ describe('runInference', () => {
 				plans: {
 					c2: {kind: 'job', runAt: new Date('2026-10-21T10:01:00Z')},
 					c3: {kind: 'job', runAt: now},
-					c4: {kind: 'send_to_parent', message: {text: 'Nothing yet; checking again in a minute.', isError: false}, sent: expect.stringContaining('Sent to the agent you work for')},
+					c4: {kind: 'send_to_parent', message: {text: 'Nothing yet; checking again in a minute.', isError: false}, sent: 'Sent.'},
 				},
 			},
 		);
@@ -279,6 +279,15 @@ describe('runInference', () => {
 				goingOn: {text: 'I stopped without saying anything.', isError: false},
 			},
 		});
+	});
+
+	test('the agent talking with the person may answer a sub-agent’s message or an alert with nothing, kept as no words', async () => {
+		const {runInference} = await import('./inference');
+		askForTurn.mockResolvedValue(Ok({text: ' ', toolCalls: [], inputTokens: 10, outputTokens: 0}));
+		listEntries.mockResolvedValue(Ok([entry('person', 'Find my invoices'), entry('event', 'Three invoices from Dana.', {callId: 'c1'})]));
+
+		await runInference(store, job, 'w1', now);
+		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: '', toolCalls: []}), {plans: {}});
 	});
 
 	test('a job that was no longer the worker’s by the time the answer came is a conflict', async () => {
@@ -357,7 +366,7 @@ describe('runInference', () => {
 		expect(asked.map((request) => request.model)).toEqual(['glm', 'glm']);
 		// The log to summarize goes as text, calls written out, since turns with calls need the tools sent along.
 		expect(asked[0]?.tools).toEqual([]);
-		expect(asked[0]?.messages[0]).toMatchObject({role: 'system', content: expect.stringContaining('summarizing a conversation')});
+		expect(asked[0]?.messages[0]).toMatchObject({role: 'system', content: expect.stringContaining('Summarize this conversation')});
 		expect(asked[0]?.messages.slice(1)).toEqual([{role: 'user', content: 'Person:\nOne\n\nAgent called read with {}\n\nread answered:\nrows one\n\nAgent:\nDone one\n\nWrite the summary now.'}]);
 		expect(appendSummary).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', {text: 'The person asked for one; it was done.', toolCalls: [], inputTokens: 90_000, outputTokens: 300}, long[3]?.seq);
 		expect(asked[1]?.messages.slice(1).map((message) => message.content)).toEqual([expect.stringContaining('The person asked for one; it was done.'), 'Two', 'Done two', 'Three', null, 'rows three']);

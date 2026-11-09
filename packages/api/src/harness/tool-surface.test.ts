@@ -3,7 +3,6 @@ import {describe, expect, mock, test} from 'bun:test';
 // The catalog's modules read the api's env as they load, and ci has no .env: so the env is mocked,
 // and the modules imported after, since a static import would load before the mock.
 mock.module('../utils/env', () => ({env: {NODE_ENV: 'test', APP_URL: 'http://localhost:5173'}}));
-const {MCP_TOOLS} = await import('../mcp/tools');
 const {isGateTool, MAIN_AGENT_TOOLS, SUB_AGENT_TOOLS, toolsFor} = await import('./tool-surface');
 
 type Params = {properties: Record<string, unknown>; required: string[]};
@@ -32,29 +31,22 @@ describe('the main agent’s tools', () => {
 });
 
 describe('a sub-agent’s tools', () => {
-	test('are the MCP server’s without the two about tasks, a message to the agent it works for, and a sleep', () => {
-		expect(SUB_AGENT_TOOLS.map((candidate) => candidate.name)).toEqual(['list_connections', 'list_tools', 'read', 'run', 'send_feedback', 'send_to_parent', 'sleep_until']);
+	test('are the MCP server’s script, a message to the agent it works for, and a sleep', () => {
+		expect(SUB_AGENT_TOOLS.map((candidate) => candidate.name)).toEqual(['script', 'send_to_parent', 'sleep_until']);
 		expect(tool('send_to_parent').parameters.required).toEqual(['text']);
 	});
 
-	test('take no task: the loop fills it in', () => {
-		for (const name of ['list_connections', 'list_tools', 'read', 'run']) {
-			expect(tool(name).parameters.properties).not.toHaveProperty('task');
-			expect(tool(name).parameters.required).not.toContain('task');
-			expect(tool(name).description).not.toContain('from start_task');
-		}
-		expect(tool('read').parameters.required).toEqual(['connection', 'tool']);
+	test('the script takes no task, and starts and finishes none: the loop keeps its task', () => {
+		expect(tool('script').parameters.properties).not.toHaveProperty('task');
+		expect(tool('script').parameters.required).toEqual(['code']);
+		expect(tool('script').description).toContain('pap.call(connection, tool, params?)');
+		expect(tool('script').description).not.toContain('pap.startTask');
+		expect(tool('script').description).not.toContain('pap.finishTask');
 	});
 
-	test('keep every other param the MCP server’s have', () => {
-		const run = MCP_TOOLS.find((candidate) => candidate.name === 'run');
-		expect(Object.keys(tool('run').parameters.properties)).toEqual(Object.keys(run?.inputSchema.properties ?? {}).filter((key) => key !== 'task'));
-	});
-
-	test('the gate’s tools are the MCP server’s but the task ones', () => {
-		expect(isGateTool('read')).toBe(true);
-		expect(isGateTool('send_feedback')).toBe(true);
-		expect(isGateTool('start_task')).toBe(false);
+	test('the gate’s one tool is the script', () => {
+		expect(isGateTool('script')).toBe(true);
+		expect(isGateTool('read')).toBe(false);
 		expect(isGateTool('sleep_until')).toBe(false);
 		expect(isGateTool('send_to_parent')).toBe(false);
 		expect(isGateTool('create_subagent')).toBe(false);

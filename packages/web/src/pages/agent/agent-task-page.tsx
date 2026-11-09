@@ -19,7 +19,7 @@ import {taskHome} from '@/lib/agent-task';
 import type {agentTasksLoader} from '@/agent-loaders';
 import {noticeFromState} from '@/pages/agent/agent-collection-page';
 
-// Where an agent starts, as the MCP server's start_task: what it is about to do for the person, as
+// Where an agent starts, as a script's pap.startTask over MCP: what it is about to do for the person, as
 // one task with a title and a goal. An agent can have any number of tasks under way at once: they
 // are listed here, each opening its own pages, `/agent/<task>`, which make their requests for it.
 // An agent sent back here because its task was refused, `?refused=`, is told so.

@@ -51,8 +51,7 @@ const KEEP_TURNS = 2;
 // person than that: a sub-agent's, one brief and the calls made on it.
 const KEEP_STEPS = 3;
 
-const SUMMARY_LEAD =
-	'What came before in this conversation, summarized so that it fits. The person did not write this; take it as what happened.';
+const SUMMARY_LEAD = 'A summary of what came before; not from the person.';
 
 const CLEARED = '(This was cleared from the conversation to save room. Ask again if you need it.)';
 
@@ -70,16 +69,16 @@ function callOf(entries: ContextEntry[], callId: string | null): ToolCall | unde
 // answers no call.
 function eventLead(subAgents: SubAgent[], event: ContextEntry): string {
 	if (event.callId === null) {
-		return 'An alert set in this conversation. The person did not write this; it is for you to tell them of, or to act on as you noted.';
+		return 'An alert you set; not from the person.';
 	}
 	const from = subAgents.find((candidate) => candidate.parentCallId === event.callId);
 	const who = from
-		? `the sub-agent “${from.title ?? ''}” (id ${from.id})`
+		? `the sub-agent “${from.title ?? ''}” (${from.id})`
 		: `your call ${event.callId ?? ''}`;
 	if (event.isError) {
-		return `What ${who} failed with. The person did not write this.`;
+		return `${who} failed; not from the person.`;
 	}
-	return `A message from ${who}. The person did not write this; it is for you to act on or tell them of.`;
+	return `From ${who}; not from the person.`;
 }
 
 function toMessage(subAgents: SubAgent[], entry: ContextEntry): ModelMessage {
@@ -125,17 +124,26 @@ function sinceSummary(entries: ContextEntry[]): {
 	};
 }
 
+/** Whether the entry is an answer of nothing: no words and no calls. */
+export function isSilent(entry: ContextEntry): boolean {
+	return entry.kind === 'assistant' && entry.text === '' && (entry.toolCalls ?? []).length === 0;
+}
+
 /**
  * The log in the chat form, from its last summary on. With `clearOld`, what tools answered and
  * what events brought before the person's current turn is cleared, once there is a summary: that
  * is how the model reads a log, where a summary is made from the log as it is.
  */
+
 export function toMessages(
 	entries: ContextEntry[],
 	subAgents: SubAgent[],
 	{clearOld}: {clearOld: boolean},
 ): ModelMessage[] {
-	const {summary, tail} = sinceSummary(entries);
+	const {summary, tail: all} = sinceSummary(entries);
+	// An answer of nothing, as the agent talking with the person may give, isn't sent again: a
+	// model's message has to say something or make a call.
+	const tail = all.filter((entry) => !isSilent(entry));
 	if (!summary) {
 		return tail.map((entry) => toMessage(subAgents, entry));
 	}
@@ -178,7 +186,7 @@ function toLine(entries: ContextEntry[], subAgents: SubAgent[], entry: ContextEn
  */
 export function toTranscript(entries: ContextEntry[], subAgents: SubAgent[]): string {
 	const {summary, tail} = sinceSummary(entries);
-	return [...(summary ? [summary] : []), ...tail]
+	return [...(summary ? [summary] : []), ...tail.filter((entry) => !isSilent(entry))]
 		.map((entry) => toLine(entries, subAgents, entry))
 		.join('\n\n');
 }

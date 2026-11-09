@@ -59,12 +59,7 @@ export const runSandboxCommand: NativeToolRunner = ({caller, connection, params}
 		}
 		const {sandbox: sandboxId, command, stdin, cwd, timeout = SANDBOX_EXEC_DEFAULT_SECONDS} = parsed.value;
 		const backend = $(await requireBackend());
-		const found = $(
-			requirePresent(
-				$(await getSandbox(connection.id, sandboxId)),
-				ApiErr.notFound('sandbox', sandboxId, `There is no sandbox ${sandboxId} on this connection. Call sandboxes_list for the ones there are, or sandboxes_create for a new one.`),
-			),
-		);
+		const found = $(requirePresent($(await getSandbox(connection.id, sandboxId)), ApiErr.notFound('sandbox', sandboxId, `No sandbox ${sandboxId}: give its id, not its name.`)));
 		$(await holdForTask(found, caller.taskId));
 		const running = $(await wakeSandbox(found));
 		const output = $(await backend.exec(running.backendRef, {command, stdin, cwd, timeoutMs: Math.round(timeout * 1000)}));

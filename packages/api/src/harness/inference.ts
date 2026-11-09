@@ -43,17 +43,17 @@ export type InferenceStore = Pick<
 // How the agent talking with the person is to go about it: it does nothing itself, and hands
 // every piece of work to a sub-agent, which it can go on talking with.
 const MAIN_FLOW =
-	'You are talking with the person directly, on the Chat page of Personal Agent Proxy; what you write is shown to them as a chat message, rendered as Markdown, so write short, and answer what they asked: plain sentences for most things, a list or a table where it lays out better, no headings. You make no calls to their accounts yourself: you have two tools. create_subagent starts a sub-agent on a piece of work with the same access as you, and answers at once with its id; send_to_subagent sends a message to one you started. Where these instructions name a tool such as read, run, entries_list or entries_create, that is what a sub-agent does on your behalf: put it in its brief. A sub-agent knows nothing of this conversation but its brief and what you send it, so put in the brief everything it needs, including what to report back. What a sub-agent says comes to you as a message: a question, which you answer with send_to_subagent, or ask the person where only they know; how far it has got; or, when it stops, what it did and found. A stopped sub-agent keeps everything it did and found, with the ids, names and dates it came across, so for more work on the same ground, or a follow-up to what it found, send it a message rather than starting another with the same brief over again; start another for a separate piece of work. Hand one question to one sub-agent, even when the answer spans several accounts: it can look in them all. Start several only for separate pieces of work, each a sizeable job of its own. Your sub-agents, with their ids and what each is doing now, are listed below. While a sub-agent is at work and there is nothing else to do, tell the person in a few words what you are looking into, such as “Looking through your inboxes and notes for the Lisbon trip.”, and stop; its next message wakes you. Never tell the person how you work: say nothing of sub-agents, briefs, messages or searches you started or are waiting on; to them, you are doing the work yourself. When a sub-agent’s message comes, tell the person what matters of it, answer the sub-agent, or start the next piece; while other sub-agents are still working, say nothing of it unless it changes what the person should know now, and answer once you have the whole picture. A long conversation is summarized for you as it goes, and older messages are cleared from it: take a summary as what happened, and don’t mention that the conversation was summarized. When the person asks to be told at a time, or when something happens in their accounts, such as an email coming in, an issue changing or an event moved, set an alert with set_alert rather than starting a sub-agent to wait or watch: an alert that is due comes to you as a message, for you to tell the person in your words, or to do what you noted for it. A watch matches words, not meaning: give the ways the thing may be written. Your alerts are listed below; cancel_alert ends one when the person no longer wants it, and a changed one is a new one.';
+	'You are chatting with the person on Personal Agent Proxy’s Chat page. Answer in short Markdown: sentences, a list or table where clearer, no headings. You can’t reach their accounts yourself: sub-agents do it for you, so the pap calls these instructions name go in a sub-agent’s brief. Give one question to one sub-agent, even across accounts; start several only for separate, sizeable jobs. A stopped sub-agent keeps what it found: message it for follow-ups rather than starting another. While sub-agents work, tell the person in a few words what you are looking into, and stop. Never mention sub-agents, briefs or messages: to the person, you do the work. When a sub-agent’s message needs no word to the person yet, as while others are still at work, answer with nothing. For something at a time, or something new in their accounts, set an alert rather than a sub-agent. Don’t mention summaries of the conversation.';
 
 // How a sub-agent is to go about it: a brief, its tools, messages to and from the agent it works
 // for, and an answer when it stops.
 const SUB_FLOW =
-	'You are a sub-agent of the agent talking with the person on the Chat page of Personal Agent Proxy. The first message is your brief from it, and every later message is from it too: the person never reads what you write, and only that agent does. list_connections lists the accounts you can use and what you may do with each. list_tools with a connection gives that connection’s tools and the params each takes. Don’t guess a tool’s params: where these instructions don’t give them, call list_tools for the connection before you first read or run one of its tools. read runs the tools that only read; run runs the ones that change something or reach other people. Every call is made for your task, filled in for you: there is nothing to start or finish. send_to_parent sends the agent a message while you go on working: how far you have got where the work takes long, or something it should know before you are done. Don’t send what your answer will say. To ask something you can’t go on without, answer with the question and no tool call: that stops you, and the agent’s reply takes you up again. When you have called sleep_until, you are woken at that time, or earlier by a message, with nothing but this log, so say in your message what you will do then. Your first message without a tool call is your answer, handed to the agent as it is, and stops your work for now: say what you did and found, with the names, ids, dates and numbers that matter, and what you could not do; nothing else. You keep this log, and a later message from the agent takes you up again where you left off: do what it says with what you already have, and answer again. A long log is summarized for you as it goes: take a summary as what happened.';
+	'You are a sub-agent of the Chat agent of Personal Agent Proxy. Your brief and every later message come from that agent; the person doesn’t see what you write. Work in scripts; check pap.tools before using a tool you haven’t used. Your task is kept for you. To ask something you can’t go on without, answer with the question and no tool call. Your first answer without a tool call is handed to the agent and stops you: say what you did and found, with the names, ids, dates and numbers that matter, and what you couldn’t do. A later message takes you up again with this log.';
 
 // How a long log is summarized, by the same model, for itself: a conversation's, or a
 // sub-agent's, whose messages from the person are from the agent it works for.
 const SUMMARIZE =
-	'You are summarizing a conversation between a person and their agent, written out below with the calls the agent made and what they answered, so that the agent can go on from the summary in place of the conversation so far. Write what the agent needs to go on as if it remembered: what the person asked for and what they said they want in general; what was done and found, with the names, ids, dates and numbers that matter; what the person was told; what is still open, promised or planned, such as what to do after a sleep or when a sub-agent answers, and which sub-agents, by id, are on what. Leave out what no longer matters. Plain prose, from the agent’s side, no title.';
+	'Summarize this conversation between a person and their agent, with the agent’s calls and their answers, so the agent can go on from the summary alone. Keep what the person asked for and wants; what was done and found, with names, ids, dates and numbers; what they were told; and what is still open or planned, such as after a sleep or a sub-agent’s answer, and which sub-agent ids are on what. Plain prose, from the agent’s side, no title.';
 const SUMMARIZE_NOW = 'Write the summary now.';
 
 // How many answers the model may give in a row without the person saying anything, calls,
@@ -90,12 +90,20 @@ function turnsAlone(entries: EntryRow[]): number {
 	return entries.slice(since + 1).filter((entry) => entry.kind === 'assistant').length;
 }
 
-// The answer as it goes in the log: an answer of nothing says so.
-function said(thread: ThreadRow, turn: ModelTurn): ModelTurn {
+// The answer as it goes in the log: an answer of nothing says so, but for the agent talking with
+// the person woken by a sub-agent's message or an alert rather than by them, which may let it pass
+// in silence; the page shows no answer without words, and the model doesn't read it again.
+function said(thread: ThreadRow, entries: EntryRow[], turn: ModelTurn): ModelTurn {
 	if (turn.text.trim() !== '' || turn.toolCalls.length > 0) {
 		return turn;
 	}
-	return {...turn, text: thread.parentThreadId === null ? NOTHING : NOTHING_SUB};
+	if (thread.parentThreadId !== null) {
+		return {...turn, text: NOTHING_SUB};
+	}
+	if (entries.findLast((entry) => entry.kind === 'person' || entry.kind === 'event')?.kind === 'event') {
+		return {...turn, text: ''};
+	}
+	return {...turn, text: NOTHING};
 }
 
 // Writes the answer back, with what follows it; a job no longer the worker's is a conflict.
@@ -115,12 +123,7 @@ function answerWith(store: InferenceStore, job: JobRow, workerId: string, thread
 
 // A sub-agent as the roster has it: its id, its title, and what it is up to.
 function rosterLine(subAgent: SubAgentRow): string {
-	const doing =
-		subAgent.state.kind === 'working'
-			? 'at work'
-			: subAgent.state.kind === 'asleep'
-				? `asleep until ${subAgent.state.until.toISOString()}; a message wakes it`
-				: 'stopped; a message takes it up again';
+	const doing = subAgent.state.kind === 'working' ? 'at work' : subAgent.state.kind === 'asleep' ? `asleep until ${subAgent.state.until.toISOString()}` : 'stopped';
 	return `- ${subAgent.id}: “${subAgent.title ?? ''}”, ${doing}`;
 }
 
@@ -134,13 +137,13 @@ const MAX_STOPPED_LISTED = 10;
 // the latest, with how many older ones there are.
 function roster(subAgents: SubAgentRow[]): string {
 	if (subAgents.length === 0) {
-		return 'You have started no sub-agents yet.';
+		return 'No sub-agents yet.';
 	}
 	const stopped = subAgents.filter((subAgent) => subAgent.state.kind === 'stopped');
 	const unlisted = new Set(stopped.slice(0, -MAX_STOPPED_LISTED).map((subAgent) => subAgent.id));
 	const listed = subAgents.filter((subAgent) => !unlisted.has(subAgent.id)).map(rosterLine);
-	const older = unlisted.size === 0 ? [] : [`- ${unlisted.size} older sub-agents that have stopped, not listed; a message to one by its id still takes it up again`];
-	return `Your sub-agents, each by the id send_to_subagent takes:\n${[...older, ...listed].join('\n')}`;
+	const older = unlisted.size === 0 ? [] : [`- ${unlisted.size} older stopped ones, not listed`];
+	return `Sub-agents:\n${[...older, ...listed].join('\n')}`;
 }
 
 // Why the model couldn't be reached, for the job's record.
@@ -247,6 +250,6 @@ export function runInference(store: InferenceStore, job: JobRow, workerId: strin
 			return;
 		}
 		const {turn, system} = asked.value;
-		$(await writeBack(store, job, workerId, thread, {...said(thread, turn), system}, planCalls(thread, turn.toolCalls, now)));
+		$(await writeBack(store, job, workerId, thread, {...said(thread, entries, turn), system}, planCalls(thread, turn.toolCalls, now)));
 	});
 }
