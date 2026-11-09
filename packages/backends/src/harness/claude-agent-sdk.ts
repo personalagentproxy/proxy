@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {mkdir} from 'node:fs/promises';
+import {mkdir, rm} from 'node:fs/promises';
 import {join} from 'node:path';
 
 import {type CanUseTool, type Options, query as sdkQuery, type SDKMessage, type SDKResultMessage} from '@anthropic-ai/claude-agent-sdk';
@@ -38,11 +38,14 @@ import type {SdkSessionStore} from './session-store';
  * interrupted once its result is in. Claude Code's built-in tools are all removed, and a call to
  * anything but the api's tools is denied. The subprocess gets an environment of its own, not this
  * process's: the server's keys must never reach a member's subprocess, so only PATH and HOME are
- * inherited, with the credential the turn was given, a config directory of the harness's own, so
- * the binary writes no credentials or settings of the api's user, and the switches that keep it
- * from reaching out beyond the model. Each thread has a working directory of its own, which keys
- * the session in the store. The model is Sonnet throughout: the SDK runs only Claude, so the
- * api's choice of another model for a persona doesn't apply here.
+ * inherited, with the credential the turn was given, a config directory made for the turn and
+ * thrown away after it, so the binary's own copy of the transcript, its settings and its caches
+ * outlive nothing (the store has the transcript), and the switches that keep it from reaching out
+ * beyond the model. Each thread has a working directory of its own, whose name is the key the
+ * session is kept under in the store: the thread's id. A turn that fails before the api has a
+ * session to keep deletes from the store the session it started, which nothing would resume. The
+ * model is Sonnet throughout: the SDK runs only Claude, so the api's choice of another model for a
+ * persona doesn't apply here.
  */
 
 /** The SDK's `query`, or a test's: what a turn runs through, read as a stream of SDK messages, with the interrupt that ends a turn early. */
@@ -53,7 +56,7 @@ export type ClaudeAgentSdkDeps = {
 	sessionStore: SdkSessionStore;
 	/** Under which each thread gets a working directory of its own. */
 	workDir: string;
-	/** Where the binary keeps its own files, apart from this process's user's. */
+	/** Under which each turn gets a config directory of its own for the binary's files, removed after the turn. */
 	configDir: string;
 	/** The binary to run, where the SDK's own isn't the one. */
 	pathToClaudeCodeExecutable?: string;
@@ -153,7 +156,7 @@ function credentialEnv(auth: HarnessAuth): Record<string, string> {
 
 // The subprocess's environment, which replaces this process's: only PATH and HOME are inherited,
 // so no key of the server's reaches a member's subprocess, where the model could read it out.
-function envFor(deps: ClaudeAgentSdkDeps, input: HarnessTurn, auth: HarnessAuth): Record<string, string> {
+function envFor(configDir: string, input: HarnessTurn, auth: HarnessAuth): Record<string, string> {
 	const inherited = Object.fromEntries(
 		['PATH', 'HOME'].flatMap((name) => {
 			const value = process.env[name];
@@ -162,7 +165,7 @@ function envFor(deps: ClaudeAgentSdkDeps, input: HarnessTurn, auth: HarnessAuth)
 	);
 	return {
 		...inherited,
-		CLAUDE_CONFIG_DIR: deps.configDir,
+		CLAUDE_CONFIG_DIR: configDir,
 		CLAUDE_CODE_PROJECT_DIR_NAME: input.thread.id,
 		CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
 		CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS: '1',
@@ -212,9 +215,10 @@ export function proxyToolServer(tools: ToolSurface, answered: (callId: string, a
 	return server;
 }
 
-// Only the api's tools may run: those are pre-approved, and the binary asks about nothing else
-// unless the model calls a tool it hasn't got, which is denied. Trust is keyed on the server
-// being the one this process registered, where the binary says so.
+// The one gate on calls: the binary asks before every call, and only the api's tools may run,
+// trust keyed on the server being the one this process registered, where the binary says so; a
+// tool the model hasn't got is denied. Nothing is pre-approved with `allowedTools`, which would
+// take the binary's asking away from this gate.
 const canUseTool: CanUseTool = async (toolName, _input, {mcpServer}) => {
 	const ours = mcpServer === undefined ? toolName.startsWith(TOOL_PREFIX) : mcpServer.source === 'sdk' && mcpServer.name === SERVER;
 	if (ours) {
@@ -299,13 +303,23 @@ function assistantFailure(error: string | undefined): HarnessEvent | null {
 // the subprocess exits, the transcript's mirroring to the session store among it; a subprocess
 // that lingers is stopped after a while.
 async function windUp(iterator: AsyncIterator<SDKMessage>, controller: AbortController): Promise<void> {
-	const timer = setTimeout(() => controller.abort(), WIND_UP_MS);
-	await Result.wrapAsync(async () => {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	// The stream is given so long and no longer, whether or not it ends when told: a subprocess
+	// that lingers is stopped, and one whose stream never ends is left behind rather than holding
+	// the worker.
+	const deadline = new Promise<void>((resolve) => {
+		timer = setTimeout(() => {
+			controller.abort();
+			resolve();
+		}, WIND_UP_MS);
+	});
+	const drained = Result.wrapAsync(async () => {
 		let step = await iterator.next();
 		while (!step.done) {
 			step = await iterator.next();
 		}
-	});
+	}).then(() => undefined);
+	await Promise.race([drained, deadline]);
 	clearTimeout(timer);
 }
 
@@ -330,9 +344,10 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 			}
 			const session = sessionOf(input);
 			const cwd = join(deps.workDir, input.thread.id);
+			const configDir = join(deps.configDir, randomUUID());
 			const made = await Result.wrapAsync(async () => {
 				await mkdir(cwd, {recursive: true});
-				await mkdir(deps.configDir, {recursive: true});
+				await mkdir(configDir, {recursive: true});
 			});
 			if (made.isErr()) {
 				yield failed(ApiErr.internalError(made.error), false);
@@ -352,7 +367,6 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 				systemPrompt: input.system,
 				tools: [],
 				mcpServers: {[SERVER]: {type: 'sdk', name: SERVER, instance: server}},
-				allowedTools: [`mcp__${SERVER}`, `${TOOL_PREFIX}*`],
 				canUseTool,
 				permissionMode: 'default',
 				settingSources: [],
@@ -361,7 +375,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 				...(session === null ? {} : {resume: session.id}),
 				sessionStore: deps.sessionStore,
 				cwd,
-				env: envFor(deps, input, auth),
+				env: envFor(configDir, input, auth),
 				...(deps.pathToClaudeCodeExecutable === undefined ? {} : {pathToClaudeCodeExecutable: deps.pathToClaudeCodeExecutable}),
 				abortController: controller,
 				model: MODEL,
@@ -371,9 +385,11 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 			let sessionId = session?.id ?? null;
 			let interrupted = false;
 			let ended = false;
+			let done = false;
 			const started = Result.wrap(() => query({prompt: promptFor(input, session?.lastSeq ?? 0, new Date()), options}));
 			if (started.isErr()) {
 				input.signal.removeEventListener('abort', onAbort);
+				await Result.wrapAsync(() => rm(configDir, {recursive: true, force: true}));
 				yield failed(ApiErr.providerUnreachable(started.error), true);
 				return;
 			}
@@ -436,15 +452,27 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 					if (message.type === 'result') {
 						ended = true;
 						await windUp(iterator, controller);
-						yield endOf(message, {sessionId: sessionId ?? message.session_id, lastSeq, system: input.system, interrupted});
+						const end = endOf(message, {sessionId: sessionId ?? message.session_id, lastSeq, system: input.system, interrupted});
+						done = end.kind === 'done';
+						yield end;
 					}
 				}
 			} finally {
 				input.signal.removeEventListener('abort', onAbort);
-				// A turn left before its result, on a failure, takes its subprocess down with it.
+				// A turn left before its result, on a failure, takes its subprocess down with it, and
+				// waits for the SDK to end, so nothing of the turn is mirrored after what follows.
 				if (!ended) {
 					controller.abort();
+					await windUp(iterator, controller);
 				}
+				// A session this turn started and the api won't keep, since the turn failed, is deleted
+				// from the store, where nothing would ever resume it; as best it can, since the turn's
+				// outcome is told already. The key is the thread's id (CLAUDE_CODE_PROJECT_DIR_NAME).
+				const orphan = sessionId;
+				if (!done && orphan !== null && orphan !== session?.id) {
+					await Result.wrapAsync(() => deps.sessionStore.delete({projectKey: input.thread.id, sessionId: orphan}));
+				}
+				await Result.wrapAsync(() => rm(configDir, {recursive: true, force: true}));
 			}
 		},
 	};

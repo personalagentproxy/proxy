@@ -45,8 +45,17 @@ export function memorySessionStore(): SdkSessionStore {
 			const prefix = pathOf({projectKey: key.projectKey, sessionId: key.sessionId});
 			return [...transcripts.keys()].flatMap((path) => (path.startsWith(prefix) && path !== prefix ? [path.slice(prefix.length)] : []));
 		},
+		// Without a subpath, the whole session goes, as the api's store deletes it.
 		delete: async (key) => {
-			transcripts.delete(pathOf(key));
+			if (key.subpath !== undefined) {
+				transcripts.delete(pathOf(key));
+				return;
+			}
+			for (const path of [...transcripts.keys()]) {
+				if (path.startsWith(pathOf(key))) {
+					transcripts.delete(path);
+				}
+			}
 		},
 	};
 }

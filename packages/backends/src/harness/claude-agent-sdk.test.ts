@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
-import {existsSync, mkdtempSync} from 'node:fs';
+import {existsSync, mkdtempSync, readdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join, sep} from 'node:path';
 
 import type {NonNullableUsage, Options, SDKAssistantMessage, SDKMessage, SDKResultError, SDKResultSuccess} from '@anthropic-ai/claude-agent-sdk';
 import type {BetaContentBlock} from '@anthropic-ai/sdk/resources/beta/messages';
@@ -308,10 +308,11 @@ describe('claudeAgentSdkHarness', () => {
 		await collect(fake, {...turnInput(), auth: {kind: 'api_key', key: 'key-3'}});
 
 		const [withScopes, withoutScopes, apiKey] = fake.calls.map((call) => call.options?.env);
-		expect(withScopes).toEqual({
+		const {CLAUDE_CONFIG_DIR, ...rest} = withScopes ?? {};
+		expect(CLAUDE_CONFIG_DIR?.startsWith(join(workDir, 'config') + sep)).toBe(true);
+		expect(rest).toEqual({
 			...(process.env.PATH === undefined ? {} : {PATH: process.env.PATH}),
 			...(process.env.HOME === undefined ? {} : {HOME: process.env.HOME}),
-			CLAUDE_CONFIG_DIR: join(workDir, 'config'),
 			CLAUDE_CODE_PROJECT_DIR_NAME: 'thread-1',
 			CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
 			CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS: '1',
@@ -411,7 +412,6 @@ describe('claudeAgentSdkHarness', () => {
 		expect(options).toMatchObject({
 			systemPrompt: 'You are a test.',
 			tools: [],
-			allowedTools: expect.arrayContaining(['mcp__proxy__*']),
 			permissionMode: 'default',
 			settingSources: [],
 			strictMcpConfig: true,
@@ -420,12 +420,66 @@ describe('claudeAgentSdkHarness', () => {
 			pathToClaudeCodeExecutable: '/opt/claude',
 			model: 'sonnet',
 		});
+		expect(options).not.toHaveProperty('allowedTools');
 		expect(options?.sessionStore).toBe(sessionStore);
 		expect(options?.mcpServers?.proxy).toMatchObject({type: 'sdk', name: 'proxy'});
 		expect(options?.abortController).toBeInstanceOf(AbortController);
 		expect(existsSync(join(workDir, 'thread-1'))).toBe(true);
 		expect(fake.calls[1]?.options).toMatchObject({model: 'sonnet', cwd: join(workDir, 'thread-2')});
 		expect(fake.calls[1]?.options).not.toHaveProperty('pathToClaudeCodeExecutable');
+	});
+
+	test('gives the binary a config directory of the turn’s own and removes it after, whether the turn ended well or not', async () => {
+		const fake = fakeQuery();
+		fake.script(messages([init(), result()]));
+		fake.script(messages([init(), assistant([], {error: 'authentication_failed'})]));
+		fake.script({throws: new Error('spawn ENOENT')});
+		const configDir = join(workDir, 'config-of-its-own');
+
+		await collect(fake, turnInput(), {configDir});
+		await collect(fake, turnInput(), {configDir});
+		await collect(fake, turnInput(), {configDir});
+
+		const dirs = fake.calls.map((call) => call.options?.env?.CLAUDE_CONFIG_DIR ?? '');
+		expect(new Set(dirs).size).toBe(3);
+		for (const dir of dirs) {
+			expect(dir.startsWith(configDir + sep)).toBe(true);
+			expect(existsSync(dir)).toBe(false);
+		}
+		expect(readdirSync(configDir)).toEqual([]);
+	});
+
+	test('deletes from the store a session it started that the api won’t keep, since the turn failed, and nothing else', async () => {
+		const fake = fakeQuery();
+		const sessionStore = memorySessionStore();
+		const key = {projectKey: 'thread-1', sessionId: SESSION};
+		const mirrored = async () => {
+			await sessionStore.append(key, [{type: 'user', uuid: 'u1'}]);
+			await sessionStore.append({...key, subpath: 'subagents/a.jsonl'}, [{type: 'user', uuid: 'u2'}]);
+		};
+		fake.script(async function* () {
+			yield init();
+			await mirrored();
+			yield assistant([], {error: 'authentication_failed'});
+		});
+		fake.script(async function* () {
+			yield init();
+			await mirrored();
+			yield result({is_error: true, result: 'API Error: 529 Overloaded'});
+		});
+		fake.script(async function* () {
+			yield init();
+			await mirrored();
+			yield result();
+		});
+
+		expect(await collect(fake, turnInput(), {sessionStore})).toMatchObject([{kind: 'failed'}]);
+		expect(await sessionStore.load(key)).toBeNull();
+		expect(await sessionStore.listSubkeys(key)).toEqual([]);
+		expect(await collect(fake, turnInput({session: {id: SESSION, state: {lastSeq: 1}}}), {sessionStore})).toMatchObject([{kind: 'failed'}]);
+		expect(await sessionStore.load(key)).toHaveLength(1);
+		expect(await collect(fake, turnInput(), {sessionStore})).toMatchObject([{kind: 'done'}]);
+		expect(await sessionStore.load(key)).toHaveLength(2);
 	});
 
 	test('denies any tool but the proxy server’s', async () => {
