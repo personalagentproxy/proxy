@@ -669,6 +669,13 @@ model AgentThread {
   // showed them while they looked at it, never back. What the persona said past it is unread. A
   // sub-agent's thread, which nobody reads, keeps 0.
   readSeq Int     @default(0)
+  // Which harness runs the thread's turns, by the harness's id (@proxy/backends/harness), kept
+  // with the session so one harness is never given another's; null for the server's default.
+  harness        String?
+  // What the harness kept from the thread's last turn, as JSON, opaque to the api
+  // (@proxy/utils/harness HarnessSession); null before the first turn, or for a harness that
+  // keeps nothing between turns.
+  harnessSession String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -742,6 +749,7 @@ model AgentEntry {
 enum AgentJobKind {
   inference
   tool
+  wake
 }
 
 enum AgentJobStatus {
@@ -752,10 +760,13 @@ enum AgentJobStatus {
 }
 
 // A unit of the built-in agent's work, claimed by one api instance at a time: run the model on a
-// thread's log (inference), or run one tool call of an assistant entry (tool). `runAt` is when it
-// may run, which is how a call to sleep is kept. A worker claims a job due with a lease, renews
-// the lease while it works, and finishes the job in the same transaction as the entries it writes,
-// only while it still holds the lease; a lease that runs out gives the job to the next worker.
+// thread's log (inference), run one tool call of an assistant entry (tool), or wake the thread's
+// agent after a sleep (wake), run as an inference job is but telling the harness it was woken.
+// `runAt` is when it may run, which is how a sleep is kept: as a tool job due later, where the
+// harness leaves the sleep call to the api, or as a wake job due then, where the harness answers
+// the call itself. A worker claims a job due with a lease, renews the lease while it works, and
+// finishes the job in the same transaction as the entries it writes, only while it still holds
+// the lease; a lease that runs out gives the job to the next worker.
 model AgentJob {
   id       String         @id @default(cuid())
   threadId String
@@ -780,6 +791,27 @@ model AgentJob {
   @@unique([entryId, callId])
   @@index([status, runAt])
   @@index([threadId])
+}
+
+// The Claude Agent SDK's session transcripts, mirrored here through its SessionStore adapter (api
+// harness/session-store.ts) so that any api instance can resume a thread's session. The key is the
+// SDK's: `projectKey` from the working directory it was given, `sessionId`, and a `subpath` for a
+// sub-agent's or a sidecar file, empty for the session's own transcript. Each row is one line of
+// a transcript, as JSON, in `seq` order; `entryUuid` is the line's own id where it has one, so a
+// batch delivered twice is kept once. The transcript is the model's memory, not what the api
+// reads: the thread's log (AgentEntry) is the record.
+model AgentHarnessTranscript {
+  id         String  @id @default(cuid())
+  projectKey String
+  sessionId  String
+  subpath    String  @default("")
+  seq        Int     @unique @default(autoincrement())
+  entryUuid  String?
+  entry      String
+
+  createdAt DateTime @default(now())
+
+  @@index([projectKey, sessionId, subpath, seq])
 }
 
 enum AgentJobEventKind {

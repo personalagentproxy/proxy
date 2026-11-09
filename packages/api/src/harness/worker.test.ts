@@ -9,7 +9,7 @@ import type {JobRow} from '@proxy/db/harness';
 import {type FakeStore, fakeStore} from './fake-store';
 
 type Run = (store: FakeStore, job: JobRow, workerId: string) => Promise<Result<void, ApiError>>;
-type RunTurn = (store: FakeStore, harness: HarnessBackend | null, job: JobRow, workerId: string) => Promise<Result<void, ApiError>>;
+type RunTurn = (store: FakeStore, harness: HarnessBackend | null, job: JobRow, workerId: string, woken: boolean) => Promise<Result<void, ApiError>>;
 
 const runInference = mock<RunTurn>(async () => Ok(undefined));
 mock.module('./inference', () => ({runInference}));
@@ -21,6 +21,7 @@ const harness = fakeHarness();
 const now = new Date();
 const inference: JobRow = {id: 'j1', threadId: 't1', kind: 'inference', status: 'running', entryId: null, callId: null, runAt: now, claimedBy: 'w', attempts: 1};
 const tool: JobRow = {...inference, id: 'j2', kind: 'tool', entryId: 'e1', callId: 'c1'};
+const wake: JobRow = {...inference, id: 'j5', kind: 'wake'};
 
 // Waits for the worker to get through what is queued.
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
@@ -37,7 +38,7 @@ beforeEach(() => {
 describe('the worker', () => {
 	test('claims jobs one after another and runs each by its kind, on the store and the harness, then stops claiming', async () => {
 		const {startHarnessWorker} = await import('./worker');
-		store.claimJob.mockResolvedValueOnce(Ok(inference)).mockResolvedValueOnce(Ok(tool)).mockResolvedValue(Ok(null));
+		store.claimJob.mockResolvedValueOnce(Ok(inference)).mockResolvedValueOnce(Ok(tool)).mockResolvedValueOnce(Ok(wake)).mockResolvedValue(Ok(null));
 
 		const worker = startHarnessWorker(store, harness);
 		await settle();
@@ -45,8 +46,10 @@ describe('the worker', () => {
 		const claims = store.claimJob.mock.calls.length;
 		await settle();
 
-		expect(runInference).toHaveBeenCalledWith(store, harness, inference, expect.any(String));
+		expect(runInference).toHaveBeenCalledWith(store, harness, inference, expect.any(String), false);
 		expect(runToolJob).toHaveBeenCalledWith(store, tool, expect.any(String));
+		// A wake-up after a sleep is a turn too, the harness told it is one.
+		expect(runInference).toHaveBeenCalledWith(store, harness, wake, expect.any(String), true);
 		expect(runInference.mock.calls[0]?.[3]).toBe(runToolJob.mock.calls[0]?.[2]);
 		expect(store.claimJob.mock.calls.length).toBe(claims);
 	});
@@ -73,7 +76,20 @@ describe('the worker', () => {
 		expect(store.failJob).toHaveBeenCalledWith('j4', expect.any(String), 'OpenRouter refused the request (400): too long', expect.any(Function));
 		expect(runInference).toHaveBeenCalledTimes(2);
 
-		const thread = {id: 't1', orgId: 'o1', agentId: 'a1', personaId: 'p1', userId: 'u1', parentThreadId: null, parentCallId: null, title: null, taskId: null, finishedAt: null, createdAt: now};
+		const thread = {
+			id: 't1',
+			orgId: 'o1',
+			agentId: 'a1',
+			personaId: 'p1',
+			userId: 'u1',
+			parentThreadId: null,
+			parentCallId: null,
+			title: null,
+			taskId: null,
+			harness: null,
+			harnessSession: null,
+			createdAt: now,
+		};
 		const noteFor = store.failJob.mock.calls.find((call) => call[0] === 'j2')?.[3];
 		expect(noteFor?.(tool, thread)).toEqual({kind: 'answer', callId: 'c1', text: 'This call could not be run: boom'});
 	});

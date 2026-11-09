@@ -7,6 +7,7 @@ import {
 	DEFAULT_LOOK,
 	isAvatarColor,
 	type LogEntry,
+	parseHarnessSession,
 	parseLook,
 	pendingToolCalls,
 	readyForInference,
@@ -138,7 +139,7 @@ describe('threadState', () => {
 	const now = new Date('2026-10-21T10:00:00Z');
 	const later = new Date('2026-10-21T11:00:00Z');
 
-	test('is stopped with no job, asleep while every job is a tool job due later, and at work otherwise', () => {
+	test('is stopped with no job, asleep while every job is a sleep due later, and at work otherwise, a turn due later included', () => {
 		expect(threadState([], now)).toEqual({kind: 'stopped'});
 		expect(threadState([{kind: 'tool', runAt: later}], now)).toEqual({
 			kind: 'asleep',
@@ -163,6 +164,46 @@ describe('threadState', () => {
 			),
 		).toEqual({kind: 'working'});
 		expect(threadState([{kind: 'tool', runAt: now}], now)).toEqual({kind: 'working'});
+	});
+
+	test('a wake job due later is a sleep too, whichever harness answered the sleep', () => {
+		expect(threadState([{kind: 'wake', runAt: later}], now)).toEqual({
+			kind: 'asleep',
+			until: later,
+		});
+		expect(
+			threadState(
+				[
+					{kind: 'wake', runAt: later},
+					{kind: 'tool', runAt: new Date('2026-10-21T12:00:00Z')},
+				],
+				now,
+			),
+		).toEqual({kind: 'asleep', until: later});
+		expect(threadState([{kind: 'wake', runAt: now}], now)).toEqual({kind: 'working'});
+		expect(
+			threadState(
+				[
+					{kind: 'wake', runAt: later},
+					{kind: 'inference', runAt: later},
+				],
+				now,
+			),
+		).toEqual({kind: 'working'});
+	});
+});
+
+describe('parseHarnessSession', () => {
+	test('is the session from its JSON, or null for none, nonsense or not a session', () => {
+		expect(parseHarnessSession('{"id":"s1","state":{"lastSeq":4,"tags":["a"]}}')).toEqual({
+			id: 's1',
+			state: {lastSeq: 4, tags: ['a']},
+		});
+		expect(parseHarnessSession('{"id":"s1","state":null}')).toEqual({id: 's1', state: null});
+		expect(parseHarnessSession(null)).toBeNull();
+		expect(parseHarnessSession('not json')).toBeNull();
+		expect(parseHarnessSession('{"id":4,"state":{}}')).toBeNull();
+		expect(parseHarnessSession('{"id":"s1"}')).toBeNull();
 	});
 });
 

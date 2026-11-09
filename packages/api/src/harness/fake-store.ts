@@ -19,6 +19,8 @@ export function fakeStore(): FakeStore {
 		listEntries: mock<HarnessStore['listEntries']>(),
 		getEntry: mock<HarnessStore['getEntry']>(),
 		appendSummary: mock<HarnessStore['appendSummary']>(),
+		appendTurnEntries: mock<HarnessStore['appendTurnEntries']>(),
+		scheduleWake: mock<HarnessStore['scheduleWake']>(),
 		completeInference: mock<HarnessStore['completeInference']>(),
 		completeToolJob: mock<HarnessStore['completeToolJob']>(),
 		listSubAgents: mock<HarnessStore['listSubAgents']>(),
@@ -49,5 +51,9 @@ export function fakeStore(): FakeStore {
 		listWatches: mock<HarnessStore['listWatches']>(),
 		recordLook: mock<HarnessStore['recordLook']>(),
 		getPollConnection: mock<HarnessStore['getPollConnection']>(),
+		appendTranscript: mock<HarnessStore['appendTranscript']>(),
+		loadTranscript: mock<HarnessStore['loadTranscript']>(),
+		listTranscriptSubkeys: mock<HarnessStore['listTranscriptSubkeys']>(),
+		deleteTranscript: mock<HarnessStore['deleteTranscript']>(),
 	};
 }

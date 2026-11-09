@@ -138,17 +138,14 @@ export function afterAnswer(thread: ThreadRow, turn: {text: string; toolCalls: T
 
 /**
  * What a job that failed with `error` leaves in its thread: a tool job's call is answered with the
- * failure, so the agent isn't left waiting for it; a sub-agent whose turn failed stops with the
- * failure, so the agent it works for isn't; and a turn that failed in the member's conversation is
- * answered with the failure, so the person sees it and can go on.
+ * failure, so the agent isn't left waiting for it; a sub-agent whose turn failed, a wake-up's
+ * too, stops with the failure, so the agent it works for isn't; and a turn that failed in the
+ * member's conversation is answered with the failure, so the person sees it and can go on.
  */
 export function failureNote(error: string): (job: JobRow, thread: ThreadRow) => FailureNote | null {
 	return (job, thread) => {
-		if (job.kind === 'tool' && job.callId !== null) {
-			return {kind: 'answer', callId: job.callId, text: `This call could not be run: ${error}`};
-		}
-		if (job.kind !== 'inference') {
-			return null;
+		if (job.kind === 'tool') {
+			return job.callId === null ? null : {kind: 'answer', callId: job.callId, text: `This call could not be run: ${error}`};
 		}
 		if (thread.parentThreadId !== null) {
 			return {kind: 'stop', stop: subAgentStop({text: `The sub-agent failed: ${error}`, isError: true})};

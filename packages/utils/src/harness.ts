@@ -132,28 +132,65 @@ export function sleepUntil(args: unknown, now: Date): Date | null {
 	return new Date(Math.min(earliest, now.getTime() + MAX_SLEEP_MS));
 }
 
+/** What a job of the built-in agent is: a turn of the model, one tool call of its, or a wake-up of it after a sleep. */
+export type JobKind = 'inference' | 'tool' | 'wake';
+
 /**
  * What a thread's agent is up to, by the jobs still to run or running on it: at work; asleep,
- * when every one of them is a tool job due later, which only a sleep is, until the first is due;
- * or stopped, with nothing to run, until something lands in its log.
+ * when every one of them is a sleep due later, the sleep's own tool job or the wake-up that
+ * answers it, until the first is due; or stopped, with nothing to run, until something lands in
+ * its log. A turn due later is a turn to be tried again in a moment, work under way, not sleep.
  */
 export type ThreadState = {kind: 'working'} | {kind: 'asleep'; until: Date} | {kind: 'stopped'};
 
-export function threadState(
-	openJobs: Array<{kind: 'inference' | 'tool'; runAt: Date}>,
-	now: Date,
-): ThreadState {
+export function threadState(openJobs: Array<{kind: JobKind; runAt: Date}>, now: Date): ThreadState {
 	if (openJobs.length === 0) {
 		return {kind: 'stopped'};
 	}
 	const later = openJobs.filter(
-		(job) => job.kind === 'tool' && job.runAt.getTime() > now.getTime(),
+		(job) => job.kind !== 'inference' && job.runAt.getTime() > now.getTime(),
 	);
 	if (later.length < openJobs.length) {
 		return {kind: 'working'};
 	}
 	const first = later.map((job) => job.runAt.getTime()).sort((a, b) => a - b)[0];
 	return first === undefined ? {kind: 'working'} : {kind: 'asleep', until: new Date(first)};
+}
+
+/** A value as JSON has it: what a column kept as JSON parses to, and what is written to one. */
+export type JsonValue = string | number | boolean | null | JsonValue[] | {[key: string]: JsonValue};
+
+export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+	z.union([
+		z.string(),
+		z.number(),
+		z.boolean(),
+		z.null(),
+		z.array(jsonValueSchema),
+		z.record(z.string(), jsonValueSchema),
+	]),
+);
+
+/**
+ * What a harness keeps per thread between turns (@proxy/backends/harness): its id for the
+ * session and whatever state it wants back, opaque to the api, which keeps it on the thread as
+ * JSON; null for a harness that keeps nothing, and before the first turn.
+ */
+export type HarnessSession = {id: string; state: unknown} | null;
+
+const harnessSessionSchema = z.object({id: z.string(), state: jsonValueSchema});
+
+/** A harness's session from the JSON the thread keeps it as; null where there is none, or it isn't one. */
+export function parseHarnessSession(json: string | null): HarnessSession {
+	if (json === null) {
+		return null;
+	}
+	const parsed = Result.wrap((): unknown => JSON.parse(json));
+	if (parsed.isErr()) {
+		return null;
+	}
+	const session = harnessSessionSchema.safeParse(parsed.value);
+	return session.success ? session.data : null;
 }
 
 /**

@@ -26,6 +26,8 @@ const thread: ThreadRow = {
 	parentCallId: null,
 	title: null,
 	taskId: null,
+	harness: null,
+	harnessSession: null,
 	createdAt: now,
 };
 

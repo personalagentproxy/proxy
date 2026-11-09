@@ -1,6 +1,7 @@
 import type {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
+import type {HarnessSession} from '@proxy/utils/harness';
 import type {ContextEntry, SubAgent} from '@proxy/utils/harness-context';
 
 /**
@@ -28,8 +29,8 @@ import type {ContextEntry, SubAgent} from '@proxy/utils/harness-context';
  * and whether the turn is worth trying again as it is, as when the model couldn't be reached.
  */
 
-/** What a harness keeps per thread between turns, as the api stores it, opaque to the api; null for a harness that keeps nothing. */
-export type HarnessSession = {id: string; state: unknown} | null;
+/** What a harness keeps per thread between turns, as the api stores it on the thread, opaque to the api (@proxy/utils/harness); null for a harness that keeps nothing. */
+export type {HarnessSession};
 
 /** What a call answered; `endTurn` where the call ends the turn, as a sleep does. */
 export type ToolAnswer = {text: string; isError: boolean; endTurn?: boolean};

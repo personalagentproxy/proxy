@@ -24,8 +24,9 @@ import {runToolJob, type ToolJobStore} from './tool-job';
  * is the database, so instances need nothing of each other: one that goes down mid-job loses its
  * lease, and another picks the job up. Stopping, as for a deploy, the worker claims nothing more
  * and finishes the jobs it is on, up to a point. An inference job is a turn of the harness the
- * worker was given (@proxy/backends/harness); given none, as a server without an OpenRouter key
- * is, the person is told Chat is not set up (inference.ts).
+ * worker was given (@proxy/backends/harness), and a wake job one too, after a sleep the harness
+ * answered itself, told so; given none, as a server without an OpenRouter key is, the person is
+ * told Chat is not set up (inference.ts).
  */
 
 const POLL_MS = 500;
@@ -48,9 +49,11 @@ function workerName(): string {
 	return `${hostname()}-${process.pid}-${randomBytes(3).toString('hex')}`;
 }
 
+// A job by its kind: a turn, or a wake-up after a sleep, which is a turn the harness is told was
+// one; or a tool call.
 function run(store: WorkerStore, harness: HarnessBackend | null, job: JobRow, workerId: string): Promise<Result<void, ApiError>> {
-	if (job.kind === 'inference') {
-		return runInference(store, harness, job, workerId);
+	if (job.kind === 'inference' || job.kind === 'wake') {
+		return runInference(store, harness, job, workerId, job.kind === 'wake');
 	}
 	return runToolJob(store, job, workerId);
 }

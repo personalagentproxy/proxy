@@ -34,8 +34,9 @@ import {toolSurfaceFor} from './tool-surface';
  * from the login's grants as they are then and, for the agent talking with the person, its
  * sub-agents as they are then, so that what the model read can be told later; the rest of the
  * request is rebuilt from the log. The agent talking with the person is told the alerts set in the
- * conversation too, by id, so it can cancel one. Without a harness, which a server without an
- * OpenRouter key has none of, the person is told Chat is not set up.
+ * conversation too, by id, so it can cancel one. A wake job, the wake-up after a sleep the harness
+ * answered itself, is run the same way, the harness told it was woken. Without a harness, which a
+ * server without an OpenRouter key has none of, the person is told Chat is not set up.
  */
 
 /** What an inference job needs of the store. */
@@ -205,7 +206,16 @@ function consume(store: InferenceStore, job: JobRow, workerId: string, events: A
 // read once, for the prompt and for whose each message in the log is; a sub-agent's thread has
 // none. The signal is never aborted: stopping the worker lets the turns under way finish, as it
 // always has.
-function askOnLog(store: InferenceStore, harness: HarnessBackend, job: JobRow, workerId: string, thread: ThreadRow, entries: EntryRow[], now: Date): Promise<Result<TurnOutcome, ApiError>> {
+function askOnLog(
+	store: InferenceStore,
+	harness: HarnessBackend,
+	job: JobRow,
+	workerId: string,
+	thread: ThreadRow,
+	entries: EntryRow[],
+	woken: boolean,
+	now: Date,
+): Promise<Result<TurnOutcome, ApiError>> {
 	return Do(async ($) => {
 		const model = $(await store.getChatModel(thread));
 		const subAgents = thread.parentThreadId === null ? $(await store.listSubAgents(thread.id, now)) : [];
@@ -215,7 +225,7 @@ function askOnLog(store: InferenceStore, harness: HarnessBackend, job: JobRow, w
 			session: null,
 			entries,
 			subAgents,
-			woken: false,
+			woken,
 			system,
 			tools: toolSurfaceFor(thread),
 			model,
@@ -226,8 +236,8 @@ function askOnLog(store: InferenceStore, harness: HarnessBackend, job: JobRow, w
 	});
 }
 
-/** Runs the job: one turn of the harness on its thread's log, written back; nothing when the thread is gone. */
-export function runInference(store: InferenceStore, harness: HarnessBackend | null, job: JobRow, workerId: string, now = new Date()): Promise<Result<void, ApiError>> {
+/** Runs the job: one turn of the harness on its thread's log, written back, the harness told where the job is a wake-up after a sleep (`woken`); nothing when the thread is gone. */
+export function runInference(store: InferenceStore, harness: HarnessBackend | null, job: JobRow, workerId: string, woken = false, now = new Date()): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		const thread = $(await store.getJobThread(job.threadId));
 		if (!thread) {
@@ -243,7 +253,7 @@ export function runInference(store: InferenceStore, harness: HarnessBackend | nu
 			$(await answerWith(store, job, workerId, thread, NOT_SET_UP));
 			return;
 		}
-		const outcome = $(await askOnLog(store, harness, job, workerId, thread, entries, now));
+		const outcome = $(await askOnLog(store, harness, job, workerId, thread, entries, woken, now));
 		if (outcome.kind === 'failed' && !outcome.retry) {
 			return $(Err(outcome.error));
 		}
