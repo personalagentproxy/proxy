@@ -142,6 +142,10 @@ function emailsCollection(args: {
 			},
 			{key: 'from', label: 'From', type: 'email', system: true},
 			{key: 'to', label: 'To', type: 'email'},
+			// Who else it goes to, comma-separated as to is: read when the email is opened, never in a list.
+			{key: 'cc', label: 'Cc', type: 'email'},
+			// Who it goes to unseen, which only the account's own drafts and sent email show.
+			{key: 'bcc', label: 'Bcc', type: 'email'},
 			{key: 'subject', label: 'Subject', type: 'text'},
 			{key: 'date', label: 'Date', type: 'datetime', system: true},
 			// "Unread, Flagged" ("Unread, Starred" on Gmail), for an email in the inbox.

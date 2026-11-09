@@ -72,7 +72,13 @@ describe('integrationTools', () => {
 
 	test('writes take the fields that are typed in, never the ones the provider sets', () => {
 		const send = findTool(email, 'emails_send_new');
-		expect(Object.keys(send?.inputSchema.properties ?? {})).toEqual(['to', 'subject', 'body']);
+		expect(Object.keys(send?.inputSchema.properties ?? {})).toEqual([
+			'to',
+			'cc',
+			'bcc',
+			'subject',
+			'body',
+		]);
 		expect(findTool(email, 'emails_update')?.inputSchema.required).toEqual(['id']);
 	});
 
