@@ -4,6 +4,7 @@ import {setTimeout as sleep} from 'node:timers/promises';
 
 import {Result} from 'ts-results-es';
 
+import type {HarnessBackend} from '@proxy/backends/harness/backend';
 import type {ApiError} from '@proxy/utils';
 import type {JobRow} from '@proxy/db/harness';
 
@@ -22,7 +23,9 @@ import {runToolJob, type ToolJobStore} from './tool-job';
  * next turn follow each other without waiting; nothing due, it looks again in a moment. The queue
  * is the database, so instances need nothing of each other: one that goes down mid-job loses its
  * lease, and another picks the job up. Stopping, as for a deploy, the worker claims nothing more
- * and finishes the jobs it is on, up to a point.
+ * and finishes the jobs it is on, up to a point. An inference job is a turn of the harness the
+ * worker was given (@proxy/backends/harness); given none, as a server without an OpenRouter key
+ * is, the person is told Chat is not set up (inference.ts).
  */
 
 const POLL_MS = 500;
@@ -45,9 +48,9 @@ function workerName(): string {
 	return `${hostname()}-${process.pid}-${randomBytes(3).toString('hex')}`;
 }
 
-function run(store: WorkerStore, job: JobRow, workerId: string): Promise<Result<void, ApiError>> {
+function run(store: WorkerStore, harness: HarnessBackend | null, job: JobRow, workerId: string): Promise<Result<void, ApiError>> {
 	if (job.kind === 'inference') {
-		return runInference(store, job, workerId);
+		return runInference(store, harness, job, workerId);
 	}
 	return runToolJob(store, job, workerId);
 }
@@ -72,7 +75,7 @@ async function fail(store: WorkerStore, job: JobRow, workerId: string, error: st
 }
 
 // Runs the job with its lease kept, and marks it failed where it throws or fails.
-async function runClaimed(store: WorkerStore, job: JobRow, workerId: string): Promise<void> {
+async function runClaimed(store: WorkerStore, harness: HarnessBackend | null, job: JobRow, workerId: string): Promise<void> {
 	if (job.attempts > MAX_ATTEMPTS) {
 		await fail(store, job, workerId, `Given up after ${job.attempts - 1} attempts`);
 		return;
@@ -81,7 +84,7 @@ async function runClaimed(store: WorkerStore, job: JobRow, workerId: string): Pr
 		void store.renewLease(job.id, workerId, LEASE_MS);
 	}, RENEW_MS);
 	const startedAt = performance.now();
-	const result = await Result.wrapAsync(() => run(store, job, workerId));
+	const result = await Result.wrapAsync(() => run(store, harness, job, workerId));
 	clearInterval(renewal);
 	const thrown = result.isErr() ? result.error : null;
 	const failed = result.isOk() && result.value.isErr() ? result.value.error : null;
@@ -98,8 +101,8 @@ async function runClaimed(store: WorkerStore, job: JobRow, workerId: string): Pr
 	await fail(store, job, workerId, message.slice(0, 1000));
 }
 
-/** Starts the worker on the store; it runs until stopped. */
-export function startHarnessWorker(store: WorkerStore): HarnessWorker {
+/** Starts the worker on the store, its inference jobs run by `harness`; it runs until stopped. */
+export function startHarnessWorker(store: WorkerStore, harness: HarnessBackend | null): HarnessWorker {
 	const workerId = workerName();
 	let stopping = false;
 	const running = new Set<Promise<void>>();
@@ -122,7 +125,7 @@ export function startHarnessWorker(store: WorkerStore): HarnessWorker {
 			}
 			const row = claimed.value;
 			// Every line written for the job says which it was, as a request's say which request.
-			const job: Promise<void> = runInContext({jobId: row.id, jobKind: row.kind, threadId: row.threadId, workerId}, () => runClaimed(store, row, workerId)).finally(() => running.delete(job));
+			const job: Promise<void> = runInContext({jobId: row.id, jobKind: row.kind, threadId: row.threadId, workerId}, () => runClaimed(store, harness, row, workerId)).finally(() => running.delete(job));
 			running.add(job);
 		}
 	};

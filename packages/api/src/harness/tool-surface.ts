@@ -1,3 +1,7 @@
+import {Err} from 'ts-results-es';
+
+import type {HarnessTool, ToolSurface} from '@proxy/backends/harness/backend';
+import {ApiErr} from '@proxy/utils';
 import {CREATE_SUBAGENT_TOOL, SEND_TO_PARENT_TOOL, SEND_TO_SUBAGENT_TOOL, SLEEP_TOOL} from '@proxy/utils/harness';
 
 import type {ModelTool} from '../llm/open-router';
@@ -12,7 +16,9 @@ import {CANCEL_ALERT_TOOL, SET_ALERT_PARAMETERS, SET_ALERT_TOOL} from './alerts'
  * the two about tasks, since every call it makes is for its own task and the loop fills it in
  * (tool-job.ts); and two of its own, to send a message to the agent it works for, and to be woken
  * later. Nothing else: everything done to the person's accounts goes through the same gate as
- * Claude's calls.
+ * Claude's calls. The harness (@proxy/backends/harness) is given them as a surface: the tools, each
+ * marked whether it only reads, and a way to run one inline, which no harness this server runs
+ * uses yet: every call is run as a job of the api's (tool-job.ts).
  */
 
 // The MCP tools a sub-agent doesn't need: its task is its own.
@@ -127,6 +133,27 @@ export const SUB_AGENT_TOOLS: ModelTool[] = [...MCP_TOOLS.filter((tool) => !TASK
 /** The tools the model is given on a thread: a sub-agent's, or the main agent's. */
 export function toolsFor(thread: {parentThreadId: string | null}): ModelTool[] {
 	return thread.parentThreadId === null ? MAIN_AGENT_TOOLS : SUB_AGENT_TOOLS;
+}
+
+// The tools that change nothing: reading through the gate, and the two that list what there is.
+const READ_ONLY_TOOLS = new Set(['read', 'list_connections', 'list_tools']);
+
+// A tool as the harness is given it.
+function toHarnessTool(tool: ModelTool): HarnessTool {
+	return {name: tool.name, description: tool.description, inputSchema: tool.parameters, readOnly: READ_ONLY_TOOLS.has(tool.name)};
+}
+
+/**
+ * The thread's tools as a surface for the harness: the model's tools, and how to run one inline,
+ * which answers that it can't, for now: every call a harness leaves open is run as a job
+ * (tool-job.ts), and a harness that runs tools itself is still to come, with what `execute` then
+ * does.
+ */
+export function toolSurfaceFor(thread: {parentThreadId: string | null}): ToolSurface {
+	return {
+		tools: toolsFor(thread).map(toHarnessTool),
+		execute: async () => Err(ApiErr.conflict('Calls are run as jobs')),
+	};
 }
 
 /** Whether a tool call is for one of the MCP server's tools, run through the gate. */
