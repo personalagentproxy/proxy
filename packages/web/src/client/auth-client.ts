@@ -5,6 +5,7 @@ import {
 } from '@proxy/contracts/auth';
 import {httpRequest} from '@proxy/utils';
 import {apiRequest, apiSend} from '@/client/request';
+import {trackWrite} from '@/lib/unsaved-work';
 
 /**
  * Requests a magic-link email. Pre-auth, so no session cookie; the api still requires the app's
@@ -13,7 +14,7 @@ import {apiRequest, apiSend} from '@/client/request';
  * `httpRequest` itself: `apiRequest` takes a 4xx/5xx as an error, unparsed.
  */
 export function requestMagicLink(email: string, callbackUrl?: string) {
-	return httpRequest(
+	const request = httpRequest(
 		'/auth/email',
 		{
 			method: 'POST',
@@ -22,6 +23,7 @@ export function requestMagicLink(email: string, callbackUrl?: string) {
 		},
 		{schema: magicLinkResponseSchema, allowStatus: () => true},
 	);
+	return trackWrite(request);
 }
 
 /**
