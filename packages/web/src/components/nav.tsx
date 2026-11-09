@@ -54,7 +54,7 @@ const GROUPS: Destination[][] = [
 	],
 	[
 		{to: '/connections', label: 'Connections', icon: PlugIcon},
-		{to: '/agents', label: 'Agent permissions', icon: ListChecksIcon},
+		{to: '/agents', label: 'External agents and permissions', icon: ListChecksIcon},
 	],
 	[
 		{to: '/activity', label: 'Activity', icon: ScrollTextIcon},
