@@ -12,6 +12,7 @@ import {effectiveActions, findIntegration, requiredAction, type Collection} from
 import type {ApiError} from '@proxy/utils';
 import type {AgentProviderId} from '@proxy/utils/agent-providers';
 import {EMAIL_PROVIDERS, type EmailProvider} from '@proxy/utils/email-providers';
+import type {AvatarColor, Look} from '@proxy/utils/harness';
 import {hashVerificationToken, secretCipher} from '@proxy/utils/secret-crypto';
 import {db, disconnectDb} from '@proxy/db';
 import {createAgent, setAgentGrants} from '@proxy/db/agent';
@@ -21,6 +22,7 @@ import {provisionOrganization} from '@proxy/db/organization';
 import {deleteUser} from '@proxy/db/user';
 import {createVaultEntry} from '@proxy/db/vault';
 
+import {ensureBuiltInAgent} from '../src/harness/built-in-agent';
 import {ORGANIZATION_CONNECTIONS} from '../src/orgs/starter-connections';
 
 // Whose workspace it is: the demo person's, or with SEED_EMAIL another's, such as the dev user's
@@ -113,7 +115,10 @@ const provisioned = must(
 );
 const org = provisioned.org;
 const user = {id: provisioned.ownerUserId};
-await db.organization.update({where: {id: org.id}, data: {createdAt: daysAgo(40)}});
+await db.organization.update({
+	where: {id: org.id},
+	data: {createdAt: daysAgo(40), experiments: ['harness']},
+});
 
 // ---- Connections and their defaults ---------------------------------------------------------
 
@@ -605,6 +610,156 @@ const SUB_TASKS: [{title: string; goal: string; outcome: string}, ...Array<{titl
 
 const MINUTE = 60 * 1000;
 
+type SeedChatEntry = {
+	kind: 'person' | 'assistant';
+	text: string;
+	minutesBeforeLast: number;
+};
+
+type SeedConversation = {
+	name: string;
+	color: AvatarColor;
+	look: Look;
+	isPinned: boolean;
+	unread: boolean;
+	lastActiveMinutesAgo: number;
+	entries: SeedChatEntry[];
+};
+
+// Enough conversations to show two rows of pinned heads and a useful recent list. Everything in
+// them is invented: the seed never copies a person's real conversations into the demo workspace.
+const CHAT_CONVERSATIONS: SeedConversation[] = [
+	{
+		name: 'Investment notes',
+		color: 'yellow',
+		look: {nose: 0.5, noseOut: 0.48, eye: 23, eyeTheta: 61, eyeLat: 10, eyes: 2},
+		isPinned: true,
+		unread: true,
+		lastActiveMinutesAgo: 8,
+		entries: [
+			{kind: 'person', text: 'Turn my notes into a short investment memo.', minutesBeforeLast: 4},
+			{kind: 'assistant', text: 'I drafted the memo with the thesis, risks and open questions.', minutesBeforeLast: 0},
+		],
+	},
+	{
+		name: 'Company research',
+		color: 'purple',
+		look: {nose: 0.4, noseOut: 0.58, eye: 31, eyeTheta: 49, eyeLat: 18, eyes: 2},
+		isPinned: true,
+		unread: false,
+		lastActiveMinutesAgo: 24,
+		entries: [
+			{kind: 'person', text: 'Compare the three vendors on pricing and onboarding.', minutesBeforeLast: 7},
+			{kind: 'assistant', text: 'The comparison is ready, including the main tradeoffs for each vendor.', minutesBeforeLast: 0},
+		],
+	},
+	{
+		name: 'Office finder',
+		color: 'teal',
+		look: {nose: 0.57, noseOut: 0.25, eye: 20, eyeTheta: 68, eyeLat: 1, eyes: 2},
+		isPinned: true,
+		unread: false,
+		lastActiveMinutesAgo: 49,
+		entries: [
+			{kind: 'person', text: 'Make a shortlist of quiet team rooms near downtown.', minutesBeforeLast: 5},
+			{kind: 'assistant', text: 'I found five options and grouped them by capacity and price.', minutesBeforeLast: 0},
+		],
+	},
+	{
+		name: 'Slack setup',
+		color: 'pink',
+		look: {nose: 0.44, noseOut: 0.17, eye: 35, eyeTheta: 44, eyeLat: 22, eyes: 1},
+		isPinned: true,
+		unread: true,
+		lastActiveMinutesAgo: 78,
+		entries: [
+			{kind: 'person', text: 'Write a simple channel guide for the new project.', minutesBeforeLast: 6},
+			{kind: 'assistant', text: 'The guide is ready with channels for updates, decisions and support.', minutesBeforeLast: 0},
+		],
+	},
+	{
+		name: 'Travel planner',
+		color: 'blue',
+		look: {nose: 0.47, noseOut: 0.66, eye: 28, eyeTheta: 57, eyeLat: -7, eyes: 2},
+		isPinned: true,
+		unread: false,
+		lastActiveMinutesAgo: 132,
+		entries: [
+			{kind: 'person', text: 'Sketch a relaxed three-day itinerary with one museum day.', minutesBeforeLast: 8},
+			{kind: 'assistant', text: 'I made an itinerary with flexible mornings and nearby dinner options.', minutesBeforeLast: 0},
+		],
+	},
+	{
+		name: 'Receipt organizer',
+		color: 'orange',
+		look: {nose: 0.53, noseOut: 0.34, eye: 25, eyeTheta: 72, eyeLat: 14, eyes: 2},
+		isPinned: true,
+		unread: false,
+		lastActiveMinutesAgo: 205,
+		entries: [
+			{kind: 'person', text: 'Group these sample expenses by month and category.', minutesBeforeLast: 9},
+			{kind: 'assistant', text: 'They are grouped into travel, software and office expenses.', minutesBeforeLast: 0},
+		],
+	},
+	{
+		name: 'Reply drafter',
+		color: 'green',
+		look: {nose: 0.39, noseOut: 0.41, eye: 33, eyeTheta: 52, eyeLat: 5, eyes: 2},
+		isPinned: false,
+		unread: false,
+		lastActiveMinutesAgo: 16,
+		entries: [
+			{kind: 'assistant', text: 'Here is a friendly first draft that keeps the answer concise.', minutesBeforeLast: 3},
+			{kind: 'person', text: 'Make the closing a little warmer.', minutesBeforeLast: 0},
+		],
+	},
+	{
+		name: 'Email helper',
+		color: 'red',
+		look: {nose: 0.59, noseOut: 0.12, eye: 19, eyeTheta: 65, eyeLat: 20, eyes: 1},
+		isPinned: false,
+		unread: true,
+		lastActiveMinutesAgo: 35,
+		entries: [
+			{kind: 'person', text: 'Summarize the invented launch-update thread.', minutesBeforeLast: 4},
+			{kind: 'assistant', text: 'The launch is on track; the remaining work is QA and the release note.', minutesBeforeLast: 0},
+		],
+	},
+	{
+		name: 'Social post finder',
+		color: 'mono',
+		look: {nose: 0.42, noseOut: 0.53, eye: 30, eyeTheta: 47, eyeLat: -3, eyes: 2},
+		isPinned: false,
+		unread: false,
+		lastActiveMinutesAgo: 92,
+		entries: [
+			{kind: 'person', text: 'Find the draft about the fictional product launch.', minutesBeforeLast: 5},
+			{kind: 'assistant', text: 'I found it and pulled out the version with the clearest opening.', minutesBeforeLast: 0},
+		],
+	},
+	{
+		name: 'Event planner',
+		color: 'purple',
+		look: {nose: 0.55, noseOut: 0.61, eye: 22, eyeTheta: 59, eyeLat: 7, eyes: 2},
+		isPinned: false,
+		unread: false,
+		lastActiveMinutesAgo: 260,
+		entries: [
+			{kind: 'person', text: 'Make a checklist for a small customer workshop.', minutesBeforeLast: 10},
+			{kind: 'assistant', text: 'The checklist covers the room, invitations, materials and follow-up.', minutesBeforeLast: 0},
+		],
+	},
+	{
+		name: 'Quick questions',
+		color: 'blue',
+		look: {nose: 0.46, noseOut: 0.29, eye: 27, eyeTheta: 54, eyeLat: 12, eyes: 2},
+		isPinned: false,
+		unread: false,
+		lastActiveMinutesAgo: 360,
+		entries: [],
+	},
+];
+
 // How long a request took: most well under a second, a few a good deal longer.
 function requestDuration(): number {
 	return Math.round(150 + random() ** 3 * 6000);
@@ -956,6 +1111,52 @@ await db.$executeRaw`
 	) AS "latest"
 	WHERE "AgentTask"."id" = "latest"."taskId" AND "latest"."at" > "AgentTask"."lastActiveAt"`;
 
+// ---- Chat conversations --------------------------------------------------------------------
+
+const chatAgent = must(await ensureBuiltInAgent(org.id));
+for (const conversation of CHAT_CONVERSATIONS) {
+	const madeAt = new Date(now - (conversation.lastActiveMinutesAgo + 15) * MINUTE);
+	const persona = await db.persona.create({
+		data: {
+			orgId: org.id,
+			createdById: user.id,
+			name: conversation.name,
+			look: JSON.stringify(conversation.look),
+			color: conversation.color,
+			createdAt: madeAt,
+		},
+	});
+	const thread = await db.agentThread.create({
+		data: {
+			orgId: org.id,
+			agentId: chatAgent.id,
+			personaId: persona.id,
+			userId: user.id,
+			isPinned: conversation.isPinned,
+			createdAt: madeAt,
+		},
+	});
+
+	let readSeq = 0;
+	for (const entry of conversation.entries) {
+		const created = await db.agentEntry.create({
+			data: {
+				threadId: thread.id,
+				kind: entry.kind,
+				text: entry.text,
+				createdAt: new Date(now - (conversation.lastActiveMinutesAgo + entry.minutesBeforeLast) * MINUTE),
+			},
+			select: {seq: true},
+		});
+		readSeq = created.seq;
+	}
+
+	if (conversation.unread || readSeq === 0) {
+		continue;
+	}
+	await db.agentThread.update({where: {id: thread.id}, data: {readSeq}});
+}
+
 // ---- A sign-in link -------------------------------------------------------------------------
 
 // A magic link as the api makes one (`packages/api/src/auth/email.ts`): only the token's hash is
@@ -975,7 +1176,7 @@ const query = new URLSearchParams({
 	callbackUrl: `/${org.slug}/agents`,
 });
 
-console.log(`[seed] ${connections.length} connections, ${agents.length} agents, ${taskCount} tasks and ${entryCount} activity entries for ${DEMO_EMAIL}.`);
+console.log(`[seed] ${connections.length} connections, ${agents.length} agents, ${CHAT_CONVERSATIONS.length} chats, ${taskCount} tasks and ${entryCount} activity entries for ${DEMO_EMAIL}.`);
 console.log(`[seed] Sign in, once, within 24 hours: ${apiUrl}/auth/email/verify?${query}`);
 console.log(`[seed] Later, ask for a magic link for ${DEMO_EMAIL}; the api prints it.`);
 console.log(`[seed] Agents sign in at /agent/login with their username and "${AGENT_PASSWORD}".`);

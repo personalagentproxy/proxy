@@ -114,8 +114,8 @@ export async function connectionLoader(args: {params: {org?: string; id?: string
 	};
 }
 
-// Chat opens on the persona the person was last active with, the first the api lists, which makes
-// one where the organization has none yet.
+// Chat opens on the first persona the api lists: the most recently active pinned one, or the most
+// recently active one where none is pinned. The api makes one where the organization has none yet.
 export async function chatIndexLoader(args: OrgParams) {
 	const org = orgOf(args);
 	const {personas} = unwrapLoaderResult(await listPersonas(org));

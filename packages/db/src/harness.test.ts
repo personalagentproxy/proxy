@@ -24,6 +24,7 @@ import {
 	listSubAgents,
 	markThreadRead,
 	requeueJob,
+	setThreadPinned,
 	type JobRow,
 	type NewEntry,
 	type SubAgentRow,
@@ -353,6 +354,22 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			throw new Error(`expected the travel thread's job, got ${JSON.stringify(job)}`);
 		}
 		unwrap(await finishJob(job.id, 'worker-p'));
+	});
+
+	test('a member pins and unpins their conversation', async () => {
+		const before = unwrap(await listPersonas(orgId, userId));
+		expect(before.find((persona) => persona.id === thread.personaId)?.isPinned).toBe(false);
+
+		expect(unwrap(await setThreadPinned(thread.id, true))).toBe(true);
+		const pinned = unwrap(await listPersonas(orgId, userId));
+		expect(pinned[0]).toMatchObject({id: thread.personaId, isPinned: true});
+
+		expect(unwrap(await setThreadPinned(thread.id, false))).toBe(true);
+		expect(
+			unwrap(await listPersonas(orgId, userId)).find((persona) => persona.id === thread.personaId)
+				?.isPinned,
+		).toBe(false);
+		expect(unwrap(await setThreadPinned('no-such-thread', true))).toBe(false);
 	});
 
 	test('a finish with nothing written is a done event too', async () => {

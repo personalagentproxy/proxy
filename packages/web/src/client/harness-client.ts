@@ -6,6 +6,7 @@ import {
 	type Persona,
 	type postMessageBodySchema,
 	postedMessageSchema,
+	type setPinnedBodySchema,
 	threadLogSchema,
 } from '@proxy/contracts/harness';
 import type {z} from 'zod';
@@ -38,6 +39,12 @@ export function updatePersona(org: string, personaId: string, persona: Persona) 
 
 export function deletePersona(org: string, personaId: string) {
 	return apiSend('DELETE', `${orgApi(org)}/chat/personas/${personaId}`);
+}
+
+export function setPersonaPinned(org: string, personaId: string, pinned: boolean) {
+	return apiSend('PUT', `${orgApi(org)}/chat/personas/${personaId}/pin`, {
+		pinned,
+	} satisfies z.input<typeof setPinnedBodySchema>);
 }
 
 export function getThread(org: string, personaId: string) {

@@ -15,7 +15,7 @@ mock.module('./built-in-agent', () => ({ensureBuiltInAgent}));
 const now = new Date('2026-10-21T10:00:00Z');
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
 const persona = {id: 'persona-1', name: 'Finance', look, color: 'blue', chatModel: 'claude' as 'claude' | 'glm', createdById: 'user-1', createdAt: now};
-const personaResponse = {id: 'persona-1', name: 'Finance', look, color: 'blue' as const, chatModel: null, mayChange: true, lastMessage: null, createdAt: '2026-10-21T10:00:00.000Z'};
+const personaResponse = {id: 'persona-1', name: 'Finance', look, color: 'blue' as const, chatModel: null, mayChange: true, isPinned: false, lastMessage: null, createdAt: '2026-10-21T10:00:00.000Z'};
 const thread: ThreadRow = {
 	id: 'thread-1',
 	orgId: 'org-1',
@@ -26,6 +26,7 @@ const thread: ThreadRow = {
 	parentCallId: null,
 	title: null,
 	taskId: null,
+	isPinned: false,
 	createdAt: now,
 };
 
@@ -58,10 +59,10 @@ beforeEach(async () => {
 	mock.clearAllMocks();
 	store = fakeStore();
 	routes = (await import('./route')).chatRoutes(store);
-	const {listPersonas, getPersona, createPersona, updatePersona, deletePersona, getMemberThread, ensureMemberThread, listShownEntries, listOpenJobs, appendPersonMessage} = store;
+	const {listPersonas, getPersona, createPersona, updatePersona, deletePersona, getMemberThread, ensureMemberThread, listShownEntries, listOpenJobs, appendPersonMessage, setThreadPinned} = store;
 	deletePersona.mockResolvedValue(Ok(true));
 	requireViewer.mockResolvedValue(Ok(viewer));
-	listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}}]));
+	listPersonas.mockResolvedValue(Ok([{...persona, isPinned: false, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}}]));
 	getPersona.mockResolvedValue(Ok(persona));
 	createPersona.mockResolvedValue(Ok({...persona, id: 'persona-2'}));
 	updatePersona.mockResolvedValue(Ok(true));
@@ -72,6 +73,7 @@ beforeEach(async () => {
 	);
 	listOpenJobs.mockResolvedValue(Ok([]));
 	appendPersonMessage.mockResolvedValue(Ok(logEntry({id: 'e3', seq: 3, kind: 'person', text: 'Hello'})));
+	setThreadPinned.mockResolvedValue(Ok(true));
 });
 
 describe('the chat routes', () => {
@@ -89,11 +91,12 @@ describe('the chat routes', () => {
 		const {handleListPersonasRoute} = routes;
 		store.listPersonas.mockResolvedValue(
 			Ok([
-				{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}},
-				{...persona, id: 'persona-3', createdById: 'user-2', lastMessage: null},
+				{...persona, isPinned: true, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}},
+				{...persona, id: 'persona-3', createdById: 'user-2', isPinned: false, lastMessage: null},
 				{
 					...persona,
 					id: 'persona-4',
+					isPinned: false,
 					lastMessage: {kind: 'assistant', text: '## Found\n\n- **Three** invoices, see [the list](https://x.test)\n\n| Who | Sum |\n| --- | --- |\n| Dana | 40 |\n\n```\ncode\n```', createdAt: now},
 				},
 			]),
@@ -104,7 +107,7 @@ describe('the chat routes', () => {
 		expect(store.listPersonas).toHaveBeenCalledWith('org-1', 'user-1');
 		expect(listed).toEqual({
 			personas: [
-				{...personaResponse, lastMessage: {kind: 'assistant', text: 'Your vault has one entry.', at: '2026-10-21T10:00:00.000Z'}},
+				{...personaResponse, isPinned: true, lastMessage: {kind: 'assistant', text: 'Your vault has one entry.', at: '2026-10-21T10:00:00.000Z'}},
 				{...personaResponse, id: 'persona-3', mayChange: false},
 				{...personaResponse, id: 'persona-4', lastMessage: {kind: 'assistant', text: 'Found Three invoices, see the list Who Sum Dana 40', at: '2026-10-21T10:00:00.000Z'}},
 			],
@@ -245,6 +248,25 @@ describe('the chat routes', () => {
 
 		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: '   '}))).unwrapErr().kind).toBe('parse_error');
 		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: 'x'.repeat(20_001)}))).unwrapErr().kind).toBe('parse_error');
+	});
+
+	test('pin and unpin the viewer’s conversation, beginning it where there is none', async () => {
+		const {handleSetPinnedRoute} = routes;
+
+		expect((await handleSetPinnedRoute(request({personaId: 'persona-1'}, {pinned: true}))).isOk()).toBe(true);
+		expect(store.setThreadPinned).toHaveBeenCalledWith('thread-1', true);
+		expect(store.ensureMemberThread).not.toHaveBeenCalled();
+
+		store.getMemberThread.mockResolvedValue(Ok(null));
+		expect((await handleSetPinnedRoute(request({personaId: 'persona-1'}, {pinned: false}))).isOk()).toBe(true);
+		expect(ensureBuiltInAgent).toHaveBeenCalledWith('org-1');
+		expect(store.ensureMemberThread).toHaveBeenCalledWith({orgId: 'org-1', agentId: 'login-1', personaId: 'persona-1', userId: 'user-1'});
+		expect(store.setThreadPinned).toHaveBeenLastCalledWith('thread-1', false);
+
+		expect((await handleSetPinnedRoute(request({personaId: 'persona-1'}, {}))).unwrapErr().kind).toBe('parse_error');
+
+		store.setThreadPinned.mockResolvedValue(Ok(false));
+		expect((await handleSetPinnedRoute(request({personaId: 'persona-1'}, {pinned: true}))).unwrapErr().kind).toBe('not_found');
 	});
 
 	test('mark the viewer’s conversation with the persona read up to the answer shown, beginning none, and say where the answer, the conversation or the persona is gone', async () => {

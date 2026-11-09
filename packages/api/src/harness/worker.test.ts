@@ -69,7 +69,20 @@ describe('the worker', () => {
 		expect(store.failJob).toHaveBeenCalledWith('j4', expect.any(String), 'OpenRouter refused the request (400): too long', expect.any(Function));
 		expect(runInference).toHaveBeenCalledTimes(2);
 
-		const thread = {id: 't1', orgId: 'o1', agentId: 'a1', personaId: 'p1', userId: 'u1', parentThreadId: null, parentCallId: null, title: null, taskId: null, finishedAt: null, createdAt: now};
+		const thread = {
+			id: 't1',
+			orgId: 'o1',
+			agentId: 'a1',
+			personaId: 'p1',
+			userId: 'u1',
+			parentThreadId: null,
+			parentCallId: null,
+			title: null,
+			taskId: null,
+			isPinned: false,
+			finishedAt: null,
+			createdAt: now,
+		};
 		const noteFor = store.failJob.mock.calls.find((call) => call[0] === 'j2')?.[3];
 		expect(noteFor?.(tool, thread)).toEqual({kind: 'answer', callId: 'c1', text: 'This call could not be run: boom'});
 	});

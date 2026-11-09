@@ -20,6 +20,7 @@ const thread: ThreadRow = {
 	parentCallId: 'c0',
 	title: 'Find the invoices',
 	taskId: 'task-1',
+	isPinned: false,
 	createdAt: now,
 };
 const task: AgentTaskRow = {

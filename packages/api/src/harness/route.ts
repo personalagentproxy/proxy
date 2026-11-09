@@ -14,6 +14,7 @@ import {
 	type personaListSchema,
 	postMessageBodySchema,
 	type postedMessageSchema,
+	setPinnedBodySchema,
 	type ThreadLog,
 } from '@proxy/contracts/harness';
 
@@ -46,6 +47,7 @@ export type ChatStore = Pick<
 	| 'listOpenJobs'
 	| 'appendPersonMessage'
 	| 'markThreadRead'
+	| 'setThreadPinned'
 >;
 
 // Whether the viewer may rename, reface, switch the model of or delete the persona: whoever made it, or the organization's owner (utils/manages.ts).
@@ -53,7 +55,7 @@ function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
 	return manages(viewer, {ownerUserId: null, byId: persona.createdById});
 }
 
-function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null}): ChatPersona {
+function toPersona(viewer: OrgViewer, persona: PersonaRow & {isPinned?: boolean; lastMessage?: LastMessage | null}): ChatPersona {
 	const last = persona.lastMessage ?? null;
 	return {
 		id: persona.id,
@@ -62,6 +64,7 @@ function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastM
 		color: toAvatarColor(persona.color),
 		chatModel: viewer.insider ? persona.chatModel : null,
 		mayChange: managesPersona(viewer, persona),
+		isPinned: persona.isPinned ?? false,
 		lastMessage: last && {kind: last.kind, text: preview(last.text), at: last.createdAt.toISOString()},
 		createdAt: persona.createdAt.toISOString(),
 	};
@@ -125,7 +128,7 @@ function requireThread(store: ChatStore, viewer: OrgViewer, persona: PersonaRow)
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas`: the organization's personas, the one last active in the viewer's conversation first, with the viewer's conversations; a General one is made where it has none. */
+/** `GET /api/orgs/:org/chat/personas`: the organization's personas, the viewer's pinned ones first, then each group by last activity in their conversations; a General one is made where it has none. */
 function handleListPersonasRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
@@ -174,7 +177,15 @@ function handleUpdatePersonaRoute(store: ChatStore, request: AuthenticatedReques
 		if (!$(await store.updatePersona(viewer.orgId, existing.id, persona))) {
 			return $(Err(ApiErr.notFound('persona', existing.id)));
 		}
-		return {persona: toPersona(viewer, {...existing, ...persona, chatModel: persona.chatModel ?? existing.chatModel})};
+		const thread = $(await store.getMemberThread(existing.id, viewer.userId));
+		return {
+			persona: toPersona(viewer, {
+				...existing,
+				...persona,
+				chatModel: persona.chatModel ?? existing.chatModel,
+				isPinned: thread?.isPinned ?? false,
+			}),
+		};
 	});
 }
 
@@ -199,7 +210,7 @@ function handleGetThreadRoute(store: ChatStore, request: AuthenticatedRequest): 
 		// The conversation's and its sub-agents' jobs together: asleep only when every one of them is.
 		const state = threadState($(jobs), new Date());
 		return {
-			persona: toPersona(viewer, persona),
+			persona: toPersona(viewer, {...persona, isPinned: thread.isPinned}),
 			entries: $(entries).filter(isShown).map(toEntry),
 			busy: state.kind === 'working',
 			sleepingUntil: state.kind === 'asleep' ? state.until.toISOString() : null,
@@ -233,6 +244,19 @@ function handleMarkReadRoute(store: ChatStore, request: AuthenticatedRequest): P
 	});
 }
 
+/** `PUT /api/orgs/:org/chat/personas/:personaId/pin` with `{pinned}`: pins or unpins the viewer's conversation, beginning it where there is none yet. */
+function handleSetPinnedRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireChat(request));
+		const {pinned} = $(parseSchema(setPinnedBodySchema, request.body));
+		const persona = $(await requirePersona(store, viewer, request));
+		const thread = $(await requireThread(store, viewer, persona));
+		if (!$(await store.setThreadPinned(thread.id, pinned))) {
+			return $(Err(ApiErr.notFound('thread', thread.id)));
+		}
+	});
+}
+
 /** The Chat page's routes, on the store. */
 export function chatRoutes(store: ChatStore) {
 	return {
@@ -244,5 +268,6 @@ export function chatRoutes(store: ChatStore) {
 		handleGetThreadRoute: (request: AuthenticatedRequest) => handleGetThreadRoute(store, request),
 		handlePostMessageRoute: (request: AuthenticatedRequest) => handlePostMessageRoute(store, request),
 		handleMarkReadRoute: (request: AuthenticatedRequest) => handleMarkReadRoute(store, request),
+		handleSetPinnedRoute: (request: AuthenticatedRequest) => handleSetPinnedRoute(store, request),
 	};
 }

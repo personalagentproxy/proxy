@@ -66,6 +66,8 @@ export type ThreadRow = {
 	title: string | null;
 	// A sub-agent's task; null for a conversation, whose agent makes no calls but to its sub-agents.
 	taskId: string | null;
+	// Whether the member pinned this conversation; always false for a sub-agent.
+	isPinned: boolean;
 	createdAt: Date;
 };
 
@@ -203,6 +205,7 @@ const threadSelect = {
 	parentCallId: true,
 	title: true,
 	taskId: true,
+	isPinned: true,
 	createdAt: true,
 } as const;
 
@@ -289,12 +292,15 @@ export function toEntry(entry: EntryRecord): EntryRow {
 
 /**
  * The organization's personas with the last thing said in the member's conversation with each,
- * the one last active first: the last thing said in it, or, before anything was, its making.
+ * pinned first, then each group by last activity: the last thing said in it, or its making before
+ * anything was said.
  */
 export async function listPersonas(
 	orgId: string,
 	userId: string,
-): Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null}>, ApiError>> {
+): Promise<
+	Result<Array<PersonaRow & {isPinned: boolean; lastMessage: LastMessage | null}>, ApiError>
+> {
 	return (
 		await wrapDb(() =>
 			db.persona.findMany({
@@ -304,6 +310,7 @@ export async function listPersonas(
 					threads: {
 						where: {userId, parentThreadId: null},
 						select: {
+							isPinned: true,
 							// The agent's turns that only made calls say nothing, so the last with words.
 							entries: {
 								where: {kind: {in: ['person', 'assistant']}, text: {not: ''}},
@@ -320,16 +327,22 @@ export async function listPersonas(
 	).map((personas) =>
 		personas
 			.map(({threads, ...persona}) => {
-				const last = threads[0]?.entries[0];
+				const thread = threads[0];
+				const last = thread?.entries[0];
 				return {
 					...toPersona(persona),
+					isPinned: thread?.isPinned ?? false,
 					lastMessage:
 						last && (last.kind === 'person' || last.kind === 'assistant')
 							? {kind: last.kind, text: last.text, createdAt: last.createdAt}
 							: null,
 				};
 			})
-			.toSorted((a, b) => lastActive(b).getTime() - lastActive(a).getTime()),
+			.toSorted(
+				(left, right) =>
+					Number(right.isPinned) - Number(left.isPinned) ||
+					lastActive(right).getTime() - lastActive(left).getTime(),
+			),
 	);
 }
 
@@ -562,6 +575,21 @@ export async function markThreadRead(
 				db.$executeRaw`UPDATE "AgentThread" AS t SET "readSeq" = GREATEST(t."readSeq", e."seq") FROM "AgentEntry" AS e WHERE t."id" = ${threadId} AND e."id" = ${entryId} AND e."threadId" = t."id"`,
 		)
 	).map((count) => count > 0);
+}
+
+/** Pins or unpins a member conversation. `Ok(false)` means it is gone or is a sub-agent thread. */
+export async function setThreadPinned(
+	threadId: string,
+	isPinned: boolean,
+): Promise<Result<boolean, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentThread.updateMany({
+				where: {id: threadId, parentThreadId: null},
+				data: {isPinned},
+			}),
+		)
+	).map(({count}) => count > 0);
 }
 
 /**

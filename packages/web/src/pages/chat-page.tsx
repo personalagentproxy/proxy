@@ -1,5 +1,5 @@
 import type {ChatEntry, ChatPersona, Persona, ThreadLog} from '@proxy/contracts/harness';
-import {ArrowUpIcon, MoonIcon, PencilIcon, Trash2Icon} from 'lucide-react';
+import {ArrowUpIcon, MoonIcon, PencilIcon, PinIcon, PinOffIcon, Trash2Icon} from 'lucide-react';
 import {type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator} from 'react-router';
 import {
@@ -7,6 +7,7 @@ import {
 	deletePersona,
 	getThread,
 	postMessage,
+	setPersonaPinned,
 	updatePersona,
 } from '@/client/harness-client';
 import {AddButton} from '@/components/add-button';
@@ -126,8 +127,9 @@ function lastActive(persona: ChatPersona, last: ChatPersona['lastMessage']): num
 
 // The organization's personas in the second sidebar, each with its head, its name and the last
 // thing said between it and the person, marked where the person hasn't seen it, the open one lit,
-// each head watching the pointer while it is over that agent's row. The one last active is on
-// top, the open one by its log, so what the person just said moves it up at once.
+// each head watching the pointer while it is over that agent's row. Pinned ones are compact
+// launchers in a grid on top; within each section the one last active is first, the open one by
+// its log, so what the person just said moves it up at once.
 function PersonaList({
 	personas,
 	current,
@@ -139,6 +141,7 @@ function PersonaList({
 	rememberHeadPose,
 	onEdit,
 	onDelete,
+	onPin,
 }: {
 	personas: ChatPersona[];
 	current: string;
@@ -150,6 +153,7 @@ function PersonaList({
 	rememberHeadPose: (personaId: string, pose: Pose) => void;
 	onEdit: (persona: ChatPersona) => void;
 	onDelete: (persona: ChatPersona) => void;
+	onPin: (persona: ChatPersona) => void;
 }) {
 	const org = useOrgSlug();
 	const unread = useUnread();
@@ -157,108 +161,178 @@ function PersonaList({
 	// Whether the persona said something the person hasn't seen, as the provider has it.
 	const isUnread = (persona: ChatPersona) =>
 		persona.id !== current && unread.unreadIds.has(persona.id);
-	const rows = personas
+	const ordered = personas
 		.map((persona) => ({
 			persona,
 			last: persona.id === current ? lastOf(currentLog) : persona.lastMessage,
 		}))
 		.toSorted((a, b) => lastActive(b.persona, b.last) - lastActive(a.persona, a.last));
-	return (
-		<div className="flex h-full min-h-0 flex-col overflow-y-auto p-2">
-			{personas.length === 0 && (
-				<span className="px-2 py-1.5 text-sm text-muted-foreground">No agents yet.</span>
+	const pinned = ordered.filter(({persona}) => persona.isPinned);
+	const unpinned = ordered.filter(({persona}) => !persona.isPinned);
+	const menu = (persona: ChatPersona) => (
+		<ContextMenuContent>
+			<ContextMenuItem onClick={() => onPin(persona)}>
+				{persona.isPinned ? <PinOffIcon /> : <PinIcon />}
+				{persona.isPinned ? 'Unpin' : 'Pin'}
+			</ContextMenuItem>
+			{persona.mayChange && (
+				<ContextMenuItem onClick={() => onEdit(persona)}>
+					<PencilIcon />
+					Edit
+				</ContextMenuItem>
 			)}
-			<ul className="flex flex-col gap-0.5">
-				{rows.map(({persona, last}) => {
-					const fresh = isUnread(persona);
-					const row = (
-						<Link
-							to={`/${org}/chat/${persona.id}`}
-							aria-current={persona.id === current ? 'page' : undefined}
-							onPointerEnter={() => setHovered(persona.id)}
-							onPointerLeave={() => {
-								setHovered(null);
-								forgetOpeningPersona(persona.id);
-							}}
-							onPointerUp={(event) => {
-								if (
-									persona.id === current ||
-									event.pointerType !== 'mouse' ||
-									event.button !== 0 ||
-									event.metaKey ||
-									event.ctrlKey ||
-									event.shiftKey ||
-									event.altKey
-								) {
-									return;
-								}
-								rememberOpeningPersona(persona.id);
-							}}
-							className={cn(
-								'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-								persona.id === current && 'bg-sidebar-accent text-sidebar-accent-foreground',
-							)}
-						>
+			{persona.mayChange && (
+				<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
+					<Trash2Icon />
+					Delete
+				</ContextMenuItem>
+			)}
+		</ContextMenuContent>
+	);
+	const pinnedCards = pinned.map(({persona}) => {
+		const fresh = isUnread(persona);
+		return (
+			<ContextMenu key={persona.id}>
+				<ContextMenuTrigger render={<li className="min-w-0" />}>
+					<Link
+						to={`/${org}/chat/${persona.id}`}
+						aria-current={persona.id === current ? 'page' : undefined}
+						onPointerEnter={() => setHovered(persona.id)}
+						onPointerLeave={() => {
+							setHovered(null);
+							forgetOpeningPersona(persona.id);
+						}}
+						onPointerUp={(event) => {
+							if (
+								persona.id === current ||
+								event.pointerType !== 'mouse' ||
+								event.button !== 0 ||
+								event.metaKey ||
+								event.ctrlKey ||
+								event.shiftKey ||
+								event.altKey
+							) {
+								return;
+							}
+							rememberOpeningPersona(persona.id);
+						}}
+						className={cn(
+							'flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-center hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+							persona.id === current && 'bg-sidebar-accent text-sidebar-accent-foreground',
+						)}
+					>
+						<span className="relative">
 							<LiveHead
 								look={persona.look}
 								color={persona.color}
-								size={40}
+								size={56}
 								watching={hovered === persona.id}
 								tracking="head"
 								recallPose={() => recallHeadPose(persona.id)}
 								rememberPose={(pose) => rememberHeadPose(persona.id, pose)}
 							/>
-							<span className="flex min-w-0 flex-1 flex-col">
-								<span className="flex items-baseline gap-2">
-									<span className="min-w-0 flex-1 truncate text-sm font-medium">
-										{persona.name}
-									</span>
-									{last && (
-										<span className="shrink-0 text-xs text-muted-foreground">
-											{formatAgo(last.at)}
-										</span>
-									)}
-								</span>
-								<span className="flex items-center gap-2">
-									<span
-										className={cn(
-											'min-w-0 flex-1 truncate text-xs',
-											fresh ? 'font-medium' : 'text-muted-foreground',
-										)}
-									>
-										{subtitle(last)}
-									</span>
-									{fresh && (
-										<span
-											role="status"
-											aria-label="Unread"
-											className="size-2 shrink-0 rounded-full bg-primary"
-										/>
-									)}
-								</span>
+							{fresh && (
+								<span
+									role="status"
+									aria-label="Unread"
+									className="absolute right-0 bottom-0 size-2.5 rounded-full border-2 border-sidebar bg-primary"
+								/>
+							)}
+						</span>
+						<span title={persona.name} className="w-full truncate text-xs font-medium">
+							{persona.name}
+						</span>
+					</Link>
+				</ContextMenuTrigger>
+				{menu(persona)}
+			</ContextMenu>
+		);
+	});
+	const rows = (listed: typeof ordered) =>
+		listed.map(({persona, last}) => {
+			const fresh = isUnread(persona);
+			const row = (
+				<Link
+					to={`/${org}/chat/${persona.id}`}
+					aria-current={persona.id === current ? 'page' : undefined}
+					onPointerEnter={() => setHovered(persona.id)}
+					onPointerLeave={() => {
+						setHovered(null);
+						forgetOpeningPersona(persona.id);
+					}}
+					onPointerUp={(event) => {
+						if (
+							persona.id === current ||
+							event.pointerType !== 'mouse' ||
+							event.button !== 0 ||
+							event.metaKey ||
+							event.ctrlKey ||
+							event.shiftKey ||
+							event.altKey
+						) {
+							return;
+						}
+						rememberOpeningPersona(persona.id);
+					}}
+					className={cn(
+						'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+						persona.id === current && 'bg-sidebar-accent text-sidebar-accent-foreground',
+					)}
+				>
+					<LiveHead
+						look={persona.look}
+						color={persona.color}
+						size={40}
+						watching={hovered === persona.id}
+						tracking="head"
+						recallPose={() => recallHeadPose(persona.id)}
+						rememberPose={(pose) => rememberHeadPose(persona.id, pose)}
+					/>
+					<span className="flex min-w-0 flex-1 flex-col">
+						<span className="flex items-baseline gap-2">
+							<span className="min-w-0 flex-1 truncate text-sm font-medium">{persona.name}</span>
+							{last && (
+								<span className="shrink-0 text-xs text-muted-foreground">{formatAgo(last.at)}</span>
+							)}
+						</span>
+						<span className="flex items-center gap-2">
+							<span
+								className={cn(
+									'min-w-0 flex-1 truncate text-xs',
+									fresh ? 'font-medium' : 'text-muted-foreground',
+								)}
+							>
+								{subtitle(last)}
 							</span>
-						</Link>
-					);
-					if (!persona.mayChange) {
-						return <li key={persona.id}>{row}</li>;
-					}
-					return (
-						<ContextMenu key={persona.id}>
-							<ContextMenuTrigger render={<li />}>{row}</ContextMenuTrigger>
-							<ContextMenuContent>
-								<ContextMenuItem onClick={() => onEdit(persona)}>
-									<PencilIcon />
-									Edit
-								</ContextMenuItem>
-								<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
-									<Trash2Icon />
-									Delete
-								</ContextMenuItem>
-							</ContextMenuContent>
-						</ContextMenu>
-					);
-				})}
-			</ul>
+							{fresh && (
+								<span
+									role="status"
+									aria-label="Unread"
+									className="size-2 shrink-0 rounded-full bg-primary"
+								/>
+							)}
+						</span>
+					</span>
+				</Link>
+			);
+			return (
+				<ContextMenu key={persona.id}>
+					<ContextMenuTrigger render={<li />}>{row}</ContextMenuTrigger>
+					{menu(persona)}
+				</ContextMenu>
+			);
+		});
+	return (
+		<div className="flex h-full min-h-0 flex-col overflow-y-auto p-2">
+			{personas.length === 0 && (
+				<span className="px-2 py-1.5 text-sm text-muted-foreground">No agents yet.</span>
+			)}
+			{pinned.length > 0 && (
+				<ul aria-label="Pinned chats" className="grid grid-cols-3 gap-1 pb-2">
+					{pinnedCards}
+				</ul>
+			)}
+			{unpinned.length > 0 && <ul className="flex flex-col gap-0.5">{rows(unpinned)}</ul>}
 		</div>
 	);
 }
@@ -463,6 +537,15 @@ function Conversation({
 		await revalidator.revalidate();
 	};
 
+	const pinPersona = async (persona: ChatPersona) => {
+		const changed = await setPersonaPinned(org, persona.id, !persona.isPinned);
+		if (changed.isErr()) {
+			setError(describeFetchError(changed.error));
+			return;
+		}
+		await revalidator.revalidate();
+	};
+
 	// Turns in a row from the same side sit closer together than the sides do.
 	const runs = log.entries.reduce<ChatEntry[][]>((grouped, entry) => {
 		const last = grouped.at(-1);
@@ -489,6 +572,7 @@ function Conversation({
 					rememberHeadPose={rememberHeadPose}
 					onEdit={setEditing}
 					onDelete={setDeleting}
+					onPin={(persona) => void pinPersona(persona)}
 				/>
 			}
 			panelLabel="Agents"

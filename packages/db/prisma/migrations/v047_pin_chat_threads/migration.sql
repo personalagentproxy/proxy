@@ -1,0 +1,1 @@
+ALTER TABLE "AgentThread" ADD COLUMN "isPinned" BOOLEAN NOT NULL DEFAULT false;

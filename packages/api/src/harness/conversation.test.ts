@@ -16,6 +16,7 @@ const conversation: ThreadRow = {
 	parentCallId: null,
 	title: null,
 	taskId: null,
+	isPinned: false,
 	createdAt: now,
 };
 const sub: ThreadRow = {...conversation, id: 'thread-1', parentThreadId: 'thread-0', parentCallId: 'c0', title: 'Find the invoices', taskId: 'task-1'};

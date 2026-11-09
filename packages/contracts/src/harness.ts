@@ -44,6 +44,8 @@ export const chatPersonaSchema = z.object({
 	 * the organization.
 	 */
 	mayChange: z.boolean(),
+	/** Whether the person pinned their conversation with this persona. */
+	isPinned: z.boolean(),
 	/**
 	 * The last thing said in the person's conversation with it, cut to a line, for the list; null
 	 * before anything was said.
@@ -56,8 +58,9 @@ export const chatPersonaSchema = z.object({
 export type ChatPersona = z.infer<typeof chatPersonaSchema>;
 
 /**
- * `GET chat/personas`: the organization's personas, the one last active in the person's
- * conversation first: the last thing said in it, or, before anything was, its making.
+ * `GET chat/personas`: the organization's personas, the person's pinned ones first, then each
+ * group by last activity: the last thing said in its conversation, or its making before anything
+ * was said.
  */
 export const personaListSchema = z.object({personas: z.array(chatPersonaSchema)});
 
@@ -124,6 +127,9 @@ export const postMessageBodySchema = z.object({text: z.string().trim().min(1).ma
  * the conversation is read up to.
  */
 export const markReadBodySchema = z.object({entryId: z.string().min(1)});
+
+/** `PUT chat/personas/:personaId/pin`: whether the person pins this conversation. */
+export const setPinnedBodySchema = z.object({pinned: z.boolean()});
 
 /** What the person said, as a turn of the conversation. */
 export const postedMessageSchema = z.object({entry: chatEntrySchema});

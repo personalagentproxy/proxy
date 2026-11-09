@@ -14,7 +14,7 @@ const realFetch = globalThis.fetch;
 const fetchMock = mock<(input: string, init?: RequestInit) => Promise<Response>>();
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
 
-function persona(id: string, name: string, mayChange: boolean): ChatPersona {
+function persona(id: string, name: string, mayChange: boolean, isPinned = false): ChatPersona {
 	return {
 		id,
 		name,
@@ -22,6 +22,7 @@ function persona(id: string, name: string, mayChange: boolean): ChatPersona {
 		look,
 		color: 'blue',
 		chatModel: null,
+		isPinned,
 		lastMessage: null,
 		createdAt: '2026-10-20T10:00:00Z',
 	};
@@ -161,6 +162,32 @@ describe('ChatPage', () => {
 		});
 	});
 
+	test('shows pinned chats in a section at the top, each section ordered by last activity', async () => {
+		const pinnedFinance = {
+			...finance,
+			isPinned: true,
+			lastMessage: {kind: 'assistant' as const, text: 'Paid.', at: '2026-10-21T10:00:00Z'},
+		};
+		const pinnedTravel = {
+			...persona('travel', 'Travel', true, true),
+			createdAt: '2026-10-22T10:00:00Z',
+		};
+		const billing = {...persona('billing', 'Billing', true), createdAt: '2026-10-23T10:00:00Z'};
+		renderChatPage({personas: [general, pinnedFinance, pinnedTravel, billing]});
+
+		expect(await screen.findByRole('list', {name: 'Pinned chats'})).toBeDefined();
+		expect(
+			screen
+				.getAllByRole('link')
+				.map((row) =>
+					['General', 'Finance', 'Travel', 'Billing'].find((name) =>
+						row.textContent?.includes(name),
+					),
+				)
+				.filter((name) => name !== undefined),
+		).toEqual(['Travel', 'Finance', 'Billing', 'General']);
+	});
+
 	test('does not make a keyboard-opened agent head watch an unrelated pointer', async () => {
 		const {container} = renderChatPage();
 		const financeRow = await screen.findByRole('link', {name: /Finance/});
@@ -219,6 +246,59 @@ describe('ChatPage', () => {
 		});
 	});
 
+	test('pins a chat from its right-click menu', async () => {
+		let listed = [general, finance];
+		fetchMock.mockImplementation((input, init) => {
+			if (input.endsWith('/chat/personas/finance/pin') && init?.method === 'PUT') {
+				listed = [general, {...finance, isPinned: true}];
+				return Promise.resolve(new Response(null, {status: 204}));
+			}
+			return Promise.resolve(
+				input.endsWith('/chat/answers')
+					? Response.json({answers})
+					: new Response(null, {status: 204}),
+			);
+		});
+		renderChatPage({listPersonas: () => listed});
+
+		fireEvent.contextMenu(await screen.findByRole('link', {name: /Finance/}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Pin'}));
+
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledWith(
+				'/api/orgs/acme/chat/personas/finance/pin',
+				expect.objectContaining({method: 'PUT', body: JSON.stringify({pinned: true})}),
+			);
+			expect(screen.getByRole('list', {name: 'Pinned chats'})).toBeDefined();
+		});
+	});
+
+	test('unpins a chat from its right-click menu', async () => {
+		let listed = [general, {...finance, isPinned: true}];
+		fetchMock.mockImplementation((input, init) => {
+			if (input.endsWith('/chat/personas/finance/pin') && init?.method === 'PUT') {
+				listed = [general, finance];
+				return Promise.resolve(new Response(null, {status: 204}));
+			}
+			return Promise.resolve(
+				input.endsWith('/chat/answers')
+					? Response.json({answers})
+					: new Response(null, {status: 204}),
+			);
+		});
+		renderChatPage({listPersonas: () => listed});
+
+		fireEvent.contextMenu(await screen.findByRole('link', {name: /Finance/}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Unpin'}));
+
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledWith(
+				'/api/orgs/acme/chat/personas/finance/pin',
+				expect.objectContaining({method: 'PUT', body: JSON.stringify({pinned: false})}),
+			);
+		});
+	});
+
 	test('deletes a changeable agent from its right-click menu after confirmation', async () => {
 		renderChatPage();
 
@@ -242,6 +322,7 @@ describe('ChatPage', () => {
 
 		fireEvent.contextMenu(await screen.findByRole('link', {name: /General/}));
 
+		expect(screen.getByRole('menuitem', {name: 'Pin'})).toBeDefined();
 		expect(screen.queryByRole('menuitem', {name: 'Edit'})).toBeNull();
 		expect(screen.queryByRole('menuitem', {name: 'Delete'})).toBeNull();
 	});
