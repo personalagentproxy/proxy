@@ -90,8 +90,14 @@ Account page sees the kind of credential, the account and when the current token
 more. A refresh Claude refuses, as when the sign-in was revoked, is shown on the card, and
 **Connect again** signs in afresh.
 
-Nothing uses the credential yet: running the agent on it is coming, and until then connecting only
-keeps it ready. **Disconnect** on the card deletes it, and deleting your account deletes it too.
+With a Claude account connected, your conversations, and the sub-agents they start, run on the
+[Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) under your account: what you
+say goes to Anthropic directly, as it would from Claude Code, not through OpenRouter, and the model
+is Sonnet. Everything else is the same: the agent's tools, sleeping, alerts, the activity log and
+what the conversation shows. A conversation that started on your account stays on it. When the
+sign-in has run out or been refused, the agent says so in the conversation, and **Connect again**
+on the Account page takes it up again. **Disconnect** on the card deletes the credential, and
+deleting your account deletes it too; conversations then run on the server's key again.
 
 <Callout>
 Chat is being tried out with some organizations first, so it is only offered to an organization

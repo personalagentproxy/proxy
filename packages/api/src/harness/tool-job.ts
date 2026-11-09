@@ -1,13 +1,13 @@
 import type {Result} from 'ts-results-es';
 
 import {type ApiError, Do} from '@proxy/utils';
-import {callArguments, isRecord, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
+import {callArguments, isRecord, RUN_INTERRUPTED, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
 import type {JobRow, ThreadRow} from '@proxy/db/harness';
 
 import {CANCEL_ALERT_TOOL, SET_ALERT_TOOL} from './alerts';
 import {failureNote} from './conversation';
 import type {HarnessStore} from './store';
-import {type AlertCallOutcome, alertCall, BAD_SLEEP_ARGS, error, NOT_JSON, noSuchTool, RUN_INTERRUPTED, runGateTool, setText, type ToolAnswerStore} from './tool-answers';
+import {type AlertCallOutcome, alertCall, BAD_SLEEP_ARGS, error, NOT_JSON, noSuchTool, runGateTool, setText, type ToolAnswerStore} from './tool-answers';
 import {isGateTool} from './tool-surface';
 
 /**

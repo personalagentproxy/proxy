@@ -1,37 +1,22 @@
 import {Result} from 'ts-results-es';
 
+import type {SdkSessionStore, SessionStoreEntry} from '@proxy/backends/harness/session-store';
 import type {ApiError} from '@proxy/utils';
-import {isRecord, type JsonValue, jsonValueSchema} from '@proxy/utils/harness';
+import {isRecord, jsonValueSchema} from '@proxy/utils/harness';
 
 import type {TranscriptStore} from './store';
 
 /**
  * The Claude Agent SDK's session store, on the database: what the SDK writes its transcripts
  * through when it is given one instead of its files, so that a thread's session can be resumed
- * from any api instance. The SDK hands over batches of transcript lines, each a JSON object with a
- * `type` and mostly a `uuid`, under a key of its own, the project (from the working directory it
- * was given), the session, and a subpath for a sub-agent's or a sidecar file; it reads them back
- * in order to resume, lists a session's subpaths, and deletes a session. Each line is kept as it
- * was given, serialized; a line with a uuid is kept once, since the SDK may deliver a batch again
- * when it retried it. The types here mirror the SDK's `SessionStore`, `SessionKey` and
- * `SessionStoreEntry`, so that the SDK takes the store as it is, structurally, without the api
- * depending on the SDK package; they must stay that shape. The SDK's interface has no Result: a
- * store that can't be reached rejects, which the SDK takes as the write or the read failing.
+ * from any api instance. The store's shape is the SDK's, as @proxy/backends/harness/session-store
+ * has it, which the SDK harness there gives the SDK. Each line is kept as it was given,
+ * serialized; a line with a uuid is kept once, since the SDK may deliver a batch again when it
+ * retried it. The SDK's interface has no Result: a store that can't be reached rejects, which the
+ * SDK takes as the write or the read failing.
  */
 
-/** Where a transcript is, as the SDK keys it. */
-export type SessionKey = {projectKey: string; sessionId: string; subpath?: string};
-
-/** One line of a transcript, as the SDK writes it: a JSON object with its `type`, mostly a `uuid`, and the rest the SDK's. */
-export type SessionStoreEntry = {type: string; uuid?: string} & Record<string, JsonValue>;
-
-/** The SDK's session store, as the SDK takes it. */
-export type SdkSessionStore = {
-	append: (key: SessionKey, entries: SessionStoreEntry[]) => Promise<void>;
-	load: (key: SessionKey) => Promise<SessionStoreEntry[] | null>;
-	listSubkeys: (key: SessionKey) => Promise<string[]>;
-	delete: (key: SessionKey) => Promise<void>;
-};
+export type {SdkSessionStore};
 
 // What the SDK is thrown where the store failed: what it was doing, with the failure as the cause.
 function failed<T>(doing: string, result: Result<T, ApiError>): T {

@@ -66,9 +66,12 @@ function callOf(entries: ContextEntry[], callId: string | null): ToolCall | unde
 		.find((candidate) => candidate.id === callId);
 }
 
-// How an event is led in: which sub-agent said it, by the call that started it; an alert's, which
-// answers no call.
-function eventLead(subAgents: SubAgent[], event: ContextEntry): string {
+/**
+ * How an event is led in, for the model: which sub-agent said it, by the call that started it; an
+ * alert's, which answers no call. Exported for a harness that renders the log as text itself, so
+ * the model reads an event the same way on every harness.
+ */
+export function eventLead(subAgents: SubAgent[], event: ContextEntry): string {
 	if (event.callId === null) {
 		return 'An alert set in this conversation. The person did not write this; it is for you to tell them of, or to act on as you noted.';
 	}

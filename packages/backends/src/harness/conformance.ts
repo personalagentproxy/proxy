@@ -28,10 +28,12 @@ const ENTRIES = [{kind: 'person' as const, text: 'Hi', toolCalls: null, callId: 
 
 const TERMINAL = new Set<HarnessEvent['kind']>(['done', 'failed']);
 
-// A turn's input, with the signal given or one never aborted.
+// A turn's input, with the signal given or one never aborted. A credential is given, as the api
+// gives one to a harness chosen for it; a harness that runs with the server's key ignores it.
 function turnInput(signal = new AbortController().signal): HarnessTurn {
 	return {
 		thread: {id: 'thread-1', parentThreadId: null},
+		auth: {kind: 'api_key', key: 'test-key'},
 		session: null,
 		entries: ENTRIES,
 		subAgents: [],

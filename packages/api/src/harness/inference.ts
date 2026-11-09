@@ -2,7 +2,7 @@ import {Err, type Result} from 'ts-results-es';
 
 import type {HarnessBackend, HarnessEvent} from '@proxy/backends/harness/backend';
 import {ApiErr, type ApiError, Do, requirePresent, semaphore, type Semaphore} from '@proxy/utils';
-import {type HarnessSession, pendingToolCalls, type ToolCall} from '@proxy/utils/harness';
+import {CALL_INTERRUPTED, type HarnessSession, pendingToolCalls, RUN_INTERRUPTED, type ToolCall} from '@proxy/utils/harness';
 import type {AssistantTurn, EntryRow, JobRow, NewTurnEntry, SubAgentRow, ThreadRow, ThreadSession} from '@proxy/db/harness';
 
 import {type HarnessChoice, type Harnesses, harnessFor, needsCredential} from '../backends/harness';
@@ -12,7 +12,6 @@ import {log, serializeError} from '../observability/log';
 import {alertsParagraph} from './alerts';
 import {afterAnswer, failureNote, jobLost, planCalls} from './conversation';
 import type {HarnessStore} from './store';
-import {CALL_INTERRUPTED, RUN_INTERRUPTED} from './tool-answers';
 import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
 
 /**

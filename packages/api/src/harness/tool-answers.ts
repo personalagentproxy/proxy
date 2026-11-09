@@ -21,7 +21,7 @@ import {watchableConnections} from './watch-connections';
  * set, since setting it is a write the two ways fence differently. And the words both ways answer
  * with: for arguments that aren't a JSON object, a tool the thread hasn't got, a sleep without a
  * time, and a call a worker was interrupted in, whose outcome is unknown for a write and which is
- * simply not answered for anything else.
+ * simply not answered for anything else, in the words `@proxy/utils/harness` has for it.
  */
 
 /** What answering a call needs of the store: the agent as it acts in the thread, the sub-agent's task, and the alerts to cancel. */
@@ -34,10 +34,6 @@ export type AlertCallOutcome = ToolAnswer | {alert: NewAlert};
 
 export const NOT_JSON = 'The arguments were not a JSON object.';
 export const BAD_SLEEP_ARGS = 'Give until, a time in ISO 8601, or seconds from now.';
-/** What a `run` call a worker was interrupted in is answered with: the write may have gone through. */
-export const RUN_INTERRUPTED = 'The outcome of this call is unknown: the worker running it was interrupted before it could record the answer. Check what it changed before making it again.';
-/** What any other call a worker was interrupted in is answered with. */
-export const CALL_INTERRUPTED = 'This call was interrupted before it was answered.';
 
 // How much of a result the log keeps, and the model reads.
 const MAX_RESULT_CHARS = 60_000;
