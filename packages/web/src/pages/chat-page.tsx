@@ -669,19 +669,15 @@ function Conversation({
 						className="min-h-10 p-3"
 						rows={1}
 					/>
-					<InputGroupAddon align="block-end">
+					{/* The model's name starts where the message's hint does: 5px, the switcher's 1px border
+					    and its 6px padding make the textarea's 12px. It sits on the send button's bottom. */}
+					<InputGroupAddon align="block-end" className="items-end pl-[5px]">
 						<ModelSwitcher
 							harnesses={harnesses}
 							chosen={runsOn}
 							mayChange={current.mayChange}
 							onPick={(choice) => void switchModel(choice)}
 						/>
-						<Link
-							to={`/${org}/activity`}
-							className="text-xs font-normal underline-offset-4 hover:underline"
-						>
-							Activity
-						</Link>
 						<InputGroupButton
 							type="submit"
 							size="icon-sm"
