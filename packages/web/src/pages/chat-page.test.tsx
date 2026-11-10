@@ -447,6 +447,34 @@ describe('ChatPage', () => {
 		).toHaveLength(1);
 	});
 
+	test('heads each stretch of the conversation with when it began', async () => {
+		const morning = new Date(2026, 9, 20, 9, 0);
+		const evening = new Date(2026, 9, 20, 18, 30);
+		renderChatPage({
+			entries: [
+				{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: morning.toISOString()},
+				{
+					id: 'e2',
+					kind: 'assistant',
+					text: 'Hello',
+					isError: false,
+					at: new Date(morning.getTime() + 60_000).toISOString(),
+				},
+				{id: 'e3', kind: 'person', text: 'Back again', isError: false, at: evening.toISOString()},
+			],
+		});
+
+		const conversation = await screen.findByLabelText('Conversation');
+		await within(conversation).findByText('Back again');
+		const headings = within(conversation)
+			.getAllByRole('heading')
+			.map((heading) => heading.textContent);
+		// The year joins the day once the test runs in another one.
+		expect(headings).toHaveLength(2);
+		expect(headings[0]).toMatch(/^Tue, Oct 20(, 2026)? 9:00 AM$/);
+		expect(headings[1]).toMatch(/^Tue, Oct 20(, 2026)? 6:30 PM$/);
+	});
+
 	test('marks nothing read before the agent has answered', async () => {
 		renderChatPage({
 			entries: [{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00Z'}],
