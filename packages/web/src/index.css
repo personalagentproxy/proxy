@@ -30,6 +30,34 @@
 	-webkit-app-region: drag;
 }
 
+/* The traffic lights while the window isn't the focused one, which macOS leaves out of the hidden
+   title bar: three gray dots where they sit (desktop's window.ts places them, 12px across and 20px
+   apart, centered in the bar), under the native ones should those show. Keep in step with desktop's
+   splash.css. */
+.desktop-app {
+	--desktop-traffic-light: oklch(0.86 0 0);
+}
+
+.desktop-app.dark {
+	--desktop-traffic-light: oklch(0.36 0 0);
+}
+
+.desktop-window-inactive body::after {
+	position: fixed;
+	z-index: 62;
+	top: calc(var(--desktop-title-bar-height) / 2 - 6px);
+	left: 17px;
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	background: var(--desktop-traffic-light);
+	box-shadow:
+		20px 0 var(--desktop-traffic-light),
+		40px 0 var(--desktop-traffic-light);
+	content: '';
+	pointer-events: none;
+}
+
 /* Back and forward (components/desktop-history.tsx), in the title bar to the right of the traffic
    lights, over the drag surface and taking clicks rather than dragging the window. */
 .desktop-app [data-desktop-history] {
