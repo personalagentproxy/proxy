@@ -111,9 +111,12 @@ export function later<Args, T>(load: (args: Args) => Promise<T>): (args: Args) =
 	};
 }
 
-/** Resolves once every answer on its way has come, a page loaded again showing the new one. */
-export async function loadsSettled(): Promise<void> {
-	await Promise.allSettled([...onTheWay]);
+/**
+ * The answers on their way, for whoever loads a page again to wait for those that started with it
+ * (use-reload.ts), and not for one of a page left before its answer came.
+ */
+export function loadsOnTheWay(): ReadonlySet<Promise<unknown>> {
+	return new Set(onTheWay);
 }
 
 /** What a failed change tells the person who made it. */

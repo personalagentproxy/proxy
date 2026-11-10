@@ -14,6 +14,8 @@ import {testHuman} from '@/test-org';
 
 afterEach(() => {
 	cleanup();
+	// What a test wrote beside the page, as the word a reload leaves when it is done.
+	document.body.textContent = '';
 });
 
 type Thing = {name: string};
@@ -179,6 +181,21 @@ describe('AppShell', () => {
 		await act(async () => asked[1]?.answer({name: 'second'}));
 		await screen.findByText('Listed: second');
 		expect(document.body.textContent).toContain('reloaded');
+	});
+
+	test('loading again does not wait for a page left before its answer came', async () => {
+		const {loader, asked} = pendingLoader();
+		const router = renderAt('/acme/things/1', loader);
+		await screen.findByRole('banner');
+		// Thing 1 never answers; the list, opened in its place, does.
+		await act(async () => router.navigate('/acme/things'));
+		await act(async () => asked[1]?.answer({name: 'first'}));
+
+		fireEvent.click(await screen.findByRole('button', {name: 'Reload'}));
+		await waitFor(() => expect(asked).toHaveLength(3));
+		await act(async () => asked[2]?.answer({name: 'second'}));
+		await screen.findByText('Listed: second');
+		await waitFor(() => expect(document.body.textContent).toContain('reloaded'));
 	});
 
 	test('starts the content over at another of the page’s addresses', async () => {
