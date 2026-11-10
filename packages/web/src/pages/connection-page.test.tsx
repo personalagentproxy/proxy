@@ -5,7 +5,7 @@ import type {Connection} from '@proxy/contracts/connections';
 import type {Member} from '@proxy/contracts/orgs';
 import type {DataRecord} from '@proxy/contracts/records';
 import type {GitHubReach} from '@/lib/github';
-import {afterEach, describe, expect, test} from 'bun:test';
+import {afterEach, describe, expect, test, spyOn} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
@@ -346,4 +346,34 @@ describe('a vault’s page', () => {
 		fireEvent.click(screen.getByRole('button', {name: /Phone/}));
 		expect(await screen.findByRole('button', {name: 'Save'})).toHaveProperty('disabled', false);
 	});
+});
+
+test('a custom MCP server’s All row saves the defaults of only the tools the sign-in allows', async () => {
+	const connection: Connection = {
+		...mailbox,
+		integrationId: 'mcp',
+		name: 'Example server',
+		defaults: [],
+		unavailable: ['blocked'],
+		tools: [
+			{name: 'read', inputSchema: {type: 'object'}},
+			{name: 'write', inputSchema: {type: 'object'}},
+			{name: 'blocked', inputSchema: {type: 'object'}},
+		],
+	};
+	const fetch = spyOn(globalThis, 'fetch').mockResolvedValue(
+		new Response(JSON.stringify(connection), {headers: {'content-type': 'application/json'}}),
+	);
+	try {
+		renderConnectionPage('/acme/connections/conn-1', connection);
+		fireEvent.click(await screen.findByRole('checkbox', {name: 'All by default'}));
+		await waitFor(() => expect(fetch).toHaveBeenCalled());
+		const writes = fetch.mock.calls.filter(
+			([url, options]) => String(url).endsWith('/defaults') && options?.method === 'PUT',
+		);
+		expect(writes).toHaveLength(1);
+		expect(JSON.parse(String(writes[0]?.[1]?.body))).toEqual({actions: {read: true, write: true}});
+	} finally {
+		fetch.mockRestore();
+	}
 });

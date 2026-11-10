@@ -46,7 +46,7 @@ const scout: GridAgent = {agent: agent('agent-2', 'Scout'), own: {}, mayChange: 
 function renderGrid(props: Partial<Parameters<typeof AccessGrid>[0]> = {}) {
 	const onChangeDefaults = mock(async (_actions: Record<string, boolean>) => {});
 	const onChangeAgent = mock(
-		async (_agentId: string, _actionId: string, _allowed: boolean | null) => {},
+		async (_agentId: string, _actions: Record<string, boolean | null>) => {},
 	);
 	const router = createMemoryRouter(
 		[
@@ -117,11 +117,83 @@ describe('AccessGrid', () => {
 		const {onChangeAgent, onChangeDefaults} = renderGrid();
 
 		fireEvent.click(box('Read for Scout'));
-		await waitFor(() => expect(onChangeAgent).toHaveBeenCalledWith('agent-2', 'read', false));
+		await waitFor(() => expect(onChangeAgent).toHaveBeenCalledWith('agent-2', {read: false}));
 
 		fireEvent.click(box('Send for Claude, its own setting'));
-		await waitFor(() => expect(onChangeAgent).toHaveBeenCalledWith('agent-1', 'send', null));
+		await waitFor(() => expect(onChangeAgent).toHaveBeenCalledWith('agent-1', {send: null}));
 		expect(onChangeDefaults).not.toHaveBeenCalled();
+	});
+
+	test('with `all`, a first row has a box in each column, ticked when every action is on there and a dash when some are', () => {
+		renderGrid({all: true, agents: [claude, {...scout, own: {archive: true, send: true}}]});
+
+		expect(screen.getAllByRole('rowheader')[0]?.textContent).toContain('All');
+		expect(['All by default', 'All for Claude', 'All for Scout'].map(ticked)).toEqual([
+			'mixed',
+			'mixed',
+			'true',
+		]);
+		cleanup();
+
+		renderGrid();
+		expect(screen.queryByRole('checkbox', {name: 'All by default'})).toBeNull();
+	});
+
+	test('the All box under Default turns every available action on by default, and leaves agents’ settings alone', async () => {
+		const {onChangeDefaults, onChangeAgent} = renderGrid({all: true, unavailable: ['send']});
+
+		fireEvent.click(box('All by default'));
+
+		await waitFor(() => expect(onChangeDefaults).toHaveBeenCalledWith({read: true, archive: true}));
+		expect(onChangeAgent).not.toHaveBeenCalled();
+	});
+
+	test('the All box under an agent sets each available action for it, following the default where that says the same', async () => {
+		const {onChangeDefaults, onChangeAgent} = renderGrid({
+			all: true,
+			agents: [claude, {...scout, own: {archive: true, send: true}}],
+		});
+
+		fireEvent.click(box('All for Claude'));
+		await waitFor(() =>
+			expect(onChangeAgent).toHaveBeenCalledWith('agent-1', {
+				read: null,
+				archive: true,
+				send: true,
+			}),
+		);
+
+		fireEvent.click(box('All for Scout'));
+		await waitFor(() =>
+			expect(onChangeAgent).toHaveBeenCalledWith('agent-2', {
+				read: false,
+				archive: null,
+				send: null,
+			}),
+		);
+		expect(onChangeDefaults).not.toHaveBeenCalled();
+	});
+
+	test('where the integration groups its actions, each group has an All row over its own', async () => {
+		const {onChangeDefaults} = renderGrid({
+			all: true,
+			actions: [
+				{...actions[0]!, group: 'Gmail'},
+				{...actions[2]!, group: 'Gmail'},
+				{
+					id: 'readEvents',
+					label: 'Read events',
+					description: 'List events',
+					risk: 'low',
+					group: 'Calendar',
+				},
+			],
+		});
+
+		expect(ticked('All of Calendar by default')).toBe('false');
+		fireEvent.click(box('All of Gmail by default'));
+
+		await waitFor(() => expect(onChangeDefaults).toHaveBeenCalledWith({read: true, send: true}));
 	});
 
 	test('an agent’s own setting says on hover what it does to the default; a box that follows it says nothing', async () => {
