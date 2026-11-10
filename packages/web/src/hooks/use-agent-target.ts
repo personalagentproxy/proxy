@@ -25,12 +25,10 @@ export function useAgentTask(): AgentTask | null {
 	return useRouteLoaderData<AgentTask>('agent-task') ?? null;
 }
 
-// A native connection, which every organization has twice: everyone's and the person's own.
-function nativePlace(name: string, shared: boolean): string {
-	if (shared) {
-		return `${name} (everyone’s)`;
-	}
-	return name;
+// A native connection lives here, so it has no account to go by: the person's own by its
+// integration, a vault a member made by the name they gave it.
+function nativePlace(integrationName: string, name: string | null): string {
+	return name ?? integrationName;
 }
 
 // The connection and collection an agent page's URL points at, among those the agent can reach;
@@ -46,7 +44,7 @@ export function useAgentTarget(): AgentTarget | null {
 	}
 
 	const place = integration.native
-		? nativePlace(integration.name, connection.shared)
+		? nativePlace(integration.name, connection.name)
 		: connection.account;
 	return {connection, integration, collection, actions: connection.actions, place};
 }

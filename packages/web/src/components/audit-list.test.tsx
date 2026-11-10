@@ -31,9 +31,17 @@ const connection: Connection = {
 	id: 'connection-1',
 	orgId: 'org-1',
 	integrationId: 'email',
+	ownerUserId: 'user-1',
+
+	owner: 'Alex',
+
+	sharedWithEveryone: false,
+
+	sharedWith: [],
+
 	shared: false,
-	connectedById: 'user-1',
-	connectedBy: null,
+
+	builtIn: false,
 	account: 'me@example.com',
 	defaults: [],
 	tools: null,

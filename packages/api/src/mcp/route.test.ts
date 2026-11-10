@@ -146,24 +146,24 @@ describe('handleMcpRoute', () => {
 		expect(saving).not.toContain('read-only');
 	});
 
-	test("the organization's vault is everyone's memory, the one a shared agent has, and beside the person's own says what goes where", async () => {
+	test("a vault a member made is a memory by its name, the only kind a shared agent has, and beside the person's own says what goes where", async () => {
 		const own = {id: 'vault-1', integrationId: 'vault', account: 'Acme', shared: false, actions: ['readEntries', 'writeEntries'], tools: null, name: null};
-		const shared = {...own, id: 'vault-2', shared: true};
+		const team = {...own, id: 'vault-2', name: 'Team handbook', shared: true};
 		const instructions = async () => ((await post(rpc('initialize', {protocolVersion: '2025-06-18'}))).body as {result: {instructions: string}}).result.instructions;
 
-		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [shared, {...mailbox, shared: true}]}));
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [team, {...mailbox, shared: true}]}));
 		const alone = await instructions();
-		expect(alone).toContain('- vault-2: Vault (Acme), shared: Read entries, Edit entries');
+		expect(alone).toContain('- vault-2: Team handbook (Vault, Acme), shared: Read entries, Edit entries');
 		expect(alone).toContain('- mail-1: Email (alex@example.com), shared: Read, Archive');
-		expect(alone).toContain('Vaults are the memory every agent shares: vault-2, the organization’s.');
+		expect(alone).toContain('Vaults are the memory every agent shares: vault-2, “Team handbook”, shared with others.');
 		expect(alone).toContain('entries_create');
 		expect(alone).not.toContain('the person’s;');
 		expect(alone).not.toContain('goes in theirs');
 
-		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [own, {...shared, actions: ['readEntries']}]}));
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [own, {...team, shared: false, actions: ['readEntries']}]}));
 		const both = await instructions();
-		expect(both).toContain('vault-1, the person’s; vault-2, the organization’s, read-only.');
-		expect(both).toContain('What is about the person alone goes in theirs.');
+		expect(both).toContain('vault-1, the person’s; vault-2, “Team handbook”, read-only.');
+		expect(both).toContain('What is about the person alone goes in theirs; the rest, in the vault named for it.');
 		expect(both).toContain('For a read-only one, suggest adding it instead.');
 		expect(both).toContain('entries_create');
 	});

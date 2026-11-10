@@ -1,5 +1,5 @@
 import type {Connection} from '@proxy/contracts/connections';
-import {isOffered, type IntegrationId} from '@proxy/integrations';
+import {isOffered, VAULT_INTEGRATION_ID, type IntegrationId} from '@proxy/integrations';
 import {useState} from 'react';
 import type {Experiment} from '@proxy/utils';
 import {Badge} from '@proxy/ui/components/badge';
@@ -39,7 +39,9 @@ const PLUS = cn(
 );
 
 // The catalog: every integration, a plus to connect it, and how many accounts are connected. Each
-// can be connected again, for another mailbox, account or server. One that needs what the server
+// can be connected again, for another mailbox, account or server. The vault is among them, though
+// it lives here and every member has one already: another is made on a form, as a server is
+// connected, and counts the ones made. One that needs what the server
 // doesn't have, such as Google without its client, is greyed out, saying what to set up. One behind
 // an experiment the organization doesn't have on isn't offered.
 export function IntegrationCatalog({
@@ -65,7 +67,9 @@ export function IntegrationCatalog({
 }) {
 	const org = useOrgSlug();
 	const available = INTEGRATIONS.filter(
-		(integration) => !integration.native && isOffered(integration, {experiments}),
+		(integration) =>
+			(!integration.native || integration.id === VAULT_INTEGRATION_ID) &&
+			isOffered(integration, {experiments}),
 	);
 	// The integration a key is being typed for, in the dialog.
 	const [keyFor, setKeyFor] = useState<IntegrationId | null>(null);
@@ -83,7 +87,7 @@ export function IntegrationCatalog({
 			<RowList>
 				{available.map((integration) => {
 					const count = connections.filter(
-						(connection) => connection.integrationId === integration.id,
+						(connection) => connection.integrationId === integration.id && !connection.builtIn,
 					).length;
 					const signIn = signInPath(org, integration.id, {
 						returnTo,
@@ -102,7 +106,7 @@ export function IntegrationCatalog({
 									<span className={cn('truncate', unmet && 'opacity-50')}>{integration.name}</span>
 									{count > 0 && (
 										<Badge variant="secondary" className="shrink-0 font-normal tabular-nums">
-											{count} connected
+											{count} {integration.native ? 'made' : 'connected'}
 										</Badge>
 									)}
 								</span>

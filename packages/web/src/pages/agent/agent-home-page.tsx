@@ -112,11 +112,11 @@ export function AgentHomePage() {
 }
 
 // An integration's logo in the run of a heading's text, centered on it, the space after it its own.
-// The account under a connection's name, and that it is everyone's where it is shared, as the
-// organization's vault is beside the person's own.
+// The account under a connection's name, and that others use it too where it is shared, as a
+// vault a member made is beside the person's own.
 function connectionDetail(connection: {account: string; shared: boolean}): string {
 	if (connection.shared) {
-		return `${connection.account}, shared with everyone`;
+		return `${connection.account}, shared`;
 	}
 	return connection.account;
 }

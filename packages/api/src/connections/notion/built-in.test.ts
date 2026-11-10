@@ -12,7 +12,7 @@ mock.module('@proxy/db/connection', () => ({
 	findAccountConnection,
 	createConnection,
 	renewConnection,
-	shareConnection: mock(),
+	setConnectionSharing: mock(),
 	updateConnectionCredential: mock(),
 	getConnectionCredential: mock(async () => Ok(null)),
 	updateConnectionTools: mock(),
@@ -109,7 +109,7 @@ beforeEach(() => {
 	notion.requests = [];
 	notion.self = SELF;
 	findAccountConnection.mockResolvedValue(Ok(null));
-	createConnection.mockResolvedValue(Ok({id: 'conn-1'}));
+	createConnection.mockResolvedValue(Ok({id: 'conn-1', ownerUserId: 'user-1', sharedWithEveryone: false, shares: []}));
 	renewConnection.mockResolvedValue(Ok(undefined));
 });
 

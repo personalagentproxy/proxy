@@ -1,48 +1,42 @@
-import type {AgentLogin} from '@proxy/contracts/agents';
-import {ListRestartIcon, RefreshCwIcon, UnplugIcon} from 'lucide-react';
+import type {Connection} from '@proxy/contracts/connections';
+import {ListRestartIcon, UnplugIcon} from 'lucide-react';
 import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
-import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
+import {useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
+import {setAgentGrants} from '@/client/agents-client';
 import {
 	deleteConnection,
 	refreshMcpTools,
 	setConnectionDefaults,
-	shareConnection,
+	setConnectionSharing,
 } from '@/client/connections-client';
+import {AccessGrid, type GridAgent} from '@/components/access-grid';
 import {AppShell, PageTitle} from '@/components/app-shell';
-import {AuditList} from '@/components/audit-list';
 import {SignInToBankAgain} from '@/components/connect-bank-form';
 import {ConnectWithKeyDialog} from '@/components/connect-with-key-dialog';
-import {ConnectionAccess, SignInAgain} from '@/components/connection-access';
-import {Sharing} from '@/components/sharing';
+import {SignInAgain} from '@/components/connection-access';
+import {ConnectionSharing} from '@/components/connection-sharing';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
-import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
+import {IntegrationLogo} from '@/components/brand-logo';
 import {NotFound} from '@/components/not-found';
-import {EmptyRows, Row, RowList} from '@/components/row-list';
-import {Section} from '@/components/section';
+import {PageTabs} from '@/components/page-tabs';
+import {RecentActivity} from '@/components/recent-activity';
+import {SandboxList} from '@/components/sandbox-list';
 import {SuccessLine} from '@/components/success-line';
-import {
-	actionsFor,
-	agentsWithAccess,
-	defaultActions,
-	defaultsOnOrOff,
-	integrationOf,
-	ownSettings,
-	describeActions,
-} from '@/lib/access';
+import {VaultEntries} from '@/components/vault-entries';
+import {connectionTitle, defaultActions, integrationOf, ownSettings, reaches} from '@/lib/access';
 import {useHuman} from '@/hooks/use-human';
 import {signInPath} from '@/lib/integrations';
+import {chosenTab, type PageTab} from '@/lib/page-tabs';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
-import {actsAs, connectedBy, hasOtherPeople, manages} from '@/lib/orgs';
+import {actsAs, hasOtherPeople, manages, ownerOf} from '@/lib/orgs';
 import type {connectionLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 
-const RECENT = 10;
-
 export function ConnectionPage() {
 	const org = useOrgSlug();
-	const {connection, connections, agents, entries, tasks} =
+	const {connection, connections, agents, entries, tasks, members, vaultEntries, sandboxes} =
 		useLoaderData<typeof connectionLoader>();
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
@@ -59,12 +53,50 @@ export function ConnectionPage() {
 		return <NotFound what="connection" />;
 	}
 
-	const withAccess = agentsWithAccess(agents, connection);
+	// The agents that reach it, a column each of its permissions: the person's own, and the shared
+	// ones where every member has it, theirs to change where the agent is.
+	const columns: GridAgent[] = agents
+		.filter((agent) => agent.revokedAt === null && reaches(agent, connection))
+		.map((agent) => ({
+			agent,
+			own: ownSettings(agent, connection.id),
+			mayChange: manages(human, agent),
+		}));
 	const activeOrg = human.org;
-	// One's own connection is one's to change; a shared one is whoever connected it's and the
-	// organization's owner's. Everyone else in the organization uses it as it is.
+	// One's own connection is one's to change and share, and one shared with every member is the
+	// organization's owner's too. Anyone else it is shared with uses it as it is.
 	const mayChange = manages(human, connection);
-	const actingAs = actsAs(connection, human);
+	// A vault's entries are kept here, so no provider sees anyone.
+	const actingAs = integration.native ? null : actsAs(connection, human);
+	// A vault a member made is deleted, with its entries, where another connection is disconnected.
+	// The page's parts, one shown at a time: what a vault or the Sandboxes hold comes first, being
+	// what it is opened for, and a built-in connection, which is never shared, has no Sharing.
+	const tabs: Array<PageTab<'entries' | 'sandboxes' | 'permissions' | 'sharing' | 'activity'>> = [
+		...(vaultEntries === null
+			? []
+			: [{id: 'entries' as const, label: 'Entries', count: vaultEntries.length}]),
+		...(sandboxes === null
+			? []
+			: [{id: 'sandboxes' as const, label: 'Sandboxes', count: sandboxes.length}]),
+		{id: 'permissions', label: 'Permissions'},
+		...(connection.builtIn ? [] : [{id: 'sharing' as const, label: 'Sharing'}]),
+		{id: 'activity', label: 'Recent activity'},
+	];
+	const tab = chosenTab(tabs, searchParams);
+	const about = permissionsIntro(connection, {
+		custom: integration.custom === true,
+		mayChange,
+		owner: ownerOf(connection, human),
+	});
+	const removal = integration.native
+		? {
+				verb: 'Delete',
+				description: `Its entries are deleted with it, for good, and agents lose it at once.`,
+			}
+		: {
+				verb: 'Disconnect',
+				description: `Agents lose access to ${connection.account} at once, and the access you gave them here is forgotten. You can connect it again later.`,
+			};
 	// Why the connection can be signed in to again from here: its sign-in left actions out, it has
 	// none, or its integration says nothing of who signed in, so only this page renews it.
 	const renewReason = connection.signInNeeded
@@ -94,7 +126,7 @@ export function ConnectionPage() {
 				>
 					<span className="flex items-center gap-2">
 						<IntegrationLogo integration={integration} />
-						{connection.name ?? integration.name}
+						{connectionTitle(connection)}
 					</span>
 				</PageTitle>
 			}
@@ -119,145 +151,113 @@ export function ConnectionPage() {
 							<ListRestartIcon className={refreshing ? 'motion-safe:animate-spin' : undefined} />
 						</IconButton>
 					)}
-					{!integration.native && mayChange && (
-						<IconButton label="Disconnect" onClick={() => setDisconnecting(true)}>
+					{!connection.builtIn && mayChange && (
+						<IconButton label={removal.verb} onClick={() => setDisconnecting(true)}>
 							<UnplugIcon />
 						</IconButton>
 					)}
 				</>
 			}
 		>
-			<div className="flex flex-col gap-8">
+			<div className="flex flex-col gap-4">
 				{added && <SuccessLine>Connection added successfully</SuccessLine>}
-				<Section
-					title="Permissions"
-					detail={permissionsDetail(integration.custom === true, connection.shared, mayChange)}
-				>
-					{integration.disclosure && (
-						<p className="text-sm text-muted-foreground">{integration.disclosure}</p>
-					)}
-					{integration.custom && integration.actions.length === 0 && (
-						<p className="text-sm text-muted-foreground">The server lists no tools.</p>
-					)}
-					<ConnectionAccess
-						actions={integration.actions}
-						defaults={defaultActions(connection)}
-						unavailable={connection.unavailable}
-						signInNeeded={connection.signInNeeded}
-						readOnly={!mayChange}
-						differing={differingAgents(agents, connection.id)}
-						onChange={async (actions) => {
-							const result = await setConnectionDefaults(
-								org,
-								connection.id,
-								defaultsOnOrOff(actions),
-							);
-							setError(result.isErr() ? describeFetchError(result.error) : null);
-							await revalidator.revalidate();
-						}}
+				<PageTabs tabs={tabs} chosen={tab} label="Connection" />
+				{tab === 'entries' && vaultEntries !== null && (
+					<VaultEntries
+						connectionId={connection.id}
+						entries={vaultEntries}
+						made={!connection.builtIn}
 					/>
-					{renew && renewReason && (
-						<SignInAgain
-							href={renew}
-							reason={renewReason}
-							onUseKey={integration.apiKey ? () => setReplacingKey(true) : undefined}
-						/>
-					)}
-					{replacingKey && (
-						<ConnectWithKeyDialog
-							integrationId={integration.id}
-							connectionId={connection.id}
-							onClose={() => setReplacingKey(false)}
-							onConnected={async () => {
-								setReplacingKey(false);
+				)}
+				{tab === 'sandboxes' && sandboxes !== null && (
+					<SandboxList connectionId={connection.id} sandboxes={sandboxes} />
+				)}
+				{tab === 'permissions' && (
+					<div className="flex flex-col gap-2">
+						<p className="text-sm text-muted-foreground">{about}</p>
+						{integration.disclosure && (
+							<p className="text-sm text-muted-foreground">{integration.disclosure}</p>
+						)}
+						{integration.custom && integration.actions.length === 0 && (
+							<p className="text-sm text-muted-foreground">The server lists no tools.</p>
+						)}
+						<AccessGrid
+							actions={integration.actions}
+							defaults={defaultActions(connection)}
+							agents={columns}
+							unavailable={connection.unavailable}
+							signInNeeded={connection.signInNeeded}
+							mayChangeDefaults={mayChange}
+							onChangeDefaults={async (actions) => {
+								const result = await setConnectionDefaults(org, connection.id, actions);
+								setError(result.isErr() ? describeFetchError(result.error) : null);
+								await revalidator.revalidate();
+							}}
+							onChangeAgent={async (agentId, actionId, allowed) => {
+								const result = await setAgentGrants(org, agentId, connection.id, {
+									[actionId]: allowed,
+								});
+								setError(result.isErr() ? describeApiError(result.error) : null);
 								await revalidator.revalidate();
 							}}
 						/>
-					)}
-					{integration.form === 'bank' && mayChange && (
-						<SignInToBankAgain connectionId={connection.id} />
-					)}
-					{error && <p className="text-sm text-destructive">{error}</p>}
-				</Section>
-				{!integration.native && (
-					<Sharing
+						{renew && renewReason && (
+							<SignInAgain
+								href={renew}
+								reason={renewReason}
+								onUseKey={integration.apiKey ? () => setReplacingKey(true) : undefined}
+							/>
+						)}
+						{replacingKey && (
+							<ConnectWithKeyDialog
+								integrationId={integration.id}
+								connectionId={connection.id}
+								onClose={() => setReplacingKey(false)}
+								onConnected={async () => {
+									setReplacingKey(false);
+									await revalidator.revalidate();
+								}}
+							/>
+						)}
+						{integration.form === 'bank' && mayChange && (
+							<SignInToBankAgain connectionId={connection.id} />
+						)}
+					</div>
+				)}
+				{tab === 'sharing' && (
+					<ConnectionSharing
 						orgName={activeOrg.name}
-						shared={connection.shared}
-						what="connection"
-						rows={[
-							{label: 'Acts as', value: actingAs},
-							{label: 'Connected by', value: connectedBy(connection, human)},
-						]}
+						connection={connection}
+						what={integration.native ? 'vault' : 'connection'}
+						members={members}
+						userId={human.user.id}
+						actsAs={actingAs}
+						mayChange={mayChange}
 						alone={!hasOtherPeople(activeOrg)}
-						confirmDescription={`Every member's agents in ${activeOrg.name} can use it, as ${actingAs}, with the permissions above. Members see it listed, never its password or token. This can't be undone: to have it as your own again, disconnect it and connect it again.`}
-						onShare={async () => {
-							const result = await shareConnection(org, connection.id);
-							if (result.isErr()) {
-								setError(describeApiError(result.error));
-								return;
-							}
-							setError(null);
+						onChange={async (sharing) => {
+							const result = await setConnectionSharing(org, connection.id, sharing);
+							setError(result.isErr() ? describeApiError(result.error) : null);
 							await revalidator.revalidate();
 						}}
 					/>
 				)}
-				<Section title="Agents with access">
-					<RowList>
-						{withAccess.length === 0 && <EmptyRows>No agent can reach this connection.</EmptyRows>}
-						{withAccess.map((agent) => (
-							<Row
-								key={agent.id}
-								to={`/${org}/agents/${agent.id}`}
-								icon={<AgentLogo providerId={agent.providerId} />}
-								title={agent.name}
-								cells={
-									<span className="hidden min-w-0 shrink truncate text-right text-muted-foreground md:block">
-										{describeActions(integration, actionsFor(agent, connection))}
-									</span>
-								}
-							/>
-						))}
-					</RowList>
-				</Section>
-				<Section
-					title="Recent activity"
-					titleAction={
-						<IconButton
-							label={revalidator.state === 'loading' ? 'Refreshing activity' : 'Refresh activity'}
-							size="xs"
-							disabled={revalidator.state === 'loading'}
-							onClick={() => void revalidator.revalidate()}
-						>
-							<RefreshCwIcon
-								className={revalidator.state === 'loading' ? 'motion-safe:animate-spin' : undefined}
-							/>
-						</IconButton>
-					}
-					detail={
-						entries.length > RECENT ? (
-							<Link
-								to={`/${org}/activity?connection=${connection.id}`}
-								className="underline-offset-4 hover:text-foreground hover:underline"
-							>
-								Go to all activity
-							</Link>
-						) : undefined
-					}
-				>
-					<AuditList
-						entries={entries.slice(0, RECENT)}
+				{tab === 'activity' && (
+					<RecentActivity
+						entries={entries}
 						agents={agents}
 						connections={connections}
 						tasks={tasks}
-						showConnection={false}
+						allHref={`/${org}/activity?connection=${connection.id}`}
+						of="connection"
 					/>
-				</Section>
+				)}
+				{error && <p className="text-sm text-destructive">{error}</p>}
 			</div>
 			<ConfirmDialog
 				open={disconnecting}
-				title={`Disconnect ${integration.name}?`}
-				description={`Agents lose access to ${connection.account} at once, and the access you gave them here is forgotten. You can connect it again later.`}
-				confirmLabel="Disconnect"
+				title={`${removal.verb} ${connectionTitle(connection)}?`}
+				description={removal.description}
+				confirmLabel={removal.verb}
 				destructive
 				onClose={() => setDisconnecting(false)}
 				onConfirm={async () => {
@@ -284,38 +284,16 @@ function describeRefreshError(error: FetchError): string {
 	return describeFetchError(error);
 }
 
-// What Permissions is about: a custom server's tools, and on a shared connection whose defaults
-// they are, and who changes them.
-function permissionsDetail(
-	custom: boolean,
-	shared: boolean,
-	mayChange: boolean,
-): string | undefined {
-	if (shared && !mayChange) {
-		return 'every member’s agents’ defaults, changed by whoever connected it and the owner';
-	}
-	if (shared) {
-		return 'what every member’s agents get by default';
-	}
-	if (custom) {
-		return 'The server’s tools, as it last listed them, each allowed on its own';
-	}
-	return undefined;
-}
-
-// How many agents, revoked ones left out, have a setting of their own for each action.
-function differingAgents(
-	agents: AgentLogin[],
-	connectionId: string,
-): Partial<Record<string, number>> {
-	const counts: Partial<Record<string, number>> = {};
-	for (const agent of agents) {
-		if (agent.revokedAt !== null) {
-			continue;
-		}
-		for (const actionId of Object.keys(ownSettings(agent, connectionId))) {
-			counts[actionId] = (counts[actionId] ?? 0) + 1;
-		}
-	}
-	return counts;
+// What the Permissions tab says first: what the grid's columns are, whose agents those are, and
+// who sets the defaults.
+function permissionsIntro(
+	connection: Connection,
+	about: {custom: boolean; mayChange: boolean; owner: string},
+): string {
+	const whose = connection.shared ? 'The agents of everyone who uses it' : 'Your agents';
+	return [
+		`${whose} get what Default says, unless a box of the agent’s own says otherwise.`,
+		...(about.custom ? ['These are the server’s tools, as it last listed them.'] : []),
+		...(about.mayChange ? [] : [`${about.owner} sets Default.`]),
+	].join(' ');
 }

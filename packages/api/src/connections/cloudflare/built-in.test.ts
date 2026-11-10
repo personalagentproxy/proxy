@@ -13,7 +13,7 @@ mock.module('@proxy/db/connection', () => ({
 	getConnectionWithCredential,
 	createConnection,
 	renewConnection,
-	shareConnection: mock(),
+	setConnectionSharing: mock(),
 	updateConnectionCredential: mock(),
 	getConnectionCredential: mock(async () => Ok(null)),
 	updateConnectionTools: mock(),
@@ -133,7 +133,7 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	cloudflare.requests = [];
 	findAccountConnection.mockResolvedValue(Ok(null));
-	createConnection.mockResolvedValue(Ok({id: 'conn-1'}));
+	createConnection.mockResolvedValue(Ok({id: 'conn-1', ownerUserId: 'user-1', sharedWithEveryone: false, shares: []}));
 	renewConnection.mockResolvedValue(Ok(undefined));
 });
 
@@ -177,7 +177,19 @@ describe('keyConnectRoute', () => {
 
 	beforeEach(() => {
 		createConnection.mockImplementation(async (data: {integrationId: string; account: string; defaults: string[]}) =>
-			Ok({id: 'conn-1', integrationId: data.integrationId, account: data.account, createdAt: new Date(), tools: null, name: null, defaults: data.defaults.map((actionId) => ({actionId}))}),
+			Ok({
+				id: 'conn-1',
+				orgId: 'org-1',
+				ownerUserId: 'user-1',
+				sharedWithEveryone: false,
+				shares: [],
+				integrationId: data.integrationId,
+				account: data.account,
+				createdAt: new Date(),
+				tools: null,
+				name: null,
+				defaults: data.defaults.map((actionId) => ({actionId})),
+			}),
 		);
 	});
 
@@ -193,7 +205,7 @@ describe('keyConnectRoute', () => {
 	});
 
 	test("a user's API token is the same account as their sign-in, renewing its connection", async () => {
-		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0'}));
+		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0', ownerUserId: 'user-1', sharedWithEveryone: false, shares: []}));
 		await connectWithKey({key: 'user-token'});
 
 		expect(findAccountConnection).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {

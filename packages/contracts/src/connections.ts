@@ -3,8 +3,9 @@ import {EMAIL_PROVIDERS} from '@proxy/utils/email-providers';
 import {z} from 'zod';
 
 /**
- * An organization's connections (`/api/orgs/:org/connections/…`): the ones the person sees, and
- * connecting, renaming, sharing and setting the defaults of one.
+ * An organization's connections (`/api/orgs/:org/connections/…`): the ones the person uses, their
+ * own and those shared with them, and connecting, renaming, sharing and setting the defaults of
+ * one.
  */
 
 export const connectionSchema = z.object({
@@ -13,12 +14,21 @@ export const connectionSchema = z.object({
 	orgId: z.string(),
 	integrationId: z.string(),
 	account: z.string(),
-	/** Shared with every member of its organization, rather than one member's own. */
+	/** The member whose connection it is: who connected it, and who changes, shares and disconnects it. */
+	ownerUserId: z.string(),
+	/** Their name, or else their address, while they are in its organization. */
+	owner: z.string().nullable(),
+	/** Shared with every member of its organization. */
+	sharedWithEveryone: z.boolean(),
+	/** The members it is shared with by name, each by their name or else their address, the first shared with first. */
+	sharedWith: z.array(z.object({userId: z.string(), name: z.string()})),
+	/** Anyone but its owner uses it: shared with every member, or with any by name. */
 	shared: z.boolean(),
-	/** Who connected it, kept once it is shared; null for one from before it was kept. */
-	connectedById: z.string().nullable(),
-	/** Their name, or else their address, while they are still in its organization. */
-	connectedBy: z.string().nullable(),
+	/**
+	 * The member's own vault or Sandboxes, made for them rather than connected: neither renamed,
+	 * shared nor disconnected.
+	 */
+	builtIn: z.boolean(),
 	/**
 	 * The actions an agent without a setting of its own gets, in the catalog's order. An agent's own
 	 * settings live on the agent.
@@ -48,7 +58,7 @@ export const connectionSchema = z.object({
 
 export type Connection = z.infer<typeof connectionSchema>;
 
-/** `GET connections`: the connections the person sees in the organization, its shared ones and their own. */
+/** `GET connections`: the connections the person uses in the organization, their own and those shared with them. */
 export const connectionListSchema = z.object({connections: z.array(connectionSchema)});
 
 const MAX_NAME_LENGTH = 80;
@@ -74,6 +84,16 @@ export const setDefaultsBodySchema = z.object({actions: z.record(z.string(), z.b
 /** `shared` beside what a connect form sends: true shares the new connection with every member. */
 export const shareBodySchema = z.object({shared: z.boolean().optional()});
 
+/**
+ * `PUT connections/:connectionId/sharing`: who the connection is shared with, all of it at once:
+ * every member of the organization, the members named, both or, with neither, nobody. Whoever is
+ * left out loses it at once.
+ */
+export const setSharingBodySchema = z.object({
+	everyone: z.boolean(),
+	userIds: z.array(z.string().min(1)).max(500),
+});
+
 /** Where a sign-in ends when not on the connection's page: the welcome flow or the home page it began from. */
 export const returnToSchema = z.enum(['welcome', 'home']);
 
@@ -85,6 +105,11 @@ export const connectionNameSchema = z
 	.trim()
 	.min(1, 'Give the connection a name')
 	.max(MAX_NAME_LENGTH, `The name can be at most ${MAX_NAME_LENGTH} characters`);
+
+/** `POST connections/vault`: a new vault under the name the person gives it, their own or, `shared`, every member's. */
+export const createVaultBodySchema = z
+	.object({name: connectionNameSchema})
+	.extend(shareBodySchema.shape);
 
 const hostnameSchema = z
 	.string()

@@ -15,7 +15,7 @@ mock.module('@proxy/db/connection', () => ({
 	createConnection,
 	getConnectionWithCredential: mock(),
 	renewConnection: mock(),
-	shareConnection: mock(),
+	setConnectionSharing: mock(),
 	updateConnectionName: mock(),
 	updateConnectionTools: mock(),
 }));
@@ -44,7 +44,8 @@ const createdRow = {
 	integrationId: 'postgres',
 	orgId: 'org-1',
 	ownerUserId: 'user-1',
-	connectedById: 'user-1',
+	sharedWithEveryone: false,
+	shares: [],
 	account: 'reader@db.example.com/app',
 	createdAt: new Date('2026-10-01T00:00:00Z'),
 	defaults: [{actionId: 'read'}, {actionId: 'query'}],
@@ -79,7 +80,7 @@ describe('sqlForm', () => {
 		expect(createConnection).toHaveBeenCalledWith({
 			orgId: 'org-1',
 			ownerUserId: 'user-1',
-			connectedById: 'user-1',
+			sharedWithEveryone: false,
 			integrationId: 'postgres',
 			account: 'reader@DB.example.com/app',
 			providerAccountId: null,

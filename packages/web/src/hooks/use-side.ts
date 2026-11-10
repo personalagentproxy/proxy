@@ -12,8 +12,8 @@ export type SideChoice = {
 };
 
 /**
- * A list of what is shared with everyone in the organization and what is the person's own, as
- * Connections, Agents and Vault show it: with anyone else in it or invited, one side at a time, in
+ * A list of what is shared in the organization and what is the person's alone, as Connections and
+ * Agents show it: with anyone else in it or invited, one side at a time, in
  * the address as `?for=me` or `?for=everyone`, opening on the shared one when `opensOnShared` and
  * it has any, else on the person's own; alone, everything at once.
  */

@@ -56,7 +56,9 @@ import {AddBankPage} from '@/pages/add-bank-page';
 import {AddConnectionPage} from '@/pages/add-connection-page';
 import {AddDatabasePage} from '@/pages/add-database-page';
 import {AddEmailPage} from '@/pages/add-email-page';
+import {shouldRevalidateTabs} from '@/lib/page-tabs';
 import {AddMcpPage} from '@/pages/add-mcp-page';
+import {AddVaultPage} from '@/pages/add-vault-page';
 import {AccountPage} from '@/pages/account-page';
 import {AgentPage} from '@/pages/agent-page';
 import {AgentSetupPage} from '@/pages/agent-setup-page';
@@ -81,8 +83,6 @@ import {LoginPage} from '@/pages/login-page';
 import {MembersPage} from '@/pages/members-page';
 import {NewAgentPage} from '@/pages/new-agent-page';
 import {OrgSettingsPage} from '@/pages/org-settings-page';
-import {SandboxesPage} from '@/pages/sandboxes-page';
-import {VaultPage} from '@/pages/vault-page';
 import {WelcomeConnectionPage, WelcomePage} from '@/pages/welcome-page';
 
 // The person's first organization, the one made at sign-up until they join or make another. A
@@ -294,9 +294,17 @@ const routes: RouteObject[] = [
 			{path: '/:org/connections/new/mysql', element: <AddDatabasePage dialect="mysql" />},
 			{path: '/:org/connections/new/plaid', element: <AddBankPage />},
 			{path: '/:org/connections/new/mcp', element: <AddMcpPage />},
-			{path: '/:org/connections/vault', loader: vaultLoader, element: <VaultPage />},
-			{path: '/:org/connections/sandboxes', loader: sandboxesLoader, element: <SandboxesPage />},
-			{path: '/:org/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
+			{path: '/:org/connections/new/vault', element: <AddVaultPage />},
+			// The vault's page and the Sandboxes' before each was a tab of its connection's.
+			{path: '/:org/connections/vault', loader: vaultLoader, element: null},
+			{path: '/:org/connections/vault/:id', loader: vaultLoader, element: null},
+			{path: '/:org/connections/sandboxes', loader: sandboxesLoader, element: null},
+			{
+				path: '/:org/connections/:id',
+				loader: connectionLoader,
+				shouldRevalidate: shouldRevalidateTabs,
+				element: <ConnectionPage />,
+			},
 			// The vault's page before it was one of the connections.
 			{path: '/:org/vault', loader: oldVaultLoader, element: null},
 			// The built-in agents, behind the `harness` experiment: the api refuses it otherwise.
@@ -305,7 +313,12 @@ const routes: RouteObject[] = [
 			{path: '/:org/alerts', loader: alertsLoader, element: <AlertsPage />},
 			{path: '/:org/agents', loader: agentsLoader, element: <AgentsPage />},
 			{path: '/:org/agents/new', loader: agentsLoader, element: <NewAgentPage />},
-			{path: '/:org/agents/:id', loader: agentLoader, element: <AgentPage />},
+			{
+				path: '/:org/agents/:id',
+				loader: agentLoader,
+				shouldRevalidate: shouldRevalidateTabs,
+				element: <AgentPage />,
+			},
 			{path: '/:org/agents/:id/setup', loader: agentSetupLoader, element: <AgentSetupPage />},
 			{
 				path: '/:org/activity',

@@ -86,21 +86,24 @@ function connectableServices(signedIn: SignedInAgent): string {
 const ENTRY_TYPES = VAULT_ENTRY_TYPES.join(' | ');
 
 // The vaults as the agent's memory, those it may read: the person's own, for an agent of their
-// own, and the organization's, which a shared agent has alone; how to search and save, and with
-// both, what is whose goes where.
+// own, and the ones members made, each by its name, the only ones a shared agent has; how to search
+// and save, and with more than one, what goes where.
 function vaultInstructions(connections: AgentConnection[]): string[] {
 	const vaults = connections.filter((connection) => connection.integrationId === VAULT_INTEGRATION_ID && connection.actions.includes('readEntries'));
 	if (vaults.length === 0) {
 		return [];
 	}
 	const writable = (vault: AgentConnection) => vault.actions.includes('writeEntries');
-	const named = vaults.map((vault) => `${vault.id}, ${vault.shared ? 'the organization’s' : 'the person’s'}${writable(vault) ? '' : ', read-only'}`);
+	// The person's own has no name; one a member made is called what they called it.
+	const whose = (vault: AgentConnection) => (vault.name === null ? 'the person’s' : `“${vault.name}”${vault.shared ? ', shared with others' : ''}`);
+	const named = vaults.map((vault) => `${vault.id}, ${whose(vault)}${writable(vault) ? '' : ', read-only'}`);
+	const own = vaults.some((vault) => vault.name === null);
 	return [
 		[
 			`Vaults are the memory every agent shares: ${named.join('; ')}. Search one (entries_list {search}) before asking about the person or the organization.`,
 			...(vaults.some(writable) ? [`Save what will help next time (entries_create {title, type: ${ENTRY_TYPES}, content}); edit an entry rather than adding another.`] : []),
 			...(vaults.some((vault) => !writable(vault)) ? ['For a read-only one, suggest adding it instead.'] : []),
-			...(vaults.length > 1 ? ['What is about the person alone goes in theirs.'] : []),
+			...(vaults.length > 1 ? [own ? 'What is about the person alone goes in theirs; the rest, in the vault named for it.' : 'Save in the vault named for it.'] : []),
 		].join(' '),
 	];
 }
