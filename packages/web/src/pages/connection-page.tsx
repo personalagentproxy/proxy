@@ -1,8 +1,9 @@
+import {Button, buttonVariants} from '@proxy/ui/components/button';
 import type {Connection} from '@proxy/contracts/connections';
 import {ListRestartIcon, UnplugIcon} from 'lucide-react';
 import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
-import {useNavigate, useSearchParams} from 'react-router';
+import {Link, useNavigate, useSearchParams} from 'react-router';
 import {setAgentGrants} from '@/client/agents-client';
 import {
 	deleteConnection,
@@ -65,6 +66,7 @@ function ConnectionDetail() {
 	const [searchParams] = useSearchParams();
 	const added = searchParams.has('added');
 	const [disconnecting, setDisconnecting] = useState(false);
+	const [enablingAll, setEnablingAll] = useState(false);
 	const [refreshing, setRefreshing] = useState(false);
 	const [replacingKey, setReplacingKey] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -216,13 +218,53 @@ function ConnectionDetail() {
 						{integration.custom && integration.actions.length === 0 && (
 							<p className="text-sm text-muted-foreground">The server lists no tools.</p>
 						)}
+						{integration.custom && mayChange && (
+							<div className="flex flex-wrap items-center gap-2">
+								<Button
+									size="sm"
+									variant="outline"
+									disabled={
+										enablingAll ||
+										connection.signInNeeded ||
+										integration.actions.every(
+											(action) =>
+												connection.unavailable.includes(action.id) ||
+												connection.defaults.includes(action.id),
+										)
+									}
+									onClick={async () => {
+										setEnablingAll(true);
+										const actions = Object.fromEntries(
+											integration.actions
+												.filter(
+													(action) =>
+														!connection.unavailable.includes(action.id) && !connection.signInNeeded,
+												)
+												.map((action) => [action.id, true]),
+										);
+										try {
+											const result = await setConnectionDefaults(org, connection.id, actions);
+											setError(result.isErr() ? describeFetchError(result.error) : null);
+											await reload();
+										} finally {
+											setEnablingAll(false);
+										}
+									}}
+								>
+									Enable all
+								</Button>
+								<span className="text-xs text-muted-foreground">
+									Default permissions · agent overrides stay in place
+								</span>
+							</div>
+						)}
 						<AccessGrid
 							actions={integration.actions}
 							defaults={defaultActions(connection)}
 							agents={columns}
 							unavailable={connection.unavailable}
 							signInNeeded={connection.signInNeeded}
-							mayChangeDefaults={mayChange}
+							mayChangeDefaults={mayChange && !enablingAll}
 							onChangeDefaults={async (actions) => {
 								const result = await setConnectionDefaults(org, connection.id, actions);
 								setError(result.isErr() ? describeFetchError(result.error) : null);
@@ -287,6 +329,11 @@ function ConnectionDetail() {
 						of="connection"
 					/>
 				)}
+				<div className="flex justify-end border-t pt-4">
+					<Link to={`/${org}/connections`} className={buttonVariants({size: 'sm'})}>
+						Done
+					</Link>
+				</div>
 				{error && <p className="text-sm text-destructive">{error}</p>}
 			</div>
 			<ConfirmDialog
