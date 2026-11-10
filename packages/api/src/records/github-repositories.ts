@@ -50,10 +50,17 @@ function cursorText(cursor: Cursor): string {
 	return `${cursor.installationId}:${cursor.page}`;
 }
 
-// A repository's id as GitHub's path, or none for one that isn't "owner/name".
-function repositoryPath(recordId: string): string | null {
+// A repository's id split into its owner and name, or none for one that isn't "owner/name".
+function repositoryName(recordId: string): {owner: string; name: string} | null {
 	const match = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/.exec(recordId);
-	return match ? `${encodeURIComponent(match[1] ?? '')}/${encodeURIComponent(match[2] ?? '')}` : null;
+	if (!match?.[1] || !match[2]) {
+		return null;
+	}
+	return {owner: match[1], name: match[2]};
+}
+
+function ownerOf(fullName: string): string {
+	return fullName.split('/')[0]?.toLowerCase() ?? '';
 }
 
 const CHANGED = 'That page is not one this list gave: the installations changed';
@@ -84,17 +91,50 @@ function list(target: RecordTarget, query: ListQuery): Promise<Result<RecordPage
 	});
 }
 
+/**
+ * A repository, only where the app is installed on it: GitHub lets the person's token read any
+ * public repository, so it is looked for in the installation on its owner. One on all of the
+ * owner's repositories covers it, so it is read from GitHub, unless it has moved to another owner
+ * since; one on some is paged through for it. GitHub's names aren't case-sensitive.
+ */
+function findRepository(accessToken: string, recordId: string, {owner, name}: {owner: string; name: string}): Promise<Result<Repository, ApiError>> {
+	return Do(async ($) => {
+		const notFound = ApiErr.notFound('record', recordId);
+		const installation = $(await fetchInstallations(accessToken)).find((each) => each.account?.login.toLowerCase() === owner.toLowerCase());
+		if (!installation) {
+			return $(Err(notFound));
+		}
+		if (installation.repository_selection === 'all') {
+			const repository = $(
+				(await githubRequest(accessToken, `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`, repositorySchema)).mapErr((error) =>
+					error.kind === 'not_found' ? notFound : error,
+				),
+			);
+			if (ownerOf(repository.full_name) !== owner.toLowerCase()) {
+				return $(Err(notFound));
+			}
+			return repository;
+		}
+		for (let page = 1; ; page++) {
+			const {repositories} = $(await fetchInstallationRepositories(accessToken, installation.id, page));
+			const found = repositories.find((each) => each.full_name.toLowerCase() === recordId.toLowerCase());
+			if (found) {
+				return found;
+			}
+			if (repositories.length < PAGE_SIZE) {
+				return $(Err(notFound));
+			}
+		}
+	});
+}
+
 function get(target: RecordTarget, recordId: string): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
-		const path = repositoryPath(recordId);
-		if (path === null) {
+		const name = repositoryName(recordId);
+		if (name === null) {
 			return $(Err(ApiErr.notFound('record', recordId)));
 		}
-		const repository = $(
-			(await callGitHub(target.connection, (accessToken) => githubRequest(accessToken, `${GITHUB_API}/repos/${path}`, repositorySchema))).mapErr((error) =>
-				error.kind === 'not_found' ? ApiErr.notFound('record', recordId) : error,
-			),
-		);
+		const repository = $(await callGitHub(target.connection, (accessToken) => findRepository(accessToken, recordId, name)));
 		return toRecord(repository);
 	});
 }

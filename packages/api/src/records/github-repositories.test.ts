@@ -74,8 +74,8 @@ function repository(fullName: string, extra: object = {}): object {
 }
 
 // GitHub's API: what each installation lists, a hundred to a page.
-function installation(id: number, login: string, type: 'User' | 'Organization'): object {
-	return {id, account: {login, type}, repository_selection: 'selected', html_url: `https://github.com/settings/installations/${id}`};
+function installation(id: number, login: string, type: 'User' | 'Organization', selection: 'all' | 'selected' = 'selected'): object {
+	return {id, account: {login, type}, repository_selection: selection, html_url: `https://github.com/settings/installations/${id}`};
 }
 
 const INSTALLATIONS = [installation(11, 'acme', 'Organization'), installation(22, 'alexkim', 'User')];
@@ -150,17 +150,45 @@ describe('repositoriesConnector.list', () => {
 });
 
 describe('repositoriesConnector.get', () => {
-	test('opens a repository by "owner/name"', async () => {
-		github.repo = repository('acme/api');
-		const record = (await repositoriesConnector.get(target, 'acme/api')).unwrap();
+	test('opens a repository its owner’s installation picked, from the installation’s list, whatever its case', async () => {
+		const record = (await repositoriesConnector.get(target, 'Acme/API')).unwrap();
 
-		expect(github.requests.map((url) => url.pathname)).toEqual(['/repos/acme/api']);
+		expect(github.requests.map((url) => url.pathname + url.search)).toEqual(['/user/installations?per_page=100', '/user/installations/11/repositories?per_page=100&page=1']);
 		expect(record).toMatchObject({id: 'acme/api', url: 'https://github.com/acme/api'});
 	});
 
-	test('one GitHub hasn’t, or an id that isn’t a repository’s, is not found', async () => {
+	test('pages through an installation of some repositories for it', async () => {
+		github.pages['11:1'] = Array.from({length: 100}, (_, i) => repository(`acme/repo-${i}`));
+		github.pages['11:2'] = [repository('acme/late')];
+
+		expect((await repositoriesConnector.get(target, 'acme/late')).unwrap().id).toBe('acme/late');
+		expect(github.requests.map((url) => url.searchParams.get('page'))).toEqual([null, '1', '2']);
+	});
+
+	test('a public repository the app isn’t installed on is not found, though GitHub would show it', async () => {
+		github.repo = repository('acme/public');
+		expect((await repositoriesConnector.get(target, 'acme/public')).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'record'});
+
+		github.repo = repository('octocat/hello-world');
+		expect((await repositoriesConnector.get(target, 'octocat/hello-world')).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'record'});
+		expect(github.requests.some((url) => url.pathname.startsWith('/repos/'))).toBe(false);
+	});
+
+	test('opens one of an owner whose installation covers all its repositories from GitHub, unless it moved to another owner', async () => {
+		github.installations = [installation(11, 'acme', 'Organization', 'all')];
+		github.repo = repository('acme/api');
+		expect((await repositoriesConnector.get(target, 'acme/api')).unwrap()).toMatchObject({id: 'acme/api'});
+		expect(github.requests.map((url) => url.pathname)).toEqual(['/user/installations', '/repos/acme/api']);
+
+		github.repo = repository('elsewhere/api');
+		expect((await repositoriesConnector.get(target, 'acme/api')).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'record'});
+
+		github.repo = null;
 		expect((await repositoriesConnector.get(target, 'acme/gone')).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'record'});
+	});
+
+	test('an id that isn’t a repository’s is not found without asking GitHub', async () => {
 		expect((await repositoriesConnector.get(target, 'not a repository')).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'record'});
-		expect(github.requests.length).toBe(1);
+		expect(github.requests.length).toBe(0);
 	});
 });

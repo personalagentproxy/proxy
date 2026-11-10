@@ -16,20 +16,17 @@ const TIMEOUT_MS = 30_000;
 
 type StoredConnection = {id: string; credential: string | null};
 
-/** What one of GitHub's errors means: a token to refresh, a repository not there, GitHub busy, or out of reach. */
-export function githubError(error: FetchError): ApiError {
-	if (error.kind !== 'http') {
-		return ApiErr.providerUnreachable(error);
-	}
-	if (error.status === 401) {
+/**
+ * What one of GitHub's errors means: a token to refresh, nothing there (or nothing the token may
+ * see, which GitHub answers the same way), or GitHub busy or out of reach, a 403 being how it
+ * says it is rate limiting as well as a 429.
+ */
+function githubError(error: FetchError): ApiError {
+	if (error.kind === 'http' && error.status === 401) {
 		return ApiErr.credentialsRejected();
 	}
-	if (error.status === 404) {
-		return ApiErr.notFound('repository');
-	}
-	// GitHub says it is busy with a 403 as well as a 429.
-	if (error.status === 403 || error.status === 429 || error.status >= 500) {
-		return ApiErr.providerUnreachable(error);
+	if (error.kind === 'http' && error.status === 404) {
+		return ApiErr.notFound('GitHub resource');
 	}
 	return ApiErr.providerUnreachable(error);
 }

@@ -1,7 +1,7 @@
 import {Err, Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, type FetchError, httpRequest, parseSchema} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, type FetchError, httpRequest} from '@proxy/utils';
 
 import {readStoredJson} from '../../utils/stored-json';
 import {GITHUB_API, type GitHubClient, githubHeaders} from './github-app';
@@ -182,9 +182,4 @@ export async function revokeGitHubGrant(client: GitHubClient, credential: GitHub
 		{timeoutMs: TIMEOUT_MS, allowStatus: (status) => (status >= 200 && status < 300) || status === 404},
 	);
 	return revoked.map(() => undefined).mapErr((error) => ApiErr.providerUnreachable(error));
-}
-
-/** Reads GitHub's answer to one of its API calls, for the tests of the parsers. */
-export function parseGitHubUser(value: unknown): Result<z.infer<typeof userSchema>, ApiError> {
-	return parseSchema(userSchema, value);
 }

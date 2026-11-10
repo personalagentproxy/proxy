@@ -27,7 +27,7 @@ const installationsSchema = z.object({installations: z.array(installationSchema)
 
 export type Installation = z.infer<typeof installationSchema>;
 
-const repositorySchema = z.object({
+export const repositorySchema = z.object({
 	full_name: z.string(),
 	description: z.string().nullable(),
 	private: z.boolean(),
@@ -41,8 +41,6 @@ const repositorySchema = z.object({
 const repositoriesSchema = z.object({total_count: z.number(), repositories: z.array(repositorySchema)});
 
 export type Repository = z.infer<typeof repositorySchema>;
-
-export {repositorySchema};
 
 /** The installations the token can see. */
 export function fetchInstallations(accessToken: string): Promise<Result<Installation[], ApiError>> {
