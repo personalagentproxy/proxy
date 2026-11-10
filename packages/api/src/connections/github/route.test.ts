@@ -81,9 +81,6 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 	if (url.pathname === '/login/oauth/access_token') {
 		return Response.json({access_token: 'ghu_access1', expires_in: 28800, refresh_token: 'ghr_refresh1', token_type: 'bearer', scope: ''});
 	}
-	if (url.pathname === '/user/emails') {
-		return Response.json([{email: 'alex@example.com', primary: true, verified: true}]);
-	}
 	if (url.pathname === '/user') {
 		return Response.json({login: 'alexkim', id: 4242, name: 'Alex Kim', email: null});
 	}
@@ -163,7 +160,6 @@ describe('handleGitHubCallbackRoute', () => {
 			accessToken: 'ghu_access1',
 			refreshToken: 'ghr_refresh1',
 			login: 'alexkim',
-			email: 'alex@example.com',
 			name: 'Alex Kim',
 		});
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-1?added');
@@ -196,7 +192,6 @@ describe('handleGitHubInstallationsRoute', () => {
 		id: '4242',
 		login: 'alexkim',
 		name: 'Alex Kim',
-		email: 'alex@example.com',
 	};
 
 	function connection(integrationId = 'github'): object {
