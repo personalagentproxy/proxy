@@ -40,6 +40,11 @@ function intentWith(widget: Intent['widget'], fields: Partial<Record<FieldId, st
 }
 
 const onAsk = mock((_text: string) => {});
+// The bar a widget is in, for one whose action is its Enter: what the widget says Enter does, and
+// where it led once done.
+const setAction = mock((_act: (() => void) | null) => {});
+const done = mock((_to: string) => {});
+let entered = false;
 
 function show(intent: Intent, typed = '') {
 	// On the organization's home page, as in the app: its api calls and links name it.
@@ -49,7 +54,15 @@ function show(intent: Intent, typed = '') {
 				<Routes>
 					<Route
 						path="/:org"
-						element={<IntentWidget intent={intent} typed={typed} now={now} onAsk={onAsk} />}
+						element={
+							<IntentWidget
+								intent={intent}
+								typed={typed}
+								now={now}
+								onAsk={onAsk}
+								bar={{entered, onEnter: true, setAction, done}}
+							/>
+						}
 					/>
 				</Routes>
 			</TooltipProvider>

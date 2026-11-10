@@ -1,5 +1,6 @@
 import {
 	ArrowRightLeftIcon,
+	BotIcon,
 	CalculatorIcon,
 	CalendarDaysIcon,
 	CalendarIcon,
@@ -26,11 +27,13 @@ import {EventWidget} from '@/components/widgets/event-widget';
 import {FindEmailWidget} from '@/components/widgets/find-email-widget';
 import {FindFileWidget} from '@/components/widgets/find-file-widget';
 import {MathWidget} from '@/components/widgets/math-widget';
+import {NewAgentWidget} from '@/components/widgets/new-agent-widget';
 import {PersonWidget} from '@/components/widgets/person-widget';
 import {ReplyEmailWidget} from '@/components/widgets/reply-email-widget';
 import {TransactionsWidget} from '@/components/widgets/transactions-widget';
 import {WidgetFrame} from '@/components/widgets/widget-frame';
 import {WriteEmailWidget} from '@/components/widgets/write-email-widget';
+import type {BarAction} from '@/hooks/use-bar-action';
 
 type Props = {
 	intent: Intent;
@@ -40,6 +43,8 @@ type Props = {
 	now: Date;
 	// Types something else into the input, for a widget that leads to another: Person's Find emails.
 	onAsk: (text: string) => void;
+	// For a widget whose action is the bar's Enter, as making an agent.
+	bar: BarAction;
 };
 
 // Each widget, filled with its fields, by its id: a widget the api offers that the web app has no
@@ -66,6 +71,7 @@ const VIEWS: Record<WidgetId, (props: Props) => ReactNode> = {
 	find_transactions: ({intent, typed, now}) => (
 		<TransactionsWidget intent={intent} typed={typed} now={now} />
 	),
+	new_agent: ({intent, typed, bar}) => <NewAgentWidget intent={intent} typed={typed} bar={bar} />,
 };
 
 // The widget the api picked, filled with its fields; nothing for `none`.
@@ -93,6 +99,7 @@ const FRAMES: Record<WidgetId, {icon: LucideIcon; name: string}> = {
 	convert_units: {icon: ArrowRightLeftIcon, name: 'Convert units'},
 	show_balances: {icon: LandmarkIcon, name: 'Balances'},
 	find_transactions: {icon: ReceiptTextIcon, name: 'Transactions'},
+	new_agent: {icon: BotIcon, name: 'New agent'},
 };
 
 // The widget the api picked, as soon as it is picked: its frame, until its fields are filled in.

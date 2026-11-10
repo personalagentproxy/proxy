@@ -523,7 +523,7 @@ describe('HomePage', () => {
 			Response.json(
 				{
 					error: 'unavailable',
-					message: 'The home page is not set up: set `TYPESAFE_API_KEY` and `OPENROUTER_KEY`.',
+					message: 'Quick actions are not set up: set `TYPESAFE_API_KEY` and `OPENROUTER_KEY`.',
 				},
 				{status: 503},
 			),
@@ -534,7 +534,7 @@ describe('HomePage', () => {
 
 		expect(
 			await screen.findByText(
-				'The home page is not set up: set `TYPESAFE_API_KEY` and `OPENROUTER_KEY`.',
+				'Quick actions are not set up: set `TYPESAFE_API_KEY` and `OPENROUTER_KEY`.',
 			),
 		).toBeTruthy();
 	});

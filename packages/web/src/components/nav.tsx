@@ -5,6 +5,7 @@ import {
 	ListChecksIcon,
 	MessageSquareIcon,
 	PlugIcon,
+	SearchIcon,
 	type LucideIcon,
 } from 'lucide-react';
 import type {Experiment} from '@proxy/utils';
@@ -23,8 +24,10 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from '@proxy/ui/components/sidebar';
+import {useCommandPalette} from '@/hooks/use-command-palette';
 import {useHuman} from '@/hooks/use-human';
 import {useUnread} from '@/hooks/use-unread';
+import {shortcutLabel} from '@/lib/platform';
 
 // `experiment` is the experiment a destination is behind, shown only with it on.
 type Destination = {to: string; label: string; icon: LucideIcon; experiment?: Experiment};
@@ -70,14 +73,15 @@ function isActive(pathname: string, path: string, home: string): boolean {
 
 // The stock shadcn sidebar: always a rail in icon mode on desktop, labels in tooltips; a sheet from
 // the left on phones, opened from the header and closed again on every pick. The organization
-// switcher sits at its top, with the organization's pages in groups under it; the person's
-// account, where they sign out, at its foot.
+// switcher sits at its top, with the command bar's button (Cmd+K) and the organization's pages in
+// groups under it; the person's account, where they sign out, at its foot.
 export function AppSidebar() {
 	const {pathname} = useLocation();
 	const human = useHuman();
 	const experiments = useExperiments();
 	const unread = useUnread();
 	const {setOpenMobile} = useSidebar();
+	const palette = useCommandPalette();
 	const home = `/${human?.org.slug ?? ''}`;
 	const groups = GROUPS.map((group) =>
 		group.filter(
@@ -99,6 +103,20 @@ export function AppSidebar() {
 				{groups.map((group, index) => (
 					<SidebarGroup key={index} className={index === 0 ? 'pt-0' : undefined}>
 						<SidebarMenu>
+							{index === 0 && (
+								<SidebarMenuItem>
+									<SidebarMenuButton
+										tooltip={`Search ${shortcutLabel('k')}`}
+										onClick={() => {
+											setOpenMobile(false);
+											palette.toggle();
+										}}
+									>
+										<SearchIcon />
+										<span>Search</span>
+									</SidebarMenuButton>
+								</SidebarMenuItem>
+							)}
 							{group.map((destination) => (
 								<SidebarMenuItem key={destination.to}>
 									<SidebarMenuButton
