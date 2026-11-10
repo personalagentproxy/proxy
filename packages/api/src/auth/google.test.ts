@@ -177,12 +177,12 @@ describe('handleSignInMethodsRoute', () => {
 
 		const configured = makeRes();
 		handleSignInMethodsRoute({} as never, configured as never);
-		expect(configured.json).toHaveBeenCalledWith({google: true, needs: {google: true, plaid: false}});
+		expect(configured.json).toHaveBeenCalledWith({google: true, needs: {google: true, plaid: false, github: false}});
 
 		mockEnv.GOOGLE_CLIENT_ID = undefined;
 		const unconfigured = makeRes();
 		handleSignInMethodsRoute({} as never, unconfigured as never);
-		expect(unconfigured.json).toHaveBeenCalledWith({google: false, needs: {google: false, plaid: false}});
+		expect(unconfigured.json).toHaveBeenCalledWith({google: false, needs: {google: false, plaid: false, github: false}});
 	});
 
 	test('says a Google connection can start with the client alone, as its start route does', async () => {
@@ -191,7 +191,7 @@ describe('handleSignInMethodsRoute', () => {
 
 		const res = makeRes();
 		handleSignInMethodsRoute({} as never, res as never);
-		expect(res.json).toHaveBeenCalledWith({google: false, needs: {google: true, plaid: false}});
+		expect(res.json).toHaveBeenCalledWith({google: false, needs: {google: true, plaid: false, github: false}});
 	});
 
 	test('says a bank can be connected once the server has its Plaid keys', async () => {
@@ -200,7 +200,7 @@ describe('handleSignInMethodsRoute', () => {
 
 		const res = makeRes();
 		handleSignInMethodsRoute({} as never, res as never);
-		expect(res.json).toHaveBeenCalledWith({google: true, needs: {google: true, plaid: true}});
+		expect(res.json).toHaveBeenCalledWith({google: true, needs: {google: true, plaid: true, github: false}});
 	});
 });
 

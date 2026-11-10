@@ -52,7 +52,7 @@ function renderCatalog(args: {
 					<TooltipProvider>
 						<IntegrationCatalog
 							connections={args.connections ?? []}
-							configured={{google: args.google ?? true, plaid: args.plaid ?? true}}
+							configured={{google: args.google ?? true, plaid: args.plaid ?? true, github: true}}
 							experiments={[]}
 							onConnectForm={args.onConnectForm ?? mock()}
 							onConnected={mock()}
@@ -136,7 +136,12 @@ describe('IntegrationCatalog', () => {
 
 describe('SignInFailed', () => {
 	test('a sign-in that could not start says what the server is missing', () => {
-		render(<SignInFailed error="google-unconfigured" configured={{google: false, plaid: true}} />);
+		render(
+			<SignInFailed
+				error="google-unconfigured"
+				configured={{google: false, plaid: true, github: true}}
+			/>,
+		);
 
 		expect(screen.getByText(/Needs/).textContent).toBe(
 			'Needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the server. See the docs.',
@@ -146,14 +151,17 @@ describe('SignInFailed', () => {
 
 	test('says nothing of what the server was missing once it has it', () => {
 		const {container} = render(
-			<SignInFailed error="google-unconfigured" configured={{google: true, plaid: true}} />,
+			<SignInFailed
+				error="google-unconfigured"
+				configured={{google: true, plaid: true, github: true}}
+			/>,
 		);
 
 		expect(container.textContent).toBe('');
 	});
 
 	test('a sign-in that failed says to try again', () => {
-		render(<SignInFailed error="google" configured={{google: true, plaid: true}} />);
+		render(<SignInFailed error="google" configured={{google: true, plaid: true, github: true}} />);
 
 		expect(screen.getByText('Signing in to Google didn’t finish. Try again.')).toBeDefined();
 	});

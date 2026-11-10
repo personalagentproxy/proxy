@@ -1777,6 +1777,52 @@ const sandbox: Integration = {
 	],
 };
 
+// GitHub, signed in to through Personal Agent Proxy's GitHub App as the person: the repositories
+// the app is installed on that they can reach, read live from GitHub. What the app may do on them
+// is set at GitHub, when it is installed; what an agent may do with the connection is set here.
+// Repositories are only read for now: working in them, as the person, comes with the sandboxes.
+const github: Integration = {
+	id: 'github',
+	signIn: true,
+	name: 'GitHub',
+	description: 'Repositories on GitHub, those the app is installed on',
+	actions: [
+		{
+			id: 'read',
+			label: 'Read repositories',
+			description: 'List the repositories the app is installed on, and open one',
+			risk: 'low',
+		},
+	],
+	collections: [
+		{
+			id: 'repositories',
+			name: 'Repositories',
+			singular: 'repository',
+			titleField: 'fullName',
+			summaryField: 'description',
+			openIn: 'GitHub',
+			read: 'read',
+			writes: {},
+			fields: [
+				// "owner/name", as GitHub writes it, which is the repository's id here.
+				{key: 'fullName', label: 'Repository', type: 'text'},
+				{key: 'description', label: 'Description', type: 'text'},
+				{
+					key: 'visibility',
+					label: 'Visibility',
+					type: 'select',
+					options: ['Public', 'Private'],
+					system: true,
+				},
+				{key: 'defaultBranch', label: 'Default branch', type: 'text', system: true},
+				{key: 'language', label: 'Language', type: 'text', system: true},
+				{key: 'pushed', label: 'Last push', type: 'datetime', system: true},
+			],
+		},
+	],
+};
+
 // Any MCP server, by its address: what it lists as its tools is what an agent can be allowed, one
 // by one, so the catalog's entry has no actions of its own. A server that asks for a sign-in gets
 // one as Granola's does; one that takes a token typed in, or none, is connected with that. A tool's
@@ -1799,6 +1845,7 @@ export const INTEGRATIONS: Integration[] = [
 	granola,
 	notion,
 	linear,
+	github,
 	cloudflare,
 	exa,
 	parallel,

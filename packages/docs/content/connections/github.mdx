@@ -1,0 +1,47 @@
+---
+title: GitHub
+description: Connect GitHub for agents to read the repositories you choose.
+---
+
+Agents read the repositories the person who connects GitHub can reach among those Personal Agent
+Proxy's GitHub App is installed on. Repositories stay on GitHub; nothing is copied.
+
+## Connect GitHub
+
+<Steps>
+
+### Install the app on GitHub
+
+Open the app's page on GitHub and install it on your account or an organization, choosing all of
+its repositories or only some. The repositories you choose are the ones agents can reach, and
+you can change them any time under **Settings**, **Applications** on GitHub.
+
+### Sign in with GitHub
+
+Open **Connections**, then **Add connection**, and **Sign in with GitHub**, and authorize the
+app. Signing in alone grants no repositories: a connection whose app is installed nowhere you can
+reach says so, and where to install it.
+
+### Review the defaults
+
+A new GitHub connection gives every agent Read repositories. Change it for every agent on the
+connection's page, or only for one agent on the agent's page.
+
+</Steps>
+
+## What agents can do
+
+- **Read repositories** lists the repositories the app is installed on and opens one, with its
+  description, visibility, default branch, language and when it was last pushed to.
+
+## Self-hosting
+
+Hosted Personal Agent Proxy has its own GitHub App. A self-hosted server needs one of its own:
+register a GitHub App under your account's or organization's developer settings, with
+`<APP_URL>/api/connections/github/callback` as a callback URL, **Expire user authorization
+tokens** on and **Request user authorization (OAuth) during installation** off, no webhook, the
+repository permissions Contents and Pull requests read and write and Metadata read, and the
+account permission Email addresses read. Then set its client id and a client secret as
+`GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, and its name as it is in its address as
+`GITHUB_APP_SLUG` ([Environment variables](/self-hosting/environment)), which is where people
+are sent to install it.

@@ -93,7 +93,7 @@ export const addConnectionLoader = later(async (args: OrgParams) => {
 	]);
 	return {
 		connections: unwrapLoaderResult(connections).connections,
-		configured: methods.map(({needs}) => needs).unwrapOr({google: true, plaid: true}),
+		configured: methods.map(({needs}) => needs).unwrapOr({google: true, plaid: true, github: true}),
 	};
 });
 
@@ -359,7 +359,7 @@ export async function welcomeLoader(args: OrgParams) {
 		experiments,
 		agents: unwrapLoaderResult(agents).agents,
 		connections: unwrapLoaderResult(connections).connections,
-		configured: methods.map(({needs}) => needs).unwrapOr({google: true, plaid: true}),
+		configured: methods.map(({needs}) => needs).unwrapOr({google: true, plaid: true, github: true}),
 	};
 }
 

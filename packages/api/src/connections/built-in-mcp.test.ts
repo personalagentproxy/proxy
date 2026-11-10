@@ -38,9 +38,9 @@ describe('builtInMcps', () => {
 		}
 	});
 
-	test('the catalog marks exactly Google and the integrations built on their MCP servers as signed in to, for the web app', () => {
+	test('the catalog marks exactly Google, GitHub and the integrations built on their MCP servers as signed in to, for the web app', () => {
 		const signedIn: string[] = INTEGRATIONS.filter((integration) => integration.signIn).map((integration) => integration.id);
-		expect(signedIn.toSorted()).toEqual(['google', ...BUILT_IN_MCP.map((builtIn) => builtIn.integrationId)].toSorted());
+		expect(signedIn.toSorted()).toEqual(['google', 'github', ...BUILT_IN_MCP.map((builtIn) => builtIn.integrationId)].toSorted());
 	});
 
 	test('exactly the integrations the catalog says take an API key do, and are signed in to', () => {
