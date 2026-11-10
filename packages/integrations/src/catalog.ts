@@ -1748,7 +1748,7 @@ const sandbox: Integration = {
 		{
 			name: 'sandbox_exec',
 			title: 'Run command',
-			description: `Runs a command in a sandbox’s shell, in its home or in cwd under it, and answers with what it wrote and how it ended. A sandbox asleep is woken first. Reading and writing files is done here too: cat a file to read it; to write one, give the content as stdin and run cat > the file. The command is stopped after timeout seconds, ${SANDBOX_EXEC_DEFAULT_SECONDS} unless given and at most ${SANDBOX_EXEC_MAX_SECONDS}; what it left running in the background may not outlive it, so do long work in parts.`,
+			description: `Runs a command in a sandbox’s shell, in its home or in cwd under it, and answers with what it wrote and how it ended. A sandbox asleep is woken first. Reading and writing files is done here too: cat a file to read it; to write one, give the content as stdin and run cat > the file. The command is stopped after timeout seconds, ${SANDBOX_EXEC_DEFAULT_SECONDS} unless given and at most ${SANDBOX_EXEC_MAX_SECONDS}; what it left running in the background may not outlive it, so do long work in parts. With pap, the command can run pap, a CLI for your connections (pap --help).`,
 			action: 'run',
 			inputSchema: {
 				type: 'object',
@@ -1770,9 +1770,82 @@ const sandbox: Integration = {
 						type: 'number',
 						description: `Seconds before the command is stopped: ${SANDBOX_EXEC_DEFAULT_SECONDS} unless given, at most ${SANDBOX_EXEC_MAX_SECONDS}`,
 					},
+					pap: {
+						type: 'boolean',
+						description: 'Lets the command use pap, to call your connections from code',
+					},
 				},
 				required: ['sandbox', 'command'],
 			},
+		},
+	],
+};
+
+// GitHub, signed in to through Personal Agent Proxy's GitHub App as the person: the repositories
+// the app is installed on that they can reach, read live from GitHub, and worked in from a sandbox
+// with `pap git` and `pap gh`, whose requests the api relays to GitHub with the connection's token
+// (api/src/cli/github), checking each against these actions. What the app may do on them is set at
+// GitHub, when it is installed; what an agent may do with the connection is set here. Pushing and
+// writing start off: a new connection's defaults are Read alone (api/src/connections/github/route.ts),
+// and an older one's stored defaults never had them.
+const github: Integration = {
+	id: 'github',
+	signIn: true,
+	name: 'GitHub',
+	description: 'Repositories on GitHub, those the app is installed on',
+	sharingWarning:
+		'Whoever’s agents use it, what they push, open and comment on GitHub shows as this account’s.',
+	actions: [
+		{
+			id: 'read',
+			label: 'Read repositories',
+			description:
+				'List the repositories the app is installed on and open one; from a sandbox, clone and fetch them, and read through GitHub’s API',
+			risk: 'low',
+		},
+		{
+			id: 'push',
+			label: 'Push commits',
+			description: 'Push branches and tags to the repositories from a sandbox, with pap git',
+			risk: 'high',
+			requires: 'read',
+			reachesOthers: true,
+		},
+		{
+			id: 'write',
+			label: 'Change things on GitHub',
+			description:
+				'Anything GitHub’s API changes, from a sandbox with pap gh: open, edit and merge pull requests, open and edit issues, comment, and more',
+			risk: 'high',
+			requires: 'read',
+			reachesOthers: true,
+		},
+	],
+	collections: [
+		{
+			id: 'repositories',
+			name: 'Repositories',
+			singular: 'repository',
+			titleField: 'fullName',
+			summaryField: 'description',
+			openIn: 'GitHub',
+			read: 'read',
+			writes: {},
+			fields: [
+				// "owner/name", as GitHub writes it, which is the repository's id here.
+				{key: 'fullName', label: 'Repository', type: 'text'},
+				{key: 'description', label: 'Description', type: 'text'},
+				{
+					key: 'visibility',
+					label: 'Visibility',
+					type: 'select',
+					options: ['Public', 'Private'],
+					system: true,
+				},
+				{key: 'defaultBranch', label: 'Default branch', type: 'text', system: true},
+				{key: 'language', label: 'Language', type: 'text', system: true},
+				{key: 'pushed', label: 'Last push', type: 'datetime', system: true},
+			],
 		},
 	],
 };
@@ -1799,6 +1872,7 @@ export const INTEGRATIONS: Integration[] = [
 	granola,
 	notion,
 	linear,
+	github,
 	cloudflare,
 	exa,
 	parallel,

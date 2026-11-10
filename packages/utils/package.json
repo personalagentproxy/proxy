@@ -8,6 +8,7 @@
 		"./agent-providers": "./src/agent-providers.ts",
 		"./claude-oauth": "./src/claude-oauth.ts",
 		"./days": "./src/days.ts",
+		"./do": "./src/do.ts",
 		"./email-providers": "./src/email-providers.ts",
 		"./harness": "./src/harness.ts",
 		"./harness-context": "./src/harness-context.ts",

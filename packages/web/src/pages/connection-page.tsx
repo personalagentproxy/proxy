@@ -17,6 +17,7 @@ import {ConnectWithKeyDialog} from '@/components/connect-with-key-dialog';
 import {SignInAgain} from '@/components/connection-access';
 import {ConnectionSharing} from '@/components/connection-sharing';
 import {ConfirmDialog} from '@/components/confirm-dialog';
+import {GitHubRepositories} from '@/components/github-repositories';
 import {IconButton} from '@/components/icon-button';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {NotFound} from '@/components/not-found';
@@ -27,6 +28,7 @@ import {SuccessLine} from '@/components/success-line';
 import {VaultEntries} from '@/components/vault-entries';
 import {connectionTitle, defaultActions, integrationOf, ownSettings, reaches} from '@/lib/access';
 import {useHuman} from '@/hooks/use-human';
+import {reachedRepositories} from '@/lib/github';
 import {useLoaded} from '@/hooks/use-loaded';
 import {useReload} from '@/hooks/use-reload';
 import {signInPath} from '@/lib/integrations';
@@ -46,8 +48,17 @@ export function ConnectionPage() {
 
 function ConnectionDetail() {
 	const org = useOrgSlug();
-	const {connection, connections, agents, entries, tasks, members, vaultEntries, sandboxes} =
-		useLoaded<typeof connectionLoader>();
+	const {
+		connection,
+		connections,
+		agents,
+		entries,
+		tasks,
+		members,
+		vaultEntries,
+		sandboxes,
+		github,
+	} = useLoaded<typeof connectionLoader>();
 	const navigate = useNavigate();
 	const reload = useReload();
 	// Set by whatever made the connection: the email dialog, or the api back from a service's sign-in.
@@ -79,15 +90,21 @@ function ConnectionDetail() {
 	// A vault's entries are kept here, so no provider sees anyone.
 	const actingAs = integration.native ? null : actsAs(connection, human);
 	// A vault a member made is deleted, with its entries, where another connection is disconnected.
-	// The page's parts, one shown at a time: what a vault or the Sandboxes hold comes first, being
-	// what it is opened for, and a built-in connection, which is never shared, has no Sharing.
-	const tabs: Array<PageTab<'entries' | 'sandboxes' | 'permissions' | 'sharing' | 'activity'>> = [
+	// The page's parts, one shown at a time: what a vault or the Sandboxes hold, or a GitHub
+	// connection reaches, comes first, being what it is opened for, and a built-in connection, which
+	// is never shared, has no Sharing.
+	const tabs: Array<
+		PageTab<'entries' | 'sandboxes' | 'repositories' | 'permissions' | 'sharing' | 'activity'>
+	> = [
 		...(vaultEntries === null
 			? []
 			: [{id: 'entries' as const, label: 'Entries', count: vaultEntries.length}]),
 		...(sandboxes === null
 			? []
 			: [{id: 'sandboxes' as const, label: 'Sandboxes', count: sandboxes.length}]),
+		...(github === null
+			? []
+			: [{id: 'repositories' as const, label: 'Repositories', count: reachedRepositories(github)}]),
 		{id: 'permissions', label: 'Permissions'},
 		...(connection.builtIn ? [] : [{id: 'sharing' as const, label: 'Sharing'}]),
 		{id: 'activity', label: 'Recent activity'},
@@ -183,6 +200,13 @@ function ConnectionDetail() {
 				{tab === 'sandboxes' && sandboxes !== null && (
 					<SandboxList connectionId={connection.id} sandboxes={sandboxes} />
 				)}
+				{tab === 'repositories' && github !== null && (
+					<GitHubRepositories
+						account={connection.account}
+						shared={connection.shared}
+						reach={github}
+					/>
+				)}
 				{tab === 'permissions' && (
 					<div className="flex flex-col gap-2">
 						<p className="text-sm text-muted-foreground">{about}</p>
@@ -243,6 +267,7 @@ function ConnectionDetail() {
 						members={members}
 						userId={human.user.id}
 						actsAs={actingAs}
+						warning={integration.sharingWarning}
 						mayChange={mayChange}
 						alone={!hasOtherPeople(activeOrg)}
 						onChange={async (sharing) => {

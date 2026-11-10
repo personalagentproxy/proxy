@@ -293,6 +293,21 @@ export async function getSignedInAgent(
 	});
 }
 
+/**
+ * The agent as signed in, by its id in the organization, for a token that names it (a sandbox
+ * command's); `Ok(null)` for one unknown there, or revoked.
+ */
+export async function getSignedInAgentById(
+	orgId: string,
+	agentId: string,
+): Promise<Result<SignedInAgent | null, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agent.findFirst({where: {id: agentId, orgId}, select: signedInAgentSelect}),
+		)
+	).map((agent) => (agent ? toSignedInAgent(agent) : null));
+}
+
 export async function deleteAgentSession(tokenHash: string): Promise<Result<void, ApiError>> {
 	return (await wrapDb(() => db.agentSession.deleteMany({where: {tokenHash}}))).map(
 		() => undefined,

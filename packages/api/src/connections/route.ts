@@ -1,10 +1,10 @@
 import {Err, type Result} from 'ts-results-es';
 import type {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
-import {type Connection, type connectionListSchema, createVaultBodySchema, renameConnectionBodySchema, setDefaultsBodySchema, setSharingBodySchema} from '@proxy/contracts/connections';
-import {createConnection, deleteConnection, listConnectionsWithCredential, setConnectionDefaults, setConnectionSharing, updateConnectionName} from '@proxy/db/connection';
-import {listMembers} from '@proxy/db/organization';
+import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
+import {type Connection, type connectionListSchema, createVaultBodySchema, moveConnectionBodySchema, renameConnectionBodySchema, setDefaultsBodySchema, setSharingBodySchema} from '@proxy/contracts/connections';
+import {createConnection, deleteConnection, listConnectionsWithCredential, moveConnection, setConnectionDefaults, setConnectionSharing, updateConnectionName} from '@proxy/db/connection';
+import {getMemberOrganization, listMembers} from '@proxy/db/organization';
 import {VAULT_DEFAULT_ACTIONS, VAULT_INTEGRATION_ID} from '@proxy/integrations';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
@@ -129,6 +129,37 @@ export function handleSetConnectionSharingRoute(request: AuthenticatedRequest): 
 
 		$(await setConnectionSharing({connectionId, ownerUserId: row.ownerUserId, everyone, userIds: named}));
 		return $(await respond({...row, sharedWithEveryone: everyone, shares: named.map((userId) => ({userId}))}));
+	});
+}
+
+/**
+ * `PUT /api/orgs/:org/connections/:connectionId/org`: moves a connection into another organization
+ * the person is in, `{org}` by its slug, where it is theirs alone: who it was shared with here and
+ * what agents here were set to do with it stay behind, and agents here lose it at once. Its
+ * credential, its defaults and a vault's entries go with it. Only whoever's it is moves it; a
+ * built-in connection is each member's in each organization, and stays.
+ */
+export function handleMoveConnectionRoute(request: AuthenticatedRequest): Promise<Result<Connection, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireViewer(request));
+		const connectionId = request.params.connectionId ?? '';
+		const row = $(await requireConnection(viewer, connectionId));
+		if (row.ownerUserId !== viewer.userId || isBuiltIn(row)) {
+			return $(Err(ApiErr.forbidden()));
+		}
+		const {org: slug} = $(parseSchema(moveConnectionBodySchema, request.body));
+		const target = $(requirePresent($(await getMemberOrganization(viewer.userId, slug)), ApiErr.notFound('organization', slug)));
+		if (target.id === viewer.orgId) {
+			return $(Err(ApiErr.validationError(`The connection is in ${target.name} already`)));
+		}
+
+		// A vault is called by its organization's name, as it is when made.
+		const account = row.integrationId === VAULT_INTEGRATION_ID ? target.name : row.account;
+		const moved = $(await moveConnection({connectionId, ownerUserId: viewer.userId, fromOrgId: viewer.orgId, toOrgId: target.id, account}));
+		if (!moved) {
+			return $(Err(ApiErr.notFound('connection', connectionId)));
+		}
+		return $(await respond({...row, orgId: target.id, account, sharedWithEveryone: false, shares: []}));
 	});
 }
 

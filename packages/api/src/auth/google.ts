@@ -10,6 +10,7 @@ import {formatFetchError, httpRequest, parseCookieHeader} from '@proxy/utils';
 import type {SignInMethods} from '@proxy/contracts/auth';
 
 import {plaidClient} from '../connections/plaid/plaid-client';
+import {githubClient} from '../connections/github/github-app';
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
 import {googleOAuthClient} from '../utils/google-oauth-client';
@@ -72,7 +73,7 @@ function getOAuthConfig(): OAuthConfig | null {
  * checks, and a bank connected through Plaid the server's Plaid keys.
  */
 export function handleSignInMethodsRoute(_req: Request, res: Response): void {
-	res.json({google: getOAuthConfig() !== null, needs: {google: googleOAuthClient() !== null, plaid: plaidClient() !== null}} satisfies SignInMethods);
+	res.json({google: getOAuthConfig() !== null, needs: {google: googleOAuthClient() !== null, plaid: plaidClient() !== null, github: githubClient() !== null}} satisfies SignInMethods);
 }
 
 const statePayloadSchema = z.object({

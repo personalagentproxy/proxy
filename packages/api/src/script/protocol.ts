@@ -1,5 +1,7 @@
 import {z} from 'zod';
 
+import {PAP_METHODS} from '@proxy/contracts/cli';
+
 /**
  * What the api and a script's runner (runner.ts) say to each other, one JSON object a line, the
  * api on the runner's stdin and the runner on its stdout. The runner is a process of its own,
@@ -22,10 +24,6 @@ export type Json = z.infer<typeof jsonSchema>;
 
 /** A call's arguments, as the runner sends them. */
 export const argsSchema = z.array(jsonSchema);
-
-export const PAP_METHODS = ['connections', 'tools', 'call', 'startTask', 'finishTask', 'feedback'] as const;
-
-export type PapMethod = (typeof PAP_METHODS)[number];
 
 export const startMessageSchema = z.object({
 	type: z.literal('start'),

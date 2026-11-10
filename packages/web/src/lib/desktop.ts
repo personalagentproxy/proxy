@@ -94,6 +94,21 @@ export function hasHiddenDesktopTitleBar(): boolean {
 	return desktopBridge()?.titleBarHidden === true;
 }
 
+/**
+ * Marks `<html>` `desktop-window-inactive` while the desktop window isn't the focused one, where
+ * index.css draws gray dots under the traffic lights, which macOS then draws as glass that vanishes
+ * over white. A frame of the
+ * page's taking focus, as Plaid Link's does, leaves the page focused.
+ */
+export function followDesktopWindowFocus(): void {
+	const update = () => {
+		document.documentElement.classList.toggle('desktop-window-inactive', !document.hasFocus());
+	};
+	window.addEventListener('focus', update);
+	window.addEventListener('blur', update);
+	update();
+}
+
 /** The link that hands the desktop app the one-time code it trades for a session. */
 export function desktopAuthLink(code: string): string {
 	return `${DESKTOP_SCHEME}://auth-callback?code=${encodeURIComponent(code)}`;

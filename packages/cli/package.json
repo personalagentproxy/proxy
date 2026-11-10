@@ -1,0 +1,22 @@
+{
+	"name": "@proxy/cli",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"exports": {
+		"./build": "./src/build.ts"
+	},
+	"scripts": {
+		"test": "bun test",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@proxy/contracts": "workspace:*",
+		"@proxy/utils": "workspace:*",
+		"ts-results-es": "^7.1.0"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"typescript": "~6.0.2"
+	}
+}

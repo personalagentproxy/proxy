@@ -53,3 +53,22 @@ that has it. Once the task is finished, or left open for twenty minutes, the san
 again, so an agent coming back later picks up where it left off, and two agents never work on one
 at once. Every command is in the [activity log](/agents/mcp) under the task it was run for, with
 the command itself.
+
+## Your connections from code in a sandbox
+
+An agent can run a command with `pap` turned on, and code in that command can then use your
+connections through `pap`, a small command line tool Personal Agent Proxy installs in the sandbox
+the first time it is needed. With it, a script can list the agent's connections and their tools
+and call them, such as going through every page of a vault's entries or a calendar's events and
+working on them in a program, without the results passing through the agent's conversation.
+
+It is the agent's own access and nothing more: each command turned on gets a token of its own,
+for that agent, its task and that sandbox, which stops working when the command ends, the task
+does, or the sandbox passes to another task. A command without `pap` turned on gets no token, and
+nothing is installed. Sandboxes can't be reached from inside one. Every call is checked against
+what the agent may do and logged as any other is, under the command's task, shown as from a
+sandbox in the [activity log](/agents/mcp).
+
+With a GitHub connection, `pap git` and `pap gh` are git and GitHub's gh, working in its
+repositories as you, while plain `git` and `gh` stay signed out; your GitHub token stays in
+Personal Agent Proxy ([GitHub](/connections/github)).

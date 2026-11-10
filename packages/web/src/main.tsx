@@ -4,7 +4,7 @@ import {RouterProvider} from 'react-router';
 import './index.css';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {router} from '@/router';
-import {hasHiddenDesktopTitleBar} from '@/lib/desktop';
+import {followDesktopWindowFocus, hasHiddenDesktopTitleBar} from '@/lib/desktop';
 import {log, serializeError} from '@/lib/log';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 
@@ -30,6 +30,7 @@ if (!root) {
 
 if (hasHiddenDesktopTitleBar()) {
 	document.documentElement.classList.add('desktop-app');
+	followDesktopWindowFocus();
 }
 
 createRoot(root).render(

@@ -6,8 +6,8 @@ import {z} from 'zod';
  * sees, the tasks they were made for, a task's page, and the home page's timeline.
  */
 
-/** The web app's agent pages, the MCP server, or the built-in agent's own loop. */
-const viaSchema = z.enum(['web', 'mcp', 'harness']);
+/** The web app's agent pages, the MCP server, the built-in agent's own loop, or code in a sandbox (`/api/cli`). */
+const viaSchema = z.enum(['web', 'mcp', 'harness', 'cli']);
 
 const outcomeSchema = z.enum(['allowed', 'denied', 'failed']);
 
@@ -29,7 +29,7 @@ export const auditEntrySchema = z.object({
 	 * outcome.
 	 */
 	error: z.string().nullable(),
-	/** The web app's agent pages, the MCP server, or the built-in agent's own loop. */
+	/** The web app's agent pages, the MCP server, the built-in agent's own loop, or code in a sandbox. */
 	via: viaSchema,
 	/**
 	 * The agent's task the request was made for, among the answer's `tasks`; none for entries from

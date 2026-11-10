@@ -12,10 +12,12 @@ const updateConnectionName = mock();
 const countSameAccountConnections = mock();
 const setConnectionSharing = mock();
 const createConnection = mock();
+const moveConnection = mock();
 
 mock.module('@proxy/db/connection', () => ({
 	setConnectionSharing,
 	createConnection,
+	moveConnection,
 	listConnectionsWithCredential,
 	getConnectionWithCredential,
 	deleteConnection,
@@ -31,7 +33,12 @@ const people = [
 	{orgId: 'org-1', userId: 'user-3', name: 'Sam'},
 ];
 
+// Another organization Alex is in, which a connection of theirs can move into.
+const otherOrg = {id: 'org-2', slug: 'side-project', name: 'Side project', onboardedAt: null, role: 'owner', experiments: []};
+const getMemberOrganization = mock();
+
 mock.module('@proxy/db/organization', () => ({
+	getMemberOrganization,
 	listMemberNames: mock(async (asked: Array<{userId: string}>) => Ok(people.filter((person) => asked.some((one) => one.userId === person.userId)))),
 	listMembers: mock(async () => Ok(people)),
 }));
@@ -131,6 +138,8 @@ beforeEach(() => {
 	deleteConnection.mockResolvedValue(Ok(true));
 	setConnectionDefaults.mockResolvedValue(Ok(undefined));
 	setConnectionSharing.mockResolvedValue(Ok(undefined));
+	moveConnection.mockResolvedValue(Ok(true));
+	getMemberOrganization.mockResolvedValue(Ok(otherOrg));
 });
 
 describe('handleListConnectionsRoute', () => {
@@ -515,6 +524,61 @@ describe('handleSetConnectionSharingRoute', () => {
 		expect(made.unwrap()).toMatchObject({builtIn: false, name: 'Finance', sharedWith: [{userId: 'user-2', name: 'Dana'}]});
 		expect(setConnectionSharing).toHaveBeenCalledTimes(1);
 	});
+});
+
+describe('handleMoveConnectionRoute', () => {
+	test('moves the person’s connection into another organization of theirs, shared with nobody there', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, sharedWithEveryone: true, shares: [{userId: 'user-2'}]}));
+		const {handleMoveConnectionRoute} = await import('./route');
+		const result = await handleMoveConnectionRoute(makeRequest({connectionId: 'conn-1'}, {org: 'side-project'}));
+
+		expect(getMemberOrganization).toHaveBeenCalledWith('user-1', 'side-project');
+		expect(moveConnection).toHaveBeenCalledWith({connectionId: 'conn-1', ownerUserId: 'user-1', fromOrgId: 'org-1', toOrgId: 'org-2', account: 'alex@example.com'});
+		expect(result.unwrap()).toMatchObject({orgId: 'org-2', shared: false, sharedWithEveryone: false, sharedWith: []});
+	});
+
+	test('a vault the person made takes its new organization’s name for its account', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId: 'vault', account: 'Workspace', name: 'Finance', credential: null}));
+		const {handleMoveConnectionRoute} = await import('./route');
+		const result = await handleMoveConnectionRoute(makeRequest({connectionId: 'conn-1'}, {org: 'side-project'}));
+
+		expect(moveConnection).toHaveBeenCalledWith(expect.objectContaining({account: 'Side project'}));
+		expect(result.unwrap()).toMatchObject({account: 'Side project', name: 'Finance'});
+	});
+
+	test('only whoever’s it is moves it, even the organization’s owner may not move another member’s', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, ownerUserId: 'user-2', sharedWithEveryone: true}));
+		const {handleMoveConnectionRoute} = await import('./route');
+		const result = await handleMoveConnectionRoute(makeRequest({connectionId: 'conn-1'}, {org: 'side-project'}));
+
+		expect(result.unwrapErr().kind).toBe('forbidden');
+		expect(moveConnection).not.toHaveBeenCalled();
+	});
+
+	test('a member’s built-in vault and Sandboxes stay where they are', async () => {
+		const {handleMoveConnectionRoute} = await import('./route');
+		const refused = [];
+		for (const integrationId of ['vault', 'sandbox']) {
+			getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId, credential: null}));
+			refused.push(await handleMoveConnectionRoute(makeRequest({connectionId: 'conn-1'}, {org: 'side-project'})));
+		}
+
+		expect(refused.map((result) => result.unwrapErr().kind)).toEqual(['forbidden', 'forbidden']);
+		expect(moveConnection).not.toHaveBeenCalled();
+	});
+
+	test('refuses an organization the person isn’t in, and the one it is in already', async () => {
+		const {handleMoveConnectionRoute} = await import('./route');
+		getMemberOrganization.mockResolvedValue(Ok(null));
+		const stranger = await handleMoveConnectionRoute(makeRequest({connectionId: 'conn-1'}, {org: 'elsewhere'}));
+		getMemberOrganization.mockResolvedValue(Ok({...otherOrg, id: 'org-1', slug: 'org-1'}));
+		const same = await handleMoveConnectionRoute(makeRequest({connectionId: 'conn-1'}, {org: 'org-1'}));
+
+		expect(stranger.unwrapErr().kind).toBe('not_found');
+		expect(same.unwrapErr().kind).toBe('validation_error');
+		expect(moveConnection).not.toHaveBeenCalled();
+	});
+
 });
 
 describe('handleCreateVaultRoute', () => {

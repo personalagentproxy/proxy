@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -
 COPY package.json bun.lock ./
 COPY packages/api/package.json packages/api/
 COPY packages/backends/package.json packages/backends/
+COPY packages/cli/package.json packages/cli/
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/db/package.json packages/db/
 COPY packages/db/prisma packages/db/prisma
@@ -47,6 +48,8 @@ RUN bun --bun packages/db/node_modules/.bin/prisma generate --schema packages/db
 COPY packages/api/src packages/api/src
 COPY packages/api/tsconfig.json packages/api/
 COPY packages/backends/src packages/backends/src
+# The pap CLI's source, which the api bundles as it runs, to install in sandboxes (src/cli/bundle.ts).
+COPY packages/cli/src packages/cli/src
 COPY packages/contracts/src packages/contracts/src
 COPY packages/db/src packages/db/src
 COPY packages/integrations/src packages/integrations/src

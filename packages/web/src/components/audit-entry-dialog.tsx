@@ -1,7 +1,7 @@
 import type {ActivityTask, AuditEntry} from '@proxy/contracts/activity';
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
-import {TOOLS_COLLECTION_ID} from '@proxy/integrations';
+import {GIT_REQUESTS_ID, TOOLS_COLLECTION_ID} from '@proxy/integrations';
 import type {ReactNode} from 'react';
 import {Link} from 'react-router';
 import {Badge} from '@proxy/ui/components/badge';
@@ -18,6 +18,7 @@ import {
 	describeEntry,
 	describeFailure,
 	entryAction,
+	isRelayed,
 	locateEntry,
 } from '@/lib/access';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -46,7 +47,12 @@ function formatMoment(iso: string): string {
 }
 
 // How the request came in, as the entry says.
-const THROUGH = {web: 'Agent web pages', mcp: 'MCP', harness: 'Built-in agent'} as const;
+const THROUGH = {
+	web: 'Agent web pages',
+	mcp: 'MCP',
+	harness: 'Built-in agent',
+	cli: 'A sandbox',
+} as const;
 
 function Detail({label, children}: {label: string; children: ReactNode}) {
 	return (
@@ -78,6 +84,22 @@ export function AuditEntryDialog({entry, agents, connections, tasks, onClose}: P
 	);
 }
 
+// What an entry's record title and query are called: a list's record is the one it was opened in;
+// a relayed request's the repository, and its query a push's refs or the request itself; a tool
+// run's query its params.
+function labelsOf(entry: AuditEntry, toolRun: boolean): {record: string; query: string} {
+	if (isRelayed(entry)) {
+		return {
+			record: 'Repository',
+			query: entry.collectionId === GIT_REQUESTS_ID ? 'Refs' : 'Request',
+		};
+	}
+	return {
+		record: entry.action === 'list' ? 'Inside' : 'Record',
+		query: toolRun ? 'Params' : 'Search',
+	};
+}
+
 function AuditEntryContent({
 	entry,
 	agents,
@@ -95,6 +117,8 @@ function AuditEntryContent({
 	const located = locateEntry(connections, entry);
 	const action = entryAction(entry, located);
 	const toolRun = located?.integration.custom || entry.collectionId === TOOLS_COLLECTION_ID;
+	const relayed = isRelayed(entry);
+	const labels = labelsOf(entry, Boolean(toolRun));
 
 	return (
 		<DialogContent className="grid-cols-[minmax(0,1fr)] sm:max-w-lg">
@@ -169,19 +193,19 @@ function AuditEntryContent({
 						<span className="text-muted-foreground">Disconnected</span>
 					)}
 				</Detail>
-				{!toolRun && (
+				{!toolRun && !relayed && (
 					<Detail label="Collection">{located?.collection?.name ?? entry.collectionId}</Detail>
 				)}
 				{entry.recordTitle && (
-					<Detail label={entry.action === 'list' ? 'Inside' : 'Record'}>
+					<Detail label={labels.record}>
 						<span className="min-w-0 break-words">{entry.recordTitle}</span>
 					</Detail>
 				)}
 				{entry.query && (
-					<Detail label={toolRun ? 'Params' : 'Search'}>
+					<Detail label={labels.query}>
 						<span
 							className={
-								toolRun
+								toolRun || relayed
 									? 'max-h-64 min-w-0 overflow-y-auto font-mono text-xs break-all'
 									: 'min-w-0 break-words'
 							}

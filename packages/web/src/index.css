@@ -30,6 +30,35 @@
 	-webkit-app-region: drag;
 }
 
+/* The traffic lights while the window isn't the focused one. macOS 26 draws them as glass that
+   lightens what is under it, so over the bar's white they vanish, and over these dots they show:
+   the dots sit exactly under them (desktop's window.ts places them 16px in and 14px down; they're
+   14px across, 23px apart), dark enough that, lightened, they read as gray. Keep in step with
+   desktop's splash.css. */
+.desktop-app {
+	--desktop-traffic-light: oklch(0.75 0 0);
+}
+
+.desktop-app.dark {
+	--desktop-traffic-light: oklch(0.36 0 0);
+}
+
+.desktop-window-inactive body::after {
+	position: fixed;
+	z-index: 62;
+	top: 14px;
+	left: 16px;
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	background: var(--desktop-traffic-light);
+	box-shadow:
+		23px 0 var(--desktop-traffic-light),
+		46px 0 var(--desktop-traffic-light);
+	content: '';
+	pointer-events: none;
+}
+
 /* Back and forward (components/desktop-history.tsx), in the title bar to the right of the traffic
    lights, over the drag surface and taking clicks rather than dragging the window. */
 .desktop-app [data-desktop-history] {

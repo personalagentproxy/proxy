@@ -1,0 +1,113 @@
+---
+title: GitHub
+description: Connect GitHub for agents to read the repositories you choose, and to work in them from a sandbox as you.
+---
+
+Agents read the repositories the person who connects GitHub can reach among those Personal Agent
+Proxy's GitHub App is installed on, and, from a [sandbox](/connections/sandboxes), clone them,
+push to them and use GitHub's API as that person, with what you allow. Repositories stay on
+GitHub; nothing is copied.
+
+## Connect GitHub
+
+<Steps>
+
+### Install the app on GitHub
+
+Open the app's page on GitHub and install it on your account or an organization, choosing all of
+its repositories or only some. The repositories you choose are the ones agents can reach, and
+you can change them any time under **Settings**, **Applications** on GitHub.
+
+### Sign in with GitHub
+
+Open **Connections**, then **Add connection**, and **Sign in with GitHub**, and authorize the
+app. Signing in alone grants no repositories: the connection's page opens on **Repositories**,
+which lists what agents reach, account by account as the app is installed, with the way to
+change it on GitHub, or says the app is installed nowhere you reach yet, with a button to install it.
+
+### Review the defaults
+
+A new GitHub connection gives every agent Read repositories, and nothing that changes anything.
+Turn on Push commits or Change things on GitHub for every agent on the connection's page, or only
+for one agent on the agent's page.
+
+</Steps>
+
+## What agents can do
+
+- **Read repositories** lists the repositories the app is installed on and opens one, with its
+  description, visibility, default branch, language and when it was last pushed to. From a
+  sandbox, it also clones and fetches them, and reads anything through GitHub's API.
+- **Push commits** pushes branches and tags to them from a sandbox. Off unless you turn it on.
+- **Change things on GitHub** is anything that changes something through GitHub's API from a
+  sandbox: opening, editing and merging pull requests, opening and editing issues, commenting,
+  and whatever else the API writes. Off unless you turn it on.
+
+Each is also bounded by what the app may do on GitHub and by the repositories you installed it
+on: an agent can never do more on GitHub than the app and your own account can.
+
+## Working in repositories from a sandbox
+
+An agent works in a repository from a command run with `pap` turned on in one of its
+[sandboxes](/connections/sandboxes), with two commands of `pap`'s:
+
+- `pap git` is git, signed in as you: `pap git clone https://github.com/acme/demo` (or
+  `git@github.com:acme/demo.git`), then `pap git push` and `pap git fetch` in the clone. Commits
+  made with `pap git commit`, and anything else of git's that makes commits or tags, are made as
+  your GitHub account, with GitHub's noreply address for it rather than your own email, unless
+  the command sets `GIT_AUTHOR_NAME` and the like itself.
+- `pap gh` is GitHub's own command line tool, signed in as you: `pap gh pr create`, `pap gh issue
+list`, `pap gh api …`. The git it runs itself, as for `pap gh repo clone`, is `pap git`.
+
+With several GitHub connections, the agent names one before the command: `pap --connection <id>
+git …` or `pap --connection <id> gh …`; without it, `pap` uses the agent's only one, and refuses,
+listing them, where it has several.
+
+Plain `git` and `gh` in the sandbox stay signed out, and your GitHub token never enters it: every
+request of `pap git` and `pap gh` goes through Personal Agent Proxy, which checks it against what
+the agent may do, adds your token on its way to GitHub, and passes GitHub's answer back. Nothing
+is written to the repository's or the sandbox's git or gh configuration: a clone keeps
+`https://github.com/…` as its remote, and `pap gh` gives gh a configuration of its own that is
+removed when it exits.
+
+Reading through the API needs Read repositories; a GraphQL query does too, and a GraphQL mutation
+needs Change things on GitHub. A request the agent isn't allowed is refused, saying which action it
+needs, and doesn't reach GitHub.
+
+### In the activity log
+
+Every request is in the [activity log](/agents/mcp) under the agent's task, shown as from a
+sandbox, with the repository where it names one: a fetch or clone, as "Fetched acme/demo"; a push
+with the branches it updates, as "Pushed to acme/demo: fix-login"; and each API request by its
+method and path, as "POST /repos/acme/demo/pulls", a GraphQL one with its operation. Refusals are
+there too, and requests GitHub turned down for the sign-in, or couldn't answer.
+
+### Not supported yet
+
+- Git LFS.
+- Uploading release assets, which GitHub takes at another address than its API: `pap gh release
+upload` and the like are refused, saying so.
+- A git alias for `push`, `fetch` or another command that reaches GitHub: run the command itself.
+- `pap gh pr create` pushing the branch for you, which gh only offers when it can ask: push it with
+  `pap git push -u origin <branch>` first.
+
+## Sharing a GitHub connection
+
+A GitHub connection shared with everyone, or with some members, is used by their agents as yours
+is: what they push, open and comment on GitHub shows as made by your account. Share it with that
+in mind, and turn on Push commits and Change things on GitHub only for the agents you mean to.
+
+## Self-hosting
+
+Hosted Personal Agent Proxy has its own GitHub App. A self-hosted server needs one of its own:
+register a GitHub App under your account's or organization's developer settings, with
+`<APP_URL>/api/connections/github/callback` as a callback URL, **Expire user authorization
+tokens** on and **Request user authorization (OAuth) during installation** off, no webhook, and
+the repository permissions Contents, Pull requests and Issues read and write and Metadata read.
+Then set its client id and a client secret as `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, and
+its name as it is in its address, `github.com/apps/<slug>`, as `GITHUB_APP_SLUG`
+([Environment variables](/self-hosting/environment)), which is where people are sent to install it.
+
+What agents do through `pap gh` beyond that, such as running workflows, or pushing changes to a
+repository's workflow files, needs the app's matching permission too, Actions or Workflows; GitHub
+refuses it otherwise.

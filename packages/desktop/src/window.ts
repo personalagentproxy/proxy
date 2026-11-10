@@ -37,10 +37,21 @@ function load(win: BrowserWindow, url: string): void {
 	win.loadURL(url).catch(() => undefined);
 }
 
+// Marks the splash page `inactive` while the window isn't the focused one, for splash.css to draw
+// gray dots under the traffic lights, which macOS then draws as glass that vanishes over white.
+const FOLLOW_FOCUS_SCRIPT = `<script>
+	const follow = () => document.documentElement.classList.toggle('inactive', !document.hasFocus());
+	addEventListener('focus', follow);
+	addEventListener('blur', follow);
+	follow();
+</script>`;
+
 // The splash pages share a stylesheet, in a comment the page keeps a place for, and follow the
 // system's appearance: the app's own theme setting lives in its pages, out of reach here.
 function splashUrl(html: string): string {
-	const styled = html.replace('/* splash.css */', splashCss);
+	const styled = html
+		.replace('/* splash.css */', splashCss)
+		.replace('</body>', `${FOLLOW_FOCUS_SCRIPT}</body>`);
 	const themed = nativeTheme.shouldUseDarkColors
 		? styled.replace('<html>', '<html class="dark">')
 		: styled;

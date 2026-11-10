@@ -4,6 +4,7 @@ import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import type {Member} from '@proxy/contracts/orgs';
 import type {DataRecord} from '@proxy/contracts/records';
+import type {GitHubReach} from '@/lib/github';
 import {afterEach, describe, expect, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
@@ -69,6 +70,7 @@ function renderConnectionPage(
 	agents: AgentLogin[] = [claude],
 	vaultEntries: DataRecord[] | null = null,
 	sandboxes: DataRecord[] | null = null,
+	github: GitHubReach | null = null,
 ) {
 	const loads = {count: 0};
 	const router = createMemoryRouter(
@@ -91,6 +93,7 @@ function renderConnectionPage(
 								members: [dana],
 								vaultEntries,
 								sandboxes,
+								github,
 							};
 						}),
 						shouldRevalidate: shouldRevalidateTabs,
@@ -227,6 +230,45 @@ describe('ConnectionPage', () => {
 		fireEvent.click(tab('Permissions'));
 		expect(await screen.findByRole('checkbox', {name: 'See sandboxes by default'})).toBeDefined();
 		expect(screen.queryByRole('button', {name: /site-build/})).toBeNull();
+	});
+
+	test('a GitHub connection opens on the repositories it reaches, by the account the app is installed on', async () => {
+		renderConnectionPage(
+			'/acme/connections/conn-1',
+			{...mailbox, integrationId: 'github', account: 'alexkim', defaults: ['read']},
+			[claude],
+			null,
+			null,
+			{
+				installations: [
+					{
+						account: 'acme',
+						accountType: 'Organization',
+						all: true,
+						settingsUrl: 'https://github.com/organizations/acme/settings/installations/11',
+						repositories: [
+							{
+								fullName: 'acme/api',
+								visibility: 'Public',
+								pushedAt: null,
+								url: 'https://github.com/acme/api',
+							},
+						],
+						more: false,
+					},
+				],
+				installUrl: 'https://github.com/apps/personal-agent-proxy/installations/new',
+			},
+		);
+
+		expect(await screen.findByRole('button', {name: /acme\/api/})).toBeDefined();
+		expect(tabs()).toEqual([
+			['Repositories1', 'page'],
+			['Permissions', null],
+			['Sharing', null],
+			['Recent activity', null],
+		]);
+		expect(screen.getByRole('link', {name: 'Add repositories'})).toBeDefined();
 	});
 });
 

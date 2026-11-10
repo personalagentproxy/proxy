@@ -1,7 +1,7 @@
 import type {Counter, Histogram, MetricsClient} from './metrics';
 
-/** How a request of an agent came in: the web app, the MCP server, or the built-in agent. */
-export type ToolSurface = 'web' | 'mcp' | 'harness';
+/** How a request of an agent came in: the web app, the MCP server, the built-in agent, or a sandbox's CLI. */
+export type ToolSurface = 'web' | 'mcp' | 'harness' | 'cli';
 
 export type ToolOutcome = 'allowed' | 'denied' | 'failed';
 

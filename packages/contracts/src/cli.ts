@@ -1,0 +1,43 @@
+import {z} from 'zod';
+
+import {PAP_METHODS} from './cli-constants';
+
+export {CLI_CALL_PATH, CLI_STATUS, PAP_METHODS, type PapMethod} from './cli-constants';
+
+/**
+ * The CLI's routes (`/api/cli/…`), for code in a sandbox: what the `script` tool's `pap` object
+ * does, over HTTP. A sandbox command run with `pap: true` is given `PAP_URL`, where this server is
+ * opened, and `PAP_TOKEN`, which every request sends as `Authorization: Bearer <token>`. The token
+ * is the agent's, for the task the command was run for, while the sandbox is still that task's, and
+ * lasts as long as the command; there is no cookie and no Origin check.
+ *
+ * `POST /api/cli/call` with `cliCallBodySchema`, `{method, args}`, a `pap` function and its
+ * arguments as a script passes them:
+ * - `{method: 'connections', args: []}`: the connections the agent can use, a sandbox's own
+ *   Sandboxes connection left out.
+ * - `{method: 'tools', args: [connection]}`: a connection's tools.
+ * - `{method: 'call', args: [connection, tool, params?]}`: runs a tool, logged under the token's task.
+ * - `{method: 'feedback', args: [{message, connection?, tool?}]}`: feedback for the makers.
+ * `startTask` and `finishTask` are refused: the token's task is the one used.
+ *
+ * Answered with one of three statuses, so a client can tell them apart without reading the words:
+ * - 200: `{result}`, what the function answered, as JSON.
+ * - 422, `CliCallFailure`: `{error, message}`, the call failed: a tool refused or failing, a
+ *   method or arguments that aren't right, or a body that isn't JSON; `error` the kind of error and
+ *   `message` what to do, in words for a model.
+ * - 401: `{error: 'unauthenticated', message}`, the token is missing, not valid or expired, or
+ *   what it names is no longer so (the agent revoked, the task ended, the sandbox another task's);
+ *   `message` says how to get a new one. Run the command again with `pap: true`.
+ * Anything else is the server failing, such as a 500.
+ */
+
+/** `POST /api/cli/call`: the function, and its arguments as a script passes them, none where left out. */
+export const cliCallBodySchema = z.object({
+	method: z.enum(PAP_METHODS),
+	args: z.array(z.json()).default([]),
+});
+
+export type CliCallBody = z.input<typeof cliCallBodySchema>;
+
+/** 422: the call failed, `error` the kind of error and `message` what went wrong, for a model. */
+export type CliCallFailure = {error: string; message: string};

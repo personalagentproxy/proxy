@@ -108,13 +108,17 @@ function vaultInstructions(connections: AgentConnection[]): string[] {
 	];
 }
 
+const GITHUB_INTEGRATION_ID = 'github';
+
 // The sandboxes, where the agent may use them: what for, and the rules the tools' own
-// descriptions don't carry.
+// descriptions don't carry; with a GitHub connection it can use, that pap git and pap gh are its.
 function sandboxInstructions(connections: AgentConnection[]): string[] {
 	const usable = connections.filter((connection) => connection.integrationId === SANDBOX_INTEGRATION_ID && connection.actions.includes('run'));
+	const github = connections.some((connection) => connection.integrationId === GITHUB_INTEGRATION_ID && connection.actions.length > 0);
+	const gitAndGh = github ? ' In a sandbox, pap git and pap gh are git and gh as your GitHub connection’s account; plain git and gh are signed out.' : '';
 	return usable.map(
 		(connection) =>
-			`${connection.id} has sandboxes: computers with a shell and the internet, for running code. One is a task’s at a time and keeps its disk, so reuse yours. sandbox_exec takes a sandbox’s id, not its name.`,
+			`${connection.id} has sandboxes: computers with a shell and the internet, for running code. One is a task’s at a time and keeps its disk, so reuse yours. sandbox_exec takes a sandbox’s id, not its name. A command run with pap: true reaches your connections from code with the pap CLI: pap connections, pap tools <connection>, pap call <connection> <tool> '<json>'; pap --help has the rest.${gitAndGh}`,
 	);
 }
 
@@ -173,7 +177,7 @@ export async function callMcpTool(signedIn: SignedInAgent, args: Record<string, 
 	if (!parsed.success || parsed.data.code.trim() === '') {
 		return failed('script takes code, and task where one was started.');
 	}
-	const host = agentScriptHost(signedIn, {via, task: parsed.data.task?.trim() || null, taskTools: via === 'mcp'});
+	const host = agentScriptHost(signedIn, {via, task: parsed.data.task?.trim() || null, taskTools: via === 'mcp', sandboxes: true});
 	const run = await runScript(parsed.data.code, host.answer, LIMITS);
 	if (run.isErr()) {
 		log.error('A script could not be run', {kind: run.error.kind});

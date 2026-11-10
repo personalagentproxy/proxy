@@ -16,6 +16,7 @@
 	"dependencies": {
 		"@jitl/quickjs-wasmfile-release-sync": "0.32.0",
 		"@proxy/backends": "workspace:*",
+		"@proxy/cli": "workspace:*",
 		"@proxy/contracts": "workspace:*",
 		"@proxy/db": "workspace:*",
 		"@proxy/integrations": "workspace:*",
@@ -24,6 +25,7 @@
 		"dotenv": "^16.6.1",
 		"express": "^4.21.2",
 		"fast-xml-parser": "^5.11.2",
+		"graphql": "^16.15.0",
 		"imapflow": "^2.2.6",
 		"mailparser": "^3.9.36",
 		"mammoth": "^1.13.0",

@@ -4,6 +4,7 @@ import {CLOUDFLARE_INTEGRATION} from './cloudflare/integration';
 import {CUSTOM_MCP_INTEGRATION} from './custom/integration';
 import {EMAIL_INTEGRATION} from './email/integration';
 import {EXA_INTEGRATION} from './exa/integration';
+import {GITHUB_INTEGRATION} from './github/integration';
 import {GOOGLE_INTEGRATION} from './google/integration';
 import {GRANOLA_INTEGRATION} from './granola/integration';
 import type {ApiIntegration} from './integration';
@@ -29,6 +30,7 @@ function modules(): Record<IntegrationId, ApiIntegration> {
 		granola: GRANOLA_INTEGRATION,
 		notion: NOTION_INTEGRATION,
 		linear: LINEAR_INTEGRATION,
+		github: GITHUB_INTEGRATION,
 		cloudflare: CLOUDFLARE_INTEGRATION,
 		exa: EXA_INTEGRATION,
 		parallel: PARALLEL_INTEGRATION,

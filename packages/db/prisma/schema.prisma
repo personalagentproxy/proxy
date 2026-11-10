@@ -394,12 +394,13 @@ enum AuditOutcome {
   failed
 }
 
-// How an agent came in: the web app's agent pages, the MCP server, or the built-in agent's own
-// loop (`harness`).
+// How an agent came in: the web app's agent pages, the MCP server, the built-in agent's own
+// loop (`harness`), or code in a sandbox calling `/api/cli` with its command's token (`cli`).
 enum AuditVia {
   web
   mcp
   harness
+  cli
 }
 
 // One request an agent made, allowed, denied or failed, or one thing Personal Agent Proxy did
@@ -660,6 +661,9 @@ model Sandbox {
   // When a command last ran in it, or it was made, woken or put to sleep: what the idle sweeper
   // reads, and the list shows.
   lastUsedAt       DateTime     @default(now())
+  // The version of the `pap` CLI installed in it (packages/cli), null where none was: a command run
+  // with `pap: true` installs the api's own first where it differs.
+  papVersion       String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

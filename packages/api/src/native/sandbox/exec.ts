@@ -6,14 +6,23 @@ import {SANDBOX_EXEC_DEFAULT_SECONDS, SANDBOX_EXEC_MAX_SECONDS} from '@proxy/int
 import {getSandbox, touchSandbox} from '@proxy/db/sandbox';
 import type {SandboxOutput} from '@proxy/backends/sandbox/backend';
 
+import {papBundle} from '../../cli/bundle';
+import {cliCommandEnv, requireCliTokenConfig} from '../../cli/command-env';
 import type {NativeToolRunner} from '../tool';
 import {holdForTask} from './lease';
 import {requireBackend, wakeSandbox} from './machines';
+import {ensurePap, withPapOnPath} from './pap';
 
 /**
  * The console, `sandbox_exec`: a command run in a sandbox of the connection's for the caller's
  * task, which takes the sandbox (lease.ts) and wakes it where it was asleep. What the command
- * wrote and how it ended come back as text the model reads as it would a terminal.
+ * wrote and how it ended come back as text the model reads as it would a terminal. With `pap`,
+ * the command is given `PAP_URL` and `PAP_TOKEN`, so code in the sandbox can call `/api/cli` as
+ * the agent, for the task, while the sandbox is still the task's (cli/command-env.ts), and finds
+ * the `pap` CLI on its PATH, installed first where it isn't this server's (pap.ts); without it, no
+ * credential and nothing installed. The activity log has the command as the agent gave it. The
+ * token is signed once the sandbox is woken and pap installed, so it lasts as long as the command
+ * may.
  */
 
 const paramsSchema = z.object({
@@ -22,6 +31,7 @@ const paramsSchema = z.object({
 	stdin: z.string().optional(),
 	cwd: z.string().optional(),
 	timeout: z.number().positive().max(SANDBOX_EXEC_MAX_SECONDS).optional(),
+	pap: z.boolean().optional(),
 });
 
 // How much of each stream the model is given; the gate cuts the whole answer further.
@@ -55,14 +65,21 @@ export const runSandboxCommand: NativeToolRunner = ({caller, connection, params}
 	Do(async ($): Promise<string> => {
 		const parsed = parseSchema(paramsSchema, params);
 		if (parsed.isErr()) {
-			return $(Err(ApiErr.validationError(`sandbox_exec takes sandbox, command, and stdin, cwd and timeout where wanted: ${parsed.error.kind === 'parse_error' ? parsed.error.message : ''}`)));
+			return $(Err(ApiErr.validationError(`sandbox_exec takes sandbox, command, and stdin, cwd, timeout and pap where wanted: ${parsed.error.kind === 'parse_error' ? parsed.error.message : ''}`)));
 		}
-		const {sandbox: sandboxId, command, stdin, cwd, timeout = SANDBOX_EXEC_DEFAULT_SECONDS} = parsed.value;
+		const {sandbox: sandboxId, command, stdin, cwd, timeout = SANDBOX_EXEC_DEFAULT_SECONDS, pap = false} = parsed.value;
+		const config = pap ? $(requireCliTokenConfig()) : null;
+		const bundle = pap ? $(await papBundle()) : null;
 		const backend = $(await requireBackend());
 		const found = $(requirePresent($(await getSandbox(connection.id, sandboxId)), ApiErr.notFound('sandbox', sandboxId, `No sandbox ${sandboxId}: give its id, not its name.`)));
 		$(await holdForTask(found, caller.taskId));
 		const running = $(await wakeSandbox(found));
-		const output = $(await backend.exec(running.backendRef, {command, stdin, cwd, timeoutMs: Math.round(timeout * 1000)}));
+		if (bundle !== null) {
+			$(await ensurePap(backend, running, bundle));
+		}
+		const claims = {agentId: caller.agent.agentId, orgId: caller.agent.orgId, taskId: caller.taskId, sandboxId: running.id, connectionId: connection.id};
+		const sent = config === null ? {command} : {command: withPapOnPath(command), env: cliCommandEnv(config, claims, timeout)};
+		const output = $(await backend.exec(running.backendRef, {...sent, stdin, cwd, timeoutMs: Math.round(timeout * 1000)}));
 		$(await touchSandbox(running.id));
 		return describeOutput(output, timeout);
 	});

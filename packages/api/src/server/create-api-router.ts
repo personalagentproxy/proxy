@@ -1,4 +1,8 @@
 import express from 'express';
+import {z} from 'zod';
+
+import {CLI_CALL_PATH, CLI_STATUS, type CliCallFailure} from '@proxy/contracts/cli';
+import {CLI_GITHUB_API_PATH, CLI_GITHUB_GIT_PATH, CLI_GITHUB_IDENTITY_PATH} from '@proxy/contracts/cli-github';
 
 import {handleActivityTimelineRoute, handleListActivityRoute, handleTaskRunRoute} from '../activity/route';
 import {handleAgentLoginRoute, handleAgentLogoutRoute} from '../agent-auth/session';
@@ -30,7 +34,10 @@ import {handleDevLoginRoute} from '../auth/dev-login';
 import {handleEmailSignInRoute, handleEmailVerifyRoute} from '../auth/email';
 import {handleGoogleCallbackRoute, handleGoogleStartRoute, handleSignInMethodsRoute} from '../auth/google';
 import {handleSignOutRoute} from '../auth/signout';
+import {handleGitHubApiRoute, handleGitHubGitRoute, handleGitHubIdentityRoute} from '../cli/github/route';
+import {handleCliCallRoute} from '../cli/route';
 import {handleRefreshCustomMcpToolsRoute} from '../connections/custom/route';
+import {handleGitHubInstallationsRoute} from '../connections/github/route';
 import type {ApiIntegration} from '../connections/integration';
 import {apiIntegrations} from '../connections/integrations';
 import {
@@ -38,6 +45,7 @@ import {
 	handleDeleteConnectionRoute,
 	handleGetConnectionRoute,
 	handleListConnectionsRoute,
+	handleMoveConnectionRoute,
 	handleRenameConnectionRoute,
 	handleSetConnectionDefaultsRoute,
 	handleSetConnectionSharingRoute,
@@ -87,12 +95,24 @@ import {allowAnyOrigin} from './middleware/allow-any-origin';
 import {requireBrowserOrigin} from './middleware/require-browser-origin';
 import {withAgentAuthResult} from './middleware/require-agent';
 import {withAuth, withAuthResult} from './middleware/require-auth';
+import {withCliAuth, withCliRelay} from './middleware/require-cli';
 import {wrapAsyncRoute} from './middleware/wrap-async-route';
+
+// The most a JSON body may be, a script's code over MCP and a call's params from a sandbox alike.
+const BODY_LIMIT = '1mb';
 
 export function createApiRouter(): express.Router {
 	const router = express.Router();
 
-	router.use(express.json({limit: '1mb'}));
+	// GitHub's git and API requests from a sandbox, relayed to GitHub as the person (cli/github),
+	// with the token its command was given, as `/api/cli/call` below. Mounted before the JSON parser,
+	// which would read a body sent as JSON, and they stream every body through as it is, a pack or an
+	// API request's alike.
+	router.get(CLI_GITHUB_IDENTITY_PATH, withCliAuth('CLI GitHub identity route', handleGitHubIdentityRoute));
+	router.use(CLI_GITHUB_GIT_PATH, withCliRelay('CLI GitHub git route', handleGitHubGitRoute));
+	router.use(CLI_GITHUB_API_PATH, withCliRelay('CLI GitHub API route', handleGitHubApiRoute));
+
+	router.use(express.json({limit: BODY_LIMIT}));
 
 	// Sign-in and sign-out. No auth middleware: these mint or revoke the session cookie, and
 	// sign-out must succeed without a valid session. The OAuth endpoints and the magic-link verify
@@ -164,8 +184,11 @@ export function createApiRouter(): express.Router {
 	org.delete('/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
 	org.put('/connections/:connectionId/defaults', withAuthResult('Set connection defaults route', handleSetConnectionDefaultsRoute));
 	org.put('/connections/:connectionId/name', withAuthResult('Rename connection route', handleRenameConnectionRoute));
+	org.put('/connections/:connectionId/org', withAuthResult('Move connection route', handleMoveConnectionRoute));
 	org.put('/connections/:connectionId/sharing', withAuthResult('Set connection sharing route', handleSetConnectionSharingRoute));
 	org.post('/connections/:connectionId/tools', withAuthResult('Refresh custom MCP server tools route', handleRefreshCustomMcpToolsRoute));
+	// What a GitHub connection reaches, for its page (connections/github/route.ts).
+	org.get('/connections/:connectionId/github/installations', withAuthResult('GitHub installations route', handleGitHubInstallationsRoute));
 	const records = '/connections/:connectionId/collections/:collectionId/records';
 	org.get(records, withAuthResult('List records route', handleListRecordsRoute));
 	org.post(records, withAuthResult('Create record route', handleCreateRecordRoute));
@@ -246,6 +269,12 @@ export function createApiRouter(): express.Router {
 	router.post('/api/agent/connections/:connectionId/tools/:toolName', withAgentAuthResult('Agent run tool route', handleAgentRunToolRoute));
 	router.post('/api/agent/feedback', withAgentAuthResult('Agent feedback route', handleAgentFeedbackRoute));
 
+	// Code in a sandbox, with the token its command was given (cli/authenticate.ts): what a
+	// script's `pap` functions do, over HTTP. No `requireBrowserOrigin`, and no cookie: the caller is
+	// a process in a sandbox, not a browser, and the bearer token, which no browser sends on its
+	// own, is the guard, as for the MCP server. Nothing above is mounted on `/api/cli`.
+	router.post(CLI_CALL_PATH, withCliAuth('CLI call route', handleCliCallRoute));
+
 	// MCP clients such as Claude, ChatGPT and Poke: the MCP server, signed in with OAuth 2.1, where
 	// Personal Agent Proxy is its own authorization server. Clients find it from the MCP server's
 	// 401, register themselves, and send the person to /oauth/authorize, which hands over to the web
@@ -263,8 +292,13 @@ export function createApiRouter(): express.Router {
 	router.get('/mcp', handleMcpMethodNotAllowedRoute);
 	router.delete('/mcp', handleMcpMethodNotAllowedRoute);
 
-	// A body that isn't JSON: JSON-RPC's parse error for the MCP server, Express's own answer elsewhere.
+	// A body that isn't JSON: JSON-RPC's parse error for the MCP server, a failed call for the CLI
+	// (@proxy/contracts/cli), Express's own answer elsewhere.
 	router.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+		if (req.path.startsWith('/api/cli/')) {
+			res.status(CLI_STATUS.failed).json(cliBodyFailure(error));
+			return;
+		}
 		if (req.path !== '/mcp') {
 			next(error);
 			return;
@@ -273,6 +307,17 @@ export function createApiRouter(): express.Router {
 	});
 
 	return router;
+}
+
+// What Express's JSON parser threw, as far as its kind: a body too large, or one that isn't JSON.
+const bodyErrorSchema = z.object({type: z.string()});
+
+function cliBodyFailure(error: unknown): CliCallFailure {
+	const parsed = bodyErrorSchema.safeParse(error);
+	if (parsed.success && parsed.data.type === 'entity.too.large') {
+		return {error: 'parse_error', message: `The request is over ${BODY_LIMIT}: send less in one call.`};
+	}
+	return {error: 'parse_error', message: 'The request is not JSON: send {method, args} as JSON, with Content-Type: application/json.'};
 }
 
 /**

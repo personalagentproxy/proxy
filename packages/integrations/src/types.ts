@@ -107,6 +107,7 @@ export type IntegrationId =
 	| 'granola'
 	| 'notion'
 	| 'linear'
+	| 'github'
 	| 'cloudflare'
 	| 'exa'
 	| 'parallel'
@@ -148,6 +149,10 @@ export type Integration = {
 	// Shown above a connection's permissions: what ticking them hands the person's agents, where a
 	// provider's policy asks for it to be said.
 	disclosure?: string;
+	// Shown where a connection is shared, and asked about before sharing it: what acting through it
+	// means for whose name it is done in, where the provider shows what agents do as the account's
+	// own, as GitHub shows a push or a pull request as the account's.
+	sharingWarning?: string;
 	// Lives in Personal Agent Proxy itself, as the vault does: every member has one of their own,
 	// always there, never connected or disconnected. A vault alone is also made, beside it, to share.
 	native?: true;
