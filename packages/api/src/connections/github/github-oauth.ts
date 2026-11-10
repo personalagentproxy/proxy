@@ -24,7 +24,7 @@ const TIMEOUT_MS = 15_000;
 // Refreshed a minute early, so a token doesn't run out between the check and the call.
 const EXPIRY_MARGIN_MS = 60_000;
 
-/** What a GitHub connection stores, encrypted: its tokens, and the account, with the name and address commits as them take. */
+/** What a GitHub connection stores, encrypted: its tokens, and the account, with the name commits as them take. */
 export const githubCredentialSchema = z.object({
 	accessToken: z.string(),
 	refreshToken: z.string().nullable(),
@@ -33,7 +33,6 @@ export const githubCredentialSchema = z.object({
 	id: z.string(),
 	login: z.string(),
 	name: z.string().nullable(),
-	email: z.string(),
 });
 
 export type GitHubCredential = z.infer<typeof githubCredentialSchema>;
@@ -59,8 +58,8 @@ const refusalSchema = z.object({error: z.string(), error_description: z.string()
 
 const tokenAnswerSchema = z.union([tokensSchema, refusalSchema]);
 
-/** Who a sign-in was for: GitHub's id for the account, its login, and the name and address commits as them take. */
-export type GitHubAccount = {id: string; login: string; name: string | null; email: string};
+/** Who a sign-in was for: GitHub's id for the account, its login, and the name commits as them take. */
+export type GitHubAccount = {id: string; login: string; name: string | null};
 
 /**
  * GitHub's sign-in page for a connection, coming back to `redirectUri` with `state`. Signing in
@@ -114,24 +113,13 @@ function expiresAt(tokens: Tokens): string | null {
 	return tokens.expires_in === undefined ? null : new Date(Date.now() + tokens.expires_in * 1000).toISOString();
 }
 
-const userSchema = z.object({id: z.number(), login: z.string().min(1), name: z.string().nullable().optional(), email: z.string().nullable().optional()});
-
-const emailsSchema = z.array(z.object({email: z.string(), primary: z.boolean(), verified: z.boolean()}));
-
-// The address commits as the person take: their primary verified one, which the app reads with
-// the Email addresses permission; without it, the one on their profile, or the address GitHub
-// gives everyone, which it credits to them too.
-async function emailOf(accessToken: string, user: z.infer<typeof userSchema>): Promise<string> {
-	const emails = await httpRequest(`${GITHUB_API}/user/emails`, {headers: githubHeaders(accessToken)}, {schema: emailsSchema, timeoutMs: TIMEOUT_MS});
-	const primary = emails.isOk() ? emails.value.find((entry) => entry.primary && entry.verified) : undefined;
-	return primary?.email ?? user.email ?? `${user.id}+${user.login}@users.noreply.github.com`;
-}
+const userSchema = z.object({id: z.number(), login: z.string().min(1), name: z.string().nullable().optional()});
 
 /** The account a token is for, as GitHub says. */
 export async function githubAccount(accessToken: string): Promise<Result<GitHubAccount, ApiError>> {
 	return Do(async ($) => {
 		const user = $((await httpRequest(`${GITHUB_API}/user`, {headers: githubHeaders(accessToken)}, {schema: userSchema, timeoutMs: TIMEOUT_MS})).mapErr((error) => ApiErr.providerUnreachable(error)));
-		return {id: String(user.id), login: user.login, name: user.name ?? null, email: await emailOf(accessToken, user)};
+		return {id: String(user.id), login: user.login, name: user.name ?? null};
 	});
 }
 

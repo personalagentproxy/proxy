@@ -102,7 +102,6 @@ export function githubConnection(id: string, account: string, defaults: string[]
 		id: '1234',
 		login: account,
 		name: account === 'octo-dana' ? 'Dana Octo' : null,
-		email: `${account}@example.com`,
 	};
 	return {
 		id,

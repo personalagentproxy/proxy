@@ -38,7 +38,6 @@ const CREDENTIAL = {
 	id: '4242',
 	login: 'alexkim',
 	name: 'Alex Kim',
-	email: 'alex@example.com',
 };
 
 const target = {

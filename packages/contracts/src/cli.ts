@@ -21,13 +21,13 @@ export {CLI_CALL_PATH, CLI_STATUS, PAP_METHODS, type PapMethod} from './cli-cons
  * `startTask` and `finishTask` are refused: the token's task is the one used.
  *
  * Answered with one of three statuses, so a client can tell them apart without reading the words:
- * - 200, `cliCallResultSchema`: `{result}`, what the function answered, as JSON.
- * - 422, `cliCallFailureSchema`: `{error, message}`, the call failed: a tool refused or failing, a
+ * - 200: `{result}`, what the function answered, as JSON.
+ * - 422, `CliCallFailure`: `{error, message}`, the call failed: a tool refused or failing, a
  *   method or arguments that aren't right, or a body that isn't JSON; `error` the kind of error and
  *   `message` what to do, in words for a model.
- * - 401, `cliRefusalSchema`: the token is missing, not valid or expired, or what it names is no
- *   longer so (the agent revoked, the task ended, the sandbox another task's); `message` says how
- *   to get a new one. Run the command again with `pap: true`.
+ * - 401: `{error: 'unauthenticated', message}`, the token is missing, not valid or expired, or
+ *   what it names is no longer so (the agent revoked, the task ended, the sandbox another task's);
+ *   `message` says how to get a new one. Run the command again with `pap: true`.
  * Anything else is the server failing, such as a 500.
  */
 
@@ -39,20 +39,5 @@ export const cliCallBodySchema = z.object({
 
 export type CliCallBody = z.input<typeof cliCallBodySchema>;
 
-/** 200: what the function answered. */
-export const cliCallResultSchema = z.object({result: z.json()});
-
-export type CliCallResult = z.infer<typeof cliCallResultSchema>;
-
 /** 422: the call failed, `error` the kind of error and `message` what went wrong, for a model. */
-export const cliCallFailureSchema = z.object({error: z.string(), message: z.string()});
-
-export type CliCallFailure = z.infer<typeof cliCallFailureSchema>;
-
-/** 401: the token doesn't work, `message` saying how to get one that does. */
-export const cliRefusalSchema = z.object({
-	error: z.literal('unauthenticated'),
-	message: z.string(),
-});
-
-export type CliRefusal = z.infer<typeof cliRefusalSchema>;
+export type CliCallFailure = {error: string; message: string};

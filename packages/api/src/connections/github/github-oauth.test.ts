@@ -24,7 +24,7 @@ const CLIENT = {clientId: 'Iv23client', clientSecret: 'secret-1', slug: 'persona
 type Seen = {url: URL; method: string; headers: Headers; body: string};
 
 // GitHub's token endpoint and API: each request, and what each answers.
-const github = {requests: [] as Seen[], token: {} as object, emails: [] as object[] | null, user: {} as object};
+const github = {requests: [] as Seen[], token: {} as object, user: {} as object};
 
 function seenPaths(): string[] {
 	return github.requests.map((request) => `${request.method} ${request.url.host}${request.url.pathname}`);
@@ -35,9 +35,6 @@ const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (input: st
 	github.requests.push({url, method: init?.method ?? 'GET', headers: new Headers(init?.headers), body: typeof init?.body === 'string' ? init.body : ''});
 	if (url.pathname === '/login/oauth/access_token') {
 		return Response.json(github.token);
-	}
-	if (url.pathname === '/user/emails') {
-		return github.emails === null ? new Response('Forbidden', {status: 403}) : Response.json(github.emails);
 	}
 	if (url.pathname === '/user') {
 		return Response.json(github.user);
@@ -56,10 +53,6 @@ beforeEach(() => {
 	github.requests = [];
 	github.token = {access_token: 'ghu_access1', expires_in: 28800, refresh_token: 'ghr_refresh1', refresh_token_expires_in: 15897600, token_type: 'bearer', scope: ''};
 	github.user = {login: 'alexkim', id: 4242, name: 'Alex Kim', email: null};
-	github.emails = [
-		{email: 'alex@work.example.com', primary: false, verified: true},
-		{email: 'Alex@example.com', primary: true, verified: true},
-	];
 });
 
 describe('githubAuthorizeUrl', () => {
@@ -73,10 +66,10 @@ describe('githubAuthorizeUrl', () => {
 });
 
 describe('exchangeGitHubCode', () => {
-	test('trades the code with the client secret, then reads who it is for and their primary verified address', async () => {
+	test('trades the code with the client secret, then reads who it is for', async () => {
 		const {account, credential} = (await exchangeGitHubCode(CLIENT, {redirectUri: 'https://app.example.com/api/connections/github/callback', code: 'code-1'})).unwrap();
 
-		expect(seenPaths()).toEqual(['POST github.com/login/oauth/access_token', 'GET api.github.com/user', 'GET api.github.com/user/emails']);
+		expect(seenPaths()).toEqual(['POST github.com/login/oauth/access_token', 'GET api.github.com/user']);
 		const token = github.requests[0];
 		expect(token?.headers.get('accept')).toBe('application/json');
 		expect(Object.fromEntries(new URLSearchParams(token?.body))).toEqual({
@@ -87,18 +80,9 @@ describe('exchangeGitHubCode', () => {
 		});
 		expect(github.requests[1]?.headers.get('authorization')).toBe('Bearer ghu_access1');
 		expect(github.requests[1]?.headers.get('user-agent')).toBe('Personal Agent Proxy');
-		expect(account).toEqual({id: '4242', login: 'alexkim', name: 'Alex Kim', email: 'Alex@example.com'});
-		expect(credential).toMatchObject({accessToken: 'ghu_access1', refreshToken: 'ghr_refresh1', id: '4242', login: 'alexkim', email: 'Alex@example.com'});
+		expect(account).toEqual({id: '4242', login: 'alexkim', name: 'Alex Kim'});
+		expect(credential).toMatchObject({accessToken: 'ghu_access1', refreshToken: 'ghr_refresh1', id: '4242', login: 'alexkim', name: 'Alex Kim'});
 		expect(Date.parse(credential.expiresAt ?? '') - Date.now()).toBeGreaterThan(28_000_000);
-	});
-
-	test("without the addresses, takes the profile's, or GitHub's own for the account", async () => {
-		github.emails = null;
-		github.user = {login: 'alexkim', id: 4242, name: null, email: 'alex@profile.example.com'};
-		expect((await exchangeGitHubCode(CLIENT, {redirectUri: 'https://x', code: 'code-1'})).unwrap().account.email).toBe('alex@profile.example.com');
-
-		github.user = {login: 'alexkim', id: 4242, name: null, email: null};
-		expect((await exchangeGitHubCode(CLIENT, {redirectUri: 'https://x', code: 'code-1'})).unwrap().account.email).toBe('4242+alexkim@users.noreply.github.com');
 	});
 
 	test('a token that never expires, as an app without expiring tokens hands out, has no expiry', async () => {
@@ -119,14 +103,14 @@ describe('exchangeGitHubCode', () => {
 });
 
 describe('refreshGitHubTokens', () => {
-	const credential = {accessToken: 'ghu_old', refreshToken: 'ghr_old', expiresAt: new Date(Date.now() - 1000).toISOString(), id: '4242', login: 'alexkim', name: 'Alex Kim', email: 'alex@example.com'};
+	const credential = {accessToken: 'ghu_old', refreshToken: 'ghr_old', expiresAt: new Date(Date.now() - 1000).toISOString(), id: '4242', login: 'alexkim', name: 'Alex Kim'};
 
 	test('takes new tokens for the refresh token, the new refresh token among them, and keeps the account', async () => {
 		github.token = {access_token: 'ghu_new', expires_in: 28800, refresh_token: 'ghr_new', token_type: 'bearer'};
 		const refreshed = (await refreshGitHubTokens(CLIENT, credential)).unwrap();
 
 		expect(Object.fromEntries(new URLSearchParams(github.requests[0]?.body))).toEqual({grant_type: 'refresh_token', refresh_token: 'ghr_old', client_id: 'Iv23client', client_secret: 'secret-1'});
-		expect(refreshed).toMatchObject({accessToken: 'ghu_new', refreshToken: 'ghr_new', login: 'alexkim', email: 'alex@example.com'});
+		expect(refreshed).toMatchObject({accessToken: 'ghu_new', refreshToken: 'ghr_new', login: 'alexkim'});
 		expect(isExpiring(credential)).toBe(true);
 		expect(isExpiring(refreshed)).toBe(false);
 	});
@@ -140,7 +124,7 @@ describe('refreshGitHubTokens', () => {
 
 describe('revokeGitHubGrant', () => {
 	test("ends the person's authorization of the app, speaking as the app", async () => {
-		const credential = {accessToken: 'ghu_access1', refreshToken: null, expiresAt: null, id: '4242', login: 'alexkim', name: null, email: 'alex@example.com'};
+		const credential = {accessToken: 'ghu_access1', refreshToken: null, expiresAt: null, id: '4242', login: 'alexkim', name: null};
 		(await revokeGitHubGrant(CLIENT, credential)).unwrap();
 
 		const request = github.requests[0];
@@ -152,7 +136,7 @@ describe('revokeGitHubGrant', () => {
 
 describe('readGitHubCredential', () => {
 	test('reads what a connection stores, and refuses what isn’t one', () => {
-		const credential = {accessToken: 'ghu_access1', refreshToken: 'ghr_1', expiresAt: null, id: '4242', login: 'alexkim', name: null, email: 'alex@example.com'};
+		const credential = {accessToken: 'ghu_access1', refreshToken: 'ghr_1', expiresAt: null, id: '4242', login: 'alexkim', name: null};
 		expect(readGitHubCredential(`enc:${JSON.stringify(credential)}`).unwrap()).toEqual(credential);
 		expect(readGitHubCredential(null).unwrapErr().kind).toBe('internal_error');
 		expect(readGitHubCredential('enc:{"nope":true}').unwrapErr().kind).toBe('internal_error');
