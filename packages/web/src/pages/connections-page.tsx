@@ -55,7 +55,7 @@ function needsName(connection: Connection): boolean {
 // shared with every member; and, in someone with another organization, moves their own into it.
 export function ConnectionsPage() {
 	return (
-		<AppShell title={<PageTitle>Connections</PageTitle>}>
+		<AppShell title={<PageTitle>Connections and permissions</PageTitle>}>
 			<Connections />
 		</AppShell>
 	);

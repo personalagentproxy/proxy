@@ -29,7 +29,8 @@ export function AgentHomePage() {
 				{connections.length === 0 && (
 					<p className="text-sm text-muted-foreground">
 						No connections are available to this login yet. Ask the person who set it up to add a
-						service on the Connections page, or give this login access to one already connected.
+						service on the Connections and permissions page, or give this login access to one
+						already connected.
 					</p>
 				)}
 				{connections.map((connection) => {
