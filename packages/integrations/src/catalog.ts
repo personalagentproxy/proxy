@@ -1806,7 +1806,7 @@ const github: Integration = {
 		{
 			id: 'push',
 			label: 'Push commits',
-			description: 'Push branches and tags to the repositories from a sandbox, with pap git',
+			description: 'Access to the git CLI (pap git) in a sandbox, to push branches and tags',
 			risk: 'high',
 			requires: 'read',
 			reachesOthers: true,
@@ -1815,7 +1815,7 @@ const github: Integration = {
 			id: 'write',
 			label: 'Change things on GitHub',
 			description:
-				'Anything GitHub’s API changes, from a sandbox with pap gh: open, edit and merge pull requests, open and edit issues, comment, and more',
+				'Access to the gh CLI, the GitHub CLI (pap gh), in a sandbox, to open, edit and merge pull requests, open and edit issues, comment and more',
 			risk: 'high',
 			requires: 'read',
 			reachesOthers: true,
