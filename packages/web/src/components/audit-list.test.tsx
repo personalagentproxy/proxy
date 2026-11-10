@@ -127,6 +127,19 @@ describe('AuditList', () => {
 		expect(within(dialog).getByText('MCP')).toBeDefined();
 	});
 
+	test('keeps a tall entry inside the viewport and scrolls its details', async () => {
+		renderList([
+			{...entry, query: 'newsletter '.repeat(500), recordTitle: 'Weekly digest '.repeat(50)},
+		]);
+
+		fireEvent.click(await screen.findByRole('button', {name: /Tried to archive email/}));
+
+		const dialog = await screen.findByRole('dialog');
+		expect(dialog.classList.contains('max-h-[calc(100dvh-2rem)]')).toBe(true);
+		expect(dialog.classList.contains('overflow-hidden')).toBe(true);
+		expect(dialog.querySelector('.overflow-y-auto')).not.toBeNull();
+	});
+
 	test('a failed request says so, and what went wrong', async () => {
 		renderList([{...entry, outcome: 'failed', error: 'provider_unreachable 429'}]);
 
