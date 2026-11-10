@@ -2,21 +2,18 @@
 
 import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
-import {Err, Ok, type Result} from 'ts-results-es';
+import {Ok} from 'ts-results-es';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import type {ClaudeAccount} from '@proxy/contracts/me';
-import type {FetchError} from '@proxy/utils';
 import {HumanSide} from '@/components/human-side';
 import {formatDateTime} from '@/lib/format';
 import {later} from '@/lib/loader-utils';
 import {AccountPage} from '@/pages/account-page';
 import {testHuman} from '@/test-org';
 
-const connectClaudeToken = mock(async (): Promise<Result<{account: null}, FetchError>> =>
-	Ok({account: null}),
-);
+const connectClaudeToken = mock(async () => Ok({account: null}));
 const disconnectClaude = mock(async () => Ok({account: null}));
 mock.module('@/client/me-client', () => ({
 	getMe: mock(),
@@ -34,9 +31,12 @@ beforeEach(() => {
 	mock.clearAllMocks();
 });
 
+const BROWSER_USER_AGENT = window.navigator.userAgent;
+
 afterEach(() => {
 	cleanup();
 	delete window.personalAgentProxyDesktop;
+	setUserAgent(BROWSER_USER_AGENT);
 });
 
 const session = {
@@ -65,6 +65,7 @@ function desktopWith(signIn: {
 }) {
 	const start = mock(signIn.start);
 	const finish = mock(signIn.finish);
+	setUserAgent(`${BROWSER_USER_AGENT} PersonalAgentProxyDesktop/0.0.5`);
 	window.personalAgentProxyDesktop = {
 		updateReady: async () => null,
 		onUpdateReady: () => () => undefined,
@@ -72,6 +73,20 @@ function desktopWith(signIn: {
 		claudeSignIn: {start, finish},
 	};
 	return {start, finish};
+}
+
+// A desktop app from before the Claude sign-in and the update check, its user agent saying so.
+function desktopFromBefore() {
+	setUserAgent(`${BROWSER_USER_AGENT} PersonalAgentProxyDesktop/0.0.4`);
+	window.personalAgentProxyDesktop = {
+		updateReady: async () => null,
+		onUpdateReady: () => () => undefined,
+		restart: () => undefined,
+	};
+}
+
+function setUserAgent(userAgent: string) {
+	Object.defineProperty(window.navigator, 'userAgent', {value: userAgent, configurable: true});
 }
 
 function renderPage(claude: ClaudeAccount['account']) {
@@ -102,56 +117,27 @@ function renderPage(claude: ClaudeAccount['account']) {
 }
 
 describe('AccountPage, the Claude card', () => {
-	test('not connected, it says what connecting is for and points to the desktop app, and Paste a token opens a dialog with the command to run, a copy button and a field, which connects what is pasted and closes', async () => {
+	test('not connected, Paste a token opens a dialog with the command to copy, connects the pasted token, and points to the desktop app', async () => {
 		renderPage(null);
 		expect(
 			await screen.findByText(/Run the built-in agent on your own Claude subscription/),
 		).toBeDefined();
-		expect(screen.getByText('Or connect from the desktop app.')).toBeDefined();
-		// Nothing of the form on the card itself.
+		expect(screen.getByText('Or sign in with Claude from the desktop app.')).toBeDefined();
+		expect(screen.queryByRole('button', {name: 'Connect Claude'})).toBeNull();
 		expect(screen.queryByLabelText('Token or API key')).toBeNull();
-		expect(screen.queryByRole('button', {name: 'Copy command'})).toBeNull();
 
 		fireEvent.click(screen.getByRole('button', {name: 'Paste a token'}));
-
 		const dialog = await screen.findByRole('dialog');
-		expect(within(dialog).getByRole('heading', {name: 'Paste a token'})).toBeDefined();
-		expect(within(dialog).getByText('claude setup-token')).toBeDefined();
 		expect(within(dialog).getByRole('button', {name: 'Copy command'})).toBeDefined();
-		const connect = within(dialog).getByRole('button', {name: 'Connect'});
-		expect(connect.hasAttribute('disabled')).toBe(true);
 		fireEvent.change(within(dialog).getByLabelText('Token or API key'), {
 			target: {value: 'sk-ant-oat01-abc'},
 		});
-		fireEvent.click(connect);
-
+		fireEvent.click(within(dialog).getByRole('button', {name: 'Connect'}));
 		await waitFor(() => expect(connectClaudeToken).toHaveBeenCalledWith('sk-ant-oat01-abc'));
 		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 	});
 
-	test('a token the server turns down is said so in the dialog, which stays for another paste; Cancel closes it', async () => {
-		connectClaudeToken.mockResolvedValueOnce(
-			Err({
-				kind: 'http',
-				url: '/api/me/claude',
-				status: 400,
-				body: {message: 'Paste a token from `claude setup-token` or an Anthropic API key.'},
-			}),
-		);
-		renderPage(null);
-		fireEvent.click(await screen.findByRole('button', {name: 'Paste a token'}));
-		const dialog = await screen.findByRole('dialog');
-		fireEvent.change(within(dialog).getByLabelText('Token or API key'), {target: {value: 'nope'}});
-		fireEvent.click(within(dialog).getByRole('button', {name: 'Connect'}));
-
-		expect(await within(dialog).findByText(/Paste a token from/)).toBeDefined();
-		expect(within(dialog).getByLabelText('Token or API key')).toBeDefined();
-
-		fireEvent.click(within(dialog).getByRole('button', {name: 'Cancel'}));
-		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-	});
-
-	test('connected with a token, it says so and until when, offers no way to connect another, and disconnects', async () => {
+	test('connected with a token, it says so and until when, offers no form, and disconnects', async () => {
 		renderPage(token);
 		expect(await screen.findByText('Connected with a Claude token.')).toBeDefined();
 		const until = screen.getByText(/Signed in until Nov 9, 2027\./);
@@ -169,14 +155,14 @@ describe('AccountPage, the Claude card', () => {
 		expect(screen.queryByText(/Signed in until/)).toBeNull();
 	});
 
-	test('a token near its end is shown in red with the way to connect again, and Paste a token is back', async () => {
+	test('a token near its end is shown in red with the way to connect again, and the button is back', async () => {
 		renderPage({...token, expiresAt: new Date(Date.now() + 10 * DAY_MS).toISOString()});
 		const until = await screen.findByText(/Signed in until .* Connect again soon\./);
 		expect(until.className).toContain('text-destructive');
 		expect(screen.getByRole('button', {name: 'Paste a token'})).toBeDefined();
 	});
 
-	test('a refused credential is shown in red, with Paste a token to connect again', async () => {
+	test('a refused credential is shown in red, with the way to connect again', async () => {
 		renderPage({
 			...token,
 			failure:
@@ -205,7 +191,7 @@ describe('AccountPage, the Claude card', () => {
 		expect(screen.getByText(`As of ${formatDateTime('2026-11-10T12:30:00.000Z')}.`)).toBeDefined();
 	});
 
-	test('in the desktop app, not connected, Connect Claude opens Claude, takes the pasted code, and connects the token the app minted', async () => {
+	test('in the desktop app, not connected, Connect Claude opens Claude, takes the pasted code in a dialog, and connects the token the app minted', async () => {
 		const {start, finish} = desktopWith({
 			start: async () => ({ok: true}),
 			finish: async () => ({token: 'sk-ant-oat01-minted', expiresAt: '2027-11-10T12:00:00.000Z'}),
@@ -214,19 +200,18 @@ describe('AccountPage, the Claude card', () => {
 		expect(
 			await screen.findByText(/Run the built-in agent on your own Claude subscription/),
 		).toBeDefined();
-		// Paste a token sits in the row with Connect Claude, and stays beside Open Claude again.
-		const row = screen.getByRole('button', {name: 'Connect Claude'}).parentElement;
-		expect(row?.contains(screen.getByRole('button', {name: 'Paste a token'}))).toBe(true);
-		expect(screen.queryByLabelText('Token or API key')).toBeNull();
-		expect(screen.queryByText('Or connect from the desktop app.')).toBeNull();
+		expect(screen.queryByText('Or sign in with Claude from the desktop app.')).toBeNull();
+		expect(screen.queryByText(/An update to the desktop app/)).toBeNull();
 
 		fireEvent.click(screen.getByRole('button', {name: 'Connect Claude'}));
 		await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
-		const field = await screen.findByLabelText('Paste the code from Claude');
-		expect(screen.getByRole('button', {name: 'Open Claude again'})).toBeDefined();
+		const dialog = await screen.findByRole('dialog');
+		expect(within(dialog).getByRole('button', {name: 'Open Claude again'})).toBeDefined();
 
-		fireEvent.change(field, {target: {value: 'the-code#the-state'}});
-		fireEvent.click(screen.getByRole('button', {name: 'Connect'}));
+		fireEvent.change(within(dialog).getByLabelText('Paste the code from Claude'), {
+			target: {value: 'the-code#the-state'},
+		});
+		fireEvent.click(within(dialog).getByRole('button', {name: 'Connect'}));
 		await waitFor(() => expect(finish).toHaveBeenCalledWith('the-code#the-state'));
 		await waitFor(() =>
 			expect(connectClaudeToken).toHaveBeenCalledWith(
@@ -234,6 +219,7 @@ describe('AccountPage, the Claude card', () => {
 				'2027-11-10T12:00:00.000Z',
 			),
 		);
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 	});
 
 	test('in the desktop app, what went wrong with the code is shown, the field stays, and Open Claude again starts over', async () => {
@@ -243,21 +229,23 @@ describe('AccountPage, the Claude card', () => {
 		});
 		renderPage(null);
 		fireEvent.click(await screen.findByRole('button', {name: 'Connect Claude'}));
-		const field = await screen.findByLabelText('Paste the code from Claude');
+		const dialog = await screen.findByRole('dialog');
 
-		fireEvent.change(field, {target: {value: 'the-code'}});
-		fireEvent.click(screen.getByRole('button', {name: 'Connect'}));
-		const shown = await screen.findByText('Paste the complete code from Claude.');
+		fireEvent.change(within(dialog).getByLabelText('Paste the code from Claude'), {
+			target: {value: 'the-code'},
+		});
+		fireEvent.click(within(dialog).getByRole('button', {name: 'Connect'}));
+		const shown = await within(dialog).findByText('Paste the complete code from Claude.');
 		expect(shown.className).toContain('text-destructive');
-		expect(screen.getByLabelText('Paste the code from Claude')).toBeDefined();
+		expect(within(dialog).getByLabelText('Paste the code from Claude')).toBeDefined();
 		expect(connectClaudeToken).not.toHaveBeenCalled();
 
-		fireEvent.click(screen.getByRole('button', {name: 'Open Claude again'}));
+		fireEvent.click(within(dialog).getByRole('button', {name: 'Open Claude again'}));
 		await waitFor(() => expect(start).toHaveBeenCalledTimes(2));
 		expect(finish).toHaveBeenCalledTimes(1);
 	});
 
-	test('in the desktop app, a Claude page that could not be opened is said so', async () => {
+	test('in the desktop app, a Claude page that could not be opened is said so, and no dialog opens', async () => {
 		desktopWith({
 			start: async () => ({error: 'Claude sign-in failed. Try again.'}),
 			finish: async () => ({error: 'unreached'}),
@@ -265,24 +253,67 @@ describe('AccountPage, the Claude card', () => {
 		renderPage(null);
 		fireEvent.click(await screen.findByRole('button', {name: 'Connect Claude'}));
 		expect(await screen.findByText('Claude sign-in failed. Try again.')).toBeDefined();
-		expect(screen.queryByLabelText('Paste the code from Claude')).toBeNull();
+		expect(screen.queryByRole('dialog')).toBeNull();
 	});
 
-	test('in the desktop app, pasting a token is the alternative, in the dialog its button beside Connect Claude opens, and connects as in the browser', async () => {
+	test('in the desktop app, pasting a token is the other way, and connects as in the browser', async () => {
 		desktopWith({
 			start: async () => ({ok: true}),
 			finish: async () => ({error: 'unreached'}),
 		});
 		renderPage({...token, expiresAt: new Date(Date.now() + 10 * DAY_MS).toISOString()});
 		expect(await screen.findByRole('button', {name: 'Connect Claude'})).toBeDefined();
+		expect(screen.queryByText('Or sign in with Claude from the desktop app.')).toBeNull();
 
 		fireEvent.click(screen.getByRole('button', {name: 'Paste a token'}));
 		const dialog = await screen.findByRole('dialog');
-		expect(screen.queryByText('Or connect from the desktop app.')).toBeNull();
 		fireEvent.change(within(dialog).getByLabelText('Token or API key'), {
 			target: {value: 'sk-ant-api03-key'},
 		});
 		fireEvent.click(within(dialog).getByRole('button', {name: 'Connect'}));
 		await waitFor(() => expect(connectClaudeToken).toHaveBeenCalledWith('sk-ant-api03-key'));
+	});
+
+	test('in a desktop app from before the sign-in, it says an update brings it, and pasting a token still works', async () => {
+		desktopFromBefore();
+		renderPage(null);
+		expect(
+			await screen.findByText('An update to the desktop app lets you sign in with Claude here.'),
+		).toBeDefined();
+		expect(screen.getByText(/Quit and reopen the app to update it/)).toBeDefined();
+		expect(screen.queryByRole('button', {name: 'Connect Claude'})).toBeNull();
+		expect(screen.queryByText('Or sign in with Claude from the desktop app.')).toBeNull();
+		expect(screen.getByRole('button', {name: 'Paste a token'})).toBeDefined();
+	});
+});
+
+describe('AccountPage, the desktop app', () => {
+	test('in a desktop app that can look for updates, shows its version and the check', async () => {
+		setUserAgent(`${BROWSER_USER_AGENT} PersonalAgentProxyDesktop/0.0.5`);
+		window.personalAgentProxyDesktop = {
+			updateReady: async () => null,
+			onUpdateReady: () => () => undefined,
+			restart: () => undefined,
+			updateStatus: async () => ({state: 'latest'}),
+			onUpdateStatus: () => () => undefined,
+			checkForUpdates: () => undefined,
+		};
+		renderPage(token);
+		expect(await screen.findByText('Desktop app')).toBeDefined();
+		expect(screen.getByText('0.0.5')).toBeDefined();
+		expect(await screen.findByText('You have the latest version.')).toBeDefined();
+		expect(screen.getByRole('button', {name: 'Check for updates'})).toBeDefined();
+	});
+
+	test('in a browser, and in a desktop app from before the check, has no such section', async () => {
+		renderPage(token);
+		expect(await screen.findByText('Connected with a Claude token.')).toBeDefined();
+		expect(screen.queryByText('Desktop app')).toBeNull();
+
+		cleanup();
+		desktopFromBefore();
+		renderPage(token);
+		expect(await screen.findByText('Connected with a Claude token.')).toBeDefined();
+		expect(screen.queryByText('Desktop app')).toBeNull();
 	});
 });

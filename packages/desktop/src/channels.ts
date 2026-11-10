@@ -2,6 +2,10 @@
 
 // Main to page: the version of the update downloaded. Page to main: asks for it.
 export const UPDATE_READY_CHANNEL = 'updates:ready';
+// Main to page: where the update stands, as it changes. Page to main: asks for it.
+export const UPDATE_STATUS_CHANNEL = 'updates:status';
+// Page to main: look for an update now, rather than at the next check.
+export const UPDATE_CHECK_CHANNEL = 'updates:check';
 // Page to main: restart into the downloaded update.
 export const RESTART_CHANNEL = 'updates:restart';
 // Page to main: show a notification of what an agent said, with the page of the app it is on.
