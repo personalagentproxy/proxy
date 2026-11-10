@@ -1,4 +1,3 @@
-import type {LucideIcon} from 'lucide-react';
 import {Link} from 'react-router';
 import {buttonVariants} from '@proxy/ui/components/button';
 import {IntegrationLogo} from '@/components/brand-logo';
@@ -8,7 +7,6 @@ import {INTEGRATIONS, signInPath} from '@/lib/integrations';
 import {useOrgSlug} from '@/hooks/use-org';
 
 type Props = {
-	icon: LucideIcon;
 	name: string;
 	// The collections the widget reads, as the catalog names them: `events`.
 	collectionIds: string[];
@@ -18,7 +16,7 @@ type Props = {
 
 // A widget with nothing connected to read: what it needs, and a button per integration that has
 // one of its collections, which signs in and comes back to the home page, or opens the integration's form.
-export function ConnectWidget({icon, name, collectionIds, children}: Props) {
+export function ConnectWidget({name, collectionIds, children}: Props) {
 	const org = useOrgSlug();
 	const offering = INTEGRATIONS.filter(
 		(integration) =>
@@ -28,7 +26,6 @@ export function ConnectWidget({icon, name, collectionIds, children}: Props) {
 
 	return (
 		<WidgetFrame
-			icon={icon}
 			name={name}
 			actions={offering.map((integration) => {
 				const className = buttonVariants({size: 'sm', variant: 'outline'});

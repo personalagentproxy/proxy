@@ -1,10 +1,12 @@
 import type {LucideIcon} from 'lucide-react';
-import type {ReactNode} from 'react';
+import type {ComponentProps, ReactNode} from 'react';
+import {Input} from '@proxy/ui/components/input';
+import {Textarea} from '@proxy/ui/components/textarea';
+import {cn} from '@proxy/ui/lib/utils';
 import type {Failure} from '@/client/widgets-client';
 import {initials} from '@/lib/widget-values';
 
 type Props = {
-	icon: LucideIcon;
 	name: string;
 	children: ReactNode;
 	// Its buttons, the main one last.
@@ -15,18 +17,20 @@ type Props = {
 	failed?: Failure[];
 };
 
-// One widget, as the home page's input card opens into it: what it is, what it found, and its
-// buttons. The card draws the border, and its rows reach it.
-export function WidgetFrame({icon: Icon, name, children, actions, status, failed = []}: Props) {
+// One widget, as the command bar opens into it, in the manner of Chat's message box: one surface
+// with the input, no line between them and no heading, since what it shows and what its buttons
+// say tell what it is; `name` is what it is called to whoever can't see it. At its foot, what its
+// last write did beside its buttons, rounded as the button that sends a message is. The bar draws
+// the border, and the widget's rows reach it.
+export function WidgetFrame({name, children, actions, status, failed = []}: Props) {
 	return (
-		<section aria-label={name} className="flex flex-col gap-4 p-4 text-sm [--bleed:--spacing(4)]">
-			<header className="flex items-center gap-2 text-muted-foreground">
-				<Icon className="size-4" />
-				{name}
-			</header>
+		<section
+			aria-label={name}
+			className="flex flex-col gap-3 px-4 pb-3 text-sm [--bleed:--spacing(4)]"
+		>
 			{children}
 			{failed.length > 0 && (
-				<ul className="flex flex-col gap-1 text-muted-foreground" aria-label="Not read">
+				<ul className="flex flex-col gap-1 text-xs text-muted-foreground" aria-label="Not read">
 					{failed.map((failure) => (
 						<li key={failure.connectionId} className="truncate">
 							Couldn’t read {failure.account}: {failure.message}
@@ -36,12 +40,27 @@ export function WidgetFrame({icon: Icon, name, children, actions, status, failed
 			)}
 			{(status || actions) && (
 				<footer className="flex flex-wrap items-center justify-between gap-3">
-					<div className="min-w-0 text-muted-foreground">{status}</div>
-					{actions && <div className="flex gap-2">{actions}</div>}
+					<div className="min-w-0 text-xs text-muted-foreground">{status}</div>
+					{actions && <div className="flex gap-1.5 *:rounded-full">{actions}</div>}
 				</footer>
 			)}
 		</section>
 	);
+}
+
+// What a field of a widget has in place of a box of its own, as the message in Chat's box has
+// none: only what is typed, or what to type.
+const BARE =
+	'rounded-none border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0 dark:bg-transparent';
+
+/** A widget's one-line field: what is typed in it, on the widget's own surface. */
+export function WidgetInput({className, ...props}: ComponentProps<typeof Input>) {
+	return <Input className={cn('h-6', BARE, className)} {...props} />;
+}
+
+/** A widget's field of several lines, as tall as what is typed in it. */
+export function WidgetTextarea({className, ...props}: ComponentProps<typeof Textarea>) {
+	return <Textarea className={cn('min-h-0 resize-none', BARE, className)} {...props} />;
 }
 
 export function Avatar({name, large}: {name: string; large?: boolean}) {

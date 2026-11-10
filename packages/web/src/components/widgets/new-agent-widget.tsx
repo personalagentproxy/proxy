@@ -1,17 +1,13 @@
-import {BotIcon} from 'lucide-react';
 import {useRef, useState} from 'react';
 import {AGENT_NAME_MAX} from '@proxy/utils/agent-providers';
 import {AVATAR_COLORS, shuffleLook} from '@proxy/utils/harness';
 import {createPersona, postMessage, saveDraft} from '@/client/harness-client';
 import type {Intent} from '@/client/intent-client';
 import {LiveHead} from '@/components/head';
-import {EnterHint} from '@/components/widgets/enter-hint';
-import {WidgetFrame} from '@/components/widgets/widget-frame';
+import {EnterButton} from '@/components/widgets/enter-button';
+import {WidgetFrame, WidgetInput, WidgetTextarea} from '@/components/widgets/widget-frame';
 import {WriteResult} from '@/components/widgets/write-result';
-import {Button} from '@proxy/ui/components/button';
-import {Input} from '@proxy/ui/components/input';
-import {Textarea} from '@proxy/ui/components/textarea';
-import {type BarAction, useBarAction} from '@/hooks/use-bar-action';
+import type {BarAction} from '@/hooks/use-bar-action';
 import {useOrgSlug} from '@/hooks/use-org';
 import {useSuggested} from '@/hooks/use-suggested';
 import {useWriteStatus} from '@/hooks/use-write-status';
@@ -75,21 +71,19 @@ export function NewAgentWidget({
 		}
 		bar.done(`/${org}/chat/${id}`);
 	};
-	useBarAction(bar, () => void create(), named);
 
 	return (
 		<WidgetFrame
-			icon={BotIcon}
 			name="New agent"
 			status={<WriteResult status={status} />}
 			actions={
-				<Button size="sm" onClick={() => void create()} disabled={!named || busy}>
+				<EnterButton bar={bar} onClick={() => void create()} disabled={!named || busy}>
 					Create agent
-					{bar.onEnter && <EnterHint />}
-				</Button>
+				</EnterButton>
 			}
 		>
-			<div className="flex items-center gap-3">
+			{/* As an agent's row in Chat's list: its head, its name, and under it what is said first. */}
+			<div className="flex items-start gap-3">
 				<button
 					type="button"
 					aria-label="Another look"
@@ -97,30 +91,34 @@ export function NewAgentWidget({
 					onClick={() => setHead(freshHead())}
 					className="shrink-0 rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
 				>
-					<LiveHead look={head.look} color={head.color} size={48} />
+					<LiveHead look={head.look} color={head.color} size={44} />
 				</button>
-				<Input
-					aria-label="Name"
-					placeholder="Name"
-					autoComplete="off"
-					maxLength={AGENT_NAME_MAX}
-					value={name}
-					onChange={(event) => setName(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-							event.preventDefault();
-							void create();
-						}
-					}}
-				/>
+				<div className="flex min-w-0 flex-1 flex-col gap-0.5">
+					<WidgetInput
+						aria-label="Name"
+						placeholder="Name"
+						autoComplete="off"
+						maxLength={AGENT_NAME_MAX}
+						className="font-medium"
+						value={name}
+						onChange={(event) => setName(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+								event.preventDefault();
+								void create();
+							}
+						}}
+					/>
+					<WidgetTextarea
+						aria-label="What it does"
+						placeholder="What should it do? You can also tell it in the conversation."
+						rows={1}
+						className="text-muted-foreground"
+						value={task}
+						onChange={(event) => setTask(event.target.value)}
+					/>
+				</div>
 			</div>
-			<Textarea
-				aria-label="What it does"
-				placeholder="What should it do? You can also tell it in the conversation."
-				rows={2}
-				value={task}
-				onChange={(event) => setTask(event.target.value)}
-			/>
 		</WidgetFrame>
 	);
 }

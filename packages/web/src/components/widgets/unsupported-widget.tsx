@@ -1,5 +1,4 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
-import {BotIcon} from 'lucide-react';
 import {Link} from 'react-router';
 import {buttonVariants} from '@proxy/ui/components/button';
 import {WidgetFrame} from '@/components/widgets/widget-frame';
@@ -14,14 +13,13 @@ function whomToAsk(agents: AgentLogin[]): string {
 	return second ? `${first.name} or ${second.name}` : first.name;
 }
 
-// What is typed fits no widget: the input only does a few things, so it says which, and that the
-// rest is for the person's agent, or, with none yet, offers to add one.
+// What is typed fits no widget: the input only does a few things, so it says so, which they are,
+// and that the rest is for the person's agent, or, with none yet, offers to add one.
 export function UnsupportedWidget({agents}: {agents: AgentLogin[]}) {
 	const org = useOrgSlug();
 	const active = agents.filter((agent) => agent.revokedAt === null);
 	return (
 		<WidgetFrame
-			icon={BotIcon}
 			name="Not a quick action (yet)"
 			actions={
 				active.length === 0 && (
@@ -35,8 +33,8 @@ export function UnsupportedWidget({agents}: {agents: AgentLogin[]}) {
 			}
 		>
 			<p>
-				Quick actions make events, find people, emails and files, write emails, do math and convert
-				units, and show your balances and spending.{' '}
+				That is not a quick action yet. Quick actions make events, find people, emails and files,
+				write emails, do math and convert units, and show your balances and spending.{' '}
 				{active.length > 0
 					? `For anything else, ask ${whomToAsk(active)}, which can work with your connections.`
 					: 'For anything else, add an agent and ask it: it can work with your connections.'}

@@ -128,6 +128,9 @@ const realFetch = globalThis.fetch;
 const fetchMock = mock<(input: string, init?: RequestInit) => Promise<Response>>();
 const fieldsMock = mock<(input: string, init?: RequestInit) => Promise<Response>>();
 
+// What the widgets wrote: each request that makes or sends something, with its body.
+let written: Array<{path: string; body: unknown}> = [];
+
 function fieldsFor(init?: RequestInit): Promise<Response> {
 	const {widget} = JSON.parse(String(init?.body)) as {widget: string};
 	const filled = [intent, person].find((one) => one.widget === widget);
@@ -138,7 +141,11 @@ beforeEach(() => {
 	fetchMock.mockReset();
 	fieldsMock.mockReset();
 	fieldsMock.mockImplementation((_input, init) => fieldsFor(init));
+	written = [];
 	globalThis.fetch = ((input: string, init?: RequestInit) => {
+		if (init?.method === 'POST' && input.includes('/widgets/')) {
+			written.push({path: input, body: JSON.parse(String(init.body))});
+		}
 		const answer = widgetsAnswer(input, init);
 		if (answer) {
 			return Promise.resolve(answer);
@@ -516,6 +523,75 @@ describe('HomePage', () => {
 			),
 		);
 		expect(await screen.findByRole('region', {name: 'New event'})).toBeTruthy();
+	});
+
+	test('Enter in the input presses the main button of the card on screen, which says so', async () => {
+		fetchMock.mockImplementation(() =>
+			Promise.resolve(Response.json({widget: 'write_email', ms: 1})),
+		);
+		fieldsMock.mockImplementation(() =>
+			Promise.resolve(
+				Response.json({
+					fields: [
+						{id: 'to', name: 'To', values: ['hugo']},
+						{id: 'subject', name: 'Subject', values: ['Lunch']},
+						{id: 'body', name: 'Message', values: ['Free on Tuesday?']},
+					],
+					ms: 1,
+				}),
+			),
+		);
+		renderHomePage();
+
+		const input = await typeInto('email hugo about lunch on tuesday');
+		const card = await screen.findByRole('region', {name: 'Write email'});
+		const send = await within(card).findByRole('button', {name: 'Send email'});
+		await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+		expect(send.querySelector('svg')).not.toBeNull();
+		expect(written).toEqual([]);
+		fireEvent.keyDown(input, {key: 'Enter'});
+
+		expect(await within(card).findByText('Sent')).toBeTruthy();
+		expect(written).toMatchObject([
+			{path: '/api/orgs/acme/widgets/emails', body: {subject: 'Lunch', send: true}},
+		]);
+	});
+
+	test('Enter pressed before a card shows never presses its button: the card shows, to be looked over, and Enter then does', async () => {
+		let answer: (response: Response) => void = () => {};
+		fetchMock.mockImplementation(
+			() =>
+				new Promise<Response>((resolve) => {
+					answer = resolve;
+				}),
+		);
+		fieldsMock.mockImplementation(() =>
+			Promise.resolve(
+				Response.json({
+					fields: [
+						{id: 'to', name: 'To', values: ['hugo']},
+						{id: 'subject', name: 'Subject', values: ['Lunch']},
+						{id: 'body', name: 'Message', values: ['Free on Tuesday?']},
+					],
+					ms: 1,
+				}),
+			),
+		);
+		renderHomePage();
+
+		const input = await typeInto('email hugo about lunch on tuesday');
+		fireEvent.keyDown(input, {key: 'Enter'});
+		await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+		answer(Response.json({widget: 'write_email', ms: 1}));
+
+		const card = await screen.findByRole('region', {name: 'Write email'});
+		const send = await within(card).findByRole('button', {name: 'Send email'});
+		await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+		expect(written).toEqual([]);
+
+		fireEvent.keyDown(input, {key: 'Enter'});
+		expect(await within(card).findByText('Sent')).toBeTruthy();
+		expect(written).toHaveLength(1);
 	});
 
 	test("shows the api's reason when classifying isn't set up", async () => {

@@ -5,14 +5,14 @@ import {
 	MapPinIcon,
 	PencilLineIcon,
 	PhoneIcon,
-	UserRoundIcon,
 	type LucideIcon,
 } from 'lucide-react';
 import {useState, type ReactNode} from 'react';
 import {IconButton} from '@/components/icon-button';
 import type {Intent} from '@/client/intent-client';
-import {buttonVariants} from '@proxy/ui/components/button';
+import type {BarAction} from '@/hooks/use-bar-action';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
+import {EnterLink} from '@/components/widgets/enter-button';
 import {Avatar, DetailRow, Missing, WidgetFrame} from '@/components/widgets/widget-frame';
 import {usePeople} from '@/hooks/widget-lookups';
 import {fieldTexts, matchesFor, personKey} from '@/lib/widget-values';
@@ -20,7 +20,15 @@ import {fieldTexts, matchesFor, personKey} from '@/lib/widget-values';
 // Person: who someone is and how to reach them, found by the name as written in every contact
 // book, or among the people in the email of every mailbox, the closest first, the others a click
 // away. Each address leads on to the emails from it, or to writing to it, by typing that in anew.
-export function PersonWidget({intent, onAsk}: {intent: Intent; onAsk: (text: string) => void}) {
+export function PersonWidget({
+	intent,
+	onAsk,
+	bar,
+}: {
+	intent: Intent;
+	onAsk: (text: string) => void;
+	bar: BarAction;
+}) {
 	const [name] = fieldTexts(intent, 'person');
 	const people = usePeople(name ? [name] : null);
 	const [picked, setPicked] = useState<string | null>(null);
@@ -30,7 +38,7 @@ export function PersonWidget({intent, onAsk}: {intent: Intent; onAsk: (text: str
 
 	if (people.data?.sources.length === 0) {
 		return (
-			<ConnectWidget icon={UserRoundIcon} name="Person" collectionIds={['contacts']}>
+			<ConnectWidget name="Person" collectionIds={['contacts']}>
 				Connect your contacts to look people up from here.
 			</ConnectWidget>
 		);
@@ -38,19 +46,13 @@ export function PersonWidget({intent, onAsk}: {intent: Intent; onAsk: (text: str
 
 	return (
 		<WidgetFrame
-			icon={UserRoundIcon}
 			name="Person"
 			failed={people.data?.failed}
 			actions={
 				contact?.link && (
-					<a
-						href={contact.link}
-						target="_blank"
-						rel="noreferrer"
-						className={buttonVariants({size: 'sm'})}
-					>
+					<EnterLink bar={bar} href={contact.link}>
 						Open contact
-					</a>
+					</EnterLink>
 				)
 			}
 		>

@@ -1,8 +1,8 @@
 import type {ChatPersona} from '@proxy/contracts/harness';
+import {ArrowUpIcon} from 'lucide-react';
 import {useRef, useState} from 'react';
 import {postMessage} from '@/client/harness-client';
 import {Head} from '@/components/head';
-import {EnterHint} from '@/components/widgets/enter-hint';
 import {Button} from '@proxy/ui/components/button';
 import {Select, SelectContent, SelectItem, SelectTrigger} from '@proxy/ui/components/select';
 import {type BarAction, useBarAction} from '@/hooks/use-bar-action';
@@ -10,8 +10,9 @@ import {useOrgSlug} from '@/hooks/use-org';
 import {useWriteStatus} from '@/hooks/use-write-status';
 import {writeErrorMessage} from '@/lib/write-status';
 
-// The agent a message goes to, in the sentence that says so: its head and its name, which open
-// the agents to pick another from where there is more than one.
+// The agent a message goes to, in the line that says so, as the model is named under Chat's
+// message box: its head and its name, which open the agents to pick another from where there is
+// more than one.
 function AgentPicker({
 	personas,
 	persona,
@@ -23,16 +24,12 @@ function AgentPicker({
 }) {
 	const shown = (
 		<>
-			<Head look={persona.look} color={persona.color} size={20} className="shrink-0" />
-			<span className="truncate font-medium">{persona.name}</span>
+			<Head look={persona.look} color={persona.color} size={16} className="shrink-0" />
+			<span className="truncate text-foreground">{persona.name}</span>
 		</>
 	);
 	if (personas.length < 2) {
-		return (
-			<span className="inline-flex max-w-full -translate-y-px items-center gap-1.5 align-middle">
-				{shown}
-			</span>
-		);
+		return <span className="flex min-w-0 items-center gap-1.5">{shown}</span>;
 	}
 
 	return (
@@ -47,7 +44,7 @@ function AgentPicker({
 			<SelectTrigger
 				size="sm"
 				aria-label="Agent"
-				className="inline-flex max-w-full -translate-y-px gap-1.5 border-0 px-1 py-0 align-middle text-sm hover:bg-muted data-[size=sm]:h-7 dark:bg-transparent dark:hover:bg-muted"
+				className="min-w-0 gap-1.5 rounded-md border-0 px-1.5 py-0 text-xs font-normal hover:bg-muted data-[size=sm]:h-6 dark:bg-transparent dark:hover:bg-muted"
 			>
 				{shown}
 			</SelectTrigger>
@@ -63,10 +60,12 @@ function AgentPicker({
 	);
 }
 
-// A message to one of Chat's agents, in one sentence: what no quick action does, said as it was
-// typed ("Send this to General."), or what was said to an agent by name, without the name ("Send
-// “pay the invoice” to Finance"). The agent is `suggested`, or another picked in the sentence.
-// Enter in the bar's input sends it, and the app goes to the conversation, where the agent answers.
+// A message to one of Chat's agents, which makes the bar Chat's message box: under the input, a
+// line as the one that names the model there, saying whom it goes to, and the round button that
+// sends it. What no quick action does is sent as it was typed ("Send this to General"); what was
+// said to an agent by name, without the name ("Send “pay the invoice” to Finance"). The agent is
+// `suggested`, or another picked in the line. Enter in the bar's input sends it, as in Chat, and
+// the app goes to the conversation, where the agent answers.
 export function AgentWidget({
 	text,
 	quoted = false,
@@ -112,16 +111,26 @@ export function AgentWidget({
 	}
 
 	return (
-		<section aria-label="Send to an agent" className="flex flex-col gap-2 p-4 text-sm">
-			<div className="flex items-center gap-3">
-				<p className="min-w-0 flex-1 leading-7">
-					Send {quoted ? <q className="text-muted-foreground">{text}</q> : 'this'} to{' '}
+		<section aria-label="Send to an agent" className="flex flex-col gap-1 px-4 pb-3 text-xs">
+			<div className="flex items-center gap-2">
+				<div className="flex min-w-0 flex-1 items-center gap-1 text-muted-foreground">
+					<span className="shrink-0">Send</span>{' '}
+					{quoted ? (
+						<q className="min-w-0 truncate">{text}</q>
+					) : (
+						<span className="shrink-0">this</span>
+					)}{' '}
+					<span className="shrink-0">to</span>{' '}
 					<AgentPicker personas={personas} persona={persona} onPick={setPickedId} />
-					{!quoted && '.'}
-				</p>
-				<Button size="sm" className="shrink-0" onClick={send} disabled={busy}>
-					Send
-					{bar.onEnter && <EnterHint />}
+				</div>
+				<Button
+					size="icon-sm"
+					className="shrink-0 rounded-full"
+					aria-label="Send"
+					onClick={send}
+					disabled={busy}
+				>
+					<ArrowUpIcon />
 				</Button>
 			</div>
 			{status.kind === 'failed' && <p className="text-destructive">{status.message}</p>}

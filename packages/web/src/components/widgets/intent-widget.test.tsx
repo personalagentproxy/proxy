@@ -333,9 +333,12 @@ describe('IntentWidget', () => {
 		});
 
 		await waitFor(() =>
-			expect(within(widget).getByRole('button', {name: 'Send'})).toHaveProperty('disabled', false),
+			expect(within(widget).getByRole('button', {name: 'Send email'})).toHaveProperty(
+				'disabled',
+				false,
+			),
 		);
-		fireEvent.click(within(widget).getByRole('button', {name: 'Send'}));
+		fireEvent.click(within(widget).getByRole('button', {name: 'Send email'}));
 		expect(await within(widget).findByText('Sent')).toBeTruthy();
 		expect(sentTo('/api/orgs/org-1/widgets/emails')).toEqual({
 			connectionId: 'google-1',
@@ -374,9 +377,12 @@ describe('IntentWidget', () => {
 		);
 
 		await waitFor(() =>
-			expect(within(widget).getByRole('button', {name: 'Send'})).toHaveProperty('disabled', false),
+			expect(within(widget).getByRole('button', {name: 'Send reply'})).toHaveProperty(
+				'disabled',
+				false,
+			),
 		);
-		fireEvent.click(within(widget).getByRole('button', {name: 'Send'}));
+		fireEvent.click(within(widget).getByRole('button', {name: 'Send reply'}));
 		expect(await within(widget).findByText('Sent')).toBeTruthy();
 		expect(sentTo('/api/orgs/org-1/widgets/emails/reply')).toEqual({
 			connectionId: 'google-1',

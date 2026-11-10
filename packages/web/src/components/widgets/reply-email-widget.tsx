@@ -1,14 +1,14 @@
-import {ReplyIcon} from 'lucide-react';
 import {useState} from 'react';
 import type {Intent} from '@/client/intent-client';
 import {replyToEmail, type FoundEmail} from '@/client/widgets-client';
 import {Button} from '@proxy/ui/components/button';
 import {Skeleton} from '@proxy/ui/components/skeleton';
-import {Textarea} from '@proxy/ui/components/textarea';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
-import {WidgetFrame} from '@/components/widgets/widget-frame';
+import {EnterButton} from '@/components/widgets/enter-button';
+import {WidgetFrame, WidgetTextarea} from '@/components/widgets/widget-frame';
 import {WidgetSelect} from '@/components/widgets/widget-select';
 import {WriteResult} from '@/components/widgets/write-result';
+import type {BarAction} from '@/hooks/use-bar-action';
 import {useSuggested} from '@/hooks/use-suggested';
 import {useEmail, useEmails, useMailboxes} from '@/hooks/widget-lookups';
 import {
@@ -37,7 +37,17 @@ function emailLabel(email: FoundEmail): string {
 // Reply to email: the email to answer, found by its sender, what it is about and the day it goes
 // back to, the newest first and the others found to choose from, what it says, and the reply, sent
 // or saved as a draft in the email's thread from the mailbox it is in.
-export function ReplyEmailWidget({intent, typed, now}: {intent: Intent; typed: string; now: Date}) {
+export function ReplyEmailWidget({
+	intent,
+	typed,
+	now,
+	bar,
+}: {
+	intent: Intent;
+	typed: string;
+	now: Date;
+	bar: BarAction;
+}) {
 	const org = useOrgSlug();
 	const query = emailQuery(intent, typed, now);
 	const emails = useEmails(query);
@@ -52,7 +62,7 @@ export function ReplyEmailWidget({intent, typed, now}: {intent: Intent; typed: s
 
 	if (emails.data && sources.length === 0) {
 		return (
-			<ConnectWidget icon={ReplyIcon} name={NAME} collectionIds={['emails']}>
+			<ConnectWidget name={NAME} collectionIds={['emails']}>
 				Connect a mailbox to reply to your email from here.
 			</ConnectWidget>
 		);
@@ -86,7 +96,6 @@ export function ReplyEmailWidget({intent, typed, now}: {intent: Intent; typed: s
 
 	return (
 		<WidgetFrame
-			icon={ReplyIcon}
 			name={NAME}
 			failed={emails.data?.failed}
 			status={<WriteResult status={status} />}
@@ -100,13 +109,13 @@ export function ReplyEmailWidget({intent, typed, now}: {intent: Intent; typed: s
 					>
 						Save draft
 					</Button>
-					<Button
-						size="sm"
+					<EnterButton
+						bar={bar}
 						onClick={() => write(true)}
 						disabled={!picked || !sendable || body.trim() === '' || busy}
 					>
-						Send
-					</Button>
+						Send reply
+					</EnterButton>
 				</>
 			}
 		>
@@ -139,7 +148,7 @@ export function ReplyEmailWidget({intent, typed, now}: {intent: Intent; typed: s
 					failed={!opened.loading && opened.error !== null}
 				/>
 			)}
-			<Textarea
+			<WidgetTextarea
 				aria-label="Reply"
 				placeholder="Write your reply"
 				rows={4}

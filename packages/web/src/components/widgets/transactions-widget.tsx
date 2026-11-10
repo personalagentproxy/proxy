@@ -1,5 +1,4 @@
 import {findTransactionCategory} from '@proxy/utils/transaction-categories';
-import {ReceiptTextIcon} from 'lucide-react';
 import type {Intent} from '@/client/intent-client';
 import type {BankAccount, BankTransaction} from '@/client/widgets-client';
 import {CONNECT_BANK} from '@/components/widgets/balances-widget';
@@ -74,7 +73,7 @@ export function TransactionsWidget({
 
 	if (read.data && sources.length === 0) {
 		return (
-			<ConnectWidget icon={ReceiptTextIcon} name="Transactions" collectionIds={['transactions']}>
+			<ConnectWidget name="Transactions" collectionIds={['transactions']}>
 				{CONNECT_BANK}
 			</ConnectWidget>
 		);
@@ -121,7 +120,7 @@ export function TransactionsWidget({
 	const shown = found.slice(0, LIMIT);
 
 	return (
-		<WidgetFrame icon={ReceiptTextIcon} name="Transactions" failed={read.data?.failed}>
+		<WidgetFrame name="Transactions" failed={read.data?.failed}>
 			<p className="truncate">
 				<span className="text-muted-foreground">{lead} </span>
 				{described.join(' · ')}

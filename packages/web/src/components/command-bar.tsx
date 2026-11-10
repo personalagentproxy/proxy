@@ -84,8 +84,10 @@ function saysUnsupported(answer: Answer, pausedOn: string): boolean {
 	return answer.intent.widget === NO_WIDGET && (answer.text === pausedOn || answer.follows);
 }
 
-// Whether a widget's action is the bar's Enter: those that work with Chat's agents.
-function takesEnter(widget: Intent['widget']): boolean {
+// Whether a widget does what its main button does at once, where Enter was pressed on what is
+// typed before it showed: those that work with Chat's agents. A quick action waits for Enter
+// again once it is on screen to be looked over, since it writes to the person's accounts.
+function actsAtOnce(widget: Intent['widget']): boolean {
 	return widget !== NO_WIDGET && CHAT_WIDGET_IDS.includes(widget);
 }
 
@@ -341,10 +343,11 @@ export function CommandBar({place, connections, agents, onClose}: Props) {
 
 	const open = (destination: Destination) => leave(destination.to);
 
-	// Enter opens the lit row where what is typed leads somewhere. Otherwise it is the action of
-	// the widget on screen, where that is for what is typed now and has one. With neither, it asks
-	// for the answer to what is typed at once, to do what that is for as soon as it comes; a quick
-	// action on screen for what is typed has its own buttons, and Enter does nothing to it.
+	// Enter opens the lit row where what is typed leads somewhere. Otherwise it presses the main
+	// button of the widget on screen, where that is for what is typed now and can be pressed
+	// (widgets/enter-button.tsx). With neither, it asks for the answer to what is typed at once:
+	// a message to an agent, or an agent to make, is then done as soon as the answer comes, and a
+	// quick action shows, for Enter to press its button once it has been looked over.
 	const onEnter = () => {
 		const row = rows[selected];
 		if (row) {
@@ -411,9 +414,9 @@ export function CommandBar({place, connections, agents, onClose}: Props) {
 			return {key: widget, view: <FillingWidget widget={widget} />};
 		}
 		if (widget !== NO_WIDGET) {
-			const pressed = enteredOn(answer.text);
+			const pressed = actsAtOnce(widget) && enteredOn(answer.text);
 			return {
-				key: takesEnter(widget) && pressed ? `${widget}:entered` : widget,
+				key: pressed ? `${widget}:entered` : widget,
 				view: (
 					<IntentWidget
 						intent={answer.intent}
@@ -533,12 +536,19 @@ export function CommandBar({place, connections, agents, onClose}: Props) {
 					className="h-12 appearance-none rounded-none border-0 bg-transparent pr-16 pl-4 shadow-none focus-visible:ring-0 dark:bg-transparent [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none"
 				/>
 				<AnimatedHeight open={opened}>
-					<div className="border-t">
+					{/* What is typed opens into a card on the input's own surface, as under Chat's message
+					    box, with no line between them; only the rows it leads to are set apart from it. */}
+					<div className={cn(rows.length > 0 && 'border-t')}>
 						{rows.length > 0 && (
 							<CommandRows rows={rows} selected={selected} onSelect={setSelected} onOpen={open} />
 						)}
 						{error && (
-							<p className={cn('p-4 text-sm text-destructive', rows.length > 0 && 'border-t')}>
+							<p
+								className={cn(
+									'px-4 pb-3 text-xs text-destructive',
+									rows.length > 0 && 'border-t pt-3',
+								)}
+							>
 								{error}
 							</p>
 						)}
@@ -547,7 +557,7 @@ export function CommandBar({place, connections, agents, onClose}: Props) {
 								key={shownCard.key}
 								className={cn(
 									'animate-in duration-300 fade-in-0 slide-in-from-top-1 motion-reduce:animate-none',
-									rows.length > 0 && 'border-t',
+									rows.length > 0 && 'border-t pt-3',
 								)}
 							>
 								{shownCard.view}
@@ -564,7 +574,7 @@ export function CommandBar({place, connections, agents, onClose}: Props) {
 // Enter was pressed on what is typed, and what it is for is being worked out.
 function Waiting() {
 	return (
-		<div role="status" aria-label="Working it out" className="flex flex-col gap-3 p-4">
+		<div role="status" aria-label="Working it out" className="flex flex-col gap-3 px-4 pb-3">
 			<Skeleton className="h-4 w-2/3" />
 			<Skeleton className="h-4 w-1/2" />
 		</div>
