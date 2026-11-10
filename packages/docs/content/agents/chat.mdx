@@ -77,10 +77,12 @@ plan rather than the server's. Connect it under **Claude** on the **Account** pa
 every organization you are in, and nobody else's agents run under it.
 
 The credential is a token good for a year, the same one `claude setup-token` makes. The desktop
-app mints it for you: you sign in to Claude in your browser and allow Personal Agent Proxy as you
-would allow Claude Code, and the token is made on your own computer and handed to the server, which
-never sees your password. Or run `claude setup-token` yourself and paste what it prints on the
-Account page, or paste an Anthropic API key, which is billed to that key.
+app mints it for you: **Connect Claude** on the card opens claude.com in your browser, where you
+sign in and allow Personal Agent Proxy as you would allow Claude Code; Claude shows you a code,
+which you paste back into the card, and the token is made on your own computer from it and handed
+to the server, which never sees your password. In the browser, run `claude setup-token` yourself
+and paste what it prints on the Account page, or paste an Anthropic API key, which is billed to
+that key.
 
 What is stored is the credential alone, encrypted in the database as every connection's credential
 is, and when it ends where that is known. The server never refreshes anything, and holds no refresh

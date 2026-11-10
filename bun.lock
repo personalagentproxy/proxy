@@ -88,6 +88,9 @@
     "packages/desktop": {
       "name": "desktop",
       "version": "0.0.4",
+      "dependencies": {
+        "@proxy/utils": "workspace:*",
+      },
       "devDependencies": {
         "@types/bun": "latest",
         "dotenv": "^16.6.1",

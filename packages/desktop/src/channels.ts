@@ -10,3 +10,7 @@ export const NOTIFY_CHANNEL = 'notifications:show';
 export const OPEN_PATH_CHANNEL = 'notifications:open';
 // Page to main: how many conversations have something unread, for the app's badge.
 export const BADGE_CHANNEL = 'badge:set';
+// Page to main: begin a Claude sign-in, opening Claude's page in the browser.
+export const CLAUDE_SIGN_IN_START_CHANNEL = 'claude-sign-in:start';
+// Page to main: the code pasted from Claude, traded for the token the page connects.
+export const CLAUDE_SIGN_IN_FINISH_CHANNEL = 'claude-sign-in:finish';

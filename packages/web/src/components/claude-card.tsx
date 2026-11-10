@@ -7,6 +7,7 @@ import {connectClaudeToken, disconnectClaude} from '@/client/me-client';
 import {CopyButton} from '@/components/copy-button';
 import {Section} from '@/components/section';
 import {useApply} from '@/hooks/use-apply';
+import {claudeSignIn, type DesktopClaudeSignIn} from '@/lib/desktop';
 import {formatDate, formatDateTime} from '@/lib/format';
 
 type Account = ClaudeAccount['account'];
@@ -20,26 +21,54 @@ const SETUP_TOKEN_COMMAND = 'claude setup-token';
 const CONNECT_AGAIN_WITHIN_MS = 30 * 24 * 60 * 60 * 1000;
 
 // The Account page's Claude card: the person's own Claude account, which the built-in agent runs
-// under for them. A token from `claude setup-token` or an Anthropic API key is pasted here; the
-// desktop app connects a token it minted the same way itself. Connected, it says how, when the
-// token ends where that is known, with the way to connect again as the end nears, that the
-// credential was refused, until they connect again, and how much of the plan the last turn found
-// used.
+// under for them. In the desktop app, Connect Claude signs them in to Claude in the browser and
+// the app mints a token on their computer from the code they paste back; the paste form, for a
+// token from `claude setup-token` or an Anthropic API key, is the alternative below it, and all
+// there is in the browser. Connected, it says how, when the token ends where that is known, with
+// the way to connect again as the end nears, that the credential was refused, until they connect
+// again, and how much of the plan the last turn found used.
 export function ClaudeCard({account}: {account: Account}) {
 	const [error, setError] = useState<string | null>(null);
 	const [token, setToken] = useState('');
+	const [pasting, setPasting] = useState(false);
 	const apply = useApply(setError);
+	const signIn = claudeSignIn();
 
 	const expiringSoon = account?.expiresAt
 		? isWithin(account.expiresAt, CONNECT_AGAIN_WITHIN_MS)
 		: false;
 	const connecting = account === null || account.failure !== null || expiringSoon;
+	const showPasteForm = connecting && (signIn === null || pasting);
 
 	return (
 		<Section title="Claude">
 			<div className="flex flex-col gap-3 text-sm">
 				{account && <Connected account={account} expiringSoon={expiringSoon} />}
-				{connecting && (
+				{!account && (
+					<p className="text-muted-foreground">
+						Run the built-in agent on your own Claude subscription.
+					</p>
+				)}
+				{connecting && signIn && (
+					<DesktopSignIn
+						signIn={signIn}
+						setError={setError}
+						onToken={(minted, expiresAt) => apply(connectClaudeToken(minted, expiresAt))}
+					/>
+				)}
+				{connecting && signIn && !pasting && (
+					<div>
+						<Button
+							type="button"
+							variant="link"
+							className="h-auto p-0"
+							onClick={() => setPasting(true)}
+						>
+							Paste a token instead
+						</Button>
+					</div>
+				)}
+				{showPasteForm && (
 					<form
 						className="flex flex-col gap-2"
 						onSubmit={(event) => {
@@ -47,11 +76,6 @@ export function ClaudeCard({account}: {account: Account}) {
 							void apply(connectClaudeToken(token), () => setToken(''));
 						}}
 					>
-						{!account && (
-							<p className="text-muted-foreground">
-								Run the built-in agent on your own Claude subscription.
-							</p>
-						)}
 						<Label htmlFor="claude-token">
 							Paste a token from <code>{SETUP_TOKEN_COMMAND}</code>, or an Anthropic API key
 						</Label>
@@ -71,7 +95,9 @@ export function ClaudeCard({account}: {account: Account}) {
 								Connect
 							</Button>
 						</div>
-						<p className="text-muted-foreground">Or connect from the desktop app.</p>
+						{signIn === null && (
+							<p className="text-muted-foreground">Or connect from the desktop app.</p>
+						)}
 					</form>
 				)}
 				{account && (
@@ -93,6 +119,88 @@ export function ClaudeCard({account}: {account: Account}) {
 
 function isWithin(iso: string, ms: number): boolean {
 	return new Date(iso).getTime() - Date.now() <= ms;
+}
+
+// The desktop app's sign-in: Connect Claude opens Claude's page in the browser, which shows a
+// code once the person has allowed Personal Agent Proxy; pasted here, the app trades it for the
+// token, which `onToken` connects. Open Claude again starts over, for a page closed too soon.
+// What goes wrong, in the app or at Claude, is said through `setError`; a code refused as
+// incomplete or from another attempt leaves the field for another paste.
+function DesktopSignIn({
+	signIn,
+	setError,
+	onToken,
+}: {
+	signIn: DesktopClaudeSignIn;
+	setError: (error: string | null) => void;
+	onToken: (token: string, expiresAt: string) => Promise<void>;
+}) {
+	const [code, setCode] = useState('');
+	const [opened, setOpened] = useState(false);
+	const [busy, setBusy] = useState(false);
+
+	async function open(): Promise<void> {
+		setError(null);
+		const started = await signIn.start();
+		if ('error' in started) {
+			setError(started.error);
+			return;
+		}
+		setOpened(true);
+	}
+
+	async function connect(): Promise<void> {
+		setBusy(true);
+		setError(null);
+		const finished = await signIn.finish(code);
+		if ('error' in finished) {
+			setError(finished.error);
+			setBusy(false);
+			return;
+		}
+		setCode('');
+		setOpened(false);
+		await onToken(finished.token, finished.expiresAt);
+		setBusy(false);
+	}
+
+	if (!opened) {
+		return (
+			<div>
+				<Button type="button" size="sm" onClick={() => void open()}>
+					Connect Claude
+				</Button>
+			</div>
+		);
+	}
+
+	return (
+		<form
+			className="flex flex-col gap-2"
+			onSubmit={(event) => {
+				event.preventDefault();
+				void connect();
+			}}
+		>
+			<Label htmlFor="claude-code">Paste the code from Claude</Label>
+			<div className="flex gap-2">
+				<Input
+					id="claude-code"
+					autoComplete="off"
+					value={code}
+					onChange={(event) => setCode(event.target.value)}
+				/>
+				<Button type="submit" size="sm" className="h-9" disabled={busy || code.trim() === ''}>
+					Connect
+				</Button>
+			</div>
+			<div>
+				<Button type="button" variant="link" className="h-auto p-0" onClick={() => void open()}>
+					Open Claude again
+				</Button>
+			</div>
+		</form>
+	);
 }
 
 // How the account is connected, when the token ends, whether it was refused, and the plan's usage.

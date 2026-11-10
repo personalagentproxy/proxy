@@ -3,6 +3,8 @@ import {contextBridge, ipcRenderer, type IpcRendererEvent, webFrame} from 'elect
 import {PRODUCTION_APP_URL} from './app-url';
 import {
 	BADGE_CHANNEL,
+	CLAUDE_SIGN_IN_FINISH_CHANNEL,
+	CLAUDE_SIGN_IN_START_CHANNEL,
 	NOTIFY_CHANNEL,
 	OPEN_PATH_CHANNEL,
 	RESTART_CHANNEL,
@@ -48,8 +50,9 @@ if (process.platform === 'darwin' && window.location.origin === APP_ORIGIN) {
 // What the page may ask of the app, as `window.personalAgentProxyDesktop`, typed on the web app's
 // side in packages/web/src/lib/desktop.ts: whether an update is downloaded, word when one is, and
 // the restart that installs it; a notification shown, word of the page one opens when clicked,
-// and the count on the app's badge. The main process answers the app's own pages only
-// (updates.ts, notifications.ts).
+// and the count on the app's badge; and the Claude sign-in, begun in the browser and finished
+// with the code pasted from it, which answers the token for the page to connect. The main process
+// answers the app's own pages only (updates.ts, notifications.ts, main.ts).
 
 // The page's listeners for a notification clicked. Where none listens, as on the sign-in page or
 // the agents' pages, the page goes to the notification's own: a path of the app's, as the main
@@ -83,4 +86,10 @@ contextBridge.exposeInMainWorld('personalAgentProxyDesktop', {
 		};
 	},
 	setBadge: (count: number): void => ipcRenderer.send(BADGE_CHANNEL, count),
+	claudeSignIn: {
+		start: (): Promise<{ok: true} | {error: string}> =>
+			ipcRenderer.invoke(CLAUDE_SIGN_IN_START_CHANNEL),
+		finish: (code: string): Promise<{token: string; expiresAt: string} | {error: string}> =>
+			ipcRenderer.invoke(CLAUDE_SIGN_IN_FINISH_CHANNEL, code),
+	},
 });
