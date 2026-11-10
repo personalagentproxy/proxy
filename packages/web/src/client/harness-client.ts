@@ -6,6 +6,7 @@ import {
 	type Persona,
 	type postMessageBodySchema,
 	postedMessageSchema,
+	type saveDraftBodySchema,
 	type setPinnedBodySchema,
 	threadLogSchema,
 } from '@proxy/contracts/harness';
@@ -64,4 +65,20 @@ export function markRead(org: string, personaId: string, entryId: string) {
 	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/read`, {
 		entryId,
 	} satisfies z.input<typeof markReadBodySchema>);
+}
+
+// What the person has typed to the persona and not sent, kept in place of what was; an empty one
+// forgets it.
+export function saveDraft(
+	org: string,
+	personaId: string,
+	text: string,
+	options: {keepalive?: boolean} = {},
+) {
+	return apiSend(
+		'PUT',
+		`${orgApi(org)}/chat/personas/${personaId}/draft`,
+		{text} satisfies z.input<typeof saveDraftBodySchema>,
+		options,
+	);
 }

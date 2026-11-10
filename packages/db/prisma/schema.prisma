@@ -672,6 +672,10 @@ model AgentThread {
   // Whether the member pinned this conversation to the top of their Chat sidebar. Sub-agent
   // threads are never pinned.
   isPinned Boolean @default(false)
+  // What the member has typed to the persona and not sent, kept so it is there when they come
+  // back, on any device; the message they send empties it. Null when there is none, and for a
+  // sub-agent's thread.
+  draft   String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

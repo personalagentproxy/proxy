@@ -58,8 +58,16 @@ export async function fetchServerBundle(
 	return Ok(bundle);
 }
 
-// Whether the server has a newer release than the page: an error, or a page without a bundle of
-// its own, is no.
+// Whether the server's bundle is there to load. While a deploy has servers of both releases
+// answering, the new index.html can come from a new one and its bundle be asked of an old one,
+// which has none: a page reloaded then would be blank.
+async function bundleLoads(bundle: string, fetchFn: FetchPage): Promise<boolean> {
+	const response = await fetchFn(bundle, {method: 'HEAD', cache: 'no-store'}).catch(() => null);
+	return response?.ok === true;
+}
+
+// Whether the server has a newer release than the page, ready to load: an error, a page without
+// a bundle of its own, or a new bundle not yet there is no.
 export async function hasNewRelease(doc: Document, fetchFn: FetchPage = fetch): Promise<boolean> {
 	const current = currentBundle(doc);
 	if (!current) {
@@ -67,9 +75,9 @@ export async function hasNewRelease(doc: Document, fetchFn: FetchPage = fetch): 
 	}
 
 	const server = await fetchServerBundle(fetchFn);
-	if (server.isErr()) {
+	if (server.isErr() || server.value === current) {
 		return false;
 	}
 
-	return server.value !== current;
+	return bundleLoads(server.value, fetchFn);
 }

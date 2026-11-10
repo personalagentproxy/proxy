@@ -71,6 +71,24 @@ describe('hasNewRelease', () => {
 		);
 	});
 
+	test('is false while the new bundle is not there to load', async () => {
+		const missingBundle: FetchPage = (input) =>
+			input === '/'
+				? page(BUILT)(input)
+				: Promise.resolve(new Response('Not found', {status: 404}));
+		expect(await hasNewRelease(documentWith('/assets/index-Old.js'), missingBundle)).toBe(false);
+	});
+
+	test('asks for the new bundle itself', async () => {
+		const asked: string[] = [];
+		const recording: FetchPage = (input, init) => {
+			asked.push(`${init?.method ?? 'GET'} ${input}`);
+			return page(BUILT)(input);
+		};
+		await hasNewRelease(documentWith('/assets/index-Old.js'), recording);
+		expect(asked).toEqual(['GET /', 'HEAD /assets/index-C3kN2xYz.js']);
+	});
+
 	test('is false for a page without a bundle of its own', async () => {
 		expect(await hasNewRelease(documentWith(null), page(BUILT))).toBe(false);
 	});

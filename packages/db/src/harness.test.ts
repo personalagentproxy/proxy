@@ -16,6 +16,7 @@ import {
 	ensureMemberThread,
 	failJob,
 	finishJob,
+	getThreadDraft,
 	listEntries,
 	listJobEvents,
 	listOpenJobs,
@@ -25,6 +26,7 @@ import {
 	markThreadRead,
 	requeueJob,
 	setThreadPinned,
+	saveThreadDraft,
 	type JobRow,
 	type NewEntry,
 	type SubAgentRow,
@@ -370,6 +372,41 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 				?.isPinned,
 		).toBe(false);
 		expect(unwrap(await setThreadPinned('no-such-thread', true))).toBe(false);
+	});
+
+	test('a draft is kept until it is replaced, forgotten or sent, and listed with its persona', async () => {
+		const look = {nose: 0.5, noseOut: 0.3, eye: 25, eyeTheta: 50, eyeLat: 8, eyes: 2 as const};
+		const drafts = unwrap(
+			await createPersona(orgId, userId, {name: 'Drafts', look, color: 'teal'}),
+		);
+		const draftThread = unwrap(
+			await ensureMemberThread({orgId, agentId, personaId: drafts.id, userId}),
+		);
+		const listedDraft = async () =>
+			unwrap(await listPersonas(orgId, userId)).find((persona) => persona.id === drafts.id)?.draft;
+
+		expect(unwrap(await getThreadDraft(draftThread.id))).toBeNull();
+		expect(await listedDraft()).toBeNull();
+
+		expect(unwrap(await saveThreadDraft(draftThread.id, 'Pricing review with'))).toBe(true);
+		expect(unwrap(await saveThreadDraft(draftThread.id, 'Pricing review with Dana'))).toBe(true);
+		expect(unwrap(await getThreadDraft(draftThread.id))).toBe('Pricing review with Dana');
+		expect(await listedDraft()).toBe('Pricing review with Dana');
+
+		expect(unwrap(await saveThreadDraft(draftThread.id, null))).toBe(true);
+		expect(unwrap(await getThreadDraft(draftThread.id))).toBeNull();
+
+		unwrap(await saveThreadDraft(draftThread.id, 'Move the pricing review'));
+		unwrap(await appendPersonMessage(draftThread.id, 'Move the pricing review', readyForInference));
+		expect(unwrap(await getThreadDraft(draftThread.id))).toBeNull();
+		expect(unwrap(await saveThreadDraft('no-such-thread', 'Hello'))).toBe(false);
+
+		// The job the message woke is done with, so the tests after this claim only their own.
+		const job = unwrap(await claimJob('worker-dr', 60_000));
+		if (job?.threadId !== draftThread.id) {
+			throw new Error(`expected the drafts thread's job, got ${JSON.stringify(job)}`);
+		}
+		unwrap(await finishJob(job.id, 'worker-dr'));
 	});
 
 	test('a finish with nothing written is a done event too', async () => {

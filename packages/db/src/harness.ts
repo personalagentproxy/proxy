@@ -292,14 +292,17 @@ export function toEntry(entry: EntryRecord): EntryRow {
 
 /**
  * The organization's personas with the last thing said in the member's conversation with each,
- * pinned first, then each group by last activity: the last thing said in it, or its making before
- * anything was said.
+ * what they typed and haven't sent, pinned first, then each group by last activity: the last thing
+ * said in it, or its making before anything was said.
  */
 export async function listPersonas(
 	orgId: string,
 	userId: string,
 ): Promise<
-	Result<Array<PersonaRow & {isPinned: boolean; lastMessage: LastMessage | null}>, ApiError>
+	Result<
+		Array<PersonaRow & {isPinned: boolean; lastMessage: LastMessage | null; draft: string | null}>,
+		ApiError
+	>
 > {
 	return (
 		await wrapDb(() =>
@@ -311,6 +314,7 @@ export async function listPersonas(
 						where: {userId, parentThreadId: null},
 						select: {
 							isPinned: true,
+							draft: true,
 							// The agent's turns that only made calls say nothing, so the last with words.
 							entries: {
 								where: {kind: {in: ['person', 'assistant']}, text: {not: ''}},
@@ -336,6 +340,7 @@ export async function listPersonas(
 						last && (last.kind === 'person' || last.kind === 'assistant')
 							? {kind: last.kind, text: last.text, createdAt: last.createdAt}
 							: null,
+					draft: thread?.draft ?? null,
 				};
 			})
 			.toSorted(
@@ -588,6 +593,28 @@ export async function setThreadPinned(
 				where: {id: threadId, parentThreadId: null},
 				data: {isPinned},
 			}),
+		)
+	).map(({count}) => count > 0);
+}
+
+/** What the member typed in their conversation and hasn't sent; `Ok(null)` for none, or no such thread. */
+export async function getThreadDraft(threadId: string): Promise<Result<string | null, ApiError>> {
+	return (
+		await wrapDb(() => db.agentThread.findUnique({where: {id: threadId}, select: {draft: true}}))
+	).map((thread) => thread?.draft ?? null);
+}
+
+/**
+ * Keeps what the member typed in their conversation and hasn't sent, in place of what was kept;
+ * null forgets it. `Ok(false)` means no such conversation: a sub-agent's thread keeps none.
+ */
+export async function saveThreadDraft(
+	threadId: string,
+	draft: string | null,
+): Promise<Result<boolean, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentThread.updateMany({where: {id: threadId, parentThreadId: null}, data: {draft}}),
 		)
 	).map(({count}) => count > 0);
 }
@@ -885,7 +912,10 @@ async function endTurn(
 	await tellParent(tx, thread, stop.stopped, jobId, wakes);
 }
 
-/** Lands what the person said, and wakes the agent where the log `wakes` it. `Ok(null)` means no such thread. */
+/**
+ * Lands what the person said, and wakes the agent where the log `wakes` it; what they had typed
+ * and not sent goes with it, since this is it sent. `Ok(null)` means no such thread.
+ */
 export async function appendPersonMessage(
 	threadId: string,
 	text: string,
@@ -897,6 +927,7 @@ export async function appendPersonMessage(
 			if (!thread) {
 				return null;
 			}
+			await tx.agentThread.update({where: {id: threadId}, data: {draft: null}});
 			return appendEntry(tx, thread, {kind: 'person', text}, wakes);
 		}),
 	);

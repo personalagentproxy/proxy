@@ -1,5 +1,6 @@
 import {httpRequest, type FetchError} from '@proxy/utils';
 import type {z} from 'zod';
+import {trackWrite} from '@/lib/writes-in-flight';
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -25,7 +26,7 @@ export function apiRequest<S extends z.ZodType>(
 	schema: S,
 	body?: unknown,
 ) {
-	return httpRequest(
+	const request = httpRequest(
 		path,
 		{
 			method,
@@ -35,14 +36,25 @@ export function apiRequest<S extends z.ZodType>(
 		},
 		{schema},
 	);
+	return method === 'GET' ? request : trackWrite(request);
 }
 
-/** The same for calls that answer 204 No Content. */
-export function apiSend(method: Method, path: string, body?: unknown) {
-	return httpRequest(path, {
+/**
+ * The same for calls that answer 204 No Content. `keepalive` lets the call finish after the page
+ * is gone, for what is sent as it closes; the browser allows it only a small body.
+ */
+export function apiSend(
+	method: Method,
+	path: string,
+	body?: unknown,
+	options: {keepalive?: boolean} = {},
+) {
+	const request = httpRequest(path, {
 		method,
+		...(options.keepalive ? {keepalive: true} : {}),
 		...(body === undefined
 			? {}
 			: {headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}),
 	});
+	return method === 'GET' ? request : trackWrite(request);
 }
