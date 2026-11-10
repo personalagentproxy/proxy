@@ -1,11 +1,14 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
-import {Ok} from 'ts-results-es';
+import {Err, Ok} from 'ts-results-es';
+
+import {ApiErr} from '@proxy/utils';
 
 import type {HarnessBackend} from '@proxy/backends/harness/backend';
 import {fakeHarness} from '@proxy/backends/harness/fake';
 import type {EntryRow, JobRow, ThreadRow} from '@proxy/db/harness';
 
 import type {HarnessRegistry} from '../backends/harness';
+import type {ChatFiles} from './attachments';
 import {type FakeStore, fakeStore} from './fake-store';
 
 const viewer = {orgId: 'org-1', userId: 'user-1', slug: 'acme', name: 'Acme', role: 'member' as 'member' | 'owner', onboarded: true, experiments: ['harness']};
@@ -77,6 +80,17 @@ function request(params: Record<string, string> = {}, body: unknown = undefined)
 let store: FakeStore;
 let routes: ReturnType<typeof import('./route').chatRoutes>;
 
+// A file as the log keeps it once attached, and as the page shows it.
+const attached = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'pricing.md', type: 'text/markdown', size: 42, text: '# Pricing', cut: false};
+const shownAttachment = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'pricing.md', type: 'text/markdown', size: 42, shown: false};
+
+// Where a conversation's files are kept, as the routes are given it: a drive that has the one file.
+const files = {
+	upload: mock<ChatFiles['upload']>(async () => Ok(shownAttachment)),
+	resolve: mock<ChatFiles['resolve']>(async (_viewer, refs) => (refs.every((ref) => ref.fileId === 'file-1') ? Ok(refs.map(() => attached)) : Err(ApiErr.notFound('file', 'file-2')))),
+	shown: mock<ChatFiles['shown']>(() => shownAttachment),
+};
+
 // An entry of the log, as the store gives it.
 function logEntry(entry: Pick<EntryRow, 'id' | 'seq' | 'kind' | 'text'> & Partial<EntryRow>): EntryRow {
 	return {
@@ -101,7 +115,8 @@ beforeEach(async () => {
 	mock.clearAllMocks();
 	store = fakeStore();
 	registry = {proxy, claudeAgentSdk: sdk};
-	routes = (await import('./route')).chatRoutes(store, () => registry);
+	routes = (await import('./route')).chatRoutes(store, () => registry, files);
+	store.listAttachments.mockResolvedValue(Ok([]));
 	const {listPersonas, getPersona, createPersona, updatePersona, deletePersona, getMemberThread, ensureMemberThread, listShownEntries, listOpenJobs, appendPersonMessage, getThreadDraft} = store;
 	deletePersona.mockResolvedValue(Ok(true));
 	requireViewer.mockResolvedValue(Ok(viewer));
@@ -294,7 +309,7 @@ describe('the chat routes', () => {
 
 		const idle = (await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap();
 		expect(idle.persona).toEqual(personaResponse);
-		expect(idle.entries).toEqual([{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00.000Z'}]);
+		expect(idle.entries).toEqual([{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00.000Z', attachments: []}]);
 		expect(idle).toMatchObject({busy: false, sleepingUntil: null, draft: null});
 		expect(store.getThreadDraft).toHaveBeenCalledWith('thread-1');
 		expect(store.ensureMemberThread).not.toHaveBeenCalled();
@@ -317,12 +332,48 @@ describe('the chat routes', () => {
 		expect((await handleGetThreadRoute(request({personaId: 'nope'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'persona'});
 	});
 
+	test('append the files the person attaches with what they say, as the drive has them then, or with nothing said; one they can’t read lands nothing', async () => {
+		const {handlePostMessageRoute, handleGetThreadRoute} = routes;
+		const ref = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1'};
+
+		const posted = await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: 'What does this say?', attachments: [ref]}));
+		expect(files.resolve).toHaveBeenCalledWith(viewer, [ref]);
+		expect(store.appendPersonMessage).toHaveBeenCalledWith('thread-1', 'What does this say?', [attached]);
+		expect(posted.unwrap().entry.attachments).toEqual([shownAttachment]);
+
+		// A file alone is something said.
+		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: '', attachments: [ref]}))).isOk()).toBe(true);
+		expect(store.appendPersonMessage).toHaveBeenLastCalledWith('thread-1', '', [attached]);
+
+		store.appendPersonMessage.mockClear();
+		const refused = await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: 'And this?', attachments: [{...ref, fileId: 'file-2'}]}));
+		expect(refused.unwrapErr()).toMatchObject({kind: 'not_found', resource: 'file'});
+		expect(store.appendPersonMessage).not.toHaveBeenCalled();
+		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: 'Too many', attachments: Array.from({length: 11}, () => ref)}))).unwrapErr().kind).toBe('parse_error');
+
+		// The conversation shows each file with the turn it was said with.
+		store.listAttachments.mockResolvedValue(Ok([{...attached, entryId: 'e1'}]));
+		expect((await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap().entries.map((entry) => entry.attachments)).toEqual([[shownAttachment]]);
+	});
+
+	test('keep a file dropped into the conversation in the person’s drive, for the persona’s folder, and answer what to attach', async () => {
+		const {handleUploadAttachmentRoute} = routes;
+
+		const uploaded = await handleUploadAttachmentRoute(request({personaId: 'persona-1'}));
+
+		expect(uploaded.unwrap()).toEqual({attachment: shownAttachment});
+		expect(files.upload).toHaveBeenCalledWith(viewer, persona, expect.anything());
+		store.getPersona.mockResolvedValue(Ok(null));
+		expect((await handleUploadAttachmentRoute(request({personaId: 'nope'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'persona'});
+	});
+
 	test('append what the person says, trimmed, and refuse nothing or too much', async () => {
 		const {handlePostMessageRoute} = routes;
 
 		const posted = await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: '  Hello \n'}));
-		expect(store.appendPersonMessage).toHaveBeenCalledWith('thread-1', 'Hello');
-		expect(posted.unwrap().entry).toMatchObject({id: 'e3', kind: 'person', text: 'Hello'});
+		expect(store.appendPersonMessage).toHaveBeenCalledWith('thread-1', 'Hello', []);
+		expect(posted.unwrap().entry).toMatchObject({id: 'e3', kind: 'person', text: 'Hello', attachments: []});
+		expect(files.resolve).not.toHaveBeenCalled();
 
 		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: '   '}))).unwrapErr().kind).toBe('parse_error');
 		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: 'x'.repeat(20_001)}))).unwrapErr().kind).toBe('parse_error');

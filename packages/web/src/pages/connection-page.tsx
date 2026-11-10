@@ -23,6 +23,7 @@ import {IntegrationLogo} from '@/components/brand-logo';
 import {NotFound} from '@/components/not-found';
 import {PageTabs} from '@/components/page-tabs';
 import {RecentActivity} from '@/components/recent-activity';
+import {FileBrowser} from '@/components/file-browser';
 import {SandboxList} from '@/components/sandbox-list';
 import {SuccessLine} from '@/components/success-line';
 import {VaultEntries} from '@/components/vault-entries';
@@ -58,6 +59,7 @@ function ConnectionDetail() {
 		vaultEntries,
 		sandboxes,
 		github,
+		files,
 	} = useLoaded<typeof connectionLoader>();
 	const navigate = useNavigate();
 	const reload = useReload();
@@ -90,11 +92,13 @@ function ConnectionDetail() {
 	// A vault's entries are kept here, so no provider sees anyone.
 	const actingAs = integration.native ? null : actsAs(connection, human);
 	// A vault a member made is deleted, with its entries, where another connection is disconnected.
-	// The page's parts, one shown at a time: what a vault or the Sandboxes hold, or a GitHub
-	// connection reaches, comes first, being what it is opened for, and a built-in connection, which
-	// is never shared, has no Sharing.
+	// The page's parts, one shown at a time: what a vault, the Sandboxes or a drive hold, or a
+	// GitHub connection reaches, comes first, being what it is opened for, and a built-in
+	// connection, which is never shared, has no Sharing.
 	const tabs: Array<
-		PageTab<'entries' | 'sandboxes' | 'repositories' | 'permissions' | 'sharing' | 'activity'>
+		PageTab<
+			'entries' | 'sandboxes' | 'files' | 'repositories' | 'permissions' | 'sharing' | 'activity'
+		>
 	> = [
 		...(vaultEntries === null
 			? []
@@ -102,6 +106,7 @@ function ConnectionDetail() {
 		...(sandboxes === null
 			? []
 			: [{id: 'sandboxes' as const, label: 'Sandboxes', count: sandboxes.length}]),
+		...(files === null ? [] : [{id: 'files' as const, label: 'Files'}]),
 		...(github === null
 			? []
 			: [{id: 'repositories' as const, label: 'Repositories', count: reachedRepositories(github)}]),
@@ -199,6 +204,14 @@ function ConnectionDetail() {
 				)}
 				{tab === 'sandboxes' && sandboxes !== null && (
 					<SandboxList connectionId={connection.id} sandboxes={sandboxes} />
+				)}
+				{tab === 'files' && files !== null && (
+					<FileBrowser
+						connectionId={connection.id}
+						place={files.place}
+						list={files.list}
+						shown={files.shown}
+					/>
 				)}
 				{tab === 'repositories' && github !== null && (
 					<GitHubRepositories

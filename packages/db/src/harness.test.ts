@@ -16,11 +16,13 @@ import {
 	ensureMemberThread,
 	failJob,
 	finishJob,
+	isAttachedForTask,
 	getThreadDraft,
 	listEntries,
 	listJobEvents,
 	listOpenJobs,
 	listAnswers,
+	listAttachments,
 	listPersonas,
 	listSubAgents,
 	markThreadRead,
@@ -793,5 +795,66 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			finishedAt: anHourAgo,
 		});
 		expect(await taskOf(renewed)).toMatchObject({...task, finishedAt: null, outcome: null});
+	});
+	test('what the person attaches lands with what they said, in order, and is the conversation’s sub-agents’ to read: that version, of that file, for their task alone', async () => {
+		const file = {
+			connectionId: 'drive-1',
+			fileId: 'file-1',
+			version: 'v1',
+			name: 'pricing.md',
+			type: 'text/markdown',
+			size: 42,
+			text: '# Pricing',
+			cut: false,
+		};
+		const picture = {...file, fileId: 'file-2', name: 'chart.png', type: 'image/png', text: null};
+
+		const said = unwrap(
+			await appendPersonMessage(thread.id, 'What do these say?', readyForInference, [
+				file,
+				picture,
+			]),
+		);
+		unwrap(await appendPersonMessage(thread.id, 'And nothing with this one.', readyForInference));
+
+		expect(unwrap(await listAttachments(thread.id))).toEqual([
+			{...file, entryId: said?.id ?? ''},
+			{...picture, entryId: said?.id ?? ''},
+		]);
+
+		const task = await db.agentTask.create({
+			data: {orgId, agentId, title: 'Read the files', goal: 'Read', via: 'harness'},
+		});
+		const other = await db.agentTask.create({
+			data: {orgId, agentId, title: 'Something else', goal: 'Else', via: 'harness'},
+		});
+		await db.agentThread.create({
+			data: {
+				orgId,
+				agentId,
+				personaId: thread.personaId,
+				userId,
+				parentThreadId: thread.id,
+				parentCallId: 'c-attached',
+				title: 'Read the files',
+				taskId: task.id,
+			},
+		});
+		const attached = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1'};
+
+		expect(unwrap(await isAttachedForTask({orgId, taskId: task.id}, attached))).toBe(true);
+		expect(
+			unwrap(await isAttachedForTask({orgId, taskId: task.id}, {...attached, version: 'v2'})),
+		).toBe(false);
+		expect(
+			unwrap(
+				await isAttachedForTask({orgId, taskId: task.id}, {...attached, connectionId: 'drive-2'}),
+			),
+		).toBe(false);
+		// A task that is no sub-agent's of the conversation, and one of another organization.
+		expect(unwrap(await isAttachedForTask({orgId, taskId: other.id}, attached))).toBe(false);
+		expect(unwrap(await isAttachedForTask({orgId: 'another-org', taskId: task.id}, attached))).toBe(
+			false,
+		);
 	});
 });

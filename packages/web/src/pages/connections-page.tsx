@@ -1,6 +1,10 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
-import {SANDBOX_INTEGRATION_ID, VAULT_INTEGRATION_ID} from '@proxy/integrations';
+import {
+	FILES_INTEGRATION_ID,
+	SANDBOX_INTEGRATION_ID,
+	VAULT_INTEGRATION_ID,
+} from '@proxy/integrations';
 import {ForwardIcon, PencilIcon, Trash2Icon} from 'lucide-react';
 import {useState} from 'react';
 import {Link} from 'react-router';
@@ -82,6 +86,7 @@ function Connections() {
 		);
 	const vaults = builtIn(VAULT_INTEGRATION_ID);
 	const sandboxes = builtIn(SANDBOX_INTEGRATION_ID);
+	const drives = builtIn(FILES_INTEGRATION_ID);
 
 	const activeOrg = human.org;
 	const connections = side.shown;
@@ -118,6 +123,7 @@ function Connections() {
 			>
 				<BuiltInRow connections={vaults} agents={agents} />
 				<BuiltInRow connections={sandboxes} agents={agents} />
+				<BuiltInRow connections={drives} agents={agents} />
 				{connections.length === 0 && (
 					<SideEmpty
 						side={side}

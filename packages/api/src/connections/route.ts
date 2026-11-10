@@ -2,7 +2,15 @@ import {Err, type Result} from 'ts-results-es';
 import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
-import {type Connection, type connectionListSchema, createVaultBodySchema, moveConnectionBodySchema, renameConnectionBodySchema, setDefaultsBodySchema, setSharingBodySchema} from '@proxy/contracts/connections';
+import {
+	type Connection,
+	type connectionListSchema,
+	createVaultBodySchema,
+	moveConnectionBodySchema,
+	renameConnectionBodySchema,
+	setDefaultsBodySchema,
+	setSharingBodySchema,
+} from '@proxy/contracts/connections';
 import {createConnection, deleteConnection, listConnectionsWithCredential, moveConnection, setConnectionDefaults, setConnectionSharing, updateConnectionName} from '@proxy/db/connection';
 import {getMemberOrganization, listMembers} from '@proxy/db/organization';
 import {VAULT_DEFAULT_ACTIONS, VAULT_INTEGRATION_ID} from '@proxy/integrations';
@@ -10,6 +18,7 @@ import {VAULT_DEFAULT_ACTIONS, VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {isBuiltIn, parseActionChanges, requireIntegration} from '../utils/connection-actions';
 import {requireViewer} from '../utils/user-org';
+import {ensureFilesConnection} from '../native/files/connections';
 import {ensureSandboxConnection} from '../native/sandbox/connections';
 import {respond, respondAll} from './connection-response';
 import {beforeDisconnect} from './disconnect';
@@ -22,6 +31,7 @@ export function handleListConnectionsRoute(request: AuthenticatedRequest): Promi
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		$(await ensureSandboxConnection(viewer));
+		$(await ensureFilesConnection(viewer));
 		return {connections: $(await respondAll($(await listConnectionsWithCredential(viewer))))};
 	});
 }

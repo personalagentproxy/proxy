@@ -5,8 +5,17 @@ import type {
 	Persona,
 	ThreadLog,
 } from '@proxy/contracts/harness';
-import {ArrowUpIcon, MoonIcon, PencilIcon, Trash2Icon} from 'lucide-react';
-import {type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState} from 'react';
+import {ArrowUpIcon, MoonIcon, PaperclipIcon, PencilIcon, Trash2Icon} from 'lucide-react';
+import {
+	type ClipboardEvent,
+	type DragEvent,
+	type FormEvent,
+	type KeyboardEvent,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from 'react';
 import {Link, useNavigate, useParams} from 'react-router';
 import {
 	createPersona,
@@ -22,6 +31,7 @@ import {LiveHead} from '@/components/head';
 import {Markdown} from '@/components/markdown';
 import {type ModelChoice, ModelSwitcher} from '@/components/model-switcher';
 import {PersonaDialog} from '@/components/persona-dialog';
+import {Attachments, PendingAttachments} from '@/components/chat/attachments';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {
 	InputGroup,
@@ -41,14 +51,16 @@ import {
 import {Trace, TraceIcon, TraceLine, TraceTitle} from '@/components/chat/trace';
 import {preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
+import {useAttachments} from '@/hooks/use-attachments';
 import {useChatDraft} from '@/hooks/use-chat-draft';
+import {useExperiments} from '@/hooks/use-experiment';
 import {useLastLoaded, useLoaded} from '@/hooks/use-loaded';
 import {useOrgSlug} from '@/hooks/use-org';
 import {useReload} from '@/hooks/use-reload';
 import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
 import {useUnread} from '@/hooks/use-unread';
 import {formatAgo, formatDateTime} from '@/lib/format';
-import {describeFetchError} from '@/lib/loader-utils';
+import {describeApiError, describeFetchError} from '@/lib/loader-utils';
 import type {chatLoader} from '@/loaders';
 import {
 	ContextMenu,
@@ -71,9 +83,12 @@ function Turn({entry}: {entry: ChatEntry}) {
 		return (
 			<Message align="end">
 				<MessageContent>
-					<Bubble align="end" variant="inverted">
-						<BubbleContent className="whitespace-pre-wrap">{entry.text}</BubbleContent>
-					</Bubble>
+					{entry.text !== '' && (
+						<Bubble align="end" variant="inverted">
+							<BubbleContent className="whitespace-pre-wrap">{entry.text}</BubbleContent>
+						</Bubble>
+					)}
+					<Attachments attachments={entry.attachments} />
 				</MessageContent>
 			</Message>
 		);
@@ -571,26 +586,52 @@ function Conversation({
 		await reload();
 	};
 
+	// What goes with the next message: files the person put in the input, where the organization
+	// has Files. Sent once none is still on its way up, with words, files, or both.
+	const attaches = useExperiments().includes('files');
+	const attachments = useAttachments(org, personaId);
+	const picker = useRef<HTMLInputElement>(null);
+	const sendable = !attachments.uploading && (text.trim() !== '' || attachments.ready.length > 0);
+
 	const send = async (event: FormEvent) => {
 		event.preventDefault();
 		const message = text.trim();
-		if (message === '' || sending) {
+		if (!sendable || sending) {
 			return;
 		}
 		setSending(true);
 		setError(null);
 		await draft.settle();
-		const posted = await postMessage(org, personaId, message);
+		const posted = await postMessage(org, personaId, message, attachments.ready);
 		setSending(false);
 		if (posted.isErr()) {
-			setError(describeFetchError(posted.error));
+			setError(describeApiError(posted.error));
 			draft.typed(text);
 			return;
 		}
 		draft.sent();
+		attachments.clear();
 		setText('');
 		rememberDraft(personaId, '');
 		await readLog();
+	};
+
+	// A file pasted into the message, as a screenshot is, is attached rather than typed.
+	const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+		const pasted = [...event.clipboardData.files];
+		if (!attaches || pasted.length === 0) {
+			return;
+		}
+		event.preventDefault();
+		attachments.add(pasted);
+	};
+	const onDrop = (event: DragEvent<HTMLFormElement>) => {
+		const dropped = [...event.dataTransfer.files];
+		if (!attaches || dropped.length === 0) {
+			return;
+		}
+		event.preventDefault();
+		attachments.add(dropped);
 	};
 
 	// Enter sends; Shift+Enter breaks the line.
@@ -656,14 +697,36 @@ function Conversation({
 			<form
 				ref={form}
 				onSubmit={(event) => void send(event)}
+				onDragOver={(event) => {
+					if (attaches && event.dataTransfer.types.includes('Files')) {
+						event.preventDefault();
+					}
+				}}
+				onDrop={onDrop}
 				className="page-column mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-2 pt-2 pb-4"
 			>
-				{(error ?? listError) && <p className="text-sm text-destructive">{error ?? listError}</p>}
+				{(error ?? attachments.refused ?? listError) && (
+					<p className="text-sm text-destructive">{error ?? attachments.refused ?? listError}</p>
+				)}
+				<PendingAttachments pending={attachments.pending} onRemove={attachments.remove} />
+				<input
+					ref={picker}
+					type="file"
+					multiple
+					className="hidden"
+					aria-label="Files to attach"
+					onChange={(event) => {
+						const picked = [...(event.target.files ?? [])];
+						event.target.value = '';
+						attachments.add(picked);
+					}}
+				/>
 				<InputGroup className="rounded-xl bg-background shadow-xs">
 					<InputGroupTextarea
 						value={text}
 						onChange={(event) => type(event.target.value)}
 						onKeyDown={onKeyDown}
+						onPaste={onPaste}
 						placeholder={`Message ${current.name}`}
 						aria-label="Message"
 						className="min-h-10 p-3"
@@ -678,12 +741,24 @@ function Conversation({
 							mayChange={current.mayChange}
 							onPick={(choice) => void switchModel(choice)}
 						/>
+						{attaches && (
+							<InputGroupButton
+								type="button"
+								size="icon-sm"
+								variant="ghost"
+								className="ml-auto rounded-full"
+								onClick={() => picker.current?.click()}
+								aria-label="Attach files"
+							>
+								<PaperclipIcon />
+							</InputGroupButton>
+						)}
 						<InputGroupButton
 							type="submit"
 							size="icon-sm"
 							variant="default"
-							className="ml-auto rounded-full"
-							disabled={sending || text.trim() === ''}
+							className={cn('rounded-full', !attaches && 'ml-auto')}
+							disabled={sending || !sendable}
 							aria-label="Send"
 						>
 							<ArrowUpIcon />

@@ -2,6 +2,7 @@ import type {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
 import {readyForInference} from '@proxy/utils/harness';
+import type {EntryAttachment} from '@proxy/utils/harness-context';
 import * as alerts from '@proxy/db/alerts';
 import type {AlertRow, NewAlert, PollRow, WatchMatch} from '@proxy/db/alerts';
 import {type ConnectionRow, getConnectionWithCredentialById, listConnectionsByIds} from '@proxy/db/connection';
@@ -9,6 +10,7 @@ import * as harness from '@proxy/db/harness';
 import type {
 	AfterAnswer,
 	AssistantTurn,
+	AttachmentRow,
 	CappedHarness,
 	ClaimedJob,
 	ConversationAnswer,
@@ -82,7 +84,10 @@ export type HarnessStore = {
 	ensureMemberThread: (data: {orgId: string; agentId: string; personaId: string; userId: string}) => Promise<Result<ThreadRow, ApiError>>;
 	listShownEntries: (threadId: string) => Promise<Result<EntryRow[], ApiError>>;
 	listOpenJobs: (threadId: string) => Promise<Result<JobRow[], ApiError>>;
-	appendPersonMessage: (threadId: string, text: string) => Promise<Result<EntryRow | null, ApiError>>;
+	/** What the person says in their conversation, with the files they attached to it. */
+	appendPersonMessage: (threadId: string, text: string, attachments?: EntryAttachment[]) => Promise<Result<EntryRow | null, ApiError>>;
+	/** What the person attached in a thread, each with the entry it was said with. */
+	listAttachments: (threadId: string) => Promise<Result<AttachmentRow[], ApiError>>;
 	markThreadRead: (threadId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
 	getThreadDraft: (threadId: string) => Promise<Result<string | null, ApiError>>;
 	saveThreadDraft: (threadId: string, draft: string | null) => Promise<Result<boolean, ApiError>>;
@@ -146,7 +151,8 @@ export const harnessStore: HarnessStore = {
 	ensureMemberThread: harness.ensureMemberThread,
 	listShownEntries: harness.listShownEntries,
 	listOpenJobs: harness.listOpenJobs,
-	appendPersonMessage: (threadId, text) => harness.appendPersonMessage(threadId, text, readyForInference),
+	appendPersonMessage: (threadId, text, attachments) => harness.appendPersonMessage(threadId, text, readyForInference, attachments),
+	listAttachments: harness.listAttachments,
 	markThreadRead: harness.markThreadRead,
 	getThreadDraft: harness.getThreadDraft,
 	saveThreadDraft: harness.saveThreadDraft,

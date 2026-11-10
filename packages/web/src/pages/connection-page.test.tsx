@@ -11,9 +11,11 @@ import {createMemoryRouter, RouterProvider} from 'react-router';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {HumanSide} from '@/components/human-side';
+import type {LoadedBy} from '@/hooks/use-loaded';
 import {shouldRevalidateTabs} from '@/lib/page-tabs';
 import {ConnectionPage} from '@/pages/connection-page';
 import {later} from '@/lib/loader-utils';
+import type {connectionLoader} from '@/loaders';
 import {testHuman, testOrg} from '@/test-org';
 
 afterEach(() => {
@@ -62,6 +64,10 @@ const claude: AgentLogin = {
 	grants: [],
 };
 
+// A drive as its page's loader gives it: where the person is in it, what is listed there, and the
+// file shown over it.
+type Drive = NonNullable<LoadedBy<typeof connectionLoader>['files']>;
+
 // The connection's page at `entry`, loading `connection` once: a second load would show the
 // loader ran again.
 function renderConnectionPage(
@@ -71,6 +77,7 @@ function renderConnectionPage(
 	vaultEntries: DataRecord[] | null = null,
 	sandboxes: DataRecord[] | null = null,
 	github: GitHubReach | null = null,
+	files: Drive | null = null,
 ) {
 	const loads = {count: 0};
 	const router = createMemoryRouter(
@@ -94,6 +101,7 @@ function renderConnectionPage(
 								vaultEntries,
 								sandboxes,
 								github,
+								files,
 							};
 						}),
 						shouldRevalidate: shouldRevalidateTabs,
@@ -230,6 +238,132 @@ describe('ConnectionPage', () => {
 		fireEvent.click(tab('Permissions'));
 		expect(await screen.findByRole('checkbox', {name: 'See sandboxes by default'})).toBeDefined();
 		expect(screen.queryByRole('button', {name: /site-build/})).toBeNull();
+	});
+
+	test('the person’s drive opens on its files, a folder a link into it and a file a link that shows it, and, never shared, has no Sharing tab', async () => {
+		const file = {
+			parentId: null,
+			shown: false,
+			modifiedAt: '2026-10-21T00:00:00.000Z',
+			trashedAt: null,
+		};
+		renderConnectionPage(
+			'/acme/connections/conn-1',
+			{...mailbox, integrationId: 'files', defaults: ['readFiles'], builtIn: true},
+			[claude],
+			null,
+			null,
+			null,
+			{
+				place: {folder: null, file: null, trash: false},
+				list: {
+					files: [
+						{
+							...file,
+							id: 'folder-1',
+							name: 'Reports',
+							folder: true,
+							version: null,
+							type: null,
+							size: null,
+						},
+						{
+							...file,
+							id: 'file-1',
+							name: 'pricing.md',
+							folder: false,
+							version: 'v2',
+							type: 'text/markdown',
+							size: 2048,
+						},
+					],
+					trail: [],
+				},
+				shown: null,
+			},
+		);
+
+		expect((await screen.findByRole('link', {name: /Reports/})).getAttribute('href')).toBe(
+			'/acme/connections/conn-1?folder=folder-1',
+		);
+		const row = screen.getByRole('link', {name: /pricing\.md/});
+		expect(row.getAttribute('href')).toBe('/acme/connections/conn-1?file=file-1');
+		expect(row.textContent).toContain('2 KB');
+		expect(tabs()).toEqual([
+			['Files', 'page'],
+			['Permissions', null],
+			['Recent activity', null],
+		]);
+		expect(screen.getByRole('button', {name: 'Upload'})).toBeTruthy();
+	});
+
+	test('a file of a drive opens over its folder with its versions, each saved or given back, and who made it', async () => {
+		const file = {
+			id: 'file-1',
+			name: 'pricing.md',
+			folder: false,
+			parentId: null,
+			version: 'v2',
+			type: 'text/markdown',
+			size: 2048,
+			shown: false,
+			modifiedAt: '2026-10-21T00:00:00.000Z',
+			trashedAt: null,
+		};
+		const version = {
+			size: 2048,
+			type: 'text/markdown',
+			at: '2026-10-21T00:00:00.000Z',
+			restored: false,
+		};
+		renderConnectionPage(
+			'/acme/connections/conn-1?file=file-1',
+			{...mailbox, integrationId: 'files', defaults: ['readFiles'], builtIn: true},
+			[claude],
+			null,
+			null,
+			null,
+			{
+				place: {folder: null, file: 'file-1', trash: false},
+				list: {files: [file], trail: []},
+				shown: {
+					file,
+					trail: [],
+					versions: [
+						{
+							...version,
+							id: 'v2',
+							current: true,
+							by: {
+								kind: 'agent',
+								name: 'General',
+								task: {id: 'task-1', title: 'Tidy the pricing notes'},
+							},
+						},
+						{...version, id: 'v1', current: false, by: {kind: 'person', name: 'Alex', task: null}},
+					],
+				},
+			},
+		);
+
+		const dialog = await screen.findByRole('dialog');
+		expect(dialog.textContent).toContain('text/markdown · 2 KB');
+		expect(dialog.textContent).toContain('by General for Tidy the pricing notes');
+		expect(dialog.textContent).toContain('by Alex');
+		expect(
+			within(dialog).getByRole('link', {name: 'Tidy the pricing notes'}).getAttribute('href'),
+		).toBe('/acme/activity/tasks/task-1');
+		expect(
+			within(dialog)
+				.getAllByRole('button', {name: 'Download'})
+				.map((link) => link.getAttribute('href')),
+		).toEqual([
+			'/api/orgs/acme/connections/conn-1/files/file-1/content',
+			'/api/orgs/acme/connections/conn-1/files/file-1/content?version=v1',
+		]);
+		// The version it holds is marked; one before it is given back or saved.
+		expect(within(dialog).getAllByRole('button', {name: 'Restore'})).toHaveLength(1);
+		expect(within(dialog).getByText('Current')).toBeTruthy();
 	});
 
 	test('a GitHub connection opens on the repositories it reaches, by the account the app is installed on', async () => {

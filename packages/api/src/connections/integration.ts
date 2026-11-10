@@ -5,7 +5,7 @@ import type {ApiError} from '@proxy/utils';
 import type {IntegrationId} from '@proxy/integrations';
 import type {Connection, plaidLinkTokenSchema} from '@proxy/contracts/connections';
 
-import type {NativeToolRunner} from '../native/tool';
+import type {NativeToolAllowance, NativeToolRunner} from '../native/tool';
 import type {Connector} from '../records/connector';
 import type {AuthenticatedHandler, AuthenticatedResultHandler} from '../server/middleware/require-auth';
 import type {BuiltInMcp} from './mcp/built-in';
@@ -60,6 +60,9 @@ export type ApiIntegration = {
 	// Each of the integration's own tools' runner by the tool's name (`native/tool.ts`), for one
 	// with tools of its own.
 	tools?: Partial<Record<string, NativeToolRunner>>;
+	// The runs of its own tools the person allowed by what they did, whatever the agent's access,
+	// by the tool's name (`native/tool.ts` NativeToolAllowance).
+	allowances?: Partial<Record<string, NativeToolAllowance>>;
 	// None for the vault, which is never connected.
 	connect?: ConnectRoutes;
 	// Built on its provider's MCP server (`built-in-mcp.ts`).

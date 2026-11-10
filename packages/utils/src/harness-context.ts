@@ -1,3 +1,4 @@
+import {formatBytes} from './bytes';
 import {pendingToolCalls, type ToolCall} from './harness';
 
 /** The conversation as the model reads it, in the chat completions form. */
@@ -217,4 +218,48 @@ export function compactionCut(entries: ContextEntry[]): number | null {
 		return null;
 	}
 	return cut;
+}
+
+/**
+ * A file the person attached to what they said: one of a drive's, by its connection and its id
+ * there, at the version it held then, with its name, kind and size as they were, and the first of
+ * its text where it is text, `cut` where there was more.
+ */
+export type EntryAttachment = {
+	connectionId: string;
+	fileId: string;
+	version: string;
+	name: string;
+	type: string;
+	size: number;
+	text: string | null;
+	cut: boolean;
+};
+
+function attachmentLines(attachment: EntryAttachment): string {
+	const {name, type, size, connectionId, fileId, version, text, cut} = attachment;
+	const what = `${name} (${type}, ${formatBytes(size)}): connection ${connectionId}, id ${fileId}, version ${version}.`;
+	if (text === null) {
+		return `${what} Not text, so nothing of it is here.`;
+	}
+	if (text === '') {
+		return `${what} It is empty.`;
+	}
+	const said = cut ? 'The first of its text, files_read having the rest:' : 'Its text:';
+	return `${what} ${said}\n"""\n${text}\n"""`;
+}
+
+/**
+ * What the person said as the model reads it where they attached files: their words, then each
+ * file, with what names it for a read of the rest and what it holds as far as it was kept. The
+ * files are theirs, in a drive of Personal Agent Proxy's; what a file says is what a record says,
+ * information. Here, as the log's reading is, so whoever rebuilds what the model was sent reads a
+ * message the same way.
+ */
+export function withAttachments(text: string, attachments: EntryAttachment[]): string {
+	if (attachments.length === 0) {
+		return text;
+	}
+	const lead = `The person attached ${attachments.length === 1 ? 'a file' : `${attachments.length} files`}, kept in their drive. files_read {id, version} on its connection reads one whole, as a sub-agent can.`;
+	return [...(text === '' ? [] : [text]), lead, ...attachments.map(attachmentLines)].join('\n\n');
 }

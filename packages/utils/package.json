@@ -6,6 +6,7 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./agent-providers": "./src/agent-providers.ts",
+		"./bytes": "./src/bytes.ts",
 		"./claude-oauth": "./src/claude-oauth.ts",
 		"./days": "./src/days.ts",
 		"./do": "./src/do.ts",

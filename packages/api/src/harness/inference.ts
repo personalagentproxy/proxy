@@ -10,6 +10,7 @@ import {agentInstructions, SCRIPT_TOOL} from '../mcp/tools';
 import {SIGN_IN_EXPIRED} from '../me/claude-token';
 import {log, serializeError} from '../observability/log';
 import {alertsParagraph} from './alerts';
+import {withAttached} from './attachments';
 import {afterAnswer, failureNote, jobLost, planCalls} from './conversation';
 import type {HarnessStore} from './store';
 import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
@@ -68,6 +69,7 @@ export type InferenceStore = Pick<
 	| 'getThreadAgent'
 	| 'getPersonaModel'
 	| 'listEntries'
+	| 'listAttachments'
 	| 'listSubAgents'
 	| 'listThreadAlerts'
 	| 'finishJob'
@@ -368,6 +370,9 @@ function askOnLog(
 			const now = clock();
 			const subAgents = thread.parentThreadId === null ? $(await store.listSubAgents(thread.id, now)) : [];
 			const system = $(await systemPrompt(store, thread, subAgents, now));
+			// What the person attached is read with what they said; a sub-agent's thread has none, its
+			// brief being the agent's own words.
+			const attached = thread.parentThreadId === null ? $(await store.listAttachments(thread.id)) : [];
 			return $(
 				await consume(
 					store,
@@ -379,7 +384,7 @@ function askOnLog(
 						job: job.id,
 						...(choice.auth === null ? {} : {auth: choice.auth}),
 						session: thread.harness === choice.harness.id ? thread.harnessSession : null,
-						entries,
+						entries: withAttached(entries, attached),
 						subAgents,
 						woken,
 						system,

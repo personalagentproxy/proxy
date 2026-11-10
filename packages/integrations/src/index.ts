@@ -1,6 +1,10 @@
 export {applies, effectiveActions, requiredAction} from './access';
 export type {OwnSettings} from './access';
 export {
+	FILES_DEFAULT_ACTIONS,
+	FILES_INTEGRATION_ID,
+	FILES_READ_CHARACTERS,
+	FILES_TRASH_DAYS,
 	findCollection,
 	findIntegration,
 	INTEGRATIONS,

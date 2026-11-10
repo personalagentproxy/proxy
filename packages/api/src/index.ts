@@ -10,6 +10,7 @@ import {harnessStore} from './harness/store';
 import {startAlertSweeper, type AlertSweeper} from './harness/alert-sweep';
 import {startHarnessWorker, type HarnessWorker} from './harness/worker';
 import {claudeCredentialFor, markClaudeCredentialRefused, recordClaudeUsage} from './me/claude-credential';
+import {startFilesSweeper} from './native/files/sweeper';
 import {startSandboxSweeper} from './native/sandbox/sweeper';
 import {log, serializeError} from './observability/log';
 import {metrics} from './observability/metrics';
@@ -87,5 +88,6 @@ async function startApiServer(): Promise<void> {
 		worker = startHarnessWorker(harnessStore, {registry: serverHarnesses(), credentials: {claudeCredentialFor, markRefused: markClaudeCredentialRefused, recordUsage: recordClaudeUsage}});
 		sweeper = startAlertSweeper(harnessStore);
 		void startSandboxSweeper();
+		void startFilesSweeper();
 	});
 }

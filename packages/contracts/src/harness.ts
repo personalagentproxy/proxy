@@ -104,9 +104,26 @@ export const chatAnswersSchema = z.object({answers: z.array(chatAnswerSchema)});
 export const personaAnswerSchema = z.object({persona: chatPersonaSchema});
 
 /**
- * A turn of the conversation as the page shows it: what the person said, or what the persona
- * answered, which is what went wrong where its turn failed. What the persona did in between is in
- * the activity log, not here.
+ * A file attached to what the person said: one of a drive's, by its connection and its id there,
+ * at the version it held when it was attached, with its name, media type and size in bytes as
+ * they were, and whether a browser may show it in place, as a picture.
+ */
+export const chatAttachmentSchema = z.object({
+	connectionId: z.string(),
+	fileId: z.string(),
+	version: z.string(),
+	name: z.string(),
+	type: z.string(),
+	size: z.number(),
+	shown: z.boolean(),
+});
+
+export type ChatAttachment = z.infer<typeof chatAttachmentSchema>;
+
+/**
+ * A turn of the conversation as the page shows it: what the person said, with the files they
+ * attached to it, or what the persona answered, which is what went wrong where its turn failed.
+ * What the persona did in between is in the activity log, not here.
  */
 export const chatEntrySchema = z.object({
 	id: z.string(),
@@ -114,6 +131,7 @@ export const chatEntrySchema = z.object({
 	text: z.string(),
 	isError: z.boolean(),
 	at: z.string(),
+	attachments: z.array(chatAttachmentSchema),
 });
 
 export type ChatEntry = z.infer<typeof chatEntrySchema>;
@@ -137,8 +155,43 @@ export type ThreadLog = z.infer<typeof threadLogSchema>;
 
 const MAX_MESSAGE = 20_000;
 
-/** `POST chat/personas/:personaId/messages`: what the person says to the persona; it is woken. */
-export const postMessageBodySchema = z.object({text: z.string().trim().min(1).max(MAX_MESSAGE)});
+/** How many files one message carries at most. */
+export const MAX_ATTACHMENTS = 10;
+
+/**
+ * `POST chat/personas/:personaId/messages`: what the person says to the persona, and the files
+ * they attach to it, each one of a drive they use, by its connection, its id and the version to
+ * attach; words, files, or both. The persona is woken.
+ */
+export const postMessageBodySchema = z
+	.object({
+		text: z.string().trim().max(MAX_MESSAGE),
+		attachments: z
+			.array(
+				z.object({
+					connectionId: z.string().min(1),
+					fileId: z.string().min(1),
+					version: z.string().min(1),
+				}),
+			)
+			.max(MAX_ATTACHMENTS)
+			.default([]),
+	})
+	.refine(({text, attachments}) => text !== '' || attachments.length > 0, {
+		message: 'Say something, or attach a file',
+	});
+
+/**
+ * `POST chat/personas/:personaId/attachments?name=&type=`: a file from the conversation's input,
+ * its body the bytes, sent as `application/octet-stream`: kept in the person's own drive, in a
+ * folder of the persona's under Chats, and answered as what to attach to the next message.
+ */
+export const uploadAttachmentQuerySchema = z.object({
+	name: z.string().trim().min(1).max(255),
+	type: z.string().max(200).optional(),
+});
+
+export const uploadedAttachmentSchema = z.object({attachment: chatAttachmentSchema});
 
 /**
  * `PUT chat/personas/:personaId/draft`: what the person has typed to the persona and not sent, in

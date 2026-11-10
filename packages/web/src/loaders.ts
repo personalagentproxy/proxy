@@ -9,6 +9,7 @@ import {
 	listMcpClients,
 } from '@/client/agents-client';
 import {getConnection, listConnections} from '@/client/connections-client';
+import {getFile, listFiles, listTrashedFiles} from '@/client/files-client';
 import {getGitHubInstallations} from '@/client/github-client';
 import {listAlerts} from '@/client/alerts-client';
 import {getThread, listPersonas} from '@/client/harness-client';
@@ -16,9 +17,14 @@ import {getClaudeAccount, getMe, listSessions} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {getInvitation, getOrg, listMembers, listOrgs} from '@/client/orgs-client';
 import {listRecords} from '@/client/records-client';
-import {SANDBOX_INTEGRATION_ID, VAULT_INTEGRATION_ID} from '@proxy/integrations';
+import {
+	FILES_INTEGRATION_ID,
+	SANDBOX_INTEGRATION_ID,
+	VAULT_INTEGRATION_ID,
+} from '@proxy/integrations';
 import {desktopChallengeSchema} from '@proxy/contracts/auth';
 import {desktopAuthLink} from '@/lib/desktop';
+import {drivePlace} from '@/lib/files';
 import {LOADED_MINUTES, windowStart} from '@/lib/timeline-window';
 import {describeApiError, later, unwrapLoaderResult, unwrapOrNull} from '@/lib/loader-utils';
 import {pendingAgent} from '@/lib/pending-agent';
@@ -98,53 +104,71 @@ export const addConnectionLoader = later(async (args: OrgParams) => {
 	};
 });
 
-export const connectionLoader = later(async (args: {params: {org?: string; id?: string}}) => {
-	const org = orgOf(args);
-	const id = args.params.id ?? '';
-	const [connection, connections, agents, activity, members] = await Promise.all([
-		getConnection(org, id),
-		listConnections(org),
-		listAgents(org),
-		listActivity(org, {connectionId: id}),
-		listMembers(org),
-	]);
-	const {entries, tasks} = unwrapLoaderResult(activity);
-	const found = unwrapOrNull(connection);
-	// What a connection kept in Personal Agent Proxy holds is the first tab of its page: a vault's
-	// entries, the Sandboxes' sandboxes; null for every other connection.
-	const kept = async (integrationId: string, collectionId: string) => {
-		if (found?.integrationId !== integrationId) {
-			return null;
-		}
-		return unwrapLoaderResult(await listRecords(org, found.id, collectionId)).records;
-	};
-	// What a GitHub connection reaches is its first tab too; GitHub out of reach is said on the tab
-	// rather than failing the page.
-	const reached = async () => {
-		if (found?.integrationId !== 'github') {
-			return null;
-		}
-		const answer = await getGitHubInstallations(org, found.id);
-		return answer.isOk() ? answer.value : {error: describeApiError(answer.error)};
-	};
-	const [vaultEntries, sandboxes, github] = await Promise.all([
-		kept(VAULT_INTEGRATION_ID, 'entries'),
-		kept(SANDBOX_INTEGRATION_ID, 'sandboxes'),
-		reached(),
-	]);
-	return {
-		connection: found,
-		connections: unwrapLoaderResult(connections).connections,
-		agents: unwrapLoaderResult(agents).agents,
-		entries,
-		tasks,
-		// Whom it can be shared with by name.
-		members: unwrapLoaderResult(members).members,
-		vaultEntries,
-		sandboxes,
-		github,
-	};
-});
+export const connectionLoader = later(
+	async (args: {params: {org?: string; id?: string}; request: Request}) => {
+		const org = orgOf(args);
+		const id = args.params.id ?? '';
+		const [connection, connections, agents, activity, members] = await Promise.all([
+			getConnection(org, id),
+			listConnections(org),
+			listAgents(org),
+			listActivity(org, {connectionId: id}),
+			listMembers(org),
+		]);
+		const {entries, tasks} = unwrapLoaderResult(activity);
+		const found = unwrapOrNull(connection);
+		// What a connection kept in Personal Agent Proxy holds is the first tab of its page: a vault's
+		// entries, the Sandboxes' sandboxes; null for every other connection.
+		const kept = async (integrationId: string, collectionId: string) => {
+			if (found?.integrationId !== integrationId) {
+				return null;
+			}
+			return unwrapLoaderResult(await listRecords(org, found.id, collectionId)).records;
+		};
+		// What a GitHub connection reaches is its first tab too; GitHub out of reach is said on the tab
+		// rather than failing the page.
+		const reached = async () => {
+			if (found?.integrationId !== 'github') {
+				return null;
+			}
+			const answer = await getGitHubInstallations(org, found.id);
+			return answer.isOk() ? answer.value : {error: describeApiError(answer.error)};
+		};
+		// A drive's page is where the person is in it, as its query says (lib/files.ts): the folder
+		// opened or the trash, and a file shown over it. Null for a folder or a file that isn't there,
+		// which the tab says rather than failing the page.
+		const drive = async () => {
+			if (found?.integrationId !== FILES_INTEGRATION_ID) {
+				return null;
+			}
+			const place = drivePlace(new URL(args.request.url).searchParams);
+			const [list, shown] = await Promise.all([
+				place.trash ? listTrashedFiles(org, found.id) : listFiles(org, found.id, place.folder),
+				place.file === null ? null : getFile(org, found.id, place.file),
+			]);
+			return {place, list: unwrapOrNull(list), shown: shown === null ? null : unwrapOrNull(shown)};
+		};
+		const [vaultEntries, sandboxes, github, files] = await Promise.all([
+			kept(VAULT_INTEGRATION_ID, 'entries'),
+			kept(SANDBOX_INTEGRATION_ID, 'sandboxes'),
+			reached(),
+			drive(),
+		]);
+		return {
+			connection: found,
+			connections: unwrapLoaderResult(connections).connections,
+			agents: unwrapLoaderResult(agents).agents,
+			entries,
+			tasks,
+			// Whom it can be shared with by name.
+			members: unwrapLoaderResult(members).members,
+			vaultEntries,
+			sandboxes,
+			github,
+			files,
+		};
+	},
+);
 
 // Chat opens on the persona the person was last active with, the first the api lists, which makes
 // one where the organization has none yet.

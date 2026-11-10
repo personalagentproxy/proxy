@@ -4,8 +4,10 @@ import {
 	COMPACT_AT_TOKENS,
 	compactionCut,
 	type ContextEntry,
+	type EntryAttachment,
 	toMessages,
 	toTranscript,
+	withAttachments,
 } from './harness-context';
 
 type Kind = ContextEntry['kind'];
@@ -305,5 +307,56 @@ describe('toTranscript', () => {
 		expect(transcript.startsWith('A summary of what came before')).toBe(true);
 		expect(transcript).toContain('The person asked for one.\n\nPerson:\nTwo');
 		expect(transcript).not.toContain('rows one');
+	});
+});
+
+describe('withAttachments', () => {
+	const file: EntryAttachment = {
+		connectionId: 'drive-1',
+		fileId: 'file-1',
+		version: 'v1',
+		name: 'pricing.md',
+		type: 'text/markdown',
+		size: 2048,
+		text: '# Pricing',
+		cut: false,
+	};
+
+	test('leaves what the person said as it is where they attached nothing', () => {
+		expect(withAttachments('Hello', [])).toBe('Hello');
+	});
+
+	test('writes each file under what was said: what names it for a read, and its text as far as it was kept', () => {
+		const read = withAttachments('What do these say?', [
+			file,
+			{
+				...file,
+				fileId: 'file-2',
+				name: 'long.txt',
+				type: 'text/plain',
+				text: 'The first part',
+				cut: true,
+			},
+		]);
+
+		expect(read.split('\n\n')).toEqual([
+			'What do these say?',
+			'The person attached 2 files, kept in their drive. files_read {id, version} on its connection reads one whole, as a sub-agent can.',
+			'pricing.md (text/markdown, 2 KB): connection drive-1, id file-1, version v1. Its text:\n"""\n# Pricing\n"""',
+			'long.txt (text/plain, 2 KB): connection drive-1, id file-2, version v1. The first of its text, files_read having the rest:\n"""\nThe first part\n"""',
+		]);
+	});
+
+	test('says of a file that isn’t text, or holds nothing, that there is nothing of it to read here, and stands alone where nothing was said', () => {
+		const read = withAttachments('', [
+			{...file, name: 'chart.png', type: 'image/png', text: null},
+			{...file, name: 'empty.txt', text: ''},
+		]);
+
+		expect(read.split('\n\n')).toEqual([
+			'The person attached 2 files, kept in their drive. files_read {id, version} on its connection reads one whole, as a sub-agent can.',
+			'chart.png (image/png, 2 KB): connection drive-1, id file-1, version v1. Not text, so nothing of it is here.',
+			'empty.txt (text/markdown, 2 KB): connection drive-1, id file-1, version v1. It is empty.',
+		]);
 	});
 });

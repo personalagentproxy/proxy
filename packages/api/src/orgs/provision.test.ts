@@ -24,8 +24,8 @@ describe('planPersonalOrgIdentity', () => {
 });
 
 describe('the starter connections', () => {
-	it('are a vault of the member’s own, the owner’s as anyone’s, which agents read and write by default; the vaults and the sandboxes are named after the organization', () => {
+	it('are a vault of the member’s own, the owner’s as anyone’s, which agents read and write by default; the vaults, the sandboxes and the files are named after the organization', () => {
 		expect(MEMBER_CONNECTIONS).toEqual([{integrationId: 'vault', defaults: ['readEntries', 'writeEntries']}]);
-		expect(NAMED_AFTER_ORGANIZATION).toEqual(['vault', 'sandbox']);
+		expect(NAMED_AFTER_ORGANIZATION).toEqual(['vault', 'sandbox', 'files']);
 	});
 });

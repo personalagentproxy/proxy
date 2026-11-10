@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import {Err, Ok, Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
+import {formatBytes} from '@proxy/utils/bytes';
 
 import {decodeText} from '../utils/decode-text';
 import {htmlToText} from '../utils/html-to-text';
@@ -30,19 +31,9 @@ const MAX_CHARACTERS = 100_000;
 // The largest attachment read: Gmail's own limit on what an email carries.
 const MAX_BYTES = 25 * 1024 * 1024;
 
-function sizeText(bytes: number): string {
-	if (bytes < 1024) {
-		return `${bytes} B`;
-	}
-	if (bytes < 1024 * 1024) {
-		return `${Math.round(bytes / 1024)} KB`;
-	}
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 /** An email's attachments, one a line, numbered as they are read by: "1. Q3.xlsx (application/…, 48 KB)". */
 export function attachmentsText(attachments: AttachmentInfo[]): string {
-	return attachments.map((attachment, index) => `${index + 1}. ${attachment.name || 'Untitled'} (${attachment.type || 'unknown type'}, ${sizeText(attachment.size)})`).join('\n');
+	return attachments.map((attachment, index) => `${index + 1}. ${attachment.name || 'Untitled'} (${attachment.type || 'unknown type'}, ${formatBytes(attachment.size)})`).join('\n');
 }
 
 /** The attachment `values.attachment` names, by its number or its name, and its number. */
@@ -218,22 +209,29 @@ export function readableKind(attachment: AttachmentInfo): Result<Kind, ApiError>
 		return Err(ApiErr.validationError(`“${attachment.name}” (${attachment.type || 'unknown type'}) can’t be read as text: only spreadsheets, PDFs, Word documents, emails and text can`));
 	}
 	if (attachment.size > MAX_BYTES) {
-		return Err(ApiErr.validationError(`“${attachment.name}” is too large to read, at ${sizeText(attachment.size)}: at most ${sizeText(MAX_BYTES)}`));
+		return Err(ApiErr.validationError(`“${attachment.name}” is too large to read, at ${formatBytes(attachment.size)}: at most ${formatBytes(MAX_BYTES)}`));
 	}
 	return Ok(kind);
+}
+
+/** A file read whole as text, as an attachment is; one too large or that isn't text is turned down, saying why. */
+export function fileText(file: AttachmentFile): Promise<Result<string, ApiError>> {
+	return Do(async ($) => {
+		const kind = $(readableKind({...file, size: Math.max(file.size, file.bytes.length)}));
+		return $(await textOf(file, kind));
+	});
 }
 
 /** An attachment read as text, as the `attachments` collection answers it. */
 export function attachmentRecord(email: string, number: number, file: AttachmentFile): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
-		const kind = $(readableKind({...file, size: Math.max(file.size, file.bytes.length)}));
-		const text = $(await textOf(file, kind));
+		const text = $(await fileText(file));
 		const values = {
 			email,
 			attachment: String(number),
 			name: file.name,
 			type: file.type,
-			size: sizeText(file.size || file.bytes.length),
+			size: formatBytes(file.size || file.bytes.length),
 			length: lengthText(text.length),
 			content: text.slice(0, MAX_CHARACTERS),
 		};

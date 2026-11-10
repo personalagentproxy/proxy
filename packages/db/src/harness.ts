@@ -20,6 +20,7 @@ import {
 	threadState,
 	type ToolCall,
 } from '@proxy/utils/harness';
+import type {EntryAttachment} from '@proxy/utils/harness-context';
 import {taskEndedLongAgo} from '@proxy/utils/tasks';
 
 import {db} from '.';
@@ -959,6 +960,7 @@ export async function appendPersonMessage(
 	threadId: string,
 	text: string,
 	wakes: Wakes,
+	attachments: EntryAttachment[] = [],
 ): Promise<Result<EntryRow | null, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
@@ -967,9 +969,76 @@ export async function appendPersonMessage(
 				return null;
 			}
 			await tx.agentThread.update({where: {id: threadId}, data: {draft: null}});
-			return appendEntry(tx, thread, {kind: 'person', text}, wakes);
+			const entry = await appendEntry(tx, thread, {kind: 'person', text}, wakes);
+			if (attachments.length > 0) {
+				await tx.agentEntryAttachment.createMany({
+					data: attachments.map((attachment, position) => ({
+						...attachment,
+						entryId: entry.id,
+						threadId,
+						position,
+					})),
+				});
+			}
+			return entry;
 		}),
 	);
+}
+
+const attachmentSelect = {
+	entryId: true,
+	connectionId: true,
+	fileId: true,
+	version: true,
+	name: true,
+	type: true,
+	size: true,
+	text: true,
+	cut: true,
+} as const;
+
+/** A file attached to an entry of a thread's log, with the entry it is attached to. */
+export type AttachmentRow = EntryAttachment & {entryId: string};
+
+/** What the person attached in a thread, each with the entry it was said with, in the order attached. */
+export async function listAttachments(
+	threadId: string,
+): Promise<Result<AttachmentRow[], ApiError>> {
+	return wrapDb(() =>
+		db.agentEntryAttachment.findMany({
+			where: {threadId},
+			select: attachmentSelect,
+			orderBy: [{createdAt: 'asc'}, {position: 'asc'}],
+		}),
+	);
+}
+
+/**
+ * Whether the version of the file was attached in the conversation the task's work is for: the
+ * thread of a sub-agent whose task it is, and the conversation that thread was started from.
+ * False for a task that is no sub-agent's.
+ */
+export async function isAttachedForTask(
+	task: {orgId: string; taskId: string},
+	file: {connectionId: string; fileId: string; version: string},
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(async () => {
+		const thread = await db.agentThread.findFirst({
+			where: task,
+			select: {id: true, parentThreadId: true},
+		});
+		if (!thread) {
+			return false;
+		}
+		const found = await db.agentEntryAttachment.findFirst({
+			where: {
+				threadId: {in: [thread.id, ...(thread.parentThreadId ? [thread.parentThreadId] : [])]},
+				...file,
+			},
+			select: {entryId: true},
+		});
+		return found !== null;
+	});
 }
 
 /** A job as a worker claimed it, with whether it is a turn of a persona on the harness the claim was told is capped. */

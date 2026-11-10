@@ -381,7 +381,14 @@ describe('ChatPage', () => {
 		});
 		renderChatPage({
 			entries: [
-				{id: 'e1', kind: 'assistant', text: 'Hello', isError: false, at: '2026-10-21T10:00:01Z'},
+				{
+					id: 'e1',
+					kind: 'assistant',
+					text: 'Hello',
+					isError: false,
+					at: '2026-10-21T10:00:01Z',
+					attachments: [],
+				},
 			],
 			listPersonas: () => listed,
 		});
@@ -421,7 +428,16 @@ describe('ChatPage', () => {
 		// What the person said in the open conversation since puts General on top.
 		renderChatPage({
 			personas: [general, answered, travel],
-			entries: [{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-23T10:00:00Z'}],
+			entries: [
+				{
+					id: 'e1',
+					kind: 'person',
+					text: 'Hi',
+					isError: false,
+					at: '2026-10-23T10:00:00Z',
+					attachments: [],
+				},
+			],
 		});
 		await screen.findByRole('link', {name: /Travel/});
 		expect(order()).toEqual(['General', 'Travel', 'Finance']);
@@ -430,9 +446,30 @@ describe('ChatPage', () => {
 	test('reads the conversation up to the last answer it shows, what the person said after it aside', async () => {
 		renderChatPage({
 			entries: [
-				{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00Z'},
-				{id: 'e2', kind: 'assistant', text: 'Hello', isError: false, at: '2026-10-21T10:00:01Z'},
-				{id: 'e3', kind: 'person', text: 'And?', isError: false, at: '2026-10-21T10:00:02Z'},
+				{
+					id: 'e1',
+					kind: 'person',
+					text: 'Hi',
+					isError: false,
+					at: '2026-10-21T10:00:00Z',
+					attachments: [],
+				},
+				{
+					id: 'e2',
+					kind: 'assistant',
+					text: 'Hello',
+					isError: false,
+					at: '2026-10-21T10:00:01Z',
+					attachments: [],
+				},
+				{
+					id: 'e3',
+					kind: 'person',
+					text: 'And?',
+					isError: false,
+					at: '2026-10-21T10:00:02Z',
+					attachments: [],
+				},
 			],
 		});
 
@@ -449,7 +486,16 @@ describe('ChatPage', () => {
 
 	test('marks nothing read before the agent has answered', async () => {
 		renderChatPage({
-			entries: [{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00Z'}],
+			entries: [
+				{
+					id: 'e1',
+					kind: 'person',
+					text: 'Hi',
+					isError: false,
+					at: '2026-10-21T10:00:00Z',
+					attachments: [],
+				},
+			],
 		});
 
 		await screen.findByRole('link', {name: /Finance/});
@@ -528,6 +574,7 @@ describe('ChatPage', () => {
 								text: 'Book the train',
 								isError: false,
 								at: '2026-10-21T10:00:00Z',
+								attachments: [],
 							},
 						}),
 					);

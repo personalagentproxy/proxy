@@ -35,6 +35,7 @@ import {parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
 import {log as serverLog} from '../observability/log';
 import {integrationOf} from '../utils/connection-actions';
+import {ensureFilesConnection} from '../native/files/connections';
 import {ensureSandboxConnection} from '../native/sandbox/connections';
 import type {NativeToolRun} from '../native/tool';
 import {requireOpenTask} from './tasks';
@@ -92,6 +93,7 @@ export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
 		$(await ensureSandboxConnection({...agentViewer(signedIn), experiments: signedIn.experiments}));
+		$(await ensureFilesConnection({...agentViewer(signedIn), experiments: signedIn.experiments}));
 		const connections = $(await listConnectionsWithCredential(agentViewer(signedIn)))
 			.flatMap((connection) => {
 				const integration = integrationOf(connection);
@@ -312,11 +314,22 @@ function runNativeTool(integration: Integration, tool: ApiTool, run: NativeToolR
 	return runner(run);
 }
 
+// Whether the person allowed the run by what they did, whatever the agent's access: for one of
+// the integration's own tools whose module says so (native/tool.ts NativeToolAllowance).
+function allowedAnyway(integration: Integration, tool: ServerTool | ApiTool, run: NativeToolRun): Promise<Result<boolean, ApiError>> {
+	const allowance = tool.kind === 'native' ? apiIntegration(integration.id)?.allowances?.[tool.name] : undefined;
+	if (!allowance) {
+		return Promise.resolve(Ok(false));
+	}
+	return allowance(run);
+}
+
 // A tool with params of its own shape: a custom server's, called as it is, its params going to
 // the server as given, which checks them against its own schema; or one of the integration's own,
 // run by the api. Its answer comes back as text. Logged by the tool's name, with its params,
 // allowed, denied or failed; one the agent lacks the action for, or the one it needs beside it, is
-// refused as a collection's tool is, saying why.
+// refused as a collection's tool is, saying why, unless the person allowed that very run by what
+// they did, as by attaching the file it reads.
 function runParamsTool(
 	caller: TaskCaller,
 	agent: AgentRow,
@@ -353,7 +366,7 @@ function runParamsTool(
 		const unavailable = unavailableActions(connection);
 		const actions = actionsOf(agent, connection, integration, unavailable);
 		const missing = [tool.action, tool.requires].find((actionId) => actionId !== undefined && !actions.includes(actionId));
-		if (missing !== undefined) {
+		if (missing !== undefined && !$(await allowedAnyway(integration, tool, {caller, connection, params: args}))) {
 			$(await logRun('denied'));
 			return $(Err(actionRefusal(integration, agent, connection, unavailable, missing)));
 		}

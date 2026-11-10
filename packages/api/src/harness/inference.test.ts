@@ -108,6 +108,7 @@ beforeEach(() => {
 	listEntries.mockResolvedValue(Ok([entry('person', 'Hi')]));
 	listSubAgents.mockResolvedValue(Ok([]));
 	store.listThreadAlerts.mockResolvedValue(Ok([]));
+	store.listAttachments.mockResolvedValue(Ok([]));
 	getThreadAgent.mockResolvedValue(Ok({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: []}));
 	getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'claude'}));
 	for (const write of [finishJob, completeInference, requeueJob, appendSummary, appendTurnEntries, store.failJob]) {
@@ -446,6 +447,32 @@ describe('runInference', () => {
 
 	describe('on any harness', () => {
 		const done: HarnessEvent = {kind: 'done', session: null, system: 'Sent.', inputTokens: 5, outputTokens: 1};
+
+		test('gives the harness what the person said with the files they attached to it written under it, and a sub-agent’s log as it is', async () => {
+			const {runInference} = await import('./inference');
+			const fake = fakeHarness();
+			const said = entry('person', 'What does this say?');
+			listEntries.mockResolvedValue(Ok([entry('person', 'Hi'), said]));
+			store.listAttachments.mockResolvedValue(
+				Ok([{entryId: said.id, connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'pricing.md', type: 'text/markdown', size: 42, text: '# Pricing review with Dana', cut: false}]),
+			);
+			fake.script([{kind: 'text', text: 'A pricing review.'}, done]);
+
+			(await runInference(store, on(fake), job, 'w1', false, clock)).unwrap();
+
+			expect(store.listAttachments).toHaveBeenCalledWith('thread-1');
+			const read = fake.turns[0]?.entries.map((given) => given.text) ?? [];
+			expect(read[0]).toBe('Hi');
+			expect(read[1]).toStartWith('What does this say?\n\nThe person attached a file, kept in their drive.');
+			expect(read[1]).toContain('pricing.md (text/markdown, 42 B): connection drive-1, id file-1, version v1. Its text:\n"""\n# Pricing review with Dana\n"""');
+
+			// A sub-agent reads its brief, the agent's own words: nothing is attached to it.
+			store.listAttachments.mockClear();
+			getJobThread.mockResolvedValue(Ok(sub));
+			fake.script([{kind: 'text', text: 'Done.'}, done]);
+			(await runInference(store, on(fake), {...job, threadId: 'thread-2'}, 'w1', false, clock)).unwrap();
+			expect(store.listAttachments).not.toHaveBeenCalled();
+		});
 
 		test('gives the harness the thread, the log, its sub-agents, the prompt, the tools and the model, one step and no session, and writes the answer as it ended', async () => {
 			const {runInference} = await import('./inference');
