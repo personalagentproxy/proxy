@@ -173,7 +173,7 @@ export async function callMcpTool(signedIn: SignedInAgent, args: Record<string, 
 	if (!parsed.success || parsed.data.code.trim() === '') {
 		return failed('script takes code, and task where one was started.');
 	}
-	const host = agentScriptHost(signedIn, {via, task: parsed.data.task?.trim() || null, taskTools: via === 'mcp'});
+	const host = agentScriptHost(signedIn, {via, task: parsed.data.task?.trim() || null, taskTools: via === 'mcp', sandboxes: true});
 	const run = await runScript(parsed.data.code, host.answer, LIMITS);
 	if (run.isErr()) {
 		log.error('A script could not be run', {kind: run.error.kind});

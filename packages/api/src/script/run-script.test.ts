@@ -1,7 +1,9 @@
 import {describe, expect, test} from 'bun:test';
 import {Err, Ok} from 'ts-results-es';
 
-import type {Json, PapMethod} from './protocol';
+import type {PapMethod} from '@proxy/contracts/cli';
+
+import type {Json} from './protocol';
 import {DEFAULT_SCRIPT_LIMITS, type PapAnswer, runScript, type ScriptHost, type ScriptLimits, type ScriptRun} from './run-script';
 
 const LIMITS: ScriptLimits = {...DEFAULT_SCRIPT_LIMITS, wallMs: 5_000, cpuMs: 500, memoryBytes: 16 * 1024 * 1024};

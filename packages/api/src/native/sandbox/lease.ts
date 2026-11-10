@@ -57,6 +57,26 @@ export function holdForTask(sandbox: SandboxRow, taskId: string, now = new Date(
 	});
 }
 
+/**
+ * Whether the sandbox is still the task's: held by it, or by a task above it still under way. Only
+ * read, nothing taken, for a call from inside the sandbox (cli/authenticate.ts).
+ */
+export function isHeldFor(sandbox: SandboxRow, taskId: string, now = new Date()): Promise<Result<boolean, ApiError>> {
+	return Do(async ($) => {
+		if (sandbox.heldByTaskId === taskId) {
+			return true;
+		}
+		if (sandbox.heldByTaskId === null) {
+			return false;
+		}
+		const holder = $(await getHoldingTask(sandbox.orgId, sandbox.heldByTaskId));
+		if (!holder || taskEndedAt(holder, now) !== null) {
+			return false;
+		}
+		return $(await underHolder(sandbox.orgId, taskId, holder.id));
+	});
+}
+
 /** Whether the task holding the sandbox is still under way, and which it is, for the list. */
 export function holderOf(sandbox: SandboxRow, now = new Date()): Promise<Result<{id: string; title: string} | null, ApiError>> {
 	return Do(async ($) => {

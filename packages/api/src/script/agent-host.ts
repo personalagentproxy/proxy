@@ -2,14 +2,17 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
+import {SANDBOX_INTEGRATION_ID} from '@proxy/integrations';
 import type {SignedInAgent} from '@proxy/db/agent';
+import type {PapMethod} from '@proxy/contracts/cli';
 
 import {sendAgentFeedback} from '../agent-side/feedback';
 import {connectionSummary, toolSummary} from '../agent-side/summaries';
 import {finishAgentTask, requireOpenTask, startAgentTask} from '../agent-side/tasks';
-import {type AgentCaller, listAgentConnections, listAgentTools, runAgentTool} from '../agent-side/tools';
+import {type AgentCaller, agentViewer, listAgentConnections, listAgentTools, runAgentTool} from '../agent-side/tools';
 import {log, serializeError} from '../observability/log';
-import {jsonSchema, type Json, type PapMethod} from './protocol';
+import {loadConnection} from '../records/target';
+import {jsonSchema, type Json} from './protocol';
 import type {PapAnswer, ScriptHost} from './run-script';
 
 /**
@@ -25,14 +28,17 @@ import type {PapAnswer, ScriptHost} from './run-script';
  * - `pap.feedback({message, connection?, tool?})`: feedback for the makers of Personal Agent Proxy.
  * The task is the run's: the one it was started for, or the one the script started, kept here,
  * so a script can only use its agent's own, as any call can. The built-in agent's sub-agents
- * have a task the loop keeps for them, so theirs start and finish none.
+ * have a task the loop keeps for them, so theirs start and finish none. Code in a sandbox calling
+ * these over HTTP (cli/route.ts) has its task fixed by its token too, and reaches no Sandboxes
+ * connection: `connections` leaves them out, and their tools are refused.
  */
 
-/** Which way the script came in: the MCP server, or the built-in agent's loop. */
+/** Which way the calls came in: the MCP server, the built-in agent's loop, or a sandbox's CLI. */
 export type ScriptVia = Exclude<AgentCaller['via'], 'web'>;
 
 const NO_TASK = 'No task: call pap.startTask first, or give `task`.';
 const OWN_TASK = 'Your task is kept for you.';
+const NO_SANDBOXES = 'Sandboxes can’t be used from inside a sandbox: run sandbox_exec from outside it.';
 
 const ARGS = {
 	connections: z.tuple([]),
@@ -101,7 +107,17 @@ function errorMessage(error: ApiError, tool: string | undefined): string {
 
 type HostState = {taskId: string | null; started: string | null};
 
-type HostOptions = {via: ScriptVia; task: string | null; taskTools: boolean};
+type HostOptions = {via: ScriptVia; task: string | null; taskTools: boolean; sandboxes: boolean};
+
+// Refuses a Sandboxes connection, for calls from inside a sandbox; any other the agent sees passes.
+function refuseSandboxes(signedIn: SignedInAgent, connectionId: string): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const {integration} = $(await loadConnection(agentViewer(signedIn), connectionId));
+		if (integration.id === SANDBOX_INTEGRATION_ID) {
+			return $(Err(ApiErr.validationError(NO_SANDBOXES)));
+		}
+	});
+}
 
 // What the call answers, any of the agent side's answers, which go to the script as JSON.
 function answer(signedIn: SignedInAgent, options: HostOptions, state: HostState, method: PapMethod, args: Json[]): Promise<Result<object, ApiError>> {
@@ -132,15 +148,23 @@ function answer(signedIn: SignedInAgent, options: HostOptions, state: HostState,
 			$(argsOf(method, ARGS.connections, args));
 			const [task, listed] = await Promise.all([requireOpenTask(signedIn, taskId), listAgentConnections(signedIn)]);
 			$(task);
-			return $(listed).connections.map(connectionSummary);
+			return $(listed)
+				.connections.filter((one) => options.sandboxes || one.integrationId !== SANDBOX_INTEGRATION_ID)
+				.map(connectionSummary);
 		}
 		if (method === 'tools') {
 			const [connection] = $(argsOf(method, ARGS.tools, args));
+			if (!options.sandboxes) {
+				$(await refuseSandboxes(signedIn, connection));
+			}
 			const [task, tools] = await Promise.all([requireOpenTask(signedIn, taskId), listAgentTools(signedIn, connection)]);
 			$(task);
 			return $(tools).map(toolSummary);
 		}
 		const [connection, tool, params] = $(argsOf(method, ARGS.call, args));
+		if (!options.sandboxes) {
+			$(await refuseSandboxes(signedIn, connection));
+		}
 		return $(await runAgentTool({...caller, taskId}, connection, tool, params ?? {}));
 	});
 }
@@ -160,7 +184,8 @@ export type AgentScriptHost = {answer: ScriptHost; startedTask: () => string | n
 
 /**
  * The `pap` functions of a script the agent runs for `task`, or for the task the script starts
- * where none; `taskTools` whether it may start and finish tasks.
+ * where none; `taskTools` whether it may start and finish tasks, and `sandboxes` whether it may
+ * use Sandboxes connections.
  */
 export function agentScriptHost(signedIn: SignedInAgent, options: HostOptions): AgentScriptHost {
 	const state: HostState = {taskId: options.task, started: null};

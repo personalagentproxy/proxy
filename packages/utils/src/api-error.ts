@@ -3,7 +3,8 @@ import {Err, Ok, Result} from 'ts-results-es';
 export type ApiError =
 	// `message`, where there is one, says what to do next, as for a web page nothing was found at.
 	| {kind: 'not_found'; statusCode: 404; resource: string; id?: string; message?: string}
-	| {kind: 'unauthenticated'; statusCode: 401}
+	// `message`, where there is one, says how to sign in again, as for a sandbox command's expired token.
+	| {kind: 'unauthenticated'; statusCode: 401; message?: string}
 	| {kind: 'forbidden'; statusCode: 403}
 	| {kind: 'conflict'; statusCode: 409; message: string}
 	| {kind: 'internal_error'; statusCode: 500; cause: unknown}
@@ -28,7 +29,10 @@ export const ApiErr = {
 		id,
 		message,
 	}),
-	unauthenticated: (): ApiError => ({kind: 'unauthenticated', statusCode: 401}),
+	unauthenticated: (message?: string): ApiError =>
+		message === undefined
+			? {kind: 'unauthenticated', statusCode: 401}
+			: {kind: 'unauthenticated', statusCode: 401, message},
 	forbidden: (): ApiError => ({kind: 'forbidden', statusCode: 403}),
 	conflict: (message: string): ApiError => ({kind: 'conflict', statusCode: 409, message}),
 	internalError: (cause: unknown): ApiError => ({kind: 'internal_error', statusCode: 500, cause}),

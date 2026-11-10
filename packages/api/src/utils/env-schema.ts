@@ -47,7 +47,8 @@ export const envSchema = z.object({
 	AUTH_SECRET: documented(z.string().min(1).optional(), {
 		group: 'Core',
 		required: true,
-		description: 'Hashes magic-link tokens before they are stored. Any long random string: `openssl rand -hex 32`.',
+		description:
+			'Hashes magic-link tokens before they are stored, and signs the short-lived tokens sandbox commands are given to call back as their agent. Any long random string: `openssl rand -hex 32`.',
 	}),
 	ENCRYPTION_KEY: documented(
 		z

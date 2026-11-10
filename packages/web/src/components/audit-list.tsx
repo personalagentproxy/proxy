@@ -82,8 +82,8 @@ type Props = {
 
 // The audit log's lines: when, which agent, what it did, for which task, and where, the agent and
 // the connection each a logo with its name in a tooltip. Denied requests read in red; those that
-// came in over MCP say so. What Personal Agent Proxy did itself, as the home page's widgets write,
-// reads as its own. A row opens the entry in full.
+// came in over MCP, or from code in a sandbox, say so. What Personal Agent Proxy did itself, as
+// the home page's widgets write, reads as its own. A row opens the entry in full.
 export function AuditList({
 	entries,
 	agents,
@@ -129,6 +129,9 @@ export function AuditList({
 									{task && <span className="text-muted-foreground"> · for {task.title}</span>}
 									{entry.via === 'mcp' && (
 										<span className="text-muted-foreground"> · over MCP</span>
+									)}
+									{entry.via === 'cli' && (
+										<span className="text-muted-foreground"> · from a sandbox</span>
 									)}
 								</span>
 								{showConnection && (

@@ -11,7 +11,7 @@ const listAgentConnections = mock();
 const listAgentTools = mock();
 const runAgentTool = mock();
 
-mock.module('../agent-side/tools', () => ({listAgentConnections, listAgentTools, runAgentTool}));
+mock.module('../agent-side/tools', () => ({agentViewer: mock(), listAgentConnections, listAgentTools, runAgentTool}));
 
 const sendAgentFeedback = mock();
 
