@@ -38,10 +38,10 @@ import type {SdkSessionStore} from './session-store';
  * interrupted once its result is in. Claude Code's built-in tools are all removed, and a call to
  * anything but the api's tools is denied. The subprocess gets an environment of its own, not this
  * process's: the server's keys must never reach a member's subprocess, so only PATH and HOME are
- * inherited, with the credential the turn was given, a config directory made for the turn and
- * thrown away after it, so the binary's own copy of the transcript, its settings and its caches
- * outlive nothing (the store has the transcript), and the switches that keep it from reaching out
- * beyond the model. Each thread has a working directory of its own, whose name is the key the
+ * inherited, with the credential the turn was given, a config directory of the harness's own,
+ * kept across turns so the binary's install and device ids stay what they are, as an install's
+ * do, with the binary's own copy of each turn's transcript removed after the turn (the store has
+ * it), and the switches that keep it from reaching out beyond the model. Each thread has a working directory of its own, whose name is the key the
  * session is kept under in the store: the thread's id. A turn that fails before the api has a
  * session to keep deletes from the store the session it started, which nothing would resume. The
  * model is Sonnet throughout: the SDK runs only Claude, so the api's choice of another model for a
@@ -56,7 +56,7 @@ export type ClaudeAgentSdkDeps = {
 	sessionStore: SdkSessionStore;
 	/** Under which each thread gets a working directory of its own. */
 	workDir: string;
-	/** Under which each turn gets a config directory of its own for the binary's files, removed after the turn. */
+	/** The binary's config directory, kept across turns: its ids and settings stay, each turn's local transcript is removed. */
 	configDir: string;
 	/** The binary to run, where the SDK's own isn't the one. */
 	pathToClaudeCodeExecutable?: string;
@@ -302,6 +302,17 @@ function assistantFailure(error: string | undefined): HarnessEvent | null {
 // Reads the rest of the binary's messages after the result, so the SDK finishes what it does as
 // the subprocess exits, the transcript's mirroring to the session store among it; a subprocess
 // that lingers is stopped after a while.
+// Removes the binary's local copy of a session's transcript from the config directory: the
+// session's file under the project named for the thread, and the directory of its sub-agents'
+// files beside it, where there is one. Best effort: a copy left behind costs disk, nothing else.
+async function removeLocalTranscript(configDir: string, threadId: string, sessionId: string): Promise<void> {
+	const project = join(configDir, 'projects', threadId);
+	await Result.wrapAsync(async () => {
+		await rm(join(project, `${sessionId}.jsonl`), {force: true});
+		await rm(join(project, sessionId), {recursive: true, force: true});
+	});
+}
+
 async function windUp(iterator: AsyncIterator<SDKMessage>, controller: AbortController): Promise<void> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	// The stream is given so long and no longer, whether or not it ends when told: a subprocess
@@ -344,10 +355,9 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 			}
 			const session = sessionOf(input);
 			const cwd = join(deps.workDir, input.thread.id);
-			const configDir = join(deps.configDir, randomUUID());
 			const made = await Result.wrapAsync(async () => {
 				await mkdir(cwd, {recursive: true});
-				await mkdir(configDir, {recursive: true});
+				await mkdir(deps.configDir, {recursive: true});
 			});
 			if (made.isErr()) {
 				yield failed(ApiErr.internalError(made.error), false);
@@ -375,7 +385,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 				...(session === null ? {} : {resume: session.id}),
 				sessionStore: deps.sessionStore,
 				cwd,
-				env: envFor(configDir, input, auth),
+				env: envFor(deps.configDir, input, auth),
 				...(deps.pathToClaudeCodeExecutable === undefined ? {} : {pathToClaudeCodeExecutable: deps.pathToClaudeCodeExecutable}),
 				abortController: controller,
 				model: MODEL,
@@ -389,7 +399,6 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 			const started = Result.wrap(() => query({prompt: promptFor(input, session?.lastSeq ?? 0, new Date()), options}));
 			if (started.isErr()) {
 				input.signal.removeEventListener('abort', onAbort);
-				await Result.wrapAsync(() => rm(configDir, {recursive: true, force: true}));
 				yield failed(ApiErr.providerUnreachable(started.error), true);
 				return;
 			}
@@ -472,7 +481,12 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 				if (!done && orphan !== null && orphan !== session?.id) {
 					await Result.wrapAsync(() => deps.sessionStore.delete({projectKey: input.thread.id, sessionId: orphan}));
 				}
-				await Result.wrapAsync(() => rm(configDir, {recursive: true, force: true}));
+				// The binary's own copy of the turn's transcript, under the project named for the thread,
+				// is removed: the store has it, and a config directory kept across turns would otherwise
+				// fill with one file per turn. A run resumed from the store leaves none here.
+				if (sessionId !== null) {
+					await removeLocalTranscript(deps.configDir, input.thread.id, sessionId);
+				}
 			}
 		},
 	};

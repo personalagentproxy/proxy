@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
-import {existsSync, mkdtempSync, readdirSync} from 'node:fs';
+import {existsSync, mkdirSync, mkdtempSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join, sep} from 'node:path';
+import {join} from 'node:path';
 
 import type {NonNullableUsage, Options, SDKAssistantMessage, SDKMessage, SDKResultError, SDKResultSuccess} from '@anthropic-ai/claude-agent-sdk';
 import type {BetaContentBlock} from '@anthropic-ai/sdk/resources/beta/messages';
@@ -309,7 +309,7 @@ describe('claudeAgentSdkHarness', () => {
 
 		const [withScopes, withoutScopes, apiKey] = fake.calls.map((call) => call.options?.env);
 		const {CLAUDE_CONFIG_DIR, ...rest} = withScopes ?? {};
-		expect(CLAUDE_CONFIG_DIR?.startsWith(join(workDir, 'config') + sep)).toBe(true);
+		expect(CLAUDE_CONFIG_DIR).toBe(join(workDir, 'config'));
 		expect(rest).toEqual({
 			...(process.env.PATH === undefined ? {} : {PATH: process.env.PATH}),
 			...(process.env.HOME === undefined ? {} : {HOME: process.env.HOME}),
@@ -429,24 +429,29 @@ describe('claudeAgentSdkHarness', () => {
 		expect(fake.calls[1]?.options).not.toHaveProperty('pathToClaudeCodeExecutable');
 	});
 
-	test('gives the binary a config directory of the turn’s own and removes it after, whether the turn ended well or not', async () => {
+	test('keeps one config directory across turns and removes the binary’s local copy of each turn’s transcript', async () => {
 		const fake = fakeQuery();
 		fake.script(messages([init(), result()]));
 		fake.script(messages([init(), assistant([], {error: 'authentication_failed'})]));
 		fake.script({throws: new Error('spawn ENOENT')});
 		const configDir = join(workDir, 'config-of-its-own');
+		const project = join(configDir, 'projects', 'thread-1');
+		mkdirSync(project, {recursive: true});
+		writeFileSync(join(configDir, '.claude.json'), '{"userID":"stable"}');
+		writeFileSync(join(project, `${SESSION}.jsonl`), '{"type":"user"}\n');
+		mkdirSync(join(project, SESSION, 'subagents'), {recursive: true});
+		writeFileSync(join(project, 'other-session.jsonl'), '{"type":"user"}\n');
 
 		await collect(fake, turnInput(), {configDir});
 		await collect(fake, turnInput(), {configDir});
 		await collect(fake, turnInput(), {configDir});
 
 		const dirs = fake.calls.map((call) => call.options?.env?.CLAUDE_CONFIG_DIR ?? '');
-		expect(new Set(dirs).size).toBe(3);
-		for (const dir of dirs) {
-			expect(dir.startsWith(configDir + sep)).toBe(true);
-			expect(existsSync(dir)).toBe(false);
-		}
-		expect(readdirSync(configDir)).toEqual([]);
+		expect(dirs).toEqual([configDir, configDir, configDir]);
+		expect(existsSync(join(configDir, '.claude.json'))).toBe(true);
+		expect(existsSync(join(project, `${SESSION}.jsonl`))).toBe(false);
+		expect(existsSync(join(project, SESSION))).toBe(false);
+		expect(existsSync(join(project, 'other-session.jsonl'))).toBe(true);
 	});
 
 	test('deletes from the store a session it started that the api won’t keep, since the turn failed, and nothing else', async () => {
