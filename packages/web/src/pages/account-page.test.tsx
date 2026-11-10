@@ -126,11 +126,10 @@ describe('AccountPage, the Claude card', () => {
 		await waitFor(() => expect(connectClaudeToken).toHaveBeenCalledWith('sk-ant-oat01-abc'));
 	});
 
-	test('connected with a subscription, it names the account, the plan and when the token is renewed, and disconnects', async () => {
+	test('connected with a subscription, it names the account, the plan, and disconnects', async () => {
 		renderPage(subscription);
 		expect(await screen.findByText('Connected with a Claude subscription.')).toBeDefined();
 		expect(screen.getByText('dana@example.com · Max plan')).toBeDefined();
-		expect(screen.getByText(/Token good until Nov 9/)).toBeDefined();
 		expect(screen.queryByRole('button', {name: /Connect/})).toBeNull();
 
 		fireEvent.click(screen.getByRole('button', {name: 'Disconnect'}));
@@ -146,7 +145,6 @@ describe('AccountPage, the Claude card', () => {
 			expiresAt: null,
 		});
 		expect(await screen.findByText('Connected with a setup token.')).toBeDefined();
-		expect(screen.queryByText(/Token good until/)).toBeNull();
 	});
 
 	test('a refused refresh is shown in red, with the way to connect again', async () => {

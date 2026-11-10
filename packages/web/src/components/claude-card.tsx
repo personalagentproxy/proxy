@@ -11,7 +11,6 @@ import {
 } from '@/client/me-client';
 import {Section} from '@/components/section';
 import {useApply} from '@/hooks/use-apply';
-import {formatDateTime} from '@/lib/format';
 import {describeApiError} from '@/lib/loader-utils';
 
 type Account = ClaudeAccount['account'];
@@ -164,12 +163,7 @@ function Connected({account}: {account: NonNullable<Account>}) {
 		<div className="flex flex-col gap-1">
 			<p>Connected with {kindOf(account.kind)}.</p>
 			{who.length > 0 && <p className="text-muted-foreground">{who.join(' · ')}</p>}
-			{account.kind === 'oauth' && account.expiresAt && (
-				<p className="text-muted-foreground">
-					Token good until {formatDateTime(account.expiresAt)}; the server renews it as the agent
-					runs.
-				</p>
-			)}
+
 			{account.failure && <p className="text-destructive">{account.failure}</p>}
 		</div>
 	);
