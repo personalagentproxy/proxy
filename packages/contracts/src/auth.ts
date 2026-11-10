@@ -23,7 +23,7 @@ export type MagicLinkResponse = z.infer<typeof magicLinkResponseSchema>;
  */
 export const signInMethodsSchema = z.object({
 	google: z.boolean(),
-	needs: z.object({google: z.boolean(), plaid: z.boolean()}),
+	needs: z.object({google: z.boolean(), plaid: z.boolean(), github: z.boolean()}),
 });
 
 export type SignInMethods = z.infer<typeof signInMethodsSchema>;

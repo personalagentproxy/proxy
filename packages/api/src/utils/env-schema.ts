@@ -99,6 +99,20 @@ export const envSchema = z.object({
 		description: 'Which of Plaid’s environments to use: `sandbox` connects only Plaid’s test banks, signed in to with `user_good` and `pass_good`.',
 	}),
 
+	GITHUB_CLIENT_ID: documented(z.string().min(1).optional(), {
+		group: 'Connections',
+		description:
+			'Turns on connecting GitHub, with `GITHUB_CLIENT_SECRET` and `GITHUB_APP_SLUG`: the client id of a GitHub App of your own, registered under your account’s or organization’s developer settings with `<APP_URL>/api/connections/github/callback` as a callback URL, “Expire user authorization tokens” on and “Request user authorization (OAuth) during installation” off, no webhook, Contents and Pull requests read and write, and Metadata read. People install it on the repositories they choose and sign in to it here.',
+	}),
+	GITHUB_CLIENT_SECRET: documented(z.string().min(1).optional(), {
+		group: 'Connections',
+		description: 'A client secret of the GitHub App, generated on its page.',
+	}),
+	GITHUB_APP_SLUG: documented(z.string().min(1).optional(), {
+		group: 'Connections',
+		description: 'The GitHub App’s name as it is in its address, `github.com/apps/<slug>`, where people are sent to install it on their account or an organization.',
+	}),
+
 	SANDBOX_SERVICE_URL: documented(z.union([z.literal('dev'), originSchema]).optional(), {
 		group: 'Connections',
 		description:

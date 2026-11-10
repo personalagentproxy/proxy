@@ -107,6 +107,7 @@ export type IntegrationId =
 	| 'granola'
 	| 'notion'
 	| 'linear'
+	| 'github'
 	| 'cloudflare'
 	| 'exa'
 	| 'parallel'

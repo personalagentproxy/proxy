@@ -19,9 +19,9 @@ export type Integration = CatalogIntegration & {
 };
 
 // What an integration can need from the server, and whether it has it: the answer of
-// `/auth/methods`, since Google sign-in and Google connections share the client, and a bank needs
-// the server's Plaid keys.
-export type Need = 'google' | 'plaid';
+// `/auth/methods`, since Google sign-in and Google connections share the client, a bank needs
+// the server's Plaid keys, and GitHub its GitHub App.
+export type Need = 'google' | 'plaid' | 'github';
 
 export type Configured = Record<Need, boolean>;
 
@@ -35,9 +35,17 @@ export const NEEDS: Record<Need, {variables: string[]; docsUrl: string}> = {
 		variables: ['PLAID_CLIENT_ID', 'PLAID_SECRET'],
 		docsUrl: 'https://docs.personalagentproxy.com/connections/plaid/',
 	},
+	github: {
+		variables: ['GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'GITHUB_APP_SLUG'],
+		docsUrl: 'https://docs.personalagentproxy.com/connections/github/',
+	},
 };
 
-const NEEDED_BY: Partial<Record<IntegrationId, Need>> = {google: 'google', plaid: 'plaid'};
+const NEEDED_BY: Partial<Record<IntegrationId, Need>> = {
+	google: 'google',
+	plaid: 'plaid',
+	github: 'github',
+};
 
 const MCP_MARK = '/favicon.svg';
 

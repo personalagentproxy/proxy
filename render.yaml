@@ -70,6 +70,14 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
+      # Connecting GitHub: the client of the GitHub App personalagentproxy owns, and the app's name
+      # as it is in its address, github.com/apps/personal-agent-proxy, where people install it.
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_APP_SLUG
+        value: personal-agent-proxy
       - key: PLAID_CLIENT_ID
         sync: false
       - key: PLAID_SECRET
