@@ -164,6 +164,21 @@ describe('AccessGrid', () => {
 		expect(screen.getByText('No agent reaches this connection yet.')).toBeDefined();
 	});
 
+	test('under a heading of the page’s own, ungrouped actions have no heading row, and groups keep theirs', () => {
+		renderGrid({headed: true});
+		expect(screen.queryByRole('columnheader')).toBeNull();
+		expect(screen.getAllByRole('rowheader')).toHaveLength(3);
+		cleanup();
+
+		renderGrid({headed: true, actions: [{...actions[0]!, group: 'Gmail'}]});
+		expect(screen.getAllByRole('columnheader').map((heading) => heading.textContent)).toEqual([
+			'Gmail',
+			'Default',
+			'Claude',
+			'Scout',
+		]);
+	});
+
 	test('actions the integration groups are each a part under its group’s name, with the columns named again', () => {
 		renderGrid({
 			actions: [

@@ -1,6 +1,6 @@
 import type {Connection} from '@proxy/contracts/connections';
 import {VAULT_INTEGRATION_ID} from '@proxy/integrations';
-import {ListRestartIcon, RefreshCwIcon, UnplugIcon} from 'lucide-react';
+import {ListRestartIcon, UnplugIcon} from 'lucide-react';
 import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
@@ -13,7 +13,6 @@ import {
 } from '@/client/connections-client';
 import {AccessGrid, type GridAgent} from '@/components/access-grid';
 import {AppShell, PageTitle} from '@/components/app-shell';
-import {AuditList} from '@/components/audit-list';
 import {SignInToBankAgain} from '@/components/connect-bank-form';
 import {ConnectWithKeyDialog} from '@/components/connect-with-key-dialog';
 import {SignInAgain} from '@/components/connection-access';
@@ -23,6 +22,7 @@ import {IconButton} from '@/components/icon-button';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {NotFound} from '@/components/not-found';
 import {PageTabs} from '@/components/page-tabs';
+import {RecentActivity} from '@/components/recent-activity';
 import {SuccessLine} from '@/components/success-line';
 import {connectionTitle, defaultActions, integrationOf, ownSettings, reaches} from '@/lib/access';
 import {buttonVariants} from '@proxy/ui/components/button';
@@ -33,8 +33,6 @@ import {describeApiError, describeFetchError} from '@/lib/loader-utils';
 import {actsAs, hasOtherPeople, manages, ownerOf, vaultPath} from '@/lib/orgs';
 import type {connectionLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
-
-const RECENT = 10;
 
 export function ConnectionPage() {
 	const org = useOrgSlug();
@@ -236,41 +234,14 @@ export function ConnectionPage() {
 					/>
 				)}
 				{tab === 'activity' && (
-					<div className="flex flex-col gap-2">
-						<div className="flex min-h-8 items-center justify-between gap-4 text-sm text-muted-foreground">
-							<span>
-								{entries.length > RECENT ? (
-									<Link
-										to={`/${org}/activity?connection=${connection.id}`}
-										className="underline-offset-4 hover:text-foreground hover:underline"
-									>
-										Go to all activity
-									</Link>
-								) : (
-									'What agents did with it, the latest first'
-								)}
-							</span>
-							<IconButton
-								label={revalidator.state === 'loading' ? 'Refreshing activity' : 'Refresh activity'}
-								size="xs"
-								disabled={revalidator.state === 'loading'}
-								onClick={() => void revalidator.revalidate()}
-							>
-								<RefreshCwIcon
-									className={
-										revalidator.state === 'loading' ? 'motion-safe:animate-spin' : undefined
-									}
-								/>
-							</IconButton>
-						</div>
-						<AuditList
-							entries={entries.slice(0, RECENT)}
-							agents={agents}
-							connections={connections}
-							tasks={tasks}
-							showConnection={false}
-						/>
-					</div>
+					<RecentActivity
+						entries={entries}
+						agents={agents}
+						connections={connections}
+						tasks={tasks}
+						allHref={`/${org}/activity?connection=${connection.id}`}
+						of="connection"
+					/>
 				)}
 				{error && <p className="text-sm text-destructive">{error}</p>}
 			</div>

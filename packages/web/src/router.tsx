@@ -314,7 +314,12 @@ const routes: RouteObject[] = [
 			{path: '/:org/alerts', loader: alertsLoader, element: <AlertsPage />},
 			{path: '/:org/agents', loader: agentsLoader, element: <AgentsPage />},
 			{path: '/:org/agents/new', loader: agentsLoader, element: <NewAgentPage />},
-			{path: '/:org/agents/:id', loader: agentLoader, element: <AgentPage />},
+			{
+				path: '/:org/agents/:id',
+				loader: agentLoader,
+				shouldRevalidate: shouldRevalidateTabs,
+				element: <AgentPage />,
+			},
 			{path: '/:org/agents/:id/setup', loader: agentSetupLoader, element: <AgentSetupPage />},
 			{
 				path: '/:org/activity',

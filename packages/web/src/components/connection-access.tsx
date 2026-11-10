@@ -1,11 +1,7 @@
-import type {Action, OwnSettings} from '@proxy/integrations';
-import {CheckCheckIcon, Undo2Icon} from 'lucide-react';
-import {useId, useLayoutEffect, useRef, useState} from 'react';
-import {IconButton} from '@/components/icon-button';
-import {Badge} from '@proxy/ui/components/badge';
+import type {Action} from '@proxy/integrations';
+import {useId, useRef, useState} from 'react';
 import {Button} from '@proxy/ui/components/button';
 import {Checkbox} from '@proxy/ui/components/checkbox';
-import {cn} from '@proxy/ui/lib/utils';
 import {groupsOf, howManyOn} from '@/lib/access';
 import {onSignInClick} from '@/lib/desktop';
 
@@ -13,45 +9,31 @@ type Props = {
 	actions: Action[];
 	// The actions agents get by default.
 	defaults: string[];
-	// An agent's own settings. Left out where the defaults themselves are set, as the welcome flow
-	// sets them.
-	own?: OwnSettings;
-	// Actions turned on or off; null returns an agent's action to the default.
-	onChange: (actions: Record<string, boolean | null>) => Promise<void>;
-	// On an agent's page: makes the agent's own setting for an action the connection's default.
-	onMakeDefault?: (actionId: string, allowed: boolean) => Promise<void>;
+	// Actions turned on or off.
+	onChange: (actions: Record<string, boolean>) => Promise<void>;
 	// The actions the connection's sign-in didn't cover: off and disabled until it is signed in again.
 	unavailable?: string[];
 	// The connection has no sign-in at all yet, so none of its actions is covered.
 	signInNeeded?: boolean;
-	// Shown but not changed: on a connection's page, a shared connection the person only uses; on an
-	// agent's page, a shared agent they only see.
-	readOnly?: boolean;
 };
 
 // The actions, one under another, a line between them, spaced by the list rather than each row,
 // so the list sits as tight to what holds it as anything else does.
 const ROWS = 'flex flex-col divide-y divide-border/60 *:py-3 *:first:pt-0 *:last:pb-0';
 
-// A connection's access, the way an editor shows its settings: one checkbox per action, the only
-// control for it, under the name of the part of the provider it belongs to where the integration
-// groups them, as Google's are Gmail's, Calendar's, Drive's, Contacts' and Tasks', each saying how many are
-// on, and above them all how many are on of all of them, with one button turning every action on,
-// or off once all are. On an agent's
-// page every action starts on the connection's default; one the agent has its own setting for is
-// marked with a bar, a button that makes it the default for every agent, and one that resets it to
-// the default. An action the connection's sign-in didn't cover is off whatever is set, its checkbox
-// disabled, and can't be made the default from here, since it shows off whatever the agent's own
-// setting is.
+// A connection's defaults as a list, as the welcome flow sets them for a connection just made,
+// before there are agents to set beside them (a connection's own page has them in a grid,
+// access-grid.tsx): one checkbox per action, the only control for it, under the name of the part
+// of the provider it belongs to where the integration groups them, as Google's are Gmail's,
+// Calendar's, Drive's, Contacts' and Tasks', each saying how many are on, and above them all how
+// many are on of all of them, with one button turning every action on, or off once all are. An
+// action the connection's sign-in didn't cover is off whatever is set, its checkbox disabled.
 export function ConnectionAccess({
 	actions,
 	defaults,
-	own,
 	onChange,
-	onMakeDefault,
 	unavailable = [],
 	signInNeeded = false,
-	readOnly = false,
 }: Props) {
 	// A connection's actions show on more than one page section, so the ids need their own prefix.
 	const idPrefix = useId();
@@ -59,27 +41,8 @@ export function ConnectionAccess({
 	const [pending, setPending] = useState<Partial<Record<string, boolean>>>({});
 	const queues = useRef<Partial<Record<string, Promise<void>>>>({});
 	const rangeAnchor = useRef<string | null>(null);
-	// The latest settings, for a change saved after others finished, read when it runs rather than
-	// when it was clicked: kept as the render commits, before a queued save can run, which a passive
-	// effect, run later, wouldn't be.
-	const defaultsRef = useRef(defaults);
-	const ownRef = useRef(own);
-	useLayoutEffect(() => {
-		defaultsRef.current = defaults;
-		ownRef.current = own;
-	});
-	const isDefault = (id: string) => defaults.includes(id);
 	const isUnavailable = (id: string) => unavailable.includes(id);
-	const storedIsOn = (id: string) => (own ? (own[id] ?? isDefault(id)) : isDefault(id));
-	const isOn = (id: string) => !isUnavailable(id) && (pending[id] ?? storedIsOn(id));
-	const isOwn = (id: string) => own?.[id] !== undefined;
-	// On an agent's page, an action that matches the default follows it rather than being stored.
-	const setting = (id: string, next: boolean): boolean | null => {
-		if (ownRef.current && next === defaultsRef.current.includes(id)) {
-			return null;
-		}
-		return next;
-	};
+	const isOn = (id: string) => !isUnavailable(id) && (pending[id] ?? defaults.includes(id));
 	// Shows the actions as `checked` until `save` is done, after whatever was already saving for
 	// any of them, so clicks are saved in the order they were made.
 	const queueChange = (actionIds: string[], checked: boolean, save: () => Promise<void>) => {
@@ -119,7 +82,7 @@ export function ConnectionAccess({
 		void request.then(settle, settle);
 	};
 	const change = (actionId: string, checked: boolean) => {
-		queueChange([actionId], checked, () => onChange({[actionId]: setting(actionId, checked)}));
+		queueChange([actionId], checked, () => onChange({[actionId]: checked}));
 	};
 	const changeRange = (actionId: string, checked: boolean, shiftKey: boolean) => {
 		const anchorIndex = actions.findIndex((action) => action.id === rangeAnchor.current);
@@ -139,12 +102,7 @@ export function ConnectionAccess({
 		queueChange(
 			changedActions.map((action) => action.id),
 			checked,
-			() =>
-				onChange(
-					Object.fromEntries(
-						changedActions.map((action) => [action.id, setting(action.id, checked)]),
-					),
-				),
+			() => onChange(Object.fromEntries(changedActions.map((action) => [action.id, checked]))),
 		);
 	};
 
@@ -155,15 +113,12 @@ export function ConnectionAccess({
 		const inputId = `${idPrefix}-${action.id}`;
 		const labelId = `${inputId}-label`;
 		const descriptionId = `${inputId}-description`;
-		const disabled = readOnly || isUnavailable(action.id);
+		const disabled = isUnavailable(action.id);
 		return (
 			<li
 				key={action.id}
-				className={cn(
-					// Out in the gutter as any row, where a setting of the agent's own shows as a stripe.
-					'bleed flex items-start gap-3 text-sm',
-					isOwn(action.id) && 'shadow-[inset_2px_0_0_var(--color-primary)]',
-				)}
+				// Out in the gutter as any row.
+				className="bleed flex items-start gap-3 text-sm"
 			>
 				{/* As tall as the label's line, the box centered on it. */}
 				<span className="flex h-5 shrink-0 items-center">
@@ -218,9 +173,7 @@ export function ConnectionAccess({
 					<span id={labelId} className="flex items-center gap-2">
 						{action.label}
 						{action.risk === 'high' && (
-							<Badge variant="destructive" className="font-normal">
-								High risk
-							</Badge>
+							<span className="shrink-0 text-xs text-destructive">High risk</span>
 						)}
 					</span>
 					<span id={descriptionId} className="text-muted-foreground">
@@ -232,28 +185,6 @@ export function ConnectionAccess({
 								: ' · Not allowed at sign-in. Sign in again to allow it.')}
 					</span>
 				</div>
-				<span className="flex shrink-0 items-center gap-2 text-muted-foreground">
-					{isOwn(action.id) && onMakeDefault && !isUnavailable(action.id) && (
-						<IconButton
-							label="Make this the default for every agent"
-							onClick={() =>
-								queueChange([action.id], checked, () => onMakeDefault(action.id, checked))
-							}
-						>
-							<CheckCheckIcon />
-						</IconButton>
-					)}
-					{isOwn(action.id) && (
-						<IconButton
-							label="Reset to default"
-							onClick={() =>
-								queueChange([action.id], isDefault(action.id), () => onChange({[action.id]: null}))
-							}
-						>
-							<Undo2Icon />
-						</IconButton>
-					)}
-				</span>
 			</li>
 		);
 	};
@@ -264,7 +195,7 @@ export function ConnectionAccess({
 	const setAll = (next: boolean) => {
 		const changing = settable.filter((action) => isOn(action.id) !== next).map(({id}) => id);
 		queueChange(changing, next, () =>
-			onChange(Object.fromEntries(changing.map((id) => [id, setting(id, next)]))),
+			onChange(Object.fromEntries(changing.map((id) => [id, next]))),
 		);
 	};
 	// How many of all the actions are on, with the button that turns every one on or off, on one
@@ -275,7 +206,7 @@ export function ConnectionAccess({
 				{howManyOn(actions.filter((action) => isOn(action.id)).length, actions.length)}
 			</span>
 			{settable.length > 1 && (
-				<Button variant="outline" size="sm" disabled={readOnly} onClick={() => setAll(!allOn)}>
+				<Button variant="outline" size="sm" onClick={() => setAll(!allOn)}>
 					{allOn ? 'Disable all' : 'Enable all'}
 				</Button>
 			)}

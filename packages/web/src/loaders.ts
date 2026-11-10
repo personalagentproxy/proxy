@@ -183,12 +183,13 @@ export async function agentsLoader(args: OrgParams) {
 export async function agentLoader(args: {params: {org?: string; id?: string}}) {
 	const org = orgOf(args);
 	const id = args.params.id ?? '';
-	const [agent, connections, agents, activity, mcpClients] = await Promise.all([
+	const [agent, connections, agents, activity, mcpClients, members] = await Promise.all([
 		getAgent(org, id),
 		listConnections(org),
 		listAgents(org),
 		listActivity(org, {agentId: id}),
 		listMcpClients(org, id),
+		listMembers(org),
 	]);
 	const {entries, tasks} = unwrapLoaderResult(activity);
 	const found = unwrapOrNull(agent);
@@ -201,6 +202,8 @@ export async function agentLoader(args: {params: {org?: string; id?: string}}) {
 		agents: unwrapLoaderResult(agents).agents,
 		entries,
 		tasks,
+		// Who has it, on its Sharing tab.
+		members: unwrapLoaderResult(members).members,
 	};
 }
 

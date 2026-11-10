@@ -3,7 +3,6 @@ import type {Action, OwnSettings} from '@proxy/integrations';
 import {useState} from 'react';
 import {Link} from 'react-router';
 import {AgentLogo} from '@/components/brand-logo';
-import {Badge} from '@proxy/ui/components/badge';
 import {Checkbox} from '@proxy/ui/components/checkbox';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
@@ -30,6 +29,12 @@ type Props = {
 	onChangeDefaults: (actions: Record<string, boolean>) => Promise<void>;
 	// Gives an agent a setting of its own for an action; null returns it to the default.
 	onChangeAgent: (agentId: string, actionId: string, allowed: boolean | null) => Promise<void>;
+	// On an agent's own page, where its column needn't lead back to it or show whose it is: the
+	// agents' names stand alone, without their logos, and are not links.
+	unlinked?: boolean;
+	// Under a heading the page gives it, with the columns' names (`AccessGridColumns`): actions the
+	// integration doesn't group have no heading row of the grid's own. Groups keep theirs.
+	headed?: boolean;
 };
 
 // The first column is the action; every other one a box, the same width, so the boxes line up.
@@ -42,7 +47,8 @@ const DEFAULT = 'default';
 // every agent that reaches the connection, so who can do what reads across. Where the integration
 // groups its actions, as Google's are Gmail's or Drive's, each group is a part of the grid under a
 // heading row of its own, the group's name over the actions and the columns named again, so they
-// are never far above the boxes; ungrouped, the one heading says Action. A box under Default sets
+// are never far above the boxes; ungrouped, the one heading says Action, unless the page heads the
+// grid itself (`headed`). A box under Default sets
 // what an agent gets unless it has a setting of its own; a box under an agent gives it one, drawn
 // on a filled square that says on hover what it does to the default, and ticking it back to what
 // the default says drops the setting, so the agent follows the default again. An action the connection's sign-in didn't cover is off and
@@ -57,6 +63,8 @@ export function AccessGrid({
 	mayChangeDefaults,
 	onChangeDefaults,
 	onChangeAgent,
+	unlinked = false,
+	headed = false,
 }: Props) {
 	const org = useOrgSlug();
 	// What a box shows while its change is saved and the page's data loaded again, by column and
@@ -90,9 +98,7 @@ export function AccessGrid({
 					<span className="flex items-center justify-between gap-2">
 						{action.label}
 						{action.risk === 'high' && (
-							<Badge variant="destructive" className="shrink-0 font-normal">
-								High risk
-							</Badge>
+							<span className="shrink-0 text-xs text-destructive">High risk</span>
 						)}
 					</span>
 					<span className="block text-muted-foreground">
@@ -151,29 +157,27 @@ export function AccessGrid({
 						const above = index === 0 ? 'pt-4' : 'pt-12';
 						return (
 							<tbody key={group.name ?? 'all'}>
-								<tr>
-									<th
-										scope="col"
-										className={cn('min-w-56 pb-2 text-left align-bottom font-medium', above)}
-									>
-										{group.name ?? 'Action'}
-									</th>
-									<th scope="col" className={cn(BOX, HEAD, above)}>
-										Default
-									</th>
-									{agents.map(({agent}) => (
-										<th key={agent.id} scope="col" className={cn(BOX, HEAD, above)}>
-											<Link
-												to={`/${org}/agents/${agent.id}`}
-												title={agent.name}
-												className="flex flex-col items-center gap-1 rounded-md outline-none hover:opacity-80 focus-visible:ring-3 focus-visible:ring-ring/50"
-											>
-												<AgentLogo providerId={agent.providerId} />
-												<span className="block w-14 truncate">{agent.name}</span>
-											</Link>
+								{!(headed && group.name === undefined) && (
+									<tr>
+										<th
+											scope="col"
+											className={cn('min-w-56 pb-2 text-left align-bottom font-medium', above)}
+										>
+											{group.name ?? 'Action'}
 										</th>
-									))}
-								</tr>
+										<th scope="col" className={cn(BOX, HEAD, above)}>
+											Default
+										</th>
+										{agents.map(({agent}) => (
+											<th key={agent.id} scope="col" className={cn(BOX, HEAD, above)}>
+												<AgentHeading
+													agent={agent}
+													to={unlinked ? null : `/${org}/agents/${agent.id}`}
+												/>
+											</th>
+										))}
+									</tr>
+								)}
 								{group.actions.map(row)}
 							</tbody>
 						);
@@ -184,6 +188,46 @@ export function AccessGrid({
 				<p className="text-sm text-muted-foreground">No agent reaches this connection yet.</p>
 			)}
 		</div>
+	);
+}
+
+/**
+ * The grid's column names on their own, for a page that heads an ungrouped grid itself (`headed`),
+ * as an agent's page does with the connection's name: Default and each agent by name, as wide as
+ * the columns under them, at the end of the heading's line, and no taller than it.
+ */
+export function AccessGridColumns({agents}: {agents: AgentLogin[]}) {
+	return (
+		<span className="flex shrink-0 items-center text-xs">
+			<span className="w-16 px-1 text-center">Default</span>
+			{agents.map((agent) => (
+				<span key={agent.id} className="w-16 px-1 text-center">
+					<AgentHeading agent={agent} to={null} />
+				</span>
+			))}
+		</span>
+	);
+}
+
+// An agent's column heading: its logo over its name, a link to its page; with `to` null, on the
+// agent's own page, its name alone, the page being about nothing else.
+function AgentHeading({agent, to}: {agent: AgentLogin; to: string | null}) {
+	if (to === null) {
+		return (
+			<span title={agent.name} className="block truncate">
+				{agent.name}
+			</span>
+		);
+	}
+	return (
+		<Link
+			to={to}
+			title={agent.name}
+			className="flex flex-col items-center gap-1 rounded-md outline-none hover:opacity-80 focus-visible:ring-3 focus-visible:ring-ring/50"
+		>
+			<AgentLogo providerId={agent.providerId} />
+			<span className="block w-14 truncate">{agent.name}</span>
+		</Link>
 	);
 }
 
