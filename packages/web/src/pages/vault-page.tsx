@@ -10,9 +10,8 @@ import {
 	type LucideIcon,
 } from 'lucide-react';
 import {useState} from 'react';
-import {useLoaderData} from 'react-router';
 import {createRecord, deleteRecord, updateRecord} from '@/client/records-client';
-import {AppShell, PageTitle} from '@/components/app-shell';
+import {AppShell, PageHeader, PageTitle} from '@/components/app-shell';
 import {AddButton} from '@/components/add-button';
 import {RecordForm} from '@/components/record-form';
 import {Row, RowHeader, RowList} from '@/components/row-list';
@@ -22,6 +21,7 @@ import {Button} from '@proxy/ui/components/button';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@proxy/ui/components/dialog';
 import {useApply} from '@/hooks/use-apply';
 import {useHuman} from '@/hooks/use-human';
+import {useLoaded} from '@/hooks/use-loaded';
 import {useSide} from '@/hooks/use-side';
 import {recordTitle} from '@/lib/access';
 import {findIntegration} from '@/lib/integrations';
@@ -73,8 +73,16 @@ type Editing = {listed: Listed | null};
 // alone, both vaults' entries are one list, and a new entry is the person's own. It is one of the
 // connections, opened from theirs.
 export function VaultPage() {
+	return (
+		<AppShell title={<PageTitle>Vault</PageTitle>}>
+			<Vault />
+		</AppShell>
+	);
+}
+
+function Vault() {
 	const org = useOrgSlug();
-	const {own, shared} = useLoaderData<typeof vaultLoader>();
+	const {own, shared} = useLoaded<typeof vaultLoader>();
 	const human = useHuman();
 	const [editing, setEditing] = useState<Editing | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -101,12 +109,12 @@ export function VaultPage() {
 	const close = () => setEditing(null);
 
 	return (
-		<AppShell
-			title={<PageTitle>Vault</PageTitle>}
-			actions={
-				<AddButton label="Add entry" variant="outline" onClick={() => open({listed: null})} />
-			}
-		>
+		<>
+			<PageHeader
+				actions={
+					<AddButton label="Add entry" variant="outline" onClick={() => open({listed: null})} />
+				}
+			/>
 			<SideToggle side={side} orgName={activeOrg.name} />
 			<RowList
 				header={
@@ -196,6 +204,6 @@ export function VaultPage() {
 					</DialogContent>
 				)}
 			</Dialog>
-		</AppShell>
+		</>
 	);
 }

@@ -1,12 +1,12 @@
-import {useLoaderData} from 'react-router';
 import {findAgentProvider} from '@proxy/utils/agent-providers';
 import {AgentLogo} from '@/components/brand-logo';
 import {Badge} from '@proxy/ui/components/badge';
-import {AppShell, PageTitle} from '@/components/app-shell';
+import {AppShell, PageHeader, PageTitle} from '@/components/app-shell';
 import {AddButton} from '@/components/add-button';
 import {Row, RowHeader, RowList} from '@/components/row-list';
 import {SideEmpty, SideToggle} from '@/components/share-toggle';
 import {useHuman} from '@/hooks/use-human';
+import {useLoaded} from '@/hooks/use-loaded';
 import {useSide} from '@/hooks/use-side';
 import {formatAgo} from '@/lib/format';
 import {cn} from '@proxy/ui/lib/utils';
@@ -25,8 +25,16 @@ const CELLS = {
 // address as `?for=me` or `?for=everyone`, opening on the shared one unless only the person's own
 // has any. A revoked one stays listed, muted, until it is deleted.
 export function AgentsPage() {
+	return (
+		<AppShell title={<PageTitle>External agents and permissions</PageTitle>}>
+			<Agents />
+		</AppShell>
+	);
+}
+
+function Agents() {
 	const org = useOrgSlug();
-	const {agents: all} = useLoaderData<typeof agentsLoader>();
+	const {agents: all} = useLoaded<typeof agentsLoader>();
 	const human = useHuman();
 	const side = useSide(all, {opensOnShared: true});
 	if (!human) {
@@ -37,15 +45,15 @@ export function AgentsPage() {
 	const agents = side.shown;
 
 	return (
-		<AppShell
-			title={<PageTitle>External agents and permissions</PageTitle>}
-			actions={
-				<AddButton
-					label="New agent"
-					to={side.shared ? `/${org}/agents/new?for=everyone` : `/${org}/agents/new`}
-				/>
-			}
-		>
+		<>
+			<PageHeader
+				actions={
+					<AddButton
+						label="New agent"
+						to={side.shared ? `/${org}/agents/new?for=everyone` : `/${org}/agents/new`}
+					/>
+				}
+			/>
 			<SideToggle side={side} orgName={activeOrg.name} />
 			<RowList
 				header={
@@ -108,6 +116,6 @@ export function AgentsPage() {
 					);
 				})}
 			</RowList>
-		</AppShell>
+		</>
 	);
 }

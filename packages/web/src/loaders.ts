@@ -19,13 +19,15 @@ import {SANDBOX_INTEGRATION_ID, VAULT_INTEGRATION_ID} from '@proxy/integrations'
 import {desktopChallengeSchema} from '@proxy/contracts/auth';
 import {desktopAuthLink} from '@/lib/desktop';
 import {LOADED_MINUTES, windowStart} from '@/lib/timeline-window';
-import {unwrapLoaderResult, unwrapOrNull} from '@/lib/loader-utils';
+import {later, unwrapLoaderResult, unwrapOrNull} from '@/lib/loader-utils';
 import {pendingAgent} from '@/lib/pending-agent';
 import {redirect, type ShouldRevalidateFunctionArgs} from 'react-router';
 
 // The human side's pages, each loaded from the api on arrival and again after every change. Every
 // page is in an organization, named by its slug in the address (`params.org`), which its api
-// calls are about.
+// calls are about. A page in the app's frame answers `later`: it opens at once, the frame first,
+// and its content when the api has answered. The pages outside it, as the welcome flow, open once
+// it has.
 
 type OrgParams = {params: {org?: string}};
 
@@ -36,7 +38,7 @@ function orgOf({params}: OrgParams): string {
 // Home: what is connected, for the logos under its input, and what the agents are doing, for the
 // timeline under them. The page works without them, so a list the api doesn't answer shows as
 // empty, and a timeline it doesn't as none, rather than as an error.
-export async function homeLoader(args: OrgParams) {
+export const homeLoader = later(async (args: OrgParams) => {
 	const org = orgOf(args);
 	const [connections, agents, activity] = await Promise.all([
 		listConnections(org),
@@ -48,7 +50,7 @@ export async function homeLoader(args: OrgParams) {
 		agents: agents.map((answer) => answer.agents).unwrapOr([]),
 		activity: activity.unwrapOr(null),
 	};
-}
+});
 
 // The timeline writes its window to the address as it moves (agent-timeline.tsx) and reads what
 // that needs itself, so a change of the window alone doesn't load its page, home or activity, again.
@@ -72,19 +74,19 @@ export function shouldRevalidateTimeline({
 	return false;
 }
 
-export async function connectionsLoader(args: OrgParams) {
+export const connectionsLoader = later(async (args: OrgParams) => {
 	const org = orgOf(args);
 	const [connections, agents] = await Promise.all([listConnections(org), listAgents(org)]);
 	return {
 		connections: unwrapLoaderResult(connections).connections,
 		agents: unwrapLoaderResult(agents).agents,
 	};
-}
+});
 
 // The catalog, with how many accounts of each integration are connected, and whether the server
 // has what each needs (`/auth/methods`); an api that doesn't answer leaves every integration on
 // offer, and a sign-in that can't start says what is missing.
-export async function addConnectionLoader(args: OrgParams) {
+export const addConnectionLoader = later(async (args: OrgParams) => {
 	const [connections, methods] = await Promise.all([
 		listConnections(orgOf(args)),
 		getSignInMethods(),
@@ -93,9 +95,9 @@ export async function addConnectionLoader(args: OrgParams) {
 		connections: unwrapLoaderResult(connections).connections,
 		configured: methods.map(({needs}) => needs).unwrapOr({google: true, plaid: true}),
 	};
-}
+});
 
-export async function connectionLoader(args: {params: {org?: string; id?: string}}) {
+export const connectionLoader = later(async (args: {params: {org?: string; id?: string}}) => {
 	const org = orgOf(args);
 	const id = args.params.id ?? '';
 	const [connection, connections, agents, activity] = await Promise.all([
@@ -112,11 +114,11 @@ export async function connectionLoader(args: {params: {org?: string; id?: string
 		entries,
 		tasks,
 	};
-}
+});
 
 // Chat opens on the persona the person was last active with, the first the api lists, which makes
 // one where the organization has none yet.
-export async function chatIndexLoader(args: OrgParams) {
+export const chatIndexLoader = later(async (args: OrgParams) => {
 	const org = orgOf(args);
 	const {personas} = unwrapLoaderResult(await listPersonas(org));
 	const first = personas[0];
@@ -124,27 +126,27 @@ export async function chatIndexLoader(args: OrgParams) {
 		throw redirect(`/${org}`);
 	}
 	throw redirect(`/${org}/chat/${first.id}`);
-}
+});
 
 // The person's conversation with an agent, and the agents to switch between.
-export async function chatLoader(args: OrgParams & {params: {id?: string}}) {
+export const chatLoader = later(async (args: OrgParams & {params: {id?: string}}) => {
 	const org = orgOf(args);
 	const [log, personas] = await Promise.all([
 		getThread(org, args.params.id ?? ''),
 		listPersonas(org),
 	]);
 	return {log: unwrapLoaderResult(log), personas: unwrapLoaderResult(personas).personas};
-}
+});
 
 // The person's alerts, those the agents set in their conversations.
-export async function alertsLoader(args: OrgParams) {
+export const alertsLoader = later(async (args: OrgParams) => {
 	return unwrapLoaderResult(await listAlerts(orgOf(args)));
-}
+});
 
 // The vault is the one built-in connection, which every organization has twice: the person's own
 // there and the organization's, shared with everyone in it. The entries of each are kept in
 // Personal Agent Proxy.
-export async function vaultLoader(args: OrgParams) {
+export const vaultLoader = later(async (args: OrgParams) => {
 	const org = orgOf(args);
 	const {connections} = unwrapLoaderResult(await listConnections(org));
 	const vaults = connections.filter(
@@ -164,11 +166,11 @@ export async function vaultLoader(args: OrgParams) {
 		own: {connectionId: own.id, entries: unwrapLoaderResult(ownEntries).records},
 		shared: {connectionId: shared.id, entries: unwrapLoaderResult(sharedEntries).records},
 	};
-}
+});
 
 // The sandboxes the person's agents made and the organization's: none where the organization
 // isn't offered sandboxes, which have no connections then.
-export async function sandboxesLoader(args: OrgParams) {
+export const sandboxesLoader = later(async (args: OrgParams) => {
 	const org = orgOf(args);
 	const {connections} = unwrapLoaderResult(await listConnections(org));
 	const own = connections.find(
@@ -186,13 +188,13 @@ export async function sandboxesLoader(args: OrgParams) {
 	};
 	const [ownListed, sharedListed] = await Promise.all([listed(own), listed(shared)]);
 	return {own: ownListed, shared: sharedListed};
-}
+});
 
-export async function agentsLoader(args: OrgParams) {
+export const agentsLoader = later(async (args: OrgParams) => {
 	return {agents: unwrapLoaderResult(await listAgents(orgOf(args))).agents};
-}
+});
 
-export async function agentLoader(args: {params: {org?: string; id?: string}}) {
+export const agentLoader = later(async (args: {params: {org?: string; id?: string}}) => {
 	const org = orgOf(args);
 	const id = args.params.id ?? '';
 	const [agent, connections, agents, activity, mcpClients] = await Promise.all([
@@ -214,13 +216,13 @@ export async function agentLoader(args: {params: {org?: string; id?: string}}) {
 		entries,
 		tasks,
 	};
-}
+});
 
-export async function agentSetupLoader(args: {params: {org?: string; id?: string}}) {
+export const agentSetupLoader = later(async (args: {params: {org?: string; id?: string}}) => {
 	return {agent: unwrapOrNull(await getAgent(orgOf(args), args.params.id ?? ''))};
-}
+});
 
-export async function activityLoader(args: OrgParams & {request: Request}) {
+export function activityLoader(args: OrgParams & {request: Request}) {
 	const org = orgOf(args);
 	const search = new URL(args.request.url).searchParams;
 	// The log narrowed to one task, as it once was: that task's page.
@@ -229,12 +231,18 @@ export async function activityLoader(args: OrgParams & {request: Request}) {
 		throw redirect(`/${org}/activity/tasks/${encodeURIComponent(task)}`);
 	}
 	const outcome = search.get('outcome');
-	const filter: ActivityFilter = {
-		agentId: search.get('agent') ?? undefined,
-		connectionId: search.get('connection') ?? undefined,
-		outcome:
-			outcome === 'allowed' || outcome === 'denied' || outcome === 'failed' ? outcome : undefined,
-	};
+	return loadActivity({
+		org,
+		filter: {
+			agentId: search.get('agent') ?? undefined,
+			connectionId: search.get('connection') ?? undefined,
+			outcome:
+				outcome === 'allowed' || outcome === 'denied' || outcome === 'failed' ? outcome : undefined,
+		},
+	});
+}
+
+const loadActivity = later(async ({org, filter}: {org: string; filter: ActivityFilter}) => {
 	const [activity, connections, agents, timeline] = await Promise.all([
 		listActivity(org, filter),
 		listConnections(org),
@@ -250,12 +258,12 @@ export async function activityLoader(args: OrgParams & {request: Request}) {
 		// The home page's timeline over the log; the log works without it, as home does.
 		timeline: timeline.unwrapOr(null),
 	};
-}
+});
 
 // A task's page: the task, its sub-tasks and every request made for them, with the connections
 // and agents to name what each request used and who made it. Null where the task is
 // not one the person sees, so the page says so in its own frame.
-export async function taskLoader(args: {params: {org?: string; taskId?: string}}) {
+export const taskLoader = later(async (args: {params: {org?: string; taskId?: string}}) => {
 	const org = orgOf(args);
 	const [run, connections, agents] = await Promise.all([
 		getTaskRun(org, args.params.taskId ?? ''),
@@ -267,7 +275,7 @@ export async function taskLoader(args: {params: {org?: string; taskId?: string}}
 		connections: unwrapLoaderResult(connections).connections,
 		agents: unwrapLoaderResult(agents).agents,
 	};
-}
+});
 
 // Connecting an MCP client: who is asking, the person's organizations, and the agents of the one
 // it starts in, which they can let it work as: the agent being set up in this browser's, else the
@@ -307,14 +315,14 @@ export async function connectAgentLoader({request}: {request: Request}) {
 export type ConnectAgentData = Awaited<ReturnType<typeof connectAgentLoader>>;
 
 // The person's account: their sessions, every browser and desktop app they are signed in on.
-export async function accountLoader() {
+export const accountLoader = later(async () => {
 	return unwrapLoaderResult(await listSessions());
-}
+});
 
 // The organization's members and invitations.
-export async function membersLoader(args: OrgParams) {
+export const membersLoader = later(async (args: OrgParams) => {
 	return unwrapLoaderResult(await listMembers(orgOf(args)));
-}
+});
 
 // An invitation's link, signed in (anyone signed out signs in or up first and comes back): who is
 // signed in, and what the link is for, null for none.

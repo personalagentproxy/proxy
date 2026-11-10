@@ -10,6 +10,7 @@ import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {HumanSide} from '@/components/human-side';
 import {HomePage} from '@/pages/home-page';
+import {later} from '@/lib/loader-utils';
 import {testHuman} from '@/test-org';
 import {clearWidgetLookups, widgetsAnswer} from '@/test-widgets-api';
 
@@ -153,7 +154,7 @@ function renderHomePage() {
 				id: 'human',
 				loader: () => testHuman(),
 				element: <HumanSide />,
-				children: [{path: '/:org', loader: () => home, element: <HomePage />}],
+				children: [{path: '/:org', loader: later(async () => home), element: <HomePage />}],
 			},
 		],
 		{initialEntries: ['/acme']},

@@ -1,5 +1,5 @@
 import type {ReactNode} from 'react';
-import {useLoaderData, useSearchParams} from 'react-router';
+import {useSearchParams} from 'react-router';
 import {AgentTimeline} from '@/components/agent-timeline';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
@@ -11,6 +11,7 @@ import {
 	SelectValue,
 } from '@proxy/ui/components/select';
 import {AgentLogo, IntegrationLogo, ProxyLogo} from '@/components/brand-logo';
+import {useLoaded} from '@/hooks/use-loaded';
 import {connectionLabel} from '@/lib/access';
 import {integrationOf} from '@/lib/integrations';
 import type {activityLoader} from '@/loaders';
@@ -33,13 +34,21 @@ const OUTCOMES: Option[] = [
 // `?outcome=denied` for what was refused, `?outcome=failed` for what the provider failed). One
 // task's requests are on its own page (task-page.tsx), which an old `?task=` link is sent to.
 export function ActivityPage() {
+	return (
+		<AppShell title={<PageTitle>Activity</PageTitle>}>
+			<Activity />
+		</AppShell>
+	);
+}
+
+function Activity() {
 	const {
 		entries,
 		tasks,
 		timeline,
 		agents: allAgents,
 		connections: allConnections,
-	} = useLoaderData<typeof activityLoader>();
+	} = useLoaded<typeof activityLoader>();
 	const [params, setParams] = useSearchParams();
 	const agent = params.get('agent') ?? ALL;
 	const connection = params.get('connection') ?? ALL;
@@ -77,7 +86,7 @@ export function ActivityPage() {
 	];
 
 	return (
-		<AppShell title={<PageTitle>Activity</PageTitle>}>
+		<>
 			{timeline && (
 				<AgentTimeline initial={timeline} agents={allAgents} connections={allConnections} />
 			)}
@@ -102,7 +111,7 @@ export function ActivityPage() {
 				/>
 			</div>
 			<AuditList entries={entries} agents={allAgents} connections={allConnections} tasks={tasks} />
-		</AppShell>
+		</>
 	);
 }
 

@@ -2,9 +2,9 @@ import type {AuditEntry, TaskRun} from '@proxy/contracts/activity';
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import {useEffect, useId, useState} from 'react';
-import {Link, useLoaderData} from 'react-router';
+import {Link} from 'react-router';
 import {getTaskRun} from '@/client/agents-client';
-import {AppShell, PageTitle} from '@/components/app-shell';
+import {AppShell, PageHeader, PageTitle} from '@/components/app-shell';
 import {AuditEntryDialog} from '@/components/audit-entry-dialog';
 import {AuditList} from '@/components/audit-list';
 import {AgentLogo} from '@/components/brand-logo';
@@ -12,6 +12,7 @@ import {Head} from '@/components/head';
 import {type ShownText, TextPanel, TextSwitch} from '@/components/goal-and-outcome';
 import {NotFound} from '@/components/not-found';
 import {RunTimeline} from '@/components/run-timeline';
+import {useLoaded} from '@/hooks/use-loaded';
 import {useOrgSlug} from '@/hooks/use-org';
 import {endsOf, STATUS_LABEL, taskStatus} from '@/lib/timeline-window';
 import {counted, formatDateTime} from '@/lib/format';
@@ -31,16 +32,24 @@ const REFRESH_MS = 5 * 1000;
 // sub-agents, so each task is one of them at work. Read again every few seconds while any of the
 // tasks is under way.
 export function TaskPage() {
-	const {run, agents, connections} = useLoaderData<typeof taskLoader>();
+	return (
+		<AppShell loadsTitle>
+			<LoadedTask />
+		</AppShell>
+	);
+}
+
+function LoadedTask() {
+	const {run, agents, connections} = useLoaded<typeof taskLoader>();
 	if (!run) {
 		return <NotFound what="task" />;
 	}
 	// Keyed by the task, so following a link to another task's page starts it afresh, its timeline
 	// laid out and its description shown, rather than as the last task's was left.
-	return <TaskRunPage key={run.task} initial={run} agents={agents} connections={connections} />;
+	return <TaskRun key={run.task} initial={run} agents={agents} connections={connections} />;
 }
 
-function TaskRunPage({
+function TaskRun({
 	initial,
 	agents,
 	connections,
@@ -99,7 +108,8 @@ function TaskRunPage({
 		...outcomeSummary(own),
 	];
 	return (
-		<AppShell title={<PageTitle>{task.title}</PageTitle>}>
+		<>
+			<PageHeader title={<PageTitle>{task.title}</PageTitle>} />
 			{/* The page in four blocks, a little further apart than the shell sets them. */}
 			<div className="flex flex-col gap-5">
 				<div className="flex flex-col gap-2 text-sm">
@@ -189,6 +199,6 @@ function TaskRunPage({
 				tasks={run.tasks}
 				onClose={() => setOpened(null)}
 			/>
-		</AppShell>
+		</>
 	);
 }

@@ -1,13 +1,27 @@
 import type {FetchError} from '@proxy/utils';
-import {data, redirect} from 'react-router';
+import {redirect} from 'react-router';
 import type {Result} from 'ts-results-es';
 import {isNotFoundError, isUnauthenticatedError} from '@/client/request';
 import {apiMessage} from '@/lib/agent-errors';
 import {log} from '@/lib/log';
 
 /**
- * A loader's answer, or the response its failure stands for: a 401 sends to `signIn` (by default
- * the person's sign-in, back to where they were), a 404 renders not-found, anything else an error.
+ * What a loader's request failed with, for its page to say (route-error.tsx): that the page does
+ * not exist, or that it could not be loaded.
+ */
+export class LoadFailure extends Error {
+	readonly notFound: boolean;
+
+	constructor(notFound: boolean, kind: FetchError['kind']) {
+		super(notFound ? 'Not found' : `Loading failed: ${kind}`);
+		this.name = 'LoadFailure';
+		this.notFound = notFound;
+	}
+}
+
+/**
+ * A loader's answer, or what its failure stands for: a 401 sends to `signIn` (by default the
+ * person's sign-in, back to where they were), a 404 renders not-found, anything else an error.
  */
 export function unwrapLoaderResult<T>(result: Result<T, FetchError>, signIn?: string): T {
 	if (result.isOk()) {
@@ -42,7 +56,7 @@ function fetchErrorToResponse(error: FetchError, signIn: string | undefined): ne
 	}
 
 	if (isNotFoundError(error)) {
-		throw data(null, {status: 404});
+		throw new LoadFailure(true, error.kind);
 	}
 
 	// The path alone, never its query, which may hold what the person searched for.
@@ -51,7 +65,55 @@ function fetchErrorToResponse(error: FetchError, signIn: string | undefined): ne
 		path: new URL(error.url, window.location.origin).pathname,
 		...(error.kind === 'http' ? {status: error.status} : {}),
 	});
-	throw data(error.kind, {status: 500});
+	throw new LoadFailure(false, error.kind);
+}
+
+/** Where a page is sent instead of what its loader was to load, as to sign-in once signed out. */
+export class Redirected {
+	readonly to: string;
+
+	constructor(to: string) {
+		this.to = to;
+	}
+}
+
+/**
+ * A loader's answer still on its way, so its page opens at once: the frame first, then the content
+ * as the answer comes (`useLoaded`), or the page it redirects to instead.
+ */
+export type Later<T> = {later: Promise<T | Redirected>};
+
+// Every answer on its way.
+const onTheWay = new Set<Promise<unknown>>();
+
+/**
+ * A loader that doesn't keep the old page up until its answer has come: it answers at once with
+ * the answer on its way. A redirect it throws is an answer, which the frame follows
+ * (app-shell.tsx); any other failure is the content's to say, in the frame.
+ */
+export function later<Args, T>(load: (args: Args) => Promise<T>): (args: Args) => Later<T> {
+	return (args) => {
+		const loading = load(args).catch((thrown: unknown) => {
+			const to = thrown instanceof Response ? thrown.headers.get('Location') : null;
+			if (to === null) {
+				throw thrown;
+			}
+			return new Redirected(to);
+		});
+		onTheWay.add(loading);
+		// A failure is read where the content renders. One nobody reads, as of a page left before
+		// its answer came, is not an unhandled rejection.
+		const arrived = () => {
+			onTheWay.delete(loading);
+		};
+		loading.then(arrived, arrived);
+		return {later: loading};
+	};
+}
+
+/** Resolves once every answer on its way has come, a page loaded again showing the new one. */
+export async function loadsSettled(): Promise<void> {
+	await Promise.allSettled([...onTheWay]);
 }
 
 /** What a failed change tells the person who made it. */

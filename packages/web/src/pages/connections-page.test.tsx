@@ -9,6 +9,7 @@ import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {HumanSide} from '@/components/human-side';
 import {ConnectionsPage} from '@/pages/connections-page';
+import {later} from '@/lib/loader-utils';
 import {testHuman, testOrg} from '@/test-org';
 
 afterEach(() => {
@@ -44,14 +45,14 @@ function renderConnectionsPage(entry: string, org: Org = testOrg) {
 				children: [
 					{
 						path: '/:org/connections',
-						loader: () => ({
+						loader: later(async () => ({
 							connections: [
 								connection('vault-own', 'vault', false),
 								connection('vault-shared', 'vault', true),
 								connection('google-1', 'google', true),
 							],
 							agents: [],
-						}),
+						})),
 						element: <ConnectionsPage />,
 					},
 				],

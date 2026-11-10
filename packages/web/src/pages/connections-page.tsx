@@ -3,9 +3,9 @@ import type {Connection} from '@proxy/contracts/connections';
 import {SANDBOX_INTEGRATION_ID, VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import {PencilIcon, Trash2Icon} from 'lucide-react';
 import {useState} from 'react';
-import {Link, useLoaderData, useRevalidator} from 'react-router';
+import {Link} from 'react-router';
 import {deleteConnection, renameConnection} from '@/client/connections-client';
-import {AppShell, PageTitle} from '@/components/app-shell';
+import {AppShell, PageHeader, PageTitle} from '@/components/app-shell';
 import {AddButton} from '@/components/add-button';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {ConfirmDialog} from '@/components/confirm-dialog';
@@ -15,6 +15,8 @@ import {Row, RowHeader, RowList} from '@/components/row-list';
 import {SideEmpty, SideToggle} from '@/components/share-toggle';
 import {ContextMenuItem} from '@proxy/ui/components/context-menu';
 import {useHuman} from '@/hooks/use-human';
+import {useLoaded} from '@/hooks/use-loaded';
+import {useReload} from '@/hooks/use-reload';
 import {useSide} from '@/hooks/use-side';
 import {agentsWithAccess, integrationOf} from '@/lib/access';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
@@ -47,9 +49,17 @@ function titleOf(connection: Connection): string {
 // click on a row renames or deletes a connection the person may change: their own, or a shared one
 // they connected or whose organization they own.
 export function ConnectionsPage() {
+	return (
+		<AppShell title={<PageTitle>Connections</PageTitle>}>
+			<Connections />
+		</AppShell>
+	);
+}
+
+function Connections() {
 	const org = useOrgSlug();
-	const {connections: all, agents} = useLoaderData<typeof connectionsLoader>();
-	const revalidator = useRevalidator();
+	const {connections: all, agents} = useLoaded<typeof connectionsLoader>();
+	const reload = useReload();
 	const human = useHuman();
 	const [pending, setPending] = useState<Pending | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -77,15 +87,15 @@ export function ConnectionsPage() {
 	const deleting = pending?.action === 'delete' ? pending.connection : null;
 
 	return (
-		<AppShell
-			title={<PageTitle>Connections</PageTitle>}
-			actions={
-				<AddButton
-					label="Add connection"
-					to={showingShared ? `/${org}/connections/new?for=everyone` : `/${org}/connections/new`}
-				/>
-			}
-		>
+		<>
+			<PageHeader
+				actions={
+					<AddButton
+						label="Add connection"
+						to={showingShared ? `/${org}/connections/new?for=everyone` : `/${org}/connections/new`}
+					/>
+				}
+			/>
 			<OrgNotice />
 			<SideToggle side={side} orgName={activeOrg.name} />
 			{error && <p className="text-sm text-destructive">{error}</p>}
@@ -185,7 +195,7 @@ export function ConnectionsPage() {
 						if (result.isErr()) {
 							return describeApiError(result.error);
 						}
-						await revalidator.revalidate();
+						await reload();
 						return null;
 					}}
 				/>
@@ -207,10 +217,10 @@ export function ConnectionsPage() {
 					}
 					const result = await deleteConnection(org, deleting.id);
 					setError(result.isErr() ? describeFetchError(result.error) : null);
-					await revalidator.revalidate();
+					await reload();
 				}}
 			/>
-		</AppShell>
+		</>
 	);
 }
 

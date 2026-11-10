@@ -1,6 +1,5 @@
 import type {DataRecord} from '@proxy/contracts/records';
 import {useState} from 'react';
-import {useLoaderData, useRevalidator} from 'react-router';
 import {deleteRecord} from '@/client/records-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {Row, RowHeader, RowList} from '@/components/row-list';
@@ -10,7 +9,9 @@ import {Button} from '@proxy/ui/components/button';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@proxy/ui/components/dialog';
 import {useApply} from '@/hooks/use-apply';
 import {useHuman} from '@/hooks/use-human';
+import {useLoaded} from '@/hooks/use-loaded';
 import {useOrgSlug} from '@/hooks/use-org';
+import {useReload} from '@/hooks/use-reload';
 import {useSide} from '@/hooks/use-side';
 import {formatAgo, formatDateTime} from '@/lib/format';
 import type {sandboxesLoader} from '@/loaders';
@@ -42,10 +43,18 @@ function StateBadge({state}: {state: string}) {
 // deleted there once its work is done. With anyone else in the organization or invited, a toggle
 // picks whose, as the vault's does.
 export function SandboxesPage() {
+	return (
+		<AppShell title={<PageTitle>Sandboxes</PageTitle>}>
+			<Sandboxes />
+		</AppShell>
+	);
+}
+
+function Sandboxes() {
 	const org = useOrgSlug();
-	const {own, shared} = useLoaderData<typeof sandboxesLoader>();
+	const {own, shared} = useLoaded<typeof sandboxesLoader>();
 	const human = useHuman();
-	const revalidator = useRevalidator();
+	const reload = useReload();
 	const [selected, setSelected] = useState<Listed | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const apply = useApply(setError);
@@ -69,11 +78,11 @@ export function SandboxesPage() {
 	};
 	const close = () => {
 		setSelected(null);
-		void revalidator.revalidate();
+		void reload();
 	};
 
 	return (
-		<AppShell title={<PageTitle>Sandboxes</PageTitle>}>
+		<>
 			<SideToggle side={side} orgName={activeOrg.name} />
 			<RowList
 				header={
@@ -165,6 +174,6 @@ export function SandboxesPage() {
 					</DialogContent>
 				)}
 			</Dialog>
-		</AppShell>
+		</>
 	);
 }

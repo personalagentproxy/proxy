@@ -1,8 +1,9 @@
-import {useLoaderData, useNavigate, useSearchParams} from 'react-router';
+import {useNavigate, useSearchParams} from 'react-router';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {IntegrationCatalog, SignInFailed} from '@/components/integration-catalog';
 import {SharePicker} from '@/components/share-choice';
 import {useExperiments} from '@/hooks/use-experiment';
+import {useLoaded} from '@/hooks/use-loaded';
 import {useShareChoice} from '@/hooks/use-share-choice';
 import type {addConnectionLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -13,15 +14,23 @@ import {useOrgSlug} from '@/hooks/use-org';
 // organization or invited, it asks first who the new connection is for (`?for=everyone`), carried
 // on to the form or the sign-in.
 export function AddConnectionPage() {
+	return (
+		<AppShell title={<PageTitle>Add connection</PageTitle>}>
+			<AddConnection />
+		</AppShell>
+	);
+}
+
+function AddConnection() {
 	const org = useOrgSlug();
-	const {connections, configured} = useLoaderData<typeof addConnectionLoader>();
+	const {connections, configured} = useLoaded<typeof addConnectionLoader>();
 	const navigate = useNavigate();
 	const [params] = useSearchParams();
 	const experiments = useExperiments();
 	const {shared, query} = useShareChoice();
 
 	return (
-		<AppShell title={<PageTitle>Add connection</PageTitle>}>
+		<>
 			<SignInFailed error={params.get('error')} configured={configured} />
 			<SharePicker />
 			<IntegrationCatalog
@@ -34,6 +43,6 @@ export function AddConnectionPage() {
 				}
 				onConnected={(connection) => navigate(`/${org}/connections/${connection.id}?added`)}
 			/>
-		</AppShell>
+		</>
 	);
 }

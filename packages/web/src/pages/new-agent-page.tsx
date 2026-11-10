@@ -1,7 +1,8 @@
-import {useLoaderData, useNavigate, useSearchParams} from 'react-router';
+import {useNavigate, useSearchParams} from 'react-router';
 import {AddAgent} from '@/components/agent-setup';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {SharePicker} from '@/components/share-choice';
+import {useLoaded} from '@/hooks/use-loaded';
 import {useShareChoice} from '@/hooks/use-share-choice';
 import type {agentsLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -9,14 +10,22 @@ import {useOrgSlug} from '@/hooks/use-org';
 // A new agent, added as in the welcome flow, and on to its page. With anyone else in the
 // organization or invited, it asks first who the agent is for (`?for=everyone`), until it is made.
 export function NewAgentPage() {
+	return (
+		<AppShell title={<PageTitle>New agent</PageTitle>}>
+			<NewAgent />
+		</AppShell>
+	);
+}
+
+function NewAgent() {
 	const org = useOrgSlug();
-	const {agents} = useLoaderData<typeof agentsLoader>();
+	const {agents} = useLoaded<typeof agentsLoader>();
 	const navigate = useNavigate();
 	const {shared} = useShareChoice();
 	const [params] = useSearchParams();
 
 	return (
-		<AppShell title={<PageTitle>New agent</PageTitle>}>
+		<>
 			{!params.has('agent') && (
 				<SharePicker
 					descriptions={{
@@ -32,6 +41,6 @@ export function NewAgentPage() {
 				continueLabel="Done"
 				onContinue={(agent) => navigate(`/${org}/agents/${agent.id}`)}
 			/>
-		</AppShell>
+		</>
 	);
 }

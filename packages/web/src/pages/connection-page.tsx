@@ -2,14 +2,14 @@ import type {AgentLogin} from '@proxy/contracts/agents';
 import {ListRestartIcon, RefreshCwIcon, UnplugIcon} from 'lucide-react';
 import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
-import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
+import {Link, useNavigate, useSearchParams} from 'react-router';
 import {
 	deleteConnection,
 	refreshMcpTools,
 	setConnectionDefaults,
 	shareConnection,
 } from '@/client/connections-client';
-import {AppShell, PageTitle} from '@/components/app-shell';
+import {AppShell, PageHeader, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {SignInToBankAgain} from '@/components/connect-bank-form';
 import {ConnectWithKeyDialog} from '@/components/connect-with-key-dialog';
@@ -36,21 +36,31 @@ import {signInPath} from '@/lib/integrations';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
 import {actsAs, connectedBy, hasOtherPeople, manages} from '@/lib/orgs';
 import type {connectionLoader} from '@/loaders';
+import {useLoaded} from '@/hooks/use-loaded';
 import {useOrgSlug} from '@/hooks/use-org';
+import {useReload} from '@/hooks/use-reload';
 
 const RECENT = 10;
 
 export function ConnectionPage() {
+	return (
+		<AppShell loadsTitle>
+			<ConnectionDetail />
+		</AppShell>
+	);
+}
+
+function ConnectionDetail() {
 	const org = useOrgSlug();
-	const {connection, connections, agents, entries, tasks} =
-		useLoaderData<typeof connectionLoader>();
+	const {connection, connections, agents, entries, tasks} = useLoaded<typeof connectionLoader>();
 	const navigate = useNavigate();
-	const revalidator = useRevalidator();
+	const reload = useReload();
 	// Set by whatever made the connection: the email dialog, or the api back from a service's sign-in.
 	const [searchParams] = useSearchParams();
 	const added = searchParams.has('added');
 	const [disconnecting, setDisconnecting] = useState(false);
 	const [refreshing, setRefreshing] = useState(false);
+	const [reloading, setReloading] = useState(false);
 	const [replacingKey, setReplacingKey] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const human = useHuman();
@@ -83,50 +93,51 @@ export function ConnectionPage() {
 				});
 
 	return (
-		<AppShell
-			title={
-				<PageTitle
-					detail={
-						connection.name === null
-							? connection.account
-							: `${integration.name} · ${connection.account}`
-					}
-				>
-					<span className="flex items-center gap-2">
-						<IntegrationLogo integration={integration} />
-						{connection.name ?? integration.name}
-					</span>
-				</PageTitle>
-			}
-			actions={
-				<>
-					{integration.custom && mayChange && (
-						<IconButton
-							label={
-								refreshing
-									? 'Asking the server for its tools'
-									: 'Ask the server for its tools again'
-							}
-							disabled={refreshing}
-							onClick={async () => {
-								setRefreshing(true);
-								const result = await refreshMcpTools(org, connection.id);
-								setRefreshing(false);
-								setError(result.isErr() ? describeRefreshError(result.error) : null);
-								await revalidator.revalidate();
-							}}
-						>
-							<ListRestartIcon className={refreshing ? 'motion-safe:animate-spin' : undefined} />
-						</IconButton>
-					)}
-					{!integration.native && mayChange && (
-						<IconButton label="Disconnect" onClick={() => setDisconnecting(true)}>
-							<UnplugIcon />
-						</IconButton>
-					)}
-				</>
-			}
-		>
+		<>
+			<PageHeader
+				title={
+					<PageTitle
+						detail={
+							connection.name === null
+								? connection.account
+								: `${integration.name} · ${connection.account}`
+						}
+					>
+						<span className="flex items-center gap-2">
+							<IntegrationLogo integration={integration} />
+							{connection.name ?? integration.name}
+						</span>
+					</PageTitle>
+				}
+				actions={
+					<>
+						{integration.custom && mayChange && (
+							<IconButton
+								label={
+									refreshing
+										? 'Asking the server for its tools'
+										: 'Ask the server for its tools again'
+								}
+								disabled={refreshing}
+								onClick={async () => {
+									setRefreshing(true);
+									const result = await refreshMcpTools(org, connection.id);
+									setRefreshing(false);
+									setError(result.isErr() ? describeRefreshError(result.error) : null);
+									await reload();
+								}}
+							>
+								<ListRestartIcon className={refreshing ? 'motion-safe:animate-spin' : undefined} />
+							</IconButton>
+						)}
+						{!integration.native && mayChange && (
+							<IconButton label="Disconnect" onClick={() => setDisconnecting(true)}>
+								<UnplugIcon />
+							</IconButton>
+						)}
+					</>
+				}
+			/>
 			<div className="flex flex-col gap-8">
 				{added && <SuccessLine>Connection added successfully</SuccessLine>}
 				<Section
@@ -153,7 +164,7 @@ export function ConnectionPage() {
 								defaultsOnOrOff(actions),
 							);
 							setError(result.isErr() ? describeFetchError(result.error) : null);
-							await revalidator.revalidate();
+							await reload();
 						}}
 					/>
 					{renew && renewReason && (
@@ -170,7 +181,7 @@ export function ConnectionPage() {
 							onClose={() => setReplacingKey(false)}
 							onConnected={async () => {
 								setReplacingKey(false);
-								await revalidator.revalidate();
+								await reload();
 							}}
 						/>
 					)}
@@ -197,7 +208,7 @@ export function ConnectionPage() {
 								return;
 							}
 							setError(null);
-							await revalidator.revalidate();
+							await reload();
 						}}
 					/>
 				)}
@@ -223,14 +234,16 @@ export function ConnectionPage() {
 					title="Recent activity"
 					titleAction={
 						<IconButton
-							label={revalidator.state === 'loading' ? 'Refreshing activity' : 'Refresh activity'}
+							label={reloading ? 'Refreshing activity' : 'Refresh activity'}
 							size="xs"
-							disabled={revalidator.state === 'loading'}
-							onClick={() => void revalidator.revalidate()}
+							disabled={reloading}
+							onClick={async () => {
+								setReloading(true);
+								await reload();
+								setReloading(false);
+							}}
 						>
-							<RefreshCwIcon
-								className={revalidator.state === 'loading' ? 'motion-safe:animate-spin' : undefined}
-							/>
+							<RefreshCwIcon className={reloading ? 'motion-safe:animate-spin' : undefined} />
 						</IconButton>
 					}
 					detail={
@@ -269,7 +282,7 @@ export function ConnectionPage() {
 					navigate(`/${org}/connections`);
 				}}
 			/>
-		</AppShell>
+		</>
 	);
 }
 

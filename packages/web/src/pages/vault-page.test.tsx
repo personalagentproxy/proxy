@@ -9,6 +9,7 @@ import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {HumanSide} from '@/components/human-side';
 import {VaultPage} from '@/pages/vault-page';
+import {later} from '@/lib/loader-utils';
 import {testHuman, testOrg} from '@/test-org';
 
 afterEach(() => {
@@ -40,10 +41,10 @@ function renderVaultPage(entries: Entry[], options: {shared?: Entry[]; org?: Org
 				children: [
 					{
 						path: '/:org/connections/vault',
-						loader: () => ({
+						loader: later(async () => ({
 							own: vault('vault-1', entries),
 							shared: vault('vault-2', options.shared ?? []),
-						}),
+						})),
 						element: <VaultPage />,
 					},
 				],

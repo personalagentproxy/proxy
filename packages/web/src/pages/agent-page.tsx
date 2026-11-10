@@ -13,7 +13,7 @@ import {
 	UnplugIcon,
 } from 'lucide-react';
 import {useState} from 'react';
-import {Link, useLoaderData, useNavigate, useParams, useRevalidator} from 'react-router';
+import {Link, useNavigate, useParams} from 'react-router';
 import type {Result} from 'ts-results-es';
 import {
 	deleteAgent,
@@ -24,7 +24,7 @@ import {
 	shareAgent,
 } from '@/client/agents-client';
 import {setConnectionDefaults} from '@/client/connections-client';
-import {AppShell, PageTitle} from '@/components/app-shell';
+import {AppShell, PageHeader, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
 import {ConfirmDialog} from '@/components/confirm-dialog';
@@ -39,6 +39,8 @@ import {Checkbox} from '@proxy/ui/components/checkbox';
 import {Input} from '@proxy/ui/components/input';
 import {useApply} from '@/hooks/use-apply';
 import {useHuman} from '@/hooks/use-human';
+import {useLoaded} from '@/hooks/use-loaded';
+import {useReload} from '@/hooks/use-reload';
 import {connectionLabel, defaultActions, integrationOf, ownSettings} from '@/lib/access';
 import {cn} from '@proxy/ui/lib/utils';
 import {formatDate} from '@/lib/format';
@@ -57,15 +59,18 @@ type Confirming = 'revoke' | 'delete' | null;
 // and what is folded out start over for each.
 export function AgentPage() {
 	const {id = ''} = useParams();
-	return <AgentDetail key={id} id={id} />;
+	return (
+		<AppShell loadsTitle>
+			<AgentDetail key={id} id={id} />
+		</AppShell>
+	);
 }
 
 function AgentDetail({id}: {id: string}) {
 	const org = useOrgSlug();
-	const {agent, connections, agents, entries, tasks, mcpClients} =
-		useLoaderData<typeof agentLoader>();
+	const {agent, connections, agents, entries, tasks, mcpClients} = useLoaded<typeof agentLoader>();
 	const navigate = useNavigate();
-	const revalidator = useRevalidator();
+	const reload = useReload();
 	const [confirming, setConfirming] = useState<Confirming>(null);
 	const [renaming, setRenaming] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -92,55 +97,56 @@ function AgentDetail({id}: {id: string}) {
 	const builtIn = provider?.connects === 'built-in';
 
 	return (
-		<AppShell
-			title={
-				<PageTitle
-					detail={
-						builtIn
-							? 'Built in · the agents on the Chat page act through it, with its access'
-							: revoked
-								? `${company} · revoked ${formatDate(agent.revokedAt ?? '')}`
-								: `${company} · added ${formatDate(agent.createdAt)}`
-					}
-				>
-					<span className="flex items-center gap-2">
-						<AgentLogo providerId={agent.providerId} />
-						{agent.name}
-					</span>
-				</PageTitle>
-			}
-			actions={
-				mayChange && (
-					<>
-						<IconButton label="Rename agent" onClick={() => setRenaming(true)}>
-							<PencilIcon />
-						</IconButton>
-						{!revoked && !builtIn && (
-							<IconButton label="Set up again" to={`/${org}/agents/${agent.id}/setup`}>
-								<KeyRoundIcon />
+		<>
+			<PageHeader
+				title={
+					<PageTitle
+						detail={
+							builtIn
+								? 'Built in · the agents on the Chat page act through it, with its access'
+								: revoked
+									? `${company} · revoked ${formatDate(agent.revokedAt ?? '')}`
+									: `${company} · added ${formatDate(agent.createdAt)}`
+						}
+					>
+						<span className="flex items-center gap-2">
+							<AgentLogo providerId={agent.providerId} />
+							{agent.name}
+						</span>
+					</PageTitle>
+				}
+				actions={
+					mayChange && (
+						<>
+							<IconButton label="Rename agent" onClick={() => setRenaming(true)}>
+								<PencilIcon />
 							</IconButton>
-						)}
-						{builtIn ? null : revoked ? (
-							<IconButton
-								label="Restore login"
-								onClick={() => void apply(setAgentRevoked(org, agent.id, false))}
-							>
-								<RotateCcwIcon />
-							</IconButton>
-						) : (
-							<IconButton label="Revoke login" onClick={() => setConfirming('revoke')}>
-								<BanIcon />
-							</IconButton>
-						)}
-						{!builtIn && (
-							<IconButton label="Delete agent" onClick={() => setConfirming('delete')}>
-								<Trash2Icon />
-							</IconButton>
-						)}
-					</>
-				)
-			}
-		>
+							{!revoked && !builtIn && (
+								<IconButton label="Set up again" to={`/${org}/agents/${agent.id}/setup`}>
+									<KeyRoundIcon />
+								</IconButton>
+							)}
+							{builtIn ? null : revoked ? (
+								<IconButton
+									label="Restore login"
+									onClick={() => void apply(setAgentRevoked(org, agent.id, false))}
+								>
+									<RotateCcwIcon />
+								</IconButton>
+							) : (
+								<IconButton label="Revoke login" onClick={() => setConfirming('revoke')}>
+									<BanIcon />
+								</IconButton>
+							)}
+							{!builtIn && (
+								<IconButton label="Delete agent" onClick={() => setConfirming('delete')}>
+									<Trash2Icon />
+								</IconButton>
+							)}
+						</>
+					)
+				}
+			/>
 			<div className="flex flex-col gap-8">
 				{error && <p className="text-sm text-destructive">{error}</p>}
 				{mcpClients.length > 0 && (
@@ -226,7 +232,7 @@ function AgentDetail({id}: {id: string}) {
 						if (result.isErr()) {
 							return describeApiError(result.error);
 						}
-						await revalidator.revalidate();
+						await reload();
 						return null;
 					}}
 				/>
@@ -256,7 +262,7 @@ function AgentDetail({id}: {id: string}) {
 					navigate(`/${org}/agents`);
 				}}
 			/>
-		</AppShell>
+		</>
 	);
 }
 

@@ -10,6 +10,7 @@ import {DEFAULT_LOOK} from '@proxy/utils/harness';
 import type {Alert} from '@proxy/contracts/alerts';
 import {HumanSide} from '@/components/human-side';
 import {AlertsPage} from '@/pages/alerts-page';
+import {later} from '@/lib/loader-utils';
 import {testHuman} from '@/test-org';
 
 const deleteAlert = mock(async () => Ok(undefined));
@@ -56,7 +57,11 @@ function renderPage(listed: Alert[]) {
 				loader: () => testHuman(),
 				element: <HumanSide />,
 				children: [
-					{path: '/:org/alerts', loader: () => ({alerts: listed}), element: <AlertsPage />},
+					{
+						path: '/:org/alerts',
+						loader: later(async () => ({alerts: listed})),
+						element: <AlertsPage />,
+					},
 				],
 			},
 		],

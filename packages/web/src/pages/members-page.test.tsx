@@ -7,6 +7,7 @@ import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {HumanSide} from '@/components/human-side';
 import {MembersPage} from '@/pages/members-page';
+import {later} from '@/lib/loader-utils';
 import {testHuman} from '@/test-org';
 
 afterEach(() => {
@@ -24,7 +25,7 @@ describe('MembersPage', () => {
 					children: [
 						{
 							path: '/:org/members',
-							loader: () => ({
+							loader: later(async () => ({
 								members: [
 									{
 										userId: 'user-1',
@@ -44,7 +45,7 @@ describe('MembersPage', () => {
 									},
 								],
 								invitations: [],
-							}),
+							})),
 							element: <MembersPage />,
 						},
 					],
