@@ -11,7 +11,7 @@ import {afterEach, describe, expect, test} from 'bun:test';
 import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
-import {CALL_INTERRUPTED, RUN_INTERRUPTED} from '@proxy/utils/harness';
+import {CALL_INTERRUPTED, OUTCOME_UNKNOWN} from '@proxy/utils/harness';
 import type {ContextEntry} from '@proxy/utils/harness-context';
 
 import type {HarnessEntry, HarnessEvent, HarnessTurn} from './backend';
@@ -392,9 +392,7 @@ describe('claudeAgentSdkHarness', () => {
 			subAgents: [{id: 'sa1', parentCallId: 'c2', title: 'Finder'}],
 		});
 
-		expect(fake.calls[0]?.prompt).toBe(
-			['A message from the sub-agent “Finder” (id sa1). The person did not write this; it is for you to act on or tell them of.\n\nFound it.', 'And then?'].join('\n\n'),
-		);
+		expect(fake.calls[0]?.prompt).toBe(['From the sub-agent “Finder” (sa1); not from the person.\n\nFound it.', 'And then?'].join('\n\n'));
 		expect(fake.calls[0]?.options?.resume).toBe('sdk-session-9');
 		expect(events.at(-1)).toMatchObject({kind: 'done', session: {id: SESSION, state: {lastSeq: again.seq, job: 'job-1'}}});
 	});
@@ -415,7 +413,7 @@ describe('claudeAgentSdkHarness', () => {
 			jobId: 'job-1',
 		});
 		const answered = entry('tool_result', 'rows', {callId: 'c1', jobId: 'job-1'});
-		const unknown = entry('tool_result', RUN_INTERRUPTED, {callId: 'c2', isError: true, jobId: 'job-1'});
+		const unknown = entry('tool_result', OUTCOME_UNKNOWN, {callId: 'c2', isError: true, jobId: 'job-1'});
 		const unanswered = entry('tool_result', CALL_INTERRUPTED, {callId: 'c3', isError: true, jobId: 'job-1'});
 
 		const events = await collect(fake, {
@@ -430,7 +428,7 @@ describe('claudeAgentSdkHarness', () => {
 				'Person:\nSend the invoice to Dana',
 				'Agent:\nSending.\nAgent called read with {"a":1}\nAgent called run with {"to":"dana"}\nAgent called read with {}',
 				'read answered:\nrows',
-				`run answered with an error:\n${RUN_INTERRUPTED}`,
+				`run answered with an error:\n${OUTCOME_UNKNOWN}`,
 				`read answered with an error:\n${CALL_INTERRUPTED}`,
 				'Go on.',
 			].join('\n\n'),
@@ -475,12 +473,12 @@ describe('claudeAgentSdkHarness', () => {
 		expect(fake.calls[0]?.prompt).toBe(
 			[
 				RECORD,
-				'What came before in this conversation, summarized so that it fits. The person did not write this; take it as what happened.\nThe person asked for their invoices; three from Dana were found.',
+				'A summary of what came before; not from the person.\nThe person asked for their invoices; three from Dana were found.',
 				'Person:\nFile them',
 				'Agent:\nFiling.\nAgent called create_subagent with {"title":"File"}',
 				'create_subagent answered:\nStarted sa1.',
 				SINCE,
-				'A message from the sub-agent “File” (id sa1). The person did not write this; it is for you to act on or tell them of.\n\nFiled all three.',
+				'From the sub-agent “File” (sa1); not from the person.\n\nFiled all three.',
 				'Thanks. Any from before October?',
 			].join('\n\n'),
 		);

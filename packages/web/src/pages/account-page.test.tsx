@@ -10,6 +10,7 @@ import type {ClaudeAccount} from '@proxy/contracts/me';
 import type {FetchError} from '@proxy/utils';
 import {HumanSide} from '@/components/human-side';
 import {formatDateTime} from '@/lib/format';
+import {later} from '@/lib/loader-utils';
 import {AccountPage} from '@/pages/account-page';
 import {testHuman} from '@/test-org';
 
@@ -83,7 +84,7 @@ function renderPage(claude: ClaudeAccount['account']) {
 				children: [
 					{
 						path: '/account',
-						loader: () => ({sessions: [session], claude}),
+						loader: later(async () => ({sessions: [session], claude})),
 						element: <AccountPage />,
 					},
 				],

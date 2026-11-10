@@ -177,7 +177,7 @@ describe('handleListActivityRoute', () => {
 		expect(listAuditEntries).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {agentId: null}, 500);
 	});
 
-	test('names the tasks the entries were made for, and the one asked for even without entries, and who asked for what Personal Agent Proxy did', async () => {
+	test('names the tasks the entries were made for, and who asked for what Personal Agent Proxy did', async () => {
 		const entry = {
 			id: 'e1',
 			agentId: 'agent-1',
@@ -214,10 +214,10 @@ describe('handleListActivityRoute', () => {
 			]),
 		);
 		const {handleListActivityRoute} = await import('./route');
-		const result = await handleListActivityRoute(makeRequest({taskId: 'task-2'}) as never);
+		const result = await handleListActivityRoute(makeRequest({}) as never);
 
-		expect(listAuditEntries).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {taskId: 'task-2'}, 500);
-		expect(listAgentTasks).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), ['task-1', 'task-2']);
+		expect(listAuditEntries).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {}, 500);
+		expect(listAgentTasks).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), ['task-1']);
 		expect(result.unwrap()).toEqual({
 			entries: [
 				{

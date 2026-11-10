@@ -96,8 +96,8 @@ function JoinStep({token, invitation}: {token: string; invitation: InvitationLin
 			<OrgTile org={org} className="size-10 rounded-lg text-base" />
 			<StepHeading title={`Join ${invitation.orgName}`}>
 				{invitation.invitedBy ?? 'Someone'} invited you. You work with the connections and agents
-				shared with everyone in {invitation.orgName}, and what you connect there stays yours unless
-				you share it. Switch back to your own organization from the top of the sidebar.
+				shared with you in {invitation.orgName}, and what you connect there stays yours unless you
+				share it. Switch back to your own organization from the top of the sidebar.
 			</StepHeading>
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<div className="flex gap-2">

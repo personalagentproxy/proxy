@@ -2,11 +2,11 @@ import {Err, type Result} from 'ts-results-es';
 
 import type {HarnessBackend, HarnessEvent} from '@proxy/backends/harness/backend';
 import {ApiErr, type ApiError, Do, requirePresent, semaphore, type Semaphore} from '@proxy/utils';
-import {CALL_INTERRUPTED, type HarnessSession, pendingToolCalls, RUN_INTERRUPTED, type ToolCall} from '@proxy/utils/harness';
+import {CALL_INTERRUPTED, type HarnessSession, OUTCOME_UNKNOWN, pendingToolCalls, type ToolCall} from '@proxy/utils/harness';
 import type {AssistantTurn, EntryRow, JobRow, NewTurnEntry, RanOn, SubAgentRow, ThreadRow, ThreadSession} from '@proxy/db/harness';
 
 import {chosenFor, type ClaudeCredentials, type HarnessChoice, type Harnesses, harnessFor, needsCredential} from '../backends/harness';
-import {agentInstructions} from '../mcp/tools';
+import {agentInstructions, SCRIPT_TOOL} from '../mcp/tools';
 import {SIGN_IN_EXPIRED} from '../me/claude-token';
 import {log, serializeError} from '../observability/log';
 import {alertsParagraph} from './alerts';
@@ -54,7 +54,7 @@ import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
  *
  * A turn tried again, the worker that ran it before having died, may find the log's last answer
  * with calls still open: a harness that runs its tools itself wrote the step and died before the
- * result. Each is closed first, with a result saying so, a write's that its outcome is unknown,
+ * result. Each is closed first, with a result saying so, a script's that its outcome is unknown,
  * and the harness runs on the log so closed. A thread on a harness that leaves its calls open
  * never has any here: its inference job is queued only once every call is answered, and it
  * writes its answer only as the job ends, so a job of its that is tried again finds the log as
@@ -82,12 +82,12 @@ export type InferenceStore = Pick<
 // How the agent talking with the person is to go about it: it does nothing itself, and hands
 // every piece of work to a sub-agent, which it can go on talking with.
 const MAIN_FLOW =
-	'You are talking with the person directly, on the Chat page of Personal Agent Proxy; what you write is shown to them as a chat message, rendered as Markdown, so write short, and answer what they asked: plain sentences for most things, a list or a table where it lays out better, no headings. You make no calls to their accounts yourself: you have two tools. create_subagent starts a sub-agent on a piece of work with the same access as you, and answers at once with its id; send_to_subagent sends a message to one you started. Where these instructions name a tool such as read, run, entries_list or entries_create, that is what a sub-agent does on your behalf: put it in its brief. A sub-agent knows nothing of this conversation but its brief and what you send it, so put in the brief everything it needs, including what to report back. What a sub-agent says comes to you as a message: a question, which you answer with send_to_subagent, or ask the person where only they know; how far it has got; or, when it stops, what it did and found. A stopped sub-agent keeps everything it did and found, with the ids, names and dates it came across, so for more work on the same ground, or a follow-up to what it found, send it a message rather than starting another with the same brief over again; start another for a separate piece of work. Hand one question to one sub-agent, even when the answer spans several accounts: it can look in them all. Start several only for separate pieces of work, each a sizeable job of its own. Your sub-agents, with their ids and what each is doing now, are listed below. While a sub-agent is at work and there is nothing else to do, tell the person in a few words what you are looking into, such as “Looking through your inboxes and notes for the Lisbon trip.”, and stop; its next message wakes you. Never tell the person how you work: say nothing of sub-agents, briefs, messages or searches you started or are waiting on; to them, you are doing the work yourself. When a sub-agent’s message comes, tell the person what matters of it, answer the sub-agent, or start the next piece; while other sub-agents are still working, say nothing of it unless it changes what the person should know now, and answer once you have the whole picture. A long conversation is summarized for you as it goes, and older messages are cleared from it: take a summary as what happened, and don’t mention that the conversation was summarized. When the person asks to be told at a time, or when something happens in their accounts, such as an email coming in, an issue changing or an event moved, set an alert with set_alert rather than starting a sub-agent to wait or watch: an alert that is due comes to you as a message, for you to tell the person in your words, or to do what you noted for it. A watch matches words, not meaning: give the ways the thing may be written. Your alerts are listed below; cancel_alert ends one when the person no longer wants it, and a changed one is a new one.';
+	'You are chatting with the person on Personal Agent Proxy’s Chat page. Answer in short Markdown: sentences, a list or table where clearer, no headings. You can’t reach their accounts yourself: sub-agents do it for you, so the pap calls these instructions name go in a sub-agent’s brief. Give one question to one sub-agent, even across accounts; start several only for separate, sizeable jobs. A stopped sub-agent keeps what it found: message it for follow-ups rather than starting another. While sub-agents work, tell the person in a few words what you are looking into, and stop. Never mention sub-agents, briefs or messages: to the person, you do the work. When a sub-agent’s message needs no word to the person yet, as while others are still at work, answer with nothing. For something at a time, or something new in their accounts, set an alert rather than a sub-agent. Don’t mention summaries of the conversation.';
 
 // How a sub-agent is to go about it: a brief, its tools, messages to and from the agent it works
 // for, and an answer when it stops.
 const SUB_FLOW =
-	'You are a sub-agent of the agent talking with the person on the Chat page of Personal Agent Proxy. The first message is your brief from it, and every later message is from it too: the person never reads what you write, and only that agent does. list_connections lists the accounts you can use and what you may do with each. list_tools with a connection gives that connection’s tools and the params each takes. Don’t guess a tool’s params: where these instructions don’t give them, call list_tools for the connection before you first read or run one of its tools. read runs the tools that only read; run runs the ones that change something or reach other people. Every call is made for your task, filled in for you: there is nothing to start or finish. send_to_parent sends the agent a message while you go on working: how far you have got where the work takes long, or something it should know before you are done. Don’t send what your answer will say. To ask something you can’t go on without, answer with the question and no tool call: that stops you, and the agent’s reply takes you up again. When you have called sleep_until, you are woken at that time, or earlier by a message, with nothing but this log, so say in your message what you will do then. Your first message without a tool call is your answer, handed to the agent as it is, and stops your work for now: say what you did and found, with the names, ids, dates and numbers that matter, and what you could not do; nothing else. You keep this log, and a later message from the agent takes you up again where you left off: do what it says with what you already have, and answer again. A long log is summarized for you as it goes: take a summary as what happened.';
+	'You are a sub-agent of the Chat agent of Personal Agent Proxy. Your brief and every later message come from that agent; the person doesn’t see what you write. Work in scripts; check pap.tools before using a tool you haven’t used. Your task is kept for you. To ask something you can’t go on without, answer with the question and no tool call. Your first answer without a tool call is handed to the agent and stops you: say what you did and found, with the names, ids, dates and numbers that matter, and what you couldn’t do. A later message takes you up again with this log.';
 
 // How many answers the model may give in a row without the person saying anything, calls,
 // sub-agents' messages and wake-ups included, before it stops and waits for them; a message that
@@ -140,12 +140,20 @@ type TurnOutcome =
 	| {kind: 'done'; text: string; toolCalls: ToolCall[]; open: ToolCall[]; wroteInline: boolean; inputTokens: number; outputTokens: number; system: string; session: HarnessSession}
 	| {kind: 'failed'; error: ApiError; retry: boolean; limitReached?: {resetsAt: Date | null}};
 
-// The answer as it goes in the log: an answer of nothing says so.
-function said(thread: ThreadRow, turn: {text: string; toolCalls: ToolCall[]}): string {
+// The answer as it goes in the log: an answer of nothing says so, but for the agent talking with
+// the person woken by a sub-agent's message or an alert rather than by them, which may let it pass
+// in silence; the page shows no answer without words, and the model doesn't read it again.
+function said(thread: ThreadRow, entries: EntryRow[], turn: {text: string; toolCalls: ToolCall[]}): string {
 	if (turn.text.trim() !== '' || turn.toolCalls.length > 0) {
 		return turn.text;
 	}
-	return thread.parentThreadId === null ? NOTHING : NOTHING_SUB;
+	if (thread.parentThreadId !== null) {
+		return NOTHING_SUB;
+	}
+	if (entries.findLast((entry) => entry.kind === 'person' || entry.kind === 'event')?.kind === 'event') {
+		return '';
+	}
+	return NOTHING;
 }
 
 // Answers the person with `text` alone, as the model would, when the model can't be run: no
@@ -175,12 +183,7 @@ function answerFailure(store: InferenceStore, job: JobRow, workerId: string, thr
 
 // A sub-agent as the roster has it: its id, its title, and what it is up to.
 function rosterLine(subAgent: SubAgentRow): string {
-	const doing =
-		subAgent.state.kind === 'working'
-			? 'at work'
-			: subAgent.state.kind === 'asleep'
-				? `asleep until ${subAgent.state.until.toISOString()}; a message wakes it`
-				: 'stopped; a message takes it up again';
+	const doing = subAgent.state.kind === 'working' ? 'at work' : subAgent.state.kind === 'asleep' ? `asleep until ${subAgent.state.until.toISOString()}` : 'stopped';
 	return `- ${subAgent.id}: “${subAgent.title ?? ''}”, ${doing}`;
 }
 
@@ -194,13 +197,13 @@ const MAX_STOPPED_LISTED = 10;
 // the latest, with how many older ones there are.
 function roster(subAgents: SubAgentRow[]): string {
 	if (subAgents.length === 0) {
-		return 'You have started no sub-agents yet.';
+		return 'No sub-agents yet.';
 	}
 	const stopped = subAgents.filter((subAgent) => subAgent.state.kind === 'stopped');
 	const unlisted = new Set(stopped.slice(0, -MAX_STOPPED_LISTED).map((subAgent) => subAgent.id));
 	const listed = subAgents.filter((subAgent) => !unlisted.has(subAgent.id)).map(rosterLine);
-	const older = unlisted.size === 0 ? [] : [`- ${unlisted.size} older sub-agents that have stopped, not listed; a message to one by its id still takes it up again`];
-	return `Your sub-agents, each by the id send_to_subagent takes:\n${[...older, ...listed].join('\n')}`;
+	const older = unlisted.size === 0 ? [] : [`- ${unlisted.size} older stopped ones, not listed`];
+	return `Sub-agents:\n${[...older, ...listed].join('\n')}`;
 }
 
 // Why the model couldn't be reached, for the job's record.
@@ -403,6 +406,7 @@ function writeBack(
 	job: JobRow,
 	workerId: string,
 	thread: ThreadRow,
+	entries: EntryRow[],
 	choice: HarnessChoice & {harness: HarnessBackend},
 	outcome: Extract<TurnOutcome, {kind: 'done'}>,
 	now: Date,
@@ -415,7 +419,7 @@ function writeBack(
 		const turn: AssistantTurn | null = nothingLeft
 			? null
 			: {
-					text: said(thread, outcome),
+					text: said(thread, entries, outcome),
 					toolCalls: outcome.toolCalls,
 					inputTokens: outcome.inputTokens,
 					outputTokens: outcome.outputTokens,
@@ -430,10 +434,10 @@ function writeBack(
 }
 
 // Closes the calls the log's last answer left open, from a previous attempt of the job that died
-// before answering them: each with a result saying so, a write's that its outcome is unknown.
+// before answering them: each with a result saying so, a script's that its outcome is unknown.
 function closeOpenCalls(store: InferenceStore, job: JobRow, workerId: string, thread: ThreadRow, open: ToolCall[]): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		const results: NewTurnEntry[] = open.map((call) => ({kind: 'tool_result', callId: call.id, text: call.name === 'run' ? RUN_INTERRUPTED : CALL_INTERRUPTED, isError: true}));
+		const results: NewTurnEntry[] = open.map((call) => ({kind: 'tool_result', callId: call.id, text: call.name === SCRIPT_TOOL ? OUTCOME_UNKNOWN : CALL_INTERRUPTED, isError: true}));
 		if (!$(await store.appendTurnEntries(job.id, workerId, thread.id, results))) {
 			return $(Err(jobLost()));
 		}
@@ -528,6 +532,6 @@ export function runInference(store: InferenceStore, harnesses: Harnesses, job: J
 			$(await answerWith(store, job, workerId, thread, UNREACHABLE));
 			return;
 		}
-		$(await writeBack(store, job, workerId, thread, choice, outcome, clock()));
+		$(await writeBack(store, job, workerId, thread, entries, choice, outcome, clock()));
 	});
 }

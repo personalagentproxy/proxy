@@ -37,7 +37,8 @@ const target = {
 		integrationId: 'google',
 		orgId: 'org-1',
 		ownerUserId: 'user-1',
-		connectedById: 'user-1',
+		sharedWithEveryone: false,
+		shares: [],
 		account: 'alex@example.com',
 		createdAt: new Date(),
 		tools: null,
@@ -428,6 +429,37 @@ describe('drafts', () => {
 		expect(record).toMatchObject({id: 'draft-r2', values: {folder: 'Draft', subject: 'New'}});
 	});
 
+	test('a new draft copies and blind copies whom it is given', async () => {
+		await (await connector()).create(target, {to: 'robin@example.com', cc: 'Jo Park <jo@example.com>, sam@example.com', bcc: 'kim@example.com', subject: 'New', body: 'Hello'});
+
+		const raw = rawText(calls('POST', '/drafts')[0]?.body?.message as Record<string, unknown>);
+		expect(raw).toContain('Cc: Jo Park <jo@example.com>, sam@example.com');
+		expect(raw).toContain('Bcc: kim@example.com');
+	});
+
+	test('a draft opens with whom it copies, bare as its To, and an email received with names', async () => {
+		const c = await connector();
+
+		expect((await c.get(target, 'draft-r1')).unwrap().values).toMatchObject({to: 'robin@example.com', cc: 'sam@example.com', bcc: ''});
+		expect((await c.get(target, 'm1')).unwrap().values).toMatchObject({cc: 'Jo Park <jo@example.com>', bcc: ''});
+	});
+
+	test('an edit writes the Cc and Bcc given over the draft’s, keeping its thread', async () => {
+		await (await connector()).update(target, 'draft-r1', {cc: 'sam@example.com, petra@example.com', bcc: 'kim@example.com'});
+
+		const raw = rawText((calls('PUT', '/drafts/r1')[0]?.body as {message: Record<string, unknown>}).message);
+		expect(raw).toContain('Cc: sam@example.com, petra@example.com');
+		expect(raw).toContain('Bcc: kim@example.com');
+		expect(raw).toContain('In-Reply-To: <abc@example.com>');
+	});
+
+	test('an edit with an empty Cc takes everyone off it', async () => {
+		await (await connector()).update(target, 'draft-r1', {cc: ''});
+
+		const raw = rawText((calls('PUT', '/drafts/r1')[0]?.body as {message: Record<string, unknown>}).message);
+		expect(raw).not.toContain('Cc:');
+	});
+
 	test('an edit writes the fields given over the rest, keeping the draft’s Cc and thread', async () => {
 		const record = (await (await connector()).update(target, 'draft-r1', {subject: 'Offer, revised'})).unwrap();
 
@@ -556,6 +588,7 @@ describe('commands', () => {
 		expect(raw).toMatch(/Message-ID: <[0-9a-f-]+@proxy>/);
 		expect(raw).toContain('Line one');
 		expect((await c.newCommands?.sendNew?.(target, {to: ' ', subject: 'x', body: 'y'}))?.unwrapErr().kind).toBe('validation_error');
+		expect((await c.newCommands?.sendNew?.(target, {to: '', cc: 'sam@example.com', subject: 'x', body: 'y'}))?.isOk()).toBe(true);
 	});
 });
 

@@ -1,6 +1,6 @@
 import type {FetchError} from '@proxy/utils';
-import {useRevalidator} from 'react-router';
 import type {Result} from 'ts-results-es';
+import {useReload} from '@/hooks/use-reload';
 import {describeApiError} from '@/lib/loader-utils';
 
 /**
@@ -8,7 +8,7 @@ import {describeApiError} from '@/lib/loader-utils';
  * such as closing a dialog. What went wrong goes to `setError`, and null once a change is saved.
  */
 export function useApply(setError: (error: string | null) => void) {
-	const revalidator = useRevalidator();
+	const reload = useReload();
 	return async <T>(change: Promise<Result<T, FetchError>>, onSaved?: () => void) => {
 		const result = await change;
 		if (result.isErr()) {
@@ -17,6 +17,6 @@ export function useApply(setError: (error: string | null) => void) {
 		}
 		setError(null);
 		onSaved?.();
-		await revalidator.revalidate();
+		await reload();
 	};
 }

@@ -97,7 +97,7 @@ describe('proxyHarness', () => {
 
 		await Array.fromAsync(harness.turn(turnInput(log, {subAgents: [{id: 'thread-2', parentCallId: 'c1', title: 'Find the invoices'}]})));
 
-		expect(requests()[0]?.messages.at(-1)).toEqual({role: 'user', content: expect.stringContaining('A message from the sub-agent “Find the invoices” (id thread-2)')});
+		expect(requests()[0]?.messages.at(-1)).toEqual({role: 'user', content: expect.stringContaining('From the sub-agent “Find the invoices” (thread-2); not from the person.')});
 	});
 
 	test('a log grown long is summarized first, by the same model, as text, and the summary yielded for the api to store, then read in place of what it covers', async () => {
@@ -121,7 +121,7 @@ describe('proxyHarness', () => {
 		const asked = requests();
 		expect(asked.map((request) => request.model)).toEqual(['glm', 'glm']);
 		expect(asked[0]?.tools).toEqual([]);
-		expect(asked[0]?.messages[0]).toMatchObject({role: 'system', content: expect.stringContaining('summarizing a conversation')});
+		expect(asked[0]?.messages[0]).toMatchObject({role: 'system', content: expect.stringContaining('Summarize this conversation')});
 		expect(asked[0]?.messages.slice(1)).toEqual([{role: 'user', content: 'Person:\nOne\n\nAgent called read with {}\n\nread answered:\nrows one\n\nAgent:\nDone one\n\nWrite the summary now.'}]);
 		expect(asked[1]?.messages.slice(1).map((message) => message.content)).toEqual([expect.stringContaining('The person asked for one; it was done.'), 'Two', 'Done two', 'Three', null, 'rows three']);
 		expect(events).toEqual([

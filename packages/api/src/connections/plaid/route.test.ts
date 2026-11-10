@@ -12,7 +12,7 @@ mock.module('@proxy/db/connection', () => ({
 	createConnection,
 	getConnectionWithCredential,
 	renewConnection: mock(),
-	shareConnection: mock(),
+	setConnectionSharing: mock(),
 	updateConnectionTools: mock(),
 	updateConnectionName: mock(),
 }));
@@ -63,7 +63,8 @@ const bankRow = {
 	integrationId: 'plaid',
 	orgId: 'org-1',
 	ownerUserId: 'user-1',
-	connectedById: 'user-1',
+	sharedWithEveryone: false,
+	shares: [],
 	account: 'First Platypus Bank',
 	createdAt: new Date('2026-10-01T00:00:00Z'),
 	tools: null,
@@ -146,7 +147,7 @@ describe('handleConnectPlaidRoute', () => {
 		expect(createConnection).toHaveBeenCalledWith({
 			orgId: 'org-1',
 			ownerUserId: 'user-1',
-			connectedById: 'user-1',
+			sharedWithEveryone: false,
 			integrationId: 'plaid',
 			account: 'First Platypus Bank',
 			providerAccountId: 'item-1',

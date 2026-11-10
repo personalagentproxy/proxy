@@ -11,6 +11,7 @@ import {
 } from '@proxy/utils';
 
 import {db} from '.';
+import {leavingWith} from './viewer';
 
 /**
  * Normalizes a string into the `[a-z0-9-]+` slug shape (max 48 chars, no leading or trailing
@@ -217,11 +218,10 @@ export async function listUserOrgs(userId: string): Promise<Result<UserOrgRow[],
 const MAX_SLUG_ATTEMPTS = 5;
 
 /**
- * A connection an organization or a membership is made with, called by the organization's name:
- * the member's own, or shared with everyone in it. Which ones, and what agents may do with them by
- * default, is the api's to say.
+ * A connection a membership is made with, the member's own, called by the organization's name.
+ * Which ones, and what agents may do with them by default, is the api's to say.
  */
-export type StarterConnection = {integrationId: string; shared: boolean; defaults: string[]};
+export type StarterConnection = {integrationId: string; defaults: string[]};
 
 /** A person made with the organization they are to own, as at sign-up. */
 export type NewUser = {
@@ -243,8 +243,7 @@ export async function createStarterConnections(
 		await tx.connection.create({
 			data: {
 				orgId: data.orgId,
-				ownerUserId: connection.shared ? null : data.userId,
-				connectedById: data.userId,
+				ownerUserId: data.userId,
 				integrationId: connection.integrationId,
 				account: data.name,
 				defaults: {create: connection.defaults.map((actionId) => ({actionId}))},
@@ -371,12 +370,14 @@ export async function listMemberNames(
 }
 
 /**
- * Takes a person out of an organization: their own connections there go, with their defaults,
- * entries and every agent's settings on them, and so do their own agents there, with their logins
- * and MCP clients, and their conversations with its built-in agents; the shared ones stay, but the
- * MCP clients they signed in as a shared agent are signed out, and the shared agents they made get
- * `sharedAgentPasswordHash` and are signed out everywhere. The caller has undone the connections
- * at their providers first, and checked they aren't its owner.
+ * Takes a person out of an organization: their connections there go, with their defaults, entries
+ * and every agent's settings on them, but for those shared with every member, which stay, the
+ * organization's owner's from now on, who could change them already; what was shared with them by
+ * name is no longer; and their own agents there go, with their logins and MCP clients, and their
+ * conversations with its built-in agents. The shared agents stay, but the MCP clients they signed
+ * in as one are signed out, and the shared agents they made get `sharedAgentPasswordHash` and are
+ * signed out everywhere. The caller has undone the connections that go at their providers first
+ * (connection.ts listLeavingConnectionsWithCredential), and checked they aren't its owner.
  */
 export async function removeMembership(data: {
 	orgId: string;
@@ -386,16 +387,33 @@ export async function removeMembership(data: {
 	const {orgId, userId, sharedAgentPasswordHash} = data;
 	const madeShared = {orgId, ownerUserId: null, createdById: userId};
 	return wrapDb(async () => {
-		await db.$transaction([
-			db.connection.deleteMany({where: {orgId, ownerUserId: userId}}),
-			db.agent.deleteMany({where: {orgId, ownerUserId: userId}}),
-			db.agentThread.deleteMany({where: {orgId, userId}}),
-			db.agent.updateMany({where: madeShared, data: {passwordHash: sharedAgentPasswordHash}}),
-			db.agentSession.deleteMany({where: {agent: madeShared}}),
-			db.oAuthCode.deleteMany({where: {userId, agent: {orgId}}}),
-			db.oAuthGrant.deleteMany({where: {userId, agent: {orgId}}}),
-			db.orgMember.deleteMany({where: {orgId, userId}}),
-		]);
+		await db.$transaction(async (tx) => {
+			const org = await tx.organization.findUnique({
+				where: {id: orgId},
+				select: {ownerUserId: true},
+			});
+			if (!org) {
+				return;
+			}
+			await tx.connection.deleteMany({where: leavingWith({orgId, userId})});
+			await tx.connection.updateMany({
+				where: {orgId, ownerUserId: userId},
+				data: {ownerUserId: org.ownerUserId},
+			});
+			await tx.connectionShare.deleteMany({
+				where: {
+					connection: {orgId},
+					OR: [{userId}, {userId: org.ownerUserId, connection: {ownerUserId: org.ownerUserId}}],
+				},
+			});
+			await tx.agent.deleteMany({where: {orgId, ownerUserId: userId}});
+			await tx.agentThread.deleteMany({where: {orgId, userId}});
+			await tx.agent.updateMany({where: madeShared, data: {passwordHash: sharedAgentPasswordHash}});
+			await tx.agentSession.deleteMany({where: {agent: madeShared}});
+			await tx.oAuthCode.deleteMany({where: {userId, agent: {orgId}}});
+			await tx.oAuthGrant.deleteMany({where: {userId, agent: {orgId}}});
+			await tx.orgMember.deleteMany({where: {orgId, userId}});
+		});
 	});
 }
 

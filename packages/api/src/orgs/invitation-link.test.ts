@@ -66,7 +66,7 @@ describe('handleAcceptInvitationRoute', () => {
 			orgId: 'org-2',
 			userId: 'sam-1',
 			orgName: 'Acme',
-			connections: [{integrationId: 'vault', shared: false, defaults: ['readEntries', 'writeEntries']}],
+			connections: [{integrationId: 'vault', defaults: ['readEntries', 'writeEntries']}],
 		});
 		expect(result.unwrap()).toEqual({orgId: 'org-2', orgSlug: 'acme'});
 	});

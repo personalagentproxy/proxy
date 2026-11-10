@@ -90,7 +90,8 @@ beforeEach(() => {
 			integrationId: 'email',
 			orgId: 'org-1',
 			ownerUserId: 'user-1',
-			connectedById: 'user-1',
+			sharedWithEveryone: false,
+			shares: [],
 			account: 'alex@example.com',
 			createdAt: new Date(),
 			tools: null,
@@ -262,7 +263,8 @@ describe('handleSetAgentGrantsRoute', () => {
 				integrationId: 'google',
 				orgId: 'org-1',
 				ownerUserId: 'user-1',
-				connectedById: 'user-1',
+				sharedWithEveryone: false,
+				shares: [],
 				account: 'alex@example.com',
 				createdAt: new Date(),
 				defaults: [],
@@ -378,11 +380,11 @@ describe('who may change a shared agent', () => {
 		expect(deleteAgent).not.toHaveBeenCalled();
 	});
 
-	test('a shared agent reaches only shared connections, so a setting on one’s own connection is refused', async () => {
+	test('a shared agent reaches only connections shared with everyone, so a setting on any other is refused', async () => {
 		getAgent.mockResolvedValue(Ok(shared));
 		const {handleSetAgentGrantsRoute} = await import('./route');
 		const own = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {read: true}}));
-		expect(own.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'A shared agent reaches only shared connections'});
+		expect(own.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'A shared agent reaches only connections shared with everyone'});
 		expect(setAgentGrants).not.toHaveBeenCalled();
 
 		getConnectionWithCredential.mockResolvedValue(
@@ -390,8 +392,9 @@ describe('who may change a shared agent', () => {
 				id: 'conn-1',
 				integrationId: 'email',
 				orgId: 'org-1',
-				ownerUserId: null,
-				connectedById: 'user-2',
+				ownerUserId: 'user-1',
+				sharedWithEveryone: true,
+				shares: [],
 				account: 'team@example.com',
 				createdAt: new Date(),
 				tools: null,

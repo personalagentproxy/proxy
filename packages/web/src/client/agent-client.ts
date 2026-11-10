@@ -40,12 +40,12 @@ export function getAgentTask(taskId: string) {
 	return apiRequest('GET', `/api/agent/tasks/${encodeURIComponent(taskId)}`, agentTaskSchema);
 }
 
-/** Starts a task: what the agent is about to do for the person, as the MCP server's start_task takes it. */
+/** Starts a task: what the agent is about to do for the person, as a script's pap.startTask takes it over MCP. */
 export function startAgentTask(task: z.input<typeof startTaskBodySchema>) {
 	return apiRequest('POST', '/api/agent/tasks', agentTaskSchema, task);
 }
 
-/** Marks the task finished, as finish_task does. */
+/** Marks the task finished, as a script's pap.finishTask does. */
 export function finishAgentTask(taskId: string) {
 	return apiRequest(
 		'POST',

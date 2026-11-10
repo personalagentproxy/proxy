@@ -5,7 +5,7 @@ import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
 import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed-in-agent';
-import {type MemberViewer, visibleTo} from './viewer';
+import {type MemberViewer, usableBy, visibleTo} from './viewer';
 
 export type AgentRow = {
 	id: string;
@@ -114,12 +114,12 @@ export async function createAgent(data: {
 }
 
 /**
- * Shares a member's agent with every member of its organization, for good: it reaches the shared
- * connections alone from now on, so its settings on the member's own connections go. What it did
- * on the shared connections so far becomes everyone's with it, and so does every task it made no
- * other request for; its requests on any other connection, the member's own or one since
- * disconnected, stay the member's, with the tasks they were made for: what it did in their mailbox
- * is still theirs alone to see.
+ * Shares a member's agent with every member of its organization, for good: it reaches the
+ * connections shared with every member alone from now on, so its settings on any other go. What it
+ * did on those connections so far becomes everyone's with it, and so does every task it made no
+ * other request for; its requests on any other connection, the member's own, one shared with them
+ * by name or one since disconnected, stay the member's, with the tasks they were made for: what it
+ * did in their mailbox is still theirs alone to see.
  */
 export async function shareAgent(agentId: string): Promise<Result<void, ApiError>> {
 	return wrapDb(async () => {
@@ -132,7 +132,7 @@ export async function shareAgent(agentId: string): Promise<Result<void, ApiError
 				return;
 			}
 			const shared = await tx.connection.findMany({
-				where: {orgId: agent.orgId, ownerUserId: null},
+				where: usableBy({orgId: agent.orgId, userId: null}),
 				select: {id: true},
 			});
 			const sharedIds = shared.map((connection) => connection.id);

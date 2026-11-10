@@ -10,7 +10,7 @@ import {useAgentMe} from '@/hooks/use-agent-target';
 import {agentErrorMessage} from '@/lib/agent-errors';
 import {taskHome, TASKS_PATH} from '@/lib/agent-task';
 
-// Feedback for the makers of Personal Agent Proxy, as the MCP server's send_feedback takes it: what
+// Feedback for the makers of Personal Agent Proxy, as a script's pap.feedback takes it over MCP: what
 // the agent tried, what happened and what it expected. Opened from the link at the foot of every
 // agent page, which says the task, the connection and the tool it was on, `?task=`,
 // `?connection=` and `?tool=`, sent along with it; it leads back to the task's pages, or to the

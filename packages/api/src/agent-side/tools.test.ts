@@ -71,7 +71,8 @@ const vaultConnection = {
 	integrationId: 'vault',
 	orgId: 'org-1',
 	ownerUserId: 'user-1',
-	connectedById: 'user-1',
+	sharedWithEveryone: false,
+	shares: [],
 	account: "Alex's Workspace",
 	createdAt: new Date(),
 	tools: null,
@@ -84,7 +85,8 @@ const emailConnection = {
 	integrationId: 'email',
 	orgId: 'org-1',
 	ownerUserId: 'user-1',
-	connectedById: 'user-1',
+	sharedWithEveryone: false,
+	shares: [],
 	account: 'alex@example.com',
 	createdAt: new Date(),
 	tools: null,
@@ -109,7 +111,8 @@ const googleConnection = {
 	integrationId: 'google',
 	orgId: 'org-1',
 	ownerUserId: 'user-1',
-	connectedById: 'user-1',
+	sharedWithEveryone: false,
+	shares: [],
 	account: 'alex@example.com',
 	createdAt: new Date(),
 	defaults: [{actionId: 'readFiles'}],
@@ -135,7 +138,11 @@ const triage = {
 
 const entry = {id: 'rec-1', values: {title: 'Home address', type: 'Address', content: '1 Main St'}, updatedAt: '2026-10-01T00:00:00.000Z'};
 const inboxEmail = {id: 'inbox-7-12', values: {folder: 'Inbox', subject: 'Invoice #20931'}, updatedAt: '2026-10-01T00:00:00.000Z'};
-const draft = {id: 'drafts-7-3', values: {folder: 'Draft', from: 'alex@example.com', to: 'sam@example.com', subject: 'Re: Q3 planning', body: 'Draft body'}, updatedAt: '2026-10-01T00:00:00.000Z'};
+const draft = {
+	id: 'drafts-7-3',
+	values: {folder: 'Draft', from: 'alex@example.com', to: 'sam@example.com', cc: 'jo@example.com', subject: 'Re: Q3 planning', body: 'Draft body'},
+	updatedAt: '2026-10-01T00:00:00.000Z',
+};
 
 const archive = mock();
 const send = mock();
@@ -181,13 +188,19 @@ describe('listAgentConnections', () => {
 		]);
 	});
 
-	test('says which connections are shared with everyone in the organization', async () => {
-		listConnectionsWithCredential.mockResolvedValue(Ok([{...vaultConnection, id: 'vault-2', ownerUserId: null}]));
+	test('says which connections other members use too, shared with all of them or with some by name', async () => {
+		listConnectionsWithCredential.mockResolvedValue(
+			Ok([{...vaultConnection, id: 'vault-2', name: 'Team', sharedWithEveryone: true}, {...vaultConnection, id: 'vault-3', name: 'Finance', shares: [{userId: 'user-2'}]}, vaultConnection]),
+		);
 
 		const {listAgentConnections} = await import('./tools');
 		const result = await listAgentConnections(signedIn);
 
-		expect(result.unwrap().connections).toEqual([expect.objectContaining({id: 'vault-2', shared: true})]);
+		expect(result.unwrap().connections.map((connection) => [connection.id, connection.shared])).toEqual([
+			['vault-2', true],
+			['vault-3', true],
+			[vaultConnection.id, false],
+		]);
 	});
 });
 
@@ -330,18 +343,6 @@ describe('runAgentTool', () => {
 		expect(connector.list.mock.calls[0]?.[1]).toMatchObject({filter: null});
 	});
 
-	test('limited to tools that read, or to those that change something, any other is refused unlogged', async () => {
-		const {runAgentTool} = await import('./tools');
-		const readingAWrite = await runAgentTool(caller, 'vault-1', 'entries_create', {title: 'New'}, {readOnly: true});
-		const runningARead = await runAgentTool(caller, 'vault-1', 'entries_list', {}, {readOnly: false});
-
-		expect(readingAWrite.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'entries_create changes something: use run for it'});
-		expect(runningARead.unwrapErr()).toMatchObject({kind: 'validation_error', message: 'entries_list only reads: use read for it'});
-		expect(connector.create).not.toHaveBeenCalled();
-		expect(connector.list).not.toHaveBeenCalled();
-		expect(logAgentRequest).not.toHaveBeenCalled();
-	});
-
 	test('a connection outside the organization or a tool the integration lacks is not found and not logged', async () => {
 		const {runAgentTool} = await import('./tools');
 		const tool = await runAgentTool(caller, 'vault-1', 'entries_send', {});
@@ -363,7 +364,7 @@ describe('runAgentTool', () => {
 		const result = await runAgentTool(caller, 'mail-1', 'emails_update', {id: draft.id, subject: 'Re: Q4 planning'});
 
 		expect(result.isOk()).toBe(true);
-		expect(connector.update.mock.calls[0]?.slice(1)).toEqual([draft.id, {to: 'sam@example.com', subject: 'Re: Q4 planning', body: 'Draft body'}, draft]);
+		expect(connector.update.mock.calls[0]?.slice(1)).toEqual([draft.id, {to: 'sam@example.com', cc: 'jo@example.com', bcc: '', subject: 'Re: Q4 planning', body: 'Draft body'}, draft]);
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'update', recordTitle: 'Re: Q4 planning'});
 	});
 
@@ -417,7 +418,7 @@ describe('runAgentTool', () => {
 		const result = await runAgentTool(caller, 'mail-1', 'emails_send_new', values);
 
 		expect(result.unwrap()).toEqual({record: null});
-		expect(sendNew.mock.calls[0]?.[1]).toEqual(values);
+		expect(sendNew.mock.calls[0]?.[1]).toEqual({...values, cc: '', bcc: ''});
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'sendNew', recordTitle: 'Friday', outcome: 'allowed'});
 	});
 
@@ -639,7 +640,8 @@ describe('custom MCP servers', () => {
 		integrationId: 'mcp',
 		orgId: 'org-1',
 		ownerUserId: 'user-1',
-		connectedById: 'user-1',
+		sharedWithEveryone: false,
+		shares: [],
 		account: 'mcp.example.com/mcp',
 		createdAt: new Date(),
 		tools: JSON.stringify([search, publish]),
@@ -665,7 +667,7 @@ describe('custom MCP servers', () => {
 
 	test('runs a tool the agent may run with its params as given, and logs it by name with them', async () => {
 		const {runAgentTool} = await import('./tools');
-		const result = await runAgentTool(caller, 'mcp-1', 'search_docs', {query: 'invoices', limit: 3}, {readOnly: true});
+		const result = await runAgentTool(caller, 'mcp-1', 'search_docs', {query: 'invoices', limit: 3});
 
 		expect(result.unwrap()).toEqual({text: '3 results'});
 		expect(callCustomTool).toHaveBeenCalledWith(customConnection, 'search_docs', {query: 'invoices', limit: 3});
@@ -680,13 +682,12 @@ describe('custom MCP servers', () => {
 		});
 	});
 
-	test('a tool the agent may not run is refused and logged as denied; a tool that changes something is not run with read', async () => {
+	test('a tool the agent may not run is refused and logged as denied; params that are not an object are refused unlogged', async () => {
 		const {runAgentTool} = await import('./tools');
 		expect((await runAgentTool(caller, 'mcp-1', 'publish_doc', {id: 'doc-1'})).unwrapErr().kind).toBe('forbidden');
 		expect(callCustomTool).not.toHaveBeenCalled();
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'tools', action: 'publish_doc', query: '{"id":"doc-1"}', outcome: 'denied'});
 
-		expect((await runAgentTool(caller, 'mcp-1', 'publish_doc', {}, {readOnly: true})).unwrapErr().kind).toBe('validation_error');
 		expect((await runAgentTool(caller, 'mcp-1', 'search_docs', 'invoices')).unwrapErr().kind).toBe('validation_error');
 		expect(logAgentRequest).toHaveBeenCalledTimes(1);
 	});
@@ -750,7 +751,7 @@ describe("an integration's own tools", () => {
 
 	test('run by the runner with the params as given, for the caller on the connection, and logged by name with them', async () => {
 		const {runAgentTool} = await import('./tools');
-		const result = await runAgentTool(caller, 'vault-1', 'entries_count', {type: 'Address'}, {readOnly: true});
+		const result = await runAgentTool(caller, 'vault-1', 'entries_count', {type: 'Address'});
 
 		expect(result.unwrap()).toEqual({text: '3 entries'});
 		expect(countEntries).toHaveBeenCalledWith({caller, connection: vaultConnection, params: {type: 'Address'}});
@@ -764,14 +765,13 @@ describe("an integration's own tools", () => {
 		});
 	});
 
-	test('one the agent lacks the action for is refused and logged as denied; one that changes something is not run with read', async () => {
+	test('one the agent lacks the action for is refused and logged as denied', async () => {
 		getAgentById.mockResolvedValue(Ok({...agent, grants: []}));
 		const {runAgentTool} = await import('./tools');
 
 		expect((await runAgentTool(caller, 'vault-1', 'entries_purge', {days: 30})).unwrapErr().kind).toBe('forbidden');
 		expect(purgeEntries).not.toHaveBeenCalled();
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'tools', action: 'entries_purge', query: '{"days":30}', outcome: 'denied'});
-		expect((await runAgentTool(caller, 'vault-1', 'entries_purge', {days: 30}, {readOnly: true})).unwrapErr().kind).toBe('validation_error');
 		expect(logAgentRequest).toHaveBeenCalledTimes(1);
 	});
 

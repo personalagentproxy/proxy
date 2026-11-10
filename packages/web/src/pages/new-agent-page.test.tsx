@@ -7,6 +7,7 @@ import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {HumanSide} from '@/components/human-side';
 import {NewAgentPage} from '@/pages/new-agent-page';
+import {later} from '@/lib/loader-utils';
 import {testHuman} from '@/test-org';
 
 afterEach(() => {
@@ -24,7 +25,7 @@ function renderNewAgentPage() {
 				children: [
 					{
 						path: '/:org/agents/new',
-						loader: () => ({agents: []}),
+						loader: later(async () => ({agents: []})),
 						element: <NewAgentPage />,
 					},
 				],

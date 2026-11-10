@@ -15,6 +15,7 @@ import {
 	type personaListSchema,
 	postMessageBodySchema,
 	type postedMessageSchema,
+	saveDraftBodySchema,
 	type ThreadLog,
 } from '@proxy/contracts/harness';
 
@@ -50,6 +51,8 @@ export type ChatStore = Pick<
 	| 'listOpenJobs'
 	| 'appendPersonMessage'
 	| 'markThreadRead'
+	| 'getThreadDraft'
+	| 'saveThreadDraft'
 >;
 
 /** The harnesses this server has, read where a route needs them, so that nothing is made as the routes are mounted. */
@@ -60,7 +63,7 @@ function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
 	return manages(viewer, {ownerUserId: null, byId: persona.createdById});
 }
 
-function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null}): ChatPersona {
+function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null; draft?: string | null}): ChatPersona {
 	const last = persona.lastMessage ?? null;
 	// What runs it as this server has it, which is what a turn of its gets; as kept on a server
 	// with no harness at all, where nothing runs.
@@ -74,6 +77,8 @@ function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow 
 		chatModel: chosen?.model ?? persona.chatModel,
 		mayChange: managesPersona(viewer, persona),
 		lastMessage: last && {kind: last.kind, text: preview(last.text), at: last.createdAt.toISOString()},
+		draft: persona.draft ? preview(persona.draft) : null,
+		createdAt: persona.createdAt.toISOString(),
 	};
 }
 
@@ -162,7 +167,7 @@ function requireThread(store: ChatStore, viewer: OrgViewer, persona: PersonaRow)
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas`: the organization's personas, in the order they were made, with the viewer's conversations; a General one is made where it has none. */
+/** `GET /api/orgs/:org/chat/personas`: the organization's personas, the one last active in the viewer's conversation first, with the viewer's conversations, and the harnesses the server has for one to run on; a General one is made where it has none. */
 function handleListPersonasRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
@@ -227,13 +232,13 @@ function handleDeletePersonaRoute(store: ChatStore, request: AuthenticatedReques
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas/:personaId/thread`: the viewer's conversation with the persona, begun where there was none, what they said while it was answering at the end, and whether the persona is busy on it, its sub-agents included. */
+/** `GET /api/orgs/:org/chat/personas/:personaId/thread`: the viewer's conversation with the persona, begun where there was none, what they said while it was answering at the end, whether the persona is busy on it, its sub-agents included, and what they typed in it and haven't sent. */
 function handleGetThreadRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<ThreadLog, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const persona = $(await requirePersona(store, viewer, request));
 		const thread = $(await requireThread(store, viewer, persona));
-		const [entries, jobs] = await Promise.all([store.listShownEntries(thread.id), store.listOpenJobs(thread.id)]);
+		const [entries, jobs, draft] = await Promise.all([store.listShownEntries(thread.id), store.listOpenJobs(thread.id), store.getThreadDraft(thread.id)]);
 		// The conversation's and its sub-agents' jobs together: asleep only when every one of them is.
 		const state = threadState($(jobs), new Date());
 		return {
@@ -241,6 +246,7 @@ function handleGetThreadRoute(store: ChatStore, harnesses: Harnesses, request: A
 			entries: $(entries).filter(isShown).map(toEntry),
 			busy: state.kind === 'working',
 			sleepingUntil: state.kind === 'asleep' ? state.until.toISOString() : null,
+			draft: $(draft),
 		};
 	});
 }
@@ -254,6 +260,19 @@ function handlePostMessageRoute(store: ChatStore, request: AuthenticatedRequest)
 		const thread = $(await requireThread(store, viewer, persona));
 		const entry = $(requirePresent($(await store.appendPersonMessage(thread.id, text)), ApiErr.notFound('thread', thread.id)));
 		return {entry: toEntry({...entry, kind: 'person'})};
+	});
+}
+
+/** `PUT /api/orgs/:org/chat/personas/:personaId/draft` with `{text}`: what the viewer has typed to the persona and not sent, kept in place of what was; nothing but whitespace forgets it. */
+function handleSaveDraftRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireChat(request));
+		const {text} = $(parseSchema(saveDraftBodySchema, request.body));
+		const persona = $(await requirePersona(store, viewer, request));
+		const thread = $(await requireThread(store, viewer, persona));
+		if (!$(await store.saveThreadDraft(thread.id, text.trim() === '' ? null : text))) {
+			return $(Err(ApiErr.notFound('thread', thread.id)));
+		}
 	});
 }
 
@@ -282,5 +301,6 @@ export function chatRoutes(store: ChatStore, harnesses: Harnesses) {
 		handleGetThreadRoute: (request: AuthenticatedRequest) => handleGetThreadRoute(store, harnesses, request),
 		handlePostMessageRoute: (request: AuthenticatedRequest) => handlePostMessageRoute(store, request),
 		handleMarkReadRoute: (request: AuthenticatedRequest) => handleMarkReadRoute(store, request),
+		handleSaveDraftRoute: (request: AuthenticatedRequest) => handleSaveDraftRoute(store, request),
 	};
 }

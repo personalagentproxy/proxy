@@ -167,6 +167,12 @@ function summaryValues(message: GmailMessage): RecordValues {
 	};
 }
 
+// Whom the email is copied to, and on a draft or what was sent, blind copied: bare on a draft, as `to` is.
+function copiedValues(message: GmailMessage): RecordValues {
+	const withNames = folderOf(message.labelIds ?? []) !== 'Draft';
+	return {cc: formatAddresses(headerOf(message.payload, 'Cc'), withNames), bcc: formatAddresses(headerOf(message.payload, 'Bcc'), withNames)};
+}
+
 // The email in Gmail, in the account it is in, whichever of their accounts the person's browser
 // opens first: a draft opens to be written, any other email in its conversation.
 function webUrl(account: string, message: GmailMessage): string {
@@ -187,6 +193,7 @@ function fullRecord(token: string, account: string, recordId: string, message: G
 		const labels = $(await labelNames(token, message.labelIds ?? []));
 		return toRecord(account, recordId, message, {
 			...summaryValues(message),
+			...copiedValues(message),
 			body: messageBody(message.payload),
 			attachments: attachmentsText(attachmentsOf(message.payload)),
 			messageId: headerOf(message.payload, 'Message-ID'),
@@ -333,19 +340,18 @@ function readRecord(token: string, account: string, recordId: string): Promise<R
 	});
 }
 
-// What a draft keeps of itself when it is written again, beyond the fields: who else it goes to,
-// and the email it answers, so a reply stays in its thread.
-type Kept = {cc: string; bcc: string; inReplyTo: string; references: string};
+// The email a draft or a reply answers, which keeps it in that email's thread.
+type Thread = {inReplyTo: string; references: string};
 
-function keptOf(payload: MessagePart | undefined): Kept {
-	return {cc: headerOf(payload, 'Cc'), bcc: headerOf(payload, 'Bcc'), inReplyTo: headerOf(payload, 'In-Reply-To'), references: headerOf(payload, 'References')};
+function threadOf(payload: MessagePart | undefined): Thread {
+	return {inReplyTo: headerOf(payload, 'In-Reply-To'), references: headerOf(payload, 'References')};
 }
 
 /**
  * An email from the connection's address, as the IMAP connector writes one, as RFC 2822 text, with
  * an HTML version beside the text where one is kept.
  */
-async function compose(from: string, values: RecordValues, kept: Kept | null, html: string | null = null): Promise<Result<Buffer, ApiError>> {
+async function compose(from: string, values: RecordValues, thread: Thread | null, html: string | null = null): Promise<Result<Buffer, ApiError>> {
 	const options: Mail.Options = {
 		from,
 		to: values.to,
@@ -353,10 +359,10 @@ async function compose(from: string, values: RecordValues, kept: Kept | null, ht
 		text: values.body,
 		...(html !== null ? {html} : {}),
 		messageId: `<${randomUUID()}@proxy>`,
-		...(kept?.cc ? {cc: kept.cc} : {}),
-		...(kept?.bcc ? {bcc: kept.bcc} : {}),
-		...(kept?.inReplyTo ? {inReplyTo: kept.inReplyTo} : {}),
-		...(kept?.references ? {references: kept.references} : {}),
+		...(values.cc ? {cc: values.cc} : {}),
+		...(values.bcc ? {bcc: values.bcc} : {}),
+		...(thread?.inReplyTo ? {inReplyTo: thread.inReplyTo} : {}),
+		...(thread?.references ? {references: thread.references} : {}),
 	};
 	const message = new MailComposer(options).compile();
 	// A draft keeps its Bcc until it is sent; Gmail takes it out then.
@@ -374,11 +380,16 @@ function createDraftRecord(target: RecordTarget, values: RecordValues): Promise<
 	);
 }
 
+// The recipients of a draft as written over it: as they read, bare, they keep their names.
+function namedAsBefore(written: string, current: string): string {
+	return written === formatAddresses(current, false) ? current : written;
+}
+
 /**
- * Writes a draft again with the fields given, the rest as they were, keeping its Cc, Bcc and
- * thread. A draft with attachments is refused: written again here, it would lose them. Recipients
- * written as they read, bare, keep their names, and the HTML version, as Gmail's own editor
- * writes one, is kept while the text is as it reads; text written differently goes out as text.
+ * Writes a draft again with the fields given, the rest as they were, keeping its thread. A draft
+ * with attachments is refused: written again here, it would lose them. Recipients written as they
+ * read, bare, keep their names, and the HTML version, as Gmail's own editor writes one, is kept
+ * while the text is as it reads; text written differently goes out as text.
  */
 function updateDraftRecord(target: RecordTarget, recordId: string, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
 	return callGoogle(target.connection, (token) =>
@@ -389,11 +400,11 @@ function updateDraftRecord(target: RecordTarget, recordId: string, values: Recor
 			if (attachmentsOf(payload).length > 0) {
 				return $(Err(ApiErr.validationError('This draft has attachments, which editing it here would drop; edit it in Gmail')));
 			}
-			const current = {to: headerOf(payload, 'To'), subject: headerOf(payload, 'Subject'), body: messageBody(payload)};
+			const current = {to: headerOf(payload, 'To'), cc: headerOf(payload, 'Cc'), bcc: headerOf(payload, 'Bcc'), subject: headerOf(payload, 'Subject'), body: messageBody(payload)};
 			const written = {...current, ...values};
-			const to = written.to === formatAddresses(current.to, false) ? current.to : written.to;
+			const recipients = {to: namedAsBefore(written.to, current.to), cc: namedAsBefore(written.cc, current.cc), bcc: namedAsBefore(written.bcc, current.bcc)};
 			const html = written.body === current.body ? messageHtml(payload) : null;
-			const source = $(await compose(target.connection.account, {...written, to}, keptOf(payload), html));
+			const source = $(await compose(target.connection.account, {...written, ...recipients}, threadOf(payload), html));
 			$(await updateDraft(token, draftId, rawMessage(source, threadId ?? null)));
 			return $(await readDraft(token, target.connection.account, recordId, draftId));
 		}),
@@ -453,7 +464,7 @@ const send: CommandRunner = (target, recordId) =>
 function sendNew(target: RecordTarget, values: RecordValues): Promise<Result<null, ApiError>> {
 	return callGoogle(target.connection, (token) =>
 		Do(async ($) => {
-			$(requireRecipient(values.to ?? '', '', ''));
+			$(requireRecipient(values.to ?? '', values.cc ?? '', values.bcc ?? ''));
 			const source = $(await compose(target.connection.account, values, null));
 			$(await sendMessage(token, rawMessage(source, null)));
 			return null;
@@ -488,8 +499,8 @@ const replyToGmail: MailReply = (target, recordId, reply) =>
 				reply.all,
 			);
 			$(requireRecipient(headers.to, headers.cc, ''));
-			const kept = {cc: headers.cc, bcc: '', inReplyTo: headers.inReplyTo, references: headers.references};
-			const source = $(await compose(target.connection.account, {to: headers.to, subject: headers.subject, body: reply.body}, kept));
+			const thread = {inReplyTo: headers.inReplyTo, references: headers.references};
+			const source = $(await compose(target.connection.account, {to: headers.to, cc: headers.cc, subject: headers.subject, body: reply.body}, thread));
 			const message = rawMessage(source, threadId ?? null);
 			if (reply.send) {
 				const sent = $(await sendMessage(token, message));

@@ -47,6 +47,13 @@ export const chatPersonaSchema = z.object({
 	 * before anything was said.
 	 */
 	lastMessage: z.object({kind: speakerSchema, text: z.string(), at: z.string()}).nullable(),
+	/**
+	 * What the person typed in their conversation with it and hasn't sent, cut to a line, for the
+	 * list; null without one.
+	 */
+	draft: z.string().nullable(),
+	/** When it was made, which stands for its last activity before anything was said. */
+	createdAt: z.string(),
 });
 
 export type ChatPersona = z.infer<typeof chatPersonaSchema>;
@@ -64,8 +71,9 @@ export const chatHarnessSchema = z.object({
 export type ChatHarness = z.infer<typeof chatHarnessSchema>;
 
 /**
- * `GET chat/personas`: the organization's personas, in the order they were made, and the harnesses
- * this server has for a persona to run on, the first what a new one gets.
+ * `GET chat/personas`: the organization's personas, the one last active in the person's
+ * conversation first: the last thing said in it, or, before anything was, its making; and the
+ * harnesses this server has for a persona to run on, the first what a new one gets.
  */
 export const personaListSchema = z.object({
 	personas: z.array(chatPersonaSchema),
@@ -121,6 +129,8 @@ export const threadLogSchema = z.object({
 	busy: z.boolean(),
 	/** When the persona wakes, where it is asleep; null while it is busy or waiting for the person. */
 	sleepingUntil: z.string().nullable(),
+	/** What the person typed in it and hasn't sent (`PUT chat/personas/:personaId/draft`); null without one. */
+	draft: z.string().nullable(),
 });
 
 export type ThreadLog = z.infer<typeof threadLogSchema>;
@@ -129,6 +139,12 @@ const MAX_MESSAGE = 20_000;
 
 /** `POST chat/personas/:personaId/messages`: what the person says to the persona; it is woken. */
 export const postMessageBodySchema = z.object({text: z.string().trim().min(1).max(MAX_MESSAGE)});
+
+/**
+ * `PUT chat/personas/:personaId/draft`: what the person has typed to the persona and not sent, in
+ * place of what was kept; nothing but whitespace forgets it. Sending a message forgets it too.
+ */
+export const saveDraftBodySchema = z.object({text: z.string().max(MAX_MESSAGE)});
 
 /**
  * `POST chat/personas/:personaId/read`: the persona's answer the page showed the person, which

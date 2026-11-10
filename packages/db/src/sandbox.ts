@@ -182,47 +182,38 @@ export function getHoldingTask(
 }
 
 /**
- * The Sandboxes connections an organization and a member should have, made where missing: the
- * shared one, with `sharedDefaults`, and the member's own, with `ownDefaults`, each called by the
- * organization's name, as the vaults are. Made by nobody in particular, so only the
- * organization's owner changes the shared one. Once however many ask at once: the second finds
- * the first's.
+ * The member's own Sandboxes connection in an organization, made where they have none, with
+ * `defaults` and called by the organization's name, as their vault is. Once however many ask at
+ * once: the second finds the first's.
  */
-export async function createMissingSandboxConnections(data: {
+export async function createMissingSandboxConnection(data: {
 	orgId: string;
-	userId: string | null;
-	sharedDefaults: string[];
-	ownDefaults: string[];
+	userId: string;
+	defaults: string[];
 }): Promise<Result<void, ApiError>> {
-	const wanted: Array<{ownerUserId: string | null; defaults: string[]}> = [
-		{ownerUserId: null, defaults: data.sharedDefaults},
-		...(data.userId === null ? [] : [{ownerUserId: data.userId, defaults: data.ownDefaults}]),
-	];
+	const {orgId, userId, defaults} = data;
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
-			const org = await tx.organization.findUnique({where: {id: data.orgId}, select: {name: true}});
+			const org = await tx.organization.findUnique({where: {id: orgId}, select: {name: true}});
 			if (!org) {
 				return;
 			}
-			for (const {ownerUserId, defaults} of wanted) {
-				const found = await tx.connection.findFirst({
-					where: {orgId: data.orgId, integrationId: SANDBOX_INTEGRATION_ID, ownerUserId},
-					select: {id: true},
-				});
-				if (found) {
-					continue;
-				}
-				await tx.connection.create({
-					data: {
-						orgId: data.orgId,
-						ownerUserId,
-						connectedById: data.userId,
-						integrationId: SANDBOX_INTEGRATION_ID,
-						account: org.name,
-						defaults: {create: defaults.map((actionId) => ({actionId}))},
-					},
-				});
+			const found = await tx.connection.findFirst({
+				where: {orgId, integrationId: SANDBOX_INTEGRATION_ID, ownerUserId: userId},
+				select: {id: true},
+			});
+			if (found) {
+				return;
 			}
+			await tx.connection.create({
+				data: {
+					orgId,
+					ownerUserId: userId,
+					integrationId: SANDBOX_INTEGRATION_ID,
+					account: org.name,
+					defaults: {create: defaults.map((actionId) => ({actionId}))},
+				},
+			});
 		}),
 	);
 }

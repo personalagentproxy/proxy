@@ -31,9 +31,17 @@ const connection: Connection = {
 	id: 'connection-1',
 	orgId: 'org-1',
 	integrationId: 'email',
+	ownerUserId: 'user-1',
+
+	owner: 'Alex',
+
+	sharedWithEveryone: false,
+
+	sharedWith: [],
+
 	shared: false,
-	connectedById: 'user-1',
-	connectedBy: null,
+
+	builtIn: false,
 	account: 'me@example.com',
 	defaults: [],
 	tools: null,
@@ -107,7 +115,7 @@ describe('AuditList', () => {
 		const dialog = await screen.findByRole('dialog');
 		expect(within(dialog).getByText('Denied')).toBeDefined();
 		expect(within(dialog).getByRole('link', {name: 'Triage inbox'}).getAttribute('href')).toBe(
-			'/org-1/activity?task=task-1',
+			'/org-1/activity/tasks/task-1',
 		);
 		expect(within(dialog).getByText('Archive the newsletters')).toBeDefined();
 		expect(within(dialog).getByRole('link', {name: 'Claude'}).getAttribute('href')).toBe(
