@@ -119,8 +119,8 @@ export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
 							key={option.id}
 							value={option.id}
 							closeOnClick
-							// The tick is quieter than the model's name, pointed at or not.
-							className="[&_[data-slot=dropdown-menu-radio-item-indicator]_svg]:text-muted-foreground!"
+							// The model chosen stands out by its row, as the harness looked at does by its tile.
+							className="aria-checked:bg-accent"
 						>
 							{option.label}
 						</DropdownMenuRadioItem>
