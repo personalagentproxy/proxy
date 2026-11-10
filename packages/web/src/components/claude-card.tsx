@@ -1,6 +1,14 @@
 import type {ClaudeAccount} from '@proxy/contracts/me';
-import {useState} from 'react';
+import {type ReactNode, useState} from 'react';
 import {Button} from '@proxy/ui/components/button';
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from '@proxy/ui/components/dialog';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {connectClaudeToken, disconnectClaude} from '@/client/me-client';
@@ -22,14 +30,13 @@ const CONNECT_AGAIN_WITHIN_MS = 30 * 24 * 60 * 60 * 1000;
 
 // The Account page's Claude card: the person's own Claude account, which the built-in agent runs
 // under for them. In the desktop app, Connect Claude signs them in to Claude in the browser and
-// the app mints a token on their computer from the code they paste back; the paste form, for a
-// token from `claude setup-token` or an Anthropic API key, is the alternative below it, and all
-// there is in the browser. Connected, it says how, when the token ends where that is known, with
-// the way to connect again as the end nears, that the credential was refused, until they connect
-// again, and how much of the plan the last turn found used.
+// the app mints a token on their computer from the code they paste back; Paste a token, beside
+// it, opens a dialog that takes a token from `claude setup-token` or an Anthropic API key, and is
+// all there is in the browser. Connected, it says how, when the token ends where that is known,
+// with the ways to connect again as the end nears, that the credential was refused, until they
+// connect again, and how much of the plan the last turn found used.
 export function ClaudeCard({account}: {account: Account}) {
 	const [error, setError] = useState<string | null>(null);
-	const [token, setToken] = useState('');
 	const [pasting, setPasting] = useState(false);
 	const apply = useApply(setError);
 	const signIn = claudeSignIn();
@@ -38,7 +45,18 @@ export function ClaudeCard({account}: {account: Account}) {
 		? isWithin(account.expiresAt, CONNECT_AGAIN_WITHIN_MS)
 		: false;
 	const connecting = account === null || account.failure !== null || expiringSoon;
-	const showPasteForm = connecting && (signIn === null || pasting);
+	// The way to the paste dialog: beside Connect Claude in the desktop app, where it is the
+	// alternative, and the one way to connect in the browser.
+	const paste = (
+		<Button
+			type="button"
+			size="sm"
+			variant={signIn ? 'outline' : 'default'}
+			onClick={() => setPasting(true)}
+		>
+			Paste a token
+		</Button>
+	);
 
 	return (
 		<Section title="Claude">
@@ -54,59 +72,19 @@ export function ClaudeCard({account}: {account: Account}) {
 						signIn={signIn}
 						setError={setError}
 						onToken={(minted, expiresAt) => apply(connectClaudeToken(minted, expiresAt))}
+						paste={paste}
 					/>
 				)}
-				{connecting && signIn && !pasting && (
-					<div>
-						<Button
-							type="button"
-							variant="link"
-							className="h-auto p-0"
-							onClick={() => setPasting(true)}
-						>
-							Paste a token instead
-						</Button>
+				{connecting && !signIn && (
+					<div className="flex flex-wrap items-center gap-3">
+						{paste}
+						<p className="text-muted-foreground">Or connect from the desktop app.</p>
 					</div>
 				)}
-				{showPasteForm && (
-					<form
-						className="flex flex-col gap-2"
-						onSubmit={(event) => {
-							event.preventDefault();
-							void apply(connectClaudeToken(token), () => setToken(''));
-						}}
-					>
-						<Label htmlFor="claude-token">
-							Paste a token from <code>{SETUP_TOKEN_COMMAND}</code>, or an Anthropic API key
-						</Label>
-						<div className="flex items-center gap-2 rounded-md border px-3 py-1.5">
-							<span className="min-w-0 flex-1 truncate font-mono">{SETUP_TOKEN_COMMAND}</span>
-							<CopyButton value={SETUP_TOKEN_COMMAND} label="Copy command" />
-						</div>
-						<div className="flex gap-2">
-							<Input
-								id="claude-token"
-								type="password"
-								autoComplete="off"
-								value={token}
-								onChange={(event) => setToken(event.target.value)}
-							/>
-							<Button type="submit" size="sm" className="h-9" disabled={token.trim() === ''}>
-								Connect
-							</Button>
-						</div>
-						{signIn === null && (
-							<p className="text-muted-foreground">Or connect from the desktop app.</p>
-						)}
-					</form>
-				)}
+				{pasting && <PasteTokenDialog onClose={() => setPasting(false)} />}
 				{account && (
 					<div>
-						<Button
-							size="sm"
-							variant="outline"
-							onClick={() => void apply(disconnectClaude(), () => setToken(''))}
-						>
+						<Button size="sm" variant="outline" onClick={() => void apply(disconnectClaude())}>
 							Disconnect
 						</Button>
 					</div>
@@ -114,6 +92,75 @@ export function ClaudeCard({account}: {account: Account}) {
 				{error && <p className="text-destructive">{error}</p>}
 			</div>
 		</Section>
+	);
+}
+
+// The dialog Paste a token opens: the command that makes a token, to copy, and a field for what
+// it prints, or for an Anthropic API key. Connect connects it and closes the dialog; what went
+// wrong is said in the dialog, which stays for another paste.
+function PasteTokenDialog({onClose}: {onClose: () => void}) {
+	const [token, setToken] = useState('');
+	const [error, setError] = useState<string | null>(null);
+	const [busy, setBusy] = useState(false);
+	const apply = useApply(setError);
+
+	return (
+		<Dialog
+			open
+			onOpenChange={(next) => {
+				if (next) {
+					return;
+				}
+				onClose();
+			}}
+		>
+			<DialogContent>
+				<form
+					className="grid gap-5"
+					onSubmit={async (event) => {
+						event.preventDefault();
+						if (busy || token.trim() === '') {
+							return;
+						}
+						setBusy(true);
+						await apply(connectClaudeToken(token), onClose);
+						setBusy(false);
+					}}
+				>
+					<DialogHeader>
+						<DialogTitle>Paste a token</DialogTitle>
+						<DialogDescription>
+							Run this where Claude Code is installed and paste the token it prints, or paste an
+							Anthropic API key, which is billed to that key.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm">
+						<span className="min-w-0 flex-1 truncate font-mono">{SETUP_TOKEN_COMMAND}</span>
+						<CopyButton value={SETUP_TOKEN_COMMAND} label="Copy command" />
+					</div>
+					<div className="grid gap-2">
+						<Label htmlFor="claude-token">Token or API key</Label>
+						<Input
+							id="claude-token"
+							type="password"
+							autoComplete="off"
+							autoFocus
+							value={token}
+							onChange={(event) => setToken(event.target.value)}
+						/>
+					</div>
+					{error && <p className="text-sm text-destructive">{error}</p>}
+					<DialogFooter>
+						<Button type="button" variant="outline" onClick={onClose}>
+							Cancel
+						</Button>
+						<Button type="submit" disabled={busy || token.trim() === ''}>
+							{busy ? 'Connecting…' : 'Connect'}
+						</Button>
+					</DialogFooter>
+				</form>
+			</DialogContent>
+		</Dialog>
 	);
 }
 
@@ -125,15 +172,19 @@ function isWithin(iso: string, ms: number): boolean {
 // code once the person has allowed Personal Agent Proxy; pasted here, the app trades it for the
 // token, which `onToken` connects. Open Claude again starts over, for a page closed too soon.
 // What goes wrong, in the app or at Claude, is said through `setError`; a code refused as
-// incomplete or from another attempt leaves the field for another paste.
+// incomplete or from another attempt leaves the field for another paste. `paste`, the way to
+// paste a token instead, sits beside Connect Claude, and beside Open Claude again once the code
+// is asked for.
 function DesktopSignIn({
 	signIn,
 	setError,
 	onToken,
+	paste,
 }: {
 	signIn: DesktopClaudeSignIn;
 	setError: (error: string | null) => void;
 	onToken: (token: string, expiresAt: string) => Promise<void>;
+	paste: ReactNode;
 }) {
 	const [code, setCode] = useState('');
 	const [opened, setOpened] = useState(false);
@@ -166,10 +217,11 @@ function DesktopSignIn({
 
 	if (!opened) {
 		return (
-			<div>
+			<div className="flex flex-wrap items-center gap-2">
 				<Button type="button" size="sm" onClick={() => void open()}>
 					Connect Claude
 				</Button>
+				{paste}
 			</div>
 		);
 	}
@@ -194,10 +246,11 @@ function DesktopSignIn({
 					Connect
 				</Button>
 			</div>
-			<div>
-				<Button type="button" variant="link" className="h-auto p-0" onClick={() => void open()}>
+			<div className="flex flex-wrap items-center gap-2">
+				<Button type="button" size="sm" variant="outline" onClick={() => void open()}>
 					Open Claude again
 				</Button>
+				{paste}
 			</div>
 		</form>
 	);

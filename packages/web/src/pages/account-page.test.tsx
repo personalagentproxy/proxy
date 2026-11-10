@@ -1,18 +1,21 @@
 /// <reference types="bun" />
 
 import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
-import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
-import {Ok} from 'ts-results-es';
+import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {Err, Ok, type Result} from 'ts-results-es';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import type {ClaudeAccount} from '@proxy/contracts/me';
+import type {FetchError} from '@proxy/utils';
 import {HumanSide} from '@/components/human-side';
 import {formatDateTime} from '@/lib/format';
 import {AccountPage} from '@/pages/account-page';
 import {testHuman} from '@/test-org';
 
-const connectClaudeToken = mock(async () => Ok({account: null}));
+const connectClaudeToken = mock(async (): Promise<Result<{account: null}, FetchError>> =>
+	Ok({account: null}),
+);
 const disconnectClaude = mock(async () => Ok({account: null}));
 mock.module('@/client/me-client', () => ({
 	getMe: mock(),
@@ -98,27 +101,62 @@ function renderPage(claude: ClaudeAccount['account']) {
 }
 
 describe('AccountPage, the Claude card', () => {
-	test('not connected, it says what connecting is for, shows the command to run with a copy button, takes a pasted token, and points to the desktop app', async () => {
+	test('not connected, it says what connecting is for and points to the desktop app, and Paste a token opens a dialog with the command to run, a copy button and a field, which connects what is pasted and closes', async () => {
 		renderPage(null);
 		expect(
 			await screen.findByText(/Run the built-in agent on your own Claude subscription/),
 		).toBeDefined();
-		expect(screen.getByRole('button', {name: 'Copy command'})).toBeDefined();
 		expect(screen.getByText('Or connect from the desktop app.')).toBeDefined();
+		// Nothing of the form on the card itself.
+		expect(screen.queryByLabelText('Token or API key')).toBeNull();
+		expect(screen.queryByRole('button', {name: 'Copy command'})).toBeNull();
 
-		const field = screen.getByLabelText(/Paste a token from/);
-		fireEvent.change(field, {target: {value: 'sk-ant-oat01-abc'}});
-		fireEvent.click(screen.getByRole('button', {name: 'Connect'}));
+		fireEvent.click(screen.getByRole('button', {name: 'Paste a token'}));
+
+		const dialog = await screen.findByRole('dialog');
+		expect(within(dialog).getByRole('heading', {name: 'Paste a token'})).toBeDefined();
+		expect(within(dialog).getByText('claude setup-token')).toBeDefined();
+		expect(within(dialog).getByRole('button', {name: 'Copy command'})).toBeDefined();
+		const connect = within(dialog).getByRole('button', {name: 'Connect'});
+		expect(connect.hasAttribute('disabled')).toBe(true);
+		fireEvent.change(within(dialog).getByLabelText('Token or API key'), {
+			target: {value: 'sk-ant-oat01-abc'},
+		});
+		fireEvent.click(connect);
+
 		await waitFor(() => expect(connectClaudeToken).toHaveBeenCalledWith('sk-ant-oat01-abc'));
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 	});
 
-	test('connected with a token, it says so and until when, offers no form, and disconnects', async () => {
+	test('a token the server turns down is said so in the dialog, which stays for another paste; Cancel closes it', async () => {
+		connectClaudeToken.mockResolvedValueOnce(
+			Err({
+				kind: 'http',
+				url: '/api/me/claude',
+				status: 400,
+				body: {message: 'Paste a token from `claude setup-token` or an Anthropic API key.'},
+			}),
+		);
+		renderPage(null);
+		fireEvent.click(await screen.findByRole('button', {name: 'Paste a token'}));
+		const dialog = await screen.findByRole('dialog');
+		fireEvent.change(within(dialog).getByLabelText('Token or API key'), {target: {value: 'nope'}});
+		fireEvent.click(within(dialog).getByRole('button', {name: 'Connect'}));
+
+		expect(await within(dialog).findByText(/Paste a token from/)).toBeDefined();
+		expect(within(dialog).getByLabelText('Token or API key')).toBeDefined();
+
+		fireEvent.click(within(dialog).getByRole('button', {name: 'Cancel'}));
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+	});
+
+	test('connected with a token, it says so and until when, offers no way to connect another, and disconnects', async () => {
 		renderPage(token);
 		expect(await screen.findByText('Connected with a Claude token.')).toBeDefined();
 		const until = screen.getByText(/Signed in until Nov 9, 2027\./);
 		expect(until.className).not.toContain('text-destructive');
 		expect(screen.queryByText(/Connect again/)).toBeNull();
-		expect(screen.queryByLabelText(/Paste a token from/)).toBeNull();
+		expect(screen.queryByRole('button', {name: 'Paste a token'})).toBeNull();
 
 		fireEvent.click(screen.getByRole('button', {name: 'Disconnect'}));
 		await waitFor(() => expect(disconnectClaude).toHaveBeenCalledTimes(1));
@@ -130,14 +168,14 @@ describe('AccountPage, the Claude card', () => {
 		expect(screen.queryByText(/Signed in until/)).toBeNull();
 	});
 
-	test('a token near its end is shown in red with the way to connect again, and the form is back', async () => {
+	test('a token near its end is shown in red with the way to connect again, and Paste a token is back', async () => {
 		renderPage({...token, expiresAt: new Date(Date.now() + 10 * DAY_MS).toISOString()});
 		const until = await screen.findByText(/Signed in until .* Connect again soon\./);
 		expect(until.className).toContain('text-destructive');
-		expect(screen.getByLabelText(/Paste a token from/)).toBeDefined();
+		expect(screen.getByRole('button', {name: 'Paste a token'})).toBeDefined();
 	});
 
-	test('a refused credential is shown in red, with the form to connect again', async () => {
+	test('a refused credential is shown in red, with Paste a token to connect again', async () => {
 		renderPage({
 			...token,
 			failure:
@@ -145,7 +183,7 @@ describe('AccountPage, the Claude card', () => {
 		});
 		const failure = await screen.findByText(/run out or was refused/);
 		expect(failure.className).toContain('text-destructive');
-		expect(screen.getByLabelText(/Paste a token from/)).toBeDefined();
+		expect(screen.getByRole('button', {name: 'Paste a token'})).toBeDefined();
 	});
 
 	test('the plan’s usage as the last turn had it: each window spoken of, its reset, and when that was', async () => {
@@ -175,7 +213,10 @@ describe('AccountPage, the Claude card', () => {
 		expect(
 			await screen.findByText(/Run the built-in agent on your own Claude subscription/),
 		).toBeDefined();
-		expect(screen.queryByLabelText(/Paste a token from/)).toBeNull();
+		// Paste a token sits in the row with Connect Claude, and stays beside Open Claude again.
+		const row = screen.getByRole('button', {name: 'Connect Claude'}).parentElement;
+		expect(row?.contains(screen.getByRole('button', {name: 'Paste a token'}))).toBe(true);
+		expect(screen.queryByLabelText('Token or API key')).toBeNull();
 		expect(screen.queryByText('Or connect from the desktop app.')).toBeNull();
 
 		fireEvent.click(screen.getByRole('button', {name: 'Connect Claude'}));
@@ -226,7 +267,7 @@ describe('AccountPage, the Claude card', () => {
 		expect(screen.queryByLabelText('Paste the code from Claude')).toBeNull();
 	});
 
-	test('in the desktop app, pasting a token is the alternative, behind a link, and connects as in the browser', async () => {
+	test('in the desktop app, pasting a token is the alternative, in the dialog its button beside Connect Claude opens, and connects as in the browser', async () => {
 		desktopWith({
 			start: async () => ({ok: true}),
 			finish: async () => ({error: 'unreached'}),
@@ -234,11 +275,13 @@ describe('AccountPage, the Claude card', () => {
 		renderPage({...token, expiresAt: new Date(Date.now() + 10 * DAY_MS).toISOString()});
 		expect(await screen.findByRole('button', {name: 'Connect Claude'})).toBeDefined();
 
-		fireEvent.click(screen.getByRole('button', {name: 'Paste a token instead'}));
-		const field = screen.getByLabelText(/Paste a token from/);
+		fireEvent.click(screen.getByRole('button', {name: 'Paste a token'}));
+		const dialog = await screen.findByRole('dialog');
 		expect(screen.queryByText('Or connect from the desktop app.')).toBeNull();
-		fireEvent.change(field, {target: {value: 'sk-ant-api03-key'}});
-		fireEvent.click(screen.getByRole('button', {name: 'Connect'}));
+		fireEvent.change(within(dialog).getByLabelText('Token or API key'), {
+			target: {value: 'sk-ant-api03-key'},
+		});
+		fireEvent.click(within(dialog).getByRole('button', {name: 'Connect'}));
 		await waitFor(() => expect(connectClaudeToken).toHaveBeenCalledWith('sk-ant-api03-key'));
 	});
 });
