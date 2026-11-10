@@ -1,10 +1,10 @@
 import {
 	BellIcon,
+	ChartNoAxesGanttIcon,
 	HomeIcon,
 	ListChecksIcon,
 	MessageSquareIcon,
 	PlugIcon,
-	ScrollTextIcon,
 	type LucideIcon,
 } from 'lucide-react';
 import type {Experiment} from '@proxy/utils';
@@ -57,7 +57,7 @@ const GROUPS: Destination[][] = [
 		{to: '/agents', label: 'External agents and permissions', icon: ListChecksIcon},
 	],
 	[
-		{to: '/activity', label: 'Activity', icon: ScrollTextIcon},
+		{to: '/activity', label: 'Activity', icon: ChartNoAxesGanttIcon},
 		{to: '/alerts', label: 'Alerts', icon: BellIcon, experiment: 'harness'},
 	],
 ];
