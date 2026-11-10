@@ -205,10 +205,11 @@ export function isRelayed(entry: Pick<AuditEntry, 'collectionId'>): boolean {
 }
 
 // A git request: "Fetched acme/demo", "Pushed to acme/demo: fix-login", "Tried to push to
-// acme/demo", "Failed to fetch acme/demo". Any action but a push fetches.
+// acme/demo", "Failed to fetch acme/demo". Any action but a push's, to a branch or the default
+// one, fetches.
 function describeGit(entry: AuditEntry): string {
 	const repository = entry.recordTitle ?? 'a repository';
-	const pushing = entry.action === 'push';
+	const pushing = entry.action === 'push' || entry.action === 'pushDefault';
 	const what = pushing ? `push to ${repository}` : `fetch ${repository}`;
 	if (entry.outcome === 'denied') {
 		return `Tried to ${what}`;

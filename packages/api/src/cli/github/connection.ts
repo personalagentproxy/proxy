@@ -79,6 +79,16 @@ export function githubTarget(caller: CliCaller, named: string | undefined): Prom
 	});
 }
 
+// The action to name for `actionId` being off: where it only counts with another, as Push with
+// Read and Push to the default branch with Push, the furthest of those that is off, else itself.
+function firstOff(integration: Integration, actions: string[], actionId: string, seen: string[]): string {
+	const required = integration.actions.find((action) => action.id === actionId)?.requires;
+	if (required === undefined || seen.includes(required) || actions.includes(required)) {
+		return actionId;
+	}
+	return firstOff(integration, actions, required, [...seen, actionId]);
+}
+
 /**
  * Why the agent can't take `actionId` on the connection, in words for a model: what the sign-in
  * didn't cover, or the action it doesn't have, with what needed it.
@@ -89,9 +99,7 @@ export function refusalMessage(target: GitHubTarget, actionId: string, neededFor
 	if (refused.kind !== 'forbidden' && 'message' in refused && refused.message) {
 		return refused.message;
 	}
-	// An action that only counts with another, as Push with Read, is refused for the other where that is what is off.
-	const required = integration.actions.find((action) => action.id === actionId)?.requires;
-	const missing = required !== undefined && !actions.includes(required) ? required : actionId;
+	const missing = firstOff(integration, actions, actionId, []);
 	const label = integration.actions.find((action) => action.id === missing)?.label ?? missing;
 	return `Not allowed: ${label} (${missing}), which ${neededFor} needs, on GitHub connection ${connection.id}. The person who made this login can allow it.`;
 }
