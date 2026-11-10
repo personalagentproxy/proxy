@@ -237,6 +237,18 @@ describe('POST /api/cli/call', () => {
 		expect(res).toEqual({status: 422, body: {error: 'forbidden', message: 'emails_send on mail-1: Not allowed: emails_send. The person who made this login can allow it.'}});
 	});
 
+	test('what to run instead is named as the CLI’s commands, not a script’s functions', async () => {
+		runAgentTool.mockResolvedValueOnce(Err(ApiErr.notFound('connection', 'nope')));
+		runAgentTool.mockResolvedValueOnce(Err(ApiErr.notFound('tool', 'emails_nope')));
+		const connection = await call({method: 'call', args: ['nope', 'emails_list', {}]});
+		const tool = await call({method: 'call', args: ['mail-1', 'emails_nope', {}]});
+		const usage = await call({method: 'tools', args: []});
+
+		expect(connection.body.message).toBe('emails_list on nope: No connection nope; see `pap connections`.');
+		expect(tool.body.message).toBe('emails_nope on mail-1: No tool emails_nope; see `pap tools <connection>`.');
+		expect(usage.body.message).toStartWith('Takes `pap tools <connection>`:');
+	});
+
 	test('the token’s task is the one used: starting and finishing one are refused', async () => {
 		const start = await call({method: 'startTask', args: [{title: 'Other', goal: 'Something else'}]});
 		const finish = await call({method: 'finishTask', args: []});
@@ -252,7 +264,7 @@ describe('POST /api/cli/call', () => {
 
 		expect(unknown.status).toBe(422);
 		expect(unknown.body.message).toContain('Takes {method, args}');
-		expect(wrong).toEqual({status: 422, body: {error: 'validation_error', message: expect.stringContaining('pap.tools(connection)')}});
+		expect(wrong).toEqual({status: 422, body: {error: 'validation_error', message: expect.stringContaining('`pap tools <connection>`')}});
 		expect(notJson).toEqual({status: 422, body: {error: 'parse_error', message: expect.stringContaining('not JSON')}});
 	});
 });

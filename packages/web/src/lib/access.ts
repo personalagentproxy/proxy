@@ -3,8 +3,10 @@ import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import type {DataRecord} from '@proxy/contracts/records';
 import {
+	API_REQUESTS_ID,
 	effectiveActions,
 	findCollection,
+	GIT_REQUESTS_ID,
 	requiredAction,
 	type Action,
 	type Collection,
@@ -189,11 +191,54 @@ function describeToolRun(entry: AuditEntry, integration: Integration | undefined
 	return entry.query ? `Ran ${title} with ${entry.query}` : `Ran ${title}`;
 }
 
+// Whether an entry is a request relayed to the provider as it is, by git or to its API, from a
+// sandbox: its action is the integration's own, its record title the repository it named.
+export function isRelayed(entry: Pick<AuditEntry, 'collectionId'>): boolean {
+	return entry.collectionId === GIT_REQUESTS_ID || entry.collectionId === API_REQUESTS_ID;
+}
+
+// A git request: "Fetched acme/demo", "Pushed to acme/demo: fix-login", "Tried to push to
+// acme/demo", "Failed to fetch acme/demo". Any action but a push fetches.
+function describeGit(entry: AuditEntry): string {
+	const repository = entry.recordTitle ?? 'a repository';
+	const pushing = entry.action === 'push';
+	const what = pushing ? `push to ${repository}` : `fetch ${repository}`;
+	if (entry.outcome === 'denied') {
+		return `Tried to ${what}`;
+	}
+	if (entry.outcome === 'failed') {
+		return `Failed to ${what}`;
+	}
+	if (!pushing) {
+		return `Fetched ${repository}`;
+	}
+	return entry.query ? `Pushed to ${repository}: ${entry.query}` : `Pushed to ${repository}`;
+}
+
+// An API request, by its method and path: "POST /repos/acme/demo/pulls", "Tried POST
+// /repos/acme/demo/pulls", "Failed GET /user".
+function describeApiRequest(entry: AuditEntry): string {
+	const request = entry.query ?? 'a request';
+	if (entry.outcome === 'denied') {
+		return `Tried ${request}`;
+	}
+	if (entry.outcome === 'failed') {
+		return `Failed ${request}`;
+	}
+	return request;
+}
+
 // "Viewed email “Thursday sync moved?”", "Listed Entries", "Searched Email for “invoice”",
 // "Listed Pages in “Companies”", "Tried to list Contacts", "Failed to view issue", and a command's
 // own words: "Sent email “Re: Q3”", "Tried to send email", "Failed to send email “Re: Q3”". A list's
 // record title is the record it was opened in.
 export function describeEntry(entry: AuditEntry, located: LocatedEntry | null): string {
+	if (entry.collectionId === GIT_REQUESTS_ID) {
+		return describeGit(entry);
+	}
+	if (entry.collectionId === API_REQUESTS_ID) {
+		return describeApiRequest(entry);
+	}
 	if (located?.integration.custom || entry.collectionId === TOOLS_COLLECTION_ID) {
 		return describeToolRun(entry, located?.integration);
 	}
@@ -255,8 +300,8 @@ export function describeFailure(error: string | null): string {
 	return status ? `${words} (HTTP ${status})` : words;
 }
 
-// The action the request needed: a custom server's tool is its own, anything else the one its
-// collection names for it. Null once the connection is gone.
+// The action the request needed: a custom server's tool is its own, as a relayed request's is,
+// anything else the one its collection names for it. Null once the connection is gone.
 export function entryAction(entry: AuditEntry, located: LocatedEntry | null): Action | null {
 	if (!located) {
 		return null;

@@ -3,7 +3,7 @@ import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, type FetchError, httpRequest} from '@proxy/utils';
 
-import {callWithToken, type TokenRefresher} from '../token-session';
+import {callWithToken, freshCredential, type TokenRefresher} from '../token-session';
 import {githubHeaders, requireGitHubClient} from './github-app';
 import {githubCredentialSchema, isExpiring, refreshGitHubTokens, type GitHubCredential} from './github-oauth';
 
@@ -55,4 +55,13 @@ export const githubRefresher: TokenRefresher<GitHubCredential> = {
  */
 export function callGitHub<T>(connection: StoredConnection, call: (accessToken: string) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
 	return callWithToken(githubRefresher, connection, (credential) => call(credential.accessToken));
+}
+
+/**
+ * A connection's credential with an access token good for a while yet, refreshed first when it is
+ * running out: for a request relayed to GitHub as it streams (cli/github), which can't be made again
+ * with a new token. One GitHub won't refresh any more is `credentials_rejected`.
+ */
+export function freshGitHubCredential(connection: StoredConnection): Promise<Result<GitHubCredential, ApiError>> {
+	return freshCredential(githubRefresher, connection);
 }

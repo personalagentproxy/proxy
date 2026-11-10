@@ -4,21 +4,22 @@ import {Do} from '@proxy/utils/do';
 
 import {type FlagSpec, type Parsed, parseArgs} from './args';
 import {clientFrom} from './client';
+import {ghMain} from './gh';
+import {gitMain} from './git';
 import {EXIT, type Failure, type Io, isObject, type Json, type JsonObject, usage} from './io';
 import {callAllPages, MAX_PAGES} from './pages';
 
 /**
- * pap's commands. A command is its line in `pap --help`, its own help, and `main`, which is given
- * its arguments as they came and answers with the exit code, so a command that runs another
- * program can hand its arguments and its exit code through. Those that call a `pap` function are
- * made by `jsonCommand`: their flags parsed, the result printed as JSON on stdout, or one line on
- * stderr and the failure's exit code.
+ * pap's commands. A command is its line in `pap --help` and `main`, which is given its arguments
+ * as they came and answers with the exit code, so `pap git` and `pap gh` (git.ts, gh.ts) hand
+ * theirs to the program they run, and its exit code back. Those that call a `pap` function are
+ * made by `jsonCommand`: their flags parsed, their `--help`, the result printed as JSON on stdout,
+ * or one line on stderr and the failure's exit code.
  */
 
 export type Command = {
 	usage: string;
 	summary: string;
-	help: string;
 	main: (args: string[], io: Io) => Promise<number>;
 };
 
@@ -44,7 +45,6 @@ function jsonCommand(name: string, spec: JsonCommandSpec): Command {
 	return {
 		usage: spec.usage,
 		summary: spec.summary,
-		help: spec.help,
 		main: async (args, io) => {
 			const parsed = parseArgs(args, spec.flags, name);
 			if (parsed.isOk() && parsed.value.help) {
@@ -155,4 +155,14 @@ Example: pap call <connection> entries_list '{"search":"invoice"}' | jq '.record
 				return $(await $(clientFrom(io)).call('feedback', [body]));
 			}),
 	}),
+	git: {
+		usage: 'pap git <args>',
+		summary: 'git, signed in to GitHub as your GitHub connection’s account',
+		main: gitMain,
+	},
+	gh: {
+		usage: 'pap gh <args>',
+		summary: 'GitHub’s gh, signed in the same way',
+		main: ghMain,
+	},
 };

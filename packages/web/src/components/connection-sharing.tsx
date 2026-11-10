@@ -31,6 +31,9 @@ type Props = {
 	// Who the provider sees when an agent uses it; null for a vault, which is kept here, so there
 	// is no provider to see anyone.
 	actsAs: string | null;
+	// What acting through it means for whose name it is done in, where the integration says
+	// (`sharingWarning`): shown beside who has it, and asked about before sharing it.
+	warning?: string;
 	// Theirs to share and take back; else they see who uses it, and nothing more.
 	mayChange: boolean;
 	// Nobody else is in the organization or invited: there is no one to share with yet.
@@ -63,6 +66,7 @@ export function ConnectionSharing({
 	members,
 	userId,
 	actsAs,
+	warning,
 	mayChange,
 	alone,
 	onChange,
@@ -118,6 +122,7 @@ export function ConnectionSharing({
 					? `The people you share it with use it through their own agents. They can’t change it or share it on.`
 					: `You use it through your own agents. Only ${nameOf(owner)} changes it or shares it on.`}
 			</p>
+			{warning && <p className="text-sm">{warning}</p>}
 			<Section
 				title="People with access"
 				action={
@@ -228,11 +233,17 @@ export function ConnectionSharing({
 						? `Share it with everyone in ${orgName}?`
 						: `Share it with ${askedName}?`
 				}
-				description={
+				description={[
 					asking === 'everyone'
-						? `Every member's agents in ${orgName} ${handsOver}. Members see it ${seen}. You can stop sharing it at any time.`
-						: `${askedName}'s agents ${handsOver}. ${askedName} sees it ${seen}. You can remove them at any time.`
-				}
+						? `Every member's agents in ${orgName} ${handsOver}. Members see it ${seen}.`
+						: `${askedName}'s agents ${handsOver}. ${askedName} sees it ${seen}.`,
+					warning,
+					asking === 'everyone'
+						? 'You can stop sharing it at any time.'
+						: 'You can remove them at any time.',
+				]
+					.filter(Boolean)
+					.join(' ')}
 				confirmLabel="Share"
 				onClose={() => setAsking(null)}
 				onConfirm={() => {

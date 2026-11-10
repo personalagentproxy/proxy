@@ -267,6 +267,7 @@ function ConnectionDetail() {
 						members={members}
 						userId={human.user.id}
 						actsAs={actingAs}
+						warning={integration.sharingWarning}
 						mayChange={mayChange}
 						alone={!hasOtherPeople(activeOrg)}
 						onChange={async (sharing) => {

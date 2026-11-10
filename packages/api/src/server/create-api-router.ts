@@ -2,6 +2,7 @@ import express from 'express';
 import {z} from 'zod';
 
 import {CLI_CALL_PATH, CLI_STATUS, type CliCallFailure} from '@proxy/contracts/cli';
+import {CLI_GITHUB_API_PATH, CLI_GITHUB_GIT_PATH, CLI_GITHUB_IDENTITY_PATH} from '@proxy/contracts/cli-github';
 
 import {handleActivityTimelineRoute, handleListActivityRoute, handleTaskRunRoute} from '../activity/route';
 import {handleAgentLoginRoute, handleAgentLogoutRoute} from '../agent-auth/session';
@@ -33,6 +34,7 @@ import {handleDevLoginRoute} from '../auth/dev-login';
 import {handleEmailSignInRoute, handleEmailVerifyRoute} from '../auth/email';
 import {handleGoogleCallbackRoute, handleGoogleStartRoute, handleSignInMethodsRoute} from '../auth/google';
 import {handleSignOutRoute} from '../auth/signout';
+import {handleGitHubApiRoute, handleGitHubGitRoute, handleGitHubIdentityRoute} from '../cli/github/route';
 import {handleCliCallRoute} from '../cli/route';
 import {handleRefreshCustomMcpToolsRoute} from '../connections/custom/route';
 import {handleGitHubInstallationsRoute} from '../connections/github/route';
@@ -93,7 +95,7 @@ import {allowAnyOrigin} from './middleware/allow-any-origin';
 import {requireBrowserOrigin} from './middleware/require-browser-origin';
 import {withAgentAuthResult} from './middleware/require-agent';
 import {withAuth, withAuthResult} from './middleware/require-auth';
-import {withCliAuth} from './middleware/require-cli';
+import {withCliAuth, withCliRelay} from './middleware/require-cli';
 import {wrapAsyncRoute} from './middleware/wrap-async-route';
 
 // The most a JSON body may be, a script's code over MCP and a call's params from a sandbox alike.
@@ -101,6 +103,14 @@ const BODY_LIMIT = '1mb';
 
 export function createApiRouter(): express.Router {
 	const router = express.Router();
+
+	// GitHub's git and API requests from a sandbox, relayed to GitHub as the person (cli/github),
+	// with the token its command was given, as `/api/cli/call` below. Mounted before the JSON parser,
+	// which would read a body sent as JSON, and they stream every body through as it is, a pack or an
+	// API request's alike.
+	router.get(CLI_GITHUB_IDENTITY_PATH, withCliAuth('CLI GitHub identity route', handleGitHubIdentityRoute));
+	router.use(CLI_GITHUB_GIT_PATH, withCliRelay('CLI GitHub git route', handleGitHubGitRoute));
+	router.use(CLI_GITHUB_API_PATH, withCliRelay('CLI GitHub API route', handleGitHubApiRoute));
 
 	router.use(express.json({limit: BODY_LIMIT}));
 

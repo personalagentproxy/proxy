@@ -24,6 +24,10 @@ void startApiServer();
 
 async function startApiServer(): Promise<void> {
 	const server = createServer(createHttpApp());
+	// No deadline on receiving a whole request: a push relayed to GitHub from a sandbox
+	// (cli/github) streams its pack for as long as it takes. Node's default is five minutes, which
+	// Bun reports but doesn't enforce; the deadline on a request's headers stays.
+	server.requestTimeout = 0;
 	const port = Number(env.PORT) || 4000;
 
 	const connectDbResult = await Result.wrapAsync(() => connectDb());

@@ -134,6 +134,21 @@ export function callWithRefresh<C, T>(fresh: Freshening<C>, credential: C, call:
 }
 
 /**
+ * A connection's credential, refreshed first when it is running out, the new tokens saved on the
+ * connection: for a call that can't be made twice, as one streaming a body through can't, so
+ * nothing is retried when the provider turns it down.
+ */
+export function freshCredential<C>(refresher: TokenRefresher<C>, connection: StoredConnection): Promise<Result<C, ApiError>> {
+	return Do(async ($) => {
+		const read = $(readSession(refresher, connection.credential));
+		if (!refresher.isExpiring(read.credential)) {
+			return read.credential;
+		}
+		return $(await renew(refresher, connection.id, read)).credential;
+	});
+}
+
+/**
  * Makes a call with a connection's credential, kept fresh as `callWithRefresh` does, the new tokens
  * saved on the connection. A connection the provider won't refresh any more is
  * `credentials_rejected`, and has to be signed in again.

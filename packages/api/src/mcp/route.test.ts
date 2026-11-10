@@ -157,7 +157,15 @@ describe('handleMcpRoute', () => {
 			"A command run with pap: true reaches your connections from code with the pap CLI: pap connections, pap tools <connection>, pap call <connection> <tool> '<json>'; pap --help has the rest.",
 		);
 
-		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...sandboxes, actions: ['read']}]}));
+		expect(running).not.toContain('pap git');
+
+		const github = {id: 'github-1', integrationId: 'github', account: 'octo-dana', shared: false, actions: ['read'], tools: null, name: null};
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [sandboxes, github]}));
+		expect(await instructions()).toContain('pap --help has the rest. In a sandbox, pap git and pap gh are git and gh as your GitHub connection’s account; plain git and gh are signed out.');
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [sandboxes, {...github, actions: []}]}));
+		expect(await instructions()).not.toContain('pap git');
+
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...sandboxes, actions: ['read']}, github]}));
 		expect(await instructions()).not.toContain('pap CLI');
 	});
 

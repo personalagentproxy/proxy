@@ -34,6 +34,7 @@ export {
 	TOOLS_COLLECTION_ID,
 } from './mcp-tools';
 export type {McpInputSchema, McpSchemaProperty, McpTool} from './mcp-tools';
+export {API_REQUESTS_ID, GIT_REQUESTS_ID} from './relayed';
 export type {
 	Action,
 	Collection,
