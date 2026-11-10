@@ -52,13 +52,12 @@ export const chatPersonaSchema = z.object({
 export type ChatPersona = z.infer<typeof chatPersonaSchema>;
 
 /**
- * A harness a persona can run on, as the dialog offers it: its id, what it is called, a line on
- * whose account its turns run, and the models it answers with, the first its default.
+ * A harness a persona can run on, as the model switcher offers it: its id, what it is called, and
+ * the models it answers with, the first its default.
  */
 export const chatHarnessSchema = z.object({
 	id: z.string(),
 	label: z.string(),
-	description: z.string(),
 	models: z.array(z.object({id: z.string(), label: z.string()})),
 });
 

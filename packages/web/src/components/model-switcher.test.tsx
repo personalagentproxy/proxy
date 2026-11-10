@@ -14,7 +14,6 @@ const harnesses: ChatHarness[] = [
 	{
 		id: 'proxy',
 		label: 'OpenRouter',
-		description: 'Runs on the server’s key, for every member alike.',
 		models: [
 			{id: 'claude', label: 'Claude Sonnet 5.5'},
 			{id: 'glm', label: 'GLM 5.3'},
@@ -22,8 +21,7 @@ const harnesses: ChatHarness[] = [
 	},
 	{
 		id: 'claude-agent-sdk',
-		label: 'Claude Agent SDK',
-		description: 'Runs on each member’s own Claude account.',
+		label: 'Claude',
 		models: [
 			{id: 'sonnet', label: 'Claude Sonnet 5.5'},
 			{id: 'opus', label: 'Claude Opus 5.5'},
@@ -50,12 +48,12 @@ describe('ModelSwitcher', () => {
 		);
 
 		const trigger = screen.getByRole('button', {
-			name: 'Model: Claude Opus 5.5 on Claude Agent SDK',
+			name: 'Model: Claude Opus 5.5 on Claude',
 		});
-		expect(trigger.textContent).toBe('Claude Opus 5.5Claude Agent SDK');
+		expect(trigger.textContent).toBe('Claude Opus 5.5Claude');
 	});
 
-	test('opens in two columns: the harnesses down the side, each by its mark, and the models of the agent’s own beside them, with whose account it runs on, the one chosen checked', async () => {
+	test('opens in two columns: the harnesses down the side, each by its mark, and the models of the agent’s own beside them, under its name, the one chosen checked', async () => {
 		open({harness: 'proxy', chatModel: 'glm'});
 
 		const side = await screen.findByRole('group', {name: 'Harness'});
@@ -64,13 +62,12 @@ describe('ModelSwitcher', () => {
 			marks.map((mark) => [mark.getAttribute('aria-label'), mark.getAttribute('aria-current')]),
 		).toEqual([
 			['OpenRouter', 'true'],
-			['Claude Agent SDK', 'false'],
+			['Claude', 'false'],
 		]);
 		expect(marks.map((mark) => mark.querySelector('img')?.getAttribute('src'))).toEqual([
 			'/harnesses/openrouter.svg',
 			'/agent-providers/claude.png',
 		]);
-		expect(screen.getByText('Runs on the server’s key, for every member alike.')).toBeTruthy();
 		const models = screen.getAllByRole('menuitemradio');
 		expect(models.map((item) => [item.textContent, item.getAttribute('aria-checked')])).toEqual([
 			['Claude Sonnet 5.5', 'false'],
@@ -81,9 +78,8 @@ describe('ModelSwitcher', () => {
 	test('looking at another harness lists its models, none checked, and changes nothing until one is picked, which takes its harness with it and closes the list', async () => {
 		const onPick = open({harness: 'proxy', chatModel: 'claude'});
 
-		fireEvent.click(await screen.findByRole('menuitem', {name: 'Claude Agent SDK'}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Claude'}));
 
-		expect(screen.getByText('Runs on each member’s own Claude account.')).toBeTruthy();
 		const models = screen.getAllByRole('menuitemradio');
 		expect(models.map((item) => [item.textContent, item.getAttribute('aria-checked')])).toEqual([
 			['Claude Sonnet 5.5', 'false'],
@@ -101,7 +97,7 @@ describe('ModelSwitcher', () => {
 	test('opens on the agent’s own harness again after another was looked at', async () => {
 		// The pick goes nowhere here, so the agent stays on OpenRouter once the list has closed.
 		open({harness: 'proxy', chatModel: 'claude'});
-		fireEvent.click(await screen.findByRole('menuitem', {name: 'Claude Agent SDK'}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Claude'}));
 		fireEvent.click(screen.getByRole('menuitemradio', {name: 'Claude Opus 5.5'}));
 		await waitFor(() => expect(screen.queryByRole('menuitemradio')).toBeNull());
 

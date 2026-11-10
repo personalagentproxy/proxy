@@ -68,11 +68,10 @@ async function collect(harness: HarnessBackend, input: HarnessTurn): Promise<Har
 /** Registers the tests of the contract on the harness `make` gives, made afresh for each. */
 export function harnessConformance(name: string, make: () => {harness: HarnessBackend; scripted: ScriptedModel}): void {
 	describe(`${name}, as a harness`, () => {
-		test('says what it is called and whose account it runs on, and lists at least one model, each under an id of its own', () => {
+		test('says what it is called, and lists at least one model, each under an id of its own', () => {
 			const {harness} = make();
 
 			expect(harness.label).not.toBe('');
-			expect(harness.description).not.toBe('');
 			expect(harness.models.length).toBeGreaterThan(0);
 			expect(new Set(harness.models.map((model) => model.id)).size).toBe(harness.models.length);
 		});

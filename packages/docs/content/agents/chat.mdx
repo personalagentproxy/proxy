@@ -35,12 +35,13 @@ Personal Agent Proxy needs an `OPENROUTER_KEY`.
 Under the message box, a conversation says what runs its agent: the **model**, and beside it the
 **harness**, the loop that runs its turns. For whoever made the agent, or owns the organization,
 it opens the harnesses down the side, each by its mark, with the models of the one you look at
-beside them to switch between. The choice is the agent's: it holds for every member's conversation with the agent and for the sub-agents it starts,
-from the next turn on, and a conversation goes on from where it was.
+beside them to switch between. The choice is the agent's: it holds for every member's conversation
+with the agent and for the sub-agents it starts, from the next turn on, and a conversation goes on
+from where it was.
 
 - **OpenRouter** runs on the server's key, for every member alike, with Claude Sonnet 5.5 or
   GLM 5.3, each only on hosts that keep nothing of what is sent.
-- **Claude Agent SDK** runs on each member's own [Claude account](#your-claude-subscription), with
+- **Claude** runs on each member's own [Claude account](#your-claude-subscription), with
   Claude Sonnet 5.5, Claude Opus 5.5 or Claude Fable 5.2, and counts against that member's plan.
   A member who hasn't connected a Claude account is told to, in the conversation, and nothing of
   theirs runs on the server's key in its place.
@@ -89,7 +90,7 @@ the agent's head and name.
 
 ## Your Claude subscription
 
-An agent set to the Claude Agent SDK [harness](#what-runs-an-agent) runs on your own Claude
+An agent set to the Claude [harness](#what-runs-an-agent) runs on your own Claude
 subscription rather than on the server's key, so what you say to it goes to Anthropic under your
 account, as it would from Claude Code, and counts against your plan rather than the server's.
 Connect it under **Claude** on the **Account** page; it is yours, in every organization you are in,
@@ -115,12 +116,12 @@ Your conversations with such an agent, and the sub-agents they start, run on the
 say goes to Anthropic directly, as it would from Claude Code, not through OpenRouter, on the model
 chosen for the agent. Everything else is the same: the agent's tools, sleeping, alerts, the
 activity log and what the conversation shows. Connecting an account moves nothing by itself: an
-agent on OpenRouter stays there until it is set to the Claude Agent SDK. When the token has run out
+agent on OpenRouter stays there until it is set to Claude. When the token has run out
 or Anthropic refused it, the agent says so in the conversation and the card shows it, and nothing
 more is asked of Anthropic with it; connecting again takes it up. When your plan's limit is
 reached, the agent says so, with when the limit resets, and goes on when you write again after
 that. **Disconnect** on the card deletes the credential, and deleting your account deletes it too;
-an agent on the Claude Agent SDK then asks you to connect one again. The token itself
+an agent on Claude then asks you to connect one again. The token itself
 can be revoked at [claude.ai](https://claude.ai) as well, under your account's settings.
 
 <Callout>

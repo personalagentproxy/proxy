@@ -79,7 +79,7 @@ function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow 
 
 // The harnesses a persona can run on here, as the dialog offers them.
 function toHarnesses(registry: HarnessRegistry): ChatHarness[] {
-	return harnessesOf(registry).map(({id, label, description, models}) => ({id, label, description, models}));
+	return harnessesOf(registry).map(({id, label, models}) => ({id, label, models}));
 }
 
 // The persona as the person made or changed it. What runs it is as they chose, where the server

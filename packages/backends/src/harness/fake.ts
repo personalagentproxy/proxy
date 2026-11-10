@@ -23,7 +23,6 @@ export function fakeHarness(id = 'fake'): FakeHarness {
 	return {
 		id,
 		label: 'Fake',
-		description: 'Scripted, for tests.',
 		models: [
 			{id: 'claude', label: 'Claude'},
 			{id: 'other', label: 'Other'},

@@ -36,9 +36,9 @@ import type {ContextEntry, SubAgent} from '@proxy/utils/harness-context';
  * it resets; zero or more per turn, any time before the terminal event, and a harness on the
  * server's key yields none.
  *
- * A harness says, beside its id, what it is to the person choosing one for an agent, its `label`
- * and a line on whose account its turns run, and the `models` it can answer with, the first the
- * one a turn gets where none of them was chosen; and how it works, so the api can give it a turn
+ * A harness says, beside its id, what it is called to the person choosing one for an agent, its
+ * `label`, and the `models` it can answer with, the first the one a turn gets where none of them
+ * was chosen; and how it works, so the api can give it a turn
  * that fits: `stepsPerTurn` whether it answers calls itself and asks the model again within a turn, and
  * `maxConcurrentTurns` how many turns it can run at once in one process, where each is a
  * subprocess with memory of its own.
@@ -114,9 +114,8 @@ export type HarnessTurn = {
 export type HarnessBackend = {
 	/** Which harness it is, kept with each thread's session, so one harness is never given another's, and with each persona that chose it. */
 	id: string;
-	/** What the person choosing a harness for an agent reads: its name, and whose account its turns run on. */
+	/** What the person choosing a harness for an agent reads it as. */
 	label: string;
-	description: string;
 	/** The models it can answer with, the first its default: at least one. */
 	models: [HarnessModel, ...HarnessModel[]];
 	/**

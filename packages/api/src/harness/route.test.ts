@@ -25,7 +25,6 @@ const personaResponse = {id: 'persona-1', name: 'Finance', look, color: 'blue' a
 const proxy: HarnessBackend = {
 	...fakeHarness('proxy'),
 	label: 'OpenRouter',
-	description: 'On the server’s key.',
 	models: [
 		{id: 'claude', label: 'Claude Sonnet 5.5'},
 		{id: 'glm', label: 'GLM 5.3'},
@@ -33,8 +32,7 @@ const proxy: HarnessBackend = {
 };
 const sdk: HarnessBackend = {
 	...fakeHarness('claude-agent-sdk'),
-	label: 'Claude Agent SDK',
-	description: 'On each member’s own Claude account.',
+	label: 'Claude',
 	models: [
 		{id: 'sonnet', label: 'Claude Sonnet 5.5'},
 		{id: 'opus', label: 'Claude Opus 5.5'},
@@ -43,8 +41,8 @@ const sdk: HarnessBackend = {
 };
 let registry: HarnessRegistry = {proxy, claudeAgentSdk: sdk};
 const offered = [
-	{id: 'proxy', label: 'OpenRouter', description: 'On the server’s key.', models: proxy.models},
-	{id: 'claude-agent-sdk', label: 'Claude Agent SDK', description: 'On each member’s own Claude account.', models: sdk.models},
+	{id: 'proxy', label: 'OpenRouter', models: proxy.models},
+	{id: 'claude-agent-sdk', label: 'Claude', models: sdk.models},
 ];
 const thread: ThreadRow = {
 	id: 'thread-1',

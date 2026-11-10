@@ -30,8 +30,8 @@ type Props = {
 
 // What runs the agent, under the conversation's input: the model, with the harness beside it. For
 // whoever may change the agent it opens in two columns: the harnesses down the side, each by its
-// mark, and beside them the models of the one looked at, with whose account it runs on, the model
-// chosen checked. Looking at another harness changes nothing; picking a model takes its harness
+// mark, and beside them the models of the one looked at, under its name, the model chosen
+// checked. Looking at another harness changes nothing; picking a model takes its harness
 // with it. For anyone else it only says what runs the agent. The choice is the agent's, for every
 // member's conversation with it, from the next turn on. Nothing where the server has no harness.
 export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
@@ -84,7 +84,7 @@ export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
 				{name}
 				<ChevronDownIcon className="text-muted-foreground" />
 			</DropdownMenuTrigger>
-			<DropdownMenuContent side="top" align="start" className="flex w-80 p-0">
+			<DropdownMenuContent side="top" align="start" className="flex w-64 p-0">
 				<DropdownMenuGroup
 					aria-label="Harness"
 					className="flex shrink-0 flex-col gap-1 border-r bg-muted/40 p-1"
@@ -103,11 +103,8 @@ export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
 						</DropdownMenuItem>
 					))}
 				</DropdownMenuGroup>
-				<DropdownMenuGroup className="min-h-44 min-w-0 flex-1 p-1">
-					<DropdownMenuLabel className="grid gap-0.5">
-						<span className="text-foreground">{listed.label}</span>
-						<span className="font-normal">{listed.description}</span>
-					</DropdownMenuLabel>
+				<DropdownMenuGroup className="min-h-32 min-w-0 flex-1 p-1">
+					<DropdownMenuLabel>{listed.label}</DropdownMenuLabel>
 					<DropdownMenuRadioGroup
 						value={listed.id === harness.id ? model.id : ''}
 						onValueChange={(chatModel: string) => onPick({harness: listed.id, chatModel})}

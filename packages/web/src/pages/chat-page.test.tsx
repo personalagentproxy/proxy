@@ -32,7 +32,6 @@ const harnesses = [
 	{
 		id: 'proxy',
 		label: 'OpenRouter',
-		description: 'Runs on the server’s key, for every member alike.',
 		models: [
 			{id: 'claude', label: 'Claude Sonnet 5.5'},
 			{id: 'glm', label: 'GLM 5.3'},

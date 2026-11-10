@@ -52,7 +52,6 @@ export function proxyHarness(deps: ProxyHarnessDeps): HarnessBackend {
 	return {
 		id: PROXY_HARNESS,
 		label: 'OpenRouter',
-		description: 'Runs on the server’s key, for every member alike.',
 		models: MODELS,
 		turn: async function* (input) {
 			if (input.signal.aborted) {

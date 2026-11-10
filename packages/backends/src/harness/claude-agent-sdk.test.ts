@@ -305,7 +305,7 @@ describe('claudeAgentSdkHarness', () => {
 	test('is a harness that answers its calls itself, capped on turns at once', () => {
 		const harness = claudeAgentSdkHarness(deps(fakeQuery(), {maxConcurrentTurns: 3}));
 
-		expect(harness).toMatchObject({id: 'claude-agent-sdk', label: 'Claude Agent SDK', stepsPerTurn: 'many', maxConcurrentTurns: 3});
+		expect(harness).toMatchObject({id: 'claude-agent-sdk', label: 'Claude', stepsPerTurn: 'many', maxConcurrentTurns: 3});
 	});
 
 	test('lists the latest Sonnet, Opus and Fable, Sonnet first, and runs a turn on the one chosen by its full id, so the label says what answers', async () => {

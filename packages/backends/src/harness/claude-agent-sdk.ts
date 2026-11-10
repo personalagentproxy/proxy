@@ -418,8 +418,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 	const query: SdkQuery = deps.query ?? sdkQuery;
 	return {
 		id: CLAUDE_AGENT_SDK,
-		label: 'Claude Agent SDK',
-		description: 'Runs on each member’s own Claude account, connected on their Account page, and counts against their plan.',
+		label: 'Claude',
 		models: MODELS,
 		stepsPerTurn: 'many',
 		maxConcurrentTurns: deps.maxConcurrentTurns,
