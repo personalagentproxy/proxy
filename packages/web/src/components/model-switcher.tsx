@@ -55,7 +55,7 @@ export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
 	if (!mayChange) {
 		return (
 			<span
-				className="flex items-center gap-1.5 px-1.5 text-xs font-normal"
+				className="flex h-5 items-center gap-1.5 border border-transparent px-1.5 text-xs font-normal"
 				title="Whoever made this agent, or owns the organization, chooses what runs it."
 			>
 				{name}
@@ -77,7 +77,7 @@ export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
 				render={
 					<InputGroupButton
 						aria-label={`Model: ${model.label} on ${harness.label}`}
-						className="gap-1.5 font-normal"
+						className="h-5 gap-1.5 text-xs font-normal"
 					/>
 				}
 			>
