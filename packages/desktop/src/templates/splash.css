@@ -8,6 +8,7 @@
 	--border: oklch(0.922 0 0);
 	--primary: oklch(0.205 0 0);
 	--primary-foreground: oklch(0.985 0 0);
+	--traffic-light: oklch(0.86 0 0);
 }
 :root.dark {
 	color-scheme: dark;
@@ -17,6 +18,7 @@
 	--border: oklch(1 0 0 / 10%);
 	--primary: oklch(0.922 0 0);
 	--primary-foreground: oklch(0.205 0 0);
+	--traffic-light: oklch(0.36 0 0);
 }
 body {
 	margin: 0;
@@ -47,6 +49,22 @@ body::before {
 	border-bottom: 1px solid var(--border);
 	content: '';
 	-webkit-app-region: drag;
+}
+/* The traffic lights while the window isn't the focused one, as the web app draws them
+   (packages/web/src/index.css): window.ts marks the page `inactive`. */
+:root.inactive body::after {
+	position: fixed;
+	top: calc(2.75rem / 2 - 6px);
+	left: 17px;
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	background: var(--traffic-light);
+	box-shadow:
+		20px 0 var(--traffic-light),
+		40px 0 var(--traffic-light);
+	content: '';
+	pointer-events: none;
 }
 main {
 	display: grid;
