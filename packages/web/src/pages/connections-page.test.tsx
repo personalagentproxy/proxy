@@ -93,13 +93,13 @@ function rows(): Array<[string, string | null]> {
 }
 
 describe('ConnectionsPage', () => {
-	test('alone in the organization, lists everything, the person’s own vault first, and a vault they made as any connection, each opening its own page', async () => {
+	test('alone in the organization, lists everything, the person’s own vault first, and a vault they made as any connection, each opening its connection’s page', async () => {
 		renderConnectionsPage('/acme/connections');
 		await screen.findAllByRole('link', {name: ROWS});
 
 		expect(rows()).toEqual([
-			['My vault', '/acme/connections/vault'],
-			['Finance', '/acme/connections/vault/vault-made'],
+			['My vault', '/acme/connections/vault-own'],
+			['Finance', '/acme/connections/vault-made'],
 			['Google', '/acme/connections/google-1'],
 			['Email', '/acme/connections/email-1'],
 		]);
@@ -110,7 +110,7 @@ describe('ConnectionsPage', () => {
 		renderConnectionsPage('/acme/connections', withOthers);
 		await screen.findAllByRole('link', {name: ROWS});
 		expect(rows()).toEqual([
-			['My vault', '/acme/connections/vault'],
+			['My vault', '/acme/connections/vault-own'],
 			['Email', '/acme/connections/email-1'],
 		]);
 		expect(screen.getByRole('button', {name: /Shared/}).textContent).toContain('2');
@@ -119,7 +119,7 @@ describe('ConnectionsPage', () => {
 		renderConnectionsPage('/acme/connections?for=everyone', withOthers);
 		await screen.findAllByRole('link', {name: ROWS});
 		expect(rows()).toEqual([
-			['Finance', '/acme/connections/vault/vault-made'],
+			['Finance', '/acme/connections/vault-made'],
 			['Google', '/acme/connections/google-1'],
 		]);
 	});

@@ -1,4 +1,3 @@
-import type {Connection} from '@proxy/contracts/connections';
 import type {DataRecord} from '@proxy/contracts/records';
 import {findCollection, VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import {
@@ -11,22 +10,16 @@ import {
 	type LucideIcon,
 } from 'lucide-react';
 import {useState} from 'react';
-import {Link, useLoaderData} from 'react-router';
 import {createRecord, deleteRecord, updateRecord} from '@/client/records-client';
-import {AppShell, PageTitle} from '@/components/app-shell';
 import {AddButton} from '@/components/add-button';
-import {NotFound} from '@/components/not-found';
 import {RecordForm} from '@/components/record-form';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
 import {Badge} from '@proxy/ui/components/badge';
 import {Button} from '@proxy/ui/components/button';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@proxy/ui/components/dialog';
 import {useApply} from '@/hooks/use-apply';
-import {useHuman} from '@/hooks/use-human';
-import {connectionTitle, recordTitle} from '@/lib/access';
-import {ownerOf} from '@/lib/orgs';
+import {recordTitle} from '@/lib/access';
 import {findIntegration} from '@/lib/integrations';
-import type {vaultLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 
 const ENTRIES = 'entries';
@@ -35,18 +28,6 @@ const OWN_EMPTY =
 	'Nothing yet. Add what your agents should know about you, or let them keep what they learn.';
 const MADE_EMPTY =
 	'Nothing yet. Add what the agents of everyone who uses this vault should know, or let them keep what they learn.';
-
-// "shared with everyone in Acme", "shared with Dana and Sam", or "shared with nobody yet".
-function sharedWith(connection: Connection, orgName: string): string {
-	if (connection.sharedWithEveryone) {
-		return `shared with everyone in ${orgName}`;
-	}
-	const names = connection.sharedWith.map((member) => member.name);
-	if (names.length === 0) {
-		return 'shared with nobody yet';
-	}
-	return `shared with ${new Intl.ListFormat('en', {type: 'conjunction'}).format(names)}`;
-}
 
 // The table's columns after the title, the header's and the rows' alike: the content only on
 // screens wide enough for it.
@@ -75,30 +56,31 @@ function TypeBadge({type}: {type: string}) {
 	);
 }
 
-// Which entry the dialog is open on: a new one, in the vault shown, or one being edited.
+// Which entry the dialog is open on: a new one, or one being edited.
 type Editing = {entry: DataRecord | null};
 
-// One vault: what the person's agents should know about them, kept by the person or by the
-// agents, in their own, or what more than their own agents should know, in one a member made: a
-// table of its entries, each opened for editing, under what the vault is called, "My vault" or
-// the name it was given. The person's own is at `connections/vault`; one a member made has its page
-// under that, by its connection, and says whose it is and who it is shared with, with a link to its connection's page, where that is set. Each is
-// one of the connections, opened from theirs.
-export function VaultPage() {
+type Props = {
+	// The vault's connection.
+	connectionId: string;
+	entries: DataRecord[];
+	// A vault a member made, for more than their own agents, rather than the person's own.
+	made: boolean;
+};
+
+// The Entries part of a vault's page, the first of its connection's tabs: what the person's
+// agents should know about them, kept by the person or by the agents, in their own vault, or what
+// more than their own agents should know, in one a member made: a table of the entries, each
+// opened for editing, with a button that adds one.
+export function VaultEntries({connectionId, entries, made}: Props) {
 	const org = useOrgSlug();
-	const {vault, entries} = useLoaderData<typeof vaultLoader>();
-	const human = useHuman();
 	const [editing, setEditing] = useState<Editing | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const apply = useApply(setError);
 	const integration = findIntegration(VAULT_INTEGRATION_ID);
 	const collection = integration && findCollection(integration, ENTRIES);
-	if (!vault || !collection || !human) {
-		return <NotFound what="vault" />;
+	if (!collection) {
+		return null;
 	}
-
-	const made = !vault.builtIn;
-	const owner = ownerOf(vault, human);
 
 	const open = (next: Editing | null) => {
 		setError(null);
@@ -108,26 +90,15 @@ export function VaultPage() {
 	const close = () => setEditing(null);
 
 	return (
-		<AppShell
-			title={<PageTitle detail={integration?.name}>{connectionTitle(vault)}</PageTitle>}
-			actions={
+		<div className="flex flex-col gap-2">
+			<div className="flex min-h-8 items-center justify-between gap-4 text-sm text-muted-foreground">
+				<span>
+					{made
+						? 'What the agents of everyone who uses this vault should know'
+						: 'What your agents should know about you'}
+				</span>
 				<AddButton label="Add entry" variant="outline" onClick={() => open({entry: null})} />
-			}
-		>
-			{made && (
-				<p className="text-sm text-muted-foreground">
-					{owner === 'You' ? 'Yours' : `${owner}’s`}
-					{' · '}
-					{sharedWith(vault, human.org.name)}
-					{' · '}
-					<Link
-						to={`/${org}/connections/${vault.id}`}
-						className="text-foreground underline underline-offset-4"
-					>
-						Sharing and permissions
-					</Link>
-				</p>
-			)}
+			</div>
 			<RowList
 				header={
 					<RowHeader>
@@ -180,8 +151,8 @@ export function VaultPage() {
 								const {entry} = editing;
 								void apply(
 									entry
-										? updateRecord(org, vault.id, ENTRIES, entry.id, values)
-										: createRecord(org, vault.id, ENTRIES, values),
+										? updateRecord(org, connectionId, ENTRIES, entry.id, values)
+										: createRecord(org, connectionId, ENTRIES, values),
 									close,
 								);
 							}}
@@ -193,7 +164,7 @@ export function VaultPage() {
 										onClick={() => {
 											const {entry} = editing;
 											if (entry) {
-												void apply(deleteRecord(org, vault.id, ENTRIES, entry.id), close);
+												void apply(deleteRecord(org, connectionId, ENTRIES, entry.id), close);
 											}
 										}}
 									>
@@ -206,6 +177,6 @@ export function VaultPage() {
 					</DialogContent>
 				)}
 			</Dialog>
-		</AppShell>
+		</div>
 	);
 }

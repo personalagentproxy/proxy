@@ -1,9 +1,8 @@
 import type {Connection} from '@proxy/contracts/connections';
-import {VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import {ListRestartIcon, UnplugIcon} from 'lucide-react';
 import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
-import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
+import {useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
 import {setAgentGrants} from '@/client/agents-client';
 import {
 	deleteConnection,
@@ -23,20 +22,21 @@ import {IntegrationLogo} from '@/components/brand-logo';
 import {NotFound} from '@/components/not-found';
 import {PageTabs} from '@/components/page-tabs';
 import {RecentActivity} from '@/components/recent-activity';
+import {SandboxList} from '@/components/sandbox-list';
 import {SuccessLine} from '@/components/success-line';
+import {VaultEntries} from '@/components/vault-entries';
 import {connectionTitle, defaultActions, integrationOf, ownSettings, reaches} from '@/lib/access';
-import {buttonVariants} from '@proxy/ui/components/button';
 import {useHuman} from '@/hooks/use-human';
 import {signInPath} from '@/lib/integrations';
 import {chosenTab, type PageTab} from '@/lib/page-tabs';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
-import {actsAs, hasOtherPeople, manages, ownerOf, vaultPath} from '@/lib/orgs';
+import {actsAs, hasOtherPeople, manages, ownerOf} from '@/lib/orgs';
 import type {connectionLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 
 export function ConnectionPage() {
 	const org = useOrgSlug();
-	const {connection, connections, agents, entries, tasks, members} =
+	const {connection, connections, agents, entries, tasks, members, vaultEntries, sandboxes} =
 		useLoaderData<typeof connectionLoader>();
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
@@ -69,9 +69,15 @@ export function ConnectionPage() {
 	// A vault's entries are kept here, so no provider sees anyone.
 	const actingAs = integration.native ? null : actsAs(connection, human);
 	// A vault a member made is deleted, with its entries, where another connection is disconnected.
-	// The page's parts, one shown at a time: a built-in connection, which is never shared, has no
-	// Sharing.
-	const tabs: Array<PageTab<'permissions' | 'sharing' | 'activity'>> = [
+	// The page's parts, one shown at a time: what a vault or the Sandboxes hold comes first, being
+	// what it is opened for, and a built-in connection, which is never shared, has no Sharing.
+	const tabs: Array<PageTab<'entries' | 'sandboxes' | 'permissions' | 'sharing' | 'activity'>> = [
+		...(vaultEntries === null
+			? []
+			: [{id: 'entries' as const, label: 'Entries', count: vaultEntries.length}]),
+		...(sandboxes === null
+			? []
+			: [{id: 'sandboxes' as const, label: 'Sandboxes', count: sandboxes.length}]),
 		{id: 'permissions', label: 'Permissions'},
 		...(connection.builtIn ? [] : [{id: 'sharing' as const, label: 'Sharing'}]),
 		{id: 'activity', label: 'Recent activity'},
@@ -145,14 +151,6 @@ export function ConnectionPage() {
 							<ListRestartIcon className={refreshing ? 'motion-safe:animate-spin' : undefined} />
 						</IconButton>
 					)}
-					{integration.id === VAULT_INTEGRATION_ID && (
-						<Link
-							to={vaultPath(org, connection)}
-							className={buttonVariants({variant: 'outline', size: 'sm'})}
-						>
-							Open entries
-						</Link>
-					)}
 					{!connection.builtIn && mayChange && (
 						<IconButton label={removal.verb} onClick={() => setDisconnecting(true)}>
 							<UnplugIcon />
@@ -164,6 +162,16 @@ export function ConnectionPage() {
 			<div className="flex flex-col gap-4">
 				{added && <SuccessLine>Connection added successfully</SuccessLine>}
 				<PageTabs tabs={tabs} chosen={tab} label="Connection" />
+				{tab === 'entries' && vaultEntries !== null && (
+					<VaultEntries
+						connectionId={connection.id}
+						entries={vaultEntries}
+						made={!connection.builtIn}
+					/>
+				)}
+				{tab === 'sandboxes' && sandboxes !== null && (
+					<SandboxList connectionId={connection.id} sandboxes={sandboxes} />
+				)}
 				{tab === 'permissions' && (
 					<div className="flex flex-col gap-2">
 						<p className="text-sm text-muted-foreground">{about}</p>

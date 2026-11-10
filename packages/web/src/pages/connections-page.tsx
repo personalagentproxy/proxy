@@ -18,7 +18,7 @@ import {useHuman} from '@/hooks/use-human';
 import {useSide} from '@/hooks/use-side';
 import {agentsWithAccess, connectionTitle, integrationOf} from '@/lib/access';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
-import {actsAs, manages, vaultPath} from '@/lib/orgs';
+import {actsAs, manages} from '@/lib/orgs';
 import type {connectionsLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 
@@ -44,10 +44,9 @@ function needsName(connection: Connection): boolean {
 // shared with them, never another member's that isn't. With anyone else in it or invited, a toggle
 // picks the list, in the address as `?for=me` or `?for=everyone`: what is theirs alone, or what is
 // shared, by them or with them, with every member or some by name, opening on what is theirs
-// alone, the shared one saying who the provider sees when an agent uses each. The person's own vault and Sandboxes come first among what is theirs alone, each opening
-// its own page; a vault a member made is listed as any connection, and opens its own page of
-// entries too. A right click on a row renames
-// or deletes a connection the person may change: their own, or, as the organization's owner, one
+// alone, the shared one saying who the provider sees when an agent uses each. The person's own
+// vault and Sandboxes come first among what is theirs alone, each opening its connection's page,
+// as every connection does, where what it holds is the first tab. A right click on a row renames or deletes a connection the person may change: their own, or, as the organization's owner, one
 // shared with every member.
 export function ConnectionsPage() {
 	const org = useOrgSlug();
@@ -101,8 +100,8 @@ export function ConnectionsPage() {
 					</RowHeader>
 				}
 			>
-				<BuiltInRow connections={vaults} to="vault" agents={agents} />
-				<BuiltInRow connections={sandboxes} to="sandboxes" agents={agents} />
+				<BuiltInRow connections={vaults} agents={agents} />
+				<BuiltInRow connections={sandboxes} agents={agents} />
 				{connections.length === 0 && (
 					<SideEmpty
 						side={side}
@@ -128,11 +127,7 @@ export function ConnectionsPage() {
 					return (
 						<Row
 							key={connection.id}
-							to={
-								integration?.native
-									? vaultPath(org, connection)
-									: `/${org}/connections/${connection.id}`
-							}
+							to={`/${org}/connections/${connection.id}`}
 							icon={integration && <IntegrationLogo integration={integration} />}
 							title={connectionTitle(connection)}
 							cells={
@@ -219,17 +214,9 @@ export function ConnectionsPage() {
 }
 
 // The person's built-in connection of an integration as a row, their vault or their Sandboxes,
-// opening its page: kept in Personal Agent Proxy, so never renamed, shared or deleted; none without
-// one, as an organization not offered sandboxes has.
-function BuiltInRow({
-	connections,
-	to,
-	agents,
-}: {
-	connections: Connection[];
-	to: 'vault' | 'sandboxes';
-	agents: AgentLogin[];
-}) {
+// kept in Personal Agent Proxy, so never renamed, shared or deleted, opening its connection's
+// page; none without one, as an organization not offered sandboxes has.
+function BuiltInRow({connections, agents}: {connections: Connection[]; agents: AgentLogin[]}) {
 	const org = useOrgSlug();
 	const [first] = connections;
 	const integration = first && integrationOf(first);
@@ -239,7 +226,7 @@ function BuiltInRow({
 
 	return (
 		<Row
-			to={`/${org}/connections/${to}`}
+			to={`/${org}/connections/${first.id}`}
 			icon={<IntegrationLogo integration={integration} />}
 			title={connectionTitle(first)}
 			cells={

@@ -106,14 +106,29 @@ export async function connectionLoader(args: {params: {org?: string; id?: string
 		listMembers(org),
 	]);
 	const {entries, tasks} = unwrapLoaderResult(activity);
+	const found = unwrapOrNull(connection);
+	// What a connection kept in Personal Agent Proxy holds is the first tab of its page: a vault's
+	// entries, the Sandboxes' sandboxes; null for every other connection.
+	const kept = async (integrationId: string, collectionId: string) => {
+		if (found?.integrationId !== integrationId) {
+			return null;
+		}
+		return unwrapLoaderResult(await listRecords(org, found.id, collectionId)).records;
+	};
+	const [vaultEntries, sandboxes] = await Promise.all([
+		kept(VAULT_INTEGRATION_ID, 'entries'),
+		kept(SANDBOX_INTEGRATION_ID, 'sandboxes'),
+	]);
 	return {
-		connection: unwrapOrNull(connection),
+		connection: found,
 		connections: unwrapLoaderResult(connections).connections,
 		agents: unwrapLoaderResult(agents).agents,
 		entries,
 		tasks,
 		// Whom it can be shared with by name.
 		members: unwrapLoaderResult(members).members,
+		vaultEntries,
+		sandboxes,
 	};
 }
 
@@ -144,37 +159,26 @@ export async function alertsLoader(args: OrgParams) {
 	return unwrapLoaderResult(await listAlerts(orgOf(args)));
 }
 
-// One vault with its entries, kept in Personal Agent Proxy: the one the address names, a vault a
-// member made that the person uses, or, with none named, the person's own, built in. Null for a
-// connection that isn't a vault of theirs to use.
-export async function vaultLoader(args: {params: {org?: string; id?: string}}) {
-	const org = orgOf(args);
-	const {id} = args.params;
-	const {connections} = unwrapLoaderResult(await listConnections(org));
-	const vault = connections.find(
-		(candidate) =>
-			candidate.integrationId === VAULT_INTEGRATION_ID &&
-			(id === undefined ? candidate.builtIn : candidate.id === id && !candidate.builtIn),
-	);
-	if (!vault) {
-		return {vault: null, entries: []};
-	}
-	const page = unwrapLoaderResult(await listRecords(org, vault.id, 'entries'));
-	return {vault, entries: page.records};
+// The addresses of the vault and of Sandboxes from when each had a page of its own, where a saved
+// link still opens it: each is the first tab of its connection's page now, the person's own
+// vault's or Sandboxes' where the address names none.
+function builtInRedirect(integrationId: string) {
+	return async (args: {params: {org?: string; id?: string}}) => {
+		const org = orgOf(args);
+		const {id} = args.params;
+		if (id !== undefined) {
+			throw redirect(`/${org}/connections/${id}`);
+		}
+		const {connections} = unwrapLoaderResult(await listConnections(org));
+		const own = connections.find(
+			(candidate) => candidate.integrationId === integrationId && candidate.builtIn,
+		);
+		throw redirect(own ? `/${org}/connections/${own.id}` : `/${org}/connections`);
+	};
 }
 
-// The sandboxes the person's agents made, on their own Sandboxes connection: none where the
-// organization isn't offered sandboxes, which has no connection then.
-export async function sandboxesLoader(args: OrgParams) {
-	const org = orgOf(args);
-	const {connections} = unwrapLoaderResult(await listConnections(org));
-	const own = connections.find((candidate) => candidate.integrationId === SANDBOX_INTEGRATION_ID);
-	if (!own) {
-		return {connectionId: null, sandboxes: []};
-	}
-	const page = unwrapLoaderResult(await listRecords(org, own.id, 'sandboxes'));
-	return {connectionId: own.id, sandboxes: page.records};
-}
+export const vaultLoader = builtInRedirect(VAULT_INTEGRATION_ID);
+export const sandboxesLoader = builtInRedirect(SANDBOX_INTEGRATION_ID);
 
 export async function agentsLoader(args: OrgParams) {
 	return {agents: unwrapLoaderResult(await listAgents(orgOf(args))).agents};

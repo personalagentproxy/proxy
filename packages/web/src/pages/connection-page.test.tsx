@@ -3,8 +3,9 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import type {Member} from '@proxy/contracts/orgs';
+import type {DataRecord} from '@proxy/contracts/records';
 import {afterEach, describe, expect, test} from 'bun:test';
-import {cleanup, fireEvent, render, screen, within} from '@testing-library/react';
+import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
@@ -65,6 +66,8 @@ function renderConnectionPage(
 	entry: string,
 	connection: Connection = mailbox,
 	agents: AgentLogin[] = [claude],
+	vaultEntries: DataRecord[] | null = null,
+	sandboxes: DataRecord[] | null = null,
 ) {
 	const loads = {count: 0};
 	const router = createMemoryRouter(
@@ -85,6 +88,8 @@ function renderConnectionPage(
 								entries: [],
 								tasks: [],
 								members: [dana],
+								vaultEntries,
+								sandboxes,
 							};
 						},
 						shouldRevalidate: shouldRevalidateTabs,
@@ -190,15 +195,112 @@ describe('ConnectionPage', () => {
 		expect(tabs().find(([, current]) => current === 'page')?.[0]).toBe('Sharing');
 	});
 
-	test('a built-in connection, which is never shared, has no Sharing tab', async () => {
-		renderConnectionPage('/acme/connections/conn-1?tab=sharing', {
-			...mailbox,
-			integrationId: 'vault',
-			defaults: ['readEntries'],
-			builtIn: true,
-		});
+	test('the person’s Sandboxes open on the sandboxes their agents made, and, never shared, have no Sharing tab', async () => {
+		const sandbox: DataRecord = {
+			id: 'sandbox-1',
+			values: {
+				name: 'site-build',
+				state: 'Asleep',
+				heldBy: '',
+				lastUsedAt: '2026-10-21T00:00:00.000Z',
+			},
+			updatedAt: '2026-10-21T00:00:00.000Z',
+		};
+		renderConnectionPage(
+			'/acme/connections/conn-1?tab=sharing',
+			{...mailbox, integrationId: 'sandbox', defaults: ['read'], builtIn: true},
+			[claude],
+			null,
+			[sandbox],
+		);
 
+		expect((await screen.findByRole('button', {name: /site-build/})).textContent).toContain(
+			'Asleep',
+		);
+		expect(tabs()).toEqual([
+			['Sandboxes1', 'page'],
+			['Permissions', null],
+			['Recent activity', null],
+		]);
+
+		fireEvent.click(tab('Permissions'));
+		expect(await screen.findByRole('checkbox', {name: 'See sandboxes by default'})).toBeDefined();
+		expect(screen.queryByRole('button', {name: /site-build/})).toBeNull();
+	});
+});
+
+describe('a vault’s page', () => {
+	const ownVault: Connection = {
+		...mailbox,
+		integrationId: 'vault',
+		account: 'Acme',
+		defaults: ['readEntries'],
+		builtIn: true,
+	};
+	const madeVault: Connection = {...ownVault, name: 'Finance', builtIn: false};
+	const entry = (id: string, values: Record<string, string>): DataRecord => ({
+		id,
+		values,
+		updatedAt: '2026-10-21T00:00:00.000Z',
+	});
+	const home = entry('entry-1', {
+		title: 'Home',
+		type: 'Address',
+		content: '1 Main St\n10115 Berlin',
+	});
+
+	test('opens on its entries, the first of its tabs, each by its title, with its type and the first line of its content', async () => {
+		renderConnectionPage('/acme/connections/conn-1', ownVault, [claude], [home]);
+
+		const row = await screen.findByRole('button', {name: /Home/});
+		expect(row.textContent).toContain('Address');
+		expect(row.textContent).toContain('1 Main St');
+		expect(row.textContent).not.toContain('Berlin');
+		expect(tabs()).toEqual([
+			['Entries1', 'page'],
+			['Permissions', null],
+			['Recent activity', null],
+		]);
+		expect(screen.getByText('What your agents should know about you')).toBeDefined();
+	});
+
+	test('a vault a member made has Sharing beside its entries, and says what it is for while it is empty', async () => {
+		renderConnectionPage('/acme/connections/conn-1', madeVault, [claude], []);
+
+		expect(
+			await screen.findByText(/everyone who uses this vault should know, or let them keep/),
+		).toBeDefined();
+		expect(tabs().map(([label]) => label)).toEqual([
+			'Entries0',
+			'Permissions',
+			'Sharing',
+			'Recent activity',
+		]);
+
+		fireEvent.click(tab('Permissions'));
 		expect(await screen.findByRole('checkbox', {name: 'Read entries by default'})).toBeDefined();
-		expect(tabs().map(([label]) => label)).toEqual(['Permissions', 'Recent activity']);
+		expect(
+			screen.queryByText(/everyone who uses this vault should know, or let them keep/),
+		).toBeNull();
+	});
+
+	test('a new entry needs something written, its type alone is not enough', async () => {
+		renderConnectionPage(
+			'/acme/connections/conn-1',
+			ownVault,
+			[claude],
+			[entry('entry-2', {title: 'Phone', type: 'Phone number', content: ''})],
+		);
+
+		fireEvent.click(await screen.findByRole('button', {name: 'Add entry'}));
+		const save = await screen.findByRole('button', {name: 'Save'});
+		expect(save).toHaveProperty('disabled', true);
+		fireEvent.change(screen.getByLabelText('Title'), {target: {value: 'Shoe size'}});
+		expect(save).toHaveProperty('disabled', false);
+		fireEvent.click(screen.getByRole('button', {name: 'Cancel'}));
+		await waitFor(() => expect(screen.queryByRole('button', {name: 'Save'})).toBeNull());
+
+		fireEvent.click(screen.getByRole('button', {name: /Phone/}));
+		expect(await screen.findByRole('button', {name: 'Save'})).toHaveProperty('disabled', false);
 	});
 });

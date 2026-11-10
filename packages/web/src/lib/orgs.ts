@@ -46,14 +46,6 @@ export function ownerOf(connection: Connection, human: Human): string {
 }
 
 /**
- * A vault's own page, its entries: the person's built-in one at `connections/vault`, as it has
- * always been, and one a member made under it, by its connection.
- */
-export function vaultPath(org: string, vault: Pick<Connection, 'id' | 'builtIn'>): string {
-	return vault.builtIn ? `/${org}/connections/vault` : `/${org}/connections/vault/${vault.id}`;
-}
-
-/**
  * Who the provider sees when an agent uses the connection: whoever signed in, for an integration
  * connected by signing in to it; the account itself for a mailbox, a database's user, a key or a
  * custom server.

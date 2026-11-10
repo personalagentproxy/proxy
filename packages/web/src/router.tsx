@@ -83,8 +83,6 @@ import {LoginPage} from '@/pages/login-page';
 import {MembersPage} from '@/pages/members-page';
 import {NewAgentPage} from '@/pages/new-agent-page';
 import {OrgSettingsPage} from '@/pages/org-settings-page';
-import {SandboxesPage} from '@/pages/sandboxes-page';
-import {VaultPage} from '@/pages/vault-page';
 import {WelcomeConnectionPage, WelcomePage} from '@/pages/welcome-page';
 
 // The person's first organization, the one made at sign-up until they join or make another. A
@@ -297,9 +295,10 @@ const routes: RouteObject[] = [
 			{path: '/:org/connections/new/plaid', element: <AddBankPage />},
 			{path: '/:org/connections/new/mcp', element: <AddMcpPage />},
 			{path: '/:org/connections/new/vault', element: <AddVaultPage />},
-			{path: '/:org/connections/vault', loader: vaultLoader, element: <VaultPage />},
-			{path: '/:org/connections/vault/:id', loader: vaultLoader, element: <VaultPage />},
-			{path: '/:org/connections/sandboxes', loader: sandboxesLoader, element: <SandboxesPage />},
+			// The vault's page and the Sandboxes' before each was a tab of its connection's.
+			{path: '/:org/connections/vault', loader: vaultLoader, element: null},
+			{path: '/:org/connections/vault/:id', loader: vaultLoader, element: null},
+			{path: '/:org/connections/sandboxes', loader: sandboxesLoader, element: null},
 			{
 				path: '/:org/connections/:id',
 				loader: connectionLoader,

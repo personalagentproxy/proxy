@@ -1,17 +1,14 @@
 import type {DataRecord} from '@proxy/contracts/records';
 import {useState} from 'react';
-import {useLoaderData, useRevalidator} from 'react-router';
+import {useRevalidator} from 'react-router';
 import {deleteRecord} from '@/client/records-client';
-import {AppShell, PageTitle} from '@/components/app-shell';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
-
 import {Badge} from '@proxy/ui/components/badge';
 import {Button} from '@proxy/ui/components/button';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@proxy/ui/components/dialog';
 import {useApply} from '@/hooks/use-apply';
 import {useOrgSlug} from '@/hooks/use-org';
 import {formatAgo, formatDateTime} from '@/lib/format';
-import type {sandboxesLoader} from '@/loaders';
 
 const SANDBOXES = 'sandboxes';
 
@@ -32,12 +29,17 @@ function StateBadge({state}: {state: string}) {
 	);
 }
 
-// The sandboxes the person's agents made, on their own Sandboxes connection: each with whether it
-// is running or asleep, the task using it, and when it was last used, opened for a closer look and
-// deleted there once its work is done.
-export function SandboxesPage() {
+type Props = {
+	// The person's Sandboxes connection.
+	connectionId: string;
+	sandboxes: DataRecord[];
+};
+
+// The Sandboxes part of the person's Sandboxes connection's page, the first of its tabs: the
+// sandboxes their agents made, each with whether it is running or asleep, the task using it, and
+// when it was last used, opened for a closer look and deleted there once its work is done.
+export function SandboxList({connectionId, sandboxes}: Props) {
 	const org = useOrgSlug();
-	const {connectionId, sandboxes} = useLoaderData<typeof sandboxesLoader>();
 	const revalidator = useRevalidator();
 	const [selected, setSelected] = useState<DataRecord | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -52,7 +54,10 @@ export function SandboxesPage() {
 	};
 
 	return (
-		<AppShell title={<PageTitle>Sandboxes</PageTitle>}>
+		<div className="flex flex-col gap-2">
+			<p className="flex min-h-8 items-center text-sm text-muted-foreground">
+				The computers your agents asked for, kept while they are away
+			</p>
 			<RowList
 				header={
 					<RowHeader>
@@ -119,9 +124,7 @@ export function SandboxesPage() {
 								type="button"
 								variant="destructive"
 								onClick={() => {
-									if (connectionId !== null) {
-										void apply(deleteRecord(org, connectionId, SANDBOXES, selected.id), close);
-									}
+									void apply(deleteRecord(org, connectionId, SANDBOXES, selected.id), close);
 								}}
 							>
 								Delete
@@ -131,6 +134,6 @@ export function SandboxesPage() {
 					</DialogContent>
 				)}
 			</Dialog>
-		</AppShell>
+		</div>
 	);
 }

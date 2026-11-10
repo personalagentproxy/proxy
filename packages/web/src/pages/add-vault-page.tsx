@@ -10,11 +10,10 @@ import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
 import {useOrgSlug} from '@/hooks/use-org';
 import {useShareChoice} from '@/hooks/use-share-choice';
 import {describeApiError} from '@/lib/loader-utils';
-import {vaultPath} from '@/lib/orgs';
 
 // The form for a new vault, from the catalog's plus: a name, since its name is what tells it from
-// the person's own and says to agents what belongs in it. Making it opens its page, empty; who it
-// is shared with is set on its connection's page, as any connection's is.
+// the person's own and says to agents what belongs in it. Making it opens its page, on its
+// entries, none yet; who it is shared with is set there too, as any connection's is.
 export function AddVaultPage() {
 	const org = useOrgSlug();
 	const navigate = useNavigate();
@@ -40,7 +39,7 @@ export function AddVaultPage() {
 						setError(describeApiError(result.error));
 						return;
 					}
-					navigate(vaultPath(org, result.value));
+					navigate(`/${org}/connections/${result.value.id}`);
 				}}
 			>
 				<ShareNote />
