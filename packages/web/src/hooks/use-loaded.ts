@@ -19,7 +19,13 @@ const NEVER = new Promise<never>(() => undefined);
  */
 export function useLoaded<L extends LaterLoader<unknown>>(): LoadedBy<L>;
 export function useLoaded<T>(): T {
-	const answer = use(useLoaderData<Later<T>>().later);
+	const loaded = useLoaderData<Later<T>>();
+	// An answer that has come is read as it is, and only one on its way waited for with `use`.
+	// Content drawn after its answer came is then there at once, without a moment of what stands
+	// for it. And under React's `act`, in tests, a render that calls `use`, on a promise long
+	// settled too, and takes more than one slice of time is left unfinished until the next
+	// awaited `act`: a large page then never showed where a click led.
+	const answer = loaded.answered === null ? use(loaded.later) : loaded.answered.answer;
 	if (answer instanceof Redirected) {
 		return use(NEVER);
 	}

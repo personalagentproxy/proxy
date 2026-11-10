@@ -2,7 +2,7 @@ import type {Response} from 'express';
 import {Err, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
-import {listOrgConnectionsWithCredential, listOwnConnectionsWithCredential} from '@proxy/db/connection';
+import {listLeavingConnectionsWithCredential, listOrgConnectionsWithCredential} from '@proxy/db/connection';
 import {listUserOrgs, removeMembership} from '@proxy/db/organization';
 import {deleteUser, getUserFromId} from '@proxy/db/user';
 import type {Me} from '@proxy/contracts/me';
@@ -29,8 +29,8 @@ export function handleMeRoute(request: AuthenticatedRequest): Promise<Result<Me,
 
 /**
  * Deletes the signed-in person's account. The organizations they own are deleted with everything
- * in them, their other members losing them; they leave the others, their own connections there
- * going, the shared ones staying. Every connection deleted is undone at its provider first, as
+ * in them, their other members losing them; they leave the others, their connections there going,
+ * but for those shared with every member, which stay, their owner's. Every connection deleted is undone at its provider first, as
  * disconnecting it does (Google's grant revoked, a bank's login removed at Plaid); a provider that
  * can't be reached doesn't stop the deletion, and is logged, as disconnecting logs it. Then the
  * user goes, with their agents, their logins and MCP clients, and the activity log.
@@ -40,7 +40,7 @@ function deleteAccount(userId: string): Promise<Result<void, ApiError>> {
 		let undone = 0;
 		for (const org of $(await listUserOrgs(userId))) {
 			const owned = org.role === 'owner';
-			const connections = owned ? $(await listOrgConnectionsWithCredential(org.id)) : $(await listOwnConnectionsWithCredential({orgId: org.id, userId}));
+			const connections = owned ? $(await listOrgConnectionsWithCredential(org.id)) : $(await listLeavingConnectionsWithCredential({orgId: org.id, userId}));
 			await beforeDisconnectAll(connections);
 			undone += connections.length;
 			if (!owned) {

@@ -15,7 +15,7 @@ mock.module('@proxy/db/connection', () => ({
 	findAccountConnection,
 	createConnection,
 	renewConnection,
-	shareConnection: mock(),
+	setConnectionSharing: mock(),
 	updateConnectionCredential: mock(),
 	getConnectionCredential: mock(async () => Ok(null)),
 	updateConnectionTools: mock(),
@@ -127,7 +127,8 @@ const existing = {
 	integrationId: 'exa',
 	orgId: 'org-1',
 	ownerUserId: 'user-1',
-	connectedById: 'user-1',
+	sharedWithEveryone: false,
+	shares: [],
 	account: 'Signed in',
 	createdAt: new Date('2026-10-01T00:00:00Z'),
 	tools: null,
@@ -141,7 +142,19 @@ beforeEach(() => {
 	exa.requests = [];
 	findAccountConnection.mockResolvedValue(Ok(null));
 	createConnection.mockImplementation(async (data: {integrationId: string; account: string; defaults: string[]; name?: string}) =>
-		Ok({id: 'conn-1', integrationId: data.integrationId, account: data.account, createdAt: new Date(), tools: null, name: data.name ?? null, defaults: data.defaults.map((actionId) => ({actionId}))}),
+		Ok({
+			id: 'conn-1',
+			orgId: 'org-1',
+			ownerUserId: 'user-1',
+			sharedWithEveryone: false,
+			shares: [],
+			integrationId: data.integrationId,
+			account: data.account,
+			createdAt: new Date(),
+			tools: null,
+			name: data.name ?? null,
+			defaults: data.defaults.map((actionId) => ({actionId})),
+		}),
 	);
 	getConnectionWithCredential.mockResolvedValue(Ok(null));
 	renewConnection.mockResolvedValue(Ok(undefined));

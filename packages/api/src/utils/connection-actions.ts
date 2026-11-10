@@ -2,7 +2,7 @@ import {Err, Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, parseSchema} from '@proxy/utils';
-import {integrationFor, mcpToolSchema, type Integration, type McpTool} from '@proxy/integrations';
+import {findIntegration, integrationFor, mcpToolSchema, VAULT_INTEGRATION_ID, type Integration, type McpTool} from '@proxy/integrations';
 
 import {log} from '../observability/log';
 
@@ -25,6 +25,18 @@ export function parseStoredTools(json: string | null): McpTool[] | null {
 /** The integration of a connection, a custom MCP server's with its own tools as actions; undefined for one the catalog no longer has. */
 export function integrationOf(connection: StoredIntegration): Integration | undefined {
 	return integrationFor({integrationId: connection.integrationId, tools: parseStoredTools(connection.tools)});
+}
+
+/**
+ * Whether a connection is a member's built-in one, made for them rather than connected, so neither
+ * renamed, shared nor disconnected: one of an integration that lives in Personal Agent Proxy
+ * itself, but for a vault with a name, which is one a member made beside their own.
+ */
+export function isBuiltIn(connection: {integrationId: string; name: string | null}): boolean {
+	if (!findIntegration(connection.integrationId)?.native) {
+		return false;
+	}
+	return connection.integrationId !== VAULT_INTEGRATION_ID || connection.name === null;
 }
 
 /** The integration of a connection, or not_found for one the catalog no longer has. */

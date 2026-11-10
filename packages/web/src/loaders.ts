@@ -100,19 +100,37 @@ export const addConnectionLoader = later(async (args: OrgParams) => {
 export const connectionLoader = later(async (args: {params: {org?: string; id?: string}}) => {
 	const org = orgOf(args);
 	const id = args.params.id ?? '';
-	const [connection, connections, agents, activity] = await Promise.all([
+	const [connection, connections, agents, activity, members] = await Promise.all([
 		getConnection(org, id),
 		listConnections(org),
 		listAgents(org),
 		listActivity(org, {connectionId: id}),
+		listMembers(org),
 	]);
 	const {entries, tasks} = unwrapLoaderResult(activity);
+	const found = unwrapOrNull(connection);
+	// What a connection kept in Personal Agent Proxy holds is the first tab of its page: a vault's
+	// entries, the Sandboxes' sandboxes; null for every other connection.
+	const kept = async (integrationId: string, collectionId: string) => {
+		if (found?.integrationId !== integrationId) {
+			return null;
+		}
+		return unwrapLoaderResult(await listRecords(org, found.id, collectionId)).records;
+	};
+	const [vaultEntries, sandboxes] = await Promise.all([
+		kept(VAULT_INTEGRATION_ID, 'entries'),
+		kept(SANDBOX_INTEGRATION_ID, 'sandboxes'),
+	]);
 	return {
-		connection: unwrapOrNull(connection),
+		connection: found,
 		connections: unwrapLoaderResult(connections).connections,
 		agents: unwrapLoaderResult(agents).agents,
 		entries,
 		tasks,
+		// Whom it can be shared with by name.
+		members: unwrapLoaderResult(members).members,
+		vaultEntries,
+		sandboxes,
 	};
 });
 
@@ -143,52 +161,26 @@ export const alertsLoader = later(async (args: OrgParams) => {
 	return unwrapLoaderResult(await listAlerts(orgOf(args)));
 });
 
-// The vault is the one built-in connection, which every organization has twice: the person's own
-// there and the organization's, shared with everyone in it. The entries of each are kept in
-// Personal Agent Proxy.
-export const vaultLoader = later(async (args: OrgParams) => {
-	const org = orgOf(args);
-	const {connections} = unwrapLoaderResult(await listConnections(org));
-	const vaults = connections.filter(
-		(candidate) => candidate.integrationId === VAULT_INTEGRATION_ID,
-	);
-	const own = vaults.find((candidate) => !candidate.shared);
-	const shared = vaults.find((candidate) => candidate.shared);
-	if (!own || !shared) {
-		throw new Error('The organization has no vault');
-	}
-
-	const [ownEntries, sharedEntries] = await Promise.all([
-		listRecords(org, own.id, 'entries'),
-		listRecords(org, shared.id, 'entries'),
-	]);
-	return {
-		own: {connectionId: own.id, entries: unwrapLoaderResult(ownEntries).records},
-		shared: {connectionId: shared.id, entries: unwrapLoaderResult(sharedEntries).records},
-	};
-});
-
-// The sandboxes the person's agents made and the organization's: none where the organization
-// isn't offered sandboxes, which have no connections then.
-export const sandboxesLoader = later(async (args: OrgParams) => {
-	const org = orgOf(args);
-	const {connections} = unwrapLoaderResult(await listConnections(org));
-	const own = connections.find(
-		(candidate) => candidate.integrationId === SANDBOX_INTEGRATION_ID && !candidate.shared,
-	);
-	const shared = connections.find(
-		(candidate) => candidate.integrationId === SANDBOX_INTEGRATION_ID && candidate.shared,
-	);
-	const listed = async (connection: {id: string} | undefined) => {
-		if (!connection) {
-			return null;
+// The addresses of the vault and of Sandboxes from when each had a page of its own, where a saved
+// link still opens it: each is the first tab of its connection's page now, the person's own
+// vault's or Sandboxes' where the address names none.
+function builtInRedirect(integrationId: string) {
+	return async (args: {params: {org?: string; id?: string}}) => {
+		const org = orgOf(args);
+		const {id} = args.params;
+		if (id !== undefined) {
+			throw redirect(`/${org}/connections/${id}`);
 		}
-		const page = unwrapLoaderResult(await listRecords(org, connection.id, 'sandboxes'));
-		return {connectionId: connection.id, sandboxes: page.records};
+		const {connections} = unwrapLoaderResult(await listConnections(org));
+		const own = connections.find(
+			(candidate) => candidate.integrationId === integrationId && candidate.builtIn,
+		);
+		throw redirect(own ? `/${org}/connections/${own.id}` : `/${org}/connections`);
 	};
-	const [ownListed, sharedListed] = await Promise.all([listed(own), listed(shared)]);
-	return {own: ownListed, shared: sharedListed};
-});
+}
+
+export const vaultLoader = builtInRedirect(VAULT_INTEGRATION_ID);
+export const sandboxesLoader = builtInRedirect(SANDBOX_INTEGRATION_ID);
 
 export const agentsLoader = later(async (args: OrgParams) => {
 	return {agents: unwrapLoaderResult(await listAgents(orgOf(args))).agents};
@@ -197,12 +189,13 @@ export const agentsLoader = later(async (args: OrgParams) => {
 export const agentLoader = later(async (args: {params: {org?: string; id?: string}}) => {
 	const org = orgOf(args);
 	const id = args.params.id ?? '';
-	const [agent, connections, agents, activity, mcpClients] = await Promise.all([
+	const [agent, connections, agents, activity, mcpClients, members] = await Promise.all([
 		getAgent(org, id),
 		listConnections(org),
 		listAgents(org),
 		listActivity(org, {agentId: id}),
 		listMcpClients(org, id),
+		listMembers(org),
 	]);
 	const {entries, tasks} = unwrapLoaderResult(activity);
 	const found = unwrapOrNull(agent);
@@ -215,6 +208,8 @@ export const agentLoader = later(async (args: {params: {org?: string; id?: strin
 		agents: unwrapLoaderResult(agents).agents,
 		entries,
 		tasks,
+		// Who has it, on its Sharing tab.
+		members: unwrapLoaderResult(members).members,
 	};
 });
 

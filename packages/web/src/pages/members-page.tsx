@@ -337,7 +337,8 @@ function InviteDialog({
 						<DialogTitle>Invite to {orgName}</DialogTitle>
 						<DialogDescription>
 							They get a link by email that signs them in and adds them as a member, working with
-							the connections and agents shared with everyone in {orgName}. Your own stay yours.
+							the connections and agents shared with them in {orgName}. Your own stay yours unless
+							you share them.
 						</DialogDescription>
 					</DialogHeader>
 					<div className="grid gap-2">

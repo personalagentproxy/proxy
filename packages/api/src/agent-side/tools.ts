@@ -35,7 +35,7 @@ import {parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
 import {log as serverLog} from '../observability/log';
 import {integrationOf} from '../utils/connection-actions';
-import {ensureSandboxConnections} from '../native/sandbox/connections';
+import {ensureSandboxConnection} from '../native/sandbox/connections';
 import type {NativeToolRun} from '../native/tool';
 import {requireOpenTask} from './tasks';
 import {isPlainObject, parseToolParams} from './tool-params';
@@ -64,8 +64,9 @@ export function actionsOf(agent: AgentRow, connection: ConnectionRow, integratio
 }
 
 /**
- * What an agent reaches, as a viewer of its organization's connections: the shared ones and, for a
- * member's own agent, that member's own.
+ * What an agent reaches, as a viewer of its organization's connections: for a member's own agent,
+ * what that member uses, their own and those shared with them; for a shared agent, those shared
+ * with every member alone.
  */
 export function agentViewer(signedIn: SignedInAgent): Viewer {
 	return {orgId: signedIn.orgId, userId: signedIn.ownerUserId};
@@ -93,7 +94,7 @@ function nativeToolsOf(integration: Integration, actions: string[]): McpTool[] |
 export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.infer<typeof agentMeSchema>, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
-		$(await ensureSandboxConnections({orgId: signedIn.orgId, userId: signedIn.ownerUserId, experiments: signedIn.experiments}));
+		$(await ensureSandboxConnection({...agentViewer(signedIn), experiments: signedIn.experiments}));
 		const connections = $(await listConnectionsWithCredential(agentViewer(signedIn)))
 			.flatMap((connection) => {
 				const integration = integrationOf(connection);
@@ -106,7 +107,7 @@ export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.
 						id: connection.id,
 						integrationId: connection.integrationId,
 						account: connection.account,
-						shared: connection.ownerUserId === null,
+						shared: connection.sharedWithEveryone || connection.shares.length > 0,
 						actions,
 						tools: integration.mcpTools?.filter((tool) => actions.includes(tool.name)) ?? nativeToolsOf(integration, actions),
 						name: connection.name,

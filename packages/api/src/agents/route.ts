@@ -173,7 +173,7 @@ export function handleShareAgentRoute(request: AuthenticatedRequest): Promise<Re
  * Sets the agent's own settings for actions of a connection, such as `{actions: {send: false}}`;
  * `null` returns an action to the connection's default. An action the integration doesn't have is
  * refused, and so is turning on one the connection's sign-in didn't cover. A shared agent reaches
- * only shared connections, so a setting on one's own connection is refused for it.
+ * only the connections shared with every member, so a setting on any other is refused for it.
  */
 export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promise<Result<AgentLogin, ApiError>> {
 	return Do(async ($) => {
@@ -182,8 +182,8 @@ export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promis
 		const connectionId = request.params.connectionId ?? '';
 		const agent = $(await requireManagedAgent(viewer, agentId));
 		const connection = $(requirePresent($(await getConnectionWithCredential(viewer, connectionId)), ApiErr.notFound('connection', connectionId)));
-		if (agent.ownerUserId === null && connection.ownerUserId !== null) {
-			return $(Err(ApiErr.validationError('A shared agent reaches only shared connections')));
+		if (agent.ownerUserId === null && !connection.sharedWithEveryone) {
+			return $(Err(ApiErr.validationError('A shared agent reaches only connections shared with everyone')));
 		}
 		const integration = $(requireIntegration(connection));
 		const actions = $(parseActionChanges(integration, setGrantsBodySchema, request.body));

@@ -80,8 +80,8 @@ export async function logAgentRequest(data: {
 /**
  * Logs one thing Personal Agent Proxy did itself for a person, such as making an event from the
  * home page: an entry without an agent, always allowed, since the person asked for it. Whose entry
- * it is (`ownerUserId`) is whose own the connection is: everyone's for a shared one; who asked
- * (`userId`) is kept either way.
+ * it is (`ownerUserId`) is who asked, or everyone's, null, for a connection shared with every
+ * member; who asked (`userId`) is kept either way.
  */
 export async function logProxyAction(data: {
 	orgId: string;
@@ -108,8 +108,9 @@ export async function logProxyAction(data: {
 }
 
 /**
- * The entries the viewer sees, newest first: the organization's shared agents' and shared
- * connections', and their own; optionally only one agent's or one connection's requests, or only
+ * The entries the viewer sees, newest first: the organization's shared agents', what was done
+ * for anyone with a connection shared with every member, and their own; optionally only one
+ * agent's or one connection's requests, or only
  * allowed, denied or failed ones; an `agentId` of null is what Personal Agent Proxy
  * did itself.
  */

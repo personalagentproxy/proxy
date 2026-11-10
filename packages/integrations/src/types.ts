@@ -148,8 +148,8 @@ export type Integration = {
 	// Shown above a connection's permissions: what ticking them hands the person's agents, where a
 	// provider's policy asks for it to be said.
 	disclosure?: string;
-	// Lives in Personal Agent Proxy itself, as the vault does: always there, never connected or
-	// disconnected.
+	// Lives in Personal Agent Proxy itself, as the vault does: every member has one of their own,
+	// always there, never connected or disconnected. A vault alone is also made, beside it, to share.
 	native?: true;
 	// A custom MCP server: its actions are a connection's own tools, so the catalog's entry has
 	// none, and `integrationFor` fills them in from the connection.

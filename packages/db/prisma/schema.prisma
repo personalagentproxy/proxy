@@ -39,6 +39,7 @@ model User {
   orgMembers   OrgMember[]
   ownedOrgs    Organization[]
   connections  Connection[]
+  shares       ConnectionShare[]
   agents       Agent[]
   threads      AgentThread[]
   writeTargets WriteTarget[]
@@ -185,10 +186,12 @@ model Invitation {
 }
 
 // A connected account of an integration from the catalog (`@proxy/integrations`), such as a
-// mailbox. An organization can connect the same integration more than once. A connection is either
-// one member's, which nobody else in the organization sees, or shared with every member of it; one
-// that is shared stays shared. Every member also has their own built-in vault connection in each
-// organization, made when they join it, whose entries live in Personal Agent Proxy.
+// mailbox. An organization can connect the same integration more than once. A connection is one
+// member's, who alone changes, shares and disconnects it: only theirs to use until they share it,
+// with every member of the organization (`sharedWithEveryone`), with members by name
+// (ConnectionShare), or both, and take it back again. Every member also has their own built-in
+// vault connection in each organization, made when they join it, whose entries live in Personal
+// Agent Proxy, and may make more vaults, each named, to share as any connection.
 model Connection {
   id                String  @id @default(cuid())
   orgId             String
@@ -204,15 +207,22 @@ model Connection {
   // A custom MCP server's tools as the server last listed them (`@proxy/integrations`' McpTool),
   // as JSON: what agents can be allowed with it. Null for every other integration.
   tools             String?
-  // What the person called the connection, where they named it: a custom MCP server is named when
-  // it is connected. Null for every other integration, which shows as its integration.
+  // What the person called the connection, where they named it: a custom MCP server and a vault
+  // someone made are named as they are made. Null for every other integration, which shows as its
+  // integration, and for a member's built-in vault, which is told from the ones made by it.
   name              String?
-  // The member whose connection it is, which nobody else in the organization sees; null for one
-  // shared with every member of it.
+  // The member whose connection it is: who connected it, whom a sign-in acts as, and who changes,
+  // shares and disconnects it. Always set by this version. Null only on a connection an instance
+  // of the version before made shared with everyone, as it could while this one was being
+  // deployed beside it: nobody's, so nothing reads it (db/connection.ts). The migration after the
+  // next deploy deletes those and makes the column required.
   ownerUserId       String?
-  // Who connected it, kept once it is shared: who a sign-in acts as, and who may change it beside
-  // the organization's owner. A plain id rather than a relation, so a shared connection stays when
-  // they are gone.
+  // Shared with every member of the organization, the shared agents included, beside whoever it
+  // is shared with by name (ConnectionShare). The organization's owner may change one that is.
+  sharedWithEveryone Boolean @default(false)
+  // Who connected it, as the version before kept it for a shared connection, which had no owner.
+  // Read and written by nothing: kept until no instance of that version, which selects it,
+  // still runs. The migration after the next deploy drops it.
   connectedById     String?
 
   createdAt DateTime @default(now())
@@ -220,6 +230,7 @@ model Connection {
 
   org          Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
   owner        User?               @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  shares       ConnectionShare[]
   defaults     ConnectionDefault[]
   vaultEntries VaultEntry[]
   agentGrants  AgentGrant[]
@@ -230,6 +241,23 @@ model Connection {
   @@index([orgId])
   @@index([ownerUserId])
   @@index([integrationId, providerAccountId])
+}
+
+// A member a connection is shared with by name, by whoever's it is: they and their own agents use
+// it as its owner's do, and change nothing of it. Gone with the connection, with the member, and
+// when it is taken back from them.
+model ConnectionShare {
+  id           String @id @default(cuid())
+  connectionId String
+  userId       String
+
+  createdAt DateTime @default(now())
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, userId])
+  @@index([userId])
 }
 
 // Where the home page's widgets write when there is more than one place: the calendar a new event
@@ -287,9 +315,9 @@ model VaultEntry {
 }
 
 // A login handed to an AI agent, in one organization: a member's own, which reaches the
-// organization's shared connections and that member's own, or shared with every member of it,
-// which reaches the shared connections alone; one that is shared stays shared. The password is
-// shown once, when it is made or reset; only its hash is kept.
+// connections that member uses, their own and those shared with them, or shared with every member
+// of it, which reaches the connections shared with every member alone; one that is shared stays
+// shared. The password is shown once, when it is made or reset; only its hash is kept.
 model Agent {
   id           String    @id @default(cuid())
   orgId        String
@@ -398,9 +426,9 @@ model AuditEntry {
   // every entry logged since this was kept; none for the entries from before, and for what
   // Personal Agent Proxy did itself.
   durationMs   Int?
-  // Whose log it is: the member whose own the agent is, or whose own the connection was for what
-  // Personal Agent Proxy did itself; null for a shared agent's or a shared connection's, which
-  // everyone in the organization sees.
+  // Whose log it is: the member whose own the agent is, or who asked for what Personal Agent
+  // Proxy did itself; null for a shared agent's, or for what it did with a connection shared with
+  // every member, which everyone in the organization sees.
   ownerUserId  String?
   // The member who asked for what Personal Agent Proxy did itself, as a plain id, so the entry
   // stays when they are gone; null for an agent's request.

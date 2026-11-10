@@ -3,17 +3,19 @@ import {Ok, type Result} from 'ts-results-es';
 import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
-import {type Viewer, visibleTo} from './viewer';
+import {leavingWith, type Viewer, usableBy} from './viewer';
 
 export type ConnectionRow = {
 	id: string;
 	orgId: string;
 	integrationId: string;
 	account: string;
-	// The member whose connection it is; null when it is shared with every member.
-	ownerUserId: string | null;
-	// Who connected it, kept once it is shared.
-	connectedById: string | null;
+	// The member whose connection it is: who connected it, and who changes and shares it.
+	ownerUserId: string;
+	// Shared with every member of the organization.
+	sharedWithEveryone: boolean;
+	// The members it is shared with by name, the first shared with first.
+	shares: Array<{userId: string}>;
 	createdAt: Date;
 	// A custom MCP server's tools as JSON, the server's own list; null for every other integration.
 	tools: string | null;
@@ -31,21 +33,28 @@ const connectionSelect = {
 	integrationId: true,
 	account: true,
 	ownerUserId: true,
-	connectedById: true,
+	sharedWithEveryone: true,
+	shares: {select: {userId: true}, orderBy: {createdAt: 'asc'}},
 	createdAt: true,
 	tools: true,
 	name: true,
 	defaults: {select: {actionId: true}},
 } as const;
 
-export async function listConnections(viewer: Viewer): Promise<Result<ConnectionRow[], ApiError>> {
-	return wrapDb(() =>
-		db.connection.findMany({
-			where: visibleTo(viewer),
-			select: connectionSelect,
-			orderBy: {createdAt: 'asc'},
-		}),
-	);
+// A connection as it is stored, where the owner's column still takes none (schema.prisma): one
+// without is nobody's, made by an instance of the version before while this one was deployed
+// beside it, and is left out of everything read here.
+type Stored = {ownerUserId: string | null};
+
+function owned<T extends Stored>(row: T | null): (T & {ownerUserId: string}) | null {
+	if (row === null || row.ownerUserId === null) {
+		return null;
+	}
+	return {...row, ownerUserId: row.ownerUserId};
+}
+
+function ownedOnly<T extends Stored>(rows: T[]): Array<T & {ownerUserId: string}> {
+	return rows.flatMap((row) => owned(row) ?? []);
 }
 
 /**
@@ -55,13 +64,15 @@ export async function listConnections(viewer: Viewer): Promise<Result<Connection
 export async function listConnectionsWithCredential(
 	viewer: Viewer,
 ): Promise<Result<Array<ConnectionRow & {credential: string | null}>, ApiError>> {
-	return wrapDb(() =>
-		db.connection.findMany({
-			where: visibleTo(viewer),
-			select: {...connectionSelect, credential: true},
-			orderBy: {createdAt: 'asc'},
-		}),
-	);
+	return (
+		await wrapDb(() =>
+			db.connection.findMany({
+				where: usableBy(viewer),
+				select: {...connectionSelect, credential: true},
+				orderBy: {createdAt: 'asc'},
+			}),
+		)
+	).map(ownedOnly);
 }
 
 /** The connection with its encrypted credential, for the code that talks to the provider. */
@@ -69,12 +80,14 @@ export async function getConnectionWithCredential(
 	viewer: Viewer,
 	connectionId: string,
 ): Promise<Result<(ConnectionRow & {credential: string | null}) | null, ApiError>> {
-	return wrapDb(() =>
-		db.connection.findFirst({
-			where: {id: connectionId, ...visibleTo(viewer)},
-			select: {...connectionSelect, credential: true},
-		}),
-	);
+	return (
+		await wrapDb(() =>
+			db.connection.findFirst({
+				where: {id: connectionId, ...usableBy(viewer)},
+				select: {...connectionSelect, credential: true},
+			}),
+		)
+	).map(owned);
 }
 
 /**
@@ -84,12 +97,14 @@ export async function getConnectionWithCredential(
 export async function getConnectionWithCredentialById(
 	connectionId: string,
 ): Promise<Result<(ConnectionRow & {credential: string | null}) | null, ApiError>> {
-	return wrapDb(() =>
-		db.connection.findUnique({
-			where: {id: connectionId},
-			select: {...connectionSelect, credential: true},
-		}),
-	);
+	return (
+		await wrapDb(() =>
+			db.connection.findUnique({
+				where: {id: connectionId},
+				select: {...connectionSelect, credential: true},
+			}),
+		)
+	).map(owned);
 }
 
 /** The organization's connections among `ids`, for what names them; those gone are left out. */
@@ -100,9 +115,11 @@ export async function listConnectionsByIds(
 	if (ids.length === 0) {
 		return Ok([]);
 	}
-	return wrapDb(() =>
-		db.connection.findMany({where: {orgId, id: {in: ids}}, select: connectionSelect}),
-	);
+	return (
+		await wrapDb(() =>
+			db.connection.findMany({where: {orgId, id: {in: ids}}, select: connectionSelect}),
+		)
+	).map(ownedOnly);
 }
 
 /**
@@ -112,36 +129,76 @@ export async function listConnectionsByIds(
 export async function listOrgConnectionsWithCredential(
 	orgId: string,
 ): Promise<Result<Array<ConnectionRow & {credential: string | null}>, ApiError>> {
-	return wrapDb(() =>
-		db.connection.findMany({
-			where: {orgId},
-			select: {...connectionSelect, credential: true},
-			orderBy: {createdAt: 'asc'},
-		}),
-	);
+	return (
+		await wrapDb(() =>
+			db.connection.findMany({
+				where: {orgId},
+				select: {...connectionSelect, credential: true},
+				orderBy: {createdAt: 'asc'},
+			}),
+		)
+	).map(ownedOnly);
 }
 
 /**
- * A member's own connections in an organization, with their credentials: for undoing them at their
- * providers before they leave it.
+ * The connections that leave an organization with a member, with their credentials: for undoing
+ * them at their providers before they leave it.
  */
-export async function listOwnConnectionsWithCredential(data: {
+export async function listLeavingConnectionsWithCredential(data: {
 	orgId: string;
 	userId: string;
 }): Promise<Result<Array<ConnectionRow & {credential: string | null}>, ApiError>> {
-	return wrapDb(() =>
-		db.connection.findMany({
-			where: {orgId: data.orgId, ownerUserId: data.userId},
-			select: {...connectionSelect, credential: true},
-			orderBy: {createdAt: 'asc'},
-		}),
-	);
+	return (
+		await wrapDb(() =>
+			db.connection.findMany({
+				where: leavingWith(data),
+				select: {...connectionSelect, credential: true},
+				orderBy: {createdAt: 'asc'},
+			}),
+		)
+	).map(ownedOnly);
 }
 
-/** Shares a connection with every member of its organization, for good: nothing makes it one member's own again. */
-export async function shareConnection(connectionId: string): Promise<Result<void, ApiError>> {
+/**
+ * Sets who a connection is shared with, all of it at once: every member of its organization
+ * (`everyone`), and the members named (`userIds`), whom the caller has checked are in it and not
+ * its owner. Whoever it is taken back from loses it at once, and what their agents were set to do
+ * with it goes too, the shared agents' when it is no longer everyone's: a setting kept would apply
+ * again, unasked, were it shared with them another time. So does where they last wrote from the
+ * home page, where that was here.
+ */
+export async function setConnectionSharing(data: {
+	connectionId: string;
+	ownerUserId: string;
+	everyone: boolean;
+	userIds: string[];
+}): Promise<Result<void, ApiError>> {
+	const {connectionId, ownerUserId, everyone, userIds} = data;
+	const still = [ownerUserId, ...userIds];
 	return wrapDb(async () => {
-		await db.connection.update({where: {id: connectionId}, data: {ownerUserId: null}});
+		await db.$transaction([
+			db.connection.update({
+				where: {id: connectionId},
+				data: {sharedWithEveryone: everyone},
+				select: {id: true},
+			}),
+			db.connectionShare.deleteMany({where: {connectionId, userId: {notIn: userIds}}}),
+			db.connectionShare.createMany({
+				data: userIds.map((userId) => ({connectionId, userId})),
+				skipDuplicates: true,
+			}),
+			...(everyone
+				? []
+				: [
+						db.agentGrant.deleteMany({
+							where: {
+								connectionId,
+								agent: {OR: [{ownerUserId: null}, {ownerUserId: {notIn: still}}]},
+							},
+						}),
+						db.writeTarget.deleteMany({where: {connectionId, userId: {notIn: still}}}),
+					]),
+		]);
 	});
 }
 
@@ -156,58 +213,66 @@ export async function getConnectionCredential(
 }
 
 /**
- * `credential` is already encrypted; this package never sees it in the clear. `defaults` are the
- * actions agents get from the start, none when left out; `tools` a custom MCP server's, as JSON,
- * and `name` what the person called it. `ownerUserId` is who it is for, null to share it with every
- * member, and `connectedById` who connected it.
+ * `credential` is already encrypted; this package never sees it in the clear, and a vault has none.
+ * `defaults` are the actions agents get from the start, none when left out; `tools` a custom MCP
+ * server's, as JSON, and `name` what the person called it. `ownerUserId` is whose it is, who
+ * connected it, and `sharedWithEveryone` shares it with every member from the start.
  */
 export async function createConnection(data: {
 	orgId: string;
-	ownerUserId: string | null;
-	connectedById: string;
+	ownerUserId: string;
+	sharedWithEveryone?: boolean;
 	integrationId: string;
 	account: string;
 	providerAccountId?: string | null;
-	credential: string;
+	credential?: string;
 	defaults?: string[];
 	tools?: string;
 	name?: string;
 }): Promise<Result<ConnectionRow, ApiError>> {
-	const {defaults = [], ...connection} = data;
-	return wrapDb(() =>
-		db.connection.create({
-			data: {...connection, defaults: {create: defaults.map((actionId) => ({actionId}))}},
-			select: connectionSelect,
-		}),
-	);
+	const {defaults = [], ownerUserId, ...connection} = data;
+	return (
+		await wrapDb(() =>
+			db.connection.create({
+				data: {
+					...connection,
+					ownerUserId,
+					defaults: {create: defaults.map((actionId) => ({actionId}))},
+				},
+				select: connectionSelect,
+			}),
+		)
+	).map((row) => ({...row, ownerUserId}));
 }
 
 /**
- * The connection of an integration for an account among those the viewer sees, signed in to again:
+ * The connection of an integration for an account among those the viewer uses, signed in to again:
  * by the provider's own id for the account where it gives one, else by its address, which is also
- * how a connection made before ids were kept is found. Another member's own connection of the same
- * account is never found: it is theirs.
+ * how a connection made before ids were kept is found; the viewer's own before one shared with
+ * them. Another member's connection of the same account that isn't shared with them is never
+ * found: it is theirs.
  */
 export async function findAccountConnection(
 	viewer: Viewer,
 	data: {integrationId: string; account: string; providerAccountId: string | null},
 ): Promise<Result<ConnectionRow | null, ApiError>> {
 	const {integrationId, account, providerAccountId} = data;
-	return wrapDb(async () => {
-		const byId =
-			providerAccountId === null
-				? null
-				: await db.connection.findFirst({
-						where: {...visibleTo(viewer), integrationId, providerAccountId},
-						select: connectionSelect,
-					});
-		return (
-			byId ??
-			db.connection.findFirst({
-				where: {...visibleTo(viewer), integrationId, account, providerAccountId: null},
+	const find = async (same: {
+		providerAccountId: string | null;
+		account?: string;
+	}): Promise<ConnectionRow | null> => {
+		const found = ownedOnly(
+			await db.connection.findMany({
+				where: {...usableBy(viewer), integrationId, ...same},
 				select: connectionSelect,
-			})
+				orderBy: {createdAt: 'asc'},
+			}),
 		);
+		return found.find((row) => row.ownerUserId === viewer.userId) ?? found[0] ?? null;
+	};
+	return wrapDb(async () => {
+		const byId = providerAccountId === null ? null : await find({providerAccountId});
+		return byId ?? find({account, providerAccountId: null});
 	});
 }
 
@@ -301,13 +366,13 @@ export async function countSameAccountConnections(
 	});
 }
 
-/** `Ok(false)` means no such connection the viewer sees. Its defaults go with it. */
+/** `Ok(false)` means no such connection the viewer uses. Its defaults go with it. */
 export async function deleteConnection(
 	viewer: Viewer,
 	connectionId: string,
 ): Promise<Result<boolean, ApiError>> {
 	return (
-		await wrapDb(() => db.connection.deleteMany({where: {id: connectionId, ...visibleTo(viewer)}}))
+		await wrapDb(() => db.connection.deleteMany({where: {id: connectionId, ...usableBy(viewer)}}))
 	).map(({count}) => count > 0);
 }
 

@@ -79,9 +79,13 @@ export class Redirected {
 
 /**
  * A loader's answer still on its way, so its page opens at once: the frame first, then the content
- * as the answer comes (`useLoaded`), or the page it redirects to instead.
+ * as the answer comes (`useLoaded`), or the page it redirects to instead. Once it has come it is
+ * `answered` too, for whoever reads it then to need no waiting.
  */
-export type Later<T> = {later: Promise<T | Redirected>};
+export type Later<T> = {
+	later: Promise<T | Redirected>;
+	answered: {answer: T | Redirected} | null;
+};
 
 // Every answer on its way.
 const onTheWay = new Set<Promise<unknown>>();
@@ -101,13 +105,19 @@ export function later<Args, T>(load: (args: Args) => Promise<T>): (args: Args) =
 			return new Redirected(to);
 		});
 		onTheWay.add(loading);
+		const answer: Later<T> = {later: loading, answered: null};
 		// A failure is read where the content renders. One nobody reads, as of a page left before
 		// its answer came, is not an unhandled rejection.
-		const arrived = () => {
-			onTheWay.delete(loading);
-		};
-		loading.then(arrived, arrived);
-		return {later: loading};
+		loading.then(
+			(value) => {
+				onTheWay.delete(loading);
+				answer.answered = {answer: value};
+			},
+			() => {
+				onTheWay.delete(loading);
+			},
+		);
+		return answer;
 	};
 }
 
