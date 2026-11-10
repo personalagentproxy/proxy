@@ -19,8 +19,7 @@ const DEV_USER_EMAIL = `dev@${DEV_USER_EMAIL_DOMAIN}`;
 /**
  * `POST /auth/dev/login` — signs the browser in as the dev user, made on its first sign-in and the
  * same one every time after, skipping Google and the magic link. Every organization the dev user
- * owns is made an insider on each sign-in, so it has every experiment and its personas' model to
- * choose, one made since too. With `{fresh: true}` it makes a
+ * owns is made an insider on each sign-in, so it has every experiment, one made since too. With `{fresh: true}` it makes a
  * throwaway user instead, whose organization still has the welcome flow ahead of it, as the screen
  * map's crawl needs. Any NODE_ENV but development gets a 404, as if the route did not exist.
  */

@@ -1,11 +1,9 @@
 import type {Persona} from '@proxy/contracts/harness';
 import {ShuffleIcon} from 'lucide-react';
 import {useState} from 'react';
-import {CHAT_MODELS, type ChatModel} from '@proxy/utils';
 import {AGENT_NAME_MAX} from '@proxy/utils/agent-providers';
 import {AVATAR_COLORS, type AvatarColor, shuffleLook} from '@proxy/utils/harness';
 import {LiveHead} from '@/components/head';
-import {Badge} from '@proxy/ui/components/badge';
 import {Button} from '@proxy/ui/components/button';
 import {
 	Dialog,
@@ -24,8 +22,6 @@ type Props = {
 	open: boolean;
 	// The persona as it is, to change; none to make one.
 	initial: Persona | null;
-	// Whether the model it answers with is the person's to choose: in an insider organization.
-	chooseModel: boolean;
 	onClose: () => void;
 	// Saves the persona; what went wrong, shown in the dialog, or null once saved.
 	onSave: (persona: Persona) => Promise<string | null>;
@@ -55,46 +51,15 @@ function fresh(): Persona {
 	};
 }
 
-// The models it can answer with, as a button each, the one chosen pressed.
-function ModelChoice({
-	chatModel,
-	onPick,
-}: {
-	chatModel: ChatModel;
-	onPick: (chatModel: ChatModel) => void;
-}) {
-	return (
-		<div className="grid gap-2">
-			<Label className="flex items-center gap-2">
-				Model <Badge variant="secondary">Insider</Badge>
-			</Label>
-			<div className="flex flex-wrap items-center gap-2" role="group" aria-label="Model">
-				{(Object.keys(CHAT_MODELS) as ChatModel[]).map((model) => (
-					<Button
-						key={model}
-						type="button"
-						size="sm"
-						variant={model === chatModel ? 'secondary' : 'outline'}
-						aria-pressed={model === chatModel}
-						onClick={() => onPick(model)}
-					>
-						{CHAT_MODELS[model]}
-					</Button>
-				))}
-			</div>
-		</div>
-	);
-}
-
 // A round button the size of a swatch, for the colors and the one for another look.
 const ROUND =
 	'flex size-9 shrink-0 items-center justify-center rounded-full transition-[box-shadow,background-color] outline-none focus-visible:ring-3 focus-visible:ring-ring/50';
 
 // Making a persona, or changing one: its name, and its head, which looks at the cursor as the
-// person works, in one of the colors, with another look a click away; in an insider
-// organization, the model it answers with too. Mount it keyed by what is edited, so the fields
-// start from it.
-export function PersonaDialog({open, initial, chooseModel, onClose, onSave, onDelete}: Props) {
+// person works, in one of the colors, with another look a click away. What runs it, the harness
+// and the model, is chosen under the conversation's input (model-switcher.tsx), and a new one
+// starts on the server's first. Mount it keyed by what is edited, so the fields start from it.
+export function PersonaDialog({open, initial, onClose, onSave, onDelete}: Props) {
 	const [persona, setPersona] = useState<Persona>(() => initial ?? fresh());
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -129,22 +94,14 @@ export function PersonaDialog({open, initial, chooseModel, onClose, onSave, onDe
 							return;
 						}
 						setBusy(true);
-						finish(
-							await onSave({
-								...persona,
-								name: persona.name.trim(),
-								chatModel: chooseModel ? (persona.chatModel ?? 'claude') : undefined,
-							}),
-						);
+						finish(await onSave({...persona, name: persona.name.trim()}));
 					}}
 				>
 					<DialogHeader>
 						<DialogTitle>{initial ? 'Edit agent' : 'New agent'}</DialogTitle>
 						<DialogDescription>
 							{initial
-								? chooseModel
-									? 'Its name, its head and its model. The conversation stays as it is.'
-									: 'Its name and its head. The conversation stays as it is.'
+								? 'Its name and its head. The conversation stays as it is.'
 								: 'An agent for one kind of thing, such as Finance or Outreach, with a conversation that keeps going.'}
 						</DialogDescription>
 					</DialogHeader>
@@ -198,12 +155,6 @@ export function PersonaDialog({open, initial, chooseModel, onClose, onSave, onDe
 							</div>
 						</div>
 					</div>
-					{chooseModel && (
-						<ModelChoice
-							chatModel={persona.chatModel ?? 'claude'}
-							onPick={(chatModel) => setPersona({...persona, chatModel})}
-						/>
-					)}
 					{error && <p className="text-sm text-destructive">{error}</p>}
 					<DialogFooter>
 						{onDelete && (

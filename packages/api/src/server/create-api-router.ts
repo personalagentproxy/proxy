@@ -46,6 +46,7 @@ import {handleFaviconRoute} from '../favicons/route';
 import {alertRoutes} from '../harness/alerts-route';
 import {handleClientLogsRoute} from '../observability/client-logs';
 import {chatRoutes} from '../harness/route';
+import {serverHarnesses} from '../backends/registry';
 import {harnessStore} from '../harness/store';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
@@ -216,7 +217,7 @@ export function createApiRouter(): express.Router {
 	// The Chat page: the organization's built-in agents and the member's conversations with them.
 	// Nothing here runs the model: the worker in each api instance does (harness/worker.ts); a
 	// message queues its work.
-	const chat = chatRoutes(harnessStore);
+	const chat = chatRoutes(harnessStore, serverHarnesses);
 	org.get('/chat/personas', withAuthResult('List personas route', chat.handleListPersonasRoute));
 	org.get('/chat/answers', withAuthResult('List answers route', chat.handleListAnswersRoute));
 	org.post('/chat/personas', withAuthResult('Create persona route', chat.handleCreatePersonaRoute));

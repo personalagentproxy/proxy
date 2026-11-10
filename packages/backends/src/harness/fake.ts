@@ -22,6 +22,11 @@ export function fakeHarness(id = 'fake'): FakeHarness {
 	const turns: HarnessTurn[] = [];
 	return {
 		id,
+		label: 'Fake',
+		models: [
+			{id: 'claude', label: 'Claude'},
+			{id: 'other', label: 'Other'},
+		],
 		turns,
 		script: (events) => {
 			scripted.push(events);

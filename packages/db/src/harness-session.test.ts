@@ -10,10 +10,12 @@ import {
 	appendTurnEntries,
 	claimJob,
 	completeInference,
+	completeToolJob,
 	createPersona,
 	ensureMemberThread,
 	finishJob,
 	getJobThread,
+	getThreadPersonaModel,
 	listEntries,
 	listOpenJobs,
 	listSubAgents,
@@ -661,11 +663,13 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 		unwrap(await finishJob(wake.id, 'worker-j'));
 	});
 
-	test('a claim says whether the job is a turn of a member with a Claude account of their own, and one that leaves such turns out leaves it queued, taking the other jobs', async () => {
-		const quiet = await quietThread('Accounts');
+	test('a claim told which harness is capped says whether the job is a turn of a persona on it, and one from a worker with no room for another leaves such a turn queued, taking the other jobs', async () => {
+		const capped = (full: boolean) => ({harness: 'claude-agent-sdk', full});
+		const quiet = await quietThread('Capped');
 		unwrap(await appendPersonMessage(quiet.id, 'Hi', readyForInference));
 		const before = await claimFor('worker-k', quiet.id);
-		expect(before.onClaudeAccount).toBe(false);
+		// On the proxy harness, as a persona is made: no turn of the capped harness's.
+		expect(before.capped).toBe(false);
 		unwrap(
 			await completeInference(
 				before.id,
@@ -677,28 +681,51 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 					inputTokens: 1,
 					outputTokens: 1,
 					system: null,
+					ranOn: {harness: 'proxy', model: 'claude'},
 				},
 				{plans: {r1: {kind: 'job', runAt: new Date()}}},
 				readyForInference,
 			),
 		);
+		// The answer keeps what it ran on.
+		expect(
+			unwrap(await listEntries(quiet.id))
+				.filter((entry) => entry.kind === 'assistant')
+				.map((entry) => [entry.harness, entry.model]),
+		).toEqual([['proxy', 'claude']]);
 
-		// The member connects their account while the call is still to run: its job is no turn.
-		await db.claudeAccount.create({data: {userId, kind: 'api_key', credential: 'encrypted'}});
-		const tool = await claimFor('worker-k', quiet.id);
-		expect([tool.kind, tool.onClaudeAccount]).toEqual(['tool', false]);
-		unwrap(await finishJob(tool.id, 'worker-k'));
-
+		// The persona is switched to the capped harness while the call is still to run: its job is
+		// no turn, and is claimed by a worker with no room for one.
+		await db.persona.update({
+			where: {id: quiet.personaId},
+			data: {harness: 'claude-agent-sdk', chatModel: 'opus'},
+		});
+		expect(unwrap(await getThreadPersonaModel(quiet))).toEqual({
+			harness: 'claude-agent-sdk',
+			chatModel: 'opus',
+		});
+		const tool = unwrap(await claimJob('worker-k', 60_000, capped(true)));
+		expect([tool?.kind, tool?.capped]).toEqual(['tool', false]);
 		unwrap(
-			await appendPersonMessage(
-				(await quietThread('Accounts, again')).id,
-				'Hi again',
+			await completeToolJob(
+				tool?.id ?? '',
+				'worker-k',
+				quiet.id,
+				{callId: 'r1', text: 'rows', isError: false},
 				readyForInference,
 			),
 		);
-		expect(unwrap(await claimJob('worker-k', 60_000, true))).toBeNull();
-		const turn = unwrap(await claimJob('worker-k', 60_000));
-		expect([turn?.kind, turn?.onClaudeAccount]).toEqual(['inference', true]);
-		await db.claudeAccount.delete({where: {userId}});
+
+		// Its next turn is one: left queued by a worker that is full, claimed by one that isn't,
+		// and by one that was told of no cap, which then says nothing of it.
+		expect(unwrap(await claimJob('worker-k', 60_000, capped(true)))).toBeNull();
+		const turn = unwrap(await claimJob('worker-k', 60_000, capped(false)));
+		expect([turn?.kind, turn?.capped]).toEqual(['inference', true]);
+		unwrap(await finishJob(turn?.id ?? '', 'worker-k'));
+
+		unwrap(await appendPersonMessage(quiet.id, 'And?', readyForInference));
+		const uncapped = unwrap(await claimJob('worker-k', 60_000));
+		expect([uncapped?.kind, uncapped?.capped]).toEqual(['inference', false]);
+		unwrap(await finishJob(uncapped?.id ?? '', 'worker-k'));
 	});
 });

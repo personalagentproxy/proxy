@@ -1,5 +1,5 @@
 import type {HarnessBackend, HarnessEvent, HarnessTurn} from '@proxy/backends/harness/backend';
-import {ApiErr, type ApiError, isChatModel} from '@proxy/utils';
+import {ApiErr, type ApiError, CHAT_MODELS, isChatModel} from '@proxy/utils';
 import {compactionCut, type ContextEntry, toMessages, toTranscript} from '@proxy/utils/harness-context';
 
 import type {askForTurn as askForTurnOverRouter, ModelTool} from '../llm/open-router';
@@ -9,6 +9,8 @@ import type {askForTurn as askForTurnOverRouter, ModelTool} from '../llm/open-ro
  * log as the chat completions form has it, with the api's tools; the calls the model makes are
  * left open for the api to run as jobs, which runs the harness again once every one is answered.
  * It keeps no session: every turn is built from the log, after the system prompt the api gave.
+ * Its models are the few picked out of what OpenRouter has (CHAT_MODELS in @proxy/utils), each
+ * with the hosts it may go to (llm/open-router.ts).
  * A log that has grown long is first summarized, by the same model, in a summary the api stores
  * and the model then reads in place of what it covers. The model gets the log to summarize as
  * text, not as the turns it made, which would need the tools sent along: a request with calls in
@@ -25,6 +27,14 @@ const SUMMARIZE_NOW = 'Write the summary now.';
 const MAX_TOKENS = 4000;
 const TIMEOUT_MS = 120_000;
 
+export const PROXY_HARNESS = 'proxy';
+
+// The models it answers with: those picked out of what OpenRouter has (CHAT_MODELS), Claude first.
+const MODELS: HarnessBackend['models'] = [
+	{id: 'claude', label: CHAT_MODELS.claude},
+	{id: 'glm', label: CHAT_MODELS.glm},
+];
+
 /** What the proxy harness runs on: the model over OpenRouter, with the server's key. */
 export type ProxyHarnessDeps = {askForTurn: typeof askForTurnOverRouter; key: string};
 
@@ -40,7 +50,9 @@ function failed(error: ApiError): HarnessEvent {
 
 export function proxyHarness(deps: ProxyHarnessDeps): HarnessBackend {
 	return {
-		id: 'proxy',
+		id: PROXY_HARNESS,
+		label: 'OpenRouter',
+		models: MODELS,
 		turn: async function* (input) {
 			if (input.signal.aborted) {
 				yield failed(ApiErr.providerUnreachable(new Error('The turn was stopped before the model was asked')));

@@ -80,6 +80,8 @@ function entry(
 		outputTokens: null,
 		coversSeq: extra.coversSeq ?? null,
 		system: null,
+		harness: null,
+		model: null,
 		jobId: null,
 		createdAt: now,
 	};
@@ -91,7 +93,7 @@ let getJobThread: FakeStore['getJobThread'];
 let listEntries: FakeStore['listEntries'];
 let listSubAgents: FakeStore['listSubAgents'];
 let getThreadAgent: FakeStore['getThreadAgent'];
-let getChatModel: FakeStore['getChatModel'];
+let getPersonaModel: FakeStore['getPersonaModel'];
 let finishJob: FakeStore['finishJob'];
 let completeInference: FakeStore['completeInference'];
 let requeueJob: FakeStore['requeueJob'];
@@ -101,13 +103,13 @@ let appendTurnEntries: FakeStore['appendTurnEntries'];
 beforeEach(() => {
 	mock.clearAllMocks();
 	store = fakeStore();
-	({getJobThread, listEntries, listSubAgents, getThreadAgent, getChatModel, finishJob, completeInference, requeueJob, appendSummary, appendTurnEntries} = store);
+	({getJobThread, listEntries, listSubAgents, getThreadAgent, getPersonaModel, finishJob, completeInference, requeueJob, appendSummary, appendTurnEntries} = store);
 	getJobThread.mockResolvedValue(Ok(thread));
 	listEntries.mockResolvedValue(Ok([entry('person', 'Hi')]));
 	listSubAgents.mockResolvedValue(Ok([]));
 	store.listThreadAlerts.mockResolvedValue(Ok([]));
 	getThreadAgent.mockResolvedValue(Ok({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: []}));
-	getChatModel.mockResolvedValue(Ok('claude'));
+	getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'claude'}));
 	for (const write of [finishJob, completeInference, requeueJob, appendSummary, appendTurnEntries, store.failJob]) {
 		write.mockResolvedValue(Ok(true));
 	}
@@ -146,8 +148,8 @@ describe('runInference', () => {
 		expect(listSubAgents).toHaveBeenCalledWith('thread-1', now);
 		expect(agentInstructions).toHaveBeenCalledWith(expect.objectContaining({agentId: 'agent-1', ownerUserId: 'user-1'}), expect.stringContaining('You are chatting with the person'));
 		const request = askForTurn.mock.calls[0]?.[0] as {model: string; messages: Array<Record<string, unknown>>; tools: unknown[]};
-		// With the model of the persona the thread is with.
-		expect(getChatModel).toHaveBeenCalledWith(thread);
+		// With the harness and the model of the persona the thread is with.
+		expect(getPersonaModel).toHaveBeenCalledWith(thread);
 		expect(request.model).toBe('claude');
 		expect(request.messages[0]).toMatchObject({role: 'system'});
 		expect(String(request.messages[0]?.content)).toContain('- thread-2: “Find the invoices”, stopped');
@@ -174,6 +176,7 @@ describe('runInference', () => {
 				inputTokens: 10,
 				outputTokens: 2,
 				system: expect.stringContaining('You are signed in.'),
+				ranOn: {harness: 'proxy', model: 'claude'},
 			},
 			{
 				plans: {
@@ -375,7 +378,7 @@ describe('runInference', () => {
 		];
 		listEntries.mockResolvedValue(Ok(long));
 		// A persona switched to GLM: it summarizes, too.
-		getChatModel.mockResolvedValue(Ok('glm'));
+		getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'glm'}));
 		askForTurn
 			.mockResolvedValueOnce(Ok({text: 'The person asked for one; it was done.', toolCalls: [], inputTokens: 90_000, outputTokens: 300}))
 			.mockResolvedValueOnce(Ok({text: 'Three is done too.', toolCalls: [], inputTokens: 2000, outputTokens: 20}));
@@ -474,7 +477,14 @@ describe('runInference', () => {
 				'job-1',
 				'w1',
 				'thread-1',
-				{text: 'Looking\n\nin two places.', toolCalls: [{id: 'c2', name: 'send_to_parent', arguments: '{"text":"Hi"}'}], inputTokens: 5, outputTokens: 1, system: 'Sent.'},
+				{
+					text: 'Looking\n\nin two places.',
+					toolCalls: [{id: 'c2', name: 'send_to_parent', arguments: '{"text":"Hi"}'}],
+					inputTokens: 5,
+					outputTokens: 1,
+					system: 'Sent.',
+					ranOn: {harness: 'fake', model: 'claude'},
+				},
 				{plans: {c2: {kind: 'job', runAt: now}}},
 			);
 		});
@@ -583,8 +593,10 @@ describe('runInference', () => {
 		const session = {id: 'session-1', state: null};
 		const ended = (kept: typeof session | null): HarnessEvent => ({kind: 'done', session: kept, system: 'Sent.', inputTokens: 50, outputTokens: 9});
 
-		// The member connected a Claude token, which is what gets them the harness.
+		// The persona is set to the harness, with the second of its models, and the member connected
+		// a Claude token, which a turn on it runs under.
 		beforeEach(() => {
+			getPersonaModel.mockResolvedValue(Ok({harness: 'claude-agent-sdk', chatModel: 'other'}));
 			claudeCredentialFor.mockResolvedValue(Ok({kind: 'setup_token', token: 'tok'}));
 		});
 
@@ -620,13 +632,14 @@ describe('runInference', () => {
 							{id: 'c1', name: 'read', arguments: '{"a":1}'},
 							{id: 'c2', name: 'read', arguments: '{"a":2}'},
 						],
+						ranOn: {harness: 'claude-agent-sdk', model: 'other'},
 						system: expect.stringContaining('You are signed in.'),
 					},
 					{kind: 'tool_result', callId: 'c1', text: 'one', isError: false},
 				],
 				[{kind: 'tool_result', callId: 'c2', text: 'two', isError: true}],
 				[
-					{kind: 'assistant', text: '', toolCalls: [{id: 'c3', name: 'read', arguments: '{"a":3}'}]},
+					{kind: 'assistant', text: '', toolCalls: [{id: 'c3', name: 'read', arguments: '{"a":3}'}], ranOn: {harness: 'claude-agent-sdk', model: 'other'}},
 					{kind: 'tool_result', callId: 'c3', text: 'three', isError: false},
 				],
 			]);
@@ -635,7 +648,7 @@ describe('runInference', () => {
 				'job-1',
 				'w1',
 				'thread-2',
-				{text: 'Three invoices.', toolCalls: [], inputTokens: 50, outputTokens: 9, system: 'Sent.'},
+				{text: 'Three invoices.', toolCalls: [], inputTokens: 50, outputTokens: 9, system: 'Sent.', ranOn: {harness: 'claude-agent-sdk', model: 'other'}},
 				{stop: expect.objectContaining({outcome: 'Three invoices.'})},
 				{harness: 'claude-agent-sdk', session},
 			);
@@ -735,7 +748,7 @@ describe('runInference', () => {
 		test('a turn on the server’s key keeps nothing of a usage event', async () => {
 			const {runInference} = await import('./inference');
 			const proxy = fakeHarness('proxy');
-			claudeCredentialFor.mockResolvedValue(Ok(null));
+			getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'claude'}));
 			proxy.script([
 				{kind: 'usage', fiveHour: {utilization: 0.5, resetsAt: null}},
 				{kind: 'done', session: null, system: 'Sent.', inputTokens: 1, outputTokens: 1},
@@ -747,43 +760,69 @@ describe('runInference', () => {
 			expect(completeInference).toHaveBeenCalledTimes(1);
 		});
 
-		test('a member whose Claude sign-in can’t be refreshed is told so rather than moved to the server’s key; one with none goes to the proxy harness, and the credential is never looked for without the SDK harness', async () => {
+		test('a member whose Claude sign-in ran out or was refused is told so, and one who connected none to connect it, rather than either being moved to the server’s key', async () => {
 			const {runInference} = await import('./inference');
 			const proxy = fakeHarness('proxy');
 			claudeCredentialFor.mockResolvedValue(Err(ApiErr.unavailable('Your Claude sign-in has run out or was refused. Connect it again on the Account page.')));
 			await runInference(store, on(proxy, fake), job, 'w1', false, clock);
-			expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('Connect it again')}), {plans: {}});
-			expect(proxy.turns).toHaveLength(0);
+			expect(completeInference).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('Connect it again')}), {plans: {}});
 
 			claudeCredentialFor.mockResolvedValue(Ok(null));
 			await runInference(store, on(proxy, fake), job, 'w1', false, clock);
-			expect(proxy.turns).toHaveLength(1);
-			expect(proxy.turns[0]?.auth).toBeUndefined();
+			expect(completeInference).toHaveBeenLastCalledWith(
+				'job-1',
+				'w1',
+				'thread-1',
+				expect.objectContaining({text: 'This agent runs on your own Claude account, and you haven’t connected one. Connect it under Claude on the Account page.'}),
+				{plans: {}},
+			);
+			expect(proxy.turns).toHaveLength(0);
 
-			claudeCredentialFor.mockClear();
-			await runInference(store, on(proxy, null), job, 'w1', false, clock);
-			expect(claudeCredentialFor).not.toHaveBeenCalled();
-			expect(proxy.turns).toHaveLength(2);
+			// A sub-agent of such a persona stops with the same, for the agent it works for to hear.
+			getJobThread.mockResolvedValue(Ok(sub));
+			await runInference(store, on(proxy, fake), {...job, threadId: 'thread-2'}, 'w1', false, clock);
+			expect(store.failJob).toHaveBeenCalledWith('job-1', 'w1', expect.stringContaining('Connect it under Claude'), expect.any(Function));
 		});
 
-		test('a thread moves with the member’s credential: one the SDK harness ran goes to the proxy harness once they disconnect, or the server turns the SDK harness off, without the session, which the thread then no longer keeps', async () => {
+		test('a persona on the proxy harness runs on the server’s key whatever the member connected, and the credential is not looked for', async () => {
+			const {runInference} = await import('./inference');
+			const proxy = fakeHarness('proxy');
+			getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'other'}));
+			claudeCredentialFor.mockClear();
+
+			await runInference(store, on(proxy, fake), job, 'w1', false, clock);
+
+			expect(claudeCredentialFor).not.toHaveBeenCalled();
+			expect(proxy.turns).toHaveLength(1);
+			expect(proxy.turns[0]).toMatchObject({model: 'other'});
+			expect(proxy.turns[0]?.auth).toBeUndefined();
+			expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({ranOn: {harness: 'proxy', model: 'other'}}), {plans: {}});
+		});
+
+		test('a persona switched to the proxy harness, or one whose harness the server turned off, runs there from its next turn, without the session the other harness left, which the thread then no longer keeps', async () => {
 			const {runInference} = await import('./inference');
 			const kept = {id: 'session-1', state: {lastSeq: 3, job: 'job-0'}};
 			getJobThread.mockResolvedValue(Ok({...thread, harness: 'claude-agent-sdk', harnessSession: kept}));
-			claudeCredentialFor.mockResolvedValue(Ok(null));
 			const proxy = fakeHarness('proxy');
 			const before = fake.turns.length;
 
+			getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'claude'}));
 			await runInference(store, on(proxy, fake), job, 'w1', false, clock);
+			// Still set to the SDK harness, on a server that hasn't got it: the first it has, and
+			// that harness's first model, the one chosen being none of its.
+			getPersonaModel.mockResolvedValue(Ok({harness: 'claude-agent-sdk', chatModel: 'opus'}));
 			await runInference(store, on(proxy, null), job, 'w1', false, clock);
 
-			expect(proxy.turns.map((turn) => turn.session)).toEqual([null, null]);
+			expect(proxy.turns.map((turn) => [turn.session, turn.model])).toEqual([
+				[null, 'claude'],
+				[null, 'claude'],
+			]);
 			expect(fake.turns).toHaveLength(before);
 			expect(completeInference).toHaveBeenCalledTimes(2);
 			expect(completeInference).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-1', expect.anything(), {plans: {}}, {harness: 'proxy', session: null});
 		});
 
-		test('a thread the proxy harness ran moves to the SDK harness once the member connects, which starts without a session on the log, each entry with the job that wrote it', async () => {
+		test('a persona switched to the SDK harness runs there from its next turn, on the model chosen, without a session, on the log, each entry with the job that wrote it', async () => {
 			const {runInference} = await import('./inference');
 			const log = [entry('person', 'Find my invoices'), {...entry('assistant', 'Three invoices.'), jobId: 'job-0'}, entry('person', 'And last month?')];
 			listEntries.mockResolvedValue(Ok(log));
@@ -793,8 +832,25 @@ describe('runInference', () => {
 
 			await runInference(store, on(fakeHarness('proxy'), fake), job, 'w1', false, clock);
 
-			expect(fake.turns.at(-1)).toMatchObject({job: 'job-1', session: null, entries: log});
-			expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: 'Two more.'}), {plans: {}}, {harness: 'claude-agent-sdk', session});
+			expect(fake.turns.at(-1)).toMatchObject({job: 'job-1', session: null, entries: log, model: 'other'});
+			expect(completeInference).toHaveBeenCalledWith(
+				'job-1',
+				'w1',
+				'thread-1',
+				expect.objectContaining({text: 'Two more.', ranOn: {harness: 'claude-agent-sdk', model: 'other'}}),
+				{plans: {}},
+				{harness: 'claude-agent-sdk', session},
+			);
+		});
+
+		test('a thread whose persona is gone runs as a new persona would, on the server’s first harness', async () => {
+			const {runInference} = await import('./inference');
+			const proxy = fakeHarness('proxy');
+			getPersonaModel.mockResolvedValue(Ok(null));
+
+			await runInference(store, on(proxy, fake), job, 'w1', false, clock);
+
+			expect(proxy.turns.at(-1)).toMatchObject({model: 'claude'});
 		});
 
 		test('a harness with a cap on its turns at once runs that many, the rest waiting their turn', async () => {
@@ -803,7 +859,7 @@ describe('runInference', () => {
 			let most = 0;
 			const release: Array<() => void> = [];
 			const capped: HarnessBackend = {
-				id: 'capped',
+				...fakeHarness('capped'),
 				maxConcurrentTurns: 1,
 				turn: async function* () {
 					running += 1;

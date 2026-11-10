@@ -18,11 +18,6 @@ export const orgSchema = z.object({
 	onboarded: z.boolean(),
 	/** The experiments on for it, for the web app's `useExperiments`; those it doesn't know are left out. */
 	experiments: z.array(z.string()).transform((ids) => ids.filter(isExperiment)),
-	/**
-	 * Whether it is an insider, whose personas each answer with the model chosen for them, where
-	 * any other's answer with Claude. False in `GET /api/orgs`.
-	 */
-	insider: z.boolean(),
 	memberCount: z.number(),
 	/** Invitations not taken up yet. */
 	invitationCount: z.number(),

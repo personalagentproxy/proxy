@@ -23,12 +23,25 @@ function persona(id: string, name: string, mayChange: boolean): ChatPersona {
 		mayChange,
 		look,
 		color: 'blue',
-		chatModel: null,
+		harness: 'proxy',
+		chatModel: 'claude',
 		lastMessage: null,
 		draft: null,
 		createdAt: '2026-10-20T10:00:00Z',
 	};
 }
+
+// The harness the server has for an agent to run on.
+const harnesses = [
+	{
+		id: 'proxy',
+		label: 'OpenRouter',
+		models: [
+			{id: 'claude', label: 'Claude Sonnet 5.5'},
+			{id: 'glm', label: 'GLM 5.3'},
+		],
+	},
+];
 
 const general = persona('general', 'General', false);
 const finance = persona('finance', 'Finance', true);
@@ -66,12 +79,15 @@ function renderChatPage({
 	personas = [general, finance],
 	entries = [],
 	listPersonas = () => personas,
+	open = 'general',
 	draft = null,
 	answered = () => Promise.resolve(),
 }: {
 	personas?: ChatPersona[];
 	entries?: ThreadLog['entries'];
 	listPersonas?: () => ChatPersona[];
+	// The agent whose conversation is open, by its id.
+	open?: string;
 	draft?: string | null;
 	// When the api answers for a conversation: at once, unless a test holds it back.
 	answered?: (personaId: string) => Promise<void>;
@@ -95,6 +111,7 @@ function renderChatPage({
 									persona: personas.find((candidate) => candidate.id === params.id) ?? general,
 								},
 								personas: listPersonas(),
+								harnesses,
 							};
 						}),
 						element: <ChatPage />,
@@ -102,7 +119,7 @@ function renderChatPage({
 				],
 			},
 		],
-		{initialEntries: ['/acme/chat/general']},
+		{initialEntries: [`/acme/chat/${open}`]},
 	);
 
 	return render(
@@ -258,6 +275,39 @@ describe('ChatPage', () => {
 				}),
 			);
 		});
+	});
+
+	test('switches what runs a changeable agent from under the input, keeping its name and head', async () => {
+		fetchMock.mockImplementation((_input, init) => {
+			if (init?.method === 'PUT') {
+				return Promise.resolve(Response.json({persona: {...finance, chatModel: 'glm'}}));
+			}
+			return Promise.resolve(new Response(null, {status: 204}));
+		});
+		renderChatPage({open: 'finance'});
+
+		fireEvent.click(
+			await screen.findByRole('button', {name: 'Model: Claude Sonnet 5.5 on OpenRouter'}),
+		);
+		fireEvent.click(await screen.findByRole('menuitemradio', {name: 'GLM 5.3'}));
+
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledWith(
+				'/api/orgs/acme/chat/personas/finance',
+				expect.objectContaining({
+					method: 'PUT',
+					body: JSON.stringify({
+						name: 'Finance',
+						look,
+						color: 'blue',
+						harness: 'proxy',
+						chatModel: 'glm',
+					}),
+				}),
+			);
+		});
+		// Shown at once, before the list is read again.
+		expect(screen.getByRole('button', {name: 'Model: GLM 5.3 on OpenRouter'})).toBeDefined();
 	});
 
 	test('deletes a changeable agent from its right-click menu after confirmation', async () => {

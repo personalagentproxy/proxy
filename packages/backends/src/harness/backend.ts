@@ -36,8 +36,10 @@ import type {ContextEntry, SubAgent} from '@proxy/utils/harness-context';
  * it resets; zero or more per turn, any time before the terminal event, and a harness on the
  * server's key yields none.
  *
- * A harness says, beside its id, how it works, so the api can give it a turn that fits:
- * `stepsPerTurn` whether it answers calls itself and asks the model again within a turn, and
+ * A harness says, beside its id, what it is called to the person choosing one for an agent, its
+ * `label`, and the `models` it can answer with, the first the one a turn gets where none of them
+ * was chosen; and how it works, so the api can give it a turn
+ * that fits: `stepsPerTurn` whether it answers calls itself and asks the model again within a turn, and
  * `maxConcurrentTurns` how many turns it can run at once in one process, where each is a
  * subprocess with memory of its own.
  */
@@ -47,6 +49,9 @@ export type {HarnessSession};
 
 /** An entry of the log as a harness is given it: as the model reads it, with the job that wrote it, a turn's for what the model said and what its calls answered; null for what the person wrote. */
 export type HarnessEntry = ContextEntry & {jobId: string | null};
+
+/** A model a harness can answer with: the id a persona keeps it under, and what the person picking one reads. */
+export type HarnessModel = {id: string; label: string};
 
 /** What a call answered; `endTurn` where the call ends the turn, as a sleep does. */
 export type ToolAnswer = {text: string; isError: boolean; endTurn?: boolean};
@@ -98,7 +103,7 @@ export type HarnessTurn = {
 	/** The system prompt, built by the api. */
 	system: string;
 	tools: ToolSurface;
-	/** The model to answer with, as the api names it. */
+	/** The model to answer with: one of the harness's `models`, by its id. */
 	model: string;
 	/** How many steps, calls answered inline and the model asked again, the turn may take at most. */
 	maxSteps: number;
@@ -107,8 +112,12 @@ export type HarnessTurn = {
 };
 
 export type HarnessBackend = {
-	/** Which harness it is, kept with each thread's session, so one harness is never given another's. */
+	/** Which harness it is, kept with each thread's session, so one harness is never given another's, and with each persona that chose it. */
 	id: string;
+	/** What the person choosing a harness for an agent reads it as. */
+	label: string;
+	/** The models it can answer with, the first its default: at least one. */
+	models: [HarnessModel, ...HarnessModel[]];
 	/**
 	 * How many steps a turn takes: `one`, the default, for a harness that asks the model once and
 	 * leaves its calls open for the api to run, whose `maxSteps` is then one; `many` for a harness

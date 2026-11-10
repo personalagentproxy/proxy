@@ -7,14 +7,7 @@ import type {
 } from '@prisma/client';
 import {Err, Ok, type Result} from 'ts-results-es';
 
-import {
-	ApiErr,
-	type ApiError,
-	type ChatModel,
-	personaChatModel,
-	toChatModel,
-	wrapDb,
-} from '@proxy/utils';
+import {ApiErr, type ApiError, wrapDb} from '@proxy/utils';
 import {
 	DEFAULT_LOOK,
 	type HarnessSession,
@@ -87,22 +80,26 @@ export type ThreadRow = {
 /** A sub-agent as the agent that started it is told of it: its thread, and what it is up to. */
 export type SubAgentRow = ThreadRow & {state: ThreadState};
 
-/**
- * What a persona is: its name and its head, a look and a color, and the model it answers with,
- * where that is chosen (in an insider organization); left as it is otherwise, Claude for a new one.
- */
-export type Persona = {name: string; look: Look; color: string; chatModel?: ChatModel};
+/** The harness that runs a persona's turns and the model it answers with, each by its id, as kept: what the server has of them is the api's to say. */
+export type PersonaModel = {harness: string; chatModel: string};
 
 /**
- * A persona as the Chat page lists it, with the model chosen for it, and who made it, who may
- * change it beside the organization's owner.
+ * What a persona is: its name and its head, a look and a color, and the harness that runs its
+ * turns with the model it answers with, where they are chosen; left as they are otherwise, the
+ * database's defaults for a new one.
  */
-export type PersonaRow = Omit<Persona, 'chatModel'> & {
-	id: string;
-	chatModel: ChatModel;
-	createdById: string | null;
-	createdAt: Date;
-};
+export type Persona = {name: string; look: Look; color: string} & Partial<PersonaModel>;
+
+/**
+ * A persona as the Chat page lists it, with the harness and the model chosen for it, who made it,
+ * who may change it beside the organization's owner, and when.
+ */
+export type PersonaRow = Omit<Persona, keyof PersonaModel> &
+	PersonaModel & {
+		id: string;
+		createdById: string | null;
+		createdAt: Date;
+	};
 
 export type EntryRow = LogEntry & {
 	id: string;
@@ -117,6 +114,10 @@ export type EntryRow = LogEntry & {
 	coversSeq: number | null;
 	// An assistant entry's system prompt, as the model was sent it; null where it wasn't run.
 	system: string | null;
+	// An assistant entry's harness and model, by their ids, as the turn that wrote it ran; null
+	// where the model wasn't run for it.
+	harness: string | null;
+	model: string | null;
 	// The job that wrote the entry; null for what the person wrote.
 	jobId: string | null;
 	createdAt: Date;
@@ -175,6 +176,9 @@ export type Wakes = (tail: LogEntry[]) => boolean;
 /** An entry to land in a thread. */
 export type NewEntry = {kind: AgentEntryKind; text: string};
 
+/** The harness and the model a turn ran on, by their ids, kept with what the model answered. */
+export type RanOn = {harness: string; model: string};
+
 /**
  * An entry of a turn's own output, as a harness that runs its tools itself tells it: what the
  * model said at a step, with the calls it made there and what the step cost, or what one of those
@@ -188,6 +192,7 @@ export type NewTurnEntry =
 			inputTokens?: number;
 			outputTokens?: number;
 			system?: string;
+			ranOn?: RanOn;
 	  }
 	| {kind: 'tool_result'; callId: string; text: string; isError: boolean};
 
@@ -260,6 +265,7 @@ export const personaSelect = {
 	name: true,
 	look: true,
 	color: true,
+	harness: true,
 	chatModel: true,
 	createdById: true,
 	createdAt: true,
@@ -270,11 +276,12 @@ export function toPersona(persona: {
 	name: string;
 	look: string;
 	color: string;
+	harness: string;
 	chatModel: string;
 	createdById: string | null;
 	createdAt: Date;
 }): PersonaRow {
-	return {...persona, look: parseLook(persona.look), chatModel: toChatModel(persona.chatModel)};
+	return {...persona, look: parseLook(persona.look)};
 }
 
 /** The columns of an entry, as `EntryRow` has them; the admin reads with it too. */
@@ -292,6 +299,8 @@ export const entrySelect = {
 	outputTokens: true,
 	coversSeq: true,
 	system: true,
+	harness: true,
+	model: true,
 	jobId: true,
 	createdAt: true,
 } as const;
@@ -510,6 +519,7 @@ export async function createPersona(
 					name: persona.name,
 					look: JSON.stringify(persona.look),
 					color: persona.color,
+					harness: persona.harness,
 					chatModel: persona.chatModel,
 				},
 				select: personaSelect,
@@ -518,7 +528,7 @@ export async function createPersona(
 	).map(toPersona);
 }
 
-/** Renames a persona, changes its head or the model it answers with; `Ok(false)` means no such persona in the organization. */
+/** Renames a persona, changes its head, the harness that runs its turns or the model it answers with; `Ok(false)` means no such persona in the organization. */
 export async function updatePersona(
 	orgId: string,
 	personaId: string,
@@ -532,6 +542,7 @@ export async function updatePersona(
 					name: persona.name,
 					look: JSON.stringify(persona.look),
 					color: persona.color,
+					harness: persona.harness,
 					chatModel: persona.chatModel,
 				},
 			}),
@@ -656,21 +667,17 @@ export async function getThreadAgent(
 }
 
 /**
- * The model the thread's persona answers with, its sub-agents too: the one chosen for it while
- * its organization is an insider; Claude in any other, and where the persona is gone.
+ * The harness and the model chosen for the thread's persona, its sub-agents' too, as kept;
+ * `Ok(null)` where the persona is gone.
  */
-export async function getThreadChatModel(thread: ThreadRow): Promise<Result<ChatModel, ApiError>> {
-	return (
-		await wrapDb(() =>
-			db.persona.findUnique({
-				where: {id: thread.personaId},
-				select: {chatModel: true, org: {select: {insider: true}}},
-			}),
-		)
-	).map((persona) =>
-		persona
-			? personaChatModel({insider: persona.org.insider, chatModel: persona.chatModel})
-			: 'claude',
+export async function getThreadPersonaModel(
+	thread: ThreadRow,
+): Promise<Result<PersonaModel | null, ApiError>> {
+	return wrapDb(() =>
+		db.persona.findUnique({
+			where: {id: thread.personaId},
+			select: {harness: true, chatModel: true},
+		}),
 	);
 }
 
@@ -965,23 +972,26 @@ export async function appendPersonMessage(
 	);
 }
 
-/** A job as a worker claimed it, with whether it is a turn of a member who has a Claude account of their own (ClaudeAccount), which the api runs on that account. */
-export type ClaimedJob = JobRow & {onClaudeAccount: boolean};
+/** A job as a worker claimed it, with whether it is a turn of a persona on the harness the claim was told is capped. */
+export type ClaimedJob = JobRow & {capped: boolean};
+
+/** The harness whose turns a worker runs only so many of at once, by its id, and whether the worker has no room for another. */
+export type CappedHarness = {harness: string; full: boolean};
 
 /**
  * Claims the next job due for `workerId`: one queued whose time has come, or one running whose
  * worker's lease ran out, the earliest due first. A turn queued for a thread that has another
  * running, as a wake-up is that a sleep the turn itself answered asked for (scheduleWake), is not
  * due until that one has ended, whoever holds it: two turns never run on one thread. With
- * `withoutClaudeAccountTurns`, the turns of members who have a Claude account of their own are
- * left for later, or for another worker: the api runs only so many of them at once, and a worker
- * that has no room for another claims the other jobs meanwhile. `Ok(null)` when none is due. The
- * claim holds for `leaseMs`, and `renewLease` keeps it.
+ * `capped`, the claim says whether the job is a turn of a persona on that harness, and, where the
+ * worker is `full`, leaves those turns for later, or for another worker: the api runs only so many
+ * of them at once, and a worker that has no room for another claims the other jobs meanwhile.
+ * `Ok(null)` when none is due. The claim holds for `leaseMs`, and `renewLease` keeps it.
  */
 export async function claimJob(
 	workerId: string,
 	leaseMs: number,
-	withoutClaudeAccountTurns = false,
+	capped: CappedHarness | null = null,
 ): Promise<Result<ClaimedJob | null, ApiError>> {
 	// Prisma writes a DateTime as the UTC wall clock, in a column without a time zone; now() has
 	// one, and would be read in the server's, so its UTC wall clock is what is compared and
@@ -1013,12 +1023,12 @@ export async function claimJob(
 							)
 						)
 						AND NOT (
-							${withoutClaudeAccountTurns}
+							${capped?.full ?? false}
 							AND job."kind" IN ('inference', 'wake')
 							AND EXISTS (
 								SELECT 1 FROM "AgentThread" thread
-								JOIN "ClaudeAccount" account ON account."userId" = thread."userId"
-								WHERE thread."id" = job."threadId"
+								JOIN "Persona" persona ON persona."id" = thread."personaId"
+								WHERE thread."id" = job."threadId" AND persona."harness" = ${capped?.harness ?? ''}
 							)
 						)
 					ORDER BY job."runAt" ASC
@@ -1033,13 +1043,13 @@ export async function claimJob(
 			await tx.agentJobEvent.create({
 				data: {jobId: job.id, threadId: job.threadId, kind: 'claimed', workerId},
 			});
-			if (!TURN_KINDS.includes(job.kind)) {
-				return {...job, onClaudeAccount: false};
+			if (capped === null || !TURN_KINDS.includes(job.kind)) {
+				return {...job, capped: false};
 			}
-			const accounts = await tx.claudeAccount.count({
-				where: {user: {threads: {some: {id: job.threadId}}}},
+			const turns = await tx.agentThread.count({
+				where: {id: job.threadId, persona: {harness: capped.harness}},
 			});
-			return {...job, onClaudeAccount: accounts > 0};
+			return {...job, capped: turns > 0};
 		}),
 	);
 }
@@ -1236,13 +1246,14 @@ export async function requeueJob(
 	);
 }
 
-/** What the model answered: its text, its tool calls, what they cost, and the system prompt it was sent; null where it wasn't run for the answer. */
+/** What the model answered: its text, its tool calls, what they cost, the system prompt it was sent, null where it wasn't run for the answer, and the harness and the model it ran on, left out there. */
 export type AssistantTurn = {
 	text: string;
 	toolCalls: ToolCall[];
 	inputTokens: number;
 	outputTokens: number;
 	system: string | null;
+	ranOn?: RanOn;
 };
 
 /**
@@ -1314,6 +1325,8 @@ export async function appendTurnEntries(
 							inputTokens: entry.inputTokens,
 							outputTokens: entry.outputTokens,
 							system: entry.system,
+							harness: entry.ranOn?.harness,
+							model: entry.ranOn?.model,
 							jobId,
 						},
 						select: {id: true},
@@ -1633,6 +1646,8 @@ export async function completeInference(
 							inputTokens: turn.inputTokens,
 							outputTokens: turn.outputTokens,
 							system: turn.system,
+							harness: turn.ranOn?.harness,
+							model: turn.ranOn?.model,
 							jobId,
 						},
 						select: {id: true},

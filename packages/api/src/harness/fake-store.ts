@@ -15,7 +15,7 @@ export function fakeStore(): FakeStore {
 		requeueJob: mock<HarnessStore['requeueJob']>(),
 		getJobThread: mock<HarnessStore['getJobThread']>(),
 		getThreadAgent: mock<HarnessStore['getThreadAgent']>(),
-		getChatModel: mock<HarnessStore['getChatModel']>(),
+		getPersonaModel: mock<HarnessStore['getPersonaModel']>(),
 		listEntries: mock<HarnessStore['listEntries']>(),
 		getEntry: mock<HarnessStore['getEntry']>(),
 		appendSummary: mock<HarnessStore['appendSummary']>(),

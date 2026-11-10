@@ -1,4 +1,10 @@
-import type {ChatEntry, ChatPersona, Persona, ThreadLog} from '@proxy/contracts/harness';
+import type {
+	ChatEntry,
+	ChatHarness,
+	ChatPersona,
+	Persona,
+	ThreadLog,
+} from '@proxy/contracts/harness';
 import {ArrowUpIcon, MoonIcon, PencilIcon, Trash2Icon} from 'lucide-react';
 import {type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState} from 'react';
 import {Link, useNavigate, useParams} from 'react-router';
@@ -14,6 +20,7 @@ import {AppShell, PageTitle, PanelWaiting, TitleWaiting} from '@/components/app-
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {LiveHead} from '@/components/head';
 import {Markdown} from '@/components/markdown';
+import {type ModelChoice, ModelSwitcher} from '@/components/model-switcher';
 import {PersonaDialog} from '@/components/persona-dialog';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {
@@ -35,7 +42,6 @@ import {Trace, TraceIcon, TraceLine, TraceTitle} from '@/components/chat/trace';
 import {preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
 import {useChatDraft} from '@/hooks/use-chat-draft';
-import {useHuman} from '@/hooks/use-human';
 import {useLastLoaded, useLoaded} from '@/hooks/use-loaded';
 import {useOrgSlug} from '@/hooks/use-org';
 import {useReload} from '@/hooks/use-reload';
@@ -268,7 +274,6 @@ function PersonaList({
 // so what one showed never lingers on another.
 export function ChatPage() {
 	const org = useOrgSlug();
-	const human = useHuman();
 	const navigate = useNavigate();
 	const reload = useReload();
 	const {id: current = ''} = useParams();
@@ -289,8 +294,7 @@ export function ChatPage() {
 		drafts.current.set(personaId, text);
 	}, []);
 
-	// Saves the dialog's persona: a new one, opened; or the selected one, renamed, refaced or
-	// switched to another model.
+	// Saves the dialog's persona: a new one, opened; or the selected one, renamed or refaced.
 	const savePersona = async (persona: Persona): Promise<string | null> => {
 		if (editing === null) {
 			return 'This agent is no longer being edited.';
@@ -379,10 +383,8 @@ export function ChatPage() {
 									name: editing.name,
 									look: editing.look,
 									color: editing.color,
-									chatModel: editing.chatModel ?? undefined,
 								}
 					}
-					chooseModel={human?.org.insider ?? false}
 					onClose={() => setEditing(null)}
 					onSave={savePersona}
 					onDelete={
@@ -431,8 +433,8 @@ type Opened = {
 
 // The conversation the address names, once loaded: started over when the address names another.
 function OpenConversation(opened: Opened) {
-	const {log} = useLoaded<typeof chatLoader>();
-	return <Conversation key={log.persona.id} loaded={log} {...opened} />;
+	const {log, harnesses} = useLoaded<typeof chatLoader>();
+	return <Conversation key={log.persona.id} loaded={log} harnesses={harnesses} {...opened} />;
 }
 
 // The person's conversation with one of the organization's personas: its log, read again as the
@@ -441,12 +443,13 @@ function OpenConversation(opened: Opened) {
 // go through the same gate as any agent's, so its activity is in the log by the sub-agent's task.
 function Conversation({
 	loaded,
+	harnesses,
 	recallDraft,
 	rememberDraft,
 	onShown,
 	managing,
 	listError,
-}: Opened & {loaded: ThreadLog}) {
+}: Opened & {loaded: ThreadLog; harnesses: ChatHarness[]}) {
 	const org = useOrgSlug();
 	const reload = useReload();
 	const [log, setLog] = useState<ThreadLog>(loaded);
@@ -463,6 +466,11 @@ function Conversation({
 	const [error, setError] = useState<string | null>(null);
 	const form = useRef<HTMLFormElement>(null);
 	const current = loaded.persona;
+	// What runs the persona, as the switcher shows it: the persona's, or what was just picked.
+	const [runsOn, setRunsOn] = useState<ModelChoice>({
+		harness: current.harness,
+		chatModel: current.chatModel,
+	});
 	// A conversation is open all day: a new release is loaded while it is out of view, as long as
 	// what is typed is saved as the draft and no dialog is open, since the log and the draft come
 	// back from the server.
@@ -542,6 +550,26 @@ function Conversation({
 		}
 		void reload();
 	}, [answered, reload]);
+
+	// Switches what runs the persona, the harness and the model, from the input's switcher: shown
+	// at once, kept with the persona as it is otherwise, and put back where the server refused it.
+	const switchModel = async (choice: ModelChoice) => {
+		const before = runsOn;
+		setRunsOn(choice);
+		setError(null);
+		const changed = await updatePersona(org, personaId, {
+			name: current.name,
+			look: current.look,
+			color: current.color,
+			...choice,
+		});
+		if (changed.isErr()) {
+			setRunsOn(before);
+			setError(describeFetchError(changed.error));
+			return;
+		}
+		await reload();
+	};
 
 	const send = async (event: FormEvent) => {
 		event.preventDefault();
@@ -642,6 +670,12 @@ function Conversation({
 						rows={1}
 					/>
 					<InputGroupAddon align="block-end">
+						<ModelSwitcher
+							harnesses={harnesses}
+							chosen={runsOn}
+							mayChange={current.mayChange}
+							onPick={(choice) => void switchModel(choice)}
+						/>
 						<Link
 							to={`/${org}/activity`}
 							className="text-xs font-normal underline-offset-4 hover:underline"

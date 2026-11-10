@@ -48,8 +48,8 @@ import type {SdkSessionStore} from './session-store';
  * it), and the switches that keep it from reaching out beyond the model. Each thread has a working directory of its own, whose name is the key the
  * session is kept under in the store: the thread's id. A turn that fails before the api has a
  * session to keep deletes from the store the session it started, which nothing would resume. The
- * model is Sonnet throughout: the SDK runs only Claude, so the api's choice of another model for a
- * persona doesn't apply here. What Anthropic says of the member's plan as the turn runs, the
+ * SDK runs only Claude: the harness lists the latest Sonnet, Opus and Fable, and a turn is run on
+ * the one the api gives it, of those, which may be another than the session's last turn ran on. What Anthropic says of the member's plan as the turn runs, the
  * rate-limit headers the binary reports as events, is passed on as `usage` events, for the api to
  * show on the Account page; on an API key the binary reports none. A request Anthropic turns down
  * because the account is at its limit ends the turn saying so, with when the limit resets where
@@ -83,8 +83,20 @@ const TOOL_PREFIX = `mcp__${SERVER}__`;
 // A step of the model's in the log: what it said, with its calls, or what a call answered.
 const STEP_KINDS = new Set<ContextEntry['kind']>(['assistant', 'tool_result']);
 
-// The model, as the SDK names it on a subscription: the persona's Claude, Sonnet 5.5.
-const MODEL = 'sonnet';
+// The models a member's Claude account answers with, each the latest of its line, by the id a
+// persona keeps it under; and each as the SDK is told it, the full model id, so that what answers
+// is what the label says, whatever the binary takes a bare `sonnet` to mean.
+const MODELS: HarnessBackend['models'] = [
+	{id: 'sonnet', label: 'Claude Sonnet 5.5'},
+	{id: 'opus', label: 'Claude Opus 5.5'},
+	{id: 'fable', label: 'Claude Fable 5.2'},
+];
+const DEFAULT_SDK_MODEL = 'claude-sonnet-5-5';
+const SDK_MODELS = new Map([
+	['sonnet', DEFAULT_SDK_MODEL],
+	['opus', 'claude-opus-5-5'],
+	['fable', 'claude-fable-5-2'],
+]);
 
 // How long the SDK is given after the result to wind up, the transcript's mirroring among it,
 // before the subprocess is stopped.
@@ -406,6 +418,8 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 	const query: SdkQuery = deps.query ?? sdkQuery;
 	return {
 		id: CLAUDE_AGENT_SDK,
+		label: 'Claude',
+		models: MODELS,
 		stepsPerTurn: 'many',
 		maxConcurrentTurns: deps.maxConcurrentTurns,
 		turn: async function* (input) {
@@ -456,7 +470,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 				env: envFor(deps.configDir, input, auth),
 				...(deps.pathToClaudeCodeExecutable === undefined ? {} : {pathToClaudeCodeExecutable: deps.pathToClaudeCodeExecutable}),
 				abortController: controller,
-				model: MODEL,
+				model: SDK_MODELS.get(input.model) ?? DEFAULT_SDK_MODEL,
 			};
 			const lastSeq = input.entries.at(-1)?.seq ?? session?.lastSeq ?? 0;
 			const open = new Set<string>();

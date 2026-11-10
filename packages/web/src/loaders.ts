@@ -146,14 +146,16 @@ export const chatIndexLoader = later(async (args: OrgParams) => {
 	throw redirect(`/${org}/chat/${first.id}`);
 });
 
-// The person's conversation with an agent, and the agents to switch between.
+// The person's conversation with an agent, the agents to switch between, and the harnesses one
+// can run on.
 export const chatLoader = later(async (args: OrgParams & {params: {id?: string}}) => {
 	const org = orgOf(args);
 	const [log, personas] = await Promise.all([
 		getThread(org, args.params.id ?? ''),
 		listPersonas(org),
 	]);
-	return {log: unwrapLoaderResult(log), personas: unwrapLoaderResult(personas).personas};
+	const {personas: listed, harnesses} = unwrapLoaderResult(personas);
+	return {log: unwrapLoaderResult(log), personas: listed, harnesses};
 });
 
 // The person's alerts, those the agents set in their conversations.
