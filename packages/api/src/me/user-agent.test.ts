@@ -15,11 +15,17 @@ describe('describeUserAgent', () => {
 		['Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36', 'Chrome', 'ChromeOS'],
 		['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) proxy-desktop/0.4.0 Chrome/130.0.6723.191 Electron/33.2.0 Safari/537.36', 'Desktop app', 'macOS'],
 	])('%s', (userAgent, client, os) => {
-		expect(describeUserAgent(userAgent)).toEqual({client, os});
+		expect(describeUserAgent(userAgent)).toEqual({client, os, version: null});
+	});
+
+	test('reads the desktop app and its version from what the app adds', () => {
+		expect(
+			describeUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.216 Electron/41.10.7 Safari/537.36 PersonalAgentProxyDesktop/0.0.5'),
+		).toEqual({client: 'Desktop app', os: 'macOS', version: '0.0.5'});
 	});
 
 	test('says nothing it does not know', () => {
-		expect(describeUserAgent(null)).toEqual({client: null, os: null});
-		expect(describeUserAgent('curl/8.7.1')).toEqual({client: null, os: null});
+		expect(describeUserAgent(null)).toEqual({client: null, os: null, version: null});
+		expect(describeUserAgent('curl/8.7.1')).toEqual({client: null, os: null, version: null});
 	});
 });

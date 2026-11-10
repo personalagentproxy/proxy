@@ -118,6 +118,15 @@ export function hashToken(token: string): string {
 // Long enough for any real browser's; a longer header is cut, not refused.
 const maxUserAgentLength = 512;
 
+/** A User-Agent header as a Session row keeps it: cut to length, null when there is none. */
+export function storedUserAgent(header: string | undefined): string | null {
+	if (!header) {
+		return null;
+	}
+
+	return header.slice(0, maxUserAgentLength);
+}
+
 /**
  * Signs the browser in: a Session row with the token's hash and the User-Agent it signed in with,
  * for the account page's list of sessions, and the cookie with the token.
@@ -125,7 +134,7 @@ const maxUserAgentLength = 512;
 export async function establishSession(res: Response, args: {userId: string; userAgent: string | undefined}): Promise<Result<void, ApiError>> {
 	const token = randomBytes(32).toString('hex');
 	const expires = new Date(Date.now() + sessionMaxAgeSeconds * 1000);
-	const userAgent = args.userAgent ? args.userAgent.slice(0, maxUserAgentLength) : null;
+	const userAgent = storedUserAgent(args.userAgent);
 	const sessionResult = await createSession({tokenHash: hashToken(token), userId: args.userId, expires, userAgent});
 	if (sessionResult.isOk()) {
 		res.cookie(sessionCookieName(), token, {...sessionCookieOptions(), expires});
