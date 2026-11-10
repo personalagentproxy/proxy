@@ -6,12 +6,12 @@ import {
 	DropdownMenuContent,
 	DropdownMenuGroup,
 	DropdownMenuItem,
-	DropdownMenuLabel,
 	DropdownMenuRadioGroup,
 	DropdownMenuRadioItem,
 	DropdownMenuTrigger,
 } from '@proxy/ui/components/dropdown-menu';
 import {InputGroupButton} from '@proxy/ui/components/input-group';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
 import {HarnessLogo} from '@/components/brand-logo';
 
@@ -30,8 +30,8 @@ type Props = {
 
 // What runs the agent, under the conversation's input: the model, with the harness beside it. For
 // whoever may change the agent it opens in two columns: the harnesses down the side, each by its
-// mark, and beside them the models of the one looked at, under its name, the model chosen
-// checked. Looking at another harness changes nothing; picking a model takes its harness
+// mark alone, named as the pointer rests on it, and beside them the models of the one looked at,
+// the model chosen checked. Looking at another harness changes nothing; picking a model takes its harness
 // with it. For anyone else it only says what runs the agent. The choice is the agent's, for every
 // member's conversation with it, from the next turn on. Nothing where the server has no harness.
 export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
@@ -84,38 +84,42 @@ export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
 				{name}
 				<ChevronDownIcon className="text-muted-foreground" />
 			</DropdownMenuTrigger>
-			<DropdownMenuContent side="top" align="start" className="flex w-64 p-0">
+			<DropdownMenuContent side="top" align="start" className="flex w-60 p-0">
 				<DropdownMenuGroup
 					aria-label="Harness"
 					className="flex shrink-0 flex-col gap-1 border-r bg-muted/40 p-1"
 				>
 					{harnesses.map((candidate) => (
-						<DropdownMenuItem
-							key={candidate.id}
-							closeOnClick={false}
-							aria-label={candidate.label}
-							aria-current={candidate.id === listed.id}
-							title={candidate.label}
-							onClick={() => setLookedAt(candidate.id)}
-							className={cn('p-1.5', candidate.id === listed.id && 'bg-accent')}
-						>
-							<HarnessLogo harnessId={candidate.id} className="size-6" />
-						</DropdownMenuItem>
+						<Tooltip key={candidate.id}>
+							<TooltipTrigger
+								render={
+									<DropdownMenuItem
+										closeOnClick={false}
+										aria-label={candidate.label}
+										aria-current={candidate.id === listed.id}
+										onClick={() => setLookedAt(candidate.id)}
+										className={cn('p-1.5', candidate.id === listed.id && 'bg-accent')}
+									/>
+								}
+							>
+								<HarnessLogo harnessId={candidate.id} className="size-6" />
+							</TooltipTrigger>
+							<TooltipContent side="left">{candidate.label}</TooltipContent>
+						</Tooltip>
 					))}
 				</DropdownMenuGroup>
-				<DropdownMenuGroup className="min-h-32 min-w-0 flex-1 p-1">
-					<DropdownMenuLabel>{listed.label}</DropdownMenuLabel>
-					<DropdownMenuRadioGroup
-						value={listed.id === harness.id ? model.id : ''}
-						onValueChange={(chatModel: string) => onPick({harness: listed.id, chatModel})}
-					>
-						{listed.models.map((option) => (
-							<DropdownMenuRadioItem key={option.id} value={option.id} closeOnClick>
-								{option.label}
-							</DropdownMenuRadioItem>
-						))}
-					</DropdownMenuRadioGroup>
-				</DropdownMenuGroup>
+				<DropdownMenuRadioGroup
+					aria-label={`${listed.label} models`}
+					className="min-h-24 min-w-0 flex-1 p-1"
+					value={listed.id === harness.id ? model.id : ''}
+					onValueChange={(chatModel: string) => onPick({harness: listed.id, chatModel})}
+				>
+					{listed.models.map((option) => (
+						<DropdownMenuRadioItem key={option.id} value={option.id} closeOnClick>
+							{option.label}
+						</DropdownMenuRadioItem>
+					))}
+				</DropdownMenuRadioGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

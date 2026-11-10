@@ -53,7 +53,7 @@ describe('ModelSwitcher', () => {
 		expect(trigger.textContent).toBe('Claude Opus 5.5Claude');
 	});
 
-	test('opens in two columns: the harnesses down the side, each by its mark, and the models of the agent’s own beside them, under its name, the one chosen checked', async () => {
+	test('opens in two columns: the harnesses down the side, each by its mark, and the models of the agent’s own beside them and nothing else, the one chosen checked', async () => {
 		open({harness: 'proxy', chatModel: 'glm'});
 
 		const side = await screen.findByRole('group', {name: 'Harness'});
@@ -73,6 +73,19 @@ describe('ModelSwitcher', () => {
 			['Claude Sonnet 5.5', 'false'],
 			['GLM 5.3', 'true'],
 		]);
+		// No harness is written out in the list: its mark says which, and names it when pointed at.
+		expect(screen.getByRole('menu').textContent).toBe('Claude Sonnet 5.5GLM 5.3');
+	});
+
+	test('names a harness as the pointer rests on its mark', async () => {
+		open({harness: 'proxy', chatModel: 'claude'});
+
+		fireEvent.mouseEnter(await screen.findByRole('menuitem', {name: 'Claude'}));
+		fireEvent.mouseMove(screen.getByRole('menuitem', {name: 'Claude'}));
+
+		expect(
+			(await screen.findByText('Claude')).closest('[data-slot="tooltip-content"]'),
+		).not.toBeNull();
 	});
 
 	test('looking at another harness lists its models, none checked, and changes nothing until one is picked, which takes its harness with it and closes the list', async () => {
