@@ -1,91 +1,126 @@
 import type {ChatAttachment} from '@proxy/contracts/harness';
 import {formatBytes} from '@proxy/utils/bytes';
-import {FileIcon, LoaderCircleIcon, XIcon} from 'lucide-react';
+import {
+	FileArchiveIcon,
+	FileCodeIcon,
+	FileIcon,
+	FileImageIcon,
+	FileMusicIcon,
+	FilePlayIcon,
+	FileSpreadsheetIcon,
+	FileTextIcon,
+	LoaderCircleIcon,
+	type LucideIcon,
+	PaperclipIcon,
+	XIcon,
+} from 'lucide-react';
 import {Link} from 'react-router';
-import {fileContentPath} from '@/client/files-client';
 import type {PendingAttachment} from '@/hooks/use-attachments';
 import {useOrgSlug} from '@/hooks/use-org';
-import {driveQuery} from '@/lib/files';
+import {driveQuery, type FileKind, fileKind} from '@/lib/files';
 import {cn} from '@proxy/ui/lib/utils';
 
-const CHIP =
-	'flex max-w-64 min-w-0 items-center gap-2 rounded-lg border bg-background px-2.5 py-1.5 text-sm';
+const KIND_ICONS: Record<FileKind, LucideIcon> = {
+	image: FileImageIcon,
+	sheet: FileSpreadsheetIcon,
+	text: FileTextIcon,
+	code: FileCodeIcon,
+	archive: FileArchiveIcon,
+	audio: FileMusicIcon,
+	video: FilePlayIcon,
+	file: FileIcon,
+};
 
-// The files attached to what the person said, under it: a picture as it is, anything else by its
-// name and size, each a link to the file in its drive, where its versions are.
-export function Attachments({attachments}: {attachments: ChatAttachment[]}) {
+// A file as a chip: a line of text high, so it sits in a line of a message as a word does, its
+// kind in a cell of its own at the front, then its name.
+const CHIP = 'flex h-6 max-w-56 min-w-0 items-center rounded-md border bg-background text-sm';
+const CELL = 'flex h-full w-6 shrink-0 items-center justify-center border-r text-muted-foreground';
+const NAME = 'truncate px-2';
+const GLYPH = 'size-3.5';
+
+// A file attached to what the person said, where they put it among their words: a chip, by its
+// kind and its name, in the line of the message as a word is, and a link to the file in its
+// drive, where it is shown and its versions are.
+export function SentChip({attachment}: {attachment: ChatAttachment}) {
 	const org = useOrgSlug();
-	if (attachments.length === 0) {
-		return null;
-	}
+	const {connectionId, fileId, name, type, size} = attachment;
+	const Icon = KIND_ICONS[fileKind(name, type)];
 	return (
-		<div className="flex flex-wrap items-end justify-end gap-2">
-			{attachments.map((attachment) => {
-				const {connectionId, fileId, version, name, size, shown} = attachment;
-				const to = `/${org}/connections/${connectionId}${driveQuery({file: fileId})}`;
-				if (shown) {
-					return (
-						<Link key={`${fileId}-${version}`} to={to} title={name}>
-							<img
-								src={fileContentPath(org, connectionId, fileId, version)}
-								alt={name}
-								className="max-h-48 max-w-64 rounded-lg border object-contain"
-							/>
-						</Link>
-					);
-				}
-				return (
-					<Link key={`${fileId}-${version}`} to={to} className={cn(CHIP, 'hover:bg-muted/50')}>
-						<FileIcon className="size-4 shrink-0 text-muted-foreground" />
-						<span className="truncate">{name}</span>
-						<span className="shrink-0 text-muted-foreground tabular-nums">{formatBytes(size)}</span>
-					</Link>
-				);
-			})}
-		</div>
+		// With the room a word has around it: padding of its own, the line's text having no gap
+		// to give.
+		<span className="inline-block px-0.5 py-0.5 align-middle">
+			<Link
+				to={`/${org}/connections/${connectionId}${driveQuery({file: fileId})}`}
+				title={`${name} · ${formatBytes(size)}`}
+				// Its own colors, whatever the message's: a message of the person's is drawn inverted.
+				className={cn(CHIP, 'text-foreground hover:bg-muted')}
+			>
+				<span className={CELL}>
+					<Icon className={GLYPH} />
+				</span>
+				<span className={NAME}>{name}</span>
+			</Link>
+		</span>
 	);
 }
 
-// The files in the conversation's input, above what is typed: each by its name, turning while it
-// is on its way up, saying why where it failed, and taken out again by its cross.
-export function PendingAttachments({
-	pending,
-	onRemove,
-}: {
-	pending: PendingAttachment[];
-	onRemove: (key: number) => void;
-}) {
-	if (pending.length === 0) {
-		return null;
-	}
+// A file in the conversation's input, among what is typed (message-editor.tsx): a chip by its
+// kind and name, turning while it is on its way up, marked where it failed, and taken out, of the
+// message and of the draft the server keeps, by its front cell, which shows a cross under the
+// pointer.
+export function PendingChip({file, onRemove}: {file: PendingAttachment; onRemove: () => void}) {
+	const uploading = file.attachment === null && file.error === null;
+	// As the drive called it once it landed there, which is another name where its own was taken.
+	const name = file.attachment?.name ?? file.name;
+	const Glyph = uploading ? LoaderCircleIcon : KIND_ICONS[fileKind(name, file.attachment?.type)];
 	return (
-		<ul className="flex flex-wrap gap-2" aria-label="Attached files">
-			{pending.map((one) => (
-				<li key={one.key} className={cn(CHIP, one.error && 'border-destructive')}>
-					{one.attachment === null && one.error === null ? (
-						<LoaderCircleIcon className="size-4 shrink-0 animate-spin text-muted-foreground" />
-					) : (
-						<FileIcon className="size-4 shrink-0 text-muted-foreground" />
+		<span
+			title={file.error ?? `${name} · ${formatBytes(file.size)}`}
+			className={cn(CHIP, 'group/chip', file.error && 'border-destructive text-destructive')}
+		>
+			<button
+				type="button"
+				onClick={onRemove}
+				aria-label={`Remove ${name}`}
+				className={cn(
+					CELL,
+					'rounded-l-md hover:text-foreground',
+					file.error && 'border-destructive',
+				)}
+			>
+				{/* Its kind, or a turning circle while it is on its way up; under the pointer, the cross
+				    that takes it out, whichever it shows. */}
+				<Glyph
+					className={cn(
+						GLYPH,
+						uploading && 'animate-spin',
+						'group-focus-within/chip:hidden group-hover/chip:hidden',
 					)}
-					<span className="flex min-w-0 flex-col">
-						<span className="truncate">{one.name}</span>
-						{one.error && <span className="text-xs text-destructive">{one.error}</span>}
-					</span>
-					{!one.error && (
-						<span className="shrink-0 text-muted-foreground tabular-nums">
-							{formatBytes(one.size)}
-						</span>
-					)}
-					<button
-						type="button"
-						onClick={() => onRemove(one.key)}
-						aria-label={`Remove ${one.name}`}
-						className="shrink-0 rounded text-muted-foreground hover:text-foreground"
-					>
-						<XIcon className="size-3.5" />
-					</button>
-				</li>
-			))}
-		</ul>
+				/>
+				<XIcon
+					className={cn(GLYPH, 'hidden group-focus-within/chip:block group-hover/chip:block')}
+				/>
+			</button>
+			<span className={NAME}>{name}</span>
+		</span>
+	);
+}
+
+// Shown over the whole window while files are dragged across it: wherever they are dropped, they
+// are attached to the message.
+export function DropToAttach({name}: {name: string}) {
+	return (
+		<div
+			aria-hidden
+			className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/90 p-4 backdrop-blur-sm"
+		>
+			<div className="flex size-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-ring">
+				<PaperclipIcon className="size-6 text-muted-foreground" />
+				<p className="text-lg font-medium">Drop files to attach them</p>
+				<p className="text-sm text-muted-foreground">
+					They go with your next message to {name}, and are kept in your files.
+				</p>
+			</div>
+		</div>
 	);
 }

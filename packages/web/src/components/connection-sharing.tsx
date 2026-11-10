@@ -22,7 +22,7 @@ export type SharingChoice = {everyone: boolean; userIds: string[]};
 type Props = {
 	orgName: string;
 	connection: Connection;
-	// What it is called in the texts: 'connection', or 'vault'.
+	// What it is called in the texts: 'connection', or one a member made, 'vault' or 'drive'.
 	what: string;
 	// The organization's members, for who its people are and whom it can be shared with by name.
 	members: Member[];
@@ -102,13 +102,17 @@ export function ConnectionSharing({
 	};
 	const {sharedWithEveryone: everyone} = connection;
 	const askedName = asking === null || asking === 'everyone' ? '' : nameOf(asking);
-	// What sharing hands over, after who gets it: the account its agents then act as, or a vault's
-	// entries.
+	// What sharing hands over, after who gets it: the account its agents then act as, or what one
+	// kept here holds, a vault's entries or a drive's files.
+	const kept =
+		what === 'drive'
+			? {handsOver: 'can read its files and add to them', seen: 'listed, with its files'}
+			: {handsOver: 'can read it and keep what they learn in it', seen: 'listed, with its entries'};
 	const handsOver =
 		actsAs === null
-			? 'can read it and keep what they learn in it, with what Permissions allows'
+			? `${kept.handsOver}, with what Permissions allows`
 			: `can use it, as ${actsAs}, with what Permissions allows`;
-	const seen = actsAs === null ? 'listed, with its entries' : 'listed, never its password or token';
+	const seen = actsAs === null ? kept.seen : 'listed, never its password or token';
 
 	return (
 		<div className="flex flex-col gap-6">

@@ -3,7 +3,7 @@ import type {Result} from 'ts-results-es';
 import type {ApiError} from '@proxy/utils';
 import {type EntryAttachment, withAttachments} from '@proxy/utils/harness-context';
 import type {ChatAttachment, postMessageBodySchema} from '@proxy/contracts/harness';
-import type {AttachmentRow, EntryRow} from '@proxy/db/harness';
+import type {AttachmentRow, DraftAttachment, EntryRow} from '@proxy/db/harness';
 import type {z} from 'zod';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
@@ -13,7 +13,9 @@ import type {OrgViewer} from '../utils/user-org';
  * Files in a conversation: what the person attaches to what they say. A file attached is one of a
  * drive's (native/files), named by its connection, its id there and the version it held when it
  * was attached, which is what the conversation goes on meaning; the log keeps its name, kind and
- * size as they were, and the first of its text. The person sees it with what they said; the model
+ * size as they were, and the first of its text. A file put in a conversation's input is uploaded
+ * at once and kept there, as what is typed is kept as the draft, so it is there on any device
+ * until the message it goes with is sent. The person sees it with what they said; the model
  * reads what they said with each file under it (@proxy/utils/harness-context withAttachments),
  * whichever harness runs the turn, since the log is given to a harness with that already written
  * into what the person said. Where the files come from is the drive's side (native/files/chat.ts),
@@ -28,8 +30,8 @@ export type ChatFiles = {
 	upload: (viewer: OrgViewer, persona: {name: string}, request: AuthenticatedRequest) => Promise<Result<ChatAttachment, ApiError>>;
 	/** The files named, each one the person can read, as the log keeps them; refused where one isn't. */
 	resolve: (viewer: OrgViewer, refs: AttachmentRef[]) => Promise<Result<EntryAttachment[], ApiError>>;
-	/** A file the log keeps, as the page shows it. */
-	shown: (attachment: EntryAttachment) => ChatAttachment;
+	/** A file the log or the conversation's input keeps, as the page shows it. */
+	shown: (attachment: DraftAttachment) => ChatAttachment;
 };
 
 /** The log with what the person attached written into what they said, as the model reads it. */

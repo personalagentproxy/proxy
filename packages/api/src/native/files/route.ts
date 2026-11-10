@@ -76,12 +76,15 @@ function driveOf(request: AuthenticatedRequest): Promise<Result<Drive, ApiError>
 	});
 }
 
-function toFile(entry: FileEntry): DriveFile {
+// A file or a folder as a list shows it; with `above`, the folders it is in, said too, as for what
+// a search found or the trash holds.
+function toFile(entry: FileEntry, above?: FileNodeRow[]): DriveFile {
 	return {
 		id: entry.id,
 		name: entry.name,
 		folder: entry.folder,
 		parentId: entry.parentId,
+		path: above === undefined ? null : above.map((folder) => folder.name).join(' / '),
 		version: entry.head?.id ?? null,
 		type: entry.head?.type ?? null,
 		size: entry.head?.size ?? null,
@@ -118,9 +121,13 @@ export function handleListFilesRoute(request: AuthenticatedRequest): Promise<Res
 		if (folder !== null && !folder.folder) {
 			return $(Err(ApiErr.validationError(`${folder.name} is a file, not a folder`)));
 		}
+		const trail = folder === null ? [] : toCrumbs([...folder.trail, folder]);
 		const words = search?.trim();
-		const entries = words ? $(await searchFiles(connectionId, words, folder?.id ?? null)) : $(await listFolder(connectionId, folder?.id ?? null));
-		return {files: entries.map(toFile), trail: folder === null ? [] : toCrumbs([...folder.trail, folder])};
+		if (words) {
+			const found = $(await searchFiles(connectionId, words, folder?.id ?? null));
+			return {files: found.map((entry) => toFile(entry, entry.trail)), trail};
+		}
+		return {files: $(await listFolder(connectionId, folder?.id ?? null)).map((entry) => toFile(entry)), trail};
 	});
 }
 
@@ -128,7 +135,7 @@ export function handleListFilesRoute(request: AuthenticatedRequest): Promise<Res
 export function handleListTrashRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof fileListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const {connectionId} = $(await driveOf(request));
-		return {files: $(await listTrash(connectionId)).map(toFile), trail: []};
+		return {files: $(await listTrash(connectionId)).map((entry) => toFile(entry, entry.trail)), trail: []};
 	});
 }
 

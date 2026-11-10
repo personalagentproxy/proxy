@@ -120,10 +120,10 @@ function ConnectionDetail() {
 		mayChange,
 		owner: ownerOf(connection, human),
 	});
-	const removal = integration.native
+	const removal = integration.made
 		? {
 				verb: 'Delete',
-				description: `Its entries are deleted with it, for good, and agents lose it at once.`,
+				description: `Its ${integration.made.holds} are deleted with it, for good, and agents lose it at once.`,
 			}
 		: {
 				verb: 'Disconnect',
@@ -276,7 +276,7 @@ function ConnectionDetail() {
 					<ConnectionSharing
 						orgName={activeOrg.name}
 						connection={connection}
-						what={integration.native ? 'vault' : 'connection'}
+						what={integration.made?.one ?? 'connection'}
 						members={members}
 						userId={human.user.id}
 						actsAs={actingAs}

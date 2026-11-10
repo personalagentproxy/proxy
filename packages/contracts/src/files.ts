@@ -15,6 +15,12 @@ export const fileSchema = z.object({
 	folder: z.boolean(),
 	/** The folder it is in; null at the top of the drive. */
 	parentId: z.string().nullable(),
+	/**
+	 * Where a search found it or the trash has it from: the folders above it, from the top down,
+	 * as `Reports / 2026`, empty at the top of the drive. Null in a folder's own list, where the
+	 * list says it.
+	 */
+	path: z.string().nullable(),
 	/** What a file holds now: its version's id, the media type and the size in bytes; null for a folder. */
 	version: z.string().nullable(),
 	type: z.string().nullable(),

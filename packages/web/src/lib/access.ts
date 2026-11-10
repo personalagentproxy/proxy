@@ -5,6 +5,7 @@ import type {DataRecord} from '@proxy/contracts/records';
 import {
 	API_REQUESTS_ID,
 	effectiveActions,
+	FILES_INTEGRATION_ID,
 	findCollection,
 	GIT_REQUESTS_ID,
 	requiredAction,
@@ -21,20 +22,24 @@ import {integrationOf, type Integration} from '@/lib/integrations';
 
 export {integrationOf};
 
-// What the person's built-in vault is called: it has no name of its own, and "Vault" alone would
-// say nothing beside the vaults members made, each called by its name.
-const OWN_VAULT = 'My vault';
+// What the person's built-in vault and drive are called: neither has a name of its own, and
+// "Vault" or "Files" alone would say nothing beside those members made, each called by its name.
+const OWN: Record<string, string> = {
+	[VAULT_INTEGRATION_ID]: 'My vault',
+	[FILES_INTEGRATION_ID]: 'My files',
+};
 
 /**
- * What a connection is called: the name the person gave it, their built-in vault "My vault", else
- * its integration.
+ * What a connection is called: the name the person gave it, their built-in vault "My vault" and
+ * drive "My files", else its integration.
  */
 export function connectionTitle(connection: Connection): string {
 	if (connection.name !== null) {
 		return connection.name;
 	}
-	if (connection.builtIn && connection.integrationId === VAULT_INTEGRATION_ID) {
-		return OWN_VAULT;
+	const own = connection.builtIn ? OWN[connection.integrationId] : undefined;
+	if (own !== undefined) {
+		return own;
 	}
 	return integrationOf(connection)?.name ?? connection.integrationId;
 }
@@ -44,7 +49,7 @@ export function connectionTitle(connection: Connection): string {
 // same account is, as one a member shared is beside the person's own.
 export function connectionLabel(connections: Connection[], connection: Connection): string {
 	const name = connectionTitle(connection);
-	if (connection.name !== null || name === OWN_VAULT) {
+	if (connection.name !== null || (connection.builtIn && name === OWN[connection.integrationId])) {
 		return name;
 	}
 	const siblings = connections.filter(

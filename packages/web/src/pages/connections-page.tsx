@@ -42,10 +42,20 @@ const LINK = 'text-foreground underline underline-offset-4';
 // another organization or deleted.
 type Pending = {connection: Connection; action: 'rename' | 'move' | 'delete'};
 
-// A custom MCP server and a vault a member made have nothing else to be called.
+// What deleting a connection from its row's menu takes with it: what a vault or a drive a member
+// made holds, or, for a service connected, the access given here.
+function deletingSays(connection: Connection): string {
+	const made = integrationOf(connection)?.made;
+	if (made) {
+		return `Its ${made.holds} are deleted with it, for good, and agents lose it at once.`;
+	}
+	return `Agents lose access to ${connection.account} at once, and the access you gave them here is forgotten. You can connect it again later.`;
+}
+
+// A custom MCP server, and a vault or a drive a member made, have nothing else to be called.
 function needsName(connection: Connection): boolean {
 	const integration = integrationOf(connection);
-	return integration?.custom === true || integration?.native === true;
+	return integration?.custom === true || integration?.made !== undefined;
 }
 
 // The services connected in the organization open that the person uses: their own and those
@@ -234,13 +244,7 @@ function Connections() {
 			<ConfirmDialog
 				open={deleting !== null}
 				title={deleting ? `Delete ${connectionTitle(deleting)}?` : ''}
-				description={
-					deleting && integrationOf(deleting)?.native
-						? 'Its entries are deleted with it, for good, and agents lose it at once.'
-						: deleting
-							? `Agents lose access to ${deleting.account} at once, and the access you gave them here is forgotten. You can connect it again later.`
-							: ''
-				}
+				description={deleting ? deletingSays(deleting) : ''}
 				confirmLabel="Delete"
 				destructive
 				onClose={() => setPending(null)}

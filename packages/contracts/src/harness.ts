@@ -149,6 +149,11 @@ export const threadLogSchema = z.object({
 	sleepingUntil: z.string().nullable(),
 	/** What the person typed in it and hasn't sent (`PUT chat/personas/:personaId/draft`); null without one. */
 	draft: z.string().nullable(),
+	/**
+	 * The files the person put in its input and hasn't sent, in the order they were put there
+	 * (`POST` and `DELETE chat/personas/:personaId/attachments`), kept as the draft is.
+	 */
+	draftAttachments: z.array(chatAttachmentSchema),
 });
 
 export type ThreadLog = z.infer<typeof threadLogSchema>;
@@ -158,46 +163,61 @@ const MAX_MESSAGE = 20_000;
 /** How many files one message carries at most. */
 export const MAX_ATTACHMENTS = 10;
 
+/** A file of a drive, by its connection, its id there and a version of it: what a message names to attach it. */
+const attachmentRefSchema = z.object({
+	connectionId: z.string().min(1),
+	fileId: z.string().min(1),
+	version: z.string().min(1),
+});
+
 /**
  * `POST chat/personas/:personaId/messages`: what the person says to the persona, and the files
  * they attach to it, each one of a drive they use, by its connection, its id and the version to
- * attach; words, files, or both. The persona is woken.
+ * attach; words, files, or both. A file sits among the words where the text has a mark for it
+ * (`ATTACHMENT_MARK` in `@proxy/utils/harness`), the first mark the first file's and so on; files
+ * the text has no mark for come before the words. The persona is woken.
  */
 export const postMessageBodySchema = z
 	.object({
 		text: z.string().trim().max(MAX_MESSAGE),
-		attachments: z
-			.array(
-				z.object({
-					connectionId: z.string().min(1),
-					fileId: z.string().min(1),
-					version: z.string().min(1),
-				}),
-			)
-			.max(MAX_ATTACHMENTS)
-			.default([]),
+		attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
 	})
 	.refine(({text, attachments}) => text !== '' || attachments.length > 0, {
 		message: 'Say something, or attach a file',
 	});
 
 /**
- * `POST chat/personas/:personaId/attachments?name=&type=`: a file from the conversation's input,
- * its body the bytes, sent as `application/octet-stream`: kept in the person's own drive, in a
- * folder of the persona's under Chats, and answered as what to attach to the next message.
+ * `POST chat/personas/:personaId/attachments?name=&type=`: a file put in the conversation's
+ * input, its body the bytes, sent as `application/octet-stream`: kept in the person's own drive,
+ * in a folder of the persona's under Chats, and in the conversation's input, after the files
+ * there, until the person sends their next message or takes it out. Refused where the input
+ * holds as many as a message carries.
  */
 export const uploadAttachmentQuerySchema = z.object({
 	name: z.string().trim().min(1).max(255),
 	type: z.string().max(200).optional(),
 });
 
+/**
+ * `DELETE chat/personas/:personaId/attachments`: takes a file out of the conversation's input.
+ * The file stays in its drive.
+ */
+export const removeAttachmentBodySchema = attachmentRefSchema;
+
 export const uploadedAttachmentSchema = z.object({attachment: chatAttachmentSchema});
 
 /**
  * `PUT chat/personas/:personaId/draft`: what the person has typed to the persona and not sent, in
  * place of what was kept; nothing but whitespace forgets it. Sending a message forgets it too.
+ * Where the files in the input sit among the words, each at a mark in the text
+ * (`ATTACHMENT_MARK` in `@proxy/utils/harness`), `attachments` says which file each mark is, in
+ * the order of the marks: the files in the input are kept in that order, any it leaves out after
+ * them.
  */
-export const saveDraftBodySchema = z.object({text: z.string().max(MAX_MESSAGE)});
+export const saveDraftBodySchema = z.object({
+	text: z.string().max(MAX_MESSAGE),
+	attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).optional(),
+});
 
 /**
  * `POST chat/personas/:personaId/read`: the persona's answer the page showed the person, which

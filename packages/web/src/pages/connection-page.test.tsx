@@ -243,6 +243,7 @@ describe('ConnectionPage', () => {
 	test('the person’s drive opens on its files, a folder a link into it and a file a link that shows it, and, never shared, has no Sharing tab', async () => {
 		const file = {
 			parentId: null,
+			path: null,
 			shown: false,
 			modifiedAt: '2026-10-21T00:00:00.000Z',
 			trashedAt: null,
@@ -255,7 +256,7 @@ describe('ConnectionPage', () => {
 			null,
 			null,
 			{
-				place: {folder: null, file: null, trash: false},
+				place: {folder: null, file: null, trash: false, search: null},
 				list: {
 					files: [
 						{
@@ -303,6 +304,7 @@ describe('ConnectionPage', () => {
 			name: 'pricing.md',
 			folder: false,
 			parentId: null,
+			path: null,
 			version: 'v2',
 			type: 'text/markdown',
 			size: 2048,
@@ -324,7 +326,7 @@ describe('ConnectionPage', () => {
 			null,
 			null,
 			{
-				place: {folder: null, file: 'file-1', trash: false},
+				place: {folder: null, file: 'file-1', trash: false, search: null},
 				list: {files: [file], trail: []},
 				shown: {
 					file,
@@ -364,6 +366,125 @@ describe('ConnectionPage', () => {
 		// The version it holds is marked; one before it is given back or saved.
 		expect(within(dialog).getAllByRole('button', {name: 'Restore'})).toHaveLength(1);
 		expect(within(dialog).getByText('Current')).toBeTruthy();
+	});
+
+	test('a search of a drive lists what its name is in, each with where it is, and keeps the search while a file is shown', async () => {
+		const found = {
+			folder: false,
+			version: 'v1',
+			type: 'text/markdown',
+			size: 2048,
+			shown: false,
+			modifiedAt: '2026-10-21T00:00:00.000Z',
+			trashedAt: null,
+		};
+		renderConnectionPage(
+			'/acme/connections/conn-1?folder=folder-1&q=pricing',
+			{...mailbox, integrationId: 'files', defaults: ['readFiles'], builtIn: true},
+			[claude],
+			null,
+			null,
+			null,
+			{
+				place: {folder: 'folder-1', file: null, trash: false, search: 'pricing'},
+				list: {
+					files: [
+						{...found, id: 'file-1', name: 'pricing.md', parentId: 'folder-1', path: 'Reports'},
+						{
+							...found,
+							id: 'file-2',
+							name: 'pricing-2026.md',
+							parentId: 'folder-2',
+							path: 'Reports / 2026',
+						},
+					],
+					trail: [{id: 'folder-1', name: 'Reports'}],
+				},
+				shown: null,
+			},
+		);
+
+		const deep = await screen.findByRole('link', {name: /pricing-2026\.md/});
+		expect(deep.textContent).toContain('Reports / 2026');
+		expect(deep.getAttribute('href')).toBe(
+			'/acme/connections/conn-1?folder=folder-1&q=pricing&file=file-2',
+		);
+		expect((screen.getByLabelText('Search this folder') as HTMLInputElement).value).toBe('pricing');
+	});
+
+	test('a file or a folder is moved by opening the folder it goes into, from where it is now', async () => {
+		const realFetch = globalThis.fetch;
+		const calls: Array<[string, string, string | undefined]> = [];
+		const folder = (id: string, name: string, parentId: string | null) => ({
+			id,
+			name,
+			folder: true,
+			parentId,
+			path: null,
+			version: null,
+			type: null,
+			size: null,
+			shown: false,
+			modifiedAt: '2026-10-21T00:00:00.000Z',
+			trashedAt: null,
+		});
+		const file = {...folder('file-1', 'pricing.md', null), folder: false, version: 'v1'};
+		globalThis.fetch = ((input: string, init?: RequestInit) => {
+			calls.push([
+				init?.method ?? 'GET',
+				input,
+				typeof init?.body === 'string' ? init.body : undefined,
+			]);
+			if (init?.method === 'PATCH') {
+				return Promise.resolve(Response.json({file: {...file, parentId: 'folder-1'}}));
+			}
+			return Promise.resolve(
+				Response.json(
+					input.includes('parent=folder-1')
+						? {
+								files: [folder('folder-2', '2026', 'folder-1')],
+								trail: [{id: 'folder-1', name: 'Reports'}],
+							}
+						: {files: [folder('folder-1', 'Reports', null), file], trail: []},
+				),
+			);
+		}) as typeof fetch;
+		renderConnectionPage(
+			'/acme/connections/conn-1',
+			{...mailbox, integrationId: 'files', defaults: ['readFiles'], builtIn: true},
+			[claude],
+			null,
+			null,
+			null,
+			{
+				place: {folder: null, file: null, trash: false, search: null},
+				list: {files: [folder('folder-1', 'Reports', null), file], trail: []},
+				shown: null,
+			},
+		);
+
+		fireEvent.contextMenu(await screen.findByRole('link', {name: /pricing\.md/}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Move to…'}));
+		const dialog = await screen.findByRole('dialog');
+		// It opens where the file is, which is no place to move it to; only folders are offered.
+		const move = within(dialog).getByRole('button', {name: 'Move here'}) as HTMLButtonElement;
+		expect(move.disabled).toBe(true);
+		fireEvent.click(await within(dialog).findByRole('button', {name: /Reports/}));
+		expect(await within(dialog).findByRole('button', {name: /2026/})).toBeTruthy();
+		expect(within(dialog).queryByText('pricing.md', {selector: 'li *'})).toBeNull();
+		await waitFor(() => expect(move.disabled).toBe(false));
+
+		fireEvent.click(move);
+
+		await waitFor(() => expect(screen.queryByRole('dialog') === null).toBe(true));
+		expect(calls.filter(([method]) => method === 'PATCH')).toEqual([
+			[
+				'PATCH',
+				'/api/orgs/acme/connections/conn-1/files/file-1',
+				JSON.stringify({parent: 'folder-1'}),
+			],
+		]);
+		globalThis.fetch = realFetch;
 	});
 
 	test('a GitHub connection opens on the repositories it reaches, by the account the app is installed on', async () => {

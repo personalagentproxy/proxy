@@ -11,8 +11,18 @@ function filesPath(org: string, connectionId: string): string {
 	return `${orgApi(org)}/connections/${connectionId}/files`;
 }
 
-export function listFiles(org: string, connectionId: string, parent: string | null) {
-	const query = parent === null ? '' : `?parent=${encodeURIComponent(parent)}`;
+/** What a folder holds, the top's for null; or, with `search`, what has it in its name, there and below. */
+export function listFiles(
+	org: string,
+	connectionId: string,
+	parent: string | null,
+	search: string | null = null,
+) {
+	const params = new URLSearchParams({
+		...(parent === null ? {} : {parent}),
+		...(search === null ? {} : {search}),
+	});
+	const query = params.size === 0 ? '' : `?${params.toString()}`;
 	return apiRequest('GET', `${filesPath(org, connectionId)}${query}`, fileListSchema);
 }
 
@@ -72,6 +82,13 @@ export function uploadFileVersion(
 	file: File,
 ) {
 	return upload('PUT', `${filesPath(org, connectionId)}/${fileId}/content`, {version}, file);
+}
+
+/** Moves a file or a folder into `parent`, the top of the drive for null. */
+export function moveFile(org: string, connectionId: string, fileId: string, parent: string | null) {
+	return apiRequest('PATCH', `${filesPath(org, connectionId)}/${fileId}`, fileAnswerSchema, {
+		parent,
+	});
 }
 
 export function renameFile(org: string, connectionId: string, fileId: string, name: string) {

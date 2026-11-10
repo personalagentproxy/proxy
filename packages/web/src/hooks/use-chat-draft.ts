@@ -1,3 +1,4 @@
+import type {ChatAttachment} from '@proxy/contracts/harness';
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {saveDraft} from '@/client/harness-client';
 
@@ -16,8 +17,8 @@ const KEEPALIVE_MAX_BYTES = 60_000;
 export type ChatDraft = {
 	// What the server keeps, as far as the page knows: what is typed is saved when it is this.
 	saved: string;
-	// The person typed `text`.
-	typed: (text: string) => void;
+	// The person typed `text`, with `files` sitting among the words where its marks are.
+	typed: (text: string, files?: ChatAttachment[]) => void;
 	// Before a send: what is typed is not saved, and a save on its way has landed.
 	settle: () => Promise<void>;
 	// After a send, which forgot the draft on the server.
@@ -26,8 +27,8 @@ export type ChatDraft = {
 
 export function useChatDraft(org: string, personaId: string, initial: string): ChatDraft {
 	const [saved, setSaved] = useState(initial);
-	// Typed, and not yet saved.
-	const pending = useRef<string | null>(null);
+	// Typed, and not yet saved, with the files among the words.
+	const pending = useRef<{text: string; files?: ChatAttachment[]} | null>(null);
 	const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	// The saves, one after another.
 	const queue = useRef<Promise<void>>(Promise.resolve());
@@ -35,11 +36,11 @@ export function useChatDraft(org: string, personaId: string, initial: string): C
 	const savedSinceSettle = useRef(false);
 
 	const save = useCallback(
-		(text: string, closing: boolean) => {
+		(text: string, closing: boolean, files?: ChatAttachment[]) => {
 			savedSinceSettle.current = true;
 			const keepalive = closing && new TextEncoder().encode(text).length <= KEEPALIVE_MAX_BYTES;
 			queue.current = queue.current.then(async () => {
-				const result = await saveDraft(org, personaId, text, {keepalive});
+				const result = await saveDraft(org, personaId, text, {keepalive, files});
 				if (result.isOk()) {
 					setSaved(text);
 				}
@@ -59,19 +60,19 @@ export function useChatDraft(org: string, personaId: string, initial: string): C
 	const flush = useCallback(
 		(closing: boolean) => {
 			stopTimer();
-			const text = pending.current;
+			const typed = pending.current;
 			pending.current = null;
-			if (text === null) {
+			if (typed === null) {
 				return;
 			}
-			save(text, closing);
+			save(typed.text, closing, typed.files);
 		},
 		[save],
 	);
 
 	const typed = useCallback(
-		(text: string) => {
-			pending.current = text;
+		(text: string, files?: ChatAttachment[]) => {
+			pending.current = {text, files};
 			stopTimer();
 			timer.current = setTimeout(() => flush(false), SAVE_AFTER_MS);
 		},

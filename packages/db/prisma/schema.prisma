@@ -836,6 +836,12 @@ model AgentThread {
   // back, on any device; the message they send empties it. Null when there is none, and for a
   // sub-agent's thread.
   draft   String?
+  // The files the member put in the conversation's input and hasn't sent, as JSON (db/harness.ts
+  // DraftAttachment[]), in the order they were put there: each one of a drive's, by its connection,
+  // its id there and the version it held then, with its name, kind and size. Kept as the draft is,
+  // and emptied with it by the message they send. Null when there are none, and for a sub-agent's
+  // thread.
+  draftAttachments String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

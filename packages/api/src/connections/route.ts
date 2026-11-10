@@ -5,6 +5,7 @@ import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/uti
 import {
 	type Connection,
 	type connectionListSchema,
+	createDriveBodySchema,
 	createVaultBodySchema,
 	moveConnectionBodySchema,
 	renameConnectionBodySchema,
@@ -13,12 +14,13 @@ import {
 } from '@proxy/contracts/connections';
 import {createConnection, deleteConnection, listConnectionsWithCredential, moveConnection, setConnectionDefaults, setConnectionSharing, updateConnectionName} from '@proxy/db/connection';
 import {getMemberOrganization, listMembers} from '@proxy/db/organization';
-import {VAULT_DEFAULT_ACTIONS, VAULT_INTEGRATION_ID} from '@proxy/integrations';
+import {FILES_DEFAULT_ACTIONS, FILES_INTEGRATION_ID, VAULT_DEFAULT_ACTIONS, VAULT_INTEGRATION_ID} from '@proxy/integrations';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {isBuiltIn, parseActionChanges, requireIntegration} from '../utils/connection-actions';
 import {requireViewer} from '../utils/user-org';
-import {ensureFilesConnection} from '../native/files/connections';
+import {ensureFilesConnection, filesOffered} from '../native/files/connections';
+import {NAMED_AFTER_ORGANIZATION} from '../orgs/starter-connections';
 import {ensureSandboxConnection} from '../native/sandbox/connections';
 import {respond, respondAll} from './connection-response';
 import {beforeDisconnect} from './disconnect';
@@ -45,8 +47,8 @@ export function handleGetConnectionRoute(request: AuthenticatedRequest): Promise
 
 /**
  * Agents lose the connection at once, and the provider's grant is revoked first where it has a way,
- * as Google does. A vault a member made goes with its entries; their built-in vault and Sandboxes
- * can't be disconnected. A connection is disconnected by whoever's it is, or, shared with every
+ * as Google does. A vault a member made goes with its entries, and a drive with its files; their
+ * built-in vault, drive and Sandboxes can't be disconnected. A connection is disconnected by whoever's it is, or, shared with every
  * member, by the organization's owner.
  */
 export function handleDeleteConnectionRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
@@ -68,9 +70,9 @@ export function handleDeleteConnectionRoute(request: AuthenticatedRequest): Prom
 
 /**
  * Renames a connection, `{name}`: what it is called here and to agents. An empty name is none of
- * its own, so the connection shows as its integration again, except for a custom MCP server, which
- * and a vault a member made, which have nothing else to be called. A built-in connection keeps its
- * name.
+ * its own, so the connection shows as its integration again, except for a custom MCP server and
+ * a vault or a drive a member made, which have nothing else to be called. A built-in connection
+ * keeps its name.
  */
 export function handleRenameConnectionRoute(request: AuthenticatedRequest): Promise<Result<Connection, ApiError>> {
 	return Do(async ($) => {
@@ -85,8 +87,8 @@ export function handleRenameConnectionRoute(request: AuthenticatedRequest): Prom
 		if (name === '' && integration.custom) {
 			return $(Err(ApiErr.validationError('A custom MCP server needs a name')));
 		}
-		if (name === '' && integration.native) {
-			return $(Err(ApiErr.validationError(`A ${integration.name.toLowerCase()} needs a name`)));
+		if (name === '' && integration.made) {
+			return $(Err(ApiErr.validationError(`A ${integration.made.one} needs a name`)));
 		}
 
 		$(await updateConnectionName({connectionId, name: name === '' ? null : name}));
@@ -146,7 +148,7 @@ export function handleSetConnectionSharingRoute(request: AuthenticatedRequest): 
  * `PUT /api/orgs/:org/connections/:connectionId/org`: moves a connection into another organization
  * the person is in, `{org}` by its slug, where it is theirs alone: who it was shared with here and
  * what agents here were set to do with it stay behind, and agents here lose it at once. Its
- * credential, its defaults and a vault's entries go with it. Only whoever's it is moves it; a
+ * credential, its defaults, a vault's entries and a drive's files go with it. Only whoever's it is moves it; a
  * built-in connection is each member's in each organization, and stays.
  */
 export function handleMoveConnectionRoute(request: AuthenticatedRequest): Promise<Result<Connection, ApiError>> {
@@ -163,8 +165,8 @@ export function handleMoveConnectionRoute(request: AuthenticatedRequest): Promis
 			return $(Err(ApiErr.validationError(`The connection is in ${target.name} already`)));
 		}
 
-		// A vault is called by its organization's name, as it is when made.
-		const account = row.integrationId === VAULT_INTEGRATION_ID ? target.name : row.account;
+		// A vault and a drive are called by their organization's name, as they are when made.
+		const account = NAMED_AFTER_ORGANIZATION.includes(row.integrationId) ? target.name : row.account;
 		const moved = $(await moveConnection({connectionId, ownerUserId: viewer.userId, fromOrgId: viewer.orgId, toOrgId: target.id, account}));
 		if (!moved) {
 			return $(Err(ApiErr.notFound('connection', connectionId)));
@@ -189,6 +191,32 @@ export function handleCreateVaultRoute(request: AuthenticatedRequest): Promise<R
 				account: viewer.name,
 				name,
 				defaults: VAULT_DEFAULT_ACTIONS,
+			}),
+		);
+		return $(await respond({...row, credential: null}));
+	});
+}
+
+/**
+ * `POST /api/orgs/:org/connections/files`: a new drive, `{name, shared}`, beside the person's
+ * built-in one: theirs, for the files of a team or a project, shared as any connection. Agents
+ * read and write it by default, as every drive. Only where Files are offered: the organization
+ * has them on, and the server a place for their bytes.
+ */
+export function handleCreateDriveRoute(request: AuthenticatedRequest): Promise<Result<Connection, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireViewer(request));
+		if (!(await filesOffered(viewer))) {
+			return $(Err(ApiErr.forbidden()));
+		}
+		const {name, shared} = $(parseSchema(createDriveBodySchema, request.body));
+		const row = $(
+			await createConnection({
+				...ownership(viewer, shared === true),
+				integrationId: FILES_INTEGRATION_ID,
+				account: viewer.name,
+				name,
+				defaults: FILES_DEFAULT_ACTIONS,
 			}),
 		);
 		return $(await respond({...row, credential: null}));

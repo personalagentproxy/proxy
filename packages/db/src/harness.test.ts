@@ -6,6 +6,7 @@ import {readyForInference} from '@proxy/utils/harness';
 
 import {db} from '.';
 import {
+	addDraftAttachment,
 	appendPersonMessage,
 	appendSummary,
 	claimJob,
@@ -23,9 +24,11 @@ import {
 	listOpenJobs,
 	listAnswers,
 	listAttachments,
+	listDraftAttachments,
 	listPersonas,
 	listSubAgents,
 	markThreadRead,
+	removeDraftAttachment,
 	requeueJob,
 	saveThreadDraft,
 	type JobRow,
@@ -856,5 +859,50 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		expect(unwrap(await isAttachedForTask({orgId: 'another-org', taskId: task.id}, attached))).toBe(
 			false,
 		);
+	});
+	test('the files put in a conversation’s input wait there in order, each once, up to as many as a message carries, are taken out one at a time, and go with the message that is sent', async () => {
+		const file = (id: string, name: string) => ({
+			connectionId: 'drive-1',
+			fileId: id,
+			version: 'v1',
+			name,
+			type: 'text/plain',
+			size: 4,
+		});
+		const notes = file('file-1', 'notes.txt');
+		const chart = file('file-2', 'chart.png');
+
+		expect(unwrap(await addDraftAttachment(thread.id, notes, 2))).toEqual([notes]);
+		expect(unwrap(await addDraftAttachment(thread.id, chart, 2))).toEqual([notes, chart]);
+		// The same file at the same version is there once, and a full input takes no more.
+		expect(unwrap(await addDraftAttachment(thread.id, notes, 2))).toEqual([notes, chart]);
+		const full = await addDraftAttachment(thread.id, file('file-3', 'more.txt'), 2);
+		expect(full.isErr() && full.error.kind).toBe('conflict');
+		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([notes, chart]);
+		const listed = unwrap(await listPersonas(orgId, userId)).find(
+			(persona) => persona.id === thread.personaId,
+		);
+		expect(listed?.draftAttachments).toEqual([notes, chart]);
+
+		// A save of what was typed with the files' order keeps them as they sit among the words,
+		// any it doesn't name after them, and adds or drops none.
+		expect(
+			unwrap(await saveThreadDraft(thread.id, 'See these', [chart, file('file-9', 'x')])),
+		).toBe(true);
+		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([chart, notes]);
+		expect(unwrap(await getThreadDraft(thread.id))).toBe('See these');
+		expect(unwrap(await saveThreadDraft(thread.id, null, [notes]))).toBe(true);
+		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([notes, chart]);
+
+		expect(unwrap(await removeDraftAttachment(thread.id, notes))).toEqual([chart]);
+		// A later version of the file is another file to the input.
+		expect(unwrap(await removeDraftAttachment(thread.id, {...chart, version: 'v2'}))).toEqual([
+			chart,
+		]);
+
+		unwrap(await appendPersonMessage(thread.id, 'Here it is.', readyForInference));
+		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([]);
+		// A thread that isn't a conversation keeps none.
+		expect(unwrap(await addDraftAttachment('no-such-thread', notes, 2))).toBeNull();
 	});
 });

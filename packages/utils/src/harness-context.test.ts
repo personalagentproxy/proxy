@@ -9,6 +9,7 @@ import {
 	toTranscript,
 	withAttachments,
 } from './harness-context';
+import {ATTACHMENT_MARK} from './harness';
 
 type Kind = ContextEntry['kind'];
 
@@ -345,6 +346,24 @@ describe('withAttachments', () => {
 			'pricing.md (text/markdown, 2 KB): connection drive-1, id file-1, version v1. Its text:\n"""\n# Pricing\n"""',
 			'long.txt (text/plain, 2 KB): connection drive-1, id file-2, version v1. The first of its text, files_read having the rest:\n"""\nThe first part\n"""',
 		]);
+	});
+
+	test('names each file in brackets where the person put it among their words, and lists them all the same', () => {
+		const chart = {...file, fileId: 'file-2', name: 'chart.png', type: 'image/png', text: null};
+
+		const read = withAttachments(`Does ${ATTACHMENT_MARK} match ${ATTACHMENT_MARK}?`, [
+			file,
+			chart,
+		]);
+
+		expect(read.split('\n\n')[0]).toBe('Does [pricing.md] match [chart.png]?');
+		expect(read.split('\n\n')).toHaveLength(4);
+		// A mark with no file to stand for is nothing; a file with no mark is listed only.
+		expect(
+			withAttachments(`See ${ATTACHMENT_MARK} and ${ATTACHMENT_MARK}`, [file]).split('\n\n')[0],
+		).toBe('See [pricing.md] and');
+		expect(withAttachments('See these', [file, chart]).split('\n\n')[0]).toBe('See these');
+		expect(withAttachments(ATTACHMENT_MARK, [file]).split('\n\n')[0]).toBe('[pricing.md]');
 	});
 
 	test('says of a file that isn’t text, or holds nothing, that there is nothing of it to read here, and stands alone where nothing was said', () => {

@@ -6,16 +6,7 @@ import type {
 	ThreadLog,
 } from '@proxy/contracts/harness';
 import {ArrowUpIcon, MoonIcon, PaperclipIcon, PencilIcon, Trash2Icon} from 'lucide-react';
-import {
-	type ClipboardEvent,
-	type DragEvent,
-	type FormEvent,
-	type KeyboardEvent,
-	useCallback,
-	useEffect,
-	useRef,
-	useState,
-} from 'react';
+import {Fragment, type FormEvent, useCallback, useEffect, useRef, useState} from 'react';
 import {Link, useNavigate, useParams} from 'react-router';
 import {
 	createPersona,
@@ -31,14 +22,14 @@ import {LiveHead} from '@/components/head';
 import {Markdown} from '@/components/markdown';
 import {type ModelChoice, ModelSwitcher} from '@/components/model-switcher';
 import {PersonaDialog} from '@/components/persona-dialog';
-import {Attachments, PendingAttachments} from '@/components/chat/attachments';
+import {DropToAttach, SentChip} from '@/components/chat/attachments';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {
-	InputGroup,
-	InputGroupAddon,
-	InputGroupButton,
-	InputGroupTextarea,
-} from '@proxy/ui/components/input-group';
+	MessageEditor,
+	type MessageEditorHandle,
+	type Typed,
+} from '@/components/chat/message-editor';
+import {InputGroup, InputGroupAddon, InputGroupButton} from '@proxy/ui/components/input-group';
 import {Message, MessageContent} from '@/components/chat/message';
 import {
 	MessageScroller,
@@ -49,7 +40,7 @@ import {
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
 import {Trace, TraceIcon, TraceLine, TraceTitle} from '@/components/chat/trace';
-import {preview} from '@proxy/utils/harness';
+import {ATTACHMENT_MARK, attachedParts, preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
 import {useAttachments} from '@/hooks/use-attachments';
 import {useChatDraft} from '@/hooks/use-chat-draft';
@@ -59,6 +50,7 @@ import {useOrgSlug} from '@/hooks/use-org';
 import {useReload} from '@/hooks/use-reload';
 import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
 import {useUnread} from '@/hooks/use-unread';
+import {useWindowFileDrop} from '@/hooks/use-window-file-drop';
 import {formatAgo, formatDateTime} from '@/lib/format';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
 import type {chatLoader} from '@/loaders';
@@ -83,12 +75,17 @@ function Turn({entry}: {entry: ChatEntry}) {
 		return (
 			<Message align="end">
 				<MessageContent>
-					{entry.text !== '' && (
-						<Bubble align="end" variant="inverted">
-							<BubbleContent className="whitespace-pre-wrap">{entry.text}</BubbleContent>
-						</Bubble>
-					)}
-					<Attachments attachments={entry.attachments} />
+					<Bubble align="end" variant="inverted">
+						<BubbleContent className="whitespace-pre-wrap">
+							{attachedParts(entry.text, entry.attachments).map((part, index) =>
+								'text' in part ? (
+									<Fragment key={index}>{part.text}</Fragment>
+								) : (
+									<SentChip key={index} attachment={part.file} />
+								),
+							)}
+						</BubbleContent>
+					</Bubble>
 				</MessageContent>
 			</Message>
 		);
@@ -471,11 +468,20 @@ function Conversation({
 	const personaId = loaded.persona.id;
 	// What was typed and not sent, as the conversation opened: as this page left it, or as the
 	// server keeps it. Read once: the log read again later says nothing of what is being typed.
+	// What goes with the next message: the files the person put in the input, where the
+	// organization has Files, those put there before among them, as the server keeps them. Sent
+	// once none is still on its way up, with words, files, or both.
+	const attaches = useExperiments().includes('files');
+	const attachments = useAttachments(org, personaId, loaded.draftAttachments);
 	const [opening] = useState(() => {
 		const kept = loaded.draft ?? '';
-		return {kept, text: recallDraft(personaId) ?? kept};
+		return {kept, text: recallDraft(personaId) ?? kept, files: attachments.pending};
 	});
+	// What is typed, with a mark where each file sits among the words, and those files in the
+	// order of their marks (message-editor.tsx).
 	const [text, setText] = useState(opening.text);
+	const [placed, setPlaced] = useState(loaded.draftAttachments);
+	const editor = useRef<MessageEditorHandle>(null);
 	const draft = useChatDraft(org, personaId, opening.kept);
 	const [sending, setSending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -489,11 +495,14 @@ function Conversation({
 	// A conversation is open all day: a new release is loaded while it is out of view, as long as
 	// what is typed is saved as the draft and no dialog is open, since the log and the draft come
 	// back from the server.
-	useReloadWhileHidden(text === draft.saved && !sending && !managing);
+	useReloadWhileHidden(text === draft.saved && !sending && !managing && !attachments.uploading);
 
+	// What the list says is waiting here: what is typed, or, with nothing typed, the files' names.
+	const words = text.replaceAll(ATTACHMENT_MARK, '').trim();
+	const waiting = words === '' ? attachments.pending.map((one) => one.name).join(', ') : text;
 	useEffect(() => {
-		onShown({personaId, log, draft: text});
-	}, [onShown, personaId, log, text]);
+		onShown({personaId, log, draft: waiting});
+	}, [onShown, personaId, log, waiting]);
 
 	// What this page had typed here that the server doesn't have yet, as it was left for another
 	// conversation a moment before its save landed, is saved again.
@@ -504,10 +513,11 @@ function Conversation({
 		}
 	}, [typed, opening]);
 
-	const type = (value: string) => {
-		setText(value);
-		draft.typed(value);
-		rememberDraft(personaId, value);
+	const type = (typedNow: Typed) => {
+		setText(typedNow.text);
+		setPlaced(typedNow.files);
+		draft.typed(typedNow.text, typedNow.files);
+		rememberDraft(personaId, typedNow.text);
 	};
 
 	// Which read of the log was asked for last: one asked for before it that answers after it is
@@ -586,12 +596,13 @@ function Conversation({
 		await reload();
 	};
 
-	// What goes with the next message: files the person put in the input, where the organization
-	// has Files. Sent once none is still on its way up, with words, files, or both.
-	const attaches = useExperiments().includes('files');
-	const attachments = useAttachments(org, personaId);
 	const picker = useRef<HTMLInputElement>(null);
-	const sendable = !attachments.uploading && (text.trim() !== '' || attachments.ready.length > 0);
+	// A file that could not be uploaded says why under the conversation, by its name.
+	const failedFile = attachments.pending.find((one) => one.error !== null);
+	const failed = failedFile ? `${failedFile.name}: ${failedFile.error ?? ''}` : null;
+	const sendable = !attachments.uploading && (words !== '' || placed.length > 0);
+	// Files dropped anywhere on the window are attached, unless a dialog is open over the page.
+	const dropping = useWindowFileDrop(attaches && !managing, attachments.add);
 
 	const send = async (event: FormEvent) => {
 		event.preventDefault();
@@ -602,44 +613,20 @@ function Conversation({
 		setSending(true);
 		setError(null);
 		await draft.settle();
-		const posted = await postMessage(org, personaId, message, attachments.ready);
+		const posted = await postMessage(org, personaId, message, placed);
 		setSending(false);
 		if (posted.isErr()) {
 			setError(describeApiError(posted.error));
-			draft.typed(text);
+			draft.typed(text, placed);
 			return;
 		}
 		draft.sent();
-		attachments.clear();
+		attachments.sent();
+		editor.current?.clear();
 		setText('');
+		setPlaced([]);
 		rememberDraft(personaId, '');
 		await readLog();
-	};
-
-	// A file pasted into the message, as a screenshot is, is attached rather than typed.
-	const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-		const pasted = [...event.clipboardData.files];
-		if (!attaches || pasted.length === 0) {
-			return;
-		}
-		event.preventDefault();
-		attachments.add(pasted);
-	};
-	const onDrop = (event: DragEvent<HTMLFormElement>) => {
-		const dropped = [...event.dataTransfer.files];
-		if (!attaches || dropped.length === 0) {
-			return;
-		}
-		event.preventDefault();
-		attachments.add(dropped);
-	};
-
-	// Enter sends; Shift+Enter breaks the line.
-	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-		if (event.key === 'Enter' && !event.shiftKey) {
-			event.preventDefault();
-			form.current?.requestSubmit();
-		}
 	};
 
 	// Turns in a row from the same side sit closer together than the sides do.
@@ -654,6 +641,7 @@ function Conversation({
 
 	return (
 		<>
+			{dropping && <DropToAttach name={current.name} />}
 			<MessageScrollerProvider autoScroll defaultScrollPosition="end">
 				<MessageScroller className="min-h-0 flex-1">
 					<MessageScrollerViewport aria-label="Conversation">
@@ -697,18 +685,13 @@ function Conversation({
 			<form
 				ref={form}
 				onSubmit={(event) => void send(event)}
-				onDragOver={(event) => {
-					if (attaches && event.dataTransfer.types.includes('Files')) {
-						event.preventDefault();
-					}
-				}}
-				onDrop={onDrop}
 				className="page-column mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-2 pt-2 pb-4"
 			>
-				{(error ?? attachments.refused ?? listError) && (
-					<p className="text-sm text-destructive">{error ?? attachments.refused ?? listError}</p>
+				{(error ?? attachments.refused ?? failed ?? listError) && (
+					<p className="text-sm text-destructive">
+						{error ?? attachments.refused ?? failed ?? listError}
+					</p>
 				)}
-				<PendingAttachments pending={attachments.pending} onRemove={attachments.remove} />
 				<input
 					ref={picker}
 					type="file"
@@ -722,15 +705,16 @@ function Conversation({
 					}}
 				/>
 				<InputGroup className="rounded-xl bg-background shadow-xs">
-					<InputGroupTextarea
-						value={text}
-						onChange={(event) => type(event.target.value)}
-						onKeyDown={onKeyDown}
-						onPaste={onPaste}
+					<MessageEditor
+						ref={editor}
+						opening={opening}
+						files={attachments.pending}
+						label="Message"
 						placeholder={`Message ${current.name}`}
-						aria-label="Message"
-						className="min-h-10 p-3"
-						rows={1}
+						onChange={type}
+						onRemove={attachments.remove}
+						onFiles={attaches ? attachments.add : undefined}
+						onSubmit={() => form.current?.requestSubmit()}
 					/>
 					{/* The model's name starts where the message's hint does: 5px, the switcher's 1px border
 					    and its 6px padding make the textarea's 12px. It sits on the send button's bottom. */}

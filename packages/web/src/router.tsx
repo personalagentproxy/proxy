@@ -58,6 +58,7 @@ import {AddDatabasePage} from '@/pages/add-database-page';
 import {AddEmailPage} from '@/pages/add-email-page';
 import {shouldRevalidateTabs} from '@/lib/page-tabs';
 import {AddMcpPage} from '@/pages/add-mcp-page';
+import {AddDrivePage} from '@/pages/add-drive-page';
 import {AddVaultPage} from '@/pages/add-vault-page';
 import {AccountPage} from '@/pages/account-page';
 import {AgentPage} from '@/pages/agent-page';
@@ -295,6 +296,7 @@ const routes: RouteObject[] = [
 			{path: '/:org/connections/new/plaid', element: <AddBankPage />},
 			{path: '/:org/connections/new/mcp', element: <AddMcpPage />},
 			{path: '/:org/connections/new/vault', element: <AddVaultPage />},
+			{path: '/:org/connections/new/files', element: <AddDrivePage />},
 			// The vault's page and the Sandboxes' before each was a tab of its connection's.
 			{path: '/:org/connections/vault', loader: vaultLoader, element: null},
 			{path: '/:org/connections/vault/:id', loader: vaultLoader, element: null},

@@ -1623,6 +1623,7 @@ const vault: Integration = {
 	name: 'Vault',
 	description: 'What agents should know, kept in Personal Agent Proxy',
 	native: true,
+	made: {one: 'vault', holds: 'entries'},
 	actions: [
 		{id: 'readEntries', label: 'Read entries', description: 'List and open entries', risk: 'low'},
 		{
@@ -1790,7 +1791,8 @@ export const FILES_READ_CHARACTERS = 50_000;
 export const FILES_TRASH_DAYS = 30;
 
 // Files live in Personal Agent Proxy itself, as the vault does: a drive of folders and files for
-// each member, what the person hands their agents and what agents make for them. A file's content
+// each member, what the person hands their agents and what agents make for them, and the drives
+// members make beside their own, each named, for a team or a project, shared as any connection. A file's content
 // is never changed in place: every write is its next version, and those before stay, so whatever
 // an agent wrote over can be given back. The collection lists folders and opens files, as text
 // where they can be read as it; the writes are tools of the integration's own, since each names
@@ -1802,6 +1804,7 @@ const files: Integration = {
 	name: 'Files',
 	description: 'Files and folders kept in Personal Agent Proxy, with every version of each',
 	native: true,
+	made: {one: 'drive', holds: 'files'},
 	experiment: 'files',
 	actions: [
 		{
@@ -1995,7 +1998,7 @@ const files: Integration = {
 	],
 };
 
-/** What agents may do with a member's own drive by default: everything, since nothing done there is lost. */
+/** What agents may do with a drive by default, a member's own and any they make: everything, since nothing done there is lost. */
 export const FILES_DEFAULT_ACTIONS: string[] = files.actions.map((action) => action.id);
 
 // GitHub, signed in to through Personal Agent Proxy's GitHub App as the person: the repositories

@@ -6,18 +6,30 @@ import {
 	DownloadIcon,
 	FileIcon,
 	FolderIcon,
+	FolderInputIcon,
 	FolderPlusIcon,
 	ImageIcon,
 	LoaderCircleIcon,
 	PencilIcon,
+	SearchIcon,
 	Trash2Icon,
 	UploadIcon,
 } from 'lucide-react';
-import {Fragment, useRef, useState, type DragEvent, type ReactElement, type ReactNode} from 'react';
+import {
+	Fragment,
+	useEffect,
+	useRef,
+	useState,
+	type DragEvent,
+	type ReactElement,
+	type ReactNode,
+} from 'react';
 import {Link, useNavigate} from 'react-router';
 import {
 	createFolder,
 	fileContentPath,
+	listFiles,
+	moveFile,
 	renameFile,
 	restoreFileVersion,
 	trashFile,
@@ -37,12 +49,27 @@ import {formatBytes} from '@proxy/utils/bytes';
 import {Badge} from '@proxy/ui/components/badge';
 import {Button} from '@proxy/ui/components/button';
 import {ContextMenuItem} from '@proxy/ui/components/context-menu';
-import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@proxy/ui/components/dialog';
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from '@proxy/ui/components/dialog';
+import {Input} from '@proxy/ui/components/input';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
 
 const EMPTY = 'Nothing here yet. Upload a file, or let your agents put what they make here.';
 const EMPTY_TRASH = 'Nothing in the trash.';
+const EMPTY_FOUND = 'Nothing by that name here.';
+
+// How long after the last keystroke a search is run.
+const SEARCH_AFTER_MS = 250;
+
+// What the top of a drive is called where the folders above something are listed.
+const TOP = 'Files';
 const GONE = 'That folder isn’t here any more.';
 
 const TRASH_NOTE = `What is put in the trash is deleted for good after ${FILES_TRASH_DAYS} days.`;
@@ -157,11 +184,12 @@ type ShownProps = {
 	shown: FileDetail;
 	onClose: () => void;
 	onRename: (file: DriveFile) => void;
+	onMove: (file: DriveFile) => void;
 };
 
 // A file opened over its folder: a picture as it is, what the file is, saving it, a new version
 // of it, and its versions, newest first, each saved or given back.
-function ShownFile({connectionId, shown, onClose, onRename}: ShownProps) {
+function ShownFile({connectionId, shown, onClose, onRename, onMove}: ShownProps) {
 	const org = useOrgSlug();
 	const {file, versions} = shown;
 	const picker = useRef<HTMLInputElement>(null);
@@ -206,6 +234,9 @@ function ShownFile({connectionId, shown, onClose, onRename}: ShownProps) {
 							</IconButton>
 							<IconButton label="Rename" onClick={() => onRename(file)}>
 								<PencilIcon />
+							</IconButton>
+							<IconButton label="Move" onClick={() => onMove(file)}>
+								<FolderInputIcon />
 							</IconButton>
 							<IconButton
 								label="Move to trash"
@@ -291,6 +322,179 @@ function ShownFile({connectionId, shown, onClose, onRename}: ShownProps) {
 	);
 }
 
+// The folders a move's dialog has listed, and the folder they are in.
+type Listed = {at: string | null; list: FileList};
+
+// Moving a file or a folder: the drive's folders, opened one into the next from where it is now,
+// and the one it goes into, chosen by standing in it. A folder is not offered itself to go into.
+function MoveDialog({
+	connectionId,
+	file,
+	onClose,
+}: {
+	connectionId: string;
+	file: DriveFile;
+	onClose: () => void;
+}) {
+	const org = useOrgSlug();
+	const reload = useReload();
+	const [at, setAt] = useState<string | null>(file.parentId);
+	const [listed, setListed] = useState<Listed | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const [moving, setMoving] = useState(false);
+
+	useEffect(() => {
+		let left = false;
+		void listFiles(org, connectionId, at).then((answer) => {
+			if (left) {
+				return;
+			}
+			if (answer.isErr()) {
+				setError(describeApiError(answer.error));
+				return;
+			}
+			setError(null);
+			setListed({at, list: answer.value});
+		});
+		return () => {
+			left = true;
+		};
+	}, [org, connectionId, at]);
+
+	// What was listed for another folder is not this one's.
+	const list = listed?.at === at ? listed.list : null;
+	const folders = (list?.files ?? []).filter((one) => one.folder && one.id !== file.id);
+	const move = async () => {
+		setMoving(true);
+		const moved = await moveFile(org, connectionId, file.id, at);
+		setMoving(false);
+		if (moved.isErr()) {
+			setError(describeApiError(moved.error));
+			return;
+		}
+		onClose();
+		await reload();
+	};
+
+	return (
+		<Dialog
+			open
+			onOpenChange={(next) => {
+				if (!next) {
+					onClose();
+				}
+			}}
+		>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle className="truncate">Move {file.name}</DialogTitle>
+					<DialogDescription>Open the folder it goes into, then move it there.</DialogDescription>
+				</DialogHeader>
+				<nav
+					aria-label="Folders above"
+					className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground"
+				>
+					<button type="button" className={LINK} onClick={() => setAt(null)}>
+						{TOP}
+					</button>
+					{(list?.trail ?? []).map((crumb, index, trail) => (
+						<Fragment key={crumb.id}>
+							<ChevronRightIcon aria-hidden className="size-3.5 shrink-0" />
+							{index === trail.length - 1 ? (
+								<span className="truncate text-foreground">{crumb.name}</span>
+							) : (
+								<button
+									type="button"
+									className={cn(LINK, 'truncate')}
+									onClick={() => setAt(crumb.id)}
+								>
+									{crumb.name}
+								</button>
+							)}
+						</Fragment>
+					))}
+				</nav>
+				<ul className="flex max-h-64 min-h-24 flex-col overflow-y-auto text-sm">
+					{list !== null && folders.length === 0 && (
+						<li className="py-2 text-muted-foreground">No folders in here.</li>
+					)}
+					{folders.map((folder) => (
+						<li key={folder.id}>
+							<button
+								type="button"
+								onClick={() => setAt(folder.id)}
+								className="flex h-9 w-full min-w-0 items-center gap-3 rounded-md px-2 text-left hover:bg-muted/50"
+							>
+								<FolderIcon className="size-4 shrink-0 text-muted-foreground" />
+								<span className="min-w-0 flex-1 truncate">{folder.name}</span>
+								<ChevronRightIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+							</button>
+						</li>
+					))}
+				</ul>
+				{error && <p className="text-sm text-destructive">{error}</p>}
+				<DialogFooter>
+					<Button type="button" variant="outline" onClick={onClose}>
+						Cancel
+					</Button>
+					<Button
+						type="button"
+						disabled={list === null || moving || at === file.parentId}
+						onClick={() => void move()}
+					>
+						{moving ? 'Moving…' : 'Move here'}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+// The search of a drive, by name: in the folder opened and below it, or the whole drive at its
+// top, run a moment after the last keystroke, as part of the page's address.
+function Search({place}: {place: DrivePlace}) {
+	const navigate = useNavigate();
+	const [typed, setTyped] = useState(place.search ?? '');
+	const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	useEffect(
+		() => () => {
+			if (timer.current !== null) {
+				clearTimeout(timer.current);
+			}
+		},
+		[],
+	);
+	const search = (value: string) => {
+		setTyped(value);
+		if (timer.current !== null) {
+			clearTimeout(timer.current);
+		}
+		timer.current = setTimeout(() => {
+			void navigate(driveQuery({folder: place.folder, search: value.trim() || null}), {
+				replace: true,
+				preventScrollReset: true,
+			});
+		}, SEARCH_AFTER_MS);
+	};
+
+	return (
+		<span className="relative flex items-center">
+			<SearchIcon
+				aria-hidden
+				className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground"
+			/>
+			<Input
+				type="search"
+				value={typed}
+				onChange={(event) => search(event.target.value)}
+				placeholder="Search by name"
+				aria-label={place.folder === null ? 'Search this drive' : 'Search this folder'}
+				className="h-8 w-44 pl-7"
+			/>
+		</span>
+	);
+}
+
 type Props = {
 	// The drive's connection.
 	connectionId: string;
@@ -302,9 +506,11 @@ type Props = {
 };
 
 // The Files part of a drive's page, the first of its connection's tabs: the folder the person is
-// in, its folders and files a row each, opened by a click, with what puts more in it: an upload,
-// by the button or by dropping files on the list, and a new folder. A file opens over its folder
-// with its versions. The trash is a list of its own, each thing in it taken out again.
+// in, its folders and files a row each, opened by a click, or what a search by name found in it
+// and below, each with where it is; with what puts more in it: an upload, by the button or by
+// dropping files on the list, and a new folder. A file opens over its folder with its versions,
+// and a file or a folder is renamed, moved into another folder, or put in the trash from its
+// row's menu. The trash is a list of its own, each thing in it taken out again.
 export function FileBrowser({connectionId, place, list, shown}: Props) {
 	const org = useOrgSlug();
 	const navigate = useNavigate();
@@ -314,8 +520,9 @@ export function FileBrowser({connectionId, place, list, shown}: Props) {
 	const [uploading, setUploading] = useState(0);
 	const [dropping, setDropping] = useState(false);
 	const [naming, setNaming] = useState<{file: DriveFile | null} | null>(null);
+	const [moving, setMoving] = useState<DriveFile | null>(null);
 	const apply = useApply(setError);
-	const {folder, trash} = place;
+	const {folder, trash, search} = place;
 	const files = list?.files ?? [];
 
 	// One after the other, so each finds the name the one before took; the first failure is said
@@ -342,7 +549,7 @@ export function FileBrowser({connectionId, place, list, shown}: Props) {
 		}
 	};
 	const closeShown = () =>
-		void navigate(driveQuery({folder, trash}), {replace: true, preventScrollReset: true});
+		void navigate(driveQuery({folder, trash, search}), {replace: true, preventScrollReset: true});
 
 	return (
 		<div className="flex flex-col gap-2">
@@ -350,6 +557,7 @@ export function FileBrowser({connectionId, place, list, shown}: Props) {
 				<Trail trail={list?.trail ?? []} trash={trash} />
 				{!trash && list !== null && (
 					<span className="ml-auto flex items-center gap-1">
+						<Search key={folder ?? 'top'} place={place} />
 						<IconButton label="Trash" render={<Link to={driveQuery({trash: true})} />}>
 							<Trash2Icon />
 						</IconButton>
@@ -414,7 +622,7 @@ export function FileBrowser({connectionId, place, list, shown}: Props) {
 						</EmptyRows>
 					)}
 					{list !== null && files.length === 0 && (
-						<EmptyRows>{trash ? EMPTY_TRASH : EMPTY}</EmptyRows>
+						<EmptyRows>{trash ? EMPTY_TRASH : search === null ? EMPTY : EMPTY_FOUND}</EmptyRows>
 					)}
 					{files.map((file) => (
 						<Row
@@ -422,10 +630,12 @@ export function FileBrowser({connectionId, place, list, shown}: Props) {
 							to={
 								file.folder && !trash
 									? driveQuery({folder: file.id})
-									: driveQuery({folder, trash, file: file.id})
+									: driveQuery({folder, trash, search, file: file.id})
 							}
 							icon={<FileGlyph file={file} />}
 							title={file.name}
+							// Where it is, for what a search found or the trash holds.
+							subtitle={file.path === null ? undefined : file.path || TOP}
 							cells={
 								<>
 									<span className={CELLS.size}>
@@ -446,6 +656,7 @@ export function FileBrowser({connectionId, place, list, shown}: Props) {
 								) : (
 									<>
 										<ContextMenuItem onClick={() => setNaming({file})}>Rename</ContextMenuItem>
+										<ContextMenuItem onClick={() => setMoving(file)}>Move to…</ContextMenuItem>
 										<ContextMenuItem
 											variant="destructive"
 											onClick={() => void apply(trashFile(org, connectionId, file.id))}
@@ -474,9 +685,18 @@ export function FileBrowser({connectionId, place, list, shown}: Props) {
 						shown={shown}
 						onClose={closeShown}
 						onRename={(file) => setNaming({file})}
+						onMove={setMoving}
 					/>
 				)}
 			</Dialog>
+			{moving && (
+				<MoveDialog
+					key={moving.id}
+					connectionId={connectionId}
+					file={moving}
+					onClose={() => setMoving(null)}
+				/>
+			)}
 			{naming && (
 				<RenameDialog
 					key={naming.file?.id ?? 'new-folder'}

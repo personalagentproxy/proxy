@@ -6,6 +6,7 @@ import {
 	personaListSchema,
 	type Persona,
 	type postMessageBodySchema,
+	type removeAttachmentBodySchema,
 	postedMessageSchema,
 	type saveDraftBodySchema,
 	threadLogSchema,
@@ -71,8 +72,8 @@ export function postMessage(
 }
 
 /**
- * Uploads a file from the conversation's input, which the api keeps in the person's own drive:
- * what to attach to the next message. The file is the request's body, sent as bytes whatever it
+ * Uploads a file put in the conversation's input, which the api keeps in the person's own drive
+ * and in the input, until the next message is sent: what to attach to it. The file is the request's body, sent as bytes whatever it
  * holds, its own type beside its name in the address.
  */
 export function uploadAttachment(org: string, personaId: string, file: File) {
@@ -86,6 +87,16 @@ export function uploadAttachment(org: string, personaId: string, file: File) {
 	);
 }
 
+/** Takes a file out of the conversation's input, where the api keeps it until the next message is sent; the file stays in its drive. */
+export function removeAttachment(org: string, personaId: string, attachment: ChatAttachment) {
+	const {connectionId, fileId, version} = attachment;
+	return apiSend('DELETE', `${orgApi(org)}/chat/personas/${personaId}/attachments`, {
+		connectionId,
+		fileId,
+		version,
+	} satisfies z.input<typeof removeAttachmentBodySchema>);
+}
+
 export function markRead(org: string, personaId: string, entryId: string) {
 	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/read`, {
 		entryId,
@@ -94,16 +105,32 @@ export function markRead(org: string, personaId: string, entryId: string) {
 
 // What the person has typed to the persona and not sent, kept in place of what was; an empty one
 // forgets it.
+/**
+ * Saves what is typed and not sent. With `files`, the files that sit among the words, in the
+ * order of their marks in the text: the api keeps the input's files in that order.
+ */
 export function saveDraft(
 	org: string,
 	personaId: string,
 	text: string,
-	options: {keepalive?: boolean} = {},
+	options: {keepalive?: boolean; files?: ChatAttachment[]} = {},
 ) {
+	const {files, ...sending} = options;
 	return apiSend(
 		'PUT',
 		`${orgApi(org)}/chat/personas/${personaId}/draft`,
-		{text} satisfies z.input<typeof saveDraftBodySchema>,
-		options,
+		{
+			text,
+			...(files === undefined || files.length === 0
+				? {}
+				: {
+						attachments: files.map(({connectionId, fileId, version}) => ({
+							connectionId,
+							fileId,
+							version,
+						})),
+					}),
+		} satisfies z.input<typeof saveDraftBodySchema>,
+		sending,
 	);
 }

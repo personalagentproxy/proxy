@@ -2,8 +2,8 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, hasExperiment, parseSchema, requirePresent} from '@proxy/utils';
-import {preview, threadState, toAvatarColor} from '@proxy/utils/harness';
-import type {EntryRow, LastMessage, Persona, PersonaModel, PersonaRow, ThreadRow} from '@proxy/db/harness';
+import {keepMarks, preview, threadState, toAvatarColor} from '@proxy/utils/harness';
+import type {DraftAttachment, EntryRow, LastMessage, Persona, PersonaModel, PersonaRow, ThreadRow} from '@proxy/db/harness';
 import {
 	type ChatAttachment,
 	type ChatEntry,
@@ -11,10 +11,12 @@ import {
 	type ChatHarness,
 	type ChatPersona,
 	markReadBodySchema,
+	MAX_ATTACHMENTS,
 	personaBodySchema,
 	type personaAnswerSchema,
 	type personaListSchema,
 	postMessageBodySchema,
+	removeAttachmentBodySchema,
 	type postedMessageSchema,
 	saveDraftBodySchema,
 	type ThreadLog,
@@ -54,6 +56,9 @@ export type ChatStore = Pick<
 	| 'listOpenJobs'
 	| 'appendPersonMessage'
 	| 'listAttachments'
+	| 'listDraftAttachments'
+	| 'addDraftAttachment'
+	| 'removeDraftAttachment'
 	| 'markThreadRead'
 	| 'getThreadDraft'
 	| 'saveThreadDraft'
@@ -67,7 +72,17 @@ function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
 	return manages(viewer, {ownerUserId: null, byId: persona.createdById});
 }
 
-function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null; draft?: string | null}): ChatPersona {
+// What the list says is waiting in a conversation's input: what was typed, or, with nothing typed,
+// the files put there, by their names.
+function draftPreview(persona: {draft?: string | null; draftAttachments?: DraftAttachment[]}): string | null {
+	if (persona.draft) {
+		return preview(persona.draft);
+	}
+	const names = (persona.draftAttachments ?? []).map((attachment) => attachment.name);
+	return names.length === 0 ? null : preview(names.join(', '));
+}
+
+function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null; draft?: string | null; draftAttachments?: DraftAttachment[]}): ChatPersona {
 	const last = persona.lastMessage ?? null;
 	// What runs it as this server has it, which is what a turn of its gets; as kept on a server
 	// with no harness at all, where nothing runs.
@@ -81,7 +96,7 @@ function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow 
 		chatModel: chosen?.model ?? persona.chatModel,
 		mayChange: managesPersona(viewer, persona),
 		lastMessage: last && {kind: last.kind, text: preview(last.text), at: last.createdAt.toISOString()},
-		draft: persona.draft ? preview(persona.draft) : null,
+		draft: draftPreview(persona),
 		createdAt: persona.createdAt.toISOString(),
 	};
 }
@@ -242,7 +257,13 @@ function handleGetThreadRoute(store: ChatStore, harnesses: Harnesses, files: Cha
 		const viewer = $(await requireChat(request));
 		const persona = $(await requirePersona(store, viewer, request));
 		const thread = $(await requireThread(store, viewer, persona));
-		const [entries, jobs, draft, attached] = await Promise.all([store.listShownEntries(thread.id), store.listOpenJobs(thread.id), store.getThreadDraft(thread.id), store.listAttachments(thread.id)]);
+		const [entries, jobs, draft, attached, waiting] = await Promise.all([
+			store.listShownEntries(thread.id),
+			store.listOpenJobs(thread.id),
+			store.getThreadDraft(thread.id),
+			store.listAttachments(thread.id),
+			store.listDraftAttachments(thread.id),
+		]);
 		// The conversation's and its sub-agents' jobs together: asleep only when every one of them is.
 		const state = threadState($(jobs), new Date());
 		const attachments = $(attached);
@@ -254,6 +275,7 @@ function handleGetThreadRoute(store: ChatStore, harnesses: Harnesses, files: Cha
 			busy: state.kind === 'working',
 			sleepingUntil: state.kind === 'asleep' ? state.until.toISOString() : null,
 			draft: $(draft),
+			draftAttachments: $(waiting).map(files.shown),
 		};
 	});
 }
@@ -262,7 +284,13 @@ function handleGetThreadRoute(store: ChatStore, harnesses: Harnesses, files: Cha
 function handlePostMessageRoute(store: ChatStore, files: ChatFiles, request: AuthenticatedRequest): Promise<Result<z.infer<typeof postedMessageSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
-		const {text, attachments: refs} = $(parseSchema(postMessageBodySchema, request.body));
+		const {text: typed, attachments: refs} = $(parseSchema(postMessageBodySchema, request.body));
+		// A mark in the text is a file's place: one beyond the files named stands for nothing, and
+		// marks alone are nothing said.
+		const text = keepMarks(typed, refs.length).trim();
+		if (text === '' && refs.length === 0) {
+			return $(Err(ApiErr.validationError('Say something, or attach a file')));
+		}
 		const persona = $(await requirePersona(store, viewer, request));
 		const thread = $(await requireThread(store, viewer, persona));
 		const attachments = refs.length === 0 ? [] : $(await files.resolve(viewer, refs));
@@ -271,23 +299,45 @@ function handlePostMessageRoute(store: ChatStore, files: ChatFiles, request: Aut
 	});
 }
 
-/** `POST /api/orgs/:org/chat/personas/:personaId/attachments`: a file from the conversation's input, kept in the viewer's own drive, to attach to what they say next. */
+const INPUT_FULL = `A message carries at most ${MAX_ATTACHMENTS} files.`;
+
+/** `POST /api/orgs/:org/chat/personas/:personaId/attachments`: a file put in the conversation's input, kept in the viewer's own drive and in the input, with what they typed there, until they send their next message or take it out. */
 function handleUploadAttachmentRoute(store: ChatStore, files: ChatFiles, request: AuthenticatedRequest): Promise<Result<z.infer<typeof uploadedAttachmentSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const persona = $(await requirePersona(store, viewer, request));
-		return {attachment: $(await files.upload(viewer, persona, request))};
+		const thread = $(await requireThread(store, viewer, persona));
+		// Refused before the bytes are taken where the input is full, and again as it is put there,
+		// since another upload may have filled it meanwhile.
+		if ($(await store.listDraftAttachments(thread.id)).length >= MAX_ATTACHMENTS) {
+			return $(Err(ApiErr.conflict(INPUT_FULL)));
+		}
+		const attachment = $(await files.upload(viewer, persona, request));
+		const {shown: _shown, ...kept} = attachment;
+		$(requirePresent($(await store.addDraftAttachment(thread.id, kept, MAX_ATTACHMENTS)), ApiErr.notFound('thread', thread.id)));
+		return {attachment};
 	});
 }
 
-/** `PUT /api/orgs/:org/chat/personas/:personaId/draft` with `{text}`: what the viewer has typed to the persona and not sent, kept in place of what was; nothing but whitespace forgets it. */
+/** `DELETE /api/orgs/:org/chat/personas/:personaId/attachments` with `{connectionId, fileId, version}`: takes a file out of the conversation's input; the file stays in its drive. */
+function handleRemoveAttachmentRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireChat(request));
+		const file = $(parseSchema(removeAttachmentBodySchema, request.body));
+		const persona = $(await requirePersona(store, viewer, request));
+		const thread = $(await requireThread(store, viewer, persona));
+		$(requirePresent($(await store.removeDraftAttachment(thread.id, file)), ApiErr.notFound('thread', thread.id)));
+	});
+}
+
+/** `PUT /api/orgs/:org/chat/personas/:personaId/draft` with `{text, attachments}`: what the viewer has typed to the persona and not sent, kept in place of what was; nothing but whitespace forgets it. Where files sit among the words, the files in the input are kept in the order named. */
 function handleSaveDraftRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
-		const {text} = $(parseSchema(saveDraftBodySchema, request.body));
+		const {text, attachments: order} = $(parseSchema(saveDraftBodySchema, request.body));
 		const persona = $(await requirePersona(store, viewer, request));
 		const thread = $(await requireThread(store, viewer, persona));
-		if (!$(await store.saveThreadDraft(thread.id, text.trim() === '' ? null : text))) {
+		if (!$(await store.saveThreadDraft(thread.id, text.trim() === '' ? null : text, order))) {
 			return $(Err(ApiErr.notFound('thread', thread.id)));
 		}
 	});
@@ -318,6 +368,7 @@ export function chatRoutes(store: ChatStore, harnesses: Harnesses, files: ChatFi
 		handleGetThreadRoute: (request: AuthenticatedRequest) => handleGetThreadRoute(store, harnesses, files, request),
 		handlePostMessageRoute: (request: AuthenticatedRequest) => handlePostMessageRoute(store, files, request),
 		handleUploadAttachmentRoute: (request: AuthenticatedRequest) => handleUploadAttachmentRoute(store, files, request),
+		handleRemoveAttachmentRoute: (request: AuthenticatedRequest) => handleRemoveAttachmentRoute(store, request),
 		handleMarkReadRoute: (request: AuthenticatedRequest) => handleMarkReadRoute(store, request),
 		handleSaveDraftRoute: (request: AuthenticatedRequest) => handleSaveDraftRoute(store, request),
 	};

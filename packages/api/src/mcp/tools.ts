@@ -124,15 +124,33 @@ function sandboxInstructions(connections: AgentConnection[]): string[] {
 	);
 }
 
-// The drives, where the agent may read them: what they are for, the rule a write keeps, and that
-// a file made for the person is handed over by its link, the one address here an agent points to.
+// The drives the agent may read: the person's own, for an agent of their own, and the ones
+// members made, each by its name, the only ones a shared agent has; the rule a write keeps, where
+// what the agent makes goes, and that a file made for the person is handed over by its link, the
+// one address here an agent points to.
 function filesInstructions(connections: AgentConnection[]): string[] {
 	const drives = connections.filter((connection) => connection.integrationId === FILES_INTEGRATION_ID && connection.actions.includes('readFiles'));
-	return drives.map((connection) => {
-		const writes = connection.actions.includes('editFiles') ? ' files_write takes the version files_read gave, and keeps the one before.' : '';
-		const makes = connection.actions.includes('createFiles') ? ' Put what you make for the person there, and give them the Link the tool answers with: a file has no other address.' : '';
-		return `${connection.id} is a drive: folders and files kept here, with every version of each. files_read reads one as text.${writes}${makes}`;
-	});
+	if (drives.length === 0) {
+		return [];
+	}
+	const takes = (drive: AgentConnection) => drive.actions.includes('createFiles');
+	// The person's own has no name; one a member made is called what they called it.
+	const whose = (drive: AgentConnection) => (drive.name === null ? 'the person’s' : `“${drive.name}”${drive.shared ? ', shared with others' : ''}`);
+	const named = drives.map((drive) => `${drive.id}, ${whose(drive)}${takes(drive) || drive.actions.includes('editFiles') ? '' : ', read-only'}`);
+	const taking = drives.filter(takes);
+	const where = () => {
+		if (taking.length < 2) {
+			return 'there';
+		}
+		return taking.some((drive) => drive.name === null) ? 'in theirs, or in the drive named for it where it is a team’s or a project’s' : 'in the drive named for it';
+	};
+	return [
+		[
+			`Drives are folders and files kept here, with every version of each: ${named.join('; ')}. files_read reads one as text.`,
+			...(drives.some((drive) => drive.actions.includes('editFiles')) ? ['files_write takes the version files_read gave, and keeps the one before.'] : []),
+			...(taking.length > 0 ? [`Put what you make for the person ${where()}, and give them the Link the tool answers with: a file has no other address.`] : []),
+		].join(' '),
+	];
 }
 
 // How an MCP client is to go about it: tasks, and its tools' params.

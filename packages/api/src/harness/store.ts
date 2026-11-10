@@ -14,6 +14,7 @@ import type {
 	CappedHarness,
 	ClaimedJob,
 	ConversationAnswer,
+	DraftAttachment,
 	EntryRow,
 	FailureNote,
 	InlineJob,
@@ -73,7 +74,7 @@ export type HarnessStore = {
 	getAgentTask: (orgId: string, agentId: string, taskId: string) => Promise<Result<AgentTaskRow | null, ApiError>>;
 	createAgentTask: (task: NewAgentTask) => Promise<Result<AgentTaskRow | null, ApiError>>;
 
-	listPersonas: (orgId: string, userId: string) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null}>, ApiError>>;
+	listPersonas: (orgId: string, userId: string) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null; draftAttachments: DraftAttachment[]}>, ApiError>>;
 	listAnswers: (orgId: string, userId: string) => Promise<Result<ConversationAnswer[], ApiError>>;
 	ensureFirstPersona: (orgId: string) => Promise<Result<PersonaRow, ApiError>>;
 	getPersona: (orgId: string, personaId: string) => Promise<Result<PersonaRow | null, ApiError>>;
@@ -90,7 +91,11 @@ export type HarnessStore = {
 	listAttachments: (threadId: string) => Promise<Result<AttachmentRow[], ApiError>>;
 	markThreadRead: (threadId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
 	getThreadDraft: (threadId: string) => Promise<Result<string | null, ApiError>>;
-	saveThreadDraft: (threadId: string, draft: string | null) => Promise<Result<boolean, ApiError>>;
+	saveThreadDraft: (threadId: string, draft: string | null, order?: Array<Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>>) => Promise<Result<boolean, ApiError>>;
+	/** The files in a conversation's input, not sent yet; put there after those there, at most `max`, and taken out. Null for no such conversation. */
+	listDraftAttachments: (threadId: string) => Promise<Result<DraftAttachment[], ApiError>>;
+	addDraftAttachment: (threadId: string, attachment: DraftAttachment, max: number) => Promise<Result<DraftAttachment[] | null, ApiError>>;
+	removeDraftAttachment: (threadId: string, file: Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>) => Promise<Result<DraftAttachment[] | null, ApiError>>;
 
 	completeSetAlert: (job: {jobId: string; workerId: string; threadId: string; callId: string}, alert: NewAlert, answer: (alert: AlertRow) => string) => Promise<Result<boolean, ApiError>>;
 	setAlertInline: (job: InlineJob, alert: NewAlert) => Promise<Result<AlertRow | null, ApiError>>;
@@ -156,6 +161,9 @@ export const harnessStore: HarnessStore = {
 	markThreadRead: harness.markThreadRead,
 	getThreadDraft: harness.getThreadDraft,
 	saveThreadDraft: harness.saveThreadDraft,
+	listDraftAttachments: harness.listDraftAttachments,
+	addDraftAttachment: harness.addDraftAttachment,
+	removeDraftAttachment: harness.removeDraftAttachment,
 
 	completeSetAlert: (job, alert, answer) => alerts.completeSetAlert(job, alert, answer, readyForInference),
 	setAlertInline: alerts.setAlertInline,

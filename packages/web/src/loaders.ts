@@ -143,7 +143,9 @@ export const connectionLoader = later(
 			}
 			const place = drivePlace(new URL(args.request.url).searchParams);
 			const [list, shown] = await Promise.all([
-				place.trash ? listTrashedFiles(org, found.id) : listFiles(org, found.id, place.folder),
+				place.trash
+					? listTrashedFiles(org, found.id)
+					: listFiles(org, found.id, place.folder, place.search),
 				place.file === null ? null : getFile(org, found.id, place.file),
 			]);
 			return {place, list: unwrapOrNull(list), shown: shown === null ? null : unwrapOrNull(shown)};

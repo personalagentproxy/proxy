@@ -155,8 +155,13 @@ export type Integration = {
 	// own, as GitHub shows a push or a pull request as the account's.
 	sharingWarning?: string;
 	// Lives in Personal Agent Proxy itself, as the vault does: every member has one of their own,
-	// always there, never connected or disconnected. A vault alone is also made, beside it, to share.
+	// always there, never connected or disconnected.
 	native?: true;
+	// More of it are made by members, each named, beside their built-in one, to share as any
+	// connection, as a vault and a drive are: what one is called, "vault", and what it holds, which
+	// goes with it when it is deleted, "entries". A native integration without it has only the
+	// built-in ones.
+	made?: {one: string; holds: string};
 	// A custom MCP server: its actions are a connection's own tools, so the catalog's entry has
 	// none, and `integrationFor` fills them in from the connection.
 	custom?: true;

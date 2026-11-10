@@ -41,6 +41,7 @@ import {handleGitHubInstallationsRoute} from '../connections/github/route';
 import type {ApiIntegration} from '../connections/integration';
 import {apiIntegrations} from '../connections/integrations';
 import {
+	handleCreateDriveRoute,
 	handleCreateVaultRoute,
 	handleDeleteConnectionRoute,
 	handleGetConnectionRoute,
@@ -194,6 +195,8 @@ export function createApiRouter(): express.Router {
 	}
 	// A vault is made rather than connected: it lives here, so there is nothing to sign in to.
 	org.post('/connections/vault', withAuthResult('Create vault route', handleCreateVaultRoute));
+	// A drive beside the person's own is made the same way.
+	org.post('/connections/files', withAuthResult('Create drive route', handleCreateDriveRoute));
 	org.get('/connections/:connectionId', withAuthResult('Get connection route', handleGetConnectionRoute));
 	org.delete('/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
 	org.put('/connections/:connectionId/defaults', withAuthResult('Set connection defaults route', handleSetConnectionDefaultsRoute));
@@ -278,6 +281,7 @@ export function createApiRouter(): express.Router {
 	org.get('/chat/personas/:personaId/thread', withAuthResult('Get chat thread route', chat.handleGetThreadRoute));
 	org.post('/chat/personas/:personaId/messages', withAuthResult('Post chat message route', chat.handlePostMessageRoute));
 	org.post('/chat/personas/:personaId/attachments', withAuthResult('Upload chat attachment route', chat.handleUploadAttachmentRoute));
+	org.delete('/chat/personas/:personaId/attachments', withAuthResult('Remove chat attachment route', chat.handleRemoveAttachmentRoute));
 	org.post('/chat/personas/:personaId/read', withAuthResult('Mark chat read route', chat.handleMarkReadRoute));
 	org.put('/chat/personas/:personaId/draft', withAuthResult('Save chat draft route', chat.handleSaveDraftRoute));
 	// The Alerts page: what the agents set in the member's conversations, to be woken outside them.

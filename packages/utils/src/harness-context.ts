@@ -1,5 +1,5 @@
 import {formatBytes} from './bytes';
-import {pendingToolCalls, type ToolCall} from './harness';
+import {ATTACHMENT_MARK, pendingToolCalls, type ToolCall} from './harness';
 
 /** The conversation as the model reads it, in the chat completions form. */
 export type ModelMessage =
@@ -250,16 +250,25 @@ function attachmentLines(attachment: EntryAttachment): string {
 }
 
 /**
- * What the person said as the model reads it where they attached files: their words, then each
- * file, with what names it for a read of the rest and what it holds as far as it was kept. The
- * files are theirs, in a drive of Personal Agent Proxy's; what a file says is what a record says,
+ * What the person said as the model reads it where they attached files: their words, with each
+ * file's name in brackets where they put it among them (`ATTACHMENT_MARK`), then each file, with
+ * what names it for a read of the rest and what it holds as far as it was kept. The files are
+ * theirs, in a drive of Personal Agent Proxy's; what a file says is what a record says,
  * information. Here, as the log's reading is, so whoever rebuilds what the model was sent reads a
  * message the same way.
  */
-export function withAttachments(text: string, attachments: EntryAttachment[]): string {
+export function withAttachments(said: string, attachments: EntryAttachment[]): string {
 	if (attachments.length === 0) {
-		return text;
+		return said;
 	}
+	let placed = 0;
+	const text = said
+		.replaceAll(ATTACHMENT_MARK, () => {
+			const file = attachments[placed];
+			placed += 1;
+			return file === undefined ? '' : `[${file.name}]`;
+		})
+		.trim();
 	const lead = `The person attached ${attachments.length === 1 ? 'a file' : `${attachments.length} files`}, kept in their drive. files_read {id, version} on its connection reads one whole, as a sub-agent can.`;
 	return [...(text === '' ? [] : [text]), lead, ...attachments.map(attachmentLines)].join('\n\n');
 }
