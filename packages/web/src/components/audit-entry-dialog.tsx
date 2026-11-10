@@ -121,104 +121,109 @@ function AuditEntryContent({
 	const labels = labelsOf(entry, Boolean(toolRun));
 
 	return (
-		<DialogContent className="grid-cols-[minmax(0,1fr)] sm:max-w-lg">
-			<DialogHeader>
-				<DialogTitle className="pr-8 leading-snug break-words">
-					{describeEntry(entry, located)}
-				</DialogTitle>
-				<DialogDescription>{formatMoment(entry.at)}</DialogDescription>
-			</DialogHeader>
-			<dl className="divide-y text-sm">
-				<Detail label="Outcome">
-					{entry.outcome === 'allowed' && <Badge variant="secondary">Allowed</Badge>}
-					{entry.outcome === 'denied' && <Badge variant="destructive">Denied</Badge>}
-					{entry.outcome === 'failed' && <Badge variant="destructive">Failed</Badge>}
-				</Detail>
-				{entry.outcome === 'failed' && (
-					<Detail label="Error">
-						<span className="min-w-0 break-words">{describeFailure(entry.error)}</span>
+		<DialogContent className="max-h-[calc(100dvh-2rem)] grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden sm:max-w-lg">
+			<div className="min-h-0 space-y-4 overflow-y-auto">
+				<DialogHeader>
+					<DialogTitle className="pr-8 leading-snug break-words">
+						{describeEntry(entry, located)}
+					</DialogTitle>
+					<DialogDescription>{formatMoment(entry.at)}</DialogDescription>
+				</DialogHeader>
+				<dl className="divide-y text-sm">
+					<Detail label="Outcome">
+						{entry.outcome === 'allowed' && <Badge variant="secondary">Allowed</Badge>}
+						{entry.outcome === 'denied' && <Badge variant="destructive">Denied</Badge>}
+						{entry.outcome === 'failed' && <Badge variant="destructive">Failed</Badge>}
 					</Detail>
-				)}
-				<Detail label="Agent">
-					{entry.agentId === null && (
-						<>
-							<ProxyLogo />
-							<span className="min-w-0 truncate">Personal Agent Proxy</span>
-						</>
+					{entry.outcome === 'failed' && (
+						<Detail label="Error">
+							<span className="min-w-0 break-words">{describeFailure(entry.error)}</span>
+						</Detail>
 					)}
-					{entry.agentId !== null && agent && (
-						<>
-							<AgentLogo providerId={agent.providerId} />
-							<Link to={`/${org}/agents/${agent.id}`} className="min-w-0 truncate hover:underline">
-								{agent.name}
-							</Link>
-						</>
-					)}
-					{entry.agentId !== null && !agent && (
-						<span className="text-muted-foreground">Deleted agent</span>
-					)}
-				</Detail>
-				{entry.taskId !== null && (
-					<Detail label="Task">
-						{task ? (
-							<span className="flex min-w-0 flex-col gap-0.5">
+					<Detail label="Agent">
+						{entry.agentId === null && (
+							<>
+								<ProxyLogo />
+								<span className="min-w-0 truncate">Personal Agent Proxy</span>
+							</>
+						)}
+						{entry.agentId !== null && agent && (
+							<>
+								<AgentLogo providerId={agent.providerId} />
 								<Link
-									to={`/${org}/activity/tasks/${encodeURIComponent(task.id)}`}
-									className="min-w-0 break-words hover:underline"
+									to={`/${org}/agents/${agent.id}`}
+									className="min-w-0 truncate hover:underline"
 								>
-									{task.title}
+									{agent.name}
 								</Link>
-								<span className="min-w-0 text-muted-foreground break-words">{task.goal}</span>
-							</span>
-						) : (
-							<span className="text-muted-foreground">Unknown task</span>
+							</>
+						)}
+						{entry.agentId !== null && !agent && (
+							<span className="text-muted-foreground">Deleted agent</span>
 						)}
 					</Detail>
-				)}
-				<Detail label="Connection">
-					{located ? (
-						<>
-							<IntegrationLogo integration={located.integration} />
-							<Link
-								to={`/${org}/connections/${located.connection.id}`}
-								className="max-w-1/2 shrink-0 truncate hover:underline"
-							>
-								{connectionTitle(located.connection)}
-							</Link>
-							<span className="min-w-0 truncate text-muted-foreground">
-								{located.connection.account}
-							</span>
-						</>
-					) : (
-						<span className="text-muted-foreground">Disconnected</span>
+					{entry.taskId !== null && (
+						<Detail label="Task">
+							{task ? (
+								<span className="flex min-w-0 flex-col gap-0.5">
+									<Link
+										to={`/${org}/activity/tasks/${encodeURIComponent(task.id)}`}
+										className="min-w-0 break-words hover:underline"
+									>
+										{task.title}
+									</Link>
+									<span className="min-w-0 text-muted-foreground break-words">{task.goal}</span>
+								</span>
+							) : (
+								<span className="text-muted-foreground">Unknown task</span>
+							)}
+						</Detail>
 					)}
-				</Detail>
-				{!toolRun && !relayed && (
-					<Detail label="Collection">{located?.collection?.name ?? entry.collectionId}</Detail>
-				)}
-				{entry.recordTitle && (
-					<Detail label={labels.record}>
-						<span className="min-w-0 break-words">{entry.recordTitle}</span>
+					<Detail label="Connection">
+						{located ? (
+							<>
+								<IntegrationLogo integration={located.integration} />
+								<Link
+									to={`/${org}/connections/${located.connection.id}`}
+									className="max-w-1/2 shrink-0 truncate hover:underline"
+								>
+									{connectionTitle(located.connection)}
+								</Link>
+								<span className="min-w-0 truncate text-muted-foreground">
+									{located.connection.account}
+								</span>
+							</>
+						) : (
+							<span className="text-muted-foreground">Disconnected</span>
+						)}
 					</Detail>
-				)}
-				{entry.query && (
-					<Detail label={labels.query}>
-						<span
-							className={
-								toolRun || relayed
-									? 'max-h-64 min-w-0 overflow-y-auto font-mono text-xs break-all'
-									: 'min-w-0 break-words'
-							}
-						>
-							{entry.query}
-						</span>
+					{!toolRun && !relayed && (
+						<Detail label="Collection">{located?.collection?.name ?? entry.collectionId}</Detail>
+					)}
+					{entry.recordTitle && (
+						<Detail label={labels.record}>
+							<span className="min-w-0 break-words">{entry.recordTitle}</span>
+						</Detail>
+					)}
+					{entry.query && (
+						<Detail label={labels.query}>
+							<span
+								className={
+									toolRun || relayed
+										? 'max-h-64 min-w-0 overflow-y-auto font-mono text-xs break-all'
+										: 'min-w-0 break-words'
+								}
+							>
+								{entry.query}
+							</span>
+						</Detail>
+					)}
+					<Detail label="Permission">
+						{action ? action.label : <span className="text-muted-foreground">Unknown</span>}
 					</Detail>
-				)}
-				<Detail label="Permission">
-					{action ? action.label : <span className="text-muted-foreground">Unknown</span>}
-				</Detail>
-				<Detail label="Through">{THROUGH[entry.via]}</Detail>
-			</dl>
+					<Detail label="Through">{THROUGH[entry.via]}</Detail>
+				</dl>
+			</div>
 		</DialogContent>
 	);
 }
