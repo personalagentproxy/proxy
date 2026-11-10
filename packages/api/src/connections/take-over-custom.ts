@@ -65,7 +65,7 @@ export function movedRun(builtIn: BuiltInMcp, entry: {id: string; action: string
 	if (!run) {
 		return null;
 	}
-	// Params cut short in the log aren't JSON any more, and are left out.
+	// Params cut short, as the log once kept them, aren't JSON any more, and are left out.
 	const json = Result.wrap((): unknown => JSON.parse(entry.query ?? 'null'));
 	const params: ToolParams = json.isOk() ? (toolParamsSchema.safeParse(json.value).data ?? null) : null;
 	const moved = run(params);

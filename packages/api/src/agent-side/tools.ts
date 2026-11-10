@@ -49,9 +49,6 @@ import {isPlainObject, parseToolParams} from './tool-params';
  * than go unrecorded.
  */
 
-// How much of a custom tool's params the activity log keeps.
-const MAX_LOGGED_PARAMS = 200;
-
 /** What the agent can do with the connection, none of the `unavailable` actions its sign-in didn't cover among them. */
 export function actionsOf(agent: AgentRow, connection: ConnectionRow, integration: Integration, unavailable: string[]): string[] {
 	const own: OwnSettings = Object.fromEntries(agent.grants.filter((grant) => grant.connectionId === connection.id).map((grant) => [grant.actionId, grant.allowed]));
@@ -297,16 +294,13 @@ function searchOf(params: Record<string, string> | null): string | null {
 	return params?.search?.trim() || null;
 }
 
-// What the activity log keeps of a custom tool's params: the JSON, cut short.
+// What the activity log keeps of a tool's params: the JSON, all of it, so a sandbox command is
+// there in full whatever came beside it.
 function loggedParams(args: Record<string, unknown>): string | null {
 	if (Object.keys(args).length === 0) {
 		return null;
 	}
-	const json = JSON.stringify(args);
-	if (json.length <= MAX_LOGGED_PARAMS) {
-		return json;
-	}
-	return `${json.slice(0, MAX_LOGGED_PARAMS - 1)}…`;
+	return JSON.stringify(args);
 }
 
 // One of the integration's own tools, by the runner its module names for it (native/tool.ts).

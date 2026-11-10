@@ -179,6 +179,13 @@ const ACTION_VERBS: Partial<Record<string, string>> = {
 // A custom MCP server's tool, run as it is: "Ran Search docs with {"query":"invoices"}", "Tried to
 // run Search docs", "Failed to run Search docs"; by the tool's name once the server is
 // disconnected.
+// How much of a tool run's params its line shows; the entry's dialog has them all.
+const SHOWN_PARAMS = 200;
+
+function shortened(text: string): string {
+	return text.length <= SHOWN_PARAMS ? text : `${text.slice(0, SHOWN_PARAMS - 1)}…`;
+}
+
 function describeToolRun(entry: AuditEntry, integration: Integration | undefined): string {
 	const title =
 		integration?.actions.find((action) => action.id === entry.action)?.label ?? entry.action;
@@ -188,7 +195,7 @@ function describeToolRun(entry: AuditEntry, integration: Integration | undefined
 	if (entry.outcome === 'failed') {
 		return `Failed to run ${title}`;
 	}
-	return entry.query ? `Ran ${title} with ${entry.query}` : `Ran ${title}`;
+	return entry.query ? `Ran ${title} with ${shortened(entry.query)}` : `Ran ${title}`;
 }
 
 // Whether an entry is a request relayed to the provider as it is, by git or to its API, from a

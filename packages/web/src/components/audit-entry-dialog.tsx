@@ -205,7 +205,9 @@ function AuditEntryContent({
 					<Detail label={labels.query}>
 						<span
 							className={
-								toolRun || relayed ? 'min-w-0 font-mono text-xs break-all' : 'min-w-0 break-words'
+								toolRun || relayed
+									? 'max-h-64 min-w-0 overflow-y-auto font-mono text-xs break-all'
+									: 'min-w-0 break-words'
 							}
 						>
 							{entry.query}
