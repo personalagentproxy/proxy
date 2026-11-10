@@ -47,6 +47,9 @@ function Consumer() {
 		<div>
 			<span data-testid="count">{unread.unreadIds.size}</span>
 			<span data-testid="ids">{[...unread.unreadIds].join(',')}</span>
+			<span data-testid="answers">
+				{(unread.answers ?? []).map(({answer}) => answer.id).join(',')}
+			</span>
 			<button
 				type="button"
 				onClick={() => unread.setViewing({personaId: 'general', answerId: 'general-answer'})}
@@ -323,12 +326,14 @@ describe('UnreadProvider', () => {
 			expect(listCalls()).toHaveLength(1);
 		});
 
-		// What was unread when the page opened is not told of.
+		// What was unread when the page opened is not told of. The poll has landed before the clock
+		// moves on, so its wait for the new answers is timed from when it did.
 		answers = {general: 'general-2', finance: 'finance-2'};
 		comeBack();
 		await waitFor(() => {
-			expect(listCalls()).toHaveLength(2);
+			expect(screen.getByTestId('answers').textContent).toBe('general-2,finance-2');
 		});
+		expect(listCalls()).toHaveLength(2);
 		expect(notifyDesktop).not.toHaveBeenCalled();
 
 		// Finance's answer is read elsewhere meanwhile; General's stays unread and is told of.
