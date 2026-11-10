@@ -55,46 +55,60 @@ describe('ModelSwitcher', () => {
 		expect(trigger.textContent).toBe('Claude Opus 5.5Claude Agent SDK');
 	});
 
-	test('opens every model under the harness it runs on, with whose account that is, the one chosen checked', async () => {
+	test('opens in two columns: the harnesses down the side, each by its mark, and the models of the agent’s own beside them, with whose account it runs on, the one chosen checked', async () => {
 		open({harness: 'proxy', chatModel: 'glm'});
 
-		const groups = await screen.findAllByRole('group');
-		const [openRouter, claude] = groups.filter(
-			(group) =>
-				group.querySelector('[role="menuitemradio"]') !== null &&
-				group.getAttribute('data-slot') === 'dropdown-menu-group',
-		);
-		if (!openRouter || !claude) {
-			throw new Error('expected a group for each harness');
-		}
+		const side = await screen.findByRole('group', {name: 'Harness'});
+		const marks = within(side).getAllByRole('menuitem');
 		expect(
-			within(openRouter).getByText('Runs on the server’s key, for every member alike.'),
-		).toBeTruthy();
-		expect(
-			within(openRouter)
-				.getAllByRole('menuitemradio')
-				.map((item) => item.textContent),
-		).toEqual(['Claude Sonnet 5.5', 'GLM 5.3']);
-		expect(within(claude).getByText('Runs on each member’s own Claude account.')).toBeTruthy();
-		expect(
-			within(claude)
-				.getAllByRole('menuitemradio')
-				.map((item) => item.textContent),
-		).toEqual(['Claude Sonnet 5.5', 'Claude Opus 5.5', 'Claude Fable 5.2']);
-		const checked = screen
-			.getAllByRole('menuitemradio')
-			.filter((item) => item.getAttribute('aria-checked') === 'true');
-		expect(checked.map((item) => item.textContent)).toEqual(['GLM 5.3']);
+			marks.map((mark) => [mark.getAttribute('aria-label'), mark.getAttribute('aria-current')]),
+		).toEqual([
+			['OpenRouter', 'true'],
+			['Claude Agent SDK', 'false'],
+		]);
+		expect(marks.map((mark) => mark.querySelector('img')?.getAttribute('src'))).toEqual([
+			'/harnesses/openrouter.svg',
+			'/agent-providers/claude.png',
+		]);
+		expect(screen.getByText('Runs on the server’s key, for every member alike.')).toBeTruthy();
+		const models = screen.getAllByRole('menuitemradio');
+		expect(models.map((item) => [item.textContent, item.getAttribute('aria-checked')])).toEqual([
+			['Claude Sonnet 5.5', 'false'],
+			['GLM 5.3', 'true'],
+		]);
 	});
 
-	test('picking a model picks its harness with it, and closes the list', async () => {
+	test('looking at another harness lists its models, none checked, and changes nothing until one is picked, which takes its harness with it and closes the list', async () => {
 		const onPick = open({harness: 'proxy', chatModel: 'claude'});
 
-		fireEvent.click(await screen.findByRole('menuitemradio', {name: 'Claude Fable 5.2'}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Claude Agent SDK'}));
+
+		expect(screen.getByText('Runs on each member’s own Claude account.')).toBeTruthy();
+		const models = screen.getAllByRole('menuitemradio');
+		expect(models.map((item) => [item.textContent, item.getAttribute('aria-checked')])).toEqual([
+			['Claude Sonnet 5.5', 'false'],
+			['Claude Opus 5.5', 'false'],
+			['Claude Fable 5.2', 'false'],
+		]);
+		expect(onPick).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole('menuitemradio', {name: 'Claude Fable 5.2'}));
 
 		expect(onPick).toHaveBeenCalledWith({harness: 'claude-agent-sdk', chatModel: 'fable'});
-		// The list closes on a pick, as a switcher's does.
 		await waitFor(() => expect(screen.queryByRole('menuitemradio')).toBeNull());
+	});
+
+	test('opens on the agent’s own harness again after another was looked at', async () => {
+		// The pick goes nowhere here, so the agent stays on OpenRouter once the list has closed.
+		open({harness: 'proxy', chatModel: 'claude'});
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Claude Agent SDK'}));
+		fireEvent.click(screen.getByRole('menuitemradio', {name: 'Claude Opus 5.5'}));
+		await waitFor(() => expect(screen.queryByRole('menuitemradio')).toBeNull());
+
+		fireEvent.click(screen.getByRole('button', {name: /^Model:/}));
+
+		const models = await screen.findAllByRole('menuitemradio');
+		expect(models.map((item) => item.textContent)).toEqual(['Claude Sonnet 5.5', 'GLM 5.3']);
 	});
 
 	test('only says what runs the agent to someone who may not change it', () => {

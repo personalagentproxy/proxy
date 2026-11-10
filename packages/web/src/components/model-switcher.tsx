@@ -1,16 +1,19 @@
 import type {ChatHarness} from '@proxy/contracts/harness';
 import {ChevronDownIcon} from 'lucide-react';
+import {useState} from 'react';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuGroup,
+	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuRadioGroup,
 	DropdownMenuRadioItem,
-	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@proxy/ui/components/dropdown-menu';
 import {InputGroupButton} from '@proxy/ui/components/input-group';
+import {cn} from '@proxy/ui/lib/utils';
+import {HarnessLogo} from '@/components/brand-logo';
 
 /** What runs an agent: the harness and the model it answers with, each by its id. */
 export type ModelChoice = {harness: string; chatModel: string};
@@ -26,14 +29,18 @@ type Props = {
 };
 
 // What runs the agent, under the conversation's input: the model, with the harness beside it. For
-// whoever may change the agent it opens the models to switch between, under the harness each
-// runs on, with whose account that is, the one chosen checked; for anyone else it only says. The
-// choice is the agent's, for every member's conversation with it, from the next turn on. Nothing
-// where the server has no harness.
+// whoever may change the agent it opens in two columns: the harnesses down the side, each by its
+// mark, and beside them the models of the one looked at, with whose account it runs on, the model
+// chosen checked. Looking at another harness changes nothing; picking a model takes its harness
+// with it. For anyone else it only says what runs the agent. The choice is the agent's, for every
+// member's conversation with it, from the next turn on. Nothing where the server has no harness.
 export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
 	const harness = harnesses.find((candidate) => candidate.id === chosen.harness) ?? harnesses[0];
 	const model =
 		harness?.models.find((candidate) => candidate.id === chosen.chatModel) ?? harness?.models[0];
+	// The harness whose models are listed: the agent's as the list opens, then whichever was
+	// clicked in the side column.
+	const [lookedAt, setLookedAt] = useState<string | null>(null);
 	if (!harness || !model) {
 		return null;
 	}
@@ -56,8 +63,16 @@ export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
 		);
 	}
 
+	const listed = harnesses.find((candidate) => candidate.id === lookedAt) ?? harness;
+
 	return (
-		<DropdownMenu>
+		<DropdownMenu
+			onOpenChange={(open) => {
+				if (open) {
+					setLookedAt(harness.id);
+				}
+			}}
+		>
 			<DropdownMenuTrigger
 				render={
 					<InputGroupButton
@@ -69,26 +84,41 @@ export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
 				{name}
 				<ChevronDownIcon className="text-muted-foreground" />
 			</DropdownMenuTrigger>
-			<DropdownMenuContent side="top" align="start" className="w-72">
-				{harnesses.map((candidate, index) => (
-					<DropdownMenuGroup key={candidate.id}>
-						{index > 0 && <DropdownMenuSeparator />}
-						<DropdownMenuLabel className="grid gap-0.5">
-							<span className="text-foreground">{candidate.label}</span>
-							<span className="font-normal">{candidate.description}</span>
-						</DropdownMenuLabel>
-						<DropdownMenuRadioGroup
-							value={candidate.id === harness.id ? model.id : ''}
-							onValueChange={(chatModel: string) => onPick({harness: candidate.id, chatModel})}
+			<DropdownMenuContent side="top" align="start" className="flex w-80 p-0">
+				<DropdownMenuGroup
+					aria-label="Harness"
+					className="flex shrink-0 flex-col gap-1 border-r bg-muted/40 p-1"
+				>
+					{harnesses.map((candidate) => (
+						<DropdownMenuItem
+							key={candidate.id}
+							closeOnClick={false}
+							aria-label={candidate.label}
+							aria-current={candidate.id === listed.id}
+							title={candidate.label}
+							onClick={() => setLookedAt(candidate.id)}
+							className={cn('p-1.5', candidate.id === listed.id && 'bg-accent')}
 						>
-							{candidate.models.map((option) => (
-								<DropdownMenuRadioItem key={option.id} value={option.id} closeOnClick>
-									{option.label}
-								</DropdownMenuRadioItem>
-							))}
-						</DropdownMenuRadioGroup>
-					</DropdownMenuGroup>
-				))}
+							<HarnessLogo harnessId={candidate.id} className="size-6" />
+						</DropdownMenuItem>
+					))}
+				</DropdownMenuGroup>
+				<DropdownMenuGroup className="min-h-44 min-w-0 flex-1 p-1">
+					<DropdownMenuLabel className="grid gap-0.5">
+						<span className="text-foreground">{listed.label}</span>
+						<span className="font-normal">{listed.description}</span>
+					</DropdownMenuLabel>
+					<DropdownMenuRadioGroup
+						value={listed.id === harness.id ? model.id : ''}
+						onValueChange={(chatModel: string) => onPick({harness: listed.id, chatModel})}
+					>
+						{listed.models.map((option) => (
+							<DropdownMenuRadioItem key={option.id} value={option.id} closeOnClick>
+								{option.label}
+							</DropdownMenuRadioItem>
+						))}
+					</DropdownMenuRadioGroup>
+				</DropdownMenuGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
