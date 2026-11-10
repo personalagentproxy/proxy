@@ -114,7 +114,7 @@ function sandboxInstructions(connections: AgentConnection[]): string[] {
 	const usable = connections.filter((connection) => connection.integrationId === SANDBOX_INTEGRATION_ID && connection.actions.includes('run'));
 	return usable.map(
 		(connection) =>
-			`${connection.id} has sandboxes: computers with a shell and the internet, for running code. One is a task’s at a time and keeps its disk, so reuse yours. sandbox_exec takes a sandbox’s id, not its name.`,
+			`${connection.id} has sandboxes: computers with a shell and the internet, for running code. One is a task’s at a time and keeps its disk, so reuse yours. sandbox_exec takes a sandbox’s id, not its name. A command run with pap: true reaches your connections from code with the pap CLI: pap connections, pap tools <connection>, pap call <connection> <tool> '<json>'; pap --help has the rest.`,
 	);
 }
 

@@ -27,6 +27,7 @@ export type SandboxRow = {
 	heldByTaskId: string | null;
 	heldAt: Date | null;
 	lastUsedAt: Date;
+	papVersion: string | null;
 	createdAt: Date;
 };
 
@@ -43,6 +44,7 @@ const sandboxSelect = {
 	heldByTaskId: true,
 	heldAt: true,
 	lastUsedAt: true,
+	papVersion: true,
 	createdAt: true,
 } as const;
 
@@ -108,6 +110,16 @@ export function moveSandbox(
 export function touchSandbox(sandboxId: string): Promise<Result<void, ApiError>> {
 	return wrapDb(async () => {
 		await db.sandbox.updateMany({where: {id: sandboxId}, data: {lastUsedAt: new Date()}});
+	});
+}
+
+/** Notes the version of the `pap` CLI now installed in the sandbox. */
+export function setSandboxPapVersion(
+	sandboxId: string,
+	papVersion: string,
+): Promise<Result<void, ApiError>> {
+	return wrapDb(async () => {
+		await db.sandbox.updateMany({where: {id: sandboxId}, data: {papVersion}});
 	});
 }
 

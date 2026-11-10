@@ -1,7 +1,7 @@
 import express from 'express';
 import {z} from 'zod';
 
-import {CLI_STATUS, type CliCallFailure} from '@proxy/contracts/cli';
+import {CLI_CALL_PATH, CLI_STATUS, type CliCallFailure} from '@proxy/contracts/cli';
 
 import {handleActivityTimelineRoute, handleListActivityRoute, handleTaskRunRoute} from '../activity/route';
 import {handleAgentLoginRoute, handleAgentLogoutRoute} from '../agent-auth/session';
@@ -263,7 +263,7 @@ export function createApiRouter(): express.Router {
 	// script's `pap` functions do, over HTTP. No `requireBrowserOrigin`, and no cookie: the caller is
 	// a process in a sandbox, not a browser, and the bearer token, which no browser sends on its
 	// own, is the guard, as for the MCP server. Nothing above is mounted on `/api/cli`.
-	router.post('/api/cli/call', withCliAuth('CLI call route', handleCliCallRoute));
+	router.post(CLI_CALL_PATH, withCliAuth('CLI call route', handleCliCallRoute));
 
 	// MCP clients such as Claude, ChatGPT and Poke: the MCP server, signed in with OAuth 2.1, where
 	// Personal Agent Proxy is its own authorization server. Clients find it from the MCP server's

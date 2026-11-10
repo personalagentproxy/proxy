@@ -1748,7 +1748,7 @@ const sandbox: Integration = {
 		{
 			name: 'sandbox_exec',
 			title: 'Run command',
-			description: `Runs a command in a sandbox’s shell, in its home or in cwd under it, and answers with what it wrote and how it ended. A sandbox asleep is woken first. Reading and writing files is done here too: cat a file to read it; to write one, give the content as stdin and run cat > the file. The command is stopped after timeout seconds, ${SANDBOX_EXEC_DEFAULT_SECONDS} unless given and at most ${SANDBOX_EXEC_MAX_SECONDS}; what it left running in the background may not outlive it, so do long work in parts.`,
+			description: `Runs a command in a sandbox’s shell, in its home or in cwd under it, and answers with what it wrote and how it ended. A sandbox asleep is woken first. Reading and writing files is done here too: cat a file to read it; to write one, give the content as stdin and run cat > the file. The command is stopped after timeout seconds, ${SANDBOX_EXEC_DEFAULT_SECONDS} unless given and at most ${SANDBOX_EXEC_MAX_SECONDS}; what it left running in the background may not outlive it, so do long work in parts. With pap, the command can run pap, a CLI for your connections (pap --help).`,
 			action: 'run',
 			inputSchema: {
 				type: 'object',
@@ -1769,6 +1769,10 @@ const sandbox: Integration = {
 					timeout: {
 						type: 'number',
 						description: `Seconds before the command is stopped: ${SANDBOX_EXEC_DEFAULT_SECONDS} unless given, at most ${SANDBOX_EXEC_MAX_SECONDS}`,
+					},
+					pap: {
+						type: 'boolean',
+						description: 'Lets the command use pap, to call your connections from code',
 					},
 				},
 				required: ['sandbox', 'command'],

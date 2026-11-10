@@ -1,5 +1,9 @@
 import {z} from 'zod';
 
+import {PAP_METHODS} from './cli-constants';
+
+export {CLI_CALL_PATH, CLI_STATUS, PAP_METHODS, type PapMethod} from './cli-constants';
+
 /**
  * The CLI's routes (`/api/cli/…`), for code in a sandbox: what the `script` tool's `pap` object
  * does, over HTTP. A sandbox command run with `pap: true` is given `PAP_URL`, where this server is
@@ -27,18 +31,6 @@ import {z} from 'zod';
  * Anything else is the server failing, such as a 500.
  */
 
-/** The `pap` functions, a script's and the CLI's alike. */
-export const PAP_METHODS = [
-	'connections',
-	'tools',
-	'call',
-	'startTask',
-	'finishTask',
-	'feedback',
-] as const;
-
-export type PapMethod = (typeof PAP_METHODS)[number];
-
 /** `POST /api/cli/call`: the function, and its arguments as a script passes them, none where left out. */
 export const cliCallBodySchema = z.object({
 	method: z.enum(PAP_METHODS),
@@ -49,6 +41,3 @@ export type CliCallBody = z.input<typeof cliCallBodySchema>;
 
 /** 422: the call failed, `error` the kind of error and `message` what went wrong, for a model. */
 export type CliCallFailure = {error: string; message: string};
-
-/** The statuses `/api/cli/call` answers with. */
-export const CLI_STATUS = {ok: 200, failed: 422, refused: 401} as const;
