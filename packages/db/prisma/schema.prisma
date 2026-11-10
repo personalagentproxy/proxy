@@ -583,9 +583,11 @@ model Persona {
   // Its head: the look as JSON (`@proxy/utils/harness` Look), in one of the colors.
   look  String
   color String
-  // The model it answers with, by id (CHAT_MODELS in @proxy/utils), its sub-agents too: chosen
-  // where it is made or changed in an insider organization; in any other it is ignored, and Claude
-  // answers.
+  // The harness that runs its turns, by the harness's id (@proxy/backends/harness), its
+  // sub-agents' too, and the model it answers with, by the id the harness lists it under: chosen
+  // where it is made or changed. One the server hasn't got is read as one it has (the api's
+  // backends/harness.ts).
+  harness   String @default("proxy")
   chatModel String @default("claude")
   // Who made it, who may change it beside the organization's owner.
   createdById String?
@@ -737,6 +739,10 @@ model AgentEntry {
   // An assistant entry's system prompt, as the model was sent it: built from the login's grants
   // as they were then, which nothing else keeps. Null where the model wasn't run for the answer.
   system   String?
+  // An assistant entry's harness and model, by their ids, as the turn that wrote it ran; null
+  // where the model wasn't run for it, and for what was written before they were kept.
+  harness  String?
+  model    String?
   // The job that wrote the entry (AgentJob; as a column: the two live and die with the thread),
   // with its attempts and its error; null for what the person wrote.
   jobId    String?

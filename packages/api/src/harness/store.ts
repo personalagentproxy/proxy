@@ -1,6 +1,6 @@
 import type {Result} from 'ts-results-es';
 
-import type {ApiError, ChatModel} from '@proxy/utils';
+import type {ApiError} from '@proxy/utils';
 import {readyForInference} from '@proxy/utils/harness';
 import * as alerts from '@proxy/db/alerts';
 import type {AlertRow, NewAlert, PollRow, WatchMatch} from '@proxy/db/alerts';
@@ -9,6 +9,7 @@ import * as harness from '@proxy/db/harness';
 import type {
 	AfterAnswer,
 	AssistantTurn,
+	CappedHarness,
 	ClaimedJob,
 	ConversationAnswer,
 	EntryRow,
@@ -19,6 +20,7 @@ import type {
 	NewEntry,
 	NewTurnEntry,
 	Persona,
+	PersonaModel,
 	PersonaRow,
 	SubAgentRow,
 	SubAgentStart,
@@ -45,7 +47,7 @@ import type {SignedInAgent} from '@proxy/db/agent';
  * the transcript methods (session-store.ts), the model's memory beside the log.
  */
 export type HarnessStore = {
-	claimJob: (workerId: string, leaseMs: number, withoutClaudeAccountTurns?: boolean) => Promise<Result<ClaimedJob | null, ApiError>>;
+	claimJob: (workerId: string, leaseMs: number, capped?: CappedHarness | null) => Promise<Result<ClaimedJob | null, ApiError>>;
 	renewLease: (jobId: string, workerId: string, leaseMs: number) => Promise<Result<boolean, ApiError>>;
 	finishJob: (jobId: string, workerId: string) => Promise<Result<boolean, ApiError>>;
 	failJob: (jobId: string, workerId: string, error: string, noteFor: (job: JobRow, thread: ThreadRow) => FailureNote | null) => Promise<Result<boolean, ApiError>>;
@@ -53,7 +55,7 @@ export type HarnessStore = {
 
 	getJobThread: (threadId: string) => Promise<Result<ThreadRow | null, ApiError>>;
 	getThreadAgent: (thread: ThreadRow) => Promise<Result<SignedInAgent | null, ApiError>>;
-	getChatModel: (thread: ThreadRow) => Promise<Result<ChatModel, ApiError>>;
+	getPersonaModel: (thread: ThreadRow) => Promise<Result<PersonaModel | null, ApiError>>;
 	listEntries: (threadId: string) => Promise<Result<EntryRow[], ApiError>>;
 	getEntry: (entryId: string) => Promise<Result<EntryRow, ApiError>>;
 	appendSummary: (jobId: string, workerId: string, threadId: string, summary: {text: string; inputTokens: number; outputTokens: number}, coversSeq: number) => Promise<Result<boolean, ApiError>>;
@@ -115,7 +117,7 @@ export const harnessStore: HarnessStore = {
 
 	getJobThread: harness.getJobThread,
 	getThreadAgent: harness.getThreadAgent,
-	getChatModel: harness.getThreadChatModel,
+	getPersonaModel: harness.getThreadPersonaModel,
 	listEntries: harness.listEntries,
 	getEntry: harness.getEntry,
 	appendSummary: harness.appendSummary,

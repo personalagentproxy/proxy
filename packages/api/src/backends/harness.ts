@@ -3,6 +3,7 @@ import type {Result} from 'ts-results-es';
 import type {HarnessAuth, HarnessBackend} from '@proxy/backends/harness/backend';
 import type {ApiError} from '@proxy/utils';
 import type {ClaudeUsage} from '@proxy/db/claude-account';
+import type {PersonaModel} from '@proxy/db/harness';
 
 import type {ClaudeCredential} from '../me/claude-credential';
 
@@ -10,15 +11,16 @@ import type {ClaudeCredential} from '../me/claude-credential';
  * Which harness runs a thread's turns (@proxy/backends/harness), of those this server has: the
  * api's own loop over OpenRouter, where there is a key for it, and the Claude Agent SDK's, which
  * runs as the member, on the Claude credential they connected on the Account page. The choice is
- * the member's credential's, made anew for each turn: with one, their turns run on the SDK
- * harness, where the server has it, and on the proxy harness otherwise, as they do again once the
- * member disconnects or the server turns the SDK harness off. A thread therefore moves between the
- * two with the credential: the log is the record on either, and a harness whose session the
- * thread hasn't got is given the log in its place. A member who chose their subscription is never
- * quietly moved to the server's key when their credential can't be had, run out or refused, which
- * would bill the organization for what they meant to pay for themselves: the turn is answered with
- * what to do instead (inference.ts). The credential is read only where the choice turns on it, so
- * a server without the SDK harness never looks for one.
+ * the persona's, made where it is made or changed, with the model it answers with, one of those
+ * the harness lists; its sub-agents' turns go the same way. It is read anew for each turn, so a
+ * persona switched to another harness moves every member's conversation with it from the next
+ * turn on: the log is the record on either, and a harness whose session the thread hasn't got is
+ * given the log in its place. A harness the server hasn't got, as the SDK harness on a server
+ * that turned it off, is read as the first it has, and a model the harness hasn't got as its
+ * first. A persona on the SDK harness needs each member's own credential: a member without one
+ * is told to connect it, and one whose credential ran out or was refused to connect it again
+ * (inference.ts), never quietly moved to the server's key, which would bill the organization for
+ * what the persona was set to bill them. The credential is read only where the choice turns on it.
  */
 
 /** The harnesses this server has, by what each is; null for one it hasn't got. */
@@ -39,8 +41,8 @@ export type ClaudeCredentials = {
 /** What the worker runs turns with: the harnesses, and how a member's credential is read, which the choice between them turns on. */
 export type Harnesses = {registry: HarnessRegistry; credentials: ClaudeCredentials};
 
-/** The harness for a turn with the credential to give it, or none, with what the person is told instead. */
-export type HarnessChoice = {harness: HarnessBackend; auth: HarnessAuth | null} | {harness: null; auth: null; why: string};
+/** The harness for a turn with the model to answer with and the credential to give it, or none, with what the person is told instead. */
+export type HarnessChoice = {harness: HarnessBackend; model: string; auth: HarnessAuth | null} | {harness: null; auth: null; why: string};
 
 export const NOT_SET_UP = 'Chat is not set up on this server: it needs an OpenRouter key (OPENROUTER_KEY). Everything else works as before.';
 
@@ -52,31 +54,63 @@ export function authFor(credential: ClaudeCredential): HarnessAuth {
 	return {kind: 'api_key', key: credential.key};
 }
 
-/** Whether the choice turns on the member's credential: the SDK harness is here. */
-export function needsCredential(registry: HarnessRegistry): boolean {
-	return registry.claudeAgentSdk !== null;
+/** What the person is told where the persona runs on their own Claude account and they connected none. */
+export const CONNECT_CLAUDE = 'This agent runs on your own Claude account, and you haven’t connected one. Connect it under Claude on the Account page.';
+
+/** The harnesses this server has, in the order a choice among them is offered: the first is what a persona gets that chose none, or one the server hasn't got. */
+export function harnessesOf(registry: HarnessRegistry): HarnessBackend[] {
+	return [registry.proxy, registry.claudeAgentSdk].flatMap((harness) => (harness === null ? [] : [harness]));
 }
 
 /**
- * The harness for a turn of the member's: the SDK harness where they have a Claude credential and
- * the server has the harness; else the proxy harness. `credential` is the member's, or null where
- * they connected none, or it wasn't looked for (`needsCredential`).
+ * The persona's choice as this server has it: the harness it chose, or the first the server has
+ * where it hasn't got that one, with the model it chose of that harness's, or the harness's first.
+ * Null on a server with no harness at all.
  */
-export function harnessFor(registry: HarnessRegistry, credential: ClaudeCredential | null): HarnessChoice {
-	if (credential !== null && registry.claudeAgentSdk !== null) {
-		return {harness: registry.claudeAgentSdk, auth: authFor(credential)};
+export function chosenFor(registry: HarnessRegistry, persona: PersonaModel): {harness: HarnessBackend; model: string} | null {
+	const harnesses = harnessesOf(registry);
+	const harness = harnesses.find((candidate) => candidate.id === persona.harness) ?? harnesses[0];
+	if (harness === undefined) {
+		return null;
 	}
-	if (registry.proxy !== null) {
-		return {harness: registry.proxy, auth: null};
-	}
-	return {harness: null, auth: null, why: NOT_SET_UP};
+	const model = harness.models.find((candidate) => candidate.id === persona.chatModel) ?? harness.models[0];
+	return {harness, model: model.id};
+}
+
+/** Whether the harness runs as the member, on their own credential: the SDK harness. */
+export function needsCredential(registry: HarnessRegistry, harness: HarnessBackend): boolean {
+	return harness === registry.claudeAgentSdk;
 }
 
 /**
- * How many turns on members' own accounts one process runs at once, each a subprocess of the SDK
- * harness's: the harness's cap, which the worker keeps to as it claims jobs; null where the server
- * hasn't got the harness, or it has no cap.
+ * The harness for a turn of the member's with the persona, and the model: the persona's choice as
+ * the server has it (`chosenFor`), with the member's credential where the harness runs on it, and
+ * what to tell them where they connected none. `credential` is the member's, or null where they
+ * connected none, or it wasn't looked for (`needsCredential`).
  */
-export function ownAccountTurnCap(registry: HarnessRegistry): number | null {
-	return registry.claudeAgentSdk?.maxConcurrentTurns ?? null;
+export function harnessFor(registry: HarnessRegistry, persona: PersonaModel, credential: ClaudeCredential | null): HarnessChoice {
+	const chosen = chosenFor(registry, persona);
+	if (chosen === null) {
+		return {harness: null, auth: null, why: NOT_SET_UP};
+	}
+	if (!needsCredential(registry, chosen.harness)) {
+		return {...chosen, auth: null};
+	}
+	if (credential === null) {
+		return {harness: null, auth: null, why: CONNECT_CLAUDE};
+	}
+	return {...chosen, auth: authFor(credential)};
+}
+
+/**
+ * The harness whose turns one process runs only so many of at once, each a subprocess of the SDK
+ * harness's, and how many: the harness's cap, which the worker keeps to as it claims jobs. Null
+ * where the server hasn't got the harness, or it has no cap.
+ */
+export function cappedHarness(registry: HarnessRegistry): {harness: string; turns: number} | null {
+	const harness = registry.claudeAgentSdk;
+	if (harness === null || harness.maxConcurrentTurns === undefined) {
+		return null;
+	}
+	return {harness: harness.id, turns: harness.maxConcurrentTurns};
 }

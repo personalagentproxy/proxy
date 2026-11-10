@@ -41,8 +41,8 @@ import {NAMED_AFTER_ORGANIZATION} from './starter-connections';
 // How long an invitation's link works.
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-function toOrg(row: UserOrgRow, experiments: Experiment[], insider: boolean): Org {
-	return {id: row.id, slug: row.slug, name: row.name, role: row.role, onboarded: row.onboarded, experiments, insider, memberCount: row.memberCount, invitationCount: row.invitationCount};
+function toOrg(row: UserOrgRow, experiments: Experiment[]): Org {
+	return {id: row.id, slug: row.slug, name: row.name, role: row.role, onboarded: row.onboarded, experiments, memberCount: row.memberCount, invitationCount: row.invitationCount};
 }
 
 function toMember(row: MemberRow): Member {
@@ -55,12 +55,12 @@ function toInvitation(row: InvitationRow): Invitation {
 
 /**
  * `GET /api/orgs`: the person's organizations, the first one joined first, for the switcher and
- * for where the app opens with no organization in its address. The experiments and whether it is
- * an insider are each organization's own page's to say (`GET /api/orgs/:org`); here they are left out.
+ * for where the app opens with no organization in its address. The experiments are each
+ * organization's own page's to say (`GET /api/orgs/:org`); here they are left out.
  */
 export function handleListOrgsRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof orgListSchema>, ApiError>> {
 	return Do(async ($) => {
-		return {orgs: $(await listUserOrgs(request.user.userId)).map((org) => toOrg(org, [], false))};
+		return {orgs: $(await listUserOrgs(request.user.userId)).map((org) => toOrg(org, []))};
 	});
 }
 
@@ -74,7 +74,7 @@ export function handleGetOrgRoute(request: AuthenticatedRequest): Promise<Result
 				ApiErr.notFound('organization', viewer.slug),
 			),
 		);
-		return toOrg(row, viewer.experiments, viewer.insider);
+		return toOrg(row, viewer.experiments);
 	});
 }
 
@@ -83,7 +83,7 @@ export function handleCreateOrgRoute(request: AuthenticatedRequest): Promise<Res
 	return Do(async ($) => {
 		const {name} = $(parseSchema(orgNameBodySchema, request.body));
 		const org = $(await createOrganization({userId: request.user.userId, name}));
-		return {id: org.id, slug: org.slug, name: org.name, role: 'owner' as const, onboarded: true, experiments: [], insider: false, memberCount: 1, invitationCount: 0};
+		return {id: org.id, slug: org.slug, name: org.name, role: 'owner' as const, onboarded: true, experiments: [], memberCount: 1, invitationCount: 0};
 	});
 }
 

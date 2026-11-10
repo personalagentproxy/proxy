@@ -1,12 +1,13 @@
-import {Err, type Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, hasExperiment, parseSchema, requirePresent} from '@proxy/utils';
 import {preview, threadState, toAvatarColor} from '@proxy/utils/harness';
-import type {EntryRow, LastMessage, Persona, PersonaRow, ThreadRow} from '@proxy/db/harness';
+import type {EntryRow, LastMessage, Persona, PersonaModel, PersonaRow, ThreadRow} from '@proxy/db/harness';
 import {
 	type ChatEntry,
 	type chatAnswersSchema,
+	type ChatHarness,
 	type ChatPersona,
 	markReadBodySchema,
 	personaBodySchema,
@@ -17,6 +18,7 @@ import {
 	type ThreadLog,
 } from '@proxy/contracts/harness';
 
+import {chosenFor, harnessesOf, type HarnessRegistry} from '../backends/harness';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {manages} from '../utils/manages';
 import {type OrgViewer, requireViewer} from '../utils/user-org';
@@ -26,7 +28,9 @@ import type {HarnessStore} from './store';
 /**
  * The Chat page's routes, under the organization: its personas, which every member sees, each
  * named and given a head, all acting through the organization's one built-in agent login, and the
- * member's own conversation with each, its log, and what it and its sub-agents are up to. Behind the `harness` experiment. Nothing here runs the model: a message queues a job, and
+ * member's own conversation with each, its log, and what it and its sub-agents are up to. A persona
+ * says which of the server's harnesses runs it and which of that harness's models it answers with
+ * (backends/harness.ts), chosen where it is made or changed, by whoever may change it. Behind the `harness` experiment. Nothing here runs the model: a message queues a job, and
  * the worker (worker.ts) does the rest; the page reads the log again as it goes.
  */
 
@@ -48,28 +52,62 @@ export type ChatStore = Pick<
 	| 'markThreadRead'
 >;
 
-// Whether the viewer may rename, reface, switch the model of or delete the persona: whoever made it, or the organization's owner (utils/manages.ts).
+/** The harnesses this server has, read where a route needs them, so that nothing is made as the routes are mounted. */
+export type Harnesses = () => HarnessRegistry;
+
+// Whether the viewer may rename, reface, switch the harness or the model of, or delete the persona: whoever made it, or the organization's owner (utils/manages.ts).
 function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
 	return manages(viewer, {ownerUserId: null, byId: persona.createdById});
 }
 
-function toPersona(viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null}): ChatPersona {
+function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null}): ChatPersona {
 	const last = persona.lastMessage ?? null;
+	// What runs it as this server has it, which is what a turn of its gets; as kept on a server
+	// with no harness at all, where nothing runs.
+	const chosen = chosenFor(harnesses(), persona);
 	return {
 		id: persona.id,
 		name: persona.name,
 		look: persona.look,
 		color: toAvatarColor(persona.color),
-		chatModel: viewer.insider ? persona.chatModel : null,
+		harness: chosen?.harness.id ?? persona.harness,
+		chatModel: chosen?.model ?? persona.chatModel,
 		mayChange: managesPersona(viewer, persona),
 		lastMessage: last && {kind: last.kind, text: preview(last.text), at: last.createdAt.toISOString()},
 	};
 }
 
-// The persona as the person made or changed it, the model left out where the organization has no
-// choice of one (it isn't an insider): a persona of any other answers with Claude.
-function readPersona(viewer: OrgViewer, request: AuthenticatedRequest): Result<Persona, ApiError> {
-	return parseSchema(personaBodySchema, request.body).map(({chatModel, ...persona}) => (viewer.insider && chatModel ? {...persona, chatModel} : persona));
+// The harnesses a persona can run on here, as the dialog offers them.
+function toHarnesses(registry: HarnessRegistry): ChatHarness[] {
+	return harnessesOf(registry).map(({id, label, description, models}) => ({id, label, description, models}));
+}
+
+// The persona as the person made or changed it. What runs it is as they chose, where the server
+// has it: a harness named has to be one of the server's, and a model named one of the harness's;
+// the model left out is the harness's first, or the persona's own where the harness stays. With
+// neither named, one changed (`existing`) keeps what it has, and a new one gets the server's
+// first harness with its first model.
+function readPersona(harnesses: Harnesses, request: AuthenticatedRequest, existing: PersonaModel | null): Result<Persona, ApiError> {
+	const parsed = parseSchema(personaBodySchema, request.body);
+	if (parsed.isErr()) {
+		return Err(parsed.error);
+	}
+	const {harness, chatModel, ...persona} = parsed.value;
+	if (existing !== null && harness === undefined && chatModel === undefined) {
+		return Ok(persona);
+	}
+	const sameHarness = harness === undefined || harness === existing?.harness;
+	const chosen = chosenFor(harnesses(), {harness: harness ?? existing?.harness ?? '', chatModel: chatModel ?? (sameHarness ? (existing?.chatModel ?? '') : '')});
+	if (chosen === null) {
+		return Ok(persona);
+	}
+	if (harness !== undefined && chosen.harness.id !== harness) {
+		return Err(ApiErr.validationError(`This server has no harness ${harness}.`));
+	}
+	if (chatModel !== undefined && chosen.model !== chatModel) {
+		return Err(ApiErr.validationError(`${chosen.harness.label} has no model ${chatModel}.`));
+	}
+	return Ok({...persona, harness: chosen.harness.id, chatModel: chosen.model});
 }
 
 // The entries the person sees (db/harness listShownEntries), as their kinds, for the response.
@@ -125,15 +163,16 @@ function requireThread(store: ChatStore, viewer: OrgViewer, persona: PersonaRow)
 }
 
 /** `GET /api/orgs/:org/chat/personas`: the organization's personas, in the order they were made, with the viewer's conversations; a General one is made where it has none. */
-function handleListPersonasRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaListSchema>, ApiError>> {
+function handleListPersonasRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const personas = $(await store.listPersonas(viewer.orgId, viewer.userId));
+		const offered = toHarnesses(harnesses());
 		if (personas.length > 0) {
-			return {personas: personas.map((persona) => toPersona(viewer, persona))};
+			return {personas: personas.map((persona) => toPersona(harnesses, viewer, persona)), harnesses: offered};
 		}
 		const first = $(await store.ensureFirstPersona(viewer.orgId));
-		return {personas: [toPersona(viewer, first)]};
+		return {personas: [toPersona(harnesses, viewer, first)], harnesses: offered};
 	});
 }
 
@@ -153,27 +192,27 @@ function handleListAnswersRoute(store: ChatStore, request: AuthenticatedRequest)
 	});
 }
 
-/** `POST /api/orgs/:org/chat/personas` with `{name, look, color, chatModel?}`: a new persona, every member's, and the organization's built-in login with it where there is none yet. */
-function handleCreatePersonaRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaAnswerSchema>, ApiError>> {
+/** `POST /api/orgs/:org/chat/personas` with `{name, look, color, harness?, chatModel?}`: a new persona, every member's, and the organization's built-in login with it where there is none yet. */
+function handleCreatePersonaRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaAnswerSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
-		const persona = $(readPersona(viewer, request));
+		const persona = $(readPersona(harnesses, request, null));
 		$(await ensureBuiltInAgent(viewer.orgId));
 		const made = $(await store.createPersona(viewer.orgId, viewer.userId, persona));
-		return {persona: toPersona(viewer, made)};
+		return {persona: toPersona(harnesses, viewer, made)};
 	});
 }
 
-/** `PUT /api/orgs/:org/chat/personas/:personaId` with `{name, look, color, chatModel?}`: the persona renamed, with another head, or switched to another model from its next turn on. */
-function handleUpdatePersonaRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaAnswerSchema>, ApiError>> {
+/** `PUT /api/orgs/:org/chat/personas/:personaId` with `{name, look, color, harness?, chatModel?}`: the persona renamed, with another head, or switched to another harness or model from its next turn on, every member's conversation with it and its sub-agents'. */
+function handleUpdatePersonaRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaAnswerSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
-		const persona = $(readPersona(viewer, request));
 		const existing = $(await requireManagedPersona(store, viewer, request));
+		const persona = $(readPersona(harnesses, request, existing));
 		if (!$(await store.updatePersona(viewer.orgId, existing.id, persona))) {
 			return $(Err(ApiErr.notFound('persona', existing.id)));
 		}
-		return {persona: toPersona(viewer, {...existing, ...persona, chatModel: persona.chatModel ?? existing.chatModel})};
+		return {persona: toPersona(harnesses, viewer, {...existing, ...persona})};
 	});
 }
 
@@ -189,7 +228,7 @@ function handleDeletePersonaRoute(store: ChatStore, request: AuthenticatedReques
 }
 
 /** `GET /api/orgs/:org/chat/personas/:personaId/thread`: the viewer's conversation with the persona, begun where there was none, what they said while it was answering at the end, and whether the persona is busy on it, its sub-agents included. */
-function handleGetThreadRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<ThreadLog, ApiError>> {
+function handleGetThreadRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<ThreadLog, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const persona = $(await requirePersona(store, viewer, request));
@@ -198,7 +237,7 @@ function handleGetThreadRoute(store: ChatStore, request: AuthenticatedRequest): 
 		// The conversation's and its sub-agents' jobs together: asleep only when every one of them is.
 		const state = threadState($(jobs), new Date());
 		return {
-			persona: toPersona(viewer, persona),
+			persona: toPersona(harnesses, viewer, persona),
 			entries: $(entries).filter(isShown).map(toEntry),
 			busy: state.kind === 'working',
 			sleepingUntil: state.kind === 'asleep' ? state.until.toISOString() : null,
@@ -232,15 +271,15 @@ function handleMarkReadRoute(store: ChatStore, request: AuthenticatedRequest): P
 	});
 }
 
-/** The Chat page's routes, on the store. */
-export function chatRoutes(store: ChatStore) {
+/** The Chat page's routes, on the store and the harnesses the server has. */
+export function chatRoutes(store: ChatStore, harnesses: Harnesses) {
 	return {
-		handleListPersonasRoute: (request: AuthenticatedRequest) => handleListPersonasRoute(store, request),
+		handleListPersonasRoute: (request: AuthenticatedRequest) => handleListPersonasRoute(store, harnesses, request),
 		handleListAnswersRoute: (request: AuthenticatedRequest) => handleListAnswersRoute(store, request),
-		handleCreatePersonaRoute: (request: AuthenticatedRequest) => handleCreatePersonaRoute(store, request),
-		handleUpdatePersonaRoute: (request: AuthenticatedRequest) => handleUpdatePersonaRoute(store, request),
+		handleCreatePersonaRoute: (request: AuthenticatedRequest) => handleCreatePersonaRoute(store, harnesses, request),
+		handleUpdatePersonaRoute: (request: AuthenticatedRequest) => handleUpdatePersonaRoute(store, harnesses, request),
 		handleDeletePersonaRoute: (request: AuthenticatedRequest) => handleDeletePersonaRoute(store, request),
-		handleGetThreadRoute: (request: AuthenticatedRequest) => handleGetThreadRoute(store, request),
+		handleGetThreadRoute: (request: AuthenticatedRequest) => handleGetThreadRoute(store, harnesses, request),
 		handlePostMessageRoute: (request: AuthenticatedRequest) => handlePostMessageRoute(store, request),
 		handleMarkReadRoute: (request: AuthenticatedRequest) => handleMarkReadRoute(store, request),
 	};

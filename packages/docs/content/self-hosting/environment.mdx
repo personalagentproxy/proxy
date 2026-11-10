@@ -13,11 +13,12 @@ variables turn on quick actions on the home page and the built-in agent on the C
 
 <EnvTable group="Core" />
 
-A member who connected their Claude account gets the Chat agent run on the Claude Agent SDK under
-it, which runs Claude Code as a subprocess for each turn: a few hundred megabytes of memory while
-the turn lasts, on top of the server's own. `CLAUDE_AGENT_SDK_TURNS` is how many such turns one
-server runs at once, one unless you raise it; a server with little memory to spare can turn the
-SDK off with `CLAUDE_AGENT_SDK=off`, and every conversation then runs on `OPENROUTER_KEY`.
+A Chat agent can be set to run on the Claude Agent SDK, under each member's own Claude account,
+which runs Claude Code as a subprocess for each turn: a few hundred megabytes of memory while the
+turn lasts, on top of the server's own. `CLAUDE_AGENT_SDK_TURNS` is how many such turns one server
+runs at once, one unless you raise it; a server with little memory to spare can turn the SDK off
+with `CLAUDE_AGENT_SDK=off`: it is then not offered for an agent, and an agent that was set to it
+runs on `OPENROUTER_KEY`.
 
 ## Sign-in
 

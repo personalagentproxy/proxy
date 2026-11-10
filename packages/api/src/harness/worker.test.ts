@@ -25,8 +25,8 @@ const now = new Date();
 const inference: JobRow = {id: 'j1', threadId: 't1', kind: 'inference', status: 'running', entryId: null, callId: null, runAt: now, claimedBy: 'w', attempts: 1};
 const tool: JobRow = {...inference, id: 'j2', kind: 'tool', entryId: 'e1', callId: 'c1'};
 const wake: JobRow = {...inference, id: 'j5', kind: 'wake'};
-// A job as the queue hands it over: not a turn on a member's own Claude account, unless said.
-const claimed = (job: JobRow, onClaudeAccount = false): ClaimedJob => ({...job, onClaudeAccount});
+// A job as the queue hands it over: not a turn on the capped harness, unless said.
+const claimed = (job: JobRow, capped = false): ClaimedJob => ({...job, capped});
 
 // Waits for the worker to get through what is queued.
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
@@ -62,10 +62,10 @@ describe('the worker', () => {
 		expect(runInference.mock.calls[0]?.[3]).toBe(runToolJob.mock.calls[0]?.[2]);
 		expect(store.claimJob.mock.calls.length).toBe(claims);
 		// A server without the SDK harness has no cap to keep: every claim is for any job.
-		expect(store.claimJob.mock.calls.every((call) => call[2] === false)).toBe(true);
+		expect(store.claimJob.mock.calls.every((call) => call[2] === null)).toBe(true);
 	});
 
-	test('at the cap on turns on members’ own accounts, claims only the other jobs until one of those turns ends, so a turn it has no room for stays in the queue', async () => {
+	test('at the cap on turns on the SDK harness, claims only the other jobs until one of those turns ends, so a turn it has no room for stays in the queue', async () => {
 		const {startHarnessWorker} = await import('./worker');
 		const capped: Harnesses = {...harness, registry: {proxy: fakeHarness(), claudeAgentSdk: {...fakeHarness('claude-agent-sdk'), maxConcurrentTurns: 1}}};
 		let end = (): void => {};
@@ -87,15 +87,15 @@ describe('the worker', () => {
 		await new Promise((resolve) => setTimeout(resolve, 700));
 		await worker.stop();
 
-		// The first claim is for any job; with the member's turn running, every claim after leaves such turns be.
-		expect(during[0]).toBe(false);
+		// The first claim is for any job; with the turn running, every claim after leaves such turns be.
+		expect(during[0]).toEqual({harness: 'claude-agent-sdk', full: false});
 		expect(during.length).toBeGreaterThan(1);
-		expect(during.slice(1).every((without) => without === true)).toBe(true);
+		expect(during.slice(1).every((capped) => capped?.full === true)).toBe(true);
 		// The tool job ran beside the turn, and the job as the turn was given it is the queue's row alone.
 		expect(runToolJob).toHaveBeenCalledWith(store, tool, expect.any(String));
 		expect(runInference).toHaveBeenCalledWith(store, capped, inference, expect.any(String), false);
 		// Once the turn has ended, there is room for one again.
-		expect(store.claimJob.mock.calls.at(-1)?.[2]).toBe(false);
+		expect(store.claimJob.mock.calls.at(-1)?.[2]).toEqual({harness: 'claude-agent-sdk', full: false});
 	});
 
 	test('a job that fails, or throws, is marked failed with why, and one claimed too often is given up', async () => {

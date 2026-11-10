@@ -107,8 +107,6 @@ export type MemberOrganization = {
 	onboardedAt: Date | null;
 	// The experiments on for it.
 	experiments: Experiment[];
-	// Whether it is an insider, whose personas each answer with the model chosen for them.
-	insider: boolean;
 };
 
 /**
@@ -147,7 +145,6 @@ export async function getMemberOrganization(
 		return {
 			...org,
 			role: roleOf(userId, {ownerUserId}),
-			insider,
 			experiments: organizationExperiments({insider, experiments}),
 		};
 	});

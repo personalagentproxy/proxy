@@ -10,7 +10,6 @@ export const testOrg: Org = {
 	role: 'owner',
 	onboarded: true,
 	experiments: [],
-	insider: false,
 	memberCount: 1,
 	invitationCount: 0,
 };

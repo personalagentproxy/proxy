@@ -305,7 +305,23 @@ describe('claudeAgentSdkHarness', () => {
 	test('is a harness that answers its calls itself, capped on turns at once', () => {
 		const harness = claudeAgentSdkHarness(deps(fakeQuery(), {maxConcurrentTurns: 3}));
 
-		expect(harness).toMatchObject({id: 'claude-agent-sdk', stepsPerTurn: 'many', maxConcurrentTurns: 3});
+		expect(harness).toMatchObject({id: 'claude-agent-sdk', label: 'Claude Agent SDK', stepsPerTurn: 'many', maxConcurrentTurns: 3});
+	});
+
+	test('lists the latest Sonnet, Opus and Fable, Sonnet first, and runs a turn on the one chosen by its full id, so the label says what answers', async () => {
+		const fake = fakeQuery();
+		const harness = claudeAgentSdkHarness(deps(fake));
+
+		expect(harness.models).toEqual([
+			{id: 'sonnet', label: 'Claude Sonnet 5.5'},
+			{id: 'opus', label: 'Claude Opus 5.5'},
+			{id: 'fable', label: 'Claude Fable 5.2'},
+		]);
+		for (const model of harness.models) {
+			fake.script(messages([init(), result()]));
+			await collect(fake, {...turnInput(), model: model.id});
+		}
+		expect(fake.calls.map((call) => call.options?.model)).toEqual(['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-2']);
 	});
 
 	test('fails at once without a credential, as one turned down, and asks the SDK nothing', async () => {
@@ -504,13 +520,13 @@ describe('claudeAgentSdkHarness', () => {
 		expect(fake.calls[2]?.options).not.toHaveProperty('resume');
 	});
 
-	test('gives the SDK no built-in tools, the api’s tools on an MCP server pre-approved, a directory per thread, the step cap, the session store and Sonnet', async () => {
+	test('gives the SDK no built-in tools, the api’s tools on an MCP server pre-approved, a directory per thread, the step cap, the session store and the model chosen', async () => {
 		const fake = fakeQuery();
 		fake.script(messages([init(), result()]));
 		fake.script(messages([init(), result()]));
 		const sessionStore = memorySessionStore();
 
-		await collect(fake, turnInput(), {sessionStore, pathToClaudeCodeExecutable: '/opt/claude'});
+		await collect(fake, {...turnInput(), model: 'opus'}, {sessionStore, pathToClaudeCodeExecutable: '/opt/claude'});
 		await collect(fake, {...turnInput(), model: 'glm-5', thread: {id: 'thread-2', parentThreadId: 'thread-1'}});
 
 		const options = fake.calls[0]?.options;
@@ -523,14 +539,15 @@ describe('claudeAgentSdkHarness', () => {
 			maxTurns: 7,
 			cwd: join(workDir, 'thread-1'),
 			pathToClaudeCodeExecutable: '/opt/claude',
-			model: 'sonnet',
+			model: 'claude-opus-5-5',
 		});
 		expect(options).not.toHaveProperty('allowedTools');
 		expect(options?.sessionStore).toBe(sessionStore);
 		expect(options?.mcpServers?.proxy).toMatchObject({type: 'sdk', name: 'proxy'});
 		expect(options?.abortController).toBeInstanceOf(AbortController);
 		expect(existsSync(join(workDir, 'thread-1'))).toBe(true);
-		expect(fake.calls[1]?.options).toMatchObject({model: 'sonnet', cwd: join(workDir, 'thread-2')});
+		// A model that is none of the harness's gets its first.
+		expect(fake.calls[1]?.options).toMatchObject({model: 'claude-sonnet-5-5', cwd: join(workDir, 'thread-2')});
 		expect(fake.calls[1]?.options).not.toHaveProperty('pathToClaudeCodeExecutable');
 	});
 

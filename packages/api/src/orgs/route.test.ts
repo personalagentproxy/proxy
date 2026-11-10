@@ -79,7 +79,7 @@ function member(userId: string, role: 'owner' | 'member', email = `${userId}@exa
 
 // What a member sees of an organization by its slug, as `requireViewer` reads it.
 function membership(role: 'owner' | 'member') {
-	return {id: 'org-2', slug: 'acme', name: 'Acme', role, onboardedAt: new Date('2026-09-01T00:00:00Z'), experiments: [], insider: false};
+	return {id: 'org-2', slug: 'acme', name: 'Acme', role, onboardedAt: new Date('2026-09-01T00:00:00Z'), experiments: []};
 }
 
 beforeEach(() => {
@@ -125,14 +125,7 @@ describe('handleGetOrgRoute', () => {
 		const result = await handleGetOrgRoute(makeRequest());
 
 		expect(getMemberOrganization).toHaveBeenCalledWith('user-1', 'acme');
-		expect(result.unwrap()).toEqual({...acme, role: 'member', experiments: ['harness'], insider: false});
-	});
-
-	test('answers whether it is an insider', async () => {
-		getMemberOrganization.mockResolvedValue(Ok({...membership('owner'), insider: true}));
-		const {handleGetOrgRoute} = await import('./route');
-
-		expect((await handleGetOrgRoute(makeRequest())).unwrap().insider).toBe(true);
+		expect(result.unwrap()).toEqual({...acme, role: 'member', experiments: ['harness']});
 	});
 
 	test('one the person isn’t in is not found, as is one that doesn’t exist', async () => {
@@ -151,7 +144,7 @@ describe('handleCreateOrgRoute', () => {
 		const result = await handleCreateOrgRoute(makeRequest({}, {name: '  Lab '}));
 
 		expect(createOrganization).toHaveBeenCalledWith({userId: 'user-1', name: 'Lab'});
-		expect(result.unwrap()).toEqual({id: 'org-3', slug: 'lab', name: 'Lab', role: 'owner', onboarded: true, experiments: [], insider: false, memberCount: 1, invitationCount: 0});
+		expect(result.unwrap()).toEqual({id: 'org-3', slug: 'lab', name: 'Lab', role: 'owner', onboarded: true, experiments: [], memberCount: 1, invitationCount: 0});
 	});
 
 	test('needs a name', async () => {

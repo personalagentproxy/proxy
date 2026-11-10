@@ -21,10 +21,24 @@ function persona(id: string, name: string, mayChange: boolean): ChatPersona {
 		mayChange,
 		look,
 		color: 'blue',
-		chatModel: null,
+		harness: 'proxy',
+		chatModel: 'claude',
 		lastMessage: null,
 	};
 }
+
+// The harness the server has for an agent to run on.
+const harnesses = [
+	{
+		id: 'proxy',
+		label: 'OpenRouter',
+		description: 'Runs on the server’s key, for every member alike.',
+		models: [
+			{id: 'claude', label: 'Claude Sonnet 5.5'},
+			{id: 'glm', label: 'GLM 5.3'},
+		],
+	},
+];
 
 const general = persona('general', 'General', false);
 const finance = persona('finance', 'Finance', true);
@@ -77,6 +91,7 @@ function renderChatPage({
 								persona: personas.find((candidate) => candidate.id === params.id) ?? general,
 							},
 							personas: listPersonas(),
+							harnesses,
 						}),
 						element: <ChatPage />,
 					},
@@ -202,7 +217,7 @@ describe('ChatPage', () => {
 		fireEvent.click(await screen.findByRole('menuitem', {name: 'Rename'}));
 		expect(screen.getByRole('heading', {name: 'Edit agent'})).toBeDefined();
 		expect(
-			screen.getByText('Its name and its head. The conversation stays as it is.'),
+			screen.getByText('Its name, its head and what runs it. The conversation stays as it is.'),
 		).toBeDefined();
 		fireEvent.change(screen.getByLabelText('Name'), {target: {value: 'Accounting'}});
 		fireEvent.click(screen.getByRole('button', {name: 'Save'}));
@@ -212,7 +227,13 @@ describe('ChatPage', () => {
 				'/api/orgs/acme/chat/personas/finance',
 				expect.objectContaining({
 					method: 'PUT',
-					body: JSON.stringify({name: 'Accounting', look, color: 'blue'}),
+					body: JSON.stringify({
+						name: 'Accounting',
+						look,
+						color: 'blue',
+						harness: 'proxy',
+						chatModel: 'claude',
+					}),
 				}),
 			);
 		});

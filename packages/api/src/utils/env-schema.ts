@@ -117,12 +117,12 @@ export const envSchema = z.object({
 	OPENROUTER_KEY: documented(z.string().min(1).optional(), {
 		group: 'Core',
 		description:
-			'An OpenRouter API key, for the model that fills in the fields of the widget Jev picks on the home page (gpt-oss-120b, on Cerebras or Groq), and for the built-in agent on the Chat page (Claude Sonnet 5.5). What is typed there is sent to it. Without it, or without `TYPESAFE_API_KEY`, the home page says it is not set up, and without it the Chat page does; everything else works as before.',
+			'An OpenRouter API key, for the model that fills in the fields of the widget Jev picks on the home page (gpt-oss-120b, on Cerebras or Groq), and for the built-in agent on the Chat page (Claude Sonnet 5.5, or GLM 5.3 where an agent is set to it). What is typed there is sent to it. Without it, or without `TYPESAFE_API_KEY`, the home page says it is not set up, and without it the Chat page does; everything else works as before.',
 	}),
 	CLAUDE_AGENT_SDK: documented(z.enum(['on', 'off']).default('on'), {
 		group: 'Core',
 		description:
-			'Whether a member who connected their Claude account on the Account page gets the built-in agent on the Chat page run on the Claude Agent SDK under that account: their conversations then go to Anthropic directly, as from Claude Code, and count against their plan rather than `OPENROUTER_KEY`. `off` runs every conversation on the server’s OpenRouter key. Each turn on the SDK runs Claude Code as a subprocess of a few hundred megabytes; `CLAUDE_AGENT_SDK_TURNS` caps how many run at once.',
+			'Whether an agent on the Chat page can be set to run on the Claude Agent SDK, under each member’s own Claude account, connected on the Account page: their conversations with it then go to Anthropic directly, as from Claude Code, and count against their plan rather than `OPENROUTER_KEY`. `off` takes the harness away, and an agent that was set to it runs on the server’s OpenRouter key. Each turn on the SDK runs Claude Code as a subprocess of a few hundred megabytes; `CLAUDE_AGENT_SDK_TURNS` caps how many run at once.',
 	}),
 	CLAUDE_AGENT_SDK_TURNS: documented(z.coerce.number().int().positive().default(1), {
 		group: 'Core',

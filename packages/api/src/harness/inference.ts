@@ -3,9 +3,9 @@ import {Err, type Result} from 'ts-results-es';
 import type {HarnessBackend, HarnessEvent} from '@proxy/backends/harness/backend';
 import {ApiErr, type ApiError, Do, requirePresent, semaphore, type Semaphore} from '@proxy/utils';
 import {CALL_INTERRUPTED, type HarnessSession, pendingToolCalls, RUN_INTERRUPTED, type ToolCall} from '@proxy/utils/harness';
-import type {AssistantTurn, EntryRow, JobRow, NewTurnEntry, SubAgentRow, ThreadRow, ThreadSession} from '@proxy/db/harness';
+import type {AssistantTurn, EntryRow, JobRow, NewTurnEntry, RanOn, SubAgentRow, ThreadRow, ThreadSession} from '@proxy/db/harness';
 
-import {type ClaudeCredentials, type HarnessChoice, type Harnesses, harnessFor, needsCredential} from '../backends/harness';
+import {chosenFor, type ClaudeCredentials, type HarnessChoice, type Harnesses, harnessFor, needsCredential} from '../backends/harness';
 import {agentInstructions} from '../mcp/tools';
 import {SIGN_IN_EXPIRED} from '../me/claude-token';
 import {log, serializeError} from '../observability/log';
@@ -30,8 +30,8 @@ import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
  * a message to one, with what it was up to, a message to the agent a sub-agent works for, and a
  * call with arguments that are no good. A harness that keeps a session between turns leaves it on
  * the thread then, with its id, and is given it back only while the thread's turns are its: a
- * thread that moved to another harness, as the member's credential came or went, starts there
- * without one, on the log. A turn that failed and is worth trying again, the model out of reach,
+ * thread that moved to another harness, its persona switched to it, starts there without one, on
+ * the log. A turn that failed and is worth trying again, the model out of reach,
  * is tried again a few times, then the person is told; a credential the model turned down is noted
  * on the member's account, for the Account page to say so, and the person is told to connect
  * again; a member's account at its plan's limit is told them, with when it resets, and not tried
@@ -42,9 +42,9 @@ import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
  * failure to keep it is logged, and the turn goes on. A sub-agent's answer with no calls goes to the agent it works for, and stops its
  * work for now, unless a message came while it answered. An answer of nothing, no words and no
  * calls, is written as that said: the person would otherwise see nothing, and the model refuses a
- * log with an empty turn in it. The model is the thread's persona's, read at each turn, a
- * sub-agent's the persona's it works as: Claude, or GLM for a persona of an insider that was
- * switched to it. The answer is written with the system prompt the model was sent, which is built
+ * log with an empty turn in it. The harness and the model are the thread's persona's, read at each
+ * turn, a sub-agent's the persona's it works as (backends/harness.ts), and each answer is written
+ * with the two it ran on. The answer is written with the system prompt the model was sent, which is built
  * from the login's grants as they are then and, for the agent talking with the person, its
  * sub-agents as they are then, so that what the model read can be told later; the rest of the
  * request is rebuilt from the log. The agent talking with the person is told the alerts set in the
@@ -66,7 +66,7 @@ export type InferenceStore = Pick<
 	HarnessStore,
 	| 'getJobThread'
 	| 'getThreadAgent'
-	| 'getChatModel'
+	| 'getPersonaModel'
 	| 'listEntries'
 	| 'listSubAgents'
 	| 'listThreadAlerts'
@@ -227,12 +227,20 @@ type UsageSink = (usage: Extract<HarnessEvent, {kind: 'usage'}>) => Promise<void
 // What the harness did, from its events, written as it goes, every write fenced by the lease: a
 // summary as it comes; the answer's words, each piece after the last, and its calls kept as the
 // step under way, which a result the harness answered a call with ends, the step written as an
-// assistant entry and the result after it, the first step with the system prompt; what is left
+// assistant entry, with the harness and the model it ran on, and the result after it, the first
+// step with the system prompt; what is left
 // when `done` comes is the turn's last step, given back with what the turn cost, the session kept
 // and the calls still open. What the provider said of the plan goes to `onUsage`. A result for a
 // call the turn didn't make, or answered already, and a turn that ends without `done` or `failed`,
 // are failures of the harness.
-function consume(store: InferenceStore, job: JobRow, workerId: string, system: string, events: AsyncIterable<HarnessEvent>, onUsage: UsageSink): Promise<Result<TurnOutcome, ApiError>> {
+function consume(
+	store: InferenceStore,
+	job: JobRow,
+	workerId: string,
+	sent: {system: string; ranOn: RanOn},
+	events: AsyncIterable<HarnessEvent>,
+	onUsage: UsageSink,
+): Promise<Result<TurnOutcome, ApiError>> {
 	return Do(async ($) => {
 		let pieces: string[] = [];
 		let toolCalls: ToolCall[] = [];
@@ -264,7 +272,8 @@ function consume(store: InferenceStore, job: JobRow, workerId: string, system: s
 				if (!open.delete(event.callId)) {
 					return $(Err(ApiErr.internalError(new Error(`The harness answered the call ${event.callId}, which the turn did not make, or answered already`))));
 				}
-				const step: NewTurnEntry[] = pieces.length === 0 && toolCalls.length === 0 ? [] : [{kind: 'assistant', text: pieces.join('\n\n'), toolCalls, ...(wroteInline ? {} : {system})}];
+				const step: NewTurnEntry[] =
+					pieces.length === 0 && toolCalls.length === 0 ? [] : [{kind: 'assistant', text: pieces.join('\n\n'), toolCalls, ranOn: sent.ranOn, ...(wroteInline ? {} : {system: sent.system})}];
 				const result: NewTurnEntry = {kind: 'tool_result', callId: event.callId, text: event.text, isError: event.isError};
 				if (!$(await store.appendTurnEntries(job.id, workerId, job.threadId, [...step, result]))) {
 					return $(Err(jobLost()));
@@ -354,7 +363,6 @@ function askOnLog(
 	return limited(choice.harness, () =>
 		Do(async ($) => {
 			const now = clock();
-			const model = $(await store.getChatModel(thread));
 			const subAgents = thread.parentThreadId === null ? $(await store.listSubAgents(thread.id, now)) : [];
 			const system = $(await systemPrompt(store, thread, subAgents, now));
 			return $(
@@ -362,7 +370,7 @@ function askOnLog(
 					store,
 					job,
 					workerId,
-					system,
+					{system, ranOn: {harness: choice.harness.id, model: choice.model}},
 					choice.harness.turn({
 						thread: {id: thread.id, parentThreadId: thread.parentThreadId},
 						job: job.id,
@@ -373,7 +381,7 @@ function askOnLog(
 						woken,
 						system,
 						tools: toolSurfaceFor(store, thread, job, workerId, clock),
-						model,
+						model: choice.model,
 						maxSteps: maxSteps(choice.harness, entries),
 						signal: new AbortController().signal,
 					}),
@@ -395,17 +403,25 @@ function writeBack(
 	job: JobRow,
 	workerId: string,
 	thread: ThreadRow,
-	harness: HarnessBackend,
+	choice: HarnessChoice & {harness: HarnessBackend},
 	outcome: Extract<TurnOutcome, {kind: 'done'}>,
 	now: Date,
 ): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
+		const {harness} = choice;
 		const session: ThreadSession | undefined = outcome.session !== null || thread.harness !== null ? {harness: harness.id, session: outcome.session} : undefined;
 		const plans = planCalls(thread, outcome.open, now);
 		const nothingLeft = outcome.wroteInline && outcome.text.trim() === '' && outcome.toolCalls.length === 0;
 		const turn: AssistantTurn | null = nothingLeft
 			? null
-			: {text: said(thread, outcome), toolCalls: outcome.toolCalls, inputTokens: outcome.inputTokens, outputTokens: outcome.outputTokens, system: outcome.system};
+			: {
+					text: said(thread, outcome),
+					toolCalls: outcome.toolCalls,
+					inputTokens: outcome.inputTokens,
+					outputTokens: outcome.outputTokens,
+					system: outcome.system,
+					ranOn: {harness: harness.id, model: choice.model},
+				};
 		const after = turn === null ? {plans} : afterAnswer(thread, turn, plans);
 		if (!$(await store.completeInference(job.id, workerId, job.threadId, turn, after, ...(session === undefined ? [] : [session])))) {
 			return $(Err(jobLost()));
@@ -439,19 +455,26 @@ function readyLog(store: InferenceStore, job: JobRow, workerId: string, thread: 
 	});
 }
 
-// The harness for a turn on the thread, with its member's credential where the choice turns on
-// it (backends/harness.ts). A credential that ran out or was refused is what the person is told;
-// one that couldn't be read for another reason fails the turn with it.
-function chooseHarness(harnesses: Harnesses, thread: ThreadRow): Promise<Result<HarnessChoice, ApiError>> {
+// What a thread's persona runs on where it is gone, the thread about to go with it: the database's
+// defaults for a persona.
+const NO_PERSONA = {harness: 'proxy', chatModel: 'claude'};
+
+// The harness for a turn on the thread, and the model: its persona's choice as the server has it,
+// with the member's credential where the harness runs on it (backends/harness.ts). A credential
+// that ran out or was refused is what the person is told; one that couldn't be read for another
+// reason fails the turn with it.
+function chooseHarness(store: InferenceStore, harnesses: Harnesses, thread: ThreadRow): Promise<Result<HarnessChoice, ApiError>> {
 	return Do(async ($) => {
-		if (!needsCredential(harnesses.registry)) {
-			return harnessFor(harnesses.registry, null);
+		const persona = $(await store.getPersonaModel(thread)) ?? NO_PERSONA;
+		const chosen = chosenFor(harnesses.registry, persona);
+		if (chosen === null || !needsCredential(harnesses.registry, chosen.harness)) {
+			return harnessFor(harnesses.registry, persona, null);
 		}
 		const credential = await harnesses.credentials.claudeCredentialFor(thread.userId);
 		if (credential.isErr() && credential.error.kind === 'unavailable') {
 			return {harness: null, auth: null, why: credential.error.message};
 		}
-		return harnessFor(harnesses.registry, $(credential));
+		return harnessFor(harnesses.registry, persona, $(credential));
 	});
 }
 
@@ -473,7 +496,7 @@ export function runInference(store: InferenceStore, harnesses: Harnesses, job: J
 			$(await answerWith(store, job, workerId, thread, thread.parentThreadId === null ? TOO_LONG : TOO_LONG_SUB));
 			return;
 		}
-		const choice = $(await chooseHarness(harnesses, thread));
+		const choice = $(await chooseHarness(store, harnesses, thread));
 		if (choice.harness === null) {
 			$(await answerFailure(store, job, workerId, thread, choice.why));
 			return;
@@ -505,6 +528,6 @@ export function runInference(store: InferenceStore, harnesses: Harnesses, job: J
 			$(await answerWith(store, job, workerId, thread, UNREACHABLE));
 			return;
 		}
-		$(await writeBack(store, job, workerId, thread, choice.harness, outcome, clock()));
+		$(await writeBack(store, job, workerId, thread, choice, outcome, clock()));
 	});
 }
