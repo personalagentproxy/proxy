@@ -1,4 +1,4 @@
-import type {ChatHarness, Persona} from '@proxy/contracts/harness';
+import type {Persona} from '@proxy/contracts/harness';
 import {ShuffleIcon} from 'lucide-react';
 import {useState} from 'react';
 import {AGENT_NAME_MAX} from '@proxy/utils/agent-providers';
@@ -22,8 +22,6 @@ type Props = {
 	open: boolean;
 	// The persona as it is, to change; none to make one.
 	initial: Persona | null;
-	// The harnesses the server has for it to run on, each with its models; the first is a new one's.
-	harnesses: ChatHarness[];
 	onClose: () => void;
 	// Saves the persona; what went wrong, shown in the dialog, or null once saved.
 	onSave: (persona: Persona) => Promise<string | null>;
@@ -53,95 +51,16 @@ function fresh(): Persona {
 	};
 }
 
-// One of the two choices of what runs it, as a button each, the one chosen pressed.
-function Choice({
-	label,
-	options,
-	chosen,
-	onPick,
-}: {
-	label: string;
-	options: Array<{id: string; label: string}>;
-	chosen: string;
-	onPick: (id: string) => void;
-}) {
-	return (
-		<div className="grid gap-2">
-			<Label>{label}</Label>
-			<div className="flex flex-wrap items-center gap-2" role="group" aria-label={label}>
-				{options.map((option) => (
-					<Button
-						key={option.id}
-						type="button"
-						size="sm"
-						variant={option.id === chosen ? 'secondary' : 'outline'}
-						aria-pressed={option.id === chosen}
-						onClick={() => onPick(option.id)}
-					>
-						{option.label}
-					</Button>
-				))}
-			</div>
-		</div>
-	);
-}
-
-// What runs it: the harness first, with whose account its turns run on, then the model, one of
-// those the harness has. Another harness starts from its first model.
-function RunsOn({
-	harnesses,
-	harness,
-	chatModel,
-	onPick,
-}: {
-	harnesses: ChatHarness[];
-	harness: ChatHarness;
-	chatModel: string;
-	onPick: (choice: {harness: string; chatModel: string}) => void;
-}) {
-	return (
-		<>
-			<div className="grid gap-2">
-				<Choice
-					label="Harness"
-					options={harnesses}
-					chosen={harness.id}
-					onPick={(id) => {
-						const picked = harnesses.find((candidate) => candidate.id === id);
-						const first = picked?.models[0];
-						if (!picked || !first || picked.id === harness.id) {
-							return;
-						}
-						onPick({harness: picked.id, chatModel: first.id});
-					}}
-				/>
-				<p className="text-sm text-muted-foreground">{harness.description}</p>
-			</div>
-			<Choice
-				label="Model"
-				options={harness.models}
-				chosen={chatModel}
-				onPick={(id) => onPick({harness: harness.id, chatModel: id})}
-			/>
-		</>
-	);
-}
-
 // A round button the size of a swatch, for the colors and the one for another look.
 const ROUND =
 	'flex size-9 shrink-0 items-center justify-center rounded-full transition-[box-shadow,background-color] outline-none focus-visible:ring-3 focus-visible:ring-ring/50';
 
 // Making a persona, or changing one: its name, and its head, which looks at the cursor as the
-// person works, in one of the colors, with another look a click away; and what runs it, the
-// harness and the model, of those the server has. Mount it keyed by what is edited, so the fields
-// start from it.
-export function PersonaDialog({open, initial, harnesses, onClose, onSave, onDelete}: Props) {
+// person works, in one of the colors, with another look a click away. What runs it, the harness
+// and the model, is chosen under the conversation's input (model-switcher.tsx), and a new one
+// starts on the server's first. Mount it keyed by what is edited, so the fields start from it.
+export function PersonaDialog({open, initial, onClose, onSave, onDelete}: Props) {
 	const [persona, setPersona] = useState<Persona>(() => initial ?? fresh());
-	// What runs it as chosen so far: the harness it has, or the server's first, and the model it
-	// has of that harness's, or the harness's first. None on a server with no harness.
-	const harness = harnesses.find((candidate) => candidate.id === persona.harness) ?? harnesses[0];
-	const model =
-		harness?.models.find((candidate) => candidate.id === persona.chatModel) ?? harness?.models[0];
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const ready = persona.name.trim() !== '';
@@ -175,21 +94,14 @@ export function PersonaDialog({open, initial, harnesses, onClose, onSave, onDele
 							return;
 						}
 						setBusy(true);
-						finish(
-							await onSave({
-								...persona,
-								name: persona.name.trim(),
-								harness: harness?.id,
-								chatModel: model?.id,
-							}),
-						);
+						finish(await onSave({...persona, name: persona.name.trim()}));
 					}}
 				>
 					<DialogHeader>
 						<DialogTitle>{initial ? 'Edit agent' : 'New agent'}</DialogTitle>
 						<DialogDescription>
 							{initial
-								? 'Its name, its head and what runs it. The conversation stays as it is.'
+								? 'Its name and its head. The conversation stays as it is.'
 								: 'An agent for one kind of thing, such as Finance or Outreach, with a conversation that keeps going.'}
 						</DialogDescription>
 					</DialogHeader>
@@ -243,14 +155,6 @@ export function PersonaDialog({open, initial, harnesses, onClose, onSave, onDele
 							</div>
 						</div>
 					</div>
-					{harness && model && (
-						<RunsOn
-							harnesses={harnesses}
-							harness={harness}
-							chatModel={model.id}
-							onPick={(choice) => setPersona({...persona, ...choice})}
-						/>
-					)}
 					{error && <p className="text-sm text-destructive">{error}</p>}
 					<DialogFooter>
 						{onDelete && (

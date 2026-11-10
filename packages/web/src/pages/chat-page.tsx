@@ -14,6 +14,7 @@ import {AppShell, PageTitle} from '@/components/app-shell';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {LiveHead} from '@/components/head';
 import {Markdown} from '@/components/markdown';
+import {type ModelChoice, ModelSwitcher} from '@/components/model-switcher';
 import {PersonaDialog} from '@/components/persona-dialog';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {
@@ -330,6 +331,11 @@ function Conversation({
 	const form = useRef<HTMLFormElement>(null);
 	const personaId = loaded.log.persona.id;
 	const current = loaded.log.persona;
+	// What runs the persona, as the switcher shows it: the persona's, or what was just picked.
+	const [runsOn, setRunsOn] = useState<ModelChoice>({
+		harness: current.harness,
+		chatModel: current.chatModel,
+	});
 
 	// Which read of the log was asked for last: one asked for before it that answers after it is
 	// dropped, so a poll begun before a send can't put back the log as it was without the message.
@@ -413,8 +419,27 @@ function Conversation({
 		}
 	};
 
-	// Saves the dialog's persona: a new one, opened; or the selected one, renamed, refaced or
-	// switched to another model.
+	// Switches what runs the persona, the harness and the model, from the input's switcher: shown
+	// at once, kept with the persona as it is otherwise, and put back where the server refused it.
+	const switchModel = async (choice: ModelChoice) => {
+		const before = runsOn;
+		setRunsOn(choice);
+		setError(null);
+		const changed = await updatePersona(org, personaId, {
+			name: current.name,
+			look: current.look,
+			color: current.color,
+			...choice,
+		});
+		if (changed.isErr()) {
+			setRunsOn(before);
+			setError(describeFetchError(changed.error));
+			return;
+		}
+		await revalidator.revalidate();
+	};
+
+	// Saves the dialog's persona: a new one, opened; or the selected one, renamed or refaced.
 	const savePersona = async (persona: Persona): Promise<string | null> => {
 		if (editing === null) {
 			return 'This agent is no longer being edited.';
@@ -492,11 +517,8 @@ function Conversation({
 									name: editing.name,
 									look: editing.look,
 									color: editing.color,
-									harness: editing.harness,
-									chatModel: editing.chatModel,
 								}
 					}
-					harnesses={loaded.harnesses}
 					onClose={() => setEditing(null)}
 					onSave={savePersona}
 					onDelete={
@@ -584,6 +606,12 @@ function Conversation({
 						rows={1}
 					/>
 					<InputGroupAddon align="block-end">
+						<ModelSwitcher
+							harnesses={loaded.harnesses}
+							chosen={runsOn}
+							mayChange={current.mayChange}
+							onPick={(choice) => void switchModel(choice)}
+						/>
 						<Link
 							to={`/${org}/activity`}
 							className="text-xs font-normal underline-offset-4 hover:underline"

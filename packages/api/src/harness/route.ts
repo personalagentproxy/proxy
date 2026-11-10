@@ -30,7 +30,7 @@ import type {HarnessStore} from './store';
  * named and given a head, all acting through the organization's one built-in agent login, and the
  * member's own conversation with each, its log, and what it and its sub-agents are up to. A persona
  * says which of the server's harnesses runs it and which of that harness's models it answers with
- * (backends/harness.ts), chosen where it is made or changed, by whoever may change it. Behind the `harness` experiment. Nothing here runs the model: a message queues a job, and
+ * (backends/harness.ts), chosen from the conversation's input by whoever may change it. Behind the `harness` experiment. Nothing here runs the model: a message queues a job, and
  * the worker (worker.ts) does the rest; the page reads the log again as it goes.
  */
 

@@ -70,10 +70,13 @@ function renderChatPage({
 	personas = [general, finance],
 	entries = [],
 	listPersonas = () => personas,
+	open = 'general',
 }: {
 	personas?: ChatPersona[];
 	entries?: ThreadLog['entries'];
 	listPersonas?: () => ChatPersona[];
+	// The agent whose conversation is open, by its id.
+	open?: string;
 } = {}) {
 	const router = createMemoryRouter(
 		[
@@ -98,7 +101,7 @@ function renderChatPage({
 				],
 			},
 		],
-		{initialEntries: ['/acme/chat/general']},
+		{initialEntries: [`/acme/chat/${open}`]},
 	);
 
 	return render(
@@ -217,7 +220,7 @@ describe('ChatPage', () => {
 		fireEvent.click(await screen.findByRole('menuitem', {name: 'Rename'}));
 		expect(screen.getByRole('heading', {name: 'Edit agent'})).toBeDefined();
 		expect(
-			screen.getByText('Its name, its head and what runs it. The conversation stays as it is.'),
+			screen.getByText('Its name and its head. The conversation stays as it is.'),
 		).toBeDefined();
 		fireEvent.change(screen.getByLabelText('Name'), {target: {value: 'Accounting'}});
 		fireEvent.click(screen.getByRole('button', {name: 'Save'}));
@@ -227,16 +230,43 @@ describe('ChatPage', () => {
 				'/api/orgs/acme/chat/personas/finance',
 				expect.objectContaining({
 					method: 'PUT',
+					body: JSON.stringify({name: 'Accounting', look, color: 'blue'}),
+				}),
+			);
+		});
+	});
+
+	test('switches what runs a changeable agent from under the input, keeping its name and head', async () => {
+		fetchMock.mockImplementation((_input, init) => {
+			if (init?.method === 'PUT') {
+				return Promise.resolve(Response.json({persona: {...finance, chatModel: 'glm'}}));
+			}
+			return Promise.resolve(new Response(null, {status: 204}));
+		});
+		renderChatPage({open: 'finance'});
+
+		fireEvent.click(
+			await screen.findByRole('button', {name: 'Model: Claude Sonnet 5.5 on OpenRouter'}),
+		);
+		fireEvent.click(await screen.findByRole('menuitemradio', {name: 'GLM 5.3'}));
+
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledWith(
+				'/api/orgs/acme/chat/personas/finance',
+				expect.objectContaining({
+					method: 'PUT',
 					body: JSON.stringify({
-						name: 'Accounting',
+						name: 'Finance',
 						look,
 						color: 'blue',
 						harness: 'proxy',
-						chatModel: 'claude',
+						chatModel: 'glm',
 					}),
 				}),
 			);
 		});
+		// Shown at once, before the list is read again.
+		expect(screen.getByRole('button', {name: 'Model: GLM 5.3 on OpenRouter'})).toBeDefined();
 	});
 
 	test('deletes a changeable agent from its right-click menu after confirmation', async () => {
