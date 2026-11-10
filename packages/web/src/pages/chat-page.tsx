@@ -144,7 +144,7 @@ function lastActive(persona: ChatPersona, last: ChatPersona['lastMessage']): num
 // A conversation as the page shows it, fresher than the list: its log, and what is being typed.
 type Shown = {personaId: string; log: ThreadLog; draft: string};
 
-// The organization's personas in the second sidebar, each with its head, its name and the last
+// The personas the person sees, their own and General, in the second sidebar, each with its head, its name and the last
 // thing said between it and the person, marked where the person hasn't seen it, or what they
 // typed and haven't sent, the open one's as it is typed, the open one lit,
 // each head watching the pointer while it is over that agent's row. The one last active is on
@@ -315,7 +315,8 @@ export function ChatPage() {
 		return null;
 	};
 
-	// Deletes a persona with everyone's conversations with it. If it was open, opens whichever is
+	// Deletes a persona with the conversations with it: the person's, and for one every member
+	// sees, everyone's. If it was open, opens whichever is
 	// first; otherwise refreshes the list around the conversation that stays open.
 	const removePersona = async (persona: ChatPersona) => {
 		const removed = await deletePersona(org, persona.id);
@@ -402,7 +403,7 @@ export function ChatPage() {
 				title={deleting ? `Delete ${deleting.name}?` : ''}
 				description={
 					deleting
-						? `This deletes ${deleting.name} and every member's conversation with it. This cannot be undone.`
+						? `This deletes ${deleting.name} and ${deleting.shared ? "every member's" : 'your'} conversation with it. This cannot be undone.`
 						: ''
 				}
 				confirmLabel="Delete"
@@ -437,7 +438,7 @@ function OpenConversation(opened: Opened) {
 	return <Conversation key={log.persona.id} loaded={log} harnesses={harnesses} {...opened} />;
 }
 
-// The person's conversation with one of the organization's personas: its log, read again as the
+// The person's conversation with one of the personas they see: its log, read again as the
 // persona works, and an input. The persona hands each piece of work to a sub-agent it keeps
 // talking with, which acts as the person through the organization's built-in login, whose calls
 // go through the same gate as any agent's, so its activity is in the log by the sub-agent's task.

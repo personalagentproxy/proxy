@@ -27,9 +27,10 @@ import {ensureBuiltInAgent} from './built-in-agent';
 import type {HarnessStore} from './store';
 
 /**
- * The Chat page's routes, under the organization: its personas, which every member sees, each
- * named and given a head, all acting through the organization's one built-in agent login, and the
- * member's own conversation with each, its log, and what it and its sub-agents are up to. A persona
+ * The Chat page's routes, under the organization: the personas the member sees, their own and
+ * General, which every member does, each named and given a head, all acting through the
+ * organization's one built-in agent login, and the member's own conversation with each, its log,
+ * and what it and its sub-agents are up to. A persona
  * says which of the server's harnesses runs it and which of that harness's models it answers with
  * (backends/harness.ts), chosen from the conversation's input by whoever may change it. Behind the `harness` experiment. Nothing here runs the model: a message queues a job, and
  * the worker (worker.ts) does the rest; the page reads the log again as it goes.
@@ -58,9 +59,9 @@ export type ChatStore = Pick<
 /** The harnesses this server has, read where a route needs them, so that nothing is made as the routes are mounted. */
 export type Harnesses = () => HarnessRegistry;
 
-// Whether the viewer may rename, reface, switch the harness or the model of, or delete the persona: whoever made it, or the organization's owner (utils/manages.ts).
+// Whether the viewer may rename, reface, switch the harness or the model of, or delete the persona: their own, or one every member sees that they made or whose organization they own (utils/manages.ts).
 function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
-	return manages(viewer, {ownerUserId: null, byId: persona.createdById});
+	return manages(viewer, {ownerUserId: persona.ownerUserId, byId: persona.createdById});
 }
 
 function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null; draft?: string | null}): ChatPersona {
@@ -75,6 +76,7 @@ function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow 
 		color: toAvatarColor(persona.color),
 		harness: chosen?.harness.id ?? persona.harness,
 		chatModel: chosen?.model ?? persona.chatModel,
+		shared: persona.ownerUserId === null,
 		mayChange: managesPersona(viewer, persona),
 		lastMessage: last && {kind: last.kind, text: preview(last.text), at: last.createdAt.toISOString()},
 		draft: persona.draft ? preview(persona.draft) : null,
@@ -135,11 +137,11 @@ export function requireChat(request: AuthenticatedRequest): Promise<Result<OrgVi
 	});
 }
 
-// The persona in the address, one of the organization's.
+// The persona in the address, one of the organization's the viewer sees: another member's own is not found.
 function requirePersona(store: ChatStore, viewer: OrgViewer, request: AuthenticatedRequest): Promise<Result<PersonaRow, ApiError>> {
 	return Do(async ($) => {
 		const personaId = request.params.personaId ?? '';
-		return $(requirePresent($(await store.getPersona(viewer.orgId, personaId)), ApiErr.notFound('persona', personaId)));
+		return $(requirePresent($(await store.getPersona(viewer.orgId, viewer.userId, personaId)), ApiErr.notFound('persona', personaId)));
 	});
 }
 
@@ -167,7 +169,7 @@ function requireThread(store: ChatStore, viewer: OrgViewer, persona: PersonaRow)
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas`: the organization's personas, the one last active in the viewer's conversation first, with the viewer's conversations, and the harnesses the server has for one to run on; a General one is made where it has none. */
+/** `GET /api/orgs/:org/chat/personas`: the organization's personas the viewer sees, their own and those every member does, the one last active in the viewer's conversation first, with the viewer's conversations, and the harnesses the server has for one to run on; a General one is made where it has none. */
 function handleListPersonasRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
@@ -197,7 +199,7 @@ function handleListAnswersRoute(store: ChatStore, request: AuthenticatedRequest)
 	});
 }
 
-/** `POST /api/orgs/:org/chat/personas` with `{name, look, color, harness?, chatModel?}`: a new persona, every member's, and the organization's built-in login with it where there is none yet. */
+/** `POST /api/orgs/:org/chat/personas` with `{name, look, color, harness?, chatModel?}`: a new persona, the viewer's own, and the organization's built-in login with it where there is none yet. */
 function handleCreatePersonaRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaAnswerSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
@@ -208,7 +210,7 @@ function handleCreatePersonaRoute(store: ChatStore, harnesses: Harnesses, reques
 	});
 }
 
-/** `PUT /api/orgs/:org/chat/personas/:personaId` with `{name, look, color, harness?, chatModel?}`: the persona renamed, with another head, or switched to another harness or model from its next turn on, every member's conversation with it and its sub-agents'. */
+/** `PUT /api/orgs/:org/chat/personas/:personaId` with `{name, look, color, harness?, chatModel?}`: the persona renamed, with another head, or switched to another harness or model from its next turn on, every conversation with it and its sub-agents'. */
 function handleUpdatePersonaRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaAnswerSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
@@ -221,7 +223,7 @@ function handleUpdatePersonaRoute(store: ChatStore, harnesses: Harnesses, reques
 	});
 }
 
-/** `DELETE /api/orgs/:org/chat/personas/:personaId`: the persona, with every member's conversation with it. */
+/** `DELETE /api/orgs/:org/chat/personas/:personaId`: the persona, with every conversation with it. */
 function handleDeletePersonaRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));

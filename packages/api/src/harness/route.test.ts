@@ -17,7 +17,7 @@ mock.module('./built-in-agent', () => ({ensureBuiltInAgent}));
 
 const now = new Date('2026-10-21T10:00:00Z');
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
-const persona = {id: 'persona-1', name: 'Finance', look, color: 'blue', harness: 'proxy', chatModel: 'claude', createdById: 'user-1', createdAt: now};
+const persona = {id: 'persona-1', name: 'Finance', look, color: 'blue', harness: 'proxy', chatModel: 'claude', ownerUserId: 'user-1', createdById: 'user-1', createdAt: now};
 const personaResponse = {
 	id: 'persona-1',
 	name: 'Finance',
@@ -25,6 +25,7 @@ const personaResponse = {
 	color: 'blue' as const,
 	harness: 'proxy',
 	chatModel: 'claude',
+	shared: false,
 	mayChange: true,
 	lastMessage: null,
 	draft: null,
@@ -130,12 +131,12 @@ describe('the chat routes', () => {
 		expect(store.appendPersonMessage).not.toHaveBeenCalled();
 	});
 
-	test('list the organization’s personas, with their heads, what runs each, whether the viewer may change each, and the last thing said with each and what the viewer typed and hasn’t sent, on one line, and the harnesses the server has with their models', async () => {
+	test('list the personas the viewer sees, their own and every member’s, with their heads, what runs each, whether the viewer may change each, and the last thing said with each and what the viewer typed and hasn’t sent, on one line, and the harnesses the server has with their models', async () => {
 		const {handleListPersonasRoute} = routes;
 		store.listPersonas.mockResolvedValue(
 			Ok([
 				{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, draft: null},
-				{...persona, id: 'persona-3', createdById: 'user-2', lastMessage: null, draft: 'Move the **pricing review**\nto Friday'},
+				{...persona, id: 'persona-3', ownerUserId: null, createdById: 'user-2', lastMessage: null, draft: 'Move the **pricing review**\nto Friday'},
 				{
 					...persona,
 					id: 'persona-4',
@@ -151,7 +152,7 @@ describe('the chat routes', () => {
 		expect(listed).toEqual({
 			personas: [
 				{...personaResponse, lastMessage: {kind: 'assistant', text: 'Your vault has one entry.', at: '2026-10-21T10:00:00.000Z'}},
-				{...personaResponse, id: 'persona-3', mayChange: false, draft: 'Move the pricing review to Friday'},
+				{...personaResponse, id: 'persona-3', shared: true, mayChange: false, draft: 'Move the pricing review to Friday'},
 				{...personaResponse, id: 'persona-4', lastMessage: {kind: 'assistant', text: 'Found Three invoices, see the list Who Sum Dana 40', at: '2026-10-21T10:00:00.000Z'}},
 			],
 			harnesses: offered,
@@ -169,18 +170,18 @@ describe('the chat routes', () => {
 		expect(listed).toEqual({answers: [{personaId: 'persona-1', name: 'Finance', answer: {id: 'e9', text: 'Your vault has one entry.'}, unread: true}]});
 	});
 
-	test('an organization without a persona gets a General one, nobody’s, on its first listing', async () => {
+	test('a viewer who sees no persona gets the organization’s General one, every member’s, on their first listing', async () => {
 		const {handleListPersonasRoute} = routes;
 		store.listPersonas.mockResolvedValue(Ok([]));
-		store.ensureFirstPersona.mockResolvedValue(Ok({...persona, id: 'persona-9', name: 'General', createdById: null}));
+		store.ensureFirstPersona.mockResolvedValue(Ok({...persona, id: 'persona-9', name: 'General', ownerUserId: null, createdById: null}));
 
 		const listed = (await handleListPersonasRoute(request())).unwrap();
 
 		expect(store.ensureFirstPersona).toHaveBeenCalledWith('org-1');
-		expect(listed).toEqual({personas: [{...personaResponse, id: 'persona-9', name: 'General', mayChange: false}], harnesses: offered});
+		expect(listed).toEqual({personas: [{...personaResponse, id: 'persona-9', name: 'General', shared: true, mayChange: false}], harnesses: offered});
 	});
 
-	test('make a persona as given, for everyone in the organization, on the server’s first harness with its first model where none was chosen, with the organization’s built-in login where there is none', async () => {
+	test('make a persona as given, the viewer’s own, on the server’s first harness with its first model where none was chosen, with the organization’s built-in login where there is none', async () => {
 		const {handleCreatePersonaRoute} = routes;
 
 		const made = await handleCreatePersonaRoute(request({}, {name: ' Finance ', look, color: 'blue'}));
@@ -199,15 +200,16 @@ describe('the chat routes', () => {
 		expect(store.createPersona).not.toHaveBeenCalled();
 	});
 
-	test('rename a persona or change its head, and delete one with every conversation, for whoever made it or owns the organization', async () => {
+	test('rename a persona or change its head, and delete one with every conversation, for whose it is, and of one every member sees, for whoever made it or owns the organization', async () => {
 		const {handleDeletePersonaRoute, handleUpdatePersonaRoute} = routes;
 		const changed = {name: 'Money', look: {...look, eyes: 1 as const}, color: 'green' as const};
 
 		const updated = await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, changed));
+		expect(store.getPersona).toHaveBeenCalledWith('org-1', 'user-1', 'persona-1');
 		expect(store.updatePersona).toHaveBeenCalledWith('org-1', 'persona-1', changed);
 		expect(updated.unwrap().persona).toEqual({...personaResponse, ...changed});
 
-		store.getPersona.mockResolvedValue(Ok({...persona, createdById: 'user-2'}));
+		store.getPersona.mockResolvedValue(Ok({...persona, ownerUserId: null, createdById: 'user-2'}));
 		expect((await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, changed))).unwrapErr().kind).toBe('forbidden');
 		expect((await handleDeletePersonaRoute(request({personaId: 'persona-1'}))).unwrapErr().kind).toBe('forbidden');
 		expect(store.deletePersona).not.toHaveBeenCalled();
