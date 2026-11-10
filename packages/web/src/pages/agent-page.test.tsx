@@ -11,6 +11,7 @@ import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {HumanSide} from '@/components/human-side';
 import {shouldRevalidateTabs} from '@/lib/page-tabs';
 import {AgentPage} from '@/pages/agent-page';
+import {later} from '@/lib/loader-utils';
 import {testHuman, testOrg} from '@/test-org';
 
 afterEach(() => {
@@ -80,7 +81,7 @@ function renderAgentPage(entry: string, mcpClients: McpClient[] = []) {
 				children: [
 					{
 						path: '/:org/agents/:id',
-						loader: () => {
+						loader: later(async () => {
 							loads.count += 1;
 							return {
 								agent: claude,
@@ -91,7 +92,7 @@ function renderAgentPage(entry: string, mcpClients: McpClient[] = []) {
 								mcpClients,
 								members: [alex],
 							};
-						},
+						}),
 						shouldRevalidate: shouldRevalidateTabs,
 						element: <AgentPage />,
 					},

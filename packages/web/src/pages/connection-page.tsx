@@ -2,7 +2,7 @@ import type {Connection} from '@proxy/contracts/connections';
 import {ListRestartIcon, UnplugIcon} from 'lucide-react';
 import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
-import {useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
+import {useNavigate, useSearchParams} from 'react-router';
 import {setAgentGrants} from '@/client/agents-client';
 import {
 	deleteConnection,
@@ -11,7 +11,7 @@ import {
 	setConnectionSharing,
 } from '@/client/connections-client';
 import {AccessGrid, type GridAgent} from '@/components/access-grid';
-import {AppShell, PageTitle} from '@/components/app-shell';
+import {AppShell, PageHeader, PageTitle} from '@/components/app-shell';
 import {SignInToBankAgain} from '@/components/connect-bank-form';
 import {ConnectWithKeyDialog} from '@/components/connect-with-key-dialog';
 import {SignInAgain} from '@/components/connection-access';
@@ -27,6 +27,8 @@ import {SuccessLine} from '@/components/success-line';
 import {VaultEntries} from '@/components/vault-entries';
 import {connectionTitle, defaultActions, integrationOf, ownSettings, reaches} from '@/lib/access';
 import {useHuman} from '@/hooks/use-human';
+import {useLoaded} from '@/hooks/use-loaded';
+import {useReload} from '@/hooks/use-reload';
 import {signInPath} from '@/lib/integrations';
 import {chosenTab, type PageTab} from '@/lib/page-tabs';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
@@ -35,11 +37,19 @@ import type {connectionLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 
 export function ConnectionPage() {
+	return (
+		<AppShell loadsTitle>
+			<ConnectionDetail />
+		</AppShell>
+	);
+}
+
+function ConnectionDetail() {
 	const org = useOrgSlug();
 	const {connection, connections, agents, entries, tasks, members, vaultEntries, sandboxes} =
-		useLoaderData<typeof connectionLoader>();
+		useLoaded<typeof connectionLoader>();
 	const navigate = useNavigate();
-	const revalidator = useRevalidator();
+	const reload = useReload();
 	// Set by whatever made the connection: the email dialog, or the api back from a service's sign-in.
 	const [searchParams] = useSearchParams();
 	const added = searchParams.has('added');
@@ -115,50 +125,51 @@ export function ConnectionPage() {
 				});
 
 	return (
-		<AppShell
-			title={
-				<PageTitle
-					detail={
-						connection.name === null
-							? connection.account
-							: `${integration.name} · ${connection.account}`
-					}
-				>
-					<span className="flex items-center gap-2">
-						<IntegrationLogo integration={integration} />
-						{connectionTitle(connection)}
-					</span>
-				</PageTitle>
-			}
-			actions={
-				<>
-					{integration.custom && mayChange && (
-						<IconButton
-							label={
-								refreshing
-									? 'Asking the server for its tools'
-									: 'Ask the server for its tools again'
-							}
-							disabled={refreshing}
-							onClick={async () => {
-								setRefreshing(true);
-								const result = await refreshMcpTools(org, connection.id);
-								setRefreshing(false);
-								setError(result.isErr() ? describeRefreshError(result.error) : null);
-								await revalidator.revalidate();
-							}}
-						>
-							<ListRestartIcon className={refreshing ? 'motion-safe:animate-spin' : undefined} />
-						</IconButton>
-					)}
-					{!connection.builtIn && mayChange && (
-						<IconButton label={removal.verb} onClick={() => setDisconnecting(true)}>
-							<UnplugIcon />
-						</IconButton>
-					)}
-				</>
-			}
-		>
+		<>
+			<PageHeader
+				title={
+					<PageTitle
+						detail={
+							connection.name === null
+								? connection.account
+								: `${integration.name} · ${connection.account}`
+						}
+					>
+						<span className="flex items-center gap-2">
+							<IntegrationLogo integration={integration} />
+							{connectionTitle(connection)}
+						</span>
+					</PageTitle>
+				}
+				actions={
+					<>
+						{integration.custom && mayChange && (
+							<IconButton
+								label={
+									refreshing
+										? 'Asking the server for its tools'
+										: 'Ask the server for its tools again'
+								}
+								disabled={refreshing}
+								onClick={async () => {
+									setRefreshing(true);
+									const result = await refreshMcpTools(org, connection.id);
+									setRefreshing(false);
+									setError(result.isErr() ? describeRefreshError(result.error) : null);
+									await reload();
+								}}
+							>
+								<ListRestartIcon className={refreshing ? 'motion-safe:animate-spin' : undefined} />
+							</IconButton>
+						)}
+						{!connection.builtIn && mayChange && (
+							<IconButton label={removal.verb} onClick={() => setDisconnecting(true)}>
+								<UnplugIcon />
+							</IconButton>
+						)}
+					</>
+				}
+			/>
 			<div className="flex flex-col gap-4">
 				{added && <SuccessLine>Connection added successfully</SuccessLine>}
 				<PageTabs tabs={tabs} chosen={tab} label="Connection" />
@@ -191,14 +202,14 @@ export function ConnectionPage() {
 							onChangeDefaults={async (actions) => {
 								const result = await setConnectionDefaults(org, connection.id, actions);
 								setError(result.isErr() ? describeFetchError(result.error) : null);
-								await revalidator.revalidate();
+								await reload();
 							}}
 							onChangeAgent={async (agentId, actionId, allowed) => {
 								const result = await setAgentGrants(org, agentId, connection.id, {
 									[actionId]: allowed,
 								});
 								setError(result.isErr() ? describeApiError(result.error) : null);
-								await revalidator.revalidate();
+								await reload();
 							}}
 						/>
 						{renew && renewReason && (
@@ -215,7 +226,7 @@ export function ConnectionPage() {
 								onClose={() => setReplacingKey(false)}
 								onConnected={async () => {
 									setReplacingKey(false);
-									await revalidator.revalidate();
+									await reload();
 								}}
 							/>
 						)}
@@ -237,7 +248,7 @@ export function ConnectionPage() {
 						onChange={async (sharing) => {
 							const result = await setConnectionSharing(org, connection.id, sharing);
 							setError(result.isErr() ? describeApiError(result.error) : null);
-							await revalidator.revalidate();
+							await reload();
 						}}
 					/>
 				)}
@@ -269,7 +280,7 @@ export function ConnectionPage() {
 					navigate(`/${org}/connections`);
 				}}
 			/>
-		</AppShell>
+		</>
 	);
 }
 

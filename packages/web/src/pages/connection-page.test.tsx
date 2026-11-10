@@ -12,6 +12,7 @@ import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {HumanSide} from '@/components/human-side';
 import {shouldRevalidateTabs} from '@/lib/page-tabs';
 import {ConnectionPage} from '@/pages/connection-page';
+import {later} from '@/lib/loader-utils';
 import {testHuman, testOrg} from '@/test-org';
 
 afterEach(() => {
@@ -79,7 +80,7 @@ function renderConnectionPage(
 				children: [
 					{
 						path: '/:org/connections/:id',
-						loader: () => {
+						loader: later(async () => {
 							loads.count += 1;
 							return {
 								connection,
@@ -91,7 +92,7 @@ function renderConnectionPage(
 								vaultEntries,
 								sandboxes,
 							};
-						},
+						}),
 						shouldRevalidate: shouldRevalidateTabs,
 						element: <ConnectionPage />,
 					},

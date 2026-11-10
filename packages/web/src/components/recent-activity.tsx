@@ -2,10 +2,11 @@ import type {AuditEntry} from '@proxy/contracts/activity';
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import {RefreshCwIcon} from 'lucide-react';
-import type {ComponentProps} from 'react';
-import {Link, useRevalidator} from 'react-router';
+import {type ComponentProps, useState} from 'react';
+import {Link} from 'react-router';
 import {AuditList} from '@/components/audit-list';
 import {IconButton} from '@/components/icon-button';
+import {useReload} from '@/hooks/use-reload';
 
 // How many of the latest requests the tab shows; with more, it links to all of them.
 const RECENT = 10;
@@ -25,8 +26,8 @@ type Props = {
 // activity log lists them, with a button that loads them again and, with more than it shows, a
 // link to all of them.
 export function RecentActivity({entries, agents, connections, tasks, allHref, of}: Props) {
-	const revalidator = useRevalidator();
-	const loading = revalidator.state === 'loading';
+	const reload = useReload();
+	const [loading, setLoading] = useState(false);
 	return (
 		<div className="flex flex-col gap-2">
 			<div className="flex min-h-8 items-center justify-between gap-4 text-sm text-muted-foreground">
@@ -43,7 +44,11 @@ export function RecentActivity({entries, agents, connections, tasks, allHref, of
 					label={loading ? 'Refreshing activity' : 'Refresh activity'}
 					size="xs"
 					disabled={loading}
-					onClick={() => void revalidator.revalidate()}
+					onClick={async () => {
+						setLoading(true);
+						await reload();
+						setLoading(false);
+					}}
 				>
 					<RefreshCwIcon className={loading ? 'motion-safe:animate-spin' : undefined} />
 				</IconButton>

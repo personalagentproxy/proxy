@@ -1,6 +1,5 @@
 import type {DataRecord} from '@proxy/contracts/records';
 import {useState} from 'react';
-import {useRevalidator} from 'react-router';
 import {deleteRecord} from '@/client/records-client';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
 import {Badge} from '@proxy/ui/components/badge';
@@ -8,6 +7,7 @@ import {Button} from '@proxy/ui/components/button';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@proxy/ui/components/dialog';
 import {useApply} from '@/hooks/use-apply';
 import {useOrgSlug} from '@/hooks/use-org';
+import {useReload} from '@/hooks/use-reload';
 import {formatAgo, formatDateTime} from '@/lib/format';
 
 const SANDBOXES = 'sandboxes';
@@ -40,7 +40,7 @@ type Props = {
 // when it was last used, opened for a closer look and deleted there once its work is done.
 export function SandboxList({connectionId, sandboxes}: Props) {
 	const org = useOrgSlug();
-	const revalidator = useRevalidator();
+	const reload = useReload();
 	const [selected, setSelected] = useState<DataRecord | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const apply = useApply(setError);
@@ -50,7 +50,7 @@ export function SandboxList({connectionId, sandboxes}: Props) {
 	};
 	const close = () => {
 		setSelected(null);
-		void revalidator.revalidate();
+		void reload();
 	};
 
 	return (

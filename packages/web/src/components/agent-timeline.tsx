@@ -124,8 +124,10 @@ export function AgentTimeline({
 		};
 		// The page's own answer is fresh; a window chosen after it is read once it settles.
 		// Opened on a window that reaches further back than the page's own answer, it is read at once.
-		const beyond =
-			(end ?? Date.now()) - minutes * MINUTE_MS < Date.now() - LOADED_MINUTES * MINUTE_MS;
+		// Both are measured from one now: from two, the window the page loaded would at times start
+		// a millisecond before what was loaded, and be read again for nothing.
+		const now = Date.now();
+		const beyond = (end ?? now) - minutes * MINUTE_MS < now - LOADED_MINUTES * MINUTE_MS;
 		const settle = mounted.current || beyond ? setTimeout(() => void read(), ZOOM_SETTLE_MS) : null;
 		mounted.current = true;
 		const timer = setInterval(() => {

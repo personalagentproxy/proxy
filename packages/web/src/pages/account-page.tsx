@@ -1,4 +1,4 @@
-import type {Session, Sessions} from '@proxy/contracts/me';
+import type {Session} from '@proxy/contracts/me';
 import type {Org} from '@proxy/contracts/orgs';
 import {
 	AppWindowIcon,
@@ -8,7 +8,7 @@ import {
 	type LucideIcon,
 } from 'lucide-react';
 import {useState} from 'react';
-import {Link, useLoaderData} from 'react-router';
+import {Link} from 'react-router';
 import {Button} from '@proxy/ui/components/button';
 import {signOut} from '@/client/auth-client';
 import {deleteAccount, deleteOtherSessions, deleteSession} from '@/client/me-client';
@@ -24,10 +24,12 @@ import {ThemePicker} from '@/components/theme-picker';
 import {TypeToConfirmDialog} from '@/components/type-to-confirm-dialog';
 import {useApply} from '@/hooks/use-apply';
 import {useHuman} from '@/hooks/use-human';
+import {useLoaded} from '@/hooks/use-loaded';
 import {formatDate} from '@/lib/format';
 import {describeApiError} from '@/lib/loader-utils';
 import {notificationSupport} from '@/lib/notifications';
 import {hasOtherPeople} from '@/lib/orgs';
+import type {accountLoader} from '@/loaders';
 
 // The person's account, in no organization: who is signed in, how the app looks to them, whether
 // this device tells them what the agents say while they are elsewhere (where any of their
@@ -35,8 +37,16 @@ import {hasOtherPeople} from '@/lib/orgs';
 // settings, every browser and desktop app they are signed in on, each to sign out, and deleting
 // the account, which deletes every one they own.
 export function AccountPage() {
+	return (
+		<AppShell title={<PageTitle>Account</PageTitle>}>
+			<Account />
+		</AppShell>
+	);
+}
+
+function Account() {
 	const human = useHuman();
-	const {sessions} = useLoaderData<Sessions>();
+	const {sessions} = useLoaded<typeof accountLoader>();
 	const [deleting, setDeleting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const apply = useApply(setError);
@@ -59,7 +69,7 @@ export function AccountPage() {
 	const chats = human.orgs.some((org) => org.experiments.includes('harness'));
 
 	return (
-		<AppShell title={<PageTitle>Account</PageTitle>}>
+		<>
 			<div className="flex flex-col gap-8">
 				<Section title="Profile">
 					<RowList>
@@ -177,7 +187,7 @@ export function AccountPage() {
 					return null;
 				}}
 			/>
-		</AppShell>
+		</>
 	);
 }
 

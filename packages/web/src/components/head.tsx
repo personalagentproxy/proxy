@@ -122,8 +122,6 @@ export function LiveHead({
 	size,
 	watching = true,
 	tracking = 'viewport',
-	recallPose,
-	rememberPose,
 	className,
 }: {
 	look: Look;
@@ -131,8 +129,6 @@ export function LiveHead({
 	size: number;
 	watching?: boolean;
 	tracking?: 'head' | 'viewport';
-	recallPose?: () => Pose | null;
-	rememberPose?: (pose: Pose) => void;
 	className?: string;
 }) {
 	const ref = useRef<HTMLCanvasElement>(null);
@@ -142,7 +138,6 @@ export function LiveHead({
 	const spec = useRef({look, color});
 	const watch = useRef(watching);
 	const trackingMode = useRef(tracking);
-	const memory = useRef({recallPose, rememberPose});
 	const firstHoverUntil = useRef(0);
 	// When the blink under way started; none between blinks.
 	const blinkStart = useRef<number | null>(null);
@@ -158,9 +153,6 @@ export function LiveHead({
 		wake.current?.();
 	}, []);
 	const redraws = useSyncExternalStore(subscribeRedraw, redrawVersion);
-	useEffect(() => {
-		memory.current = {recallPose, rememberPose};
-	}, [recallPose, rememberPose]);
 	// Blinks now and then, while it follows the cursor.
 	useEffect(() => {
 		if (!watching) {
@@ -208,9 +200,7 @@ export function LiveHead({
 		let frame = 0;
 		let lastFrame = performance.now();
 		// Starts looking at the pointer, or at rest, then eases toward where it should look.
-		const pose =
-			memory.current.recallPose?.() ??
-			(watch.current ? toward(canvas, trackingMode.current) : {...REST});
+		const pose = watch.current ? toward(canvas, trackingMode.current) : {...REST};
 		void loadStage().then((stage) => {
 			if (!current || !stage) {
 				return;
@@ -244,7 +234,6 @@ export function LiveHead({
 				if (!blinking) {
 					blinkStart.current = null;
 				}
-				memory.current.rememberPose?.({...pose});
 				paintHead(
 					stage,
 					canvas,

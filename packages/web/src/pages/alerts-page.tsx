@@ -1,7 +1,6 @@
 import type {Alert} from '@proxy/contracts/alerts';
 import {Trash2Icon} from 'lucide-react';
 import {useState} from 'react';
-import {useLoaderData, useRevalidator} from 'react-router';
 import {deleteAlert} from '@/client/alerts-client';
 import {AlertDetailDialog} from '@/components/alert-detail-dialog';
 import {AppShell, PageTitle} from '@/components/app-shell';
@@ -10,7 +9,9 @@ import {ConfirmDialog} from '@/components/confirm-dialog';
 import {Head} from '@/components/head';
 import {IconButton} from '@/components/icon-button';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
+import {useLoaded} from '@/hooks/use-loaded';
 import {useOrgSlug} from '@/hooks/use-org';
+import {useReload} from '@/hooks/use-reload';
 import {formatAgo, formatDateTime} from '@/lib/format';
 import {findIntegration, type Integration} from '@/lib/integrations';
 import {describeFetchError} from '@/lib/loader-utils';
@@ -49,9 +50,17 @@ function matched(alert: Alert): string {
 // conversation with it, told there when it is due or something matches. A row opens the alert in
 // full; the person deletes them here, and asks the agent for new ones.
 export function AlertsPage() {
+	return (
+		<AppShell title={<PageTitle>Alerts</PageTitle>}>
+			<Alerts />
+		</AppShell>
+	);
+}
+
+function Alerts() {
 	const org = useOrgSlug();
-	const {alerts} = useLoaderData<typeof alertsLoader>();
-	const revalidator = useRevalidator();
+	const {alerts} = useLoaded<typeof alertsLoader>();
+	const reload = useReload();
 	const [shown, setShown] = useState<Alert | null>(null);
 	const [deleting, setDeleting] = useState<Alert | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -63,11 +72,11 @@ export function AlertsPage() {
 			return;
 		}
 		setError(null);
-		await revalidator.revalidate();
+		await reload();
 	};
 
 	return (
-		<AppShell title={<PageTitle>Alerts</PageTitle>}>
+		<>
 			<AlertDetailDialog alert={shown} onClose={() => setShown(null)} />
 			<ConfirmDialog
 				open={deleting !== null}
@@ -140,6 +149,6 @@ export function AlertsPage() {
 					/>
 				))}
 			</RowList>
-		</AppShell>
+		</>
 	);
 }

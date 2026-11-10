@@ -1,6 +1,5 @@
 import type {FetchError} from '@proxy/utils';
 import {useEffect, useRef, useState} from 'react';
-import {useLoaderData} from 'react-router';
 import {INCOMPLETE, NO_WIDGET, type WidgetId} from '@proxy/contracts/intent';
 import {fillIntent, type Intent, pickIntent} from '@/client/intent-client';
 import {AgentTimeline} from '@/components/agent-timeline';
@@ -15,6 +14,7 @@ import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import type {homeLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 import {useHuman} from '@/hooks/use-human';
+import {useLoaded} from '@/hooks/use-loaded';
 import type {Human} from '@/lib/orgs';
 
 // How often what is typed is classified while typing goes on.
@@ -77,11 +77,32 @@ function saysUnsupported(answer: Answer, pausedOn: string): boolean {
 // picks the widget every 300 ms while typing goes on, and it shows at once, then fills in when its
 // fields come; Esc, or a click beside it, puts it back.
 export function HomePage() {
-	const org = useOrgSlug();
 	const me = useHuman();
-	const {connections, agents, activity} = useLoaderData<typeof homeLoader>();
 	// The time the page opened, for its greeting.
 	const [opened] = useState(() => new Date());
+	const hello = greeting(me, opened);
+
+	return (
+		<AppShell
+			// The greeting and the input's place, until what the input works with has loaded.
+			waiting={
+				<div className="flex flex-col items-center gap-6 pt-[16vh]">
+					<h1 className="text-sm font-medium">{hello}</h1>
+					<div
+						aria-hidden
+						className="h-[calc(3rem+2px)] w-full max-w-2xl rounded-2xl border bg-card shadow-sm"
+					/>
+				</div>
+			}
+		>
+			<Home hello={hello} />
+		</AppShell>
+	);
+}
+
+function Home({hello}: {hello: string}) {
+	const org = useOrgSlug();
+	const {connections, agents, activity} = useLoaded<typeof homeLoader>();
 	const [text, setText] = useState('');
 	const [answer, setAnswer] = useState<Answer | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -239,14 +260,14 @@ export function HomePage() {
 	const open = active && (widget !== null || error !== null);
 
 	return (
-		<AppShell>
+		<>
 			<div
 				aria-hidden
 				onClick={() => change('')}
 				className={`fixed inset-0 z-30 bg-background/50 backdrop-blur-sm transition-opacity duration-300 ease-out motion-reduce:transition-none ${active ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
 			/>
 			<div className="flex flex-col items-center gap-6 pt-[16vh]">
-				<h1 className="text-sm font-medium">{greeting(me, opened)}</h1>
+				<h1 className="text-sm font-medium">{hello}</h1>
 				<div
 					className={`relative z-40 w-full max-w-2xl overflow-hidden rounded-2xl border bg-card transition-[translate,box-shadow] duration-300 ease-out motion-reduce:transition-none ${active ? '-translate-y-[8vh] shadow-2xl' : 'shadow-sm'}`}
 				>
@@ -303,7 +324,7 @@ export function HomePage() {
 					</div>
 				)}
 			</div>
-		</AppShell>
+		</>
 	);
 }
 

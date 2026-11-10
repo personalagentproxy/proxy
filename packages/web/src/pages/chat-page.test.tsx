@@ -4,11 +4,12 @@ import type {ChatAnswer, ChatPersona, ThreadLog} from '@proxy/contracts/harness'
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
-import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {HumanSide} from '@/components/human-side';
 import {pageSaysSafeToReload} from '@/hooks/use-reload-on-release';
 import {ChatPage} from '@/pages/chat-page';
+import {later} from '@/lib/loader-utils';
 import {testHuman, testOrg} from '@/test-org';
 
 const realFetch = globalThis.fetch;
@@ -66,11 +67,14 @@ function renderChatPage({
 	entries = [],
 	listPersonas = () => personas,
 	draft = null,
+	answered = () => Promise.resolve(),
 }: {
 	personas?: ChatPersona[];
 	entries?: ThreadLog['entries'];
 	listPersonas?: () => ChatPersona[];
 	draft?: string | null;
+	// When the api answers for a conversation: at once, unless a test holds it back.
+	answered?: (personaId: string) => Promise<void>;
 } = {}) {
 	const router = createMemoryRouter(
 		[
@@ -81,14 +85,17 @@ function renderChatPage({
 				children: [
 					{
 						path: '/:org/chat/:id',
-						loader: ({params}) => ({
-							log: {
-								...log,
-								entries,
-								draft,
-								persona: personas.find((candidate) => candidate.id === params.id) ?? general,
-							},
-							personas: listPersonas(),
+						loader: later(async ({params}: {params: {id?: string}}) => {
+							await answered(params.id ?? '');
+							return {
+								log: {
+									...log,
+									entries,
+									draft,
+									persona: personas.find((candidate) => candidate.id === params.id) ?? general,
+								},
+								personas: listPersonas(),
+							};
 						}),
 						element: <ChatPage />,
 					},
@@ -199,6 +206,29 @@ describe('ChatPage', () => {
 			expect(openedHead?.closest('a')?.getAttribute('aria-current')).toBe('page');
 			expect(openedHead?.getAttribute('data-state')).toBe('rest');
 		});
+	});
+
+	test('opens another conversation at once, lit in the list and named in the header, while it loads', async () => {
+		let arrive = () => undefined;
+		const held = new Promise<void>((resolve) => {
+			arrive = () => {
+				resolve();
+				return undefined;
+			};
+		});
+		renderChatPage({answered: (personaId) => (personaId === 'finance' ? held : Promise.resolve())});
+		await screen.findByText('What should General do?');
+
+		fireEvent.click(screen.getByRole('link', {name: /Finance/}));
+		await screen.findByRole('status', {name: 'Loading'});
+		expect(screen.getByRole('link', {name: /Finance/}).getAttribute('aria-current')).toBe('page');
+		expect(screen.getByRole('link', {name: /General/}).getAttribute('aria-current')).toBeNull();
+		expect(screen.getByRole('banner').textContent).toContain('Finance');
+		expect(screen.queryByText('What should General do?')).toBeNull();
+
+		await act(async () => arrive());
+		expect(await screen.findByText('What should Finance do?')).toBeDefined();
+		expect(screen.queryByRole('status', {name: 'Loading'})).toBeNull();
 	});
 
 	test('edits a changeable agent from its right-click menu', async () => {

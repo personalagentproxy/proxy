@@ -12,7 +12,7 @@ import {
 	UnplugIcon,
 } from 'lucide-react';
 import {useState} from 'react';
-import {useLoaderData, useNavigate, useParams, useRevalidator, useSearchParams} from 'react-router';
+import {useNavigate, useParams, useSearchParams} from 'react-router';
 import {
 	deleteAgent,
 	disconnectMcpClient,
@@ -24,7 +24,7 @@ import {
 import {setConnectionDefaults} from '@/client/connections-client';
 import {AccessGrid, AccessGridColumns} from '@/components/access-grid';
 import {AgentSharing} from '@/components/agent-sharing';
-import {AppShell, PageTitle} from '@/components/app-shell';
+import {AppShell, PageHeader, PageTitle} from '@/components/app-shell';
 import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
@@ -37,6 +37,8 @@ import {Checkbox} from '@proxy/ui/components/checkbox';
 import {Input} from '@proxy/ui/components/input';
 import {useApply} from '@/hooks/use-apply';
 import {useHuman} from '@/hooks/use-human';
+import {useLoaded} from '@/hooks/use-loaded';
+import {useReload} from '@/hooks/use-reload';
 import {connectionLabel, defaultActions, integrationOf, ownSettings, reaches} from '@/lib/access';
 import {cn} from '@proxy/ui/lib/utils';
 import {formatDate} from '@/lib/format';
@@ -55,16 +57,20 @@ type Confirming = 'revoke' | 'delete' | null;
 // access filter and what is folded out start over for each.
 export function AgentPage() {
 	const {id = ''} = useParams();
-	return <AgentDetail key={id} id={id} />;
+	return (
+		<AppShell loadsTitle>
+			<AgentDetail key={id} id={id} />
+		</AppShell>
+	);
 }
 
 function AgentDetail({id}: {id: string}) {
 	const org = useOrgSlug();
 	const {agent, connections, agents, entries, tasks, mcpClients, members} =
-		useLoaderData<typeof agentLoader>();
+		useLoaded<typeof agentLoader>();
 	const [searchParams] = useSearchParams();
 	const navigate = useNavigate();
-	const revalidator = useRevalidator();
+	const reload = useReload();
 	const [confirming, setConfirming] = useState<Confirming>(null);
 	const [renaming, setRenaming] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -95,55 +101,56 @@ function AgentDetail({id}: {id: string}) {
 	const tab = chosenTab(tabs, searchParams);
 
 	return (
-		<AppShell
-			title={
-				<PageTitle
-					detail={
-						builtIn
-							? 'Built in · the agents on the Chat page act through it, with its access'
-							: revoked
-								? `${company} · revoked ${formatDate(agent.revokedAt ?? '')}`
-								: `${company} · added ${formatDate(agent.createdAt)}`
-					}
-				>
-					<span className="flex items-center gap-2">
-						<AgentLogo providerId={agent.providerId} />
-						{agent.name}
-					</span>
-				</PageTitle>
-			}
-			actions={
-				mayChange && (
-					<>
-						<IconButton label="Rename agent" onClick={() => setRenaming(true)}>
-							<PencilIcon />
-						</IconButton>
-						{!revoked && !builtIn && (
-							<IconButton label="Set up again" to={`/${org}/agents/${agent.id}/setup`}>
-								<KeyRoundIcon />
+		<>
+			<PageHeader
+				title={
+					<PageTitle
+						detail={
+							builtIn
+								? 'Built in · the agents on the Chat page act through it, with its access'
+								: revoked
+									? `${company} · revoked ${formatDate(agent.revokedAt ?? '')}`
+									: `${company} · added ${formatDate(agent.createdAt)}`
+						}
+					>
+						<span className="flex items-center gap-2">
+							<AgentLogo providerId={agent.providerId} />
+							{agent.name}
+						</span>
+					</PageTitle>
+				}
+				actions={
+					mayChange && (
+						<>
+							<IconButton label="Rename agent" onClick={() => setRenaming(true)}>
+								<PencilIcon />
 							</IconButton>
-						)}
-						{builtIn ? null : revoked ? (
-							<IconButton
-								label="Restore login"
-								onClick={() => void apply(setAgentRevoked(org, agent.id, false))}
-							>
-								<RotateCcwIcon />
-							</IconButton>
-						) : (
-							<IconButton label="Revoke login" onClick={() => setConfirming('revoke')}>
-								<BanIcon />
-							</IconButton>
-						)}
-						{!builtIn && (
-							<IconButton label="Delete agent" onClick={() => setConfirming('delete')}>
-								<Trash2Icon />
-							</IconButton>
-						)}
-					</>
-				)
-			}
-		>
+							{!revoked && !builtIn && (
+								<IconButton label="Set up again" to={`/${org}/agents/${agent.id}/setup`}>
+									<KeyRoundIcon />
+								</IconButton>
+							)}
+							{builtIn ? null : revoked ? (
+								<IconButton
+									label="Restore login"
+									onClick={() => void apply(setAgentRevoked(org, agent.id, false))}
+								>
+									<RotateCcwIcon />
+								</IconButton>
+							) : (
+								<IconButton label="Revoke login" onClick={() => setConfirming('revoke')}>
+									<BanIcon />
+								</IconButton>
+							)}
+							{!builtIn && (
+								<IconButton label="Delete agent" onClick={() => setConfirming('delete')}>
+									<Trash2Icon />
+								</IconButton>
+							)}
+						</>
+					)
+				}
+			/>
 			<div className="flex flex-col gap-4">
 				<PageTabs tabs={tabs} chosen={tab} label="Agent" />
 				{tab === 'permissions' && (
@@ -207,7 +214,7 @@ function AgentDetail({id}: {id: string}) {
 						if (result.isErr()) {
 							return describeApiError(result.error);
 						}
-						await revalidator.revalidate();
+						await reload();
 						return null;
 					}}
 				/>
@@ -237,7 +244,7 @@ function AgentDetail({id}: {id: string}) {
 					navigate(`/${org}/agents`);
 				}}
 			/>
-		</AppShell>
+		</>
 	);
 }
 

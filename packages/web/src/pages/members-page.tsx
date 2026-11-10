@@ -1,9 +1,9 @@
 import type {Member} from '@proxy/contracts/orgs';
 import {EllipsisIcon, LogOutIcon, MailPlusIcon, Trash2Icon, XIcon} from 'lucide-react';
 import {useState} from 'react';
-import {useLoaderData, useNavigate, useRevalidator} from 'react-router';
+import {useNavigate} from 'react-router';
 import {inviteMember, leaveOrg, removeMember, revokeInvitation} from '@/client/orgs-client';
-import {AppShell, PageTitle} from '@/components/app-shell';
+import {AppShell, PageHeader, PageTitle} from '@/components/app-shell';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
 import {OrgTile} from '@/components/org-switcher';
@@ -29,6 +29,8 @@ import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {useApply} from '@/hooks/use-apply';
 import {useHuman} from '@/hooks/use-human';
+import {useLoaded} from '@/hooks/use-loaded';
+import {useReload} from '@/hooks/use-reload';
 import {formatDate} from '@/lib/format';
 import {describeApiError} from '@/lib/loader-utils';
 import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
@@ -51,10 +53,32 @@ type Pending = {member: Member; action: 'remove' | 'leave'};
 // made it, invites and removes, and deletes it rather than leaving; members leave. Roles never
 // change.
 export function MembersPage() {
-	const {members, invitations} = useLoaderData<typeof membersLoader>();
+	const human = useHuman();
+	if (!human) {
+		return null;
+	}
+
+	return (
+		<AppShell
+			title={
+				<PageTitle>
+					<span className="flex items-center gap-2">
+						<OrgTile org={human.org} />
+						{human.org.name}
+					</span>
+				</PageTitle>
+			}
+		>
+			<Members />
+		</AppShell>
+	);
+}
+
+function Members() {
+	const {members, invitations} = useLoaded<typeof membersLoader>();
 	const human = useHuman();
 	const navigate = useNavigate();
-	const revalidator = useRevalidator();
+	const reload = useReload();
 	const [inviting, setInviting] = useState(false);
 	const [pending, setPending] = useState<Pending | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -68,24 +92,17 @@ export function MembersPage() {
 	const nameOf = (member: Member) => member.name ?? member.email;
 
 	return (
-		<AppShell
-			title={
-				<PageTitle>
-					<span className="flex items-center gap-2">
-						<OrgTile org={organization} />
-						{organization.name}
-					</span>
-				</PageTitle>
-			}
-			actions={
-				owner && (
-					<Button size="sm" onClick={() => setInviting(true)}>
-						<MailPlusIcon data-icon="inline-start" />
-						Invite
-					</Button>
-				)
-			}
-		>
+		<>
+			<PageHeader
+				actions={
+					owner && (
+						<Button size="sm" onClick={() => setInviting(true)}>
+							<MailPlusIcon data-icon="inline-start" />
+							Invite
+						</Button>
+					)
+				}
+			/>
 			<div className="flex flex-col gap-8">
 				{error && <p className="text-sm text-destructive">{error}</p>}
 				<Section title="Members">
@@ -173,7 +190,7 @@ export function MembersPage() {
 					if (result.isErr()) {
 						return describeApiError(result.error);
 					}
-					await revalidator.revalidate();
+					await reload();
 					return null;
 				}}
 			/>
@@ -214,7 +231,7 @@ export function MembersPage() {
 					await navigate(`/${next.slug}/connections?left=${encodeURIComponent(organization.name)}`);
 				}}
 			/>
-		</AppShell>
+		</>
 	);
 }
 
