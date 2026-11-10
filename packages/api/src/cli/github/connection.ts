@@ -31,7 +31,7 @@ export type GitHubTarget = {
 
 const GITHUB = 'github';
 
-const NAME_ONE = `Name one in the ${PAP_CONNECTION_HEADER} header, which pap git and pap gh send for --connection <id>.`;
+const NAME_ONE = `Name one with pap --connection <id> git … or pap --connection <id> gh …, which send it as the ${PAP_CONNECTION_HEADER} header.`;
 
 function targetOf(agent: AgentRow, connection: ConnectionRow & {credential: string | null}, integration: Integration): GitHubTarget {
 	const unavailable = unavailableActions(connection);

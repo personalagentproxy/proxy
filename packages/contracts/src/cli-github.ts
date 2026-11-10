@@ -15,7 +15,8 @@
  *   `POST git-receive-pack` need Push. Nothing else, Git LFS among it. A refusal is a git `ERR`
  *   packet, which git prints as `fatal: remote error: <message>`. Run the real git with, for this
  *   invocation alone (`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>`, `GIT_CONFIG_VALUE_<n>`):
- *   `url.<PAP_URL>/api/cli/github/git/.insteadOf=https://github.com/` and
+ *   `url.<PAP_URL>/api/cli/github/git/.insteadOf=https://github.com/` (and `git@github.com:` and
+ *   `ssh://git@github.com/`, which `pap git` adds too) and
  *   `http.<PAP_URL>/api/cli/github/git/.extraHeader=Authorization: Bearer <PAP_TOKEN>`, and
  *   `http.<…>.extraHeader=x-pap-connection: <id>` to name a connection.
  * - `CLI_GITHUB_API_PATH/<path>`: GitHub's REST and GraphQL API, relayed to

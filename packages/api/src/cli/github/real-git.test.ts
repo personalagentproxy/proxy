@@ -1,9 +1,6 @@
 import {afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test} from 'bun:test';
-import {spawn, spawnSync} from 'node:child_process';
-import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
-import {createServer, type IncomingMessage, type Server, type ServerResponse} from 'node:http';
-import type {AddressInfo} from 'node:net';
-import {tmpdir} from 'node:os';
+import {readFileSync, writeFileSync} from 'node:fs';
+import type {Server} from 'node:http';
 import {join} from 'node:path';
 
 import {Ok} from 'ts-results-es';
@@ -11,133 +8,30 @@ import {Ok} from 'ts-results-es';
 import {agentRow, getAgentById, GITHUB_TOKEN, githubConnection, logAgentRequest, papToken, resetFixture, startApp, useConnections} from './relay-fixture';
 
 // The real git, cloning, committing, pushing and fetching through the relay, with the config `pap
-// git` gives it for one invocation, against a fake GitHub that is git's own server, `git
-// http-backend`, over a bare repository in a temp directory: no network.
+// git` gives it for one invocation, against the fake GitHub (fake-github.ts): no network.
 
-const {GITHUB_ORIGINS} = await import('./origins');
+const {startFakeGitHub} = await import('./fake-github');
 
 // Each test runs git several times, each a few processes.
 setDefaultTimeout(30_000);
 
-const root = mkdtempSync(join(tmpdir(), 'pap-real-git-'));
-const projects = join(root, 'projects');
-const home = join(root, 'home');
-
+const fake = await startFakeGitHub('pap-real-git-');
+const {root, projects, git, gitEnv} = fake;
 // The Authorization headers the fake GitHub was sent, to check the PAP token never reached it.
-const authorizations: string[] = [];
-
-// git itself, from where it keeps its own programs, rather than whatever wraps it on the PATH.
-const gitDir = spawnSync('git', ['--exec-path'], {encoding: 'utf8'}).stdout.trim();
-const GIT = join(gitDir, 'git');
-
-// The process's own environment for git, with none of the machine's config.
-function gitEnv(extra: Record<string, string> = {}): Record<string, string> {
-	return {
-		PATH: `${gitDir}:${process.env.PATH ?? ''}`,
-		HOME: home,
-		GIT_CONFIG_NOSYSTEM: '1',
-		GIT_TERMINAL_PROMPT: '0',
-		GIT_AUTHOR_NAME: 'Test',
-		GIT_AUTHOR_EMAIL: 'test@example.com',
-		GIT_COMMITTER_NAME: 'Test',
-		GIT_COMMITTER_EMAIL: 'test@example.com',
-		...extra,
-	};
-}
-
-// Run without blocking: the relay answering git is in this process.
-function git(args: string[], cwd: string, env: Record<string, string> = gitEnv()): Promise<{status: number; stdout: string; stderr: string}> {
-	const child = spawn(GIT, args, {cwd, env});
-	let stdout = '';
-	let stderr = '';
-	child.stdout.on('data', (chunk: Buffer) => {
-		stdout += chunk.toString('utf8');
-	});
-	child.stderr.on('data', (chunk: Buffer) => {
-		stderr += chunk.toString('utf8');
-	});
-	return new Promise((resolve) => {
-		child.on('close', (status) => resolve({status: status ?? -1, stdout, stderr}));
-	});
-}
-
-// `git http-backend` as GitHub: the request as CGI, its answer's headers read off before its body is streamed back.
-function httpBackend(req: IncomingMessage, res: ServerResponse): void {
-	authorizations.push(req.headers.authorization ?? '');
-	const url = new URL(req.url ?? '/', 'http://github.test');
-	const backend = spawn(GIT, ['http-backend'], {
-		env: {
-			...gitEnv(),
-			GIT_PROJECT_ROOT: projects,
-			GIT_HTTP_EXPORT_ALL: '1',
-			GIT_CONFIG_COUNT: '1',
-			GIT_CONFIG_KEY_0: 'http.receivepack',
-			GIT_CONFIG_VALUE_0: 'true',
-			REQUEST_METHOD: req.method ?? 'GET',
-			PATH_INFO: url.pathname,
-			QUERY_STRING: url.search.slice(1),
-			CONTENT_TYPE: req.headers['content-type'] ?? '',
-			HTTP_CONTENT_ENCODING: req.headers['content-encoding'] ?? '',
-			GIT_PROTOCOL: String(req.headers['git-protocol'] ?? ''),
-			REMOTE_ADDR: '127.0.0.1',
-		},
-	});
-	req.pipe(backend.stdin);
-	let head = Buffer.alloc(0);
-	let started = false;
-	backend.stdout.on('data', (chunk: Buffer) => {
-		if (started) {
-			res.write(chunk);
-			return;
-		}
-		head = Buffer.concat([head, chunk]);
-		const end = head.indexOf('\r\n\r\n');
-		if (end === -1) {
-			return;
-		}
-		started = true;
-		let status = 200;
-		for (const line of head.subarray(0, end).toString('latin1').split('\r\n')) {
-			const [name = '', ...rest] = line.split(':');
-			const value = rest.join(':').trim();
-			if (name.toLowerCase() === 'status') {
-				status = Number.parseInt(value, 10);
-				continue;
-			}
-			res.setHeader(name, value);
-		}
-		res.writeHead(status);
-		res.write(head.subarray(end + 4));
-	});
-	backend.stdout.on('end', () => res.end());
-}
+const authorizations = fake.gitAuthorizations;
 
 let app: Server;
-let github: Server;
 let papUrl = '';
 
 beforeAll(async () => {
 	const started = await startApp();
 	app = started.server;
 	papUrl = started.base;
-	github = createServer(httpBackend).listen(0);
-	await new Promise((resolve) => github.once('listening', resolve));
-	GITHUB_ORIGINS.git = `http://localhost:${(github.address() as AddressInfo).port}`;
-
-	// acme/demo on the fake GitHub, with one commit on main.
-	const seed = join(root, 'seed');
-	spawnSync('mkdir', ['-p', seed, home, join(projects, 'acme')]);
-	await git(['init', '-q', '-b', 'main', seed], root);
-	writeFileSync(join(seed, 'README.md'), 'demo\n');
-	await git(['add', '.'], seed);
-	await git(['commit', '-q', '-m', 'first'], seed);
-	await git(['clone', '-q', '--bare', seed, join(projects, 'acme', 'demo.git')], root);
 });
 
 afterAll(() => {
 	app.close();
-	github.close();
-	rmSync(root, {recursive: true, force: true});
+	fake.close();
 });
 
 beforeEach(() => {

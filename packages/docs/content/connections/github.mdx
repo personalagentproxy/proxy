@@ -51,16 +51,24 @@ on: an agent can never do more on GitHub than the app and your own account can.
 An agent works in a repository from a command run with `pap` turned on in one of its
 [sandboxes](/connections/sandboxes), with two commands of `pap`'s:
 
-- `pap git` is git, signed in as you: `pap git clone https://github.com/acme/demo`, then `pap git
-push` and `pap git fetch` in the clone. Commits are made as your GitHub account, with GitHub's
-  noreply address for it rather than your own email.
+- `pap git` is git, signed in as you: `pap git clone https://github.com/acme/demo` (or
+  `git@github.com:acme/demo.git`), then `pap git push` and `pap git fetch` in the clone. Commits
+  made with `pap git commit`, and anything else of git's that makes commits or tags, are made as
+  your GitHub account, with GitHub's noreply address for it rather than your own email, unless
+  the command sets `GIT_AUTHOR_NAME` and the like itself.
 - `pap gh` is GitHub's own command line tool, signed in as you: `pap gh pr create`, `pap gh issue
-list`, `pap gh api …`.
+list`, `pap gh api …`. The git it runs itself, as for `pap gh repo clone`, is `pap git`.
+
+With several GitHub connections, the agent names one before the command: `pap --connection <id>
+git …` or `pap --connection <id> gh …`; without it, `pap` uses the agent's only one, and refuses,
+listing them, where it has several.
 
 Plain `git` and `gh` in the sandbox stay signed out, and your GitHub token never enters it: every
 request of `pap git` and `pap gh` goes through Personal Agent Proxy, which checks it against what
-the agent may do, adds your token on its way to GitHub, and passes GitHub's answer back. A clone
-keeps `https://github.com/…` as its remote, with nothing of Personal Agent Proxy in its config.
+the agent may do, adds your token on its way to GitHub, and passes GitHub's answer back. Nothing
+is written to the repository's or the sandbox's git or gh configuration: a clone keeps
+`https://github.com/…` as its remote, and `pap gh` gives gh a configuration of its own that is
+removed when it exits.
 
 Reading through the API needs Read repositories; a GraphQL query does too, and a GraphQL mutation
 needs Change things on GitHub. A request the agent isn't allowed is refused, saying which action it
@@ -76,7 +84,12 @@ there too, and requests GitHub turned down for the sign-in, or couldn't answer.
 
 ### Not supported yet
 
-Git LFS, and uploading release assets, which GitHub takes at another address than its API.
+- Git LFS.
+- Uploading release assets, which GitHub takes at another address than its API: `pap gh release
+upload` and the like are refused, saying so.
+- A git alias for `push`, `fetch` or another command that reaches GitHub: run the command itself.
+- `pap gh pr create` pushing the branch for you, which gh only offers when it can ask: push it with
+  `pap git push -u origin <branch>` first.
 
 ## Sharing a GitHub connection
 

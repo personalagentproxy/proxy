@@ -136,7 +136,7 @@ describe('which connection', () => {
 
 		expect(res.status).toBe(400);
 		expect(body.message).toBe(
-			'You have several GitHub connections: github-1 (octo-dana), github-2 (acme-bot). Name one in the x-pap-connection header, which pap git and pap gh send for --connection <id>.',
+			'You have several GitHub connections: github-1 (octo-dana), github-2 (acme-bot). Name one with pap --connection <id> git … or pap --connection <id> gh …, which send it as the x-pap-connection header.',
 		);
 		expect(received).toEqual([]);
 	});

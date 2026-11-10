@@ -1,6 +1,7 @@
 import {describe, expect, test} from 'bun:test';
 
-import type {Io, Json} from './io';
+import {fakeIo} from './fake-io';
+import type {Json} from './io';
 import {MAX_PAGES} from './pages';
 import {run} from './run';
 
@@ -13,22 +14,14 @@ function harness(
 	options: {env?: Record<string, string | undefined>; stdin?: string} = {},
 ) {
 	const sent: Sent[] = [];
-	const output = {out: '', err: ''};
-	const io: Io = {
-		env: options.env ?? {PAP_URL: 'https://app.example.com/', PAP_TOKEN: 'pap_token'},
-		readStdin: async () => options.stdin ?? '',
-		out: (text) => {
-			output.out += text;
-		},
-		err: (text) => {
-			output.err += text;
-		},
+	const {io, output} = fakeIo({
+		...options,
 		fetch: async (url, init) => {
 			const body = JSON.parse(String(init.body)) as {method: string; args: Json[]};
 			sent.push({url, authorization: new Headers(init.headers).get('authorization'), body});
 			return answer(body);
 		},
-	};
+	});
 	return {sent, output, pap: (...args: string[]) => run(args, io, 'abc123')};
 }
 
@@ -168,6 +161,10 @@ describe('pap', () => {
 		expect(output.out).toContain(
 			'Exit: 0 done, 1 call failed, 2 bad usage, 3 no token or token refused.',
 		);
+		expect(output.out).toMatch(
+			/\n {2}pap git <args> +git, signed in to GitHub as your GitHub connection’s account\n/,
+		);
+		expect(output.out).toMatch(/\n {2}pap gh <args> +GitHub’s gh, signed in the same way\n/);
 		output.out = '';
 		expect(await pap('call', '--help')).toBe(0);
 		expect(output.out).toContain('--all');

@@ -1,3 +1,4 @@
+import {nodeIo} from './node-io';
 import {run} from './run';
 
 /**
@@ -7,24 +8,10 @@ import {run} from './run';
 
 declare const PAP_VERSION: string | undefined;
 
-async function readStdin(): Promise<string> {
-	const chunks: Buffer[] = [];
-	for await (const chunk of process.stdin) {
-		chunks.push(Buffer.from(chunk));
-	}
-	return Buffer.concat(chunks).toString('utf8');
-}
-
-const io = {
-	env: process.env,
-	readStdin,
-	out: (text: string) => void process.stdout.write(text),
-	err: (text: string) => void process.stderr.write(text),
-	fetch,
-};
-
-void run(process.argv.slice(2), io, typeof PAP_VERSION === 'string' ? PAP_VERSION : 'dev').then(
-	(code) => {
-		process.exitCode = code;
-	},
-);
+void run(
+	process.argv.slice(2),
+	nodeIo(),
+	typeof PAP_VERSION === 'string' ? PAP_VERSION : 'dev',
+).then((code) => {
+	process.exitCode = code;
+});
