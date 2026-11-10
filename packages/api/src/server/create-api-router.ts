@@ -38,6 +38,7 @@ import {
 	handleDeleteConnectionRoute,
 	handleGetConnectionRoute,
 	handleListConnectionsRoute,
+	handleMoveConnectionRoute,
 	handleRenameConnectionRoute,
 	handleSetConnectionDefaultsRoute,
 	handleSetConnectionSharingRoute,
@@ -164,6 +165,7 @@ export function createApiRouter(): express.Router {
 	org.delete('/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
 	org.put('/connections/:connectionId/defaults', withAuthResult('Set connection defaults route', handleSetConnectionDefaultsRoute));
 	org.put('/connections/:connectionId/name', withAuthResult('Rename connection route', handleRenameConnectionRoute));
+	org.put('/connections/:connectionId/org', withAuthResult('Move connection route', handleMoveConnectionRoute));
 	org.put('/connections/:connectionId/sharing', withAuthResult('Set connection sharing route', handleSetConnectionSharingRoute));
 	org.post('/connections/:connectionId/tools', withAuthResult('Refresh custom MCP server tools route', handleRefreshCustomMcpToolsRoute));
 	const records = '/connections/:connectionId/collections/:collectionId/records';

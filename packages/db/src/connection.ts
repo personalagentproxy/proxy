@@ -202,6 +202,39 @@ export async function setConnectionSharing(data: {
 	});
 }
 
+/**
+ * Moves a member's connection from one of their organizations to another, `toOrgId`: theirs alone
+ * there. Its defaults, its credential and a vault's entries go with it; who it was shared with, what
+ * the agents of the organization it leaves were set to do with it, and where anyone but its owner
+ * last wrote to it from the home page stay behind, and go. `account` is what it is called for its
+ * account there, as a vault takes its organization's name. `Ok(false)` when it is no longer the
+ * owner's in `fromOrgId`, and nothing moves.
+ */
+export async function moveConnection(data: {
+	connectionId: string;
+	ownerUserId: string;
+	fromOrgId: string;
+	toOrgId: string;
+	account: string;
+}): Promise<Result<boolean, ApiError>> {
+	const {connectionId, ownerUserId, fromOrgId, toOrgId, account} = data;
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const {count} = await tx.connection.updateMany({
+				where: {id: connectionId, orgId: fromOrgId, ownerUserId},
+				data: {orgId: toOrgId, account, sharedWithEveryone: false},
+			});
+			if (count === 0) {
+				return false;
+			}
+			await tx.connectionShare.deleteMany({where: {connectionId}});
+			await tx.agentGrant.deleteMany({where: {connectionId}});
+			await tx.writeTarget.deleteMany({where: {connectionId, userId: {not: ownerUserId}}});
+			return true;
+		}),
+	);
+}
+
 /** A connection's encrypted credential as it is now, `null` once the connection is gone. */
 export async function getConnectionCredential(
 	connectionId: string,

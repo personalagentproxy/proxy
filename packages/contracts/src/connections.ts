@@ -94,6 +94,14 @@ export const setSharingBodySchema = z.object({
 	userIds: z.array(z.string().min(1)).max(500),
 });
 
+/**
+ * `PUT /api/orgs/:org/connections/:connectionId/org`: another organization of the person's to move
+ * their connection into, by its slug.
+ */
+export const moveConnectionBodySchema = z.object({
+	org: z.string().min(1),
+});
+
 /** Where a sign-in ends when not on the connection's page: the welcome flow or the home page it began from. */
 export const returnToSchema = z.enum(['welcome', 'home']);
 
