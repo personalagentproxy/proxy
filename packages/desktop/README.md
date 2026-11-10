@@ -15,7 +15,9 @@ everything but the app's own origin out of the window: links out of the app open
 - Updates (`src/updates.ts`): a new release of the app, checked for on start and every few hours,
   is downloaded at once and announced to the page through the window's preload
   (`src/preload.ts`, `window.personalAgentProxyDesktop` to the web app), which shows its release
-  notice with a restart button. Put off, the update is installed when the app next quits.
+  notice with a restart button. Put off, the update is installed when the app next quits. The page
+  can also start a check (the Account page's Check for updates) and hears where it stands, through
+  the download, as it changes.
 - Notifications (`src/notifications.ts`): the web app asks for one through the preload, with the
   agent's name, what it said, the page of the app it is on and a tag, one per conversation, when
   an agent answers in Chat while the person is elsewhere and they have turned notifications on;
