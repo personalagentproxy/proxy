@@ -44,7 +44,7 @@ import {
 	useTransactions,
 } from '@/hooks/widget-lookups';
 
-// A fake of the home page widgets' api (`/api/widgets/…`) for the web app's tests: one Google
+// A fake of the command bar's widgets' api (`/api/widgets/…`) for the web app's tests: one Google
 // account with contacts, a calendar, mail and files, and one bank, answering as the api does.
 // `widgetsAnswer` answers a widget request, or null for any other. Every answer is parsed by the
 // api's own schema first, so the fake can't answer what the api couldn't.

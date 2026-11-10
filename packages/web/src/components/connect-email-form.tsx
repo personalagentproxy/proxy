@@ -3,7 +3,7 @@ import {EMAIL_PROVIDERS, type EmailProvider} from '@proxy/utils/email-providers'
 import type {FetchError} from '@proxy/utils';
 import {useState, type ReactNode} from 'react';
 import {connectEmail, testEmail, type ConnectEmailInput} from '@/client/connections-client';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {SuccessLine} from '@/components/success-line';
@@ -228,17 +228,17 @@ export function ConnectEmailForm({
 			{passed && <SuccessLine>Signed in to {email.trim()}</SuccessLine>}
 			<div className="flex justify-end gap-2">
 				{cancel}
-				<Button
+				<PillButton
 					type="button"
-					variant="outline"
+					variant="ghost"
 					disabled={!ready || pending !== null}
 					onClick={() => void test()}
 				>
 					{pending === 'test' ? 'Testing…' : 'Test connection'}
-				</Button>
-				<Button type="submit" disabled={!ready || pending !== null}>
+				</PillButton>
+				<PillButton type="submit" disabled={!ready || pending !== null}>
 					{pending === 'connect' ? 'Signing in…' : passed ? continueLabel : 'Connect'}
-				</Button>
+				</PillButton>
 			</div>
 		</form>
 	);

@@ -1,9 +1,8 @@
 import type {ReactNode} from 'react';
-import {Button, buttonVariants} from '@proxy/ui/components/button';
-import {EnterHint} from '@/components/widgets/enter-hint';
+import {PillButton} from '@/components/pill-button';
 import {type BarAction, useBarAction} from '@/hooks/use-bar-action';
 
-// A widget's main button, the dark one: Enter in the command bar's input presses it while it can
+// A widget's main button, the dark pill (pill-button.tsx): Enter in the command bar's input presses it while it can
 // be pressed, and it says so, unless the bar lists somewhere to go, which Enter opens instead.
 // Where Enter was pressed before the widget showed, the bar says whether it is pressed at once
 // (`bar.entered`): for an agent to make, never for what writes to the person's accounts.
@@ -20,10 +19,9 @@ export function EnterButton({
 }) {
 	useBarAction(bar, onClick, !disabled);
 	return (
-		<Button size="sm" onClick={onClick} disabled={disabled}>
+		<PillButton enter={bar.onEnter} onClick={onClick} disabled={disabled}>
 			{children}
-			{bar.onEnter && <EnterHint />}
-		</Button>
+		</PillButton>
 	);
 }
 
@@ -39,9 +37,12 @@ export function EnterLink({
 }) {
 	useBarAction(bar, () => window.open(href, '_blank', 'noreferrer'), true);
 	return (
-		<a href={href} target="_blank" rel="noreferrer" className={buttonVariants({size: 'sm'})}>
+		<PillButton
+			enter={bar.onEnter}
+			nativeButton={false}
+			render={<a href={href} target="_blank" rel="noreferrer" />}
+		>
 			{children}
-			{bar.onEnter && <EnterHint />}
-		</a>
+		</PillButton>
 	);
 }

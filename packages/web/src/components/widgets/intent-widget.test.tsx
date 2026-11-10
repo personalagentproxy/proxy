@@ -47,7 +47,7 @@ const done = mock((_to: string) => {});
 let entered = false;
 
 function show(intent: Intent, typed = '') {
-	// On the organization's home page, as in the app: its api calls and links name it.
+	// In the organization, as in the app: its api calls and links name it.
 	return render(
 		<MemoryRouter initialEntries={['/org-1']}>
 			<TooltipProvider>

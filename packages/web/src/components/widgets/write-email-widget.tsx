@@ -2,7 +2,7 @@ import {useState} from 'react';
 import type {Intent} from '@/client/intent-client';
 import {writeEmail} from '@/client/widgets-client';
 import {Badge} from '@proxy/ui/components/badge';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
 import {EnterButton} from '@/components/widgets/enter-button';
 import {Missing, WidgetFrame, WidgetInput, WidgetTextarea} from '@/components/widgets/widget-frame';
@@ -80,14 +80,13 @@ export function WriteEmailWidget({
 			status={<WriteResult status={status} />}
 			actions={
 				<>
-					<Button
-						size="sm"
-						variant="outline"
+					<PillButton
+						variant="ghost"
 						onClick={() => write(false)}
 						disabled={!from || to.length === 0 || busy}
 					>
 						Save draft
-					</Button>
+					</PillButton>
 					<EnterButton
 						bar={bar}
 						onClick={() => write(true)}

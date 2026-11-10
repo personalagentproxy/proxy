@@ -1,5 +1,5 @@
 import {Link} from 'react-router';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import type {PageTab} from '@/lib/page-tabs';
 
 // A page's parts as tabs under its title, one shown at a time (lib/page-tabs.ts): each a link, so
@@ -18,10 +18,9 @@ export function PageTabs<T extends string>({
 	return (
 		<nav aria-label={`${label} sections`} className="flex flex-wrap gap-1">
 			{tabs.map((tab, index) => (
-				<Button
+				<PillButton
 					key={tab.id}
-					size="sm"
-					variant={tab.id === chosen ? 'secondary' : 'ghost'}
+					variant="ghost"
 					nativeButton={false}
 					render={
 						<Link
@@ -36,7 +35,7 @@ export function PageTabs<T extends string>({
 					{tab.count !== undefined && (
 						<span className="text-muted-foreground tabular-nums">{tab.count}</span>
 					)}
-				</Button>
+				</PillButton>
 			))}
 		</nav>
 	);

@@ -4,7 +4,6 @@ import type {ChatPersona} from '@proxy/contracts/harness';
 import {
 	BellIcon,
 	ChartNoAxesGanttIcon,
-	HomeIcon,
 	ListChecksIcon,
 	type LucideIcon,
 	MessageSquareIcon,
@@ -64,7 +63,6 @@ export function rowId(destination: Destination): string {
 // The app's pages, the sidebar's first, then what is under the organization's mark and the
 // person's account, then the two that add something.
 const PAGES: Page[] = [
-	{label: 'Home', to: (org) => `/${org}`, icon: HomeIcon, keywords: ['start']},
 	{
 		label: 'Chat',
 		to: (org) => `/${org}/chat`,
@@ -267,18 +265,25 @@ function byNameLength(personas: ChatPersona[]): ChatPersona[] {
 /** A text said to an agent by name: the agent, and what is said to it, without its name. */
 export type Addressed = {persona: ChatPersona; message: string};
 
+// What may come before an agent's name when it is asked something, "ask my Finance agent …", and
+// after it, as patterns; and that what follows the name isn't only the word after it, "ask
+// Finance agent" being still on its way to what is asked.
+const BEFORE_NAME = '(?:(?:my|our|the)\\s+)?';
+const AFTER_NAME = '(?:\\s+(?:agent|assistant|bot))?';
+const NOT_ONLY_AFTER_NAME = '(?!(?:agent|assistant|bot)\\s*$)';
+
 /**
  * The persona a text is said to, by name, and what is said to it: "@Finance …", "ask Finance …",
- * "tell Finance …", "Finance, …" or "Finance: …". Such a text is a message to that agent whatever
- * else it reads like, so no quick action is looked for, and the message is what follows the name:
- * "ask Finance to pay the invoice" says "pay the invoice". Null for any other text, and while
- * nothing follows the name yet.
+ * "tell Finance …", "Finance, …" or "Finance: …", the name also as "my Finance agent". Such a text
+ * is a message to that agent whatever else it reads like, so no quick action is looked for, and
+ * the message is what follows the name: "ask Finance to pay the invoice" says "pay the invoice".
+ * Null for any other text, and while nothing follows the name yet.
  */
 export function addressedPersona(text: string, personas: ChatPersona[]): Addressed | null {
 	for (const persona of byNameLength(personas)) {
-		const name = namePattern(persona);
+		const name = `${namePattern(persona)}${AFTER_NAME}`;
 		const said = new RegExp(
-			`^\\s*(?:@${name}[\\s,:]*|(?:ask|tell|message|ping|hey|hi)\\s+@?${name}[\\s,:]*(?:(?:to|that)\\s+)?|${name}\\s*[,:]\\s*)(\\S.*)$`,
+			`^\\s*(?:@${name}[\\s,:]*|(?:ask|tell|message|ping|hey|hi)\\s+${BEFORE_NAME}@?${name}[\\s,:]*(?:(?:to|that)\\s+)?|${name}\\s*[,:]\\s*)${NOT_ONLY_AFTER_NAME}(\\S.*)$`,
 			'isu',
 		);
 		const message = said.exec(text)?.[1]?.trim();

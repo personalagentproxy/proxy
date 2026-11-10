@@ -41,7 +41,7 @@ export function WidgetFrame({name, children, actions, status, failed = []}: Prop
 			{(status || actions) && (
 				<footer className="flex flex-wrap items-center justify-between gap-3">
 					<div className="min-w-0 text-xs text-muted-foreground">{status}</div>
-					{actions && <div className="flex gap-1.5 *:rounded-full">{actions}</div>}
+					{actions && <div className="flex gap-1.5">{actions}</div>}
 				</footer>
 			)}
 		</section>

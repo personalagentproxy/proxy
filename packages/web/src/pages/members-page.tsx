@@ -11,6 +11,7 @@ import {PersonAvatar} from '@/components/person-avatar';
 import {RowHeader, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {
 	Dialog,
 	DialogContent,
@@ -96,10 +97,10 @@ function Members() {
 			<PageHeader
 				actions={
 					owner && (
-						<Button size="sm" onClick={() => setInviting(true)}>
+						<PillButton onClick={() => setInviting(true)}>
 							<MailPlusIcon data-icon="inline-start" />
 							Invite
-						</Button>
+						</PillButton>
 					)
 				}
 			/>
@@ -359,12 +360,12 @@ function InviteDialog({
 					</div>
 					{error && <p className="text-sm text-destructive">{error}</p>}
 					<DialogFooter>
-						<Button type="button" variant="outline" onClick={onClose}>
+						<PillButton type="button" variant="ghost" onClick={onClose}>
 							Cancel
-						</Button>
-						<Button type="submit" disabled={!ready || sending}>
+						</PillButton>
+						<PillButton type="submit" disabled={!ready || sending}>
 							{sending ? 'Sending…' : 'Send invitation'}
-						</Button>
+						</PillButton>
 					</DialogFooter>
 				</form>
 			</DialogContent>

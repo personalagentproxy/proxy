@@ -35,20 +35,13 @@ function PaletteBar({org, onClose}: {org: string; onClose: () => void}) {
 		};
 	}, [org]);
 
-	return (
-		<CommandBar
-			place="dialog"
-			connections={lists.connections}
-			agents={lists.agents}
-			onClose={onClose}
-		/>
-	);
+	return <CommandBar connections={lists.connections} agents={lists.agents} onClose={onClose} />;
 }
 
 /**
  * Around the human side's pages: Cmd+K (Ctrl+K off a Mac) opens the command bar in a dialog over
- * whatever page is up, and closes it again; on a page with the bar on it, as Home, it puts the
- * cursor there instead. The dialog is the page's it was opened on, so going anywhere closes it.
+ * whatever page is up, and closes it again. The dialog is the page's it was opened on, so going
+ * anywhere closes it.
  */
 export function CommandPaletteProvider({children}: {children: ReactNode}) {
 	// The sidebar's organization: the address's, or on the person's account page, their first.
@@ -59,20 +52,10 @@ export function CommandPaletteProvider({children}: {children: ReactNode}) {
 	useEffect(() => {
 		here.current = pathname;
 	}, [pathname]);
-	// The page's own bar, where it has one.
-	const own = useRef<(() => void) | null>(null);
-
 	const toggle = useCallback(() => {
-		if (own.current) {
-			own.current();
-			return;
-		}
 		setOpenedOn((on) => (on === here.current ? null : here.current));
 	}, []);
-	const setOwn = useCallback((focus: (() => void) | null) => {
-		own.current = focus;
-	}, []);
-	const palette = useMemo(() => ({toggle, setOwn}), [toggle, setOwn]);
+	const palette = useMemo(() => ({toggle}), [toggle]);
 
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {

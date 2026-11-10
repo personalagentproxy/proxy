@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import type {Intent} from '@/client/intent-client';
 import type {Answer, AskedCollection, Failure, Source} from '@/client/widgets-client';
-import {buttonVariants} from '@proxy/ui/components/button';
+import {pillVariants} from '@/lib/pill-variants';
 import {Skeleton} from '@proxy/ui/components/skeleton';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
@@ -292,7 +292,7 @@ export function AskWidget({intent, typed, now}: {intent: Intent; typed: string; 
 						href={picked.link}
 						target="_blank"
 						rel="noreferrer"
-						className={buttonVariants({size: 'sm', variant: 'outline'})}
+						className={pillVariants({variant: 'ghost'})}
 					>
 						Open in {from.openIn}
 					</a>

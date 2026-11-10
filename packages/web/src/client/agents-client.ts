@@ -108,7 +108,7 @@ export function getTaskRun(org: string, taskId: string) {
 }
 
 /**
- * The home page's timeline: every task under way at some point between `from` and `to`, ISO
+ * The Activity page's timeline: every task under way at some point between `from` and `to`, ISO
  * instants, or since `from` without `to`, with its sub-tasks and the requests made for them.
  */
 export function getActivityTimeline(org: string, from: string, to?: string) {

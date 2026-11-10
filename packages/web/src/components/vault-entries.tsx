@@ -15,7 +15,7 @@ import {AddButton} from '@/components/add-button';
 import {RecordForm} from '@/components/record-form';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
 import {Badge} from '@proxy/ui/components/badge';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@proxy/ui/components/dialog';
 import {useApply} from '@/hooks/use-apply';
 import {recordTitle} from '@/lib/access';
@@ -97,7 +97,7 @@ export function VaultEntries({connectionId, entries, made}: Props) {
 						? 'What the agents of everyone who uses this vault should know'
 						: 'What your agents should know about you'}
 				</span>
-				<AddButton label="Add entry" variant="outline" onClick={() => open({entry: null})} />
+				<AddButton label="Add entry" variant="ghost" onClick={() => open({entry: null})} />
 			</div>
 			<RowList
 				header={
@@ -158,7 +158,7 @@ export function VaultEntries({connectionId, entries, made}: Props) {
 							}}
 							extra={
 								editing.entry && (
-									<Button
+									<PillButton
 										type="button"
 										variant="destructive"
 										onClick={() => {
@@ -169,7 +169,7 @@ export function VaultEntries({connectionId, entries, made}: Props) {
 										}}
 									>
 										Delete
-									</Button>
+									</PillButton>
 								)
 							}
 						/>

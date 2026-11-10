@@ -19,7 +19,7 @@ import {useOrgSlug} from '@/hooks/use-org';
 import {lookup, type Lookup} from '@/lib/lookup';
 import {bestMatch, isAddress} from '@/lib/widget-values';
 
-// What the home page's widgets read, each kept by what it asked and the organization it asked
+// What the command bar's widgets read, each kept by what it asked and the organization it asked
 // in, so typing on doesn't ask again for what it already has.
 
 // A lookup in the organization the address names: the hook reads it there, so a widget asks as it

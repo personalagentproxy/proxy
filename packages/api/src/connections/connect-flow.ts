@@ -46,7 +46,8 @@ import {ownership} from './ownership';
  * `?error=<integration>` (with `?error=<integration>-unconfigured` when the server lacks what the
  * sign-in needs, such as Google's client); a sign-in begun from the welcome flow
  * (`returnTo: 'welcome'`) ends on its page for the connection, or its catalog, instead, and one
- * begun from a home page widget's card (`returnTo: 'home'`) back on the home page. One begun from
+ * begun from a command bar widget's card (`returnTo: 'home'`) at the organization's address, where
+ * the app opens. One begun from
  * the desktop app runs in the browser, which the app hands over to (`auth/desktop.ts`) with
  * `?desktop=1` on the start, and ends on `/desktop-return`, which opens that page in the app. What
  * the provider's sign-in page is and how a code becomes tokens and a connection is the
@@ -373,7 +374,7 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 		redirectBack(res, appUrl, back, landingPath(back, id, added));
 	}
 
-	// Where a finished sign-in lands: the welcome flow's page for the connection, the home page, or
+	// Where a finished sign-in lands: the welcome flow's page for the connection, the organization's address, or
 	// the connection's page, saying it was added unless it was only signed in to again.
 	function landingPath(back: Back, id: string, added: boolean): string {
 		if (back.returnTo === 'welcome') {

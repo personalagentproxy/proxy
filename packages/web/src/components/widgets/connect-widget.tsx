@@ -1,5 +1,5 @@
 import {Link} from 'react-router';
-import {buttonVariants} from '@proxy/ui/components/button';
+import {pillVariants} from '@/lib/pill-variants';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {WidgetFrame} from '@/components/widgets/widget-frame';
 import {onSignInClick} from '@/lib/desktop';
@@ -15,7 +15,7 @@ type Props = {
 };
 
 // A widget with nothing connected to read: what it needs, and a button per integration that has
-// one of its collections, which signs in and comes back to the home page, or opens the integration's form.
+// one of its collections, which signs in and comes back to the organization's address, where the app opens, or opens the integration's form.
 export function ConnectWidget({name, collectionIds, children}: Props) {
 	const org = useOrgSlug();
 	const offering = INTEGRATIONS.filter(
@@ -28,7 +28,7 @@ export function ConnectWidget({name, collectionIds, children}: Props) {
 		<WidgetFrame
 			name={name}
 			actions={offering.map((integration) => {
-				const className = buttonVariants({size: 'sm', variant: 'outline'});
+				const className = pillVariants({variant: 'ghost'});
 				const content = (
 					<>
 						<IntegrationLogo integration={integration} />

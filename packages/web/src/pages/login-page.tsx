@@ -4,6 +4,7 @@ import {Link, useLoaderData, useSearchParams} from 'react-router';
 import {devLogin, googleSignInUrl, requestMagicLink} from '@/client/auth-client';
 import {GoogleIcon} from '@/components/google-icon';
 import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {sanitizeCallbackUrl} from '@/lib/callback-url';
@@ -84,15 +85,15 @@ export function LoginPage() {
 				)}
 				{methods.google && (
 					<>
-						<Button
-							variant="outline"
+						<PillButton
+							variant="ghost"
 							onClick={() => {
 								window.location.href = googleSignInUrl(callbackUrl);
 							}}
 						>
 							<GoogleIcon />
 							Continue with Google
-						</Button>
+						</PillButton>
 						<p className="text-center text-sm text-muted-foreground">or</p>
 					</>
 				)}
@@ -107,9 +108,12 @@ export function LoginPage() {
 							onChange={(event) => setEmail(event.target.value)}
 						/>
 					</div>
-					<Button type="submit" disabled={email.trim().length === 0 || status.kind === 'sending'}>
+					<PillButton
+						type="submit"
+						disabled={email.trim().length === 0 || status.kind === 'sending'}
+					>
 						Send sign-in link
-					</Button>
+					</PillButton>
 					{status.kind === 'sent' && (
 						<p className="text-sm text-muted-foreground">
 							{status.logged

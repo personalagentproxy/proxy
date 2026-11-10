@@ -4,8 +4,7 @@ import {TRANSACTION_CATEGORIES} from '@proxy/utils/transaction-categories';
 import {UNITS} from '@proxy/utils/units';
 
 /**
- * The widgets the command bar shows for what a person types, on the home page and over any other
- * (Cmd+K), Sana's way: Jev picks the one that fits, and a small, fast LLM fills in its fields from
+ * The widgets the command bar shows for what a person types, over any page (Cmd+K), Sana's way: Jev picks the one that fits, and a small, fast LLM fills in its fields from
  * the text (`packages/api/src/intent/`). Most are meant for one kind of data: Calendar, Contacts,
  * Gmail or Drive, or a bank; Math and Convert units are worked out in the web app; Ask reads one
  * meeting, file, email, page or issue and answers from it; New agent makes an agent of Chat's and

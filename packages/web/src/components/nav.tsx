@@ -1,7 +1,6 @@
 import {
 	BellIcon,
 	ChartNoAxesGanttIcon,
-	HomeIcon,
 	ListChecksIcon,
 	MessageSquareIcon,
 	PlugIcon,
@@ -49,12 +48,9 @@ function UnreadBadge({count}: {count: number}) {
 }
 
 // The organization's, under the switcher, each under its slug, in groups set apart from each
-// other. Its members and settings are in the switcher.
+// other, the first under Search. Its members and settings are in the switcher.
 const GROUPS: Destination[][] = [
-	[
-		{to: '', label: 'Home', icon: HomeIcon},
-		{to: '/chat', label: 'Chat', icon: MessageSquareIcon, experiment: 'harness'},
-	],
+	[{to: CHAT, label: 'Chat', icon: MessageSquareIcon, experiment: 'harness'}],
 	[
 		{to: '/connections', label: 'Connections and permissions', icon: PlugIcon},
 		{to: '/agents', label: 'External agents', icon: ListChecksIcon},
@@ -64,12 +60,6 @@ const GROUPS: Destination[][] = [
 		{to: '/alerts', label: 'Alerts', icon: BellIcon, experiment: 'harness'},
 	],
 ];
-
-// Each destination is lit on its own pages too, as `/acme/connections/:id`; Home only on itself,
-// since every path in the organization starts with its slug.
-function isActive(pathname: string, path: string, home: string): boolean {
-	return path === home ? pathname === home : pathname.startsWith(path);
-}
 
 // The stock shadcn sidebar: always a rail in icon mode on desktop, labels in tooltips; a sheet from
 // the left on phones, opened from the header and closed again on every pick. The organization
@@ -82,7 +72,7 @@ export function AppSidebar() {
 	const unread = useUnread();
 	const {setOpenMobile} = useSidebar();
 	const palette = useCommandPalette();
-	const home = `/${human?.org.slug ?? ''}`;
+	const base = `/${human?.org.slug ?? ''}`;
 	const groups = GROUPS.map((group) =>
 		group.filter(
 			(destination) =>
@@ -120,10 +110,11 @@ export function AppSidebar() {
 							{group.map((destination) => (
 								<SidebarMenuItem key={destination.to}>
 									<SidebarMenuButton
-										isActive={isActive(pathname, `${home}${destination.to}`, home)}
+										// Lit on its own pages too, as `/acme/connections/:id`.
+										isActive={pathname.startsWith(`${base}${destination.to}`)}
 										tooltip={destination.label}
 										render={
-											<Link to={`${home}${destination.to}`} onClick={() => setOpenMobile(false)} />
+											<Link to={`${base}${destination.to}`} onClick={() => setOpenMobile(false)} />
 										}
 									>
 										<destination.icon />

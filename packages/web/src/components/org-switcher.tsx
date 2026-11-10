@@ -2,7 +2,7 @@ import {CheckIcon, ChevronsUpDownIcon, PlusIcon, SettingsIcon, UsersIcon} from '
 import {useState} from 'react';
 import {Link, useLocation, useNavigate} from 'react-router';
 import {createOrg} from '@/client/orgs-client';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {
 	Dialog,
 	DialogContent,
@@ -52,7 +52,7 @@ const ORG_PAGES = [
 // The top of the sidebar's rail: the organization the address names, as its mark. Hovering it, or
 // clicking it on a touch screen, opens the switcher beside the rail, with the organization's
 // members and settings, lit while one of them is open. Everything on the human side is that
-// organization's; switching goes to another's address, its Home.
+// organization's; switching goes to another's address, where it opens.
 export function OrgSwitcher() {
 	const human = useHuman();
 	const {isMobile, setOpenMobile} = useSidebar();
@@ -215,12 +215,12 @@ function CreateOrgDialog({
 					</div>
 					{error && <p className="text-sm text-destructive">{error}</p>}
 					<DialogFooter>
-						<Button type="button" variant="outline" onClick={onClose}>
+						<PillButton type="button" variant="ghost" onClick={onClose}>
 							Cancel
-						</Button>
-						<Button type="submit" disabled={name.trim() === '' || saving}>
+						</PillButton>
+						<PillButton type="submit" disabled={name.trim() === '' || saving}>
 							{saving ? 'Creating…' : 'Create'}
-						</Button>
+						</PillButton>
 					</DialogFooter>
 				</form>
 			</DialogContent>

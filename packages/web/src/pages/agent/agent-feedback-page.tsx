@@ -3,7 +3,7 @@ import {Link, useSearchParams} from 'react-router';
 import {sendAgentFeedback} from '@/client/agent-client';
 import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
 import {SuccessLine} from '@/components/success-line';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Label} from '@proxy/ui/components/label';
 import {Textarea} from '@proxy/ui/components/textarea';
 import {useAgentMe} from '@/hooks/use-agent-target';
@@ -87,9 +87,9 @@ export function AgentFeedbackPage() {
 					</div>
 					{error && <p className="text-sm text-destructive">{error}</p>}
 					<div className="flex justify-end">
-						<Button type="submit" disabled={sending || message.trim() === ''}>
+						<PillButton type="submit" disabled={sending || message.trim() === ''}>
 							{sending ? 'Sending…' : 'Send feedback'}
-						</Button>
+						</PillButton>
 					</div>
 				</form>
 			</div>

@@ -9,8 +9,6 @@ import {createMemoryRouter, RouterProvider, useLocation} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {HumanSide} from '@/components/human-side';
-import {HomePage} from '@/pages/home-page';
-import {later} from '@/lib/loader-utils';
 import {testHuman, testOrg} from '@/test-org';
 import {clearWidgetLookups} from '@/test-widgets-api';
 
@@ -130,9 +128,9 @@ afterEach(async () => {
 	// A dialog still up is closed first, and one on its way out waited for: taken away before it
 	// has gone, it leaves the document behind it marked as hidden, and the next test's dialog
 	// with it.
-	const close = screen.queryByRole('button', {name: 'Close'});
-	if (close) {
-		fireEvent.click(close);
+	const input = screen.queryByRole('searchbox', {name: 'Quick actions'});
+	if (input) {
+		fireEvent.keyDown(input, {key: 'Escape'});
 	}
 	await waitFor(
 		() => expect(document.querySelector('[data-slot="dialog-content"]') === null).toBe(true),
@@ -157,11 +155,6 @@ function renderApp(entry = '/acme/activity') {
 				loader: () => human,
 				element: <HumanSide />,
 				children: [
-					{
-						path: '/:org',
-						loader: later(async () => ({connections: [granola], agents: [claude], activity: null})),
-						element: <HomePage />,
-					},
 					{path: '/:org/*', element: <Where />},
 					{path: '/account', element: <Where />},
 				],
@@ -226,7 +219,7 @@ describe('the command bar over any page', () => {
 
 		await openBar();
 		await waitFor(() => expect(rows().some((row) => row.startsWith('Granola'))).toBe(true));
-		expect(rows().slice(0, 2)).toEqual(['HomePage', 'ChatPage']);
+		expect(rows().slice(0, 2)).toEqual(['ChatPage', 'Connections and permissionsPage']);
 		expect(rows().some((row) => row.startsWith('Finance'))).toBe(true);
 		expect(rows().some((row) => row.startsWith('Claude'))).toBe(true);
 
@@ -286,6 +279,10 @@ describe('the command bar over any page', () => {
 		const card = await cardNamed('Send to an agent');
 		expect(within(card).getByRole('combobox', {name: 'Agent'}).textContent).toContain('General');
 		expect(card.textContent).toContain('Send this to General');
+		// The card's main button says what it does, with the mark that Enter presses it.
+		const send = within(card).getByRole('button', {name: 'Send'});
+		expect(send.textContent).toBe('Send');
+		expect(send.querySelector('svg')).not.toBeNull();
 		fireEvent.keyDown(input, {key: 'Enter'});
 
 		await arrivedAt('/acme/chat/general');
@@ -495,26 +492,5 @@ describe('the command bar over any page', () => {
 
 		await arrivedAt('/acme/activity');
 		expect(posts('/intent')).toEqual([]);
-	});
-});
-
-describe('the command bar on the home page', () => {
-	test('takes the cursor on the shortcut, instead of opening over the page, and goes places as it does there', async () => {
-		renderApp('/acme');
-		const input = await screen.findByRole('searchbox', {name: 'Quick actions'});
-		input.blur();
-		expect(document.activeElement).not.toBe(input);
-
-		pressShortcut();
-
-		expect(document.activeElement).toBe(input);
-		expect(screen.getAllByRole('searchbox', {name: 'Quick actions'})).toHaveLength(1);
-		// Nowhere to go is listed before anything is typed, on the page.
-		expect(rows()).toEqual([]);
-
-		fireEvent.change(input, {target: {value: 'gran'}});
-		expect(rows()).toEqual(['Granolame@example.comConnection']);
-		fireEvent.keyDown(input, {key: 'Enter'});
-		await arrivedAt('/acme/connections/granola-1');
 	});
 });

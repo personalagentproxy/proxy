@@ -1,11 +1,10 @@
 import type {ChatPersona} from '@proxy/contracts/harness';
-import {ArrowUpIcon} from 'lucide-react';
 import {useRef, useState} from 'react';
 import {postMessage} from '@/client/harness-client';
 import {Head} from '@/components/head';
-import {Button} from '@proxy/ui/components/button';
 import {Select, SelectContent, SelectItem, SelectTrigger} from '@proxy/ui/components/select';
-import {type BarAction, useBarAction} from '@/hooks/use-bar-action';
+import {EnterButton} from '@/components/widgets/enter-button';
+import type {BarAction} from '@/hooks/use-bar-action';
 import {useOrgSlug} from '@/hooks/use-org';
 import {useWriteStatus} from '@/hooks/use-write-status';
 import {writeErrorMessage} from '@/lib/write-status';
@@ -61,8 +60,8 @@ function AgentPicker({
 }
 
 // A message to one of Chat's agents, which makes the bar Chat's message box: under the input, a
-// line as the one that names the model there, saying whom it goes to, and the round button that
-// sends it. What no quick action does is sent as it was typed ("Send this to General"); what was
+// line as the one that names the model there, saying whom it goes to, and the Send button, the
+// card's main one. What no quick action does is sent as it was typed ("Send this to General"); what was
 // said to an agent by name, without the name ("Send “pay the invoice” to Finance"). The agent is
 // `suggested`, or another picked in the line. Enter in the bar's input sends it, as in Chat, and
 // the app goes to the conversation, where the agent answers.
@@ -104,7 +103,6 @@ export function AgentWidget({
 			bar.done(`/${org}/chat/${persona.id}`);
 		});
 	};
-	useBarAction(bar, send, persona !== null);
 
 	if (!persona) {
 		return null;
@@ -123,15 +121,9 @@ export function AgentWidget({
 					<span className="shrink-0">to</span>{' '}
 					<AgentPicker personas={personas} persona={persona} onPick={setPickedId} />
 				</div>
-				<Button
-					size="icon-sm"
-					className="shrink-0 rounded-full"
-					aria-label="Send"
-					onClick={send}
-					disabled={busy}
-				>
-					<ArrowUpIcon />
-				</Button>
+				<EnterButton bar={bar} onClick={send} disabled={busy}>
+					Send
+				</EnterButton>
 			</div>
 			{status.kind === 'failed' && <p className="text-destructive">{status.message}</p>}
 		</section>

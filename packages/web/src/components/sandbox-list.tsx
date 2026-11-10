@@ -3,7 +3,7 @@ import {useState} from 'react';
 import {deleteRecord} from '@/client/records-client';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
 import {Badge} from '@proxy/ui/components/badge';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@proxy/ui/components/dialog';
 import {useApply} from '@/hooks/use-apply';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -117,10 +117,10 @@ export function SandboxList({connectionId, sandboxes}: Props) {
 							Deleting a sandbox deletes everything on it, for good.
 						</p>
 						<div className="flex justify-end gap-2">
-							<Button type="button" variant="outline" onClick={() => open(null)}>
+							<PillButton type="button" variant="ghost" onClick={() => open(null)}>
 								Close
-							</Button>
-							<Button
+							</PillButton>
+							<PillButton
 								type="button"
 								variant="destructive"
 								onClick={() => {
@@ -128,7 +128,7 @@ export function SandboxList({connectionId, sandboxes}: Props) {
 								}}
 							>
 								Delete
-							</Button>
+							</PillButton>
 						</div>
 						{error && <p className="text-sm text-destructive">{error}</p>}
 					</DialogContent>

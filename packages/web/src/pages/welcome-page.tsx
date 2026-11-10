@@ -16,7 +16,7 @@ import {ConnectionAccess, SignInAgain} from '@/components/connection-access';
 import {IntegrationCatalog, SignInFailed} from '@/components/integration-catalog';
 import {StepHeading} from '@/components/step-heading';
 import {SuccessLine} from '@/components/success-line';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Card} from '@proxy/ui/components/card';
 import {defaultActions, integrationOf} from '@/lib/access';
 import {
@@ -113,14 +113,14 @@ export function WelcomeConnectionPage() {
 		return (
 			<Frame step={2}>
 				<p className="text-sm text-muted-foreground">This connection does not exist.</p>
-				<Button
-					variant="outline"
+				<PillButton
+					variant="ghost"
 					className="justify-self-start"
 					nativeButton={false}
 					render={<Link to={`/${org}/welcome/connections`} />}
 				>
 					Back
-				</Button>
+				</PillButton>
 			</Frame>
 		);
 	}
@@ -185,9 +185,9 @@ function ConnectionsStep({
 				onConnected={(connection) => navigate(`/${org}/welcome/connections/${connection.id}`)}
 			/>
 			<div className="flex justify-end">
-				<Button nativeButton={false} render={<Link to={`/${org}/welcome/agent`} />}>
+				<PillButton nativeButton={false} render={<Link to={`/${org}/welcome/agent`} />}>
 					Continue
-				</Button>
+				</PillButton>
 			</div>
 		</>
 	);
@@ -202,13 +202,13 @@ function EmailStep({onContinue}: {onContinue: (connection: Connection) => void})
 			<StepHeading title={EMAIL_FORM.title}>{EMAIL_FORM.intro}</StepHeading>
 			<ConnectEmailForm
 				cancel={
-					<Button
-						variant="outline"
+					<PillButton
+						variant="ghost"
 						nativeButton={false}
 						render={<Link to={`/${org}/welcome/connections`} />}
 					>
 						Back
-					</Button>
+					</PillButton>
 				}
 				continueLabel="Continue"
 				onConnected={onContinue}
@@ -225,13 +225,13 @@ function BankStep({onContinue}: {onContinue: (connection: Connection) => void}) 
 			<StepHeading title={PLAID_FORM.title}>{PLAID_FORM.intro}</StepHeading>
 			<ConnectBankForm
 				cancel={
-					<Button
-						variant="outline"
+					<PillButton
+						variant="ghost"
 						nativeButton={false}
 						render={<Link to={`/${org}/welcome/connections`} />}
 					>
 						Back
-					</Button>
+					</PillButton>
 				}
 				onConnected={onContinue}
 			/>
@@ -257,13 +257,13 @@ function DatabaseStep({
 				key={dialect}
 				dialect={dialect}
 				cancel={
-					<Button
-						variant="outline"
+					<PillButton
+						variant="ghost"
 						nativeButton={false}
 						render={<Link to={`/${org}/welcome/connections`} />}
 					>
 						Back
-					</Button>
+					</PillButton>
 				}
 				continueLabel="Continue"
 				onConnected={onContinue}
@@ -283,13 +283,13 @@ function McpStep({onContinue}: {onContinue: (connection: Connection) => void}) {
 			</StepHeading>
 			<ConnectMcpForm
 				cancel={
-					<Button
-						variant="outline"
+					<PillButton
+						variant="ghost"
 						nativeButton={false}
 						render={<Link to={`/${org}/welcome/connections`} />}
 					>
 						Back
-					</Button>
+					</PillButton>
 				}
 				returnTo="welcome"
 				onConnected={onContinue}
@@ -361,7 +361,7 @@ function ConnectionStep({
 			)}
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<div className="flex justify-end">
-				<Button onClick={() => navigate(`/${org}/welcome/connections`)}>Confirm</Button>
+				<PillButton onClick={() => navigate(`/${org}/welcome/connections`)}>Confirm</PillButton>
 			</div>
 		</>
 	);

@@ -2,7 +2,7 @@ import type {ActivityTask, AuditEntry} from '@proxy/contracts/activity';
 import {taskEndedAt} from '@proxy/utils/tasks';
 import {requestTimes} from '@/lib/timeline';
 
-// The home page's timeline looks back over a window of time ending now, chosen from a few on offer
+// The Activity page's timeline looks back over a window of time ending now, chosen from a few on offer
 // or zoomed to any length; and a task, there and on its page, is under way, finished or left open.
 
 // The windows on offer, each a stretch of time ending now. Zooming goes between and beyond them.

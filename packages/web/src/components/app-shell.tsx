@@ -27,7 +27,7 @@ type Props = {
 	// frame is up at once, and shows `waiting` in its place until the answer has come.
 	children: ReactNode;
 	// The header's title, where the page knows it before anything is loaded. A page with neither
-	// this nor `loadsTitle`, as Home, has no header, and on a phone the sidebar's button alone in
+	// this nor `loadsTitle` has no header, and on a phone the sidebar's button alone in
 	// its corner.
 	title?: ReactNode;
 	// The content names the page once loaded (`PageHeader`), as a page for one agent does; the

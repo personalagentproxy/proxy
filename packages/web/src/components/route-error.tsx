@@ -1,6 +1,6 @@
 import {Component, type ReactNode, useEffect} from 'react';
 import {isRouteErrorResponse, useRouteError} from 'react-router';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {LoadFailure} from '@/lib/loader-utils';
 import {log, serializeError} from '@/lib/log';
 import {cn} from '@proxy/ui/lib/utils';
@@ -32,9 +32,9 @@ function Failure({error, className}: {error: unknown; className: string}) {
 			<p className="text-sm text-muted-foreground">
 				{notFound ? 'This page does not exist.' : 'Something went wrong loading this page.'}
 			</p>
-			<Button variant="outline" onClick={() => window.location.reload()}>
+			<PillButton variant="ghost" onClick={() => window.location.reload()}>
 				Try again
-			</Button>
+			</PillButton>
 		</div>
 	);
 }

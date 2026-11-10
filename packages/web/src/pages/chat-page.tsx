@@ -5,7 +5,7 @@ import type {
 	Persona,
 	ThreadLog,
 } from '@proxy/contracts/harness';
-import {ArrowUpIcon, MoonIcon, PencilIcon, Trash2Icon} from 'lucide-react';
+import {MoonIcon, PencilIcon, Trash2Icon} from 'lucide-react';
 import {type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState} from 'react';
 import {Link, useNavigate, useParams} from 'react-router';
 import {
@@ -22,13 +22,9 @@ import {LiveHead} from '@/components/head';
 import {Markdown} from '@/components/markdown';
 import {type ModelChoice, ModelSwitcher} from '@/components/model-switcher';
 import {PersonaDialog} from '@/components/persona-dialog';
+import {PillButton} from '@/components/pill-button';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
-import {
-	InputGroup,
-	InputGroupAddon,
-	InputGroupButton,
-	InputGroupTextarea,
-} from '@proxy/ui/components/input-group';
+import {InputGroup, InputGroupAddon, InputGroupTextarea} from '@proxy/ui/components/input-group';
 import {Message, MessageContent} from '@/components/chat/message';
 import {
 	MessageScroller,
@@ -679,16 +675,14 @@ function Conversation({
 							mayChange={current.mayChange}
 							onPick={(choice) => void switchModel(choice)}
 						/>
-						<InputGroupButton
+						{/* The command bar's main button without its label: Enter's mark, as Enter sends. */}
+						<PillButton
 							type="submit"
-							size="icon-sm"
-							variant="default"
-							className="ml-auto rounded-full"
+							enter
+							className="ml-auto"
 							disabled={sending || text.trim() === ''}
 							aria-label="Send"
-						>
-							<ArrowUpIcon />
-						</InputGroupButton>
+						/>
 					</InputGroupAddon>
 				</InputGroup>
 			</form>

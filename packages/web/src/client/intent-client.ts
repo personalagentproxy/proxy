@@ -9,7 +9,7 @@ import {
 } from '@proxy/contracts/intent';
 import {apiRequest, orgApi} from '@/client/request';
 
-/** A widget and its fields, as the home page shows it; `none` when no widget does what was asked. */
+/** A widget and its fields, as the command bar shows it; `none` when no widget does what was asked. */
 export type Intent = {widget: WidgetId | typeof NO_WIDGET; fields: FilledField[]};
 
 /** Which widget fits what was typed, in the organization `org` (`POST /api/orgs/:org/intent`). */

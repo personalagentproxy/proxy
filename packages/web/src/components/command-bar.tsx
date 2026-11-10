@@ -15,7 +15,6 @@ import {UnsupportedWidget} from '@/components/widgets/unsupported-widget';
 import {Input} from '@proxy/ui/components/input';
 import {Skeleton} from '@proxy/ui/components/skeleton';
 import {cn} from '@proxy/ui/lib/utils';
-import {useOwnCommandBar} from '@/hooks/use-command-palette';
 import {useExperiments} from '@/hooks/use-experiment';
 import {useHuman} from '@/hooks/use-human';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -113,20 +112,17 @@ function useChatPersonas(org: string, chat: boolean): ChatPersona[] | null {
 }
 
 type Props = {
-	// On a page of its own, as Home, where it comes forward over the page as it is typed in; or
-	// in a dialog over any other (command-palette.tsx), which lists where to go before anything
-	// is typed.
-	place: 'page' | 'dialog';
 	// What is connected and the external agents, to go to; null while they load.
 	connections: Connection[] | null;
 	agents: AgentLogin[] | null;
 	// Closes the dialog it is in.
-	onClose?: () => void;
+	onClose: () => void;
 };
 
 /**
- * The command bar, as Sana's: one input that goes somewhere, does a quick action, or hands what
- * is typed to an agent. As it is typed in, it lists the pages, conversations, connections and
+ * The command bar, as Sana's, in the dialog Cmd+K opens over any page (command-palette.tsx): one
+ * input that goes somewhere, does a quick action, or hands what is typed to an agent. Before
+ * anything is typed it lists where to go; as it is typed in, it lists the pages, conversations, connections and
  * external agents the words lead to, which Enter opens; the api picks the widget for what is
  * typed every 300 ms while typing goes on, which shows at once and fills in when its fields come.
  * In an organization with Chat, a wish for a new agent opens into one to make, and what no quick
@@ -135,7 +131,7 @@ type Props = {
  * by name ("ask Finance …") is a message to it, of what follows the name, without being classified
  * at all.
  */
-export function CommandBar({place, connections, agents, onClose}: Props) {
+export function CommandBar({connections, agents, onClose}: Props) {
 	const here = useOrgSlug();
 	const human = useHuman();
 	// On the person's account page the address names no organization: the bar goes to their first
@@ -183,23 +179,15 @@ export function CommandBar({place, connections, agents, onClose}: Props) {
 		[],
 	);
 
-	const focus = useCallback(() => {
-		input.current?.focus();
-		input.current?.select();
-	}, []);
-	useOwnCommandBar(focus, place === 'page');
-
 	const destinations = useMemo(
 		() => destinationsOf({org, chat, personas, connections, agents}),
 		[org, chat, personas, connections, agents],
 	);
 	const words = text.trim();
-	const rows = useMemo(() => {
-		if (words !== '') {
-			return findDestinations(words, destinations);
-		}
-		return place === 'dialog' ? destinations : [];
-	}, [words, destinations, place]);
+	const rows = useMemo(
+		() => (words === '' ? destinations : findDestinations(words, destinations)),
+		[words, destinations],
+	);
 	// The agent the text is said to by name, which makes it a message to that agent.
 	const addressed = asks && personas !== null ? addressedPersona(text, personas) : null;
 
@@ -337,7 +325,7 @@ export function CommandBar({place, connections, agents, onClose}: Props) {
 	// Somewhere else: the bar is left as it was found, and the dialog it is in closed.
 	const leave = (to: string) => {
 		change('');
-		onClose?.();
+		onClose();
 		void navigate(to);
 	};
 
@@ -458,116 +446,77 @@ export function CommandBar({place, connections, agents, onClose}: Props) {
 	const shownCard = card();
 	// Enter was pressed, and the answer it waits for has not come.
 	const waiting = shownCard === null && error === null && entered !== null && rows.length === 0;
-	const opened =
-		(active || place === 'dialog') &&
-		(rows.length > 0 || shownCard !== null || error !== null || waiting);
+	const opened = rows.length > 0 || shownCard !== null || error !== null || waiting;
 	const lit = rows[selected];
 
 	return (
-		<>
-			{place === 'page' && (
-				<div
-					aria-hidden
-					onClick={() => change('')}
-					className={`fixed inset-0 z-30 bg-background/50 backdrop-blur-sm transition-opacity duration-300 ease-out motion-reduce:transition-none ${active ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
-				/>
+		<div className="relative w-full overflow-hidden">
+			{!active && (
+				<QuickActions examples={chat && asks ? [...EXAMPLES, ...CHAT_EXAMPLES] : EXAMPLES} />
 			)}
-			<div
-				className={cn(
-					'relative w-full overflow-hidden',
-					place === 'page' &&
-						'z-40 max-w-2xl rounded-2xl border bg-card transition-[translate,box-shadow] duration-300 ease-out motion-reduce:transition-none',
-					place === 'page' && (active ? '-translate-y-[8vh] shadow-2xl' : 'shadow-sm'),
-				)}
-			>
-				{!active && (
-					<QuickActions examples={chat && asks ? [...EXAMPLES, ...CHAT_EXAMPLES] : EXAMPLES} />
-				)}
-				{(active || place === 'dialog') && (
-					<button
-						type="button"
-						aria-label={place === 'dialog' ? 'Close' : 'Dismiss'}
-						onClick={() => {
-							if (place === 'dialog') {
-								onClose?.();
-								return;
-							}
-							change('');
-							input.current?.focus();
-						}}
-						className="absolute top-3 right-4 z-10 rounded-md border px-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground animate-in fade-in-0 duration-300 motion-reduce:animate-none"
-					>
-						Esc
-					</button>
-				)}
-				<Input
-					ref={input}
-					autoFocus
-					// A search, not a login: password managers offer themselves on no search field
-					// (Bitwarden doesn't heed data-bwignore here), browsers suggest nothing, and the
-					// clear button search fields get is hidden, as Esc and the key beside it clear it.
-					type="search"
-					{...NO_PASSWORD_MANAGER}
-					aria-label="Quick actions"
-					aria-controls={rows.length > 0 ? 'command-rows' : undefined}
-					aria-activedescendant={lit ? rowId(lit) : undefined}
-					value={text}
-					onChange={(event) => change(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === 'Escape' && place === 'page') {
-							change('');
-							return;
-						}
-						if (event.nativeEvent.isComposing) {
-							return;
-						}
-						if (event.key === 'Enter') {
-							event.preventDefault();
-							onEnter();
-							return;
-						}
-						if (rows.length === 0 || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) {
-							return;
-						}
+			<Input
+				ref={input}
+				autoFocus
+				// A search, not a login: password managers offer themselves on no search field
+				// (Bitwarden doesn't heed data-bwignore here), browsers suggest nothing, and the
+				// clear button search fields get is hidden, as Esc and the key beside it clear it.
+				type="search"
+				{...NO_PASSWORD_MANAGER}
+				aria-label="Quick actions"
+				aria-controls={rows.length > 0 ? 'command-rows' : undefined}
+				aria-activedescendant={lit ? rowId(lit) : undefined}
+				value={text}
+				onChange={(event) => change(event.target.value)}
+				onKeyDown={(event) => {
+					if (event.nativeEvent.isComposing) {
+						return;
+					}
+					if (event.key === 'Enter') {
 						event.preventDefault();
-						const step = event.key === 'ArrowDown' ? 1 : -1;
-						setSelected((selected + step + rows.length) % rows.length);
-					}}
-					className="h-12 appearance-none rounded-none border-0 bg-transparent pr-16 pl-4 shadow-none focus-visible:ring-0 dark:bg-transparent [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none"
-				/>
-				<AnimatedHeight open={opened}>
-					{/* What is typed opens into a card on the input's own surface, as under Chat's message
+						onEnter();
+						return;
+					}
+					if (rows.length === 0 || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) {
+						return;
+					}
+					event.preventDefault();
+					const step = event.key === 'ArrowDown' ? 1 : -1;
+					setSelected((selected + step + rows.length) % rows.length);
+				}}
+				className="h-12 appearance-none rounded-none border-0 bg-transparent px-4 shadow-none focus-visible:ring-0 dark:bg-transparent [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none"
+			/>
+			<AnimatedHeight open={opened}>
+				{/* What is typed opens into a card on the input's own surface, as under Chat's message
 					    box, with no line between them; only the rows it leads to are set apart from it. */}
-					<div className={cn(rows.length > 0 && 'border-t')}>
-						{rows.length > 0 && (
-							<CommandRows rows={rows} selected={selected} onSelect={setSelected} onOpen={open} />
-						)}
-						{error && (
-							<p
-								className={cn(
-									'px-4 pb-3 text-xs text-destructive',
-									rows.length > 0 && 'border-t pt-3',
-								)}
-							>
-								{error}
-							</p>
-						)}
-						{!error && shownCard && (
-							<div
-								key={shownCard.key}
-								className={cn(
-									'animate-in duration-300 fade-in-0 slide-in-from-top-1 motion-reduce:animate-none',
-									rows.length > 0 && 'border-t pt-3',
-								)}
-							>
-								{shownCard.view}
-							</div>
-						)}
-						{waiting && <Waiting />}
-					</div>
-				</AnimatedHeight>
-			</div>
-		</>
+				<div className={cn(rows.length > 0 && 'border-t')}>
+					{rows.length > 0 && (
+						<CommandRows rows={rows} selected={selected} onSelect={setSelected} onOpen={open} />
+					)}
+					{error && (
+						<p
+							className={cn(
+								'px-4 pb-3 text-xs text-destructive',
+								rows.length > 0 && 'border-t pt-3',
+							)}
+						>
+							{error}
+						</p>
+					)}
+					{!error && shownCard && (
+						<div
+							key={shownCard.key}
+							className={cn(
+								'animate-in duration-300 fade-in-0 slide-in-from-top-1 motion-reduce:animate-none',
+								rows.length > 0 && 'border-t pt-3',
+							)}
+						>
+							{shownCard.view}
+						</div>
+					)}
+					{waiting && <Waiting />}
+				</div>
+			</AnimatedHeight>
+		</div>
 	);
 }
 

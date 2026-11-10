@@ -114,7 +114,8 @@ export function integrationOf(connection: {
 // and back to the new connection, or to the catalog with `?error=<id>` when it didn't finish, or
 // with `?error=<id>-unconfigured` when the server lacks what it needs. Started with
 // `?returnTo=welcome`, it comes back to the welcome flow's page for the connection, or its catalog,
-// and with `?returnTo=home`, from a home page widget, to the home page;
+// and with `?returnTo=home`, from a command bar widget, to the organization's address, where the
+// app opens;
 // and with `?desktop=1`, from the desktop app, which hands the sign-in to the browser
 // (`lib/desktop.ts`), to `/desktop-return`, which opens the page it would have ended on in the app;
 // with `?account=`, as signing in again from a connection does, the service opens on that account

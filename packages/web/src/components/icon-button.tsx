@@ -7,7 +7,6 @@ type Props = {
 	label: string;
 	children: ReactNode;
 	disabled?: boolean;
-	size?: 'xs' | 'sm';
 } & (
 	| {onClick: () => void; to?: never; href?: never}
 	| {to: string; onClick?: never; href?: never}
@@ -17,21 +16,12 @@ type Props = {
 );
 
 // A header's icon action: a ghost icon button with its label in a tooltip.
-export function IconButton({
-	label,
-	children,
-	disabled = false,
-	size = 'sm',
-	onClick,
-	to,
-	href,
-}: Props) {
-	const buttonSize = size === 'xs' ? 'icon-xs' : 'icon-sm';
+export function IconButton({label, children, disabled = false, onClick, to, href}: Props) {
 	const button =
 		to !== undefined ? (
 			<Button
 				variant="ghost"
-				size={buttonSize}
+				size="icon-sm"
 				aria-label={label}
 				nativeButton={false}
 				render={<Link to={to} />}
@@ -39,7 +29,7 @@ export function IconButton({
 		) : href !== undefined ? (
 			<Button
 				variant="ghost"
-				size={buttonSize}
+				size="icon-sm"
 				aria-label={label}
 				nativeButton={false}
 				render={<a href={href} onClick={onClick} />}
@@ -47,7 +37,7 @@ export function IconButton({
 		) : (
 			<Button
 				variant="ghost"
-				size={buttonSize}
+				size="icon-sm"
 				aria-label={label}
 				disabled={disabled}
 				onClick={onClick}

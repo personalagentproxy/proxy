@@ -93,7 +93,6 @@ describe('destinationsOf', () => {
 			everywhere.map((destination) => [destination.label, destination.to]),
 		);
 		expect(to).toMatchObject({
-			Home: '/acme',
 			Chat: '/acme/chat',
 			Account: '/account',
 			'Add a connection': '/acme/connections/new',
@@ -104,6 +103,7 @@ describe('destinationsOf', () => {
 			Claude: '/acme/agents/a1',
 		});
 		expect(to['Old login']).toBeUndefined();
+		expect(to.Home).toBeUndefined();
 	});
 
 	test('says a connection’s account beside its name, unless the name has it or it is the organization’s own', () => {
@@ -178,6 +178,33 @@ describe('addressedPersona', () => {
 		expect(said('hey @finance what is up')).toEqual(['p-finance', 'what is up']);
 	});
 
+	test('is the agent named as "my … agent", "the … assistant" and the like', () => {
+		const said = (text: string) => {
+			const addressed = addressedPersona(text, personas);
+			return addressed && [addressed.persona.id, addressed.message];
+		};
+		expect(said('ask my general agent what he thinks of me')).toEqual([
+			'p-general',
+			'what he thinks of me',
+		]);
+		expect(said('tell the finance assistant to pay the invoice')).toEqual([
+			'p-finance',
+			'pay the invoice',
+		]);
+		expect(said('ask our finance team bot about the budget')).toEqual([
+			'p-team',
+			'about the budget',
+		]);
+		expect(said('@finance agent how much runway do we have')).toEqual([
+			'p-finance',
+			'how much runway do we have',
+		]);
+		expect(said('Finance agent, what did we spend on travel?')).toEqual([
+			'p-finance',
+			'what did we spend on travel?',
+		]);
+	});
+
 	test('is the longest name said, and none where the name is only part of a word or of the sentence', () => {
 		expect(addressedPersona('ask finance team about the budget', personas)).toEqual({
 			persona: team,
@@ -191,6 +218,8 @@ describe('addressedPersona', () => {
 	test('is none while nothing is said to it yet', () => {
 		expect(addressedPersona('ask finance', personas)).toBeNull();
 		expect(addressedPersona('@finance ', personas)).toBeNull();
+		expect(addressedPersona('ask my finance agent', personas)).toBeNull();
+		expect(addressedPersona('ask the finance bot ', personas)).toBeNull();
 	});
 });
 
