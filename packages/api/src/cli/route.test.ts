@@ -9,8 +9,6 @@ import * as realAgent from '@proxy/db/agent';
 import * as realSandbox from '@proxy/db/sandbox';
 
 import * as realTasks from '../agent-side/tasks';
-import * as realTools from '../agent-side/tools';
-import * as realTarget from '../records/target';
 import {signCliToken} from './token';
 
 // The whole app, as the api serves it, with the database's answers made here: so the routes are
@@ -20,6 +18,10 @@ const SECRET = 'test-auth-secret';
 const APP_URL = 'https://app.example.com';
 
 mock.module('../utils/env', () => ({env: {NODE_ENV: 'test', APP_URL, AUTH_SECRET: SECRET}}));
+
+// Read once the environment is mocked: they read it as they load, and the real one needs a database's address.
+const realTools = await import('../agent-side/tools');
+const realTarget = await import('../records/target');
 
 const getSignedInAgentById = mock();
 
