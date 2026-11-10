@@ -173,7 +173,7 @@ describe('which connection', () => {
 });
 
 describe('git', () => {
-	test('info/refs goes to GitHub with the connection’s token as git’s password, and isn’t logged', async () => {
+	test('info/refs goes to GitHub with the connection’s token as git’s password, and is the fetch logged', async () => {
 		answer = (_req, res) => {
 			res.writeHead(200, {'content-type': 'application/x-git-upload-pack-advertisement', 'www-authenticate': 'Basic realm="GitHub"', 'set-cookie': 'x=y'});
 			res.end('001e# service=git-upload-pack\n0000');
@@ -195,10 +195,10 @@ describe('git', () => {
 		expect(sent.cookie).toBeUndefined();
 		expect(sent['x-forwarded-for']).toBeUndefined();
 		expect(JSON.stringify(sent)).not.toContain(papToken().split('.')[0]);
-		expect(logAgentRequest).not.toHaveBeenCalled();
+		expect(logged()).toEqual([{collectionId: 'git', action: 'read', recordTitle: 'acme/demo', query: null, outcome: 'allowed'}]);
 	});
 
-	test('an upload-pack POST listing refs isn’t logged; one fetching is, gzipped and passed through untouched', async () => {
+	test('upload-pack POSTs pass through untouched, gzipped and all, and aren’t logged again', async () => {
 		const lsRefs = Buffer.concat([pktLine('command=ls-refs\n'), Buffer.from('0001'), pktLine('peel\n'), Buffer.from('0000')]);
 		const fetchBody = gzipSync(Buffer.concat([pktLine('command=fetch\n'), Buffer.from('0001'), pktLine(`want ${'b'.repeat(40)}\n`), pktLine('done\n'), Buffer.from('0000')]));
 		const type = {'content-type': 'application/x-git-upload-pack-request'};
@@ -208,12 +208,14 @@ describe('git', () => {
 
 		expect(received.map((one) => one.url)).toEqual(['/acme/demo.git/git-upload-pack', '/acme/demo.git/git-upload-pack']);
 		expect(received[1]?.body.equals(fetchBody)).toBe(true);
+		expect(received[0]?.body.equals(lsRefs)).toBe(true);
 		expect(received[1]?.headers['content-encoding']).toBe('gzip');
-		expect(logged()).toEqual([{collectionId: 'git', action: 'read', recordTitle: 'acme/demo', query: null, outcome: 'allowed'}]);
+		expect(logAgentRequest).not.toHaveBeenCalled();
 	});
 
-	test('a push is logged with the refs it updates', async () => {
+	test('a push is logged once, at its POST, with the refs it updates', async () => {
 		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'push'])]);
+		await request('/git/acme/demo.git/info/refs?service=git-receive-pack');
 		const body = Buffer.concat([
 			pktLine(`${'a'.repeat(40)} ${'b'.repeat(40)} refs/heads/fix-login\0report-status side-band-64k`),
 			pktLine(`${'0'.repeat(40)} ${'c'.repeat(40)} refs/tags/v1.2`),
@@ -223,7 +225,7 @@ describe('git', () => {
 		const res = await request('/git/acme/demo.git/git-receive-pack', {method: 'POST', headers: {'content-type': 'application/x-git-receive-pack-request'}, body});
 
 		expect(res.status).toBe(200);
-		expect(received[0]?.body.equals(body)).toBe(true);
+		expect(received[1]?.body.equals(body)).toBe(true);
 		expect(logged()).toEqual([{collectionId: 'git', action: 'push', recordTitle: 'acme/demo', query: 'fix-login, refs/tags/v1.2', outcome: 'allowed'}]);
 	});
 
@@ -276,7 +278,7 @@ describe('git', () => {
 			res.writeHead(404, {'content-type': 'text/plain'});
 			res.end('Repository not found.');
 		};
-		const res = await request('/git/acme/demo.git/git-upload-pack', {method: 'POST', body: Buffer.concat([pktLine('command=fetch\n'), Buffer.from('0000')])});
+		const res = await request('/git/acme/demo.git/info/refs?service=git-upload-pack');
 
 		expect(res.status).toBe(404);
 		expect(await res.text()).toBe('Repository not found.');

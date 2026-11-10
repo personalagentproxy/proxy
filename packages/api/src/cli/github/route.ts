@@ -20,8 +20,8 @@ import {abortWithClient, forwardedHeaders, passBack, relay} from './forward';
 import type {Operation} from './graphql';
 import {GITHUB_ORIGINS} from './origins';
 import {bodyStream, peekBody, readBody} from './peek';
-import {errPacket, leadingPackets, pushedRefs, requestStart, sidebandError, uploadPackFetches} from './pkt-line';
-import {apiAction, apiRequest, type GitPhase, type GitService, gitAction, gitRequest, graphqlAction, isGraphql} from './requests';
+import {errPacket, leadingPackets, pushedRefs, sidebandError} from './pkt-line';
+import {apiAction, apiRequest, type GitPhase, type GitRequest, type GitService, gitAction, gitRequest, graphqlAction, isGraphql} from './requests';
 
 /**
  * `/api/cli/github/…` (@proxy/contracts/cli-github): GitHub's git and API requests from a sandbox,
@@ -31,10 +31,10 @@ import {apiAction, apiRequest, type GitPhase, type GitService, gitAction, gitReq
  * action it needs (requests.ts) as the gate does a tool run; one the agent doesn't have is refused
  * and logged as denied. The token is refreshed before the request where it is running out, since
  * a streamed request can't be made twice; GitHub turning it down anyway is the sign-in rejected,
- * logged as failed. What is logged of what was relayed (activity.ts): a fetch, by the upload-pack
- * POST that fetches rather than the one only listing refs, told apart by the start of its body; a
- * push, with the refs it updates; and every API request. Anything relayed is allowed whatever
- * GitHub answered, but its 401, and GitHub out of reach, which fail.
+ * logged as failed. What is logged of what was relayed (activity.ts): a fetch, by its `info/refs`,
+ * which git asks for once for each fetch, clone or ls-remote; a push, by its POST, with the refs it
+ * updates, read from the start of its body; and every API request. Anything relayed is allowed
+ * whatever GitHub answered, but its 401, and GitHub out of reach, which fail.
  *
  * Refusals are in words a model reads: for git, an `ERR` packet in the service's own answer, which
  * git prints as `fatal: remote error: <message>`, or for a push's POST the side band's error, which
@@ -42,7 +42,7 @@ import {apiAction, apiRequest, type GitPhase, type GitService, gitAction, gitReq
  * for the API, `{"message": …}` as GitHub's own refusals are, which gh prints.
  */
 
-// How much of a pack request's start is read for the log: its commands come long before this.
+// How much of a push's start is read for the log: its commands come long before this.
 const PEEK_LIMIT = 64 * 1024;
 
 // The most of a GraphQL request read, to tell a query from a mutation, which GitHub's are far under.
@@ -154,41 +154,39 @@ function hasBody(request: Request): boolean {
 	return (length !== undefined && length !== '0') || request.headers['transfer-encoding'] !== undefined;
 }
 
-// Whether a pack request's start is read far enough: an upload-pack's first command, a receive-pack's commands to their flush.
-function readEnough(service: GitService, contentEncoding: string | undefined): (peeked: Buffer) => boolean {
-	return (peeked) => {
-		const start = requestStart(peeked, contentEncoding);
-		if (start === null) {
-			return false;
-		}
-		const {payloads, flushed} = leadingPackets(start);
-		return flushed || (service === 'git-upload-pack' && payloads.length > 0);
-	};
-}
+type GitBody = {body: ReadableStream<Uint8Array> | null; logged: GitHubEntry | null};
 
-type PackBody = {body: ReadableStream<Uint8Array>; logged: GitHubEntry | null};
-
-// A pack request's body to relay, and what of it is logged: a push with its refs; an upload-pack
-// that fetches, not one listing refs, or any where its start doesn't say.
-async function packBody(request: Request, service: GitService, entry: GitHubEntry): Promise<Result<PackBody, Error>> {
-	const encoding = request.headers['content-encoding'];
-	const peeked = await Result.wrapAsync(() => peekBody(request, PEEK_LIMIT, readEnough(service, encoding)));
+// A push's body to relay, and its entry with the refs it updates, read from the commands at its
+// start. git never compresses a push, so one that is compressed is relayed and logged without them.
+async function pushBody(request: Request, entry: GitHubEntry): Promise<Result<GitBody, Error>> {
+	const encoding = (request.headers['content-encoding'] ?? 'identity').trim().toLowerCase();
+	if (encoding !== 'identity') {
+		return Ok({body: bodyStream(request), logged: entry});
+	}
+	const peeked = await Result.wrapAsync(() => peekBody(request, PEEK_LIMIT, (start) => leadingPackets(start).flushed));
 	return peeked
 		.mapErr((error) => (error instanceof Error ? error : new Error(String(error))))
 		.map(({start, body}) => {
-			const read = requestStart(start, encoding);
-			if (service === 'git-receive-pack') {
-				const {refs, complete} = read === null ? {refs: [], complete: false} : pushedRefs(read);
-				return {body, logged: {...entry, query: pushQuery(refs, complete)}};
-			}
-			const fetches = read === null ? null : uploadPackFetches(read);
-			return {body, logged: fetches === false ? null : entry};
+			const {refs, complete} = pushedRefs(start);
+			return {body, logged: {...entry, query: pushQuery(refs, complete)}};
 		});
+}
+
+// A git request's body to relay, and its entry once GitHub answers: a fetch's at its `info/refs`,
+// a push's at its POST; none for the rest, the upload-pack POSTs of a fetch logged already.
+async function gitBody(request: Request, git: GitRequest, entry: GitHubEntry): Promise<Result<GitBody, Error>> {
+	if (git.phase === 'refs') {
+		return Ok({body: null, logged: git.service === 'git-upload-pack' ? entry : null});
+	}
+	if (git.service === 'git-upload-pack') {
+		return Ok({body: bodyStream(request), logged: null});
+	}
+	return pushBody(request, entry);
 }
 
 /**
  * `/api/cli/github/git/<owner>/<repo>[.git]/…`: git's smart HTTP, relayed to GitHub's git server
- * with the token as git's Basic password. `info/refs` is logged only where it is refused or fails.
+ * with the token as git's Basic password.
  */
 export async function handleGitHubGitRoute(request: Request, response: Response): Promise<void> {
 	const startedAt = Date.now();
@@ -216,7 +214,7 @@ export async function handleGitHubGitRoute(request: Request, response: Response)
 		answerGit(response, git, token.error);
 		return;
 	}
-	const pack = git.phase === 'pack' ? await packBody(request, git.service, entry) : Ok(null);
+	const pack = await gitBody(request, git, entry);
 	if (pack.isErr()) {
 		// The client went before its request was read: there is no one to answer.
 		response.destroy();
@@ -227,7 +225,7 @@ export async function handleGitHubGitRoute(request: Request, response: Response)
 		method: request.method,
 		url: git.url,
 		headers: forwardedHeaders(request.headers, `Basic ${Buffer.from(`x-access-token:${token.value}`).toString('base64')}`),
-		body: pack.value?.body ?? null,
+		body: pack.value.body,
 		signal: controller.signal,
 	});
 	if (controller.signal.aborted) {
@@ -238,8 +236,8 @@ export async function handleGitHubGitRoute(request: Request, response: Response)
 		answerGit(response, git, failure ?? UNREACHABLE);
 		return;
 	}
-	const relayed = pack.value?.logged;
-	if (relayed) {
+	const relayed = pack.value.logged;
+	if (relayed !== null) {
 		await logRelayed(caller, target, relayed, startedAt);
 	}
 	await passBack(response, answer.value);

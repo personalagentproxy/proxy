@@ -1,14 +1,9 @@
-import {constants, gunzipSync} from 'node:zlib';
-
-import {Result} from 'ts-results-es';
-
 /**
  * git's pkt-lines, as far as relaying its requests needs them: an `ERR` packet, which git prints as
- * `fatal: remote error: <message>`, for a refusal it shows; and what the start of an upload-pack or
- * receive-pack request says, read from the bytes peeked at before it is relayed (peek.ts), for the
- * activity log: whether an upload-pack request fetches, and the refs a push updates. Each packet is
- * four hex digits of its length, those four included, then its payload; `0000` ends a list,
- * `0001` divides one.
+ * `fatal: remote error: <message>`, for a refusal it shows; and the refs a push updates, read from
+ * the bytes of its request peeked at before it is relayed (peek.ts), for the activity log. Each
+ * packet is four hex digits of its length, those four included, then its payload; `0000` ends a
+ * list, `0001` divides one.
  */
 
 // The most a packet's payload may be, as git sets it.
@@ -58,41 +53,6 @@ export function leadingPackets(bytes: Buffer): {payloads: string[]; flushed: boo
 		at += length;
 	}
 	return {payloads, flushed: false};
-}
-
-/**
- * The start of a request body as git wrote it, from the bytes peeked: inflated, as far as they go,
- * where git gzipped it; null where they don't inflate.
- */
-export function requestStart(peeked: Buffer, contentEncoding: string | undefined): Buffer | null {
-	const encoding = (contentEncoding ?? '').trim().toLowerCase();
-	if (encoding === '' || encoding === 'identity') {
-		return peeked;
-	}
-	if (encoding !== 'gzip' && encoding !== 'x-gzip') {
-		return null;
-	}
-	// A sync flush inflates what there is of a stream cut short, rather than failing for its end.
-	return Result.wrap(() => gunzipSync(peeked, {finishFlush: constants.Z_SYNC_FLUSH})).unwrapOr(null);
-}
-
-/**
- * Whether an upload-pack request fetches: protocol v2's `command=fetch`, or the `want` lines of the
- * protocol before it; not v2's `ls-refs`, which only lists. Null where its start doesn't say.
- */
-export function uploadPackFetches(start: Buffer): boolean | null {
-	const [first] = leadingPackets(start).payloads;
-	if (first === undefined) {
-		return null;
-	}
-	const line = first.replace(/\n$/, '');
-	if (line.startsWith('command=')) {
-		return line === 'command=fetch';
-	}
-	if (line.startsWith('want ')) {
-		return true;
-	}
-	return null;
 }
 
 /** A ref a push updates: `refs/heads/fix-login`, and whether the push deletes it. */

@@ -69,7 +69,7 @@ describe('the real git through the relay', () => {
 		const onGitHub = await git(['log', '--format=%s', 'fix-login'], join(projects, 'acme', 'demo.git'));
 		expect(onGitHub.stdout.trim().split('\n')[0]).toBe('fix the login');
 
-		// Up to date, git only lists the refs, which isn't logged; once someone else pushed, it fetches.
+		// Each fetch is logged, up to date or not: git asks for the refs once for each.
 		expect((await git(['fetch', 'origin'], clone, papGitEnv())).status).toBe(0);
 		const seed = join(root, 'seed');
 		writeFileSync(join(seed, 'other.txt'), 'other\n');
@@ -94,6 +94,7 @@ describe('the real git through the relay', () => {
 		expect(entries).toEqual([
 			['git', 'read', 'acme/demo', null, 'allowed', 'cli'],
 			['git', 'push', 'acme/demo', 'fix-login', 'allowed', 'cli'],
+			['git', 'read', 'acme/demo', null, 'allowed', 'cli'],
 			['git', 'read', 'acme/demo', null, 'allowed', 'cli'],
 		]);
 	});
