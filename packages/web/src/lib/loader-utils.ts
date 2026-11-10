@@ -79,13 +79,9 @@ export class Redirected {
 
 /**
  * A loader's answer still on its way, so its page opens at once: the frame first, then the content
- * as the answer comes (`useLoaded`), or the page it redirects to instead. Once it has come it is
- * `answered` too, for whoever reads it then to need no waiting.
+ * as the answer comes (`useLoaded`), or the page it redirects to instead.
  */
-export type Later<T> = {
-	later: Promise<T | Redirected>;
-	answered: {answer: T | Redirected} | null;
-};
+export type Later<T> = {later: Promise<T | Redirected>};
 
 // Every answer on its way.
 const onTheWay = new Set<Promise<unknown>>();
@@ -105,19 +101,21 @@ export function later<Args, T>(load: (args: Args) => Promise<T>): (args: Args) =
 			return new Redirected(to);
 		});
 		onTheWay.add(loading);
-		const answer: Later<T> = {later: loading, answered: null};
-		// A failure is read where the content renders. One nobody reads, as of a page left before
-		// its answer came, is not an unhandled rejection.
+		// Once settled, it is marked as React marks a promise it has waited on, so React's `use` reads
+		// it at once rather than waiting a moment on one it has not seen before. A failure is read
+		// where the content renders; one nobody reads, as of a page left before its answer came, is
+		// not an unhandled rejection.
 		loading.then(
 			(value) => {
 				onTheWay.delete(loading);
-				answer.answered = {answer: value};
+				Object.assign(loading, {status: 'fulfilled', value});
 			},
-			() => {
+			(reason: unknown) => {
 				onTheWay.delete(loading);
+				Object.assign(loading, {status: 'rejected', reason});
 			},
 		);
-		return answer;
+		return {later: loading};
 	};
 }
 
