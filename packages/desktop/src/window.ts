@@ -38,7 +38,7 @@ function load(win: BrowserWindow, url: string): void {
 }
 
 // Marks the splash page `inactive` while the window isn't the focused one, for splash.css to draw
-// the traffic lights macOS leaves out of the hidden title bar.
+// gray dots under the traffic lights, which macOS then draws as glass that vanishes over white.
 const FOLLOW_FOCUS_SCRIPT = `<script>
 	const follow = () => document.documentElement.classList.toggle('inactive', !document.hasFocus());
 	addEventListener('focus', follow);

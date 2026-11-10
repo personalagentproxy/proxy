@@ -96,7 +96,8 @@ export function hasHiddenDesktopTitleBar(): boolean {
 
 /**
  * Marks `<html>` `desktop-window-inactive` while the desktop window isn't the focused one, where
- * index.css draws the traffic lights macOS leaves out of the hidden title bar. A frame of the
+ * index.css draws gray dots under the traffic lights, which macOS then draws as glass that vanishes
+ * over white. A frame of the
  * page's taking focus, as Plaid Link's does, leaves the page focused.
  */
 export function followDesktopWindowFocus(): void {
