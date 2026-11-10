@@ -115,7 +115,13 @@ export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
 					onValueChange={(chatModel: string) => onPick({harness: listed.id, chatModel})}
 				>
 					{listed.models.map((option) => (
-						<DropdownMenuRadioItem key={option.id} value={option.id} closeOnClick>
+						<DropdownMenuRadioItem
+							key={option.id}
+							value={option.id}
+							closeOnClick
+							// The tick is quieter than the model's name, pointed at or not.
+							className="[&_[data-slot=dropdown-menu-radio-item-indicator]_svg]:text-muted-foreground!"
+						>
 							{option.label}
 						</DropdownMenuRadioItem>
 					))}
