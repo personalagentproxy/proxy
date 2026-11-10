@@ -9,6 +9,7 @@ import {
 	listMcpClients,
 } from '@/client/agents-client';
 import {getConnection, listConnections} from '@/client/connections-client';
+import {getGitHubInstallations} from '@/client/github-client';
 import {listAlerts} from '@/client/alerts-client';
 import {getThread, listPersonas} from '@/client/harness-client';
 import {getMe, listSessions} from '@/client/me-client';
@@ -19,7 +20,7 @@ import {SANDBOX_INTEGRATION_ID, VAULT_INTEGRATION_ID} from '@proxy/integrations'
 import {desktopChallengeSchema} from '@proxy/contracts/auth';
 import {desktopAuthLink} from '@/lib/desktop';
 import {LOADED_MINUTES, windowStart} from '@/lib/timeline-window';
-import {later, unwrapLoaderResult, unwrapOrNull} from '@/lib/loader-utils';
+import {describeApiError, later, unwrapLoaderResult, unwrapOrNull} from '@/lib/loader-utils';
 import {pendingAgent} from '@/lib/pending-agent';
 import {redirect, type ShouldRevalidateFunctionArgs} from 'react-router';
 
@@ -117,9 +118,19 @@ export const connectionLoader = later(async (args: {params: {org?: string; id?: 
 		}
 		return unwrapLoaderResult(await listRecords(org, found.id, collectionId)).records;
 	};
-	const [vaultEntries, sandboxes] = await Promise.all([
+	// What a GitHub connection reaches is its first tab too; GitHub out of reach is said on the tab
+	// rather than failing the page.
+	const reached = async () => {
+		if (found?.integrationId !== 'github') {
+			return null;
+		}
+		const answer = await getGitHubInstallations(org, found.id);
+		return answer.isOk() ? answer.value : {error: describeApiError(answer.error)};
+	};
+	const [vaultEntries, sandboxes, github] = await Promise.all([
 		kept(VAULT_INTEGRATION_ID, 'entries'),
 		kept(SANDBOX_INTEGRATION_ID, 'sandboxes'),
+		reached(),
 	]);
 	return {
 		connection: found,
@@ -131,6 +142,7 @@ export const connectionLoader = later(async (args: {params: {org?: string; id?: 
 		members: unwrapLoaderResult(members).members,
 		vaultEntries,
 		sandboxes,
+		github,
 	};
 });
 

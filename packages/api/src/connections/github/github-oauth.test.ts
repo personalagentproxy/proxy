@@ -8,7 +8,9 @@ mock.module('../../observability/log', () => ({
 	serializeError: mock(() => ({})),
 }));
 
-mock.module('../../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com', GITHUB_CLIENT_ID: 'Iv23client', GITHUB_CLIENT_SECRET: 'secret-1'}}));
+mock.module('../../utils/env', () => ({
+	env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com', GITHUB_CLIENT_ID: 'Iv23client', GITHUB_CLIENT_SECRET: 'secret-1', GITHUB_APP_SLUG: 'personal-agent-proxy'},
+}));
 
 mock.module('../../utils/secret-crypto', () => ({
 	encryptSecret: (plaintext: string): Result<string, ApiError> => Ok(`enc:${plaintext}`),
@@ -17,7 +19,7 @@ mock.module('../../utils/secret-crypto', () => ({
 
 const {exchangeGitHubCode, githubAuthorizeUrl, isExpiring, readGitHubCredential, refreshGitHubTokens, revokeGitHubGrant} = await import('./github-oauth');
 
-const CLIENT = {clientId: 'Iv23client', clientSecret: 'secret-1'};
+const CLIENT = {clientId: 'Iv23client', clientSecret: 'secret-1', slug: 'personal-agent-proxy'};
 
 type Seen = {url: URL; method: string; headers: Headers; body: string};
 

@@ -11,7 +11,9 @@ mock.module('../observability/log', () => ({
 	serializeError: mock(() => ({})),
 }));
 
-mock.module('../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com', GITHUB_CLIENT_ID: 'Iv23client', GITHUB_CLIENT_SECRET: 'secret-1'}}));
+mock.module('../utils/env', () => ({
+	env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com', GITHUB_CLIENT_ID: 'Iv23client', GITHUB_CLIENT_SECRET: 'secret-1', GITHUB_APP_SLUG: 'personal-agent-proxy'},
+}));
 
 mock.module('../utils/secret-crypto', () => ({
 	encryptSecret: (plaintext: string): Result<string, ApiError> => Ok(`enc:${plaintext}`),
@@ -72,7 +74,13 @@ function repository(fullName: string, extra: object = {}): object {
 }
 
 // GitHub's API: what each installation lists, a hundred to a page.
-const github = {requests: [] as URL[], installations: [{id: 11}, {id: 22}], pages: {} as Record<string, object[]>, repo: null as object | null};
+function installation(id: number, login: string, type: 'User' | 'Organization'): object {
+	return {id, account: {login, type}, repository_selection: 'selected', html_url: `https://github.com/settings/installations/${id}`};
+}
+
+const INSTALLATIONS = [installation(11, 'acme', 'Organization'), installation(22, 'alexkim', 'User')];
+
+const github = {requests: [] as URL[], installations: INSTALLATIONS, pages: {} as Record<string, object[]>, repo: null as object | null};
 
 spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request) => {
 	const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
@@ -93,7 +101,7 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 
 beforeEach(() => {
 	github.requests = [];
-	github.installations = [{id: 11}, {id: 22}];
+	github.installations = INSTALLATIONS;
 	github.pages = {'11:1': [repository('acme/api'), repository('acme/web', {private: true, language: null, description: null})], '22:1': [repository('alexkim/notes')]};
 	github.repo = null;
 });
@@ -137,7 +145,7 @@ describe('repositoriesConnector.list', () => {
 		github.installations = [];
 		const refused = (await repositoriesConnector.list(target, query)).unwrapErr();
 		expect(refused.kind).toBe('validation_error');
-		expect(refused.kind === 'validation_error' ? refused.message : '').toContain('Install it from its page on GitHub');
+		expect(refused.kind === 'validation_error' ? refused.message : '').toContain('Install it at https://github.com/apps/personal-agent-proxy/installations/new');
 	});
 });
 

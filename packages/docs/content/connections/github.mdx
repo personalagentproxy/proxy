@@ -19,8 +19,9 @@ you can change them any time under **Settings**, **Applications** on GitHub.
 ### Sign in with GitHub
 
 Open **Connections**, then **Add connection**, and **Sign in with GitHub**, and authorize the
-app. Signing in alone grants no repositories: a connection whose app is installed nowhere you can
-reach says so, and where to install it.
+app. Signing in alone grants no repositories: the connection's page opens on **Repositories**,
+which lists what agents reach, account by account as the app is installed, with the way to
+change it on GitHub, or says the app is installed nowhere you reach yet, with a button to install it.
 
 ### Review the defaults
 
@@ -42,6 +43,6 @@ register a GitHub App under your account's or organization's developer settings,
 tokens** on and **Request user authorization (OAuth) during installation** off, no webhook, the
 repository permissions Contents and Pull requests read and write and Metadata read, and the
 account permission Email addresses read. Then set its client id and a client secret as
-`GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, and its name as it is in its address as
-`GITHUB_APP_SLUG` ([Environment variables](/self-hosting/environment)), which is where people
-are sent to install it.
+`GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, and its name as it is in its address,
+`github.com/apps/<slug>`, as `GITHUB_APP_SLUG` ([Environment variables](/self-hosting/environment)),
+which is where people are sent to install it.

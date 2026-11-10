@@ -36,7 +36,7 @@ export const NEEDS: Record<Need, {variables: string[]; docsUrl: string}> = {
 		docsUrl: 'https://docs.personalagentproxy.com/connections/plaid/',
 	},
 	github: {
-		variables: ['GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET'],
+		variables: ['GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'GITHUB_APP_SLUG'],
 		docsUrl: 'https://docs.personalagentproxy.com/connections/github/',
 	},
 };

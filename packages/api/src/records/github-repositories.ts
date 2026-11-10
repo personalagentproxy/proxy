@@ -1,10 +1,10 @@
 import {Err, type Result} from 'ts-results-es';
-import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 
-import {GITHUB_API, installGitHubAppHint} from '../connections/github/github-app';
+import {GITHUB_API, installGitHubAppHint, requireGitHubClient} from '../connections/github/github-app';
 import {callGitHub, githubRequest} from '../connections/github/github-client';
+import {fetchInstallationRepositories, fetchInstallations, PAGE_SIZE, type Repository, repositorySchema} from '../connections/github/installations';
 import type {DataRecord, ListQuery, RecordPage, RecordStore, RecordTarget} from './connector';
 
 /**
@@ -14,25 +14,6 @@ import type {DataRecord, ListQuery, RecordPage, RecordStore, RecordTarget} from 
  * "owner/name", which is its id here, and opens by it. GitHub lists an installation's
  * repositories in no order it promises, and has no search over them, so the list takes no search.
  */
-
-const PAGE_SIZE = 100;
-
-const installationsSchema = z.object({installations: z.array(z.object({id: z.number()}))});
-
-const repositorySchema = z.object({
-	full_name: z.string(),
-	description: z.string().nullable(),
-	private: z.boolean(),
-	default_branch: z.string().optional(),
-	language: z.string().nullable().optional(),
-	html_url: z.string(),
-	pushed_at: z.string().nullable().optional(),
-	updated_at: z.string().nullable().optional(),
-});
-
-type Repository = z.infer<typeof repositorySchema>;
-
-const repositoriesSchema = z.object({repositories: z.array(repositorySchema)});
 
 function toRecord(repository: Repository): DataRecord {
 	const updatedAt = repository.pushed_at ?? repository.updated_at ?? new Date(0).toISOString();
@@ -75,25 +56,25 @@ function repositoryPath(recordId: string): string | null {
 	return match ? `${encodeURIComponent(match[1] ?? '')}/${encodeURIComponent(match[2] ?? '')}` : null;
 }
 
+const CHANGED = 'That page is not one this list gave: the installations changed';
+
 function list(target: RecordTarget, query: ListQuery): Promise<Result<RecordPage, ApiError>> {
 	return Do(async ($) => {
 		const cursor = $(parseCursor(query.page));
 		return $(
 			await callGitHub(target.connection, (accessToken) =>
 				Do(async ($$) => {
-					const {installations} = $$(await githubRequest(accessToken, `${GITHUB_API}/user/installations?per_page=${PAGE_SIZE}`, installationsSchema));
-					const ids = installations.map((installation) => installation.id);
+					const ids = $$(await fetchInstallations(accessToken)).map((installation) => installation.id);
 					if (ids.length === 0) {
-						return $$(Err(ApiErr.validationError(installGitHubAppHint())));
+						return $$(Err(ApiErr.validationError(installGitHubAppHint($$(requireGitHubClient())))));
 					}
 					const at = cursor === null ? 0 : ids.indexOf(cursor.installationId);
 					if (at === -1) {
-						return $$(Err(ApiErr.validationError('That page is not one this list gave: the installations changed')));
+						return $$(Err(ApiErr.validationError(CHANGED)));
 					}
-					const installationId = $$(requirePresent(ids[at], ApiErr.validationError('That page is not one this list gave: the installations changed')));
+					const installationId = $$(requirePresent(ids[at], ApiErr.validationError(CHANGED)));
 					const page = cursor?.page ?? 1;
-					const url = `${GITHUB_API}/user/installations/${installationId}/repositories?per_page=${PAGE_SIZE}&page=${page}`;
-					const {repositories} = $$(await githubRequest(accessToken, url, repositoriesSchema));
+					const {repositories} = $$(await fetchInstallationRepositories(accessToken, installationId, page));
 					const next = ids[at + 1];
 					const nextPage = repositories.length === PAGE_SIZE ? cursorText({installationId, page: page + 1}) : next === undefined ? null : cursorText({installationId: next, page: 1});
 					return {records: repositories.map(toRecord), nextPage};
