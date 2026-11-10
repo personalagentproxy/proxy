@@ -1,5 +1,5 @@
 import type {ChatHarness} from '@proxy/contracts/harness';
-import {ChevronDownIcon} from 'lucide-react';
+import {CheckIcon, ChevronDownIcon} from 'lucide-react';
 import {useState} from 'react';
 import {
 	DropdownMenu,
@@ -31,7 +31,7 @@ type Props = {
 // What runs the agent, under the conversation's input: the model, with the harness beside it. For
 // whoever may change the agent it opens in two columns: the harnesses down the side, each by its
 // mark alone, named as the pointer rests on it, and beside them the models of the one looked at,
-// the model chosen checked. Looking at another harness changes nothing; picking a model takes its harness
+// the model chosen checked on a gray row, and a gray tick on whichever other is pointed at. Looking at another harness changes nothing; picking a model takes its harness
 // with it. For anyone else it only says what runs the agent. The choice is the agent's, for every
 // member's conversation with it, from the next turn on. Nothing where the server has no harness.
 export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
@@ -114,17 +114,31 @@ export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
 					value={listed.id === harness.id ? model.id : ''}
 					onValueChange={(chatModel: string) => onPick({harness: listed.id, chatModel})}
 				>
-					{listed.models.map((option) => (
-						<DropdownMenuRadioItem
-							key={option.id}
-							value={option.id}
-							closeOnClick
-							// The model chosen stands out by its row, as the harness looked at does by its tile.
-							className="aria-checked:bg-accent"
-						>
-							{option.label}
-						</DropdownMenuRadioItem>
-					))}
+					{listed.models.map((option) => {
+						const chosenModel = listed.id === harness.id && option.id === model.id;
+						return (
+							<DropdownMenuRadioItem
+								key={option.id}
+								value={option.id}
+								closeOnClick
+								// The model chosen stands out by its row, as the harness looked at does by its
+								// tile; any other, pointed at, shows a gray tick where picking it would put one,
+								// and no background.
+								className="group/model not-aria-checked:focus:bg-transparent aria-checked:bg-accent"
+							>
+								{option.label}
+								{!chosenModel && (
+									<CheckIcon
+										aria-hidden
+										data-slot="model-switcher-hover-tick"
+										// The row colors everything in it as it is pointed at, the tick's strokes too, which
+										// draw in their own color: both are held to the gray.
+										className="absolute right-2 text-muted-foreground! opacity-0 group-focus/model:opacity-100 **:text-muted-foreground!"
+									/>
+								)}
+							</DropdownMenuRadioItem>
+						);
+					})}
 				</DropdownMenuRadioGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>

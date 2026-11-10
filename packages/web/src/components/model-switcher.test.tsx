@@ -75,6 +75,11 @@ describe('ModelSwitcher', () => {
 		]);
 		// No harness is written out in the list: its mark says which, and names it when pointed at.
 		expect(screen.getByRole('menu').textContent).toBe('Claude Sonnet 5.5GLM 5.3');
+		// A model not chosen carries the tick that shows as it is pointed at; the one chosen has its
+		// own alone.
+		expect(
+			models.map((item) => item.querySelector('[data-slot="model-switcher-hover-tick"]') !== null),
+		).toEqual([true, false]);
 	});
 
 	test('names a harness as the pointer rests on its mark', async () => {
