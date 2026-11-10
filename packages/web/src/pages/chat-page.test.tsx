@@ -137,6 +137,56 @@ function rowHeads(container: HTMLElement): Element[] {
 }
 
 describe('ChatPage', () => {
+	test('focuses the message input after a conversation is picked from the list', async () => {
+		let arrive = () => undefined;
+		const held = new Promise<void>((resolve) => {
+			arrive = () => {
+				resolve();
+				return undefined;
+			};
+		});
+		renderChatPage({answered: (personaId) => (personaId === 'finance' ? held : Promise.resolve())});
+
+		const initialBox = await screen.findByLabelText('Message');
+		expect(document.activeElement).not.toBe(initialBox);
+
+		fireEvent.click(screen.getByRole('link', {name: /Finance/}));
+		await screen.findByRole('status', {name: 'Loading'});
+		await act(async () => arrive());
+
+		await screen.findByText('What should Finance do?');
+		await waitFor(() => {
+			expect(document.activeElement).toBe(screen.getByLabelText('Message'));
+		});
+	});
+
+	test('focuses the message input when the open conversation is picked again', async () => {
+		renderChatPage();
+
+		const box = await screen.findByLabelText('Message');
+		expect(document.activeElement).not.toBe(box);
+
+		await act(async () => {
+			fireEvent.click(screen.getByRole('link', {name: /General/}));
+		});
+
+		await waitFor(() => {
+			expect(document.activeElement).toBe(box);
+		});
+	});
+
+	test('does not focus or navigate for a modified conversation click', async () => {
+		renderChatPage();
+
+		await screen.findByLabelText('Message');
+		const financeRow = screen.getByRole('link', {name: /Finance/});
+		financeRow.focus();
+		fireEvent.click(financeRow, {metaKey: true});
+
+		expect(screen.getByText('What should General do?')).toBeDefined();
+		expect(document.activeElement).toBe(financeRow);
+	});
+
 	test('lets the head of an empty chat follow the pointer', async () => {
 		const {container} = renderChatPage();
 
