@@ -57,7 +57,7 @@ const alex: Member = {
 // The Sharing part of the mailbox's page, as Alex, whose it is, sees it; as Dana with `as`.
 function renderSharing(
 	connection: Connection,
-	options: {mayChange?: boolean; alone?: boolean; as?: string} = {},
+	options: {mayChange?: boolean; alone?: boolean; as?: string; warning?: string} = {},
 ) {
 	const onChange = mock(async (_sharing: SharingChoice) => {});
 	const router = createMemoryRouter(
@@ -72,6 +72,7 @@ function renderSharing(
 						members={[alex, dana, sam]}
 						userId={options.as ?? 'user-1'}
 						actsAs="alex@example.com"
+						warning={options.warning}
 						mayChange={options.mayChange ?? true}
 						alone={options.alone ?? false}
 						onChange={onChange}
@@ -120,6 +121,19 @@ describe('ConnectionSharing', () => {
 		await waitFor(() =>
 			expect(onChange).toHaveBeenCalledWith({everyone: false, userIds: ['user-2', 'user-3']}),
 		);
+	});
+
+	test('where the integration warns of acting as the account, says so, and again before sharing', async () => {
+		const warning = 'Whoever’s agents use it, what they push shows as this account’s.';
+		renderSharing(mailbox(), {warning});
+
+		expect(screen.getByText(warning)).toBeDefined();
+		fireEvent.click(screen.getByRole('button', {name: 'Share with everyone'}));
+		expect(
+			await screen.findByText(
+				/as alex@example.com, with what Permissions allows\. Members see it listed, never its password or token\. Whoever’s agents use it, what they push shows as this account’s\. You can stop sharing it at any time\./,
+			),
+		).toBeDefined();
 	});
 
 	test('with every member on the list already, there is nobody to add', () => {

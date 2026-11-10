@@ -1782,20 +1782,43 @@ const sandbox: Integration = {
 };
 
 // GitHub, signed in to through Personal Agent Proxy's GitHub App as the person: the repositories
-// the app is installed on that they can reach, read live from GitHub. What the app may do on them
-// is set at GitHub, when it is installed; what an agent may do with the connection is set here.
-// Repositories are only read for now: working in them, as the person, comes with the sandboxes.
+// the app is installed on that they can reach, read live from GitHub, and worked in from a sandbox
+// with `pap git` and `pap gh`, whose requests the api relays to GitHub with the connection's token
+// (api/src/cli/github), checking each against these actions. What the app may do on them is set at
+// GitHub, when it is installed; what an agent may do with the connection is set here. Pushing and
+// writing start off: a new connection's defaults are Read alone (api/src/connections/github/route.ts),
+// and an older one's stored defaults never had them.
 const github: Integration = {
 	id: 'github',
 	signIn: true,
 	name: 'GitHub',
 	description: 'Repositories on GitHub, those the app is installed on',
+	sharingWarning:
+		'Whoever’s agents use it, what they push, open and comment on GitHub shows as this account’s.',
 	actions: [
 		{
 			id: 'read',
 			label: 'Read repositories',
-			description: 'List the repositories the app is installed on, and open one',
+			description:
+				'List the repositories the app is installed on and open one; from a sandbox, clone and fetch them, and read through GitHub’s API',
 			risk: 'low',
+		},
+		{
+			id: 'push',
+			label: 'Push commits',
+			description: 'Push branches and tags to the repositories from a sandbox, with pap git',
+			risk: 'high',
+			requires: 'read',
+			reachesOthers: true,
+		},
+		{
+			id: 'write',
+			label: 'Change things on GitHub',
+			description:
+				'Anything GitHub’s API changes, from a sandbox with pap gh: open, edit and merge pull requests, open and edit issues, comment, and more',
+			risk: 'high',
+			requires: 'read',
+			reachesOthers: true,
 		},
 	],
 	collections: [

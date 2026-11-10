@@ -34,3 +34,21 @@ export function withCliAuth(routeLabel: string, handler: (req: CliRequest, res: 
 		});
 	};
 }
+
+/**
+ * A route relaying requests from a sandbox to a provider (cli/github/route.ts), which authenticates
+ * each itself, so it can refuse in the words the client shows, and writes its own answer, often as a
+ * stream. One that throws is logged and answered 500 where nothing went back yet, else cut off.
+ */
+export function withCliRelay(routeLabel: string, handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
+	return (req, res) => {
+		handler(req, res).catch((error: unknown) => {
+			log.error('route handler threw', {routeLabel, ...serializeError(error)});
+			if (res.headersSent) {
+				res.destroy();
+				return;
+			}
+			res.status(500).type('text/plain').send('Something went wrong; try again.\n');
+		});
+	};
+}

@@ -103,7 +103,7 @@ export const envSchema = z.object({
 	GITHUB_CLIENT_ID: documented(z.string().min(1).optional(), {
 		group: 'Connections',
 		description:
-			'Turns on connecting GitHub, with `GITHUB_CLIENT_SECRET` and `GITHUB_APP_SLUG`: the client id of a GitHub App of your own, registered under your account’s or organization’s developer settings with `<APP_URL>/api/connections/github/callback` as a callback URL, “Expire user authorization tokens” on and “Request user authorization (OAuth) during installation” off, no webhook, Contents and Pull requests read and write, Metadata read and Email addresses read. People install it on the repositories they choose and sign in to it here.',
+			'Turns on connecting GitHub, with `GITHUB_CLIENT_SECRET` and `GITHUB_APP_SLUG`: the client id of a GitHub App of your own, registered under your account’s or organization’s developer settings with `<APP_URL>/api/connections/github/callback` as a callback URL, “Expire user authorization tokens” on and “Request user authorization (OAuth) during installation” off, no webhook, Contents, Pull requests and Issues read and write, Metadata read and Email addresses read. People install it on the repositories they choose and sign in to it here.',
 	}),
 	GITHUB_CLIENT_SECRET: documented(z.string().min(1).optional(), {
 		group: 'Connections',

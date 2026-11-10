@@ -154,10 +154,10 @@ function recordTitle(collection: Collection, values: RecordValues): string | nul
 	return values[collection.titleField]?.trim() || null;
 }
 
-type Outcome = 'allowed' | 'denied' | 'failed';
+export type Outcome = 'allowed' | 'denied' | 'failed';
 
-// The metrics' side of an entry: the kind of error alone of what went wrong, never the status.
-function recordToolCall(caller: TaskCaller, connection: ConnectionRow, action: string, outcome: Outcome, startedAt: number, error?: string): void {
+/** The metrics' side of an entry: the kind of error alone of what went wrong, never the status. */
+export function recordToolCall(caller: TaskCaller, connection: Pick<ConnectionRow, 'integrationId'>, action: string, outcome: Outcome, startedAt: number, error?: string): void {
 	toolMetrics.recordToolCall({
 		surface: caller.via,
 		integration: connection.integrationId,
@@ -190,10 +190,12 @@ function log(run: ToolRun, outcome: Outcome, title: string | null, query: string
 
 const httpCauseSchema = z.object({kind: z.literal('http'), status: z.number()});
 
-// What the activity log keeps of what went wrong: the error's kind, with the provider's HTTP status
-// where it answered with one, as `provider_unreachable 429`; never the provider's words, which can
-// hold the person's data.
-function failureOf(error: ApiError): string {
+/**
+ * What the activity log keeps of what went wrong: the error's kind, with the provider's HTTP status
+ * where it answered with one, as `provider_unreachable 429`; never the provider's words, which can
+ * hold the person's data.
+ */
+export function failureOf(error: ApiError): string {
 	const cause = 'cause' in error ? httpCauseSchema.safeParse(error.cause) : null;
 	return cause?.success ? `${error.kind} ${cause.data.status}` : error.kind;
 }
@@ -260,7 +262,7 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 			connector: $(requirePresent(connectorFor(integration.id, collection.id), ApiErr.notFound('tool', toolName))),
 			tool,
 			actions: actionsOf(agent, connection, integration, unavailable),
-			refuse: (actionId) => refusal(integration, agent, connection, unavailable, actionId),
+			refuse: (actionId) => actionRefusal(integration, agent, connection, unavailable, actionId),
 			startedAt,
 		};
 
@@ -275,10 +277,12 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 	});
 }
 
-// Why an action is refused: the sign-in, naming the action it didn't cover, or the connection
-// having none, where signing in would allow it as the agent's settings stand; else plainly
-// forbidden.
-function refusal(integration: Integration, agent: AgentRow, connection: ConnectionRow & {credential: string | null}, unavailable: string[], actionId: string): ApiError {
+/**
+ * Why an action is refused: the sign-in, naming the action it didn't cover, or the connection
+ * having none, where signing in would allow it as the agent's settings stand; else plainly
+ * forbidden.
+ */
+export function actionRefusal(integration: Integration, agent: AgentRow, connection: ConnectionRow & {credential: string | null}, unavailable: string[], actionId: string): ApiError {
 	if (!actionsOf(agent, connection, integration, []).includes(actionId)) {
 		return ApiErr.forbidden();
 	}
@@ -357,7 +361,7 @@ function runParamsTool(
 		const missing = [tool.action, tool.requires].find((actionId) => actionId !== undefined && !actions.includes(actionId));
 		if (missing !== undefined) {
 			$(await logRun('denied'));
-			return $(Err(refusal(integration, agent, connection, unavailable, missing)));
+			return $(Err(actionRefusal(integration, agent, connection, unavailable, missing)));
 		}
 		const answer = tool.kind === 'call' ? await callCustomTool(connection, tool.name, args) : await runNativeTool(integration, tool, {caller, connection, params: args});
 		if (answer.isErr()) {
