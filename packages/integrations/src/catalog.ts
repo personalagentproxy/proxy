@@ -1784,10 +1784,10 @@ const sandbox: Integration = {
 // GitHub, signed in to through Personal Agent Proxy's GitHub App as the person: the repositories
 // the app is installed on that they can reach, read live from GitHub, and worked in from a sandbox
 // with `pap git` and `pap gh`, whose requests the api relays to GitHub with the connection's token
-// (api/src/cli/github), checking each against these actions. What the app may do on them is set at
-// GitHub, when it is installed; what an agent may do with the connection is set here. Pushing and
-// writing start off: a new connection's defaults are Read alone (api/src/connections/github/route.ts),
-// and an older one's stored defaults never had them.
+// (api/src/cli/github), checking each against these actions (api/src/cli/github/needs.ts). What
+// the app may do on them is set at GitHub, when it is installed; what an agent may do with the
+// connection is set here. Everything but Read starts off: a new connection's defaults are Read
+// alone (api/src/connections/github/route.ts), and an older one's stored defaults never had more.
 const github: Integration = {
 	id: 'github',
 	signIn: true,
@@ -1805,17 +1805,45 @@ const github: Integration = {
 		},
 		{
 			id: 'push',
-			label: 'Push commits',
-			description: 'Push branches and tags to the repositories from a sandbox, with pap git',
+			label: 'Push to branches',
+			description:
+				'From a sandbox, push to any branch but the default one, and push tags, with git (pap git) or GitHub’s API',
 			risk: 'high',
 			requires: 'read',
 			reachesOthers: true,
 		},
 		{
-			id: 'write',
-			label: 'Change things on GitHub',
+			id: 'pushDefault',
+			label: 'Push to the default branch',
 			description:
-				'Anything GitHub’s API changes, from a sandbox with pap gh: open, edit and merge pull requests, open and edit issues, comment, and more',
+				'Push to the repository’s default branch, such as main, without a pull request: commit to it, reset it or delete it',
+			risk: 'high',
+			requires: 'push',
+			reachesOthers: true,
+		},
+		{
+			id: 'contribute',
+			label: 'Open pull requests and issues',
+			description:
+				'From a sandbox with the GitHub CLI (pap gh): open, edit, close and review pull requests, open and edit issues, comment, label and assign',
+			risk: 'high',
+			requires: 'read',
+			reachesOthers: true,
+		},
+		{
+			id: 'merge',
+			label: 'Merge pull requests',
+			description:
+				'Merge pull requests, or have them merged once their checks pass, from a sandbox with the GitHub CLI (pap gh)',
+			risk: 'high',
+			requires: 'read',
+			reachesOthers: true,
+		},
+		{
+			id: 'manage',
+			label: 'Change anything else on GitHub',
+			description:
+				'Anything else GitHub’s API changes, from a sandbox: repository settings, releases, workflow runs, forks, labels, webhooks, and more',
 			risk: 'high',
 			requires: 'read',
 			reachesOthers: true,

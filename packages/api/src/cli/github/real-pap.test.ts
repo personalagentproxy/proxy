@@ -142,9 +142,29 @@ describe('pap git, the real git as the person', () => {
 		const pushed = await runPap(['git', 'push', 'origin', 'not-allowed'], clone);
 
 		expect(pushed.status).not.toBe(0);
-		expect(pushed.stderr).toContain('remote error: Not allowed: Push commits (push), which git push needs, on GitHub connection github-1.');
+		expect(pushed.stderr).toContain('remote error: Not allowed: Push to branches (push), which git push needs, on GitHub connection github-1.');
 		expect(fake.gitAuthorizations).toEqual([]);
 		expect((await git(['branch', '--list', 'not-allowed'], join(projects, 'acme', 'demo.git'))).stdout).toBe('');
+	});
+
+	test('a push to the default branch without Push to the default branch is refused in PAP’s words; another branch goes', async () => {
+		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'push'])]);
+		await runPap(['git', 'clone', '-q', 'https://github.com/acme/demo', 'main-clone']);
+		const clone = repo('main-clone');
+		writeFileSync(join(clone, 'main.txt'), 'main\n');
+		await runPap(['git', 'add', '.'], clone);
+		await runPap(['git', 'commit', '-q', '-m', 'straight to main'], clone);
+		const before = (await git(['rev-parse', 'main'], join(projects, 'acme', 'demo.git'))).stdout;
+
+		const toMain = await runPap(['git', 'push', 'origin', 'main'], clone);
+		const toBranch = await runPap(['git', 'push', '-q', 'origin', 'main:refs/heads/straight'], clone);
+
+		expect(toMain.status).not.toBe(0);
+		expect(toMain.stderr).toContain('Not allowed: Push to the default branch (pushDefault), which a push to main (the default branch) needs');
+		expect(toMain.stderr).toContain('open a pull request into main');
+		expect((await git(['rev-parse', 'main'], join(projects, 'acme', 'demo.git'))).stdout).toBe(before);
+		expect(toBranch).toMatchObject({status: 0, stderr: ''});
+		expect((await git(['log', '-1', '--format=%s', 'straight'], join(projects, 'acme', 'demo.git'))).stdout.trim()).toBe('straight to main');
 	});
 
 	test('with several GitHub connections, --connection names one, and without it git shows the refusal', async () => {
@@ -204,7 +224,7 @@ describe.skipIf(GH === null)('pap gh, the real gh as the person', () => {
 	});
 
 	test('a branch pushed with pap git, as gh pushes one, is opened as a pull request with pap gh pr create', async () => {
-		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'push', 'write'])]);
+		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'push', 'contribute'])]);
 		await runPap(['git', 'clone', '-q', 'https://github.com/acme/demo', 'pr-clone']);
 		const clone = repo('pr-clone');
 		await runPap(['git', 'checkout', '-q', '-b', 'add-docs'], clone);
@@ -239,12 +259,30 @@ describe.skipIf(GH === null)('pap gh, the real gh as the person', () => {
 		tmpEmpty();
 	});
 
-	test('a write without Change things on GitHub is refused in PAP’s words, before GitHub', async () => {
+	test('a write without the action it needs is refused in PAP’s words, before GitHub', async () => {
 		const ran = await runPap(['gh', 'api', '-X', 'POST', '/repos/acme/demo/issues', '-f', 'title=Bug']);
 
 		expect(ran.status).not.toBe(0);
-		expect(ran.stderr).toContain('Not allowed: Change things on GitHub (write)');
+		expect(ran.stderr).toContain('Not allowed: Open pull requests and issues (contribute)');
 		expect(fake.apiRequests).toEqual([]);
+		tmpEmpty();
+	});
+
+	test('merging without Merge, by GraphQL or REST, is refused in PAP’s words, and nothing reaches GitHub', async () => {
+		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'push', 'contribute'])]);
+
+		const graphql = await runPap(['gh', 'api', 'graphql', '-f', 'query=mutation { mergePullRequest(input: {pullRequestId: "PR_1"}) { clientMutationId } }']);
+		const rest = await runPap(['gh', 'api', '-X', 'PUT', '/repos/acme/demo/pulls/1/merge']);
+
+		expect(graphql.status).not.toBe(0);
+		expect(graphql.stderr).toContain('Not allowed: Merge pull requests (merge)');
+		expect(rest.status).not.toBe(0);
+		expect(rest.stderr).toContain('Not allowed: Merge pull requests (merge)');
+		expect(fake.apiRequests).toEqual([]);
+		expect(logAgentRequest.mock.calls.map(([entry]) => [entry.action, entry.outcome])).toEqual([
+			['merge', 'denied'],
+			['merge', 'denied'],
+		]);
 		tmpEmpty();
 	});
 

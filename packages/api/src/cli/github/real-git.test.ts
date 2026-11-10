@@ -111,7 +111,7 @@ describe('the real git through the relay', () => {
 		const pushed = await git(['push', 'origin', 'not-allowed'], clone, papGitEnv());
 
 		expect(pushed.status).not.toBe(0);
-		expect(pushed.stderr).toContain('remote error: Not allowed: Push commits (push), which git push needs, on GitHub connection github-1. The person who made this login can allow it.');
+		expect(pushed.stderr).toContain('remote error: Not allowed: Push to branches (push), which git push needs, on GitHub connection github-1. The person who made this login can allow it.');
 		expect(authorizations).toEqual([]);
 		expect((await git(['branch', '--list', 'not-allowed'], join(projects, 'acme', 'demo.git'))).stdout).toBe('');
 		expect(logAgentRequest).toHaveBeenLastCalledWith(expect.objectContaining({collectionId: 'git', action: 'push', recordTitle: 'acme/demo', outcome: 'denied', via: 'cli'}));
@@ -130,7 +130,7 @@ describe('the real git through the relay', () => {
 		const pushed = await git(['push', 'origin', 'between'], clone, papGitEnv());
 
 		expect(pushed.status).not.toBe(0);
-		expect(pushed.stderr).toContain('Not allowed: Push commits (push)');
+		expect(pushed.stderr).toContain('Not allowed: Push to branches (push)');
 
 		getAgentById.mockResolvedValueOnce(Ok(agentRow([])));
 		getAgentById.mockResolvedValueOnce(Ok(agentRow([{connectionId: 'github-1', actionId: 'read', allowed: false}])));

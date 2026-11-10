@@ -1,14 +1,9 @@
 import {describe, expect, test} from 'bun:test';
 
-import {operationRun} from './graphql';
-import {apiAction, apiRequest, gitAction, gitRequest, graphqlAction, isGraphql, upstreamUrl} from './requests';
+import {apiRequest, gitAction, gitRequest, isGraphql, upstreamUrl} from './requests';
 
 const GIT = 'https://github.com';
 const API = 'https://api.github.com';
-
-function graphql(query: string, operationName?: string | null): Buffer {
-	return Buffer.from(JSON.stringify(operationName === undefined ? {query} : {query, operationName}));
-}
 
 describe('git requests', () => {
 	test('smart HTTP of a repository, with or without .git, goes to GitHub as <owner>/<repo>.git', () => {
@@ -79,7 +74,7 @@ describe('API requests', () => {
 		const user = apiRequest('/user', API);
 
 		expect(repo?.url.href).toBe('https://api.github.com/repos/acme/demo/pulls?state=open&per_page=5');
-		expect(repo).toMatchObject({path: '/repos/acme/demo/pulls', repository: 'acme/demo'});
+		expect(repo).toMatchObject({path: '/repos/acme/demo/pulls', segments: ['repos', 'acme', 'demo', 'pulls'], repository: 'acme/demo'});
 		expect(user).toMatchObject({path: '/user', repository: null});
 	});
 
@@ -101,72 +96,9 @@ describe('API requests', () => {
 		expect(upstreamUrl('http://localhost:1234', '/user', '')?.href).toBe('http://localhost:1234/user');
 	});
 
-	test('GET and HEAD read; every other method writes', () => {
-		expect(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'].map(apiAction)).toEqual(['read', 'read', 'write', 'write', 'write', 'write', 'write']);
+	test('a POST to /graphql is GraphQL', () => {
 		expect(isGraphql('POST', '/graphql')).toBe(true);
 		expect(isGraphql('GET', '/graphql')).toBe(false);
 		expect(isGraphql('POST', '/graphql/x')).toBe(false);
-	});
-});
-
-describe('GraphQL', () => {
-	test('a query reads, named or anonymous, shorthand too', () => {
-		expect(graphqlAction(graphql('query Viewer { viewer { login } }'))).toEqual({action: 'read', operation: {type: 'query', name: 'Viewer'}});
-		expect(graphqlAction(graphql('query { viewer { login } }'))).toEqual({action: 'read', operation: {type: 'query', name: null}});
-		expect(graphqlAction(graphql('{ viewer { login } }'))).toEqual({action: 'read', operation: {type: 'query', name: null}});
-	});
-
-	test('a mutation writes', () => {
-		const body = graphql('mutation CreatePullRequest($input: CreatePullRequestInput!) { createPullRequest(input: $input) { pullRequest { url } } }');
-
-		expect(graphqlAction(body)).toEqual({action: 'write', operation: {type: 'mutation', name: 'CreatePullRequest'}});
-	});
-
-	test('with a query and a mutation in one document, operationName says which runs', () => {
-		const document = 'query Read { viewer { login } } mutation Write { addStar(input: {starrableId: "x"}) { clientMutationId } }';
-
-		expect(graphqlAction(graphql(document, 'Read'))).toEqual({action: 'read', operation: {type: 'query', name: 'Read'}});
-		expect(graphqlAction(graphql(document, 'Write'))).toEqual({action: 'write', operation: {type: 'mutation', name: 'Write'}});
-		// Without it, or naming none of them, it is a write.
-		expect(graphqlAction(graphql(document)).action).toBe('write');
-		expect(graphqlAction(graphql(document, null)).action).toBe('write');
-		expect(graphqlAction(graphql(document, 'Other')).action).toBe('write');
-	});
-
-	test('"mutation" in a string, a block string or a comment is no mutation', () => {
-		const document = `# mutation Evil { deleteRepository }
-query Search($q: String = "mutation { x }") {
-  search(query: "mutation \\" mutation", type: ISSUE, first: 1) { issueCount }
-  a: repository(owner: """mutation""", name: "x") { id }
-}`;
-
-		expect(graphqlAction(graphql(document))).toEqual({action: 'read', operation: {type: 'query', name: 'Search'}});
-	});
-
-	test('fragments are no operation, and variables’ object defaults are no selection', () => {
-		const document = 'fragment Repo on Repository { name } query Q($f: Filter = {a: {b: 1}}) @cached(ttl: 1) { viewer { repositories(first: 1) { nodes { ...Repo } } } }';
-
-		expect(operationRun(document, null)).toEqual({type: 'query', name: 'Q'});
-	});
-
-	test('a body that isn’t a GraphQL request, or a document that can’t be read, is a write', () => {
-		const garbage = [
-			Buffer.from('not json'),
-			Buffer.from('{"query": 1}'),
-			Buffer.from('[]'),
-			graphql(''),
-			graphql('query { unclosed '),
-			graphql('query "x'),
-			graphql('type Query { a: Int }'),
-			graphql('query Q { a } ; mutation M { b }'),
-		];
-
-		for (const body of garbage) {
-			expect(graphqlAction(body).action).toBe('write');
-		}
-	});
-
-	test('a subscription is a write, when in doubt', () => {
-		expect(graphqlAction(graphql('subscription S { x }')).action).toBe('write');
 	});
 });
