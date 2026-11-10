@@ -165,7 +165,10 @@ function Connected({account}: {account: NonNullable<Account>}) {
 			<p>Connected with {kindOf(account.kind)}.</p>
 			{who.length > 0 && <p className="text-muted-foreground">{who.join(' · ')}</p>}
 			{account.kind === 'oauth' && account.expiresAt && (
-				<p className="text-muted-foreground">Sign-in expires {formatDateTime(account.expiresAt)}</p>
+				<p className="text-muted-foreground">
+					Token good until {formatDateTime(account.expiresAt)}; the server renews it as the agent
+					runs.
+				</p>
 			)}
 			{account.failure && <p className="text-destructive">{account.failure}</p>}
 		</div>
