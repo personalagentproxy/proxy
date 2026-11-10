@@ -180,7 +180,11 @@ function AuditEntryContent({
 				{entry.query && (
 					<Detail label={toolRun ? 'Params' : 'Search'}>
 						<span
-							className={toolRun ? 'min-w-0 font-mono text-xs break-all' : 'min-w-0 break-words'}
+							className={
+								toolRun
+									? 'max-h-64 min-w-0 overflow-y-auto font-mono text-xs break-all'
+									: 'min-w-0 break-words'
+							}
 						>
 							{entry.query}
 						</span>

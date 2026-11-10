@@ -682,6 +682,14 @@ describe('custom MCP servers', () => {
 		});
 	});
 
+	test('params are logged in full, however long', async () => {
+		const {runAgentTool} = await import('./tools');
+		const params = {stdin: 'x'.repeat(5000), query: 'invoices'};
+		await runAgentTool(caller, 'mcp-1', 'search_docs', params);
+
+		expect(logAgentRequest.mock.calls[0]?.[0]?.query).toBe(JSON.stringify(params));
+	});
+
 	test('a tool the agent may not run is refused and logged as denied; params that are not an object are refused unlogged', async () => {
 		const {runAgentTool} = await import('./tools');
 		expect((await runAgentTool(caller, 'mcp-1', 'publish_doc', {id: 'doc-1'})).unwrapErr().kind).toBe('forbidden');
