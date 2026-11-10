@@ -47,6 +47,7 @@ import {useOrgSlug} from '@/hooks/use-org';
 import {useReload} from '@/hooks/use-reload';
 import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
 import {useUnread} from '@/hooks/use-unread';
+import {chatRuns} from '@/lib/chat-runs';
 import {formatAgo, formatDateTime} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {chatLoader} from '@/loaders';
@@ -601,15 +602,9 @@ function Conversation({
 		}
 	};
 
-	// Turns in a row from the same side sit closer together than the sides do.
-	const runs = log.entries.reduce<ChatEntry[][]>((grouped, entry) => {
-		const last = grouped.at(-1);
-		if (last && last[0]?.kind === entry.kind) {
-			last.push(entry);
-			return grouped;
-		}
-		return [...grouped, [entry]];
-	}, []);
+	// Turns in a row from the same side sit closer together than the sides do, under the time
+	// their stretch of the conversation began.
+	const runs = chatRuns(log.entries, new Date());
 
 	return (
 		<>
@@ -630,12 +625,18 @@ function Conversation({
 							)}
 							{runs.map((run) => (
 								<MessageScrollerItem
-									key={run[0]?.id}
-									messageId={run[0]?.id ?? ''}
-									scrollAnchor={run[0]?.kind === 'person'}
+									key={run.entries[0]?.id}
+									messageId={run.entries[0]?.id ?? ''}
+									scrollAnchor={run.entries[0]?.kind === 'person'}
+									className="flex flex-col gap-4"
 								>
+									{run.heading !== null && (
+										<h2 className="text-center text-xs font-medium text-muted-foreground">
+											{run.heading}
+										</h2>
+									)}
 									<div className="flex flex-col gap-2">
-										{run.map((entry) => (
+										{run.entries.map((entry) => (
 											<Turn key={entry.id} entry={entry} />
 										))}
 									</div>
