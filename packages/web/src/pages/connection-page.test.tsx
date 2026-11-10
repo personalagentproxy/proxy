@@ -117,47 +117,70 @@ describe('ConnectionPage', () => {
 	test('its parts are tabs, one shown at a time, opening on Permissions', async () => {
 		renderConnectionPage('/acme/connections/conn-1');
 
-		expect(await screen.findByRole('checkbox', {name: /Read/})).toBeDefined();
+		expect(await screen.findByRole('checkbox', {name: 'Read by default'})).toBeDefined();
 		expect(tabs()).toEqual([
 			['Permissions', 'page'],
 			['Sharing', null],
-			['Agents1', null],
 			['Recent activity', null],
 		]);
 		expect(screen.queryByText('People with access')).toBeNull();
-		expect(screen.queryByText('Claude')).toBeNull();
+		expect(screen.queryByRole('button', {name: 'Refresh activity'})).toBeNull();
 	});
 
 	test('a tab shows its part alone, at an address of its own, without loading the page again', async () => {
 		const loads = renderConnectionPage('/acme/connections/conn-1');
-		await screen.findByRole('checkbox', {name: /Read/});
+		await screen.findByRole('checkbox', {name: 'Read by default'});
 
 		fireEvent.click(tab('Sharing'));
 		expect(await screen.findByText('People with access')).toBeDefined();
 		expect(screen.getByRole('button', {name: 'Add people'})).toBeDefined();
-		expect(screen.queryByRole('checkbox', {name: /Read/})).toBeNull();
+		expect(screen.queryByRole('checkbox', {name: 'Read by default'})).toBeNull();
 		expect(tab('Sharing').getAttribute('href')).toBe('/acme/connections/conn-1?tab=sharing');
-
-		fireEvent.click(tab(/Agents/));
-		expect(await screen.findByText('Claude')).toBeDefined();
-		expect(screen.queryByText('People with access')).toBeNull();
 
 		fireEvent.click(tab('Recent activity'));
 		expect(await screen.findByRole('button', {name: 'Refresh activity'})).toBeDefined();
-		expect(screen.queryByText('Claude')).toBeNull();
+		expect(screen.queryByText('People with access')).toBeNull();
 		expect(loads.count).toBe(1);
 	});
 
-	test('Permissions says whose defaults these are, and which agents have a setting of their own, each a link to it', async () => {
+	test('Permissions is a grid of the actions by the default and the agents that reach it, each agent a link', async () => {
+		const shared: AgentLogin = {...claude, id: 'agent-2', name: 'Team', shared: true};
+		const revoked: AgentLogin = {
+			...claude,
+			id: 'agent-3',
+			name: 'Gone',
+			revokedAt: '2026-10-02T00:00:00.000Z',
+		};
 		renderConnectionPage('/acme/connections/conn-1', mailbox, [
 			{...claude, grants: [{connectionId: 'conn-1', actionId: 'send', allowed: true}]},
+			shared,
+			revoked,
 		]);
 
-		expect(await screen.findByText(/What your agents may do with it by default/)).toBeDefined();
-		expect(screen.getByText('1 of 7 on')).toBeDefined();
-		const differs = screen.getByRole('link', {name: 'Claude has its own setting'});
-		expect(differs.getAttribute('href')).toBe('/acme/agents/agent-1');
-		expect(differs.closest('li')?.textContent).toContain('Send');
+		expect(await screen.findByText(/Your agents get what Default says/)).toBeDefined();
+		// A shared agent doesn't reach a connection that isn't everyone's, and a revoked one reaches nothing.
+		expect(screen.getAllByRole('columnheader').map((heading) => heading.textContent)).toEqual([
+			'Action',
+			'Default',
+			'Claude',
+		]);
+		expect(screen.getByRole('link', {name: 'Claude'}).getAttribute('href')).toBe(
+			'/acme/agents/agent-1',
+		);
+		expect(
+			screen.getByRole('checkbox', {name: 'Read by default'}).getAttribute('aria-checked'),
+		).toBe('true');
+		expect(
+			screen.getByRole('checkbox', {name: 'Read for Claude'}).getAttribute('aria-checked'),
+		).toBe('true');
+		expect(
+			screen.getByRole('checkbox', {name: 'Send by default'}).getAttribute('aria-checked'),
+		).toBe('false');
+		expect(
+			screen
+				.getByRole('checkbox', {name: 'Send for Claude, its own setting'})
+				.getAttribute('aria-checked'),
+		).toBe('true');
 	});
 
 	test('the address opens the page on the tab it names', async () => {
@@ -175,7 +198,7 @@ describe('ConnectionPage', () => {
 			builtIn: true,
 		});
 
-		expect(await screen.findByRole('checkbox', {name: /Read entries/})).toBeDefined();
-		expect(tabs().map(([label]) => label)).toEqual(['Permissions', 'Agents1', 'Recent activity']);
+		expect(await screen.findByRole('checkbox', {name: 'Read entries by default'})).toBeDefined();
+		expect(tabs().map(([label]) => label)).toEqual(['Permissions', 'Recent activity']);
 	});
 });

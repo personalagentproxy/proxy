@@ -1,39 +1,30 @@
-import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import {VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import {ListRestartIcon, RefreshCwIcon, UnplugIcon} from 'lucide-react';
 import type {FetchError} from '@proxy/utils';
-import {type ReactNode, useState} from 'react';
+import {useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
+import {setAgentGrants} from '@/client/agents-client';
 import {
 	deleteConnection,
 	refreshMcpTools,
 	setConnectionDefaults,
 	setConnectionSharing,
 } from '@/client/connections-client';
+import {AccessGrid, type GridAgent} from '@/components/access-grid';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {SignInToBankAgain} from '@/components/connect-bank-form';
 import {ConnectWithKeyDialog} from '@/components/connect-with-key-dialog';
-import {ConnectionAccess, SignInAgain} from '@/components/connection-access';
+import {SignInAgain} from '@/components/connection-access';
 import {ConnectionSharing} from '@/components/connection-sharing';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
-import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
+import {IntegrationLogo} from '@/components/brand-logo';
 import {NotFound} from '@/components/not-found';
 import {PageTabs} from '@/components/page-tabs';
-import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {SuccessLine} from '@/components/success-line';
-import {
-	actionsFor,
-	agentsWithAccess,
-	connectionTitle,
-	defaultActions,
-	defaultsOnOrOff,
-	integrationOf,
-	ownSettings,
-	describeActions,
-} from '@/lib/access';
+import {connectionTitle, defaultActions, integrationOf, ownSettings, reaches} from '@/lib/access';
 import {buttonVariants} from '@proxy/ui/components/button';
 import {useHuman} from '@/hooks/use-human';
 import {signInPath} from '@/lib/integrations';
@@ -64,7 +55,15 @@ export function ConnectionPage() {
 		return <NotFound what="connection" />;
 	}
 
-	const withAccess = agentsWithAccess(agents, connection);
+	// The agents that reach it, a column each of its permissions: the person's own, and the shared
+	// ones where every member has it, theirs to change where the agent is.
+	const columns: GridAgent[] = agents
+		.filter((agent) => agent.revokedAt === null && reaches(agent, connection))
+		.map((agent) => ({
+			agent,
+			own: ownSettings(agent, connection.id),
+			mayChange: manages(human, agent),
+		}));
 	const activeOrg = human.org;
 	// One's own connection is one's to change and share, and one shared with every member is the
 	// organization's owner's too. Anyone else it is shared with uses it as it is.
@@ -74,10 +73,9 @@ export function ConnectionPage() {
 	// A vault a member made is deleted, with its entries, where another connection is disconnected.
 	// The page's parts, one shown at a time: a built-in connection, which is never shared, has no
 	// Sharing.
-	const tabs: Array<PageTab<'permissions' | 'sharing' | 'agents' | 'activity'>> = [
+	const tabs: Array<PageTab<'permissions' | 'sharing' | 'activity'>> = [
 		{id: 'permissions', label: 'Permissions'},
 		...(connection.builtIn ? [] : [{id: 'sharing' as const, label: 'Sharing'}]),
-		{id: 'agents', label: 'Agents', count: withAccess.length},
 		{id: 'activity', label: 'Recent activity'},
 	];
 	const tab = chosenTab(tabs, searchParams);
@@ -177,20 +175,23 @@ export function ConnectionPage() {
 						{integration.custom && integration.actions.length === 0 && (
 							<p className="text-sm text-muted-foreground">The server lists no tools.</p>
 						)}
-						<ConnectionAccess
+						<AccessGrid
 							actions={integration.actions}
 							defaults={defaultActions(connection)}
+							agents={columns}
 							unavailable={connection.unavailable}
 							signInNeeded={connection.signInNeeded}
-							readOnly={!mayChange}
-							differing={differingAgents(org, agents, connection.id)}
-							onChange={async (actions) => {
-								const result = await setConnectionDefaults(
-									org,
-									connection.id,
-									defaultsOnOrOff(actions),
-								);
+							mayChangeDefaults={mayChange}
+							onChangeDefaults={async (actions) => {
+								const result = await setConnectionDefaults(org, connection.id, actions);
 								setError(result.isErr() ? describeFetchError(result.error) : null);
+								await revalidator.revalidate();
+							}}
+							onChangeAgent={async (agentId, actionId, allowed) => {
+								const result = await setAgentGrants(org, agentId, connection.id, {
+									[actionId]: allowed,
+								});
+								setError(result.isErr() ? describeApiError(result.error) : null);
 								await revalidator.revalidate();
 							}}
 						/>
@@ -233,24 +234,6 @@ export function ConnectionPage() {
 							await revalidator.revalidate();
 						}}
 					/>
-				)}
-				{tab === 'agents' && (
-					<RowList>
-						{withAccess.length === 0 && <EmptyRows>No agent can reach this connection.</EmptyRows>}
-						{withAccess.map((agent) => (
-							<Row
-								key={agent.id}
-								to={`/${org}/agents/${agent.id}`}
-								icon={<AgentLogo providerId={agent.providerId} />}
-								title={agent.name}
-								cells={
-									<span className="hidden min-w-0 shrink truncate text-right text-muted-foreground md:block">
-										{describeActions(integration, actionsFor(agent, connection))}
-									</span>
-								}
-							/>
-						))}
-					</RowList>
 				)}
 				{tab === 'activity' && (
 					<div className="flex flex-col gap-2">
@@ -322,53 +305,16 @@ function describeRefreshError(error: FetchError): string {
 	return describeFetchError(error);
 }
 
-// What the Permissions tab says first: that these are what agents get unless they have a setting
-// of their own, whose agents those are, and who sets them.
+// What the Permissions tab says first: what the grid's columns are, whose agents those are, and
+// who sets the defaults.
 function permissionsIntro(
 	connection: Connection,
 	about: {custom: boolean; mayChange: boolean; owner: string},
 ): string {
-	const whose = connection.shared ? 'the agents of everyone who uses it' : 'your agents';
+	const whose = connection.shared ? 'The agents of everyone who uses it' : 'Your agents';
 	return [
-		`What ${whose} may do with it by default. An agent’s own settings, on its page, come first.`,
+		`${whose} get what Default says, unless a box of the agent’s own says otherwise.`,
 		...(about.custom ? ['These are the server’s tools, as it last listed them.'] : []),
-		...(about.mayChange ? [] : [`${about.owner} sets these.`]),
+		...(about.mayChange ? [] : [`${about.owner} sets Default.`]),
 	].join(' ');
-}
-
-// The agents, revoked ones left out, with a setting of their own for each action, as the end of
-// the action's row shows them: their logos, each a link to the agent, where the setting is.
-function differingAgents(
-	org: string,
-	agents: AgentLogin[],
-	connectionId: string,
-): Partial<Record<string, ReactNode>> {
-	const byAction: Partial<Record<string, AgentLogin[]>> = {};
-	for (const agent of agents) {
-		if (agent.revokedAt !== null) {
-			continue;
-		}
-		for (const actionId of Object.keys(ownSettings(agent, connectionId))) {
-			byAction[actionId] = [...(byAction[actionId] ?? []), agent];
-		}
-	}
-	return Object.fromEntries(
-		Object.entries(byAction).map(([actionId, differing = []]) => [
-			actionId,
-			<span key={actionId} className="flex items-center gap-1.5">
-				<span className="hidden md:inline">Differs for</span>
-				{differing.map((agent) => (
-					<Link
-						key={agent.id}
-						to={`/${org}/agents/${agent.id}`}
-						title={agent.name}
-						aria-label={`${agent.name} has its own setting`}
-						className="rounded-md outline-none hover:opacity-80 focus-visible:ring-3 focus-visible:ring-ring/50"
-					>
-						<AgentLogo providerId={agent.providerId} />
-					</Link>
-				))}
-			</span>,
-		]),
-	);
 }

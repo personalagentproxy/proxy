@@ -1,22 +1,21 @@
 import type {Action, OwnSettings} from '@proxy/integrations';
 import {CheckCheckIcon, Undo2Icon} from 'lucide-react';
-import {type ReactNode, useId, useLayoutEffect, useRef, useState} from 'react';
+import {useId, useLayoutEffect, useRef, useState} from 'react';
 import {IconButton} from '@/components/icon-button';
 import {Badge} from '@proxy/ui/components/badge';
 import {Button} from '@proxy/ui/components/button';
 import {Checkbox} from '@proxy/ui/components/checkbox';
 import {cn} from '@proxy/ui/lib/utils';
+import {groupsOf, howManyOn} from '@/lib/access';
 import {onSignInClick} from '@/lib/desktop';
 
 type Props = {
 	actions: Action[];
 	// The actions agents get by default.
 	defaults: string[];
-	// An agent's own settings. Left out on a connection's page, where the defaults themselves are set.
+	// An agent's own settings. Left out where the defaults themselves are set, as the welcome flow
+	// sets them.
 	own?: OwnSettings;
-	// On a connection's page: the agents with a setting of their own, by action, as the page shows
-	// them, at the end of the action's row.
-	differing?: Partial<Record<string, ReactNode>>;
 	// Actions turned on or off; null returns an agent's action to the default.
 	onChange: (actions: Record<string, boolean | null>) => Promise<void>;
 	// On an agent's page: makes the agent's own setting for an action the connection's default.
@@ -48,7 +47,6 @@ export function ConnectionAccess({
 	actions,
 	defaults,
 	own,
-	differing,
 	onChange,
 	onMakeDefault,
 	unavailable = [],
@@ -235,7 +233,6 @@ export function ConnectionAccess({
 					</span>
 				</div>
 				<span className="flex shrink-0 items-center gap-2 text-muted-foreground">
-					{differing?.[action.id]}
 					{isOwn(action.id) && onMakeDefault && !isUnavailable(action.id) && (
 						<IconButton
 							label="Make this the default for every agent"
@@ -316,33 +313,6 @@ export function ConnectionAccess({
 			})}
 		</div>
 	);
-}
-
-// "2 of 7 on", or all or none.
-function howManyOn(on: number, total: number): string {
-	if (on === 0) {
-		return 'None on';
-	}
-	if (on === total) {
-		return 'All on';
-	}
-	return `${on} of ${total} on`;
-}
-
-type Group = {name: string | undefined; actions: Action[]};
-
-// The actions in runs of the group each names, in the catalog's order.
-function groupsOf(actions: Action[]): Group[] {
-	const groups: Group[] = [];
-	for (const action of actions) {
-		const last = groups.at(-1);
-		if (last && last.name === action.group) {
-			last.actions.push(action);
-			continue;
-		}
-		groups.push({name: action.group, actions: [action]});
-	}
-	return groups;
 }
 
 // Under a connection's permissions: when its sign-in didn't cover some actions (`unavailable`),

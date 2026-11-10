@@ -290,3 +290,31 @@ export function displayValue(type: FieldType, value: string | undefined): string
 
 	return value;
 }
+
+/** "2 of 7 on", or all or none. */
+export function howManyOn(on: number, total: number): string {
+	if (on === 0) {
+		return 'None on';
+	}
+	if (on === total) {
+		return 'All on';
+	}
+	return `${on} of ${total} on`;
+}
+
+/** Actions under the name of the part of the provider they belong to, as Google's are Gmail's or Drive's; no name where the integration groups none. */
+export type ActionGroup = {name: string | undefined; actions: Action[]};
+
+/** The actions in runs of the group each names, in the catalog's order. */
+export function groupsOf(actions: Action[]): ActionGroup[] {
+	const groups: ActionGroup[] = [];
+	for (const action of actions) {
+		const last = groups.at(-1);
+		if (last && last.name === action.group) {
+			last.actions.push(action);
+			continue;
+		}
+		groups.push({name: action.group, actions: [action]});
+	}
+	return groups;
+}
