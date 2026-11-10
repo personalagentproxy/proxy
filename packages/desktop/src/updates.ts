@@ -6,7 +6,7 @@ import {fromApp} from './ipc';
 
 // Updates, from the feed electron-builder.yml names: checked on start and every few hours. A new
 // version is downloaded as soon as it is found and announced to the page, which shows its notice
-// with a restart button (packages/web/src/components/release-notice.tsx); put off, it is
+// with a restart button (packages/web/src/components/desktop-update-notice.tsx); put off, it is
 // installed when the app next quits, so the next start is the new version either way.
 
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;

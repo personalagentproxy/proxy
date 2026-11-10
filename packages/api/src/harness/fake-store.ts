@@ -43,6 +43,8 @@ export function fakeStore(): FakeStore {
 		listOpenJobs: mock<HarnessStore['listOpenJobs']>(),
 		appendPersonMessage: mock<HarnessStore['appendPersonMessage']>(),
 		markThreadRead: mock<HarnessStore['markThreadRead']>(),
+		getThreadDraft: mock<HarnessStore['getThreadDraft']>(),
+		saveThreadDraft: mock<HarnessStore['saveThreadDraft']>(),
 		completeSetAlert: mock<HarnessStore['completeSetAlert']>(),
 		setAlertInline: mock<HarnessStore['setAlertInline']>(),
 		deleteAlert: mock<HarnessStore['deleteAlert']>(),

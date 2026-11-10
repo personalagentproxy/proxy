@@ -535,7 +535,9 @@ async function getMessage(session: Session, id: string): Promise<Result<DataReco
 	return Do(async ($) => {
 		const {message, parsed} = $(await parsedMessage(session, id));
 		const body = (parsed.text ?? '').trim();
-		const values = {...summaryValues(session.folder, message), body, attachments: attachmentsText(attachmentFiles(parsed)), messageId: parsed.messageId ?? ''};
+		const withNames = session.folder !== DRAFTS;
+		const copied = {cc: formatAddresses(message.envelope?.cc, withNames), bcc: formatAddresses(message.envelope?.bcc, withNames)};
+		const values = {...summaryValues(session.folder, message), ...copied, body, attachments: attachmentsText(attachmentFiles(parsed)), messageId: parsed.messageId ?? ''};
 		return {id, values, updatedAt: updatedAt(message)};
 	});
 }
@@ -563,9 +565,10 @@ function threadOptions(thread: Thread | null): Mail.Options {
 	return thread ? {inReplyTo: thread.inReplyTo, references: thread.references} : {};
 }
 
-// Who else an email goes to, as a reply to all copies whom the email it answers copied.
-function ccOptions(values: RecordValues): Mail.Options {
-	return values.cc ? {cc: values.cc} : {};
+// Who else an email goes to, as a reply to all copies whom the email it answers copied, and whom
+// it goes to unseen.
+function copyOptions(values: RecordValues): Mail.Options {
+	return {...(values.cc ? {cc: values.cc} : {}), ...(values.bcc ? {bcc: values.bcc} : {})};
 }
 
 /** Saves a draft from the typed-in values, from the connected address, a reply in `thread`: its UID. */
@@ -573,9 +576,10 @@ async function saveDraft(session: Session, values: RecordValues, thread: Thread 
 	return Do(async ($) => {
 		const {client, mailbox, credential} = session;
 		const messageId = `<${randomUUID()}@proxy>`;
-		const raw = await new MailComposer({from: credential.username, to: values.to, ...ccOptions(values), subject: values.subject, text: values.body, messageId, ...threadOptions(thread)})
-			.compile()
-			.build();
+		const composed = new MailComposer({from: credential.username, to: values.to, ...copyOptions(values), subject: values.subject, text: values.body, messageId, ...threadOptions(thread)}).compile();
+		// A draft keeps its Bcc until it is sent; sending takes it out.
+		composed.keepBcc = true;
+		const raw = await composed.build();
 		const appended = await client.append(mailbox.path, raw, ['\\Draft', '\\Seen']);
 
 		// Servers without UIDPLUS don't say which UID the draft got; its Message-ID finds it.
@@ -663,12 +667,12 @@ function moveTo(uses: SpecialUse[], name: string): CommandRunner {
 async function deliver(client: ImapFlow, credential: EmailCredential, values: RecordValues, thread: Thread | null = null): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const to = values.to?.trim() ?? '';
-		if (to === '') {
+		if (`${to}${values.cc ?? ''}${values.bcc ?? ''}`.trim() === '') {
 			return $(Err(ApiErr.validationError('The email has no recipient')));
 		}
 
 		const messageId = `<${randomUUID()}@proxy>`;
-		const message: Mail.Options = {from: credential.username, to, ...ccOptions(values), subject: values.subject ?? '', text: values.body ?? '', messageId, ...threadOptions(thread)};
+		const message: Mail.Options = {from: credential.username, to, ...copyOptions(values), subject: values.subject ?? '', text: values.body ?? '', messageId, ...threadOptions(thread)};
 		const transport = smtpTransport(credential);
 		const sent = await Result.wrapAsync(() => transport.sendMail(message));
 		transport.close();

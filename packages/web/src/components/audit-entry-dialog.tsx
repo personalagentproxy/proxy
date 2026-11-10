@@ -13,7 +13,13 @@ import {
 	DialogTitle,
 } from '@proxy/ui/components/dialog';
 import {AgentLogo, IntegrationLogo, ProxyLogo} from '@/components/brand-logo';
-import {describeEntry, describeFailure, entryAction, locateEntry} from '@/lib/access';
+import {
+	connectionTitle,
+	describeEntry,
+	describeFailure,
+	entryAction,
+	locateEntry,
+} from '@/lib/access';
 import {useOrgSlug} from '@/hooks/use-org';
 
 type Props = {
@@ -133,7 +139,7 @@ function AuditEntryContent({
 						{task ? (
 							<span className="flex min-w-0 flex-col gap-0.5">
 								<Link
-									to={`/${org}/activity?task=${encodeURIComponent(task.id)}`}
+									to={`/${org}/activity/tasks/${encodeURIComponent(task.id)}`}
 									className="min-w-0 break-words hover:underline"
 								>
 									{task.title}
@@ -153,7 +159,7 @@ function AuditEntryContent({
 								to={`/${org}/connections/${located.connection.id}`}
 								className="max-w-1/2 shrink-0 truncate hover:underline"
 							>
-								{located.connection.name ?? located.integration.name}
+								{connectionTitle(located.connection)}
 							</Link>
 							<span className="min-w-0 truncate text-muted-foreground">
 								{located.connection.account}

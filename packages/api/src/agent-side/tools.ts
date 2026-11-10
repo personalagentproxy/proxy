@@ -35,9 +35,9 @@ import {parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
 import {log as serverLog} from '../observability/log';
 import {integrationOf} from '../utils/connection-actions';
-import {requireOpenTaskIfAny} from '../mcp/pre-task-clients';
-import {ensureSandboxConnections} from '../native/sandbox/connections';
+import {ensureSandboxConnection} from '../native/sandbox/connections';
 import type {NativeToolRun} from '../native/tool';
+import {requireOpenTask} from './tasks';
 import {isPlainObject, parseToolParams} from './tool-params';
 
 /**
@@ -64,8 +64,9 @@ export function actionsOf(agent: AgentRow, connection: ConnectionRow, integratio
 }
 
 /**
- * What an agent reaches, as a viewer of its organization's connections: the shared ones and, for a
- * member's own agent, that member's own.
+ * What an agent reaches, as a viewer of its organization's connections: for a member's own agent,
+ * what that member uses, their own and those shared with them; for a shared agent, those shared
+ * with every member alone.
  */
 export function agentViewer(signedIn: SignedInAgent): Viewer {
 	return {orgId: signedIn.orgId, userId: signedIn.ownerUserId};
@@ -93,7 +94,7 @@ function nativeToolsOf(integration: Integration, actions: string[]): McpTool[] |
 export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.infer<typeof agentMeSchema>, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
-		$(await ensureSandboxConnections({orgId: signedIn.orgId, userId: signedIn.ownerUserId, experiments: signedIn.experiments}));
+		$(await ensureSandboxConnection({...agentViewer(signedIn), experiments: signedIn.experiments}));
 		const connections = $(await listConnectionsWithCredential(agentViewer(signedIn)))
 			.flatMap((connection) => {
 				const integration = integrationOf(connection);
@@ -106,7 +107,7 @@ export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.
 						id: connection.id,
 						integrationId: connection.integrationId,
 						account: connection.account,
-						shared: connection.ownerUserId === null,
+						shared: connection.sharedWithEveryone || connection.shares.length > 0,
 						actions,
 						tools: integration.mcpTools?.filter((tool) => actions.includes(tool.name)) ?? nativeToolsOf(integration, actions),
 						name: connection.name,
@@ -132,8 +133,7 @@ export function listAgentTools(signedIn: SignedInAgent, connectionId: string): P
 export type AgentCaller = {agent: SignedInAgent; via: 'web' | 'mcp' | 'harness'};
 
 /** Who runs a tool, and the task it is run for, by its id. */
-// PRE-TASK CLIENTS: null for a pre-task client's call (mcp/pre-task-clients.ts).
-export type TaskCaller = AgentCaller & {taskId: string | null};
+export type TaskCaller = AgentCaller & {taskId: string};
 
 // `actions` are what the agent can do with the connection, and `refuse` why it can't do another;
 // `startedAt` is when the call came in, so the log can say how long it took.
@@ -234,25 +234,20 @@ function logFailure<T>(run: ToolRun, answer: Result<T, ApiError>, title: string 
  * doesn't have is refused and logged as denied, saying how to allow it where the connection's
  * sign-in didn't cover the action. A run the provider fails, turning it down or out of reach, is
  * logged as failed, with what went wrong.
- * `readOnly` limits the run to tools that only read, or only to those that change something, as
- * the MCP server's `read` and `run` do; any other is refused, unlogged.
  */
-export function runAgentTool(caller: TaskCaller, connectionId: string, toolName: string, params: unknown, options: {readOnly?: boolean} = {}): Promise<Result<ToolResult, ApiError>> {
+export function runAgentTool(caller: TaskCaller, connectionId: string, toolName: string, params: unknown): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
 		const startedAt = Date.now();
 		// None of the three needs another's answer, so they are read at once; a refusal still comes in this order.
 		const [agentRead, taskRead, connectionRead] = await Promise.all([
 			requireAgent(caller.agent),
-			requireOpenTaskIfAny(caller.agent, caller.taskId),
+			requireOpenTask(caller.agent, caller.taskId),
 			loadConnection(agentViewer(caller.agent), connectionId),
 		]);
 		const agent = $(agentRead);
 		$(taskRead);
 		const {connection, integration} = $(connectionRead);
 		const tool = $(requirePresent(findTool(integration, toolName), ApiErr.notFound('tool', toolName)));
-		if (options.readOnly !== undefined && options.readOnly !== tool.readOnly) {
-			return $(Err(ApiErr.validationError(tool.readOnly ? `${tool.name} only reads: use read for it` : `${tool.name} changes something: use run for it`)));
-		}
 		if (tool.kind === 'call' || tool.kind === 'native') {
 			return $(await runParamsTool(caller, agent, connection, integration, tool, params, startedAt));
 		}

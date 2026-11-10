@@ -9,6 +9,7 @@ import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import type {ClaudeAccount} from '@proxy/contracts/me';
 import {HumanSide} from '@/components/human-side';
 import {formatDateTime} from '@/lib/format';
+import {later} from '@/lib/loader-utils';
 import {AccountPage} from '@/pages/account-page';
 import {testHuman} from '@/test-org';
 
@@ -80,7 +81,7 @@ function renderPage(claude: ClaudeAccount['account']) {
 				children: [
 					{
 						path: '/account',
-						loader: () => ({sessions: [session], claude}),
+						loader: later(async () => ({sessions: [session], claude})),
 						element: <AccountPage />,
 					},
 				],

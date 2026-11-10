@@ -14,14 +14,14 @@ import {watchableConnections} from './watch-connections';
 /**
  * What a call the model made is answered with, by its tool: the part shared by the two ways a call
  * is run, as a job of the api's once the turn is written (tool-job.ts), and inline, mid-turn, by a
- * harness that runs its tools itself (tool-surface.ts). A sub-agent's calls to the MCP server's
- * tools go through the gate as the sub-agent acting as the member, for its task, logged like any
- * agent's call, the result cut to what the log keeps. The agent talking with the person's alert
+ * harness that runs its tools itself (tool-surface.ts). A sub-agent's scripts make their calls
+ * through the gate as the sub-agent acting as the member, for its task, logged like any agent's
+ * call, the result cut to what the log keeps. The agent talking with the person's alert
  * calls: a cancel is done here, and a set is checked, the alert it is to set given back rather than
  * set, since setting it is a write the two ways fence differently. And the words both ways answer
  * with: for arguments that aren't a JSON object, a tool the thread hasn't got, a sleep without a
- * time, and a call a worker was interrupted in, whose outcome is unknown for a write and which is
- * simply not answered for anything else, in the words `@proxy/utils/harness` has for it.
+ * time, and a call a worker was interrupted in, whose outcome is unknown for a script and which
+ * is simply not answered for anything else, in the words `@proxy/utils/harness` has for it.
  */
 
 /** What answering a call needs of the store: the agent as it acts in the thread, the sub-agent's task, and the alerts to cancel. */
@@ -55,12 +55,12 @@ function cutResult(text: string): string {
 	return `${text.slice(0, MAX_RESULT_CHARS)}\n\n[Cut: the result was ${text.length} characters long.]`;
 }
 
-/** Runs the call through the gate, as the sub-agent acts in the thread, for its task. */
-export function runGateTool(store: ToolAnswerStore, thread: ThreadRow, name: string, args: Record<string, unknown>): Promise<Result<ToolAnswer, ApiError>> {
+/** Runs the script, its calls through the gate, as the sub-agent acts in the thread, for its task. */
+export function runGateTool(store: ToolAnswerStore, thread: ThreadRow, args: Record<string, unknown>): Promise<Result<ToolAnswer, ApiError>> {
 	return Do(async ($) => {
 		const signedIn = $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
 		const taskId = $(await ensureThreadTask(store, thread));
-		const result = await callMcpTool(signedIn, name, {...args, task: taskId}, false, 'harness');
+		const result = await callMcpTool(signedIn, {...args, task: taskId}, 'harness');
 		return {text: cutResult(result.content.map((part) => part.text).join('\n')), isError: result.isError === true};
 	});
 }
@@ -89,7 +89,7 @@ function alertToSet(store: ToolAnswerStore, thread: ThreadRow, spec: AlertSpec):
 
 /** How a set_alert call is answered, with the alert it set. */
 export function setText(alert: AlertRow): string {
-	return `Set the alert ${describeAlert(alert)}. The person sees it on their Alerts page.`;
+	return `Set the alert ${describeAlert(alert)}.`;
 }
 
 /** The main agent's alert calls: a cancel answered, or the alert to set. */
@@ -98,7 +98,7 @@ export function alertCall(store: ToolAnswerStore, thread: ThreadRow, call: ToolC
 		if (call.name === CANCEL_ALERT_TOOL) {
 			const id = typeof args.id === 'string' ? args.id : '';
 			if (!$(await store.deleteAlert(id, {threadId: thread.id}))) {
-				return error(`There is no alert ${id} in this conversation. Your instructions list the alerts set in it, by id.`);
+				return error(`No alert ${id}.`);
 			}
 			return {text: `Cancelled the alert ${id}.`, isError: false};
 		}

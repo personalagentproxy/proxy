@@ -10,6 +10,7 @@ import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {HumanSide} from '@/components/human-side';
 import {HomePage} from '@/pages/home-page';
+import {later} from '@/lib/loader-utils';
 import {testHuman} from '@/test-org';
 import {clearWidgetLookups, widgetsAnswer} from '@/test-widgets-api';
 
@@ -27,9 +28,17 @@ const connection = (id: string, integrationId: string, account: string): Connect
 	orgId: 'org-1',
 	integrationId,
 	account,
+	ownerUserId: 'user-1',
+
+	owner: 'Alex',
+
+	sharedWithEveryone: false,
+
+	sharedWith: [],
+
 	shared: false,
-	connectedById: 'user-1',
-	connectedBy: null,
+
+	builtIn: false,
 	defaults: [],
 	tools: null,
 	name: null,
@@ -153,7 +162,7 @@ function renderHomePage() {
 				id: 'human',
 				loader: () => testHuman(),
 				element: <HumanSide />,
-				children: [{path: '/:org', loader: () => home, element: <HomePage />}],
+				children: [{path: '/:org', loader: later(async () => home), element: <HomePage />}],
 			},
 		],
 		{initialEntries: ['/acme']},

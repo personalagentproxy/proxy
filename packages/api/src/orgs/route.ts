@@ -5,7 +5,7 @@ import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, type Experiment, parseSchema, requirePresent} from '@proxy/utils';
 import {type Invitation, inviteBodySchema, type Member, type memberListSchema, type Org, type orgListSchema, orgNameBodySchema} from '@proxy/contracts/orgs';
-import {listOrgConnectionsWithCredential, listOwnConnectionsWithCredential} from '@proxy/db/connection';
+import {listLeavingConnectionsWithCredential, listOrgConnectionsWithCredential} from '@proxy/db/connection';
 import {createInvitation, deleteInvitation, listInvitations, type InvitationRow} from '@proxy/db/invitation';
 import {
 	deleteOwnedOrganization,
@@ -128,13 +128,14 @@ export function handleDeleteOrgRoute(request: AuthenticatedRequest): Promise<Res
 }
 
 /**
- * Takes a member out: their own connections there are undone at their providers and deleted, and
- * so are their own agents and the MCP clients they signed in as a shared agent; the shared
- * connections and agents stay. The caller has checked they aren't its owner.
+ * Takes a member out: their connections there are undone at their providers and deleted, but for
+ * those shared with every member, which stay, the organization's owner's from then on; so are
+ * their own agents and the MCP clients they signed in as a shared agent, and the shared agents
+ * stay. The caller has checked they aren't its owner.
  */
 function takeOut(orgId: string, userId: string): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		await beforeDisconnectAll($(await listOwnConnectionsWithCredential({orgId, userId})));
+		await beforeDisconnectAll($(await listLeavingConnectionsWithCredential({orgId, userId})));
 		$(await removeMembership({orgId, userId, sharedAgentPasswordHash: await unknownPasswordHash()}));
 	});
 }

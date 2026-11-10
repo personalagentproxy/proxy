@@ -50,11 +50,11 @@ export function pendingToolCalls(entries: LogEntry[]): ToolCall[] {
 
 /**
  * What the api answers a call with that a worker was interrupted in, before it could record the
- * answer: a `run` call's outcome is unknown, since the write may have gone through; any other call
- * was simply not answered.
+ * answer: a script's outcome is unknown, since it may have changed something; any other call was
+ * simply not answered.
  */
-export const RUN_INTERRUPTED =
-	'The outcome of this call is unknown: the worker running it was interrupted before it could record the answer. Check what it changed before making it again.';
+export const OUTCOME_UNKNOWN =
+	'Interrupted: the outcome of this call is unknown. Check what it changed before running it again.';
 export const CALL_INTERRUPTED = 'This call was interrupted before it was answered.';
 
 /**

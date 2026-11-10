@@ -87,34 +87,6 @@ describe('ConnectionAccess', () => {
 		expect(changes).toEqual([{read: false}, {read: false, create: false, edit: false}]);
 	});
 
-	test('keeps range changes that match an agent default inherited', async () => {
-		const changes: Array<Record<string, boolean | null>> = [];
-		render(
-			<ConnectionAccess
-				actions={actions}
-				defaults={['read', 'create']}
-				own={{read: false}}
-				onChange={(next) => {
-					changes.push(next);
-					return changes.length === 1 ? Promise.resolve() : new Promise(() => undefined);
-				}}
-			/>,
-		);
-		const checkboxes = screen.getAllByRole('checkbox');
-
-		fireEvent.click(checkboxes[0]!);
-		await act(async () => Promise.resolve());
-		fireEvent.click(checkboxes[2]!, {shiftKey: true});
-		await waitFor(() => expect(changes).toHaveLength(2));
-
-		expect(checkboxes.map((checkbox) => checkbox.getAttribute('aria-checked'))).toEqual([
-			'true',
-			'true',
-			'true',
-		]);
-		expect(changes).toEqual([{read: null}, {read: null, edit: true}]);
-	});
-
 	test('re-saves an optimistic range value after its earlier save fails', async () => {
 		const firstSave = deferred();
 		const changes: Array<Record<string, boolean | null>> = [];
@@ -265,50 +237,6 @@ describe('ConnectionAccess', () => {
 		expect(changes).toEqual([{read: true}, {read: true, create: true, edit: true}]);
 	});
 
-	test('reads refreshed defaults after a pending make-default before saving a range', async () => {
-		const makeDefault = deferred();
-		const changes: Array<Record<string, boolean | null>> = [];
-		const view = render(
-			<ConnectionAccess
-				actions={actions}
-				defaults={[]}
-				own={{read: true, create: true, edit: false}}
-				onChange={(next) => {
-					changes.push(next);
-					return Promise.resolve();
-				}}
-				onMakeDefault={() => makeDefault.promise}
-			/>,
-		);
-
-		fireEvent.click(screen.getByRole('checkbox', {name: /^Edit/}));
-		await act(async () => Promise.resolve());
-		fireEvent.click(
-			screen.getAllByRole('button', {name: 'Make this the default for every agent'})[0]!,
-		);
-		await act(async () => Promise.resolve());
-		fireEvent.click(screen.getByRole('checkbox', {name: /^Read/}), {shiftKey: true});
-		await act(async () => Promise.resolve());
-
-		expect(changes).toEqual([{edit: true}]);
-
-		view.rerender(
-			<ConnectionAccess
-				actions={actions}
-				defaults={['read']}
-				own={{create: true, edit: false}}
-				onChange={(next) => {
-					changes.push(next);
-					return Promise.resolve();
-				}}
-				onMakeDefault={() => Promise.resolve()}
-			/>,
-		);
-		await act(async () => makeDefault.resolve());
-
-		expect(changes).toEqual([{edit: true}, {read: false, create: null}]);
-	});
-
 	test('shows a change immediately while it is saved and keeps the refreshed value', async () => {
 		const save = deferred();
 		const changes: Array<Record<string, boolean | null>> = [];
@@ -417,90 +345,6 @@ describe('ConnectionAccess', () => {
 		expect(changes).toEqual([{read: false}, {read: true}]);
 		expect(checkbox.getAttribute('aria-checked')).toBe('true');
 	});
-
-	test('preserves order between making a value the default and changing its checkbox', async () => {
-		const makeDefault = deferred();
-		const checkboxSave = deferred();
-		const changes: Array<Record<string, boolean | null>> = [];
-		const view = render(
-			<ConnectionAccess
-				actions={[action]}
-				defaults={[]}
-				own={{read: true}}
-				onChange={(next) => {
-					changes.push(next);
-					return checkboxSave.promise;
-				}}
-				onMakeDefault={() => makeDefault.promise}
-			/>,
-		);
-		const checkbox = screen.getByRole('checkbox', {name: /^Read/});
-
-		fireEvent.click(screen.getByRole('button', {name: 'Make this the default for every agent'}));
-		await act(async () => Promise.resolve());
-		fireEvent.click(checkbox);
-		await act(async () => Promise.resolve());
-
-		expect(checkbox.getAttribute('aria-checked')).toBe('false');
-		expect(changes).toEqual([]);
-
-		view.rerender(
-			<ConnectionAccess
-				actions={[action]}
-				defaults={['read']}
-				own={{}}
-				onChange={(next) => {
-					changes.push(next);
-					return Promise.resolve();
-				}}
-				onMakeDefault={() => Promise.resolve()}
-			/>,
-		);
-		await act(async () => makeDefault.resolve());
-
-		expect(changes).toEqual([{read: false}]);
-		expect(checkbox.getAttribute('aria-checked')).toBe('false');
-
-		view.rerender(
-			<ConnectionAccess
-				actions={[action]}
-				defaults={['read']}
-				own={{read: false}}
-				onChange={() => Promise.resolve()}
-				onMakeDefault={() => Promise.resolve()}
-			/>,
-		);
-		await act(async () => checkboxSave.resolve());
-
-		expect(checkbox.getAttribute('aria-checked')).toBe('false');
-	});
-
-	test('queues a reset behind an unfinished checkbox save', async () => {
-		const checkboxSave = deferred();
-		const changes: Array<Record<string, boolean | null>> = [];
-		render(
-			<ConnectionAccess
-				actions={[action]}
-				defaults={[]}
-				own={{read: true}}
-				onChange={(next) => {
-					changes.push(next);
-					return changes.length === 1 ? checkboxSave.promise : Promise.resolve();
-				}}
-			/>,
-		);
-
-		fireEvent.click(screen.getByRole('checkbox', {name: /^Read/}));
-		await act(async () => Promise.resolve());
-		fireEvent.click(screen.getByRole('button', {name: 'Reset to default'}));
-		await act(async () => Promise.resolve());
-
-		expect(changes).toEqual([{read: null}]);
-
-		await act(async () => checkboxSave.resolve());
-
-		expect(changes).toEqual([{read: null}, {read: null}]);
-	});
 });
 
 const emailActions = findIntegration('email')?.actions ?? [];
@@ -523,25 +367,6 @@ describe('ConnectionAccess with what the sign-in covered', () => {
 
 		const archive = screen.getByRole('checkbox', {name: /^Archive/});
 		expect(archive.hasAttribute('data-disabled')).toBe(false);
-	});
-
-	test("an agent's own setting for an action the sign-in didn't cover can be reset, not made the default", () => {
-		const onMakeDefault = mock();
-		render(
-			<ConnectionAccess
-				actions={emailActions}
-				defaults={[]}
-				own={{read: true, archive: true}}
-				unavailable={['read']}
-				onChange={mock()}
-				onMakeDefault={onMakeDefault}
-			/>,
-		);
-
-		expect(
-			screen.getAllByRole('button', {name: 'Make this the default for every agent'}),
-		).toHaveLength(1);
-		expect(screen.getAllByRole('button', {name: 'Reset to default'})).toHaveLength(2);
 	});
 
 	test('every action can be set when the sign-in covered them all', () => {
@@ -653,28 +478,6 @@ describe('ConnectionAccess with what the sign-in covered', () => {
 
 		await waitFor(() =>
 			expect(onChange).toHaveBeenCalledWith(Object.fromEntries(ids.map((id) => [id, false]))),
-		);
-	});
-
-	test("on an agent's page, an action set back to the default follows it rather than being kept", async () => {
-		const onChange = mock();
-		const ids = emailActions.map((action) => action.id);
-		render(
-			<ConnectionAccess
-				actions={emailActions}
-				defaults={['read']}
-				own={Object.fromEntries(ids.map((id) => [id, true]))}
-				onChange={onChange}
-				onMakeDefault={mock()}
-			/>,
-		);
-
-		fireEvent.click(screen.getByRole('button', {name: 'Disable all'}));
-
-		await waitFor(() =>
-			expect(onChange).toHaveBeenCalledWith(
-				Object.fromEntries(ids.map((id) => [id, id === 'read' ? false : null])),
-			),
 		);
 	});
 

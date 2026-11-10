@@ -69,7 +69,11 @@ describe('AppSidebar', () => {
 			screen.getByRole('button', {name: 'Organization: Acme'}).hasAttribute('data-active'),
 		).toBe(false);
 
-		expect(groupLabels()).toEqual([['Home'], ['Connections', 'Agent permissions'], ['Activity']]);
+		expect(groupLabels()).toEqual([
+			['Home'],
+			['Connections', 'External agents and permissions'],
+			['Activity'],
+		]);
 
 		fireEvent.click(screen.getByRole('button', {name: 'Organization: Acme'}));
 		const members = await screen.findByRole('menuitem', {name: 'Members'});
@@ -84,7 +88,7 @@ describe('AppSidebar', () => {
 
 		expect(groupLabels()).toEqual([
 			['Home', 'Chat'],
-			['Connections', 'Agent permissions'],
+			['Connections', 'External agents and permissions'],
 			['Activity', 'Alerts'],
 		]);
 	});

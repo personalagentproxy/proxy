@@ -11,7 +11,7 @@ import {
 	findAccountConnection,
 	getConnectionWithCredential,
 	renewConnection,
-	shareConnection,
+	setConnectionSharing,
 	updateConnectionName,
 	updateConnectionTools,
 	type ConnectionRow,
@@ -114,7 +114,7 @@ function connectionToRenew(
 	});
 }
 
-// A new connection, the viewer's own or every member's (`shared`), with its credential encrypted.
+// A new connection of the viewer's, theirs alone to use or every member's too (`shared`), with its credential encrypted.
 function addConnection<C>(viewer: ManagingViewer, integrationId: IntegrationId, connected: Connected<C>, encrypted: string, shared: boolean): Promise<Result<ConnectionRow, ApiError>> {
 	const listed = connected.tools === undefined ? {} : {tools: JSON.stringify(connected.tools)};
 	const name = connected.name === undefined ? {} : {name: connected.name};
@@ -130,15 +130,16 @@ function addConnection<C>(viewer: ManagingViewer, integrationId: IntegrationId, 
 	});
 }
 
-/** How a connection is saved: `shared` with every member of the organization rather than the viewer's own, and the connection a sign-in was begun from, to renew (`connectionToRenew`). */
+/** How a connection is saved: `shared` with every member of the organization rather than the viewer's alone to use, and the connection a sign-in was begun from, to renew (`connectionToRenew`). */
 export type SaveOptions = {shared?: boolean; connectionId?: string | null};
 
 /**
- * Saves a connection: a new one, the viewer's own or every member's (`shared`), or an existing one
- * (`connectionToRenew`), given the new credential and the account as the provider names it now,
- * such as an address changed since, and, for a custom server, its tools and the name; `added`
- * unless it was already there. An existing one that was the viewer's own is shared when they signed
- * in for every member, as they asked, rather than the account connected a second time.
+ * Saves a connection: a new one, the viewer's alone to use or every member's too (`shared`), or an
+ * existing one (`connectionToRenew`), given the new credential and the account as the provider
+ * names it now, such as an address changed since, and, for a custom server, its tools and the name;
+ * `added` unless it was already there. An existing one of the viewer's is shared with every member
+ * when they signed in for every member, as they asked, rather than the account connected a second
+ * time, and stays shared with whoever it was by name.
  */
 export function saveConnection<C>(
 	viewer: ManagingViewer,
@@ -156,11 +157,11 @@ export function saveConnection<C>(
 			return {row: $(await addConnection(viewer, integrationId, connected, encrypted, options.shared === true)), added: true};
 		}
 		$(await renewConnection({connectionId: existing.id, account, providerAccountId, credential: encrypted}));
-		const shares = options.shared === true && existing.ownerUserId !== null;
+		const shares = options.shared === true && !existing.sharedWithEveryone && existing.ownerUserId === viewer.userId;
 		if (shares) {
-			$(await shareConnection(existing.id));
+			$(await setConnectionSharing({connectionId: existing.id, ownerUserId: existing.ownerUserId, everyone: true, userIds: existing.shares.map((share) => share.userId)}));
 		}
-		const renewed = {...existing, account, ...(shares ? {ownerUserId: null} : {})};
+		const renewed = {...existing, account, ...(shares ? {sharedWithEveryone: true} : {})};
 		if (tools === undefined) {
 			return {row: renewed, added: false};
 		}

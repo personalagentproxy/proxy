@@ -18,7 +18,7 @@ import {StepHeading} from '@/components/step-heading';
 import {SuccessLine} from '@/components/success-line';
 import {Button} from '@proxy/ui/components/button';
 import {Card} from '@proxy/ui/components/card';
-import {defaultActions, defaultsOnOrOff, integrationOf} from '@/lib/access';
+import {defaultActions, integrationOf} from '@/lib/access';
 import {
 	describeDatabase,
 	EMAIL_FORM,
@@ -342,11 +342,7 @@ function ConnectionStep({
 					unavailable={connection.unavailable}
 					signInNeeded={connection.signInNeeded}
 					onChange={async (changes) => {
-						const result = await setConnectionDefaults(
-							org,
-							connection.id,
-							defaultsOnOrOff(changes),
-						);
+						const result = await setConnectionDefaults(org, connection.id, changes);
 						setError(result.isErr() ? describeFetchError(result.error) : null);
 						await revalidate();
 					}}

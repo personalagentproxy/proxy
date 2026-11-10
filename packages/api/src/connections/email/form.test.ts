@@ -11,7 +11,7 @@ mock.module('@proxy/db/connection', () => ({
 	createConnection,
 	getConnectionWithCredential: mock(),
 	renewConnection: mock(),
-	shareConnection: mock(),
+	setConnectionSharing: mock(),
 	updateConnectionName: mock(),
 	updateConnectionTools: mock(),
 }));
@@ -40,7 +40,8 @@ const createdRow = {
 	integrationId: 'email',
 	orgId: 'org-1',
 	ownerUserId: 'user-1',
-	connectedById: 'user-1',
+	sharedWithEveryone: false,
+	shares: [],
 	account: 'alex@gmail.com',
 	createdAt: new Date('2026-10-01T00:00:00Z'),
 	tools: null,
@@ -72,7 +73,7 @@ describe('connecting a mailbox', () => {
 		expect(createConnection).toHaveBeenCalledWith({
 			orgId: 'org-1',
 			ownerUserId: 'user-1',
-			connectedById: 'user-1',
+			sharedWithEveryone: false,
 			integrationId: 'email',
 			account: 'alex@gmail.com',
 			providerAccountId: null,

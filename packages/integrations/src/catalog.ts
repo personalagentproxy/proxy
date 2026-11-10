@@ -142,6 +142,10 @@ function emailsCollection(args: {
 			},
 			{key: 'from', label: 'From', type: 'email', system: true},
 			{key: 'to', label: 'To', type: 'email'},
+			// Who else it goes to, comma-separated as to is: read when the email is opened, never in a list.
+			{key: 'cc', label: 'Cc', type: 'email'},
+			// Who it goes to unseen, which only the account's own drafts and sent email show.
+			{key: 'bcc', label: 'Bcc', type: 'email'},
 			{key: 'subject', label: 'Subject', type: 'text'},
 			{key: 'date', label: 'Date', type: 'datetime', system: true},
 			// "Unread, Flagged" ("Unread, Starred" on Gmail), for an email in the inbox.
@@ -1617,7 +1621,7 @@ export const VAULT_ENTRY_TYPES = ['Text', 'Address', 'Phone number', 'Email', 'L
 const vault: Integration = {
 	id: VAULT_INTEGRATION_ID,
 	name: 'Vault',
-	description: 'What your agents should know about you, kept in Personal Agent Proxy',
+	description: 'What agents should know, kept in Personal Agent Proxy',
 	native: true,
 	actions: [
 		{id: 'readEntries', label: 'Read entries', description: 'List and open entries', risk: 'low'},
@@ -1648,8 +1652,8 @@ const vault: Integration = {
 	],
 };
 
-// What agents may do with a vault by default, as every organization and member gets one: read
-// it, and keep what they learn there, unless told otherwise.
+// What agents may do with a vault by default, a member's own and any they make: read it, and
+// keep what they learn there, unless told otherwise.
 export const VAULT_DEFAULT_ACTIONS: string[] = vault.actions.map((action) => action.id);
 
 export const SANDBOX_INTEGRATION_ID = 'sandbox';
@@ -1660,7 +1664,7 @@ export const SANDBOX_EXEC_DEFAULT_SECONDS = 60;
 
 // Sandboxes live in Personal Agent Proxy itself, as the vault does: computers an agent asks for
 // and works on, each kept while it is away, asleep, and woken by its next command. Every
-// organization and member has a Sandboxes connection, as they have a vault; what an agent may
+// member has a Sandboxes connection, as they have a vault; what an agent may
 // do there is set per action, as on any connection. The sandboxes are the collection, listed
 // and made as records; the console is the one tool of the integration's own, since reading and
 // writing files is done through it. Offered where the organization has the experiment and the

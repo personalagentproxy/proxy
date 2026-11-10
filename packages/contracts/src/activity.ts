@@ -87,12 +87,11 @@ export type ActivityTask = z.infer<typeof activityTaskSchema>;
 
 /**
  * `GET activity`'s filters: an agent's requests, `proxy` for what Personal Agent Proxy did itself,
- * a connection's, one task's, or those of one outcome.
+ * a connection's, or those of one outcome.
  */
 export const activityQuerySchema = z.object({
 	agentId: z.string().min(1).optional(),
 	connectionId: z.string().min(1).optional(),
-	taskId: z.string().min(1).optional(),
 	outcome: outcomeSchema.optional(),
 });
 
@@ -100,7 +99,7 @@ export type ActivityFilter = z.input<typeof activityQuerySchema>;
 
 /**
  * `GET activity`: the requests the person sees, newest first, the latest 500, and the tasks they
- * were made for; with `?taskId=`, that task too, even before any request was made for it.
+ * were made for.
  */
 export const activityListSchema = z.object({
 	entries: z.array(auditEntrySchema),

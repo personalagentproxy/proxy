@@ -1,9 +1,5 @@
-import type {ActivityTask} from '@proxy/contracts/activity';
-import type {AgentLogin} from '@proxy/contracts/agents';
-import {taskEndedAt} from '@proxy/utils/tasks';
-import {XIcon} from 'lucide-react';
-import {type ReactNode, useState} from 'react';
-import {Link, useLoaderData, useSearchParams} from 'react-router';
+import type {ReactNode} from 'react';
+import {useSearchParams} from 'react-router';
 import {AgentTimeline} from '@/components/agent-timeline';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
@@ -14,13 +10,9 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@proxy/ui/components/select';
-import {Button} from '@proxy/ui/components/button';
 import {AgentLogo, IntegrationLogo, ProxyLogo} from '@/components/brand-logo';
-import {Head} from '@/components/head';
-import {Badge} from '@proxy/ui/components/badge';
-import {useOrgSlug} from '@/hooks/use-org';
+import {useLoaded} from '@/hooks/use-loaded';
 import {connectionLabel} from '@/lib/access';
-import {formatDateTime} from '@/lib/format';
 import {integrationOf} from '@/lib/integrations';
 import type {activityLoader} from '@/loaders';
 
@@ -36,25 +28,31 @@ const OUTCOMES: Option[] = [
 ];
 
 // The home page's timeline of who is doing what, over every request an agent made, and what
-// Personal Agent Proxy did itself from the home page, newest first, narrowed by agent, connection and outcome, and to one agent's task. The filters
-// live in the URL, so the agent and connection pages, the home page's lanes and an entry's task can
-// link straight to their part of the log, and the api applies them (`?agent=proxy` for Personal
-// Agent Proxy's own, `?outcome=denied` for what was refused, `?outcome=failed` for what the provider
-// failed, `?task=` for the requests made for one task).
+// Personal Agent Proxy did itself from the home page, newest first, narrowed by agent, connection
+// and outcome. The filters live in the URL, so the agent and connection pages can link straight to
+// their part of the log, and the api applies them (`?agent=proxy` for Personal Agent Proxy's own,
+// `?outcome=denied` for what was refused, `?outcome=failed` for what the provider failed). One
+// task's requests are on its own page (task-page.tsx), which an old `?task=` link is sent to.
 export function ActivityPage() {
+	return (
+		<AppShell title={<PageTitle>Activity</PageTitle>}>
+			<Activity />
+		</AppShell>
+	);
+}
+
+function Activity() {
 	const {
 		entries,
 		tasks,
 		timeline,
 		agents: allAgents,
 		connections: allConnections,
-	} = useLoaderData<typeof activityLoader>();
+	} = useLoaded<typeof activityLoader>();
 	const [params, setParams] = useSearchParams();
 	const agent = params.get('agent') ?? ALL;
 	const connection = params.get('connection') ?? ALL;
 	const outcome = params.get('outcome') ?? ALL;
-	const taskId = params.get('task');
-	const task = tasks.find((candidate) => candidate.id === taskId);
 	const filter = (key: string, value: string) => {
 		const next = new URLSearchParams(params);
 		if (value === ALL) {
@@ -88,7 +86,7 @@ export function ActivityPage() {
 	];
 
 	return (
-		<AppShell title={<PageTitle>Activity</PageTitle>}>
+		<>
 			{timeline && (
 				<AgentTimeline initial={timeline} agents={allAgents} connections={allConnections} />
 			)}
@@ -112,93 +110,9 @@ export function ActivityPage() {
 					onChange={(value) => filter('outcome', value)}
 				/>
 			</div>
-			{task && (
-				<TaskCard
-					task={task}
-					agent={allAgents.find((candidate) => candidate.id === task.agentId)}
-					onClear={() => filter('task', ALL)}
-				/>
-			)}
 			<AuditList entries={entries} agents={allAgents} connections={allConnections} tasks={tasks} />
-		</AppShell>
+		</>
 	);
-}
-
-// The task the log is narrowed to: what the agent said it set out to do, when it started, and
-// whether it has called it finished. The X in its corner widens the log to every task again.
-function TaskCard({
-	task,
-	agent,
-	onClear,
-}: {
-	task: ActivityTask;
-	agent: AgentLogin | undefined;
-	onClear: () => void;
-}) {
-	const org = useOrgSlug();
-	return (
-		<div className="relative flex flex-col gap-1.5 rounded-lg border px-4 py-3 pr-12 text-sm">
-			<Button variant="ghost" size="icon-sm" className="absolute top-2 right-2" onClick={onClear}>
-				<XIcon />
-				<span className="sr-only">Show every task</span>
-			</Button>
-			<div className="flex flex-wrap items-center gap-2">
-				<span className="font-medium">{task.title}</span>
-				<TaskBadge task={task} />
-				<Link
-					to={`/${org}/activity/tasks/${encodeURIComponent(task.id)}`}
-					className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-				>
-					Timeline
-				</Link>
-			</div>
-			<p className="text-muted-foreground">{task.goal}</p>
-			<p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
-				{task.persona && (
-					<span className="inline-flex items-center gap-1.5">
-						<Head look={task.persona.look} color={task.persona.color} size={20} />
-						{task.persona.name}
-					</span>
-				)}
-				{!task.persona && agent && (
-					<span className="inline-flex items-center gap-1.5">
-						<AgentLogo providerId={agent.providerId} />
-						{agent.name}
-					</span>
-				)}
-				{!task.persona && !agent && <span>Deleted agent</span>}
-				<span aria-hidden>·</span>
-				<span>Started {formatDateTime(task.startedAt)}</span>
-				{task.finishedAt && (
-					<>
-						<span aria-hidden>·</span>
-						<span>Finished {formatDateTime(task.finishedAt)}</span>
-					</>
-				)}
-				{task.via === 'mcp' && (
-					<>
-						<span aria-hidden>·</span>
-						<span>Over MCP</span>
-					</>
-				)}
-			</p>
-		</div>
-	);
-}
-
-// Finished once the agent says so; one it never finished is taken as left open 20 minutes after
-// anything was last done for it or its sub-tasks, until the next request (@proxy/utils/tasks).
-function TaskBadge({task}: {task: ActivityTask}) {
-	// When the page was opened, as the log's entries are.
-	const [now] = useState(() => new Date());
-	if (task.finishedAt) {
-		return <Badge variant="secondary">Finished</Badge>;
-	}
-	const ended = taskEndedAt({lastActiveAt: new Date(task.lastActiveAt), finishedAt: null}, now);
-	if (ended) {
-		return <Badge variant="secondary">Left open</Badge>;
-	}
-	return <Badge variant="outline">Under way</Badge>;
 }
 
 type FilterProps = {

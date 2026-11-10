@@ -12,7 +12,7 @@ mock.module('@proxy/db/connection', () => ({
 	findAccountConnection,
 	createConnection,
 	renewConnection,
-	shareConnection: mock(),
+	setConnectionSharing: mock(),
 	updateConnectionCredential: mock(),
 	getConnectionCredential: mock(async () => Ok(null)),
 	updateConnectionTools: mock(),
@@ -127,7 +127,7 @@ beforeEach(() => {
 	env.GOOGLE_CLIENT_ID = 'client-1.apps.googleusercontent.com';
 	env.GOOGLE_CLIENT_SECRET = 'secret-1';
 	findAccountConnection.mockResolvedValue(Ok(null));
-	createConnection.mockResolvedValue(Ok({id: 'conn-1'}));
+	createConnection.mockResolvedValue(Ok({id: 'conn-1', ownerUserId: 'user-1', sharedWithEveryone: false, shares: []}));
 	renewConnection.mockResolvedValue(Ok(undefined));
 });
 
@@ -203,7 +203,7 @@ describe('handleGoogleCallbackRoute', () => {
 	});
 
 	test('signing in again with the same account gives its connection the new tokens', async () => {
-		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0'}));
+		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0', ownerUserId: 'user-1', sharedWithEveryone: false, shares: []}));
 		const {cookie, state} = await start();
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
@@ -214,7 +214,7 @@ describe('handleGoogleCallbackRoute', () => {
 
 	test("after the account's address changed, signing in again finds its connection by Google's id and gives it the new address", async () => {
 		google.idToken = idToken({sub: '1093', email: 'alex.kim@example.com', email_verified: true});
-		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0'}));
+		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0', ownerUserId: 'user-1', sharedWithEveryone: false, shares: []}));
 		const {cookie, state} = await start();
 		await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 

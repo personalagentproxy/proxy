@@ -18,7 +18,6 @@ mock.module('../mcp/tools', () => ({...mcpTools, callMcpTool}));
 const listAgentConnections = mock();
 mock.module('../agent-side/tools', () => ({listAgentConnections}));
 mock.module('../records/connectors', () => ({connectorFor: () => ({list: mock(), get: mock(), changes: mock()})}));
-const {MCP_TOOLS} = mcpTools;
 const {isGateTool, MAIN_AGENT_TOOLS, SUB_AGENT_TOOLS, toolsFor, toolSurfaceFor} = await import('./tool-surface');
 const EMAILS_READ = findCollection(findIntegration('google') ?? {collections: []}, 'emails')?.read ?? '';
 
@@ -48,29 +47,22 @@ describe('the main agent’s tools', () => {
 });
 
 describe('a sub-agent’s tools', () => {
-	test('are the MCP server’s without the two about tasks, a message to the agent it works for, and a sleep', () => {
-		expect(SUB_AGENT_TOOLS.map((candidate) => candidate.name)).toEqual(['list_connections', 'list_tools', 'read', 'run', 'send_feedback', 'send_to_parent', 'sleep_until']);
+	test('are the MCP server’s script, a message to the agent it works for, and a sleep', () => {
+		expect(SUB_AGENT_TOOLS.map((candidate) => candidate.name)).toEqual(['script', 'send_to_parent', 'sleep_until']);
 		expect(tool('send_to_parent').parameters.required).toEqual(['text']);
 	});
 
-	test('take no task: the loop fills it in', () => {
-		for (const name of ['list_connections', 'list_tools', 'read', 'run']) {
-			expect(tool(name).parameters.properties).not.toHaveProperty('task');
-			expect(tool(name).parameters.required).not.toContain('task');
-			expect(tool(name).description).not.toContain('from start_task');
-		}
-		expect(tool('read').parameters.required).toEqual(['connection', 'tool']);
+	test('the script takes no task, and starts and finishes none: the loop keeps its task', () => {
+		expect(tool('script').parameters.properties).not.toHaveProperty('task');
+		expect(tool('script').parameters.required).toEqual(['code']);
+		expect(tool('script').description).toContain('pap.call(connection, tool, params?)');
+		expect(tool('script').description).not.toContain('pap.startTask');
+		expect(tool('script').description).not.toContain('pap.finishTask');
 	});
 
-	test('keep every other param the MCP server’s have', () => {
-		const run = MCP_TOOLS.find((candidate) => candidate.name === 'run');
-		expect(Object.keys(tool('run').parameters.properties)).toEqual(Object.keys(run?.inputSchema.properties ?? {}).filter((key) => key !== 'task'));
-	});
-
-	test('the gate’s tools are the MCP server’s but the task ones', () => {
-		expect(isGateTool('read')).toBe(true);
-		expect(isGateTool('send_feedback')).toBe(true);
-		expect(isGateTool('start_task')).toBe(false);
+	test('the gate’s one tool is the script', () => {
+		expect(isGateTool('script')).toBe(true);
+		expect(isGateTool('read')).toBe(false);
 		expect(isGateTool('sleep_until')).toBe(false);
 		expect(isGateTool('send_to_parent')).toBe(false);
 		expect(isGateTool('create_subagent')).toBe(false);
@@ -148,26 +140,28 @@ describe('running a call inline', () => {
 		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'proxy', name: 'Finance'}, connections: [watchable]}));
 	});
 
-	test('a gate tool goes through the MCP dispatch as the sub-agent acting as the member, for its task, a refusal answered as an error, and a long result cut', async () => {
-		expect((await run(onSub(), 'read', '{"connection":"mail-1","tool":"emails_list"}')).unwrap()).toEqual({text: '{"records":[]}', isError: false});
-		expect(callMcpTool).toHaveBeenCalledWith(signedIn, 'read', {connection: 'mail-1', tool: 'emails_list', task: 'task-1'}, false, 'harness');
+	test('a script goes through the MCP dispatch as the sub-agent acting as the member, for its task, a refusal answered as an error, and a long result cut', async () => {
+		const code = 'return pap.call("mail-1", "emails_list")';
+		expect((await run(onSub(), 'script', JSON.stringify({code}))).unwrap()).toEqual({text: '{"records":[]}', isError: false});
+		expect(callMcpTool).toHaveBeenCalledWith(signedIn, {code, task: 'task-1'}, 'harness');
 
 		callMcpTool.mockResolvedValue({content: [{type: 'text', text: 'This login may not run emails_send.'}], isError: true});
-		expect((await run(onSub(), 'run', '{"connection":"mail-1","tool":"emails_send"}')).unwrap()).toEqual({text: 'This login may not run emails_send.', isError: true});
+		expect((await run(onSub(), 'script', JSON.stringify({code: 'return pap.call("mail-1", "emails_send")'}))).unwrap()).toEqual({text: 'This login may not run emails_send.', isError: true});
 
 		callMcpTool.mockResolvedValue({content: [{type: 'text', text: 'x'.repeat(70_000)}]});
-		const long = (await run(onSub(), 'read', '{}')).unwrap();
+		const long = (await run(onSub(), 'script', JSON.stringify({code}))).unwrap();
 		expect(long.text.length).toBeLessThan(61_000);
 		expect(long.text).toEndWith('[Cut: the result was 70000 characters long.]');
 	});
 
 	test('a tool the thread’s agent hasn’t got, and arguments that aren’t a JSON object, are answered as errors, and nothing is run', async () => {
-		expect((await run(onMain(), 'read', '{}')).unwrap()).toEqual({text: 'There is no tool read.', isError: true});
+		expect((await run(onMain(), 'script', '{"code":"return 1"}')).unwrap()).toEqual({text: 'There is no tool script.', isError: true});
+		expect((await run(onSub(), 'read', '{}')).unwrap()).toEqual({text: 'There is no tool read.', isError: true});
 		expect((await run(onSub(), 'create_subagent', '{"title":"a","brief":"b"}')).unwrap()).toEqual({text: 'There is no tool create_subagent.', isError: true});
 		expect((await run(onSub(), 'set_alert', '{}')).unwrap()).toEqual({text: 'There is no tool set_alert.', isError: true});
 		expect((await run(onMain(), 'sleep_until', '{"seconds":5}')).unwrap()).toEqual({text: 'There is no tool sleep_until.', isError: true});
 		expect((await run(onSub(), 'fly', '{}')).unwrap()).toEqual({text: 'There is no tool fly.', isError: true});
-		expect((await run(onSub(), 'read', 'not json')).unwrap()).toEqual({text: 'The arguments were not a JSON object.', isError: true});
+		expect((await run(onSub(), 'script', 'not json')).unwrap()).toEqual({text: 'The arguments were not a JSON object.', isError: true});
 		expect((await run(onMain(), 'create_subagent', '[1]')).unwrap()).toEqual({text: 'The arguments were not a JSON object.', isError: true});
 		expect(callMcpTool).not.toHaveBeenCalled();
 		expect(store.startSubAgentInline).not.toHaveBeenCalled();
@@ -201,7 +195,7 @@ describe('running a call inline', () => {
 
 	test('a message to the agent a sub-agent works for is sent, fenced by the job', async () => {
 		expect((await run(onSub(), 'send_to_parent', '{"text":"Halfway."}')).unwrap()).toEqual({
-			text: 'Sent to the agent you work for. Its answer, if any, will come to you as a message.',
+			text: 'Sent.',
 			isError: false,
 		});
 		expect(store.tellParentInline).toHaveBeenCalledWith(subJob, {text: 'Halfway.', isError: false});
@@ -214,7 +208,7 @@ describe('running a call inline', () => {
 
 	test('a sub-agent is started as the call says, and answered with its id', async () => {
 		expect((await run(onMain(), 'create_subagent', '{"title":"Find the invoices","brief":"Search the mailbox."}', 'c7')).unwrap()).toEqual({
-			text: 'Started the sub-agent “Find the invoices”, id thread-9. What it says will come to you as a message.',
+			text: 'Started “Find the invoices”, id thread-9.',
 			isError: false,
 		});
 		expect(store.startSubAgentInline).toHaveBeenCalledWith(mainJob, {
@@ -241,14 +235,14 @@ describe('running a call inline', () => {
 
 	test('a message to a sub-agent is sent, and answered with what it was up to, or that there is no such sub-agent', async () => {
 		expect((await run(onMain(), 'send_to_subagent', '{"subagent":"thread-1","text":"Any from before October?"}')).unwrap()).toEqual({
-			text: 'Sent to the sub-agent “Find the invoices”, which was asleep, and is woken by it. What it says back will come to you as a message.',
+			text: 'Sent to “Find the invoices”, which was asleep, and is woken by it.',
 			isError: false,
 		});
 		expect(store.messageSubAgentInline).toHaveBeenCalledWith(mainJob, 'thread-1', {kind: 'person', text: 'Any from before October?'});
 
 		store.messageSubAgentInline.mockResolvedValue(Ok({subAgent: null}));
 		expect((await run(onMain(), 'send_to_subagent', '{"subagent":"thread-8","text":"Hi"}')).unwrap()).toEqual({
-			text: 'You have no sub-agent with id thread-8. Your sub-agents and their ids are listed in your instructions.',
+			text: 'No sub-agent thread-8.',
 			isError: true,
 		});
 
@@ -260,7 +254,7 @@ describe('running a call inline', () => {
 
 	test('set_alert sets the alert on its own, fenced by the job, a watch on the connections the agent may read with the collection, and answers with it; cancel_alert deletes one', async () => {
 		expect((await run(onMain(), 'set_alert', '{"title":"Call Dana","brief":"Remind them.","at":"2026-10-22T07:30:00Z"}')).unwrap()).toEqual({
-			text: 'Set the alert alert-1: “Call Dana”, due 2026-10-22T07:30:00.000Z. The person sees it on their Alerts page.',
+			text: 'Set the alert alert-1: “Call Dana”, due 2026-10-22T07:30:00.000Z.',
 			isError: false,
 		});
 		expect(store.setAlertInline).toHaveBeenCalledWith(mainJob, {kind: 'time', title: 'Call Dana', brief: 'Remind them.', at: new Date('2026-10-22T07:30:00Z')});
@@ -285,13 +279,13 @@ describe('running a call inline', () => {
 		expect(store.deleteAlert).toHaveBeenCalledWith('alert-1', {threadId: 'thread-0'});
 		store.deleteAlert.mockResolvedValue(Ok(false));
 		expect((await run(onMain(), 'cancel_alert', '{"id":"alert-2"}')).unwrap()).toEqual({
-			text: 'There is no alert alert-2 in this conversation. Your instructions list the alerts set in it, by id.',
+			text: 'No alert alert-2.',
 			isError: true,
 		});
 	});
 
 	test('never writes to the log, nor ends the job: the result is the worker’s to write', async () => {
-		await run(onSub(), 'read', '{}');
+		await run(onSub(), 'script', '{"code":"return 1"}');
 		await run(onSub(), 'sleep_until', '{"seconds":60}');
 		await run(onMain(), 'create_subagent', '{"title":"a","brief":"b"}');
 		await run(onMain(), 'set_alert', '{"title":"Call Dana","brief":"Remind them.","at":"2026-10-22T07:30:00Z"}');

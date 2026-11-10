@@ -26,7 +26,8 @@ const imap = {
 	calls: [] as Array<[string, ...unknown[]]>,
 	// What each append saved, as its text.
 	appended: [] as string[],
-	message: null as null | {uid: number; flags: Set<string>; source: Buffer},
+	// Its envelope's Cc and Bcc, which a server reads from its headers.
+	message: null as null | {uid: number; flags: Set<string>; source: Buffer; cc?: Address[]; bcc?: Address[]},
 };
 
 function box(path: string): Stored[] {
@@ -97,6 +98,8 @@ class FakeImapFlow {
 				subject: 'Re: Q3 planning',
 				from: [{name: 'Sam', address: 'sam@example.com'}],
 				to: [{address: 'sam@example.com'}],
+				cc: imap.message.cc ?? [],
+				bcc: imap.message.bcc ?? [],
 			},
 		};
 	}
@@ -151,7 +154,8 @@ const target = {
 		integrationId: 'email',
 		orgId: 'org-1',
 		ownerUserId: 'user-1',
-		connectedById: 'user-1',
+		sharedWithEveryone: false,
+		shares: [],
 		account: 'alex@example.com',
 		createdAt: new Date(),
 		tools: null,
@@ -467,6 +471,43 @@ test('only drafts are edited or deleted', async () => {
 	expect(updated.unwrapErr().kind).toBe('validation_error');
 	expect(removed.unwrapErr().kind).toBe('validation_error');
 	expect(imap.calls).toEqual([]);
+});
+
+describe('copies', () => {
+	test('a draft is saved with whom it copies and blind copies, and opens with them, bare', async () => {
+		const {emailConnector} = await import('./email-connector');
+		imap.message = {uid: 99, flags: new Set(), source, cc: [{name: 'Jo Park', address: 'jo@example.com'}], bcc: [{address: 'kim@example.com'}]};
+		const record = (await emailConnector.create(target, {to: 'sam@example.com', cc: 'Jo Park <jo@example.com>', bcc: 'kim@example.com', subject: 'Invoice', body: 'Could you reissue it?'})).unwrap();
+
+		const saved = imap.appended[0] ?? '';
+		expect(saved).toContain('Cc: Jo Park <jo@example.com>');
+		expect(saved).toContain('Bcc: kim@example.com');
+		expect(record.values).toMatchObject({cc: 'jo@example.com', bcc: 'kim@example.com'});
+	});
+
+	test('an email sent from the inbox opens with whom it copied, by name', async () => {
+		const {emailConnector} = await import('./email-connector');
+		imap.message = {uid: 12, flags: new Set(), source, cc: [{name: 'Jo Park', address: 'jo@example.com'}]};
+		const record = (await emailConnector.get(target, INBOX_EMAIL)).unwrap();
+
+		expect(record.values).toMatchObject({cc: 'Jo Park <jo@example.com>', bcc: ''});
+	});
+
+	test('a draft goes to whom it copies and blind copies when sent', async () => {
+		const {emailConnector} = await import('./email-connector');
+		imap.message = {uid: 12, flags: new Set(), source, cc: [{address: 'jo@example.com'}], bcc: [{address: 'kim@example.com'}]};
+		await emailConnector.commands?.send?.(target, DRAFT);
+
+		expect(sendMail.mock.calls[0]?.[0]).toMatchObject({to: 'sam@example.com', cc: 'jo@example.com', bcc: 'kim@example.com'});
+	});
+
+	test('a new email may go to blind copies alone', async () => {
+		const {emailConnector} = await import('./email-connector');
+		const result = await emailConnector.newCommands?.sendNew?.(target, {to: '', bcc: 'kim@example.com', subject: 'Friday', body: 'See you then.'});
+
+		expect(result?.unwrap()).toBeNull();
+		expect(sendMail.mock.calls[0]?.[0]).toMatchObject({bcc: 'kim@example.com'});
+	});
 });
 
 describe('sending a draft', () => {

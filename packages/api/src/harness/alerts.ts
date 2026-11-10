@@ -50,15 +50,15 @@ const argsSchema = z.object({
 export const SET_ALERT_PARAMETERS = {
 	type: 'object',
 	properties: {
-		title: {type: 'string', description: 'What the alert is, in a few words, such as "Reply from the landlord"'},
-		brief: {type: 'string', description: 'What you noted for it: for a time, what to tell the person then or what to do; for a watch, what it is for, which you are reminded of with each match'},
-		at: {type: 'string', description: 'When to be woken once, in ISO 8601 with its offset, such as 2026-10-22T07:30:00-07:00; for a timed alert'},
-		collection: {type: 'string', enum: Object.keys(WATCHED_COLLECTIONS), description: 'What to watch; for a watch'},
-		connections: {type: 'array', items: {type: 'string'}, description: 'The connections to watch, by id; left out for every one you may read with the collection'},
+		title: {type: 'string', description: 'A few words'},
+		brief: {type: 'string', description: 'What to tell the person or do when it comes'},
+		at: {type: 'string', description: 'ISO 8601 with offset, for a timed alert'},
+		collection: {type: 'string', enum: Object.keys(WATCHED_COLLECTIONS), description: 'For a watch'},
+		connections: {type: 'array', items: {type: 'string'}, description: 'Ids to watch; left out, all you may read'},
 		terms: {
 			type: 'array',
 			items: {type: 'string'},
-			description: 'Words or phrases, any one of which a new record has to contain, matched as written, not understood; left out, everything new matches',
+			description: 'Any one must appear; left out, everything new matches',
 		},
 	},
 	required: ['title', 'brief'],
@@ -148,9 +148,9 @@ export function describeAlert(alert: AlertRow): string {
 /** What the agent is told, in its instructions, of the alerts set in its conversation. */
 export function alertsParagraph(alerts: AlertRow[]): string {
 	if (alerts.length === 0) {
-		return 'No alert is set in this conversation.';
+		return 'No alerts.';
 	}
-	return `The alerts set in this conversation, each by the id cancel_alert takes:\n${alerts.map((alert) => `- ${describeAlert(alert)}`).join('\n')}`;
+	return `Alerts:\n${alerts.map((alert) => `- ${describeAlert(alert)}`).join('\n')}`;
 }
 
 /** What a timed alert lands in the conversation when it is due. */

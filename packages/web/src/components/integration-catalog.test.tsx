@@ -13,9 +13,17 @@ const google: Connection = {
 	id: 'conn-1',
 	orgId: 'org-1',
 	integrationId: 'google',
+	ownerUserId: 'user-1',
+
+	owner: 'Alex',
+
+	sharedWithEveryone: false,
+
+	sharedWith: [],
+
 	shared: false,
-	connectedById: 'user-1',
-	connectedBy: null,
+
+	builtIn: false,
 	account: 'alex@example.com',
 	defaults: ['readFiles'],
 	tools: null,

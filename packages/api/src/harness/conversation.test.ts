@@ -66,14 +66,14 @@ describe('a call is planned', () => {
 			throw new Error(`expected a sub-agent started, got ${plan.kind}`);
 		}
 		expect(plan.start).toEqual(subAgentStart(conversation, {id: 'c1', title: 'Find the invoices', brief: 'Search the mailbox.'}));
-		expect(plan.started('thread-9')).toBe('Started the sub-agent “Find the invoices”, id thread-9. What it says will come to you as a message.');
+		expect(plan.started('thread-9')).toBe('Started “Find the invoices”, id thread-9.');
 		expect(planCall(conversation, {...call, arguments: '{"title":"Find"}'}, now)).toEqual({kind: 'answer', text: expect.stringContaining('Give title'), isError: true});
 		expect(planCall(sub, call, now)).toEqual({kind: 'job', runAt: now});
 	});
 
 	test('as a message to the agent a sub-agent works for, sent at once; as a job from the conversation', () => {
 		const call = {id: 'c1', name: 'send_to_parent', arguments: '{"text":" Which mailbox? "}'};
-		expect(planCall(sub, call, now)).toEqual({kind: 'send_to_parent', message: {text: 'Which mailbox?', isError: false}, sent: expect.stringContaining('Sent to the agent you work for')});
+		expect(planCall(sub, call, now)).toEqual({kind: 'send_to_parent', message: {text: 'Which mailbox?', isError: false}, sent: 'Sent.'});
 		expect(planCall(sub, {...call, arguments: '{}'}, now)).toEqual({kind: 'answer', text: expect.stringContaining('Give text'), isError: true});
 		expect(planCall(conversation, call, now)).toEqual({kind: 'job', runAt: now});
 	});
@@ -90,7 +90,7 @@ describe('a call is planned', () => {
 		expect(plan.sent(was({kind: 'stopped'}))).toEqual({text: expect.stringContaining('“Find the invoices”, which had stopped, and takes it up'), isError: false});
 		expect(plan.sent(was({kind: 'asleep', until: now}))).toEqual({text: expect.stringContaining('was asleep, and is woken by it'), isError: false});
 		expect(plan.sent(was({kind: 'working'}))).toEqual({text: expect.stringContaining('is at work, and reads it when its current call is answered'), isError: false});
-		expect(plan.sent(null)).toEqual({text: expect.stringContaining('You have no sub-agent with id thread-1'), isError: true});
+		expect(plan.sent(null)).toEqual({text: expect.stringContaining('No sub-agent thread-1'), isError: true});
 		expect(planCall(conversation, {...call, arguments: '{"subagent":"thread-1"}'}, now)).toEqual({kind: 'answer', text: expect.stringContaining('Give subagent'), isError: true});
 		expect(planCall(sub, call, now)).toEqual({kind: 'job', runAt: now});
 	});

@@ -31,11 +31,8 @@ function underHolder(orgId: string, taskId: string, holderId: string): Promise<R
 }
 
 /** Takes the sandbox for the task, or refuses it, naming the task that has it. */
-export function holdForTask(sandbox: SandboxRow, taskId: string | null, now = new Date()): Promise<Result<void, ApiError>> {
+export function holdForTask(sandbox: SandboxRow, taskId: string, now = new Date()): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		if (taskId === null) {
-			return $(Err(ApiErr.validationError('A sandbox is used for a task: call start_task first, and give its id as task.')));
-		}
 		if (sandbox.heldByTaskId === taskId) {
 			return;
 		}

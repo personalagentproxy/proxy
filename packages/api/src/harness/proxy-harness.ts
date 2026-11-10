@@ -19,7 +19,7 @@ import type {askForTurn as askForTurnOverRouter, ModelTool} from '../llm/open-ro
 // How a long log is summarized, by the same model, for itself: a conversation's, or a
 // sub-agent's, whose messages from the person are from the agent it works for.
 const SUMMARIZE =
-	'You are summarizing a conversation between a person and their agent, written out below with the calls the agent made and what they answered, so that the agent can go on from the summary in place of the conversation so far. Write what the agent needs to go on as if it remembered: what the person asked for and what they said they want in general; what was done and found, with the names, ids, dates and numbers that matter; what the person was told; what is still open, promised or planned, such as what to do after a sleep or when a sub-agent answers, and which sub-agents, by id, are on what. Leave out what no longer matters. Plain prose, from the agent’s side, no title.';
+	'Summarize this conversation between a person and their agent, with the agent’s calls and their answers, so the agent can go on from the summary alone. Keep what the person asked for and wants; what was done and found, with names, ids, dates and numbers; what they were told; and what is still open or planned, such as after a sleep or a sub-agent’s answer, and which sub-agent ids are on what. Plain prose, from the agent’s side, no title.';
 const SUMMARIZE_NOW = 'Write the summary now.';
 
 const MAX_TOKENS = 4000;

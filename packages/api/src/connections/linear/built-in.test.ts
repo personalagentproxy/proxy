@@ -7,14 +7,14 @@ const findAccountConnection = mock();
 const getConnectionWithCredential = mock();
 const createConnection = mock();
 const renewConnection = mock();
-const shareConnection = mock();
+const setConnectionSharing = mock();
 
 mock.module('@proxy/db/connection', () => ({
 	findAccountConnection,
 	getConnectionWithCredential,
 	createConnection,
 	renewConnection,
-	shareConnection,
+	setConnectionSharing,
 	updateConnectionCredential: mock(),
 	getConnectionCredential: mock(async () => Ok(null)),
 	updateConnectionTools: mock(),
@@ -124,9 +124,9 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	linear.requests = [];
 	findAccountConnection.mockResolvedValue(Ok(null));
-	createConnection.mockResolvedValue(Ok({id: 'conn-1'}));
+	createConnection.mockResolvedValue(Ok({id: 'conn-1', ownerUserId: 'user-1', sharedWithEveryone: false, shares: []}));
 	renewConnection.mockResolvedValue(Ok(undefined));
-	shareConnection.mockResolvedValue(Ok(undefined));
+	setConnectionSharing.mockResolvedValue(Ok(undefined));
 });
 
 describe('handleStartLinearRoute', () => {
@@ -162,7 +162,7 @@ describe('handleLinearCallbackRoute', () => {
 	});
 
 	test('signing in to the same workspace again gives its connection the new tokens', async () => {
-		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0'}));
+		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0', ownerUserId: 'user-1', sharedWithEveryone: false, shares: []}));
 		const {cookie, state} = await start();
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
@@ -172,29 +172,31 @@ describe('handleLinearCallbackRoute', () => {
 	});
 
 	test("signing in for everyone to a workspace that is the person's own shares its connection, never connecting it twice", async () => {
-		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0', ownerUserId: 'user-1'}));
+		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0', ownerUserId: 'user-1', sharedWithEveryone: false, shares: []}));
 		const {cookie, state} = await start({share: 'everyone'});
 		await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
 		expect(createConnection).not.toHaveBeenCalled();
 		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0'});
-		expect(shareConnection).toHaveBeenCalledWith('conn-0');
+		expect(setConnectionSharing).toHaveBeenCalledWith({connectionId: 'conn-0', ownerUserId: 'user-1', everyone: true, userIds: []});
 	});
 
-	test('signing in again for oneself, or to a shared connection, shares nothing', async () => {
-		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0', ownerUserId: 'user-1'}));
+	test('signing in again for oneself, or to a connection every member has already, shares nothing', async () => {
+		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0', ownerUserId: 'user-1', sharedWithEveryone: false, shares: []}));
 		const own = await start();
 		await callback({cookie: own.cookie?.value ?? '', query: {state: own.state, code: 'code-1'}});
-		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0', ownerUserId: null}));
+		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0', ownerUserId: 'user-1', sharedWithEveryone: true, shares: []}));
 		const shared = await start({share: 'everyone'});
 		await callback({cookie: shared.cookie?.value ?? '', query: {state: shared.state, code: 'code-1'}});
 
 		expect(renewConnection).toHaveBeenCalledTimes(2);
-		expect(shareConnection).not.toHaveBeenCalled();
+		expect(setConnectionSharing).not.toHaveBeenCalled();
 	});
 
 	test('signing in from a connection never signed in to, as one moved over without a sign-in, gives that one the new tokens', async () => {
-		getConnectionWithCredential.mockResolvedValue(Ok({id: 'conn-0', integrationId: 'linear', account: 'mcp.linear.app/mcp', credential: null}));
+		getConnectionWithCredential.mockResolvedValue(
+			Ok({id: 'conn-0', ownerUserId: 'user-1', sharedWithEveryone: false, shares: [], integrationId: 'linear', account: 'mcp.linear.app/mcp', credential: null}),
+		);
 		const {cookie, state} = await start({connection: 'conn-0'});
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
@@ -204,8 +206,10 @@ describe('handleLinearCallbackRoute', () => {
 	});
 
 	test('signing in from a connection never signed in to, as an account connected since, gives that account its connection the new tokens, never a second one', async () => {
-		findAccountConnection.mockResolvedValue(Ok({id: 'conn-5'}));
-		getConnectionWithCredential.mockResolvedValue(Ok({id: 'conn-0', integrationId: 'linear', account: 'mcp.linear.app/mcp', credential: null}));
+		findAccountConnection.mockResolvedValue(Ok({id: 'conn-5', ownerUserId: 'user-1', sharedWithEveryone: false, shares: []}));
+		getConnectionWithCredential.mockResolvedValue(
+			Ok({id: 'conn-0', ownerUserId: 'user-1', sharedWithEveryone: false, shares: [], integrationId: 'linear', account: 'mcp.linear.app/mcp', credential: null}),
+		);
 		const {cookie, state} = await start({connection: 'conn-0'});
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
@@ -220,7 +224,9 @@ describe('handleLinearCallbackRoute', () => {
 	});
 
 	test('signing in to another workspace from a signed-in connection makes a connection of its own, the first kept', async () => {
-		getConnectionWithCredential.mockResolvedValue(Ok({id: 'conn-0', integrationId: 'linear', account: 'alex@example.com · Beta', credential: 'enc:{}'}));
+		getConnectionWithCredential.mockResolvedValue(
+			Ok({id: 'conn-0', ownerUserId: 'user-1', sharedWithEveryone: false, shares: [], integrationId: 'linear', account: 'alex@example.com · Beta', credential: 'enc:{}'}),
+		);
 		const {cookie, state} = await start({connection: 'conn-0'});
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
@@ -235,7 +241,9 @@ describe('handleLinearCallbackRoute', () => {
 	});
 
 	test('a connection of another integration, or gone, is no connection to sign in again', async () => {
-		getConnectionWithCredential.mockResolvedValue(Ok({id: 'conn-9', integrationId: 'notion', account: 'alex@example.com · Acme', credential: null}));
+		getConnectionWithCredential.mockResolvedValue(
+			Ok({id: 'conn-9', ownerUserId: 'user-1', sharedWithEveryone: false, shares: [], integrationId: 'notion', account: 'alex@example.com · Acme', credential: null}),
+		);
 		const {cookie, state} = await start({connection: 'conn-9'});
 		await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
@@ -261,7 +269,19 @@ describe('keyConnectRoute', () => {
 
 	test('connects with an API key, checked by listing the tools with it: the connection for who the key is, the key its credential', async () => {
 		createConnection.mockImplementation(async (data: {integrationId: string; account: string; defaults: string[]}) =>
-			Ok({id: 'conn-1', integrationId: data.integrationId, account: data.account, createdAt: new Date(), tools: null, name: null, defaults: data.defaults.map((actionId) => ({actionId}))}),
+			Ok({
+				id: 'conn-1',
+				orgId: 'org-1',
+				ownerUserId: 'user-1',
+				sharedWithEveryone: false,
+				shares: [],
+				integrationId: data.integrationId,
+				account: data.account,
+				createdAt: new Date(),
+				tools: null,
+				name: null,
+				defaults: data.defaults.map((actionId) => ({actionId})),
+			}),
 		);
 		const connection = (await connectWithKey({key: 'lin_api_1234'})).unwrap();
 
