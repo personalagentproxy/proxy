@@ -53,8 +53,8 @@ const GROUPS: Destination[][] = [
 		{to: '/chat', label: 'Chat', icon: MessageSquareIcon, experiment: 'harness'},
 	],
 	[
-		{to: '/connections', label: 'Connections', icon: PlugIcon},
-		{to: '/agents', label: 'External agents and permissions', icon: ListChecksIcon},
+		{to: '/connections', label: 'Connections and permissions', icon: PlugIcon},
+		{to: '/agents', label: 'External agents', icon: ListChecksIcon},
 	],
 	[
 		{to: '/activity', label: 'Activity', icon: ChartNoAxesGanttIcon},

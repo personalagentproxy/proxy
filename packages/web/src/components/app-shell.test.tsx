@@ -140,7 +140,7 @@ describe('AppShell', () => {
 		renderAt('/acme/things', loader);
 
 		expect((await screen.findByRole('banner')).textContent).toBe('Things');
-		expect(screen.getByRole('link', {name: 'Connections'})).toBeDefined();
+		expect(screen.getByRole('link', {name: 'Connections and permissions'})).toBeDefined();
 		expect(waiting()).not.toBeNull();
 		expect(screen.queryByText(/Listed/)).toBeNull();
 
@@ -156,13 +156,13 @@ describe('AppShell', () => {
 		const router = renderAt('/acme/things', loader);
 		await screen.findByRole('banner');
 		await act(async () => asked[0]?.answer({name: 'first'}));
-		const connections = await screen.findByRole('link', {name: 'Connections'});
+		const connections = await screen.findByRole('link', {name: 'Connections and permissions'});
 
 		// Drawn again, the label of the destination just clicked would open again under the pointer.
 		await act(async () => router.navigate('/acme/things/1'));
 		await act(async () => asked[1]?.answer({name: 'One'}));
 		await screen.findByText('Thing 1: One');
-		expect(screen.getByRole('link', {name: 'Connections'})).toBe(connections);
+		expect(screen.getByRole('link', {name: 'Connections and permissions'})).toBe(connections);
 	});
 
 	test('holds the place of a title the content gives', async () => {
@@ -271,6 +271,6 @@ describe('AppShell', () => {
 
 		expect(await screen.findByText('Something went wrong loading this page.')).toBeDefined();
 		expect(screen.getByRole('banner').textContent).toBe('Things');
-		expect(screen.getByRole('link', {name: 'Connections'})).toBeDefined();
+		expect(screen.getByRole('link', {name: 'Connections and permissions'})).toBeDefined();
 	});
 });

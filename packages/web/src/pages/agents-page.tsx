@@ -26,7 +26,7 @@ const CELLS = {
 // has any. A revoked one stays listed, muted, until it is deleted.
 export function AgentsPage() {
 	return (
-		<AppShell title={<PageTitle>External agents and permissions</PageTitle>}>
+		<AppShell title={<PageTitle>External agents</PageTitle>}>
 			<Agents />
 		</AppShell>
 	);

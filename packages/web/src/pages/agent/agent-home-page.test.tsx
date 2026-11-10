@@ -46,12 +46,12 @@ function renderAgentSide(path: string) {
 }
 
 describe('AgentHomePage', () => {
-	test('directs a login without access to the Connections page, naming the task in its address', async () => {
+	test('directs a login without access to the Connections and permissions page, naming the task in its address', async () => {
 		renderAgentSide('/agent/task-1');
 
 		expect(
 			await screen.findByText(
-				'No connections are available to this login yet. Ask the person who set it up to add a service on the Connections page, or give this login access to one already connected.',
+				'No connections are available to this login yet. Ask the person who set it up to add a service on the Connections and permissions page, or give this login access to one already connected.',
 			),
 		).toBeDefined();
 		expect(screen.getByRole('link', {name: 'Look around'}).getAttribute('href')).toBe('/agent');
