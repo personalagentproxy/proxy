@@ -69,6 +69,40 @@ on the app's icon too.
 **Activity** under the input opens the activity log, where every sub-agent's task is listed with
 the agent's head and name.
 
+## Your Claude subscription
+
+The agent can run on your own Claude subscription rather than on the server's key, so what you say
+to it goes to Anthropic under your account, as it would from Claude Code, and counts against your
+plan rather than the server's. Connect it under **Claude** on the **Account** page; it is yours, in
+every organization you are in, and nobody else's agents run under it.
+
+The credential is a token good for a year, the same one `claude setup-token` makes. The desktop
+app mints it for you: **Connect Claude** on the card opens claude.com in your browser, where you
+sign in and allow Personal Agent Proxy as you would allow Claude Code; Claude shows you a code,
+which you paste back into the card, and the token is made on your own computer from it and handed
+to the server, which never sees your password. In the browser, run `claude setup-token` yourself
+and paste what it prints on the Account page, or paste an Anthropic API key, which is billed to
+that key.
+
+What is stored is the credential alone, encrypted in the database as every connection's credential
+is, and when it ends where that is known. The server never refreshes anything, and holds no refresh
+token: when the year is up, the card says so and you connect again. The card also shows how much of
+your plan's five-hour and seven-day windows is used, as Anthropic reported it during the agent's
+last turn on your account, so it is as of that turn, not live.
+
+With a Claude account connected, your conversations, and the sub-agents they start, run on the
+[Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) under your account: what you
+say goes to Anthropic directly, as it would from Claude Code, not through OpenRouter, and the model
+is Sonnet. Everything else is the same: the agent's tools, sleeping, alerts, the activity log and
+what the conversation shows. A conversation you already had goes on under your account from where
+it was, and stays on it. When the token has run out or Anthropic refused it, the agent says so in
+the conversation and the card shows it, and nothing more is asked of Anthropic with it; connecting
+again takes it up. When your plan's limit is reached, the agent says so, with when the limit
+resets, and goes on when you write again after that. **Disconnect** on the card deletes the
+credential, and deleting your account deletes it too; conversations then run on the server's key
+again, from where they were. The token itself
+can be revoked at [claude.ai](https://claude.ai) as well, under your account's settings.
+
 <Callout>
 Chat is being tried out with some organizations first, so it is only offered to an organization
 that has it turned on. On a self-hosted Personal Agent Proxy, turn it on for every organization in

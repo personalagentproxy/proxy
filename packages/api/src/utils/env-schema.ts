@@ -119,6 +119,16 @@ export const envSchema = z.object({
 		description:
 			'An OpenRouter API key, for the model that fills in the fields of the widget Jev picks on the home page (gpt-oss-120b, on Cerebras or Groq), and for the built-in agent on the Chat page (Claude Sonnet 5.5). What is typed there is sent to it. Without it, or without `TYPESAFE_API_KEY`, the home page says it is not set up, and without it the Chat page does; everything else works as before.',
 	}),
+	CLAUDE_AGENT_SDK: documented(z.enum(['on', 'off']).default('on'), {
+		group: 'Core',
+		description:
+			'Whether a member who connected their Claude account on the Account page gets the built-in agent on the Chat page run on the Claude Agent SDK under that account: their conversations then go to Anthropic directly, as from Claude Code, and count against their plan rather than `OPENROUTER_KEY`. `off` runs every conversation on the server’s OpenRouter key. Each turn on the SDK runs Claude Code as a subprocess of a few hundred megabytes; `CLAUDE_AGENT_SDK_TURNS` caps how many run at once.',
+	}),
+	CLAUDE_AGENT_SDK_TURNS: documented(z.coerce.number().int().positive().default(1), {
+		group: 'Core',
+		description:
+			'How many turns of the built-in agent on the Claude Agent SDK one api instance runs at once; the rest wait their turn. Each is a subprocess of a few hundred megabytes, so raise it only with the memory to match.',
+	}),
 
 	NODE_ENV: documented(z.enum(['development', 'test', 'production']).default('production'), {
 		group: 'Deployment',

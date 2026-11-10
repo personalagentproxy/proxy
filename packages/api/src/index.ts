@@ -1,13 +1,21 @@
 import {createServer} from 'node:http';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 
 import {Result} from 'ts-results-es';
 
+import {claudeAgentSdkHarness} from '@proxy/backends/harness/claude-agent-sdk';
 import {connectDb, disconnectDb} from '@proxy/db';
 
+import type {HarnessRegistry} from './backends/harness';
 import {runDataMigrations} from './data-migrations/run';
 import {harnessStore} from './harness/store';
 import {startAlertSweeper, type AlertSweeper} from './harness/alert-sweep';
+import {proxyHarness} from './harness/proxy-harness';
+import {sdkSessionStore} from './harness/session-store';
 import {startHarnessWorker, type HarnessWorker} from './harness/worker';
+import {askForTurn} from './llm/open-router';
+import {claudeCredentialFor, markClaudeCredentialRefused, recordClaudeUsage} from './me/claude-credential';
 import {startSandboxSweeper} from './native/sandbox/sweeper';
 import {log, serializeError} from './observability/log';
 import {metrics} from './observability/metrics';
@@ -77,7 +85,24 @@ async function startApiServer(): Promise<void> {
 		log.info(`@proxy/api listening on http://localhost:${port}`);
 		// After listening, since signing in to a provider to name an account can take a while.
 		void runDataMigrations();
-		worker = startHarnessWorker(harnessStore);
+		// The built-in agent's harnesses: the loop over OpenRouter, where there is a key for it; the
+		// Claude Agent SDK's, for members who connected their Claude subscription, unless it is
+		// turned off. The SDK's subprocesses work and keep their config under the temp directory,
+		// each thread in a directory of its own; their transcripts go to the database.
+		const harnessDir = join(tmpdir(), 'proxy-harness');
+		const registry: HarnessRegistry = {
+			proxy: env.OPENROUTER_KEY ? proxyHarness({askForTurn, key: env.OPENROUTER_KEY}) : null,
+			claudeAgentSdk:
+				env.CLAUDE_AGENT_SDK === 'off'
+					? null
+					: claudeAgentSdkHarness({
+							sessionStore: sdkSessionStore(harnessStore),
+							workDir: join(harnessDir, 'work'),
+							configDir: join(harnessDir, 'config'),
+							maxConcurrentTurns: env.CLAUDE_AGENT_SDK_TURNS,
+						}),
+		};
+		worker = startHarnessWorker(harnessStore, {registry, credentials: {claudeCredentialFor, markRefused: markClaudeCredentialRefused, recordUsage: recordClaudeUsage}});
 		sweeper = startAlertSweeper(harnessStore);
 		void startSandboxSweeper();
 	});

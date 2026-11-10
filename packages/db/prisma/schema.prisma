@@ -44,6 +44,7 @@ model User {
   threads      AgentThread[]
   writeTargets WriteTarget[]
   desktopCodes DesktopAuthCode[]
+  claudeAccount ClaudeAccount?
 }
 
 // A sign-in provider identity linked to a user, such as their Google account. Only who it is:
@@ -697,6 +698,14 @@ model AgentThread {
   // showed them while they looked at it, never back. What the persona said past it is unread. A
   // sub-agent's thread, which nobody reads, keeps 0.
   readSeq Int     @default(0)
+  // Which harness last ran a turn on the thread, by the harness's id (@proxy/backends/harness),
+  // kept with the session so one harness is never given another's; null for a thread no harness
+  // left anything on.
+  harness        String?
+  // What the harness kept from the thread's last turn, as JSON, opaque to the api
+  // (@proxy/utils/harness HarnessSession); null before the first turn, or for a harness that
+  // keeps nothing between turns.
+  harnessSession String?
   // What the member has typed to the persona and not sent, kept so it is there when they come
   // back, on any device; the message they send empties it. Null when there is none, and for a
   // sub-agent's thread.
@@ -774,6 +783,7 @@ model AgentEntry {
 enum AgentJobKind {
   inference
   tool
+  wake
 }
 
 enum AgentJobStatus {
@@ -784,10 +794,13 @@ enum AgentJobStatus {
 }
 
 // A unit of the built-in agent's work, claimed by one api instance at a time: run the model on a
-// thread's log (inference), or run one tool call of an assistant entry (tool). `runAt` is when it
-// may run, which is how a call to sleep is kept. A worker claims a job due with a lease, renews
-// the lease while it works, and finishes the job in the same transaction as the entries it writes,
-// only while it still holds the lease; a lease that runs out gives the job to the next worker.
+// thread's log (inference), run one tool call of an assistant entry (tool), or wake the thread's
+// agent after a sleep (wake), run as an inference job is but telling the harness it was woken.
+// `runAt` is when it may run, which is how a sleep is kept: as a tool job due later, where the
+// harness leaves the sleep call to the api, or as a wake job due then, where the harness answers
+// the call itself. A worker claims a job due with a lease, renews the lease while it works, and
+// finishes the job in the same transaction as the entries it writes, only while it still holds
+// the lease; a lease that runs out gives the job to the next worker.
 model AgentJob {
   id       String         @id @default(cuid())
   threadId String
@@ -812,6 +825,27 @@ model AgentJob {
   @@unique([entryId, callId])
   @@index([status, runAt])
   @@index([threadId])
+}
+
+// The Claude Agent SDK's session transcripts, mirrored here through its SessionStore adapter (api
+// harness/session-store.ts) so that any api instance can resume a thread's session. The key is the
+// SDK's: `projectKey` from the working directory it was given, `sessionId`, and a `subpath` for a
+// sub-agent's or a sidecar file, empty for the session's own transcript. Each row is one line of
+// a transcript, as JSON, in `seq` order; `entryUuid` is the line's own id where it has one, so a
+// batch delivered twice is kept once. The transcript is the model's memory, not what the api
+// reads: the thread's log (AgentEntry) is the record.
+model AgentHarnessTranscript {
+  id         String  @id @default(cuid())
+  projectKey String
+  sessionId  String
+  subpath    String  @default("")
+  seq        Int     @unique @default(autoincrement())
+  entryUuid  String?
+  entry      String
+
+  createdAt DateTime @default(now())
+
+  @@index([projectKey, sessionId, subpath, seq])
 }
 
 enum AgentJobEventKind {
@@ -900,4 +934,42 @@ model ConnectionPoll {
 
   @@id([connectionId, collectionId])
   @@index([nextAt])
+}
+
+// How a member connected their Claude account: a long-lived token, minted by the desktop app as
+// `claude setup-token` would or pasted from that command, or an Anthropic API key.
+enum ClaudeAccountKind {
+  setup_token
+  api_key
+}
+
+// The member's own Claude credential, which the built-in agent runs under for them: the person's,
+// in every organization they are in, not an organization's, and nobody else's agents run under
+// it. A long-lived token minted on the person's machine, by the desktop app as `claude setup-token`
+// would, or pasted from that command (`setup_token`); or an Anthropic API key (`api_key`).
+// `credential` is JSON encrypted with ENCRYPTION_KEY: `{token}` or `{key}`. The api never mints or
+// refreshes anything: `expiresAt` is the token's end as the mint reported it, null for a pasted
+// token whose end isn't known, and for a key. `failedAt` and `failure` say the credential was
+// refused or ran out, until the person connects again. The usage columns are what the model's
+// provider said of the member's plan as the last turn ran, from its rate-limit headers: how much
+// of the five-hour and the seven-day window was used, when each resets, and when that was read.
+model ClaudeAccount {
+  id         String            @id @default(cuid())
+  userId     String            @unique
+  kind       ClaudeAccountKind
+  credential String
+  expiresAt  DateTime?
+  failedAt   DateTime?
+  failure    String?
+
+  usageFiveHourUtilization Float?
+  usageFiveHourResetsAt    DateTime?
+  usageSevenDayUtilization Float?
+  usageSevenDayResetsAt    DateTime?
+  usageReadAt              DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

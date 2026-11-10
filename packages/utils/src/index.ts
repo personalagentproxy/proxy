@@ -9,6 +9,8 @@ export {formatFetchError, httpRequest, readJsonValidated} from './fetch';
 export type {FetchError} from './fetch';
 export {mapWithLimit} from './map-with-limit';
 export {parseSchema, requirePresent} from './parse';
+export {semaphore} from './semaphore';
+export type {Semaphore} from './semaphore';
 export {
 	agentSessionCookieNames,
 	getAgentSessionTokenFromHeader,

@@ -7,6 +7,7 @@ import {Result} from 'ts-results-es';
 import type {ApiError} from '@proxy/utils';
 import type {JobRow} from '@proxy/db/harness';
 
+import {type Harnesses, ownAccountTurnCap} from '../backends/harness';
 import {log, serializeError} from '../observability/log';
 import {agentMetrics} from '../observability/metrics';
 import {runInContext} from '../observability/request-context';
@@ -22,7 +23,14 @@ import {runToolJob, type ToolJobStore} from './tool-job';
  * next turn follow each other without waiting; nothing due, it looks again in a moment. The queue
  * is the database, so instances need nothing of each other: one that goes down mid-job loses its
  * lease, and another picks the job up. Stopping, as for a deploy, the worker claims nothing more
- * and finishes the jobs it is on, up to a point.
+ * and finishes the jobs it is on, up to a point. An inference job is a turn of a harness
+ * (@proxy/backends/harness), chosen for its thread among those the worker was given
+ * (backends/harness.ts), and a wake job one too, after a sleep the harness answered itself, told
+ * so; a thread none fits, as on a server without an OpenRouter key, has the person told so
+ * (inference.ts). The turns on members' own Claude accounts, each a subprocess of the SDK
+ * harness's, are capped (backends/harness.ts): the worker counts those it runs, and, at the cap,
+ * claims only the other jobs, so a turn it has no subprocess for stays in the queue, for it later
+ * or for another instance, rather than taking up room here while it waits.
  */
 
 const POLL_MS = 500;
@@ -45,9 +53,11 @@ function workerName(): string {
 	return `${hostname()}-${process.pid}-${randomBytes(3).toString('hex')}`;
 }
 
-function run(store: WorkerStore, job: JobRow, workerId: string): Promise<Result<void, ApiError>> {
-	if (job.kind === 'inference') {
-		return runInference(store, job, workerId);
+// A job by its kind: a turn, or a wake-up after a sleep, which is a turn the harness is told was
+// one; or a tool call.
+function run(store: WorkerStore, harnesses: Harnesses, job: JobRow, workerId: string): Promise<Result<void, ApiError>> {
+	if (job.kind === 'inference' || job.kind === 'wake') {
+		return runInference(store, harnesses, job, workerId, job.kind === 'wake');
 	}
 	return runToolJob(store, job, workerId);
 }
@@ -72,7 +82,7 @@ async function fail(store: WorkerStore, job: JobRow, workerId: string, error: st
 }
 
 // Runs the job with its lease kept, and marks it failed where it throws or fails.
-async function runClaimed(store: WorkerStore, job: JobRow, workerId: string): Promise<void> {
+async function runClaimed(store: WorkerStore, harnesses: Harnesses, job: JobRow, workerId: string): Promise<void> {
 	if (job.attempts > MAX_ATTEMPTS) {
 		await fail(store, job, workerId, `Given up after ${job.attempts - 1} attempts`);
 		return;
@@ -81,7 +91,7 @@ async function runClaimed(store: WorkerStore, job: JobRow, workerId: string): Pr
 		void store.renewLease(job.id, workerId, LEASE_MS);
 	}, RENEW_MS);
 	const startedAt = performance.now();
-	const result = await Result.wrapAsync(() => run(store, job, workerId));
+	const result = await Result.wrapAsync(() => run(store, harnesses, job, workerId));
 	clearInterval(renewal);
 	const thrown = result.isErr() ? result.error : null;
 	const failed = result.isOk() && result.value.isErr() ? result.value.error : null;
@@ -98,11 +108,14 @@ async function runClaimed(store: WorkerStore, job: JobRow, workerId: string): Pr
 	await fail(store, job, workerId, message.slice(0, 1000));
 }
 
-/** Starts the worker on the store; it runs until stopped. */
-export function startHarnessWorker(store: WorkerStore): HarnessWorker {
+/** Starts the worker on the store, its inference jobs run by the harness `harnesses` has for each thread; it runs until stopped. */
+export function startHarnessWorker(store: WorkerStore, harnesses: Harnesses): HarnessWorker {
 	const workerId = workerName();
+	const cap = ownAccountTurnCap(harnesses.registry);
 	let stopping = false;
 	const running = new Set<Promise<void>>();
+	// How many of the jobs running are turns on members' own accounts.
+	let ownAccountTurns = 0;
 
 	const loop = async (): Promise<void> => {
 		while (!stopping) {
@@ -110,7 +123,7 @@ export function startHarnessWorker(store: WorkerStore): HarnessWorker {
 				await Promise.race(running);
 				continue;
 			}
-			const claimed = await store.claimJob(workerId, LEASE_MS);
+			const claimed = await store.claimJob(workerId, LEASE_MS, cap !== null && ownAccountTurns >= cap);
 			if (claimed.isErr()) {
 				log.error('Built-in agent worker could not claim a job', serializeError(claimed.error));
 				await sleep(POLL_MS * 4);
@@ -120,9 +133,13 @@ export function startHarnessWorker(store: WorkerStore): HarnessWorker {
 				await sleep(POLL_MS);
 				continue;
 			}
-			const row = claimed.value;
+			const {onClaudeAccount, ...row} = claimed.value;
+			ownAccountTurns += onClaudeAccount ? 1 : 0;
 			// Every line written for the job says which it was, as a request's say which request.
-			const job: Promise<void> = runInContext({jobId: row.id, jobKind: row.kind, threadId: row.threadId, workerId}, () => runClaimed(store, row, workerId)).finally(() => running.delete(job));
+			const job: Promise<void> = runInContext({jobId: row.id, jobKind: row.kind, threadId: row.threadId, workerId}, () => runClaimed(store, harnesses, row, workerId)).finally(() => {
+				running.delete(job);
+				ownAccountTurns -= onClaudeAccount ? 1 : 0;
+			});
 			running.add(job);
 		}
 	};

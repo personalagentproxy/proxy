@@ -34,6 +34,13 @@ COPY packages/ui/package.json packages/ui/
 COPY packages/utils/package.json packages/utils/
 COPY packages/web/package.json packages/web/
 RUN bun install --frozen-lockfile --production --filter '@proxy/api'
+# The Claude Agent SDK's native Claude Code binary for this platform (@proxy/backends depends on
+# the SDK, whose optional dependency it is) has to have come with the install, or the built-in
+# agent can't run on a member's Claude account: the build fails here if it didn't. Looked for, not
+# run, since the build host may be another architecture; in both of bun's layouts.
+RUN arch="$([ "$(uname -m)" = aarch64 ] && echo arm64 || echo x64)" \
+	&& { test -x node_modules/@anthropic-ai/claude-agent-sdk-linux-$arch/claude \
+		|| test -x node_modules/.bun/@anthropic-ai+claude-agent-sdk-linux-$arch@*/node_modules/@anthropic-ai/claude-agent-sdk-linux-$arch/claude; }
 # The root's postinstall, which generates the Prisma client, does not run for a filtered install.
 RUN bun --bun packages/db/node_modules/.bin/prisma generate --schema packages/db/prisma/schema.prisma
 

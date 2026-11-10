@@ -31,6 +31,13 @@ everything but the app's own origin out of the window: links out of the app open
   `personalagentproxy://auth-callback?code=…`. The app trades code and verifier at
   `POST /auth/desktop/session` for a session cookie, which its window keeps, and is signed in as a
   browser is.
+- Signing in to Claude (`src/claude-sign-in.ts`, registered in `src/main.ts`): the Account page's
+  Claude card asks the app, through the preload, to begin; the app keeps a PKCE verifier and a
+  state and opens Claude's sign-in page in the browser, which shows the person a code once they
+  have allowed Personal Agent Proxy. Pasted into the card and handed back, the code is checked
+  against the attempt and traded for a year's token, the one `claude setup-token` mints, which the
+  card connects through the api. The verifier never leaves the main process, and the api mints
+  nothing.
 - Connecting a service whose sign-in turns the app's window away, as Google's does, happens in
   the browser too: the web app, which knows the window by its user agent, opens the service's
   sign-in in the browser through `/login?callbackUrl=…`, which sends a signed-in browser straight

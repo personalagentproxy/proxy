@@ -16,6 +16,7 @@ import {
 	type NewAlert,
 	type PollRow,
 	recordLook,
+	setAlertInline,
 } from './alerts';
 import {
 	appendPersonMessage,
@@ -23,6 +24,7 @@ import {
 	completeInference,
 	ensureFirstPersona,
 	ensureMemberThread,
+	finishJob,
 	type JobRow,
 	listEntries,
 	type ThreadRow,
@@ -194,6 +196,65 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 			unwrap(await completeSetAlert(call(first, 'worker-b'), time, answer, readyForInference)),
 		).toBe(false);
 		expect(unwrap(await listThreadAlerts(thread.id))).toHaveLength(2);
+	});
+
+	test('an alert set inline, from the turn’s job, is set alone, nothing written to the log and the job still running; a worker that lost the job sets none', async () => {
+		unwrap(await appendPersonMessage(other.id, 'Remind me tomorrow', readyForInference));
+		// The next job due that is the other conversation's turn; whatever else is due is finished.
+		let turn: JobRow | null = null;
+		while (turn === null) {
+			const claimed = unwrap(await claimJob('worker-c', 60_000));
+			if (!claimed) {
+				throw new Error('nothing to claim');
+			}
+			if (claimed.threadId === other.id) {
+				turn = claimed;
+				continue;
+			}
+			unwrap(await finishJob(claimed.id, 'worker-c'));
+		}
+		const at = new Date(Date.now() + 60 * 60 * 1000);
+		const time: NewAlert = {kind: 'time', title: 'Tomorrow', brief: 'Remind them.', at};
+		const bank: NewAlert = {
+			kind: 'watch',
+			title: 'Bank again',
+			brief: 'Tell me.',
+			collectionId: 'emails',
+			connectionIds: [connectionId],
+			terms: ['loan'],
+		};
+		const job = (workerId: string) => ({jobId: turn.id, workerId, threadId: other.id});
+
+		expect(unwrap(await setAlertInline(job('worker-z'), time))).toBeNull();
+		expect(unwrap(await listThreadAlerts(other.id))).toEqual([]);
+
+		const made = unwrap(await setAlertInline(job('worker-c'), time));
+		const madeWatch = unwrap(await setAlertInline(job('worker-c'), bank));
+		expect(made).toMatchObject({threadId: other.id, title: 'Tomorrow', at, connectionIds: []});
+		expect(madeWatch).toMatchObject({title: 'Bank again', at: null, connectionIds: [connectionId]});
+		expect(
+			unwrap(await listThreadAlerts(other.id)).map((alert): string | undefined => alert.id),
+		).toEqual([made?.id, madeWatch?.id]);
+		// Nothing landed in the log, and the turn goes on.
+		expect(await lastTexts(other, 1)).toEqual([['person', 'Remind me tomorrow']]);
+		expect(await db.agentJob.findUnique({where: {id: turn.id}})).toMatchObject({
+			status: 'running',
+			claimedBy: 'worker-c',
+		});
+
+		// Left as they were for the tests that follow: the alerts cancelled, the turn ended.
+		unwrap(await deleteAlert(made?.id ?? '', {threadId: other.id}));
+		unwrap(await deleteAlert(madeWatch?.id ?? '', {threadId: other.id}));
+		unwrap(
+			await completeInference(
+				turn.id,
+				'worker-c',
+				other.id,
+				{text: 'Noted.', toolCalls: [], inputTokens: 1, outputTokens: 1, system: null},
+				{plans: {}},
+				readyForInference,
+			),
+		);
 	});
 
 	test('the timed alerts due are taken once each, at their time, moved on as they are taken', async () => {

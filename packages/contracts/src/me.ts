@@ -31,3 +31,49 @@ export type Session = z.infer<typeof sessionSchema>;
 export const sessionsSchema = z.object({sessions: z.array(sessionSchema)});
 
 export type Sessions = z.infer<typeof sessionsSchema>;
+
+/**
+ * How a member connected their Claude account on the Account page (`GET /api/me/claude`): a
+ * long-lived token, minted by the desktop app as `claude setup-token` would or pasted from that
+ * command, or an Anthropic API key. The credential itself never comes back: `expiresAt` is when
+ * the token ends as the mint reported it, null for a pasted token whose end isn't known and for a
+ * key; `failure` why the credential was refused or that it ran out, until they connect again; and
+ * `usage` what the model's provider said of their plan as the last turn ran, each window the share
+ * of it used, 0 to 1, with when it resets, as of `readAt`, or null before any turn said.
+ */
+export const claudeAccountKindSchema = z.enum(['setup_token', 'api_key']);
+
+export type ClaudeAccountKind = z.infer<typeof claudeAccountKindSchema>;
+
+const claudeUsageWindowSchema = z
+	.object({utilization: z.number(), resetsAt: z.string().nullable()})
+	.nullable();
+
+export const claudeAccountSchema = z.object({
+	account: z
+		.object({
+			kind: claudeAccountKindSchema,
+			expiresAt: z.string().nullable(),
+			failure: z.string().nullable(),
+			connectedAt: z.string(),
+			usage: z
+				.object({
+					fiveHour: claudeUsageWindowSchema,
+					sevenDay: claudeUsageWindowSchema,
+					readAt: z.string(),
+				})
+				.nullable(),
+		})
+		.nullable(),
+});
+
+export type ClaudeAccount = z.infer<typeof claudeAccountSchema>;
+
+/**
+ * `POST /api/me/claude/token`: a `claude setup-token` value or an Anthropic API key, with when the
+ * token ends where the sender knows it, as the desktop app does of a token it minted.
+ */
+export const claudeTokenBodySchema = z.object({
+	token: z.string().trim().min(1).max(4096),
+	expiresAt: z.iso.datetime().optional(),
+});

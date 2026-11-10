@@ -49,6 +49,8 @@ const thread: ThreadRow = {
 	parentCallId: null,
 	title: null,
 	taskId: null,
+	harness: null,
+	harnessSession: null,
 	createdAt: now,
 };
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'General', orgSlug: 'acme', experiments: []};

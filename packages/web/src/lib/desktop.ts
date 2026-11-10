@@ -16,10 +16,21 @@ export function isDesktopApp(): boolean {
 }
 
 /**
+ * The desktop app's Claude sign-in (`packages/desktop/src/claude-sign-in.ts`): `start` opens
+ * Claude's sign-in page in the browser, where the person is shown a code; `finish` trades the
+ * pasted code for a year's token, minted on their computer, with when it ends, for the page to
+ * connect through the api. Either answers what went wrong instead, in words for the person.
+ */
+export type DesktopClaudeSignIn = {
+	start(): Promise<{ok: true} | {error: string}>;
+	finish(code: string): Promise<{token: string; expiresAt: string} | {error: string}>;
+};
+
+/**
  * What the desktop app's window gives its pages (`packages/desktop/src/preload.ts`): the version
  * of an update it has downloaded, if any, word when it downloads one, and the restart that installs
- * it; and notifications, shown by the app, which hands back the page one opens when clicked, and
- * the count on its badge.
+ * it; notifications, shown by the app, which hands back the page one opens when clicked, and the
+ * count on its badge; and the Claude sign-in.
  */
 export type DesktopBridge = {
 	// Optional while installed desktop apps from before the hidden title bar still load this page.
@@ -31,6 +42,8 @@ export type DesktopBridge = {
 	notify?(notice: {title: string; body: string; path: string; tag: string}): void;
 	onOpenPath?(listener: (path: string) => void): () => void;
 	setBadge?(count: number): void;
+	// Optional while installed desktop apps from before the Claude sign-in still load this page.
+	claudeSignIn?: DesktopClaudeSignIn;
 };
 
 declare global {
@@ -42,6 +55,11 @@ declare global {
 /** The desktop app's bridge; null in a browser. */
 export function desktopBridge(): DesktopBridge | null {
 	return window.personalAgentProxyDesktop ?? null;
+}
+
+/** The desktop app's Claude sign-in; null in a browser, and in a desktop app from before it. */
+export function claudeSignIn(): DesktopClaudeSignIn | null {
+	return desktopBridge()?.claudeSignIn ?? null;
 }
 
 /** Whether this desktop shell removed its native title bar and needs the page to replace it. */

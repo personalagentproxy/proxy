@@ -16,6 +16,9 @@
 		"test": "bun test",
 		"typecheck": "tsc --noEmit"
 	},
+	"dependencies": {
+		"@proxy/utils": "workspace:*"
+	},
 	"devDependencies": {
 		"@types/bun": "latest",
 		"dotenv": "^16.6.1",
