@@ -77,7 +77,7 @@ export const runSandboxCommand: NativeToolRunner = ({caller, connection, params}
 		if (bundle !== null) {
 			$(await ensurePap(backend, running, bundle));
 		}
-		const claims = {agentId: caller.agent.agentId, orgId: caller.agent.orgId, taskId: caller.taskId, sandboxId: running.id, connectionId: connection.id};
+		const claims = {agentId: caller.agent.agentId, orgId: caller.agent.orgId, ownerUserId: caller.agent.ownerUserId, taskId: caller.taskId, sandboxId: running.id, connectionId: connection.id};
 		const sent = config === null ? {command} : {command: withPapOnPath(command), env: cliCommandEnv(config, claims, timeout)};
 		const output = $(await backend.exec(running.backendRef, {...sent, stdin, cwd, timeoutMs: Math.round(timeout * 1000)}));
 		$(await touchSandbox(running.id));

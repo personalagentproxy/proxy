@@ -121,7 +121,10 @@ export function githubConnection(id: string, account: string, defaults: string[]
 
 /** The token a sandbox command was given, for the agent's task. */
 export function papToken(): string {
-	return signCliToken({agentId: 'agent-1', orgId: 'org-1', taskId: 'task-1', sandboxId: 'sandbox-1', connectionId: 'sandboxes-1', expiresAt: Math.floor(Date.now() / 1000) + 120}, SECRET);
+	return signCliToken(
+		{agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', taskId: 'task-1', sandboxId: 'sandbox-1', connectionId: 'sandboxes-1', expiresAt: Math.floor(Date.now() / 1000) + 120},
+		SECRET,
+	);
 }
 
 /** The agent with `connections`, every one reached; `grants` its own settings. */

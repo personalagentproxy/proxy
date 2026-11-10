@@ -18,10 +18,15 @@ const PREFIX = 'pap_';
 // What HKDF is told the key is for, so it is never the key of anything else made from AUTH_SECRET.
 const KEY_INFO = 'personal-agent-proxy cli token v1';
 
-/** Who the token is for: the agent and its organization, the task and sandbox the command ran for, and the Sandboxes connection. */
+/** Who the token is for: the agent and its organization, the member it acts for, the task and sandbox the command ran for, and the Sandboxes connection. */
 export type CliClaims = {
 	agentId: string;
 	orgId: string;
+	/**
+	 * The member the agent acted for when the command was run, as a shared agent does in a
+	 * member's conversation, as the built-in agent does; null for a shared agent acting for none.
+	 */
+	ownerUserId: string | null;
 	taskId: string;
 	sandboxId: string;
 	connectionId: string;
@@ -32,6 +37,7 @@ export type CliClaims = {
 const claimsSchema = z.object({
 	agent: z.string().min(1),
 	org: z.string().min(1),
+	user: z.string().min(1).nullable(),
 	task: z.string().min(1),
 	sandbox: z.string().min(1),
 	connection: z.string().min(1),
@@ -52,7 +58,7 @@ function sign(signed: string, secret: string): Buffer {
 /** A token for the claims, signed with a key made from `secret`. */
 export function signCliToken(claims: CliClaims, secret: string): string {
 	const payload = Buffer.from(
-		JSON.stringify({agent: claims.agentId, org: claims.orgId, task: claims.taskId, sandbox: claims.sandboxId, connection: claims.connectionId, exp: claims.expiresAt}),
+		JSON.stringify({agent: claims.agentId, org: claims.orgId, user: claims.ownerUserId, task: claims.taskId, sandbox: claims.sandboxId, connection: claims.connectionId, exp: claims.expiresAt}),
 	).toString('base64url');
 	const signed = `${PREFIX}${payload}`;
 	return `${signed}.${sign(signed, secret).toString('base64url')}`;
@@ -78,9 +84,9 @@ export function verifyCliToken(token: string, secret: string, now = new Date()):
 	if (!parsed.success) {
 		return Err('invalid');
 	}
-	const {agent, org, task, sandbox, connection, exp} = parsed.data;
+	const {agent, org, user, task, sandbox, connection, exp} = parsed.data;
 	if (exp * 1000 <= now.getTime()) {
 		return Err('expired');
 	}
-	return Ok({agentId: agent, orgId: org, taskId: task, sandboxId: sandbox, connectionId: connection, expiresAt: exp});
+	return Ok({agentId: agent, orgId: org, ownerUserId: user, taskId: task, sandboxId: sandbox, connectionId: connection, expiresAt: exp});
 }

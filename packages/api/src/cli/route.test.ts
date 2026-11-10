@@ -6,6 +6,7 @@ import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
 import * as realAgent from '@proxy/db/agent';
+import * as realOrganization from '@proxy/db/organization';
 import * as realSandbox from '@proxy/db/sandbox';
 
 import * as realTasks from '../agent-side/tasks';
@@ -26,6 +27,8 @@ const realTarget = await import('../records/target');
 const getSignedInAgentById = mock();
 
 mock.module('@proxy/db/agent', () => ({...realAgent, getSignedInAgentById}));
+const getMembership = mock();
+mock.module('@proxy/db/organization', () => ({...realOrganization, getMembership}));
 
 const getSandbox = mock();
 const getHoldingTask = mock();
@@ -73,8 +76,8 @@ function holdingTask(id: string, parentId: string | null = null) {
 	return {id, parentId, title: `Task ${id}`, lastActiveAt: new Date(), finishedAt: null};
 }
 
-function token(taskId = 'task-1'): string {
-	return signCliToken({agentId: 'agent-1', orgId: 'org-1', taskId, sandboxId: 'sandbox-1', connectionId: 'sandboxes-1', expiresAt: Math.floor(Date.now() / 1000) + 120}, SECRET);
+function token(taskId = 'task-1', ownerUserId: string | null = 'user-1'): string {
+	return signCliToken({agentId: 'agent-1', orgId: 'org-1', ownerUserId, taskId, sandboxId: 'sandbox-1', connectionId: 'sandboxes-1', expiresAt: Math.floor(Date.now() / 1000) + 120}, SECRET);
 }
 
 const servers: Server[] = [];
@@ -101,6 +104,7 @@ beforeEach(async () => {
 	mock.clearAllMocks();
 	base ||= await start();
 	getSignedInAgentById.mockResolvedValue(Ok(signedIn));
+	getMembership.mockResolvedValue(Ok({role: 'member'}));
 	requireOpenTask.mockResolvedValue(Ok({id: 'task-1'}));
 	getSandbox.mockResolvedValue(Ok(sandbox));
 	getHoldingTask.mockImplementation(async (_orgId: string, id: string) => Ok(holdingTask(id)));
@@ -123,7 +127,7 @@ describe('the token', () => {
 		const other = await call(
 			{method: 'connections'},
 			{
-				authorization: `Bearer ${signCliToken({agentId: 'agent-1', orgId: 'org-1', taskId: 'task-1', sandboxId: 'sandbox-1', connectionId: 'sandboxes-1', expiresAt: Math.floor(Date.now() / 1000) + 120}, 'another-secret')}`,
+				authorization: `Bearer ${signCliToken({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', taskId: 'task-1', sandboxId: 'sandbox-1', connectionId: 'sandboxes-1', expiresAt: Math.floor(Date.now() / 1000) + 120}, 'another-secret')}`,
 			},
 		);
 
@@ -134,7 +138,10 @@ describe('the token', () => {
 	});
 
 	test('one expired is a 401 saying to run the command again', async () => {
-		const expired = signCliToken({agentId: 'agent-1', orgId: 'org-1', taskId: 'task-1', sandboxId: 'sandbox-1', connectionId: 'sandboxes-1', expiresAt: Math.floor(Date.now() / 1000) - 1}, SECRET);
+		const expired = signCliToken(
+			{agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', taskId: 'task-1', sandboxId: 'sandbox-1', connectionId: 'sandboxes-1', expiresAt: Math.floor(Date.now() / 1000) - 1},
+			SECRET,
+		);
 		const res = await call({method: 'connections'}, {authorization: `Bearer ${expired}`});
 
 		expect(res.status).toBe(401);
@@ -210,6 +217,31 @@ describe('POST /api/cli/call', () => {
 
 		expect(res).toEqual({status: 200, body: {result: {records: [], nextCursor: null}}});
 		expect(runAgentTool).toHaveBeenCalledWith({agent: signedIn, via: 'cli', taskId: 'task-1'}, 'mail-1', 'emails_list', {search: 'invoice'});
+	});
+
+	test('a shared agent, as the built-in one, acts for the member it ran the command for, while they are one', async () => {
+		getSignedInAgentById.mockResolvedValue(Ok({...signedIn, ownerUserId: null}));
+
+		const res = await call({method: 'call', args: ['mail-1', 'emails_list', {}]});
+		expect(res.status).toBe(200);
+		expect(getMembership).toHaveBeenCalledWith('user-1', 'org-1');
+		expect(runAgentTool).toHaveBeenCalledWith({agent: signedIn, via: 'cli', taskId: 'task-1'}, 'mail-1', 'emails_list', {});
+		expect(requireOpenTask).toHaveBeenCalledWith(signedIn, 'task-1');
+
+		getMembership.mockResolvedValue(Ok(null));
+		const gone = await call({method: 'connections'});
+		expect(gone.status).toBe(401);
+		expect(gone.body.message).toBe('The member PAP_TOKEN acts for is no longer in the organization, so it can do nothing more.');
+	});
+
+	test('a shared agent acting for no one stays so; an agent of another member’s own is refused', async () => {
+		getSignedInAgentById.mockResolvedValue(Ok({...signedIn, ownerUserId: null}));
+		await call({method: 'connections'}, {authorization: `Bearer ${token('task-1', null)}`});
+		expect(listAgentConnections).toHaveBeenCalledWith({...signedIn, ownerUserId: null});
+		expect(getMembership).not.toHaveBeenCalled();
+
+		getSignedInAgentById.mockResolvedValue(Ok({...signedIn, ownerUserId: 'user-2'}));
+		expect((await call({method: 'connections'})).status).toBe(401);
 	});
 
 	test('tools lists a connection’s tools', async () => {
