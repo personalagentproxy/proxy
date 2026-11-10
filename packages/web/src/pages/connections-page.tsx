@@ -1,14 +1,15 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import {SANDBOX_INTEGRATION_ID, VAULT_INTEGRATION_ID} from '@proxy/integrations';
-import {PencilIcon, Trash2Icon} from 'lucide-react';
+import {ForwardIcon, PencilIcon, Trash2Icon} from 'lucide-react';
 import {useState} from 'react';
 import {Link} from 'react-router';
-import {deleteConnection, renameConnection} from '@/client/connections-client';
+import {deleteConnection, moveConnection, renameConnection} from '@/client/connections-client';
 import {AppShell, PageHeader, PageTitle} from '@/components/app-shell';
 import {AddButton} from '@/components/add-button';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {ConfirmDialog} from '@/components/confirm-dialog';
+import {MoveConnectionDialog} from '@/components/move-connection-dialog';
 import {OrgNotice} from '@/components/org-notice';
 import {RenameDialog} from '@/components/rename-dialog';
 import {Row, RowHeader, RowList} from '@/components/row-list';
@@ -33,8 +34,9 @@ const CELLS = {
 
 const LINK = 'text-foreground underline underline-offset-4';
 
-// What a row's context menu is about: the connection, and whether it is being renamed or deleted.
-type Pending = {connection: Connection; action: 'rename' | 'delete'};
+// What a row's context menu is about: the connection, and whether it is being renamed, moved into
+// another organization or deleted.
+type Pending = {connection: Connection; action: 'rename' | 'move' | 'delete'};
 
 // A custom MCP server and a vault a member made have nothing else to be called.
 function needsName(connection: Connection): boolean {
@@ -48,8 +50,9 @@ function needsName(connection: Connection): boolean {
 // shared, by them or with them, with every member or some by name, opening on what is theirs
 // alone, the shared one saying who the provider sees when an agent uses each. The person's own
 // vault and Sandboxes come first among what is theirs alone, each opening its connection's page,
-// as every connection does, where what it holds is the first tab. A right click on a row renames or deletes a connection the person may change: their own, or, as the organization's owner, one
-// shared with every member.
+// as every connection does, where what it holds is the first tab. A right click on a row renames or
+// deletes a connection the person may change: their own, or, as the organization's owner, one
+// shared with every member; and, in someone with another organization, moves their own into it.
 export function ConnectionsPage() {
 	return (
 		<AppShell title={<PageTitle>Connections</PageTitle>}>
@@ -84,7 +87,10 @@ function Connections() {
 	const connections = side.shown;
 	const showingShared = side.shared;
 	const renaming = pending?.action === 'rename' ? pending.connection : null;
+	const moving = pending?.action === 'move' ? pending.connection : null;
 	const deleting = pending?.action === 'delete' ? pending.connection : null;
+	// Where the person's own connections can move: their other organizations.
+	const otherOrgs = human.orgs.filter((other) => other.id !== activeOrg.id);
 
 	return (
 		<>
@@ -158,14 +164,20 @@ function Connections() {
 									<>
 										<ContextMenuItem onClick={() => setPending({connection, action: 'rename'})}>
 											<PencilIcon />
-											Rename…
+											Rename
 										</ContextMenuItem>
+										{connection.ownerUserId === human.user.id && otherOrgs.length > 0 && (
+											<ContextMenuItem onClick={() => setPending({connection, action: 'move'})}>
+												<ForwardIcon />
+												Move
+											</ContextMenuItem>
+										)}
 										<ContextMenuItem
 											variant="destructive"
 											onClick={() => setPending({connection, action: 'delete'})}
 										>
 											<Trash2Icon />
-											Delete…
+											Delete
 										</ContextMenuItem>
 									</>
 								)
@@ -189,6 +201,22 @@ function Connections() {
 					onClose={() => setPending(null)}
 					onSave={async (name) => {
 						const result = await renameConnection(org, renaming.id, name);
+						if (result.isErr()) {
+							return describeApiError(result.error);
+						}
+						await reload();
+						return null;
+					}}
+				/>
+			)}
+			{moving && (
+				<MoveConnectionDialog
+					key={moving.id}
+					title={connectionTitle(moving)}
+					orgs={otherOrgs}
+					onClose={() => setPending(null)}
+					onMove={async (slug) => {
+						const result = await moveConnection(org, moving.id, slug);
 						if (result.isErr()) {
 							return describeApiError(result.error);
 						}

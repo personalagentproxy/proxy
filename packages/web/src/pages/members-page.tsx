@@ -264,12 +264,12 @@ function MemberMenu({
 				{you ? (
 					<DropdownMenuItem variant="destructive" onClick={onRemove}>
 						<LogOutIcon />
-						Leave…
+						Leave
 					</DropdownMenuItem>
 				) : (
 					<DropdownMenuItem variant="destructive" onClick={onRemove}>
 						<Trash2Icon />
-						Remove…
+						Remove
 					</DropdownMenuItem>
 				)}
 			</DropdownMenuContent>

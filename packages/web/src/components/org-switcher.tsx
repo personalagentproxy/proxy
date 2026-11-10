@@ -131,7 +131,7 @@ export function OrgSwitcher() {
 					<DropdownMenuSeparator />
 					<DropdownMenuItem onClick={() => setCreating(true)}>
 						<PlusIcon />
-						Create organization…
+						Create organization
 					</DropdownMenuItem>
 				</DropdownMenuContent>
 			</DropdownMenu>

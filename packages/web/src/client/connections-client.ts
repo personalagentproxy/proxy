@@ -7,6 +7,7 @@ import {
 	connectMcpSchema,
 	type connectPlaidBodySchema,
 	type createVaultBodySchema,
+	type moveConnectionBodySchema,
 	type connectWithKeyBodySchema,
 	type plaidLinkTokenBodySchema,
 	plaidLinkTokenSchema,
@@ -60,6 +61,16 @@ export function renameConnection(org: string, connectionId: string, name: string
 	return apiRequest('PUT', `${orgApi(org)}/connections/${connectionId}/name`, connectionSchema, {
 		name,
 	} satisfies z.input<typeof renameConnectionBodySchema>);
+}
+
+/**
+ * Moves the person's connection into another organization of theirs, `to` by its slug, where it is
+ * theirs alone; who it was shared with and what agents were set to do with it stay behind.
+ */
+export function moveConnection(org: string, connectionId: string, to: string) {
+	return apiRequest('PUT', `${orgApi(org)}/connections/${connectionId}/org`, connectionSchema, {
+		org: to,
+	} satisfies z.input<typeof moveConnectionBodySchema>);
 }
 
 /** Turns default actions of a connection on or off; actions left out stay as they are. */
