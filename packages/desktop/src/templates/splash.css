@@ -8,7 +8,7 @@
 	--border: oklch(0.922 0 0);
 	--primary: oklch(0.205 0 0);
 	--primary-foreground: oklch(0.985 0 0);
-	--traffic-light: oklch(0.86 0 0);
+	--traffic-light: oklch(0.75 0 0);
 }
 :root.dark {
 	color-scheme: dark;
@@ -50,19 +50,19 @@ body::before {
 	content: '';
 	-webkit-app-region: drag;
 }
-/* The traffic lights while the window isn't the focused one, as the web app draws them
+/* Gray dots under the traffic lights while the window isn't the focused one, as the web app draws them
    (packages/web/src/index.css): window.ts marks the page `inactive`. */
 :root.inactive body::after {
 	position: fixed;
-	top: calc(2.75rem / 2 - 6px);
-	left: 17px;
-	width: 12px;
-	height: 12px;
+	top: 14px;
+	left: 16px;
+	width: 14px;
+	height: 14px;
 	border-radius: 50%;
 	background: var(--traffic-light);
 	box-shadow:
-		20px 0 var(--traffic-light),
-		40px 0 var(--traffic-light);
+		23px 0 var(--traffic-light),
+		46px 0 var(--traffic-light);
 	content: '';
 	pointer-events: none;
 }
