@@ -16,6 +16,7 @@
 	"dependencies": {
 		"@jitl/quickjs-wasmfile-release-sync": "0.32.0",
 		"@proxy/backends": "workspace:*",
+		"@proxy/cli": "workspace:*",
 		"@proxy/contracts": "workspace:*",
 		"@proxy/db": "workspace:*",
 		"@proxy/integrations": "workspace:*",

@@ -14,6 +14,7 @@
       "dependencies": {
         "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
         "@proxy/backends": "workspace:*",
+        "@proxy/cli": "workspace:*",
         "@proxy/contracts": "workspace:*",
         "@proxy/db": "workspace:*",
         "@proxy/integrations": "workspace:*",
@@ -54,6 +55,19 @@
         "@proxy/utils": "workspace:*",
         "ts-results-es": "^7.1.0",
         "zod": "^4.5.4",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "~6.0.2",
+      },
+    },
+    "packages/cli": {
+      "name": "@proxy/cli",
+      "version": "0.0.0",
+      "dependencies": {
+        "@proxy/contracts": "workspace:*",
+        "@proxy/utils": "workspace:*",
+        "ts-results-es": "^7.1.0",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -668,6 +682,8 @@
     "@proxy/api": ["@proxy/api@workspace:packages/api"],
 
     "@proxy/backends": ["@proxy/backends@workspace:packages/backends"],
+
+    "@proxy/cli": ["@proxy/cli@workspace:packages/cli"],
 
     "@proxy/contracts": ["@proxy/contracts@workspace:packages/contracts"],
 

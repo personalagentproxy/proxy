@@ -28,6 +28,12 @@ runs on `OPENROUTER_KEY`.
 
 <EnvTable group="Connections" />
 
+Agents' sandbox commands can use their connections through the `pap` command line tool
+([Sandboxes](/connections/sandboxes)), which the server builds and installs in a sandbox itself:
+nothing is downloaded. For that, `AUTH_SECRET` and `APP_URL` must be set, as the commands are
+given a token signed with the one to call back to the other; the sandboxes must be able to reach
+`APP_URL`; and the sandbox service's image must have Node 20 or newer, which `pap` runs on.
+
 ## Deployment
 
 <EnvTable group="Deployment" />

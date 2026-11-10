@@ -34,6 +34,8 @@ services:
         - bun.lock
         - packages/api/**
         - packages/backends/**
+        - packages/cli/**
+        - packages/contracts/**
         - packages/db/**
         - packages/integrations/**
         - packages/observability/**

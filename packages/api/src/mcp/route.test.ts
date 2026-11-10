@@ -146,6 +146,21 @@ describe('handleMcpRoute', () => {
 		expect(saving).not.toContain('read-only');
 	});
 
+	test('sandboxes the agent may run commands in come with how to reach its connections from one with pap', async () => {
+		const sandboxes = {id: 'sandboxes-1', integrationId: 'sandbox', account: 'Acme', shared: false, actions: ['read', 'run'], tools: null, name: null};
+		const instructions = async () => ((await post(rpc('initialize', {protocolVersion: '2025-06-18'}))).body as {result: {instructions: string}}).result.instructions;
+
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [sandboxes]}));
+		const running = await instructions();
+		expect(running).toContain('sandboxes-1 has sandboxes');
+		expect(running).toContain(
+			"A command run with pap: true reaches your connections from code with the pap CLI: pap connections, pap tools <connection>, pap call <connection> <tool> '<json>'; pap --help has the rest.",
+		);
+
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...sandboxes, actions: ['read']}]}));
+		expect(await instructions()).not.toContain('pap CLI');
+	});
+
 	test("a vault a member made is a memory by its name, the only kind a shared agent has, and beside the person's own says what goes where", async () => {
 		const own = {id: 'vault-1', integrationId: 'vault', account: 'Acme', shared: false, actions: ['readEntries', 'writeEntries'], tools: null, name: null};
 		const team = {...own, id: 'vault-2', name: 'Team handbook', shared: true};

@@ -661,6 +661,9 @@ model Sandbox {
   // When a command last ran in it, or it was made, woken or put to sleep: what the idle sweeper
   // reads, and the list shows.
   lastUsedAt       DateTime     @default(now())
+  // The version of the `pap` CLI installed in it (packages/cli), null where none was: a command run
+  // with `pap: true` installs the api's own first where it differs.
+  papVersion       String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
