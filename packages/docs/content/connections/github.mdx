@@ -40,9 +40,8 @@ connection's page, or only for one agent on the agent's page.
 Hosted Personal Agent Proxy has its own GitHub App. A self-hosted server needs one of its own:
 register a GitHub App under your account's or organization's developer settings, with
 `<APP_URL>/api/connections/github/callback` as a callback URL, **Expire user authorization
-tokens** on and **Request user authorization (OAuth) during installation** off, no webhook, the
-repository permissions Contents and Pull requests read and write and Metadata read, and the
-account permission Email addresses read. Then set its client id and a client secret as
-`GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, and its name as it is in its address,
-`github.com/apps/<slug>`, as `GITHUB_APP_SLUG` ([Environment variables](/self-hosting/environment)),
-which is where people are sent to install it.
+tokens** on and **Request user authorization (OAuth) during installation** off, no webhook, and
+the repository permissions Contents and Pull requests read and write and Metadata read. Then set
+its client id and a client secret as `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, and its name as
+it is in its address, `github.com/apps/<slug>`, as `GITHUB_APP_SLUG`
+([Environment variables](/self-hosting/environment)), which is where people are sent to install it.
