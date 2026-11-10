@@ -628,9 +628,10 @@ function Conversation({
 									key={run.entries[0]?.id}
 									messageId={run.entries[0]?.id ?? ''}
 									scrollAnchor={run.entries[0]?.kind === 'person'}
+									className="flex flex-col gap-4"
 								>
 									{run.heading !== null && (
-										<h2 className="mb-4 text-center text-xs font-medium text-muted-foreground">
+										<h2 className="text-center text-xs font-medium text-muted-foreground">
 											{run.heading}
 										</h2>
 									)}
