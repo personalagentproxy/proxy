@@ -29,6 +29,7 @@ describe('fakeHarness', () => {
 		harness.script([{kind: 'text', text: 'One'}]);
 		const input = {
 			thread: {id: 'thread-1', parentThreadId: null},
+			job: 'job-1',
 			session: null,
 			entries: [],
 			woken: false,

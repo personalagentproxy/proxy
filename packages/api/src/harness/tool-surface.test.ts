@@ -115,8 +115,8 @@ describe('running a call inline', () => {
 	const watchable = {id: 'conn-a', integrationId: 'google', account: 'a@example.com', shared: true, actions: [EMAILS_READ], tools: null, name: null};
 
 	let store: FakeStore;
-	const onMain = () => toolSurfaceFor(store, conversation, {id: 'job-1'}, 'w1', now);
-	const onSub = () => toolSurfaceFor(store, sub, {id: 'job-2'}, 'w1', now);
+	const onMain = () => toolSurfaceFor(store, conversation, {id: 'job-1'}, 'w1', () => now);
+	const onSub = () => toolSurfaceFor(store, sub, {id: 'job-2'}, 'w1', () => now);
 	const run = (surface: ReturnType<typeof onMain>, name: string, args: string, id = 'c1') => surface.execute({id, name, arguments: args});
 
 	beforeEach(() => {
@@ -187,6 +187,16 @@ describe('running a call inline', () => {
 
 		store.scheduleWake.mockResolvedValue(Ok(false));
 		expect((await run(onSub(), 'sleep_until', '{"seconds":60}')).unwrapErr().kind).toBe('conflict');
+	});
+
+	test('a sleep is counted from when the call is made, not from when the turn began', async () => {
+		// The turn began at ten; the model asks for a minute's sleep three minutes into it.
+		let time = now;
+		const surface = toolSurfaceFor(store, sub, {id: 'job-2'}, 'w1', () => time);
+		time = new Date('2026-10-21T10:03:00Z');
+
+		expect((await run(surface, 'sleep_until', '{"seconds":60}')).unwrap()).toMatchObject({text: expect.stringContaining('Sleeping until 2026-10-21T10:04:00.000Z')});
+		expect(store.scheduleWake).toHaveBeenCalledWith('job-2', 'w1', 'thread-1', new Date('2026-10-21T10:04:00Z'));
 	});
 
 	test('a message to the agent a sub-agent works for is sent, fenced by the job', async () => {

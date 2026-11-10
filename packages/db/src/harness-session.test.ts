@@ -12,6 +12,7 @@ import {
 	completeInference,
 	createPersona,
 	ensureMemberThread,
+	finishJob,
 	getJobThread,
 	listEntries,
 	listOpenJobs,
@@ -20,6 +21,7 @@ import {
 	scheduleWake,
 	startSubAgentInline,
 	tellParentInline,
+	type ClaimedJob,
 	type JobRow,
 	type ThreadRow,
 } from './harness';
@@ -40,7 +42,7 @@ function unwrap<T>(result: Result<T, ApiError>): T {
 }
 
 // The next job due, which must be `threadId`'s, claimed by `workerId`.
-async function claimFor(workerId: string, threadId: string): Promise<JobRow> {
+async function claimFor(workerId: string, threadId: string): Promise<ClaimedJob> {
 	const job = unwrap(await claimJob(workerId, 60_000));
 	if (!job || job.threadId !== threadId) {
 		throw new Error(`expected a job of ${threadId}, got ${JSON.stringify(job)}`);
@@ -592,5 +594,111 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 				.filter((job) => job.threadId === thread.id)
 				.map((job) => [job.kind, job.status]),
 		).toEqual([['inference', 'queued']]);
+	});
+
+	// A thread of its own with another persona, and the queue emptied of what the tests before left
+	// due, so that what is claimed next is this thread's or nothing.
+	async function quietThread(name: string): Promise<ThreadRow> {
+		for (
+			let left = unwrap(await claimJob('worker-sweep', 60_000));
+			left;
+			left = unwrap(await claimJob('worker-sweep', 60_000))
+		) {
+			unwrap(await finishJob(left.id, 'worker-sweep'));
+		}
+		const persona = unwrap(
+			await createPersona(orgId, userId, {
+				name,
+				look: {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2},
+				color: 'red',
+			}),
+		);
+		return unwrap(await ensureMemberThread({orgId, agentId, personaId: persona.id, userId}));
+	}
+
+	test('a wake-up already due is not claimed while the turn that asked for it runs, nor while that turn waits for another worker after its own died, and is once the turn has ended', async () => {
+		const quiet = await quietThread('Wakes');
+		unwrap(await appendPersonMessage(quiet.id, 'Check back in a second', readyForInference));
+		const turn = await claimFor('worker-h', quiet.id);
+
+		// The sleep asked for is over before the turn is: the wake-up is due at once.
+		expect(
+			unwrap(await scheduleWake(turn.id, 'worker-h', quiet.id, new Date(Date.now() - 1000))),
+		).toBe(true);
+		expect(unwrap(await claimJob('worker-i', 60_000))).toBeNull();
+
+		// The turn's worker dies: the turn is what is claimed again, the wake-up still not.
+		await db.agentJob.update({
+			where: {id: turn.id},
+			data: {leaseExpiresAt: new Date(Date.now() - 60_000)},
+		});
+		const again = await claimFor('worker-i', quiet.id);
+		expect([again.id, again.kind, again.attempts]).toEqual([turn.id, 'inference', 2]);
+		expect(unwrap(await claimJob('worker-j', 60_000))).toBeNull();
+
+		unwrap(
+			await appendTurnEntries(again.id, 'worker-i', quiet.id, [
+				{
+					kind: 'assistant',
+					text: '',
+					toolCalls: [{id: 'z9', name: 'sleep_until', arguments: '{}'}],
+				},
+				{kind: 'tool_result', callId: 'z9', text: 'Sleeping.', isError: false},
+			]),
+		);
+		unwrap(
+			await completeInference(again.id, 'worker-i', quiet.id, null, {plans: {}}, readyForInference),
+		);
+
+		const wake = await claimFor('worker-j', quiet.id);
+		expect(wake.kind).toBe('wake');
+		// One answer for the sleep in the log, the turn's own: nothing was closed beside it.
+		expect(
+			unwrap(await listEntries(quiet.id))
+				.filter((entry) => entry.callId === 'z9')
+				.map((entry) => entry.text),
+		).toEqual(['Sleeping.']);
+		unwrap(await finishJob(wake.id, 'worker-j'));
+	});
+
+	test('a claim says whether the job is a turn of a member with a Claude account of their own, and one that leaves such turns out leaves it queued, taking the other jobs', async () => {
+		const quiet = await quietThread('Accounts');
+		unwrap(await appendPersonMessage(quiet.id, 'Hi', readyForInference));
+		const before = await claimFor('worker-k', quiet.id);
+		expect(before.onClaudeAccount).toBe(false);
+		unwrap(
+			await completeInference(
+				before.id,
+				'worker-k',
+				quiet.id,
+				{
+					text: 'Looking.',
+					toolCalls: [{id: 'r1', name: 'read', arguments: '{}'}],
+					inputTokens: 1,
+					outputTokens: 1,
+					system: null,
+				},
+				{plans: {r1: {kind: 'job', runAt: new Date()}}},
+				readyForInference,
+			),
+		);
+
+		// The member connects their account while the call is still to run: its job is no turn.
+		await db.claudeAccount.create({data: {userId, kind: 'api_key', credential: 'encrypted'}});
+		const tool = await claimFor('worker-k', quiet.id);
+		expect([tool.kind, tool.onClaudeAccount]).toEqual(['tool', false]);
+		unwrap(await finishJob(tool.id, 'worker-k'));
+
+		unwrap(
+			await appendPersonMessage(
+				(await quietThread('Accounts, again')).id,
+				'Hi again',
+				readyForInference,
+			),
+		);
+		expect(unwrap(await claimJob('worker-k', 60_000, true))).toBeNull();
+		const turn = unwrap(await claimJob('worker-k', 60_000));
+		expect([turn?.kind, turn?.onClaudeAccount]).toEqual(['inference', true]);
+		await db.claudeAccount.delete({where: {userId}});
 	});
 });

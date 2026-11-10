@@ -52,7 +52,7 @@ export function proxyHarness(deps: ProxyHarnessDeps): HarnessBackend {
 				return;
 			}
 			const subAgents = input.subAgents ?? [];
-			let entries = input.entries;
+			let entries: ContextEntry[] = input.entries;
 			const cut = compactionCut(entries);
 			const last = cut === null ? undefined : entries[cut - 1];
 			if (cut !== null && last) {

@@ -91,6 +91,26 @@ describe('claudeCredentialFor', () => {
 		expect(row?.failure).toContain('Connect it again');
 	});
 
+	test('a credential noted as refused or run out is not handed out again, and comes back as what it was noted with, until the member connects again', async () => {
+		setRow('api_key', {key: 'sk-ant-api03-abc'});
+		(await markClaudeCredentialRefused('user-1')).unwrap();
+
+		const refused = (await claudeCredentialFor('user-1', now)).unwrapErr();
+
+		expect(refused).toEqual({kind: 'unavailable', statusCode: 503, message: 'Your Claude sign-in has run out or was refused. Connect it again on the Account page.'});
+
+		// A token that ran out is marked once, and refused from the note after.
+		setRow('setup_token', {token: 'sk-ant-oat01-abc'}, new Date(now.getTime() - 1000));
+		markClaudeAccountFailed.mockClear();
+		(await claudeCredentialFor('user-1', now)).unwrapErr();
+		expect((await claudeCredentialFor('user-1', now)).unwrapErr().kind).toBe('unavailable');
+		expect(markClaudeAccountFailed).toHaveBeenCalledTimes(1);
+
+		// Connecting again writes the row anew, the note cleared (@proxy/db/claude-account).
+		setRow('api_key', {key: 'sk-ant-api03-new'});
+		expect((await claudeCredentialFor('user-1', now)).unwrap()).toEqual({kind: 'api_key', key: 'sk-ant-api03-new'});
+	});
+
 	test('a token whose end isn’t known is handed out', async () => {
 		setRow('setup_token', {token: 'sk-ant-oat01-abc'}, null);
 		expect((await claudeCredentialFor('user-1', now)).unwrap()).toEqual({kind: 'setup_token', token: 'sk-ant-oat01-abc'});

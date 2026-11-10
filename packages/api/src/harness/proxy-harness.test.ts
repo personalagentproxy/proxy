@@ -1,7 +1,7 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Err, Ok} from 'ts-results-es';
 
-import type {HarnessEvent, HarnessTurn} from '@proxy/backends/harness/backend';
+import type {HarnessEntry, HarnessEvent, HarnessTurn} from '@proxy/backends/harness/backend';
 import {harnessConformance, type ScriptedModel} from '@proxy/backends/harness/conformance';
 import {fakeToolSurface} from '@proxy/backends/harness/fake';
 import {ApiErr} from '@proxy/utils';
@@ -27,16 +27,17 @@ harnessConformance('the proxy harness', () => ({harness, scripted}));
 
 let seq = 0;
 
-function entry(kind: ContextEntry['kind'], text: string, extra: Partial<Pick<ContextEntry, 'toolCalls' | 'callId' | 'inputTokens' | 'coversSeq'>> = {}): ContextEntry {
+function entry(kind: ContextEntry['kind'], text: string, extra: Partial<Pick<ContextEntry, 'toolCalls' | 'callId' | 'inputTokens' | 'coversSeq'>> = {}): HarnessEntry {
 	seq += 1;
-	return {kind, text, toolCalls: extra.toolCalls ?? null, callId: extra.callId ?? null, isError: false, seq, coversSeq: extra.coversSeq ?? null, inputTokens: extra.inputTokens ?? null};
+	return {kind, text, toolCalls: extra.toolCalls ?? null, callId: extra.callId ?? null, isError: false, seq, coversSeq: extra.coversSeq ?? null, inputTokens: extra.inputTokens ?? null, jobId: null};
 }
 
 const read = {name: 'read', description: 'Reads', inputSchema: {type: 'object', properties: {}}, readOnly: true};
 
-function turnInput(entries: ContextEntry[], extra: Partial<HarnessTurn> = {}): HarnessTurn {
+function turnInput(entries: HarnessEntry[], extra: Partial<HarnessTurn> = {}): HarnessTurn {
 	return {
 		thread: {id: 'thread-1', parentThreadId: null},
+		job: 'job-1',
 		session: null,
 		entries,
 		subAgents: [],

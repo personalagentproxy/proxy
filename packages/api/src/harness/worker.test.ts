@@ -3,7 +3,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 
 import {fakeHarness} from '@proxy/backends/harness/fake';
 import {ApiErr, type ApiError} from '@proxy/utils';
-import type {JobRow} from '@proxy/db/harness';
+import type {ClaimedJob, JobRow} from '@proxy/db/harness';
 
 import type {Harnesses} from '../backends/harness';
 import {type FakeStore, fakeStore} from './fake-store';
@@ -25,6 +25,8 @@ const now = new Date();
 const inference: JobRow = {id: 'j1', threadId: 't1', kind: 'inference', status: 'running', entryId: null, callId: null, runAt: now, claimedBy: 'w', attempts: 1};
 const tool: JobRow = {...inference, id: 'j2', kind: 'tool', entryId: 'e1', callId: 'c1'};
 const wake: JobRow = {...inference, id: 'j5', kind: 'wake'};
+// A job as the queue hands it over: not a turn on a member's own Claude account, unless said.
+const claimed = (job: JobRow, onClaudeAccount = false): ClaimedJob => ({...job, onClaudeAccount});
 
 // Waits for the worker to get through what is queued.
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
@@ -41,7 +43,11 @@ beforeEach(() => {
 describe('the worker', () => {
 	test('claims jobs one after another and runs each by its kind, on the store and the harnesses, then stops claiming', async () => {
 		const {startHarnessWorker} = await import('./worker');
-		store.claimJob.mockResolvedValueOnce(Ok(inference)).mockResolvedValueOnce(Ok(tool)).mockResolvedValueOnce(Ok(wake)).mockResolvedValue(Ok(null));
+		store.claimJob
+			.mockResolvedValueOnce(Ok(claimed(inference)))
+			.mockResolvedValueOnce(Ok(claimed(tool)))
+			.mockResolvedValueOnce(Ok(claimed(wake)))
+			.mockResolvedValue(Ok(null));
 
 		const worker = startHarnessWorker(store, harness);
 		await settle();
@@ -55,6 +61,41 @@ describe('the worker', () => {
 		expect(runInference).toHaveBeenCalledWith(store, harness, wake, expect.any(String), true);
 		expect(runInference.mock.calls[0]?.[3]).toBe(runToolJob.mock.calls[0]?.[2]);
 		expect(store.claimJob.mock.calls.length).toBe(claims);
+		// A server without the SDK harness has no cap to keep: every claim is for any job.
+		expect(store.claimJob.mock.calls.every((call) => call[2] === false)).toBe(true);
+	});
+
+	test('at the cap on turns on members’ own accounts, claims only the other jobs until one of those turns ends, so a turn it has no room for stays in the queue', async () => {
+		const {startHarnessWorker} = await import('./worker');
+		const capped: Harnesses = {...harness, registry: {proxy: fakeHarness(), claudeAgentSdk: {...fakeHarness('claude-agent-sdk'), maxConcurrentTurns: 1}}};
+		let end = (): void => {};
+		runInference.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					end = () => resolve(Ok(undefined));
+				}),
+		);
+		store.claimJob
+			.mockResolvedValueOnce(Ok(claimed(inference, true)))
+			.mockResolvedValueOnce(Ok(claimed(tool)))
+			.mockResolvedValue(Ok(null));
+
+		const worker = startHarnessWorker(store, capped);
+		await settle();
+		const during = store.claimJob.mock.calls.map((call) => call[2]);
+		end();
+		await new Promise((resolve) => setTimeout(resolve, 700));
+		await worker.stop();
+
+		// The first claim is for any job; with the member's turn running, every claim after leaves such turns be.
+		expect(during[0]).toBe(false);
+		expect(during.length).toBeGreaterThan(1);
+		expect(during.slice(1).every((without) => without === true)).toBe(true);
+		// The tool job ran beside the turn, and the job as the turn was given it is the queue's row alone.
+		expect(runToolJob).toHaveBeenCalledWith(store, tool, expect.any(String));
+		expect(runInference).toHaveBeenCalledWith(store, capped, inference, expect.any(String), false);
+		// Once the turn has ended, there is room for one again.
+		expect(store.claimJob.mock.calls.at(-1)?.[2]).toBe(false);
 	});
 
 	test('a job that fails, or throws, is marked failed with why, and one claimed too often is given up', async () => {
@@ -62,10 +103,10 @@ describe('the worker', () => {
 		runInference.mockResolvedValueOnce(Err(ApiErr.conflict('no longer mine'))).mockResolvedValueOnce(Err(ApiErr.internalError(new Error('OpenRouter refused the request (400): too long'))));
 		runToolJob.mockRejectedValueOnce(new Error('boom'));
 		store.claimJob
-			.mockResolvedValueOnce(Ok(inference))
-			.mockResolvedValueOnce(Ok(tool))
-			.mockResolvedValueOnce(Ok({...inference, id: 'j3', attempts: 5}))
-			.mockResolvedValueOnce(Ok({...inference, id: 'j4'}))
+			.mockResolvedValueOnce(Ok(claimed(inference)))
+			.mockResolvedValueOnce(Ok(claimed(tool)))
+			.mockResolvedValueOnce(Ok(claimed({...inference, id: 'j3', attempts: 5})))
+			.mockResolvedValueOnce(Ok(claimed({...inference, id: 'j4'})))
 			.mockResolvedValue(Ok(null));
 
 		const worker = startHarnessWorker(store, harness);

@@ -10,10 +10,9 @@ import {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
-import {isInterruptedResult} from '@proxy/utils/harness';
-import {type ContextEntry, eventLead, type SubAgent} from '@proxy/utils/harness-context';
+import {type ContextEntry, eventLead, type SubAgent, toTranscript} from '@proxy/utils/harness-context';
 
-import type {HarnessAuth, HarnessBackend, HarnessEvent, HarnessTurn, ToolAnswer, ToolSurface} from './backend';
+import type {HarnessAuth, HarnessBackend, HarnessEntry, HarnessEvent, HarnessTurn, ToolAnswer, ToolSurface} from './backend';
 import type {SdkSessionStore} from './session-store';
 
 /**
@@ -23,13 +22,18 @@ import type {SdkSessionStore} from './session-store';
  * the session store the api gives it (session-store.ts), so a turn resumes where the last ended
  * from any api instance: the SDK's session is the model's memory, and the api's log is the record,
  * written from the events this harness yields. The prompt of a turn is therefore not the whole
- * log but what came since the session last saw it, the entries after the seq the session kept,
- * rendered as text the way the api's own harness would send them, an event with its lead-in; a
- * wake-up after a sleep says so, and a turn with nothing new says to go on. What the model itself
- * said, what its calls answered and what the api summarized are left out: the model remembers the
- * first two, and compacts its own context in place of the third. The one result told is the api's
- * closing of a call that a worker died in the middle of, which the model's own transcript hasn't
- * got.
+ * log but what the session hasn't got of it: the entries after the seq the session kept, less what
+ * the turn that kept it said and what its calls answered, which the model remembers, and less
+ * what the api summarized, since the model compacts its own context. What the person said and an
+ * event, with its lead-in, are given as the api's own harness would send them; a wake-up after a
+ * sleep says so, and a turn with nothing new says to go on. What the log has of the model's own
+ * doing that the session can't be known to have is written out before them as the record, the
+ * calls with what they answered, for the model to go on from rather than do again: the steps of an
+ * attempt at the turn that was cut short, the worker having died or the model gone out of reach,
+ * with the api's closing of the calls it left open; an answer the api wrote in the model's place;
+ * and, for a thread without a session of this harness, which another harness ran so far or whose
+ * first turn here was cut short, the whole log as the model would read it, from its last summary
+ * on.
  *
  * The model's tools are the api's (`ToolSurface`), served to the subprocess over an MCP server in
  * this process, which the SDK connects to the binary over stdio: every call the model makes comes
@@ -47,7 +51,10 @@ import type {SdkSessionStore} from './session-store';
  * model is Sonnet throughout: the SDK runs only Claude, so the api's choice of another model for a
  * persona doesn't apply here. What Anthropic says of the member's plan as the turn runs, the
  * rate-limit headers the binary reports as events, is passed on as `usage` events, for the api to
- * show on the Account page; on an API key the binary reports none.
+ * show on the Account page; on an API key the binary reports none. A request Anthropic turns down
+ * because the account is at its limit ends the turn saying so, with when the limit resets where
+ * the binary said, and is not worth trying again: the binary has tried by then, and the plan's
+ * window doesn't open for another try.
  */
 
 /** The SDK's `query`, or a test's: what a turn runs through, read as a stream of SDK messages, with the interrupt that ends a turn early. */
@@ -73,6 +80,9 @@ export const CLAUDE_AGENT_SDK = 'claude-agent-sdk';
 const SERVER = 'proxy';
 const TOOL_PREFIX = `mcp__${SERVER}__`;
 
+// A step of the model's in the log: what it said, with its calls, or what a call answered.
+const STEP_KINDS = new Set<ContextEntry['kind']>(['assistant', 'tool_result']);
+
 // The model, as the SDK names it on a subscription: the persona's Claude, Sonnet 5.5.
 const MODEL = 'sonnet';
 
@@ -82,22 +92,32 @@ const WIND_UP_MS = 10_000;
 
 const GO_ON = 'Go on.';
 
-// An assistant message's error that is the credential turned down, and one that is the API out
-// of reach for now, worth trying again.
+// What leads in the part of the log written out for the model, and what came after it.
+const RECORD =
+	'What follows is the record of this conversation where your own memory of it stops short, written out: you are the agent in it, and it has what was said, the calls you made and what they answered. You may remember some of it. Take it as what happened: don’t make a call again that was answered, and go on from where it ends.';
+const SINCE = 'That is where the record ends. What came since, for you to answer now:';
+
+// An assistant message's error that is the credential turned down, one that is the API out of
+// reach for now, worth trying again, and the one that is the member's account at its limit, which
+// the binary has tried again itself by then and trying once more wouldn't lift.
 const CREDENTIAL_ERRORS = new Set(['authentication_failed', 'oauth_org_not_allowed', 'billing_error', 'account_on_hold', 'verification_required']);
-const UNREACHABLE_ERRORS = new Set(['rate_limit', 'overloaded', 'server_error']);
+const UNREACHABLE_ERRORS = new Set(['overloaded', 'server_error']);
+const LIMIT_ERROR = 'rate_limit';
 
-// What a failure the binary reported says when the API was out of reach rather than refusing.
-const UNREACHABLE_WORDS = /overloaded|rate.?limit|too many requests|unreachable|could not (be )?reach|ECONN|ENOTFOUND|ETIMEDOUT|timed out|fetch failed|network|\b(500|502|503|504|529)\b/i;
+// What a failure the binary reported says when the account was at its limit, and when the API was
+// out of reach rather than refusing.
+const LIMIT_WORDS = /rate.?limit|too many requests|usage limit|hit your limit/i;
+const UNREACHABLE_WORDS = /overloaded|unreachable|could not (be )?reach|ECONN|ENOTFOUND|ETIMEDOUT|timed out|fetch failed|network|\b(500|502|503|504|529)\b/i;
 
-// What the session keeps between turns: the seq of the last entry the model was given.
-const sessionStateSchema = z.object({lastSeq: z.number().int().nonnegative()});
+// What the session keeps between turns: the seq of the last entry the model was given, and the
+// job of the turn that kept it, whose own steps come after that seq in the log.
+const sessionStateSchema = z.object({lastSeq: z.number().int().nonnegative(), job: z.string()});
 
-type Session = {id: string; lastSeq: number};
+type Session = {id: string; lastSeq: number; job: string};
 
 // The thread's session, where it has one that is this harness's: a session whose state isn't one
-// is treated as none, so the turn starts a session afresh and gives the model the whole log as
-// its prompt, which loses nothing of the record.
+// is treated as none, so the turn starts a session afresh and gives the model the log as the
+// record, which loses nothing of it.
 function sessionOf(input: HarnessTurn): Session | null {
 	if (input.session === null) {
 		return null;
@@ -106,46 +126,47 @@ function sessionOf(input: HarnessTurn): Session | null {
 	if (!state.success) {
 		return null;
 	}
-	return {id: input.session.id, lastSeq: state.data.lastSeq};
+	return {id: input.session.id, ...state.data};
 }
 
-// The tool a call was to, by its id, from the log.
-function toolOf(entries: ContextEntry[], callId: string | null): string {
-	return entries.flatMap((entry) => entry.toolCalls ?? []).find((call) => call.id === callId)?.name ?? 'unknown';
+// What the session hasn't got of the log: all of it without a session; with one, what came after
+// the seq it kept, but the steps of the turn that kept it, which the model remembers, and the
+// api's summaries, which stand for what the model compacts itself.
+function unseenBy(session: Session | null, entries: HarnessEntry[]): HarnessEntry[] {
+	if (session === null) {
+		return entries;
+	}
+	return entries.filter((entry) => entry.seq > session.lastSeq && entry.kind !== 'summary' && !(STEP_KINDS.has(entry.kind) && entry.jobId === session.job));
 }
 
-// An entry as the prompt has it: what the person said; an event with its lead-in; the api's
-// closing of a call that a worker died in the middle of, which the model's transcript hasn't got.
-// Nothing for what the model said, what its calls answered and a summary: the log after the seq
-// the session kept holds the turn's own steps too, which the api wrote as the turn went, and the
-// model has them in its own transcript. A result lost between the api's write and the SDK's
-// mirror is marked interrupted by Claude Code itself on resume.
-function pieceOf(entries: ContextEntry[], subAgents: SubAgent[], entry: ContextEntry): string | null {
+// An entry that came to the model as the prompt has it: what the person said, or an event with
+// its lead-in.
+function pieceOf(subAgents: SubAgent[], entry: HarnessEntry): string[] {
 	if (entry.kind === 'person') {
-		return entry.text;
+		return [entry.text];
 	}
 	if (entry.kind === 'event') {
-		return `${eventLead(subAgents, entry)}\n\n${entry.text}`;
+		return [`${eventLead(subAgents, entry)}\n\n${entry.text}`];
 	}
-	if (entry.kind === 'tool_result' && isInterruptedResult(entry)) {
-		return `Your call ${entry.callId ?? ''} (${toolOf(entries, entry.callId)}) was not answered: ${entry.text}`;
-	}
-	return null;
+	return [];
 }
 
-// The prompt: what came since the session last saw the log, a wake-up's note, or "Go on."
-function promptFor(input: HarnessTurn, lastSeq: number, now: Date): string {
+// The prompt: what the session hasn't got of the log. Where that holds steps of the model's own,
+// the log through the last of them is written out as the record (module comment); what came after
+// it, a wake-up's note among it, is what the turn is to answer, or "Go on." where nothing did.
+function promptFor(input: HarnessTurn, session: Session | null, now: Date): string {
 	const subAgents = input.subAgents ?? [];
-	const pieces = input.entries
-		.filter((entry) => entry.seq > lastSeq)
-		.flatMap((entry) => {
-			const piece = pieceOf(input.entries, subAgents, entry);
-			return piece === null ? [] : [piece];
-		});
+	const unseen = unseenBy(session, input.entries);
+	const lastStep = unseen.findLastIndex((entry) => STEP_KINDS.has(entry.kind));
+	const news = unseen.slice(lastStep + 1).flatMap((entry) => pieceOf(subAgents, entry));
 	if (input.woken) {
-		pieces.push(`You were woken, and it is now ${now.toISOString()}.`);
+		news.push(`You were woken, and it is now ${now.toISOString()}.`);
 	}
-	return pieces.length === 0 ? GO_ON : pieces.join('\n\n');
+	if (lastStep === -1) {
+		return news.length === 0 ? GO_ON : news.join('\n\n');
+	}
+	const record = unseen.filter((entry, index) => index <= lastStep || entry.kind === 'summary');
+	return [RECORD, toTranscript(record, subAgents), ...(news.length === 0 ? [GO_ON] : [SINCE, ...news])].join('\n\n');
 }
 
 // The credential as the binary reads it from its environment.
@@ -280,8 +301,27 @@ function usageOf(info: SDKRateLimitInfo): HarnessEvent | null {
 	return {kind: 'usage', [window]: {utilization: info.utilization, resetsAt}};
 }
 
-// A failure the binary reported in words: the API out of reach is worth trying again.
-function reported(text: string): HarnessEvent {
+// The member's account at its limit: not worth trying again as it is, with when the limit resets
+// where the binary said.
+function limitReached(text: string, resetsAt: Date | null): HarnessEvent {
+	return {kind: 'failed', error: ApiErr.providerUnreachable(new Error(text)), retry: false, limitReached: {resetsAt}};
+}
+
+// When the limit resets that the binary said the plan hit, turning the request down for it; null
+// for any other word of the plan, and where it didn't say when.
+function rejectedUntil(info: SDKRateLimitInfo): Date | null {
+	if (info.status !== 'rejected' || typeof info.resetsAt !== 'number') {
+		return null;
+	}
+	return new Date(info.resetsAt * 1000);
+}
+
+// A failure the binary reported in words: the account at its limit says so, and the API out of
+// reach is worth trying again.
+function reported(text: string, resetsAt: Date | null): HarnessEvent {
+	if (LIMIT_WORDS.test(text)) {
+		return limitReached(text, resetsAt);
+	}
 	if (UNREACHABLE_WORDS.test(text)) {
 		return failed(ApiErr.providerUnreachable(new Error(text)), true);
 	}
@@ -292,17 +332,17 @@ function reported(text: string): HarnessEvent {
 // steps, which the api handles, or was interrupted after a sleep; a failure otherwise. The input
 // counted is everything the model read, the cache's part of it included, since that is what the
 // turn cost in context.
-function endOf(message: SDKResultMessage, context: {sessionId: string; lastSeq: number; system: string; interrupted: boolean}): HarnessEvent {
+function endOf(message: SDKResultMessage, context: {sessionId: string; lastSeq: number; job: string; system: string; interrupted: boolean; resetsAt: Date | null}): HarnessEvent {
 	if (message.subtype === 'success' && message.is_error && !context.interrupted) {
-		return reported(message.result);
+		return reported(message.result, context.resetsAt);
 	}
 	if (message.subtype !== 'success' && message.subtype !== 'error_max_turns' && !context.interrupted) {
-		return reported(message.errors.join('; ') || message.subtype);
+		return reported(message.errors.join('; ') || message.subtype, context.resetsAt);
 	}
 	const {usage} = message;
 	return {
 		kind: 'done',
-		session: {id: context.sessionId, state: {lastSeq: context.lastSeq}},
+		session: {id: context.sessionId, state: {lastSeq: context.lastSeq, job: context.job}},
 		system: context.system,
 		inputTokens: usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens,
 		outputTokens: usage.output_tokens,
@@ -310,13 +350,16 @@ function endOf(message: SDKResultMessage, context: {sessionId: string; lastSeq: 
 }
 
 // What an assistant message's error ends the turn with, if it does: a credential turned down,
-// or the API out of reach. Other errors run their course to the result.
-function assistantFailure(error: string | undefined): HarnessEvent | null {
+// the account at its limit, or the API out of reach. Other errors run their course to the result.
+function assistantFailure(error: string | undefined, resetsAt: Date | null): HarnessEvent | null {
 	if (error === undefined) {
 		return null;
 	}
 	if (CREDENTIAL_ERRORS.has(error)) {
 		return failed(ApiErr.credentialsRejected(), false);
+	}
+	if (error === LIMIT_ERROR) {
+		return limitReached(`The model answered with ${error}`, resetsAt);
 	}
 	if (UNREACHABLE_ERRORS.has(error)) {
 		return failed(ApiErr.providerUnreachable(new Error(`The model answered with ${error}`)), true);
@@ -418,10 +461,12 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 			const lastSeq = input.entries.at(-1)?.seq ?? session?.lastSeq ?? 0;
 			const open = new Set<string>();
 			let sessionId = session?.id ?? null;
+			// When the limit the binary last said the account hit resets, for a failure that follows.
+			let resetsAt: Date | null = null;
 			let interrupted = false;
 			let ended = false;
 			let done = false;
-			const started = Result.wrap(() => query({prompt: promptFor(input, session?.lastSeq ?? 0, new Date()), options}));
+			const started = Result.wrap(() => query({prompt: promptFor(input, session, new Date()), options}));
 			if (started.isErr()) {
 				input.signal.removeEventListener('abort', onAbort);
 				yield failed(ApiErr.providerUnreachable(started.error), true);
@@ -446,6 +491,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 						continue;
 					}
 					if (message.type === 'rate_limit_event') {
+						resetsAt = rejectedUntil(message.rate_limit_info) ?? resetsAt;
 						const usage = usageOf(message.rate_limit_info);
 						if (usage !== null) {
 							yield usage;
@@ -456,7 +502,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 						if (message.parent_tool_use_id !== null) {
 							continue;
 						}
-						const failure = assistantFailure(message.error);
+						const failure = assistantFailure(message.error, resetsAt);
 						if (failure !== null) {
 							yield failure;
 							return;
@@ -493,7 +539,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 					if (message.type === 'result') {
 						ended = true;
 						await windUp(iterator, controller);
-						const end = endOf(message, {sessionId: sessionId ?? message.session_id, lastSeq, system: input.system, interrupted});
+						const end = endOf(message, {sessionId: sessionId ?? message.session_id, lastSeq, job: input.job, system: input.system, interrupted, resetsAt});
 						done = end.kind === 'done';
 						yield end;
 					}
@@ -507,8 +553,9 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 					await windUp(iterator, controller);
 				}
 				// A session this turn started and the api won't keep, since the turn failed, is deleted
-				// from the store, where nothing would ever resume it; as best it can, since the turn's
-				// outcome is told already. The key is the thread's id (CLAUDE_CODE_PROJECT_DIR_NAME).
+				// from the store, where nothing would ever resume it: the turn tried again starts one
+				// afresh, on the log as the record, what this attempt did among it. As best it can, since
+				// the turn's outcome is told already. The key is the thread's id (CLAUDE_CODE_PROJECT_DIR_NAME).
 				const orphan = sessionId;
 				if (!done && orphan !== null && orphan !== session?.id) {
 					await Result.wrapAsync(() => deps.sessionStore.delete({projectKey: input.thread.id, sessionId: orphan}));

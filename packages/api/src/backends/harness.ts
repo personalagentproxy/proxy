@@ -5,18 +5,19 @@ import type {ApiError} from '@proxy/utils';
 import type {ClaudeUsage} from '@proxy/db/claude-account';
 
 import type {ClaudeCredential} from '../me/claude-credential';
-import {SIGN_IN_EXPIRED} from '../me/claude-token';
 
 /**
  * Which harness runs a thread's turns (@proxy/backends/harness), of those this server has: the
  * api's own loop over OpenRouter, where there is a key for it, and the Claude Agent SDK's, which
- * runs as the member, on the Claude credential they connected on the Account page. A thread
- * that a harness has run already stays with it, since the session the harness kept on the thread
- * is its alone; a new thread goes to the SDK harness where the member has a Claude credential and
- * the server has the harness, and to the proxy harness otherwise. A member who chose their
- * subscription is never quietly moved to the server's key when their credential can't be had,
- * which would bill the organization for what they meant to pay for themselves: the turn is
- * answered with what to do instead. The credential is read only where the choice turns on it, so
+ * runs as the member, on the Claude credential they connected on the Account page. The choice is
+ * the member's credential's, made anew for each turn: with one, their turns run on the SDK
+ * harness, where the server has it, and on the proxy harness otherwise, as they do again once the
+ * member disconnects or the server turns the SDK harness off. A thread therefore moves between the
+ * two with the credential: the log is the record on either, and a harness whose session the
+ * thread hasn't got is given the log in its place. A member who chose their subscription is never
+ * quietly moved to the server's key when their credential can't be had, run out or refused, which
+ * would bill the organization for what they meant to pay for themselves: the turn is answered with
+ * what to do instead (inference.ts). The credential is read only where the choice turns on it, so
  * a server without the SDK harness never looks for one.
  */
 
@@ -25,7 +26,8 @@ export type HarnessRegistry = {proxy: HarnessBackend | null; claudeAgentSdk: Har
 
 /**
  * How a member's Claude credential is read, and what a turn on it tells the account: that the
- * model turned it down, and what the provider said of the plan. The api's own
+ * model turned it down, after which it isn't handed out until the member connects again, and what
+ * the provider said of the plan. The api's own
  * (me/claude-credential.ts), or a test's.
  */
 export type ClaudeCredentials = {
@@ -42,11 +44,6 @@ export type HarnessChoice = {harness: HarnessBackend; auth: HarnessAuth | null} 
 
 export const NOT_SET_UP = 'Chat is not set up on this server: it needs an OpenRouter key (OPENROUTER_KEY). Everything else works as before.';
 
-// What the person is told where the thread's harness is one this server hasn't got.
-function notOnThisServer(harness: string): string {
-	return `This conversation runs on the ${harness} harness, which this server hasn’t got. Everything else works as before.`;
-}
-
 /** The credential as the harness is handed it: a token goes as a sign-in's access token would, with no scopes, which is how the SDK takes `CLAUDE_CODE_OAUTH_TOKEN`. */
 export function authFor(credential: ClaudeCredential): HarnessAuth {
 	if (credential.kind === 'setup_token') {
@@ -55,40 +52,17 @@ export function authFor(credential: ClaudeCredential): HarnessAuth {
 	return {kind: 'api_key', key: credential.key};
 }
 
-/** Whether the choice for the thread turns on the member's credential: the SDK harness is here, and the thread isn't another's already. */
-export function needsCredential(registry: HarnessRegistry, thread: {harness: string | null}): boolean {
-	if (registry.claudeAgentSdk === null) {
-		return false;
-	}
-	return thread.harness === null || thread.harness === registry.claudeAgentSdk.id;
-}
-
-// The harness the thread stays with, by the id it recorded; with the member's credential where it
-// is the SDK harness, which can't run without one.
-function recorded(registry: HarnessRegistry, harness: string, credential: ClaudeCredential | null): HarnessChoice {
-	const found = [registry.proxy, registry.claudeAgentSdk].find((candidate) => candidate?.id === harness) ?? null;
-	if (found === null) {
-		return {harness: null, auth: null, why: notOnThisServer(harness)};
-	}
-	if (found !== registry.claudeAgentSdk) {
-		return {harness: found, auth: null};
-	}
-	if (credential === null) {
-		return {harness: null, auth: null, why: SIGN_IN_EXPIRED};
-	}
-	return {harness: found, auth: authFor(credential)};
+/** Whether the choice turns on the member's credential: the SDK harness is here. */
+export function needsCredential(registry: HarnessRegistry): boolean {
+	return registry.claudeAgentSdk !== null;
 }
 
 /**
- * The harness for a turn on the thread: the one the thread recorded, where it has; else the SDK
- * harness where the member has a Claude credential and the server has the harness; else the proxy
- * harness. `credential` is the member's, or null where they connected none, or it wasn't looked
- * for (`needsCredential`).
+ * The harness for a turn of the member's: the SDK harness where they have a Claude credential and
+ * the server has the harness; else the proxy harness. `credential` is the member's, or null where
+ * they connected none, or it wasn't looked for (`needsCredential`).
  */
-export function harnessFor(registry: HarnessRegistry, thread: {harness: string | null}, credential: ClaudeCredential | null): HarnessChoice {
-	if (thread.harness !== null) {
-		return recorded(registry, thread.harness, credential);
-	}
+export function harnessFor(registry: HarnessRegistry, credential: ClaudeCredential | null): HarnessChoice {
 	if (credential !== null && registry.claudeAgentSdk !== null) {
 		return {harness: registry.claudeAgentSdk, auth: authFor(credential)};
 	}
@@ -96,4 +70,13 @@ export function harnessFor(registry: HarnessRegistry, thread: {harness: string |
 		return {harness: registry.proxy, auth: null};
 	}
 	return {harness: null, auth: null, why: NOT_SET_UP};
+}
+
+/**
+ * How many turns on members' own accounts one process runs at once, each a subprocess of the SDK
+ * harness's: the harness's cap, which the worker keeps to as it claims jobs; null where the server
+ * hasn't got the harness, or it has no cap.
+ */
+export function ownAccountTurnCap(registry: HarnessRegistry): number | null {
+	return registry.claudeAgentSdk?.maxConcurrentTurns ?? null;
 }

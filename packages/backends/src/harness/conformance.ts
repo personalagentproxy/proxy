@@ -24,7 +24,7 @@ const TOOLS = [
 	{name: 'run', description: 'Runs', inputSchema: {type: 'object', properties: {}}, readOnly: false},
 ];
 
-const ENTRIES = [{kind: 'person' as const, text: 'Hi', toolCalls: null, callId: null, isError: false, seq: 1, coversSeq: null, inputTokens: null}];
+const ENTRIES = [{kind: 'person' as const, text: 'Hi', toolCalls: null, callId: null, isError: false, seq: 1, coversSeq: null, inputTokens: null, jobId: null}];
 
 const TERMINAL = new Set<HarnessEvent['kind']>(['done', 'failed']);
 
@@ -36,6 +36,7 @@ const USAGE_WINDOWS = new Set(['fiveHour', 'sevenDay']);
 function turnInput(signal = new AbortController().signal): HarnessTurn {
 	return {
 		thread: {id: 'thread-1', parentThreadId: null},
+		job: 'job-1',
 		auth: {kind: 'api_key', key: 'test-key'},
 		session: null,
 		entries: ENTRIES,

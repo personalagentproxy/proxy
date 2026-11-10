@@ -14,7 +14,7 @@ import {ApiErr} from '@proxy/utils';
 import {CALL_INTERRUPTED, RUN_INTERRUPTED} from '@proxy/utils/harness';
 import type {ContextEntry} from '@proxy/utils/harness-context';
 
-import type {HarnessEvent, HarnessTurn} from './backend';
+import type {HarnessEntry, HarnessEvent, HarnessTurn} from './backend';
 import {claudeAgentSdkHarness, type ClaudeAgentSdkDeps, proxyToolServer, type SdkQuery} from './claude-agent-sdk';
 import {harnessConformance, type ScriptedModel} from './conformance';
 import {fakeToolSurface} from './fake';
@@ -254,14 +254,31 @@ const TOOLS = [
 
 let seq = 0;
 
-function entry(kind: ContextEntry['kind'], text: string, extra: Partial<Pick<ContextEntry, 'toolCalls' | 'callId' | 'isError' | 'coversSeq'>> = {}): ContextEntry {
+// An entry of the log, written by the job `jobId` where a turn wrote it.
+function entry(kind: ContextEntry['kind'], text: string, extra: Partial<Pick<HarnessEntry, 'toolCalls' | 'callId' | 'isError' | 'coversSeq' | 'jobId'>> = {}): HarnessEntry {
 	seq += 1;
-	return {kind, text, toolCalls: extra.toolCalls ?? null, callId: extra.callId ?? null, isError: extra.isError ?? false, seq, coversSeq: extra.coversSeq ?? null, inputTokens: null};
+	return {
+		kind,
+		text,
+		toolCalls: extra.toolCalls ?? null,
+		callId: extra.callId ?? null,
+		isError: extra.isError ?? false,
+		seq,
+		coversSeq: extra.coversSeq ?? null,
+		inputTokens: null,
+		jobId: extra.jobId ?? null,
+	};
 }
+
+// What leads in the part of the log the harness writes out for the model, and what follows it.
+const RECORD =
+	'What follows is the record of this conversation where your own memory of it stops short, written out: you are the agent in it, and it has what was said, the calls you made and what they answered. You may remember some of it. Take it as what happened: don’t make a call again that was answered, and go on from where it ends.';
+const SINCE = 'That is where the record ends. What came since, for you to answer now:';
 
 function turnInput(extra: Partial<HarnessTurn> = {}): HarnessTurn {
 	return {
 		thread: {id: 'thread-1', parentThreadId: null},
+		job: 'job-1',
 		auth: {kind: 'api_key', key: 'test-key'},
 		session: null,
 		entries: [entry('person', 'Hi')],
@@ -335,7 +352,7 @@ describe('claudeAgentSdkHarness', () => {
 		}
 	});
 
-	test('prompts with what came since the session last saw the log, resumes the session, and keeps the last seq', async () => {
+	test('prompts with what came since the session last saw the log, less the steps of the turn that kept it, resumes the session, and keeps the last seq and the turn’s job', async () => {
 		const fake = fakeQuery();
 		fake.script(messages([init(), result()]));
 		const seen = entry('person', 'Hi');
@@ -344,16 +361,17 @@ describe('claudeAgentSdkHarness', () => {
 				{id: 'c1', name: 'read', arguments: '{}'},
 				{id: 'c2', name: 'create_subagent', arguments: '{}'},
 			],
+			jobId: 'job-0',
 		});
-		const started = entry('tool_result', 'Started sa1.', {callId: 'c2'});
-		const refused = entry('tool_result', 'No such connection.', {callId: 'c1', isError: true});
-		const said = entry('event', 'Found it.', {callId: 'c2'});
+		const started = entry('tool_result', 'Started sa1.', {callId: 'c2', jobId: 'job-0'});
+		const refused = entry('tool_result', 'No such connection.', {callId: 'c1', isError: true, jobId: 'job-0'});
+		const said = entry('event', 'Found it.', {callId: 'c2', jobId: 'job-of-sa1'});
 		const summary = entry('summary', 'Earlier: hi.', {coversSeq: seen.seq});
 		const again = entry('person', 'And then?');
 
 		const events = await collect(fake, {
 			...turnInput(),
-			session: {id: 'sdk-session-9', state: {lastSeq: seen.seq}},
+			session: {id: 'sdk-session-9', state: {lastSeq: seen.seq, job: 'job-0'}},
 			entries: [seen, step, started, refused, said, summary, again],
 			subAgents: [{id: 'sa1', parentCallId: 'c2', title: 'Finder'}],
 		});
@@ -362,40 +380,123 @@ describe('claudeAgentSdkHarness', () => {
 			['A message from the sub-agent “Finder” (id sa1). The person did not write this; it is for you to act on or tell them of.\n\nFound it.', 'And then?'].join('\n\n'),
 		);
 		expect(fake.calls[0]?.options?.resume).toBe('sdk-session-9');
-		expect(events.at(-1)).toMatchObject({kind: 'done', session: {id: SESSION, state: {lastSeq: again.seq}}});
+		expect(events.at(-1)).toMatchObject({kind: 'done', session: {id: SESSION, state: {lastSeq: again.seq, job: 'job-1'}}});
 	});
 
-	test('leaves a previous turn’s own results out of the prompt, and tells of a call the api closed as interrupted', async () => {
+	test('a turn tried again is given what the attempt before did, as the record, with the calls the api closed as interrupted, so it goes on rather than doing it again', async () => {
 		const fake = fakeQuery();
 		fake.script(messages([init(), result()]));
 		const seen = entry('person', 'Hi');
-		const step = entry('assistant', '', {
+		const answer = entry('assistant', 'Hello.', {jobId: 'job-0'});
+		const asked = entry('person', 'Send the invoice to Dana');
+		// What this turn's job wrote on its first attempt, before the worker died.
+		const step = entry('assistant', 'Sending.', {
 			toolCalls: [
-				{id: 'c1', name: 'read', arguments: '{}'},
-				{id: 'c2', name: 'run', arguments: '{}'},
+				{id: 'c1', name: 'read', arguments: '{"a":1}'},
+				{id: 'c2', name: 'run', arguments: '{"to":"dana"}'},
 				{id: 'c3', name: 'read', arguments: '{}'},
 			],
+			jobId: 'job-1',
 		});
-		const answered = entry('tool_result', 'rows', {callId: 'c1'});
-		const unknown = entry('tool_result', RUN_INTERRUPTED, {callId: 'c2', isError: true});
-		const unanswered = entry('tool_result', CALL_INTERRUPTED, {callId: 'c3', isError: true});
+		const answered = entry('tool_result', 'rows', {callId: 'c1', jobId: 'job-1'});
+		const unknown = entry('tool_result', RUN_INTERRUPTED, {callId: 'c2', isError: true, jobId: 'job-1'});
+		const unanswered = entry('tool_result', CALL_INTERRUPTED, {callId: 'c3', isError: true, jobId: 'job-1'});
 
-		await collect(fake, {...turnInput(), session: {id: 's', state: {lastSeq: seen.seq}}, entries: [seen, step, answered, unknown, unanswered]});
+		const events = await collect(fake, {
+			...turnInput(),
+			session: {id: 's', state: {lastSeq: seen.seq, job: 'job-0'}},
+			entries: [seen, answer, asked, step, answered, unknown, unanswered],
+		});
 
-		expect(fake.calls[0]?.prompt).toBe([`Your call c2 (run) was not answered: ${RUN_INTERRUPTED}`, `Your call c3 (read) was not answered: ${CALL_INTERRUPTED}`].join('\n\n'));
+		expect(fake.calls[0]?.prompt).toBe(
+			[
+				RECORD,
+				'Person:\nSend the invoice to Dana',
+				'Agent:\nSending.\nAgent called read with {"a":1}\nAgent called run with {"to":"dana"}\nAgent called read with {}',
+				'read answered:\nrows',
+				`run answered with an error:\n${RUN_INTERRUPTED}`,
+				`read answered with an error:\n${CALL_INTERRUPTED}`,
+				'Go on.',
+			].join('\n\n'),
+		);
+		expect(fake.calls[0]?.options?.resume).toBe('s');
+		expect(events.at(-1)).toMatchObject({kind: 'done', session: {state: {lastSeq: unanswered.seq, job: 'job-1'}}});
 	});
 
-	test('says so when woken, says to go on when nothing is new, and starts afresh on a session that isn’t one', async () => {
+	test('a first turn tried again starts a session afresh on the log as the record, the calls it made before among it', async () => {
+		const fake = fakeQuery();
+		fake.script(messages([init(), result()]));
+		const brief = entry('person', 'Email the invoice to Dana');
+		const step = entry('assistant', '', {toolCalls: [{id: 'c1', name: 'run', arguments: '{"to":"dana"}'}], jobId: 'job-1'});
+		const sent = entry('tool_result', 'Sent.', {callId: 'c1', jobId: 'job-1'});
+
+		await collect(fake, {...turnInput(), session: null, entries: [brief, step, sent]});
+
+		expect(fake.calls[0]?.prompt).toBe([RECORD, 'Person:\nEmail the invoice to Dana', 'Agent called run with {"to":"dana"}', 'run answered:\nSent.', 'Go on.'].join('\n\n'));
+		expect(fake.calls[0]?.options).not.toHaveProperty('resume');
+	});
+
+	test('a thread another harness ran so far starts a session on the log as the model would read it, from its last summary on, then what came since', async () => {
+		const fake = fakeQuery();
+		fake.script(messages([init(), result()]));
+		const old = entry('person', 'Find my invoices');
+		const found = entry('assistant', 'Three invoices from Dana.', {jobId: 'job-a'});
+		const next = entry('person', 'File them');
+		const summary = entry('summary', 'The person asked for their invoices; three from Dana were found.', {coversSeq: found.seq});
+		const step = entry('assistant', 'Filing.', {toolCalls: [{id: 'c1', name: 'create_subagent', arguments: '{"title":"File"}'}], jobId: 'job-b'});
+		const started = entry('tool_result', 'Started sa1.', {callId: 'c1', jobId: 'job-b'});
+		const said = entry('event', 'Filed all three.', {callId: 'c1'});
+		const again = entry('person', 'Thanks. Any from before October?');
+
+		await collect(fake, {
+			...turnInput(),
+			// A session that isn't this harness's own is none.
+			session: {id: 'other', state: null},
+			entries: [old, found, next, summary, step, started, said, again],
+			subAgents: [{id: 'sa1', parentCallId: 'c1', title: 'File'}],
+		});
+
+		expect(fake.calls[0]?.prompt).toBe(
+			[
+				RECORD,
+				'What came before in this conversation, summarized so that it fits. The person did not write this; take it as what happened.\nThe person asked for their invoices; three from Dana were found.',
+				'Person:\nFile them',
+				'Agent:\nFiling.\nAgent called create_subagent with {"title":"File"}',
+				'create_subagent answered:\nStarted sa1.',
+				SINCE,
+				'A message from the sub-agent “File” (id sa1). The person did not write this; it is for you to act on or tell them of.\n\nFiled all three.',
+				'Thanks. Any from before October?',
+			].join('\n\n'),
+		);
+		expect(fake.calls[0]?.options).not.toHaveProperty('resume');
+	});
+
+	test('what the log has of the model’s doing from another job than the session’s is told too: an answer the api wrote in its place, and a result a job of the api’s brought', async () => {
+		const fake = fakeQuery();
+		fake.script(messages([init(), result()]));
+		const seen = entry('person', 'Hi');
+		const own = entry('assistant', 'Hello.', {jobId: 'job-0'});
+		const asked = entry('person', 'And the invoices?');
+		const gaveUp = entry('assistant', 'The model could not be reached. Say something to try again.', {jobId: 'job-failed'});
+		const again = entry('person', 'Try again');
+
+		await collect(fake, {...turnInput(), session: {id: 's', state: {lastSeq: seen.seq, job: 'job-0'}}, entries: [seen, own, asked, gaveUp, again]});
+
+		expect(fake.calls[0]?.prompt).toBe([RECORD, 'Person:\nAnd the invoices?', 'Agent:\nThe model could not be reached. Say something to try again.', SINCE, 'Try again'].join('\n\n'));
+	});
+
+	test('says so when woken, says to go on when nothing is new, and gives a new thread what the person said as it is', async () => {
 		const fake = fakeQuery();
 		fake.script(messages([init(), result()]));
 		fake.script(messages([init(), result()]));
 		fake.script(messages([init(), result()]));
 		const hi = entry('person', 'Hi');
-		const answered = entry('assistant', 'Hello.');
+		const answered = entry('assistant', 'Hello.', {jobId: 'job-0'});
+		const session = {id: 's', state: {lastSeq: hi.seq, job: 'job-0'}};
 
-		await collect(fake, {...turnInput(), session: {id: 's', state: {lastSeq: answered.seq}}, entries: [hi, answered], woken: true});
-		await collect(fake, {...turnInput(), session: {id: 's', state: {lastSeq: answered.seq}}, entries: [hi, answered]});
-		await collect(fake, {...turnInput(), session: {id: 's', state: {seqs: 'what'}}, entries: [hi, answered]});
+		await collect(fake, {...turnInput(), session, entries: [hi, answered], woken: true});
+		await collect(fake, {...turnInput(), session, entries: [hi, answered]});
+		await collect(fake, {...turnInput(), session: null, entries: [hi]});
 
 		expect(fake.calls[0]?.prompt).toMatch(/^You were woken, and it is now \d{4}-\d{2}-\d{2}T[\d:.]+Z\.$/);
 		expect(fake.calls[1]?.prompt).toBe('Go on.');
@@ -485,7 +586,7 @@ describe('claudeAgentSdkHarness', () => {
 		expect(await collect(fake, turnInput(), {sessionStore})).toMatchObject([{kind: 'failed'}]);
 		expect(await sessionStore.load(key)).toBeNull();
 		expect(await sessionStore.listSubkeys(key)).toEqual([]);
-		expect(await collect(fake, turnInput({session: {id: SESSION, state: {lastSeq: 1}}}), {sessionStore})).toMatchObject([{kind: 'failed'}]);
+		expect(await collect(fake, turnInput({session: {id: SESSION, state: {lastSeq: 1, job: 'job-0'}}}), {sessionStore})).toMatchObject([{kind: 'failed'}]);
 		expect(await sessionStore.load(key)).toHaveLength(1);
 		expect(await collect(fake, turnInput(), {sessionStore})).toMatchObject([{kind: 'done'}]);
 		expect(await sessionStore.load(key)).toHaveLength(2);
@@ -532,7 +633,7 @@ describe('claudeAgentSdkHarness', () => {
 			{kind: 'tool_call', id: 'c1', name: 'read', arguments: '{"a":1}'},
 			{kind: 'tool_result', callId: 'c1', text: 'rows', isError: false},
 			{kind: 'text', text: 'Done.'},
-			{kind: 'done', session: {id: SESSION, state: {lastSeq: input.entries[0]?.seq ?? 0}}, system: 'You are a test.', inputTokens: 17, outputTokens: 3},
+			{kind: 'done', session: {id: SESSION, state: {lastSeq: input.entries[0]?.seq ?? 0, job: 'job-1'}}, system: 'You are a test.', inputTokens: 17, outputTokens: 3},
 		]);
 	});
 
@@ -562,15 +663,34 @@ describe('claudeAgentSdkHarness', () => {
 		expect(events[0]).not.toHaveProperty('sevenDay');
 	});
 
-	test('ends with the credential turned down on an authentication error, and with the model out of reach on a rate limit', async () => {
+	test('ends with the credential turned down on an authentication error, and with the model out of reach, worth trying again, where it is overloaded', async () => {
 		const fake = fakeQuery();
 		fake.script(messages([init(), assistant([textBlock('Invalid authentication')], {error: 'authentication_failed'}), result({is_error: true, result: 'Invalid authentication'})]));
 		fake.script(messages([init(), assistant([], {error: 'billing_error'}), result({is_error: true})]));
-		fake.script(messages([init(), assistant([], {error: 'rate_limit'}), result({is_error: true})]));
+		fake.script(messages([init(), assistant([], {error: 'overloaded'}), result({is_error: true})]));
 
 		expect(await collect(fake, turnInput())).toEqual([{kind: 'failed', error: ApiErr.credentialsRejected(), retry: false}]);
 		expect(await collect(fake, turnInput())).toEqual([{kind: 'failed', error: ApiErr.credentialsRejected(), retry: false}]);
 		expect(await collect(fake, turnInput())).toMatchObject([{kind: 'failed', error: {kind: 'provider_unreachable'}, retry: true}]);
+	});
+
+	test('an account at its limit ends the turn saying so, not worth trying again, with when the limit resets where the binary said', async () => {
+		const fake = fakeQuery();
+		fake.script(
+			messages([
+				init(),
+				rateLimit({status: 'allowed_warning', rateLimitType: 'five_hour', utilization: 0.99, resetsAt: 1_793_000_000}),
+				rateLimit({status: 'rejected', rateLimitType: 'five_hour', utilization: 1, resetsAt: 1_794_000_000}),
+				assistant([textBlock('You’ve hit your limit')], {error: 'rate_limit'}),
+				result({is_error: true}),
+			]),
+		);
+		fake.script(messages([init(), assistant([], {error: 'rate_limit'}), result({is_error: true})]));
+		fake.script(messages([init(), rateLimit({status: 'rejected', resetsAt: 1_794_000_000}), result({is_error: true, result: 'Claude usage limit reached.'})]));
+
+		expect((await collect(fake, turnInput())).at(-1)).toMatchObject({kind: 'failed', error: {kind: 'provider_unreachable'}, retry: false, limitReached: {resetsAt: new Date(1_794_000_000 * 1000)}});
+		expect(await collect(fake, turnInput())).toMatchObject([{kind: 'failed', retry: false, limitReached: {resetsAt: null}}]);
+		expect(await collect(fake, turnInput())).toMatchObject([{kind: 'failed', retry: false, limitReached: {resetsAt: new Date(1_794_000_000 * 1000)}}]);
 	});
 
 	test('reads a result that is an error: out of reach is worth trying again, a refusal is not, and the cap on steps is done', async () => {

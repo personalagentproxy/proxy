@@ -9,6 +9,7 @@ import * as harness from '@proxy/db/harness';
 import type {
 	AfterAnswer,
 	AssistantTurn,
+	ClaimedJob,
 	ConversationAnswer,
 	EntryRow,
 	FailureNote,
@@ -44,7 +45,7 @@ import type {SignedInAgent} from '@proxy/db/agent';
  * the transcript methods (session-store.ts), the model's memory beside the log.
  */
 export type HarnessStore = {
-	claimJob: (workerId: string, leaseMs: number) => Promise<Result<JobRow | null, ApiError>>;
+	claimJob: (workerId: string, leaseMs: number, withoutClaudeAccountTurns?: boolean) => Promise<Result<ClaimedJob | null, ApiError>>;
 	renewLease: (jobId: string, workerId: string, leaseMs: number) => Promise<Result<boolean, ApiError>>;
 	finishJob: (jobId: string, workerId: string) => Promise<Result<boolean, ApiError>>;
 	failJob: (jobId: string, workerId: string, error: string, noteFor: (job: JobRow, thread: ThreadRow) => FailureNote | null) => Promise<Result<boolean, ApiError>>;

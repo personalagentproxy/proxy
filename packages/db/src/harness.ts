@@ -55,7 +55,8 @@ import type {NewAgentTask} from './task';
  * log while the job runs, so the log stays what the model read plus what it did. A harness that
  * keeps a session between turns leaves it on the thread as the job ends (completeInference), and
  * one that answers a sleep itself has the thread woken at the time by a job of its own
- * (scheduleWake), which runs like a turn, telling the harness it was woken.
+ * (scheduleWake), which runs like a turn, telling the harness it was woken, and is not claimed
+ * while the turn that asked for it still runs (claimJob).
  */
 
 export type ThreadRow = {
@@ -74,9 +75,10 @@ export type ThreadRow = {
 	title: string | null;
 	// A sub-agent's task; null for a conversation, whose agent makes no calls but to its sub-agents.
 	taskId: string | null;
-	// Which harness runs the thread's turns, by its id; null for the server's default.
+	// Which harness last ran a turn on the thread and left `harnessSession`, by its id; null for a
+	// thread no harness left anything on.
 	harness: string | null;
-	// What the harness kept from the thread's last turn, opaque here; null before the first, for a
+	// What that harness kept from the thread's last turn, opaque here; null before the first, for a
 	// harness that keeps nothing, and where what the column holds isn't a session.
 	harnessSession: HarnessSession;
 	createdAt: Date;
@@ -919,15 +921,24 @@ export async function appendPersonMessage(
 	);
 }
 
+/** A job as a worker claimed it, with whether it is a turn of a member who has a Claude account of their own (ClaudeAccount), which the api runs on that account. */
+export type ClaimedJob = JobRow & {onClaudeAccount: boolean};
+
 /**
  * Claims the next job due for `workerId`: one queued whose time has come, or one running whose
- * worker's lease ran out, the earliest due first. `Ok(null)` when none is due. The claim holds for
- * `leaseMs`, and `renewLease` keeps it.
+ * worker's lease ran out, the earliest due first. A turn queued for a thread that has another
+ * running, as a wake-up is that a sleep the turn itself answered asked for (scheduleWake), is not
+ * due until that one has ended, whoever holds it: two turns never run on one thread. With
+ * `withoutClaudeAccountTurns`, the turns of members who have a Claude account of their own are
+ * left for later, or for another worker: the api runs only so many of them at once, and a worker
+ * that has no room for another claims the other jobs meanwhile. `Ok(null)` when none is due. The
+ * claim holds for `leaseMs`, and `renewLease` keeps it.
  */
 export async function claimJob(
 	workerId: string,
 	leaseMs: number,
-): Promise<Result<JobRow | null, ApiError>> {
+	withoutClaudeAccountTurns = false,
+): Promise<Result<ClaimedJob | null, ApiError>> {
 	// Prisma writes a DateTime as the UTC wall clock, in a column without a time zone; now() has
 	// one, and would be read in the server's, so its UTC wall clock is what is compared and
 	// written. The claim is noted as an event in the same transaction.
@@ -941,12 +952,34 @@ export async function claimJob(
 					"attempts" = "attempts" + 1,
 					"updatedAt" = now() AT TIME ZONE 'UTC'
 				WHERE "id" = (
-					SELECT "id" FROM "AgentJob"
-					WHERE ("status" = 'queued' AND "runAt" <= now() AT TIME ZONE 'UTC')
-						OR ("status" = 'running' AND "leaseExpiresAt" < now() AT TIME ZONE 'UTC')
-					ORDER BY "runAt" ASC
+					SELECT job."id" FROM "AgentJob" job
+					WHERE (
+							(job."status" = 'queued' AND job."runAt" <= now() AT TIME ZONE 'UTC')
+							OR (job."status" = 'running' AND job."leaseExpiresAt" < now() AT TIME ZONE 'UTC')
+						)
+						AND NOT (
+							job."status" = 'queued'
+							AND job."kind" IN ('inference', 'wake')
+							AND EXISTS (
+								SELECT 1 FROM "AgentJob" turn
+								WHERE turn."threadId" = job."threadId"
+									AND turn."id" <> job."id"
+									AND turn."kind" IN ('inference', 'wake')
+									AND turn."status" = 'running'
+							)
+						)
+						AND NOT (
+							${withoutClaudeAccountTurns}
+							AND job."kind" IN ('inference', 'wake')
+							AND EXISTS (
+								SELECT 1 FROM "AgentThread" thread
+								JOIN "ClaudeAccount" account ON account."userId" = thread."userId"
+								WHERE thread."id" = job."threadId"
+							)
+						)
+					ORDER BY job."runAt" ASC
 					LIMIT 1
-					FOR UPDATE SKIP LOCKED
+					FOR UPDATE OF job SKIP LOCKED
 				)
 				RETURNING "id", "threadId", "kind", "status", "entryId", "callId", "runAt", "claimedBy", "attempts"`;
 			const job = rows[0];
@@ -956,7 +989,13 @@ export async function claimJob(
 			await tx.agentJobEvent.create({
 				data: {jobId: job.id, threadId: job.threadId, kind: 'claimed', workerId},
 			});
-			return job;
+			if (!TURN_KINDS.includes(job.kind)) {
+				return {...job, onClaudeAccount: false};
+			}
+			const accounts = await tx.claudeAccount.count({
+				where: {user: {threads: {some: {id: job.threadId}}}},
+			});
+			return {...job, onClaudeAccount: accounts > 0};
 		}),
 	);
 }
@@ -1257,8 +1296,9 @@ export async function appendTurnEntries(
 /**
  * Has the thread's agent woken at `runAt`, from the inference job that runs its turn: what a
  * sleep the harness answered itself comes to, called by the sleep tool while the job runs. The
- * wake job runs the model on the log as it is then, told it was woken (api worker). A thread has
- * one wake-up queued at most: where one is, it is moved to the earlier of the two times. `Ok(false)`
+ * wake job runs the model on the log as it is then, told it was woken (api worker), and no sooner
+ * than this turn has ended, however soon it is due (claimJob). A thread has one wake-up queued at
+ * most: where one is, it is moved to the earlier of the two times. `Ok(false)`
  * when the job was no longer the worker's, and nothing is written.
  */
 export async function scheduleWake(

@@ -94,10 +94,13 @@ With a Claude account connected, your conversations, and the sub-agents they sta
 [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) under your account: what you
 say goes to Anthropic directly, as it would from Claude Code, not through OpenRouter, and the model
 is Sonnet. Everything else is the same: the agent's tools, sleeping, alerts, the activity log and
-what the conversation shows. A conversation that started on your account stays on it. When the
-token has run out or Anthropic refused it, the agent says so in the conversation and the card shows
-it; connecting again takes it up. **Disconnect** on the card deletes the credential, and deleting
-your account deletes it too; conversations then run on the server's key again. The token itself
+what the conversation shows. A conversation you already had goes on under your account from where
+it was, and stays on it. When the token has run out or Anthropic refused it, the agent says so in
+the conversation and the card shows it, and nothing more is asked of Anthropic with it; connecting
+again takes it up. When your plan's limit is reached, the agent says so, with when the limit
+resets, and goes on when you write again after that. **Disconnect** on the card deletes the
+credential, and deleting your account deletes it too; conversations then run on the server's key
+again, from where they were. The token itself
 can be revoked at [claude.ai](https://claude.ai) as well, under your account's settings.
 
 <Callout>

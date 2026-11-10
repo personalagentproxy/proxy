@@ -38,6 +38,8 @@ const on = (proxy: HarnessBackend | null, claudeAgentSdk: HarnessBackend | null 
 });
 
 const now = new Date('2026-10-21T10:00:00Z');
+// The time as a turn is told it, as it goes: the same throughout, unless a test moves it on.
+const clock = () => now;
 // The member's conversation, and a sub-agent started from it.
 const thread: ThreadRow = {
 	id: 'thread-1',
@@ -136,7 +138,7 @@ describe('runInference', () => {
 			}),
 		);
 
-		const result = await runInference(store, on(harness), job, 'w1', false, now);
+		const result = await runInference(store, on(harness), job, 'w1', false, clock);
 
 		expect(result.isOk()).toBe(true);
 		// The agent acts as the member whose conversation it is.
@@ -192,7 +194,7 @@ describe('runInference', () => {
 		const working = {...sub, id: 'working-0', state: {kind: 'working' as const}};
 		listSubAgents.mockResolvedValue(Ok([stopped[0], working, ...stopped.slice(1)].filter((subAgent) => subAgent !== undefined)));
 
-		await runInference(store, on(harness), job, 'w1', false, now);
+		await runInference(store, on(harness), job, 'w1', false, clock);
 
 		const system = String((askForTurn.mock.calls[0]?.[0] as {messages: Array<{content: string}>}).messages[0]?.content);
 		expect(system).toContain('- 3 older sub-agents that have stopped, not listed');
@@ -204,12 +206,12 @@ describe('runInference', () => {
 
 	test('tells the agent talking with the person when it has no sub-agents yet, and a sub-agent nothing of any', async () => {
 		const {runInference} = await import('./inference');
-		await runInference(store, on(harness), job, 'w1', false, now);
+		await runInference(store, on(harness), job, 'w1', false, clock);
 		expect(String((askForTurn.mock.calls[0]?.[0] as {messages: Array<{content: string}>}).messages[0]?.content)).toContain('You have started no sub-agents yet.');
 
 		getJobThread.mockResolvedValue(Ok(sub));
 		listSubAgents.mockClear();
-		await runInference(store, on(harness), {...job, threadId: 'thread-2'}, 'w1', false, now);
+		await runInference(store, on(harness), {...job, threadId: 'thread-2'}, 'w1', false, clock);
 		expect(listSubAgents).not.toHaveBeenCalled();
 		expect(String((askForTurn.mock.calls[1]?.[0] as {messages: Array<{content: string}>}).messages[0]?.content)).not.toContain('sub-agents yet');
 	});
@@ -233,7 +235,7 @@ describe('runInference', () => {
 			}),
 		);
 
-		const result = await runInference(store, on(harness), {...job, threadId: 'thread-2'}, 'w1', false, now);
+		const result = await runInference(store, on(harness), {...job, threadId: 'thread-2'}, 'w1', false, clock);
 
 		expect(result.isOk()).toBe(true);
 		expect(agentInstructions).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('You are a sub-agent'));
@@ -262,24 +264,24 @@ describe('runInference', () => {
 	test('a sub-agent started without a title and a brief, or a message without text, is answered with the error at once', async () => {
 		const {runInference} = await import('./inference');
 		askForTurn.mockResolvedValue(Ok({text: '', toolCalls: [{id: 'c2', name: 'create_subagent', arguments: '{"title":"Find"}'}], inputTokens: 10, outputTokens: 2}));
-		await runInference(store, on(harness), job, 'w1', false, now);
+		await runInference(store, on(harness), job, 'w1', false, clock);
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.anything(), {plans: {c2: {kind: 'answer', text: expect.stringContaining('Give title'), isError: true}}});
 
 		getJobThread.mockResolvedValue(Ok(sub));
 		askForTurn.mockResolvedValue(Ok({text: '', toolCalls: [{id: 'c2', name: 'send_to_parent', arguments: '{}'}], inputTokens: 10, outputTokens: 2}));
-		await runInference(store, on(harness), {...job, threadId: 'thread-2'}, 'w1', false, now);
+		await runInference(store, on(harness), {...job, threadId: 'thread-2'}, 'w1', false, clock);
 		expect(completeInference).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-2', expect.anything(), {plans: {c2: {kind: 'answer', text: expect.stringContaining('Give text'), isError: true}}});
 	});
 
 	test('a sub-agent’s tools on the conversation, and the conversation’s on a sub-agent, get a job, which answers that there is no such tool', async () => {
 		const {runInference} = await import('./inference');
 		askForTurn.mockResolvedValue(Ok({text: '', toolCalls: [{id: 'c2', name: 'send_to_parent', arguments: '{"text":"Hi"}'}], inputTokens: 10, outputTokens: 2}));
-		await runInference(store, on(harness), job, 'w1', false, now);
+		await runInference(store, on(harness), job, 'w1', false, clock);
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.anything(), {plans: {c2: {kind: 'job', runAt: now}}});
 
 		getJobThread.mockResolvedValue(Ok(sub));
 		askForTurn.mockResolvedValue(Ok({text: '', toolCalls: [{id: 'c2', name: 'create_subagent', arguments: '{"title":"Find","brief":"Go"}'}], inputTokens: 10, outputTokens: 2}));
-		await runInference(store, on(harness), {...job, threadId: 'thread-2'}, 'w1', false, now);
+		await runInference(store, on(harness), {...job, threadId: 'thread-2'}, 'w1', false, clock);
 		expect(completeInference).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-2', expect.anything(), {plans: {c2: {kind: 'job', runAt: now}}});
 	});
 
@@ -287,11 +289,11 @@ describe('runInference', () => {
 		const {runInference} = await import('./inference');
 		askForTurn.mockResolvedValue(Ok({text: ' ', toolCalls: [], inputTokens: 10, outputTokens: 0}));
 
-		await runInference(store, on(harness), job, 'w1', false, now);
+		await runInference(store, on(harness), job, 'w1', false, clock);
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('nothing to say'), toolCalls: [], inputTokens: 10}), {plans: {}});
 
 		getJobThread.mockResolvedValue(Ok(sub));
-		await runInference(store, on(harness), {...job, threadId: 'thread-2'}, 'w1', false, now);
+		await runInference(store, on(harness), {...job, threadId: 'thread-2'}, 'w1', false, clock);
 		// A sub-agent's answer without calls stops it, with that said.
 		expect(completeInference).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-2', expect.objectContaining({text: 'I stopped without saying anything.'}), {
 			stop: {
@@ -305,14 +307,14 @@ describe('runInference', () => {
 	test('a job that was no longer the worker’s by the time the answer came is a conflict', async () => {
 		const {runInference} = await import('./inference');
 		completeInference.mockResolvedValueOnce(Ok(false));
-		expect((await runInference(store, on(harness), job, 'w1', false, now)).unwrapErr().kind).toBe('conflict');
+		expect((await runInference(store, on(harness), job, 'w1', false, clock)).unwrapErr().kind).toBe('conflict');
 	});
 
 	test('a model that refused the request, or turned the key down, fails the job with why, and is not tried again', async () => {
 		const {runInference} = await import('./inference');
 		askForTurn.mockResolvedValue(Err(ApiErr.unavailable('OpenRouter turned the server’s key down (401): bad key')));
 
-		const result = await runInference(store, on(harness), job, 'w1', false, now);
+		const result = await runInference(store, on(harness), job, 'w1', false, clock);
 
 		expect(result.unwrapErr()).toMatchObject({kind: 'unavailable', message: expect.stringContaining('401')});
 		expect(requeueJob).not.toHaveBeenCalled();
@@ -322,7 +324,7 @@ describe('runInference', () => {
 	test('a thread that is gone ends the job', async () => {
 		const {runInference} = await import('./inference');
 		getJobThread.mockResolvedValue(Ok(null));
-		await runInference(store, on(harness), job, 'w1', false, now);
+		await runInference(store, on(harness), job, 'w1', false, clock);
 		expect(finishJob).toHaveBeenCalledWith('job-1', 'w1');
 		expect(askForTurn).not.toHaveBeenCalled();
 	});
@@ -330,7 +332,7 @@ describe('runInference', () => {
 	test('without a harness, which a server without a key has none of, the person is told the server is not set up', async () => {
 		const {runInference} = await import('./inference');
 
-		await runInference(store, on(null), job, 'w1', false, now);
+		await runInference(store, on(null), job, 'w1', false, clock);
 
 		expect(askForTurn).not.toHaveBeenCalled();
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('OPENROUTER_KEY'), toolCalls: []}), {plans: {}});
@@ -340,11 +342,11 @@ describe('runInference', () => {
 		const {runInference} = await import('./inference');
 		askForTurn.mockResolvedValue(Err(ApiErr.providerUnreachable(new Error('down'))));
 
-		await runInference(store, on(harness), job, 'w1', false, now);
+		await runInference(store, on(harness), job, 'w1', false, clock);
 		expect(requeueJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', new Date('2026-10-21T10:00:05Z'), expect.stringContaining('The model could not be reached'));
 		expect(completeInference).not.toHaveBeenCalled();
 
-		await runInference(store, on(harness), {...job, attempts: 3}, 'w1', false, now);
+		await runInference(store, on(harness), {...job, attempts: 3}, 'w1', false, clock);
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('could not be reached')}), {plans: {}});
 	});
 
@@ -369,7 +371,7 @@ describe('runInference', () => {
 			.mockResolvedValueOnce(Ok({text: 'The person asked for one; it was done.', toolCalls: [], inputTokens: 90_000, outputTokens: 300}))
 			.mockResolvedValueOnce(Ok({text: 'Three is done too.', toolCalls: [], inputTokens: 2000, outputTokens: 20}));
 
-		const result = await runInference(store, on(harness), job, 'w1', false, now);
+		const result = await runInference(store, on(harness), job, 'w1', false, clock);
 
 		expect(result.isOk()).toBe(true);
 		const asked = askForTurn.mock.calls.map((call) => call[0] as {model: string; messages: Array<{role: string; content: string | null}>; tools: unknown[]});
@@ -389,12 +391,12 @@ describe('runInference', () => {
 		const alone = [entry('person', 'Go'), ...Array.from({length: 30}, (_, i) => entry('assistant', `step ${i}`))];
 		listEntries.mockResolvedValue(Ok([...alone, entry('tool_result', 'x', {callId: 'none'})]));
 
-		await runInference(store, on(harness), job, 'w1', false, now);
+		await runInference(store, on(harness), job, 'w1', false, clock);
 		expect(askForTurn).not.toHaveBeenCalled();
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('30 steps without hearing from you')}), {plans: {}});
 
 		getJobThread.mockResolvedValue(Ok(sub));
-		await runInference(store, on(harness), {...job, threadId: 'thread-2'}, 'w1', false, now);
+		await runInference(store, on(harness), {...job, threadId: 'thread-2'}, 'w1', false, clock);
 		expect(completeInference).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-2', expect.objectContaining({text: expect.stringContaining('not a complete answer')}), {
 			stop: {
 				outcome: expect.stringContaining('not a complete answer'),
@@ -408,12 +410,12 @@ describe('runInference', () => {
 		const {runInference} = await import('./inference');
 		listEntries.mockResolvedValue(Ok([entry('person', 'Hi')]));
 
-		await runInference(store, on(harness), job, 'w1', false, now);
+		await runInference(store, on(harness), job, 'w1', false, clock);
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: 'Hello', system: expect.stringContaining('You are signed in.')}), {plans: {}});
 
 		completeInference.mockClear();
 		listEntries.mockResolvedValue(Ok([entry('person', 'Go'), ...Array.from({length: 30}, (_, i) => entry('assistant', `step ${i}`)), entry('event', 'done', {callId: 'c1'})]));
-		await runInference(store, on(harness), job, 'w1', false, now);
+		await runInference(store, on(harness), job, 'w1', false, clock);
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({system: null}), {plans: {}});
 	});
 
@@ -424,7 +426,7 @@ describe('runInference', () => {
 		listEntries.mockResolvedValue(Ok([...alone, stopped, entry('event', 'Found three rows.', {callId: 'c1'})]));
 		askForTurn.mockResolvedValue(Ok({text: 'There are three rows.', toolCalls: [], inputTokens: 10, outputTokens: 2}));
 
-		await runInference(store, on(harness), job, 'w1', false, now);
+		await runInference(store, on(harness), job, 'w1', false, clock);
 
 		expect(askForTurn).toHaveBeenCalledTimes(1);
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: 'There are three rows.'}), {plans: {}});
@@ -441,12 +443,13 @@ describe('runInference', () => {
 			listSubAgents.mockResolvedValue(Ok([{...sub, state: {kind: 'working'}}]));
 			fake.script([{kind: 'text', text: 'Looking'}, {kind: 'text', text: 'in two places.'}, {kind: 'tool_call', id: 'c2', name: 'send_to_parent', arguments: '{"text":"Hi"}'}, done]);
 
-			const result = await runInference(store, on(fake), job, 'w1', false, now);
+			const result = await runInference(store, on(fake), job, 'w1', false, clock);
 
 			expect(result.isOk()).toBe(true);
 			expect(fake.turns).toHaveLength(1);
 			expect(fake.turns[0]).toMatchObject({
 				thread: {id: 'thread-1', parentThreadId: null},
+				job: 'job-1',
 				session: null,
 				entries: log,
 				subAgents: [expect.objectContaining({id: 'thread-2'})],
@@ -475,21 +478,50 @@ describe('runInference', () => {
 				{kind: 'failed', error: ApiErr.internalError(new Error('refused')), retry: false},
 			]);
 
-			const result = await runInference(store, on(fake), job, 'w1', false, now);
+			const result = await runInference(store, on(fake), job, 'w1', false, clock);
 
 			expect(result.unwrapErr()).toMatchObject({kind: 'internal_error'});
 			expect(requeueJob).not.toHaveBeenCalled();
 			expect(completeInference).not.toHaveBeenCalled();
 		});
 
-		test('a turn that failed and is worth trying again is tried again later, whatever the error', async () => {
+		test('a turn that failed and is worth trying again is tried again later, whatever the error, counted from when it failed, not from when the job began', async () => {
 			const {runInference} = await import('./inference');
 			const fake = fakeHarness();
 			fake.script([{kind: 'failed', error: ApiErr.internalError(new Error('hiccup')), retry: true}]);
+			// The turn took three minutes to fail: every reading of the clock after the first is then.
+			const times = [now];
+			const moving = () => times.shift() ?? new Date('2026-10-21T10:03:00Z');
 
-			await runInference(store, on(fake), job, 'w1', false, now);
+			await runInference(store, on(fake), job, 'w1', false, moving);
 
-			expect(requeueJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', new Date('2026-10-21T10:00:05Z'), expect.stringContaining('could not be reached'));
+			expect(requeueJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', new Date('2026-10-21T10:03:05Z'), expect.stringContaining('could not be reached'));
+		});
+
+		test('a member’s account at its limit is told them, with when it resets where the provider said, and not tried again; a sub-agent stops with that', async () => {
+			const {runInference} = await import('./inference');
+			const fake = fakeHarness();
+			const error = ApiErr.providerUnreachable(new Error('The model answered with rate_limit'));
+			fake.script([
+				{kind: 'text', text: 'Half'},
+				{kind: 'failed', error, retry: false, limitReached: {resetsAt: new Date('2026-10-21T15:00:00Z')}},
+			]);
+
+			expect((await runInference(store, on(fake), job, 'w1', false, clock)).isOk()).toBe(true);
+
+			expect(requeueJob).not.toHaveBeenCalled();
+			expect(completeInference).toHaveBeenCalledWith(
+				'job-1',
+				'w1',
+				'thread-1',
+				expect.objectContaining({text: 'Your Claude account has reached its limit for now, which resets at 2026-10-21 15:00 UTC. Say something to try again after that.'}),
+				{plans: {}},
+			);
+
+			getJobThread.mockResolvedValue(Ok(sub));
+			fake.script([{kind: 'failed', error, retry: false, limitReached: {resetsAt: null}}]);
+			expect((await runInference(store, on(fake), {...job, threadId: 'thread-2'}, 'w1', false, clock)).isOk()).toBe(true);
+			expect(store.failJob).toHaveBeenCalledWith('job-1', 'w1', 'Your Claude account has reached its limit for now. Say something to try again after that.', expect.any(Function));
 		});
 
 		test('a summary the job could not store, the job no longer the worker’s, is a conflict, and the turn goes no further', async () => {
@@ -498,7 +530,7 @@ describe('runInference', () => {
 			appendSummary.mockResolvedValue(Ok(false));
 			fake.script([{kind: 'summary', text: 'So far.', coversSeq: 3, inputTokens: 100, outputTokens: 10}, {kind: 'text', text: 'Then'}, done]);
 
-			expect((await runInference(store, on(fake), job, 'w1', false, now)).unwrapErr().kind).toBe('conflict');
+			expect((await runInference(store, on(fake), job, 'w1', false, clock)).unwrapErr().kind).toBe('conflict');
 			expect(appendSummary).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', {text: 'So far.', inputTokens: 100, outputTokens: 10}, 3);
 			expect(completeInference).not.toHaveBeenCalled();
 		});
@@ -507,7 +539,7 @@ describe('runInference', () => {
 			const {runInference} = await import('./inference');
 			const fake = fakeHarness();
 			fake.script([{kind: 'tool_call', id: 'c1', name: 'read', arguments: '{}'}, {kind: 'tool_result', callId: 'c9', text: 'rows', isError: false}, done]);
-			expect((await runInference(store, on(fake), job, 'w1', false, now)).unwrapErr()).toMatchObject({kind: 'internal_error'});
+			expect((await runInference(store, on(fake), job, 'w1', false, clock)).unwrapErr()).toMatchObject({kind: 'internal_error'});
 
 			fake.script([
 				{kind: 'tool_call', id: 'c1', name: 'read', arguments: '{}'},
@@ -515,10 +547,10 @@ describe('runInference', () => {
 				{kind: 'tool_result', callId: 'c1', text: 'rows again', isError: false},
 				done,
 			]);
-			expect((await runInference(store, on(fake), job, 'w1', false, now)).unwrapErr()).toMatchObject({kind: 'internal_error'});
+			expect((await runInference(store, on(fake), job, 'w1', false, clock)).unwrapErr()).toMatchObject({kind: 'internal_error'});
 
 			fake.script([{kind: 'text', text: 'Hello'}]);
-			expect((await runInference(store, on(fake), job, 'w1', false, now)).unwrapErr()).toMatchObject({kind: 'internal_error'});
+			expect((await runInference(store, on(fake), job, 'w1', false, clock)).unwrapErr()).toMatchObject({kind: 'internal_error'});
 			expect(completeInference).not.toHaveBeenCalled();
 		});
 
@@ -531,7 +563,7 @@ describe('runInference', () => {
 			listEntries.mockResolvedValue(Ok([entry('person', 'Go'), entry('assistant', 'One'), entry('event', 'Found', {callId: 'c1'}), entry('assistant', 'Two'), entry('event', 'More', {callId: 'c1'})]));
 			fake.script([{kind: 'text', text: 'Three'}, done]);
 
-			await runInference(store, on(null, fake), job, 'w1', true, now);
+			await runInference(store, on(null, fake), job, 'w1', true, clock);
 
 			expect(fake.turns[0]).toMatchObject({session, maxSteps: 28, woken: true, auth: {kind: 'oauth', accessToken: 'sk-ant-oat01-test', scopes: []}});
 		});
@@ -562,7 +594,7 @@ describe('runInference', () => {
 				ended(session),
 			]);
 
-			const result = await runInference(store, on(null, fake), {...job, threadId: 'thread-2'}, 'w1', false, now);
+			const result = await runInference(store, on(null, fake), {...job, threadId: 'thread-2'}, 'w1', false, clock);
 
 			expect(result.isOk()).toBe(true);
 			expect(appendTurnEntries.mock.calls.map((call) => call.slice(0, 3))).toEqual([
@@ -604,13 +636,13 @@ describe('runInference', () => {
 			const {runInference} = await import('./inference');
 			getJobThread.mockResolvedValue(Ok(sub));
 			fake.script([{kind: 'tool_call', id: 'c1', name: 'sleep_until', arguments: '{"seconds":60}'}, {kind: 'tool_result', callId: 'c1', text: 'Sleeping.', isError: false}, ended(null)]);
-			await runInference(store, on(null, fake), {...job, threadId: 'thread-2'}, 'w1', false, now);
+			await runInference(store, on(null, fake), {...job, threadId: 'thread-2'}, 'w1', false, clock);
 			expect(appendTurnEntries).toHaveBeenCalledTimes(1);
 			expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-2', null, {plans: {}});
 
 			getJobThread.mockResolvedValue(Ok({...sub, harness: 'claude-agent-sdk'}));
 			fake.script([{kind: 'tool_call', id: 'c1', name: 'sleep_until', arguments: '{"seconds":60}'}, {kind: 'tool_result', callId: 'c1', text: 'Sleeping.', isError: false}, ended(null)]);
-			await runInference(store, on(null, fake), {...job, threadId: 'thread-2'}, 'w1', false, now);
+			await runInference(store, on(null, fake), {...job, threadId: 'thread-2'}, 'w1', false, clock);
 			expect(completeInference).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-2', null, {plans: {}}, {harness: 'claude-agent-sdk', session: null});
 		});
 
@@ -619,7 +651,7 @@ describe('runInference', () => {
 			appendTurnEntries.mockResolvedValue(Ok(false));
 			fake.script([{kind: 'tool_call', id: 'c1', name: 'read', arguments: '{}'}, {kind: 'tool_result', callId: 'c1', text: 'rows', isError: false}, ended(session)]);
 
-			expect((await runInference(store, on(null, fake), job, 'w1', false, now)).unwrapErr().kind).toBe('conflict');
+			expect((await runInference(store, on(null, fake), job, 'w1', false, clock)).unwrapErr().kind).toBe('conflict');
 			expect(completeInference).not.toHaveBeenCalled();
 		});
 
@@ -641,7 +673,7 @@ describe('runInference', () => {
 			listEntries.mockResolvedValueOnce(Ok(before)).mockResolvedValueOnce(Ok(closed));
 			fake.script([{kind: 'text', text: 'Sent.'}, ended(session)]);
 
-			await runInference(store, on(null, fake), {...job, threadId: 'thread-2', attempts: 2}, 'w1', false, now);
+			await runInference(store, on(null, fake), {...job, threadId: 'thread-2', attempts: 2}, 'w1', false, clock);
 
 			expect(appendTurnEntries).toHaveBeenCalledWith('job-1', 'w1', 'thread-2', [
 				{kind: 'tool_result', callId: 'c1', text: expect.stringContaining('The outcome of this call is unknown'), isError: true},
@@ -654,7 +686,7 @@ describe('runInference', () => {
 		test('a credential the model turned down is noted on the account and the person told to connect again, with no second try; a sub-agent stops with that', async () => {
 			const {runInference} = await import('./inference');
 			fake.script([{kind: 'failed', error: ApiErr.credentialsRejected(), retry: false}]);
-			expect((await runInference(store, on(null, fake), job, 'w1', false, now)).isOk()).toBe(true);
+			expect((await runInference(store, on(null, fake), job, 'w1', false, clock)).isOk()).toBe(true);
 			expect(fake.turns.at(-1)?.auth).toEqual({kind: 'oauth', accessToken: 'tok', scopes: []});
 			expect(markRefused).toHaveBeenCalledWith('user-1');
 			expect(requeueJob).not.toHaveBeenCalled();
@@ -673,7 +705,7 @@ describe('runInference', () => {
 			claudeCredentialFor.mockResolvedValue(Ok({kind: 'api_key', key: 'sk-ant-api-test'}));
 			getJobThread.mockResolvedValue(Ok(sub));
 			fake.script([{kind: 'failed', error: ApiErr.credentialsRejected(), retry: false}]);
-			expect((await runInference(store, on(null, fake), {...job, threadId: 'thread-2'}, 'w1', false, now)).isOk()).toBe(true);
+			expect((await runInference(store, on(null, fake), {...job, threadId: 'thread-2'}, 'w1', false, clock)).isOk()).toBe(true);
 			expect(fake.turns.at(-1)?.auth).toEqual({kind: 'api_key', key: 'sk-ant-api-test'});
 			expect(store.failJob).toHaveBeenCalledWith('job-1', 'w1', expect.stringContaining('Connect it again'), expect.any(Function));
 		});
@@ -684,7 +716,7 @@ describe('runInference', () => {
 			recordUsage.mockResolvedValueOnce(Err(ApiErr.internalError(new Error('down'))));
 			fake.script([{kind: 'usage', fiveHour: {utilization: 0.37, resetsAt}}, {kind: 'text', text: 'Hello.'}, {kind: 'usage', sevenDay: {utilization: 0.12, resetsAt: null}}, ended(session)]);
 
-			expect((await runInference(store, on(null, fake), job, 'w1', false, now)).isOk()).toBe(true);
+			expect((await runInference(store, on(null, fake), job, 'w1', false, clock)).isOk()).toBe(true);
 
 			expect(recordUsage).toHaveBeenNthCalledWith(1, 'user-1', {fiveHour: {utilization: 0.37, resetsAt}, readAt: now});
 			expect(recordUsage).toHaveBeenNthCalledWith(2, 'user-1', {sevenDay: {utilization: 0.12, resetsAt: null}, readAt: now});
@@ -700,7 +732,7 @@ describe('runInference', () => {
 				{kind: 'done', session: null, system: 'Sent.', inputTokens: 1, outputTokens: 1},
 			]);
 
-			expect((await runInference(store, on(proxy, fake), job, 'w1', false, now)).isOk()).toBe(true);
+			expect((await runInference(store, on(proxy, fake), job, 'w1', false, clock)).isOk()).toBe(true);
 
 			expect(recordUsage).not.toHaveBeenCalled();
 			expect(completeInference).toHaveBeenCalledTimes(1);
@@ -710,28 +742,50 @@ describe('runInference', () => {
 			const {runInference} = await import('./inference');
 			const proxy = fakeHarness('proxy');
 			claudeCredentialFor.mockResolvedValue(Err(ApiErr.unavailable('Your Claude sign-in has run out or was refused. Connect it again on the Account page.')));
-			await runInference(store, on(proxy, fake), job, 'w1', false, now);
+			await runInference(store, on(proxy, fake), job, 'w1', false, clock);
 			expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('Connect it again')}), {plans: {}});
 			expect(proxy.turns).toHaveLength(0);
 
 			claudeCredentialFor.mockResolvedValue(Ok(null));
-			await runInference(store, on(proxy, fake), job, 'w1', false, now);
+			await runInference(store, on(proxy, fake), job, 'w1', false, clock);
 			expect(proxy.turns).toHaveLength(1);
 			expect(proxy.turns[0]?.auth).toBeUndefined();
 
 			claudeCredentialFor.mockClear();
-			await runInference(store, on(proxy, null), job, 'w1', false, now);
+			await runInference(store, on(proxy, null), job, 'w1', false, clock);
 			expect(claudeCredentialFor).not.toHaveBeenCalled();
 			expect(proxy.turns).toHaveLength(2);
 		});
 
-		test('a thread on a harness this server hasn’t got has the person told so', async () => {
+		test('a thread moves with the member’s credential: one the SDK harness ran goes to the proxy harness once they disconnect, or the server turns the SDK harness off, without the session, which the thread then no longer keeps', async () => {
 			const {runInference} = await import('./inference');
-			getJobThread.mockResolvedValue(Ok({...thread, harness: 'claude-agent-sdk'}));
-			await runInference(store, on(fakeHarness('proxy'), null), job, 'w1', false, now);
-			expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('claude-agent-sdk harness, which this server hasn’t got')}), {
-				plans: {},
-			});
+			const kept = {id: 'session-1', state: {lastSeq: 3, job: 'job-0'}};
+			getJobThread.mockResolvedValue(Ok({...thread, harness: 'claude-agent-sdk', harnessSession: kept}));
+			claudeCredentialFor.mockResolvedValue(Ok(null));
+			const proxy = fakeHarness('proxy');
+			const before = fake.turns.length;
+
+			await runInference(store, on(proxy, fake), job, 'w1', false, clock);
+			await runInference(store, on(proxy, null), job, 'w1', false, clock);
+
+			expect(proxy.turns.map((turn) => turn.session)).toEqual([null, null]);
+			expect(fake.turns).toHaveLength(before);
+			expect(completeInference).toHaveBeenCalledTimes(2);
+			expect(completeInference).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-1', expect.anything(), {plans: {}}, {harness: 'proxy', session: null});
+		});
+
+		test('a thread the proxy harness ran moves to the SDK harness once the member connects, which starts without a session on the log, each entry with the job that wrote it', async () => {
+			const {runInference} = await import('./inference');
+			const log = [entry('person', 'Find my invoices'), {...entry('assistant', 'Three invoices.'), jobId: 'job-0'}, entry('person', 'And last month?')];
+			listEntries.mockResolvedValue(Ok(log));
+			// A session another harness left is not this one's to resume.
+			getJobThread.mockResolvedValue(Ok({...thread, harness: 'proxy', harnessSession: {id: 'other', state: null}}));
+			fake.script([{kind: 'text', text: 'Two more.'}, ended(session)]);
+
+			await runInference(store, on(fakeHarness('proxy'), fake), job, 'w1', false, clock);
+
+			expect(fake.turns.at(-1)).toMatchObject({job: 'job-1', session: null, entries: log});
+			expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: 'Two more.'}), {plans: {}}, {harness: 'claude-agent-sdk', session});
 		});
 
 		test('a harness with a cap on its turns at once runs that many, the rest waiting their turn', async () => {
@@ -750,7 +804,7 @@ describe('runInference', () => {
 					yield ended(null);
 				},
 			};
-			const turns = [runInference(store, on(capped), job, 'w1', false, now), runInference(store, on(capped), {...job, id: 'job-2'}, 'w1', false, now)];
+			const turns = [runInference(store, on(capped), job, 'w1', false, clock), runInference(store, on(capped), {...job, id: 'job-2'}, 'w1', false, clock)];
 			await new Promise((resolve) => setTimeout(resolve, 10));
 			expect(release).toHaveLength(1);
 			release[0]?.();

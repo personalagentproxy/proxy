@@ -2,18 +2,15 @@ import {describe, expect, test} from 'bun:test';
 
 import {
 	AVATAR_COLORS,
-	CALL_INTERRUPTED,
 	callArguments,
 	cut,
 	DEFAULT_LOOK,
 	isAvatarColor,
-	isInterruptedResult,
 	type LogEntry,
 	parseHarnessSession,
 	parseLook,
 	pendingToolCalls,
 	readyForInference,
-	RUN_INTERRUPTED,
 	shuffleLook,
 	parentMessageArgs,
 	sleepUntil,
@@ -207,15 +204,6 @@ describe('parseHarnessSession', () => {
 		expect(parseHarnessSession('not json')).toBeNull();
 		expect(parseHarnessSession('{"id":4,"state":{}}')).toBeNull();
 		expect(parseHarnessSession('{"id":"s1"}')).toBeNull();
-	});
-});
-
-describe('isInterruptedResult', () => {
-	test('is true for the api’s closing of an interrupted call alone, by its words and the error mark', () => {
-		expect(isInterruptedResult({isError: true, text: RUN_INTERRUPTED})).toBe(true);
-		expect(isInterruptedResult({isError: true, text: CALL_INTERRUPTED})).toBe(true);
-		expect(isInterruptedResult({isError: false, text: CALL_INTERRUPTED})).toBe(false);
-		expect(isInterruptedResult({isError: true, text: 'No such connection.'})).toBe(false);
 	});
 });
 

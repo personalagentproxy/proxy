@@ -29,7 +29,9 @@ import type {ContextEntry, SubAgent} from '@proxy/utils/harness-context';
  * and whether the turn is worth trying again as it is, as when the model couldn't be reached; a
  * failure of kind `credentials_rejected` says the credential the turn was given (`auth`) was
  * turned down, which the api answers by noting it on the member's account and telling them to
- * connect again. A `usage` is what the model's provider said of the member's plan as the turn
+ * connect again, and one with `limitReached` that the provider takes no more from the member's
+ * account for now, their plan's limit reached, which the api tells them, with when it resets where
+ * the provider said, rather than trying again. A `usage` is what the model's provider said of the member's plan as the turn
  * ran: how much of the five-hour or the seven-day window is used, as a share from 0 to 1, and when
  * it resets; zero or more per turn, any time before the terminal event, and a harness on the
  * server's key yields none.
@@ -42,6 +44,9 @@ import type {ContextEntry, SubAgent} from '@proxy/utils/harness-context';
 
 /** What a harness keeps per thread between turns, as the api stores it on the thread, opaque to the api (@proxy/utils/harness); null for a harness that keeps nothing. */
 export type {HarnessSession};
+
+/** An entry of the log as a harness is given it: as the model reads it, with the job that wrote it, a turn's for what the model said and what its calls answered; null for what the person wrote. */
+export type HarnessEntry = ContextEntry & {jobId: string | null};
 
 /** What a call answered; `endTurn` where the call ends the turn, as a sleep does. */
 export type ToolAnswer = {text: string; isError: boolean; endTurn?: boolean};
@@ -65,7 +70,7 @@ export type HarnessEvent =
 	| {kind: 'summary'; text: string; coversSeq: number; inputTokens: number; outputTokens: number}
 	| {kind: 'usage'; fiveHour?: UsageWindow; sevenDay?: UsageWindow}
 	| {kind: 'done'; session: HarnessSession; system: string; inputTokens: number; outputTokens: number}
-	| {kind: 'failed'; error: ApiError; retry: boolean};
+	| {kind: 'failed'; error: ApiError; retry: boolean; limitReached?: {resetsAt: Date | null}};
 
 /**
  * The credential a turn runs under where the model is reached as the member rather than with the
@@ -78,12 +83,14 @@ export type HarnessAuth = {kind: 'oauth'; accessToken: string; scopes: string[]}
 export type HarnessTurn = {
 	/** The thread the turn is on; a sub-agent's has the thread it was started from. */
 	thread: {id: string; parentThreadId: string | null};
+	/** The job the turn is run for, the same on every attempt at it: what the log has from it already is an earlier attempt's, cut short. */
+	job: string;
 	/** The member's credential to reach the model with, where the harness is chosen for one; none where the harness runs with the server's key. */
 	auth?: HarnessAuth;
-	/** What the harness kept from the thread's last turn, as `done` gave it; null before the first. */
+	/** What the harness kept from the thread's last turn, as `done` gave it; null before the first, and where the thread's last turn was another harness's. */
 	session: HarnessSession;
 	/** The whole log as the api has it; a harness with a session reads what came after it. */
-	entries: ContextEntry[];
+	entries: HarnessEntry[];
 	/** Who said each event in the log, for the lead-ins: the thread's sub-agents, where it has any. */
 	subAgents?: SubAgent[];
 	/** Whether the job is a wake-up after a sleep rather than something new in the log. */

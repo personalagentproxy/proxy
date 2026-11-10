@@ -44,9 +44,10 @@ import {alertCall, BAD_SLEEP_ARGS, error, NOT_JSON, noSuchTool, runGateTool, set
  * turn. It never writes to the log: what the call answered is the worker's to write, from the
  * `tool_result` event the harness yields for it (inference.ts), after what the model said at the
  * step, so the log reads in order. An alert is therefore set in its own transaction, no longer the
- * one that answers the call: a turn that is tried again after the worker died resumes the
- * harness's own session, in which the call was already made and answered, so the call is not run
- * again unless the model calls again, and nothing is set twice.
+ * one that answers the call: a turn that is tried again after the worker died is given what the
+ * log has of the attempt before, the call and its answer among it, or its closing as interrupted
+ * (inference.ts), so the call is not run again unless the model calls again, and nothing is set
+ * twice.
  */
 
 // The MCP tools a sub-agent doesn't need: its task is its own.
@@ -240,9 +241,10 @@ function executeSub(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, 
 /**
  * The thread's tools as a surface for the harness running `job`, the thread's inference job
  * leased to `workerId`: the model's tools, and `execute`, which runs one inline as the module
- * comment says, at `now`.
+ * comment says, at the time `clock` tells as the call is made: a turn goes on for minutes, and a
+ * sleep or an alert counted from when it began would be due before it was asked for.
  */
-export function toolSurfaceFor(store: ToolSurfaceStore, thread: ThreadRow, job: {id: string}, workerId: string, now: Date): ToolSurface {
+export function toolSurfaceFor(store: ToolSurfaceStore, thread: ThreadRow, job: {id: string}, workerId: string, clock: () => Date): ToolSurface {
 	const inlineJob: InlineJob = {jobId: job.id, workerId, threadId: thread.id};
 	return {
 		tools: toolsFor(thread).map(toHarnessTool),
@@ -252,9 +254,9 @@ export function toolSurfaceFor(store: ToolSurfaceStore, thread: ThreadRow, job: 
 				return Promise.resolve(Ok(error(NOT_JSON)));
 			}
 			if (thread.parentThreadId === null) {
-				return executeMain(store, thread, inlineJob, call, args, now);
+				return executeMain(store, thread, inlineJob, call, args, clock());
 			}
-			return executeSub(store, thread, inlineJob, call, args, now);
+			return executeSub(store, thread, inlineJob, call, args, clock());
 		},
 	};
 }

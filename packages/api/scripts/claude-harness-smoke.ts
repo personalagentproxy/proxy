@@ -12,7 +12,7 @@ import {join} from 'node:path';
 
 import {Ok} from 'ts-results-es';
 
-import type {HarnessAuth, HarnessEvent, HarnessSession, ToolSurface} from '@proxy/backends/harness/backend';
+import type {HarnessAuth, HarnessEntry, HarnessEvent, HarnessSession, ToolSurface} from '@proxy/backends/harness/backend';
 import {claudeAgentSdkHarness} from '@proxy/backends/harness/claude-agent-sdk';
 import {memorySessionStore} from '@proxy/backends/harness/session-store';
 import {isRecord} from '@proxy/utils/harness';
@@ -21,6 +21,8 @@ import type {ContextEntry} from '@proxy/utils/harness-context';
 const SYSTEM = 'You are a test agent with one tool, echo. Answer in one short sentence.';
 const FIRST = "Call the echo tool with 'hi' and tell me what it answered";
 const SECOND = 'What did you call before?';
+// The job of the first turn, which the session keeps, and the log has the turn's answer under.
+const FIRST_JOB = 'smoke-job-1';
 
 // The credential as the harness takes it: a token as a sign-in's, with no scopes, or a key.
 function authFromEnv(): HarnessAuth | null {
@@ -71,8 +73,9 @@ function line(event: HarnessEvent): string {
 	return `failed (${event.error.kind}${cause}), retry ${event.retry}`;
 }
 
-function entry(seq: number, kind: ContextEntry['kind'], text: string): ContextEntry {
-	return {kind, text, toolCalls: null, callId: null, isError: false, seq, coversSeq: null, inputTokens: null};
+// An entry of the log, written by `jobId`, the turn's job, where the model said it.
+function entry(seq: number, kind: ContextEntry['kind'], text: string, jobId: string | null = null): HarnessEntry {
+	return {kind, text, toolCalls: null, callId: null, isError: false, seq, coversSeq: null, inputTokens: null, jobId};
 }
 
 async function main(): Promise<void> {
@@ -90,6 +93,7 @@ async function main(): Promise<void> {
 	console.log(`Turn 1 on ${thread.id} (${auth.kind}): ${FIRST}`);
 	for await (const event of harness.turn({
 		thread,
+		job: FIRST_JOB,
 		auth,
 		session,
 		entries: [entry(1, 'person', FIRST)],
@@ -114,8 +118,20 @@ async function main(): Promise<void> {
 	}
 
 	console.log(`Turn 2, resuming ${session.id}: ${SECOND}`);
-	const entries = [entry(1, 'person', FIRST), entry(2, 'assistant', said), entry(3, 'person', SECOND)];
-	for await (const event of harness.turn({thread, auth, session, entries, woken: false, system: SYSTEM, tools, model: 'claude', maxSteps: 5, signal: new AbortController().signal})) {
+	const entries = [entry(1, 'person', FIRST), entry(2, 'assistant', said, FIRST_JOB), entry(3, 'person', SECOND)];
+	for await (const event of harness.turn({
+		thread,
+		job: 'smoke-job-2',
+		auth,
+		session,
+		entries,
+		woken: false,
+		system: SYSTEM,
+		tools,
+		model: 'claude',
+		maxSteps: 5,
+		signal: new AbortController().signal,
+	})) {
 		console.log(`  ${line(event)}`);
 	}
 }

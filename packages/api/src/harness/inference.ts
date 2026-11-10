@@ -29,11 +29,15 @@ import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
  * when the sleep ends; or an answer at once, which is what starting a sub-agent gets, with its id,
  * a message to one, with what it was up to, a message to the agent a sub-agent works for, and a
  * call with arguments that are no good. A harness that keeps a session between turns leaves it on
- * the thread then, with its id, so the thread stays with it. A turn that failed and is worth
- * trying again, the model out of reach, is tried again a few times, then the person is told; a
- * credential the model turned down is noted on the member's account, for the Account page to say
- * so, and the person is told to connect again; any other failure fails the job, which tells them
- * too (conversation.ts failureNote). What the model's provider says of the member's plan as a turn
+ * the thread then, with its id, and is given it back only while the thread's turns are its: a
+ * thread that moved to another harness, as the member's credential came or went, starts there
+ * without one, on the log. A turn that failed and is worth trying again, the model out of reach,
+ * is tried again a few times, then the person is told; a credential the model turned down is noted
+ * on the member's account, for the Account page to say so, and the person is told to connect
+ * again; a member's account at its plan's limit is told them, with when it resets, and not tried
+ * again; any other failure fails the job, which tells them too (conversation.ts failureNote). A
+ * turn runs for minutes on a harness that takes many steps, so what is timed within it, a sleep,
+ * an alert, a retry, is timed by the clock as it is then, not as the job began. What the model's provider says of the member's plan as a turn
  * on their credential runs is kept on their account too, for the card, as best it can be: a
  * failure to keep it is logged, and the turn goes on. A sub-agent's answer with no calls goes to the agent it works for, and stops its
  * work for now, unless a message came while it answered. An answer of nothing, no words and no
@@ -102,6 +106,13 @@ const RETRY_MS = 5_000;
 const ONE_STEP = 1;
 
 const UNREACHABLE = 'The model could not be reached. Say something to try again.';
+
+// What the person is told where the model's provider takes no more from their account for now:
+// that the limit is reached, and when it resets, where the provider said.
+function limitReached(resetsAt: Date | null): string {
+	const resets = resetsAt === null ? '' : `, which resets at ${resetsAt.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+	return `Your Claude account has reached its limit for now${resets}. Say something to try again after that.`;
+}
 const TOO_LONG = `I have taken ${MAX_TURNS_ALONE} steps without hearing from you, so I have stopped. Tell me to go on if you want me to.`;
 const TOO_LONG_SUB = `I took ${MAX_TURNS_ALONE} steps without hearing from you, so I stopped. This is not a complete answer: tell me to go on if you want me to.`;
 const NOTHING = 'I had nothing to say to that. Say something to go on.';
@@ -124,10 +135,10 @@ function turnsAlone(entries: EntryRow[]): number {
 // What the turn came to: what the model said last and the calls it made then, those it left open
 // among all it made, whether the turn wrote to the log as it went, what it cost, the system prompt
 // sent and the session the harness kept; or a failure, with whether the turn is worth trying again
-// as it is.
+// as it is, and, where it is the member's account at its limit, when that resets.
 type TurnOutcome =
 	| {kind: 'done'; text: string; toolCalls: ToolCall[]; open: ToolCall[]; wroteInline: boolean; inputTokens: number; outputTokens: number; system: string; session: HarnessSession}
-	| {kind: 'failed'; error: ApiError; retry: boolean};
+	| {kind: 'failed'; error: ApiError; retry: boolean; limitReached?: {resetsAt: Date | null}};
 
 // The answer as it goes in the log: an answer of nothing says so.
 function said(thread: ThreadRow, turn: {text: string; toolCalls: ToolCall[]}): string {
@@ -264,7 +275,7 @@ function consume(store: InferenceStore, job: JobRow, workerId: string, system: s
 				continue;
 			}
 			if (event.kind === 'failed') {
-				return {kind: 'failed', error: event.error, retry: event.retry};
+				return {kind: 'failed', error: event.error, retry: event.retry, ...(event.limitReached ? {limitReached: event.limitReached} : {})};
 			}
 			return {
 				kind: 'done',
@@ -287,6 +298,9 @@ function consume(store: InferenceStore, job: JobRow, workerId: string, system: s
 const limits = new WeakMap<HarnessBackend, Semaphore>();
 
 // Runs `work`, a turn of the harness, within the harness's cap on turns at once, where it has one.
+// The worker claims no more turns for a capped harness than its cap (worker.ts), so a turn seldom
+// waits here, holding a job the worker has room for nothing else in the meantime: only one whose
+// member connected their account between the claim and the turn. The cap holds either way.
 function limited<T>(harness: HarnessBackend, work: () => Promise<T>): Promise<T> {
 	if (harness.maxConcurrentTurns === undefined) {
 		return work();
@@ -308,22 +322,24 @@ function maxSteps(harness: HarnessBackend, entries: EntryRow[]): number {
 // Where what the provider said of the member's plan goes: their account, where the turn runs on
 // their credential, as best it can be kept; nowhere on the server's key, which has no plan of
 // theirs to speak of.
-function usageSink(credentials: ClaudeCredentials, choice: HarnessChoice, thread: ThreadRow, now: Date): UsageSink {
+function usageSink(credentials: ClaudeCredentials, choice: HarnessChoice, thread: ThreadRow, clock: () => Date): UsageSink {
 	if (choice.auth === null) {
 		return async () => {};
 	}
 	return async (usage) => {
-		const kept = await credentials.recordUsage(thread.userId, {...(usage.fiveHour ? {fiveHour: usage.fiveHour} : {}), ...(usage.sevenDay ? {sevenDay: usage.sevenDay} : {}), readAt: now});
+		const kept = await credentials.recordUsage(thread.userId, {...(usage.fiveHour ? {fiveHour: usage.fiveHour} : {}), ...(usage.sevenDay ? {sevenDay: usage.sevenDay} : {}), readAt: clock()});
 		if (kept.isErr()) {
 			log.warn('What the model’s provider said of the member’s plan could not be kept', {userId: thread.userId, ...serializeError(kept.error)});
 		}
 	};
 }
 
-// The harness's turn on the log, with the system prompt built for it, and the credential the
-// harness was chosen with, if any. The thread's sub-agents are read once, for the prompt and for
-// whose each message in the log is; a sub-agent's thread has none. The signal is never aborted:
-// stopping the worker lets the turns under way finish, as it always has.
+// The harness's turn on the log, with the system prompt built for it as the turn starts, within
+// the harness's cap, and the credential the harness was chosen with, if any. The session is the
+// thread's where the harness is the one that kept it, and none where the thread's last turn was
+// another's. The thread's sub-agents are read once, for the prompt and for whose each message in
+// the log is; a sub-agent's thread has none. The signal is never aborted: stopping the worker lets
+// the turns under way finish, as it always has.
 function askOnLog(
 	store: InferenceStore,
 	credentials: ClaudeCredentials,
@@ -333,44 +349,47 @@ function askOnLog(
 	thread: ThreadRow,
 	entries: EntryRow[],
 	woken: boolean,
-	now: Date,
+	clock: () => Date,
 ): Promise<Result<TurnOutcome, ApiError>> {
-	return Do(async ($) => {
-		const model = $(await store.getChatModel(thread));
-		const subAgents = thread.parentThreadId === null ? $(await store.listSubAgents(thread.id, now)) : [];
-		const system = $(await systemPrompt(store, thread, subAgents, now));
-		return $(
-			await limited(choice.harness, () =>
-				consume(
+	return limited(choice.harness, () =>
+		Do(async ($) => {
+			const now = clock();
+			const model = $(await store.getChatModel(thread));
+			const subAgents = thread.parentThreadId === null ? $(await store.listSubAgents(thread.id, now)) : [];
+			const system = $(await systemPrompt(store, thread, subAgents, now));
+			return $(
+				await consume(
 					store,
 					job,
 					workerId,
 					system,
 					choice.harness.turn({
 						thread: {id: thread.id, parentThreadId: thread.parentThreadId},
+						job: job.id,
 						...(choice.auth === null ? {} : {auth: choice.auth}),
-						session: thread.harnessSession,
+						session: thread.harness === choice.harness.id ? thread.harnessSession : null,
 						entries,
 						subAgents,
 						woken,
 						system,
-						tools: toolSurfaceFor(store, thread, job, workerId, now),
+						tools: toolSurfaceFor(store, thread, job, workerId, clock),
 						model,
 						maxSteps: maxSteps(choice.harness, entries),
 						signal: new AbortController().signal,
 					}),
-					usageSink(credentials, choice, thread, now),
+					usageSink(credentials, choice, thread, clock),
 				),
-			),
-		);
-	});
+			);
+		}),
+	);
 }
 
 // Writes what the turn ended with: its last step, said, and what follows it, each open call as
 // planned; a sub-agent's last step without calls stops it. A turn that wrote to the log as it
 // went and has nothing left, as one ends that answered a sleep, writes no entry more. The session
-// goes on the thread where the harness kept one, or the thread records a harness already, so a
-// harness that keeps nothing writes nothing there.
+// goes on the thread where the harness kept one, or the thread records a harness already, whose
+// session is then no longer the thread's, so a harness that keeps nothing writes nothing on a
+// thread that has nothing there.
 function writeBack(
 	store: InferenceStore,
 	job: JobRow,
@@ -420,19 +439,19 @@ function readyLog(store: InferenceStore, job: JobRow, workerId: string, thread: 
 	});
 }
 
-// The harness for the thread, with the member's credential where the choice turns on it
-// (backends/harness.ts). A credential that was refused is what the person is told; one that
-// couldn't be read for another reason fails the turn with it.
+// The harness for a turn on the thread, with its member's credential where the choice turns on
+// it (backends/harness.ts). A credential that ran out or was refused is what the person is told;
+// one that couldn't be read for another reason fails the turn with it.
 function chooseHarness(harnesses: Harnesses, thread: ThreadRow): Promise<Result<HarnessChoice, ApiError>> {
 	return Do(async ($) => {
-		if (!needsCredential(harnesses.registry, thread)) {
-			return harnessFor(harnesses.registry, thread, null);
+		if (!needsCredential(harnesses.registry)) {
+			return harnessFor(harnesses.registry, null);
 		}
 		const credential = await harnesses.credentials.claudeCredentialFor(thread.userId);
 		if (credential.isErr() && credential.error.kind === 'unavailable') {
 			return {harness: null, auth: null, why: credential.error.message};
 		}
-		return harnessFor(harnesses.registry, thread, $(credential));
+		return harnessFor(harnesses.registry, $(credential));
 	});
 }
 
@@ -441,8 +460,8 @@ function credentialRefused(outcome: TurnOutcome, choice: HarnessChoice): boolean
 	return outcome.kind === 'failed' && outcome.error.kind === 'credentials_rejected' && choice.auth !== null;
 }
 
-/** Runs the job: one turn of the harness chosen for its thread on the thread's log, written as it goes, the harness told where the job is a wake-up after a sleep (`woken`); nothing when the thread is gone. */
-export function runInference(store: InferenceStore, harnesses: Harnesses, job: JobRow, workerId: string, woken = false, now = new Date()): Promise<Result<void, ApiError>> {
+/** Runs the job: one turn of the harness chosen for its thread on the thread's log, written as it goes, the harness told where the job is a wake-up after a sleep (`woken`); nothing when the thread is gone. `clock` tells the time as the turn goes. */
+export function runInference(store: InferenceStore, harnesses: Harnesses, job: JobRow, workerId: string, woken = false, clock: () => Date = () => new Date()): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		const thread = $(await store.getJobThread(job.threadId));
 		if (!thread) {
@@ -459,7 +478,7 @@ export function runInference(store: InferenceStore, harnesses: Harnesses, job: J
 			$(await answerFailure(store, job, workerId, thread, choice.why));
 			return;
 		}
-		const outcome = $(await askOnLog(store, harnesses.credentials, choice, job, workerId, thread, entries, woken, now));
+		const outcome = $(await askOnLog(store, harnesses.credentials, choice, job, workerId, thread, entries, woken, clock));
 		if (credentialRefused(outcome, choice)) {
 			// Noted on the account as best it can be: the person is told either way.
 			const marked = await harnesses.credentials.markRefused(thread.userId);
@@ -469,18 +488,23 @@ export function runInference(store: InferenceStore, harnesses: Harnesses, job: J
 			$(await answerFailure(store, job, workerId, thread, SIGN_IN_EXPIRED));
 			return;
 		}
+		if (outcome.kind === 'failed' && outcome.limitReached) {
+			log.warn('The model’s provider takes no more from the member’s account for now', {userId: thread.userId, resetsAt: outcome.limitReached.resetsAt?.toISOString() ?? null});
+			$(await answerFailure(store, job, workerId, thread, limitReached(outcome.limitReached.resetsAt)));
+			return;
+		}
 		if (outcome.kind === 'failed' && !outcome.retry) {
 			return $(Err(outcome.error));
 		}
 		if (outcome.kind === 'failed') {
 			log.warn('The built-in agent’s model could not be reached', {attempt: job.attempts, ...serializeError('cause' in outcome.error ? outcome.error.cause : outcome.error)});
 			if (job.attempts < MAX_MODEL_ATTEMPTS) {
-				$(await store.requeueJob(job.id, workerId, thread.id, new Date(now.getTime() + RETRY_MS * job.attempts), unreachable(outcome.error)));
+				$(await store.requeueJob(job.id, workerId, thread.id, new Date(clock().getTime() + RETRY_MS * job.attempts), unreachable(outcome.error)));
 				return;
 			}
 			$(await answerWith(store, job, workerId, thread, UNREACHABLE));
 			return;
 		}
-		$(await writeBack(store, job, workerId, thread, choice.harness, outcome, now));
+		$(await writeBack(store, job, workerId, thread, choice.harness, outcome, clock()));
 	});
 }
