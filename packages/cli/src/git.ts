@@ -1,4 +1,4 @@
-import {Err, type Result} from 'ts-results-es';
+import type {Result} from 'ts-results-es';
 
 import {
 	CLI_GITHUB_GIT_PATH,
@@ -8,20 +8,19 @@ import {
 } from '@proxy/contracts/cli-github';
 import {Do} from '@proxy/utils/do';
 
-import {clientFrom, messageOf, papServer, type PapServer} from './client';
-import {type Env, EXIT, type Failure, failed, type Io, isObject, type Json, refused} from './io';
+import {clientFrom, papServer, type PapServer} from './client';
+import {type Env, EXIT, type Failure, type Io, isObject, type Json} from './io';
 import {findProgram, namedConnection, SHIM_DIR_ENV} from './programs';
 
 /**
  * `pap git`: the real git, run with its arguments, stdio and exit code as they are, signed in to
- * GitHub as the connection's account for this one run. Nothing is written to any git config: for a
- * subcommand that reaches a remote, git is given, through `GIT_CONFIG_COUNT` and its keys, GitHub's
- * URLs (https and both SSH forms) rewritten to PAP's git relay and the command's token as a header
- * sent to the relay alone (@proxy/contracts/cli-github); for one that makes commits, the identity
- * route's author and committer, unless the environment sets them. Other subcommands get neither, so
- * `git remote -v` still shows github.com, which gh reads to know the repository, and git works
- * without PAP where it needs no remote; the identity is asked for only where it is used, so `git
- * status` costs no request and needs no Read.
+ * GitHub as the connection's account for this one run. Nothing is written to any git config: git
+ * is given, through `GIT_CONFIG_COUNT` and its keys, GitHub's URLs (https and both SSH forms)
+ * rewritten to PAP's git relay and the command's token as a header sent to the relay alone
+ * (@proxy/contracts/cli-github), so whatever reaches GitHub goes through PAP, a partial clone's
+ * objects fetched later among it; and the identity route's author and committer, unless the
+ * environment sets them, or with none where PAP won't say. Only `git remote`, `-v` and `get-url`
+ * are left their URLs, so they still show github.com, which gh reads to know the repository.
  */
 
 // git's options before the subcommand that take the next argument as their value.
@@ -49,29 +48,6 @@ const ENDING = new Set([
 	'--info-path',
 ]);
 
-const REACHES_REMOTE = new Set(['clone', 'fetch', 'pull', 'push', 'ls-remote', 'submodule']);
-
-// `git remote`'s subcommands that contact the remote; `add` does with `-f`.
-const REMOTE_CONTACTS = new Set(['update', 'show', 'prune', 'set-head']);
-
-const MAKES_COMMITS = new Set([
-	'commit',
-	'merge',
-	'pull',
-	'rebase',
-	'cherry-pick',
-	'revert',
-	'am',
-	'tag',
-	'stash',
-	'notes',
-	'commit-tree',
-	'replace',
-	'filter-branch',
-	'fast-import',
-	'subtree',
-]);
-
 const IDENTITY_KEYS = [
 	'GIT_AUTHOR_NAME',
 	'GIT_AUTHOR_EMAIL',
@@ -96,34 +72,18 @@ export function gitSubcommand(args: string[]): {name: string; rest: string[]} | 
 	return null;
 }
 
-export type GitNeeds = {remote: boolean; identity: boolean};
-
-/** What a git command needs of PAP: GitHub reached through the relay, and who commits are made as. */
-export function gitNeeds(args: string[]): GitNeeds {
+// Whether git only shows the remotes' URLs: `git remote`, `-v` and `get-url`.
+function showsRemotes(args: string[]): boolean {
 	const command = gitSubcommand(args);
-	if (command === null) {
-		return {remote: false, identity: false};
-	}
-	const {name, rest} = command;
-	return {
-		remote: REACHES_REMOTE.has(name) || (name === 'remote' && remoteContacts(rest)),
-		identity: MAKES_COMMITS.has(name),
-	};
-}
-
-function remoteContacts(rest: string[]): boolean {
-	const sub = rest.find((arg) => !arg.startsWith('-'));
-	if (sub === undefined) {
+	if (command?.name !== 'remote') {
 		return false;
 	}
-	if (sub === 'add') {
-		return rest.includes('-f') || rest.includes('--fetch');
-	}
-	return REMOTE_CONTACTS.has(sub);
+	const sub = command.rest.find((arg) => !arg.startsWith('-'));
+	return sub === undefined || sub === 'get-url';
 }
 
 export type GitSetup = {
-	/** For a subcommand that reaches a remote: the server, and the connection named. */
+	/** The server, and the connection named; none where git only shows the remotes' URLs. */
 	relay: (PapServer & {connection: string | undefined}) | null;
 	identity: Pick<GitHubIdentity, 'name' | 'email'> | null;
 };
@@ -178,29 +138,33 @@ function identityOf(body: Json | undefined): Identity {
 	return {name: body.name, email: body.email};
 }
 
-// Who commits are made as, from the identity route, for the connection named.
-function fetchIdentity(io: Io, connection: string | undefined): Promise<Result<Identity, Failure>> {
-	return Do(async ($) => {
-		const client = $(clientFrom(io));
-		const headers: Record<string, string> = connection ? {[PAP_CONNECTION_HEADER]: connection} : {};
-		const {status, body} = $(await client.get(CLI_GITHUB_IDENTITY_PATH, headers));
-		const identity = status === 200 ? identityOf(body) : null;
-		if (identity !== null) {
-			return identity;
-		}
-		const why = `Could not get who to commit as: ${messageOf(body) ?? `PAP answered ${status}.`}`;
-		return $(Err(status === 401 ? refused(why) : failed(why)));
-	});
+// Who commits are made as, from the identity route, for the connection named; none where PAP
+// won't say, as where the agent can't read the connection.
+async function fetchIdentity(io: Io): Promise<Identity> {
+	const client = clientFrom(io);
+	if (client.isErr()) {
+		return null;
+	}
+	const connection = namedConnection(io);
+	const headers: Record<string, string> = connection ? {[PAP_CONNECTION_HEADER]: connection} : {};
+	const answer = await client.value.get(CLI_GITHUB_IDENTITY_PATH, headers);
+	return answer.isOk() && answer.value.status === 200 ? identityOf(answer.value.body) : null;
 }
 
-/** What git is to be run with for `args`, asking PAP only for what it needs. */
+/** Who commits are made as, unless the environment says in full. */
+export function commitIdentity(io: Io): Promise<Identity> {
+	if (IDENTITY_KEYS.every((key) => io.env[key])) {
+		return Promise.resolve(null);
+	}
+	return fetchIdentity(io);
+}
+
+/** What git is to be run with for `args`. */
 export function gitSetup(args: string[], io: Io): Promise<Result<GitSetup, Failure>> {
 	return Do(async ($) => {
-		const needs = gitNeeds(args);
-		const connection = namedConnection(io);
-		const relay = needs.remote ? {...$(papServer(io)), connection} : null;
-		const ownIdentity = IDENTITY_KEYS.every((key) => io.env[key]);
-		const identity = needs.identity && !ownIdentity ? $(await fetchIdentity(io, connection)) : null;
+		const server = $(papServer(io));
+		const relay = showsRemotes(args) ? null : {...server, connection: namedConnection(io)};
+		const identity = gitSubcommand(args) === null ? null : await commitIdentity(io);
 		return {relay, identity};
 	});
 }

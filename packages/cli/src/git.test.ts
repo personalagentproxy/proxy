@@ -3,7 +3,7 @@ import {describe, expect, test} from 'bun:test';
 import {Err, Ok} from 'ts-results-es';
 
 import {fakeIo} from './fake-io';
-import {gitEnv, gitNeeds, gitSubcommand} from './git';
+import {gitEnv, gitSubcommand} from './git';
 import type {Env} from './io';
 import {run} from './run';
 
@@ -45,70 +45,6 @@ describe('gitSubcommand', () => {
 			name: 'remote',
 			rest: ['-v', 'update'],
 		});
-	});
-});
-
-describe('gitNeeds', () => {
-	test('the subcommands that reach a remote go through the relay', () => {
-		for (const name of ['clone', 'fetch', 'pull', 'push', 'ls-remote', 'submodule']) {
-			expect([name, gitNeeds([name]).remote]).toEqual([name, true]);
-		}
-		for (const name of [
-			'status',
-			'log',
-			'diff',
-			'commit',
-			'checkout',
-			'branch',
-			'config',
-			'rev-parse',
-		]) {
-			expect([name, gitNeeds([name]).remote]).toEqual([name, false]);
-		}
-	});
-
-	test('remote only for what contacts it, so git remote -v keeps GitHub’s URL', () => {
-		const cases: Array<[string[], boolean]> = [
-			[['remote'], false],
-			[['remote', '-v'], false],
-			[['remote', 'get-url', 'origin'], false],
-			[['remote', 'add', 'up', 'https://github.com/a/b'], false],
-			[['remote', 'add', '-f', 'up', 'https://github.com/a/b'], true],
-			[['remote', 'add', '--fetch', 'up', 'https://github.com/a/b'], true],
-			[['remote', 'update'], true],
-			[['remote', '-v', 'update'], true],
-			[['remote', 'show', 'origin'], true],
-			[['remote', 'prune', 'origin'], true],
-			[['remote', 'set-head', 'origin', '--auto'], true],
-			[['remote', 'rename', 'a', 'b'], false],
-			[['remote', 'set-url', 'origin', 'x'], false],
-		];
-		for (const [args, remote] of cases) {
-			expect([args, gitNeeds(args).remote]).toEqual([args, remote]);
-		}
-	});
-
-	test('the subcommands that make commits or tags need the identity', () => {
-		for (const name of [
-			'commit',
-			'merge',
-			'pull',
-			'rebase',
-			'cherry-pick',
-			'revert',
-			'am',
-			'tag',
-			'stash',
-			'notes',
-			'commit-tree',
-		]) {
-			expect([name, gitNeeds(['-C', 'x', name]).identity]).toEqual([name, true]);
-		}
-		for (const name of ['push', 'fetch', 'clone', 'status', 'log', 'add']) {
-			expect([name, gitNeeds([name]).identity]).toEqual([name, false]);
-		}
-		expect(gitNeeds(['pull'])).toEqual({remote: true, identity: true});
-		expect(gitNeeds(['--version'])).toEqual({remote: false, identity: false});
 	});
 });
 
@@ -175,7 +111,6 @@ describe('gitEnv', () => {
 
 describe('pap git', () => {
 	const IDENTITY = {
-		connection: 'github-1',
 		login: 'octo-dana',
 		name: 'Dana Octo',
 		email: '1+octo-dana@users.noreply.github.com',
@@ -200,15 +135,32 @@ describe('pap git', () => {
 	}
 
 	test('runs the first git on the PATH with the arguments untouched, and gives back its exit code', async () => {
-		const {spawned, requests, pap} = harness();
+		const {spawned, pap} = harness();
 
 		expect(await pap('git', 'push', '--force', 'origin', 'main')).toBe(7);
 		expect(spawned).toHaveLength(1);
 		expect(spawned[0]?.file).toBe('/shim/git');
 		expect(spawned[0]?.args).toEqual(['push', '--force', 'origin', 'main']);
 		expect(spawned[0]?.env.GIT_CONFIG_VALUE_3).toBe('Authorization: Bearer pap_token');
-		expect(spawned[0]?.env.GIT_AUTHOR_NAME).toBeUndefined();
-		expect(requests).toEqual([]);
+	});
+
+	test('every subcommand goes through the relay, a partial clone’s checkout too, but git remote showing the URLs', async () => {
+		const cases: Array<[string[], boolean]> = [
+			[['checkout', 'main'], true],
+			[['-C', 'repo', 'show', 'HEAD'], true],
+			[['status'], true],
+			[['remote', 'show', 'origin'], true],
+			[['remote', 'update'], true],
+			[['remote', 'add', '-f', 'up', 'https://github.com/a/b'], true],
+			[['remote'], false],
+			[['remote', '-v'], false],
+			[['-C', 'repo', 'remote', 'get-url', 'origin'], false],
+		];
+		for (const [args, relayed] of cases) {
+			const {spawned, pap} = harness();
+			await pap('git', ...args);
+			expect([args, spawned[0]?.env.GIT_CONFIG_COUNT !== undefined]).toEqual([args, relayed]);
+		}
 	});
 
 	test('looks past the shim pap gh puts first on gh’s PATH', async () => {
@@ -248,7 +200,7 @@ describe('pap git', () => {
 			env.GIT_COMMITTER_EMAIL,
 		]).toEqual(['Dana Octo', IDENTITY.email, 'Dana Octo', IDENTITY.email]);
 		expect(env.PAP_GITHUB_CONNECTION).toBe('github-2');
-		expect(env.GIT_CONFIG_COUNT).toBeUndefined();
+		expect(env.GIT_CONFIG_VALUE_4).toBe('x-pap-connection: github-2');
 		expect(spawned[0]?.args).toEqual(['-C', 'repo', 'commit', '-m', 'Fix']);
 	});
 
@@ -276,14 +228,16 @@ describe('pap git', () => {
 			GIT_COMMITTER_NAME: 'c',
 			GIT_COMMITTER_EMAIL: 'd',
 		};
-		const {spawned, requests, pap} = harness({env: {PATH: '/usr/bin', ...own}});
+		const {spawned, requests, pap} = harness({
+			env: {PATH: '/usr/bin', PAP_URL: 'https://app.example.com', PAP_TOKEN: 't', ...own},
+		});
 
 		await pap('git', 'commit', '-m', 'x');
 		expect(requests).toEqual([]);
 		expect(spawned[0]?.env).toMatchObject(own);
 	});
 
-	test('no identity is one line and no git', async () => {
+	test('where PAP won’t say who to commit as, git runs all the same, as git would commit', async () => {
 		const forbidden = harness({
 			identity: () =>
 				Response.json({message: 'Not allowed: Read repositories (read).'}, {status: 403}),
@@ -292,28 +246,29 @@ describe('pap git', () => {
 			identity: () => Response.json({message: 'PAP_TOKEN has expired.'}, {status: 401}),
 		});
 
-		expect(await forbidden.pap('git', 'commit', '-m', 'x')).toBe(1);
-		expect(forbidden.output).toEqual({
-			out: '',
-			err: 'pap: Could not get who to commit as: Not allowed: Read repositories (read).\n',
-		});
-		expect(await badToken.pap('git', 'tag', '-a', 'v1', '-m', 'v1')).toBe(3);
-		expect(badToken.output.err).toBe(
-			'pap: Could not get who to commit as: PAP_TOKEN has expired.\n',
-		);
-		expect([...forbidden.spawned, ...badToken.spawned]).toEqual([]);
+		expect(await forbidden.pap('git', 'commit', '-m', 'x')).toBe(7);
+		expect(await badToken.pap('git', 'tag', '-a', 'v1', '-m', 'v1')).toBe(7);
+		for (const {spawned, output} of [forbidden, badToken]) {
+			expect(spawned[0]?.env.GIT_AUTHOR_NAME).toBeUndefined();
+			expect(output.err).toBe('');
+		}
 	});
 
-	test('without PAP_URL and PAP_TOKEN, git that needs no remote still runs; one that does is refused', async () => {
+	test('git with no subcommand asks nothing', async () => {
+		const {requests, pap} = harness();
+
+		expect(await pap('git', '--version')).toBe(7);
+		expect(requests).toEqual([]);
+	});
+
+	test('without PAP_URL and PAP_TOKEN, git isn’t run', async () => {
 		const {spawned, output, pap} = harness({env: {PATH: '/usr/bin'}});
 
-		expect(await pap('git', 'status')).toBe(7);
-		expect(spawned[0]?.env).toEqual({PATH: '/usr/bin'});
-		expect(await pap('git', 'fetch')).toBe(3);
+		expect(await pap('git', 'status')).toBe(3);
 		expect(output.err).toBe(
 			'pap: PAP_URL and PAP_TOKEN are not set: run pap in a sandbox_exec command with pap: true.\n',
 		);
-		expect(spawned).toHaveLength(1);
+		expect(spawned).toEqual([]);
 	});
 
 	test('without arguments, a note of pap’s own; without git, one line', async () => {
@@ -330,7 +285,7 @@ describe('pap git', () => {
 
 	test('a git that can’t be started is one line', async () => {
 		const broken = fakeIo({
-			env: {PATH: '/usr/bin'},
+			env: {PATH: '/usr/bin', PAP_URL: 'https://app.example.com', PAP_TOKEN: 't'},
 			executables: ['/usr/bin/git'],
 			spawn: async () => Err(new Error('EACCES')),
 		});

@@ -5,6 +5,7 @@ import {Do} from '@proxy/utils/do';
 
 import {papServer, type PapServer} from './client';
 import {type Env, EXIT, type Handler, type Io} from './io';
+import {commitIdentity, gitEnv} from './git';
 import {findProgram, namedConnection, SHIM_DIR_ENV} from './programs';
 
 /**
@@ -18,7 +19,8 @@ import {findProgram, namedConnection, SHIM_DIR_ENV} from './programs';
  * such as the hosts GitHub redirects downloads to, fetched directly with no credential. gh is given
  * a placeholder for a token, as it won't run signed out, and a `git` first on its PATH that runs
  * `pap git`, so the git it runs for a clone or a push goes through PAP too; `pap git` looks past it
- * for the real one.
+ * for the real one. Who commits are made as is asked for once, here, and is in gh's environment,
+ * so the many gits gh runs don't each ask.
  */
 
 const API_HOST = 'api.github.com';
@@ -181,7 +183,8 @@ function runGhIn(
 		const relayed = new AbortController();
 		const handler = ghRelay(io, server, namedConnection(io), relayed.signal);
 		const close = $(await io.serve(socket, handler));
-		const ran = await io.spawn(gh, args, ghEnv(io.env, dir, shimDir));
+		const env = gitEnv(io.env, {relay: null, identity: await commitIdentity(io)});
+		const ran = await io.spawn(gh, args, ghEnv(env, dir, shimDir));
 		relayed.abort();
 		await close();
 		return $(ran);

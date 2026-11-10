@@ -101,7 +101,7 @@ describe('GET identity', () => {
 		const res = await request('/identity');
 
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({connection: 'github-1', login: 'octo-dana', name: 'Dana Octo', email: '1234+octo-dana@users.noreply.github.com'});
+		expect(await res.json()).toEqual({login: 'octo-dana', name: 'Dana Octo', email: '1234+octo-dana@users.noreply.github.com'});
 		expect(logAgentRequest).not.toHaveBeenCalled();
 	});
 
@@ -111,13 +111,13 @@ describe('GET identity', () => {
 		expect(await (await request('/identity')).json()).toMatchObject({login: 'octo-sam', name: 'octo-sam'});
 	});
 
-	test('without Read, refused and logged', async () => {
+	test('without Read, refused, and not logged, as pap git asks before every git', async () => {
 		useConnections([githubConnection('github-1', 'octo-dana', [])]);
 		const res = await request('/identity');
 
 		expect(res.status).toBe(403);
 		expect(((await res.json()) as {message: string}).message).toStartWith('Not allowed: Read repositories (read)');
-		expect(logged()).toEqual([{collectionId: 'api', action: 'read', recordTitle: null, query: 'GET identity', outcome: 'denied'}]);
+		expect(logAgentRequest).not.toHaveBeenCalled();
 	});
 
 	test('without a good token, a 401 saying what to do', async () => {
@@ -146,7 +146,7 @@ describe('which connection', () => {
 		const res = await request('/identity', {headers: {'x-pap-connection': 'github-2'}});
 		await request('/api/user', {headers: {'x-pap-connection': 'github-2'}});
 
-		expect(await res.json()).toMatchObject({connection: 'github-2', login: 'acme-bot'});
+		expect(await res.json()).toMatchObject({login: 'acme-bot'});
 		expect(received[0]?.headers['x-pap-connection']).toBeUndefined();
 		expect(logAgentRequest).toHaveBeenCalledWith(expect.objectContaining({connectionId: 'github-2'}));
 	});

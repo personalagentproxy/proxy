@@ -218,6 +218,31 @@ describe('pap gh', () => {
 		expect(fake.removed).toEqual(['/tmp/pap-1']);
 	});
 
+	test('who commits are made as is asked for once and given to gh, so the gits it runs don’t ask', async () => {
+		const asked: string[] = [];
+		const fake = fakeIo({
+			env: ENV,
+			executables: ['/usr/bin/gh'],
+			fetch: async (url) => {
+				asked.push(url);
+				return Response.json({
+					login: 'octo-dana',
+					name: 'Dana Octo',
+					email: '1+octo-dana@users.noreply.github.com',
+				});
+			},
+		});
+
+		expect(await run(['gh', 'pr', 'create', '--fill'], fake.io, 'x')).toBe(0);
+		expect(asked).toEqual(['https://app.example.com/api/cli/github/identity']);
+		expect(fake.spawned[0]?.env).toMatchObject({
+			GIT_AUTHOR_NAME: 'Dana Octo',
+			GIT_AUTHOR_EMAIL: '1+octo-dana@users.noreply.github.com',
+			GIT_COMMITTER_NAME: 'Dana Octo',
+			GIT_COMMITTER_EMAIL: '1+octo-dana@users.noreply.github.com',
+		});
+	});
+
 	test('gh’s exit code is pap’s, and a gh that can’t be started still has its directory removed', async () => {
 		const broken = fakeIo({
 			env: ENV,

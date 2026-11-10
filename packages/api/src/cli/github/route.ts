@@ -48,9 +48,6 @@ const PEEK_LIMIT = 64 * 1024;
 // The most of a GraphQL request read, to tell a query from a mutation, which GitHub's are far under.
 const GRAPHQL_LIMIT = 1024 * 1024;
 
-// The query a refused identity request is logged with.
-const IDENTITY_QUERY = 'GET identity';
-
 type Refusal = {status: number; message: string};
 
 const UNREACHABLE: Refusal = {status: 502, message: 'GitHub could not be reached; try again.'};
@@ -316,10 +313,10 @@ export async function handleGitHubApiRoute(request: Request, response: Response)
 /**
  * `GET /api/cli/github/identity`: who the agent acts as on the connection, for git's author and
  * committer, with GitHub's noreply address for the account rather than the person's own. Needs
- * Read; logged only where it is refused.
+ * Read. Never logged, refused or not: `pap git` asks before every git it runs, and nothing reaches
+ * GitHub.
  */
 export async function handleGitHubIdentityRoute(request: CliRequest, response: Response): Promise<void> {
-	const startedAt = Date.now();
 	const found = await githubTarget(request.cli, namedConnection(request));
 	if (found.isErr()) {
 		answerApi(response, refusalOf(found.error));
@@ -327,8 +324,7 @@ export async function handleGitHubIdentityRoute(request: CliRequest, response: R
 	}
 	const target = found.value;
 	if (!target.actions.includes('read')) {
-		const entry: GitHubEntry = {collection: API_REQUESTS_ID, action: 'read', repository: null, query: IDENTITY_QUERY};
-		answerApi(response, await logged(request.cli, target, entry, 'denied', startedAt, {status: 403, message: refusalMessage(target, 'read', 'pap git’s commit author')}));
+		answerApi(response, {status: 403, message: refusalMessage(target, 'read', 'pap git’s commit author')});
 		return;
 	}
 	const credential = readGitHubCredential(target.connection.credential);
@@ -337,6 +333,6 @@ export async function handleGitHubIdentityRoute(request: CliRequest, response: R
 		return;
 	}
 	const {id, login, name} = credential.value;
-	const identity: GitHubIdentity = {connection: target.connection.id, login, name: name?.trim() || login, email: `${id}+${login}@users.noreply.github.com`};
+	const identity: GitHubIdentity = {login, name: name?.trim() || login, email: `${id}+${login}@users.noreply.github.com`};
 	response.json(identity);
 }

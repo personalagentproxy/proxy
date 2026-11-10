@@ -8,7 +8,7 @@
  * with several, the request is refused with their ids, saying to name one. Without zod, so the
  * `pap` binary can import it.
  *
- * - `GET CLI_GITHUB_IDENTITY_PATH`: `GitHubIdentity`, who commits are made as. Needs Read.
+ * - `GET CLI_GITHUB_IDENTITY_PATH`: `GitHubIdentity`, who commits are made as. Needs Read; never logged.
  * - `CLI_GITHUB_GIT_PATH/<owner>/<repo>[.git]/…`: git's smart HTTP, relayed to
  *   `https://github.com/<owner>/<repo>.git/…`: `GET info/refs?service=git-upload-pack` and
  *   `POST git-upload-pack` need Read, `GET info/refs?service=git-receive-pack` and
@@ -49,8 +49,6 @@ export const PAP_CONNECTION_HEADER = 'x-pap-connection';
  * whatever its email privacy, never the person's own address.
  */
 export type GitHubIdentity = {
-	/** The connection's id. */
-	connection: string;
 	login: string;
 	/** The account's name, or its login where it has none. */
 	name: string;

@@ -37,8 +37,8 @@ export function papServer(io: Io): Result<PapServer, Failure> {
 	return Ok({base: url.replace(/\/+$/, ''), token});
 }
 
-/** The server's `message`, where its answer has one. */
-export function messageOf(body: Json | undefined): string | null {
+// The server's `message`, where its answer has one.
+function messageOf(body: Json | undefined): string | null {
 	return isObject(body) && typeof body.message === 'string' ? body.message : null;
 }
 
