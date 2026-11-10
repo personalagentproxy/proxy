@@ -15,8 +15,8 @@ import type {ContextEntry, SubAgent} from '@proxy/utils/harness-context';
  * and comes later. Every harness passes the same tests (conformance.ts); the one the api's tests
  * run on is scripted (fake.ts).
  *
- * The grammar of a turn: zero or more `summary`, `text`, `tool_call` and `tool_result` events,
- * then exactly one `done` or `failed`, which is the last. A `text` is one piece of the answer, in
+ * The grammar of a turn: zero or more `summary`, `text`, `tool_call`, `tool_result` and `usage`
+ * events, then exactly one `done` or `failed`, which is the last. A `text` is one piece of the answer, in
  * order, never empty. A `tool_call` is a call the model made, its id unique within the turn; a
  * `tool_result` answers a call the same turn made, and comes from a harness that ran the call
  * itself, through the surface's `execute`. A `tool_call` with no `tool_result` by `done` means
@@ -28,7 +28,11 @@ import type {ContextEntry, SubAgent} from '@proxy/utils/harness-context';
  * the next turn, the system prompt the model was sent, and what the turn cost. `failed` says why,
  * and whether the turn is worth trying again as it is, as when the model couldn't be reached; a
  * failure of kind `credentials_rejected` says the credential the turn was given (`auth`) was
- * turned down, which the api answers by refreshing it once and running the turn again.
+ * turned down, which the api answers by noting it on the member's account and telling them to
+ * connect again. A `usage` is what the model's provider said of the member's plan as the turn
+ * ran: how much of the five-hour or the seven-day window is used, as a share from 0 to 1, and when
+ * it resets; zero or more per turn, any time before the terminal event, and a harness on the
+ * server's key yields none.
  *
  * A harness says, beside its id, how it works, so the api can give it a turn that fits:
  * `stepsPerTurn` whether it answers calls itself and asks the model again within a turn, and
@@ -51,18 +55,22 @@ export type ToolSurface = {
 	execute: (call: {id: string; name: string; arguments: string}) => Promise<Result<ToolAnswer, ApiError>>;
 };
 
+/** How much of one of the member's plan's windows is used, 0 to 1, and when it resets, where the provider said. */
+export type UsageWindow = {utilization: number; resetsAt: Date | null};
+
 export type HarnessEvent =
 	| {kind: 'text'; text: string}
 	| {kind: 'tool_call'; id: string; name: string; arguments: string}
 	| {kind: 'tool_result'; callId: string; text: string; isError: boolean}
 	| {kind: 'summary'; text: string; coversSeq: number; inputTokens: number; outputTokens: number}
+	| {kind: 'usage'; fiveHour?: UsageWindow; sevenDay?: UsageWindow}
 	| {kind: 'done'; session: HarnessSession; system: string; inputTokens: number; outputTokens: number}
 	| {kind: 'failed'; error: ApiError; retry: boolean};
 
 /**
  * The credential a turn runs under where the model is reached as the member rather than with the
- * server's key: a Claude sign-in's access token with its scopes, a setup token handed over the
- * same way with no scopes, or an API key. A harness that reaches the model with the server's key,
+ * server's key: a long-lived Claude token, handed over as a sign-in's access token with no scopes,
+ * or an API key. A harness that reaches the model with the server's key,
  * as the proxy harness does over OpenRouter, ignores it.
  */
 export type HarnessAuth = {kind: 'oauth'; accessToken: string; scopes: string[]} | {kind: 'api_key'; key: string};

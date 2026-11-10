@@ -76,28 +76,27 @@ to it goes to Anthropic under your account, as it would from Claude Code, and co
 plan rather than the server's. Connect it under **Claude** on the **Account** page; it is yours, in
 every organization you are in, and nobody else's agents run under it.
 
-There are three ways to connect. **Connect Claude** opens Claude's sign-in in a new tab, where you
-allow Personal Agent Proxy as you would allow Claude Code; Claude then shows a code, which you paste
-back on the Account page. This is the sign-in `claude setup-token` runs, done for you, and the card
-then shows the account and the plan. Or paste a token from
-`claude setup-token` run on your own computer, or an Anthropic API key, behind **Paste a setup
-token or API key instead**; a token is stored as it is, and an API key is billed to that key.
+The credential is a token good for a year, the same one `claude setup-token` makes. The desktop
+app mints it for you: you sign in to Claude in your browser and allow Personal Agent Proxy as you
+would allow Claude Code, and the token is made on your own computer and handed to the server, which
+never sees your password. Or run `claude setup-token` yourself and paste what it prints on the
+Account page, or paste an Anthropic API key, which is billed to that key.
 
 What is stored is the credential alone, encrypted in the database as every connection's credential
-is: for a sign-in, the access token and the refresh token Claude gave. The server refreshes the
-sign-in itself when the access token nears its end, and the refresh token never leaves it: the
-Account page sees the kind of credential, the account and when the current token runs out, nothing
-more. A refresh Claude refuses, as when the sign-in was revoked, is shown on the card, and
-**Connect again** signs in afresh.
+is, and when it ends where that is known. The server never refreshes anything, and holds no refresh
+token: when the year is up, the card says so and you connect again. The card also shows how much of
+your plan's five-hour and seven-day windows is used, as Anthropic reported it during the agent's
+last turn on your account, so it is as of that turn, not live.
 
 With a Claude account connected, your conversations, and the sub-agents they start, run on the
 [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) under your account: what you
 say goes to Anthropic directly, as it would from Claude Code, not through OpenRouter, and the model
 is Sonnet. Everything else is the same: the agent's tools, sleeping, alerts, the activity log and
 what the conversation shows. A conversation that started on your account stays on it. When the
-sign-in has run out or been refused, the agent says so in the conversation, and **Connect again**
-on the Account page takes it up again. **Disconnect** on the card deletes the credential, and
-deleting your account deletes it too; conversations then run on the server's key again.
+token has run out or Anthropic refused it, the agent says so in the conversation and the card shows
+it; connecting again takes it up. **Disconnect** on the card deletes the credential, and deleting
+your account deletes it too; conversations then run on the server's key again. The token itself
+can be revoked at [claude.ai](https://claude.ai) as well, under your account's settings.
 
 <Callout>
 Chat is being tried out with some organizations first, so it is only offered to an organization

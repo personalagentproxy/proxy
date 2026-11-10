@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {mkdir, rm} from 'node:fs/promises';
 import {join} from 'node:path';
 
-import {type CanUseTool, type Options, query as sdkQuery, type SDKMessage, type SDKResultMessage} from '@anthropic-ai/claude-agent-sdk';
+import {type CanUseTool, type Options, query as sdkQuery, type SDKMessage, type SDKRateLimitInfo, type SDKResultMessage} from '@anthropic-ai/claude-agent-sdk';
 import type {MessageParam, ToolResultBlockParam} from '@anthropic-ai/sdk/resources';
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
 import {CallToolRequestSchema, ListToolsRequestSchema} from '@modelcontextprotocol/sdk/types.js';
@@ -45,7 +45,9 @@ import type {SdkSessionStore} from './session-store';
  * session is kept under in the store: the thread's id. A turn that fails before the api has a
  * session to keep deletes from the store the session it started, which nothing would resume. The
  * model is Sonnet throughout: the SDK runs only Claude, so the api's choice of another model for a
- * persona doesn't apply here.
+ * persona doesn't apply here. What Anthropic says of the member's plan as the turn runs, the
+ * rate-limit headers the binary reports as events, is passed on as `usage` events, for the api to
+ * show on the Account page; on an API key the binary reports none.
  */
 
 /** The SDK's `query`, or a test's: what a turn runs through, read as a stream of SDK messages, with the interrupt that ends a turn early. */
@@ -255,6 +257,29 @@ function failed(error: ApiError, retry: boolean): HarnessEvent {
 	return {kind: 'failed', error, retry};
 }
 
+// The plan's window a rate-limit event speaks of, as the event names it; the per-model and
+// overage windows the binary also reports are left out.
+function windowOf(type: SDKRateLimitInfo['rateLimitType']): 'fiveHour' | 'sevenDay' | null {
+	if (type === 'five_hour') {
+		return 'fiveHour';
+	}
+	if (type === 'seven_day') {
+		return 'sevenDay';
+	}
+	return null;
+}
+
+// What the binary said of the member's plan, as a usage event, where it spoke of one of the
+// windows shown, with how much is used; the reset comes as unix seconds. Null for anything else.
+function usageOf(info: SDKRateLimitInfo): HarnessEvent | null {
+	const window = windowOf(info.rateLimitType);
+	if (window === null || typeof info.utilization !== 'number') {
+		return null;
+	}
+	const resetsAt = typeof info.resetsAt === 'number' ? new Date(info.resetsAt * 1000) : null;
+	return {kind: 'usage', [window]: {utilization: info.utilization, resetsAt}};
+}
+
 // A failure the binary reported in words: the API out of reach is worth trying again.
 function reported(text: string): HarnessEvent {
 	if (UNREACHABLE_WORDS.test(text)) {
@@ -418,6 +443,13 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 					const message = next.value.value;
 					if (message.type === 'system' && message.subtype === 'init') {
 						sessionId = message.session_id;
+						continue;
+					}
+					if (message.type === 'rate_limit_event') {
+						const usage = usageOf(message.rate_limit_info);
+						if (usage !== null) {
+							yield usage;
+						}
 						continue;
 					}
 					if (message.type === 'assistant') {

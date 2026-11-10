@@ -15,7 +15,7 @@ import {proxyHarness} from './harness/proxy-harness';
 import {sdkSessionStore} from './harness/session-store';
 import {startHarnessWorker, type HarnessWorker} from './harness/worker';
 import {askForTurn} from './llm/open-router';
-import {claudeCredentialFor} from './me/claude-credential';
+import {claudeCredentialFor, markClaudeCredentialRefused, recordClaudeUsage} from './me/claude-credential';
 import {startSandboxSweeper} from './native/sandbox/sweeper';
 import {log, serializeError} from './observability/log';
 import {metrics} from './observability/metrics';
@@ -102,7 +102,7 @@ async function startApiServer(): Promise<void> {
 							maxConcurrentTurns: env.CLAUDE_AGENT_SDK_TURNS,
 						}),
 		};
-		worker = startHarnessWorker(harnessStore, {registry, credentials: {claudeCredentialFor}});
+		worker = startHarnessWorker(harnessStore, {registry, credentials: {claudeCredentialFor, markRefused: markClaudeCredentialRefused, recordUsage: recordClaudeUsage}});
 		sweeper = startAlertSweeper(harnessStore);
 		void startSandboxSweeper();
 	});

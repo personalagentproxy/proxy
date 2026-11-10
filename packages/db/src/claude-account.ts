@@ -1,5 +1,5 @@
 import type {Prisma} from '@prisma/client';
-import {Err, Ok, type Result} from 'ts-results-es';
+import type {Result} from 'ts-results-es';
 
 import {type ApiError, wrapDb} from '@proxy/utils';
 
@@ -7,12 +7,17 @@ import {db} from '.';
 
 /**
  * A member's own Claude account (ClaudeAccount): the credential the built-in agent runs under for
- * them, encrypted by the api, one per person. Only `updateClaudeAccountLocked` and the upsert
- * write the credential, and the rows handed out carry it as stored, encrypted: what it holds is
- * the api's to read.
+ * them, encrypted by the api, one per person: a long-lived token minted on their machine or pasted
+ * from `claude setup-token`, or an API key. Only the upsert writes the credential, and the rows
+ * handed out carry it as stored, encrypted: what it holds is the api's to read. Beside it, whether
+ * the credential was refused, and what the model's provider said of the member's plan as the last
+ * turn ran.
  */
 
-export type ClaudeAccountKind = 'oauth' | 'setup_token' | 'api_key';
+export type ClaudeAccountKind = 'setup_token' | 'api_key';
+
+/** How much of one of the plan's windows was used, and when it resets, as the provider said. */
+export type ClaudeUsageWindow = {utilization: number; resetsAt: Date | null};
 
 export type ClaudeAccountRow = {
 	id: string;
@@ -20,14 +25,19 @@ export type ClaudeAccountRow = {
 	kind: ClaudeAccountKind;
 	// The credential as stored, encrypted.
 	credential: string;
-	email: string | null;
-	subscriptionType: string | null;
-	// When a sign-in's access token runs out; null for the other kinds.
+	// When the token ends, as the mint reported it; null for a pasted token whose end isn't known,
+	// and for a key.
 	expiresAt: Date | null;
-	lastRefreshedAt: Date | null;
-	// When a refresh was refused, and the words for it, until the person connects again.
+	// When the credential was refused or found to have run out, and the words for it, until the
+	// person connects again.
 	failedAt: Date | null;
 	failure: string | null;
+	usageFiveHourUtilization: number | null;
+	usageFiveHourResetsAt: Date | null;
+	usageSevenDayUtilization: number | null;
+	usageSevenDayResetsAt: Date | null;
+	// When the usage was last read, from a turn's rate-limit headers; null before any.
+	usageReadAt: Date | null;
 	createdAt: Date;
 	updatedAt: Date;
 };
@@ -37,12 +47,14 @@ const accountSelect = {
 	userId: true,
 	kind: true,
 	credential: true,
-	email: true,
-	subscriptionType: true,
 	expiresAt: true,
-	lastRefreshedAt: true,
 	failedAt: true,
 	failure: true,
+	usageFiveHourUtilization: true,
+	usageFiveHourResetsAt: true,
+	usageSevenDayUtilization: true,
+	usageSevenDayResetsAt: true,
+	usageReadAt: true,
 	createdAt: true,
 	updatedAt: true,
 } as const satisfies Prisma.ClaudeAccountSelect;
@@ -54,18 +66,16 @@ export function getClaudeAccount(
 	return wrapDb(() => db.claudeAccount.findUnique({where: {userId}, select: accountSelect}));
 }
 
-/** What connecting stores: the kind, the encrypted credential, and what is known of the account. */
+/** What connecting stores: the kind, the encrypted credential, and when the token ends where that is known. */
 export type NewClaudeAccount = {
 	kind: ClaudeAccountKind;
 	credential: string;
-	email?: string | null;
-	subscriptionType?: string | null;
 	expiresAt?: Date | null;
 };
 
 /**
  * Connects the member's Claude account, in place of the one they had: a connection again clears
- * the failure, and what was known of the other account, since this one may be another.
+ * the failure, and the usage read on the other credential, since this one may be another plan's.
  */
 export function upsertClaudeAccount(
 	userId: string,
@@ -74,12 +84,14 @@ export function upsertClaudeAccount(
 	const values = {
 		kind: account.kind,
 		credential: account.credential,
-		email: account.email ?? null,
-		subscriptionType: account.subscriptionType ?? null,
 		expiresAt: account.expiresAt ?? null,
-		lastRefreshedAt: null,
 		failedAt: null,
 		failure: null,
+		usageFiveHourUtilization: null,
+		usageFiveHourResetsAt: null,
+		usageSevenDayUtilization: null,
+		usageSevenDayResetsAt: null,
+		usageReadAt: null,
 	};
 	return wrapDb(() =>
 		db.claudeAccount.upsert({
@@ -98,51 +110,7 @@ export function deleteClaudeAccount(userId: string): Promise<Result<void, ApiErr
 	});
 }
 
-/**
- * What a locked update writes: a refreshed credential with its new expiry, or that the refresh
- * was refused; `null` leaves the row as it is.
- */
-export type ClaudeAccountUpdate =
-	| {credential: string; expiresAt: Date | null; lastRefreshedAt: Date}
-	| {failedAt: Date; failure: string}
-	| null;
-
-/**
- * Reads the member's Claude account with its row locked, so `fn` is the only one reading or
- * refreshing its credential until it answers, across every worker and api instance, and writes
- * what `fn` returns: this is what keeps two refreshes of one refresh token apart. `fn`'s own
- * answer comes back with it; `Ok(null)` when the member has no account. `fn` must not use the
- * database itself, whose connection the lock holds.
- */
-export function updateClaudeAccountLocked<T>(
-	userId: string,
-	fn: (row: ClaudeAccountRow) => Promise<{update: ClaudeAccountUpdate; value: T}>,
-): Promise<Result<T | null, ApiError>> {
-	return wrapDb(() =>
-		db.$transaction(
-			async (tx) => {
-				const locked = await tx.$queryRaw<Array<{id: string}>>`
-					SELECT "id" FROM "ClaudeAccount" WHERE "userId" = ${userId} FOR UPDATE`;
-				if (locked.length === 0) {
-					return null;
-				}
-				const row = await tx.claudeAccount.findUnique({where: {userId}, select: accountSelect});
-				if (!row) {
-					return null;
-				}
-				const {update, value} = await fn(row);
-				if (update === null) {
-					return value;
-				}
-				await tx.claudeAccount.update({where: {userId}, data: update});
-				return value;
-			},
-			{timeout: 30_000},
-		),
-	);
-}
-
-/** Notes that the member's sign-in was refused, for the Account page to say so. */
+/** Notes that the member's credential was refused or ran out, for the Account page to say so. */
 export function markClaudeAccountFailed(
 	userId: string,
 	failure: string,
@@ -152,14 +120,37 @@ export function markClaudeAccountFailed(
 	});
 }
 
-/** Keeps what Claude said of the account, once it has been asked. `Ok(false)` when the member has no account. */
-export async function setClaudeAccountProfile(
+/** What a turn said of the member's plan: either window, where the provider spoke of it, and when it was read. */
+export type ClaudeUsage = {
+	fiveHour?: ClaudeUsageWindow;
+	sevenDay?: ClaudeUsageWindow;
+	readAt: Date;
+};
+
+/**
+ * Keeps what the last turn said of the member's plan. A window the turn said nothing of keeps
+ * what was known of it; `readAt` is the turn's. Nothing to do when the member has no account.
+ */
+export function setClaudeAccountUsage(
 	userId: string,
-	profile: {email: string | null; subscriptionType: string | null},
-): Promise<Result<boolean, ApiError>> {
-	const updated = await wrapDb(() => db.claudeAccount.updateMany({where: {userId}, data: profile}));
-	if (updated.isErr()) {
-		return Err(updated.error);
-	}
-	return Ok(updated.value.count > 0);
+	usage: ClaudeUsage,
+): Promise<Result<void, ApiError>> {
+	const fiveHour = usage.fiveHour
+		? {
+				usageFiveHourUtilization: usage.fiveHour.utilization,
+				usageFiveHourResetsAt: usage.fiveHour.resetsAt,
+			}
+		: {};
+	const sevenDay = usage.sevenDay
+		? {
+				usageSevenDayUtilization: usage.sevenDay.utilization,
+				usageSevenDayResetsAt: usage.sevenDay.resetsAt,
+			}
+		: {};
+	return wrapDb(async () => {
+		await db.claudeAccount.updateMany({
+			where: {userId},
+			data: {...fiveHour, ...sevenDay, usageReadAt: usage.readAt},
+		});
+	});
 }

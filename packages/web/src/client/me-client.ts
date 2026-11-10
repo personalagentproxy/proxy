@@ -1,7 +1,5 @@
 import {
 	claudeAccountSchema,
-	claudeSignInSchema,
-	type claudeCodeBodySchema,
 	type claudeTokenBodySchema,
 	meSchema,
 	sessionsSchema,
@@ -42,22 +40,14 @@ export function getClaudeAccount() {
 	return apiRequest('GET', '/api/me/claude', claudeAccountSchema);
 }
 
-/** Begins a sign-in to the person's Claude subscription: Claude's page to open, which shows a code to paste back. */
-export function beginClaudeSignIn() {
-	return apiRequest('POST', '/api/me/claude/sign-in', claudeSignInSchema);
-}
-
-/** Finishes the sign-in with the code Claude showed, pasted as it was. */
-export function finishClaudeSignIn(code: string) {
-	return apiRequest('POST', '/api/me/claude/code', claudeAccountSchema, {
-		code,
-	} satisfies z.input<typeof claudeCodeBodySchema>);
-}
-
-/** Connects a `claude setup-token` value or an Anthropic API key instead of signing in. */
-export function connectClaudeToken(token: string) {
+/**
+ * Connects a `claude setup-token` value or an Anthropic API key, with when the token ends where
+ * that is known, as the desktop app knows it of a token it minted.
+ */
+export function connectClaudeToken(token: string, expiresAt?: string) {
 	return apiRequest('POST', '/api/me/claude/token', claudeAccountSchema, {
 		token,
+		...(expiresAt === undefined ? {} : {expiresAt}),
 	} satisfies z.input<typeof claudeTokenBodySchema>);
 }
 

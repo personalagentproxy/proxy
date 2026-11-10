@@ -48,7 +48,7 @@ import {chatRoutes} from '../harness/route';
 import {harnessStore} from '../harness/store';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
-import {handleClaudeCodeRoute, handleClaudeSignInRoute, handleClaudeTokenRoute, handleDeleteClaudeAccountRoute, handleGetClaudeAccountRoute} from '../me/claude-route';
+import {handleClaudeTokenRoute, handleDeleteClaudeAccountRoute, handleGetClaudeAccountRoute} from '../me/claude-route';
 import {handleDeleteMeRoute, handleMeRoute} from '../me/route';
 import {handleDeleteOtherSessionsRoute, handleDeleteSessionRoute, handleListSessionsRoute} from '../me/sessions';
 import {handleAcceptInvitationRoute, handleGetInvitationRoute} from '../orgs/invitation-link';
@@ -122,8 +122,6 @@ export function createApiRouter(): express.Router {
 	router.delete('/api/me/sessions/:sessionId', withAuthResult('Delete session route', handleDeleteSessionRoute));
 	// The person's own Claude account, for the account page's card (me/claude-route.ts).
 	router.get('/api/me/claude', withAuthResult('Get Claude account route', handleGetClaudeAccountRoute));
-	router.post('/api/me/claude/sign-in', withAuth('Claude sign-in route', handleClaudeSignInRoute));
-	router.post('/api/me/claude/code', withAuth('Claude sign-in code route', handleClaudeCodeRoute));
 	router.post('/api/me/claude/token', withAuthResult('Claude token route', handleClaudeTokenRoute));
 	router.delete('/api/me/claude', withAuthResult('Delete Claude account route', handleDeleteClaudeAccountRoute));
 

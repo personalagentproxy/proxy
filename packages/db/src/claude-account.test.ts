@@ -8,8 +8,7 @@ import {
 	deleteClaudeAccount,
 	getClaudeAccount,
 	markClaudeAccountFailed,
-	setClaudeAccountProfile,
-	updateClaudeAccountLocked,
+	setClaudeAccountUsage,
 	upsertClaudeAccount,
 } from './claude-account';
 
@@ -26,6 +25,14 @@ function unwrap<T>(result: Result<T, ApiError>): T {
 	return result.value;
 }
 
+const noUsage = {
+	usageFiveHourUtilization: null,
+	usageFiveHourResetsAt: null,
+	usageSevenDayUtilization: null,
+	usageSevenDayResetsAt: null,
+	usageReadAt: null,
+};
+
 describe.skipIf(!databaseUrl)('a Claude account, against the database', () => {
 	const stamp = `${Date.now()}-${process.pid}`;
 	let userId = '';
@@ -39,42 +46,39 @@ describe.skipIf(!databaseUrl)('a Claude account, against the database', () => {
 		await db.user.deleteMany({where: {id: userId}});
 	});
 
-	test('a member starts with none', async () => {
+	test('a member starts with none, and marking or reading usage on none does nothing', async () => {
 		expect(unwrap(await getClaudeAccount(userId))).toBeNull();
-		expect(
-			unwrap(await updateClaudeAccountLocked(userId, async () => ({update: null, value: 'ran'}))),
-		).toBeNull();
-		expect(
-			unwrap(
-				await setClaudeAccountProfile(userId, {email: 'a@example.com', subscriptionType: 'max'}),
-			),
-		).toBe(false);
+		unwrap(await markClaudeAccountFailed(userId, 'refused'));
+		unwrap(await setClaudeAccountUsage(userId, {readAt: new Date()}));
+		expect(unwrap(await getClaudeAccount(userId))).toBeNull();
 	});
 
-	test('connecting stores the kind and the credential as given, and connecting again replaces them and clears the failure', async () => {
-		const expiresAt = new Date('2026-11-09T12:00:00.000Z');
+	test('connecting stores the kind, the credential and the expiry as given, and connecting again replaces them and clears the failure and the usage', async () => {
+		const expiresAt = new Date('2027-11-09T12:00:00.000Z');
 		const first = unwrap(
-			await upsertClaudeAccount(userId, {kind: 'oauth', credential: 'enc:one', expiresAt}),
+			await upsertClaudeAccount(userId, {kind: 'setup_token', credential: 'enc:one', expiresAt}),
 		);
 		expect(first).toMatchObject({
 			userId,
-			kind: 'oauth',
+			kind: 'setup_token',
 			credential: 'enc:one',
 			expiresAt,
-			email: null,
 			failedAt: null,
 			failure: null,
+			...noUsage,
 		});
 
 		unwrap(await markClaudeAccountFailed(userId, 'refused'));
 		unwrap(
-			await setClaudeAccountProfile(userId, {email: 'a@example.com', subscriptionType: 'max'}),
+			await setClaudeAccountUsage(userId, {
+				fiveHour: {utilization: 0.4, resetsAt: new Date('2026-11-10T15:00:00.000Z')},
+				readAt: new Date('2026-11-10T12:00:00.000Z'),
+			}),
 		);
 		const failed = unwrap(await getClaudeAccount(userId));
 		expect(failed?.failure).toBe('refused');
 		expect(failed?.failedAt).toBeInstanceOf(Date);
-		expect(failed?.email).toBe('a@example.com');
-		expect(failed?.subscriptionType).toBe('max');
+		expect(failed?.usageFiveHourUtilization).toBe(0.4);
 
 		const second = unwrap(
 			await upsertClaudeAccount(userId, {kind: 'api_key', credential: 'enc:two'}),
@@ -84,77 +88,47 @@ describe.skipIf(!databaseUrl)('a Claude account, against the database', () => {
 			kind: 'api_key',
 			credential: 'enc:two',
 			expiresAt: null,
-			email: null,
-			subscriptionType: null,
 			failedAt: null,
 			failure: null,
+			...noUsage,
 		});
 	});
 
-	test('a locked update hands the row to the function and writes what it returns', async () => {
+	test('usage is kept window by window: one left out keeps what was known, and the read time is the turn’s', async () => {
+		unwrap(await upsertClaudeAccount(userId, {kind: 'setup_token', credential: 'enc:token'}));
+		const firstRead = new Date('2026-11-10T12:00:00.000Z');
+		const fiveHourReset = new Date('2026-11-10T15:00:00.000Z');
+		const sevenDayReset = new Date('2026-11-14T00:00:00.000Z');
+
 		unwrap(
-			await upsertClaudeAccount(userId, {
-				kind: 'oauth',
-				credential: 'enc:old',
-				expiresAt: new Date('2026-11-09T12:00:00.000Z'),
+			await setClaudeAccountUsage(userId, {
+				fiveHour: {utilization: 0.37, resetsAt: fiveHourReset},
+				sevenDay: {utilization: 0.12, resetsAt: sevenDayReset},
+				readAt: firstRead,
 			}),
 		);
-		const refreshedAt = new Date('2026-11-09T11:58:00.000Z');
-		const newExpiry = new Date('2026-11-09T20:00:00.000Z');
-
-		const seen = unwrap(
-			await updateClaudeAccountLocked(userId, async (row) => ({
-				update: {credential: 'enc:new', expiresAt: newExpiry, lastRefreshedAt: refreshedAt},
-				value: row.credential,
-			})),
-		);
-		expect(seen).toBe('enc:old');
-		const after = unwrap(await getClaudeAccount(userId));
-		expect(after).toMatchObject({
-			credential: 'enc:new',
-			expiresAt: newExpiry,
-			lastRefreshedAt: refreshedAt,
+		expect(unwrap(await getClaudeAccount(userId))).toMatchObject({
+			usageFiveHourUtilization: 0.37,
+			usageFiveHourResetsAt: fiveHourReset,
+			usageSevenDayUtilization: 0.12,
+			usageSevenDayResetsAt: sevenDayReset,
+			usageReadAt: firstRead,
 		});
 
-		const failedAt = new Date('2026-11-09T12:30:00.000Z');
+		const secondRead = new Date('2026-11-10T13:00:00.000Z');
 		unwrap(
-			await updateClaudeAccountLocked(userId, async () => ({
-				update: {failedAt, failure: 'gone'},
-				value: undefined,
-			})),
+			await setClaudeAccountUsage(userId, {
+				fiveHour: {utilization: 0.5, resetsAt: null},
+				readAt: secondRead,
+			}),
 		);
 		expect(unwrap(await getClaudeAccount(userId))).toMatchObject({
-			credential: 'enc:new',
-			failedAt,
-			failure: 'gone',
+			usageFiveHourUtilization: 0.5,
+			usageFiveHourResetsAt: null,
+			usageSevenDayUtilization: 0.12,
+			usageSevenDayResetsAt: sevenDayReset,
+			usageReadAt: secondRead,
 		});
-
-		unwrap(await updateClaudeAccountLocked(userId, async () => ({update: null, value: undefined})));
-		expect(unwrap(await getClaudeAccount(userId))).toMatchObject({
-			credential: 'enc:new',
-			failedAt,
-			failure: 'gone',
-		});
-	});
-
-	test('two locked updates run one after the other, the second seeing what the first wrote', async () => {
-		unwrap(
-			await upsertClaudeAccount(userId, {kind: 'oauth', credential: 'enc:0', expiresAt: null}),
-		);
-		const seen: string[] = [];
-		const update = (label: string) =>
-			updateClaudeAccountLocked(userId, async (row) => {
-				seen.push(`${label}:${row.credential}`);
-				await new Promise((resolve) => setTimeout(resolve, 50));
-				return {
-					update: {credential: `enc:${label}`, expiresAt: null, lastRefreshedAt: new Date()},
-					value: undefined,
-				};
-			});
-		await Promise.all([update('a'), update('b')]);
-		expect(seen.length).toBe(2);
-		// Whichever went first, the other read the credential it wrote, not the one both started from.
-		expect(seen.filter((entry) => entry.endsWith(':enc:0')).length).toBe(1);
 	});
 
 	test('disconnecting deletes the account, and deleting the user takes it with them', async () => {

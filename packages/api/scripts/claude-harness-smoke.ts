@@ -62,6 +62,11 @@ function line(event: HarnessEvent): string {
 	if (event.kind === 'done') {
 		return `done: session ${event.session?.id ?? 'none'} ${JSON.stringify(event.session?.state ?? null)}, ${event.inputTokens} in, ${event.outputTokens} out`;
 	}
+	if (event.kind === 'usage') {
+		const window = (name: string, used: {utilization: number; resetsAt: Date | null} | undefined) =>
+			used ? `${name} ${Math.round(used.utilization * 100)}% used, resets ${used.resetsAt?.toISOString() ?? 'unknown'}` : null;
+		return `usage: ${[window('5h', event.fiveHour), window('7d', event.sevenDay)].filter((part) => part !== null).join('; ')}`;
+	}
 	const cause = 'cause' in event.error && event.error.cause instanceof Error ? `: ${event.error.cause.message}` : '';
 	return `failed (${event.error.kind}${cause}), retry ${event.retry}`;
 }

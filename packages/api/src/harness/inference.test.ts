@@ -26,10 +26,16 @@ mock.module('./tool-surface', () => ({
 	toolSurfaceFor: (_store: unknown, candidate: {parentThreadId: string | null}) => (candidate.parentThreadId === null ? surface(create, false) : surface(read, true)),
 }));
 
-// How a member's Claude credential is read, and the harnesses the server has: the one under test
-// as the proxy harness, with no Claude Agent SDK harness, unless a test says otherwise.
+// How a member's Claude credential is read and what a turn tells their account, and the harnesses
+// the server has: the one under test as the proxy harness, with no Claude Agent SDK harness,
+// unless a test says otherwise.
 const claudeCredentialFor = mock<ClaudeCredentials['claudeCredentialFor']>(async () => Ok(null));
-const on = (proxy: HarnessBackend | null, claudeAgentSdk: HarnessBackend | null = null): Harnesses => ({registry: {proxy, claudeAgentSdk}, credentials: {claudeCredentialFor}});
+const markRefused = mock<ClaudeCredentials['markRefused']>(async () => Ok(undefined));
+const recordUsage = mock<ClaudeCredentials['recordUsage']>(async () => Ok(undefined));
+const on = (proxy: HarnessBackend | null, claudeAgentSdk: HarnessBackend | null = null): Harnesses => ({
+	registry: {proxy, claudeAgentSdk},
+	credentials: {claudeCredentialFor, markRefused, recordUsage},
+});
 
 const now = new Date('2026-10-21T10:00:00Z');
 // The member's conversation, and a sub-agent started from it.
@@ -536,9 +542,9 @@ describe('runInference', () => {
 		const session = {id: 'session-1', state: null};
 		const ended = (kept: typeof session | null): HarnessEvent => ({kind: 'done', session: kept, system: 'Sent.', inputTokens: 50, outputTokens: 9});
 
-		// The member connected their Claude subscription, which is what gets them the harness.
+		// The member connected a Claude token, which is what gets them the harness.
 		beforeEach(() => {
-			claudeCredentialFor.mockResolvedValue(Ok({kind: 'oauth', accessToken: 'tok', scopes: ['user:inference']}));
+			claudeCredentialFor.mockResolvedValue(Ok({kind: 'setup_token', token: 'tok'}));
 		});
 
 		test('writes each step as its first call is answered, the step’s words and calls then the result, the first step with the prompt, and the last step as the job ends, the session kept', async () => {
@@ -645,36 +651,65 @@ describe('runInference', () => {
 			expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-2', expect.objectContaining({text: 'Sent.'}), {stop: expect.anything()}, {harness: 'claude-agent-sdk', session});
 		});
 
-		test('a credential the model turned down is refreshed once and the turn run again now; refused again, or not to be refreshed, the person is told to connect again, and a sub-agent stops with that', async () => {
+		test('a credential the model turned down is noted on the account and the person told to connect again, with no second try; a sub-agent stops with that', async () => {
 			const {runInference} = await import('./inference');
-			claudeCredentialFor.mockResolvedValue(Ok({kind: 'oauth', accessToken: 'tok', scopes: ['user:inference']}));
 			fake.script([{kind: 'failed', error: ApiErr.credentialsRejected(), retry: false}]);
 			expect((await runInference(store, on(null, fake), job, 'w1', false, now)).isOk()).toBe(true);
-			expect(fake.turns.at(-1)?.auth).toEqual({kind: 'oauth', accessToken: 'tok', scopes: ['user:inference']});
-			expect(claudeCredentialFor).toHaveBeenLastCalledWith('user-1', {forceRefresh: true});
-			expect(requeueJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', now, expect.stringContaining('refreshed'));
-			expect(completeInference).not.toHaveBeenCalled();
+			expect(fake.turns.at(-1)?.auth).toEqual({kind: 'oauth', accessToken: 'tok', scopes: []});
+			expect(markRefused).toHaveBeenCalledWith('user-1');
+			expect(requeueJob).not.toHaveBeenCalled();
+			expect(completeInference).toHaveBeenCalledWith(
+				'job-1',
+				'w1',
+				'thread-1',
+				expect.objectContaining({text: 'Your Claude sign-in has run out or was refused. Connect it again on the Account page.'}),
+				{
+					plans: {},
+				},
+			);
 
-			claudeCredentialFor.mockClear();
-			fake.script([{kind: 'failed', error: ApiErr.credentialsRejected(), retry: false}]);
-			await runInference(store, on(null, fake), {...job, attempts: 2}, 'w1', false, now);
-			expect(claudeCredentialFor).not.toHaveBeenCalledWith('user-1', {forceRefresh: true});
-			expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: 'Your Claude sign-in expired or was refused. Connect it again on the Account page.'}), {
-				plans: {},
-			});
-
-			claudeCredentialFor.mockImplementation(async (_userId, options) => (options?.forceRefresh ? Err(ApiErr.unavailable('expired')) : Ok({kind: 'api_key', key: 'sk-ant-api-test'})));
+			// The note on the account is best effort: the person is told either way.
+			markRefused.mockResolvedValueOnce(Err(ApiErr.internalError(new Error('down'))));
+			claudeCredentialFor.mockResolvedValue(Ok({kind: 'api_key', key: 'sk-ant-api-test'}));
 			getJobThread.mockResolvedValue(Ok(sub));
 			fake.script([{kind: 'failed', error: ApiErr.credentialsRejected(), retry: false}]);
-			await runInference(store, on(null, fake), {...job, threadId: 'thread-2'}, 'w1', false, now);
+			expect((await runInference(store, on(null, fake), {...job, threadId: 'thread-2'}, 'w1', false, now)).isOk()).toBe(true);
 			expect(fake.turns.at(-1)?.auth).toEqual({kind: 'api_key', key: 'sk-ant-api-test'});
 			expect(store.failJob).toHaveBeenCalledWith('job-1', 'w1', expect.stringContaining('Connect it again'), expect.any(Function));
+		});
+
+		test('what the provider said of the plan during a turn on the member’s credential is kept on their account, window by window, as of now; a failure to keep it is not the turn’s', async () => {
+			const {runInference} = await import('./inference');
+			const resetsAt = new Date('2026-10-21T13:00:00Z');
+			recordUsage.mockResolvedValueOnce(Err(ApiErr.internalError(new Error('down'))));
+			fake.script([{kind: 'usage', fiveHour: {utilization: 0.37, resetsAt}}, {kind: 'text', text: 'Hello.'}, {kind: 'usage', sevenDay: {utilization: 0.12, resetsAt: null}}, ended(session)]);
+
+			expect((await runInference(store, on(null, fake), job, 'w1', false, now)).isOk()).toBe(true);
+
+			expect(recordUsage).toHaveBeenNthCalledWith(1, 'user-1', {fiveHour: {utilization: 0.37, resetsAt}, readAt: now});
+			expect(recordUsage).toHaveBeenNthCalledWith(2, 'user-1', {sevenDay: {utilization: 0.12, resetsAt: null}, readAt: now});
+			expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: 'Hello.'}), expect.anything(), {harness: 'claude-agent-sdk', session});
+		});
+
+		test('a turn on the server’s key keeps nothing of a usage event', async () => {
+			const {runInference} = await import('./inference');
+			const proxy = fakeHarness('proxy');
+			claudeCredentialFor.mockResolvedValue(Ok(null));
+			proxy.script([
+				{kind: 'usage', fiveHour: {utilization: 0.5, resetsAt: null}},
+				{kind: 'done', session: null, system: 'Sent.', inputTokens: 1, outputTokens: 1},
+			]);
+
+			expect((await runInference(store, on(proxy, fake), job, 'w1', false, now)).isOk()).toBe(true);
+
+			expect(recordUsage).not.toHaveBeenCalled();
+			expect(completeInference).toHaveBeenCalledTimes(1);
 		});
 
 		test('a member whose Claude sign-in can’t be refreshed is told so rather than moved to the server’s key; one with none goes to the proxy harness, and the credential is never looked for without the SDK harness', async () => {
 			const {runInference} = await import('./inference');
 			const proxy = fakeHarness('proxy');
-			claudeCredentialFor.mockResolvedValue(Err(ApiErr.unavailable('Your Claude sign-in expired or was refused. Connect it again on the Account page.')));
+			claudeCredentialFor.mockResolvedValue(Err(ApiErr.unavailable('Your Claude sign-in has run out or was refused. Connect it again on the Account page.')));
 			await runInference(store, on(proxy, fake), job, 'w1', false, now);
 			expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('Connect it again')}), {plans: {}});
 			expect(proxy.turns).toHaveLength(0);

@@ -3,7 +3,7 @@ import {existsSync, mkdirSync, mkdtempSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
-import type {NonNullableUsage, Options, SDKAssistantMessage, SDKMessage, SDKResultError, SDKResultSuccess} from '@anthropic-ai/claude-agent-sdk';
+import type {NonNullableUsage, Options, SDKAssistantMessage, SDKMessage, SDKRateLimitInfo, SDKResultError, SDKResultSuccess} from '@anthropic-ai/claude-agent-sdk';
 import type {BetaContentBlock} from '@anthropic-ai/sdk/resources/beta/messages';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {InMemoryTransport} from '@modelcontextprotocol/sdk/inMemory.js';
@@ -149,6 +149,10 @@ function toolResult(callId: string, text: string, isError = false, parent: strin
 		parent_tool_use_id: parent,
 		session_id: SESSION,
 	};
+}
+
+function rateLimit(info: SDKRateLimitInfo): SDKMessage {
+	return {type: 'rate_limit_event', rate_limit_info: info, uuid: randomUUID(), session_id: SESSION};
 }
 
 function result(extra: Partial<SDKResultSuccess> = {}): SDKMessage {
@@ -530,6 +534,32 @@ describe('claudeAgentSdkHarness', () => {
 			{kind: 'text', text: 'Done.'},
 			{kind: 'done', session: {id: SESSION, state: {lastSeq: input.entries[0]?.seq ?? 0}}, system: 'You are a test.', inputTokens: 17, outputTokens: 3},
 		]);
+	});
+
+	test('passes on what the binary said of the plan’s five-hour and seven-day windows as usage, the reset from unix seconds, and nothing of the other windows or one without a share', async () => {
+		const fake = fakeQuery();
+		fake.script(
+			messages([
+				init(),
+				rateLimit({status: 'allowed', rateLimitType: 'five_hour', utilization: 0.37, resetsAt: 1_794_000_000}),
+				assistant([textBlock('Hello')]),
+				rateLimit({status: 'allowed_warning', rateLimitType: 'seven_day', utilization: 0.8}),
+				rateLimit({status: 'allowed', rateLimitType: 'seven_day_opus', utilization: 0.1, resetsAt: 1_794_000_000}),
+				rateLimit({status: 'allowed', rateLimitType: 'five_hour'}),
+				rateLimit({status: 'rejected'}),
+				result(),
+			]),
+		);
+
+		const events = await collect(fake, turnInput());
+
+		expect(events).toMatchObject([
+			{kind: 'usage', fiveHour: {utilization: 0.37, resetsAt: new Date(1_794_000_000 * 1000)}},
+			{kind: 'text', text: 'Hello'},
+			{kind: 'usage', sevenDay: {utilization: 0.8, resetsAt: null}},
+			{kind: 'done'},
+		]);
+		expect(events[0]).not.toHaveProperty('sevenDay');
 	});
 
 	test('ends with the credential turned down on an authentication error, and with the model out of reach on a rate limit', async () => {

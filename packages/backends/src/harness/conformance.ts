@@ -28,6 +28,9 @@ const ENTRIES = [{kind: 'person' as const, text: 'Hi', toolCalls: null, callId: 
 
 const TERMINAL = new Set<HarnessEvent['kind']>(['done', 'failed']);
 
+// A usage event may come any time before the terminal event; it is not one.
+const USAGE_WINDOWS = new Set(['fiveHour', 'sevenDay']);
+
 // A turn's input, with the signal given or one never aborted. A credential is given, as the api
 // gives one to a harness chosen for it; a harness that runs with the server's key ignores it.
 function turnInput(signal = new AbortController().signal): HarnessTurn {
@@ -72,6 +75,25 @@ export function harnessConformance(name: string, make: () => {harness: HarnessBa
 
 			expect(events.filter((event) => TERMINAL.has(event.kind))).toHaveLength(1);
 			expect(TERMINAL.has(events.at(-1)?.kind ?? 'text')).toBe(true);
+		});
+
+		test('a usage event, where there is one, comes before the terminal event and speaks of a window as a share with a reset', async () => {
+			const {harness, scripted} = make();
+			scripted.answers({text: 'Hello', toolCalls: []});
+
+			const events = await collect(harness, turnInput());
+
+			for (const [index, event] of events.entries()) {
+				if (event.kind !== 'usage') {
+					continue;
+				}
+				expect(index).toBeLessThan(events.length - 1);
+				const windows = Object.entries(event).filter(([key]) => USAGE_WINDOWS.has(key));
+				expect(windows.length).toBeGreaterThan(0);
+				for (const [, window] of windows) {
+					expect(window).toMatchObject({utilization: expect.any(Number)});
+				}
+			}
 		});
 
 		test('every call of a turn has an id of its own', async () => {

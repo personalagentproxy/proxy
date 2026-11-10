@@ -2,14 +2,15 @@ import type {Result} from 'ts-results-es';
 
 import type {HarnessAuth, HarnessBackend} from '@proxy/backends/harness/backend';
 import type {ApiError} from '@proxy/utils';
+import type {ClaudeUsage} from '@proxy/db/claude-account';
 
 import type {ClaudeCredential} from '../me/claude-credential';
-import {SIGN_IN_EXPIRED} from '../me/claude-oauth';
+import {SIGN_IN_EXPIRED} from '../me/claude-token';
 
 /**
  * Which harness runs a thread's turns (@proxy/backends/harness), of those this server has: the
  * api's own loop over OpenRouter, where there is a key for it, and the Claude Agent SDK's, which
- * runs as the member, on the Claude subscription they connected on the Account page. A thread
+ * runs as the member, on the Claude credential they connected on the Account page. A thread
  * that a harness has run already stays with it, since the session the harness kept on the thread
  * is its alone; a new thread goes to the SDK harness where the member has a Claude credential and
  * the server has the harness, and to the proxy harness otherwise. A member who chose their
@@ -22,8 +23,16 @@ import {SIGN_IN_EXPIRED} from '../me/claude-oauth';
 /** The harnesses this server has, by what each is; null for one it hasn't got. */
 export type HarnessRegistry = {proxy: HarnessBackend | null; claudeAgentSdk: HarnessBackend | null};
 
-/** How a member's Claude credential is read: the api's own (me/claude-credential.ts), or a test's. */
-export type ClaudeCredentials = {claudeCredentialFor: (userId: string, options?: {forceRefresh?: boolean}) => Promise<Result<ClaudeCredential | null, ApiError>>};
+/**
+ * How a member's Claude credential is read, and what a turn on it tells the account: that the
+ * model turned it down, and what the provider said of the plan. The api's own
+ * (me/claude-credential.ts), or a test's.
+ */
+export type ClaudeCredentials = {
+	claudeCredentialFor: (userId: string) => Promise<Result<ClaudeCredential | null, ApiError>>;
+	markRefused: (userId: string) => Promise<Result<void, ApiError>>;
+	recordUsage: (userId: string, usage: ClaudeUsage) => Promise<Result<void, ApiError>>;
+};
 
 /** What the worker runs turns with: the harnesses, and how a member's credential is read, which the choice between them turns on. */
 export type Harnesses = {registry: HarnessRegistry; credentials: ClaudeCredentials};
@@ -38,11 +47,8 @@ function notOnThisServer(harness: string): string {
 	return `This conversation runs on the ${harness} harness, which this server hasn’t got. Everything else works as before.`;
 }
 
-/** The credential as the harness is handed it: a setup token goes as a sign-in's token would, with no scopes. */
+/** The credential as the harness is handed it: a token goes as a sign-in's access token would, with no scopes, which is how the SDK takes `CLAUDE_CODE_OAUTH_TOKEN`. */
 export function authFor(credential: ClaudeCredential): HarnessAuth {
-	if (credential.kind === 'oauth') {
-		return {kind: 'oauth', accessToken: credential.accessToken, scopes: credential.scopes};
-	}
 	if (credential.kind === 'setup_token') {
 		return {kind: 'oauth', accessToken: credential.token, scopes: []};
 	}

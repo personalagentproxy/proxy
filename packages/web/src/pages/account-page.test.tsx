@@ -1,6 +1,6 @@
 /// <reference types="bun" />
 
-import {afterEach, beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
+import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {Ok} from 'ts-results-es';
 import {createMemoryRouter, RouterProvider} from 'react-router';
@@ -8,13 +8,10 @@ import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import type {ClaudeAccount} from '@proxy/contracts/me';
 import {HumanSide} from '@/components/human-side';
+import {formatDateTime} from '@/lib/format';
 import {AccountPage} from '@/pages/account-page';
 import {testHuman} from '@/test-org';
 
-const beginClaudeSignIn = mock(async () =>
-	Ok({authorizeUrl: 'https://claude.com/cai/oauth/authorize?state=st'}),
-);
-const finishClaudeSignIn = mock(async () => Ok({account: null}));
 const connectClaudeToken = mock(async () => Ok({account: null}));
 const disconnectClaude = mock(async () => Ok({account: null}));
 mock.module('@/client/me-client', () => ({
@@ -24,14 +21,10 @@ mock.module('@/client/me-client', () => ({
 	deleteSession: mock(),
 	deleteOtherSessions: mock(),
 	getClaudeAccount: mock(),
-	beginClaudeSignIn,
-	finishClaudeSignIn,
 	connectClaudeToken,
 	disconnectClaude,
 }));
 mock.module('@/client/auth-client', () => ({signOut: mock()}));
-
-const open = spyOn(window, 'open').mockImplementation(() => null);
 
 beforeEach(() => {
 	mock.clearAllMocks();
@@ -49,13 +42,15 @@ const session = {
 	current: true,
 };
 
-const subscription: ClaudeAccount['account'] = {
-	kind: 'oauth',
-	email: 'dana@example.com',
-	subscriptionType: 'max',
-	expiresAt: '2026-11-09T20:00:00.000Z',
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// A token with most of its year left.
+const token: ClaudeAccount['account'] = {
+	kind: 'setup_token',
+	expiresAt: '2027-11-09T12:00:00.000Z',
 	failure: null,
 	connectedAt: '2026-11-09T12:00:00.000Z',
+	usage: null,
 };
 
 function renderPage(claude: ClaudeAccount['account']) {
@@ -86,76 +81,71 @@ function renderPage(claude: ClaudeAccount['account']) {
 }
 
 describe('AccountPage, the Claude card', () => {
-	test('not connected, it says what connecting is for and offers to', async () => {
+	test('not connected, it says what connecting is for, shows the command to run with a copy button, takes a pasted token, and points to the desktop app', async () => {
 		renderPage(null);
 		expect(
 			await screen.findByText(/Run the built-in agent on your own Claude subscription/),
 		).toBeDefined();
-		expect(screen.getByRole('button', {name: 'Connect Claude'})).toBeDefined();
-		expect(screen.queryByLabelText('Paste the code from Claude')).toBeNull();
-	});
+		expect(screen.getByRole('button', {name: 'Copy command'})).toBeDefined();
+		expect(screen.getByText('Or connect from the desktop app.')).toBeDefined();
 
-	test("connecting opens Claude's sign-in in a new tab and asks for the code, which connects", async () => {
-		renderPage(null);
-		fireEvent.click(await screen.findByRole('button', {name: 'Connect Claude'}));
-
-		await waitFor(() => expect(beginClaudeSignIn).toHaveBeenCalledTimes(1));
-		expect(open).toHaveBeenCalledWith(
-			'https://claude.com/cai/oauth/authorize?state=st',
-			'_blank',
-			'noopener',
-		);
-		const field = await screen.findByLabelText('Paste the code from Claude');
-		expect(screen.getByRole('link', {name: 'Open Claude again'}).getAttribute('href')).toBe(
-			'https://claude.com/cai/oauth/authorize?state=st',
-		);
-
-		fireEvent.change(field, {target: {value: 'the-code#st'}});
-		fireEvent.click(screen.getByRole('button', {name: 'Connect'}));
-		await waitFor(() => expect(finishClaudeSignIn).toHaveBeenCalledWith('the-code#st'));
-	});
-
-	test('a setup token or API key is pasted instead, behind a disclosure', async () => {
-		renderPage(null);
-		fireEvent.click(
-			await screen.findByRole('button', {name: 'Paste a setup token or API key instead'}),
-		);
-		const field = await screen.findByLabelText('Setup token or API key');
+		const field = screen.getByLabelText(/Paste a token from/);
 		fireEvent.change(field, {target: {value: 'sk-ant-oat01-abc'}});
 		fireEvent.click(screen.getByRole('button', {name: 'Connect'}));
 		await waitFor(() => expect(connectClaudeToken).toHaveBeenCalledWith('sk-ant-oat01-abc'));
 	});
 
-	test('connected with a subscription, it names the account, the plan, and disconnects', async () => {
-		renderPage(subscription);
-		expect(await screen.findByText('Connected with a Claude subscription.')).toBeDefined();
-		expect(screen.getByText('dana@example.com · Max plan')).toBeDefined();
-		expect(screen.queryByRole('button', {name: /Connect/})).toBeNull();
+	test('connected with a token, it says so and until when, offers no form, and disconnects', async () => {
+		renderPage(token);
+		expect(await screen.findByText('Connected with a Claude token.')).toBeDefined();
+		const until = screen.getByText(/Signed in until Nov 9, 2027\./);
+		expect(until.className).not.toContain('text-destructive');
+		expect(screen.queryByText(/Connect again/)).toBeNull();
+		expect(screen.queryByLabelText(/Paste a token from/)).toBeNull();
 
 		fireEvent.click(screen.getByRole('button', {name: 'Disconnect'}));
 		await waitFor(() => expect(disconnectClaude).toHaveBeenCalledTimes(1));
 	});
 
-	test('connected with a token, it says which kind and nothing of an expiry', async () => {
-		renderPage({
-			...subscription,
-			kind: 'setup_token',
-			email: null,
-			subscriptionType: null,
-			expiresAt: null,
-		});
-		expect(await screen.findByText('Connected with a setup token.')).toBeDefined();
+	test('connected with an API key, it says which kind and nothing of an end', async () => {
+		renderPage({...token, kind: 'api_key', expiresAt: null});
+		expect(await screen.findByText('Connected with an API key.')).toBeDefined();
+		expect(screen.queryByText(/Signed in until/)).toBeNull();
 	});
 
-	test('a refused refresh is shown in red, with the way to connect again', async () => {
+	test('a token near its end is shown in red with the way to connect again, and the form is back', async () => {
+		renderPage({...token, expiresAt: new Date(Date.now() + 10 * DAY_MS).toISOString()});
+		const until = await screen.findByText(/Signed in until .* Connect again soon\./);
+		expect(until.className).toContain('text-destructive');
+		expect(screen.getByLabelText(/Paste a token from/)).toBeDefined();
+	});
+
+	test('a refused credential is shown in red, with the form to connect again', async () => {
 		renderPage({
-			...subscription,
-			failure: 'Your Claude sign-in expired or was refused. Connect it again on the Account page.',
+			...token,
+			failure:
+				'Your Claude sign-in has run out or was refused. Connect it again on the Account page.',
 		});
-		const failure = await screen.findByText(/expired or was refused/);
+		const failure = await screen.findByText(/run out or was refused/);
 		expect(failure.className).toContain('text-destructive');
-		fireEvent.click(screen.getByRole('button', {name: 'Connect again'}));
-		await waitFor(() => expect(beginClaudeSignIn).toHaveBeenCalledTimes(1));
-		expect(await screen.findByLabelText('Paste the code from Claude')).toBeDefined();
+		expect(screen.getByLabelText(/Paste a token from/)).toBeDefined();
+	});
+
+	test('the plan’s usage as the last turn had it: each window spoken of, its reset, and when that was', async () => {
+		renderPage({
+			...token,
+			usage: {
+				fiveHour: {utilization: 0.37, resetsAt: '2026-11-10T15:00:00.000Z'},
+				sevenDay: {utilization: 0.125, resetsAt: null},
+				readAt: '2026-11-10T12:30:00.000Z',
+			},
+		});
+		expect(
+			await screen.findByText(
+				`5-hour window: 37% used, resets ${formatDateTime('2026-11-10T15:00:00.000Z')}`,
+			),
+		).toBeDefined();
+		expect(screen.getByText('7-day window: 13% used')).toBeDefined();
+		expect(screen.getByText(`As of ${formatDateTime('2026-11-10T12:30:00.000Z')}.`)).toBeDefined();
 	});
 });

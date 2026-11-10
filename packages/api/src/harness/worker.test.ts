@@ -17,7 +17,10 @@ mock.module('./inference', () => ({runInference}));
 const runToolJob = mock<Run>(async () => Ok(undefined));
 mock.module('./tool-job', () => ({runToolJob}));
 
-const harness: Harnesses = {registry: {proxy: fakeHarness(), claudeAgentSdk: null}, credentials: {claudeCredentialFor: async () => Ok(null)}};
+const harness: Harnesses = {
+	registry: {proxy: fakeHarness(), claudeAgentSdk: null},
+	credentials: {claudeCredentialFor: async () => Ok(null), markRefused: async () => Ok(undefined), recordUsage: async () => Ok(undefined)},
+};
 const now = new Date();
 const inference: JobRow = {id: 'j1', threadId: 't1', kind: 'inference', status: 'running', entryId: null, callId: null, runAt: now, claimedBy: 'w', attempts: 1};
 const tool: JobRow = {...inference, id: 'j2', kind: 'tool', entryId: 'e1', callId: 'c1'};

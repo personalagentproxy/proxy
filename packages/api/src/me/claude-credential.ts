@@ -1,110 +1,60 @@
-import {Err, Ok, type Result} from 'ts-results-es';
+import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {type ApiError, Do} from '@proxy/utils';
-import {type ClaudeAccountRow, type ClaudeAccountUpdate, updateClaudeAccountLocked} from '@proxy/db/claude-account';
+import {ApiErr, type ApiError, Do} from '@proxy/utils';
+import {type ClaudeAccountRow, type ClaudeUsage, getClaudeAccount, markClaudeAccountFailed, setClaudeAccountUsage} from '@proxy/db/claude-account';
 
 import {log} from '../observability/log';
-import {encryptSecret} from '../utils/secret-crypto';
 import {readStoredJson} from '../utils/stored-json';
-import {type OauthCredential, refreshCredential} from './claude-oauth';
+import {SIGN_IN_EXPIRED} from './claude-token';
 
 /**
- * The credential the built-in agent runs under for a member, as the rest of the api asks for it:
- * a sign-in's access token, good for at least a few minutes, refreshed here when it isn't, with the
- * account's row locked so two workers or instances never refresh one refresh token at once; a setup
- * token or an API key as pasted. A refresh that was refused is noted on the account, for the
- * Account page to say so, and comes back as the error until the person connects again.
+ * The credential the built-in agent runs under for a member, as the rest of the api asks for it: a
+ * long-lived token or an API key, decrypted from the account's row and handed out as it is. The api
+ * refreshes nothing: a token whose end, as the mint reported it, has passed is no good, as is one
+ * the model turned down, and either is noted on the account, for the Account page to say so, and
+ * comes back as the error until the person connects again. What a turn said of the member's plan
+ * is kept on the account too, for the card.
  */
 
-export type ClaudeCredential = {kind: 'oauth'; accessToken: string; scopes: string[]} | {kind: 'setup_token'; token: string} | {kind: 'api_key'; key: string};
-
-// An access token with less than this left is refreshed before it is handed out, so a turn that
-// starts on it isn't cut short.
-const REFRESH_WITHIN_MS = 5 * 60 * 1000;
-
-/** What the credential column holds for a sign-in, as JSON. */
-export const storedOauthSchema = z.object({
-	accessToken: z.string(),
-	refreshToken: z.string(),
-	expiresAt: z.iso.datetime(),
-	scopes: z.array(z.string()),
-});
+export type ClaudeCredential = {kind: 'setup_token'; token: string} | {kind: 'api_key'; key: string};
 
 const storedTokenSchema = z.object({token: z.string()});
 const storedKeySchema = z.object({key: z.string()});
 
-/** A sign-in's tokens as the credential column stores them, encrypted. */
-export function encryptOauthCredential(credential: OauthCredential): Result<string, ApiError> {
-	const stored: z.infer<typeof storedOauthSchema> = {
-		accessToken: credential.accessToken,
-		refreshToken: credential.refreshToken,
-		expiresAt: credential.expiresAt.toISOString(),
-		scopes: credential.scopes,
-	};
-	return encryptSecret(JSON.stringify(stored));
-}
-
-type Outcome = {update: ClaudeAccountUpdate; value: Result<ClaudeCredential, ApiError>};
-
-function unchanged(value: Result<ClaudeCredential, ApiError>): Outcome {
-	return {update: null, value};
-}
-
-// A sign-in's access token: as stored while it has time left, else refreshed and the rotated pair
-// stored in its place.
-async function oauthCredential(row: ClaudeAccountRow, forceRefresh: boolean): Promise<Outcome> {
-	const stored = readStoredJson(row.credential, storedOauthSchema);
-	if (stored.isErr()) {
-		return unchanged(Err(stored.error));
-	}
-	const current: OauthCredential = {...stored.value, expiresAt: new Date(stored.value.expiresAt)};
-	if (!forceRefresh && current.expiresAt.getTime() - Date.now() > REFRESH_WITHIN_MS) {
-		return unchanged(Ok({kind: 'oauth', accessToken: current.accessToken, scopes: current.scopes}));
-	}
-	const refreshed = await refreshCredential(current);
-	if (refreshed.isErr()) {
-		if (refreshed.error.kind !== 'unavailable') {
-			return unchanged(Err(refreshed.error));
-		}
-		log.warn('Refreshing a Claude sign-in was refused', {userId: row.userId});
-		return {update: {failedAt: new Date(), failure: refreshed.error.message}, value: Err(refreshed.error)};
-	}
-	const encrypted = encryptOauthCredential(refreshed.value);
-	if (encrypted.isErr()) {
-		return unchanged(Err(encrypted.error));
-	}
-	return {
-		update: {credential: encrypted.value, expiresAt: refreshed.value.expiresAt, lastRefreshedAt: new Date()},
-		value: Ok({kind: 'oauth', accessToken: refreshed.value.accessToken, scopes: refreshed.value.scopes}),
-	};
-}
-
-function pastedCredential(row: ClaudeAccountRow): Outcome {
+function decrypted(row: ClaudeAccountRow): Result<ClaudeCredential, ApiError> {
 	if (row.kind === 'setup_token') {
-		return unchanged(readStoredJson(row.credential, storedTokenSchema).map(({token}) => ({kind: 'setup_token', token})));
+		return readStoredJson(row.credential, storedTokenSchema).map(({token}) => ({kind: 'setup_token', token}));
 	}
-	return unchanged(readStoredJson(row.credential, storedKeySchema).map(({key}) => ({kind: 'api_key', key})));
+	return readStoredJson(row.credential, storedKeySchema).map(({key}) => ({kind: 'api_key', key}));
 }
 
 /**
- * The member's Claude credential, ready to use, or null when they connected none. `forceRefresh`
- * refreshes a sign-in's access token however much time it has left, for a turn Claude refused the
- * token of.
+ * The member's Claude credential, ready to use, or null when they connected none. A token past
+ * the end the mint reported is refused here rather than by the model, and the account marked so.
  */
-export function claudeCredentialFor(userId: string, options: {forceRefresh?: boolean} = {}): Promise<Result<ClaudeCredential | null, ApiError>> {
+export function claudeCredentialFor(userId: string, now = new Date()): Promise<Result<ClaudeCredential | null, ApiError>> {
 	return Do(async ($) => {
-		const outcome = $(
-			await updateClaudeAccountLocked(userId, async (row): Promise<Outcome> => {
-				if (row.kind === 'oauth') {
-					return oauthCredential(row, options.forceRefresh === true);
-				}
-				return pastedCredential(row);
-			}),
-		);
-		if (outcome === null) {
+		const row = $(await getClaudeAccount(userId));
+		if (row === null) {
 			return null;
 		}
-		return $(outcome);
+		if (row.expiresAt !== null && row.expiresAt.getTime() <= now.getTime()) {
+			log.warn('A member’s Claude token has run out', {userId});
+			$(await markClaudeAccountFailed(userId, SIGN_IN_EXPIRED));
+			return $(Err(ApiErr.unavailable(SIGN_IN_EXPIRED)));
+		}
+		return $(decrypted(row));
 	});
+}
+
+/** Notes that the model turned the member's credential down, for the Account page to say so. */
+export function markClaudeCredentialRefused(userId: string): Promise<Result<void, ApiError>> {
+	log.warn('The model turned a member’s Claude credential down', {userId});
+	return markClaudeAccountFailed(userId, SIGN_IN_EXPIRED);
+}
+
+/** Keeps what a turn said of the member's plan, for the Account page's card. */
+export function recordClaudeUsage(userId: string, usage: ClaudeUsage): Promise<Result<void, ApiError>> {
+	return setClaudeAccountUsage(userId, usage);
 }

@@ -5,9 +5,9 @@ import {ApiErr, type ApiError, Do, requirePresent, semaphore, type Semaphore} fr
 import {CALL_INTERRUPTED, type HarnessSession, pendingToolCalls, RUN_INTERRUPTED, type ToolCall} from '@proxy/utils/harness';
 import type {AssistantTurn, EntryRow, JobRow, NewTurnEntry, SubAgentRow, ThreadRow, ThreadSession} from '@proxy/db/harness';
 
-import {type HarnessChoice, type Harnesses, harnessFor, needsCredential} from '../backends/harness';
+import {type ClaudeCredentials, type HarnessChoice, type Harnesses, harnessFor, needsCredential} from '../backends/harness';
 import {agentInstructions} from '../mcp/tools';
-import {SIGN_IN_EXPIRED} from '../me/claude-oauth';
+import {SIGN_IN_EXPIRED} from '../me/claude-token';
 import {log, serializeError} from '../observability/log';
 import {alertsParagraph} from './alerts';
 import {afterAnswer, failureNote, jobLost, planCalls} from './conversation';
@@ -31,9 +31,11 @@ import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
  * call with arguments that are no good. A harness that keeps a session between turns leaves it on
  * the thread then, with its id, so the thread stays with it. A turn that failed and is worth
  * trying again, the model out of reach, is tried again a few times, then the person is told; a
- * credential the model turned down is refreshed once and the turn run again, then the person is
- * told to connect again; any other failure fails the job, which tells them too (conversation.ts
- * failureNote). A sub-agent's answer with no calls goes to the agent it works for, and stops its
+ * credential the model turned down is noted on the member's account, for the Account page to say
+ * so, and the person is told to connect again; any other failure fails the job, which tells them
+ * too (conversation.ts failureNote). What the model's provider says of the member's plan as a turn
+ * on their credential runs is kept on their account too, for the card, as best it can be: a
+ * failure to keep it is logged, and the turn goes on. A sub-agent's answer with no calls goes to the agent it works for, and stops its
  * work for now, unless a message came while it answered. An answer of nothing, no words and no
  * calls, is written as that said: the person would otherwise see nothing, and the model refuses a
  * log with an empty turn in it. The model is the thread's persona's, read at each turn, a
@@ -208,20 +210,28 @@ function systemPrompt(store: InferenceStore, thread: ThreadRow, subAgents: SubAg
 	});
 }
 
+/** What a turn's `usage` event is given to: what the provider said of the member's plan. */
+type UsageSink = (usage: Extract<HarnessEvent, {kind: 'usage'}>) => Promise<void>;
+
 // What the harness did, from its events, written as it goes, every write fenced by the lease: a
 // summary as it comes; the answer's words, each piece after the last, and its calls kept as the
 // step under way, which a result the harness answered a call with ends, the step written as an
 // assistant entry and the result after it, the first step with the system prompt; what is left
 // when `done` comes is the turn's last step, given back with what the turn cost, the session kept
-// and the calls still open. A result for a call the turn didn't make, or answered already, and a
-// turn that ends without `done` or `failed`, are failures of the harness.
-function consume(store: InferenceStore, job: JobRow, workerId: string, system: string, events: AsyncIterable<HarnessEvent>): Promise<Result<TurnOutcome, ApiError>> {
+// and the calls still open. What the provider said of the plan goes to `onUsage`. A result for a
+// call the turn didn't make, or answered already, and a turn that ends without `done` or `failed`,
+// are failures of the harness.
+function consume(store: InferenceStore, job: JobRow, workerId: string, system: string, events: AsyncIterable<HarnessEvent>, onUsage: UsageSink): Promise<Result<TurnOutcome, ApiError>> {
 	return Do(async ($) => {
 		let pieces: string[] = [];
 		let toolCalls: ToolCall[] = [];
 		const open = new Map<string, ToolCall>();
 		let wroteInline = false;
 		for await (const event of events) {
+			if (event.kind === 'usage') {
+				await onUsage(event);
+				continue;
+			}
 			if (event.kind === 'summary') {
 				const written = $(await store.appendSummary(job.id, workerId, job.threadId, {text: event.text, inputTokens: event.inputTokens, outputTokens: event.outputTokens}, event.coversSeq));
 				if (!written) {
@@ -295,12 +305,28 @@ function maxSteps(harness: HarnessBackend, entries: EntryRow[]): number {
 	return ONE_STEP;
 }
 
+// Where what the provider said of the member's plan goes: their account, where the turn runs on
+// their credential, as best it can be kept; nowhere on the server's key, which has no plan of
+// theirs to speak of.
+function usageSink(credentials: ClaudeCredentials, choice: HarnessChoice, thread: ThreadRow, now: Date): UsageSink {
+	if (choice.auth === null) {
+		return async () => {};
+	}
+	return async (usage) => {
+		const kept = await credentials.recordUsage(thread.userId, {...(usage.fiveHour ? {fiveHour: usage.fiveHour} : {}), ...(usage.sevenDay ? {sevenDay: usage.sevenDay} : {}), readAt: now});
+		if (kept.isErr()) {
+			log.warn('What the model’s provider said of the member’s plan could not be kept', {userId: thread.userId, ...serializeError(kept.error)});
+		}
+	};
+}
+
 // The harness's turn on the log, with the system prompt built for it, and the credential the
 // harness was chosen with, if any. The thread's sub-agents are read once, for the prompt and for
 // whose each message in the log is; a sub-agent's thread has none. The signal is never aborted:
 // stopping the worker lets the turns under way finish, as it always has.
 function askOnLog(
 	store: InferenceStore,
+	credentials: ClaudeCredentials,
 	choice: HarnessChoice & {harness: HarnessBackend},
 	job: JobRow,
 	workerId: string,
@@ -333,6 +359,7 @@ function askOnLog(
 						maxSteps: maxSteps(choice.harness, entries),
 						signal: new AbortController().signal,
 					}),
+					usageSink(credentials, choice, thread, now),
 				),
 			),
 		);
@@ -432,14 +459,12 @@ export function runInference(store: InferenceStore, harnesses: Harnesses, job: J
 			$(await answerFailure(store, job, workerId, thread, choice.why));
 			return;
 		}
-		const outcome = $(await askOnLog(store, choice, job, workerId, thread, entries, woken, now));
+		const outcome = $(await askOnLog(store, harnesses.credentials, choice, job, workerId, thread, entries, woken, now));
 		if (credentialRefused(outcome, choice)) {
-			// Once per job: a credential refreshed on purpose and refused again is no good.
-			const refreshed = job.attempts > 1 ? null : await harnesses.credentials.claudeCredentialFor(thread.userId, {forceRefresh: true});
-			if (refreshed?.isOk() && refreshed.value !== null) {
-				log.warn('The model turned the member’s Claude credential down; refreshed, trying the turn again', {attempt: job.attempts, userId: thread.userId});
-				$(await store.requeueJob(job.id, workerId, thread.id, now, 'The model turned the Claude credential down; refreshed'));
-				return;
+			// Noted on the account as best it can be: the person is told either way.
+			const marked = await harnesses.credentials.markRefused(thread.userId);
+			if (marked.isErr()) {
+				log.warn('The model turned the member’s Claude credential down, which could not be noted on their account', {userId: thread.userId, ...serializeError(marked.error)});
 			}
 			$(await answerFailure(store, job, workerId, thread, SIGN_IN_EXPIRED));
 			return;
