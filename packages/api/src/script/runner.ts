@@ -3,8 +3,10 @@ import {writeSync} from 'node:fs';
 import variant from '@jitl/quickjs-wasmfile-release-sync';
 import {newQuickJSWASMModuleFromVariant, type QuickJSContext, type QuickJSDeferredPromise, type QuickJSHandle, type QuickJSRuntime} from 'quickjs-emscripten-core';
 
+import {PAP_METHODS} from '@proxy/contracts/cli';
+
 import {readLines} from './lines';
-import {type AnswerMessage, apiMessageSchema, PAP_METHODS, type RunnerMessage, type ScriptError, type StartMessage} from './protocol';
+import {type AnswerMessage, apiMessageSchema, type RunnerMessage, type ScriptError, type StartMessage} from './protocol';
 
 /**
  * A script's runner: a process of its own, started by the api with nothing in its environment

@@ -6,9 +6,10 @@ import {transform} from 'sucrase';
 import {Err, Ok, Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
+import type {PapMethod} from '@proxy/contracts/cli';
 
 import {readLines} from './lines';
-import {argsSchema, type Json, type PapMethod, runnerMessageSchema, type RunnerMessage, type ScriptError} from './protocol';
+import {argsSchema, type Json, runnerMessageSchema, type RunnerMessage, type ScriptError} from './protocol';
 
 /**
  * Runs an agent's script: TypeScript or JavaScript whose `pap` functions are the agent's tools,

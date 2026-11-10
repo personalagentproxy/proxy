@@ -46,7 +46,12 @@ function formatMoment(iso: string): string {
 }
 
 // How the request came in, as the entry says.
-const THROUGH = {web: 'Agent web pages', mcp: 'MCP', harness: 'Built-in agent'} as const;
+const THROUGH = {
+	web: 'Agent web pages',
+	mcp: 'MCP',
+	harness: 'Built-in agent',
+	cli: 'A sandbox',
+} as const;
 
 function Detail({label, children}: {label: string; children: ReactNode}) {
 	return (

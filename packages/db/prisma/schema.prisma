@@ -394,12 +394,13 @@ enum AuditOutcome {
   failed
 }
 
-// How an agent came in: the web app's agent pages, the MCP server, or the built-in agent's own
-// loop (`harness`).
+// How an agent came in: the web app's agent pages, the MCP server, the built-in agent's own
+// loop (`harness`), or code in a sandbox calling `/api/cli` with its command's token (`cli`).
 enum AuditVia {
   web
   mcp
   harness
+  cli
 }
 
 // One request an agent made, allowed, denied or failed, or one thing Personal Agent Proxy did
