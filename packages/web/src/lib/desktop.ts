@@ -15,6 +15,15 @@ export function isDesktopApp(): boolean {
 	return navigator.userAgent.includes(DESKTOP_USER_AGENT);
 }
 
+/** The desktop app's version, as its user agent says it; null in a browser. */
+export function desktopVersion(): string | null {
+	const at = navigator.userAgent.indexOf(DESKTOP_USER_AGENT);
+	if (at === -1) {
+		return null;
+	}
+	return navigator.userAgent.slice(at + DESKTOP_USER_AGENT.length).split(' ')[0] || null;
+}
+
 /**
  * The desktop app's Claude sign-in (`packages/desktop/src/claude-sign-in.ts`): `start` opens
  * Claude's sign-in page in the browser, where the person is shown a code; `finish` trades the
@@ -27,9 +36,23 @@ export type DesktopClaudeSignIn = {
 };
 
 /**
+ * Where the desktop app's update stands (`packages/desktop/src/updates.ts`): looked for, found and
+ * downloading, downloaded and installed by a restart, none newer, the look failed, or, in a
+ * development run, no updates at all.
+ */
+export type DesktopUpdateStatus =
+	| {state: 'idle'}
+	| {state: 'checking'}
+	| {state: 'latest'}
+	| {state: 'downloading'; version: string; percent: number}
+	| {state: 'ready'; version: string}
+	| {state: 'failed'}
+	| {state: 'unavailable'};
+
+/**
  * What the desktop app's window gives its pages (`packages/desktop/src/preload.ts`): the version
  * of an update it has downloaded, if any, word when it downloads one, and the restart that installs
- * it; notifications, shown by the app, which hands back the page one opens when clicked, and the
+ * it; where the update stands, word as that changes, and a look for one begun now; notifications, shown by the app, which hands back the page one opens when clicked, and the
  * count on its badge; and the Claude sign-in.
  */
 export type DesktopBridge = {
@@ -38,6 +61,10 @@ export type DesktopBridge = {
 	updateReady(): Promise<string | null>;
 	onUpdateReady(listener: (version: string) => void): () => void;
 	restart(): void;
+	// Optional while installed desktop apps from before the update check still load this page.
+	updateStatus?(): Promise<DesktopUpdateStatus | null>;
+	onUpdateStatus?(listener: (status: DesktopUpdateStatus) => void): () => void;
+	checkForUpdates?(): void;
 	// Optional while installed desktop apps from before notifications still load this page.
 	notify?(notice: {title: string; body: string; path: string; tag: string}): void;
 	onOpenPath?(listener: (path: string) => void): () => void;

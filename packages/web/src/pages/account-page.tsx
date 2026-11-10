@@ -15,6 +15,7 @@ import {deleteAccount, deleteOtherSessions, deleteSession} from '@/client/me-cli
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {ClaudeCard} from '@/components/claude-card';
 import {DangerCard} from '@/components/danger-card';
+import {DesktopUpdateCheck} from '@/components/desktop-update-check';
 import {IconButton} from '@/components/icon-button';
 import {NotificationSetting} from '@/components/notification-setting';
 import {OrgTile} from '@/components/org-switcher';
@@ -26,6 +27,7 @@ import {TypeToConfirmDialog} from '@/components/type-to-confirm-dialog';
 import {useApply} from '@/hooks/use-apply';
 import {useHuman} from '@/hooks/use-human';
 import {useLoaded} from '@/hooks/use-loaded';
+import {desktopBridge, desktopVersion} from '@/lib/desktop';
 import {formatDate} from '@/lib/format';
 import {describeApiError} from '@/lib/loader-utils';
 import {notificationSupport} from '@/lib/notifications';
@@ -34,7 +36,9 @@ import type {accountLoader} from '@/loaders';
 
 // The person's account, in no organization: who is signed in, how the app looks to them, whether
 // this device tells them what the agents say while they are elsewhere (where any of their
-// organizations has Chat, and the device can), their own Claude account, which the built-in agent
+// organizations has Chat, and the device can), in a desktop app that can be asked to look for its
+// next version its version and the look (one from before that hears of the update on the Claude
+// card), their own Claude account, which the built-in agent
 // runs under for them, the organizations they are in, each to its own
 // settings, every browser and desktop app they are signed in on, each to sign out, and deleting
 // the account, which deletes every one they own.
@@ -69,6 +73,7 @@ function Account() {
 	// The organizations deleted with the account that others are in or invited to.
 	const shared = human.orgs.filter((org) => org.role === 'owner' && hasOtherPeople(org));
 	const chats = human.orgs.some((org) => org.experiments.includes('harness'));
+	const desktop = desktopBridge()?.checkForUpdates ? desktopVersion() : null;
 
 	return (
 		<>
@@ -96,6 +101,14 @@ function Account() {
 						<p className="text-sm text-muted-foreground">
 							A notification on this device when an agent answers in Chat while you are elsewhere.
 						</p>
+					</Section>
+				)}
+				{desktop && (
+					<Section title="Desktop app">
+						<RowList>
+							<SettingRow label="Version">{desktop}</SettingRow>
+						</RowList>
+						<DesktopUpdateCheck />
 					</Section>
 				)}
 				<ClaudeCard account={claude} />
