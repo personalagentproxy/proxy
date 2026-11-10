@@ -34,12 +34,13 @@ import {handleRefreshCustomMcpToolsRoute} from '../connections/custom/route';
 import type {ApiIntegration} from '../connections/integration';
 import {apiIntegrations} from '../connections/integrations';
 import {
+	handleCreateVaultRoute,
 	handleDeleteConnectionRoute,
 	handleGetConnectionRoute,
 	handleListConnectionsRoute,
 	handleRenameConnectionRoute,
 	handleSetConnectionDefaultsRoute,
-	handleShareConnectionRoute,
+	handleSetConnectionSharingRoute,
 } from '../connections/route';
 import {handleFaviconRoute} from '../favicons/route';
 import {alertRoutes} from '../harness/alerts-route';
@@ -151,11 +152,13 @@ export function createApiRouter(): express.Router {
 	for (const integration of apiIntegrations()) {
 		mountConnectRoutes(router, org, integration);
 	}
+	// A vault is made rather than connected: it lives here, so there is nothing to sign in to.
+	org.post('/connections/vault', withAuthResult('Create vault route', handleCreateVaultRoute));
 	org.get('/connections/:connectionId', withAuthResult('Get connection route', handleGetConnectionRoute));
 	org.delete('/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
 	org.put('/connections/:connectionId/defaults', withAuthResult('Set connection defaults route', handleSetConnectionDefaultsRoute));
 	org.put('/connections/:connectionId/name', withAuthResult('Rename connection route', handleRenameConnectionRoute));
-	org.post('/connections/:connectionId/share', withAuthResult('Share connection route', handleShareConnectionRoute));
+	org.put('/connections/:connectionId/sharing', withAuthResult('Set connection sharing route', handleSetConnectionSharingRoute));
 	org.post('/connections/:connectionId/tools', withAuthResult('Refresh custom MCP server tools route', handleRefreshCustomMcpToolsRoute));
 	const records = '/connections/:connectionId/collections/:collectionId/records';
 	org.get(records, withAuthResult('List records route', handleListRecordsRoute));

@@ -16,9 +16,9 @@ import {SideEmpty, SideToggle} from '@/components/share-toggle';
 import {ContextMenuItem} from '@proxy/ui/components/context-menu';
 import {useHuman} from '@/hooks/use-human';
 import {useSide} from '@/hooks/use-side';
-import {agentsWithAccess, integrationOf} from '@/lib/access';
+import {agentsWithAccess, connectionTitle, integrationOf} from '@/lib/access';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
-import {actsAs, manages} from '@/lib/orgs';
+import {actsAs, manages, vaultPath} from '@/lib/orgs';
 import type {connectionsLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 
@@ -34,18 +34,21 @@ const LINK = 'text-foreground underline underline-offset-4';
 // What a row's context menu is about: the connection, and whether it is being renamed or deleted.
 type Pending = {connection: Connection; action: 'rename' | 'delete'};
 
-// What a connection is called: the name the person gave it, else its integration.
-function titleOf(connection: Connection): string {
-	return connection.name ?? integrationOf(connection)?.name ?? connection.integrationId;
+// A custom MCP server and a vault a member made have nothing else to be called.
+function needsName(connection: Connection): boolean {
+	const integration = integrationOf(connection);
+	return integration?.custom === true || integration?.native === true;
 }
 
-// The services connected in the organization open: its shared ones and the person's own, never
-// another member's. With anyone else in it or invited, a toggle picks the list, in the address as
-// `?for=me` or `?for=everyone`, opening on the shared one unless only the person's own has any, the
-// shared one saying who the provider sees when an agent uses each. The vault comes first, the
-// person's own or the organization's as the list shows, both alone, opening its own page. A right
-// click on a row renames or deletes a connection the person may change: their own, or a shared one
-// they connected or whose organization they own.
+// The services connected in the organization open that the person uses: their own and those
+// shared with them, never another member's that isn't. With anyone else in it or invited, a toggle
+// picks the list, in the address as `?for=me` or `?for=everyone`: what is theirs alone, or what is
+// shared, by them or with them, with every member or some by name, opening on what is theirs
+// alone, the shared one saying who the provider sees when an agent uses each. The person's own vault and Sandboxes come first among what is theirs alone, each opening
+// its own page; a vault a member made is listed as any connection, and opens its own page of
+// entries too. A right click on a row renames
+// or deletes a connection the person may change: their own, or, as the organization's owner, one
+// shared with every member.
 export function ConnectionsPage() {
 	const org = useOrgSlug();
 	const {connections: all, agents} = useLoaderData<typeof connectionsLoader>();
@@ -53,22 +56,20 @@ export function ConnectionsPage() {
 	const human = useHuman();
 	const [pending, setPending] = useState<Pending | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const listed = all.filter((connection) => !integrationOf(connection)?.native);
-	const side = useSide(listed, {opensOnShared: true});
+	const listed = all.filter((connection) => !connection.builtIn);
+	const side = useSide(listed, {opensOnShared: false});
 	if (!human) {
 		return null;
 	}
 
-	const vaults = all.filter(
-		(connection) =>
-			connection.integrationId === VAULT_INTEGRATION_ID &&
-			(!side.others || connection.shared === side.shared),
-	);
-	const sandboxes = all.filter(
-		(connection) =>
-			connection.integrationId === SANDBOX_INTEGRATION_ID &&
-			(!side.others || connection.shared === side.shared),
-	);
+	// The person's built-in ones are theirs alone, so on that side.
+	const builtIn = (integrationId: string) =>
+		all.filter(
+			(connection) =>
+				connection.builtIn && connection.integrationId === integrationId && !side.shared,
+		);
+	const vaults = builtIn(VAULT_INTEGRATION_ID);
+	const sandboxes = builtIn(SANDBOX_INTEGRATION_ID);
 
 	const activeOrg = human.org;
 	const connections = side.shown;
@@ -87,7 +88,7 @@ export function ConnectionsPage() {
 			}
 		>
 			<OrgNotice />
-			<SideToggle side={side} orgName={activeOrg.name} />
+			<SideToggle side={side} orgName={activeOrg.name} sharedLabel="Shared" />
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<RowList
 				header={
@@ -100,13 +101,8 @@ export function ConnectionsPage() {
 					</RowHeader>
 				}
 			>
-				<NativeRow connections={vaults} to="vault" agents={agents} showingShared={showingShared} />
-				<NativeRow
-					connections={sandboxes}
-					to="sandboxes"
-					agents={agents}
-					showingShared={showingShared}
-				/>
+				<BuiltInRow connections={vaults} to="vault" agents={agents} />
+				<BuiltInRow connections={sandboxes} to="sandboxes" agents={agents} />
 				{connections.length === 0 && (
 					<SideEmpty
 						side={side}
@@ -123,8 +119,8 @@ export function ConnectionsPage() {
 								to share them with.
 							</>
 						}
-						shared={`Nothing shared with ${activeOrg.name} yet.`}
-						own={`Nothing of your own in ${activeOrg.name} yet.`}
+						shared={`Nothing shared in ${activeOrg.name} yet.`}
+						own={`Nothing else of your own in ${activeOrg.name} yet.`}
 					/>
 				)}
 				{connections.map((connection) => {
@@ -132,14 +128,20 @@ export function ConnectionsPage() {
 					return (
 						<Row
 							key={connection.id}
-							to={`/${org}/connections/${connection.id}`}
+							to={
+								integration?.native
+									? vaultPath(org, connection)
+									: `/${org}/connections/${connection.id}`
+							}
 							icon={integration && <IntegrationLogo integration={integration} />}
-							title={titleOf(connection)}
+							title={connectionTitle(connection)}
 							cells={
 								<>
 									<span className={CELLS.account}>{connection.account}</span>
 									{showingShared && (
-										<span className={CELLS.actsAs}>{actsAs(connection, human)}</span>
+										<span className={CELLS.actsAs}>
+											{integration?.native ? '' : actsAs(connection, human)}
+										</span>
 									)}
 									<span className={CELLS.agents}>
 										{agentsWithAccess(agents, connection).length}
@@ -171,14 +173,14 @@ export function ConnectionsPage() {
 				<RenameDialog
 					key={renaming.id}
 					open
-					title={`Rename ${titleOf(renaming)}`}
+					title={`Rename ${connectionTitle(renaming)}`}
 					description={
-						integrationOf(renaming)?.custom
+						needsName(renaming)
 							? 'What this connection is called here and to agents.'
 							: `What this connection is called here and to agents. Leave it empty to call it ${integrationOf(renaming)?.name ?? 'by its service'} again.`
 					}
 					initial={renaming.name ?? ''}
-					allowEmpty={!integrationOf(renaming)?.custom}
+					allowEmpty={!needsName(renaming)}
 					onClose={() => setPending(null)}
 					onSave={async (name) => {
 						const result = await renameConnection(org, renaming.id, name);
@@ -192,11 +194,13 @@ export function ConnectionsPage() {
 			)}
 			<ConfirmDialog
 				open={deleting !== null}
-				title={deleting ? `Delete ${titleOf(deleting)}?` : ''}
+				title={deleting ? `Delete ${connectionTitle(deleting)}?` : ''}
 				description={
-					deleting
-						? `Agents lose access to ${deleting.account} at once, and the access you gave them here is forgotten. You can connect it again later.`
-						: ''
+					deleting && integrationOf(deleting)?.native
+						? 'Its entries are deleted with it, for good, and agents lose it at once.'
+						: deleting
+							? `Agents lose access to ${deleting.account} at once, and the access you gave them here is forgotten. You can connect it again later.`
+							: ''
 				}
 				confirmLabel="Delete"
 				destructive
@@ -214,44 +218,34 @@ export function ConnectionsPage() {
 	);
 }
 
-// The vault the list shows, or both alone, as one row: what agents know, kept in Personal Agent
-// Proxy, so never renamed or deleted. Its page opens on the same side.
-// A native integration's connections as one row, the vault's or the sandboxes', opening its page
-// on the side shown; none without any, as an organization not offered sandboxes has.
-function NativeRow({
+// The person's built-in connection of an integration as a row, their vault or their Sandboxes,
+// opening its page: kept in Personal Agent Proxy, so never renamed, shared or deleted; none without
+// one, as an organization not offered sandboxes has.
+function BuiltInRow({
 	connections,
 	to,
 	agents,
-	showingShared,
 }: {
 	connections: Connection[];
 	to: 'vault' | 'sandboxes';
 	agents: AgentLogin[];
-	showingShared: boolean;
 }) {
 	const org = useOrgSlug();
-	const human = useHuman();
 	const [first] = connections;
 	const integration = first && integrationOf(first);
-	if (!first || !integration || !human) {
+	if (!first || !integration) {
 		return null;
 	}
 
-	const withAccess = new Set(
-		connections.flatMap((one) => agentsWithAccess(agents, one).map((agent) => agent.id)),
-	);
-	const side = connections.length > 1 ? '' : `?for=${first.shared ? 'everyone' : 'me'}`;
-
 	return (
 		<Row
-			to={`/${org}/connections/${to}${side}`}
+			to={`/${org}/connections/${to}`}
 			icon={<IntegrationLogo integration={integration} />}
-			title={integration.name}
+			title={connectionTitle(first)}
 			cells={
 				<>
 					<span className={CELLS.account}>{first.account}</span>
-					{showingShared && <span className={CELLS.actsAs}>{actsAs(first, human)}</span>}
-					<span className={CELLS.agents}>{withAccess.size}</span>
+					<span className={CELLS.agents}>{agentsWithAccess(agents, first).length}</span>
 				</>
 			}
 		/>

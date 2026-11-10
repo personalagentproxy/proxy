@@ -98,11 +98,12 @@ export async function addConnectionLoader(args: OrgParams) {
 export async function connectionLoader(args: {params: {org?: string; id?: string}}) {
 	const org = orgOf(args);
 	const id = args.params.id ?? '';
-	const [connection, connections, agents, activity] = await Promise.all([
+	const [connection, connections, agents, activity, members] = await Promise.all([
 		getConnection(org, id),
 		listConnections(org),
 		listAgents(org),
 		listActivity(org, {connectionId: id}),
+		listMembers(org),
 	]);
 	const {entries, tasks} = unwrapLoaderResult(activity);
 	return {
@@ -111,6 +112,8 @@ export async function connectionLoader(args: {params: {org?: string; id?: string
 		agents: unwrapLoaderResult(agents).agents,
 		entries,
 		tasks,
+		// Whom it can be shared with by name.
+		members: unwrapLoaderResult(members).members,
 	};
 }
 
@@ -141,51 +144,36 @@ export async function alertsLoader(args: OrgParams) {
 	return unwrapLoaderResult(await listAlerts(orgOf(args)));
 }
 
-// The vault is the one built-in connection, which every organization has twice: the person's own
-// there and the organization's, shared with everyone in it. The entries of each are kept in
-// Personal Agent Proxy.
-export async function vaultLoader(args: OrgParams) {
+// One vault with its entries, kept in Personal Agent Proxy: the one the address names, a vault a
+// member made that the person uses, or, with none named, the person's own, built in. Null for a
+// connection that isn't a vault of theirs to use.
+export async function vaultLoader(args: {params: {org?: string; id?: string}}) {
 	const org = orgOf(args);
+	const {id} = args.params;
 	const {connections} = unwrapLoaderResult(await listConnections(org));
-	const vaults = connections.filter(
-		(candidate) => candidate.integrationId === VAULT_INTEGRATION_ID,
+	const vault = connections.find(
+		(candidate) =>
+			candidate.integrationId === VAULT_INTEGRATION_ID &&
+			(id === undefined ? candidate.builtIn : candidate.id === id && !candidate.builtIn),
 	);
-	const own = vaults.find((candidate) => !candidate.shared);
-	const shared = vaults.find((candidate) => candidate.shared);
-	if (!own || !shared) {
-		throw new Error('The organization has no vault');
+	if (!vault) {
+		return {vault: null, entries: []};
 	}
-
-	const [ownEntries, sharedEntries] = await Promise.all([
-		listRecords(org, own.id, 'entries'),
-		listRecords(org, shared.id, 'entries'),
-	]);
-	return {
-		own: {connectionId: own.id, entries: unwrapLoaderResult(ownEntries).records},
-		shared: {connectionId: shared.id, entries: unwrapLoaderResult(sharedEntries).records},
-	};
+	const page = unwrapLoaderResult(await listRecords(org, vault.id, 'entries'));
+	return {vault, entries: page.records};
 }
 
-// The sandboxes the person's agents made and the organization's: none where the organization
-// isn't offered sandboxes, which have no connections then.
+// The sandboxes the person's agents made, on their own Sandboxes connection: none where the
+// organization isn't offered sandboxes, which has no connection then.
 export async function sandboxesLoader(args: OrgParams) {
 	const org = orgOf(args);
 	const {connections} = unwrapLoaderResult(await listConnections(org));
-	const own = connections.find(
-		(candidate) => candidate.integrationId === SANDBOX_INTEGRATION_ID && !candidate.shared,
-	);
-	const shared = connections.find(
-		(candidate) => candidate.integrationId === SANDBOX_INTEGRATION_ID && candidate.shared,
-	);
-	const listed = async (connection: {id: string} | undefined) => {
-		if (!connection) {
-			return null;
-		}
-		const page = unwrapLoaderResult(await listRecords(org, connection.id, 'sandboxes'));
-		return {connectionId: connection.id, sandboxes: page.records};
-	};
-	const [ownListed, sharedListed] = await Promise.all([listed(own), listed(shared)]);
-	return {own: ownListed, shared: sharedListed};
+	const own = connections.find((candidate) => candidate.integrationId === SANDBOX_INTEGRATION_ID);
+	if (!own) {
+		return {connectionId: null, sandboxes: []};
+	}
+	const page = unwrapLoaderResult(await listRecords(org, own.id, 'sandboxes'));
+	return {connectionId: own.id, sandboxes: page.records};
 }
 
 export async function agentsLoader(args: OrgParams) {

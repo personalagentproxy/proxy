@@ -21,7 +21,7 @@ import {provisionOrganization} from '@proxy/db/organization';
 import {deleteUser} from '@proxy/db/user';
 import {createVaultEntry} from '@proxy/db/vault';
 
-import {ORGANIZATION_CONNECTIONS} from '../src/orgs/starter-connections';
+import {MEMBER_CONNECTIONS} from '../src/orgs/starter-connections';
 
 // Whose workspace it is: the demo person's, or with SEED_EMAIL another's, such as the dev user's
 // (`dev@dev.proxy.local`), whom the login page signs in as in development.
@@ -99,7 +99,7 @@ if (existing) {
 
 // ---- User and organization ------------------------------------------------------------------
 
-// Made as a sign-up makes them, the organization with its vaults, then dated back.
+// Made as a sign-up makes them, the organization with its owner's vault, then dated back.
 const provisioned = must(
 	await provisionOrganization({
 		owner: {
@@ -108,7 +108,7 @@ const provisioned = must(
 		name: ORG_NAME,
 		slugSource: WORKSPACE_SLUG,
 		onboardedAt: daysAgo(40),
-		connections: ORGANIZATION_CONNECTIONS,
+		connections: MEMBER_CONNECTIONS,
 	}),
 );
 const org = provisioned.org;
@@ -119,8 +119,7 @@ await db.organization.update({where: {id: org.id}, data: {createdAt: daysAgo(40)
 
 type Connection = {id: string; integrationId: string; defaults: string[]};
 
-// A connection as the api makes one, the demo user's own, as everything in an organization with
-// one member is, connected `daysAgo`.
+// A connection as the api makes one, the demo user's, connected `daysAgo`.
 async function connect(data: {
 	integrationId: string;
 	account: string;
@@ -133,7 +132,6 @@ async function connect(data: {
 		await createConnection({
 			orgId: org.id,
 			ownerUserId: user.id,
-			connectedById: user.id,
 			integrationId: data.integrationId,
 			account: data.account,
 			credential: data.credential,
@@ -156,16 +154,26 @@ async function connectMailbox(providerId: EmailProvider['id'], account: string, 
 	return connect({integrationId: 'email', account, credential, ...data});
 }
 
-// The demo user's own vault and the organization's, made with it.
-const vaults = must(await listOrgConnectionsWithCredential(org.id));
-for (const made of vaults) {
-	await db.connection.update({where: {id: made.id}, data: {createdAt: daysAgo(40)}});
-}
-const ownVault = vaults.find((made) => made.ownerUserId === user.id);
-const sharedVault = vaults.find((made) => made.ownerUserId === null);
-if (!ownVault || !sharedVault) {
-	console.error('[seed] The organization was made without its vaults.');
+// The demo user's own vault, made with the organization, and one they made beside it for
+// everyone in it, as the app's Add connection makes one.
+const [ownVault] = must(await listOrgConnectionsWithCredential(org.id));
+if (!ownVault) {
+	console.error('[seed] The organization was made without its owner’s vault.');
 	process.exit(1);
+}
+const teamVault = must(
+	await createConnection({
+		orgId: org.id,
+		ownerUserId: user.id,
+		sharedWithEveryone: true,
+		integrationId: ownVault.integrationId,
+		account: ORG_NAME,
+		name: 'Team handbook',
+		defaults: ownVault.defaults.map((stored) => stored.actionId),
+	}),
+);
+for (const made of [ownVault, teamVault]) {
+	await db.connection.update({where: {id: made.id}, data: {createdAt: daysAgo(40)}});
 }
 const vault: Connection = {
 	id: ownVault.id,
@@ -296,8 +304,8 @@ const VAULT_ENTRIES: Array<{title: string; type: string; content: string}> = [
 	{title: 'Flights', type: 'Text', content: 'Prefers aisle seats, and morning flights.'},
 ];
 
-// What everyone's agents should know about the organization, in its shared vault.
-const SHARED_VAULT_ENTRIES: Array<{title: string; type: string; content: string}> = [
+// What everyone's agents should know about the organization, in the vault made for it.
+const TEAM_VAULT_ENTRIES: Array<{title: string; type: string; content: string}> = [
 	{
 		title: 'Office',
 		type: 'Address',
@@ -313,7 +321,7 @@ const SHARED_VAULT_ENTRIES: Array<{title: string; type: string; content: string}
 
 for (const [connectionId, entries] of [
 	[vault.id, VAULT_ENTRIES],
-	[sharedVault.id, SHARED_VAULT_ENTRIES],
+	[teamVault.id, TEAM_VAULT_ENTRIES],
 ] as const) {
 	for (const values of entries) {
 		must(await createVaultEntry({connectionId, collectionId: 'entries'}, encrypt(JSON.stringify(values))));

@@ -14,28 +14,43 @@ export function hasOtherPeople(org: Org): boolean {
 	return org.memberCount > 1 || org.invitationCount > 0;
 }
 
-// A connection or an agent, with who connected or made it.
-type Managed = {shared: boolean} & ({connectedById: string | null} | {createdById: string | null});
+// A connection, with whose it is, or an agent, with who made it.
+type Managed =
+	| Pick<Connection, 'ownerUserId' | 'sharedWithEveryone'>
+	| {shared: boolean; createdById: string | null};
 
 /**
- * Whether the person may change a connection or an agent, as the api decides it: their own, or a
- * shared one they connected or made, or one in an organization they own. Anyone else uses a shared
- * one as it is.
+ * Whether the person may change a connection or an agent, as the api decides it. A connection:
+ * their own, or, as the organization's owner, one shared with every member; anyone else it is
+ * shared with uses it as it is. An agent: their own, or a shared one they made, or one in an
+ * organization they own.
  */
 export function manages(human: Human, item: Managed): boolean {
-	const byId = 'connectedById' in item ? item.connectedById : item.createdById;
-	return !item.shared || byId === human.user.id || human.org.role === 'owner';
+	if ('ownerUserId' in item) {
+		return (
+			item.ownerUserId === human.user.id || (item.sharedWithEveryone && human.org.role === 'owner')
+		);
+	}
+	return !item.shared || item.createdById === human.user.id || human.org.role === 'owner';
 }
 
 /**
- * Who connected a connection, at the start of a line: "You", a member by their name or address,
- * or "A former member" once they have left the organization.
+ * Whose a connection is, at the start of a line: "You", a member by their name or address, or "A
+ * former member" for one no longer in the organization.
  */
-export function connectedBy(connection: Connection, human: Human): string {
-	if (!connection.shared || connection.connectedById === human.user.id) {
+export function ownerOf(connection: Connection, human: Human): string {
+	if (connection.ownerUserId === human.user.id) {
 		return 'You';
 	}
-	return connection.connectedBy ?? 'A former member';
+	return connection.owner ?? 'A former member';
+}
+
+/**
+ * A vault's own page, its entries: the person's built-in one at `connections/vault`, as it has
+ * always been, and one a member made under it, by its connection.
+ */
+export function vaultPath(org: string, vault: Pick<Connection, 'id' | 'builtIn'>): string {
+	return vault.builtIn ? `/${org}/connections/vault` : `/${org}/connections/vault/${vault.id}`;
 }
 
 /**
@@ -47,8 +62,8 @@ export function actsAs(connection: Connection, human: Human): string {
 	if (!findIntegration(connection.integrationId)?.signIn) {
 		return connection.account;
 	}
-	if (!connection.shared || connection.connectedById === human.user.id) {
+	if (connection.ownerUserId === human.user.id) {
 		return 'you, who signed in';
 	}
-	return `${connection.connectedBy ?? 'a former member'}, who signed in`;
+	return `${connection.owner ?? 'a former member'}, who signed in`;
 }

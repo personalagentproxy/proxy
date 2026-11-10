@@ -10,9 +10,12 @@ const deleteConnection = mock();
 const setConnectionDefaults = mock();
 const updateConnectionName = mock();
 const countSameAccountConnections = mock();
+const setConnectionSharing = mock();
+const createConnection = mock();
 
 mock.module('@proxy/db/connection', () => ({
-	shareConnection: mock(async () => Ok(undefined)),
+	setConnectionSharing,
+	createConnection,
 	listConnectionsWithCredential,
 	getConnectionWithCredential,
 	deleteConnection,
@@ -21,8 +24,16 @@ mock.module('@proxy/db/connection', () => ({
 	countSameAccountConnections,
 }));
 
+// The organization's people: Alex, its owner, Dana and Sam.
+const people = [
+	{orgId: 'org-1', userId: 'user-1', name: 'Alex'},
+	{orgId: 'org-1', userId: 'user-2', name: 'Dana'},
+	{orgId: 'org-1', userId: 'user-3', name: 'Sam'},
+];
+
 mock.module('@proxy/db/organization', () => ({
-	listMemberNames: mock(async () => Ok([{orgId: 'org-1', userId: 'user-1', name: 'Alex'}])),
+	listMemberNames: mock(async (asked: Array<{userId: string}>) => Ok(people.filter((person) => asked.some((one) => one.userId === person.userId)))),
+	listMembers: mock(async () => Ok(people)),
 }));
 
 const owner = {orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []};
@@ -73,7 +84,8 @@ const emailRow = {
 	integrationId: 'email',
 	orgId: 'org-1',
 	ownerUserId: 'user-1',
-	connectedById: 'user-1',
+	sharedWithEveryone: false,
+	shares: [],
 	account: 'alex@example.com',
 	createdAt: new Date('2026-10-01T00:00:00Z'),
 	tools: null,
@@ -118,6 +130,7 @@ beforeEach(() => {
 	getConnectionWithCredential.mockResolvedValue(Ok(emailRow));
 	deleteConnection.mockResolvedValue(Ok(true));
 	setConnectionDefaults.mockResolvedValue(Ok(undefined));
+	setConnectionSharing.mockResolvedValue(Ok(undefined));
 });
 
 describe('handleListConnectionsRoute', () => {
@@ -155,9 +168,12 @@ describe('handleListConnectionsRoute', () => {
 			orgId: 'org-1',
 			integrationId: 'google',
 			account: 'alex@example.com',
+			ownerUserId: 'user-1',
+			owner: 'Alex',
+			sharedWithEveryone: false,
+			sharedWith: [],
 			shared: false,
-			connectedById: 'user-1',
-			connectedBy: 'Alex',
+			builtIn: false,
 			defaults: [],
 			tools: null,
 			name: null,
@@ -227,6 +243,18 @@ describe('handleRenameConnectionRoute', () => {
 		expect((await handleRenameConnectionRoute(makeRequest({connectionId: 'conn-1'}, {name: 'Mine'}))).unwrapErr().kind).toBe('forbidden');
 		expect(updateConnectionName).not.toHaveBeenCalled();
 	});
+
+	test('a vault a member made is renamed, to something', async () => {
+		updateConnectionName.mockResolvedValue(Ok(undefined));
+		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId: 'vault', name: 'Finance', credential: null}));
+		const {handleRenameConnectionRoute} = await import('./route');
+		const unnamed = await handleRenameConnectionRoute(makeRequest({connectionId: 'conn-1'}, {name: ''}));
+		const renamed = await handleRenameConnectionRoute(makeRequest({connectionId: 'conn-1'}, {name: 'Money'}));
+
+		expect(unnamed.unwrapErr().kind).toBe('validation_error');
+		expect(renamed.unwrap().name).toBe('Money');
+		expect(updateConnectionName).toHaveBeenCalledTimes(1);
+	});
 });
 
 describe('handleDeleteConnectionRoute', () => {
@@ -292,14 +320,21 @@ describe('handleDeleteConnectionRoute', () => {
 		expect(google.requests).toEqual([]);
 	});
 
-	test('the vault is built in and stays', async () => {
-		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId: 'vault'}));
-
+	test('a member’s built-in vault and Sandboxes stay, and a vault they made goes as any connection', async () => {
 		const {handleDeleteConnectionRoute} = await import('./route');
-		const result = await handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-1'}));
-
-		expect(result.unwrapErr().kind).toBe('forbidden');
+		const kept = [];
+		for (const integrationId of ['vault', 'sandbox']) {
+			getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId, credential: null}));
+			kept.push(await handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-1'})));
+		}
+		expect(kept.map((result) => result.unwrapErr().kind)).toEqual(['forbidden', 'forbidden']);
 		expect(deleteConnection).not.toHaveBeenCalled();
+
+		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId: 'vault', name: 'Finance', credential: null}));
+		const made = await handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-1'}));
+
+		expect(made.isOk()).toBe(true);
+		expect(deleteConnection).toHaveBeenCalledTimes(1);
 	});
 
 	test('an unknown connection is not found', async () => {
@@ -367,37 +402,50 @@ describe('handleSetConnectionDefaultsRoute', () => {
 });
 
 describe('who may change a shared connection', () => {
-	const sharedRow = {...emailRow, ownerUserId: null, connectedById: 'user-1'};
+	// Dana's, shared with every member.
+	const everyones = {...emailRow, ownerUserId: 'user-2', sharedWithEveryone: true};
+	// Alex's, shared with Dana by name.
+	const danas = {...emailRow, shares: [{userId: 'user-2'}]};
 
-	test('a member who only uses it sees it, but may not rename, disconnect or share it, nor change its defaults', async () => {
+	test('a member it is shared with sees it, but may not rename, disconnect or share it, nor change its defaults', async () => {
 		requireViewer.mockResolvedValue(Ok(member));
-		getConnectionWithCredential.mockResolvedValue(Ok(sharedRow));
+		getConnectionWithCredential.mockResolvedValue(Ok(danas));
 		const route = await import('./route');
 		const seen = await route.handleGetConnectionRoute(makeRequest({connectionId: 'conn-1'}));
 		const refused = await Promise.all([
 			route.handleRenameConnectionRoute(makeRequest({connectionId: 'conn-1'}, {name: 'Theirs'})),
 			route.handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-1'})),
 			route.handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {read: false}})),
-			route.handleShareConnectionRoute(makeRequest({connectionId: 'conn-1'})),
+			route.handleSetConnectionSharingRoute(makeRequest({connectionId: 'conn-1'}, {everyone: true, userIds: []})),
 		]);
 
-		expect(seen.unwrap()).toMatchObject({id: 'conn-1', shared: true});
+		expect(seen.unwrap()).toMatchObject({id: 'conn-1', shared: true, sharedWithEveryone: false, owner: 'Alex', sharedWith: [{userId: 'user-2', name: 'Dana'}]});
 		expect(refused.map((result) => result.unwrapErr().kind)).toEqual(['forbidden', 'forbidden', 'forbidden', 'forbidden']);
 		expect(updateConnectionName).not.toHaveBeenCalled();
 		expect(deleteConnection).not.toHaveBeenCalled();
 		expect(setConnectionDefaults).not.toHaveBeenCalled();
+		expect(setConnectionSharing).not.toHaveBeenCalled();
 	});
 
-	test('whoever connected it changes it, member or not, and so does the organization’s owner', async () => {
-		getConnectionWithCredential.mockResolvedValue(Ok({...sharedRow, connectedById: 'user-2'}));
+	test('whoever’s it is changes it, member or not, and so does the organization’s owner while every member has it', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok(everyones));
 		const {handleSetConnectionDefaultsRoute} = await import('./route');
-		const byOwner = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {read: false}}));
+		const byOrgOwner = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {read: false}}));
 		requireViewer.mockResolvedValue(Ok(member));
-		const byConnector = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {read: false}}));
+		const byItsOwner = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {read: false}}));
 
-		expect(byOwner.isOk()).toBe(true);
-		expect(byConnector.isOk()).toBe(true);
+		expect(byOrgOwner.isOk()).toBe(true);
+		expect(byItsOwner.isOk()).toBe(true);
 		expect(setConnectionDefaults).toHaveBeenCalledTimes(2);
+	});
+
+	test('the organization’s owner changes nothing of one shared with them by name alone', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, ownerUserId: 'user-2', shares: [{userId: 'user-1'}]}));
+		const {handleSetConnectionDefaultsRoute} = await import('./route');
+		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-1'}, {actions: {read: false}}));
+
+		expect(result.unwrapErr().kind).toBe('forbidden');
+		expect(setConnectionDefaults).not.toHaveBeenCalled();
 	});
 
 	test('another member’s own connection is not found, even for the owner', async () => {
@@ -410,5 +458,101 @@ describe('who may change a shared connection', () => {
 		expect(got.unwrapErr().kind).toBe('not_found');
 		expect(deleted.unwrapErr().kind).toBe('not_found');
 		expect(deleteConnection).not.toHaveBeenCalled();
+	});
+});
+
+describe('handleSetConnectionSharingRoute', () => {
+	test('shares a connection with members by name, with everyone, or both, all of it at once', async () => {
+		const {handleSetConnectionSharingRoute} = await import('./route');
+		const result = await handleSetConnectionSharingRoute(makeRequest({connectionId: 'conn-1'}, {everyone: true, userIds: ['user-2', 'user-3']}));
+
+		expect(setConnectionSharing).toHaveBeenCalledWith({connectionId: 'conn-1', ownerUserId: 'user-1', everyone: true, userIds: ['user-2', 'user-3']});
+		expect(result.unwrap()).toMatchObject({
+			shared: true,
+			sharedWithEveryone: true,
+			sharedWith: [
+				{userId: 'user-2', name: 'Dana'},
+				{userId: 'user-3', name: 'Sam'},
+			],
+		});
+	});
+
+	test('takes it back from everyone it was shared with', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, sharedWithEveryone: true, shares: [{userId: 'user-2'}]}));
+		const {handleSetConnectionSharingRoute} = await import('./route');
+		const result = await handleSetConnectionSharingRoute(makeRequest({connectionId: 'conn-1'}, {everyone: false, userIds: []}));
+
+		expect(setConnectionSharing).toHaveBeenCalledWith({connectionId: 'conn-1', ownerUserId: 'user-1', everyone: false, userIds: []});
+		expect(result.unwrap()).toMatchObject({shared: false, sharedWithEveryone: false, sharedWith: []});
+	});
+
+	test('its owner is never among those it is shared with, and nobody is twice', async () => {
+		const {handleSetConnectionSharingRoute} = await import('./route');
+		await handleSetConnectionSharingRoute(makeRequest({connectionId: 'conn-1'}, {everyone: false, userIds: ['user-1', 'user-2', 'user-2']}));
+
+		expect(setConnectionSharing).toHaveBeenCalledWith(expect.objectContaining({userIds: ['user-2']}));
+	});
+
+	test('refuses someone who isn’t in the organization', async () => {
+		const {handleSetConnectionSharingRoute} = await import('./route');
+		const result = await handleSetConnectionSharingRoute(makeRequest({connectionId: 'conn-1'}, {everyone: false, userIds: ['user-2', 'stranger']}));
+
+		expect(result.unwrapErr().kind).toBe('validation_error');
+		expect(setConnectionSharing).not.toHaveBeenCalled();
+	});
+
+	test('a member’s built-in vault and Sandboxes stay their own, and a vault they made is shared as any connection', async () => {
+		const {handleSetConnectionSharingRoute} = await import('./route');
+		const refused = [];
+		for (const integrationId of ['vault', 'sandbox']) {
+			getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId, credential: null}));
+			refused.push(await handleSetConnectionSharingRoute(makeRequest({connectionId: 'conn-1'}, {everyone: true, userIds: []})));
+		}
+		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId: 'vault', name: 'Finance', credential: null}));
+		const made = await handleSetConnectionSharingRoute(makeRequest({connectionId: 'conn-1'}, {everyone: false, userIds: ['user-2']}));
+
+		expect(refused.map((result) => result.unwrapErr().kind)).toEqual(['forbidden', 'forbidden']);
+		expect(made.unwrap()).toMatchObject({builtIn: false, name: 'Finance', sharedWith: [{userId: 'user-2', name: 'Dana'}]});
+		expect(setConnectionSharing).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('handleCreateVaultRoute', () => {
+	const madeVault = {...emailRow, id: 'conn-7', integrationId: 'vault', account: 'Workspace', name: 'Finance', defaults: [{actionId: 'readEntries'}, {actionId: 'writeEntries'}]};
+
+	test('makes a named vault of the person’s, which agents read and write by default', async () => {
+		const {credential: _credential, ...row} = madeVault;
+		createConnection.mockResolvedValue(Ok(row));
+		const {handleCreateVaultRoute} = await import('./route');
+		const result = await handleCreateVaultRoute(makeRequest({}, {name: ' Finance '}));
+
+		expect(createConnection).toHaveBeenCalledWith({
+			orgId: 'org-1',
+			ownerUserId: 'user-1',
+			sharedWithEveryone: false,
+			integrationId: 'vault',
+			account: 'Workspace',
+			name: 'Finance',
+			defaults: ['readEntries', 'writeEntries'],
+		});
+		expect(result.unwrap()).toMatchObject({id: 'conn-7', name: 'Finance', builtIn: false, shared: false, signInNeeded: false});
+	});
+
+	test('shares it with every member from the start where asked', async () => {
+		const {credential: _credential, ...row} = madeVault;
+		createConnection.mockResolvedValue(Ok({...row, sharedWithEveryone: true}));
+		const {handleCreateVaultRoute} = await import('./route');
+		const result = await handleCreateVaultRoute(makeRequest({}, {name: 'Finance', shared: true}));
+
+		expect(createConnection).toHaveBeenCalledWith(expect.objectContaining({sharedWithEveryone: true}));
+		expect(result.unwrap()).toMatchObject({shared: true, sharedWithEveryone: true});
+	});
+
+	test('a vault needs a name', async () => {
+		const {handleCreateVaultRoute} = await import('./route');
+		const result = await handleCreateVaultRoute(makeRequest({}, {name: '  '}));
+
+		expect(result.unwrapErr().kind).toBe('parse_error');
+		expect(createConnection).not.toHaveBeenCalled();
 	});
 });

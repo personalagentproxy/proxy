@@ -3,21 +3,19 @@ import {useState} from 'react';
 import {useLoaderData, useRevalidator} from 'react-router';
 import {deleteRecord} from '@/client/records-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
-import {Row, RowHeader, RowList} from '@/components/row-list';
-import {SideEmpty, SideToggle} from '@/components/share-toggle';
+import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
+
 import {Badge} from '@proxy/ui/components/badge';
 import {Button} from '@proxy/ui/components/button';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@proxy/ui/components/dialog';
 import {useApply} from '@/hooks/use-apply';
-import {useHuman} from '@/hooks/use-human';
 import {useOrgSlug} from '@/hooks/use-org';
-import {useSide} from '@/hooks/use-side';
 import {formatAgo, formatDateTime} from '@/lib/format';
 import type {sandboxesLoader} from '@/loaders';
 
 const SANDBOXES = 'sandboxes';
 
-const OWN_EMPTY = 'No sandboxes yet. Your agents make one when their work needs a computer.';
+const EMPTY = 'No sandboxes yet. Your agents make one when their work needs a computer.';
 
 // The table's columns after the name.
 const CELLS = {
@@ -25,9 +23,6 @@ const CELLS = {
 	heldBy: 'hidden w-2/5 shrink-0 truncate text-muted-foreground md:block',
 	lastUsed: 'w-28 shrink-0 text-right text-muted-foreground',
 };
-
-// A sandbox with the connection it is on, since the page lists two connections' sandboxes.
-type Listed = {sandbox: DataRecord; connectionId: string; shared: boolean};
 
 function StateBadge({state}: {state: string}) {
 	return (
@@ -37,33 +32,17 @@ function StateBadge({state}: {state: string}) {
 	);
 }
 
-// The sandboxes agents made, the person's own and the organization's: each with whether it is
-// running or asleep, the task using it, and when it was last used, opened for a closer look and
-// deleted there once its work is done. With anyone else in the organization or invited, a toggle
-// picks whose, as the vault's does.
+// The sandboxes the person's agents made, on their own Sandboxes connection: each with whether it
+// is running or asleep, the task using it, and when it was last used, opened for a closer look and
+// deleted there once its work is done.
 export function SandboxesPage() {
 	const org = useOrgSlug();
-	const {own, shared} = useLoaderData<typeof sandboxesLoader>();
-	const human = useHuman();
+	const {connectionId, sandboxes} = useLoaderData<typeof sandboxesLoader>();
 	const revalidator = useRevalidator();
-	const [selected, setSelected] = useState<Listed | null>(null);
+	const [selected, setSelected] = useState<DataRecord | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const apply = useApply(setError);
-	const list = (
-		kept: {connectionId: string; sandboxes: DataRecord[]} | null,
-		inShared: boolean,
-	): Listed[] =>
-		(kept?.sandboxes ?? []).map((sandbox) => ({
-			sandbox,
-			connectionId: kept?.connectionId ?? '',
-			shared: inShared,
-		}));
-	const side = useSide([...list(own, false), ...list(shared, true)], {opensOnShared: false});
-	if (!human) {
-		return null;
-	}
-	const activeOrg = human.org;
-	const open = (next: Listed | null) => {
+	const open = (next: DataRecord | null) => {
 		setError(null);
 		setSelected(next);
 	};
@@ -74,7 +53,6 @@ export function SandboxesPage() {
 
 	return (
 		<AppShell title={<PageTitle>Sandboxes</PageTitle>}>
-			<SideToggle side={side} orgName={activeOrg.name} />
 			<RowList
 				header={
 					<RowHeader>
@@ -85,27 +63,20 @@ export function SandboxesPage() {
 					</RowHeader>
 				}
 			>
-				{side.shown.length === 0 && (
-					<SideEmpty
-						side={side}
-						alone={OWN_EMPTY}
-						shared={`No sandboxes yet. ${activeOrg.name}'s shared agents make one when their work needs a computer.`}
-						own={OWN_EMPTY}
-					/>
-				)}
-				{side.shown.map((item) => (
+				{sandboxes.length === 0 && <EmptyRows>{EMPTY}</EmptyRows>}
+				{sandboxes.map((sandbox) => (
 					<Row
-						key={item.sandbox.id}
-						onClick={() => open(item)}
-						title={item.sandbox.values.name ?? ''}
+						key={sandbox.id}
+						onClick={() => open(sandbox)}
+						title={sandbox.values.name ?? ''}
 						cells={
 							<>
 								<span className={CELLS.state}>
-									<StateBadge state={item.sandbox.values.state ?? ''} />
+									<StateBadge state={sandbox.values.state ?? ''} />
 								</span>
-								<span className={CELLS.heldBy}>{item.sandbox.values.heldBy || ''}</span>
+								<span className={CELLS.heldBy}>{sandbox.values.heldBy || ''}</span>
 								<span className={CELLS.lastUsed}>
-									{item.sandbox.values.lastUsedAt ? formatAgo(item.sandbox.values.lastUsedAt) : ''}
+									{sandbox.values.lastUsedAt ? formatAgo(sandbox.values.lastUsedAt) : ''}
 								</span>
 							</>
 						}
@@ -123,23 +94,19 @@ export function SandboxesPage() {
 				{selected && (
 					<DialogContent>
 						<DialogHeader>
-							<DialogTitle>{selected.sandbox.values.name}</DialogTitle>
+							<DialogTitle>{selected.values.name}</DialogTitle>
 						</DialogHeader>
 						<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
 							<dt className="text-muted-foreground">State</dt>
 							<dd>
-								<StateBadge state={selected.sandbox.values.state ?? ''} />
+								<StateBadge state={selected.values.state ?? ''} />
 							</dd>
 							<dt className="text-muted-foreground">In use by</dt>
-							<dd>{selected.sandbox.values.heldBy || 'No task'}</dd>
+							<dd>{selected.values.heldBy || 'No task'}</dd>
 							<dt className="text-muted-foreground">Last used</dt>
 							<dd>
-								{selected.sandbox.values.lastUsedAt
-									? formatDateTime(selected.sandbox.values.lastUsedAt)
-									: ''}
+								{selected.values.lastUsedAt ? formatDateTime(selected.values.lastUsedAt) : ''}
 							</dd>
-							<dt className="text-muted-foreground">Whose</dt>
-							<dd>{selected.shared ? `Everyone in ${activeOrg.name}` : 'Just me'}</dd>
 						</dl>
 						<p className="text-sm text-muted-foreground">
 							Deleting a sandbox deletes everything on it, for good.
@@ -152,10 +119,9 @@ export function SandboxesPage() {
 								type="button"
 								variant="destructive"
 								onClick={() => {
-									void apply(
-										deleteRecord(org, selected.connectionId, SANDBOXES, selected.sandbox.id),
-										close,
-									);
+									if (connectionId !== null) {
+										void apply(deleteRecord(org, connectionId, SANDBOXES, selected.id), close);
+									}
 								}}
 							>
 								Delete

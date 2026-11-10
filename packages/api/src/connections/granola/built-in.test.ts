@@ -14,7 +14,7 @@ mock.module('@proxy/db/connection', () => ({
 	findAccountConnection,
 	createConnection,
 	renewConnection,
-	shareConnection: mock(),
+	setConnectionSharing: mock(),
 	updateConnectionCredential: mock(),
 	getConnectionCredential: mock(async () => Ok(null)),
 	updateConnectionTools: mock(),
@@ -108,7 +108,7 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	granola.requests = [];
 	findAccountConnection.mockResolvedValue(Ok(null));
-	createConnection.mockResolvedValue(Ok({id: 'conn-1'}));
+	createConnection.mockResolvedValue(Ok({id: 'conn-1', ownerUserId: 'user-1', sharedWithEveryone: false, shares: []}));
 	renewConnection.mockResolvedValue(Ok(undefined));
 });
 
@@ -148,7 +148,7 @@ describe('handleGranolaCallbackRoute', () => {
 	});
 
 	test('signing in to an account already connected gives that connection the new tokens', async () => {
-		findAccountConnection.mockResolvedValue(Ok({id: 'conn-old'}));
+		findAccountConnection.mockResolvedValue(Ok({id: 'conn-old', ownerUserId: 'user-1', sharedWithEveryone: false, shares: []}));
 		const {cookie, state} = await start();
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 

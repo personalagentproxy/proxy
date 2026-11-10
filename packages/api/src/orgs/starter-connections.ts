@@ -2,20 +2,12 @@ import {SANDBOX_INTEGRATION_ID, VAULT_DEFAULT_ACTIONS, VAULT_INTEGRATION_ID} fro
 import type {StarterConnection} from '@proxy/db/organization';
 
 /**
- * What an organization and its members are made with: every member has their own vault in each
- * organization they are in, what their own agents should know about them, which nobody else
- * there sees; and every organization has one of its own, shared with everyone in it, the shared
- * agents included, made by whoever made the organization. Both are called by the organization's
- * name, and renamed with it.
+ * What a member is made with in each organization they are in, its owner as anyone: a vault of
+ * their own, what their own agents should know about them, which nobody else there uses, called
+ * by the organization's name and renamed with it. A vault to share is one they make beside it
+ * (connections/route.ts handleCreateVaultRoute).
  */
+export const MEMBER_CONNECTIONS: StarterConnection[] = [{integrationId: VAULT_INTEGRATION_ID, defaults: VAULT_DEFAULT_ACTIONS}];
 
-const OWN_VAULT: StarterConnection = {integrationId: VAULT_INTEGRATION_ID, shared: false, defaults: VAULT_DEFAULT_ACTIONS};
-
-/** What a member gets on joining an organization: their own vault there. */
-export const MEMBER_CONNECTIONS: StarterConnection[] = [OWN_VAULT];
-
-/** What an organization is made with: its owner's own vault, and the organization's shared one. */
-export const ORGANIZATION_CONNECTIONS: StarterConnection[] = [OWN_VAULT, {...OWN_VAULT, shared: true}];
-
-/** The integrations whose connections are called by the organization's name: the starters', and the Sandboxes made later (native/sandbox/connections.ts). */
-export const NAMED_AFTER_ORGANIZATION: string[] = [...new Set([...ORGANIZATION_CONNECTIONS.map((connection) => connection.integrationId), SANDBOX_INTEGRATION_ID])];
+/** The integrations whose connections are called by the organization's name: the vaults, and the Sandboxes made later (native/sandbox/connections.ts). */
+export const NAMED_AFTER_ORGANIZATION: string[] = [VAULT_INTEGRATION_ID, SANDBOX_INTEGRATION_ID];

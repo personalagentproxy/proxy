@@ -1,6 +1,6 @@
 import type {Action, OwnSettings} from '@proxy/integrations';
 import {CheckCheckIcon, Undo2Icon} from 'lucide-react';
-import {useId, useLayoutEffect, useRef, useState} from 'react';
+import {type ReactNode, useId, useLayoutEffect, useRef, useState} from 'react';
 import {IconButton} from '@/components/icon-button';
 import {Badge} from '@proxy/ui/components/badge';
 import {Button} from '@proxy/ui/components/button';
@@ -14,8 +14,9 @@ type Props = {
 	defaults: string[];
 	// An agent's own settings. Left out on a connection's page, where the defaults themselves are set.
 	own?: OwnSettings;
-	// On a connection's page: how many agents have a setting of their own, by action.
-	differing?: Partial<Record<string, number>>;
+	// On a connection's page: the agents with a setting of their own, by action, as the page shows
+	// them, at the end of the action's row.
+	differing?: Partial<Record<string, ReactNode>>;
 	// Actions turned on or off; null returns an agent's action to the default.
 	onChange: (actions: Record<string, boolean | null>) => Promise<void>;
 	// On an agent's page: makes the agent's own setting for an action the connection's default.
@@ -29,14 +30,15 @@ type Props = {
 	readOnly?: boolean;
 };
 
-// The actions, one under another, spaced by the list rather than each row, so the list sits
-// as tight to what holds it as anything else does.
-const ROWS = 'flex flex-col gap-4';
+// The actions, one under another, a line between them, spaced by the list rather than each row,
+// so the list sits as tight to what holds it as anything else does.
+const ROWS = 'flex flex-col divide-y divide-border/60 *:py-3 *:first:pt-0 *:last:pb-0';
 
 // A connection's access, the way an editor shows its settings: one checkbox per action, the only
 // control for it, under the name of the part of the provider it belongs to where the integration
 // groups them, as Google's are Gmail's, Calendar's, Drive's, Contacts' and Tasks', each saying how many are
-// on, and one button above them all turning every action on, or off once all are. On an agent's
+// on, and above them all how many are on of all of them, with one button turning every action on,
+// or off once all are. On an agent's
 // page every action starts on the connection's default; one the agent has its own setting for is
 // marked with a bar, a button that makes it the default for every agent, and one that resets it to
 // the default. An action the connection's sign-in didn't cover is off whatever is set, its checkbox
@@ -152,7 +154,6 @@ export function ConnectionAccess({
 		const checked = isOn(action.id);
 		const blocked = checked && action.requires !== undefined && !isOn(action.requires);
 		const required = actions.find((candidate) => candidate.id === action.requires);
-		const others = differing?.[action.id] ?? 0;
 		const inputId = `${idPrefix}-${action.id}`;
 		const labelId = `${inputId}-label`;
 		const descriptionId = `${inputId}-description`;
@@ -234,7 +235,7 @@ export function ConnectionAccess({
 					</span>
 				</div>
 				<span className="flex shrink-0 items-center gap-2 text-muted-foreground">
-					{others > 0 && `Changed for ${others} ${others === 1 ? 'agent' : 'agents'}`}
+					{differing?.[action.id]}
 					{isOwn(action.id) && onMakeDefault && !isUnavailable(action.id) && (
 						<IconButton
 							label="Make this the default for every agent"
@@ -269,22 +270,25 @@ export function ConnectionAccess({
 			onChange(Object.fromEntries(changing.map((id) => [id, setting(id, next)]))),
 		);
 	};
-	const all = settable.length > 1 && (
-		<Button
-			variant="outline"
-			size="sm"
-			className="self-start"
-			disabled={readOnly}
-			onClick={() => setAll(!allOn)}
-		>
-			{allOn ? 'Disable all' : 'Enable all'}
-		</Button>
+	// How many of all the actions are on, with the button that turns every one on or off, on one
+	// line above them.
+	const all = (
+		<div className="flex h-8 items-center justify-between gap-3 text-sm">
+			<span className="text-muted-foreground">
+				{howManyOn(actions.filter((action) => isOn(action.id)).length, actions.length)}
+			</span>
+			{settable.length > 1 && (
+				<Button variant="outline" size="sm" disabled={readOnly} onClick={() => setAll(!allOn)}>
+					{allOn ? 'Disable all' : 'Enable all'}
+				</Button>
+			)}
+		</div>
 	);
 
 	const groups = groupsOf(actions);
 	if (groups.length === 1 && groups[0]?.name === undefined) {
 		return (
-			<div className="flex flex-col gap-4">
+			<div className="flex flex-col gap-2">
 				{all}
 				<ul className={ROWS}>{actions.map(row)}</ul>
 			</div>

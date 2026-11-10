@@ -19,7 +19,7 @@ export async function afterWrite(args: {viewer: MemberViewer; source: Source; ac
 	const connectionId = source.connection.id;
 	const collectionId = source.collection.id;
 	const [logged, saved] = await Promise.all([
-		logProxyAction({orgId, connectionId, collectionId, action, recordTitle: title || null, ownerUserId: source.connection.ownerUserId, userId}),
+		logProxyAction({orgId, connectionId, collectionId, action, recordTitle: title || null, ownerUserId: source.connection.sharedWithEveryone ? null : userId, userId}),
 		parent === undefined ? Ok(null) : saveWriteTarget({userId, collectionId, connectionId, parent}),
 	]);
 	if (logged.isErr()) {

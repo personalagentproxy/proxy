@@ -13,7 +13,7 @@ export const agentConnectionSchema = z.object({
 	id: z.string(),
 	integrationId: z.string(),
 	account: z.string(),
-	/** Shared with everyone in the organization, rather than the agent's owner's own. */
+	/** Other members of the organization use it too: it is shared with all of them, or with some by name. */
 	shared: z.boolean(),
 	/** The actions the agent can take with the connection. */
 	actions: z.array(z.string()),

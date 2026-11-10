@@ -2,9 +2,9 @@ import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Ok} from 'ts-results-es';
 
 const listOrgConnectionsWithCredential = mock();
-const listOwnConnectionsWithCredential = mock();
+const listLeavingConnectionsWithCredential = mock();
 
-mock.module('@proxy/db/connection', () => ({listOrgConnectionsWithCredential, listOwnConnectionsWithCredential}));
+mock.module('@proxy/db/connection', () => ({listOrgConnectionsWithCredential, listLeavingConnectionsWithCredential}));
 
 const createInvitation = mock();
 const deleteInvitation = mock();
@@ -91,7 +91,7 @@ beforeEach(() => {
 	listUserOrgs.mockResolvedValue(Ok([mine, acme]));
 	listMembers.mockResolvedValue(Ok([member('user-1', 'owner', 'alex@example.com'), member('maya-1', 'member'), member('jonas-1', 'member')]));
 	listOrgConnectionsWithCredential.mockResolvedValue(Ok([]));
-	listOwnConnectionsWithCredential.mockResolvedValue(Ok([]));
+	listLeavingConnectionsWithCredential.mockResolvedValue(Ok([]));
 	markOrganizationOnboarded.mockResolvedValue(Ok(undefined));
 	removeMembership.mockResolvedValue(Ok(undefined));
 	deleteOwnedOrganization.mockResolvedValue(Ok(true));
@@ -238,13 +238,13 @@ describe('handleLeaveOrgRoute', () => {
 	test('undoes a member’s own connections there, then takes them out', async () => {
 		getMemberOrganization.mockResolvedValue(Ok(membership('member')));
 		const workMail = {id: 'conn-3', integrationId: 'email', credential: 'enc:m'};
-		listOwnConnectionsWithCredential.mockResolvedValue(Ok([workMail]));
+		listLeavingConnectionsWithCredential.mockResolvedValue(Ok([workMail]));
 
 		const {handleLeaveOrgRoute} = await import('./route');
 		const result = await handleLeaveOrgRoute(makeRequest());
 
 		expect(result.isOk()).toBe(true);
-		expect(listOwnConnectionsWithCredential).toHaveBeenCalledWith({orgId: 'org-2', userId: 'user-1'});
+		expect(listLeavingConnectionsWithCredential).toHaveBeenCalledWith({orgId: 'org-2', userId: 'user-1'});
 		expect(beforeDisconnectAll).toHaveBeenCalledWith([workMail]);
 		expect(removeMembership).toHaveBeenCalledWith({orgId: 'org-2', userId: 'user-1', sharedAgentPasswordHash: expect.any(String)});
 	});
@@ -285,12 +285,12 @@ describe('handleListMembersRoute', () => {
 describe('handleRemoveMemberRoute', () => {
 	test('its owner removes a member, their own connections undone first', async () => {
 		const theirs = {id: 'conn-4', integrationId: 'email', credential: 'enc:m'};
-		listOwnConnectionsWithCredential.mockResolvedValue(Ok([theirs]));
+		listLeavingConnectionsWithCredential.mockResolvedValue(Ok([theirs]));
 
 		const {handleRemoveMemberRoute} = await import('./route');
 		await handleRemoveMemberRoute(makeRequest({userId: 'maya-1'}));
 
-		expect(listOwnConnectionsWithCredential).toHaveBeenCalledWith({orgId: 'org-2', userId: 'maya-1'});
+		expect(listLeavingConnectionsWithCredential).toHaveBeenCalledWith({orgId: 'org-2', userId: 'maya-1'});
 		expect(beforeDisconnectAll).toHaveBeenCalledWith([theirs]);
 		expect(removeMembership).toHaveBeenCalledWith({orgId: 'org-2', userId: 'maya-1', sharedAgentPasswordHash: expect.any(String)});
 	});

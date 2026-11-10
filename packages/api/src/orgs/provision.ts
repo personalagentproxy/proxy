@@ -5,7 +5,7 @@ import {buildBaseSlug, provisionOrganization, type NewUser} from '@proxy/db/orga
 import type {CreatedUser} from '@proxy/db/user';
 
 import {notify} from '../observability/notify';
-import {ORGANIZATION_CONNECTIONS} from './starter-connections';
+import {MEMBER_CONNECTIONS} from './starter-connections';
 
 // A person signing up gets an organization of their own, named after them; one made later has
 // been through the welcome flow from the start, which is the first organization's.
@@ -41,7 +41,7 @@ export async function signUp(user: Omit<NewUser, 'termsAcceptedAt' | 'createdAt'
 		name,
 		slugSource,
 		onboardedAt: null,
-		connections: ORGANIZATION_CONNECTIONS,
+		connections: MEMBER_CONNECTIONS,
 	});
 	return made.map(({ownerUserId}) => {
 		void notify.notify({channel: 'signups', title: 'New sign-up', ctx: {email: user.email, userId: ownerUserId}});
@@ -56,7 +56,7 @@ export async function createOrganization(data: {userId: string; name: string}): 
 		name: data.name,
 		slugSource: data.name,
 		onboardedAt: new Date(),
-		connections: ORGANIZATION_CONNECTIONS,
+		connections: MEMBER_CONNECTIONS,
 	});
 	return made.map(({org}) => org);
 }

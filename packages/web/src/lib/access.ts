@@ -12,20 +12,39 @@ import {
 	type FieldType,
 	type OwnSettings,
 	TOOLS_COLLECTION_ID,
+	VAULT_INTEGRATION_ID,
 } from '@proxy/integrations';
 import {formatDate, formatDateTime} from '@/lib/format';
 import {integrationOf, type Integration} from '@/lib/integrations';
 
 export {integrationOf};
 
-// The name the person gave the connection, else the integration's name, and the account too once
-// the integration is connected more than once; and whose it is once the same account is, as the
-// organization's vault is beside the person's own.
-export function connectionLabel(connections: Connection[], connection: Connection): string {
+// What the person's built-in vault is called: it has no name of its own, and "Vault" alone would
+// say nothing beside the vaults members made, each called by its name.
+const OWN_VAULT = 'My vault';
+
+/**
+ * What a connection is called: the name the person gave it, their built-in vault "My vault", else
+ * its integration.
+ */
+export function connectionTitle(connection: Connection): string {
 	if (connection.name !== null) {
 		return connection.name;
 	}
-	const name = integrationOf(connection)?.name ?? connection.integrationId;
+	if (connection.builtIn && connection.integrationId === VAULT_INTEGRATION_ID) {
+		return OWN_VAULT;
+	}
+	return integrationOf(connection)?.name ?? connection.integrationId;
+}
+
+// What the connection is called (`connectionTitle`), and for one called by its integration, the
+// account too once the integration is connected more than once; and whether it is shared once the
+// same account is, as one a member shared is beside the person's own.
+export function connectionLabel(connections: Connection[], connection: Connection): string {
+	const name = connectionTitle(connection);
+	if (connection.name !== null || name === OWN_VAULT) {
+		return name;
+	}
 	const siblings = connections.filter(
 		(candidate) => candidate.integrationId === connection.integrationId,
 	);
@@ -36,7 +55,7 @@ export function connectionLabel(connections: Connection[], connection: Connectio
 	if (sameAccount.length < 2) {
 		return `${name} (${connection.account})`;
 	}
-	return `${name} (${connection.account}, ${connection.shared ? 'everyone’s' : 'yours'})`;
+	return `${name} (${connection.account}, ${connection.shared ? 'shared' : 'yours'})`;
 }
 
 // The actions an agent without settings of its own gets.
@@ -108,10 +127,21 @@ export function canStartNew(collection: Collection, actions: string[]): boolean 
 	return allows(collection, actions, 'create') || newCommands(collection, actions).length > 0;
 }
 
-// The agents, revoked ones left out, that can do anything with the connection.
+/**
+ * Whether an agent the person sees reaches a connection they use, as the api decides it: their own
+ * agent reaches all of them, a shared agent only the ones shared with every member.
+ */
+export function reaches(agent: AgentLogin, connection: Connection): boolean {
+	return !agent.shared || connection.sharedWithEveryone;
+}
+
+// The agents, revoked ones left out, that reach the connection and can do anything with it.
 export function agentsWithAccess(agents: AgentLogin[], connection: Connection): AgentLogin[] {
 	return agents.filter(
-		(agent) => agent.revokedAt === null && actionsFor(agent, connection).length > 0,
+		(agent) =>
+			agent.revokedAt === null &&
+			reaches(agent, connection) &&
+			actionsFor(agent, connection).length > 0,
 	);
 }
 

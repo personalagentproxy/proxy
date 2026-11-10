@@ -56,7 +56,9 @@ import {AddBankPage} from '@/pages/add-bank-page';
 import {AddConnectionPage} from '@/pages/add-connection-page';
 import {AddDatabasePage} from '@/pages/add-database-page';
 import {AddEmailPage} from '@/pages/add-email-page';
+import {shouldRevalidateTabs} from '@/lib/page-tabs';
 import {AddMcpPage} from '@/pages/add-mcp-page';
+import {AddVaultPage} from '@/pages/add-vault-page';
 import {AccountPage} from '@/pages/account-page';
 import {AgentPage} from '@/pages/agent-page';
 import {AgentSetupPage} from '@/pages/agent-setup-page';
@@ -294,9 +296,16 @@ const routes: RouteObject[] = [
 			{path: '/:org/connections/new/mysql', element: <AddDatabasePage dialect="mysql" />},
 			{path: '/:org/connections/new/plaid', element: <AddBankPage />},
 			{path: '/:org/connections/new/mcp', element: <AddMcpPage />},
+			{path: '/:org/connections/new/vault', element: <AddVaultPage />},
 			{path: '/:org/connections/vault', loader: vaultLoader, element: <VaultPage />},
+			{path: '/:org/connections/vault/:id', loader: vaultLoader, element: <VaultPage />},
 			{path: '/:org/connections/sandboxes', loader: sandboxesLoader, element: <SandboxesPage />},
-			{path: '/:org/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
+			{
+				path: '/:org/connections/:id',
+				loader: connectionLoader,
+				shouldRevalidate: shouldRevalidateTabs,
+				element: <ConnectionPage />,
+			},
 			// The vault's page before it was one of the connections.
 			{path: '/:org/vault', loader: oldVaultLoader, element: null},
 			// The built-in agents, behind the `harness` experiment: the api refuses it otherwise.

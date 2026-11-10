@@ -41,8 +41,9 @@ export function SharePicker({
 	);
 }
 
-// On a connection's form: who it will be for, and a link that changes it there.
-export function ShareNote({actsAs}: {actsAs: string}) {
+// On a connection's form: who it will be for, and a link that changes it there. `actsAs` is who
+// the provider will see; left out for a vault, which is kept here.
+export function ShareNote({actsAs}: {actsAs?: string}) {
 	const [, setParams] = useSearchParams();
 	const {organization, asked, shared} = useShareChoice();
 	if (!asked || !organization) {
@@ -55,7 +56,7 @@ export function ShareNote({actsAs}: {actsAs: string}) {
 				{shared ? `For everyone in ${organization.name}` : 'Just for you'}
 			</span>
 			{shared
-				? ` · every member's agents can use it, as ${actsAs}. `
+				? ` · every member's agents can use it${actsAs === undefined ? '' : `, as ${actsAs}`}. `
 				: ` · nobody else in ${organization.name} sees it. `}
 			<button
 				type="button"

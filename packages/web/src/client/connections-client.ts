@@ -6,11 +6,13 @@ import {
 	type connectMcpBodySchema,
 	connectMcpSchema,
 	type connectPlaidBodySchema,
+	type createVaultBodySchema,
 	type connectWithKeyBodySchema,
 	type plaidLinkTokenBodySchema,
 	plaidLinkTokenSchema,
 	type renameConnectionBodySchema,
 	type setDefaultsBodySchema,
+	type setSharingBodySchema,
 } from '@proxy/contracts/connections';
 import type {IntegrationId} from '@proxy/integrations';
 import type {z} from 'zod';
@@ -18,14 +20,31 @@ import {apiRequest, apiSend, orgApi} from '@/client/request';
 
 // Every call is about one organization, by its slug (`org`), as its address in the app names it.
 
-/** The connections the person sees in the organization: its shared ones and their own. */
+/** The connections the person uses in the organization: their own and those shared with them. */
 export function listConnections(org: string) {
 	return apiRequest('GET', `${orgApi(org)}/connections`, connectionListSchema);
 }
 
-/** Shares one's own connection with every member of its organization, for good. */
-export function shareConnection(org: string, connectionId: string) {
-	return apiRequest('POST', `${orgApi(org)}/connections/${connectionId}/share`, connectionSchema);
+/**
+ * Sets who a connection is shared with, all of it at once: every member of its organization, the
+ * members named, both or nobody. Whoever is left out loses it at once.
+ */
+export function setConnectionSharing(
+	org: string,
+	connectionId: string,
+	sharing: z.input<typeof setSharingBodySchema>,
+) {
+	return apiRequest(
+		'PUT',
+		`${orgApi(org)}/connections/${connectionId}/sharing`,
+		connectionSchema,
+		sharing,
+	);
+}
+
+/** Makes a vault under the name given, beside the person's own: theirs, or, `shared`, every member's too. */
+export function createVault(org: string, input: z.input<typeof createVaultBodySchema>) {
+	return apiRequest('POST', `${orgApi(org)}/connections/vault`, connectionSchema, input);
 }
 
 export function getConnection(org: string, connectionId: string) {

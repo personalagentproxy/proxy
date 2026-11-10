@@ -1,6 +1,6 @@
 /// <reference types="bun" />
 
-import type {Org} from '@proxy/contracts/orgs';
+import type {Connection} from '@proxy/contracts/connections';
 import type {DataRecord} from '@proxy/contracts/records';
 import {afterEach, describe, expect, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
@@ -17,9 +17,37 @@ afterEach(() => {
 
 type Entry = {id: string; values: Record<string, string>};
 
-function vault(connectionId: string, entries: Entry[]) {
+// A vault the person uses with its entries: their own, built in, or, named, one a member made,
+// theirs unless `owner` says whose, shared with whoever `with_` says.
+function vault(
+	id: string,
+	entries: Entry[],
+	made: {
+		name: string;
+		owner?: {userId: string; name: string};
+		sharedWith?: Connection['sharedWith'];
+	} | null = null,
+) {
+	const sharedWith = made?.sharedWith ?? [];
+	const connection: Connection = {
+		id,
+		orgId: 'org-1',
+		integrationId: 'vault',
+		account: 'Acme',
+		ownerUserId: made?.owner?.userId ?? 'user-1',
+		owner: made?.owner?.name ?? 'Alex',
+		sharedWithEveryone: false,
+		sharedWith,
+		shared: sharedWith.length > 0,
+		builtIn: made === null,
+		defaults: ['readEntries', 'writeEntries'],
+		tools: null,
+		name: made?.name ?? null,
+		unavailable: [],
+		signInNeeded: false,
+	};
 	return {
-		connectionId,
+		connection,
 		entries: entries.map((entry): DataRecord => ({
 			...entry,
 			updatedAt: '2026-10-21T00:00:00.000Z',
@@ -27,29 +55,31 @@ function vault(connectionId: string, entries: Entry[]) {
 	};
 }
 
-// The person's own vault with the entries, and the organization's with `shared`; alone in the
-// organization unless `org` says otherwise.
-function renderVaultPage(entries: Entry[], options: {shared?: Entry[]; org?: Org} = {}) {
-	const org = options.org ?? testOrg;
+// The page of one vault, as its loader answers it: the person's own with the entries unless
+// `shown` is another, at that vault's address.
+function renderVaultPage(
+	entries: Entry[],
+	shown: ReturnType<typeof vault> = vault('vault-1', entries),
+) {
+	const {connection} = shown;
 	const router = createMemoryRouter(
 		[
 			{
 				id: 'human',
-				loader: () => testHuman(org),
+				loader: () => testHuman(testOrg),
 				element: <HumanSide />,
-				children: [
-					{
-						path: '/:org/connections/vault',
-						loader: () => ({
-							own: vault('vault-1', entries),
-							shared: vault('vault-2', options.shared ?? []),
-						}),
-						element: <VaultPage />,
-					},
-				],
+				children: ['/:org/connections/vault', '/:org/connections/vault/:id'].map((path) => ({
+					path,
+					loader: () => ({vault: connection, entries: shown.entries}),
+					element: <VaultPage />,
+				})),
 			},
 		],
-		{initialEntries: ['/acme/connections/vault']},
+		{
+			initialEntries: [
+				connection.builtIn ? '/acme/connections/vault' : `/acme/connections/vault/${connection.id}`,
+			],
+		},
 	);
 
 	return render(
@@ -60,6 +90,12 @@ function renderVaultPage(entries: Entry[], options: {shared?: Entry[]; org?: Org
 		</ThemeProvider>,
 	);
 }
+
+const HOME: Entry = {id: 'entry-1', values: {title: 'Home', type: 'Address', content: '1 Main St'}};
+const OFFICE: Entry = {
+	id: 'entry-2',
+	values: {title: 'Office', type: 'Address', content: '2 Side St'},
+};
 
 describe('VaultPage', () => {
 	test('lists each entry by its title, with its type and the first line of its content', async () => {
@@ -73,47 +109,76 @@ describe('VaultPage', () => {
 		expect(row.textContent).not.toContain('Berlin');
 	});
 
-	test('says what the vault is for while it is empty', async () => {
+	test('the person’s own vault says what it is for while it is empty, and is the only vault on its page', async () => {
 		renderVaultPage([]);
 
-		expect(await screen.findByText(/let them keep what they learn/)).toBeDefined();
+		expect(await screen.findByText(/what your agents should know about you/)).toBeDefined();
+		expect(screen.getByText('My vault').parentElement?.textContent).toBe('My vaultVault');
+		expect(screen.queryByText('Sharing and permissions')).toBeNull();
+		expect(screen.queryByRole('button', {name: /Just me/})).toBeNull();
 	});
 
-	test("alone in the organization, the organization's vault's entries are listed with the person's own", async () => {
-		renderVaultPage(
-			[{id: 'entry-1', values: {title: 'Home', type: 'Address', content: '1 Main St'}}],
-			{
-				shared: [{id: 'entry-2', values: {title: 'Office', type: 'Address', content: '2 Side St'}}],
-			},
-		);
+	test('a vault a member made has a page of its own, by its name, with its entries alone', async () => {
+		renderVaultPage([HOME], vault('vault-2', [OFFICE], {name: 'Finance'}));
 
-		expect(await screen.findByRole('button', {name: /Home/})).toBeDefined();
-		expect(screen.getByRole('button', {name: /Office/})).toBeDefined();
-		expect(screen.queryByRole('button', {name: /Everyone in Acme/})).toBeNull();
-	});
-
-	test("with others in the organization, a toggle picks the person's own vault or the organization's", async () => {
-		renderVaultPage(
-			[{id: 'entry-1', values: {title: 'Home', type: 'Address', content: '1 Main St'}}],
-			{
-				shared: [{id: 'entry-2', values: {title: 'Office', type: 'Address', content: '2 Side St'}}],
-				org: {...testOrg, memberCount: 2},
-			},
-		);
-
-		expect(await screen.findByRole('button', {name: /Home/})).toBeDefined();
-		expect(screen.queryByRole('button', {name: /Office/})).toBeNull();
-
-		fireEvent.click(screen.getByRole('button', {name: /Everyone in Acme/}));
 		expect(await screen.findByRole('button', {name: /Office/})).toBeDefined();
 		expect(screen.queryByRole('button', {name: /Home/})).toBeNull();
+		expect(screen.getByText('Finance').parentElement?.textContent).toBe('FinanceVault');
 	});
 
-	test("the organization's vault says what it is for while it is empty", async () => {
-		renderVaultPage([], {org: {...testOrg, memberCount: 2}});
+	test('a vault a member made says whose it is and who it is shared with, and links to where that is set', async () => {
+		renderVaultPage(
+			[],
+			vault('vault-2', [], {name: 'Finance', sharedWith: [{userId: 'user-2', name: 'Dana'}]}),
+		);
 
-		fireEvent.click(await screen.findByRole('button', {name: /Everyone in Acme/}));
-		expect(await screen.findByText(/everyone's agents should know about Acme/)).toBeDefined();
+		expect((await screen.findByText(/Yours · shared with Dana/)).textContent).toContain(
+			'Sharing and permissions',
+		);
+		expect(screen.getByRole('link', {name: 'Sharing and permissions'}).getAttribute('href')).toBe(
+			'/acme/connections/vault-2',
+		);
+		expect(screen.getByText(/everyone who uses this vault should know/)).toBeDefined();
+		cleanup();
+
+		renderVaultPage(
+			[],
+			vault('vault-3', [], {
+				name: 'Hiring',
+				owner: {userId: 'user-2', name: 'Dana'},
+				sharedWith: [{userId: 'user-1', name: 'Alex'}],
+			}),
+		);
+		expect(await screen.findByText(/Dana’s · shared with Alex/)).toBeDefined();
+	});
+
+	test('a vault that isn’t the person’s to use is not found', async () => {
+		const router = createMemoryRouter(
+			[
+				{
+					id: 'human',
+					loader: () => testHuman(testOrg),
+					element: <HumanSide />,
+					children: [
+						{
+							path: '/:org/connections/vault/:id',
+							loader: () => ({vault: null, entries: []}),
+							element: <VaultPage />,
+						},
+					],
+				},
+			],
+			{initialEntries: ['/acme/connections/vault/someone-elses']},
+		);
+		render(
+			<ThemeProvider>
+				<TooltipProvider>
+					<RouterProvider router={router} />
+				</TooltipProvider>
+			</ThemeProvider>,
+		);
+
+		expect(await screen.findByText('This vault does not exist anymore.')).toBeDefined();
 	});
 
 	test('a new entry needs something written, its type alone is not enough', async () => {

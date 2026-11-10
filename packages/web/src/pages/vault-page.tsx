@@ -1,3 +1,4 @@
+import type {Connection} from '@proxy/contracts/connections';
 import type {DataRecord} from '@proxy/contracts/records';
 import {findCollection, VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import {
@@ -10,20 +11,20 @@ import {
 	type LucideIcon,
 } from 'lucide-react';
 import {useState} from 'react';
-import {useLoaderData} from 'react-router';
+import {Link, useLoaderData} from 'react-router';
 import {createRecord, deleteRecord, updateRecord} from '@/client/records-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AddButton} from '@/components/add-button';
+import {NotFound} from '@/components/not-found';
 import {RecordForm} from '@/components/record-form';
-import {Row, RowHeader, RowList} from '@/components/row-list';
-import {SideEmpty, SideToggle} from '@/components/share-toggle';
+import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
 import {Badge} from '@proxy/ui/components/badge';
 import {Button} from '@proxy/ui/components/button';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@proxy/ui/components/dialog';
 import {useApply} from '@/hooks/use-apply';
 import {useHuman} from '@/hooks/use-human';
-import {useSide} from '@/hooks/use-side';
-import {recordTitle} from '@/lib/access';
+import {connectionTitle, recordTitle} from '@/lib/access';
+import {ownerOf} from '@/lib/orgs';
 import {findIntegration} from '@/lib/integrations';
 import type {vaultLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -32,6 +33,20 @@ const ENTRIES = 'entries';
 
 const OWN_EMPTY =
 	'Nothing yet. Add what your agents should know about you, or let them keep what they learn.';
+const MADE_EMPTY =
+	'Nothing yet. Add what the agents of everyone who uses this vault should know, or let them keep what they learn.';
+
+// "shared with everyone in Acme", "shared with Dana and Sam", or "shared with nobody yet".
+function sharedWith(connection: Connection, orgName: string): string {
+	if (connection.sharedWithEveryone) {
+		return `shared with everyone in ${orgName}`;
+	}
+	const names = connection.sharedWith.map((member) => member.name);
+	if (names.length === 0) {
+		return 'shared with nobody yet';
+	}
+	return `shared with ${new Intl.ListFormat('en', {type: 'conjunction'}).format(names)}`;
+}
 
 // The table's columns after the title, the header's and the rows' alike: the content only on
 // screens wide enough for it.
@@ -60,38 +75,30 @@ function TypeBadge({type}: {type: string}) {
 	);
 }
 
-// An entry with the vault it is in, since the page lists the entries of two.
-type Listed = {entry: DataRecord; connectionId: string; shared: boolean};
-
 // Which entry the dialog is open on: a new one, in the vault shown, or one being edited.
-type Editing = {listed: Listed | null};
+type Editing = {entry: DataRecord | null};
 
-// What the person's agents should know about them, kept by the person or by the agents, and what
-// everyone's agents should know about the organization: a table of the entries, each opened for
-// editing. With anyone else in the organization or invited, a toggle picks the vault, the person's
-// own or the organization's, in the address as `?for=me` or `?for=everyone`, opening on their own;
-// alone, both vaults' entries are one list, and a new entry is the person's own. It is one of the
-// connections, opened from theirs.
+// One vault: what the person's agents should know about them, kept by the person or by the
+// agents, in their own, or what more than their own agents should know, in one a member made: a
+// table of its entries, each opened for editing, under what the vault is called, "My vault" or
+// the name it was given. The person's own is at `connections/vault`; one a member made has its page
+// under that, by its connection, and says whose it is and who it is shared with, with a link to its connection's page, where that is set. Each is
+// one of the connections, opened from theirs.
 export function VaultPage() {
 	const org = useOrgSlug();
-	const {own, shared} = useLoaderData<typeof vaultLoader>();
+	const {vault, entries} = useLoaderData<typeof vaultLoader>();
 	const human = useHuman();
 	const [editing, setEditing] = useState<Editing | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const apply = useApply(setError);
-	const list = (kept: {connectionId: string; entries: DataRecord[]}, inShared: boolean): Listed[] =>
-		kept.entries.map((entry) => ({entry, connectionId: kept.connectionId, shared: inShared}));
-	const side = useSide([...list(own, false), ...list(shared, true)], {opensOnShared: false});
-	const vault = findIntegration(VAULT_INTEGRATION_ID);
-	const collection = vault && findCollection(vault, ENTRIES);
-	if (!collection || !human) {
-		return null;
+	const integration = findIntegration(VAULT_INTEGRATION_ID);
+	const collection = integration && findCollection(integration, ENTRIES);
+	if (!vault || !collection || !human) {
+		return <NotFound what="vault" />;
 	}
 
-	const activeOrg = human.org;
-	const listed = side.shown;
-	// Where a new entry goes: the vault shown, the person's own when alone.
-	const shown = side.shared ? shared : own;
+	const made = !vault.builtIn;
+	const owner = ownerOf(vault, human);
 
 	const open = (next: Editing | null) => {
 		setError(null);
@@ -102,12 +109,25 @@ export function VaultPage() {
 
 	return (
 		<AppShell
-			title={<PageTitle>Vault</PageTitle>}
+			title={<PageTitle detail={integration?.name}>{connectionTitle(vault)}</PageTitle>}
 			actions={
-				<AddButton label="Add entry" variant="outline" onClick={() => open({listed: null})} />
+				<AddButton label="Add entry" variant="outline" onClick={() => open({entry: null})} />
 			}
 		>
-			<SideToggle side={side} orgName={activeOrg.name} />
+			{made && (
+				<p className="text-sm text-muted-foreground">
+					{owner === 'You' ? 'Yours' : `${owner}’s`}
+					{' · '}
+					{sharedWith(vault, human.org.name)}
+					{' · '}
+					<Link
+						to={`/${org}/connections/${vault.id}`}
+						className="text-foreground underline underline-offset-4"
+					>
+						Sharing and permissions
+					</Link>
+				</p>
+			)}
 			<RowList
 				header={
 					<RowHeader>
@@ -117,25 +137,18 @@ export function VaultPage() {
 					</RowHeader>
 				}
 			>
-				{listed.length === 0 && (
-					<SideEmpty
-						side={side}
-						alone={OWN_EMPTY}
-						shared={`Nothing yet. Add what everyone's agents should know about ${activeOrg.name}, or let them keep what they learn.`}
-						own={OWN_EMPTY}
-					/>
-				)}
-				{listed.map((item) => (
+				{entries.length === 0 && <EmptyRows>{made ? MADE_EMPTY : OWN_EMPTY}</EmptyRows>}
+				{entries.map((entry) => (
 					<Row
-						key={item.entry.id}
-						onClick={() => open({listed: item})}
-						title={recordTitle(collection, item.entry)}
+						key={entry.id}
+						onClick={() => open({entry})}
+						title={recordTitle(collection, entry)}
 						cells={
 							<>
 								<span className={CELLS.type}>
-									<TypeBadge type={item.entry.values.type || 'Text'} />
+									<TypeBadge type={entry.values.type || 'Text'} />
 								</span>
-								<span className={CELLS.content}>{item.entry.values.content?.split('\n')[0]}</span>
+								<span className={CELLS.content}>{entry.values.content?.split('\n')[0]}</span>
 							</>
 						}
 					/>
@@ -154,36 +167,33 @@ export function VaultPage() {
 					<DialogContent>
 						<DialogHeader>
 							<DialogTitle>
-								{editing.listed ? recordTitle(collection, editing.listed.entry) : 'New entry'}
+								{editing.entry ? recordTitle(collection, editing.entry) : 'New entry'}
 							</DialogTitle>
 						</DialogHeader>
 						<RecordForm
 							fields={collection.fields}
-							initial={editing.listed?.entry.values ?? {type: 'Text'}}
+							initial={editing.entry?.values ?? {type: 'Text'}}
 							submitLabel="Save"
-							requireNonEmpty={editing.listed === null}
+							requireNonEmpty={editing.entry === null}
 							onCancel={() => open(null)}
 							onSubmit={(values) => {
-								const {listed: item} = editing;
+								const {entry} = editing;
 								void apply(
-									item
-										? updateRecord(org, item.connectionId, ENTRIES, item.entry.id, values)
-										: createRecord(org, shown.connectionId, ENTRIES, values),
+									entry
+										? updateRecord(org, vault.id, ENTRIES, entry.id, values)
+										: createRecord(org, vault.id, ENTRIES, values),
 									close,
 								);
 							}}
 							extra={
-								editing.listed && (
+								editing.entry && (
 									<Button
 										type="button"
 										variant="destructive"
 										onClick={() => {
-											const {listed: item} = editing;
-											if (item) {
-												void apply(
-													deleteRecord(org, item.connectionId, ENTRIES, item.entry.id),
-													close,
-												);
+											const {entry} = editing;
+											if (entry) {
+												void apply(deleteRecord(org, vault.id, ENTRIES, entry.id), close);
 											}
 										}}
 									>

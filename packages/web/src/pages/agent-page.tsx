@@ -39,7 +39,7 @@ import {Checkbox} from '@proxy/ui/components/checkbox';
 import {Input} from '@proxy/ui/components/input';
 import {useApply} from '@/hooks/use-apply';
 import {useHuman} from '@/hooks/use-human';
-import {connectionLabel, defaultActions, integrationOf, ownSettings} from '@/lib/access';
+import {connectionLabel, defaultActions, integrationOf, ownSettings, reaches} from '@/lib/access';
 import {cn} from '@proxy/ui/lib/utils';
 import {formatDate} from '@/lib/format';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
@@ -83,9 +83,7 @@ function AgentDetail({id}: {id: string}) {
 			? 'You'
 			: (agent.createdBy ?? 'A former member');
 	// A shared agent reaches the connections shared with everyone alone.
-	const reachable = agent.shared
-		? connections.filter((connection) => connection.shared)
-		: connections;
+	const reachable = connections.filter((connection) => reaches(agent, connection));
 	const provider = findAgentProvider(agent.providerId);
 	const company = provider?.company ?? agent.providerId;
 	// A built-in agent has no login to hand out: it runs in Personal Agent Proxy itself.
@@ -181,13 +179,13 @@ function AgentDetail({id}: {id: string}) {
 						{
 							label: 'Reaches',
 							value: agent.shared
-								? `The connections shared with ${activeOrg.name}`
-								: `The connections shared with ${activeOrg.name}, and your own`,
+								? `The connections shared with everyone in ${activeOrg.name}`
+								: 'Your connections, and those shared with you',
 						},
 						{label: 'Made by', value: createdBy},
 					]}
 					alone={!hasOtherPeople(activeOrg)}
-					confirmDescription={`Everyone in ${activeOrg.name} sees ${agent.name} and can give its login to their own tools. It reaches only the connections shared with everyone from then on, so its settings on your own connections are dropped. Its tasks and activity so far become everyone's too, except what it did on your own connections, which stays yours. Whoever made it and the organization's owner change it. This can't be undone.`}
+					confirmDescription={`Everyone in ${activeOrg.name} sees ${agent.name} and can give its login to their own tools. It reaches only the connections shared with everyone from then on, so its settings on any other are dropped. Its tasks and activity so far become everyone's too, except what it did on any other connection, which stays yours. Whoever made it and the organization's owner change it. This can't be undone.`}
 					onShare={() => apply(shareAgent(org, agent.id))}
 				/>
 				<Section

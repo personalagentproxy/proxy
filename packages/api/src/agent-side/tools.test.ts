@@ -71,7 +71,8 @@ const vaultConnection = {
 	integrationId: 'vault',
 	orgId: 'org-1',
 	ownerUserId: 'user-1',
-	connectedById: 'user-1',
+	sharedWithEveryone: false,
+	shares: [],
 	account: "Alex's Workspace",
 	createdAt: new Date(),
 	tools: null,
@@ -84,7 +85,8 @@ const emailConnection = {
 	integrationId: 'email',
 	orgId: 'org-1',
 	ownerUserId: 'user-1',
-	connectedById: 'user-1',
+	sharedWithEveryone: false,
+	shares: [],
 	account: 'alex@example.com',
 	createdAt: new Date(),
 	tools: null,
@@ -109,7 +111,8 @@ const googleConnection = {
 	integrationId: 'google',
 	orgId: 'org-1',
 	ownerUserId: 'user-1',
-	connectedById: 'user-1',
+	sharedWithEveryone: false,
+	shares: [],
 	account: 'alex@example.com',
 	createdAt: new Date(),
 	defaults: [{actionId: 'readFiles'}],
@@ -185,13 +188,19 @@ describe('listAgentConnections', () => {
 		]);
 	});
 
-	test('says which connections are shared with everyone in the organization', async () => {
-		listConnectionsWithCredential.mockResolvedValue(Ok([{...vaultConnection, id: 'vault-2', ownerUserId: null}]));
+	test('says which connections other members use too, shared with all of them or with some by name', async () => {
+		listConnectionsWithCredential.mockResolvedValue(
+			Ok([{...vaultConnection, id: 'vault-2', name: 'Team', sharedWithEveryone: true}, {...vaultConnection, id: 'vault-3', name: 'Finance', shares: [{userId: 'user-2'}]}, vaultConnection]),
+		);
 
 		const {listAgentConnections} = await import('./tools');
 		const result = await listAgentConnections(signedIn);
 
-		expect(result.unwrap().connections).toEqual([expect.objectContaining({id: 'vault-2', shared: true})]);
+		expect(result.unwrap().connections.map((connection) => [connection.id, connection.shared])).toEqual([
+			['vault-2', true],
+			['vault-3', true],
+			[vaultConnection.id, false],
+		]);
 	});
 });
 
@@ -631,7 +640,8 @@ describe('custom MCP servers', () => {
 		integrationId: 'mcp',
 		orgId: 'org-1',
 		ownerUserId: 'user-1',
-		connectedById: 'user-1',
+		sharedWithEveryone: false,
+		shares: [],
 		account: 'mcp.example.com/mcp',
 		createdAt: new Date(),
 		tools: JSON.stringify([search, publish]),

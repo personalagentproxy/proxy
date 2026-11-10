@@ -3,57 +3,63 @@ title: Organizations
 description: Work with other people in an organization, on one set of connections and agents.
 ---
 
-Everything in Personal Agent Proxy is in an organization: its connections and agents, each shared
-with everyone in it or one member's own, its activity log, its vault and each member's own. Everyone
+Everything in Personal Agent Proxy is in an organization: its connections, each a member's own or
+shared by them with others in it, its agents, each shared with everyone in it or one member's own,
+its activity log and each member's vault. Everyone
 starts with one of their own, and can make more, such as one for work beside a personal one, or
 join someone else's. Every page is one organization's, named first in its address
 (`/acme/connections`), so a link to a page is a link to it in that organization; the mark at the
 top of the sidebar is the one you are in: hover it to switch, to open its **Members** or
 **Settings**, or to create another. Your agents there reach what is connected there.
 
-## Your own or everyone's
+## Your own, or shared
 
-A connection is either yours or shared with everyone in the organization:
+A connection is whoever connected it's, and theirs to share:
 
 - **Just me**: only you and your agents can use it. Nobody else in the organization sees it, its
-  owner included. Your mailbox belongs here, and so does your vault, which is yours in every
-  organization you are in.
-- **Everyone in the organization**: every member's agents can use it, with the permissions on its
-  page. Members see it listed, never its password or token. A team account, a shared mailbox or a
-  database user belongs here, and so does the organization's vault, which every organization has
-  from the start ([Vault](/connections/vault)).
+  owner included. Your mailbox belongs here, and so do your vault and your sandboxes, which are
+  yours in every organization you are in and can't be shared.
+- **Shared with members by name**: the agents of the members you pick can use it too, with the
+  permissions on its page. A mailbox two of you answer belongs here, or a vault for one team
+  ([Vault](/connections/vault)).
+- **Everyone in the organization**: every member's agents can use it, and so can the shared
+  agents. A team account, a shared mailbox or a database user belongs here.
 
-A shared connection acts as the account it was connected with. For a mailbox, a database, an API
-key or a custom MCP server that is the account itself; for a service you sign in to, such as
-Google, Granola, Notion or Linear, it is whoever signed in, so everyone's agents work as that
-person there. The connection's page says who it acts as and who connected it.
+Whoever a connection is shared with sees it listed, with who else has it, never its password or
+token, and changes nothing of it. A shared connection acts as the account it was connected with.
+For a mailbox, a database, an API key or a custom MCP server that is the account itself; for a
+service you sign in to, such as Google, Granola, Notion or Linear, it is whoever signed in, so the
+agents of everyone it is shared with work as that person there. The connection's page says who it
+acts as and whose it is.
 
-Once anyone else is in the organization, or invited to it, **Add connection** asks who a new
-connection is for, and **Connections** lists the two apart. On the page of a connection of your own,
-**Share with everyone** under **Sharing** shares it. Sharing can't be undone: to have it as your own
-again, disconnect it and connect it again. A shared connection is renamed, disconnected, signed in
-to again and has its permissions changed by whoever connected it and the organization's owner;
-everyone else uses it as it is.
+Once anyone else is in the organization, or invited to it, **Add connection** asks whether a new
+connection is for you or for everyone, and **Connections** lists what is shared apart from what is
+yours alone. On the page of a connection of yours, **Sharing** lists **Everyone in** the
+organization and each member: tick one to share it, which asks first, and untick it to take it
+back, at once. Whoever loses a connection loses what their agents were set to do with it too. A
+connection is renamed, disconnected, signed in to again, shared and has its permissions changed by
+whoever's it is; one shared with everyone, by the organization's owner too.
 
 ## Agents
 
 An agent login is yours or shared with the organization, the same way a connection is:
 
-- **Just me**: only you see it. It reaches the connections shared with everyone and your own, with
-  the permissions you give it.
+- **Just me**: only you see it. It reaches every connection you use, your own and those shared
+  with you, with the permissions you give it.
 - **Everyone in the organization**: every member sees it and can give its login to their own tools.
-  It reaches the connections shared with everyone, never anyone's own, so sharing an agent of yours
-  drops its settings on your own connections. Whoever made it and the organization's owner change
+  It reaches the connections shared with everyone, never one that is someone's alone or shared
+  with members by name, so sharing an agent of yours drops its settings on every other connection. Whoever made it and the organization's owner change
   its access, revoke it, hand it a new [password](/agents/web) and delete it; everyone else sees
   it as it is.
 
 Once anyone else is in the organization, or invited to it, **New agent** asks who the agent is for,
 and **External agents and permissions** lists the two apart. On the page of an agent of your own, **Share with everyone**
-under **Sharing** shares it, for good. What it did on shared connections so far becomes everyone's
-with it; what it did on any other connection, your own or one since disconnected, stays yours,
-along with the tasks it did that for. A login made when an MCP client signs in is yours. The activity log shows what shared agents did on shared connections, and what
-your own agents did; another member's own agent's doings are theirs. What anyone did from the home
-page on a shared connection is logged with their name.
+under **Sharing** shares it, for good. What it did on connections shared with everyone so far
+becomes everyone's with it; what it did on any other connection, your own, one shared by name or
+one since disconnected, stays yours, along with the tasks it did that for. A login made when an MCP
+client signs in is yours. The activity log shows what shared agents did, and what your own agents
+did; another member's own agent's doings are theirs, on a connection of yours too. What anyone did
+from the home page on a connection shared with everyone is logged with their name.
 
 ## Members
 
@@ -74,11 +80,12 @@ A member leaves an organization from its **Settings** or **Members**; its owner 
 it from its **Settings** instead, as long as it isn't the last one they own, so everyone always owns
 one. Your own account is under **Account**, at the foot of the sidebar, with every
 organization you are in.
-Leaving, or being removed, disconnects what you connected for yourself there and deletes your own
-agents there, and signs out the MCP clients you signed in as its shared agents; the shared
-connections and agents stay. The shared agents you made, whose passwords you were shown, get one
+Leaving, or being removed, disconnects what you connected there, what you shared with members by
+name included, and deletes your own agents there, and signs out the MCP clients you signed in as
+its shared agents. What you shared with everyone stays, the organization's owner's from then on,
+and so do the shared agents. The shared agents you made, whose passwords you were shown, get one
 nobody knows and are signed out everywhere, until the owner hands them a new one; another shared
 agent's password a former member knows keeps working until whoever manages the agent resets it. Deleting an organization disconnects every
-connection in it, shared and every member's own, and deletes its vaults, every agent and its
+connection in it, whoever's it is, and deletes its vaults, every agent and its
 activity, for everyone in it. Deleting your account deletes every organization you own, with
 everyone else in them losing them too, and takes you out of the others.

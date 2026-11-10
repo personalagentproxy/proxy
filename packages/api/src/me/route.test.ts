@@ -8,7 +8,7 @@ const deleteUser = mock();
 const listUserOrgs = mock();
 const removeMembership = mock();
 const listOrgConnectionsWithCredential = mock();
-const listOwnConnectionsWithCredential = mock();
+const listLeavingConnectionsWithCredential = mock();
 const beforeDisconnectAll = mock();
 const clearSessionCookie = mock();
 
@@ -17,7 +17,7 @@ mock.module('@proxy/db/user', () => ({
 	deleteUser,
 }));
 
-mock.module('@proxy/db/connection', () => ({listOrgConnectionsWithCredential, listOwnConnectionsWithCredential}));
+mock.module('@proxy/db/connection', () => ({listOrgConnectionsWithCredential, listLeavingConnectionsWithCredential}));
 
 mock.module('../connections/disconnect', () => ({beforeDisconnectAll}));
 
@@ -55,7 +55,7 @@ beforeEach(() => {
 	listUserOrgs.mockResolvedValue(Ok([mine]));
 	removeMembership.mockResolvedValue(Ok(undefined));
 	listOrgConnectionsWithCredential.mockResolvedValue(Ok([]));
-	listOwnConnectionsWithCredential.mockResolvedValue(Ok([]));
+	listLeavingConnectionsWithCredential.mockResolvedValue(Ok([]));
 	beforeDisconnectAll.mockResolvedValue(undefined);
 	deleteUser.mockResolvedValue(Ok(undefined));
 });
