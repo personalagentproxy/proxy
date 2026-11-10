@@ -34,8 +34,10 @@ import {
 import {Trace, TraceIcon, TraceLine, TraceTitle} from '@/components/chat/trace';
 import {preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
+import {useChatDraft} from '@/hooks/use-chat-draft';
 import {useHuman} from '@/hooks/use-human';
 import {useOrgSlug} from '@/hooks/use-org';
+import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
 import {useUnread} from '@/hooks/use-unread';
 import {formatAgo, formatDateTime} from '@/lib/format';
 import type {Pose} from '@/lib/head';
@@ -112,6 +114,14 @@ function subtitle(last: ChatPersona['lastMessage']): string {
 	return last.kind === 'person' ? `You: ${last.text}` : last.text;
 }
 
+// What the person typed in a conversation and hasn't sent, cut to a line; null without any.
+function draftLine(draft: string | null): string | null {
+	if (draft === null || draft.trim() === '') {
+		return null;
+	}
+	return preview(draft);
+}
+
 // The last thing said in the open conversation, as the page has it, fresher than the list, cut
 // to a line as the list has it.
 function lastOf(log: ThreadLog): ChatPersona['lastMessage'] {
@@ -125,13 +135,16 @@ function lastActive(persona: ChatPersona, last: ChatPersona['lastMessage']): num
 }
 
 // The organization's personas in the second sidebar, each with its head, its name and the last
-// thing said between it and the person, marked where the person hasn't seen it, the open one lit,
+// thing said between it and the person, marked where the person hasn't seen it, or what they
+// typed and haven't sent, the open one's as it is typed, the open one lit,
 // each head watching the pointer while it is over that agent's row. The one last active is on
 // top, the open one by its log, so what the person just said moves it up at once.
 function PersonaList({
 	personas,
 	current,
 	currentLog,
+	currentDraft,
+	recallDraft,
 	takeOpeningPersona,
 	rememberOpeningPersona,
 	forgetOpeningPersona,
@@ -143,6 +156,8 @@ function PersonaList({
 	personas: ChatPersona[];
 	current: string;
 	currentLog: ThreadLog;
+	currentDraft: string;
+	recallDraft: (personaId: string) => string | null;
 	takeOpeningPersona: () => string | null;
 	rememberOpeningPersona: (personaId: string) => void;
 	forgetOpeningPersona: (personaId: string) => void;
@@ -161,6 +176,9 @@ function PersonaList({
 		.map((persona) => ({
 			persona,
 			last: persona.id === current ? lastOf(currentLog) : persona.lastMessage,
+			draft: draftLine(
+				persona.id === current ? currentDraft : (recallDraft(persona.id) ?? persona.draft),
+			),
 		}))
 		.toSorted((a, b) => lastActive(b.persona, b.last) - lastActive(a.persona, a.last));
 	return (
@@ -169,7 +187,7 @@ function PersonaList({
 				<span className="px-2 py-1.5 text-sm text-muted-foreground">No agents yet.</span>
 			)}
 			<ul className="flex flex-col gap-0.5">
-				{rows.map(({persona, last}) => {
+				{rows.map(({persona, last, draft}) => {
 					const fresh = isUnread(persona);
 					const row = (
 						<Link
@@ -226,7 +244,13 @@ function PersonaList({
 											fresh ? 'font-medium' : 'text-muted-foreground',
 										)}
 									>
-										{subtitle(last)}
+										{draft === null ? (
+											subtitle(last)
+										) : (
+											<>
+												<span className="font-medium text-foreground">Draft:</span> {draft}
+											</>
+										)}
 									</span>
 									{fresh && (
 										<span
@@ -297,6 +321,13 @@ export function ChatPage() {
 	const rememberHeadPose = useCallback((personaId: string, pose: Pose) => {
 		headPoses.current.set(personaId, pose);
 	}, []);
+	// What was typed in each conversation while the page was open, fresher than the list, which
+	// is read as another opens, perhaps before the save of what was typed in the last has landed.
+	const drafts = useRef(new Map<string, string>());
+	const recallDraft = useCallback((personaId: string) => drafts.current.get(personaId) ?? null, []);
+	const rememberDraft = useCallback((personaId: string, text: string) => {
+		drafts.current.set(personaId, text);
+	}, []);
 	return (
 		<Conversation
 			key={loaded.log.persona.id}
@@ -306,6 +337,8 @@ export function ChatPage() {
 			forgetOpeningPersona={forgetOpeningPersona}
 			recallHeadPose={recallHeadPose}
 			rememberHeadPose={rememberHeadPose}
+			recallDraft={recallDraft}
+			rememberDraft={rememberDraft}
 		/>
 	);
 }
@@ -321,6 +354,8 @@ function Conversation({
 	forgetOpeningPersona,
 	recallHeadPose,
 	rememberHeadPose,
+	recallDraft,
+	rememberDraft,
 }: {
 	loaded: Loaded;
 	takeOpeningPersona: () => string | null;
@@ -328,21 +363,49 @@ function Conversation({
 	forgetOpeningPersona: (personaId: string) => void;
 	recallHeadPose: (personaId: string) => Pose | null;
 	rememberHeadPose: (personaId: string, pose: Pose) => void;
+	recallDraft: (personaId: string) => string | null;
+	rememberDraft: (personaId: string, text: string) => void;
 }) {
 	const org = useOrgSlug();
 	const human = useHuman();
 	const navigate = useNavigate();
 	const revalidator = useRevalidator();
 	const [log, setLog] = useState<ThreadLog>(loaded.log);
-	const [text, setText] = useState('');
+	const personaId = loaded.log.persona.id;
+	// What was typed and not sent, as the conversation opened: as this page left it, or as the
+	// server keeps it. Read once: the log read again later says nothing of what is being typed.
+	const [opening] = useState(() => {
+		const kept = loaded.log.draft ?? '';
+		return {kept, text: recallDraft(personaId) ?? kept};
+	});
+	const [text, setText] = useState(opening.text);
+	const draft = useChatDraft(org, personaId, opening.kept);
 	const [sending, setSending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	// The agent dialog: making a new one, or changing the selected one; closed as null.
 	const [editing, setEditing] = useState<'new' | ChatPersona | null>(null);
 	const [deleting, setDeleting] = useState<ChatPersona | null>(null);
 	const form = useRef<HTMLFormElement>(null);
-	const personaId = loaded.log.persona.id;
 	const current = loaded.log.persona;
+	// A conversation is open all day: a new release is loaded while it is out of view, as long as
+	// what is typed is saved as the draft and no dialog is open, since the log and the draft come
+	// back from the server.
+	useReloadWhileHidden(text === draft.saved && !sending && editing === null && deleting === null);
+
+	// What this page had typed here that the server doesn't have yet, as it was left for another
+	// conversation a moment before its save landed, is saved again.
+	const {typed} = draft;
+	useEffect(() => {
+		if (opening.text !== opening.kept) {
+			typed(opening.text);
+		}
+	}, [typed, opening]);
+
+	const type = (value: string) => {
+		setText(value);
+		draft.typed(value);
+		rememberDraft(personaId, value);
+	};
 
 	// Which read of the log was asked for last: one asked for before it that answers after it is
 	// dropped, so a poll begun before a send can't put back the log as it was without the message.
@@ -408,13 +471,17 @@ function Conversation({
 		}
 		setSending(true);
 		setError(null);
+		await draft.settle();
 		const posted = await postMessage(org, personaId, message);
 		setSending(false);
 		if (posted.isErr()) {
 			setError(describeFetchError(posted.error));
+			draft.typed(text);
 			return;
 		}
+		draft.sent();
 		setText('');
+		rememberDraft(personaId, '');
 		await readLog();
 	};
 
@@ -482,6 +549,8 @@ function Conversation({
 					personas={loaded.personas}
 					current={personaId}
 					currentLog={log}
+					currentDraft={text}
+					recallDraft={recallDraft}
 					takeOpeningPersona={takeOpeningPersona}
 					rememberOpeningPersona={rememberOpeningPersona}
 					forgetOpeningPersona={forgetOpeningPersona}
@@ -588,7 +657,7 @@ function Conversation({
 				<InputGroup className="rounded-xl bg-background shadow-xs">
 					<InputGroupTextarea
 						value={text}
-						onChange={(event) => setText(event.target.value)}
+						onChange={(event) => type(event.target.value)}
 						onKeyDown={onKeyDown}
 						placeholder={`Message ${current.name}`}
 						aria-label="Message"

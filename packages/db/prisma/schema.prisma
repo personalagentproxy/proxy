@@ -193,37 +193,37 @@ model Invitation {
 // vault connection in each organization, made when they join it, whose entries live in Personal
 // Agent Proxy, and may make more vaults, each named, to share as any connection.
 model Connection {
-  id                 String  @id @default(cuid())
-  orgId              String
-  integrationId      String
+  id                String  @id @default(cuid())
+  orgId             String
+  integrationId     String
   // The account as the provider names it, such as an email address; the organization's name for
   // the vault.
-  account            String
+  account           String
   // The provider's own id for the account, which stays as its address changes: Google's `sub`.
   // None where the provider gives none, or for a connection from before it was kept.
-  providerAccountId  String?
+  providerAccountId String?
   // Encrypted with ENCRYPTION_KEY: an app password with its server settings. None for the vault.
-  credential         String?
+  credential        String?
   // A custom MCP server's tools as the server last listed them (`@proxy/integrations`' McpTool),
   // as JSON: what agents can be allowed with it. Null for every other integration.
-  tools              String?
+  tools             String?
   // What the person called the connection, where they named it: a custom MCP server and a vault
   // someone made are named as they are made. Null for every other integration, which shows as its
   // integration, and for a member's built-in vault, which is told from the ones made by it.
-  name               String?
+  name              String?
   // The member whose connection it is: who connected it, whom a sign-in acts as, and who changes,
   // shares and disconnects it. Always set by this version. Null only on a connection an instance
   // of the version before made shared with everyone, as it could while this one was being
   // deployed beside it: nobody's, so nothing reads it (db/connection.ts). The migration after the
   // next deploy deletes those and makes the column required.
-  ownerUserId        String?
+  ownerUserId       String?
   // Shared with every member of the organization, the shared agents included, beside whoever it
   // is shared with by name (ConnectionShare). The organization's owner may change one that is.
   sharedWithEveryone Boolean @default(false)
   // Who connected it, as the version before kept it for a shared connection, which had no owner.
   // Read and written by nothing: kept until no instance of that version, which selects it,
   // still runs. The migration after the next deploy drops it.
-  connectedById      String?
+  connectedById     String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -452,40 +452,40 @@ model AuditEntry {
 // tasks of one job form a tree. Plain ids, like the activity log, so it stays when the agent is
 // gone.
 model AgentTask {
-  id            String    @id @default(cuid())
-  orgId         String
-  agentId       String
+  id         String    @id @default(cuid())
+  orgId      String
+  agentId    String
   // The agent's task this one was started for, as a sub-task (AgentTask); none for a task started
   // on its own.
-  parentId      String?
+  parentId   String?
   // A few words, as a heading.
-  title         String
+  title      String
   // What the person asked for, in a sentence or two.
-  goal          String
-  via           AuditVia
+  goal       String
+  via        AuditVia
   // Set once the agent calls the task finished; null while it is under way. Finishing a task
   // finishes its sub-tasks still under way too.
-  finishedAt    DateTime?
+  finishedAt DateTime?
   // What was done or found, as the agent said when it finished, where it said; what a sub-task
   // handed back.
-  outcome       String?
+  outcome    String?
   // The member whose own the agent is, who alone sees the task; null for a shared agent's, which
   // everyone in the organization sees.
-  ownerUserId   String?
+  ownerUserId String?
   // The persona a sub-agent of the Chat page ran the task as (Persona), for the activity log to
   // say whose it was; null for every other task. As a column, as the agent is.
-  personaId     String?
+  personaId String?
   // When it, or the last of its sub-tasks at any depth, was started or had a request made for it:
   // one never finished is taken as left open 20 minutes after, until the next request takes it up
   // again, which it can for 20 minutes more (@proxy/utils/tasks). Never before any of its sub-tasks', so a parent is never left open
   // while one is under way. Set with createdAt, and on it and every task above it when a sub-task
   // starts, a request is made or it is finished.
-  lastActiveAt  DateTime  @default(now())
+  lastActiveAt  DateTime @default(now())
   // What lastActiveAt took over from, read by nothing. Kept until every instance selects what it
   // updates of a task (db/task.ts finishAgentTask): the versions before returned every column on an
   // update, so dropping it while one still ran during a deploy failed its finishing of a task. The
   // migration after the next deploy drops it.
-  lastStartedAt DateTime  @default(now())
+  lastStartedAt DateTime @default(now())
 
   createdAt DateTime @default(now())
 
@@ -604,23 +604,23 @@ model OAuthGrant {
 // organization's one built-in agent login (Agent, provider `proxy`), whose grants are every
 // persona's: a persona is who did the work, the login is what it may do.
 model Persona {
-  id          String  @id @default(cuid())
-  orgId       String
-  name        String
+  id    String @id @default(cuid())
+  orgId String
+  name  String
   // Its head: the look as JSON (`@proxy/utils/harness` Look), in one of the colors.
-  look        String
-  color       String
+  look  String
+  color String
   // The model it answers with, by id (CHAT_MODELS in @proxy/utils), its sub-agents too: chosen
   // where it is made or changed in an insider organization; in any other it is ignored, and Claude
   // answers.
-  chatModel   String  @default("claude")
+  chatModel String @default("claude")
   // Who made it, who may change it beside the organization's owner.
   createdById String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  org     Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   threads AgentThread[]
 
   @@index([orgId, createdAt])
@@ -643,20 +643,20 @@ enum SandboxState {
 // (`heldByTaskId`, an AgentTask): taken by the first call a task makes on it, and free again once
 // that task is finished or left open (@proxy/utils/tasks), so two agents never work on one at once.
 model Sandbox {
-  id           String       @id @default(cuid())
-  orgId        String
-  connectionId String
+  id               String       @id @default(cuid())
+  orgId            String
+  connectionId     String
   // What the agent called it, shown in the list and the activity log.
-  name         String
-  state        SandboxState
+  name             String
+  state            SandboxState
   // Which backend made it, so one backend is never asked for another's, and its ref there.
-  backendId    String
-  backendRef   String
-  heldByTaskId String?
-  heldAt       DateTime?
+  backendId        String
+  backendRef       String
+  heldByTaskId     String?
+  heldAt           DateTime?
   // When a command last ran in it, or it was made, woken or put to sleep: what the idle sweeper
   // reads, and the list shows.
-  lastUsedAt   DateTime     @default(now())
+  lastUsedAt       DateTime     @default(now())
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -670,17 +670,17 @@ model Sandbox {
 }
 
 model AgentThread {
-  id             String  @id @default(cuid())
-  orgId          String
+  id      String @id @default(cuid())
+  orgId   String
   // The organization's built-in agent login, which the persona acts through: its grants, its
   // activity log.
-  agentId        String
+  agentId String
   // The persona the conversation is with, or the sub-agent works as.
-  personaId      String
+  personaId String
   // The member whose conversation with the agent it is, or, for a sub-agent's thread, whose
   // conversation it was started from: the agent acts as them in it, reaching what they see, and
   // nobody else sees it.
-  userId         String
+  userId  String
   // A sub-agent's thread: the thread whose agent started it (AgentThread; as a column, as a
   // task's parent is, since its agent, member and organization are the same, and go with them),
   // and the call in that thread's log it was started by, which everything it says to that agent
@@ -688,23 +688,27 @@ model AgentThread {
   parentThreadId String?
   parentCallId   String?
   // A sub-agent's title, as the agent that started it gave it; null for a conversation.
-  title          String?
+  title   String?
   // The task a sub-agent's calls are made for, the sub-agent's own, finished each time it stops
   // and made anew when it is taken up again; a conversation has none: its agent makes no calls
   // but to its sub-agents.
-  taskId         String?
+  taskId  String?
   // How far the member has read their conversation: the `seq` of the last answer the Chat page
   // showed them while they looked at it, never back. What the persona said past it is unread. A
   // sub-agent's thread, which nobody reads, keeps 0.
-  readSeq        Int     @default(0)
+  readSeq Int     @default(0)
+  // What the member has typed to the persona and not sent, kept so it is there when they come
+  // back, on any device; the message they send empties it. Null when there is none, and for a
+  // sub-agent's thread.
+  draft   String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  org       Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  agent     Agent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  persona   Persona         @relation(fields: [personaId], references: [id], onDelete: Cascade)
-  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  agent   Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  persona Persona      @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   entries   AgentEntry[]
   jobs      AgentJob[]
   jobEvents AgentJobEvent[]
@@ -734,31 +738,31 @@ enum AgentEntryKind {
 // that lands while the model is answering on the log is pending: it is not in the log yet, and
 // gets its place, a new `seq` after the answer, once the answer is written.
 model AgentEntry {
-  id           String         @id @default(cuid())
-  seq          Int            @unique @default(autoincrement())
-  threadId     String
-  kind         AgentEntryKind
-  pending      Boolean        @default(false)
+  id       String         @id @default(cuid())
+  seq      Int            @unique @default(autoincrement())
+  threadId String
+  kind     AgentEntryKind
+  pending  Boolean        @default(false)
   // What the person said, what the model said (maybe nothing beside its calls), or what a call
   // answered.
-  text         String
+  text     String
   // An assistant entry's tool calls as JSON (`@proxy/utils/harness` ToolCall[]); null otherwise.
-  toolCalls    String?
+  toolCalls String?
   // A tool_result or event entry's call, by the id the model gave it; null otherwise.
-  callId       String?
+  callId   String?
   // A tool_result or event that is an error, in words the model can act on.
-  isError      Boolean        @default(false)
+  isError  Boolean        @default(false)
   // An assistant entry's cost.
   inputTokens  Int?
   outputTokens Int?
   // A summary entry's reach: the `seq` of the last entry it stands for; null otherwise.
-  coversSeq    Int?
+  coversSeq Int?
   // An assistant entry's system prompt, as the model was sent it: built from the login's grants
   // as they were then, which nothing else keeps. Null where the model wasn't run for the answer.
-  system       String?
+  system   String?
   // The job that wrote the entry (AgentJob; as a column: the two live and die with the thread),
   // with its attempts and its error; null for what the person wrote.
-  jobId        String?
+  jobId    String?
 
   createdAt DateTime @default(now())
 
@@ -785,20 +789,20 @@ enum AgentJobStatus {
 // the lease while it works, and finishes the job in the same transaction as the entries it writes,
 // only while it still holds the lease; a lease that runs out gives the job to the next worker.
 model AgentJob {
-  id             String         @id @default(cuid())
-  threadId       String
-  kind           AgentJobKind
-  status         AgentJobStatus @default(queued)
+  id       String         @id @default(cuid())
+  threadId String
+  kind     AgentJobKind
+  status   AgentJobStatus @default(queued)
   // A tool job's call: the assistant entry it is in and the id the model gave it.
-  entryId        String?
-  callId         String?
-  runAt          DateTime       @default(now())
+  entryId  String?
+  callId   String?
+  runAt    DateTime       @default(now())
   // Which worker holds it, and until when, while it is running.
   claimedBy      String?
   leaseExpiresAt DateTime?
-  attempts       Int            @default(0)
+  attempts       Int       @default(0)
   // Why it failed, where it did.
-  error          String?
+  error    String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -849,23 +853,23 @@ model AgentJobEvent {
 // transaction that answers the call that set it. The person sees their alerts on the Alerts page
 // and deletes them there; the agent cancels one when asked.
 model AgentAlert {
-  id            String    @id @default(cuid())
-  orgId         String
+  id       String @id @default(cuid())
+  orgId    String
   // The member whose conversation it was set in: the alert is theirs alone to see.
-  userId        String
-  threadId      String
-  title         String
+  userId   String
+  threadId String
+  title    String
   // What the agent noted: what to tell the person at the time, or what the watch is for.
-  brief         String
+  brief    String
   // A timed alert's time, and when it is next due: its time, then again a while after a turn that
   // failed; null for a watch.
-  at            DateTime?
-  nextAt        DateTime?
+  at       DateTime?
+  nextAt   DateTime?
   // A watch: the collection watched (emails, issues or events), the connections watched, as plain
   // ids, and the words any of which a record has to carry to match; none, and every new record does.
   collectionId  String?
-  connectionIds String[]  @default([])
-  terms         String[]  @default([])
+  connectionIds String[] @default([])
+  terms         String[] @default([])
   // When a watch last matched a record; null for a timed alert, and before the first match.
   lastMatchedAt DateTime?
 

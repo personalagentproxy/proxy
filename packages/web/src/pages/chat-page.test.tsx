@@ -7,6 +7,7 @@ import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {HumanSide} from '@/components/human-side';
+import {pageSaysSafeToReload} from '@/hooks/use-reload-on-release';
 import {ChatPage} from '@/pages/chat-page';
 import {testHuman, testOrg} from '@/test-org';
 
@@ -23,13 +24,20 @@ function persona(id: string, name: string, mayChange: boolean): ChatPersona {
 		color: 'blue',
 		chatModel: null,
 		lastMessage: null,
+		draft: null,
 		createdAt: '2026-10-20T10:00:00Z',
 	};
 }
 
 const general = persona('general', 'General', false);
 const finance = persona('finance', 'Finance', true);
-const log: ThreadLog = {persona: general, entries: [], busy: false, sleepingUntil: null};
+const log: ThreadLog = {
+	persona: general,
+	entries: [],
+	busy: false,
+	sleepingUntil: null,
+	draft: null,
+};
 // The last answers the provider around the page is given: none, unless a test says otherwise.
 let answers: ChatAnswer[] = [];
 
@@ -57,10 +65,12 @@ function renderChatPage({
 	personas = [general, finance],
 	entries = [],
 	listPersonas = () => personas,
+	draft = null,
 }: {
 	personas?: ChatPersona[];
 	entries?: ThreadLog['entries'];
 	listPersonas?: () => ChatPersona[];
+	draft?: string | null;
 } = {}) {
 	const router = createMemoryRouter(
 		[
@@ -75,6 +85,7 @@ function renderChatPage({
 							log: {
 								...log,
 								entries,
+								draft,
 								persona: personas.find((candidate) => candidate.id === params.id) ?? general,
 							},
 							personas: listPersonas(),
@@ -365,5 +376,98 @@ describe('ChatPage', () => {
 		expect(
 			fetchMock.mock.calls.filter(([url]) => url === '/api/orgs/acme/chat/personas/general/read'),
 		).toHaveLength(0);
+	});
+
+	describe('drafts', () => {
+		const draftUrl = '/api/orgs/acme/chat/personas/general/draft';
+		// The drafts saved, in order.
+		const saves = () =>
+			fetchMock.mock.calls
+				.filter(([url, init]) => url === draftUrl && init?.method === 'PUT')
+				.map(([, init]) => JSON.parse(String(init?.body)) as {text: string});
+
+		test('opens with what was typed and not sent, safe to reload', async () => {
+			renderChatPage({draft: 'Move the pricing review'});
+
+			const box = (await screen.findByLabelText('Message')) as HTMLTextAreaElement;
+			expect(box.value).toBe('Move the pricing review');
+			expect(pageSaysSafeToReload()).toBe(true);
+			expect(saves()).toEqual([]);
+		});
+
+		test('saves what is typed a moment after the typing stops, once', async () => {
+			renderChatPage();
+			const box = await screen.findByLabelText('Message');
+
+			fireEvent.change(box, {target: {value: 'Move the'}});
+			fireEvent.change(box, {target: {value: 'Move the pricing review'}});
+			expect(pageSaysSafeToReload()).toBe(false);
+
+			await waitFor(() => expect(saves()).toEqual([{text: 'Move the pricing review'}]), {
+				timeout: 2000,
+			});
+			await waitFor(() => expect(pageSaysSafeToReload()).toBe(true));
+		});
+
+		test('saves at once as another conversation opens, and lists it there as a draft', async () => {
+			renderChatPage();
+			const box = await screen.findByLabelText('Message');
+			fireEvent.change(box, {target: {value: 'Move the pricing review'}});
+
+			fireEvent.click(screen.getByRole('link', {name: /Finance/}));
+			await screen.findByText('What should Finance do?');
+
+			expect(saves()).toEqual([{text: 'Move the pricing review'}]);
+			const generalRow = screen.getByRole('link', {name: /General/});
+			expect(generalRow.textContent).toContain('Draft: Move the pricing review');
+		});
+
+		test('lists the open conversation’s draft as it is typed, and another’s as the server keeps it', async () => {
+			renderChatPage({personas: [general, {...finance, draft: 'Pay the invoice'}]});
+			const box = await screen.findByLabelText('Message');
+
+			expect(screen.getByRole('link', {name: /Finance/}).textContent).toContain(
+				'Draft: Pay the invoice',
+			);
+			expect(screen.getByRole('link', {name: /General/}).textContent).not.toContain('Draft:');
+
+			fireEvent.change(box, {target: {value: 'Book the train'}});
+			expect(screen.getByRole('link', {name: /General/}).textContent).toContain(
+				'Draft: Book the train',
+			);
+		});
+
+		test('sends without saving what was typed for it, and empties the box', async () => {
+			fetchMock.mockImplementation((input, init) => {
+				if (input.endsWith('/messages') && init?.method === 'POST') {
+					return Promise.resolve(
+						Response.json({
+							entry: {
+								id: 'e1',
+								kind: 'person',
+								text: 'Book the train',
+								isError: false,
+								at: '2026-10-21T10:00:00Z',
+							},
+						}),
+					);
+				}
+				return Promise.resolve(
+					input.endsWith('/chat/answers')
+						? Response.json({answers})
+						: new Response(null, {status: 204}),
+				);
+			});
+			renderChatPage();
+			const box = (await screen.findByLabelText('Message')) as HTMLTextAreaElement;
+
+			fireEvent.change(box, {target: {value: 'Book the train'}});
+			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
+
+			await waitFor(() => expect(box.value).toBe(''));
+			await new Promise((resolve) => setTimeout(resolve, 900));
+			expect(saves()).toEqual([]);
+			expect(screen.getByRole('link', {name: /General/}).textContent).not.toContain('Draft:');
+		});
 	});
 });
