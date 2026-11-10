@@ -7,6 +7,7 @@ const NOW = new Date('2026-11-10T12:00:00Z');
 const claims: CliClaims = {
 	agentId: 'agent-1',
 	orgId: 'org-1',
+	ownerUserId: 'user-1',
 	taskId: 'task-1',
 	sandboxId: 'sandbox-1',
 	connectionId: 'sandboxes-1',
@@ -27,6 +28,8 @@ describe('cli tokens', () => {
 
 		expect(token).toStartWith('pap_');
 		expect(verifyCliToken(token, SECRET, NOW).unwrap()).toEqual(claims);
+		const shared = {...claims, ownerUserId: null};
+		expect(verifyCliToken(signCliToken(shared, SECRET), SECRET, NOW).unwrap()).toEqual(shared);
 	});
 
 	test('one past its expiry is expired, up to the second', () => {

@@ -71,7 +71,7 @@ describe('runSandboxCommand', () => {
 		expect(Object.keys(env).sort()).toEqual(['PAP_TOKEN', 'PAP_URL']);
 		expect(env.PAP_URL).toBe('https://app.example.com');
 		const claims = verifyCliToken(env.PAP_TOKEN ?? '', 'test-auth-secret').unwrap();
-		expect(claims).toMatchObject({agentId: 'agent-1', orgId: 'org-1', taskId: 'task-1', sandboxId: 'sandbox-1', connectionId: 'sandboxes-1'});
+		expect(claims).toMatchObject({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', taskId: 'task-1', sandboxId: 'sandbox-1', connectionId: 'sandboxes-1'});
 		// The command's timeout, and 30 seconds more.
 		const left = claims.expiresAt - Date.now() / 1000;
 		expect(left).toBeGreaterThan(85);
