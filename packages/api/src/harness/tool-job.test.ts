@@ -34,6 +34,8 @@ const thread: ThreadRow = {
 	parentCallId: 'c0',
 	title: 'Find the invoices',
 	taskId: 'task-1',
+	harness: null,
+	harnessSession: null,
 	createdAt: now,
 };
 const conversation: ThreadRow = {...thread, id: 'thread-0', parentThreadId: null, parentCallId: null, title: null, taskId: null};
@@ -57,6 +59,8 @@ function entryWith(calls: Array<{id: string; name: string; arguments: string}>):
 		outputTokens: 1,
 		coversSeq: null,
 		system: null,
+		harness: null,
+		model: null,
 		jobId: null,
 		createdAt: now,
 	};

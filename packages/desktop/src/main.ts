@@ -1,19 +1,27 @@
 import path from 'node:path';
 
-import {app, dialog, type BrowserWindow} from 'electron';
+import {app, dialog, ipcMain, shell, type BrowserWindow} from 'electron';
+import {exchangeCode, SIGN_IN_FAILED} from '@proxy/utils/claude-oauth';
 
 import {finishSignIn} from './auth';
-import {OPEN_PATH_CHANNEL} from './channels';
+import {
+	CLAUDE_SIGN_IN_FINISH_CHANNEL,
+	CLAUDE_SIGN_IN_START_CHANNEL,
+	OPEN_PATH_CHANNEL,
+} from './channels';
+import {createClaudeSignIn, type FinishAnswer, type StartAnswer} from './claude-sign-in';
 import {DEEP_LINK_SCHEME, findDeepLink, parseDeepLink, type DeepLink} from './deep-link';
 import {DESKTOP_VERSION} from './env';
+import {fromApp} from './ipc';
 import {initNotifications} from './notifications';
 import {initUpdates} from './updates';
 import {createMainWindow, isAppPage, loadApp, showSignIn} from './window';
 
 // The desktop app: a window around the web app, hosted, with nothing of it bundled. The main
 // process keeps the window, signs in through the browser, takes the app's links: the browser
-// coming back from the sign-in, and from what the app hands it, as a service's sign-in is; and
-// shows the notifications the page asks for.
+// coming back from the sign-in, and from what the app hands it, as a service's sign-in is; shows
+// the notifications the page asks for; and signs the person in to Claude for the Account page,
+// minting the token on this computer.
 
 // So the web app can tell it is in the desktop app, and which version.
 app.userAgentFallback = `${app.userAgentFallback} PersonalAgentProxyDesktop/${DESKTOP_VERSION}`;
@@ -86,6 +94,27 @@ async function onDeepLink(link: DeepLink): Promise<void> {
 	loadApp(win);
 }
 
+// The Claude sign-in (claude-sign-in.ts), for the app's own pages: the browser opens Claude's
+// page, and the pasted code is traded for the token the page connects.
+function initClaudeSignIn(): void {
+	const signIn = createClaudeSignIn({
+		openExternal: (url) => shell.openExternal(url),
+		exchange: exchangeCode,
+	});
+	ipcMain.handle(CLAUDE_SIGN_IN_START_CHANNEL, (event): Promise<StartAnswer> => {
+		if (!fromApp(event)) {
+			return Promise.resolve({error: SIGN_IN_FAILED});
+		}
+		return signIn.start();
+	});
+	ipcMain.handle(CLAUDE_SIGN_IN_FINISH_CHANNEL, (event, pasted): Promise<FinishAnswer> => {
+		if (!fromApp(event) || typeof pasted !== 'string') {
+			return Promise.resolve({error: SIGN_IN_FAILED});
+		}
+		return signIn.finish(pasted);
+	});
+}
+
 function start(): void {
 	// One instance: a link opened while the app runs reaches it, not a second copy.
 	if (!app.requestSingleInstanceLock()) {
@@ -135,6 +164,7 @@ function start(): void {
 		loadApp(window());
 		initUpdates(currentWindow);
 		initNotifications(openPath);
+		initClaudeSignIn();
 		const link = findDeepLink(process.argv);
 		if (link) {
 			void onDeepLink(link);

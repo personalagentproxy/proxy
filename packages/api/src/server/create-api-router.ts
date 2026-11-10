@@ -47,9 +47,11 @@ import {handleFaviconRoute} from '../favicons/route';
 import {alertRoutes} from '../harness/alerts-route';
 import {handleClientLogsRoute} from '../observability/client-logs';
 import {chatRoutes} from '../harness/route';
+import {serverHarnesses} from '../backends/registry';
 import {harnessStore} from '../harness/store';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
+import {handleClaudeTokenRoute, handleDeleteClaudeAccountRoute, handleGetClaudeAccountRoute} from '../me/claude-route';
 import {handleDeleteMeRoute, handleMeRoute} from '../me/route';
 import {handleDeleteOtherSessionsRoute, handleDeleteSessionRoute, handleListSessionsRoute} from '../me/sessions';
 import {handleAcceptInvitationRoute, handleGetInvitationRoute} from '../orgs/invitation-link';
@@ -121,6 +123,10 @@ export function createApiRouter(): express.Router {
 	router.get('/api/me/sessions', withAuthResult('List sessions route', handleListSessionsRoute));
 	router.delete('/api/me/sessions/others', withAuthResult('Delete other sessions route', handleDeleteOtherSessionsRoute));
 	router.delete('/api/me/sessions/:sessionId', withAuthResult('Delete session route', handleDeleteSessionRoute));
+	// The person's own Claude account, for the account page's card (me/claude-route.ts).
+	router.get('/api/me/claude', withAuthResult('Get Claude account route', handleGetClaudeAccountRoute));
+	router.post('/api/me/claude/token', withAuthResult('Claude token route', handleClaudeTokenRoute));
+	router.delete('/api/me/claude', withAuthResult('Delete Claude account route', handleDeleteClaudeAccountRoute));
 
 	router.use('/api/orgs', requireBrowserOrigin);
 	router.get('/api/orgs', withAuthResult('List organizations route', handleListOrgsRoute));
@@ -214,7 +220,7 @@ export function createApiRouter(): express.Router {
 	// The Chat page: the organization's built-in agents and the member's conversations with them.
 	// Nothing here runs the model: the worker in each api instance does (harness/worker.ts); a
 	// message queues its work.
-	const chat = chatRoutes(harnessStore);
+	const chat = chatRoutes(harnessStore, serverHarnesses);
 	org.get('/chat/personas', withAuthResult('List personas route', chat.handleListPersonasRoute));
 	org.get('/chat/answers', withAuthResult('List answers route', chat.handleListAnswersRoute));
 	org.post('/chat/personas', withAuthResult('Create persona route', chat.handleCreatePersonaRoute));

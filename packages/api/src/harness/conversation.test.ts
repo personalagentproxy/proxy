@@ -16,6 +16,8 @@ const conversation: ThreadRow = {
 	parentCallId: null,
 	title: null,
 	taskId: null,
+	harness: null,
+	harnessSession: null,
 	createdAt: now,
 };
 const sub: ThreadRow = {...conversation, id: 'thread-1', parentThreadId: 'thread-0', parentCallId: 'c0', title: 'Find the invoices', taskId: 'task-1'};
@@ -117,6 +119,12 @@ describe('a failed job', () => {
 			kind: 'reply',
 			text: 'Something went wrong on my side, so I could not answer: The model refused the request. Say something to try again.',
 		});
+	});
+
+	test('of a wake-up’s turn is the turn’s: the sub-agent stops with the failure, the person is answered with it', () => {
+		const woken: JobRow = {...turn, kind: 'wake'};
+		expect(failureNote('boom')(woken, sub)).toEqual({kind: 'stop', stop: subAgentStop({text: 'The sub-agent failed: boom', isError: true})});
+		expect(failureNote('boom')(woken, conversation)).toMatchObject({kind: 'reply'});
 	});
 
 	test('of a tool job without a call leaves nothing', () => {

@@ -1,4 +1,3 @@
-import {CHAT_MODELS, type ChatModel} from '@proxy/utils';
 import {AGENT_NAME_MAX} from '@proxy/utils/agent-providers';
 import {AVATAR_COLORS, lookSchema} from '@proxy/utils/harness';
 import {z} from 'zod';
@@ -9,19 +8,20 @@ import {z} from 'zod';
  * say in it.
  */
 
-const chatModelSchema = z.enum(Object.keys(CHAT_MODELS) as [ChatModel, ...ChatModel[]]);
-
 /**
  * `POST chat/personas`, `PUT chat/personas/:personaId`: a persona as the person makes or changes
- * it, a name, and a head, a look in one of the colors, and in an insider organization the model it
- * answers with, its sub-agents too; left out, a new one answers with Claude and one changed keeps
- * its own. Any other organization's is ignored: its personas answer with Claude.
+ * it, a name, a head, a look in one of the colors, and what runs it, its sub-agents too: the
+ * harness, by its id, and the model it answers with, one of that harness's, by its id
+ * (`chatHarnessSchema`). With the harness left out, a new one gets the server's first and one
+ * changed keeps its own; with the model left out, it is the harness's first, or the persona's own
+ * where the harness stays. One the server hasn't got is refused.
  */
 export const personaBodySchema = z.object({
 	name: z.string().trim().pipe(z.string().min(1).max(AGENT_NAME_MAX)),
 	look: lookSchema,
 	color: z.enum(AVATAR_COLORS),
-	chatModel: chatModelSchema.optional(),
+	harness: z.string().optional(),
+	chatModel: z.string().optional(),
 });
 
 export type Persona = z.input<typeof personaBodySchema>;
@@ -34,14 +34,12 @@ export const chatPersonaSchema = z.object({
 	name: z.string(),
 	look: lookSchema,
 	color: z.enum(AVATAR_COLORS),
+	/** The harness that runs it and the model it answers with, by their ids, as this server has them. */
+	harness: z.string(),
+	chatModel: z.string(),
 	/**
-	 * The model it answers with, in an insider organization; null in any other, whose personas
-	 * answer with Claude.
-	 */
-	chatModel: chatModelSchema.nullable(),
-	/**
-	 * Whether the person may rename, reface, switch the model of or delete it: they made it, or own
-	 * the organization.
+	 * Whether the person may rename, reface, switch the harness or the model of, or delete it: they
+	 * made it, or own the organization.
 	 */
 	mayChange: z.boolean(),
 	/**
@@ -61,10 +59,26 @@ export const chatPersonaSchema = z.object({
 export type ChatPersona = z.infer<typeof chatPersonaSchema>;
 
 /**
- * `GET chat/personas`: the organization's personas, the one last active in the person's
- * conversation first: the last thing said in it, or, before anything was, its making.
+ * A harness a persona can run on, as the model switcher offers it: its id, what it is called, and
+ * the models it answers with, the first its default.
  */
-export const personaListSchema = z.object({personas: z.array(chatPersonaSchema)});
+export const chatHarnessSchema = z.object({
+	id: z.string(),
+	label: z.string(),
+	models: z.array(z.object({id: z.string(), label: z.string()})),
+});
+
+export type ChatHarness = z.infer<typeof chatHarnessSchema>;
+
+/**
+ * `GET chat/personas`: the organization's personas, the one last active in the person's
+ * conversation first: the last thing said in it, or, before anything was, its making; and the
+ * harnesses this server has for a persona to run on, the first what a new one gets.
+ */
+export const personaListSchema = z.object({
+	personas: z.array(chatPersonaSchema),
+	harnesses: z.array(chatHarnessSchema),
+});
 
 /**
  * The persona's last answer in one of the person's conversations, cut to a line, which may come

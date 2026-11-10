@@ -4,10 +4,12 @@ import {Result} from 'ts-results-es';
 
 import {connectDb, disconnectDb} from '@proxy/db';
 
+import {serverHarnesses} from './backends/registry';
 import {runDataMigrations} from './data-migrations/run';
 import {harnessStore} from './harness/store';
 import {startAlertSweeper, type AlertSweeper} from './harness/alert-sweep';
 import {startHarnessWorker, type HarnessWorker} from './harness/worker';
+import {claudeCredentialFor, markClaudeCredentialRefused, recordClaudeUsage} from './me/claude-credential';
 import {startSandboxSweeper} from './native/sandbox/sweeper';
 import {log, serializeError} from './observability/log';
 import {metrics} from './observability/metrics';
@@ -77,7 +79,8 @@ async function startApiServer(): Promise<void> {
 		log.info(`@proxy/api listening on http://localhost:${port}`);
 		// After listening, since signing in to a provider to name an account can take a while.
 		void runDataMigrations();
-		worker = startHarnessWorker(harnessStore);
+		// The built-in agent's worker, on the harnesses this server has (backends/registry.ts).
+		worker = startHarnessWorker(harnessStore, {registry: serverHarnesses(), credentials: {claudeCredentialFor, markRefused: markClaudeCredentialRefused, recordUsage: recordClaudeUsage}});
 		sweeper = startAlertSweeper(harnessStore);
 		void startSandboxSweeper();
 	});

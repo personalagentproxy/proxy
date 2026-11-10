@@ -12,7 +12,7 @@ import {getConnection, listConnections} from '@/client/connections-client';
 import {getGitHubInstallations} from '@/client/github-client';
 import {listAlerts} from '@/client/alerts-client';
 import {getThread, listPersonas} from '@/client/harness-client';
-import {getMe, listSessions} from '@/client/me-client';
+import {getClaudeAccount, getMe, listSessions} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {getInvitation, getOrg, listMembers, listOrgs} from '@/client/orgs-client';
 import {listRecords} from '@/client/records-client';
@@ -158,14 +158,16 @@ export const chatIndexLoader = later(async (args: OrgParams) => {
 	throw redirect(`/${org}/chat/${first.id}`);
 });
 
-// The person's conversation with an agent, and the agents to switch between.
+// The person's conversation with an agent, the agents to switch between, and the harnesses one
+// can run on.
 export const chatLoader = later(async (args: OrgParams & {params: {id?: string}}) => {
 	const org = orgOf(args);
 	const [log, personas] = await Promise.all([
 		getThread(org, args.params.id ?? ''),
 		listPersonas(org),
 	]);
-	return {log: unwrapLoaderResult(log), personas: unwrapLoaderResult(personas).personas};
+	const {personas: listed, harnesses} = unwrapLoaderResult(personas);
+	return {log: unwrapLoaderResult(log), personas: listed, harnesses};
 });
 
 // The person's alerts, those the agents set in their conversations.
@@ -321,9 +323,11 @@ export async function connectAgentLoader({request}: {request: Request}) {
 
 export type ConnectAgentData = Awaited<ReturnType<typeof connectAgentLoader>>;
 
-// The person's account: their sessions, every browser and desktop app they are signed in on.
+// The person's account: their sessions, every browser and desktop app they are signed in on, and
+// how their own Claude account is connected, if it is.
 export const accountLoader = later(async () => {
-	return unwrapLoaderResult(await listSessions());
+	const [sessions, claude] = await Promise.all([listSessions(), getClaudeAccount()]);
+	return {...unwrapLoaderResult(sessions), claude: unwrapLoaderResult(claude).account};
 });
 
 // The organization's members and invitations.

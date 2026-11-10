@@ -10,7 +10,6 @@ import {
 } from 'react';
 import {createPortal} from 'react-dom';
 import {useLoaderData, useLocation, useNavigate} from 'react-router';
-import {AppSidebar} from '@/components/nav';
 import {ContentBoundary} from '@/components/route-error';
 import {Button} from '@proxy/ui/components/button';
 import {Sheet, SheetContent, SheetTitle} from '@proxy/ui/components/sheet';
@@ -164,8 +163,8 @@ function useFollowRedirect() {
 	}, [answer, navigate]);
 }
 
-// The human side's frame: the sidebar, a header with the page's title and actions, in the desktop
-// app the window's title bar, and the page's content in one centered column. The frame is up as
+// The human side's frame beside its sidebar (HumanSide): a header with the page's title and
+// actions, in the desktop app the window's title bar, and the page's content in one centered column. The frame is up as
 // soon as the page opens; content that has to load first shows when it has, and until then what
 // stands for it.
 export function AppShell({
@@ -189,7 +188,6 @@ export function AppShell({
 
 	return (
 		<FrameSlots value={slots}>
-			<AppSidebar />
 			{panel !== undefined && desktop && (
 				<aside
 					data-desktop-panel

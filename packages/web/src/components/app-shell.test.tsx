@@ -151,6 +151,20 @@ describe('AppShell', () => {
 		expect(screen.getByRole('banner').textContent).toBe('ThingsAdd to first');
 	});
 
+	test('keeps its sidebar from one page to the next', async () => {
+		const {loader, asked} = pendingLoader();
+		const router = renderAt('/acme/things', loader);
+		await screen.findByRole('banner');
+		await act(async () => asked[0]?.answer({name: 'first'}));
+		const connections = await screen.findByRole('link', {name: 'Connections'});
+
+		// Drawn again, the label of the destination just clicked would open again under the pointer.
+		await act(async () => router.navigate('/acme/things/1'));
+		await act(async () => asked[1]?.answer({name: 'One'}));
+		await screen.findByText('Thing 1: One');
+		expect(screen.getByRole('link', {name: 'Connections'})).toBe(connections);
+	});
+
 	test('holds the place of a title the content gives', async () => {
 		const {loader, asked} = pendingLoader();
 		renderAt('/acme/things/1', loader);

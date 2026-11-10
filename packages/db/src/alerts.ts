@@ -7,18 +7,21 @@ import {db} from '.';
 import {
 	appendEntry,
 	endJob,
+	type InlineJob,
 	lockThread,
 	type PersonaRow,
 	personaSelect,
 	type ThreadRow,
 	toPersona,
 	type Wakes,
+	writeInline,
 } from './harness';
 
 /**
  * The built-in agent's alerts (AgentAlert) and the polls their watches read (ConnectionPoll). An
  * alert is set in the transaction that answers the call that set it, so a tool job run again sets
- * nothing more; a watch's polls are made with it, and kept. Both are taken by the alerts' sweep,
+ * nothing more; where the harness runs the call itself, mid-turn, it is set on its own, fenced by
+ * the turn's job (setAlertInline); a watch's polls are made with it, and kept. Both are taken by the alerts' sweep,
  * each moved on as it is taken, so one api instance takes each, and what each comes to is written
  * in one transaction: a timed alert lands as it is deleted, and a poll's look lands what matched,
  * for every watch on it, as it moves the cursor on from where the look started. A turn that fails,
@@ -74,6 +77,42 @@ const alertSelect = {
 	createdAt: true,
 } as const satisfies Prisma.AgentAlertSelect;
 
+// Sets the alert in the conversation: a timed one due at its time, or a watch with the polls of
+// its connections, made where there are none yet. With the conversation locked.
+async function createAlert(
+	tx: Prisma.TransactionClient,
+	thread: ThreadRow,
+	alert: NewAlert,
+): Promise<AlertRow> {
+	const made = await tx.agentAlert.create({
+		data: {
+			orgId: thread.orgId,
+			userId: thread.userId,
+			threadId: thread.id,
+			title: alert.title,
+			brief: alert.brief,
+			...(alert.kind === 'time'
+				? {at: alert.at, nextAt: alert.at}
+				: {
+						collectionId: alert.collectionId,
+						connectionIds: alert.connectionIds,
+						terms: alert.terms,
+					}),
+		},
+		select: alertSelect,
+	});
+	if (alert.kind === 'watch') {
+		for (const connectionId of alert.connectionIds) {
+			await tx.connectionPoll.upsert({
+				where: {connectionId_collectionId: {connectionId, collectionId: alert.collectionId}},
+				create: {connectionId, collectionId: alert.collectionId},
+				update: {},
+			});
+		}
+	}
+	return made;
+}
+
 /**
  * Finishes the tool job of a set_alert call: sets the alert in the conversation, a timed one due
  * at its time and a watch with the polls of its connections, and answers the call as `answer`
@@ -89,32 +128,7 @@ export async function completeSetAlert(
 	return wrapDb(() =>
 		db.$transaction((tx) =>
 			endJob(tx, {...job, status: 'done'}, wakes, async (thread) => {
-				const made = await tx.agentAlert.create({
-					data: {
-						orgId: thread.orgId,
-						userId: thread.userId,
-						threadId: thread.id,
-						title: alert.title,
-						brief: alert.brief,
-						...(alert.kind === 'time'
-							? {at: alert.at, nextAt: alert.at}
-							: {
-									collectionId: alert.collectionId,
-									connectionIds: alert.connectionIds,
-									terms: alert.terms,
-								}),
-					},
-					select: alertSelect,
-				});
-				if (alert.kind === 'watch') {
-					for (const connectionId of alert.connectionIds) {
-						await tx.connectionPoll.upsert({
-							where: {connectionId_collectionId: {connectionId, collectionId: alert.collectionId}},
-							create: {connectionId, collectionId: alert.collectionId},
-							update: {},
-						});
-					}
-				}
+				const made = await createAlert(tx, thread, alert);
 				await appendEntry(
 					tx,
 					thread,
@@ -130,6 +144,19 @@ export async function completeSetAlert(
 			}),
 		),
 	);
+}
+
+/**
+ * Sets the alert of a set_alert call from the inference job that runs the turn, where the harness
+ * runs the call itself: the alert alone, in its own transaction; the call's answer is the turn's
+ * to write (appendTurnEntries), and the job goes on. The alert set: `Ok(null)` when the job was no
+ * longer the worker's, or its thread is gone, and nothing is set.
+ */
+export async function setAlertInline(
+	job: InlineJob,
+	alert: NewAlert,
+): Promise<Result<AlertRow | null, ApiError>> {
+	return writeInline(job, null, (tx, thread) => createAlert(tx, thread, alert));
 }
 
 /** The alerts set in the conversation, oldest first: what the agent is told it has. */

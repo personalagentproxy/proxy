@@ -1,10 +1,11 @@
-import {createHash, randomBytes} from 'node:crypto';
+import {randomBytes} from 'node:crypto';
 
 import type {Response} from 'express';
 import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseCookieHeader, requirePresent} from '@proxy/utils';
+import {makePkce} from '@proxy/utils/claude-oauth';
 import {
 	createConnection,
 	findAccountConnection,
@@ -79,12 +80,6 @@ type SignInAnswer<E> = {redirectUri: string; code: string; verifier: string; kep
  * account's.
  */
 export type Connected<C> = {account: string; accountId?: string; credential: C; defaults: string[]; tools?: McpTool[]; name?: string; anonymous?: true};
-
-/** A PKCE verifier and the challenge the provider is sent in its place. */
-function makePkce(): {verifier: string; challenge: string} {
-	const verifier = randomBytes(32).toString('base64url');
-	return {verifier, challenge: createHash('sha256').update(verifier).digest('base64url')};
-}
 
 // The one of the same account among those the viewer sees and may change, if there is one: a
 // sign-in to another account is a connection of its own, never one agents were given for the first,

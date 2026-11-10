@@ -9,18 +9,17 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 /**
  * The signed-in user in the organization a request is about, named by its slug in the address
  * (`/api/orgs/:org/…`): what they see there is its shared connections and agents and their own,
- * their role says what they may change, and the experiments are the organization's, as is whether
- * it is an insider, whose personas each answer with the model chosen for them. One they aren't a
- * member of is not found, as is one that doesn't exist.
+ * their role says what they may change, and the experiments are the organization's. One they
+ * aren't a member of is not found, as is one that doesn't exist.
  */
-export type OrgViewer = {orgId: string; userId: string; slug: string; name: string; role: OrgRole; onboarded: boolean; experiments: Experiment[]; insider: boolean};
+export type OrgViewer = {orgId: string; userId: string; slug: string; name: string; role: OrgRole; onboarded: boolean; experiments: Experiment[]};
 
 export async function requireViewer(request: AuthenticatedRequest): Promise<Result<OrgViewer, ApiError>> {
 	return Do(async ($) => {
 		const slug = request.params.org ?? '';
 		const org = $(requirePresent($(await getMemberOrganization(request.user.userId, slug)), ApiErr.notFound('organization', slug)));
 		addContext({orgId: org.id});
-		return {orgId: org.id, userId: request.user.userId, slug: org.slug, name: org.name, role: org.role, onboarded: org.onboardedAt !== null, experiments: org.experiments, insider: org.insider};
+		return {orgId: org.id, userId: request.user.userId, slug: org.slug, name: org.name, role: org.role, onboarded: org.onboardedAt !== null, experiments: org.experiments};
 	});
 }
 

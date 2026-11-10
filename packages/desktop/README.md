@@ -15,7 +15,9 @@ everything but the app's own origin out of the window: links out of the app open
 - Updates (`src/updates.ts`): a new release of the app, checked for on start and every few hours,
   is downloaded at once and announced to the page through the window's preload
   (`src/preload.ts`, `window.personalAgentProxyDesktop` to the web app), which shows its release
-  notice with a restart button. Put off, the update is installed when the app next quits.
+  notice with a restart button. Put off, the update is installed when the app next quits. The page
+  can also start a check (the Account page's Check for updates) and hears where it stands, through
+  the download, as it changes.
 - Notifications (`src/notifications.ts`): the web app asks for one through the preload, with the
   agent's name, what it said, the page of the app it is on and a tag, one per conversation, when
   an agent answers in Chat while the person is elsewhere and they have turned notifications on;
@@ -31,6 +33,13 @@ everything but the app's own origin out of the window: links out of the app open
   `personalagentproxy://auth-callback?code=…`. The app trades code and verifier at
   `POST /auth/desktop/session` for a session cookie, which its window keeps, and is signed in as a
   browser is.
+- Signing in to Claude (`src/claude-sign-in.ts`, registered in `src/main.ts`): the Account page's
+  Claude card asks the app, through the preload, to begin; the app keeps a PKCE verifier and a
+  state and opens Claude's sign-in page in the browser, which shows the person a code once they
+  have allowed Personal Agent Proxy. Pasted into the card and handed back, the code is checked
+  against the attempt and traded for a year's token, the one `claude setup-token` mints, which the
+  card connects through the api. The verifier never leaves the main process, and the api mints
+  nothing.
 - Connecting a service whose sign-in turns the app's window away, as Google's does, happens in
   the browser too: the web app, which knows the window by its user agent, opens the service's
   sign-in in the browser through `/login?callbackUrl=…`, which sends a signed-in browser straight

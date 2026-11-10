@@ -125,6 +125,61 @@
 	pointer-events: none;
 }
 
+/* Beside the navigation rail, the rail and the title bar are one upside-down L: the bar's bottom
+   border begins where the rail ends, and turns down into the rail's divider at a rounded corner.
+   Narrower, where the rail is a sheet, the bar's border runs the window's width as it does without
+   the rail. The colors match, so only the lines need moving: one fixed line along the bar's bottom
+   and round the corner, over the headers', a fill outside its curve, so nothing scrolled under
+   shows there, and the rail's divider beginning under the curve. */
+.desktop-app [data-slot='sidebar-wrapper']:has([data-slot='sidebar-container']) {
+	--desktop-corner-radius: var(--radius);
+	--desktop-rail-edge: calc(var(--sidebar-width-icon) - 1px);
+	--desktop-bar-edge: calc(var(--desktop-title-bar-height) - 1px);
+}
+
+.desktop-app body:has([data-slot='sidebar-container'])::before,
+.desktop-app
+	[data-slot='sidebar-wrapper']:has([data-slot='sidebar-container'])
+	[data-desktop-page]
+	> header {
+	border-bottom-color: transparent;
+}
+
+.desktop-app [data-slot='sidebar-wrapper']:has([data-slot='sidebar-container'])::before,
+.desktop-app [data-slot='sidebar-wrapper']:has([data-slot='sidebar-container'])::after {
+	position: fixed;
+	z-index: 61;
+	top: var(--desktop-bar-edge);
+	left: var(--desktop-rail-edge);
+	box-sizing: border-box;
+	height: var(--desktop-corner-radius);
+	content: '';
+	pointer-events: none;
+}
+
+.desktop-app [data-slot='sidebar-wrapper']:has([data-slot='sidebar-container'])::before {
+	width: var(--desktop-corner-radius);
+	background: var(--background);
+	mask: radial-gradient(
+		circle at 100% 100%,
+		transparent calc(var(--desktop-corner-radius) - 1px),
+		black calc(var(--desktop-corner-radius) - 1px)
+	);
+}
+
+.desktop-app [data-slot='sidebar-wrapper']:has([data-slot='sidebar-container'])::after {
+	right: 0;
+	border-top: 1px solid var(--border);
+	border-left: 1px solid var(--sidebar-border);
+	border-top-left-radius: var(--desktop-corner-radius);
+}
+
+.desktop-app
+	[data-slot='sidebar-wrapper']:has([data-slot='sidebar-container'])
+	[data-slot='sidebar-inner']::after {
+	top: calc(var(--desktop-bar-edge) + var(--desktop-corner-radius));
+}
+
 /* Zoom can move the 800px desktop window into the responsive layout. Keep its floating menu and
    any left-side sheet below the traffic lights and drag surface too. */
 .desktop-app [data-desktop-floating-control] {
