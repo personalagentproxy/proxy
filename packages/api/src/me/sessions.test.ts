@@ -40,8 +40,8 @@ describe('handleListSessionsRoute', () => {
 		expect(listUserSessions).toHaveBeenCalledWith('user-1');
 		expect(result.unwrap()).toEqual({
 			sessions: [
-				{id: 'session-here', client: 'Chrome', os: 'macOS', createdAt: '2026-11-01T10:00:00.000Z', current: true},
-				{id: 'session-old', client: null, os: null, createdAt: '2026-10-01T10:00:00.000Z', current: false},
+				{id: 'session-here', client: 'Chrome', os: 'macOS', version: null, createdAt: '2026-11-01T10:00:00.000Z', current: true},
+				{id: 'session-old', client: null, os: null, version: null, createdAt: '2026-10-01T10:00:00.000Z', current: false},
 			],
 		});
 	});

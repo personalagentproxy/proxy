@@ -6,7 +6,7 @@ import {Ok} from 'ts-results-es';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
-import type {ClaudeAccount} from '@proxy/contracts/me';
+import type {ClaudeAccount, Session} from '@proxy/contracts/me';
 import {HumanSide} from '@/components/human-side';
 import {formatDateTime} from '@/lib/format';
 import {later} from '@/lib/loader-utils';
@@ -39,10 +39,11 @@ afterEach(() => {
 	setUserAgent(BROWSER_USER_AGENT);
 });
 
-const session = {
+const session: Session = {
 	id: 'session-1',
 	client: 'Chrome',
 	os: 'macOS',
+	version: null,
 	createdAt: '2026-11-01T10:00:00.000Z',
 	current: true,
 };
@@ -89,7 +90,7 @@ function setUserAgent(userAgent: string) {
 	Object.defineProperty(window.navigator, 'userAgent', {value: userAgent, configurable: true});
 }
 
-function renderPage(claude: ClaudeAccount['account']) {
+function renderPage(claude: ClaudeAccount['account'], sessions: Session[] = [session]) {
 	const router = createMemoryRouter(
 		[
 			{
@@ -99,7 +100,7 @@ function renderPage(claude: ClaudeAccount['account']) {
 				children: [
 					{
 						path: '/account',
-						loader: later(async () => ({sessions: [session], claude})),
+						loader: later(async () => ({sessions, claude})),
 						element: <AccountPage />,
 					},
 				],
@@ -284,6 +285,41 @@ describe('AccountPage, the Claude card', () => {
 		expect(screen.queryByRole('button', {name: 'Connect Claude'})).toBeNull();
 		expect(screen.queryByText('Or sign in with Claude from the desktop app.')).toBeNull();
 		expect(screen.getByRole('button', {name: 'Paste a token'})).toBeDefined();
+	});
+});
+
+describe('AccountPage, the sessions', () => {
+	test('names each by what it was last used with, the desktop app with its version', async () => {
+		renderPage(null, [
+			{
+				id: 'session-app',
+				client: 'Desktop app',
+				os: 'macOS',
+				version: '0.0.5',
+				createdAt: '2026-11-03T10:00:00.000Z',
+				current: true,
+			},
+			{
+				id: 'session-browser',
+				client: 'Firefox',
+				os: 'macOS',
+				version: null,
+				createdAt: '2026-11-02T10:00:00.000Z',
+				current: false,
+			},
+			{
+				id: 'session-old',
+				client: null,
+				os: null,
+				version: null,
+				createdAt: '2026-10-16T10:00:00.000Z',
+				current: false,
+			},
+		]);
+		expect(await screen.findByText('Desktop app 0.0.5 on macOS')).toBeDefined();
+		expect(screen.getByText('· This app')).toBeDefined();
+		expect(screen.getByText('Firefox on macOS')).toBeDefined();
+		expect(screen.getByText('An unknown browser')).toBeDefined();
 	});
 });
 

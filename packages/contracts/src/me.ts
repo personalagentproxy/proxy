@@ -13,15 +13,16 @@ export const meSchema = z.object({
 export type Me = z.infer<typeof meSchema>;
 
 /**
- * One of the person's sessions in `GET /api/me/sessions`: where it signed in, read from its
- * User-Agent (`client` a browser's name or `Desktop app`, `os` the system, each null when the
- * header said nothing we know, or the session is older than keeping it), when, and whether it is
- * the one asking.
+ * One of the person's sessions in `GET /api/me/sessions`: what it is, read from the User-Agent it
+ * was last used with (`client` a browser's name or `Desktop app`, `os` the system, each null when
+ * the header said nothing we know, and `version` the desktop app's, null for a browser), when it
+ * signed in, and whether it is the one asking.
  */
 export const sessionSchema = z.object({
 	id: z.string(),
 	client: z.string().nullable(),
 	os: z.string().nullable(),
+	version: z.string().nullable(),
 	createdAt: z.string(),
 	current: z.boolean(),
 });

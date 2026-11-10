@@ -12,6 +12,7 @@ export type AuthenticatedSession = {
 		name: string | null;
 	};
 	expires: Date;
+	userAgent: string | null;
 };
 
 /** By the hash of the cookie's token. `Ok(null)` means no live session: unknown or expired. */
@@ -31,6 +32,7 @@ export async function getAuthenticatedSessionDatabase(
 					},
 				},
 				expires: true,
+				userAgent: true,
 			},
 		}),
 	);
@@ -55,7 +57,19 @@ export async function getAuthenticatedSessionDatabase(
 			name: session.user.name,
 		},
 		expires: session.expires,
+		userAgent: session.userAgent,
 	});
+}
+
+/** Keeps the User-Agent a session was last used with, as the desktop app's changes when it updates. */
+export async function setSessionUserAgent(args: {
+	sessionId: string;
+	userAgent: string;
+}): Promise<Result<void, ApiError>> {
+	const result = await wrapDb(() =>
+		db.session.update({where: {id: args.sessionId}, data: {userAgent: args.userAgent}}),
+	);
+	return result.map(() => undefined);
 }
 
 export async function createSession(data: {

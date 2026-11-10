@@ -216,14 +216,16 @@ function deletedWith(shared: Org[]): string {
 	return `The organizations you own are deleted with it, everything in them included, for everyone in them: ${shared.map((org) => org.name).join(', ')}.`;
 }
 
-// "Chrome on macOS", or as much of it as the session's User-Agent said.
+// "Chrome on macOS", "Desktop app 0.0.5 on macOS", or as much of it as the session's User-Agent said.
 function nameOf(session: Session): string {
-	if (session.client && session.os) {
-		return `${session.client} on ${session.os}`;
+	const client =
+		session.client && session.version ? `${session.client} ${session.version}` : session.client;
+	if (client && session.os) {
+		return `${client} on ${session.os}`;
 	}
 
-	if (session.client) {
-		return session.client;
+	if (client) {
+		return client;
 	}
 
 	if (session.os) {
