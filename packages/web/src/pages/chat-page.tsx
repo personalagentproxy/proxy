@@ -83,13 +83,15 @@ function shownFrom(attachments: ChatEntry['attachments']): ImageOf | null {
 	if (attachments.length === 0) {
 		return null;
 	}
-	return (src, alt) => {
+	return (src, alt, tile) => {
 		const target = readFileLink(src, window.location.origin);
 		const attachment = attachments.find(
 			(candidate) =>
 				candidate.connectionId === target?.connectionId && candidate.fileId === target.fileId,
 		);
-		return attachment === undefined ? null : <ShownFile attachment={attachment} alt={alt} />;
+		return attachment === undefined ? null : (
+			<ShownFile attachment={attachment} alt={alt} tile={tile} />
+		);
 	};
 }
 

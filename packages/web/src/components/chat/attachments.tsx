@@ -67,8 +67,16 @@ export function SentChip({attachment}: {attachment: ChatAttachment}) {
 
 // A file the persona showed in its answer, where its words put it: a picture as itself, at the
 // version kept with the answer, whatever the file holds now, which opens the file in its drive; any
-// other file as its chip.
-export function ShownFile({attachment, alt}: {attachment: ChatAttachment; alt: string}) {
+// other file as its chip. As a tile of a gallery, the picture fills a cell of the grid, cut to it.
+export function ShownFile({
+	attachment,
+	alt,
+	tile,
+}: {
+	attachment: ChatAttachment;
+	alt: string;
+	tile: boolean;
+}) {
 	const org = useOrgSlug();
 	const {connectionId, fileId, version, name, size} = attachment;
 	if (!attachment.shown) {
@@ -78,13 +86,19 @@ export function ShownFile({attachment, alt}: {attachment: ChatAttachment; alt: s
 		<Link
 			to={`/${org}/connections/${connectionId}${driveQuery({file: fileId})}`}
 			title={`${name} · ${formatBytes(size)}`}
-			className="block w-fit max-w-full py-1"
+			className={cn(
+				'block',
+				tile ? 'w-full transition-opacity hover:opacity-85' : 'w-fit max-w-full py-1',
+			)}
 		>
 			<img
 				src={fileContentPath(org, connectionId, fileId, version)}
 				alt={alt === '' ? name : alt}
 				loading="lazy"
-				className="max-h-96 max-w-full rounded-md border bg-background object-contain"
+				className={cn(
+					'rounded-md border bg-background',
+					tile ? 'aspect-4/3 w-full rounded-lg object-cover' : 'max-h-96 max-w-full object-contain',
+				)}
 			/>
 		</Link>
 	);

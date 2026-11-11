@@ -1,7 +1,7 @@
 import {cleanup, fireEvent, render} from '@testing-library/react';
 import {afterEach, describe, expect, test} from 'bun:test';
 
-import {Markdown} from './markdown';
+import {type ImageOf, Markdown} from './markdown';
 
 afterEach(cleanup);
 
@@ -54,5 +54,42 @@ describe('Markdown', () => {
 		expect(container.querySelectorAll('a')).toHaveLength(10);
 		expect(container.querySelectorAll('img')).toHaveLength(9);
 		expect(container.querySelector('a:last-of-type img')).toBeNull();
+	});
+
+	// Every picture as an img, its tile-ness in a data attribute, so the tests can tell how it was asked for.
+	const image: ImageOf = (src, alt, tile) => <img src={src} alt={alt} data-tile={tile} />;
+
+	test('gathers pictures one after another into a gallery of tiles', () => {
+		const text = [
+			'Here they are:',
+			'![one](a.png)',
+			'![two](b.png)  \n![three](c.png) ![four](d.png)',
+			'![five](e.png)',
+			'That is all.',
+		].join('\n\n');
+		const {container} = render(<Markdown text={text} image={image} />);
+		const pictures = container.querySelectorAll('img');
+
+		expect(pictures).toHaveLength(5);
+		expect([...pictures].map((picture) => picture.dataset.tile)).toEqual(Array(5).fill('true'));
+		expect(pictures[0]?.parentElement?.className).toContain('grid-cols-3');
+		expect(pictures[0]?.parentElement?.querySelectorAll('img')).toHaveLength(5);
+		expect(container.querySelectorAll('p')).toHaveLength(2);
+	});
+
+	test('lays out two or four pictures two to a row', () => {
+		const {container} = render(<Markdown text={'![one](a.png)\n\n![two](b.png)'} image={image} />);
+
+		expect(container.querySelector('img')?.parentElement?.className).toContain('grid-cols-2');
+	});
+
+	test('leaves a picture on its own, or among words, as it is', () => {
+		const {container} = render(
+			<Markdown text={'![one](a.png)\n\nBetween.\n\nSee ![two](b.png) here.'} image={image} />,
+		);
+		const pictures = container.querySelectorAll('img');
+
+		expect([...pictures].map((picture) => picture.dataset.tile)).toEqual(['false', 'false']);
+		expect(container.querySelector('.grid')).toBeNull();
 	});
 });
