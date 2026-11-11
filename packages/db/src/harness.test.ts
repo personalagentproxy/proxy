@@ -1014,6 +1014,10 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		expect(unwrap(await getThreadDraft(thread.id))).toBe('See these');
 		expect(unwrap(await saveThreadDraft(thread.id, null, [notes]))).toBe(true);
 		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([notes, chart]);
+		// A file named twice, as a chip copied in the input, keeps where it is named first.
+		expect(unwrap(await saveThreadDraft(thread.id, null, [chart, notes, chart]))).toBe(true);
+		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([chart, notes]);
+		expect(unwrap(await saveThreadDraft(thread.id, null, [notes]))).toBe(true);
 
 		// What waits in the input is no part of the log, and lets no agent read it.
 		expect(unwrap(await listAttachments(thread.id))).toEqual(logged);

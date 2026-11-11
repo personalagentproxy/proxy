@@ -32,6 +32,8 @@ export type AttachmentRef = z.infer<typeof postMessageBodySchema>['attachments']
 export type ChatFiles = {
 	/** A file uploaded from the conversation's input into the person's own drive, to be attached to what they say next: the request's body is the file. */
 	upload: (viewer: OrgViewer, persona: {name: string}, request: AuthenticatedRequest) => Promise<Result<ChatAttachment, ApiError>>;
+	/** A file `upload` put in the person's drive taken out again for good, as when the input it was for refused it. */
+	discard: (viewer: OrgViewer, attachment: Pick<ChatAttachment, 'connectionId' | 'fileId'>) => Promise<Result<void, ApiError>>;
 	/** The files named, each one the person can read, as the log keeps them; refused where one isn't. */
 	resolve: (viewer: OrgViewer, refs: AttachmentRef[]) => Promise<Result<EntryAttachment[], ApiError>>;
 	/** A file the log or the conversation's input keeps, as the page shows it. */
@@ -44,6 +46,9 @@ export type ChatFiles = {
 
 /** How many of the person's turns back a picture is still shown to the model: the turn it is answering and the one before, as their words are kept as said (@proxy/utils/harness-context). */
 const PICTURED_TURNS = 2;
+
+/** Why a picture that can't be read is left out of a turn rather than failing it. */
+const PASSED_OVER = new Set<ApiError['kind']>(['not_found', 'unavailable', 'provider_unreachable']);
 
 /** A picture read for the model, with the file it is of. */
 export type Picture = {of: AttachmentRow; image: EntryImage};
@@ -61,8 +66,9 @@ export function picturesOf(entries: EntryRow[], attachments: AttachmentRow[], pi
 		const pictures: Picture[] = [];
 		for (const of of recent) {
 			const read = await picture(of);
-			// Lost or unreadable is no reason to fail the turn; anything else is.
-			const image = read.isErr() && read.error.kind === 'not_found' ? null : $(read);
+			// Lost, unreadable, or in a store that is down or no longer the server's is no reason to
+			// fail the turn; anything else, as the database failing, is.
+			const image = read.isErr() && PASSED_OVER.has(read.error.kind) ? null : $(read);
 			if (image !== null) {
 				pictures.push({of, image});
 			}

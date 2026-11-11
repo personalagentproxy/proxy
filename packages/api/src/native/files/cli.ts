@@ -11,7 +11,7 @@ import {gateRun, loadRunTarget, type RunTarget, type TaskCaller} from '../../age
 import {log as serverLog, serializeError} from '../../observability/log';
 import {agentErrorMessage} from '../../script/agent-host';
 import type {CliRequest} from '../../server/middleware/require-cli';
-import {requireFile} from './connector';
+import {requireReadFile} from './attached';
 import {maxFileBytes, openContent, sendContent, storeContent, uploadBody} from './content';
 import {fileLink} from './links';
 import {mediaType, requireFileName} from './names';
@@ -126,19 +126,22 @@ export async function handleCliPullFileRoute(request: CliRequest, response: Resp
 		const drive = $(await open(request));
 		const {path, id, version: asked} = $(parseSchema(cliPullQuerySchema, request.query));
 		const names = path === undefined ? [] : $(namesOf(path));
-		// Found before the gate, by its path: the log says which file was read, by its id.
+		// Found before the gate, by its path: the log says which file was read, by its id. Whether
+		// there is one is said only past the gate, so an agent that may not read the drive can't
+		// tell which paths are in it.
 		const byPath = path === undefined ? null : $(await findPath(drive.connection.id, names));
-		if (byPath !== null && (byPath.missing.length > 0 || byPath.found.length === 0)) {
-			return $(Err(ApiErr.notFound('file', names.join('/'), `There is no ${names.join('/')} in this drive.`)));
-		}
-		const fileId = id ?? byPath?.found.at(-1)?.id ?? '';
+		const absent = byPath !== null && (byPath.missing.length > 0 || byPath.found.length === 0);
+		const fileId = id ?? (absent ? undefined : byPath?.found.at(-1)?.id) ?? '';
 		const params = {id: fileId, ...(asked === undefined ? {} : {version: asked})};
 		// A file the person attached to the conversation is read whatever the agent may do in the drive otherwise (attached.ts).
 		const entry = {collection: TOOLS_COLLECTION_ID, action: 'files_read', title: null, query: JSON.stringify(params)};
 		return $(
 			await gateRun(drive, $(toolOf(drive, 'files_read')), params, entry, () =>
 				Do<Pulled, ApiError>(async ($$) => {
-					const file = $$(await requireFile(drive.connection.id, fileId));
+					if (absent) {
+						return $$(Err(ApiErr.notFound('file', names.join('/'), `There is no ${names.join('/')} in this drive.`)));
+					}
+					const file = $$(await requireReadFile(drive.caller, drive.connection.id, fileId, asked));
 					if (file.folder) {
 						return $$(Err(ApiErr.validationError(`${file.name} is a folder: pap files ls lists it.`)));
 					}
@@ -177,10 +180,9 @@ export async function handleCliPushFileRoute(request: CliRequest, response: Resp
 		const there = found.at(-1) ?? null;
 
 		// A file is there: its next version, by whoever names the one it holds, or says to write over it.
+		// What is in the way is said only past the gate, so an agent that may not change the drive
+		// can't tell what its paths are.
 		if (missing.length === 0 && there !== null) {
-			if (there.folder) {
-				return $(Err(ApiErr.validationError(`${at} is a folder: give the file’s path inside it, or end the path with a slash, as ${at}/, to keep the file’s own name.`)));
-			}
 			const held = there.head?.id ?? '';
 			const ifVersion = force === '1' ? held : version;
 			const params = {id: there.id, version: ifVersion ?? null};
@@ -188,6 +190,9 @@ export async function handleCliPushFileRoute(request: CliRequest, response: Resp
 			return $(
 				await gateRun(drive, $(toolOf(drive, 'files_write')), params, entry, () =>
 					Do<Pushed, ApiError>(async ($$) => {
+						if (there.folder) {
+							return $$(Err(ApiErr.validationError(`${at} is a folder: give the file’s path inside it, or end the path with a slash, as ${at}/, to keep the file’s own name.`)));
+						}
 						if (ifVersion !== held) {
 							const why = ifVersion === undefined ? `${at} is there already` : `${at} changed since it was pulled`;
 							return $$(
@@ -207,14 +212,14 @@ export async function handleCliPushFileRoute(request: CliRequest, response: Resp
 		}
 
 		// Nothing is there: a new file, in the folders of its path, made where they are missing.
-		if (there !== null && !there.folder) {
-			return $(Err(ApiErr.validationError(`${found.map((one) => one.name).join('/')} is a file, so nothing goes inside it.`)));
-		}
 		const params = {path: at};
 		const entry = {collection: TOOLS_COLLECTION_ID, action: 'files_create', title: null, query: JSON.stringify(params)};
 		return $(
 			await gateRun(drive, $(toolOf(drive, 'files_create')), params, entry, () =>
 				Do<Pushed, ApiError>(async ($$) => {
+					if (there !== null && !there.folder) {
+						return $$(Err(ApiErr.validationError(`${found.map((one) => one.name).join('/')} is a file, so nothing goes inside it.`)));
+					}
 					const stored = $$(await storeContent(drive.connection.orgId, $$(uploadBody(request)), maxFileBytes()));
 					let parentId = there?.id ?? null;
 					for (const folder of missing.slice(0, -1)) {

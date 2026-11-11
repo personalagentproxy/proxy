@@ -809,8 +809,8 @@ export async function saveThreadDraft(
 				select: {id: true, connectionId: true, fileId: true, version: true},
 				orderBy: {position: 'asc'},
 			});
-			const named = order.flatMap((file) => kept.filter((one) => sameFile(one, file)));
-			const ordered = [...named, ...kept.filter((one) => !named.includes(one))];
+			const named = new Set(order.flatMap((file) => kept.filter((one) => sameFile(one, file))));
+			const ordered = [...named, ...kept.filter((one) => !named.has(one))];
 			for (const [position, one] of ordered.entries()) {
 				await tx.agentEntryAttachment.update({where: {id: one.id}, data: {position}});
 			}

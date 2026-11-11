@@ -6,7 +6,7 @@ import type {EntryAttachment} from '@proxy/utils/harness-context';
 import {FILES_INTEGRATION_ID} from '@proxy/integrations';
 import {uploadAttachmentQuerySchema} from '@proxy/contracts/harness';
 import type {AgentRow, SignedInAgent} from '@proxy/db/agent';
-import {createFile, ensureFolder, type FileChangeBy, getFileVersion, getOwnDrive} from '@proxy/db/files';
+import {createFile, ensureFolder, type FileChangeBy, getFileVersion, getOwnDrive, purgeTrashed, trashFile} from '@proxy/db/files';
 
 import {actionsOf, agentViewer, requireAgent} from '../../agent-side/tools';
 import {unavailableActions} from '../../connections/unavailable';
@@ -140,6 +140,15 @@ export const chatFiles: ChatFiles = {
 			const content = {blobId: stored.blobId, size: stored.size, type: mediaType(name, type, 'bytes')};
 			const made = $(await createFile(change, {parentId: folder.id, name, rename: true, content}));
 			return {connectionId: change.connectionId, fileId: made.id, version: made.head?.id ?? '', name: made.name, type: content.type, size: content.size, shown: isShownImage(content.type)};
+		}),
+	discard: (viewer, {connectionId, fileId}) =>
+		Do(async ($) => {
+			const change = $(await ownDrive(viewer));
+			if (change.connectionId !== connectionId) {
+				return $(Err(ApiErr.notFound('file', fileId)));
+			}
+			$(await trashFile(change, fileId));
+			$(await purgeTrashed(connectionId, fileId));
 		}),
 	resolve: (viewer, refs) =>
 		Do(async ($) => {

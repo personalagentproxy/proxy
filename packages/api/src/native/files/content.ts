@@ -1,5 +1,6 @@
 import {randomBytes} from 'node:crypto';
-import {once} from 'node:events';
+import {Readable} from 'node:stream';
+import {pipeline} from 'node:stream/promises';
 
 import type {Request, Response} from 'express';
 import {Err, Result} from 'ts-results-es';
@@ -140,20 +141,9 @@ export function uploadBody(request: Request): Result<ReadableStream<Uint8Array>,
 /**
  * Writes a file's bytes to a response as they come, waiting where the reader is slower than the
  * store. The headers are sent by then: one that fails partway is cut off short, which whoever
- * reads it takes as a download that failed.
+ * reads it takes as a download that failed. A reader that goes away partway ends it too, and the
+ * store's stream is let go of then rather than left waiting on a reader that is gone.
  */
 export async function sendContent(response: Response, body: ReadableStream<Uint8Array>): Promise<Result<void, Error>> {
-	const sent = await Result.wrapAsync<void, Error>(async () => {
-		for await (const chunk of body) {
-			if (!response.write(chunk)) {
-				await once(response, 'drain');
-			}
-		}
-	});
-	if (sent.isErr()) {
-		response.destroy();
-		return sent;
-	}
-	response.end();
-	return sent;
+	return Result.wrapAsync<void, Error>(() => pipeline(Readable.from(body), response));
 }

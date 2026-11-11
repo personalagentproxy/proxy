@@ -90,6 +90,7 @@ const shownAttachment = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1
 // Where a conversation's files are kept, as the routes are given it: a drive that has the one file.
 const files = {
 	upload: mock<ChatFiles['upload']>(async () => Ok(shownAttachment)),
+	discard: mock<ChatFiles['discard']>(async () => Ok(undefined)),
 	resolve: mock<ChatFiles['resolve']>(async (_viewer, refs) => (refs.every((ref) => ref.fileId === 'file-1') ? Ok(refs.map(() => attached)) : Err(ApiErr.notFound('file', 'file-2')))),
 	shown: mock<ChatFiles['shown']>(() => shownAttachment),
 };
@@ -443,6 +444,13 @@ describe('the chat routes', () => {
 		store.listDraftAttachments.mockResolvedValue(Ok(Array.from({length: 10}, () => kept)));
 		expect((await handleUploadAttachmentRoute(request({personaId: 'persona-1'}))).unwrapErr()).toEqual(ApiErr.conflict('A message carries at most 10 files.'));
 		expect(files.upload).not.toHaveBeenCalled();
+
+		// Filled by another upload while this one's bytes came, the input refuses it, and the file goes from the drive again.
+		expect(files.discard).not.toHaveBeenCalled();
+		store.listDraftAttachments.mockResolvedValue(Ok([kept]));
+		store.addDraftAttachment.mockResolvedValue(Err(ApiErr.conflict('A message carries at most 10 files.')));
+		expect((await handleUploadAttachmentRoute(request({personaId: 'persona-1'}))).unwrapErr()).toEqual(ApiErr.conflict('A message carries at most 10 files.'));
+		expect(files.discard).toHaveBeenCalledWith(viewer, shownAttachment);
 
 		store.getPersona.mockResolvedValue(Ok(null));
 		expect((await handleUploadAttachmentRoute(request({personaId: 'nope'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'persona'});

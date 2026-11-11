@@ -84,6 +84,19 @@ function keyOf(node: Node): number | null {
 	return key === null ? null : Number(key);
 }
 
+// A new chip put in the input: after the one put before it, else where the caret was, else at the end.
+function putChip(box: HTMLElement, place: HTMLElement, after: Node | null, at: Range | null): void {
+	if (after !== null) {
+		after.parentNode?.insertBefore(place, after.nextSibling);
+		return;
+	}
+	if (at !== null) {
+		at.insertNode(place);
+		return;
+	}
+	box.append(place);
+}
+
 function isText(node: Node | null | undefined): node is Text {
 	return node?.nodeType === Node.TEXT_NODE;
 }
@@ -302,13 +315,7 @@ export function MessageEditor({
 				const place = placeFor(file.key);
 				placed.current.add(file.key);
 				made.push([file.key, place]);
-				if (after !== null) {
-					after.parentNode?.insertBefore(place, after.nextSibling);
-				} else if (at !== null) {
-					at.insertNode(place);
-				} else {
-					element.append(place);
-				}
+				putChip(element, place, after, at);
 				after = place;
 			}
 			setPlaces((before) => new Map([...before, ...made]));

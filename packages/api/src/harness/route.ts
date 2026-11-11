@@ -92,7 +92,7 @@ export type ChatStore = Pick<
 >;
 
 /** What the routes need of where a conversation's files are kept: putting one there, naming those attached, and showing one; reading a picture for a model is the worker's. */
-export type RouteFiles = Pick<ChatFiles, 'upload' | 'resolve' | 'shown'>;
+export type RouteFiles = Pick<ChatFiles, 'upload' | 'discard' | 'resolve' | 'shown'>;
 
 /** The harnesses this server has, read where a route needs them, so that nothing is made as the routes are mounted. */
 export type Harnesses = () => HarnessRegistry;
@@ -485,7 +485,12 @@ function handleUploadAttachmentRoute(store: ChatStore, files: RouteFiles, reques
 		}
 		const attachment = $(await files.upload(viewer, persona, request));
 		const {shown: _shown, ...kept} = attachment;
-		if (!$(await store.addDraftAttachment(thread.id, kept, MAX_ATTACHMENTS))) {
+		const added = await store.addDraftAttachment(thread.id, kept, MAX_ATTACHMENTS);
+		// A file the input didn't take isn't left in the drive with nothing pointing at it.
+		if (added.isErr() || !added.value) {
+			$(await files.discard(viewer, attachment));
+		}
+		if (!$(added)) {
 			return $(Err(ApiErr.notFound('thread', thread.id)));
 		}
 		return {attachment};

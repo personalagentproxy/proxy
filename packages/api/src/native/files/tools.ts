@@ -21,6 +21,7 @@ import {
 } from '@proxy/db/files';
 
 import type {NativeToolRun, NativeToolRunner} from '../tool';
+import {requireReadFile} from './attached';
 import {requireFile} from './connector';
 import {maxFileBytes, storeText} from './content';
 import {fileLink} from './links';
@@ -101,7 +102,7 @@ const readSchema = z.object({id: z.string().min(1), version: z.string().min(1).o
 export const runFilesRead: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
 		const {id, version: asked, from = 0} = $(read(readSchema, 'files_read', 'id, and version and from where wanted', run.params));
-		const file = $(await requireFile(run.connection.id, id));
+		const file = $(await requireReadFile(run.caller, run.connection.id, id, asked));
 		if (file.folder) {
 			return $(Err(ApiErr.validationError(`${file.name} is a folder: files_list with it as parent lists what is inside`)));
 		}

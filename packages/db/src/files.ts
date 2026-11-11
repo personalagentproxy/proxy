@@ -132,6 +132,48 @@ async function trailOf(
 	return trail;
 }
 
+// The folders above each of `nodes`, read a level at a time for all of them at once rather than
+// a query a folder for each, by id.
+async function foldersAbove(
+	client: Tx,
+	connectionId: string,
+	nodes: FileNodeRow[],
+): Promise<Map<string, FileNodeRow>> {
+	const byId = new Map<string, FileNodeRow>();
+	let wanted = new Set(nodes.flatMap((node) => (node.parentId === null ? [] : [node.parentId])));
+	for (let level = 0; wanted.size > 0 && level <= MAX_DEPTH; level++) {
+		const folders = await client.fileNode.findMany({
+			where: {connectionId, folder: true, id: {in: [...wanted]}},
+			select: nodeSelect,
+		});
+		for (const folder of folders) {
+			byId.set(folder.id, folder);
+		}
+		wanted = new Set(
+			folders.flatMap((folder) =>
+				folder.parentId === null || byId.has(folder.parentId) ? [] : [folder.parentId],
+			),
+		);
+	}
+	return byId;
+}
+
+// The folders from the drive's top down to `folderId`, out of those `foldersAbove` read; null
+// where one is missing among them or the path is deeper than a drive goes.
+function trailIn(byId: Map<string, FileNodeRow>, folderId: string | null): FileNodeRow[] | null {
+	const trail: FileNodeRow[] = [];
+	let next = folderId;
+	while (next !== null) {
+		const folder = byId.get(next);
+		if (!folder || trail.length >= MAX_DEPTH) {
+			return null;
+		}
+		trail.unshift(folder);
+		next = folder.parentId;
+	}
+	return trail;
+}
+
 // A folder to put something in: one of the drive's, outside the trash; the top is always one.
 async function requireOpenFolder(
 	tx: Tx,
@@ -329,43 +371,41 @@ export function searchFiles(
 	within: string | null,
 ): Promise<Result<FileFound[], ApiError>> {
 	return wrapDb(async () => {
-		const [matches, folders] = await Promise.all([
-			db.fileNode.findMany({
+		// Read a page of matches at a time, as many as are kept at most twice over, until enough
+		// of them are outside the trash and inside `within`, or there are no more.
+		const page = MAX_FOUND * 2;
+		const kept: Array<{node: FileNodeRow; trail: FileNodeRow[]}> = [];
+		for (let skip = 0; kept.length < MAX_FOUND; skip += page) {
+			const matches = await db.fileNode.findMany({
 				where: {connectionId, trashedAt: null, name: {contains: search, mode: 'insensitive'}},
 				select: nodeSelect,
-				orderBy: {name: 'asc'},
-			}),
-			db.fileNode.findMany({where: {connectionId, folder: true}, select: nodeSelect}),
-		]);
-		const byId = new Map(folders.map((folder) => [folder.id, folder]));
-		const trailFor = (node: FileNodeRow): FileNodeRow[] | null => {
-			const trail: FileNodeRow[] = [];
-			let next = node.parentId;
-			while (next !== null) {
-				const folder = byId.get(next);
-				if (!folder || folder.trashedAt !== null || trail.length >= MAX_DEPTH) {
-					return null;
+				orderBy: [{name: 'asc'}, {id: 'asc'}],
+				skip,
+				take: page,
+			});
+			const byId = await foldersAbove(db, connectionId, matches);
+			for (const node of matches) {
+				const trail = trailIn(byId, node.parentId);
+				if (trail === null || trail.some((folder) => folder.trashedAt !== null)) {
+					continue;
 				}
-				trail.unshift(folder);
-				next = folder.parentId;
+				if (within !== null && !trail.some((folder) => folder.id === within)) {
+					continue;
+				}
+				kept.push({node, trail});
 			}
-			return trail;
-		};
-		const found = matches.flatMap((node) => {
-			const trail = trailFor(node);
-			if (trail === null || (within !== null && !trail.some((folder) => folder.id === within))) {
-				return [];
+			if (matches.length < page) {
+				break;
 			}
-			return [{node, trail}];
-		});
-		const kept = found.slice(0, MAX_FOUND);
+		}
+		const shown = kept.slice(0, MAX_FOUND);
 		const entries = await withHeads(
 			db,
-			kept.map(({node}) => node),
+			shown.map(({node}) => node),
 		);
 		return entries.map((entry, index) => ({
 			...entry,
-			trail: kept[index]?.trail ?? [],
+			trail: shown[index]?.trail ?? [],
 			trashed: false,
 		}));
 	});
@@ -379,12 +419,17 @@ export function listTrash(connectionId: string): Promise<Result<FileFound[], Api
 			select: nodeSelect,
 			orderBy: {trashedAt: 'desc'},
 		});
-		const entries = await withHeads(db, nodes);
-		const found: FileFound[] = [];
-		for (const entry of entries) {
-			found.push({...entry, trail: await trailOf(db, connectionId, entry.parentId), trashed: true});
-		}
-		return found;
+		const [entries, byId] = await Promise.all([
+			withHeads(db, nodes),
+			foldersAbove(db, connectionId, nodes),
+		]);
+		return entries.map((entry) => {
+			const trail = trailIn(byId, entry.parentId);
+			if (trail === null) {
+				throw ApiErr.notFound('folder', entry.parentId ?? undefined);
+			}
+			return {...entry, trail, trashed: true};
+		});
 	});
 }
 
@@ -984,8 +1029,13 @@ export function createMissingFilesConnection(data: {
 	defaults: string[];
 }): Promise<Result<void, ApiError>> {
 	const {orgId, userId, integrationId, defaults} = data;
-	return wrapDb(() =>
-		db.$transaction(async (tx) => {
+	const mine = {orgId, integrationId, ownerUserId: userId, name: null};
+	return wrapDb(async () => {
+		// Most ask where it is there already: they are answered without waiting on the lock.
+		if (await db.connection.findFirst({where: mine, select: {id: true}})) {
+			return;
+		}
+		await db.$transaction(async (tx) => {
 			const locked = await tx.$queryRaw<
 				Array<{name: string}>
 			>`SELECT "name" FROM "Organization" WHERE "id" = ${orgId} FOR UPDATE`;
@@ -993,10 +1043,7 @@ export function createMissingFilesConnection(data: {
 			if (!org) {
 				return;
 			}
-			const found = await tx.connection.findFirst({
-				where: {orgId, integrationId, ownerUserId: userId, name: null},
-				select: {id: true},
-			});
+			const found = await tx.connection.findFirst({where: mine, select: {id: true}});
 			if (found) {
 				return;
 			}
@@ -1009,6 +1056,6 @@ export function createMissingFilesConnection(data: {
 					defaults: {create: defaults.map((actionId) => ({actionId}))},
 				},
 			});
-		}),
-	);
+		});
+	});
 }
