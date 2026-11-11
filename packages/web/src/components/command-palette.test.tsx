@@ -64,9 +64,14 @@ const claude: AgentLogin = {
 
 const personas = [persona('finance', 'Finance', false), persona('general', 'General', true)];
 
-// What the bar sends the api, as far as the tests look at it: what is typed, sent or kept as a
-// draft, and the name of an agent made.
-type Body = {text?: string; widget?: string; name?: string};
+// What the bar sends the api, as far as the tests look at it: what is typed, sent with the files
+// attached, which from the bar are none, or kept as a draft, and the name of an agent made.
+type Body = {
+	text?: string;
+	widget?: string;
+	name?: string;
+	attachments?: Array<{connectionId: string; fileId: string; version: string}>;
+};
 
 // What the api is asked, each request with its body, and what it answers: the widget picked for
 // what is typed and its fields as each test sets them, which a test may hold back.
