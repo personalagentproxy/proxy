@@ -74,6 +74,7 @@ const flights: TaskChat = {
 			text: 'Flights to Lisbon',
 			isError: false,
 			at: '2026-10-21T10:00:00Z',
+			attachments: [],
 		},
 		{
 			id: 's2',
@@ -81,8 +82,16 @@ const flights: TaskChat = {
 			text: 'Three direct flights.',
 			isError: false,
 			at: '2026-10-21T10:01:00Z',
+			attachments: [],
 		},
-		{id: 's3', from: 'person', text: 'Only mornings', isError: false, at: '2026-10-21T10:02:00Z'},
+		{
+			id: 's3',
+			from: 'person',
+			text: 'Only mornings',
+			isError: false,
+			at: '2026-10-21T10:02:00Z',
+			attachments: [],
+		},
 	],
 };
 // The last answers the provider around the page is given: none, unless a test says otherwise.
@@ -125,6 +134,7 @@ function renderChatPage({
 	experiments = ['harness'],
 	answered = () => Promise.resolve(),
 	initial,
+	task = flights,
 }: {
 	personas?: ChatPersona[];
 	entries?: ThreadLog['entries'];
@@ -141,6 +151,8 @@ function renderChatPage({
 	answered?: (personaId: string) => Promise<void>;
 	// The address the page opens on, where it is not the open conversation's.
 	initial?: string;
+	// The task whose chat is open, where the address is a task's.
+	task?: TaskChat;
 } = {}) {
 	const router = createMemoryRouter(
 		[
@@ -171,7 +183,7 @@ function renderChatPage({
 					{
 						path: '/:org/chat/:id/tasks/:taskId',
 						loader: later(async () => ({
-							task: flights,
+							task,
 							personas: listPersonas(),
 							pinnedTasks,
 							harnesses,
@@ -720,17 +732,93 @@ describe('ChatPage', () => {
 		expect(taskRow.closest('ul')?.getAttribute('aria-label')).toBe('General’s tasks');
 		expect(within(taskRow).queryByLabelText('Pinned')).toBeNull();
 
-		const box = screen.getByLabelText('Message') as HTMLTextAreaElement;
-		expect(box.placeholder).toBe('Message Find flights');
-		fireEvent.change(box, {target: {value: ' Only direct ones '}});
+		const box = screen.getByLabelText('Message');
+		expect(box.getAttribute('aria-placeholder')).toBe('Message Find flights');
+		// Without the files experiment, nothing is attached.
+		expect(screen.queryByRole('button', {name: 'Attach files'})).toBeNull();
+		typeIn(box, ' Only direct ones ');
 		fireEvent.click(screen.getByRole('button', {name: 'Send'}));
 
-		await waitFor(() => expect(box.value).toBe(''));
+		await waitFor(() => expect(box.textContent).toBe(''));
 		const sent = fetchMock.mock.calls.find(
 			([url]) => url === '/api/orgs/acme/chat/personas/general/tasks/sub-1/messages',
 		);
 		expect(sent?.[1]?.method).toBe('POST');
-		expect(JSON.parse(String(sent?.[1]?.body))).toEqual({text: 'Only direct ones'});
+		expect(JSON.parse(String(sent?.[1]?.body))).toEqual({
+			text: 'Only direct ones',
+			attachments: [],
+		});
+	});
+
+	test('attaches files to what the person writes in a task’s chat, uploading each at once, and shows them with it', async () => {
+		const notes = {
+			connectionId: 'drive-1',
+			fileId: 'file-1',
+			version: 'v1',
+			name: 'itinerary.md',
+			type: 'text/markdown',
+			size: 2048,
+			shown: false,
+		};
+		const taskUrl = '/api/orgs/acme/chat/personas/general/tasks/sub-1';
+		const written = {
+			id: 's4',
+			from: 'person' as const,
+			text: `Use ${ATTACHMENT_MARK}`,
+			isError: false,
+			at: '2026-10-21T10:03:00Z',
+			attachments: [notes],
+		};
+		renderChatPage({
+			initial: '/acme/chat/general/tasks/sub-1',
+			experiments: ['harness', 'files'],
+			task: {...flights, entries: [...flights.entries, written]},
+		});
+		fetchMock.mockImplementation((input, init) => {
+			if (input.startsWith(`${taskUrl}/attachments`) && init?.method === 'POST') {
+				return Promise.resolve(Response.json({attachment: notes}));
+			}
+			if (input === taskUrl) {
+				return Promise.resolve(Response.json({...flights, entries: [...flights.entries, written]}));
+			}
+			return Promise.resolve(
+				input.endsWith('/chat/answers')
+					? Response.json({answers})
+					: new Response(null, {status: 204}),
+			);
+		});
+
+		// What the person wrote before, with the file where they put it.
+		const chat = await screen.findByLabelText('Task');
+		expect(within(chat).getByRole('link', {name: /itinerary\.md/})).toBeTruthy();
+
+		const box = screen.getByLabelText('Message');
+		fireEvent.change(screen.getByLabelText('Files to attach'), {
+			target: {files: [new File(['# Day one'], 'itinerary.md', {type: 'text/markdown'})]},
+		});
+		await waitFor(() =>
+			expect(screen.queryByRole('button', {name: 'Remove itinerary.md'}) === null).toBe(false),
+		);
+		expect(
+			fetchMock.mock.calls.some(
+				([url, init]) =>
+					url === `${taskUrl}/attachments?name=itinerary.md&type=text%2Fmarkdown` &&
+					init?.method === 'POST',
+			),
+		).toBe(true);
+		await waitFor(() =>
+			expect((screen.getByRole('button', {name: 'Send'}) as HTMLButtonElement).disabled).toBe(
+				false,
+			),
+		);
+		fireEvent.click(screen.getByRole('button', {name: 'Send'}));
+
+		await waitFor(() => expect(box.textContent).toBe(''));
+		const sent = fetchMock.mock.calls.find(([url]) => url === `${taskUrl}/messages`);
+		expect(JSON.parse(String(sent?.[1]?.body))).toEqual({
+			text: ATTACHMENT_MARK,
+			attachments: [{connectionId: 'drive-1', fileId: 'file-1', version: 'v1'}],
+		});
 	});
 
 	test('lists pinned tasks under their agent, the open one after them where it isn’t pinned, and pins one from its right-click menu', async () => {

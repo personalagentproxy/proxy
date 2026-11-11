@@ -23,6 +23,7 @@ import {
 	useCallback,
 	useEffect,
 	useLayoutEffect,
+	useMemo,
 	useRef,
 	useState,
 } from 'react';
@@ -33,7 +34,9 @@ import {
 	getThread,
 	pinTask,
 	postMessage,
+	removeAttachment,
 	updatePersona,
+	uploadAttachment,
 } from '@/client/harness-client';
 import {AddButton} from '@/components/add-button';
 import {AppShell, PageTitle, PanelWaiting, TitleWaiting} from '@/components/app-shell';
@@ -64,7 +67,7 @@ import {TaskLine, WorkingLine} from '@/components/chat/task-line';
 import {readFileLink} from '@proxy/utils/file-links';
 import {ATTACHMENT_MARK, attachedParts, preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
-import {useAttachments} from '@/hooks/use-attachments';
+import {type AttachmentInput, useAttachments} from '@/hooks/use-attachments';
 import {useChatDraft} from '@/hooks/use-chat-draft';
 import {useExperiments} from '@/hooks/use-experiment';
 import {useLastLoaded, useLoaded} from '@/hooks/use-loaded';
@@ -667,7 +670,14 @@ function Conversation({
 	// organization has Files, those put there before among them, as the server keeps them. Sent
 	// once none is still on its way up, with words, files, or both.
 	const attaches = useExperiments().includes('files');
-	const attachments = useAttachments(org, personaId, loaded.draftAttachments);
+	const input = useMemo(
+		(): AttachmentInput => ({
+			upload: (file) => uploadAttachment(org, personaId, file),
+			remove: (attachment) => void removeAttachment(org, personaId, attachment),
+		}),
+		[org, personaId],
+	);
+	const attachments = useAttachments(input, loaded.draftAttachments);
 	const [opening] = useState(() => {
 		const kept = loaded.draft ?? '';
 		return {kept, text: recallDraft(personaId) ?? kept, files: attachments.pending};

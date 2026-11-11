@@ -1140,6 +1140,35 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			unwrap(await listShownSubAgentEntries(subRow, ['send_to_parent'])).map((entry) => entry.text),
 		).toEqual(['To Lisbon', 'Three direct flights.', 'Only mornings', 'It failed.']);
 
+		// With files, kept with what the member wrote in the sub-agent's log, which its task may read,
+		// and with the note in the conversation.
+		const itinerary = {
+			connectionId: 'drive-1',
+			fileId: 'file-9',
+			version: 'v1',
+			name: 'itinerary.md',
+			type: 'text/markdown',
+			size: 12,
+			text: '# Day one',
+			cut: false,
+		};
+		expect(
+			unwrap(
+				await messageSubAgentDirectly(conversation.id, sub.id, 'Use this', readyForInference, [
+					itinerary,
+				]),
+			),
+		).toBe(true);
+		const written = unwrap(await listEntries(sub.id)).at(-1);
+		const noted = unwrap(await listEntries(conversation.id)).at(-1);
+		expect(unwrap(await listAttachments(sub.id))).toEqual([
+			{...itinerary, entryId: written?.id ?? ''},
+		]);
+		expect(unwrap(await listAttachments(conversation.id))).toEqual([
+			{...itinerary, entryId: noted?.id ?? ''},
+		]);
+		await db.agentEntry.deleteMany({where: {id: {in: [written?.id ?? '', noted?.id ?? '']}}});
+
 		// Only a sub-agent of the conversation, and only from the conversation.
 		expect(
 			unwrap(

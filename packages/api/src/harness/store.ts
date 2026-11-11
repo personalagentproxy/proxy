@@ -91,7 +91,8 @@ export type HarnessStore = {
 	appendPersonMessage: (threadId: string, text: string, attachments?: EntryAttachment[]) => Promise<Result<EntryRow | null, ApiError>>;
 	/** What the person attached in a thread, each with the entry it was said with. */
 	listAttachments: (threadId: string) => Promise<Result<AttachmentRow[], ApiError>>;
-	messageSubAgentDirectly: (conversationId: string, subAgentId: string, text: string) => Promise<Result<boolean, ApiError>>;
+	/** What the person writes in a sub-agent's chat, with the files they attached to it. */
+	messageSubAgentDirectly: (conversationId: string, subAgentId: string, text: string, attachments?: EntryAttachment[]) => Promise<Result<boolean, ApiError>>;
 	listPinnedTasks: (orgId: string, userId: string) => Promise<Result<PinnedTaskRow[], ApiError>>;
 	setTaskPinned: (conversationId: string, subAgentId: string, pinned: boolean) => Promise<Result<boolean, ApiError>>;
 	markThreadRead: (threadId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
@@ -164,7 +165,7 @@ export const harnessStore: HarnessStore = {
 	listOpenJobs: harness.listOpenJobs,
 	appendPersonMessage: (threadId, text, attachments) => harness.appendPersonMessage(threadId, text, readyForInference, attachments),
 	listAttachments: harness.listAttachments,
-	messageSubAgentDirectly: (conversationId, subAgentId, text) => harness.messageSubAgentDirectly(conversationId, subAgentId, text, readyForInference),
+	messageSubAgentDirectly: (conversationId, subAgentId, text, attachments) => harness.messageSubAgentDirectly(conversationId, subAgentId, text, readyForInference, attachments),
 	listPinnedTasks: harness.listPinnedTasks,
 	setTaskPinned: harness.setTaskPinned,
 	markThreadRead: harness.markThreadRead,

@@ -449,7 +449,7 @@ describe('runInference', () => {
 	describe('on any harness', () => {
 		const done: HarnessEvent = {kind: 'done', session: null, system: 'Sent.', inputTokens: 5, outputTokens: 1};
 
-		test('gives the harness what the person said with the files they attached to it written under it, and a sub-agent’s log as it is', async () => {
+		test('gives the harness what the person said with the files they attached to it written under it, and a sub-agent what the person wrote in its chat the same way', async () => {
 			const {runInference} = await import('./inference');
 			const fake = fakeHarness();
 			const said = entry('person', 'What does this say?');
@@ -467,12 +467,20 @@ describe('runInference', () => {
 			expect(read[1]).toStartWith('What does this say?\n\nThe person attached a file, kept in their drive.');
 			expect(read[1]).toContain('pricing.md (text/markdown, 42 B): connection drive-1, id file-1, version v1. Its text:\n"""\n# Pricing review with Dana\n"""');
 
-			// A sub-agent reads its brief, the agent's own words: nothing is attached to it.
-			store.listAttachments.mockClear();
+			// A sub-agent reads what the person attached in its chat with what they wrote there; its
+			// brief, the agent's own words, has nothing attached.
+			const written = entry('person', 'Use this one');
+			listEntries.mockResolvedValue(Ok([entry('person', 'Read the pricing notes'), written]));
+			store.listAttachments.mockResolvedValue(
+				Ok([{entryId: written.id, connectionId: 'drive-1', fileId: 'file-2', version: 'v3', name: 'notes.md', type: 'text/markdown', size: 12, text: '# Notes', cut: false}]),
+			);
 			getJobThread.mockResolvedValue(Ok(sub));
 			fake.script([{kind: 'text', text: 'Done.'}, done]);
 			(await runInference(store, on(fake), {...job, threadId: 'thread-2'}, 'w1', false, clock)).unwrap();
-			expect(store.listAttachments).not.toHaveBeenCalled();
+			expect(store.listAttachments).toHaveBeenLastCalledWith(sub.id);
+			const subRead = fake.turns[1]?.entries.map((given) => given.text) ?? [];
+			expect(subRead[0]).toBe('Read the pricing notes');
+			expect(subRead[1]).toStartWith('Use this one\n\nThe person attached a file, kept in their drive.');
 		});
 
 		test('gives a model that sees pictures those of the person’s last two turns beside their words, and a model that doesn’t none; a picture that is lost is left out', async () => {

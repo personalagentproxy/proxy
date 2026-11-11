@@ -534,6 +534,17 @@ describe('the chat routes', () => {
 			{id: 's4', from: 'person', text: 'Only mornings', isError: false},
 			{id: 'e9', from: 'task', text: 'The sub-agent failed: no model.', isError: true},
 		]);
+		// What the viewer wrote, with the files they attached to it; the rest with none.
+		store.listAttachments.mockResolvedValue(Ok([{...attached, entryId: 's4'}]));
+		const withFiles = (await handleGetTaskRoute(request({personaId: 'persona-1', taskId: 'sub-1'}))).unwrap();
+		expect(store.listAttachments).toHaveBeenCalledWith('sub-1');
+		expect(withFiles.entries.map(({id, attachments}) => [id, attachments])).toEqual([
+			['s1', []],
+			['s2:k2', []],
+			['s3', []],
+			['s4', [shownAttachment]],
+			['e9', []],
+		]);
 
 		// Another conversation's task, or one of a conversation the viewer never began, is none of theirs.
 		expect((await handleGetTaskRoute(request({personaId: 'persona-1', taskId: 'sub-9'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'task'});
@@ -576,19 +587,44 @@ describe('the chat routes', () => {
 		store.messageSubAgentDirectly.mockResolvedValue(Ok(true));
 
 		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: ' Only mornings \n'}))).isOk()).toBe(true);
-		expect(store.messageSubAgentDirectly).toHaveBeenCalledWith('thread-1', 'sub-1', 'Only mornings');
+		expect(store.messageSubAgentDirectly).toHaveBeenCalledWith('thread-1', 'sub-1', 'Only mornings', []);
 
 		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: ' '}))).unwrapErr().kind).toBe('parse_error');
+
+		// With files, each one the viewer can read, as the conversation takes them; a file alone is something said.
+		const ref = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1'};
+		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: '', attachments: [ref]}))).isOk()).toBe(true);
+		expect(store.messageSubAgentDirectly).toHaveBeenLastCalledWith('thread-1', 'sub-1', '', [attached]);
+		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: 'And this', attachments: [{...ref, fileId: 'file-2'}]}))).unwrapErr()).toMatchObject({
+			kind: 'not_found',
+			resource: 'file',
+		});
+		store.messageSubAgentDirectly.mockClear();
 
 		store.messageSubAgentDirectly.mockResolvedValue(Ok(false));
 		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-9'}, {text: 'Hi'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'task'});
 
 		store.getMemberThread.mockResolvedValue(Ok(null));
 		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: 'Hi'}))).unwrapErr().kind).toBe('not_found');
-		expect(store.messageSubAgentDirectly).toHaveBeenCalledTimes(2);
+		expect(store.messageSubAgentDirectly).toHaveBeenCalledTimes(1);
 
 		requireViewer.mockResolvedValue(Ok({...viewer, experiments: []}));
 		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: 'Hi'}))).unwrapErr().kind).toBe('forbidden');
+	});
+
+	test('put a file in a task’s input into the viewer’s own drive, keeping it in no input on the server, only for a task of their conversation', async () => {
+		const {handleUploadTaskAttachmentRoute} = routes;
+		store.listSubAgents.mockResolvedValue(Ok([subAgent({id: 'sub-1', parentCallId: 'c1', title: 'Find flights'})]));
+
+		expect((await handleUploadTaskAttachmentRoute(request({personaId: 'persona-1', taskId: 'sub-1'}))).unwrap()).toEqual({attachment: shownAttachment});
+		expect(files.upload).toHaveBeenCalledWith(viewer, persona, expect.anything());
+		expect(store.addDraftAttachment).not.toHaveBeenCalled();
+
+		files.upload.mockClear();
+		expect((await handleUploadTaskAttachmentRoute(request({personaId: 'persona-1', taskId: 'sub-9'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'task'});
+		store.getMemberThread.mockResolvedValue(Ok(null));
+		expect((await handleUploadTaskAttachmentRoute(request({personaId: 'persona-1', taskId: 'sub-1'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'task'});
+		expect(files.upload).not.toHaveBeenCalled();
 	});
 
 	test('give what the viewer typed in the conversation and hasn’t sent, whole', async () => {

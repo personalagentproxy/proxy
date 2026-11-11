@@ -1,6 +1,7 @@
 import {type ChatAttachment, MAX_ATTACHMENTS} from '@proxy/contracts/harness';
+import type {FetchError} from '@proxy/utils';
 import {useCallback, useRef, useState} from 'react';
-import {removeAttachment, uploadAttachment} from '@/client/harness-client';
+import type {Result} from 'ts-results-es';
 import {describeApiError} from '@/lib/loader-utils';
 
 /** A file in the conversation's input, to go with the next message: on its way up, there, or failed, saying why. */
@@ -13,16 +14,25 @@ export type PendingAttachment = {
 };
 
 /**
- * The files in a conversation's input, put there by the button, a paste or a drop: each is
- * uploaded at once, to the person's own drive, and kept in the input by the server, as what is
- * typed is kept as the draft, so the conversation opens with those put there before (`kept`), on
- * any device. They go with the message sent next, each where it sits among the words
+ * Where an input's files go: up to the person's own drive, and out of the input again, where the
+ * server keeps the input (the conversation's does; a task's is the page's alone).
+ */
+export type AttachmentInput = {
+	upload: (file: File) => Promise<Result<{attachment: ChatAttachment}, FetchError>>;
+	remove: (attachment: ChatAttachment) => void;
+};
+
+/**
+ * The files in a conversation's or a task's input, put there by the button, a paste or a drop:
+ * each is uploaded at once, to the person's own drive, and, in a conversation, kept in the input
+ * by the server, as what is typed is kept as the draft, so the conversation opens with those put
+ * there before (`kept`), on any device. They go with the message sent next, each where it sits among the words
  * (components/chat/message-editor.tsx), and the send empties the input on the server itself. One
  * that failed stays, saying why, until it is taken out; one taken out is taken out on the server
  * too, as one is that was taken out while still on its way up, once it has landed. What was put
  * there beyond the most a message carries is left out, and said.
  */
-export function useAttachments(org: string, personaId: string, kept: ChatAttachment[]) {
+export function useAttachments(input: AttachmentInput, kept: ChatAttachment[]) {
 	const nextKey = useRef(kept.length);
 	const [pending, setPending] = useState<PendingAttachment[]>(() =>
 		kept.map((attachment, index) => ({
@@ -63,9 +73,9 @@ export function useAttachments(org: string, personaId: string, kept: ChatAttachm
 				})),
 			]);
 			for (const {key, file} of taken) {
-				void uploadAttachment(org, personaId, file).then((uploaded) => {
+				void input.upload(file).then((uploaded) => {
 					if (uploaded.isOk() && takenOut.current.delete(key)) {
-						void removeAttachment(org, personaId, uploaded.value.attachment);
+						input.remove(uploaded.value.attachment);
 						return;
 					}
 					setPending((now) =>
@@ -82,21 +92,21 @@ export function useAttachments(org: string, personaId: string, kept: ChatAttachm
 				});
 			}
 		},
-		[org, personaId],
+		[input],
 	);
 	const remove = useCallback(
 		(one: PendingAttachment) => {
 			held.current = Math.max(0, held.current - 1);
 			setPending((before) => before.filter((other) => other.key !== one.key));
 			if (one.attachment !== null) {
-				void removeAttachment(org, personaId, one.attachment);
+				input.remove(one.attachment);
 				return;
 			}
 			if (one.error === null) {
 				takenOut.current.add(one.key);
 			}
 		},
-		[org, personaId],
+		[input],
 	);
 	// After a send, which emptied the input on the server.
 	const sent = useCallback(() => {

@@ -81,7 +81,8 @@ export function withAttached(entries: EntryRow[], attachments: AttachmentRow[], 
 		return entries;
 	}
 	return entries.map((entry) => {
-		const own = entry.kind === 'person' ? attachments.filter((attachment) => attachment.entryId === entry.id) : [];
+		// What the person said, and the note of what they wrote in a sub-agent's chat.
+		const own = entry.kind === 'person' || entry.kind === 'note' ? attachments.filter((attachment) => attachment.entryId === entry.id) : [];
 		if (own.length === 0) {
 			return entry;
 		}

@@ -227,6 +227,9 @@ export const postMessageBodySchema = z
  * in a folder of the persona's under Chats, and in the conversation's input, after the files
  * there, until the person sends their next message or takes it out. Refused where the input
  * holds as many as a message carries.
+ * `POST chat/personas/:personaId/tasks/:taskId/attachments?name=&type=`: a file put in a task's
+ * input, kept in the person's own drive as one put in the conversation's is, but in no input on
+ * the server: the page holds it until the message it goes with is sent, or it is taken out.
  */
 export const uploadAttachmentQuerySchema = z.object({
 	name: z.string().trim().min(1).max(255),
@@ -265,7 +268,8 @@ export const postedMessageSchema = z.object({entry: chatMessageSchema});
 
 /**
  * Something said in a task's chat: by the persona, which started the task, its brief and every
- * message it sent it since; by the person, who wrote to the task there themselves; or by the
+ * message it sent it since; by the person, who wrote to the task there themselves, with the files
+ * they attached; or by the
  * task, to the persona, what it answered and told it as it went, or that it failed.
  */
 export const taskChatEntrySchema = z.object({
@@ -274,6 +278,8 @@ export const taskChatEntrySchema = z.object({
 	text: z.string(),
 	isError: z.boolean(),
 	at: z.string(),
+	/** The files the person attached to what they wrote; none for what the persona or the task said. */
+	attachments: z.array(chatAttachmentSchema),
 });
 
 export type TaskChatEntry = z.infer<typeof taskChatEntrySchema>;

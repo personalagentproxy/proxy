@@ -419,9 +419,9 @@ function askOnLog(
 			const subAgents = thread.parentThreadId === null ? $(await store.listSubAgents(thread.id, now)) : [];
 			const signedIn = $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
 			const system = $(await systemPrompt(store, thread, signedIn, subAgents, now));
-			// What the person attached is read with what they said; a sub-agent's thread has none, its
-			// brief being the agent's own words.
-			const attached = thread.parentThreadId === null ? $(await store.listAttachments(thread.id)) : [];
+			// What the person attached is read with what they said: in the conversation, and in a
+			// sub-agent's thread what they wrote in its chat, its brief being the agent's own words.
+			const attached = $(await store.listAttachments(thread.id));
 			// A model that sees pictures is given those of the person's last turns beside their words.
 			const sees = choice.harness.models.some((model) => model.id === choice.model && model.images === true);
 			const pictures = picture !== undefined && sees && attached.length > 0 ? $(await picturesOf(entries, attached, picture)) : [];

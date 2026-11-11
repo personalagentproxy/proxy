@@ -1230,14 +1230,15 @@ export async function setTaskPinned(
  * sub-agent's log, as theirs (`direct`), taking it up as the agent's message would
  * (messageSubAgent); and in the conversation, as a note on the call that started it, which the
  * agent reads with what wakes it next, the sub-agent's answer among it, but is not woken by where
- * `wakes` says so (@proxy/utils/harness readyForInference). `Ok(false)` means no such sub-agent of
- * the conversation.
+ * `wakes` says so (@proxy/utils/harness readyForInference); with the files they attached, kept with
+ * both. `Ok(false)` means no such sub-agent of the conversation.
  */
 export async function messageSubAgentDirectly(
 	conversationId: string,
 	subAgentId: string,
 	text: string,
 	wakes: Wakes,
+	attachments: EntryAttachment[] = [],
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
@@ -1251,11 +1252,12 @@ export async function messageSubAgentDirectly(
 				subAgentId,
 				{kind: 'person', text, direct: true},
 				wakes,
+				attachments,
 			);
 			if (!subAgent) {
 				return false;
 			}
-			await appendEntry(
+			const note = await appendEntry(
 				tx,
 				conversation,
 				{
@@ -1265,6 +1267,7 @@ export async function messageSubAgentDirectly(
 				},
 				wakes,
 			);
+			await attach(tx, conversation.id, note.id, attachments);
 			return true;
 		}),
 	);
@@ -1916,6 +1919,7 @@ async function messageSubAgent(
 	subAgentId: string,
 	entry: NewEntry,
 	wakes: Wakes,
+	attachments: EntryAttachment[] = [],
 ): Promise<SubAgentRow | null> {
 	const found = await tx.agentThread.findFirst({
 		where: {id: subAgentId, parentThreadId: parent.id},
@@ -1936,7 +1940,8 @@ async function messageSubAgent(
 		where: {threadId: thread.id, kind: {in: ['tool', 'wake']}, status: 'queued', runAt: {gt: now}},
 		data: {runAt: now},
 	});
-	await appendEntry(tx, thread, entry, wakes);
+	const appended = await appendEntry(tx, thread, entry, wakes);
+	await attach(tx, thread.id, appended.id, attachments);
 	return {...thread, state: threadState(jobs, now)};
 }
 

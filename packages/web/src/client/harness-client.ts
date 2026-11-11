@@ -109,11 +109,35 @@ export function getTask(org: string, personaId: string, taskId: string) {
 	);
 }
 
-// What the person writes to a task in its chat: the task takes it up; the persona is told.
-export function postTaskMessage(org: string, personaId: string, taskId: string, text: string) {
+// What the person writes to a task in its chat, with the files they attach to it, each where it
+// sits among the words: the task takes it up; the persona is told.
+export function postTaskMessage(
+	org: string,
+	personaId: string,
+	taskId: string,
+	text: string,
+	attachments: ChatAttachment[],
+) {
 	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/tasks/${taskId}/messages`, {
 		text,
+		attachments: attachments.map(({connectionId, fileId, version}) => ({
+			connectionId,
+			fileId,
+			version,
+		})),
 	} satisfies z.input<typeof postMessageBodySchema>);
+}
+
+/** Uploads a file put in a task's input to the person's own drive: what to attach to what they write to the task next, which the page holds until then. */
+export function uploadTaskAttachment(org: string, personaId: string, taskId: string, file: File) {
+	const params = new URLSearchParams({name: file.name, ...(file.type ? {type: file.type} : {})});
+	return trackWrite(
+		httpRequest(
+			`${orgApi(org)}/chat/personas/${personaId}/tasks/${taskId}/attachments?${params.toString()}`,
+			{method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file},
+			{schema: uploadedAttachmentSchema},
+		),
+	);
 }
 
 // Pins a task of the person's conversation with the persona to the list under it, or unpins it.
