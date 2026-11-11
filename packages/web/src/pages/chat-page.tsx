@@ -77,15 +77,15 @@ import {
 const BUSY_POLL_MS = 1000;
 const IDLE_POLL_MS = 4000;
 
-// One turn of the conversation: what the person said in a dark bubble on the right (a light one
-// in dark mode), as they typed it, or what the persona answered in a gray one on the left, as
-// Markdown, in a red one where its turn failed.
+// One turn of the conversation: what the person said in a gray bubble on the right, as they typed
+// it, or what the persona answered on the left as plain Markdown, without a bubble, in a red one
+// where its turn failed.
 function Turn({entry}: {entry: ChatMessage}) {
 	if (entry.kind === 'person') {
 		return (
 			<Message align="end">
 				<MessageContent>
-					<Bubble align="end" variant="inverted">
+					<Bubble align="end" variant="muted">
 						<BubbleContent className="whitespace-pre-wrap">{entry.text}</BubbleContent>
 					</Bubble>
 				</MessageContent>
@@ -95,7 +95,7 @@ function Turn({entry}: {entry: ChatMessage}) {
 	return (
 		<Message>
 			<MessageContent>
-				<Bubble variant={entry.isError ? 'destructive' : 'muted'}>
+				<Bubble variant={entry.isError ? 'destructive' : 'ghost'}>
 					<BubbleContent>
 						<Markdown text={entry.text} />
 					</BubbleContent>
