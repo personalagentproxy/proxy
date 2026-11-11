@@ -11,6 +11,7 @@ import {
 } from '@/components/agent-shell';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {PillButton} from '@proxy/ui/components/pill-button';
+import {PillTab} from '@proxy/ui/components/pill-tab';
 import {Input} from '@proxy/ui/components/input';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {canStartNew, displayValue, recordTitle} from '@/lib/access';
@@ -166,9 +167,9 @@ export function AgentCollectionPage() {
 			{filter && (
 				<nav aria-label={`${filter.label} filter`} className="flex gap-1">
 					{[null, ...(filter.options ?? [])].map((option) => (
-						<PillButton
+						<PillTab
 							key={option ?? 'all'}
-							variant="ghost"
+							chosen={chosen === option}
 							nativeButton={false}
 							render={
 								<Link
@@ -178,7 +179,7 @@ export function AgentCollectionPage() {
 							}
 						>
 							{option ?? 'All'}
-						</PillButton>
+						</PillTab>
 					))}
 				</nav>
 			)}

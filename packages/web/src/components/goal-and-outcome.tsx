@@ -2,8 +2,7 @@ import type {KeyboardEvent} from 'react';
 import {AnimatedHeight} from '@/components/animated-height';
 import {Markdown} from '@/components/markdown';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
-import {cn} from '@proxy/ui/lib/utils';
-import {pillVariants} from '@proxy/ui/lib/pill-variants';
+import {PillTab} from '@proxy/ui/components/pill-tab';
 
 // What a task set out to do and what came of it, one at a time: a switch between the two, and the
 // text itself, the one shown fading in and the room it takes growing or shrinking to fit, so
@@ -66,10 +65,10 @@ export function TextSwitch({
 			{OPTIONS.map((option) => {
 				const blocked = option.id === 'outcome' && !hasOutcome;
 				const tab = (
-					<button
+					<PillTab
 						key={option.id}
 						id={tabId(id, option.id)}
-						type="button"
+						chosen={shown === option.id}
 						role="tab"
 						aria-selected={shown === option.id}
 						aria-controls={panelId(id)}
@@ -80,13 +79,10 @@ export function TextSwitch({
 								onChange(option.id);
 							}
 						}}
-						className={cn(
-							pillVariants({variant: 'ghost'}),
-							blocked && 'cursor-not-allowed opacity-50 hover:bg-transparent',
-						)}
+						className={blocked ? 'cursor-not-allowed opacity-50 hover:bg-transparent' : undefined}
 					>
 						{option.label}
-					</button>
+					</PillTab>
 				);
 				if (!blocked) {
 					return tab;
