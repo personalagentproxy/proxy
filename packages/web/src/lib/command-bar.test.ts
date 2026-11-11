@@ -94,7 +94,7 @@ describe('destinationsOf', () => {
 		);
 		expect(to).toMatchObject({
 			Chat: '/acme/chat',
-			Account: '/account',
+			Account: '/account?org=acme',
 			'Add a connection': '/acme/connections/new',
 			Finance: '/acme/chat/p-finance',
 			'My vault': '/acme/connections/vault-1',

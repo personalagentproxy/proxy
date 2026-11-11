@@ -9,6 +9,18 @@ import {findIntegration} from '@proxy/integrations';
 // the organizations they are in, for the switcher.
 export type Human = Me & {org: Org; orgs: Org[]};
 
+/**
+ * The person's account page, which is no organization's, opened from `org`: the address keeps
+ * which one the sidebar and the command bar stay in while it is up, the first one's where it names
+ * none of the person's.
+ */
+export function accountPath(org: string): string {
+	if (org === '') {
+		return '/account';
+	}
+	return `/account?org=${encodeURIComponent(org)}`;
+}
+
 /** Whether anyone else is in the organization or invited to it. */
 export function hasOtherPeople(org: Org): boolean {
 	return org.memberCount > 1 || org.invitationCount > 0;

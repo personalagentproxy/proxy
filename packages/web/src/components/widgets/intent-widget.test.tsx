@@ -2,7 +2,7 @@
 
 import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
-import {MemoryRouter, Route, Routes} from 'react-router';
+import {createMemoryRouter, RouterProvider} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {FIELD_IDS, type FieldId} from '@proxy/contracts/intent';
 import type {Intent} from '@/client/intent-client';
@@ -48,25 +48,27 @@ let entered = false;
 
 function show(intent: Intent, typed = '') {
 	// In the organization, as in the app: its api calls and links name it.
-	return render(
-		<MemoryRouter initialEntries={['/org-1']}>
-			<TooltipProvider>
-				<Routes>
-					<Route
-						path="/:org"
-						element={
-							<IntentWidget
-								intent={intent}
-								typed={typed}
-								now={now}
-								onAsk={onAsk}
-								bar={{entered, onEnter: true, setAction, done}}
-							/>
-						}
+	const router = createMemoryRouter(
+		[
+			{
+				path: '/:org',
+				element: (
+					<IntentWidget
+						intent={intent}
+						typed={typed}
+						now={now}
+						onAsk={onAsk}
+						bar={{entered, onEnter: true, setAction, done}}
 					/>
-				</Routes>
-			</TooltipProvider>
-		</MemoryRouter>,
+				),
+			},
+		],
+		{initialEntries: ['/org-1']},
+	);
+	return render(
+		<TooltipProvider>
+			<RouterProvider router={router} />
+		</TooltipProvider>,
 	);
 }
 
