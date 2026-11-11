@@ -1,5 +1,5 @@
 import {Link} from 'react-router';
-import {pillVariants} from '@proxy/ui/lib/pill-variants';
+import {pillButtonVariants} from '@proxy/ui/lib/pill-variants';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {WidgetFrame} from '@/components/widgets/widget-frame';
 import {onSignInClick} from '@/lib/desktop';
@@ -29,7 +29,7 @@ export function ConnectWidget({name, collectionIds, children}: Props) {
 		<WidgetFrame
 			name={name}
 			actions={offering.map((integration) => {
-				const className = pillVariants({variant: 'ghost'});
+				const className = pillButtonVariants({variant: 'ghost'});
 				const content = (
 					<>
 						<IntegrationLogo integration={integration} />

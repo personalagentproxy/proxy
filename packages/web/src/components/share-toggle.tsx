@@ -1,6 +1,6 @@
 import type {ReactNode} from 'react';
 import {EmptyRows} from '@/components/row-list';
-import {PillButton} from '@proxy/ui/components/pill-button';
+import {PillTab} from '@proxy/ui/components/pill-tab';
 import type {SideChoice} from '@/hooks/use-side';
 
 type Props = {
@@ -17,18 +17,18 @@ type Props = {
 // The two sides of an organization with other members, as two buttons: what is just yours,
 // and what is shared, with everyone in it unless `sharedLabel` says otherwise. Picks the list on
 // Connections and Agents, and who a new connection or agent is for on Add connection and New
-// agent. The side picked is filled in (`aria-pressed`); the other is its label alone.
+// agent. The side picked is filled in (`PillTab`, `aria-pressed`); the other is its label alone.
 export function ShareToggle({orgName, shared, onChange, counts, sharedLabel}: Props) {
 	return (
 		<div className="flex items-center gap-2">
-			<PillButton variant="ghost" aria-pressed={!shared} onClick={() => onChange(false)}>
+			<PillTab chosen={!shared} aria-pressed={!shared} onClick={() => onChange(false)}>
 				Just me
 				{counts && <span className="text-muted-foreground tabular-nums">{counts.yours}</span>}
-			</PillButton>
-			<PillButton variant="ghost" aria-pressed={shared} onClick={() => onChange(true)}>
+			</PillTab>
+			<PillTab chosen={shared} aria-pressed={shared} onClick={() => onChange(true)}>
 				{sharedLabel ?? `Everyone in ${orgName}`}
 				{counts && <span className="text-muted-foreground tabular-nums">{counts.shared}</span>}
-			</PillButton>
+			</PillTab>
 		</div>
 	);
 }

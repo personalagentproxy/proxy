@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {BellIcon, BellOffIcon} from 'lucide-react';
-import {PillButton} from '@proxy/ui/components/pill-button';
+import {PillTab} from '@proxy/ui/components/pill-tab';
 import {
 	notificationsBlocked,
 	notificationsOn,
@@ -32,14 +32,14 @@ export function NotificationSetting() {
 
 	return (
 		<div role="group" aria-label="Notifications" className="flex items-center gap-2">
-			<PillButton variant="ghost" aria-pressed={on} onClick={() => void turnOn()}>
+			<PillTab chosen={on} aria-pressed={on} onClick={() => void turnOn()}>
 				<BellIcon data-icon="inline-start" />
 				On
-			</PillButton>
-			<PillButton variant="ghost" aria-pressed={!on} onClick={turnOff}>
+			</PillTab>
+			<PillTab chosen={!on} aria-pressed={!on} onClick={turnOff}>
 				<BellOffIcon data-icon="inline-start" />
 				Off
-			</PillButton>
+			</PillTab>
 		</div>
 	);
 }
