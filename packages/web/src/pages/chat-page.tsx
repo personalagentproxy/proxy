@@ -49,6 +49,7 @@ import {type ModelChoice, ModelSwitcher} from '@/components/model-switcher';
 import {PersonaDialog} from '@/components/persona-dialog';
 import {PillButton} from '@proxy/ui/components/pill-button';
 import {DropToAttach, SentChip, ShownFile} from '@/components/chat/attachments';
+import {PictureViewer, type ViewedPicture} from '@/components/chat/picture-viewer';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {
 	MessageEditor,
@@ -65,7 +66,7 @@ import {
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
 import {TaskLine, WorkingLine} from '@/components/chat/task-line';
-import {readFileLink} from '@proxy/utils/file-links';
+import {markdownPictures, readFileLink} from '@proxy/utils/file-links';
 import {ATTACHMENT_MARK, attachedParts, preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
 import {type AttachmentInput, takenFiles, useAttachments} from '@/hooks/use-attachments';
@@ -97,22 +98,56 @@ import {
 const BUSY_POLL_MS = 1000;
 const IDLE_POLL_MS = 4000;
 
-// How an answer's pictures are shown: each that links to a file kept with the answer, as that
-// file; any other as the link it is.
-function shownFrom(attachments: ChatMessage['attachments']): ImageOf | null {
-	if (attachments.length === 0) {
-		return null;
-	}
-	return (src, alt, tile) => {
-		const target = readFileLink(src, window.location.origin);
-		const attachment = attachments.find(
-			(candidate) =>
-				candidate.connectionId === target?.connectionId && candidate.fileId === target.fileId,
-		);
-		return attachment === undefined ? null : (
-			<ShownFile attachment={attachment} alt={alt} tile={tile} />
-		);
-	};
+// The file kept with an answer that a link of it names; undefined for any other link.
+function keptFile(
+	attachments: ChatMessage['attachments'],
+	src: string,
+): ChatMessage['attachments'][number] | undefined {
+	const target = readFileLink(src, window.location.origin);
+	return attachments.find(
+		(candidate) =>
+			candidate.connectionId === target?.connectionId && candidate.fileId === target.fileId,
+	);
+}
+
+// The pictures an answer shows, in the order its words put them, for the viewer: each of its
+// Markdown pictures that links to a picture kept with it.
+function picturesOf(entry: ChatMessage): ViewedPicture[] {
+	return markdownPictures(entry.text).flatMap(({src, alt}) => {
+		const attachment = keptFile(entry.attachments, src);
+		return attachment?.shown === true ? [{attachment, alt}] : [];
+	});
+}
+
+// An answer's pictures as tiles, each opening the viewer at itself; any other link as it is.
+function AnswerMarkdown({entry}: {entry: ChatMessage}) {
+	const [viewing, setViewing] = useState<number | null>(null);
+	const pictures = useMemo(() => picturesOf(entry), [entry]);
+	const image: ImageOf | null =
+		entry.attachments.length === 0
+			? null
+			: (src, alt) => {
+					const attachment = keptFile(entry.attachments, src);
+					if (attachment === undefined) {
+						return null;
+					}
+					const at = pictures.findIndex((picture) => picture.attachment === attachment);
+					return (
+						<ShownFile
+							attachment={attachment}
+							alt={alt}
+							onOpen={() => setViewing(Math.max(at, 0))}
+						/>
+					);
+				};
+	return (
+		<>
+			<Markdown text={entry.text} image={image} />
+			{pictures.length > 0 && (
+				<PictureViewer pictures={pictures} index={viewing} onIndex={setViewing} />
+			)}
+		</>
+	);
 }
 
 // One turn of the conversation: what the person said in a gray bubble on the right, as they typed
@@ -144,7 +179,7 @@ function Turn({entry}: {entry: ChatMessage}) {
 			<MessageContent>
 				<Bubble variant={entry.isError ? 'destructive' : 'ghost'}>
 					<BubbleContent>
-						<Markdown text={entry.text} image={shownFrom(entry.attachments)} />
+						<AnswerMarkdown entry={entry} />
 					</BubbleContent>
 				</Bubble>
 			</MessageContent>

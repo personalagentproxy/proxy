@@ -1133,13 +1133,12 @@ describe('ChatPage', () => {
 		});
 
 		const picture = await screen.findByRole('img', {name: 'Revenue by month'});
-		// The version kept with the answer, opening the file in its drive.
+		// The version kept with the answer, as a tile, opening the viewer.
 		expect(picture.getAttribute('src')).toBe(
 			'/api/orgs/acme/connections/drive-1/files/file-1/content?version=v2',
 		);
-		expect(picture.closest('a')?.getAttribute('href')).toBe(
-			'/acme/connections/drive-1?file=file-1',
-		);
+		expect(picture.className).toContain('object-cover');
+		expect(picture.closest('button')).toBeTruthy();
 		expect(screen.getByRole('link', {name: 'q3.csv'}).getAttribute('href')).toBe(
 			'/acme/connections/drive-1?file=file-2',
 		);
@@ -1153,6 +1152,54 @@ describe('ChatPage', () => {
 		expect(screen.getByRole('link', {name: 'Not kept'}).getAttribute('href')).toBe(
 			`${drive}?file=file-3`,
 		);
+	});
+
+	test('opens a picture an answer showed in the viewer, whole, and steps through the answer’s pictures there', async () => {
+		const drive = `${window.location.origin}/acme/connections/drive-1`;
+		const chart = {
+			connectionId: 'drive-1',
+			fileId: 'file-1',
+			version: 'v2',
+			name: 'chart.png',
+			type: 'image/png',
+			size: 2048,
+			shown: true,
+		};
+		const map = {...chart, fileId: 'file-2', version: 'v1', name: 'map.png'};
+		renderChatPage({
+			entries: [
+				{
+					id: 'e1',
+					kind: 'assistant',
+					text: `![Revenue](${drive}?file=file-1)\n\n![Stores](${drive}?file=file-2)`,
+					isError: false,
+					at: '2026-10-21T10:00:01Z',
+					attachments: [chart, map],
+				},
+			],
+		});
+
+		fireEvent.click(await screen.findByRole('img', {name: 'Stores'}));
+
+		const viewer = await screen.findByRole('dialog');
+		// Under the picture: what the answer said it shows, the file, and where it is among them.
+		expect(within(viewer).getByText('map.png · 2 KB · 2 of 2')).toBeTruthy();
+		expect(within(viewer).getByRole('link', {name: 'Open in Files'}).getAttribute('href')).toBe(
+			'/acme/connections/drive-1?file=file-2',
+		);
+		const whole = () => within(viewer).getByRole('img');
+		expect(whole().getAttribute('alt')).toBe('Stores');
+		expect(whole().className).toContain('object-contain');
+
+		// Round from the last to the first, by key and by its arrows.
+		fireEvent.keyDown(viewer, {key: 'ArrowRight'});
+		expect(whole().getAttribute('alt')).toBe('Revenue');
+		expect(within(viewer).getByText('chart.png · 2 KB · 1 of 2')).toBeTruthy();
+		fireEvent.click(within(viewer).getByRole('button', {name: 'Previous picture'}));
+		expect(whole().getAttribute('alt')).toBe('Stores');
+
+		fireEvent.click(within(viewer).getByRole('button', {name: 'Close'}));
+		await waitFor(() => expect(viewer.isConnected).toBe(false));
 	});
 
 	describe('files in the input', () => {

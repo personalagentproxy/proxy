@@ -14,6 +14,7 @@ import {
 	PaperclipIcon,
 	XIcon,
 } from 'lucide-react';
+import {useState} from 'react';
 import {Link} from 'react-router';
 import {fileContentPath} from '@/client/files-client';
 import type {PendingAttachment} from '@/hooks/use-attachments';
@@ -65,42 +66,52 @@ export function SentChip({attachment}: {attachment: ChatAttachment}) {
 	);
 }
 
-// A file the persona showed in its answer, where its words put it: a picture as itself, at the
-// version kept with the answer, whatever the file holds now, which opens the file in its drive; any
-// other file as its chip. As a tile of a gallery, the picture fills a cell of the grid, cut to it.
+// The most a picture an answer shows takes in the conversation: a tile this size, the picture
+// cut to fill it; one smaller than it, as small as it is. The whole of it is in the viewer.
+const TILE_WIDTH = 256;
+const TILE_HEIGHT = 144;
+
+// A file the persona showed in its answer, where its words put it: a picture, at the version kept
+// with the answer, whatever the file holds now, as a tile on a line of its own, never among words,
+// which opens it in the viewer (picture-viewer.tsx); any other file as its chip.
 export function ShownFile({
 	attachment,
 	alt,
-	tile,
+	onOpen,
 }: {
 	attachment: ChatAttachment;
 	alt: string;
-	tile: boolean;
+	onOpen: () => void;
 }) {
 	const org = useOrgSlug();
+	// Whether the picture, once loaded, fits in a tile as it is.
+	const [small, setSmall] = useState(false);
 	const {connectionId, fileId, version, name, size} = attachment;
 	if (!attachment.shown) {
 		return <SentChip attachment={attachment} />;
 	}
 	return (
-		<Link
-			to={`/${org}/connections/${connectionId}${driveQuery({file: fileId})}`}
+		<button
+			type="button"
+			onClick={onOpen}
 			title={`${name} · ${formatBytes(size)}`}
-			className={cn(
-				'block',
-				tile ? 'w-full transition-opacity hover:opacity-85' : 'w-fit max-w-full py-1',
-			)}
+			className="block w-fit max-w-full rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
 		>
 			<img
 				src={fileContentPath(org, connectionId, fileId, version)}
 				alt={alt === '' ? name : alt}
 				loading="lazy"
+				onLoad={(event) => {
+					const {naturalWidth, naturalHeight} = event.currentTarget;
+					setSmall(naturalWidth <= TILE_WIDTH && naturalHeight <= TILE_HEIGHT);
+				}}
+				style={small ? undefined : {width: TILE_WIDTH, height: TILE_HEIGHT}}
 				className={cn(
-					'rounded-md border bg-background',
-					tile ? 'aspect-4/3 w-full rounded-lg object-cover' : 'max-h-96 max-w-full object-contain',
+					'block max-w-full rounded-lg bg-muted ring-1 ring-foreground/10 transition-[filter] hover:brightness-95',
+					!small && 'object-cover',
 				)}
 			/>
-		</Link>
+		</button>
 	);
 }
 

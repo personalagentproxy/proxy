@@ -35,9 +35,16 @@ export function readFileLink(href: string, origin: string): FileLinkTarget | nul
 }
 
 // A Markdown image: `![alt](address)`, the address maybe in angle brackets, maybe with a title.
-const IMAGE = /!\[[^\]]*\]\(\s*<?([^\s<>()]+)>?(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g;
+const IMAGE = /!\[([^\]]*)\]\(\s*<?([^\s<>()]+)>?(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g;
+
+/** The pictures a Markdown text shows, in the order shown: each one's address, and what it says it shows. */
+export function markdownPictures(text: string): Array<{src: string; alt: string}> {
+	return [...text.matchAll(IMAGE)].flatMap(([, alt = '', src]) =>
+		src === undefined ? [] : [{src, alt}],
+	);
+}
 
 /** The addresses of the pictures a Markdown text shows, in the order shown. */
 export function markdownImages(text: string): string[] {
-	return [...text.matchAll(IMAGE)].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
+	return markdownPictures(text).map((picture) => picture.src);
 }

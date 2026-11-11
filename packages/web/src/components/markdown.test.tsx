@@ -80,10 +80,12 @@ describe('Markdown', () => {
 		expect(container.querySelector('a:last-of-type img')).toBeNull();
 	});
 
-	// Every picture as an img, its tile-ness in a data attribute, so the tests can tell how it was asked for.
-	const image: ImageOf = (src, alt, tile) => <img src={src} alt={alt} data-tile={tile} />;
+	// Every picture as an img, so the tests can tell where it was put.
+	const image: ImageOf = (src, alt) => <img src={src} alt={alt} />;
+	// The galleries of what was drawn: each a row of pictures, wrapping.
+	const galleries = (container: HTMLElement) => [...container.querySelectorAll('.flex-wrap')];
 
-	test('gathers pictures one after another into a gallery of tiles', () => {
+	test('gathers pictures one after another into a gallery, a row of them that wraps', () => {
 		const text = [
 			'Here they are:',
 			'![one](a.png)',
@@ -92,41 +94,43 @@ describe('Markdown', () => {
 			'That is all.',
 		].join('\n\n');
 		const {container} = render(<Markdown text={text} image={image} />);
-		const pictures = container.querySelectorAll('img');
 
-		expect(pictures).toHaveLength(5);
-		expect([...pictures].map((picture) => picture.dataset.tile)).toEqual(Array(5).fill('true'));
-		expect(pictures[0]?.parentElement?.className).toContain('grid-cols-3');
-		expect(pictures[0]?.parentElement?.querySelectorAll('img')).toHaveLength(5);
+		expect(container.querySelectorAll('img')).toHaveLength(5);
+		const [gallery] = galleries(container);
+		expect(galleries(container)).toHaveLength(1);
+		expect([...(gallery?.querySelectorAll('img') ?? [])].map((picture) => picture.alt)).toEqual([
+			'one',
+			'two',
+			'three',
+			'four',
+			'five',
+		]);
 		expect(container.querySelectorAll('p')).toHaveLength(2);
 	});
 
 	test('gathers pictures one after another among words, as an answer cut short leaves them, keeping the words', () => {
 		const text = 'Here:\n![one](a.png)\n![two](b.png)\n![three](c.png)\n![four](d.p';
 		const {container} = render(<Markdown text={text} image={image} />);
-		const pictures = container.querySelectorAll('img');
 
-		expect(pictures).toHaveLength(3);
-		expect([...pictures].map((picture) => picture.dataset.tile)).toEqual(['true', 'true', 'true']);
+		expect(galleries(container)[0]?.querySelectorAll('img')).toHaveLength(3);
 		expect([...container.querySelectorAll('p')].map((words) => words.textContent?.trim())).toEqual([
 			'Here:',
 			'![four](d.p',
 		]);
 	});
 
-	test('lays out two or four pictures two to a row', () => {
-		const {container} = render(<Markdown text={'![one](a.png)\n\n![two](b.png)'} image={image} />);
-
-		expect(container.querySelector('img')?.parentElement?.className).toContain('grid-cols-2');
-	});
-
-	test('leaves a picture on its own, or among words, as it is', () => {
+	test('takes a picture out of the words around it, onto a line of its own', () => {
 		const {container} = render(
 			<Markdown text={'![one](a.png)\n\nBetween.\n\nSee ![two](b.png) here.'} image={image} />,
 		);
-		const pictures = container.querySelectorAll('img');
 
-		expect([...pictures].map((picture) => picture.dataset.tile)).toEqual(['false', 'false']);
-		expect(container.querySelector('.grid')).toBeNull();
+		expect(
+			galleries(container).map((row) => [...row.querySelectorAll('img')].map((one) => one.alt)),
+		).toEqual([['one'], ['two']]);
+		expect([...container.querySelectorAll('p')].map((words) => words.textContent?.trim())).toEqual([
+			'Between.',
+			'See',
+			'here.',
+		]);
 	});
 });

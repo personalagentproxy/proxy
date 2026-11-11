@@ -23,19 +23,19 @@ const FaviconHostsContext = createContext<Set<string> | null>(null);
 // into the app, by its path, opens in place. A picture is never loaded from the address it gives,
 // since loading it would hand that address whatever the answer put in it, unasked: it is what
 // `image` makes of it, a file kept with the answer, or else a link to the address, which the
-// person may open. Pictures one after another, with nothing but space between them, are a
-// gallery: tiles in a grid, as a set of screenshots is shown, not a column of them as tall as the
-// window. Each component takes the element's own props, without the syntax tree node
+// person may open. A picture never stands among words: it is taken out of them, onto a line of
+// its own, and pictures one after another, with nothing but space between them, share it, a row
+// of them, wrapping, as a set of screenshots is shown, not a column of them as tall as the window.
+// Each component takes the element's own props, without the syntax tree node
 // react-markdown hands along, which is no attribute of an element.
 
 /**
- * A picture of the text as the page shows it, by its address and what it says it shows, as a tile
- * of a gallery or on its own; null for one the page has nothing for.
+ * A picture of the text as the page shows it, by its address and what it says it shows; null for
+ * one the page has nothing for.
  */
-export type ImageOf = (src: string, alt: string, tile: boolean) => ReactNode | null;
+export type ImageOf = (src: string, alt: string) => ReactNode | null;
 
 const ImageContext = createContext<ImageOf | null>(null);
-const TileContext = createContext(false);
 
 function isPicture(node: RootContent | ElementContent): node is Element {
 	return node.type === 'element' && node.tagName === 'img';
@@ -59,18 +59,17 @@ function isPictures(node: RootContent): node is Element {
 	);
 }
 
-// Paragraphs of pictures one after another as one, marked with how many pictures it holds, where
-// they hold more than one between them; as they were otherwise.
+// Paragraphs of pictures one after another as one, marked as a row of pictures; none for none.
 function gallery(run: Element[]): Element[] {
 	const pictures = run.flatMap((paragraph) => paragraph.children.filter(isPicture));
-	if (pictures.length < 2) {
-		return run;
+	if (pictures.length === 0) {
+		return [];
 	}
 	return [
 		{
 			type: 'element',
 			tagName: 'p',
-			properties: {dataPictures: pictures.length},
+			properties: {dataPictures: true},
 			children: pictures,
 		},
 	];
@@ -80,38 +79,35 @@ function paragraph(children: ElementContent[]): Element {
 	return {type: 'element', tagName: 'p', properties: {}, children};
 }
 
-// Where in a paragraph pictures stand one after another, two or more with nothing but space
+// Where in a paragraph pictures stand, one or more one after another with nothing but space
 // between them: from the first to the last, by index.
 function pictureRuns(children: ElementContent[]): Array<[number, number]> {
 	const runs: Array<[number, number]> = [];
 	let start: number | null = null;
 	let end = 0;
-	let count = 0;
 	for (const [index, child] of children.entries()) {
 		if (isPicture(child)) {
 			start ??= index;
 			end = index;
-			count += 1;
 			continue;
 		}
 		if (start !== null && isBlank(child)) {
 			continue;
 		}
-		if (start !== null && count >= 2) {
+		if (start !== null) {
 			runs.push([start, end]);
 		}
 		start = null;
-		count = 0;
 	}
-	if (start !== null && count >= 2) {
+	if (start !== null) {
 		runs.push([start, end]);
 	}
 	return runs;
 }
 
-// A paragraph with pictures one after another among words, as an answer cut short mid-link
-// leaves one, as a paragraph of its pictures between paragraphs of the words around them; any
-// other as it is.
+// A paragraph with pictures among words, as an answer cut short mid-link leaves one too, as a
+// paragraph of each run of its pictures between paragraphs of the words around them; any other as
+// it is.
 function splitPictures(node: RootContent): RootContent[] {
 	if (node.type !== 'element' || node.tagName !== 'p') {
 		return [node];
@@ -137,8 +133,8 @@ function splitPictures(node: RootContent): RootContent[] {
 	return pieces;
 }
 
-// Gathers the answer's pictures that stand one after another, in a paragraph, among words or not,
-// or in paragraphs of their own, into galleries.
+// Takes the answer's pictures out of its words, each run of them that stands one after another,
+// in a paragraph or in paragraphs of their own, onto a row of its own.
 function gatherPictures() {
 	return (tree: Root) => {
 		const children: RootContent[] = [];
@@ -163,21 +159,9 @@ function gatherPictures() {
 	};
 }
 
-// A gallery: its pictures as tiles of a grid, two to a row where they are two or four, three
-// otherwise, at most as wide as a chat bubble is wide.
-function Pictures({count, children}: {count: number; children: ReactNode}) {
-	return (
-		<TileContext.Provider value={true}>
-			<div
-				className={cn(
-					'grid w-xl max-w-full gap-1.5 py-1',
-					count === 2 || count === 4 ? 'grid-cols-2' : 'grid-cols-3',
-				)}
-			>
-				{children}
-			</div>
-		</TileContext.Provider>
-	);
+// A row of pictures: side by side, wrapping onto the next row where the line is full.
+function Pictures({children}: {children: ReactNode}) {
+	return <div className="flex flex-wrap gap-1.5 py-1">{children}</div>;
 }
 
 const LINK_CLASS = 'underline underline-offset-4 hover:text-foreground';
@@ -244,10 +228,9 @@ const MarkdownLink: NonNullable<Components['a']> = ({
 // A picture as `image` shows it, or as a link to it, saying what it shows.
 const MarkdownImage: NonNullable<Components['img']> = ({src, alt}) => {
 	const image = useContext(ImageContext);
-	const tile = useContext(TileContext);
 	const href = typeof src === 'string' ? src : '';
 	const said = alt ?? '';
-	const shown = href === '' || image === null ? null : image(href, said, tile);
+	const shown = href === '' || image === null ? null : image(href, said);
 	if (shown !== null) {
 		return shown;
 	}
@@ -266,9 +249,8 @@ const components: Components = {
 	a: MarkdownLink,
 	img: MarkdownImage,
 	p: ({node, className, children, ...props}) => {
-		const pictures = node?.properties.dataPictures;
-		if (typeof pictures === 'number') {
-			return <Pictures count={pictures}>{children}</Pictures>;
+		if (node?.properties.dataPictures === true) {
+			return <Pictures>{children}</Pictures>;
 		}
 		return (
 			<p className={cn('leading-relaxed', className)} {...props}>
