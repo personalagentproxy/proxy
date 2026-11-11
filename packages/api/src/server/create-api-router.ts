@@ -283,6 +283,9 @@ export function createApiRouter(): express.Router {
 	org.post('/chat/personas/:personaId/messages', withAuthResult('Post chat message route', chat.handlePostMessageRoute));
 	org.post('/chat/personas/:personaId/attachments', withAuthResult('Upload chat attachment route', chat.handleUploadAttachmentRoute));
 	org.delete('/chat/personas/:personaId/attachments', withAuthResult('Remove chat attachment route', chat.handleRemoveAttachmentRoute));
+	org.get('/chat/personas/:personaId/tasks/:taskId', withAuthResult('Get chat task route', chat.handleGetTaskRoute));
+	org.post('/chat/personas/:personaId/tasks/:taskId/messages', withAuthResult('Post chat task message route', chat.handlePostTaskMessageRoute));
+	org.put('/chat/personas/:personaId/tasks/:taskId/pin', withAuthResult('Pin chat task route', chat.handlePinTaskRoute));
 	org.post('/chat/personas/:personaId/read', withAuthResult('Mark chat read route', chat.handleMarkReadRoute));
 	org.put('/chat/personas/:personaId/draft', withAuthResult('Save chat draft route', chat.handleSaveDraftRoute));
 	// The Alerts page: what the agents set in the member's conversations, to be woken outside them.

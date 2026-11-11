@@ -17,7 +17,9 @@ function entry(
 	seq: number,
 	kind: Kind,
 	text: string,
-	extra: Partial<Pick<ContextEntry, 'toolCalls' | 'callId' | 'inputTokens' | 'coversSeq'>> = {},
+	extra: Partial<
+		Pick<ContextEntry, 'toolCalls' | 'callId' | 'inputTokens' | 'coversSeq' | 'direct'>
+	> = {},
 ): ContextEntry {
 	return {
 		seq,
@@ -26,6 +28,7 @@ function entry(
 		toolCalls: extra.toolCalls ?? null,
 		callId: extra.callId ?? null,
 		isError: false,
+		direct: extra.direct ?? false,
 		inputTokens: extra.inputTokens ?? null,
 		coversSeq: extra.coversSeq ?? null,
 	};
@@ -165,6 +168,41 @@ describe('toMessages', () => {
 		const cleared = toMessages(later, subAgents, {clearOld: true});
 		expect(String(cleared[3]?.content)).toContain('cleared');
 		expect(String(cleared[3]?.content)).not.toContain('Dana');
+	});
+
+	test('leads in what the person wrote in a sub-agent’s chat: in its thread as theirs, in the conversation as a note of which sub-agent they wrote to', () => {
+		const subAgents = [{id: 'sub-1', parentCallId: 'd1', title: 'Find flights'}];
+		const brief = entry(1, 'person', 'Find flights to Lisbon.');
+		const direct = entry(2, 'person', 'Only mornings.', {direct: true});
+		const note = entry(3, 'note', 'Only mornings.', {callId: 'd1'});
+		const stray = entry(4, 'note', 'Hello.', {callId: 'gone'});
+
+		const [fromAgent, fromPerson, noted, strayNote] = toMessages(
+			[brief, direct, note, stray],
+			subAgents,
+			{clearOld: false},
+		);
+
+		expect(fromAgent).toEqual({role: 'user', content: 'Find flights to Lisbon.'});
+		expect(fromPerson).toEqual({
+			role: 'user',
+			content: expect.stringMatching(
+				/^From the person themselves, written in your chat.*\n\nOnly mornings\.$/,
+			),
+		});
+		expect(noted).toEqual({
+			role: 'user',
+			content: expect.stringMatching(
+				/^The person wrote this to the sub-agent “Find flights” \(sub-1\) themselves.*\n\nOnly mornings\.$/,
+			),
+		});
+		expect(strayNote).toEqual({
+			role: 'user',
+			content: expect.stringContaining('to one of your sub-agents'),
+		});
+		expect(toTranscript([direct, note], subAgents)).toContain(
+			'Person:\nThe person wrote this to the sub-agent “Find flights” (sub-1)',
+		);
 	});
 
 	test('leads a message in by the call where no sub-agent was started by it', () => {

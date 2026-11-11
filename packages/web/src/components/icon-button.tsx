@@ -1,7 +1,7 @@
 import type {MouseEvent, ReactNode} from 'react';
 import {Link} from 'react-router';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 
 type Props = {
 	label: string;

@@ -39,7 +39,7 @@ import {
 } from '@/client/files-client';
 import {IconButton} from '@/components/icon-button';
 import {PersonAvatar} from '@/components/person-avatar';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {AgentLogo} from '@/components/brand-logo';
 import {Head} from '@/components/head';
 import {RenameDialog} from '@/components/rename-dialog';

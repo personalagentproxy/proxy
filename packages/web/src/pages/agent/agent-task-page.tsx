@@ -10,7 +10,7 @@ import {
 import {finishAgentTask, startAgentTask} from '@/client/agent-client';
 import {AgentHeading, AgentShell} from '@/components/agent-shell';
 import {Row, RowList} from '@/components/row-list';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {Textarea} from '@proxy/ui/components/textarea';

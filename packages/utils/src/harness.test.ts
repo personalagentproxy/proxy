@@ -74,6 +74,14 @@ describe('readyForInference', () => {
 		expect(readyForInference([...calling, result('a')])).toBe(true);
 	});
 
+	test('not after a note of what the person wrote to a sub-agent, but after what comes with it', () => {
+		const note = {kind: 'note' as const, text: 'Only mornings', toolCalls: null, callId: 'd'};
+		const answered = [person('hi'), assistant('On it.')];
+		expect(readyForInference([...answered, note])).toBe(false);
+		expect(readyForInference([...answered, note, event('d')])).toBe(true);
+		expect(readyForInference([...answered, event('d'), note])).toBe(true);
+	});
+
 	test('after an event, as after the person, but not while a call is still unanswered', () => {
 		const delegated = [
 			person('hi'),

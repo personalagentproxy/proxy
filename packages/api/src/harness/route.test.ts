@@ -6,7 +6,7 @@ import {ATTACHMENT_MARK} from '@proxy/utils/harness';
 
 import type {HarnessBackend} from '@proxy/backends/harness/backend';
 import {fakeHarness} from '@proxy/backends/harness/fake';
-import type {EntryRow, JobRow, ThreadRow} from '@proxy/db/harness';
+import type {EntryRow, JobRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
 
 import type {HarnessRegistry} from '../backends/harness';
 import type {ChatFiles} from './attachments';
@@ -101,6 +101,7 @@ function logEntry(entry: Pick<EntryRow, 'id' | 'seq' | 'kind' | 'text'> & Partia
 		toolCalls: null,
 		callId: null,
 		isError: false,
+		direct: false,
 		inputTokens: null,
 		outputTokens: null,
 		coversSeq: null,
@@ -111,6 +112,16 @@ function logEntry(entry: Pick<EntryRow, 'id' | 'seq' | 'kind' | 'text'> & Partia
 		createdAt: now,
 		...entry,
 	};
+}
+
+// A call the model made, its arguments as JSON.
+function call(id: string, name: string, args: Record<string, string>) {
+	return {id, name, arguments: JSON.stringify(args)};
+}
+
+// A sub-agent started from the conversation, at work unless the test says otherwise.
+function subAgent(sub: Partial<SubAgentRow> & {id: string; parentCallId: string; title: string}): SubAgentRow {
+	return {...thread, parentThreadId: 'thread-1', taskId: null, state: {kind: 'working'}, ...sub};
 }
 
 beforeEach(async () => {
@@ -149,6 +160,8 @@ beforeEach(async () => {
 		Ok([logEntry({id: 'e1', seq: 1, kind: 'person', text: 'Hi'}), logEntry({id: 'e2', seq: 2, kind: 'summary', text: 'The person said hi.', inputTokens: 90_000, outputTokens: 10, coversSeq: 1})]),
 	);
 	listOpenJobs.mockResolvedValue(Ok([]));
+	store.listSubAgents.mockResolvedValue(Ok([]));
+	store.listPinnedTasks.mockResolvedValue(Ok([]));
 	getThreadDraft.mockResolvedValue(Ok(null));
 	appendPersonMessage.mockResolvedValue(Ok(logEntry({id: 'e3', seq: 3, kind: 'person', text: 'Hello'})));
 });
@@ -189,6 +202,7 @@ describe('the chat routes', () => {
 				{...personaResponse, id: 'persona-3', shared: true, mayChange: false, draft: 'Move the pricing review to Friday'},
 				{...personaResponse, id: 'persona-4', lastMessage: {kind: 'assistant', text: 'Found Three invoices, see the list Who Sum Dana 40', at: '2026-10-21T10:00:00.000Z'}},
 			],
+			pinnedTasks: [],
 			harnesses: offered,
 		});
 	});
@@ -212,7 +226,7 @@ describe('the chat routes', () => {
 		const listed = (await handleListPersonasRoute(request())).unwrap();
 
 		expect(store.ensureFirstPersona).toHaveBeenCalledWith('org-1');
-		expect(listed).toEqual({personas: [{...personaResponse, id: 'persona-9', name: 'General', shared: true, mayChange: false}], harnesses: offered});
+		expect(listed).toEqual({personas: [{...personaResponse, id: 'persona-9', name: 'General', shared: true, mayChange: false}], pinnedTasks: [], harnesses: offered});
 	});
 
 	test('a viewer who sees personas of their own but none every member’s, as where General was deleted, gets General made again, after their own', async () => {
@@ -335,7 +349,7 @@ describe('the chat routes', () => {
 		expect(bare.harnesses).toEqual([]);
 	});
 
-	test('give the viewer’s conversation with the persona, begun through the built-in login where there was none, as turns alone, with whether the persona is busy or asleep', async () => {
+	test('give the viewer’s conversation with the persona, begun through the built-in login where there was none, as turns alone, with whether the persona is busy', async () => {
 		const {handleGetThreadRoute} = routes;
 		const soon = new Date(Date.now() + 60_000);
 		const base: Omit<JobRow, 'runAt'> = {id: 'j1', threadId: 'thread-1', kind: 'tool', status: 'queued', entryId: 'e1', callId: 'c1', claimedBy: null, attempts: 0};
@@ -343,23 +357,23 @@ describe('the chat routes', () => {
 		const idle = (await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap();
 		expect(idle.persona).toEqual(personaResponse);
 		expect(idle.entries).toEqual([{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00.000Z', attachments: []}]);
-		expect(idle).toMatchObject({busy: false, sleepingUntil: null, draft: null, draftAttachments: []});
+		expect(idle).toMatchObject({busy: false, draft: null, draftAttachments: []});
 		expect(store.getThreadDraft).toHaveBeenCalledWith('thread-1');
 		expect(store.ensureMemberThread).not.toHaveBeenCalled();
 		expect(ensureBuiltInAgent).not.toHaveBeenCalled();
 
 		store.getMemberThread.mockResolvedValue(Ok(null));
 		store.listOpenJobs.mockResolvedValue(Ok([{...base, runAt: new Date(Date.now() - 1000)}]));
-		expect((await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap()).toMatchObject({busy: true, sleepingUntil: null});
+		expect((await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap()).toMatchObject({busy: true});
 		expect(ensureBuiltInAgent).toHaveBeenCalledWith('org-1');
 		expect(store.ensureMemberThread).toHaveBeenCalledWith({orgId: 'org-1', agentId: 'login-1', personaId: 'persona-1', userId: 'user-1'});
 
 		store.listOpenJobs.mockResolvedValue(Ok([{...base, runAt: soon}]));
-		expect((await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap()).toMatchObject({busy: false, sleepingUntil: soon.toISOString()});
+		expect((await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap()).toMatchObject({busy: false});
 
 		// A turn of the model to be tried again in a moment is work under way, not sleep.
 		store.listOpenJobs.mockResolvedValue(Ok([{...base, kind: 'inference' as const, entryId: null, callId: null, runAt: soon}]));
-		expect((await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap()).toMatchObject({busy: true, sleepingUntil: null});
+		expect((await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap()).toMatchObject({busy: true});
 
 		store.getPersona.mockResolvedValue(Ok(null));
 		expect((await handleGetThreadRoute(request({personaId: 'nope'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'persona'});
@@ -393,7 +407,7 @@ describe('the chat routes', () => {
 
 		// The conversation shows each file with the turn it was said with.
 		store.listAttachments.mockResolvedValue(Ok([{...attached, entryId: 'e1'}]));
-		expect((await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap().entries.map((entry) => entry.attachments)).toEqual([[shownAttachment]]);
+		expect((await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap().entries.map((entry) => ('attachments' in entry ? entry.attachments : null))).toEqual([[shownAttachment]]);
 	});
 
 	test('keep a file put in the conversation’s input in the person’s drive and in the input, where it waits with what they typed; a full input takes no more', async () => {
@@ -443,6 +457,138 @@ describe('the chat routes', () => {
 
 		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: '   '}))).unwrapErr().kind).toBe('parse_error');
 		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: 'x'.repeat(20_001)}))).unwrapErr().kind).toBe('parse_error');
+	});
+
+	test('show the tasks the persona started where it started them, and what it sent one later, where it sent it', async () => {
+		const {handleGetThreadRoute} = routes;
+		store.listSubAgents.mockResolvedValue(Ok([subAgent({id: 'sub-1', parentCallId: 'c1', title: 'Find flights'}), subAgent({id: 'sub-2', parentCallId: 'c2', title: 'Check the calendar'})]));
+		store.listShownEntries.mockResolvedValue(
+			Ok([
+				logEntry({id: 'e1', seq: 1, kind: 'person', text: 'Find me flights to Lisbon'}),
+				logEntry({
+					id: 'e2',
+					seq: 2,
+					kind: 'assistant',
+					text: 'Looking into it.',
+					toolCalls: [
+						call('c1', 'create_subagent', {title: 'Find flights', brief: 'Flights to Lisbon'}),
+						call('c2', 'create_subagent', {title: 'Check the calendar', brief: 'Free days'}),
+						call('c3', 'create_subagent', {title: '', brief: ''}),
+					],
+				}),
+				logEntry({
+					id: 'e3',
+					seq: 3,
+					kind: 'assistant',
+					text: '',
+					toolCalls: [call('c4', 'send_to_subagent', {subagent: 'sub-1', text: 'Only direct ones'}), call('c5', 'send_to_subagent', {subagent: 'sub-9', text: 'Hello'})],
+				}),
+			]),
+		);
+
+		const log = (await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap();
+
+		expect(store.listShownEntries).toHaveBeenCalledWith('thread-1', ['create_subagent', 'send_to_subagent']);
+		expect(store.listSubAgents).toHaveBeenCalledWith('thread-1', expect.any(Date));
+		expect(log.entries).toEqual([
+			{id: 'e1', kind: 'person', text: 'Find me flights to Lisbon', isError: false, at: '2026-10-21T10:00:00.000Z', attachments: []},
+			{id: 'e2', kind: 'assistant', text: 'Looking into it.', isError: false, at: '2026-10-21T10:00:00.000Z', attachments: []},
+			{id: 'e2:c1', kind: 'task', task: {id: 'sub-1', title: 'Find flights'}, at: '2026-10-21T10:00:00.000Z'},
+			{id: 'e2:c2', kind: 'task', task: {id: 'sub-2', title: 'Check the calendar'}, at: '2026-10-21T10:00:00.000Z'},
+			{id: 'e3:c4', kind: 'sent', task: {id: 'sub-1', title: 'Find flights'}, at: '2026-10-21T10:00:00.000Z'},
+		]);
+	});
+
+	test('give a task’s chat: the persona’s brief and messages, the viewer’s own, and what the task answered and told the persona, without its calls, and its failures', async () => {
+		const {handleGetTaskRoute} = routes;
+		const task = subAgent({id: 'sub-1', parentCallId: 'c1', title: 'Find flights', taskId: 'task-7', state: {kind: 'stopped'}});
+		store.listSubAgents.mockResolvedValue(Ok([task]));
+		store.listShownSubAgentEntries.mockResolvedValue(
+			Ok([
+				logEntry({id: 's1', seq: 4, threadId: 'sub-1', kind: 'person', text: 'Flights to Lisbon'}),
+				logEntry({
+					id: 's2',
+					seq: 5,
+					threadId: 'sub-1',
+					kind: 'assistant',
+					text: 'Searching.',
+					toolCalls: [call('k1', 'script', {code: 'pap.call()'}), call('k2', 'send_to_parent', {text: 'Two airlines so far'})],
+				}),
+				logEntry({id: 's3', seq: 6, threadId: 'sub-1', kind: 'assistant', text: 'Three direct flights.'}),
+				logEntry({id: 's4', seq: 7, threadId: 'sub-1', kind: 'person', text: 'Only mornings', direct: true}),
+				logEntry({id: 'e9', seq: 8, threadId: 'thread-1', kind: 'event', callId: 'c1', text: 'The sub-agent failed: no model.\n\n(It has stopped; a message takes it up again.)', isError: true}),
+			]),
+		);
+
+		const chat = (await handleGetTaskRoute(request({personaId: 'persona-1', taskId: 'sub-1'}))).unwrap();
+
+		expect(store.listShownSubAgentEntries).toHaveBeenCalledWith(task, ['send_to_parent']);
+		expect(chat.persona).toEqual(personaResponse);
+		expect(chat.task).toEqual({id: 'sub-1', title: 'Find flights'});
+		expect(chat.busy).toBe(false);
+		expect(chat.activityTaskId).toBe('task-7');
+		expect(chat.entries.map(({id, from, text, isError}) => ({id, from, text, isError}))).toEqual([
+			{id: 's1', from: 'persona', text: 'Flights to Lisbon', isError: false},
+			{id: 's2:k2', from: 'task', text: 'Two airlines so far', isError: false},
+			{id: 's3', from: 'task', text: 'Three direct flights.', isError: false},
+			{id: 's4', from: 'person', text: 'Only mornings', isError: false},
+			{id: 'e9', from: 'task', text: 'The sub-agent failed: no model.', isError: true},
+		]);
+
+		// Another conversation's task, or one of a conversation the viewer never began, is none of theirs.
+		expect((await handleGetTaskRoute(request({personaId: 'persona-1', taskId: 'sub-9'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'task'});
+		store.getMemberThread.mockResolvedValue(Ok(null));
+		expect((await handleGetTaskRoute(request({personaId: 'persona-1', taskId: 'sub-1'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'task'});
+		expect(store.ensureMemberThread).not.toHaveBeenCalled();
+	});
+
+	test('list the tasks the viewer pinned, as the store orders them, and pin or unpin one of their conversation’s', async () => {
+		const {handleListPersonasRoute, handlePinTaskRoute} = routes;
+		store.listPinnedTasks.mockResolvedValue(
+			Ok([
+				{id: 'sub-2', personaId: 'persona-1', title: 'Check the calendar', lastActiveAt: now},
+				{id: 'sub-1', personaId: 'persona-3', title: 'Find flights', lastActiveAt: now},
+			]),
+		);
+
+		expect((await handleListPersonasRoute(request())).unwrap().pinnedTasks).toEqual([
+			{id: 'sub-2', personaId: 'persona-1', title: 'Check the calendar'},
+			{id: 'sub-1', personaId: 'persona-3', title: 'Find flights'},
+		]);
+		expect(store.listPinnedTasks).toHaveBeenCalledWith('org-1', 'user-1');
+
+		store.setTaskPinned.mockResolvedValue(Ok(true));
+		expect((await handlePinTaskRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {pinned: true}))).isOk()).toBe(true);
+		expect(store.setTaskPinned).toHaveBeenLastCalledWith('thread-1', 'sub-1', true);
+		expect((await handlePinTaskRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {pinned: false}))).isOk()).toBe(true);
+		expect(store.setTaskPinned).toHaveBeenLastCalledWith('thread-1', 'sub-1', false);
+
+		expect((await handlePinTaskRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {}))).unwrapErr().kind).toBe('parse_error');
+		store.setTaskPinned.mockResolvedValue(Ok(false));
+		expect((await handlePinTaskRoute(request({personaId: 'persona-1', taskId: 'sub-9'}, {pinned: true}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'task'});
+		store.getMemberThread.mockResolvedValue(Ok(null));
+		expect((await handlePinTaskRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {pinned: true}))).unwrapErr().kind).toBe('not_found');
+		expect(store.setTaskPinned).toHaveBeenCalledTimes(3);
+	});
+
+	test('send what the viewer writes in a task’s chat to the task, trimmed, and say where there is no such task', async () => {
+		const {handlePostTaskMessageRoute} = routes;
+		store.messageSubAgentDirectly.mockResolvedValue(Ok(true));
+
+		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: ' Only mornings \n'}))).isOk()).toBe(true);
+		expect(store.messageSubAgentDirectly).toHaveBeenCalledWith('thread-1', 'sub-1', 'Only mornings');
+
+		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: ' '}))).unwrapErr().kind).toBe('parse_error');
+
+		store.messageSubAgentDirectly.mockResolvedValue(Ok(false));
+		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-9'}, {text: 'Hi'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'task'});
+
+		store.getMemberThread.mockResolvedValue(Ok(null));
+		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: 'Hi'}))).unwrapErr().kind).toBe('not_found');
+		expect(store.messageSubAgentDirectly).toHaveBeenCalledTimes(2);
+
+		requireViewer.mockResolvedValue(Ok({...viewer, experiments: []}));
+		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: 'Hi'}))).unwrapErr().kind).toBe('forbidden');
 	});
 
 	test('give what the viewer typed in the conversation and hasn’t sent, whole', async () => {

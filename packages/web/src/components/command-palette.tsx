@@ -19,7 +19,7 @@ import {CommandBar} from '@/components/command-bar';
 import {Dialog, DialogContent, DialogTitle} from '@proxy/ui/components/dialog';
 import {CommandPaletteContext} from '@/hooks/use-command-palette';
 import {useExperiments} from '@/hooks/use-experiment';
-import {useHuman} from '@/hooks/use-human';
+import {useOrgSlug} from '@/hooks/use-org';
 import {isShortcut} from '@/lib/platform';
 
 // What the bar goes to and sends messages to, in `org`: what is connected, the external agents,
@@ -100,8 +100,7 @@ function useBarLists(org: string, chat: boolean, open: boolean, page: string): B
  * anywhere closes it, for good: back on that page, it stays closed.
  */
 export function CommandPaletteProvider({children}: {children: ReactNode}) {
-	// The sidebar's organization: the address's, or on the person's account page, their first.
-	const org = useHuman()?.org.slug ?? '';
+	const org = useOrgSlug();
 	const {pathname} = useLocation();
 	const [openedOn, setOpenedOn] = useState<string | null>(null);
 	// The page, and the shortcut below, are the provider's as the page is drawn, not a moment

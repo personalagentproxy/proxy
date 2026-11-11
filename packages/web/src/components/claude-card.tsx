@@ -1,6 +1,6 @@
 import type {ClaudeAccount} from '@proxy/contracts/me';
 import {useState} from 'react';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {
 	Dialog,
 	DialogContent,
@@ -66,36 +66,40 @@ export function ClaudeCard({account}: {account: Account}) {
 	return (
 		<Section title="Claude">
 			<div className="flex flex-col gap-3 text-sm">
-				{account && <Connected account={account} expiringSoon={expiringSoon} />}
-				{!account && (
-					<p className="text-muted-foreground">
-						Run the built-in agent on your own Claude subscription.
-					</p>
-				)}
-				<div className="flex flex-wrap gap-2">
-					{connecting && signIn && (
-						<PillButton type="button" onClick={() => void startSignIn(signIn)}>
-							Connect Claude
-						</PillButton>
-					)}
-					{connecting && (
-						<PillButton
-							type="button"
-							variant={signIn ? 'ghost' : 'default'}
-							onClick={() => setDialog('paste')}
-						>
-							Paste a token
-						</PillButton>
-					)}
-					{account && (
-						<PillButton
-							type="button"
-							variant="ghost"
-							onClick={() => void apply(disconnectClaude())}
-						>
-							Disconnect
-						</PillButton>
-					)}
+				<div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+					<div className="min-w-0 flex-1">
+						{account && <Connected account={account} expiringSoon={expiringSoon} />}
+						{!account && (
+							<p className="text-muted-foreground">
+								Run the built-in agent on your own Claude subscription.
+							</p>
+						)}
+					</div>
+					<div className="flex shrink-0 flex-wrap gap-2">
+						{connecting && signIn && (
+							<PillButton type="button" onClick={() => void startSignIn(signIn)}>
+								Connect Claude
+							</PillButton>
+						)}
+						{connecting && (
+							<PillButton
+								type="button"
+								variant={signIn ? 'ghost' : 'default'}
+								onClick={() => setDialog('paste')}
+							>
+								Paste a token
+							</PillButton>
+						)}
+						{account && (
+							<PillButton
+								type="button"
+								variant="ghost"
+								onClick={() => void apply(disconnectClaude())}
+							>
+								Disconnect
+							</PillButton>
+						)}
+					</div>
 				</div>
 				{connecting && !desktop && (
 					<p className="text-muted-foreground">Or sign in with Claude from the desktop app.</p>

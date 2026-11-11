@@ -2,7 +2,7 @@ import {afterAll, beforeAll, describe, expect, test} from 'bun:test';
 import type {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
-import {readyForInference} from '@proxy/utils/harness';
+import {DEFAULT_LOOK, readyForInference} from '@proxy/utils/harness';
 
 import {db} from '.';
 import {
@@ -23,6 +23,11 @@ import {
 	getThreadDraft,
 	listEntries,
 	listJobEvents,
+	listShownEntries,
+	listShownSubAgentEntries,
+	messageSubAgentDirectly,
+	listPinnedTasks,
+	setTaskPinned,
 	listOpenJobs,
 	listAnswers,
 	listAttachments,
@@ -1030,5 +1035,164 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		]);
 		// A thread that isn't a conversation keeps none.
 		expect(unwrap(await addDraftAttachment('no-such-thread', notes, 2))).toBe(false);
+	});
+
+	test('what the member writes in a sub-agent’s chat lands in its log as theirs, waking it, and in the conversation as a note, waking nothing; the chat shows it, and the sub-agent’s failures from the conversation', async () => {
+		const persona = unwrap(
+			await createPersona(orgId, userId, {name: 'Travel', look: DEFAULT_LOOK, color: 'teal'}),
+		);
+		const conversation = unwrap(
+			await ensureMemberThread({orgId, agentId, personaId: persona.id, userId}),
+		);
+		await db.agentEntry.create({
+			data: {threadId: conversation.id, kind: 'person', text: 'Find me flights'},
+		});
+		await db.agentEntry.create({
+			data: {
+				threadId: conversation.id,
+				kind: 'assistant',
+				text: '',
+				toolCalls: JSON.stringify([
+					{
+						id: 'c1',
+						name: 'create_subagent',
+						arguments: '{"title":"Find flights","brief":"To Lisbon"}',
+					},
+				]),
+			},
+		});
+		await db.agentEntry.create({
+			data: {threadId: conversation.id, kind: 'tool_result', callId: 'c1', text: 'Started.'},
+		});
+		await db.agentEntry.create({
+			data: {threadId: conversation.id, kind: 'assistant', text: 'On it.'},
+		});
+		const sub = await db.agentThread.create({
+			data: {
+				orgId,
+				agentId,
+				personaId: persona.id,
+				userId,
+				parentThreadId: conversation.id,
+				parentCallId: 'c1',
+				title: 'Find flights',
+			},
+		});
+		await db.agentEntry.create({data: {threadId: sub.id, kind: 'person', text: 'To Lisbon'}});
+		await db.agentEntry.create({
+			data: {threadId: sub.id, kind: 'assistant', text: 'Three direct flights.'},
+		});
+
+		expect(
+			unwrap(
+				await messageSubAgentDirectly(conversation.id, sub.id, 'Only mornings', readyForInference),
+			),
+		).toBe(true);
+
+		expect(
+			unwrap(await listEntries(sub.id)).map((entry) => [entry.kind, entry.direct, entry.text]),
+		).toEqual([
+			['person', false, 'To Lisbon'],
+			['assistant', false, 'Three direct flights.'],
+			['person', true, 'Only mornings'],
+		]);
+		expect(unwrap(await listEntries(conversation.id)).at(-1)).toMatchObject({
+			kind: 'note',
+			callId: 'c1',
+			text: 'Only mornings',
+		});
+		// The sub-agent takes it up; the agent talking with the person sleeps on.
+		const jobs = await db.agentJob.findMany({
+			where: {threadId: {in: [conversation.id, sub.id]}, status: 'queued'},
+			select: {threadId: true, kind: true},
+		});
+		expect(jobs).toEqual([{threadId: sub.id, kind: 'inference'}]);
+
+		// The conversation shows no note, but the answer that started the sub-agent, which says nothing,
+		// where its call is asked for; the chat shows the sub-agent's failure, which only the
+		// conversation's log has, and none of what else it told the conversation.
+		expect(
+			unwrap(await listShownEntries(conversation.id, ['create_subagent'])).map(
+				(entry) => entry.text,
+			),
+		).toEqual(['Find me flights', '', 'On it.']);
+		expect(unwrap(await listShownEntries(conversation.id, [])).map((entry) => entry.text)).toEqual([
+			'Find me flights',
+			'On it.',
+		]);
+		await db.agentEntry.create({
+			data: {
+				threadId: conversation.id,
+				kind: 'event',
+				callId: 'c1',
+				text: 'It failed.',
+				isError: true,
+			},
+		});
+		await db.agentEntry.create({
+			data: {threadId: conversation.id, kind: 'event', callId: 'c1', text: 'Two found.'},
+		});
+		const [subRow] = unwrap(await listSubAgents(conversation.id));
+		if (!subRow) {
+			throw new Error('expected the sub-agent');
+		}
+		expect(
+			unwrap(await listShownSubAgentEntries(subRow, ['send_to_parent'])).map((entry) => entry.text),
+		).toEqual(['To Lisbon', 'Three direct flights.', 'Only mornings', 'It failed.']);
+
+		// Only a sub-agent of the conversation, and only from the conversation.
+		expect(
+			unwrap(
+				await messageSubAgentDirectly(conversation.id, 'no-such-thread', 'Hi', readyForInference),
+			),
+		).toBe(false);
+		expect(unwrap(await messageSubAgentDirectly(thread.id, sub.id, 'Hi', readyForInference))).toBe(
+			false,
+		);
+		expect(unwrap(await messageSubAgentDirectly(sub.id, sub.id, 'Hi', readyForInference))).toBe(
+			false,
+		);
+
+		// Pinned, it is listed under its persona, the one with something said in it last first; only
+		// a sub-agent of the conversation, and only the member's own.
+		expect(unwrap(await listPinnedTasks(orgId, userId))).toEqual([]);
+		const other = await db.agentThread.create({
+			data: {
+				orgId,
+				agentId,
+				personaId: persona.id,
+				userId,
+				parentThreadId: conversation.id,
+				parentCallId: 'c2',
+				title: 'Check the calendar',
+			},
+		});
+		await db.agentEntry.create({
+			data: {
+				threadId: other.id,
+				kind: 'person',
+				text: 'Next weekend',
+				createdAt: new Date(Date.now() - 60 * 60 * 1000),
+			},
+		});
+		expect(unwrap(await setTaskPinned(conversation.id, other.id, true))).toBe(true);
+		expect(unwrap(await setTaskPinned(conversation.id, sub.id, true))).toBe(true);
+		expect(unwrap(await setTaskPinned(thread.id, sub.id, true))).toBe(false);
+		expect(unwrap(await setTaskPinned(conversation.id, conversation.id, true))).toBe(false);
+		expect(
+			unwrap(await listPinnedTasks(orgId, userId)).map(({id, personaId, title}) => ({
+				id,
+				personaId,
+				title,
+			})),
+		).toEqual([
+			{id: sub.id, personaId: persona.id, title: 'Find flights'},
+			{id: other.id, personaId: persona.id, title: 'Check the calendar'},
+		]);
+		expect(unwrap(await listPinnedTasks(orgId, 'someone-else'))).toEqual([]);
+		expect(unwrap(await setTaskPinned(conversation.id, sub.id, false))).toBe(true);
+		expect(unwrap(await listPinnedTasks(orgId, userId)).map(({id}) => id)).toEqual([other.id]);
+
+		await db.persona.delete({where: {id: persona.id}});
 	});
 });

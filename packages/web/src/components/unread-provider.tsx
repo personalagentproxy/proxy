@@ -4,7 +4,7 @@ import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 
 import {useNavigate} from 'react-router';
 import {listAnswers, markRead} from '@/client/harness-client';
 import {useExperiments} from '@/hooks/use-experiment';
-import {useHuman} from '@/hooks/use-human';
+import {useOrgSlug} from '@/hooks/use-org';
 import {usePoll} from '@/hooks/use-poll';
 import {type Unread, UnreadContext, type Viewing} from '@/hooks/use-unread';
 import {desktopBridge} from '@/lib/desktop';
@@ -49,8 +49,7 @@ function sameAnswers(kept: ChatAnswer[] | null, listed: ChatAnswer[]): boolean {
 }
 
 export function UnreadProvider({children}: {children: ReactNode}) {
-	// The sidebar's organization: the address's, or on the person's account page, their first.
-	const org = useHuman()?.org.slug ?? '';
+	const org = useOrgSlug();
 	const navigate = useNavigate();
 	const experiments = useExperiments();
 	const enabled = org !== '' && experiments.includes('harness');

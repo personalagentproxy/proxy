@@ -18,7 +18,15 @@ const HOUR_FORMAT = new Intl.DateTimeFormat('en-US', {hour: 'numeric', minute: '
 
 // Turns in a row from the same side, under the time their stretch of the conversation began
 // where they are its first.
-export type ChatRun = {heading: string | null; entries: ChatEntry[]};
+export type ChatRun<T> = {heading: string | null; entries: T[]};
+
+// Something said, as much of it as laying the conversation out needs: when.
+type Said = {at: string};
+
+/** Which side of the conversation something is on: the person's, or the persona's, whose answers, tasks and messages to them are. */
+export function conversationSide(entry: ChatEntry): 'person' | 'persona' {
+	return entry.kind === 'person' ? 'person' : 'persona';
+}
 
 function sameDay(a: Date, b: Date): boolean {
 	return (
@@ -52,7 +60,7 @@ export function formatSectionTime(iso: string, now: Date): string {
 
 // Whether a turn starts a stretch of the conversation: the first, one after an hour's pause, or
 // the first on another day.
-function startsSection(entry: ChatEntry, before: ChatEntry | undefined): boolean {
+function startsSection(entry: Said, before: Said | undefined): boolean {
 	if (!before) {
 		return true;
 	}
@@ -66,10 +74,15 @@ function startsSection(entry: ChatEntry, before: ChatEntry | undefined): boolean
 	return !sameDay(at, previous);
 }
 
-// The conversation as the page lays it out: turns in a row from the same side together, and a
-// time over each stretch of it, so a conversation picked up the next day reads as one.
-export function chatRuns(entries: ChatEntry[], now: Date): ChatRun[] {
-	const runs: ChatRun[] = [];
+// The conversation as the page lays it out: turns in a row from the same side (`sideOf`)
+// together, and a time over each stretch of it, so a conversation picked up the next day reads as
+// one.
+export function chatRuns<T extends Said>(
+	entries: T[],
+	now: Date,
+	sideOf: (entry: T) => string,
+): ChatRun<T>[] {
+	const runs: ChatRun<T>[] = [];
 	entries.forEach((entry, index) => {
 		const last = runs.at(-1);
 		if (startsSection(entry, entries[index - 1])) {
@@ -77,7 +90,8 @@ export function chatRuns(entries: ChatEntry[], now: Date): ChatRun[] {
 			return;
 		}
 
-		if (last && last.entries[0]?.kind === entry.kind) {
+		const first = last?.entries[0];
+		if (last && first && sideOf(first) === sideOf(entry)) {
 			last.entries.push(entry);
 			return;
 		}

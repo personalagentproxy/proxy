@@ -12,7 +12,7 @@ import {
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {Result} from 'ts-results-es';
 import {z} from 'zod';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Checkbox} from '@proxy/ui/components/checkbox';
 import {Label} from '@proxy/ui/components/label';
 import {BUTTON_EDGES} from './button-edges';
@@ -240,14 +240,9 @@ export function MapPage() {
 						Show sidebar and header links
 					</Label>
 					{Object.keys(moved).length > 0 && (
-						<Button
-							variant="outline"
-							size="sm"
-							className="justify-self-start"
-							onClick={() => place({})}
-						>
+						<PillButton variant="ghost" className="justify-self-start" onClick={() => place({})}>
 							Put moved screens back
-						</Button>
+						</PillButton>
 					)}
 				</Panel>
 			</ReactFlow>

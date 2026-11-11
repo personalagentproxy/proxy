@@ -3,7 +3,7 @@ import {isOffered, type IntegrationId} from '@proxy/integrations';
 import {useState} from 'react';
 import type {Experiment} from '@proxy/utils';
 import {Badge} from '@proxy/ui/components/badge';
-import {pillVariants} from '@/lib/pill-variants';
+import {pillVariants} from '@proxy/ui/lib/pill-variants';
 import {cn} from '@proxy/ui/lib/utils';
 import {KeyRoundIcon, PlusIcon} from 'lucide-react';
 import {IntegrationLogo} from '@/components/brand-logo';

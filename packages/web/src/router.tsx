@@ -35,6 +35,7 @@ import {
 	agentsLoader,
 	chatIndexLoader,
 	chatLoader,
+	chatTaskLoader,
 	connectAgentLoader,
 	connectionLoader,
 	connectionsLoader,
@@ -151,7 +152,8 @@ function oldVaultLoader({params, request}: {params: {org?: string}; request: Req
 // theirs sends them to their first, an old single-page link (`/connections`) to that page there;
 // one that has not been through the welcome flow goes there first. With who is signed in, the
 // organization and the organizations they are in, for the switcher and every page that says which
-// is open. The account names none, so the sidebar shows their first.
+// is open. The account is in none: the sidebar shows the one it was opened from (`?org=`), or
+// their first, with its experiments.
 async function humanLoader({
 	params,
 	request,
@@ -163,7 +165,12 @@ async function humanLoader({
 		const [me, orgs] = await Promise.all([getMe(), listOrgs()]);
 		const signedIn = unwrapLoaderResult(me);
 		const all = unwrapLoaderResult(orgs).orgs;
-		return {...signedIn, org: firstOrg(all), orgs: all};
+		const from = new URL(request.url).searchParams.get('org');
+		const picked = all.find((one) => one.slug === from) ?? firstOrg(all);
+		// The list leaves each organization's experiments out: its own page says them, for the
+		// sidebar's and the command bar's Chat.
+		const org = unwrapLoaderResult(await getOrg(picked.slug));
+		return {...signedIn, org, orgs: all};
 	}
 
 	const slug = params.org;
@@ -272,11 +279,13 @@ const routes: RouteObject[] = [
 	{
 		id: 'human',
 		loader: humanLoader,
-		// The session is checked on arrival, not on every click: only another organization, or a
-		// page revalidating after a change (the address the same), as renaming an organization or
-		// inviting someone, loads the organizations again.
+		// The session is checked on arrival, not on every click: only another organization (the
+		// account's `?org=` among them), or a page revalidating after a change (the address the
+		// same), as renaming an organization or inviting someone, loads the organizations again.
 		shouldRevalidate: ({currentUrl, nextUrl, currentParams, nextParams}) =>
-			currentParams.org !== nextParams.org || currentUrl.href === nextUrl.href,
+			currentParams.org !== nextParams.org ||
+			currentUrl.searchParams.get('org') !== nextUrl.searchParams.get('org') ||
+			currentUrl.href === nextUrl.href,
 		element: <HumanSide />,
 		errorElement: <RouteError />,
 		children: [
@@ -306,6 +315,7 @@ const routes: RouteObject[] = [
 			// The built-in agents, behind the `harness` experiment: the api refuses it otherwise.
 			{path: '/:org/chat', loader: chatIndexLoader, element: <ChatPage />},
 			{path: '/:org/chat/:id', loader: chatLoader, element: <ChatPage />},
+			{path: '/:org/chat/:id/tasks/:taskId', loader: chatTaskLoader, element: <ChatPage />},
 			{path: '/:org/alerts', loader: alertsLoader, element: <AlertsPage />},
 			{path: '/:org/agents', loader: agentsLoader, element: <AgentsPage />},
 			{path: '/:org/agents/new', loader: agentsLoader, element: <NewAgentPage />},

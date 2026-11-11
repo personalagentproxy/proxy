@@ -6,7 +6,7 @@ import {signOut} from '@/client/auth-client';
 import {acceptInvitation} from '@/client/orgs-client';
 import {OrgTile} from '@/components/org-switcher';
 import {StepHeading} from '@/components/step-heading';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {describeApiError} from '@/lib/loader-utils';
 import type {inviteLoader} from '@/loaders';
 

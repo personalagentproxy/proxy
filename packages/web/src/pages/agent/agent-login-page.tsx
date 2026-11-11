@@ -3,7 +3,7 @@ import {useState} from 'react';
 import {Link, useNavigate} from 'react-router';
 import {signInAgent} from '@/client/agent-client';
 import {TASKS_PATH} from '@/lib/agent-task';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 

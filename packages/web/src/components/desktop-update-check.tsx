@@ -1,4 +1,4 @@
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {useDesktopUpdateStatus} from '@/hooks/use-desktop-update-status';
 import {desktopBridge, type DesktopUpdateStatus} from '@/lib/desktop';
 

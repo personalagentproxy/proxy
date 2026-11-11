@@ -15,7 +15,6 @@ import {Input} from '@proxy/ui/components/input';
 import {Skeleton} from '@proxy/ui/components/skeleton';
 import {cn} from '@proxy/ui/lib/utils';
 import {useExperiments} from '@/hooks/use-experiment';
-import {useHuman} from '@/hooks/use-human';
 import {useOrgSlug} from '@/hooks/use-org';
 import {apiMessage} from '@/lib/agent-errors';
 import {
@@ -114,12 +113,7 @@ type Props = {
  * at all.
  */
 export function CommandBar({connections, agents, personas, open: up, onClose}: Props) {
-	const here = useOrgSlug();
-	const human = useHuman();
-	// On the person's account page the address names no organization: the bar goes to their first
-	// one's pages, and classifies nothing, as the widgets work in the address's organization.
-	const org = here === '' ? (human?.org.slug ?? '') : here;
-	const asks = here !== '';
+	const org = useOrgSlug();
 	// Whether the organization has Chat (the `harness` experiment), whose agents it then goes to,
 	// makes and sends messages to.
 	const chat = useExperiments().includes('harness');
@@ -186,8 +180,8 @@ export function CommandBar({connections, agents, personas, open: up, onClose}: P
 	const at = selected < rows.length ? selected : 0;
 	// The agent the text is said to by name, which makes it a message to that agent.
 	const addressed = useMemo(
-		() => (asks && personas !== null ? addressedPersona(text, personas) : null),
-		[asks, personas, text],
+		() => (personas !== null ? addressedPersona(text, personas) : null),
+		[personas, text],
 	);
 
 	const pauseOn = (paused: string) => {
@@ -301,8 +295,8 @@ export function CommandBar({connections, agents, personas, open: up, onClose}: P
 			return;
 		}
 
-		// Said to an agent by name, or on a page with nothing to classify for: no widget is picked.
-		if (!asks || (personas !== null && addressedPersona(value, personas) !== null)) {
+		// Said to an agent by name: no widget is picked.
+		if (personas !== null && addressedPersona(value, personas) !== null) {
 			drop();
 			setAnswer(null);
 			setError(null);
@@ -364,7 +358,7 @@ export function CommandBar({connections, agents, personas, open: up, onClose}: P
 			return;
 		}
 		// Said to an agent by name, it is a message to it, whose card takes Enter: nothing to classify.
-		if (!asks || addressed !== null || (current && answer.intent.widget !== NO_WIDGET)) {
+		if (addressed !== null || (current && answer.intent.widget !== NO_WIDGET)) {
 			return;
 		}
 		enter(asked);
@@ -477,9 +471,7 @@ export function CommandBar({connections, agents, personas, open: up, onClose}: P
 
 	return (
 		<div className="relative w-full overflow-hidden">
-			{!active && (
-				<QuickActions examples={chat && asks ? [...EXAMPLES, ...CHAT_EXAMPLES] : EXAMPLES} />
-			)}
+			{!active && <QuickActions examples={chat ? [...EXAMPLES, ...CHAT_EXAMPLES] : EXAMPLES} />}
 			<Input
 				ref={input}
 				autoFocus

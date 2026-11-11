@@ -2,15 +2,20 @@
 
 import type {ChatEntry} from '@proxy/contracts/harness';
 import {describe, expect, test} from 'bun:test';
-import {chatRuns, formatSectionTime} from '@/lib/chat-runs';
+import {chatRuns, conversationSide, formatSectionTime} from '@/lib/chat-runs';
 
 // A moment in the browser's own time zone, as the page counts days in it.
 function at(month: number, day: number, hour: number, minute = 0, year = 2026): string {
 	return new Date(year, month - 1, day, hour, minute).toISOString();
 }
 
-function entry(id: string, kind: ChatEntry['kind'], when: string): ChatEntry {
+function entry(id: string, kind: 'person' | 'assistant', when: string): ChatEntry {
 	return {id, kind, text: id, isError: false, at: when, attachments: []};
+}
+
+// A task the persona started, as the conversation shows it.
+function task(id: string, when: string): ChatEntry {
+	return {id, kind: 'task', task: {id, title: id}, at: when};
 }
 
 const now = new Date(2026, 9, 21, 15, 0);
@@ -36,6 +41,7 @@ describe('chatRuns', () => {
 				entry('c', 'assistant', at(10, 21, 10, 2)),
 			],
 			now,
+			conversationSide,
 		);
 		expect(runs.map((run) => [run.heading, run.entries.map((turn) => turn.id)])).toEqual([
 			['Today 10:00 AM', ['a']],
@@ -51,6 +57,7 @@ describe('chatRuns', () => {
 				entry('c', 'assistant', at(10, 21, 12, 0)),
 			],
 			now,
+			conversationSide,
 		);
 		expect(runs.map((run) => [run.heading, run.entries.map((turn) => turn.id)])).toEqual([
 			['Today 10:00 AM', ['a', 'b']],
@@ -62,11 +69,30 @@ describe('chatRuns', () => {
 		const runs = chatRuns(
 			[entry('a', 'person', at(10, 20, 23, 50)), entry('b', 'assistant', at(10, 21, 0, 5))],
 			now,
+			conversationSide,
 		);
 		expect(runs.map((run) => run.heading)).toEqual(['Yesterday 11:50 PM', 'Today 12:05 AM']);
 	});
 
+	test('keeps the tasks the persona started on its side, with its answers', () => {
+		const runs = chatRuns(
+			[
+				entry('a', 'person', at(10, 21, 10, 0)),
+				entry('b', 'assistant', at(10, 21, 10, 1)),
+				task('t', at(10, 21, 10, 1)),
+				entry('c', 'person', at(10, 21, 10, 2)),
+			],
+			now,
+			conversationSide,
+		);
+		expect(runs.map((run) => run.entries.map((turn) => turn.id))).toEqual([
+			['a'],
+			['b', 't'],
+			['c'],
+		]);
+	});
+
 	test('lays out nothing for an empty conversation', () => {
-		expect(chatRuns([], now)).toEqual([]);
+		expect(chatRuns([], now, conversationSide)).toEqual([]);
 	});
 });

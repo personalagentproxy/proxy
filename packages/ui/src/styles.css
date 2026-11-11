@@ -3,8 +3,10 @@
 @import 'shadcn/tailwind.css';
 @import '@fontsource-variable/geist';
 
-/* The apps import this file, so Tailwind also needs to find the class names used in here. */
+/* The apps import this file, so Tailwind also needs to find the class names used in here and in
+   the classes lib builds (lib/pill-variants.ts). */
 @source './components';
+@source './lib';
 
 @custom-variant dark (&:is(.dark *));
 

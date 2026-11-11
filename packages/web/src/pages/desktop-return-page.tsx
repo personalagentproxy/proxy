@@ -1,6 +1,6 @@
 import {useEffect} from 'react';
 import {useSearchParams} from 'react-router';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {StepHeading} from '@/components/step-heading';
 import {sanitizeCallbackUrl} from '@/lib/callback-url';
 import {desktopOpenLink} from '@/lib/desktop';

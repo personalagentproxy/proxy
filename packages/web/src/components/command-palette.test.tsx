@@ -95,7 +95,7 @@ async function answer(path: string, method: string): Promise<Response> {
 		return Response.json({fields: await fields, ms: 1});
 	}
 	if (path.endsWith('/chat/personas') && method === 'GET') {
-		return Response.json({personas, harnesses: []});
+		return Response.json({personas, pinnedTasks: [], harnesses: []});
 	}
 	if (path.endsWith('/chat/personas') && method === 'POST') {
 		return Response.json({persona: persona('made', 'Stretch reminders', false)});
@@ -645,16 +645,28 @@ describe('the command bar over any page', () => {
 		expect(await where()).toBe('/acme/activity');
 	});
 
-	test('on the account page, which is no organization’s, it goes to the pages of the person’s first and classifies nothing', async () => {
-		renderApp('/account');
+	test('on the account page, which is no organization’s, it works in the one the page was opened from: it classifies there, sends there and goes to its pages', async () => {
+		renderApp('/account?org=acme');
 		const input = await openBar();
 
 		fireEvent.change(input, {target: {value: 'plan my trip to Lisbon in March'}});
+		await cardNamed('Send to an agent');
+		expect(posts('/intent').map((one) => one.path)).toEqual(['/api/orgs/acme/intent']);
 		fireEvent.keyDown(input, {key: 'Enter'});
+
+		await arrivedAt('/acme/chat/general');
+		expect(posts('/messages').map((one) => one.path)).toEqual([
+			'/api/orgs/acme/chat/personas/general/messages',
+		]);
+	});
+
+	test('on the account page, it goes to the pages of the organization the page was opened from', async () => {
+		renderApp('/account?org=acme');
+		const input = await openBar();
+
 		fireEvent.change(input, {target: {value: 'activity'}});
 		fireEvent.keyDown(input, {key: 'Enter'});
 
 		await arrivedAt('/acme/activity');
-		expect(posts('/intent')).toEqual([]);
 	});
 });

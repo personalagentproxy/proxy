@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import {connectionLabel} from '@/lib/access';
 import {integrationOf} from '@/lib/integrations';
+import {accountPath} from '@/lib/orgs';
 
 /**
  * What the command bar works out itself, without the api: where what is typed leads (a page, a
@@ -109,7 +110,7 @@ const PAGES: Page[] = [
 	},
 	{
 		label: 'Account',
-		to: () => '/account',
+		to: (org) => accountPath(org),
 		icon: UserRoundIcon,
 		keywords: ['profile', 'sessions', 'sign out', 'notifications', 'theme', 'claude'],
 	},

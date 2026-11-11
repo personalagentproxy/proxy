@@ -3,7 +3,7 @@ import {useNavigate} from 'react-router';
 import {createVault} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {ShareNote} from '@/components/share-choice';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {useCommandEnterSubmit} from '@/hooks/use-command-enter';

@@ -132,7 +132,7 @@ describe('AppSidebar', () => {
 		const account = await screen.findByRole('link', {name: 'Account'});
 		const avatar = account.querySelector('[data-slot="person-avatar"]');
 		const image = account.querySelector('img');
-		expect(account.getAttribute('href')).toBe('/account');
+		expect(account.getAttribute('href')).toBe('/account?org=acme');
 		expect(avatar?.parentElement?.classList).toContain('size-4');
 		expect(avatar?.classList).toContain('size-6');
 		expect(image?.getAttribute('src')).toBe('https://example.com/ada.png');

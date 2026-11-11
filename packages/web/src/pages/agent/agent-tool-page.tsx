@@ -3,7 +3,7 @@ import {useId, useState} from 'react';
 import {useParams} from 'react-router';
 import {runAgentServerTool} from '@/client/agent-client';
 import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {

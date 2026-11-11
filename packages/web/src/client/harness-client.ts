@@ -5,10 +5,12 @@ import {
 	personaAnswerSchema,
 	personaListSchema,
 	type Persona,
+	type pinTaskBodySchema,
 	type postMessageBodySchema,
 	type removeAttachmentBodySchema,
 	postedMessageSchema,
 	type saveDraftBodySchema,
+	taskChatSchema,
 	threadLogSchema,
 	uploadedAttachmentSchema,
 } from '@proxy/contracts/harness';
@@ -18,8 +20,9 @@ import {apiRequest, apiSend, orgApi} from '@/client/request';
 import {trackWrite} from '@/lib/writes-in-flight';
 
 // The Chat page's api: the personas the person sees, their own and General, which every member
-// does, each named and given a head, the person's own conversation with each, its turns, what they say in it, and how
-// far they have read it.
+// does, each named and given a head, the person's own conversation with each, its turns, what
+// they say in it, and how far they have read it, and the tasks the persona started in it, each
+// with a chat of its own.
 
 export function listPersonas(org: string) {
 	return apiRequest('GET', `${orgApi(org)}/chat/personas`, personaListSchema);
@@ -95,6 +98,29 @@ export function removeAttachment(org: string, personaId: string, attachment: Cha
 		fileId,
 		version,
 	} satisfies z.input<typeof removeAttachmentBodySchema>);
+}
+
+// A task the persona started in the person's conversation with it, as its chat shows it.
+export function getTask(org: string, personaId: string, taskId: string) {
+	return apiRequest(
+		'GET',
+		`${orgApi(org)}/chat/personas/${personaId}/tasks/${taskId}`,
+		taskChatSchema,
+	);
+}
+
+// What the person writes to a task in its chat: the task takes it up; the persona is told.
+export function postTaskMessage(org: string, personaId: string, taskId: string, text: string) {
+	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/tasks/${taskId}/messages`, {
+		text,
+	} satisfies z.input<typeof postMessageBodySchema>);
+}
+
+// Pins a task of the person's conversation with the persona to the list under it, or unpins it.
+export function pinTask(org: string, personaId: string, taskId: string, pinned: boolean) {
+	return apiSend('PUT', `${orgApi(org)}/chat/personas/${personaId}/tasks/${taskId}/pin`, {
+		pinned,
+	} satisfies z.input<typeof pinTaskBodySchema>);
 }
 
 export function markRead(org: string, personaId: string, entryId: string) {

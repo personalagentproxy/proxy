@@ -12,7 +12,7 @@ import {getConnection, listConnections} from '@/client/connections-client';
 import {getFile, listFiles, listTrashedFiles} from '@/client/files-client';
 import {getGitHubInstallations} from '@/client/github-client';
 import {listAlerts} from '@/client/alerts-client';
-import {getThread, listPersonas} from '@/client/harness-client';
+import {getTask, getThread, listPersonas} from '@/client/harness-client';
 import {getClaudeAccount, getMe, listSessions} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {getInvitation, getOrg, listMembers, listOrgs} from '@/client/orgs-client';
@@ -167,17 +167,31 @@ export const chatIndexLoader = later(async (args: OrgParams) => {
 	throw redirect(`/${org}/chat/${first.id}`);
 });
 
-// The person's conversation with an agent, the agents to switch between, and the harnesses one
-// can run on.
+// The person's conversation with an agent, the agents to switch between with the tasks pinned
+// under them, and the harnesses one can run on.
 export const chatLoader = later(async (args: OrgParams & {params: {id?: string}}) => {
 	const org = orgOf(args);
 	const [log, personas] = await Promise.all([
 		getThread(org, args.params.id ?? ''),
 		listPersonas(org),
 	]);
-	const {personas: listed, harnesses} = unwrapLoaderResult(personas);
-	return {log: unwrapLoaderResult(log), personas: listed, harnesses};
+	const {personas: listed, pinnedTasks, harnesses} = unwrapLoaderResult(personas);
+	return {log: unwrapLoaderResult(log), personas: listed, pinnedTasks, harnesses};
 });
+
+// A task an agent started in the person's conversation with it, as its chat shows it, beside the
+// agents to switch between, as the conversation's page has them.
+export const chatTaskLoader = later(
+	async (args: OrgParams & {params: {id?: string; taskId?: string}}) => {
+		const org = orgOf(args);
+		const [task, personas] = await Promise.all([
+			getTask(org, args.params.id ?? '', args.params.taskId ?? ''),
+			listPersonas(org),
+		]);
+		const {personas: listed, pinnedTasks, harnesses} = unwrapLoaderResult(personas);
+		return {task: unwrapLoaderResult(task), personas: listed, pinnedTasks, harnesses};
+	},
+);
 
 // The person's alerts, those the agents set in their conversations.
 export const alertsLoader = later(async (args: OrgParams) => {

@@ -112,6 +112,8 @@ export type EntryRow = LogEntry & {
 	// Landed while the model was answering: not in the log until the answer is.
 	pending: boolean;
 	isError: boolean;
+	// A sub-agent's person entry the member wrote in its chat, rather than the agent that started it.
+	direct: boolean;
 	inputTokens: number | null;
 	outputTokens: number | null;
 	// A summary entry's reach: the seq of the last entry it stands for.
@@ -177,8 +179,8 @@ export type CallPlan =
  */
 export type Wakes = (tail: LogEntry[]) => boolean;
 
-/** An entry to land in a thread. */
-export type NewEntry = {kind: AgentEntryKind; text: string};
+/** An entry to land in a thread; `direct` where the member wrote it in a sub-agent's chat. */
+export type NewEntry = {kind: AgentEntryKind; text: string; direct?: boolean};
 
 /** The harness and the model a turn ran on, by their ids, kept with what the model answered. */
 export type RanOn = {harness: string; model: string};
@@ -311,6 +313,7 @@ export const entrySelect = {
 	toolCalls: true,
 	callId: true,
 	isError: true,
+	direct: true,
 	inputTokens: true,
 	outputTokens: true,
 	coversSeq: true,
@@ -869,16 +872,68 @@ export async function listEntries(threadId: string): Promise<Result<EntryRow[], 
 	).map((entries) => entries.map(toEntry));
 }
 
+// An assistant entry with a call of the tool among its calls, as they are kept: as JSON, each
+// call's name written as JSON.stringify writes it.
+function withCall(tool: string): Prisma.AgentEntryWhereInput {
+	return {kind: 'assistant', toolCalls: {contains: `"name":${JSON.stringify(tool)}`}};
+}
+
 /**
- * The thread's turns as the person sees them, what they said and what the persona answered in
- * words, not the calls, their results, the reports or the summaries: the log's, then what is
- * pending, each in order.
+ * The thread's turns as the person sees them, what was said and what was answered in words, and
+ * the answers that made a call of one of the tools in `calls`, which the person sees as what the
+ * call did; not the other calls, their results, the reports, the notes or the summaries: the
+ * log's, then what is pending, each in order.
  */
-export async function listShownEntries(threadId: string): Promise<Result<EntryRow[], ApiError>> {
+export async function listShownEntries(
+	threadId: string,
+	calls: string[],
+): Promise<Result<EntryRow[], ApiError>> {
 	return (
 		await wrapDb(() =>
 			db.agentEntry.findMany({
-				where: {threadId, OR: [{kind: 'person'}, {kind: 'assistant', text: {not: ''}}]},
+				where: {
+					threadId,
+					OR: [{kind: 'person'}, {kind: 'assistant', text: {not: ''}}, ...calls.map(withCall)],
+				},
+				select: entrySelect,
+				orderBy: [{pending: 'asc'}, {seq: 'asc'}],
+			}),
+		)
+	).map((entries) => entries.map(toEntry));
+}
+
+/**
+ * A sub-agent's chat, as the member sees it: its thread's turns as `listShownEntries` has them, and
+ * what of what it told the thread it was started from was an error, its failures, which only that
+ * thread's log has: the logs', then what is pending, each in order.
+ */
+export async function listShownSubAgentEntries(
+	subAgent: ThreadRow,
+	calls: string[],
+): Promise<Result<EntryRow[], ApiError>> {
+	const failures: Prisma.AgentEntryWhereInput[] =
+		subAgent.parentThreadId === null || subAgent.parentCallId === null
+			? []
+			: [
+					{
+						threadId: subAgent.parentThreadId,
+						kind: 'event',
+						callId: subAgent.parentCallId,
+						isError: true,
+					},
+				];
+	return (
+		await wrapDb(() =>
+			db.agentEntry.findMany({
+				where: {
+					OR: [
+						{
+							threadId: subAgent.id,
+							OR: [{kind: 'person'}, {kind: 'assistant', text: {not: ''}}, ...calls.map(withCall)],
+						},
+						...failures,
+					],
+				},
 				select: entrySelect,
 				orderBy: [{pending: 'asc'}, {seq: 'asc'}],
 			}),
@@ -1117,6 +1172,102 @@ async function endTurn(
 		});
 	}
 	await tellParent(tx, thread, stop.stopped, jobId, wakes);
+}
+
+/** A sub-agent the member pinned, as a task, under its persona: when it last had something in its log, or its start before anything did. */
+export type PinnedTaskRow = {id: string; personaId: string; title: string; lastActiveAt: Date};
+
+/**
+ * The sub-agents the member pinned in their conversations in the organization, as tasks, the one
+ * with something in its log last first.
+ */
+export async function listPinnedTasks(
+	orgId: string,
+	userId: string,
+): Promise<Result<PinnedTaskRow[], ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentThread.findMany({
+				where: {orgId, userId, parentThreadId: {not: null}, pinnedAt: {not: null}},
+				select: {
+					id: true,
+					personaId: true,
+					title: true,
+					createdAt: true,
+					entries: {orderBy: {seq: 'desc'}, take: 1, select: {createdAt: true}},
+				},
+			}),
+		)
+	).map((threads) =>
+		threads
+			.map(({entries, createdAt, title, ...thread}) => ({
+				...thread,
+				title: title ?? '',
+				lastActiveAt: entries[0]?.createdAt ?? createdAt,
+			}))
+			.toSorted((a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime()),
+	);
+}
+
+/** Pins one of the conversation's sub-agents, as a task, or unpins it; `Ok(false)` means no such sub-agent of the conversation. */
+export async function setTaskPinned(
+	conversationId: string,
+	subAgentId: string,
+	pinned: boolean,
+): Promise<Result<boolean, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentThread.updateMany({
+				where: {id: subAgentId, parentThreadId: conversationId},
+				data: {pinnedAt: pinned ? new Date() : null},
+			}),
+		)
+	).map(({count}) => count > 0);
+}
+
+/**
+ * Lands what the member wrote in the chat of one of their conversation's sub-agents: in the
+ * sub-agent's log, as theirs (`direct`), taking it up as the agent's message would
+ * (messageSubAgent); and in the conversation, as a note on the call that started it, which the
+ * agent reads with what wakes it next, the sub-agent's answer among it, but is not woken by where
+ * `wakes` says so (@proxy/utils/harness readyForInference). `Ok(false)` means no such sub-agent of
+ * the conversation.
+ */
+export async function messageSubAgentDirectly(
+	conversationId: string,
+	subAgentId: string,
+	text: string,
+	wakes: Wakes,
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const conversation = await lockThread(tx, conversationId);
+			if (!conversation || conversation.parentThreadId !== null) {
+				return false;
+			}
+			const subAgent = await messageSubAgent(
+				tx,
+				conversation,
+				subAgentId,
+				{kind: 'person', text, direct: true},
+				wakes,
+			);
+			if (!subAgent) {
+				return false;
+			}
+			await appendEntry(
+				tx,
+				conversation,
+				{
+					kind: 'note',
+					text,
+					...(subAgent.parentCallId === null ? {} : {callId: subAgent.parentCallId}),
+				},
+				wakes,
+			);
+			return true;
+		}),
+	);
 }
 
 /**

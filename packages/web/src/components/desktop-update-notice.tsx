@@ -1,6 +1,6 @@
 import {XIcon} from 'lucide-react';
 import {useState} from 'react';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {useDesktopUpdate} from '@/hooks/use-desktop-update';
 import {desktopBridge} from '@/lib/desktop';
 

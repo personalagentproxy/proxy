@@ -76,6 +76,7 @@ function entry(
 		toolCalls: extra.toolCalls ?? null,
 		callId: extra.callId ?? null,
 		isError: false,
+		direct: false,
 		inputTokens: extra.inputTokens ?? null,
 		outputTokens: null,
 		coversSeq: extra.coversSeq ?? null,

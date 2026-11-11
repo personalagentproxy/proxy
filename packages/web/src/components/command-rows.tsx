@@ -2,7 +2,7 @@ import {PlugIcon} from 'lucide-react';
 import {useEffect, useRef} from 'react';
 import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
 import {Head} from '@/components/head';
-import {EnterHint} from '@/components/widgets/enter-hint';
+import {EnterHint} from '@proxy/ui/components/enter-hint';
 import {type Destination, KIND_NAMES, rowId} from '@/lib/command-bar';
 import {integrationOf} from '@/lib/integrations';
 

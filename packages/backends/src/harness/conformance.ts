@@ -24,7 +24,7 @@ const TOOLS = [
 	{name: 'run', description: 'Runs', inputSchema: {type: 'object', properties: {}}, readOnly: false},
 ];
 
-const ENTRIES = [{kind: 'person' as const, text: 'Hi', toolCalls: null, callId: null, isError: false, seq: 1, coversSeq: null, inputTokens: null, jobId: null}];
+const ENTRIES = [{kind: 'person' as const, text: 'Hi', toolCalls: null, callId: null, isError: false, direct: false, seq: 1, coversSeq: null, inputTokens: null, jobId: null}];
 
 const TERMINAL = new Set<HarnessEvent['kind']>(['done', 'failed']);
 

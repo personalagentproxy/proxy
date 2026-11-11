@@ -1,6 +1,6 @@
 import type {Action} from '@proxy/integrations';
 import {useId, useRef, useState} from 'react';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Checkbox} from '@proxy/ui/components/checkbox';
 import {groupsOf, howManyOn} from '@/lib/access';
 import {onSignInClick} from '@/lib/desktop';

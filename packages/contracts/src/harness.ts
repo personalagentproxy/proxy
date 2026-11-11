@@ -73,14 +73,33 @@ export const chatHarnessSchema = z.object({
 export type ChatHarness = z.infer<typeof chatHarnessSchema>;
 
 /**
+ * A sub-agent the persona started in the conversation, which the person sees as a task of its,
+ * with a chat of its own (`GET chat/personas/:personaId/tasks/:taskId`): its id, and its title, as
+ * the persona gave it.
+ */
+export const chatTaskSchema = z.object({id: z.string(), title: z.string()});
+
+export type ChatTask = z.infer<typeof chatTaskSchema>;
+
+/** A task the person pinned to the list, under the persona whose conversation it is of. */
+export const pinnedTaskSchema = chatTaskSchema.extend({personaId: z.string()});
+
+export type PinnedTask = z.infer<typeof pinnedTaskSchema>;
+
+/**
  * `GET chat/personas`: the organization's personas, the one last active in the person's
- * conversation first: the last thing said in it, or, before anything was, its making; and the
+ * conversation first: the last thing said in it, or, before anything was, its making; the tasks
+ * the person pinned in their conversations, the one with something said in it last first; and the
  * harnesses this server has for a persona to run on, the first what a new one gets.
  */
 export const personaListSchema = z.object({
 	personas: z.array(chatPersonaSchema),
+	pinnedTasks: z.array(pinnedTaskSchema),
 	harnesses: z.array(chatHarnessSchema),
 });
+
+/** `PUT chat/personas/:personaId/tasks/:taskId/pin`: the task pinned to the list, or unpinned. */
+export const pinTaskBodySchema = z.object({pinned: z.boolean()});
 
 /**
  * The persona's last answer in one of the person's conversations, cut to a line, which may come
@@ -125,9 +144,8 @@ export type ChatAttachment = z.infer<typeof chatAttachmentSchema>;
 /**
  * A turn of the conversation as the page shows it: what the person said, with the files they
  * attached to it, or what the persona answered, which is what went wrong where its turn failed.
- * What the persona did in between is in the activity log, not here.
  */
-export const chatEntrySchema = z.object({
+export const chatMessageSchema = z.object({
 	id: z.string(),
 	kind: speakerSchema,
 	text: z.string(),
@@ -135,6 +153,20 @@ export const chatEntrySchema = z.object({
 	at: z.string(),
 	attachments: z.array(chatAttachmentSchema),
 });
+
+export type ChatMessage = z.infer<typeof chatMessageSchema>;
+
+/**
+ * Something of the conversation as the page shows it: a turn (`chatMessageSchema`); a task the
+ * persona started, where it started it, which opens the task's chat; or a message the persona sent
+ * to a task it started before, where it sent it, which leads back to that task. What else the
+ * persona and its tasks did is in the activity log, not here.
+ */
+export const chatEntrySchema = z.union([
+	chatMessageSchema,
+	z.object({id: z.string(), kind: z.literal('task'), task: chatTaskSchema, at: z.string()}),
+	z.object({id: z.string(), kind: z.literal('sent'), task: chatTaskSchema, at: z.string()}),
+]);
 
 export type ChatEntry = z.infer<typeof chatEntrySchema>;
 
@@ -145,10 +177,8 @@ export type ChatEntry = z.infer<typeof chatEntrySchema>;
 export const threadLogSchema = z.object({
 	persona: chatPersonaSchema,
 	entries: z.array(chatEntrySchema),
-	/** Whether the persona is at work on the conversation, sub-agents included. */
+	/** Whether the persona is at work on the conversation, sub-agents included, as against asleep or waiting for the person. */
 	busy: z.boolean(),
-	/** When the persona wakes, where it is asleep; null while it is busy or waiting for the person. */
-	sleepingUntil: z.string().nullable(),
 	/** What the person typed in it and hasn't sent (`PUT chat/personas/:personaId/draft`); null without one. */
 	draft: z.string().nullable(),
 	/**
@@ -178,6 +208,9 @@ const attachmentRefSchema = z.object({
  * attach; words, files, or both. A file sits among the words where the text has a mark for it
  * (`ATTACHMENT_MARK` in `@proxy/utils/harness`), the first mark the first file's and so on; files
  * the text has no mark for come before the words. The persona is woken.
+ * `POST chat/personas/:personaId/tasks/:taskId/messages`: what the person writes to one of its
+ * tasks, in the task's chat, with the files they attach to it; the task is woken, and the persona
+ * told, but not woken by it.
  */
 export const postMessageBodySchema = z
 	.object({
@@ -228,4 +261,35 @@ export const saveDraftBodySchema = z.object({
 export const markReadBodySchema = z.object({entryId: z.string().min(1)});
 
 /** What the person said, as a turn of the conversation. */
-export const postedMessageSchema = z.object({entry: chatEntrySchema});
+export const postedMessageSchema = z.object({entry: chatMessageSchema});
+
+/**
+ * Something said in a task's chat: by the persona, which started the task, its brief and every
+ * message it sent it since; by the person, who wrote to the task there themselves; or by the
+ * task, to the persona, what it answered and told it as it went, or that it failed.
+ */
+export const taskChatEntrySchema = z.object({
+	id: z.string(),
+	from: z.enum(['persona', 'person', 'task']),
+	text: z.string(),
+	isError: z.boolean(),
+	at: z.string(),
+});
+
+export type TaskChatEntry = z.infer<typeof taskChatEntrySchema>;
+
+/**
+ * `GET chat/personas/:personaId/tasks/:taskId`: a task the persona started in the person's
+ * conversation, as its chat shows it: the persona, the task, whether it is at work, as against
+ * asleep or done for now, the task of the activity log its requests are made for now
+ * (`/activity/tasks/:id`), null before it made one, and what was said in it.
+ */
+export const taskChatSchema = z.object({
+	persona: chatPersonaSchema,
+	task: chatTaskSchema,
+	busy: z.boolean(),
+	activityTaskId: z.string().nullable(),
+	entries: z.array(taskChatEntrySchema),
+});
+
+export type TaskChat = z.infer<typeof taskChatSchema>;

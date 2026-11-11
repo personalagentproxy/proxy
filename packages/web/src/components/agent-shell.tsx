@@ -3,7 +3,7 @@ import {Fragment, type ReactNode, useState} from 'react';
 import {Link, useNavigate, useParams} from 'react-router';
 import {finishAgentTask, signOutAgent} from '@/client/agent-client';
 import {AgentLogo} from '@/components/brand-logo';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {cn} from '@proxy/ui/lib/utils';
 import {useAgentMe, useAgentTask} from '@/hooks/use-agent-target';
 import {useTitleBarHeader} from '@/hooks/use-title-bar-header';

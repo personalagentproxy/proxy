@@ -2,7 +2,7 @@ import type {GitHubInstallation} from '@proxy/contracts/github';
 import {ExternalLinkIcon} from 'lucide-react';
 import {useState} from 'react';
 import {Badge} from '@proxy/ui/components/badge';
-import {pillVariants} from '@/lib/pill-variants';
+import {pillVariants} from '@proxy/ui/lib/pill-variants';
 import {cn} from '@proxy/ui/lib/utils';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {formatAgo} from '@/lib/format';
