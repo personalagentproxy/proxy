@@ -1,7 +1,9 @@
+import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import type {Me} from '@proxy/contracts/me';
 import type {Org} from '@proxy/contracts/orgs';
 import {findIntegration} from '@proxy/integrations';
+import {isBuiltInAgent} from '@/lib/access';
 
 // The human side's organizations: the one in the address, and who else is in each.
 
@@ -44,6 +46,22 @@ export function manages(human: Human, item: Managed): boolean {
 		);
 	}
 	return !item.shared || item.createdById === human.user.id || human.org.role === 'owner';
+}
+
+/**
+ * Whether the person may change an agent's settings on a connection, as the api decides it: the
+ * built-in agent's where they change the connection's defaults, any other agent's where they change
+ * the agent.
+ */
+export function managesAgentOn(
+	human: Human,
+	agent: AgentLogin,
+	connection: Pick<Connection, 'ownerUserId' | 'sharedWithEveryone'>,
+): boolean {
+	if (isBuiltInAgent(agent)) {
+		return manages(human, connection);
+	}
+	return manages(human, agent);
 }
 
 /**

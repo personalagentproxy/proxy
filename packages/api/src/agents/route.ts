@@ -14,12 +14,12 @@ import {
 	setRevokedBodySchema,
 } from '@proxy/contracts/agents';
 import {deleteAgent, getAgent, listAgents, renameAgent, setAgentGrants, shareAgent, updateAgent, type AgentRow} from '@proxy/db/agent';
-import {getConnectionWithCredential} from '@proxy/db/connection';
 import {deleteOAuthGrant, listAgentOAuthGrants} from '@proxy/db/oauth';
 import {listMemberNames} from '@proxy/db/organization';
 import type {MemberViewer} from '@proxy/db/viewer';
 import {findAgentProvider} from '@proxy/utils/agent-providers';
 
+import {requireConnection, requireManaged, type StoredConnectionRow} from '../connections/managed';
 import {refuseUnavailable, unavailableActions} from '../connections/unavailable';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {parseActionChanges, requireIntegration} from '../utils/connection-actions';
@@ -116,11 +116,15 @@ export function handleRenameAgentRoute(request: AuthenticatedRequest): Promise<R
 	});
 }
 
+function isBuiltIn(agent: {providerId: string}): boolean {
+	return findAgentProvider(agent.providerId)?.connects === 'built-in';
+}
+
 // The built-in login, which every persona of the Chat page acts through, is neither revoked nor
 // deleted, which would silence them all (a persona is deleted on the Chat page), nor given a
 // password: nothing signs in with it.
 function requireNotBuiltIn(agent: {providerId: string}): Result<void, ApiError> {
-	if (findAgentProvider(agent.providerId)?.connects === 'built-in') {
+	if (isBuiltIn(agent)) {
 		return Err(ApiErr.forbidden());
 	}
 	return Ok(undefined);
@@ -173,24 +177,40 @@ export function handleShareAgentRoute(request: AuthenticatedRequest): Promise<Re
  * Sets the agent's own settings for actions of a connection, such as `{actions: {send: false}}`;
  * `null` returns an action to the connection's default. An action the integration doesn't have is
  * refused, and so is turning on one the connection's sign-in didn't cover. A shared agent reaches
- * only the connections shared with every member, so a setting on any other is refused for it.
+ * only the connections shared with every member, so a setting on any other is refused for it. The
+ * built-in agent, which every persona of the Chat page acts through as whoever talks to it, reaches
+ * every connection: its settings on one are changed by whoever changes the connection's defaults.
  */
 export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promise<Result<AgentLogin, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const agentId = agentIdOf(request);
-		const connectionId = request.params.connectionId ?? '';
-		const agent = $(await requireManagedAgent(viewer, agentId));
-		const connection = $(requirePresent($(await getConnectionWithCredential(viewer, connectionId)), ApiErr.notFound('connection', connectionId)));
-		if (agent.ownerUserId === null && !connection.sharedWithEveryone) {
-			return $(Err(ApiErr.validationError('A shared agent reaches only connections shared with everyone')));
-		}
+		const agent = $(await requireAgent(viewer, agentId));
+		const connection = $(await requireGrantable(viewer, agent, request.params.connectionId ?? ''));
 		const integration = $(requireIntegration(connection));
 		const actions = $(parseActionChanges(integration, setGrantsBodySchema, request.body));
 		$(refuseUnavailable(integration, unavailableActions(connection), actions));
 
-		$(await setAgentGrants({agentId, connectionId, actions}));
+		$(await setAgentGrants({agentId, connectionId: connection.id, actions}));
 		return $(await respond($(await requireAgent(viewer, agentId))));
+	});
+}
+
+// The connection the viewer may give the agent settings on: for the built-in agent, one whose
+// defaults they change; for any other, one it reaches, of an agent they change.
+function requireGrantable(viewer: OrgViewer, agent: AgentRow, connectionId: string): Promise<Result<StoredConnectionRow, ApiError>> {
+	return Do(async ($) => {
+		if (isBuiltIn(agent)) {
+			return $(await requireManaged(viewer, connectionId));
+		}
+		if (!managesAgent(viewer, agent)) {
+			return $(Err(ApiErr.forbidden()));
+		}
+		const connection = $(await requireConnection(viewer, connectionId));
+		if (agent.ownerUserId === null && !connection.sharedWithEveryone) {
+			return $(Err(ApiErr.validationError('A shared agent reaches only connections shared with everyone')));
+		}
+		return connection;
 	});
 }
 
