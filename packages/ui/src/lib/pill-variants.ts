@@ -15,9 +15,10 @@ import {cn} from '@proxy/ui/lib/utils';
 export type PillVariant = 'default' | 'ghost' | 'destructive';
 
 // Every pill: its shape, its type, its focus ring, its icons' size, and how it looks pressed,
-// turned off or invalid.
+// turned off or invalid. Pressed, a button sinks a pixel; a tab or a toggle's option stays put,
+// only filling in.
 const BASE =
-	"inline-flex shrink-0 items-center justify-center rounded-full border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
+	"inline-flex shrink-0 items-center justify-center rounded-full border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:not-[[role=tab]]:not-[[aria-pressed]]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
 
 // Each variant's colors. A ghost one that is chosen, a toggle's option pressed (`aria-pressed`) or a
 // tab open (`aria-current` on a link, `aria-selected` in a tablist), is filled in as it is under

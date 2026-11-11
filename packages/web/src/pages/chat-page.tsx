@@ -71,6 +71,7 @@ import {type AttachmentInput, useAttachments} from '@/hooks/use-attachments';
 import {useChatDraft} from '@/hooks/use-chat-draft';
 import {useExperiments} from '@/hooks/use-experiment';
 import {useLastLoaded, useLoaded} from '@/hooks/use-loaded';
+import {useListMotion} from '@/hooks/use-list-motion';
 import {useOrgSlug} from '@/hooks/use-org';
 import {useReload} from '@/hooks/use-reload';
 import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
@@ -183,11 +184,12 @@ function lastActive(persona: ChatPersona, last: ChatPersona['lastMessage']): num
 // A conversation as the page shows it, fresher than the list: its log, and what is being typed.
 type Shown = {personaId: string; log: ThreadLog; draft: string};
 
-// A task open in its agent's place, under that agent in the list.
-type OpenedTask = {personaId: string; task: ChatTask};
-
-// How a task's row in the list moves: in as it opens, out as it closes, or not at all.
-type TaskMotion = 'enter' | 'leave' | null;
+// The tasks a conversation names: those the persona started in it, and those it wrote to.
+function tasksOf(log: ThreadLog): ChatTask[] {
+	return log.entries.flatMap((entry) =>
+		entry.kind === 'task' || entry.kind === 'sent' ? [entry.task] : [],
+	);
+}
 
 // The personas the person sees, their own and General, in the second sidebar, each with its head, its name and the last
 // thing said between it and the person, marked where the person hasn't seen it, or what they
@@ -197,7 +199,8 @@ type TaskMotion = 'enter' | 'leave' | null;
 // is from one conversation to the next: the one in the address is lit at once, while it loads.
 // Under each, the tasks the person pinned in its conversation, the one with something said in it
 // last first, then, under the open one, the task open in its place where it isn't pinned, lit in
-// the agent's stead.
+// the agent's stead. A row that comes, goes or changes places moves there (`useListMotion`): a
+// task opened or closed, pinned or unpinned, an agent made, deleted or moved up by what was said.
 function PersonaList({
 	personas,
 	current,
@@ -225,27 +228,7 @@ function PersonaList({
 	const org = useOrgSlug();
 	const unread = useUnread();
 	const [hovered, setHovered] = useState<string | null>(null);
-	// The task open in its agent's place where it isn't pinned, shown under the agent while it is.
-	const opened: OpenedTask | null =
-		task !== null && !pinned.some((pin) => pin.id === task.id) ? {personaId: current, task} : null;
-	// The ones open before it, kept a moment as they slide out, so the rows below them move up
-	// rather than jump. One the person pins stays where it is; one opened again is no longer leaving.
-	const [leaving, setLeaving] = useState<OpenedTask[]>([]);
-	const [previous, setPrevious] = useState<OpenedTask | null>(opened);
-	if (previous?.task.id !== opened?.task.id) {
-		setPrevious(opened);
-		setLeaving((rows) => {
-			const rest = rows.filter(
-				(row) => row.task.id !== opened?.task.id && row.task.id !== previous?.task.id,
-			);
-			if (previous === null || pinned.some((pin) => pin.id === previous.task.id)) {
-				return rest;
-			}
-			return [...rest, previous];
-		});
-	}
-	const left = (taskId: string) =>
-		setLeaving((rows) => rows.filter((row) => row.task.id !== taskId));
+	const list = useListMotion<HTMLDivElement>();
 	// Whether the persona said something the person hasn't seen, as the provider has it.
 	const isUnread = (persona: ChatPersona) =>
 		persona.id !== current && unread.unreadIds.has(persona.id);
@@ -260,7 +243,7 @@ function PersonaList({
 		})
 		.toSorted((a, b) => lastActive(b.persona, b.last) - lastActive(a.persona, a.last));
 	return (
-		<div className="flex h-full min-h-0 flex-col overflow-y-auto p-2">
+		<div ref={list} className="relative flex h-full min-h-0 flex-col overflow-y-auto p-2">
 			{personas.length === 0 && (
 				<span className="px-2 py-1.5 text-sm text-muted-foreground">No agents yet.</span>
 			)}
@@ -271,27 +254,11 @@ function PersonaList({
 					// The row is lit while its conversation is open, and the task's under it in its place.
 					const lit = open && task === null;
 					const pinnedHere = pinned.filter((candidate) => candidate.personaId === persona.id);
-					const openTask = opened?.personaId === persona.id ? [opened.task] : [];
-					// Above the open one, so one closing as another opens gives way to it in place.
-					const leavingHere = leaving
-						.filter(
-							(row) =>
-								row.personaId === persona.id && !pinnedHere.some((pin) => pin.id === row.task.id),
-						)
-						.map((row) => row.task);
-					// The open task slides in under its agent and out again as it closes; the pinned stay.
-					const motionOf = (candidate: ChatTask): TaskMotion => {
-						if (openTask.includes(candidate)) {
-							return 'enter';
-						}
-
-						if (leavingHere.includes(candidate)) {
-							return 'leave';
-						}
-
-						return null;
-					};
-					const tasks = [...pinnedHere, ...leavingHere, ...openTask].map((candidate) => (
+					const openTask =
+						open && task !== null && !pinnedHere.some((candidate) => candidate.id === task.id)
+							? [task]
+							: [];
+					const tasks = [...pinnedHere, ...openTask].map((candidate) => (
 						<TaskRow
 							key={candidate.id}
 							task={candidate}
@@ -299,8 +266,6 @@ function PersonaList({
 							lit={open && candidate.id === task?.id}
 							pinned={pinnedHere.some((pin) => pin.id === candidate.id)}
 							onPin={(pin) => onPin(persona.id, candidate.id, pin)}
-							motion={motionOf(candidate)}
-							onLeft={() => left(candidate.id)}
 						/>
 					));
 					const row = (
@@ -375,23 +340,25 @@ function PersonaList({
 							onPointerEnter={() => setHovered(persona.id)}
 							onPointerLeave={() => setHovered(null)}
 						>
-							{persona.mayChange ? (
-								<ContextMenu>
-									<ContextMenuTrigger render={<div />}>{row}</ContextMenuTrigger>
-									<ContextMenuContent>
-										<ContextMenuItem onClick={() => onEdit(persona)}>
-											<PencilIcon />
-											Edit
-										</ContextMenuItem>
-										<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
-											<Trash2Icon />
-											Delete
-										</ContextMenuItem>
-									</ContextMenuContent>
-								</ContextMenu>
-							) : (
-								row
-							)}
+							<div data-row={persona.id}>
+								{persona.mayChange ? (
+									<ContextMenu>
+										<ContextMenuTrigger render={<div />}>{row}</ContextMenuTrigger>
+										<ContextMenuContent>
+											<ContextMenuItem onClick={() => onEdit(persona)}>
+												<PencilIcon />
+												Edit
+											</ContextMenuItem>
+											<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
+												<Trash2Icon />
+												Delete
+											</ContextMenuItem>
+										</ContextMenuContent>
+									</ContextMenu>
+								) : (
+									row
+								)}
+							</div>
 							{tasks.length > 0 && (
 								<ul aria-label={`${persona.name}’s tasks`} className="flex flex-col">
 									{tasks}
@@ -406,48 +373,25 @@ function PersonaList({
 }
 
 // A task in the list, under its agent: its title, opening its chat, lit while it is open, marked
-// where it is pinned, and pinned or unpinned from its right-click menu. One that enters slides in,
-// its room, gap above it included, opening as it fades in; one that leaves slides out the same
-// way, out of reach meanwhile, and says so (`onLeft`) once it is gone.
+// where it is pinned, and pinned or unpinned from its right-click menu. The gap above it is the
+// row's own, so the room it takes in the list, and gives back, is all its own.
 function TaskRow({
 	task,
 	to,
 	lit,
 	pinned,
 	onPin,
-	motion,
-	onLeft,
 }: {
 	task: ChatTask;
 	to: string;
 	lit: boolean;
 	pinned: boolean;
 	onPin: (pinned: boolean) => void;
-	motion: TaskMotion;
-	onLeft: () => void;
 }) {
-	const leave = motion === 'leave';
 	return (
 		<ContextMenu>
-			<ContextMenuTrigger
-				render={
-					<li
-						inert={leave}
-						className={cn(
-							'grid',
-							motion === 'enter' && 'task-row-enter',
-							leave && 'task-row-leave',
-						)}
-						onAnimationEnd={(event) => {
-							if (!leave || event.target !== event.currentTarget) {
-								return;
-							}
-							onLeft();
-						}}
-					/>
-				}
-			>
-				<div className="min-h-0 overflow-hidden pt-0.5">
+			<ContextMenuTrigger render={<li data-row={task.id} />}>
+				<div className="pt-0.5">
 					<Link
 						to={to}
 						aria-current={lit ? 'page' : undefined}
@@ -543,12 +487,25 @@ export function ChatPage() {
 		await reload();
 	};
 
-	// The task the address names, once it has loaded: its title heads the page in the agent's place.
+	// The task the address names, once it has loaded.
 	const answer = listed.answer;
 	const task =
 		taskId !== undefined && answer !== null && 'task' in answer && answer.task.task.id === taskId
 			? answer.task
 			: null;
+	const pinned = answer?.pinnedTasks ?? [];
+	// The task as the header and the list name it, in the agent's place: as loaded, or, while it
+	// loads, as the page has it already, pinned or named in the conversation it was opened from. So
+	// its title and its row under the agent are there as it is opened, not once it has loaded.
+	const named: ChatTask | null =
+		task?.task ??
+		[...pinned, ...(shown?.personaId === current ? tasksOf(shown.log) : [])].find(
+			(known) => known.id === taskId,
+		) ??
+		null;
+	// The conversation as it was last shown is fresher than the list while the list is the one
+	// loaded with a conversation; one loaded with a task since is fresher than it.
+	const fresher = answer !== null && 'log' in answer ? shown : null;
 
 	// Pins a task under its agent, or unpins it, and reads the list again with it so.
 	const pinOne = async (personaId: string, pinnedTaskId: string, pin: boolean) => {
@@ -563,7 +520,7 @@ export function ChatPage() {
 
 	const title = () => {
 		if (taskId !== undefined) {
-			return task === null ? <TitleWaiting /> : <PageTitle>{task.task.title}</PageTitle>;
+			return named === null ? <TitleWaiting /> : <PageTitle>{named.title}</PageTitle>;
 		}
 		if (name !== undefined) {
 			return <PageTitle>{name}</PageTitle>;
@@ -580,10 +537,10 @@ export function ChatPage() {
 			<PersonaList
 				personas={personas}
 				current={current}
-				task={task?.task ?? null}
-				pinned={listed.answer?.pinnedTasks ?? []}
+				task={named}
+				pinned={pinned}
 				onPin={(personaId, pinnedTaskId, pin) => void pinOne(personaId, pinnedTaskId, pin)}
-				shown={taskId === undefined ? shown : null}
+				shown={fresher}
 				recallDraft={recallDraft}
 				onOpen={setFocusRequestedFor}
 				onEdit={setEditing}
