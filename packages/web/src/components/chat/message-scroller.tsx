@@ -7,7 +7,7 @@ import {
 } from '@shadcn/react/message-scroller';
 import {cn} from '@proxy/ui/lib/utils';
 
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {ArrowDownIcon} from 'lucide-react';
 
 function MessageScrollerProvider(
@@ -89,23 +89,18 @@ function MessageScrollerButton({
 	className,
 	children,
 	render,
-	variant = 'secondary',
-	size = 'icon-sm',
 	...props
-}: React.ComponentProps<typeof MessageScrollerPrimitive.Button> &
-	Pick<React.ComponentProps<typeof Button>, 'variant' | 'size'>) {
+}: React.ComponentProps<typeof MessageScrollerPrimitive.Button>) {
 	return (
 		<MessageScrollerPrimitive.Button
 			data-slot="message-scroller-button"
 			data-direction={direction}
-			data-variant={variant}
-			data-size={size}
 			direction={direction}
 			className={cn(
 				'absolute inset-s-1/2 -translate-x-1/2 rounded-full border-border bg-background text-foreground transition-[translate,scale,opacity] duration-200 hover:bg-muted hover:text-foreground data-[active=false]:pointer-events-none data-[active=false]:scale-95 data-[active=false]:opacity-0 data-[active=false]:duration-400 data-[active=false]:ease-[cubic-bezier(0.7,0,0.84,0)] data-[active=true]:translate-y-0 data-[active=true]:scale-100 data-[active=true]:opacity-100 data-[active=true]:ease-[cubic-bezier(0.23,1,0.32,1)] data-[direction=end]:bottom-4 data-[direction=end]:data-[active=false]:translate-y-full data-[direction=start]:top-4 data-[direction=start]:data-[active=false]:-translate-y-full rtl:translate-x-1/2 data-[direction=start]:[&_svg]:rotate-180',
 				className,
 			)}
-			render={render ?? <Button variant={variant} size={size} />}
+			render={render ?? <PillButton variant="ghost" icon />}
 			{...props}
 		>
 			{children ?? (

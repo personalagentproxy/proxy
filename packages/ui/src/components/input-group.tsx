@@ -4,7 +4,7 @@ import * as React from 'react';
 import {cva, type VariantProps} from 'class-variance-authority';
 import {cn} from '@proxy/ui/lib/utils';
 
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Textarea} from '@proxy/ui/components/textarea';
 
 function InputGroup({className, ...props}: React.ComponentProps<'div'>) {
@@ -62,33 +62,22 @@ function InputGroupAddon({
 	);
 }
 
-const inputGroupButtonVariants = cva('flex items-center gap-2 text-sm shadow-none', {
-	variants: {
-		size: {
-			xs: "h-6 gap-1 rounded-full px-1.5 [&>svg:not([class*='size-'])]:size-3.5",
-		},
-	},
-	defaultVariants: {
-		size: 'xs',
-	},
-});
-
+// A pill inside the group, smaller than one beside it.
 function InputGroupButton({
 	className,
 	type = 'button',
-	variant = 'ghost',
-	size = 'xs',
 	...props
-}: Omit<React.ComponentProps<typeof Button>, 'size' | 'type'> &
-	VariantProps<typeof inputGroupButtonVariants> & {
-		type?: 'button' | 'submit' | 'reset';
-	}) {
+}: Omit<React.ComponentProps<typeof PillButton>, 'variant' | 'icon' | 'enter' | 'type'> & {
+	type?: 'button' | 'submit' | 'reset';
+}) {
 	return (
-		<Button
+		<PillButton
 			type={type}
-			data-size={size}
-			variant={variant}
-			className={cn(inputGroupButtonVariants({size}), className)}
+			variant="ghost"
+			className={cn(
+				"h-6 gap-1 px-1.5 shadow-none [&>svg:not([class*='size-'])]:size-3.5",
+				className,
+			)}
 			{...props}
 		/>
 	);
