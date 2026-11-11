@@ -47,11 +47,15 @@ import type {ContextEntry, SubAgent} from '@proxy/utils/harness-context';
 /** What a harness keeps per thread between turns, as the api stores it on the thread, opaque to the api (@proxy/utils/harness); null for a harness that keeps nothing. */
 export type {HarnessSession};
 
-/** An entry of the log as a harness is given it: as the model reads it, with the job that wrote it, a turn's for what the model said and what its calls answered; null for what the person wrote. */
+/** An entry of the log as a harness is given it: as the model reads it, what the person said with the pictures they attached to it where the model sees pictures, with the job that wrote it, a turn's for what the model said and what its calls answered; null for what the person wrote. */
 export type HarnessEntry = ContextEntry & {jobId: string | null};
 
-/** A model a harness can answer with: the id a persona keeps it under, and what the person picking one reads. */
-export type HarnessModel = {id: string; label: string};
+/**
+ * A model a harness can answer with: the id a persona keeps it under, what the person picking one
+ * reads, and whether it sees pictures: a turn on one that does is given the pictures the person
+ * attached with what they said (`HarnessEntry.images`), and a turn on one that doesn't never is.
+ */
+export type HarnessModel = {id: string; label: string; images?: true};
 
 /** What a call answered; `endTurn` where the call ends the turn, as a sleep does. */
 export type ToolAnswer = {text: string; isError: boolean; endTurn?: boolean};

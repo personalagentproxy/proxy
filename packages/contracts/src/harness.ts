@@ -125,8 +125,27 @@ export const chatAnswersSchema = z.object({answers: z.array(chatAnswerSchema)});
 export const personaAnswerSchema = z.object({persona: chatPersonaSchema});
 
 /**
- * A turn of the conversation as the page shows it: what the person said, or what the persona
- * answered, which is what went wrong where its turn failed.
+ * A file attached to what the person said: one of a drive's, by its connection and its id there,
+ * at the version it held when it was attached, with its name, media type and size in bytes as
+ * they were, whether a browser may show it in place, as a picture, and whether that version is
+ * gone from the drive since, deleted for good, so that only its name is left.
+ */
+export const chatAttachmentSchema = z.object({
+	connectionId: z.string(),
+	fileId: z.string(),
+	version: z.string(),
+	name: z.string(),
+	type: z.string(),
+	size: z.number(),
+	shown: z.boolean(),
+	gone: z.boolean(),
+});
+
+export type ChatAttachment = z.infer<typeof chatAttachmentSchema>;
+
+/**
+ * A turn of the conversation as the page shows it: what the person said, with the files they
+ * attached to it, or what the persona answered, which is what went wrong where its turn failed.
  */
 export const chatMessageSchema = z.object({
 	id: z.string(),
@@ -134,6 +153,7 @@ export const chatMessageSchema = z.object({
 	text: z.string(),
 	isError: z.boolean(),
 	at: z.string(),
+	attachments: z.array(chatAttachmentSchema),
 });
 
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
@@ -163,24 +183,81 @@ export const threadLogSchema = z.object({
 	busy: z.boolean(),
 	/** What the person typed in it and hasn't sent (`PUT chat/personas/:personaId/draft`); null without one. */
 	draft: z.string().nullable(),
+	/**
+	 * The files the person put in its input and hasn't sent, in the order they were put there
+	 * (`POST` and `DELETE chat/personas/:personaId/attachments`), kept as the draft is.
+	 */
+	draftAttachments: z.array(chatAttachmentSchema),
 });
 
 export type ThreadLog = z.infer<typeof threadLogSchema>;
 
 const MAX_MESSAGE = 20_000;
 
+/** How many files one message carries at most. */
+export const MAX_ATTACHMENTS = 10;
+
+/** A file of a drive, by its connection, its id there and a version of it: what a message names to attach it. */
+const attachmentRefSchema = z.object({
+	connectionId: z.string().min(1),
+	fileId: z.string().min(1),
+	version: z.string().min(1),
+});
+
 /**
- * `POST chat/personas/:personaId/messages`: what the person says to the persona; it is woken.
+ * `POST chat/personas/:personaId/messages`: what the person says to the persona, and the files
+ * they attach to it, each one of a drive they use, by its connection, its id and the version to
+ * attach; words, files, or both. A file sits among the words where the text has a mark for it
+ * (`ATTACHMENT_MARK` in `@proxy/utils/harness`), the first mark the first file's and so on; files
+ * the text has no mark for come before the words. The persona is woken.
  * `POST chat/personas/:personaId/tasks/:taskId/messages`: what the person writes to one of its
- * tasks, in the task's chat; the task is woken, and the persona told, but not woken by it.
+ * tasks, in the task's chat, with the files they attach to it; the task is woken, and the persona
+ * told, but not woken by it.
  */
-export const postMessageBodySchema = z.object({text: z.string().trim().min(1).max(MAX_MESSAGE)});
+export const postMessageBodySchema = z
+	.object({
+		text: z.string().trim().max(MAX_MESSAGE),
+		attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
+	})
+	.refine(({text, attachments}) => text !== '' || attachments.length > 0, {
+		message: 'Say something, or attach a file',
+	});
+
+/**
+ * `POST chat/personas/:personaId/attachments?name=&type=`: a file put in the conversation's
+ * input, its body the bytes, sent as `application/octet-stream`: kept in the person's own drive,
+ * in a folder of the persona's under Chats, and in the conversation's input, after the files
+ * there, until the person sends their next message or takes it out. Refused where the input
+ * holds as many as a message carries.
+ * `POST chat/personas/:personaId/tasks/:taskId/attachments?name=&type=`: a file put in a task's
+ * input, kept in the person's own drive as one put in the conversation's is, but in no input on
+ * the server: the page holds it until the message it goes with is sent, or it is taken out.
+ */
+export const uploadAttachmentQuerySchema = z.object({
+	name: z.string().trim().min(1).max(255),
+	type: z.string().max(200).optional(),
+});
+
+/**
+ * `DELETE chat/personas/:personaId/attachments`: takes a file out of the conversation's input.
+ * The file stays in its drive.
+ */
+export const removeAttachmentBodySchema = attachmentRefSchema;
+
+export const uploadedAttachmentSchema = z.object({attachment: chatAttachmentSchema});
 
 /**
  * `PUT chat/personas/:personaId/draft`: what the person has typed to the persona and not sent, in
  * place of what was kept; nothing but whitespace forgets it. Sending a message forgets it too.
+ * Where the files in the input sit among the words, each at a mark in the text
+ * (`ATTACHMENT_MARK` in `@proxy/utils/harness`), `attachments` says which file each mark is, in
+ * the order of the marks: the files in the input are kept in that order, any it leaves out after
+ * them.
  */
-export const saveDraftBodySchema = z.object({text: z.string().max(MAX_MESSAGE)});
+export const saveDraftBodySchema = z.object({
+	text: z.string().max(MAX_MESSAGE),
+	attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).optional(),
+});
 
 /**
  * `POST chat/personas/:personaId/read`: the persona's answer the page showed the person, which
@@ -193,7 +270,8 @@ export const postedMessageSchema = z.object({entry: chatMessageSchema});
 
 /**
  * Something said in a task's chat: by the persona, which started the task, its brief and every
- * message it sent it since; by the person, who wrote to the task there themselves; or by the
+ * message it sent it since; by the person, who wrote to the task there themselves, with the files
+ * they attached; or by the
  * task, to the persona, what it answered and told it as it went, or that it failed.
  */
 export const taskChatEntrySchema = z.object({
@@ -202,6 +280,8 @@ export const taskChatEntrySchema = z.object({
 	text: z.string(),
 	isError: z.boolean(),
 	at: z.string(),
+	/** The files the person attached to what they wrote; none for what the persona or the task said. */
+	attachments: z.array(chatAttachmentSchema),
 });
 
 export type TaskChatEntry = z.infer<typeof taskChatEntrySchema>;

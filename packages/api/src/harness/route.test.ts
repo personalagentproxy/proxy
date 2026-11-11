@@ -1,11 +1,15 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
-import {Ok} from 'ts-results-es';
+import {Err, Ok} from 'ts-results-es';
+
+import {ApiErr} from '@proxy/utils';
+import {ATTACHMENT_MARK} from '@proxy/utils/harness';
 
 import type {HarnessBackend} from '@proxy/backends/harness/backend';
 import {fakeHarness} from '@proxy/backends/harness/fake';
 import type {EntryRow, JobRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
 
 import type {HarnessRegistry} from '../backends/harness';
+import type {ChatFiles} from './attachments';
 import {type FakeStore, fakeStore} from './fake-store';
 
 const viewer = {orgId: 'org-1', userId: 'user-1', slug: 'acme', name: 'Acme', role: 'member' as 'member' | 'owner', onboarded: true, experiments: ['openrouter']};
@@ -79,6 +83,18 @@ function request(params: Record<string, string> = {}, body: unknown = undefined)
 let store: FakeStore;
 let routes: ReturnType<typeof import('./route').chatRoutes>;
 
+// A file as the log keeps it once attached, and as the page shows it.
+const attached = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'pricing.md', type: 'text/markdown', size: 42, text: '# Pricing', cut: false};
+const shownAttachment = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'pricing.md', type: 'text/markdown', size: 42, shown: false, gone: false};
+
+// Where a conversation's files are kept, as the routes are given it: a drive that has the one file.
+const files = {
+	upload: mock<ChatFiles['upload']>(async () => Ok(shownAttachment)),
+	discard: mock<ChatFiles['discard']>(async () => Ok(undefined)),
+	resolve: mock<ChatFiles['resolve']>(async (_viewer, refs) => (refs.every((ref) => ref.fileId === 'file-1') ? Ok(refs.map(() => attached)) : Err(ApiErr.notFound('file', 'file-2')))),
+	shown: mock<ChatFiles['shown']>(() => shownAttachment),
+};
+
 // An entry of the log, as the store gives it.
 function logEntry(entry: Pick<EntryRow, 'id' | 'seq' | 'kind' | 'text'> & Partial<EntryRow>): EntryRow {
 	return {
@@ -114,7 +130,11 @@ beforeEach(async () => {
 	mock.clearAllMocks();
 	store = fakeStore();
 	registry = {proxy, claudeAgentSdk: sdk};
-	routes = (await import('./route')).chatRoutes(store, () => registry);
+	routes = (await import('./route')).chatRoutes(store, () => registry, files);
+	store.listAttachments.mockResolvedValue(Ok([]));
+	store.listDraftAttachments.mockResolvedValue(Ok([]));
+	store.addDraftAttachment.mockResolvedValue(Ok(true));
+	store.removeDraftAttachment.mockResolvedValue(Ok(true));
 	const {
 		listPersonas,
 		ensureFirstPersona,
@@ -132,7 +152,7 @@ beforeEach(async () => {
 	deletePersona.mockResolvedValue(Ok(true));
 	ensureFirstPersona.mockResolvedValue(Ok({...persona, id: 'persona-9', name: 'General', ownerUserId: null, createdById: null}));
 	requireViewer.mockResolvedValue(Ok(viewer));
-	listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, draft: null}]));
+	listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, draft: null, draftAttachments: []}]));
 	getPersona.mockResolvedValue(Ok(persona));
 	createPersona.mockResolvedValue(Ok({...persona, id: 'persona-2'}));
 	updatePersona.mockResolvedValue(Ok(true));
@@ -152,7 +172,7 @@ describe('the chat routes', () => {
 	test('offer OpenRouter only with the openrouter experiment: without it, a persona on it is shown on Claude, and none is made or switched to it', async () => {
 		const {handleCreatePersonaRoute, handleListPersonasRoute, handleUpdatePersonaRoute} = routes;
 		requireViewer.mockResolvedValue(Ok({...viewer, experiments: []}));
-		store.listPersonas.mockResolvedValue(Ok([{...persona, ownerUserId: null, lastMessage: null, draft: null}]));
+		store.listPersonas.mockResolvedValue(Ok([{...persona, ownerUserId: null, lastMessage: null, draft: null, draftAttachments: []}]));
 
 		const listed = (await handleListPersonasRoute(request())).unwrap();
 		expect(listed.harnesses.map((harness) => harness.id)).toEqual(['claude-agent-sdk']);
@@ -172,13 +192,14 @@ describe('the chat routes', () => {
 		const {handleListPersonasRoute} = routes;
 		store.listPersonas.mockResolvedValue(
 			Ok([
-				{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, draft: null},
-				{...persona, id: 'persona-3', ownerUserId: null, createdById: 'user-2', lastMessage: null, draft: 'Move the **pricing review**\nto Friday'},
+				{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, draft: null, draftAttachments: []},
+				{...persona, id: 'persona-3', ownerUserId: null, createdById: 'user-2', lastMessage: null, draft: 'Move the **pricing review**\nto Friday', draftAttachments: []},
 				{
 					...persona,
 					id: 'persona-4',
 					lastMessage: {kind: 'assistant', text: '## Found\n\n- **Three** invoices, see [the list](https://x.test)\n\n| Who | Sum |\n| --- | --- |\n| Dana | 40 |\n\n```\ncode\n```', createdAt: now},
 					draft: null,
+					draftAttachments: [],
 				},
 			]),
 		);
@@ -319,8 +340,8 @@ describe('the chat routes', () => {
 		registry = {proxy, claudeAgentSdk: null};
 		store.listPersonas.mockResolvedValue(
 			Ok([
-				{...persona, harness: 'claude-agent-sdk', chatModel: 'opus', lastMessage: null, draft: null},
-				{...persona, id: 'persona-3', ownerUserId: null, chatModel: 'dropped-long-ago', lastMessage: null, draft: null},
+				{...persona, harness: 'claude-agent-sdk', chatModel: 'opus', lastMessage: null, draft: null, draftAttachments: []},
+				{...persona, id: 'persona-3', ownerUserId: null, chatModel: 'dropped-long-ago', lastMessage: null, draft: null, draftAttachments: []},
 			]),
 		);
 
@@ -346,8 +367,8 @@ describe('the chat routes', () => {
 
 		const idle = (await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap();
 		expect(idle.persona).toEqual(personaResponse);
-		expect(idle.entries).toEqual([{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00.000Z'}]);
-		expect(idle).toMatchObject({busy: false, draft: null});
+		expect(idle.entries).toEqual([{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00.000Z', attachments: []}]);
+		expect(idle).toMatchObject({busy: false, draft: null, draftAttachments: []});
 		expect(store.getThreadDraft).toHaveBeenCalledWith('thread-1');
 		expect(store.ensureMemberThread).not.toHaveBeenCalled();
 		expect(ensureBuiltInAgent).not.toHaveBeenCalled();
@@ -369,12 +390,88 @@ describe('the chat routes', () => {
 		expect((await handleGetThreadRoute(request({personaId: 'nope'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'persona'});
 	});
 
+	test('append the files the person attaches with what they say, as the drive has them then, or with nothing said; one they can’t read lands nothing', async () => {
+		const {handlePostMessageRoute, handleGetThreadRoute} = routes;
+		const ref = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1'};
+
+		const posted = await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: 'What does this say?', attachments: [ref]}));
+		expect(files.resolve).toHaveBeenCalledWith(viewer, [ref]);
+		expect(store.appendPersonMessage).toHaveBeenCalledWith('thread-1', 'What does this say?', [attached]);
+		expect(posted.unwrap().entry.attachments).toEqual([shownAttachment]);
+
+		// A file alone is something said.
+		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: '', attachments: [ref]}))).isOk()).toBe(true);
+		expect(store.appendPersonMessage).toHaveBeenLastCalledWith('thread-1', '', [attached]);
+
+		// A file sits where its mark is in the words; a mark beyond the files named is taken out,
+		// and marks alone, with no file, are nothing said.
+		const mark = ATTACHMENT_MARK;
+		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: `Does ${mark} match ${mark}?`, attachments: [ref]}))).isOk()).toBe(true);
+		expect(store.appendPersonMessage).toHaveBeenLastCalledWith('thread-1', `Does ${mark} match ?`, [attached]);
+		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: ` ${mark} `}))).unwrapErr()).toEqual(ApiErr.validationError('Say something, or attach a file'));
+
+		store.appendPersonMessage.mockClear();
+		const refused = await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: 'And this?', attachments: [{...ref, fileId: 'file-2'}]}));
+		expect(refused.unwrapErr()).toMatchObject({kind: 'not_found', resource: 'file'});
+		expect(store.appendPersonMessage).not.toHaveBeenCalled();
+		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: 'Too many', attachments: Array.from({length: 11}, () => ref)}))).unwrapErr().kind).toBe('parse_error');
+
+		// The conversation shows each file with the turn it was said with.
+		store.listAttachments.mockResolvedValue(Ok([{...attached, entryId: 'e1', gone: false}]));
+		expect((await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap().entries.map((entry) => ('attachments' in entry ? entry.attachments : null))).toEqual([[shownAttachment]]);
+	});
+
+	test('keep a file put in the conversation’s input in the person’s drive and in the input, where it waits with what they typed; a full input takes no more', async () => {
+		const {handleUploadAttachmentRoute, handleGetThreadRoute, handleListPersonasRoute} = routes;
+		const {shown: _shown, gone: _gone, ...kept} = shownAttachment;
+
+		const uploaded = await handleUploadAttachmentRoute(request({personaId: 'persona-1'}));
+
+		expect(uploaded.unwrap()).toEqual({attachment: shownAttachment});
+		expect(files.upload).toHaveBeenCalledWith(viewer, persona, expect.anything());
+		expect(store.addDraftAttachment).toHaveBeenCalledWith('thread-1', kept, 10);
+
+		// The conversation opens with it there, and the list says it is waiting where nothing was typed.
+		store.listDraftAttachments.mockResolvedValue(Ok([kept]));
+		expect((await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap().draftAttachments).toEqual([shownAttachment]);
+		store.listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: null, draft: null, draftAttachments: [kept, {...kept, fileId: 'file-2', name: 'chart.png'}]}]));
+		expect((await handleListPersonasRoute(request())).unwrap().personas[0]?.draft).toBe('pricing.md, chart.png');
+		store.listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: null, draft: 'Book the train', draftAttachments: [kept]}]));
+		expect((await handleListPersonasRoute(request())).unwrap().personas[0]?.draft).toBe('Book the train');
+
+		// With as many there as a message carries, the next is refused before its bytes are taken.
+		files.upload.mockClear();
+		store.listDraftAttachments.mockResolvedValue(Ok(Array.from({length: 10}, () => kept)));
+		expect((await handleUploadAttachmentRoute(request({personaId: 'persona-1'}))).unwrapErr()).toEqual(ApiErr.conflict('A message carries at most 10 files.'));
+		expect(files.upload).not.toHaveBeenCalled();
+
+		// Filled by another upload while this one's bytes came, the input refuses it, and the file goes from the drive again.
+		expect(files.discard).not.toHaveBeenCalled();
+		store.listDraftAttachments.mockResolvedValue(Ok([kept]));
+		store.addDraftAttachment.mockResolvedValue(Err(ApiErr.conflict('A message carries at most 10 files.')));
+		expect((await handleUploadAttachmentRoute(request({personaId: 'persona-1'}))).unwrapErr()).toEqual(ApiErr.conflict('A message carries at most 10 files.'));
+		expect(files.discard).toHaveBeenCalledWith(viewer, shownAttachment);
+
+		store.getPersona.mockResolvedValue(Ok(null));
+		expect((await handleUploadAttachmentRoute(request({personaId: 'nope'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'persona'});
+	});
+
+	test('take a file out of the conversation’s input, by where it is and the version it held', async () => {
+		const {handleRemoveAttachmentRoute} = routes;
+		const file = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1'};
+
+		expect((await handleRemoveAttachmentRoute(request({personaId: 'persona-1'}, file))).isOk()).toBe(true);
+		expect(store.removeDraftAttachment).toHaveBeenCalledWith('thread-1', file);
+		expect((await handleRemoveAttachmentRoute(request({personaId: 'persona-1'}, {fileId: 'file-1'}))).unwrapErr().kind).toBe('parse_error');
+	});
+
 	test('append what the person says, trimmed, and refuse nothing or too much', async () => {
 		const {handlePostMessageRoute} = routes;
 
 		const posted = await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: '  Hello \n'}));
-		expect(store.appendPersonMessage).toHaveBeenCalledWith('thread-1', 'Hello');
-		expect(posted.unwrap().entry).toMatchObject({id: 'e3', kind: 'person', text: 'Hello'});
+		expect(store.appendPersonMessage).toHaveBeenCalledWith('thread-1', 'Hello', []);
+		expect(posted.unwrap().entry).toMatchObject({id: 'e3', kind: 'person', text: 'Hello', attachments: []});
+		expect(files.resolve).not.toHaveBeenCalled();
 
 		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: '   '}))).unwrapErr().kind).toBe('parse_error');
 		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: 'x'.repeat(20_001)}))).unwrapErr().kind).toBe('parse_error');
@@ -412,8 +509,8 @@ describe('the chat routes', () => {
 		expect(store.listShownEntries).toHaveBeenCalledWith('thread-1', ['create_subagent', 'send_to_subagent']);
 		expect(store.listSubAgents).toHaveBeenCalledWith('thread-1', expect.any(Date));
 		expect(log.entries).toEqual([
-			{id: 'e1', kind: 'person', text: 'Find me flights to Lisbon', isError: false, at: '2026-10-21T10:00:00.000Z'},
-			{id: 'e2', kind: 'assistant', text: 'Looking into it.', isError: false, at: '2026-10-21T10:00:00.000Z'},
+			{id: 'e1', kind: 'person', text: 'Find me flights to Lisbon', isError: false, at: '2026-10-21T10:00:00.000Z', attachments: []},
+			{id: 'e2', kind: 'assistant', text: 'Looking into it.', isError: false, at: '2026-10-21T10:00:00.000Z', attachments: []},
 			{id: 'e2:c1', kind: 'task', task: {id: 'sub-1', title: 'Find flights'}, at: '2026-10-21T10:00:00.000Z'},
 			{id: 'e2:c2', kind: 'task', task: {id: 'sub-2', title: 'Check the calendar'}, at: '2026-10-21T10:00:00.000Z'},
 			{id: 'e3:c4', kind: 'sent', task: {id: 'sub-1', title: 'Find flights'}, at: '2026-10-21T10:00:00.000Z'},
@@ -438,11 +535,11 @@ describe('the chat routes', () => {
 		const log = (await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap();
 
 		expect(log.entries).toEqual([
-			{id: 'e2', kind: 'assistant', text: 'I’m running the check.', isError: false, at: '2026-10-21T10:00:05.000Z'},
+			{id: 'e2', kind: 'assistant', text: 'I’m running the check.', isError: false, at: '2026-10-21T10:00:05.000Z', attachments: []},
 			{id: 'e1:c2', kind: 'sent', task: {id: 'sub-1', title: 'Weekly check'}, at: '2026-10-21T10:00:05.000Z'},
-			{id: 'e3', kind: 'assistant', text: 'All quiet.', isError: false, at: '2026-10-21T10:00:05.000Z'},
+			{id: 'e3', kind: 'assistant', text: 'All quiet.', isError: false, at: '2026-10-21T10:00:05.000Z', attachments: []},
 			{id: 'e4:c3', kind: 'sent', task: {id: 'sub-1', title: 'Weekly check'}, at: '2026-10-21T10:00:05.000Z'},
-			{id: 'e6', kind: 'assistant', text: 'Here it is again.', isError: false, at: '2026-10-21T10:00:05.000Z'},
+			{id: 'e6', kind: 'assistant', text: 'Here it is again.', isError: false, at: '2026-10-21T10:00:05.000Z', attachments: []},
 		]);
 	});
 
@@ -480,6 +577,17 @@ describe('the chat routes', () => {
 			{id: 's3', from: 'task', text: 'Three direct flights.', isError: false},
 			{id: 's4', from: 'person', text: 'Only mornings', isError: false},
 			{id: 'e9', from: 'task', text: 'The sub-agent failed: no model.', isError: true},
+		]);
+		// What the viewer wrote, with the files they attached to it; the rest with none.
+		store.listAttachments.mockResolvedValue(Ok([{...attached, entryId: 's4', gone: false}]));
+		const withFiles = (await handleGetTaskRoute(request({personaId: 'persona-1', taskId: 'sub-1'}))).unwrap();
+		expect(store.listAttachments).toHaveBeenCalledWith('sub-1');
+		expect(withFiles.entries.map(({id, attachments}) => [id, attachments])).toEqual([
+			['s1', []],
+			['s2:k2', []],
+			['s3', []],
+			['s4', [shownAttachment]],
+			['e9', []],
 		]);
 
 		// Another conversation's task, or one of a conversation the viewer never began, is none of theirs.
@@ -523,16 +631,41 @@ describe('the chat routes', () => {
 		store.messageSubAgentDirectly.mockResolvedValue(Ok(true));
 
 		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: ' Only mornings \n'}))).isOk()).toBe(true);
-		expect(store.messageSubAgentDirectly).toHaveBeenCalledWith('thread-1', 'sub-1', 'Only mornings');
+		expect(store.messageSubAgentDirectly).toHaveBeenCalledWith('thread-1', 'sub-1', 'Only mornings', []);
 
 		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: ' '}))).unwrapErr().kind).toBe('parse_error');
+
+		// With files, each one the viewer can read, as the conversation takes them; a file alone is something said.
+		const ref = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1'};
+		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: '', attachments: [ref]}))).isOk()).toBe(true);
+		expect(store.messageSubAgentDirectly).toHaveBeenLastCalledWith('thread-1', 'sub-1', '', [attached]);
+		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: 'And this', attachments: [{...ref, fileId: 'file-2'}]}))).unwrapErr()).toMatchObject({
+			kind: 'not_found',
+			resource: 'file',
+		});
+		store.messageSubAgentDirectly.mockClear();
 
 		store.messageSubAgentDirectly.mockResolvedValue(Ok(false));
 		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-9'}, {text: 'Hi'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'task'});
 
 		store.getMemberThread.mockResolvedValue(Ok(null));
 		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: 'Hi'}))).unwrapErr().kind).toBe('not_found');
-		expect(store.messageSubAgentDirectly).toHaveBeenCalledTimes(2);
+		expect(store.messageSubAgentDirectly).toHaveBeenCalledTimes(1);
+	});
+
+	test('put a file in a task’s input into the viewer’s own drive, keeping it in no input on the server, only for a task of their conversation', async () => {
+		const {handleUploadTaskAttachmentRoute} = routes;
+		store.listSubAgents.mockResolvedValue(Ok([subAgent({id: 'sub-1', parentCallId: 'c1', title: 'Find flights'})]));
+
+		expect((await handleUploadTaskAttachmentRoute(request({personaId: 'persona-1', taskId: 'sub-1'}))).unwrap()).toEqual({attachment: shownAttachment});
+		expect(files.upload).toHaveBeenCalledWith(viewer, persona, expect.anything());
+		expect(store.addDraftAttachment).not.toHaveBeenCalled();
+
+		files.upload.mockClear();
+		expect((await handleUploadTaskAttachmentRoute(request({personaId: 'persona-1', taskId: 'sub-9'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'task'});
+		store.getMemberThread.mockResolvedValue(Ok(null));
+		expect((await handleUploadTaskAttachmentRoute(request({personaId: 'persona-1', taskId: 'sub-1'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'task'});
+		expect(files.upload).not.toHaveBeenCalled();
 	});
 
 	test('give what the viewer typed in the conversation and hasn’t sent, whole', async () => {
@@ -547,17 +680,25 @@ describe('the chat routes', () => {
 		store.saveThreadDraft.mockResolvedValue(Ok(true));
 
 		expect((await handleSaveDraftRoute(request({personaId: 'persona-1'}, {text: '  Move the pricing review\n'}))).isOk()).toBe(true);
-		expect(store.saveThreadDraft).toHaveBeenLastCalledWith('thread-1', '  Move the pricing review\n');
+		expect(store.saveThreadDraft).toHaveBeenLastCalledWith('thread-1', '  Move the pricing review\n', undefined);
 
 		expect((await handleSaveDraftRoute(request({personaId: 'persona-1'}, {text: ' \n '}))).isOk()).toBe(true);
-		expect(store.saveThreadDraft).toHaveBeenLastCalledWith('thread-1', null);
+		expect(store.saveThreadDraft).toHaveBeenLastCalledWith('thread-1', null, undefined);
+
+		// Where files sit among the words, the save says which file each mark is, in their order.
+		const order = [
+			{connectionId: 'drive-1', fileId: 'file-2', version: 'v1'},
+			{connectionId: 'drive-1', fileId: 'file-1', version: 'v1'},
+		];
+		expect((await handleSaveDraftRoute(request({personaId: 'persona-1'}, {text: `Does ${ATTACHMENT_MARK} match ${ATTACHMENT_MARK}?`, attachments: order}))).isOk()).toBe(true);
+		expect(store.saveThreadDraft).toHaveBeenLastCalledWith('thread-1', `Does ${ATTACHMENT_MARK} match ${ATTACHMENT_MARK}?`, order);
 
 		expect((await handleSaveDraftRoute(request({personaId: 'persona-1'}, {text: 'x'.repeat(20_001)}))).unwrapErr().kind).toBe('parse_error');
 		expect((await handleSaveDraftRoute(request({personaId: 'persona-1'}, {}))).unwrapErr().kind).toBe('parse_error');
 
 		store.getPersona.mockResolvedValue(Ok(null));
 		expect((await handleSaveDraftRoute(request({personaId: 'persona-9'}, {text: 'Hi'}))).unwrapErr().kind).toBe('not_found');
-		expect(store.saveThreadDraft).toHaveBeenCalledTimes(2);
+		expect(store.saveThreadDraft).toHaveBeenCalledTimes(3);
 	});
 
 	test('mark the viewer’s conversation with the persona read up to the answer shown, beginning none, and say where the answer, the conversation or the persona is gone', async () => {

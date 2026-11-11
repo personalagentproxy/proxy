@@ -2,7 +2,7 @@ import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import {afterEach, describe, expect, test} from 'bun:test';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 
-import {Markdown} from './markdown';
+import {type ImageOf, Markdown} from './markdown';
 
 afterEach(cleanup);
 
@@ -78,5 +78,59 @@ describe('Markdown', () => {
 		expect(container.querySelectorAll('a')).toHaveLength(10);
 		expect(container.querySelectorAll('img')).toHaveLength(9);
 		expect(container.querySelector('a:last-of-type img')).toBeNull();
+	});
+
+	// Every picture as an img, so the tests can tell where it was put.
+	const image: ImageOf = (src, alt) => <img src={src} alt={alt} />;
+	// The galleries of what was drawn: each a row of pictures, wrapping.
+	const galleries = (container: HTMLElement) => [...container.querySelectorAll('.flex-wrap')];
+
+	test('gathers pictures one after another into a gallery, a row of them that wraps', () => {
+		const text = [
+			'Here they are:',
+			'![one](a.png)',
+			'![two](b.png)  \n![three](c.png) ![four](d.png)',
+			'![five](e.png)',
+			'That is all.',
+		].join('\n\n');
+		const {container} = render(<Markdown text={text} image={image} />);
+
+		expect(container.querySelectorAll('img')).toHaveLength(5);
+		const [gallery] = galleries(container);
+		expect(galleries(container)).toHaveLength(1);
+		expect([...(gallery?.querySelectorAll('img') ?? [])].map((picture) => picture.alt)).toEqual([
+			'one',
+			'two',
+			'three',
+			'four',
+			'five',
+		]);
+		expect(container.querySelectorAll('p')).toHaveLength(2);
+	});
+
+	test('gathers pictures one after another among words, as an answer cut short leaves them, keeping the words', () => {
+		const text = 'Here:\n![one](a.png)\n![two](b.png)\n![three](c.png)\n![four](d.p';
+		const {container} = render(<Markdown text={text} image={image} />);
+
+		expect(galleries(container)[0]?.querySelectorAll('img')).toHaveLength(3);
+		expect([...container.querySelectorAll('p')].map((words) => words.textContent?.trim())).toEqual([
+			'Here:',
+			'![four](d.p',
+		]);
+	});
+
+	test('takes a picture out of the words around it, onto a line of its own', () => {
+		const {container} = render(
+			<Markdown text={'![one](a.png)\n\nBetween.\n\nSee ![two](b.png) here.'} image={image} />,
+		);
+
+		expect(
+			galleries(container).map((row) => [...row.querySelectorAll('img')].map((one) => one.alt)),
+		).toEqual([['one'], ['two']]);
+		expect([...container.querySelectorAll('p')].map((words) => words.textContent?.trim())).toEqual([
+			'Between.',
+			'See',
+			'here.',
+		]);
 	});
 });

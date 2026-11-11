@@ -6,8 +6,10 @@ import {DEFAULT_LOOK, readyForInference} from '@proxy/utils/harness';
 
 import {db} from '.';
 import {
+	addDraftAttachment,
 	appendPersonMessage,
 	appendSummary,
+	appendTurnEntries,
 	claimJob,
 	completeInference,
 	completeToolJob,
@@ -17,6 +19,7 @@ import {
 	failJob,
 	finishJob,
 	getPersona,
+	isAttachedForTask,
 	getThreadDraft,
 	listEntries,
 	listJobEvents,
@@ -27,9 +30,12 @@ import {
 	setTaskPinned,
 	listOpenJobs,
 	listAnswers,
+	listAttachments,
+	listDraftAttachments,
 	listPersonas,
 	listSubAgents,
 	markThreadRead,
+	removeDraftAttachment,
 	requeueJob,
 	saveThreadDraft,
 	type JobRow,
@@ -830,6 +836,242 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		});
 		expect(await taskOf(renewed)).toMatchObject({...task, finishedAt: null, outcome: null});
 	});
+	test('what the person attaches lands with what they said, in order, and is the conversation’s sub-agents’ to read: that version, of that file, for their task alone', async () => {
+		const file = {
+			connectionId: 'drive-1',
+			fileId: 'file-1',
+			version: 'v1',
+			name: 'pricing.md',
+			type: 'text/markdown',
+			size: 42,
+			text: '# Pricing',
+			cut: false,
+		};
+		const picture = {...file, fileId: 'file-2', name: 'chart.png', type: 'image/png', text: null};
+
+		const said = unwrap(
+			await appendPersonMessage(thread.id, 'What do these say?', readyForInference, [
+				file,
+				picture,
+			]),
+		);
+		unwrap(await appendPersonMessage(thread.id, 'And nothing with this one.', readyForInference));
+
+		// Versions of no drive here, so gone from it.
+		expect(unwrap(await listAttachments(thread.id))).toEqual([
+			{...file, entryId: said?.id ?? '', gone: true},
+			{...picture, entryId: said?.id ?? '', gone: true},
+		]);
+		// A version its drive still keeps is not: both are of v1 here.
+		const drive = await db.connection.create({
+			data: {
+				orgId,
+				integrationId: 'files',
+				account: 'Files',
+				credential: null,
+				ownerUserId: userId,
+			},
+		});
+		const blob = await db.fileBlob.create({
+			data: {orgId, backendId: 'disk', key: `harness-test-${drive.id}`},
+		});
+		await db.fileVersion.create({
+			data: {
+				id: file.version,
+				connectionId: drive.id,
+				fileId: file.fileId,
+				blobId: blob.id,
+				size: 42,
+				type: file.type,
+			},
+		});
+		expect(unwrap(await listAttachments(thread.id)).map((attachment) => attachment.gone)).toEqual([
+			false,
+			false,
+		]);
+		await db.fileVersion.delete({where: {id: file.version}});
+		await db.fileBlob.delete({where: {id: blob.id}});
+		await db.connection.delete({where: {id: drive.id}});
+
+		const task = await db.agentTask.create({
+			data: {orgId, agentId, title: 'Read the files', goal: 'Read', via: 'harness'},
+		});
+		const other = await db.agentTask.create({
+			data: {orgId, agentId, title: 'Something else', goal: 'Else', via: 'harness'},
+		});
+		await db.agentThread.create({
+			data: {
+				orgId,
+				agentId,
+				personaId: thread.personaId,
+				userId,
+				parentThreadId: thread.id,
+				parentCallId: 'c-attached',
+				title: 'Read the files',
+				taskId: task.id,
+			},
+		});
+		const attached = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1'};
+
+		expect(unwrap(await isAttachedForTask({orgId, taskId: task.id}, attached))).toBe(true);
+		expect(
+			unwrap(await isAttachedForTask({orgId, taskId: task.id}, {...attached, version: 'v2'})),
+		).toBe(false);
+		expect(
+			unwrap(
+				await isAttachedForTask({orgId, taskId: task.id}, {...attached, connectionId: 'drive-2'}),
+			),
+		).toBe(false);
+		// A task that is no sub-agent's of the conversation, and one of another organization.
+		expect(unwrap(await isAttachedForTask({orgId, taskId: other.id}, attached))).toBe(false);
+		expect(unwrap(await isAttachedForTask({orgId: 'another-org', taskId: task.id}, attached))).toBe(
+			false,
+		);
+	});
+	test('the files an answer shows land with it, whether written as the turn goes or as it ends, and hand nothing over to sub-agents', async () => {
+		const own = await db.agentThread.create({
+			data: {
+				orgId,
+				agentId,
+				personaId: thread.personaId,
+				userId,
+				parentThreadId: thread.id,
+				parentCallId: 'c-shown',
+				title: 'Chart it',
+			},
+		});
+		const job = await db.agentJob.create({
+			data: {
+				threadId: own.id,
+				kind: 'inference',
+				status: 'running',
+				claimedBy: 'worker-shown',
+				leaseExpiresAt: new Date(Date.now() + 60_000),
+			},
+		});
+		const chart = {
+			connectionId: 'drive-1',
+			fileId: 'file-9',
+			version: 'v1',
+			name: 'chart.png',
+			type: 'image/png',
+			size: 42,
+			text: null,
+			cut: false,
+		};
+		const sheet = {...chart, fileId: 'file-10', name: 'q3.csv', type: 'text/csv'};
+
+		unwrap(
+			await appendTurnEntries(job.id, 'worker-shown', own.id, [
+				{
+					kind: 'assistant',
+					text: 'Made ![Chart](link)',
+					toolCalls: [{id: 'c1', name: 'read', arguments: '{}'}],
+					attachments: [chart],
+				},
+				{kind: 'tool_result', callId: 'c1', text: 'one', isError: false},
+			]),
+		);
+		unwrap(
+			await completeInference(
+				job.id,
+				'worker-shown',
+				own.id,
+				{
+					text: 'Both: ![Chart](link) ![Sheet](link)',
+					toolCalls: [],
+					inputTokens: 1,
+					outputTokens: 1,
+					system: null,
+					attachments: [chart, sheet],
+				},
+				{plans: {}},
+				readyForInference,
+			),
+		);
+
+		const answers = unwrap(await listEntries(own.id)).filter((entry) => entry.kind === 'assistant');
+		expect(unwrap(await listAttachments(own.id))).toEqual([
+			{...chart, entryId: answers[0]?.id ?? '', gone: true},
+			{...chart, entryId: answers[1]?.id ?? '', gone: true},
+			{...sheet, entryId: answers[1]?.id ?? '', gone: true},
+		]);
+
+		// What the agent showed lets no sub-agent read it as an attachment would.
+		const task = await db.agentTask.create({
+			data: {orgId, agentId, title: 'Chart task', goal: 'Chart', via: 'harness'},
+		});
+		await db.agentThread.update({where: {id: own.id}, data: {taskId: task.id}});
+		expect(
+			unwrap(
+				await isAttachedForTask(
+					{orgId, taskId: task.id},
+					{connectionId: 'drive-1', fileId: 'file-9', version: 'v1'},
+				),
+			),
+		).toBe(false);
+	});
+	test('the files put in a conversation’s input wait there in order, each once, up to as many as a message carries, are taken out one at a time, and go with the message that is sent', async () => {
+		const file = (id: string, name: string) => ({
+			connectionId: 'drive-1',
+			fileId: id,
+			version: 'v1',
+			name,
+			type: 'text/plain',
+			size: 4,
+		});
+		const notes = file('file-1', 'notes.txt');
+		const chart = file('file-2', 'chart.png');
+		const logged = unwrap(await listAttachments(thread.id));
+
+		expect(unwrap(await addDraftAttachment(thread.id, notes, 2))).toBe(true);
+		expect(unwrap(await addDraftAttachment(thread.id, chart, 2))).toBe(true);
+		// The same file at the same version is there once, and a full input takes no more.
+		expect(unwrap(await addDraftAttachment(thread.id, notes, 2))).toBe(true);
+		const full = await addDraftAttachment(thread.id, file('file-3', 'more.txt'), 2);
+		expect(full.isErr() && full.error.kind).toBe('conflict');
+		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([notes, chart]);
+		const listed = unwrap(await listPersonas(orgId, userId)).find(
+			(persona) => persona.id === thread.personaId,
+		);
+		expect(listed?.draftAttachments).toEqual([notes, chart]);
+
+		// A save of what was typed with the files' order keeps them as they sit among the words,
+		// any it doesn't name after them, and adds or drops none.
+		expect(
+			unwrap(await saveThreadDraft(thread.id, 'See these', [chart, file('file-9', 'x')])),
+		).toBe(true);
+		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([chart, notes]);
+		expect(unwrap(await getThreadDraft(thread.id))).toBe('See these');
+		expect(unwrap(await saveThreadDraft(thread.id, null, [notes]))).toBe(true);
+		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([notes, chart]);
+		// A file named twice, as a chip copied in the input, keeps where it is named first.
+		expect(unwrap(await saveThreadDraft(thread.id, null, [chart, notes, chart]))).toBe(true);
+		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([chart, notes]);
+		expect(unwrap(await saveThreadDraft(thread.id, null, [notes]))).toBe(true);
+
+		// What waits in the input is no part of the log, and lets no agent read it.
+		expect(unwrap(await listAttachments(thread.id))).toEqual(logged);
+
+		expect(unwrap(await removeDraftAttachment(thread.id, notes))).toBe(true);
+		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([chart]);
+		// A later version of the file is another file to the input.
+		expect(unwrap(await removeDraftAttachment(thread.id, {...chart, version: 'v2'}))).toBe(true);
+		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([chart]);
+
+		const sent = {...chart, text: null, cut: false};
+		const entry = unwrap(
+			await appendPersonMessage(thread.id, 'Here it is.', readyForInference, [sent]),
+		);
+		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([]);
+		expect(unwrap(await listAttachments(thread.id))).toEqual([
+			...logged,
+			{...sent, entryId: entry?.id ?? '', gone: true},
+		]);
+		// A thread that isn't a conversation keeps none.
+		expect(unwrap(await addDraftAttachment('no-such-thread', notes, 2))).toBe(false);
+	});
+
 	test('what the member writes in a sub-agent’s chat lands in its log as theirs, waking it, and in the conversation as a note, waking nothing; the chat shows it, and the sub-agent’s failures from the conversation', async () => {
 		const persona = unwrap(
 			await createPersona(orgId, userId, {name: 'Travel', look: DEFAULT_LOOK, color: 'teal'}),
@@ -941,6 +1183,35 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		expect(
 			unwrap(await listShownSubAgentEntries(subRow, ['send_to_parent'])).map((entry) => entry.text),
 		).toEqual(['To Lisbon', 'Three direct flights.', 'Only mornings', 'It failed.']);
+
+		// With files, kept with what the member wrote in the sub-agent's log, which its task may read,
+		// and with the note in the conversation.
+		const itinerary = {
+			connectionId: 'drive-1',
+			fileId: 'file-9',
+			version: 'v1',
+			name: 'itinerary.md',
+			type: 'text/markdown',
+			size: 12,
+			text: '# Day one',
+			cut: false,
+		};
+		expect(
+			unwrap(
+				await messageSubAgentDirectly(conversation.id, sub.id, 'Use this', readyForInference, [
+					itinerary,
+				]),
+			),
+		).toBe(true);
+		const written = unwrap(await listEntries(sub.id)).at(-1);
+		const noted = unwrap(await listEntries(conversation.id)).at(-1);
+		expect(unwrap(await listAttachments(sub.id))).toEqual([
+			{...itinerary, entryId: written?.id ?? '', gone: true},
+		]);
+		expect(unwrap(await listAttachments(conversation.id))).toEqual([
+			{...itinerary, entryId: noted?.id ?? '', gone: true},
+		]);
+		await db.agentEntry.deleteMany({where: {id: {in: [written?.id ?? '', noted?.id ?? '']}}});
 
 		// Only a sub-agent of the conversation, and only from the conversation.
 		expect(

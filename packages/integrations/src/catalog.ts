@@ -1623,6 +1623,7 @@ const vault: Integration = {
 	name: 'Vault',
 	description: 'What agents should know, kept in Personal Agent Proxy',
 	native: true,
+	made: {one: 'vault', holds: 'entries'},
 	actions: [
 		{id: 'readEntries', label: 'Read entries', description: 'List and open entries', risk: 'low'},
 		{
@@ -1781,6 +1782,225 @@ const sandbox: Integration = {
 	],
 };
 
+export const FILES_INTEGRATION_ID = 'files';
+
+/** How much of a file's text a read answers at once, and where the next read goes on from. */
+export const FILES_READ_CHARACTERS = 50_000;
+
+/** How long what is put in the trash stays there before it is deleted for good. */
+export const FILES_TRASH_DAYS = 30;
+
+// Files live in Personal Agent Proxy itself, as the vault does: a drive of folders and files for
+// each member, what the person hands their agents and what agents make for them, and the drives
+// members make beside their own, each named, for a team or a project, shared as any connection. A file's content
+// is never changed in place: every write is its next version, and those before stay, so whatever
+// an agent wrote over can be given back. The collection lists folders and opens files, as text
+// where they can be read as it; the writes are tools of the integration's own, since each names
+// who made the change and, to write over a file, the version that was read. A tool carries text:
+// the bytes of a file that isn't text go up and come down in the web app. Offered where the organization has the
+// experiment and the server a place for the bytes (FILES_DIR or FILES_S3_BUCKET).
+const files: Integration = {
+	id: FILES_INTEGRATION_ID,
+	name: 'Files',
+	description: 'Files and folders kept in Personal Agent Proxy, with every version of each',
+	native: true,
+	made: {one: 'drive', holds: 'files'},
+	experiment: 'files',
+	actions: [
+		{
+			id: 'readFiles',
+			label: 'Read files',
+			description: 'List folders, open files and see their earlier versions',
+			risk: 'low',
+		},
+		{
+			id: 'createFiles',
+			label: 'Add files',
+			description: 'Add files and folders, never over one that is there',
+			risk: 'low',
+			requires: 'readFiles',
+		},
+		{
+			id: 'editFiles',
+			label: 'Edit files',
+			description:
+				'Write over a file, rename it, move it, and give an earlier version back; every version before is kept',
+			risk: 'medium',
+			requires: 'readFiles',
+		},
+		{
+			id: 'trashFiles',
+			label: 'Move to trash',
+			description: `Move files and folders to the trash and take them out again; the trash is emptied after ${FILES_TRASH_DAYS} days`,
+			risk: 'medium',
+			requires: 'readFiles',
+		},
+	],
+	collections: [
+		{
+			id: 'files',
+			name: 'Files',
+			singular: 'file',
+			titleField: 'name',
+			summaryField: 'kind',
+			searchHint:
+				'Words in a file’s or a folder’s name, in any case, anywhere in the drive, or inside the folder opened.',
+			nested: true,
+			read: 'readFiles',
+			writes: {},
+			// The fields every integration's files have, which the home page's widgets read
+			// (catalog.test.ts). What a write needs beside them, the version a file holds, is what
+			// files_read answers with.
+			fields: [
+				{key: 'name', label: 'Name', type: 'text', system: true},
+				{key: 'kind', label: 'Kind', type: 'select', options: ['Folder', 'File'], system: true},
+				{key: 'modified', label: 'Modified', type: 'datetime', system: true},
+				// Whose drive it is in.
+				{key: 'owner', label: 'Owner', type: 'text', system: true},
+				// A file's text, where it can be read as text: text as it is, a spreadsheet's tabs as CSV,
+				// a PDF's or a Word document's text; the first of it for a long one, and for one that
+				// isn't text, what it is.
+				{key: 'content', label: 'Content', type: 'longtext', system: true},
+			],
+		},
+	],
+	tools: [
+		{
+			name: 'files_create',
+			title: 'Add file',
+			description:
+				'Adds a file holding content as text, or a folder, called name, in the folder parent or at the top. Refused where something there has the name: files_write changes a file that is there.',
+			action: 'createFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					name: {type: 'string', description: 'Its name, with its extension, as notes.md'},
+					parent: {
+						type: 'string',
+						description: 'The id of the folder to put it in; left out, the top',
+					},
+					content: {
+						type: 'string',
+						description: 'A file’s content, as text; left out, an empty file',
+					},
+					folder: {type: 'boolean', description: 'Makes a folder instead of a file'},
+				},
+				required: ['name'],
+			},
+		},
+		{
+			name: 'files_write',
+			title: 'Write file',
+			description:
+				'Writes content, as text, over what a file holds, as its next version; the one before is kept (files_versions). Give the version files_read answered with: where the file changed since, the write is refused, and you read it again.',
+			action: 'editFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {type: 'string', description: 'The file’s id'},
+					version: {type: 'string', description: 'The version you read'},
+					content: {type: 'string', description: 'All of its new content, as text'},
+				},
+				required: ['id', 'version', 'content'],
+			},
+		},
+		{
+			name: 'files_read',
+			title: 'Read file',
+			description: `Reads a file’s text, ${FILES_READ_CHARACTERS} characters at a time: what it holds now, or an earlier version. Answers with the version read.`,
+			action: 'readFiles',
+			readOnly: true,
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {type: 'string', description: 'The file’s id'},
+					version: {
+						type: 'string',
+						description: 'An earlier version, from files_versions; left out, what it holds now',
+					},
+					from: {
+						type: 'number',
+						description: 'The character to read on from, as the read before said',
+					},
+				},
+				required: ['id'],
+			},
+		},
+		{
+			name: 'files_versions',
+			title: 'List versions',
+			description:
+				'Lists a file’s versions, newest first: each one’s id, when it was made, its size and who made it.',
+			action: 'readFiles',
+			readOnly: true,
+			inputSchema: {
+				type: 'object',
+				properties: {id: {type: 'string', description: 'The file’s id'}},
+				required: ['id'],
+			},
+		},
+		{
+			name: 'files_restore',
+			title: 'Restore version',
+			description:
+				'Gives a file an earlier version back, as its next version: nothing of its history is lost, and what it held until now is in it too.',
+			action: 'editFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {type: 'string', description: 'The file’s id'},
+					version: {type: 'string', description: 'The version to give back, from files_versions'},
+				},
+				required: ['id', 'version'],
+			},
+		},
+		{
+			name: 'files_move',
+			title: 'Rename or move',
+			description: 'Renames a file or a folder, moves it into another folder, or both.',
+			action: 'editFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {type: 'string', description: 'The file’s or the folder’s id'},
+					name: {type: 'string', description: 'Its new name; left out, it keeps its own'},
+					parent: {
+						type: 'string',
+						description:
+							'The id of the folder to move it into, or top for the top of the drive; left out, it stays',
+					},
+				},
+				required: ['id'],
+			},
+		},
+		{
+			name: 'files_trash',
+			title: 'Move to trash',
+			description: `Moves a file, or a folder with everything in it, to the trash, where it stays ${FILES_TRASH_DAYS} days; files_untrash takes it out.`,
+			action: 'trashFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {id: {type: 'string', description: 'The file’s or the folder’s id'}},
+				required: ['id'],
+			},
+		},
+		{
+			name: 'files_untrash',
+			title: 'Take out of trash',
+			description: 'Takes a file or a folder out of the trash, back where it was.',
+			action: 'trashFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {id: {type: 'string', description: 'The file’s or the folder’s id'}},
+				required: ['id'],
+			},
+		},
+	],
+};
+
+/** What agents may do with a drive by default, a member's own and any they make: everything, since nothing done there is lost. */
+export const FILES_DEFAULT_ACTIONS: string[] = files.actions.map((action) => action.id);
+
 // GitHub, signed in to through Personal Agent Proxy's GitHub App as the person: the repositories
 // the app is installed on that they can reach, read live from GitHub, and worked in from a sandbox
 // with `pap git` and `pap gh`, whose requests the api relays to GitHub with the connection's token
@@ -1908,6 +2128,7 @@ export const INTEGRATIONS: Integration[] = [
 	postgres,
 	mysql,
 	sandbox,
+	files,
 	mcp,
 ];
 

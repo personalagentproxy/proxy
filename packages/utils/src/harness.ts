@@ -310,12 +310,58 @@ export function shuffleLook(random: () => number = Math.random): Look {
 // How much of a message a preview of it shows.
 const PREVIEW_CHARS = 120;
 
-/** A message as a line of words, for a list: its Markdown marks dropped, its whitespace folded, cut to a line. */
+/**
+ * Where a file sits in what a person typed: one of these for each file put in the message, in
+ * the order of the files, at the place it was put (the object replacement character, which
+ * stands for something that isn't text). A message whose files have none, as every message from
+ * before files sat among the words, has them at its start.
+ */
+export const ATTACHMENT_MARK = '\uFFFC';
+
+/**
+ * What was typed, cut at its files: the words and the files in the order they come, each file
+ * where its mark is. Files beyond the marks, as all of them are where the text has none, come
+ * first; marks beyond the files stand for nothing. Words left empty between two files are left
+ * out.
+ */
+export function attachedParts<T>(
+	text: string,
+	attachments: T[],
+): Array<{text: string} | {file: T}> {
+	const pieces = text.split(ATTACHMENT_MARK);
+	const placed = attachments.slice(0, pieces.length - 1);
+	const parts: Array<{text: string} | {file: T}> = attachments
+		.slice(placed.length)
+		.map((file) => ({file}));
+	pieces.forEach((piece, index) => {
+		if (piece !== '') {
+			parts.push({text: piece});
+		}
+		const file = placed[index];
+		if (index < placed.length && file !== undefined) {
+			parts.push({file});
+		}
+	});
+	return parts;
+}
+
+/** What was typed without the places of more files than it has: the marks beyond `count` taken out, the rest as they are. */
+export function keepMarks(text: string, count: number): string {
+	let seen = 0;
+	return text.replaceAll(ATTACHMENT_MARK, () => {
+		seen += 1;
+		return seen > count ? '' : ATTACHMENT_MARK;
+	});
+}
+
+/** A message as a line of words, for a list: its Markdown marks dropped, a picture as what it shows, the places of its files too, its whitespace folded, cut to a line. */
 export function preview(text: string): string {
 	return text
+		.replaceAll(ATTACHMENT_MARK, ' ')
 		.replace(/```[\s\S]*?```/g, ' ')
 		.replace(/^\s*(?:[-*+]|\d+\.|#{1,6}|>)\s+/gm, '')
 		.replace(/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$/gm, '')
+		.replace(/!\[([^\]]*)\]\([^)]*\)/g, (_, alt: string) => (alt.trim() === '' ? 'Picture' : alt))
 		.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
 		.replace(/[*_`~|]+/g, '')
 		.replace(/\s+/g, ' ')

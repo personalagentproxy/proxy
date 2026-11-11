@@ -17,6 +17,10 @@ import {
 	subAgentArgs,
 	subAgentMessageArgs,
 	threadState,
+	ATTACHMENT_MARK,
+	attachedParts,
+	keepMarks,
+	preview,
 } from './harness';
 
 const person = (text: string): LogEntry => ({kind: 'person', text, toolCalls: null, callId: null});
@@ -255,5 +259,63 @@ describe('heads', () => {
 		expect(low).toEqual({nose: 0.4, noseOut: 0.2, eye: 22, eyeTheta: 45, eyeLat: -8, eyes: 2});
 		expect(high).toEqual({nose: 0.58, noseOut: 0.6, eye: 34, eyeTheta: 70, eyeLat: 20, eyes: 2});
 		expect(parseLook(JSON.stringify(shuffleLook()))).not.toEqual(DEFAULT_LOOK);
+	});
+});
+
+describe('attachedParts', () => {
+	const mark = ATTACHMENT_MARK;
+
+	test('cuts what was typed at its files, each where its mark is, in the order of the files', () => {
+		expect(attachedParts(`Does ${mark} match ${mark}?`, ['a', 'b'])).toEqual([
+			{text: 'Does '},
+			{file: 'a'},
+			{text: ' match '},
+			{file: 'b'},
+			{text: '?'},
+		]);
+		expect(attachedParts(`${mark}${mark} both`, ['a', 'b'])).toEqual([
+			{file: 'a'},
+			{file: 'b'},
+			{text: ' both'},
+		]);
+		expect(attachedParts('Nothing attached', [])).toEqual([{text: 'Nothing attached'}]);
+	});
+
+	test('puts files without a mark first, as a message from before files sat among the words has them, and drops marks without a file', () => {
+		expect(attachedParts('What do these say?', ['a', 'b'])).toEqual([
+			{file: 'a'},
+			{file: 'b'},
+			{text: 'What do these say?'},
+		]);
+		expect(attachedParts(`See ${mark} here`, ['a', 'b'])).toEqual([
+			{file: 'b'},
+			{text: 'See '},
+			{file: 'a'},
+			{text: ' here'},
+		]);
+		expect(attachedParts(`See ${mark} and ${mark}`, ['a'])).toEqual([
+			{text: 'See '},
+			{file: 'a'},
+			{text: ' and '},
+		]);
+		expect(attachedParts('', ['a'])).toEqual([{file: 'a'}]);
+	});
+
+	test('keepMarks takes out the marks beyond the files there are', () => {
+		expect(keepMarks(`a${mark}b${mark}c${mark}`, 2)).toBe(`a${mark}b${mark}c`);
+		expect(keepMarks(`a${mark}b`, 0)).toBe('ab');
+		expect(keepMarks('plain', 3)).toBe('plain');
+	});
+
+	test('a preview of a message shows a picture as what it shows', () => {
+		expect(
+			preview(
+				'Here: ![Revenue by month](https://app.example.com/a/connections/d?file=f) and ![](https://x.example.com/p.png)',
+			),
+		).toBe('Here: Revenue by month and Picture');
+	});
+
+	test('a preview of a message says nothing of where its files are', () => {
+		expect(preview(`Does ${mark} match ${mark}?`)).toBe('Does match ?');
 	});
 });

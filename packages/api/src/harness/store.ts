@@ -2,6 +2,7 @@ import type {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
 import {readyForInference} from '@proxy/utils/harness';
+import type {EntryAttachment} from '@proxy/utils/harness-context';
 import * as alerts from '@proxy/db/alerts';
 import type {AlertRow, NewAlert, PollRow, WatchMatch} from '@proxy/db/alerts';
 import {type ConnectionRow, getConnectionWithCredentialById, listConnectionsByIds} from '@proxy/db/connection';
@@ -9,9 +10,11 @@ import * as harness from '@proxy/db/harness';
 import type {
 	AfterAnswer,
 	AssistantTurn,
+	AttachmentRow,
 	CappedHarness,
 	ClaimedJob,
 	ConversationAnswer,
+	DraftAttachment,
 	EntryRow,
 	FailureNote,
 	InlineJob,
@@ -72,7 +75,7 @@ export type HarnessStore = {
 	getAgentTask: (orgId: string, agentId: string, taskId: string) => Promise<Result<AgentTaskRow | null, ApiError>>;
 	createAgentTask: (task: NewAgentTask) => Promise<Result<AgentTaskRow | null, ApiError>>;
 
-	listPersonas: (orgId: string, userId: string) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null}>, ApiError>>;
+	listPersonas: (orgId: string, userId: string) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null; draftAttachments: DraftAttachment[]}>, ApiError>>;
 	listAnswers: (orgId: string, userId: string) => Promise<Result<ConversationAnswer[], ApiError>>;
 	ensureFirstPersona: (orgId: string) => Promise<Result<PersonaRow, ApiError>>;
 	getPersona: (orgId: string, userId: string, personaId: string) => Promise<Result<PersonaRow | null, ApiError>>;
@@ -84,13 +87,21 @@ export type HarnessStore = {
 	listShownEntries: (threadId: string, calls: string[]) => Promise<Result<EntryRow[], ApiError>>;
 	listShownSubAgentEntries: (subAgent: ThreadRow, calls: string[]) => Promise<Result<EntryRow[], ApiError>>;
 	listOpenJobs: (threadId: string) => Promise<Result<JobRow[], ApiError>>;
-	appendPersonMessage: (threadId: string, text: string) => Promise<Result<EntryRow | null, ApiError>>;
-	messageSubAgentDirectly: (conversationId: string, subAgentId: string, text: string) => Promise<Result<boolean, ApiError>>;
+	/** What the person says in their conversation, with the files they attached to it. */
+	appendPersonMessage: (threadId: string, text: string, attachments?: EntryAttachment[]) => Promise<Result<EntryRow | null, ApiError>>;
+	/** What the person attached in a thread, each with the entry it was said with. */
+	listAttachments: (threadId: string) => Promise<Result<AttachmentRow[], ApiError>>;
+	/** What the person writes in a sub-agent's chat, with the files they attached to it. */
+	messageSubAgentDirectly: (conversationId: string, subAgentId: string, text: string, attachments?: EntryAttachment[]) => Promise<Result<boolean, ApiError>>;
 	listPinnedTasks: (orgId: string, userId: string) => Promise<Result<PinnedTaskRow[], ApiError>>;
 	setTaskPinned: (conversationId: string, subAgentId: string, pinned: boolean) => Promise<Result<boolean, ApiError>>;
 	markThreadRead: (threadId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
 	getThreadDraft: (threadId: string) => Promise<Result<string | null, ApiError>>;
-	saveThreadDraft: (threadId: string, draft: string | null) => Promise<Result<boolean, ApiError>>;
+	saveThreadDraft: (threadId: string, draft: string | null, order?: Array<Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>>) => Promise<Result<boolean, ApiError>>;
+	/** The files in a conversation's input, not sent yet; put there after those there, at most `max`, and taken out. False for no such conversation. */
+	listDraftAttachments: (threadId: string) => Promise<Result<DraftAttachment[], ApiError>>;
+	addDraftAttachment: (threadId: string, attachment: DraftAttachment, max: number) => Promise<Result<boolean, ApiError>>;
+	removeDraftAttachment: (threadId: string, file: Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>) => Promise<Result<boolean, ApiError>>;
 
 	completeSetAlert: (job: {jobId: string; workerId: string; threadId: string; callId: string}, alert: NewAlert, answer: (alert: AlertRow) => string) => Promise<Result<boolean, ApiError>>;
 	setAlertInline: (job: InlineJob, alert: NewAlert) => Promise<Result<AlertRow | null, ApiError>>;
@@ -152,13 +163,17 @@ export const harnessStore: HarnessStore = {
 	listShownEntries: harness.listShownEntries,
 	listShownSubAgentEntries: harness.listShownSubAgentEntries,
 	listOpenJobs: harness.listOpenJobs,
-	appendPersonMessage: (threadId, text) => harness.appendPersonMessage(threadId, text, readyForInference),
-	messageSubAgentDirectly: (conversationId, subAgentId, text) => harness.messageSubAgentDirectly(conversationId, subAgentId, text, readyForInference),
+	appendPersonMessage: (threadId, text, attachments) => harness.appendPersonMessage(threadId, text, readyForInference, attachments),
+	listAttachments: harness.listAttachments,
+	messageSubAgentDirectly: (conversationId, subAgentId, text, attachments) => harness.messageSubAgentDirectly(conversationId, subAgentId, text, readyForInference, attachments),
 	listPinnedTasks: harness.listPinnedTasks,
 	setTaskPinned: harness.setTaskPinned,
 	markThreadRead: harness.markThreadRead,
 	getThreadDraft: harness.getThreadDraft,
 	saveThreadDraft: harness.saveThreadDraft,
+	listDraftAttachments: harness.listDraftAttachments,
+	addDraftAttachment: harness.addDraftAttachment,
+	removeDraftAttachment: harness.removeDraftAttachment,
 
 	completeSetAlert: (job, alert, answer) => alerts.completeSetAlert(job, alert, answer, readyForInference),
 	setAlertInline: alerts.setAlertInline,

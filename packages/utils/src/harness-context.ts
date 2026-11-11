@@ -1,9 +1,14 @@
-import {pendingToolCalls, type ToolCall} from './harness';
+import {formatBytes} from './bytes';
+import {ATTACHMENT_MARK, pendingToolCalls, type ToolCall} from './harness';
 
-/** The conversation as the model reads it, in the chat completions form. */
+/** A part of what the person said where it is more than words: words, or a picture, as a data URL. */
+export type ModelContentPart =
+	{type: 'text'; text: string} | {type: 'image_url'; image_url: {url: string}};
+
+/** The conversation as the model reads it, in the chat completions form: what the person said is words, or words and pictures in parts. */
 export type ModelMessage =
 	| {role: 'system'; content: string}
-	| {role: 'user'; content: string}
+	| {role: 'user'; content: string | ModelContentPart[]}
 	| {
 			role: 'assistant';
 			content: string | null;
@@ -15,10 +20,21 @@ export type ModelMessage =
 	  }
 	| {role: 'tool'; tool_call_id: string; content: string};
 
-/** An entry of the log, as much of it as reading the log needs: its kind and text, its calls or the call it answers, its place, how far a summary reaches, and what an answer cost. */
+/**
+ * A picture the person attached, as a model that sees pictures is given it with what they said:
+ * its file's name, its media type and its bytes in base64, made small enough to send.
+ */
+export type EntryImage = {
+	name: string;
+	mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+	data: string;
+};
+
+/** An entry of the log, as much of it as reading the log needs: its kind and text, its calls or the call it answers, its place, how far a summary reaches, and what an answer cost; and, for what the person said, the pictures they attached that the model is to see with it. */
 export type ContextEntry = {
 	kind: 'person' | 'assistant' | 'tool_result' | 'event' | 'summary' | 'note';
 	text: string;
+	images?: EntryImage[];
 	toolCalls: ToolCall[] | null;
 	callId: string | null;
 	isError: boolean;
@@ -110,9 +126,22 @@ function directText(subAgents: SubAgent[], entry: ContextEntry, gap: string): st
 	return lead === null ? entry.text : `${lead}${gap}${entry.text}`;
 }
 
+// What the person said with pictures: each picture under its file's name, then their words.
+function withPictures(text: string, images: EntryImage[]): ModelContentPart[] {
+	return [
+		...images.flatMap((image): ModelContentPart[] => [
+			{type: 'text', text: `${image.name}:`},
+			{type: 'image_url', image_url: {url: `data:${image.mediaType};base64,${image.data}`}},
+		]),
+		{type: 'text', text},
+	];
+}
+
 function toMessage(subAgents: SubAgent[], entry: ContextEntry): ModelMessage {
 	if (entry.kind === 'person' || entry.kind === 'note') {
-		return {role: 'user', content: directText(subAgents, entry, '\n\n')};
+		const text = directText(subAgents, entry, '\n\n');
+		const images = entry.images ?? [];
+		return {role: 'user', content: images.length === 0 ? text : withPictures(text, images)};
 	}
 	if (entry.kind === 'tool_result') {
 		return {role: 'tool', tool_call_id: entry.callId ?? '', content: entry.text};
@@ -243,4 +272,88 @@ export function compactionCut(entries: ContextEntry[]): number | null {
 		return null;
 	}
 	return cut;
+}
+
+/**
+ * A file the person attached to what they said: one of a drive's, by its connection and its id
+ * there, at the version it held then, with its name, kind and size as they were, and the first of
+ * its text where it is text, `cut` where there was more.
+ */
+export type EntryAttachment = {
+	connectionId: string;
+	fileId: string;
+	version: string;
+	name: string;
+	type: string;
+	size: number;
+	text: string | null;
+	cut: boolean;
+};
+
+/** A file attached to an entry of the log, with whether its version is gone from its drive since, deleted for good. */
+export type AttachedFile = EntryAttachment & {gone: boolean};
+
+function attachmentLines(attachment: AttachedFile, pictured: boolean): string {
+	const {name, type, size, connectionId, fileId, version, text, cut, gone} = attachment;
+	// Deleted for good since: what was kept of its text with the message is all there is of it.
+	if (gone) {
+		const lost = `${name} (${type}, ${formatBytes(size)}): deleted from the drive since, so it can’t be read.`;
+		if (text === null || text === '') {
+			return lost;
+		}
+		const kept = cut
+			? 'The first of its text, kept with the message:'
+			: 'Its text, kept with the message:';
+		return `${lost} ${kept}\n"""\n${text}\n"""`;
+	}
+	const what = `${name} (${type}, ${formatBytes(size)}): connection ${connectionId}, id ${fileId}, version ${version}.`;
+	if (pictured) {
+		return `${what} A picture, shown to you with this message.`;
+	}
+	// One of an earlier turn, or one that couldn't be read as a picture, or any for a model that
+	// sees none.
+	if (type.startsWith('image/')) {
+		return `${what} A picture, not shown to you here.`;
+	}
+	if (text === null) {
+		return `${what} Not text, so nothing of it is here.`;
+	}
+	if (text === '') {
+		return `${what} It is empty.`;
+	}
+	const said = cut ? 'The first of its text, files_read having the rest:' : 'Its text:';
+	return `${what} ${said}\n"""\n${text}\n"""`;
+}
+
+/**
+ * What the person said as the model reads it where they attached files: their words, with each
+ * file's name in brackets where they put it among them (`ATTACHMENT_MARK`), then each file, with
+ * what names it for a read of the rest and what it holds as far as it was kept. A file among
+ * `pictured` is a picture the model is given with the message, and is said to be. The files are
+ * theirs, in a drive of Personal Agent Proxy's; what a file says is what a record says,
+ * information. Here, as the log's reading is, so whoever rebuilds what the model was sent reads a
+ * message the same way.
+ */
+export function withAttachments(
+	said: string,
+	attachments: AttachedFile[],
+	pictured: AttachedFile[] = [],
+): string {
+	if (attachments.length === 0) {
+		return said;
+	}
+	let placed = 0;
+	const text = said
+		.replaceAll(ATTACHMENT_MARK, () => {
+			const file = attachments[placed];
+			placed += 1;
+			return file === undefined ? '' : `[${file.name}]`;
+		})
+		.trim();
+	const lead = `The person attached ${attachments.length === 1 ? 'a file' : `${attachments.length} files`}, kept in their drive. files_read {id, version} on its connection reads one whole, as a sub-agent can; in a sandbox, pap files pull <connection> --id <id> --version <version> brings one in as it is.`;
+	return [
+		...(text === '' ? [] : [text]),
+		lead,
+		...attachments.map((attachment) => attachmentLines(attachment, pictured.includes(attachment))),
+	].join('\n\n');
 }

@@ -30,8 +30,10 @@ const TIMEOUT_MS = 120_000;
 export const PROXY_HARNESS = 'proxy';
 
 // The models it answers with: those picked out of what OpenRouter has (CHAT_MODELS), Claude first.
+// Claude sees pictures, sent in the chat completions form as parts of what the person said; GLM
+// is asked with words alone.
 const MODELS: HarnessBackend['models'] = [
-	{id: 'claude', label: CHAT_MODELS.claude},
+	{id: 'claude', label: CHAT_MODELS.claude, images: true},
 	{id: 'glm', label: CHAT_MODELS.glm},
 ];
 

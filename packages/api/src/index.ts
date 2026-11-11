@@ -10,6 +10,8 @@ import {harnessStore} from './harness/store';
 import {startAlertSweeper, type AlertSweeper} from './harness/alert-sweep';
 import {startHarnessWorker, type HarnessWorker} from './harness/worker';
 import {claudeCredentialFor, markClaudeCredentialRefused, recordClaudeUsage} from './me/claude-credential';
+import {chatFiles} from './native/files/chat';
+import {startFilesSweeper} from './native/files/sweeper';
 import {startSandboxSweeper} from './native/sandbox/sweeper';
 import {log, serializeError} from './observability/log';
 import {metrics} from './observability/metrics';
@@ -84,8 +86,14 @@ async function startApiServer(): Promise<void> {
 		// After listening, since signing in to a provider to name an account can take a while.
 		void runDataMigrations();
 		// The built-in agent's worker, on the harnesses this server has (backends/registry.ts).
-		worker = startHarnessWorker(harnessStore, {registry: serverHarnesses(), credentials: {claudeCredentialFor, markRefused: markClaudeCredentialRefused, recordUsage: recordClaudeUsage}});
+		worker = startHarnessWorker(harnessStore, {
+			registry: serverHarnesses(),
+			credentials: {claudeCredentialFor, markRefused: markClaudeCredentialRefused, recordUsage: recordClaudeUsage},
+			picture: chatFiles.picture,
+			pinned: chatFiles.pinned,
+		});
 		sweeper = startAlertSweeper(harnessStore);
 		void startSandboxSweeper();
+		void startFilesSweeper();
 	});
 }

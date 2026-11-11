@@ -3,16 +3,24 @@ import type {
 	ChatHarness,
 	ChatMessage,
 	ChatPersona,
+	ChatAttachment,
 	ChatTask,
 	Persona,
 	PinnedTask,
 	TaskChat,
 	ThreadLog,
 } from '@proxy/contracts/harness';
-import {CornerDownRightIcon, PencilIcon, PinIcon, PinOffIcon, Trash2Icon} from 'lucide-react';
 import {
+	CornerDownRightIcon,
+	PaperclipIcon,
+	PencilIcon,
+	PinIcon,
+	PinOffIcon,
+	Trash2Icon,
+} from 'lucide-react';
+import {
+	Fragment,
 	type FormEvent,
-	type KeyboardEvent,
 	memo,
 	useCallback,
 	useEffect,
@@ -28,18 +36,27 @@ import {
 	getThread,
 	pinTask,
 	postMessage,
+	removeAttachment,
 	updatePersona,
+	uploadAttachment,
 } from '@/client/harness-client';
 import {AddButton} from '@/components/add-button';
 import {AppShell, PageTitle, PanelWaiting, TitleWaiting} from '@/components/app-shell';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {LiveHead} from '@/components/head';
-import {Markdown} from '@/components/markdown';
+import {type ImageOf, Markdown} from '@/components/markdown';
 import {type ModelChoice, ModelSwitcher} from '@/components/model-switcher';
 import {PersonaDialog} from '@/components/persona-dialog';
 import {PillButton} from '@proxy/ui/components/pill-button';
+import {DropToAttach, SentChip, ShownFile} from '@/components/chat/attachments';
+import {PictureViewer, type ViewedPicture} from '@/components/chat/picture-viewer';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
-import {InputGroup, InputGroupAddon, InputGroupTextarea} from '@proxy/ui/components/input-group';
+import {
+	MessageEditor,
+	type MessageEditorHandle,
+	type Typed,
+} from '@/components/chat/message-editor';
+import {InputGroup, InputGroupAddon} from '@proxy/ui/components/input-group';
 import {Message, MessageContent} from '@/components/chat/message';
 import {
 	MessageScroller,
@@ -49,9 +66,12 @@ import {
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
 import {TaskLine, WorkingLine} from '@/components/chat/task-line';
-import {preview} from '@proxy/utils/harness';
+import {markdownPictures, readFileLink} from '@proxy/utils/file-links';
+import {ATTACHMENT_MARK, attachedParts, preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
+import {type AttachmentInput, takenFiles, useAttachments} from '@/hooks/use-attachments';
 import {useChatDraft} from '@/hooks/use-chat-draft';
+import {useExperiments} from '@/hooks/use-experiment';
 import {useLastLoaded, useLoaded} from '@/hooks/use-loaded';
 import {useListMotion} from '@/hooks/use-list-motion';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -59,10 +79,11 @@ import {useReload} from '@/hooks/use-reload';
 import {useSending} from '@/hooks/use-sending';
 import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
 import {useUnread} from '@/hooks/use-unread';
+import {useWindowFileDrop} from '@/hooks/use-window-file-drop';
 import {keepEntries, sameJson} from '@/lib/chat-log';
 import {chatRuns, conversationSide} from '@/lib/chat-runs';
 import {formatAgo} from '@/lib/format';
-import {describeFetchError} from '@/lib/loader-utils';
+import {describeApiError, describeFetchError} from '@/lib/loader-utils';
 import type {chatLoader, chatTaskLoader} from '@/loaders';
 import {OpenTask} from '@/pages/task-chat';
 import {
@@ -77,8 +98,61 @@ import {
 const BUSY_POLL_MS = 1000;
 const IDLE_POLL_MS = 4000;
 
+// The file kept with an answer that a link of it names; undefined for any other link.
+function keptFile(
+	attachments: ChatMessage['attachments'],
+	src: string,
+): ChatMessage['attachments'][number] | undefined {
+	const target = readFileLink(src, window.location.origin);
+	return attachments.find(
+		(candidate) =>
+			candidate.connectionId === target?.connectionId && candidate.fileId === target.fileId,
+	);
+}
+
+// The pictures an answer shows, in the order its words put them, for the viewer: each of its
+// Markdown pictures that links to a picture kept with it.
+function picturesOf(entry: ChatMessage): ViewedPicture[] {
+	return markdownPictures(entry.text).flatMap(({src, alt}) => {
+		const attachment = keptFile(entry.attachments, src);
+		return attachment?.shown === true && !attachment.gone ? [{attachment, alt}] : [];
+	});
+}
+
+// An answer's pictures as tiles, each opening the viewer at itself; any other link as it is.
+function AnswerMarkdown({entry}: {entry: ChatMessage}) {
+	const [viewing, setViewing] = useState<number | null>(null);
+	const pictures = useMemo(() => picturesOf(entry), [entry]);
+	const image: ImageOf | null =
+		entry.attachments.length === 0
+			? null
+			: (src, alt) => {
+					const attachment = keptFile(entry.attachments, src);
+					if (attachment === undefined) {
+						return null;
+					}
+					const at = pictures.findIndex((picture) => picture.attachment === attachment);
+					return (
+						<ShownFile
+							attachment={attachment}
+							alt={alt}
+							onOpen={() => setViewing(Math.max(at, 0))}
+						/>
+					);
+				};
+	return (
+		<>
+			<Markdown text={entry.text} image={image} />
+			{pictures.length > 0 && (
+				<PictureViewer pictures={pictures} index={viewing} onIndex={setViewing} />
+			)}
+		</>
+	);
+}
+
 // One turn of the conversation: what the person said in a gray bubble on the right, as they typed
-// it, or what the persona answered on the left as plain Markdown, without a bubble, in a red one
+// it, with the files they attached where they put them, or what the persona answered on the left
+// as plain Markdown, without a bubble, with the files it showed where it put them, in a red one
 // where its turn failed.
 function Turn({entry}: {entry: ChatMessage}) {
 	if (entry.kind === 'person') {
@@ -86,7 +160,15 @@ function Turn({entry}: {entry: ChatMessage}) {
 			<Message align="end">
 				<MessageContent>
 					<Bubble align="end" variant="muted">
-						<BubbleContent className="whitespace-pre-wrap">{entry.text}</BubbleContent>
+						<BubbleContent className="whitespace-pre-wrap">
+							{attachedParts(entry.text, entry.attachments).map((part, index) =>
+								'text' in part ? (
+									<Fragment key={index}>{part.text}</Fragment>
+								) : (
+									<SentChip key={index} attachment={part.file} />
+								),
+							)}
+						</BubbleContent>
 					</Bubble>
 				</MessageContent>
 			</Message>
@@ -97,7 +179,7 @@ function Turn({entry}: {entry: ChatMessage}) {
 			<MessageContent>
 				<Bubble variant={entry.isError ? 'destructive' : 'ghost'}>
 					<BubbleContent>
-						<Markdown text={entry.text} />
+						<AnswerMarkdown entry={entry} />
 					</BubbleContent>
 				</Bubble>
 			</MessageContent>
@@ -773,9 +855,13 @@ const Conversation = memo(function Conversation({
 		void reload();
 	}, [answered, reload]);
 
-	// Sends what the person wrote, shown at once and taken away again where the send fails, once
-	// `settle` has: what it failed with, or null.
-	const send = async (message: string, settle: () => Promise<void>): Promise<string | null> => {
+	// Sends what the person wrote, with the files placed among it, shown at once and taken away
+	// again where the send fails, once `settle` has: what it failed with, or null.
+	const send = async (
+		message: string,
+		files: ChatAttachment[],
+		settle: () => Promise<void>,
+	): Promise<string | null> => {
 		const key = `sending-${crypto.randomUUID()}`;
 		sending.start({
 			id: key,
@@ -783,12 +869,13 @@ const Conversation = memo(function Conversation({
 			text: message,
 			isError: false,
 			at: new Date().toISOString(),
+			attachments: files,
 		});
 		await settle();
-		const posted = await postMessage(org, personaId, message);
+		const posted = await postMessage(org, personaId, message, files);
 		if (posted.isErr()) {
 			sending.failed(key);
-			return describeFetchError(posted.error);
+			return describeApiError(posted.error);
 		}
 		sending.posted(key, posted.value.entry.id);
 		await readLog();
@@ -863,6 +950,7 @@ const Conversation = memo(function Conversation({
 			<Composer
 				persona={current}
 				kept={loaded.draft ?? ''}
+				keptFiles={loaded.draftAttachments}
 				harnesses={harnesses}
 				recallDraft={recallDraft}
 				rememberDraft={rememberDraft}
@@ -879,10 +967,12 @@ const Conversation = memo(function Conversation({
 
 // The input under the conversation, with what runs the persona. What is typed is its own, so
 // typing draws the input, and the list's line for the draft, not the conversation over it. A
-// message sent leaves the input at once, and comes back to it where the send fails.
+// message sent leaves the input at once, its files with it, and comes back to it where the send
+// fails.
 function Composer({
 	persona,
 	kept,
+	keptFiles,
 	harnesses,
 	recallDraft,
 	rememberDraft,
@@ -894,26 +984,55 @@ function Composer({
 	onSend,
 }: Omit<Opened, 'onShownLog'> & {
 	persona: ChatPersona;
-	// The draft the server keeps, as the conversation opened.
+	// The draft the server keeps, as the conversation opened, and the files in its input.
 	kept: string;
+	keptFiles: ChatAttachment[];
 	harnesses: ChatHarness[];
-	// Sends a message once `settle` has: what it failed with, or null.
-	onSend: (message: string, settle: () => Promise<void>) => Promise<string | null>;
+	// Sends a message, with the files placed among it, once `settle` has: what it failed with, or
+	// null.
+	onSend: (
+		message: string,
+		files: ChatAttachment[],
+		settle: () => Promise<void>,
+	) => Promise<string | null>;
 }) {
 	const org = useOrgSlug();
 	const reload = useReload();
 	const personaId = persona.id;
+	// What goes with the next message: the files the person put in the input, where the
+	// organization has Files, those put there before among them, as the server keeps them. Sent
+	// once none is still on its way up, with words, files, or both.
+	const attaches = useExperiments().includes('files');
+	const input = useMemo(
+		(): AttachmentInput => ({
+			upload: (file) => uploadAttachment(org, personaId, file),
+			remove: (attachment) => void removeAttachment(org, personaId, attachment),
+		}),
+		[org, personaId],
+	);
+	const attachments = useAttachments(input, keptFiles);
+	// The files in the input now, as a send that waited on the server finds them.
+	const pendingNow = useRef(attachments.pending);
+	useLayoutEffect(() => {
+		pendingNow.current = attachments.pending;
+	});
 	// What was typed and not sent, as the conversation opened: as this page left it, or as the
 	// server keeps it. Read once: the log read again later says nothing of what is being typed.
 	const [opening] = useState(() => ({kept, text: recallDraft(personaId) ?? kept}));
+	// What the box opens holding: what was typed as the conversation opened, or, made again where
+	// a send failed (`made` times), what the send gave back.
+	const [box, setBox] = useState(() => ({made: 0, text: opening.text, files: attachments.pending}));
+	// What is typed, with a mark where each file sits among the words, and those files in the
+	// order of their marks (message-editor.tsx).
 	const [text, setText] = useState(opening.text);
+	const [placed, setPlaced] = useState(keptFiles);
 	// What is in the box now, as a send that waited on the server finds it.
-	const typedNow = useRef(opening.text);
+	const typedNow = useRef<Typed>({text: opening.text, files: keptFiles});
 	const draft = useChatDraft(org, personaId, opening.kept);
 	const [sending, setSending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const form = useRef<HTMLFormElement>(null);
-	const input = useRef<HTMLTextAreaElement>(null);
+	const editor = useRef<MessageEditorHandle>(null);
 	// What runs the persona, as the switcher shows it: the persona's, or what was just picked.
 	const [runsOn, setRunsOn] = useState<ModelChoice>({
 		harness: persona.harness,
@@ -922,20 +1041,30 @@ function Composer({
 	// A conversation is open all day: a new release is loaded while it is out of view, as long as
 	// what is typed is saved as the draft and no dialog is open, since the log and the draft come
 	// back from the server.
-	useReloadWhileHidden(text === draft.saved && !sending && !managing);
+	useReloadWhileHidden(text === draft.saved && !sending && !managing && !attachments.uploading);
 
+	// What the list says is waiting here: what is typed, or, with nothing typed, the files' names.
 	// Said as it is drawn, so the list shows the draft as it is typed.
+	const words = text.replaceAll(ATTACHMENT_MARK, '').trim();
+	const waiting = words === '' ? attachments.pending.map((one) => one.name).join(', ') : text;
 	useLayoutEffect(() => {
-		onShownDraft({personaId, draft: text});
-	}, [onShownDraft, personaId, text]);
+		onShownDraft({personaId, draft: waiting});
+	}, [onShownDraft, personaId, waiting]);
 
 	useEffect(() => {
-		if (!focusRequested || input.current === null) {
+		if (!focusRequested || editor.current === null) {
 			return;
 		}
-		input.current.focus();
+		editor.current.focus();
 		onFocused();
 	}, [focusRequested, onFocused]);
+
+	// The box made again, where a send failed, keeps the caret.
+	useEffect(() => {
+		if (box.made > 0) {
+			editor.current?.focus();
+		}
+	}, [box.made]);
 
 	// What this page had typed here that the server doesn't have yet, as it was left for another
 	// conversation a moment before its save landed, is saved again.
@@ -947,14 +1076,15 @@ function Composer({
 	}, [typed, opening]);
 
 	// What the box shows, as the page remembers it; `type` saves it as the draft too.
-	const show = (value: string) => {
-		setText(value);
-		typedNow.current = value;
-		rememberDraft(personaId, value);
+	const show = (typed: Typed) => {
+		setText(typed.text);
+		setPlaced(typed.files);
+		typedNow.current = typed;
+		rememberDraft(personaId, typed.text);
 	};
-	const type = (value: string) => {
-		show(value);
-		draft.typed(value);
+	const type = (typed: Typed) => {
+		show(typed);
+		draft.typed(typed.text, typed.files);
 	};
 
 	// Switches what runs the persona, the harness and the model, from the input's switcher: shown
@@ -977,39 +1107,55 @@ function Composer({
 		await reload();
 	};
 
-	// The message leaves the box at once. Where the send fails, it comes back, before anything
-	// typed since; where it doesn't, what was typed since is saved as the draft, which the send
-	// forgot.
+	const picker = useRef<HTMLInputElement>(null);
+	// A file that could not be uploaded says why under the conversation, by its name.
+	const failedFile = attachments.pending.find((one) => one.error !== null);
+	const failedUpload = failedFile ? `${failedFile.name}: ${failedFile.error ?? ''}` : null;
+	const sendable = !attachments.uploading && (words !== '' || placed.length > 0);
+	// Files dropped anywhere on the window are attached, unless a dialog is open over the page.
+	const dropping = useWindowFileDrop(attaches && !managing, attachments.add);
+
+	// The message leaves the box at once, its files with it. Where the send fails, it comes back,
+	// before anything typed since; where it doesn't, what was typed since is saved as the draft,
+	// which the send forgot.
 	const submit = async (event: FormEvent) => {
 		event.preventDefault();
 		const message = text.trim();
-		if (message === '' || sending) {
+		if (!sendable || sending) {
 			return;
 		}
+		const files = placed;
+		const taken = takenFiles(attachments.pending, files);
 		setSending(true);
 		setError(null);
-		show('');
-		const failed = await onSend(message, draft.settle);
+		editor.current?.clear();
+		attachments.sent();
+		show({text: '', files: []});
+		const failed = await onSend(message, files, draft.settle);
 		setSending(false);
 		if (failed !== null) {
 			setError(failed);
 			const since = typedNow.current;
-			type(since === '' ? text : `${text}\n${since}`);
+			const back: Typed = {
+				text: since.text === '' ? text : `${text}\n${since.text}`,
+				files: [...files, ...since.files],
+			};
+			attachments.restore(taken);
+			setBox((before) => ({
+				made: before.made + 1,
+				text: back.text,
+				files: [...taken, ...takenFiles(pendingNow.current, since.files)],
+			}));
+			type(back);
 			return;
 		}
 		draft.sent();
-		if (typedNow.current !== '') {
-			draft.typed(typedNow.current);
+		if (typedNow.current.text !== '') {
+			draft.typed(typedNow.current.text, typedNow.current.files);
 		}
 	};
 
-	// Enter sends; Shift+Enter breaks the line.
-	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-		if (event.key === 'Enter' && !event.shiftKey) {
-			event.preventDefault();
-			form.current?.requestSubmit();
-		}
-	};
+	const shownError = error ?? attachments.refused ?? failedUpload ?? listError;
 
 	return (
 		<form
@@ -1017,18 +1163,33 @@ function Composer({
 			onSubmit={(event) => void submit(event)}
 			className="page-column mx-auto flex w-full max-w-4xl shrink-0 flex-col gap-2 pt-2 pb-4"
 		>
-			{(error ?? listError) && <p className="text-sm text-destructive">{error ?? listError}</p>}
+			{dropping && <DropToAttach name={persona.name} />}
+			{shownError && <p className="text-sm text-destructive">{shownError}</p>}
+			<input
+				ref={picker}
+				type="file"
+				multiple
+				className="hidden"
+				aria-label="Files to attach"
+				onChange={(event) => {
+					const picked = [...(event.target.files ?? [])];
+					event.target.value = '';
+					attachments.add(picked);
+				}}
+			/>
 			{/* No focus ring: the caret in the only input on the page says where typing goes. */}
 			<InputGroup className="rounded-xl bg-background shadow-xs has-[[data-slot=input-group-control]:focus-visible]:border-input has-[[data-slot=input-group-control]:focus-visible]:ring-0">
-				<InputGroupTextarea
-					ref={input}
-					value={text}
-					onChange={(event) => type(event.target.value)}
-					onKeyDown={onKeyDown}
+				<MessageEditor
+					key={box.made}
+					ref={editor}
+					opening={box}
+					files={attachments.pending}
+					label="Message"
 					placeholder={`Message ${persona.name}`}
-					aria-label="Message"
-					className="min-h-10 p-3"
-					rows={1}
+					onChange={type}
+					onRemove={attachments.remove}
+					onFiles={attaches ? attachments.add : undefined}
+					onSubmit={() => form.current?.requestSubmit()}
 				/>
 				{/* The model's name starts where the message's hint does: 5px, the switcher's 1px border
 				    and its 6px padding make the textarea's 12px. It sits on the send button's bottom. */}
@@ -1039,12 +1200,24 @@ function Composer({
 						mayChange={persona.mayChange}
 						onPick={(choice) => void switchModel(choice)}
 					/>
+					{attaches && (
+						<PillButton
+							type="button"
+							variant="ghost"
+							icon
+							className="ml-auto"
+							onClick={() => picker.current?.click()}
+							aria-label="Attach files"
+						>
+							<PaperclipIcon />
+						</PillButton>
+					)}
 					{/* The command bar's main button without its label: Enter's mark, as Enter sends. */}
 					<PillButton
 						type="submit"
 						enter
-						className="ml-auto"
-						disabled={sending || text.trim() === ''}
+						className={cn(!attaches && 'ml-auto')}
+						disabled={sending || !sendable}
 						aria-label="Send"
 					/>
 				</InputGroupAddon>

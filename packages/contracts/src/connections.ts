@@ -119,6 +119,11 @@ export const createVaultBodySchema = z
 	.object({name: connectionNameSchema})
 	.extend(shareBodySchema.shape);
 
+/** `POST connections/files`: a new drive under the name the person gives it, their own or, `shared`, every member's. */
+export const createDriveBodySchema = z
+	.object({name: connectionNameSchema})
+	.extend(shareBodySchema.shape);
+
 const hostnameSchema = z
 	.string()
 	.trim()

@@ -12,6 +12,9 @@ export const EXPERIMENTS = {
 	// Sandboxes: computers of their own that agents ask for, kept while they are away, run by the
 	// sandbox backend the server is set up with.
 	sandboxes: 'Sandboxes',
+	// Files: a drive of folders and files for each member, kept in Personal Agent Proxy itself with
+	// every version of each, in the blob store the server is set up with.
+	files: 'Files',
 } as const satisfies Record<string, string>;
 
 export type Experiment = keyof typeof EXPERIMENTS;

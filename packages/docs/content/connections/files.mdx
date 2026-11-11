@@ -1,0 +1,131 @@
+---
+title: Files
+description: A drive of folders and files for your agents and you, with every version of each.
+---
+
+Files are built in, like the [Vault](/connections/vault): a drive of folders and files kept in
+Personal Agent Proxy itself, rather than an outside service you connect. It is where you hand
+your agents a file and where they put what they make for you: notes, a report, a spreadsheet as
+CSV. Nothing written to a file is lost: every write is the file's next version, and the ones
+before stay, each with who made it, so whatever an agent wrote over can be given back.
+
+You have a drive of your own in every organization that is offered Files, as you have a vault:
+nobody else in the organization sees it, and it can't be shared
+([Organizations](/organizations)). Your own agents reach it; a shared agent has none.
+
+For files that are more than yours, a team's documents or a project's working files, make a
+drive beside your own: **Add connection**, then **Files**, and give it a name, which is what it
+is called here and to agents, who go by it for what to put in it. A drive you made is shared as
+any connection is, with everyone in the organization or with members by name, on its **Sharing**
+tab: the people it is shared with, and their agents, read it and add to it as you do, and only
+you rename it, share it on or delete it. Deleting it deletes its files, for good.
+
+<Callout>
+Files are being tried out with some organizations first, so they are only offered to an
+organization that has them turned on, and on a Personal Agent Proxy set up with a place for
+their bytes (`FILES_DIR` or `FILES_S3_BUCKET` under
+[Environment variables](/self-hosting/environment)).
+</Callout>
+
+<Steps>
+
+### Choose what agents can do
+
+Files have four actions: **Read files**, which lists folders, opens files and shows their
+earlier versions; **Add files**, which adds files and folders, never over one that is there;
+**Edit files**, which writes over a file, renames it, moves it and gives an earlier version
+back; and **Move to trash**, which moves files and folders to the trash and takes them out
+again. Your own agents get all four by default, since nothing done to a drive is lost. Change any
+on an agent's page, or for every agent there as the default.
+
+### Put files in, and see what your agents made
+
+Open **Connections and permissions** in the sidebar, then **My files**, or a drive by its name.
+Upload with the button or by dropping files on the list; make folders; open a folder by its row.
+The search finds files and folders by name, in the folder you are in and everything below it,
+and says where each one is. A row's menu renames a file or a folder, moves it into another
+folder of the drive, or puts it in the trash. A file opens with what it
+is, a picture as it is, and its versions, newest first: each with when it was made and by whom,
+you or an agent, with the task the agent made it for. **Download** saves a version, **Restore**
+gives it back as the file's next version, and **Upload new version** replaces what the file
+holds, keeping what it held.
+
+### Empty the trash, or don't
+
+**Move to trash** takes a file, or a folder with everything in it, out of the drive without
+deleting it; **Trash** lists what is there, and takes it out again. What stays in the trash is
+deleted for good after 30 days.
+
+</Steps>
+
+## Files in a conversation
+
+On the Chat page, attach files to what you say with the paperclip, by pasting, as a screenshot,
+or by dropping them anywhere on the window. A file goes into the message where you are typing,
+as a word does, so you can write around it, and the agent reads it named in that place. It is
+uploaded the moment you put it there, and waits in the message with what you have typed, on any
+device, until you send the message or take it out again, by deleting it or by the cross that
+shows under the pointer. It is kept in your own drive, in a folder of the agent's under **Chats**,
+so it is there afterwards as any file of yours is; taking it out of a message leaves it there.
+The conversation goes on meaning the file as it was when you attached it, whatever it holds
+later.
+
+The agent reads a text file, a PDF, a Word document or a spreadsheet with your message, the
+first of it where it is long, and reads the rest when it needs it. A picture, a screenshot or a
+photograph, it sees as you do, where the model it answers with sees pictures: every Claude model
+does. It is given the pictures of your last two messages, each made small enough to send, so one
+from further back has to be attached again to be looked at again. The agents it hands work to
+don't see pictures; it tells them what a picture shows. Attaching a file lets the agents working on that
+conversation read that version of it, whatever they may otherwise do in your drive.
+
+The agent can show you a picture too, such as a chart it made in a [sandbox](/connections/sandboxes)
+or a screenshot already in a drive: it puts the picture in a drive and shows it in its answer,
+where its words put it, and clicking it opens the file in its drive. Like an attachment, the
+answer keeps the version it showed, whatever the file holds later. It only shows a file from a
+drive it may read; any other file it shows appears as a chip. A picture from anywhere else on the
+web appears as a link and is never loaded by itself, so an answer can't make your browser send
+anything to another site.
+
+## Agents and files
+
+An agent that may read a drive lists its folders, searches it by name, and reads a file as
+text: text as it is, a spreadsheet's tabs as CSV, a PDF's or a Word document's text, a long one
+a stretch at a time. It adds files and writes them as text.
+
+To write over a file, an agent has to name the version it read. Where the file changed since,
+by you or another agent, the write is refused and the agent reads the file again, so one never
+writes over what it hasn't seen. Every write, rename, move and trip to the trash is in the
+[activity log](/agents/mcp) under the task it was made for, and the file's own history says
+which agent made each version.
+
+An agent points you to a file it made by its link, which opens the file in your drive.
+
+### Files in a sandbox
+
+An agent that also runs commands in a [sandbox](/connections/sandboxes) moves files between a
+drive and the sandbox as they are, a picture, a spreadsheet or an archive as much as text, with
+`pap files`, which a command with `pap` turned on can run:
+
+- `pap files ls <connection> [path]` lists a folder by its path from the drive's top, such as
+  `Reports/2026`.
+- `pap files pull <connection> <path> [to]` brings a file into the sandbox, under its own name
+  or to the path given. `--id` with `--version` pulls a file by its id at one version, which is
+  how a file you attached to a conversation is brought in.
+- `pap files push <file>` sends a pulled file back as its next version, and
+  `pap files push <file> <connection> <path>` sends any file to a path, making the folders on
+  the way.
+
+The rule of a write holds here too: a push over a file is taken where the file still holds the
+version that was pulled, and refused where it changed since, unless it is pushed with `--force`;
+the version before is kept either way. A pull is a read, a push to a new path an added file, and
+a push over a file an edit, each checked against what the agent may do with the drive and in the
+activity log as from a sandbox.
+
+## Where the bytes are
+
+A drive's folders, names and versions are in the database; the bytes of each version are in the
+blob store the server is set up with: a directory on the server (`FILES_DIR`), for one server
+with a volume that is kept, or a bucket that speaks S3's protocol (`FILES_S3_BUCKET`), Amazon's,
+Cloudflare R2's or MinIO's, for servers that share no disk. A file is never served as a page of
+Personal Agent Proxy's: it downloads, except a picture, which shows. The largest file taken is
+100 MB unless `FILES_MAX_MB` says otherwise, up to 2047 MB.

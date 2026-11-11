@@ -124,6 +124,48 @@ export const envSchema = z.object({
 		description: 'What the sandbox service takes as the bearer token: the same long random string on both sides.',
 	}),
 
+	FILES_DIR: documented(z.string().min(1).optional(), {
+		group: 'Connections',
+		description:
+			'Turns on Files, a drive of folders and files for each member, kept here with every version of each: a directory on this server for their bytes, such as `/data/files`, on a volume that is kept. For one server; servers that share no disk need a bucket instead (`FILES_S3_BUCKET`), which is used where both are set. Unset, with no bucket either, there are no Files.',
+	}),
+	FILES_S3_BUCKET: documented(z.string().min(1).optional(), {
+		group: 'Connections',
+		description:
+			'Turns on Files with their bytes in a bucket that speaks S3’s protocol, Amazon’s, Cloudflare R2’s or MinIO’s: the bucket’s name, reached with `FILES_S3_ACCESS_KEY_ID` and `FILES_S3_SECRET_ACCESS_KEY`. Nothing in it is ever read by a browser from the bucket itself, so it needs no public access.',
+	}),
+	FILES_S3_ACCESS_KEY_ID: documented(z.string().min(1).optional(), {
+		group: 'Connections',
+		description: 'The access key’s id for `FILES_S3_BUCKET`, allowed to put, get and delete its objects.',
+	}),
+	FILES_S3_SECRET_ACCESS_KEY: documented(z.string().min(1).optional(), {
+		group: 'Connections',
+		description: 'The access key’s secret for `FILES_S3_BUCKET`.',
+	}),
+	FILES_S3_ENDPOINT: documented(originSchema.optional(), {
+		group: 'Connections',
+		description: 'The address of the store `FILES_S3_BUCKET` is in, where it isn’t Amazon’s: `https://<account>.r2.cloudflarestorage.com` for R2.',
+	}),
+	FILES_S3_REGION: documented(z.string().min(1).optional(), {
+		group: 'Connections',
+		description: 'The region `FILES_S3_BUCKET` is in, such as `eu-central-1`; `auto` for R2.',
+	}),
+	FILES_S3_PREFIX: documented(
+		z
+			.string()
+			.regex(/^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)*$/)
+			.optional(),
+		{
+			group: 'Connections',
+			description: 'What every object goes under in `FILES_S3_BUCKET`, such as `proxy`, for a bucket that holds more than this.',
+		},
+	),
+	// A file's size is kept in a 32-bit column, so a file is under 2 GB.
+	FILES_MAX_MB: documented(z.coerce.number().int().positive().max(2047).default(100), {
+		group: 'Connections',
+		description: 'The largest file Files takes, in megabytes: at most 2047.',
+	}),
+
 	TYPESAFE_API_KEY: documented(z.string().min(1).optional(), {
 		group: 'Core',
 		description:

@@ -1,4 +1,5 @@
 import {
+	type ChatAttachment,
 	chatAnswersSchema,
 	type markReadBodySchema,
 	personaAnswerSchema,
@@ -6,13 +7,15 @@ import {
 	type Persona,
 	type pinTaskBodySchema,
 	type postMessageBodySchema,
+	type removeAttachmentBodySchema,
 	postedMessageSchema,
 	type saveDraftBodySchema,
 	taskChatSchema,
 	threadLogSchema,
+	uploadedAttachmentSchema,
 } from '@proxy/contracts/harness';
 import type {z} from 'zod';
-import {apiRequest, apiSend, orgApi} from '@/client/request';
+import {apiRequest, apiSend, apiUpload, orgApi} from '@/client/request';
 
 // The Chat page's api: the personas the person sees, their own and General, which every member
 // does, each named and given a head, the person's own conversation with each, its turns, what
@@ -48,13 +51,50 @@ export function getThread(org: string, personaId: string) {
 	return apiRequest('GET', `${orgApi(org)}/chat/personas/${personaId}/thread`, threadLogSchema);
 }
 
-export function postMessage(org: string, personaId: string, text: string) {
+export function postMessage(
+	org: string,
+	personaId: string,
+	text: string,
+	attachments: ChatAttachment[] = [],
+) {
 	return apiRequest(
 		'POST',
 		`${orgApi(org)}/chat/personas/${personaId}/messages`,
 		postedMessageSchema,
-		{text} satisfies z.input<typeof postMessageBodySchema>,
+		{
+			text,
+			attachments: attachments.map(({connectionId, fileId, version}) => ({
+				connectionId,
+				fileId,
+				version,
+			})),
+		} satisfies z.input<typeof postMessageBodySchema>,
 	);
+}
+
+/**
+ * Uploads a file put in the conversation's input, which the api keeps in the person's own drive
+ * and in the input, until the next message is sent: what to attach to it. The file is the request's body, sent as bytes whatever it
+ * holds, its own type beside its name in the address.
+ */
+export function uploadAttachment(org: string, personaId: string, file: File) {
+	return apiUpload(
+		'POST',
+		`${orgApi(org)}/chat/personas/${personaId}/attachments`,
+		{name: file.name},
+		file,
+		uploadedAttachmentSchema,
+	);
+}
+
+/** Takes a file out of the conversation's input, where the api keeps it until the next message is sent; the file stays in its drive. */
+export function removeAttachment(org: string, personaId: string, attachment: ChatAttachment) {
+	const {connectionId, fileId, version} = attachment;
+	return apiSend('DELETE', `${orgApi(org)}/chat/personas/${personaId}/attachments`, {
+		connectionId,
+		fileId,
+		version,
+	} satisfies z.input<typeof removeAttachmentBodySchema>);
 }
 
 // A task the persona started in the person's conversation with it, as its chat shows it.
@@ -66,11 +106,34 @@ export function getTask(org: string, personaId: string, taskId: string) {
 	);
 }
 
-// What the person writes to a task in its chat: the task takes it up; the persona is told.
-export function postTaskMessage(org: string, personaId: string, taskId: string, text: string) {
+// What the person writes to a task in its chat, with the files they attach to it, each where it
+// sits among the words: the task takes it up; the persona is told.
+export function postTaskMessage(
+	org: string,
+	personaId: string,
+	taskId: string,
+	text: string,
+	attachments: ChatAttachment[],
+) {
 	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/tasks/${taskId}/messages`, {
 		text,
+		attachments: attachments.map(({connectionId, fileId, version}) => ({
+			connectionId,
+			fileId,
+			version,
+		})),
 	} satisfies z.input<typeof postMessageBodySchema>);
+}
+
+/** Uploads a file put in a task's input to the person's own drive: what to attach to what they write to the task next, which the page holds until then. */
+export function uploadTaskAttachment(org: string, personaId: string, taskId: string, file: File) {
+	return apiUpload(
+		'POST',
+		`${orgApi(org)}/chat/personas/${personaId}/tasks/${taskId}/attachments`,
+		{name: file.name},
+		file,
+		uploadedAttachmentSchema,
+	);
 }
 
 // Pins a task of the person's conversation with the persona to the list under it, or unpins it.
@@ -88,16 +151,32 @@ export function markRead(org: string, personaId: string, entryId: string) {
 
 // What the person has typed to the persona and not sent, kept in place of what was; an empty one
 // forgets it.
+/**
+ * Saves what is typed and not sent. With `files`, the files that sit among the words, in the
+ * order of their marks in the text: the api keeps the input's files in that order.
+ */
 export function saveDraft(
 	org: string,
 	personaId: string,
 	text: string,
-	options: {keepalive?: boolean} = {},
+	options: {keepalive?: boolean; files?: ChatAttachment[]} = {},
 ) {
+	const {files, ...sending} = options;
 	return apiSend(
 		'PUT',
 		`${orgApi(org)}/chat/personas/${personaId}/draft`,
-		{text} satisfies z.input<typeof saveDraftBodySchema>,
-		options,
+		{
+			text,
+			...(files === undefined || files.length === 0
+				? {}
+				: {
+						attachments: files.map(({connectionId, fileId, version}) => ({
+							connectionId,
+							fileId,
+							version,
+						})),
+					}),
+		} satisfies z.input<typeof saveDraftBodySchema>,
+		sending,
 	);
 }

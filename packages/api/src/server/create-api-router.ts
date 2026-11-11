@@ -1,7 +1,7 @@
 import express from 'express';
 import {z} from 'zod';
 
-import {CLI_CALL_PATH, CLI_STATUS, type CliCallFailure} from '@proxy/contracts/cli';
+import {CLI_CALL_PATH, CLI_FILES_PATH, CLI_STATUS, type CliCallFailure} from '@proxy/contracts/cli';
 import {CLI_GITHUB_API_PATH, CLI_GITHUB_GIT_PATH, CLI_GITHUB_IDENTITY_PATH} from '@proxy/contracts/cli-github';
 
 import {handleActivityTimelineRoute, handleListActivityRoute, handleTaskRunRoute} from '../activity/route';
@@ -41,6 +41,7 @@ import {handleGitHubInstallationsRoute} from '../connections/github/route';
 import type {ApiIntegration} from '../connections/integration';
 import {apiIntegrations} from '../connections/integrations';
 import {
+	handleCreateDriveRoute,
 	handleCreateVaultRoute,
 	handleDeleteConnectionRoute,
 	handleGetConnectionRoute,
@@ -79,6 +80,21 @@ import {handleAuthorizeRoute, handleConsentRoute, handleGetAuthorizationRequestR
 import {handleAuthorizationServerMetadataRoute, handleProtectedResourceMetadataRoute} from '../oauth/metadata';
 import {handleRegisterClientRoute} from '../oauth/register';
 import {handleTokenRoute} from '../oauth/token';
+import {
+	handleCreateFolderRoute,
+	handleFileContentRoute,
+	handleGetFileRoute,
+	handleListFilesRoute,
+	handleListTrashRoute,
+	handleMoveFileRoute,
+	handleRestoreFileRoute,
+	handleTrashFileRoute,
+	handleUntrashFileRoute,
+	handleUploadFileRoute,
+	handleWriteFileRoute,
+} from '../native/files/route';
+import {chatFiles} from '../native/files/chat';
+import {handleCliListFilesRoute, handleCliPullFileRoute, handleCliPushFileRoute} from '../native/files/cli';
 import {handleCreateRecordRoute, handleDeleteRecordRoute, handleGetRecordRoute, handleListRecordsRoute, handleUpdateRecordRoute} from '../records/route';
 import {handleAgendaRoute, handleFindEventsRoute} from '../widgets/agenda';
 import {handleAnswerRoute} from '../widgets/answer';
@@ -180,6 +196,8 @@ export function createApiRouter(): express.Router {
 	}
 	// A vault is made rather than connected: it lives here, so there is nothing to sign in to.
 	org.post('/connections/vault', withAuthResult('Create vault route', handleCreateVaultRoute));
+	// A drive beside the person's own is made the same way.
+	org.post('/connections/files', withAuthResult('Create drive route', handleCreateDriveRoute));
 	org.get('/connections/:connectionId', withAuthResult('Get connection route', handleGetConnectionRoute));
 	org.delete('/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
 	org.put('/connections/:connectionId/defaults', withAuthResult('Set connection defaults route', handleSetConnectionDefaultsRoute));
@@ -195,6 +213,21 @@ export function createApiRouter(): express.Router {
 	org.get(`${records}/:recordId`, withAuthResult('Get record route', handleGetRecordRoute));
 	org.put(`${records}/:recordId`, withAuthResult('Update record route', handleUpdateRecordRoute));
 	org.delete(`${records}/:recordId`, withAuthResult('Delete record route', handleDeleteRecordRoute));
+
+	// A drive's files, for its connection's page (native/files/route.ts): an upload's body is the
+	// file itself, sent as bytes whatever it holds, which the JSON parser above leaves alone.
+	const files = '/connections/:connectionId/files';
+	org.get(files, withAuthResult('List files route', handleListFilesRoute));
+	org.get(`${files}/trash`, withAuthResult('List trashed files route', handleListTrashRoute));
+	org.post(`${files}/folders`, withAuthResult('Create folder route', handleCreateFolderRoute));
+	org.post(`${files}/uploads`, withAuthResult('Upload file route', handleUploadFileRoute));
+	org.get(`${files}/:fileId`, withAuthResult('Get file route', handleGetFileRoute));
+	org.patch(`${files}/:fileId`, withAuthResult('Move file route', handleMoveFileRoute));
+	org.get(`${files}/:fileId/content`, withAuth('File content route', handleFileContentRoute));
+	org.put(`${files}/:fileId/content`, withAuthResult('Write file route', handleWriteFileRoute));
+	org.post(`${files}/:fileId/trash`, withAuthResult('Trash file route', handleTrashFileRoute));
+	org.post(`${files}/:fileId/untrash`, withAuthResult('Untrash file route', handleUntrashFileRoute));
+	org.post(`${files}/:fileId/restore`, withAuthResult('Restore file version route', handleRestoreFileRoute));
 
 	// A custom MCP server's logo, the icon of its site, for the person's pages and the agent's alike.
 	router.get('/api/favicons/:host', wrapAsyncRoute('Favicon route', handleFaviconRoute));
@@ -240,7 +273,7 @@ export function createApiRouter(): express.Router {
 	// The Chat page: the organization's built-in agents and the member's conversations with them.
 	// Nothing here runs the model: the worker in each api instance does (harness/worker.ts); a
 	// message queues its work.
-	const chat = chatRoutes(harnessStore, serverHarnesses);
+	const chat = chatRoutes(harnessStore, serverHarnesses, chatFiles);
 	org.get('/chat/personas', withAuthResult('List personas route', chat.handleListPersonasRoute));
 	org.get('/chat/answers', withAuthResult('List answers route', chat.handleListAnswersRoute));
 	org.post('/chat/personas', withAuthResult('Create persona route', chat.handleCreatePersonaRoute));
@@ -248,8 +281,11 @@ export function createApiRouter(): express.Router {
 	org.delete('/chat/personas/:personaId', withAuthResult('Delete persona route', chat.handleDeletePersonaRoute));
 	org.get('/chat/personas/:personaId/thread', withAuthResult('Get chat thread route', chat.handleGetThreadRoute));
 	org.post('/chat/personas/:personaId/messages', withAuthResult('Post chat message route', chat.handlePostMessageRoute));
+	org.post('/chat/personas/:personaId/attachments', withAuthResult('Upload chat attachment route', chat.handleUploadAttachmentRoute));
+	org.delete('/chat/personas/:personaId/attachments', withAuthResult('Remove chat attachment route', chat.handleRemoveAttachmentRoute));
 	org.get('/chat/personas/:personaId/tasks/:taskId', withAuthResult('Get chat task route', chat.handleGetTaskRoute));
 	org.post('/chat/personas/:personaId/tasks/:taskId/messages', withAuthResult('Post chat task message route', chat.handlePostTaskMessageRoute));
+	org.post('/chat/personas/:personaId/tasks/:taskId/attachments', withAuthResult('Upload chat task attachment route', chat.handleUploadTaskAttachmentRoute));
 	org.put('/chat/personas/:personaId/tasks/:taskId/pin', withAuthResult('Pin chat task route', chat.handlePinTaskRoute));
 	org.post('/chat/personas/:personaId/read', withAuthResult('Mark chat read route', chat.handleMarkReadRoute));
 	org.put('/chat/personas/:personaId/draft', withAuthResult('Save chat draft route', chat.handleSaveDraftRoute));
@@ -277,6 +313,11 @@ export function createApiRouter(): express.Router {
 	// a process in a sandbox, not a browser, and the bearer token, which no browser sends on its
 	// own, is the guard, as for the MCP server. Nothing above is mounted on `/api/cli`.
 	router.post(CLI_CALL_PATH, withCliAuth('CLI call route', handleCliCallRoute));
+	// A drive's files by path, for `pap files`: bytes down and up, which a tool's answer can't carry
+	// (native/files/cli.ts). An upload's body is the file, which the JSON parser above leaves alone.
+	router.get(`${CLI_FILES_PATH}/:connectionId/list`, withCliAuth('CLI list files route', handleCliListFilesRoute));
+	router.get(`${CLI_FILES_PATH}/:connectionId/content`, withCliAuth('CLI pull file route', handleCliPullFileRoute));
+	router.put(`${CLI_FILES_PATH}/:connectionId/content`, withCliAuth('CLI push file route', handleCliPushFileRoute));
 
 	// MCP clients such as Claude, ChatGPT and Poke: the MCP server, signed in with OAuth 2.1, where
 	// Personal Agent Proxy is its own authorization server. Clients find it from the MCP server's

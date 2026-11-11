@@ -11,6 +11,7 @@ export const NAV: {title: string; pages: NavEntry[]}[] = [
 		pages: [
 			'connections/vault',
 			'connections/sandboxes',
+			'connections/files',
 			{
 				page: 'connections/email',
 				pages: [

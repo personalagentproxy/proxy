@@ -6,6 +6,7 @@ import {
 	type connectMcpBodySchema,
 	connectMcpSchema,
 	type connectPlaidBodySchema,
+	type createDriveBodySchema,
 	type createVaultBodySchema,
 	type moveConnectionBodySchema,
 	type connectWithKeyBodySchema,
@@ -46,6 +47,11 @@ export function setConnectionSharing(
 /** Makes a vault under the name given, beside the person's own: theirs, or, `shared`, every member's too. */
 export function createVault(org: string, input: z.input<typeof createVaultBodySchema>) {
 	return apiRequest('POST', `${orgApi(org)}/connections/vault`, connectionSchema, input);
+}
+
+/** Makes a drive under the name given, beside the person's own: theirs, or, `shared`, every member's too. */
+export function createDrive(org: string, input: z.input<typeof createDriveBodySchema>) {
+	return apiRequest('POST', `${orgApi(org)}/connections/files`, connectionSchema, input);
 }
 
 export function getConnection(org: string, connectionId: string) {

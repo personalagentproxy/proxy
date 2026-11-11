@@ -1,5 +1,5 @@
 import type {Connection} from '@proxy/contracts/connections';
-import {isOffered, VAULT_INTEGRATION_ID, type IntegrationId} from '@proxy/integrations';
+import {isOffered, type IntegrationId} from '@proxy/integrations';
 import {useState} from 'react';
 import type {Experiment} from '@proxy/utils';
 import {Badge} from '@proxy/ui/components/badge';
@@ -66,9 +66,11 @@ export function IntegrationCatalog({
 	onConnected: (connection: Connection) => void;
 }) {
 	const org = useOrgSlug();
+	// What is connected, and what is made beside the person's own, a vault or a drive: the form
+	// that makes one is the app's, so the welcome flow, which has none, leaves those out.
 	const available = INTEGRATIONS.filter(
 		(integration) =>
-			(!integration.native || integration.id === VAULT_INTEGRATION_ID) &&
+			(!integration.native || (integration.made !== undefined && returnTo !== 'welcome')) &&
 			isOffered(integration, {experiments}),
 	);
 	// The integration a key is being typed for, in the dialog.

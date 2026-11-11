@@ -4,9 +4,12 @@ import {
 	COMPACT_AT_TOKENS,
 	compactionCut,
 	type ContextEntry,
+	type AttachedFile,
 	toMessages,
 	toTranscript,
+	withAttachments,
 } from './harness-context';
+import {ATTACHMENT_MARK} from './harness';
 
 type Kind = ContextEntry['kind'];
 
@@ -343,5 +346,129 @@ describe('toTranscript', () => {
 		expect(transcript.startsWith('A summary of what came before')).toBe(true);
 		expect(transcript).toContain('The person asked for one.\n\nPerson:\nTwo');
 		expect(transcript).not.toContain('rows one');
+	});
+});
+
+describe('withAttachments', () => {
+	const file: AttachedFile = {
+		connectionId: 'drive-1',
+		fileId: 'file-1',
+		version: 'v1',
+		name: 'pricing.md',
+		type: 'text/markdown',
+		size: 2048,
+		text: '# Pricing',
+		cut: false,
+		gone: false,
+	};
+
+	test('leaves what the person said as it is where they attached nothing', () => {
+		expect(withAttachments('Hello', [])).toBe('Hello');
+	});
+
+	test('writes each file under what was said: what names it for a read, and its text as far as it was kept', () => {
+		const read = withAttachments('What do these say?', [
+			file,
+			{
+				...file,
+				fileId: 'file-2',
+				name: 'long.txt',
+				type: 'text/plain',
+				text: 'The first part',
+				cut: true,
+			},
+		]);
+
+		expect(read.split('\n\n')).toEqual([
+			'What do these say?',
+			'The person attached 2 files, kept in their drive. files_read {id, version} on its connection reads one whole, as a sub-agent can; in a sandbox, pap files pull <connection> --id <id> --version <version> brings one in as it is.',
+			'pricing.md (text/markdown, 2 KB): connection drive-1, id file-1, version v1. Its text:\n"""\n# Pricing\n"""',
+			'long.txt (text/plain, 2 KB): connection drive-1, id file-2, version v1. The first of its text, files_read having the rest:\n"""\nThe first part\n"""',
+		]);
+	});
+
+	test('names each file in brackets where the person put it among their words, and lists them all the same', () => {
+		const chart = {...file, fileId: 'file-2', name: 'chart.png', type: 'image/png', text: null};
+
+		const read = withAttachments(`Does ${ATTACHMENT_MARK} match ${ATTACHMENT_MARK}?`, [
+			file,
+			chart,
+		]);
+
+		expect(read.split('\n\n')[0]).toBe('Does [pricing.md] match [chart.png]?');
+		expect(read.split('\n\n')).toHaveLength(4);
+		// A mark with no file to stand for is nothing; a file with no mark is listed only.
+		expect(
+			withAttachments(`See ${ATTACHMENT_MARK} and ${ATTACHMENT_MARK}`, [file]).split('\n\n')[0],
+		).toBe('See [pricing.md] and');
+		expect(withAttachments('See these', [file, chart]).split('\n\n')[0]).toBe('See these');
+		expect(withAttachments(ATTACHMENT_MARK, [file]).split('\n\n')[0]).toBe('[pricing.md]');
+	});
+
+	test('says of a picture the model is given with the message that it is shown, and of one it isn’t that it is not', () => {
+		const chart = {...file, fileId: 'file-2', name: 'chart.png', type: 'image/png', text: null};
+		const photo = {...chart, fileId: 'file-3', name: 'photo.jpg', type: 'image/jpeg'};
+
+		const read = withAttachments('What are these?', [chart, photo], [chart]);
+
+		expect(read.split('\n\n').slice(2)).toEqual([
+			'chart.png (image/png, 2 KB): connection drive-1, id file-2, version v1. A picture, shown to you with this message.',
+			'photo.jpg (image/jpeg, 2 KB): connection drive-1, id file-3, version v1. A picture, not shown to you here.',
+		]);
+	});
+
+	test('says of a file deleted for good since that it can’t be read, giving what was kept of its text, and nothing that names it for a read', () => {
+		const read = withAttachments('What changed?', [
+			{...file, gone: true},
+			{...file, fileId: 'file-2', name: 'long.txt', text: 'The first part', cut: true, gone: true},
+			{...file, fileId: 'file-3', name: 'chart.png', type: 'image/png', text: null, gone: true},
+		]);
+
+		expect(read.split('\n\n').slice(2)).toEqual([
+			'pricing.md (text/markdown, 2 KB): deleted from the drive since, so it can’t be read. Its text, kept with the message:\n"""\n# Pricing\n"""',
+			'long.txt (text/markdown, 2 KB): deleted from the drive since, so it can’t be read. The first of its text, kept with the message:\n"""\nThe first part\n"""',
+			'chart.png (image/png, 2 KB): deleted from the drive since, so it can’t be read.',
+		]);
+	});
+
+	test('says of a file that isn’t text, or holds nothing, that there is nothing of it to read here, and stands alone where nothing was said', () => {
+		const read = withAttachments('', [
+			{...file, name: 'archive.zip', type: 'application/zip', text: null},
+			{...file, name: 'empty.txt', text: ''},
+		]);
+
+		expect(read.split('\n\n')).toEqual([
+			'The person attached 2 files, kept in their drive. files_read {id, version} on its connection reads one whole, as a sub-agent can; in a sandbox, pap files pull <connection> --id <id> --version <version> brings one in as it is.',
+			'archive.zip (application/zip, 2 KB): connection drive-1, id file-1, version v1. Not text, so nothing of it is here.',
+			'empty.txt (text/markdown, 2 KB): connection drive-1, id file-1, version v1. It is empty.',
+		]);
+	});
+});
+
+describe('toMessages with pictures', () => {
+	test('gives what the person said with the pictures they attached in parts, each picture under its file’s name, and everything else as words', () => {
+		const said: ContextEntry = {
+			...entry(1, 'person', 'What is this?'),
+			images: [{name: 'chart.png', mediaType: 'image/png', data: 'QUJD'}],
+		};
+
+		const messages = toMessages(
+			[said, entry(2, 'assistant', 'A chart.'), entry(3, 'person', 'Thanks')],
+			[],
+			{clearOld: false},
+		);
+
+		expect(messages).toEqual([
+			{
+				role: 'user',
+				content: [
+					{type: 'text', text: 'chart.png:'},
+					{type: 'image_url', image_url: {url: 'data:image/png;base64,QUJD'}},
+					{type: 'text', text: 'What is this?'},
+				],
+			},
+			{role: 'assistant', content: 'A chart.'},
+			{role: 'user', content: 'Thanks'},
+		]);
 	});
 });

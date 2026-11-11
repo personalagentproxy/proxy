@@ -109,6 +109,7 @@ beforeEach(() => {
 	listEntries.mockResolvedValue(Ok([entry('person', 'Hi')]));
 	listSubAgents.mockResolvedValue(Ok([]));
 	store.listThreadAlerts.mockResolvedValue(Ok([]));
+	store.listAttachments.mockResolvedValue(Ok([]));
 	getThreadAgent.mockResolvedValue(Ok({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: ['openrouter']}));
 	getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'claude'}));
 	for (const write of [finishJob, completeInference, requeueJob, appendSummary, appendTurnEntries, store.failJob]) {
@@ -447,6 +448,158 @@ describe('runInference', () => {
 
 	describe('on any harness', () => {
 		const done: HarnessEvent = {kind: 'done', session: null, system: 'Sent.', inputTokens: 5, outputTokens: 1};
+
+		test('gives the harness what the person said with the files they attached to it written under it, and a sub-agent what the person wrote in its chat the same way', async () => {
+			const {runInference} = await import('./inference');
+			const fake = fakeHarness();
+			const said = entry('person', 'What does this say?');
+			listEntries.mockResolvedValue(Ok([entry('person', 'Hi'), said]));
+			store.listAttachments.mockResolvedValue(
+				Ok([
+					{
+						entryId: said.id,
+						connectionId: 'drive-1',
+						fileId: 'file-1',
+						version: 'v1',
+						name: 'pricing.md',
+						type: 'text/markdown',
+						size: 42,
+						text: '# Pricing review with Dana',
+						cut: false,
+						gone: false,
+					},
+				]),
+			);
+			fake.script([{kind: 'text', text: 'A pricing review.'}, done]);
+
+			(await runInference(store, on(fake), job, 'w1', false, clock)).unwrap();
+
+			expect(store.listAttachments).toHaveBeenCalledWith('thread-1');
+			const read = fake.turns[0]?.entries.map((given) => given.text) ?? [];
+			expect(read[0]).toBe('Hi');
+			expect(read[1]).toStartWith('What does this say?\n\nThe person attached a file, kept in their drive.');
+			expect(read[1]).toContain('pricing.md (text/markdown, 42 B): connection drive-1, id file-1, version v1. Its text:\n"""\n# Pricing review with Dana\n"""');
+
+			// A sub-agent reads what the person attached in its chat with what they wrote there; its
+			// brief, the agent's own words, has nothing attached.
+			const written = entry('person', 'Use this one');
+			listEntries.mockResolvedValue(Ok([entry('person', 'Read the pricing notes'), written]));
+			store.listAttachments.mockResolvedValue(
+				Ok([{entryId: written.id, connectionId: 'drive-1', fileId: 'file-2', version: 'v3', name: 'notes.md', type: 'text/markdown', size: 12, text: '# Notes', cut: false, gone: false}]),
+			);
+			getJobThread.mockResolvedValue(Ok(sub));
+			fake.script([{kind: 'text', text: 'Done.'}, done]);
+			(await runInference(store, on(fake), {...job, threadId: 'thread-2'}, 'w1', false, clock)).unwrap();
+			expect(store.listAttachments).toHaveBeenLastCalledWith(sub.id);
+			const subRead = fake.turns[1]?.entries.map((given) => given.text) ?? [];
+			expect(subRead[0]).toBe('Read the pricing notes');
+			expect(subRead[1]).toStartWith('Use this one\n\nThe person attached a file, kept in their drive.');
+		});
+
+		test('gives a model that sees pictures those of the person’s last two turns beside their words, and a model that doesn’t none; a picture that is lost is left out', async () => {
+			const {runInference} = await import('./inference');
+			const fake = fakeHarness();
+			const seeing = {...fake, models: [{id: 'claude', label: 'Claude', images: true as const}] satisfies HarnessBackend['models']};
+			const [first, second, third] = [entry('person', 'One'), entry('person', 'Two'), entry('person', 'Three')];
+			listEntries.mockResolvedValue(Ok([first, entry('assistant', 'A.'), second, entry('assistant', 'B.'), third]));
+			const file = {connectionId: 'drive-1', version: 'v1', type: 'image/png', size: 42, text: null, cut: false, gone: false};
+			const attached = [
+				{...file, entryId: first.id, fileId: 'file-1', name: 'old.png'},
+				{...file, entryId: second.id, fileId: 'file-2', name: 'chart.png'},
+				{...file, entryId: third.id, fileId: 'file-3', name: 'lost.png'},
+				{...file, entryId: third.id, fileId: 'file-4', name: 'notes.md', type: 'text/markdown', text: 'Notes'},
+			];
+			store.listAttachments.mockResolvedValue(Ok(attached));
+			const picture = mock(async (attachment: {name: string; type: string}) => {
+				if (attachment.name === 'lost.png') {
+					return Err(ApiErr.notFound('blob', 'gone'));
+				}
+				return Ok(attachment.type === 'image/png' ? {name: attachment.name, mediaType: 'image/png' as const, data: 'QUJD'} : null);
+			});
+			fake.script([{kind: 'text', text: 'Seen.'}, done]);
+
+			(await runInference(store, {...on(seeing), picture}, job, 'w1', false, clock)).unwrap();
+
+			const given = fake.turns[0]?.entries.filter((one) => one.kind === 'person') ?? [];
+			expect(given.map((one) => one.images)).toEqual([undefined, [{name: 'chart.png', mediaType: 'image/png', data: 'QUJD'}], undefined]);
+			// The turn before last is not read again, and what the model is told of each file says which it sees.
+			expect(picture.mock.calls.map(([attachment]) => attachment.name)).toEqual(['chart.png', 'lost.png', 'notes.md']);
+			expect(given[0]?.text).toContain('old.png (image/png, 42 B): connection drive-1, id file-1, version v1. A picture, not shown to you here.');
+			expect(given[1]?.text).toContain('chart.png (image/png, 42 B): connection drive-1, id file-2, version v1. A picture, shown to you with this message.');
+			expect(given[2]?.text).toContain('lost.png (image/png, 42 B): connection drive-1, id file-3, version v1. A picture, not shown to you here.');
+
+			// A model that sees none is given none, and nothing is read for it.
+			picture.mockClear();
+			fake.script([{kind: 'text', text: 'Unseen.'}, done]);
+			(await runInference(store, {...on(fake), picture}, job, 'w1', false, clock)).unwrap();
+			expect(picture).not.toHaveBeenCalled();
+			expect(fake.turns[1]?.entries.some((one) => one.images !== undefined)).toBe(false);
+		});
+
+		test('keeps the files an answer to the person shows with it, as its steps are written and as it ends; a sub-agent’s answers show none', async () => {
+			const {runInference} = await import('./inference');
+			const fake: HarnessBackend & ReturnType<typeof fakeHarness> = {...fakeHarness(), stepsPerTurn: 'many'};
+			const chart = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'chart.png', type: 'image/png', size: 42, text: null, cut: false};
+			const pinned = mock(async (_agent: unknown, text: string) => Ok(text.includes('![') ? [chart] : []));
+			const link = 'https://app.example.com/acme/connections/drive-1?file=file-1';
+			fake.script([
+				{kind: 'text', text: `Made it: ![Chart](${link})`},
+				{kind: 'tool_call', id: 'c1', name: 'read', arguments: '{}'},
+				{kind: 'tool_result', callId: 'c1', text: 'one', isError: false},
+				{kind: 'text', text: `Here again: ![Chart](${link})`},
+				done,
+			]);
+
+			(await runInference(store, {...on(fake), pinned}, job, 'w1', false, clock)).unwrap();
+
+			expect(pinned.mock.calls.map(([agent, text]) => [(agent as {agentId: string}).agentId, text])).toEqual([
+				['agent-1', `Made it: ![Chart](${link})`],
+				['agent-1', `Here again: ![Chart](${link})`],
+			]);
+			expect(appendTurnEntries.mock.calls[0]?.[3]?.[0]).toMatchObject({kind: 'assistant', attachments: [chart]});
+			expect(completeInference.mock.calls[0]?.[3]).toMatchObject({text: `Here again: ![Chart](${link})`, attachments: [chart]});
+
+			// An answer showing nothing is written without files.
+			fake.script([{kind: 'text', text: 'Nothing to show.'}, done]);
+			(await runInference(store, {...on(fake), pinned}, job, 'w1', false, clock)).unwrap();
+			expect(completeInference.mock.calls[1]?.[3]).not.toHaveProperty('attachments');
+
+			// A sub-agent's answers are for the agent it works for.
+			pinned.mockClear();
+			getJobThread.mockResolvedValue(Ok(sub));
+			fake.script([{kind: 'text', text: `Made it: ![Chart](${link})`}, done]);
+			(await runInference(store, {...on(fake), pinned}, {...job, threadId: 'thread-2'}, 'w1', false, clock)).unwrap();
+			expect(pinned).not.toHaveBeenCalled();
+		});
+
+		test('writes the answer all the same where the files it shows can’t be read, without them', async () => {
+			const {runInference} = await import('./inference');
+			const fake = fakeHarness();
+			const pinned = mock(async () => Err(ApiErr.dbError(new Error('down'))));
+			fake.script([{kind: 'text', text: '![Chart](https://app.example.com/acme/connections/drive-1?file=file-1)'}, done]);
+
+			(await runInference(store, {...on(fake), pinned}, job, 'w1', false, clock)).unwrap();
+
+			expect(pinned).toHaveBeenCalledTimes(1);
+			const written = completeInference.mock.calls[0]?.[3];
+			expect(written?.text).toContain('![Chart]');
+			expect(written).not.toHaveProperty('attachments');
+		});
+
+		test('tells the model nothing of the files its own answers showed', async () => {
+			const {runInference} = await import('./inference');
+			const fake = fakeHarness();
+			const answer = entry('assistant', 'Here: ![Chart](https://app.example.com/acme/connections/drive-1?file=file-1)');
+			listEntries.mockResolvedValue(Ok([entry('person', 'Chart it'), answer, entry('person', 'Thanks')]));
+			store.listAttachments.mockResolvedValue(
+				Ok([{entryId: answer.id, connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'chart.png', type: 'image/png', size: 42, text: null, cut: false, gone: false}]),
+			);
+			fake.script([{kind: 'text', text: 'You’re welcome.'}, done]);
+
+			(await runInference(store, on(fake), job, 'w1', false, clock)).unwrap();
+
+			expect(fake.turns[0]?.entries.map((given) => given.text)).toEqual(['Chart it', answer.text, 'Thanks']);
+		});
 
 		test('gives the harness the thread, the log, its sub-agents, the prompt, the tools and the model, one step and no session, and writes the answer as it ended', async () => {
 			const {runInference} = await import('./inference');

@@ -18,6 +18,8 @@ type Answer = {status: number; body: Json | undefined};
 
 export type Client = {
 	get: (path: string, headers: Record<string, string>) => Promise<Result<Answer, Failure>>;
+	/** A request with the token, answered as it comes, its body unread: for bytes rather than JSON. */
+	send: (path: string, init: RequestInit) => Promise<Result<Response, Failure>>;
 	post: (path: string, body: Json) => Promise<Result<Answer, Failure>>;
 	call: (method: PapMethod, args: Json[]) => Promise<Result<Json, Failure>>;
 };
@@ -52,13 +54,21 @@ export function clientFrom(io: Io): Result<Client, Failure> {
 		const authorization = `Bearer ${token}`;
 		const get: Client['get'] = (path, headers) =>
 			answer(io, base, path, {headers: {...headers, authorization}});
+		const send: Client['send'] = async (path, init) =>
+			(
+				await Result.wrapAsync<Response, Error>(() =>
+					io.fetch(`${base}${path}`, {...init, headers: {...init.headers, authorization}}),
+				)
+			).mapErr((cause) =>
+				failed(`Could not reach PAP at ${base}: ${errorText(cause)}. Try again.`),
+			);
 		const post: Client['post'] = (path, body) =>
 			answer(io, base, path, {
 				method: 'POST',
 				headers: {authorization, 'content-type': 'application/json'},
 				body: JSON.stringify(body),
 			});
-		return {get, post, call: caller(post)};
+		return {get, send, post, call: caller(post)};
 	});
 }
 

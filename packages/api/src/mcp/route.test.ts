@@ -169,6 +169,43 @@ describe('handleMcpRoute', () => {
 		expect(await instructions()).not.toContain('pap CLI');
 	});
 
+	test('with a drive to read, drives are said to keep every version, and with one to add to, where what it makes goes and that the person is given its Link', async () => {
+		const own = {id: 'drive-1', integrationId: 'files', account: 'Acme', shared: false, actions: ['readFiles', 'createFiles', 'editFiles', 'trashFiles'], tools: null, name: null};
+		const team = {...own, id: 'drive-2', name: 'Launch', shared: true};
+		const instructions = async () => ((await post(rpc('initialize', {protocolVersion: '2025-06-18'}))).body as {result: {instructions: string}}).result.instructions;
+
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [own, team]}));
+		const both = await instructions();
+		expect(both).toContain('- drive-1: Files (Acme): Read files, Add files, Edit files, Move to trash');
+		expect(both).toContain('- drive-2: Launch (Files, Acme), shared: Read files');
+		expect(both).toContain(
+			'Drives (Files) keep folders and files with every version of each. Put what you make for the person in their own drive (the one without a name), or the one they name, and give them the Link the tool answers with: a file has no other address.',
+		);
+		// Files are built in, so never something to suggest connecting.
+		expect(both).not.toMatch(/Connectable here: [^.]*Files/);
+
+		// With none it may add to, nothing is said of where what it makes goes; with none to read, nothing of drives.
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...team, actions: ['readFiles']}]}));
+		const reading = await instructions();
+		expect(reading).toContain('Drives (Files) keep folders and files with every version of each.');
+		expect(reading).not.toContain('Put what you make');
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...team, actions: []}]}));
+		expect(await instructions()).not.toContain('Drives (Files)');
+	});
+
+	test('with a sandbox to run commands in, a drive’s files go in and out of it with pap files', async () => {
+		const drive = {id: 'drive-1', integrationId: 'files', account: 'Acme', shared: false, actions: ['readFiles', 'createFiles'], tools: null, name: null};
+		const sandboxes = {id: 'sandboxes-1', integrationId: 'sandbox', account: 'Acme', shared: false, actions: ['read', 'run'], tools: null, name: null};
+		const instructions = async () => ((await post(rpc('initialize', {protocolVersion: '2025-06-18'}))).body as {result: {instructions: string}}).result.instructions;
+
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [drive, sandboxes]}));
+		expect(await instructions()).toContain('In a sandbox, pap files pull <drive> <path> and pap files push <file> <drive> <path> move a file in and out as it is; pap files --help has the rest.');
+
+		// Without a sandbox to run in, nothing is said of pap files.
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [drive, {...sandboxes, actions: ['read']}]}));
+		expect(await instructions()).not.toContain('pap files');
+	});
+
 	test("a vault a member made is a memory by its name, the only kind a shared agent has, and beside the person's own says what goes where", async () => {
 		const own = {id: 'vault-1', integrationId: 'vault', account: 'Acme', shared: false, actions: ['readEntries', 'writeEntries'], tools: null, name: null};
 		const team = {...own, id: 'vault-2', name: 'Team handbook', shared: true};

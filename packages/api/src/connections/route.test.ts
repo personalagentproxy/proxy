@@ -48,6 +48,11 @@ const owner = {orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace
 const member = {...owner, userId: 'user-2', role: 'member'};
 const requireViewer = mock(async (): Promise<unknown> => Ok(owner));
 
+// Whether Files are offered: the experiment and a place for the bytes, which the tests of making a
+// drive say; the built-in drive is made elsewhere.
+const filesOffered = mock(async () => true);
+mock.module('../native/files/connections', () => ({filesOffered, ensureFilesConnection: mock(async () => Ok(undefined))}));
+
 mock.module('../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 
 const warn = mock();
@@ -578,7 +583,6 @@ describe('handleMoveConnectionRoute', () => {
 		expect(same.unwrapErr().kind).toBe('validation_error');
 		expect(moveConnection).not.toHaveBeenCalled();
 	});
-
 });
 
 describe('handleCreateVaultRoute', () => {
@@ -618,5 +622,65 @@ describe('handleCreateVaultRoute', () => {
 
 		expect(result.unwrapErr().kind).toBe('parse_error');
 		expect(createConnection).not.toHaveBeenCalled();
+	});
+});
+
+describe('handleCreateDriveRoute', () => {
+	const madeDrive = {
+		...emailRow,
+		id: 'conn-8',
+		integrationId: 'files',
+		account: 'Workspace',
+		name: 'Launch',
+		defaults: [{actionId: 'readFiles'}, {actionId: 'createFiles'}, {actionId: 'editFiles'}, {actionId: 'trashFiles'}],
+	};
+
+	test('makes a named drive of the person’s, or every member’s where asked, which agents read and write by default', async () => {
+		const {credential: _credential, ...row} = madeDrive;
+		createConnection.mockResolvedValue(Ok(row));
+		const {handleCreateDriveRoute} = await import('./route');
+		const result = await handleCreateDriveRoute(makeRequest({}, {name: ' Launch '}));
+
+		expect(createConnection).toHaveBeenCalledWith({
+			orgId: 'org-1',
+			ownerUserId: 'user-1',
+			sharedWithEveryone: false,
+			integrationId: 'files',
+			account: 'Workspace',
+			name: 'Launch',
+			defaults: ['readFiles', 'createFiles', 'editFiles', 'trashFiles'],
+		});
+		// One a member made is theirs to rename, share and delete, as their built-in one isn't.
+		expect(result.unwrap()).toMatchObject({id: 'conn-8', name: 'Launch', builtIn: false, shared: false, signInNeeded: false});
+
+		createConnection.mockResolvedValue(Ok({...row, sharedWithEveryone: true}));
+		const shared = await handleCreateDriveRoute(makeRequest({}, {name: 'Launch', shared: true}));
+		expect(createConnection).toHaveBeenLastCalledWith(expect.objectContaining({sharedWithEveryone: true}));
+		expect(shared.unwrap()).toMatchObject({shared: true, sharedWithEveryone: true});
+	});
+
+	test('a drive needs a name, and is made only where Files are offered', async () => {
+		const {handleCreateDriveRoute} = await import('./route');
+
+		expect((await handleCreateDriveRoute(makeRequest({}, {name: '  '}))).unwrapErr().kind).toBe('parse_error');
+		filesOffered.mockResolvedValueOnce(false);
+		expect((await handleCreateDriveRoute(makeRequest({}, {name: 'Launch'}))).unwrapErr().kind).toBe('forbidden');
+		expect(createConnection).not.toHaveBeenCalled();
+	});
+});
+
+describe('a drive, as a connection', () => {
+	test('the person’s own keeps its name and is never shared or deleted; one they made is renamed, to something, shared and deleted', async () => {
+		updateConnectionName.mockResolvedValue(Ok(undefined));
+		const {handleRenameConnectionRoute, handleDeleteConnectionRoute, handleSetConnectionSharingRoute} = await import('./route');
+
+		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId: 'files', name: null, credential: null}));
+		expect((await handleRenameConnectionRoute(makeRequest({connectionId: 'conn-1'}, {name: 'Mine'}))).unwrapErr().kind).toBe('forbidden');
+		expect((await handleSetConnectionSharingRoute(makeRequest({connectionId: 'conn-1'}, {everyone: true, userIds: []}))).unwrapErr().kind).toBe('forbidden');
+		expect((await handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-1'}))).unwrapErr().kind).toBe('forbidden');
+
+		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId: 'files', name: 'Launch', credential: null}));
+		expect((await handleRenameConnectionRoute(makeRequest({connectionId: 'conn-1'}, {name: ''}))).unwrapErr()).toEqual(ApiErr.validationError('A drive needs a name'));
+		expect((await handleRenameConnectionRoute(makeRequest({connectionId: 'conn-1'}, {name: 'Launch 2'}))).unwrap()).toMatchObject({name: 'Launch 2', builtIn: false});
 	});
 });

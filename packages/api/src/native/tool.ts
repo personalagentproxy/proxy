@@ -18,3 +18,12 @@ import type {TaskCaller} from '../agent-side/tools';
 export type NativeToolRun = {caller: TaskCaller; connection: ConnectionRow & {credential: string | null}; params: Record<string, unknown>};
 
 export type NativeToolRunner = (run: NativeToolRun) => Promise<Result<string, ApiError>>;
+
+/**
+ * Whether a run of one of the integration's own tools is one the person allowed by what they did,
+ * whatever the agent may do with the connection otherwise: asked by the gate where the agent
+ * lacks the action the tool needs, before it refuses, of the integration's module that names one
+ * for the tool. As attaching a file to a conversation lets its agents read the version attached
+ * (native/files/attached.ts). The run is logged as any allowed one is.
+ */
+export type NativeToolAllowance = (run: NativeToolRun) => Promise<Result<boolean, ApiError>>;

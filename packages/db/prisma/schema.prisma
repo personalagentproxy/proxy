@@ -147,6 +147,7 @@ model Organization {
   personas    Persona[]
   alerts      AgentAlert[]
   sandboxes   Sandbox[]
+  fileChanges FileChange[]
 
   @@index([ownerUserId])
 }
@@ -239,6 +240,8 @@ model Connection {
   writeTargets WriteTarget[]
   polls        ConnectionPoll[]
   sandboxes    Sandbox[]
+  fileNodes    FileNode[]
+  fileVersions FileVersion[]
 
   @@index([orgId])
   @@index([ownerUserId])
@@ -602,6 +605,123 @@ model OAuthGrant {
   @@index([userId])
 }
 
+// A file or a folder of a Files connection, a drive kept in Personal Agent Proxy itself: the tree,
+// by `parentId`, the top of the drive null. A name is its folder's only one outside the trash,
+// which the writes keep by taking the connection's row first (db/files.ts). A
+// file's content is its head version (FileVersion), which every write moves on and no write
+// changes; a folder has none. In the trash from `trashedAt` on, with everything inside it, which
+// keeps its own mark only where it was trashed by itself; out again by clearing it.
+model FileNode {
+  id            String    @id @default(cuid())
+  connectionId  String
+  // The folder it is in (FileNode; as a column, as a task's parent is: both are one connection's
+  // and go with it), null at the top. What is inside a folder is deleted with it by the purge
+  // (db/files.ts).
+  parentId      String?
+  name          String
+  folder        Boolean   @default(false)
+  // A file's content as it is now, by its version's id (FileVersion; as a column: versions name
+  // their file by plain ids, as below); null for a folder.
+  headVersionId String?
+  trashedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId, parentId])
+  @@index([parentId])
+  @@index([trashedAt])
+}
+
+// What a file held at one time: the blob with its bytes, their size and what kind they are. Never
+// changed once written; a file's history is its versions in the order they were made, and giving
+// an old one back makes a new one of the same blob. The file is named by its connection and its id
+// there as plain ids, not as a row of the tree, so that a drive whose tree lives elsewhere can
+// keep its versions here the same way.
+model FileVersion {
+  id           String @id @default(cuid())
+  connectionId String
+  fileId       String
+  blobId       String
+  size         Int
+  // The media type, as `text/markdown`, as whoever wrote it said or its name told.
+  type         String
+
+  createdAt DateTime @default(now())
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  blob       FileBlob   @relation(fields: [blobId], references: [id])
+
+  @@index([connectionId, fileId, createdAt])
+  @@index([blobId])
+}
+
+// Bytes in the server's blob store (@proxy/backends/blob), under `key` at the backend that took
+// them. The row is made before the bytes are sent, and `sha256` set once they are all there, so
+// nothing is in the store that no row names. A blob no version points at any more, its upload
+// given up or its versions gone with their drive, is removed from the store and then here by the
+// sweep (api native/files/sweeper.ts); the organization is a plain id, so the row outlives it
+// until then.
+model FileBlob {
+  id        String  @id @default(cuid())
+  orgId     String
+  backendId String
+  key       String  @unique
+  size      Int     @default(0)
+  sha256    String?
+
+  createdAt DateTime @default(now())
+
+  versions FileVersion[]
+
+  @@index([createdAt])
+}
+
+// What a change to a file was: made, its content written, renamed or moved, put in the trash,
+// taken out of it, or given an earlier version back.
+enum FileChangeKind {
+  create
+  write
+  move
+  trash
+  untrash
+  restore
+}
+
+// One change made to a file through Personal Agent Proxy, written with the change, once: what it
+// was, the file's versions before and after it, where it was and what it was called before a move,
+// and who made it: a member, or an agent for one of its tasks. What undoing a change, or all of a
+// task's, reads. Plain ids, like the activity log, so it stays when the agent, the file or the
+// connection is gone; it goes with the organization.
+model FileChange {
+  id            String         @id @default(cuid())
+  orgId         String
+  connectionId  String
+  fileId        String
+  // The file's name at the time, after the change.
+  name          String
+  kind          FileChangeKind
+  beforeVersion String?
+  afterVersion  String?
+  // Set by a move: the folder it was in, where it left one that isn't the top, and its name then.
+  beforeParentId String?
+  beforeName     String?
+  // Who made it: the member, or the agent and its task (AgentTask).
+  userId        String?
+  agentId       String?
+  taskId        String?
+
+  createdAt DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt])
+  @@index([connectionId, fileId, createdAt])
+  @@index([taskId])
+}
+
 // A persona of the Chat page: an agent Personal Agent Proxy runs itself, named and given a head,
 // one of any number. It is whoever made it's, who alone sees it, talks to it and changes it; General,
 // which every organization starts with, is nobody's, so every member sees it and has a
@@ -737,10 +857,11 @@ model AgentThread {
   agent   Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
   persona Persona      @relation(fields: [personaId], references: [id], onDelete: Cascade)
   user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  entries   AgentEntry[]
-  jobs      AgentJob[]
-  jobEvents AgentJobEvent[]
-  alerts    AgentAlert[]
+  entries     AgentEntry[]
+  jobs        AgentJob[]
+  jobEvents   AgentJobEvent[]
+  alerts      AgentAlert[]
+  attachments AgentEntryAttachment[]
 
   @@index([personaId, userId])
   @@index([agentId])
@@ -804,9 +925,45 @@ model AgentEntry {
 
   createdAt DateTime @default(now())
 
-  thread AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  thread      AgentThread            @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  attachments AgentEntryAttachment[]
 
   @@index([threadId, seq])
+}
+
+// A file the person attached to what they said in a conversation, or one the agent showed them in
+// an answer, as a picture in its words: one of a drive's (FileNode, by plain ids, so it stays as it
+// was said when the file or the drive is gone), at the version it held then, which the
+// conversation keeps meaning whatever the file holds later, with its name, kind and size as they
+// were. Without an entry, a file the member put in the conversation's input and hasn't sent, kept
+// there as the draft is, on any device, until the message they send takes its place. `text` is
+// what the model is given of it with the message: the first of the file's text, `cut` where there
+// was more; null for a file that isn't text, for one the agent showed, and for one not sent yet. A
+// file the person attached lets the conversation's agents read that version, whatever they may do
+// in its drive otherwise (api native/files/attached.ts). In the order they were attached, or sit in
+// the input, by `position`.
+model AgentEntryAttachment {
+  id           String  @id @default(cuid())
+  // Null for a file in the input, not sent yet.
+  entryId      String?
+  threadId     String
+  position     Int
+  connectionId String
+  fileId       String
+  version      String
+  name         String
+  type         String
+  size         Int
+  text         String?
+  cut          Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  entry  AgentEntry?  @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  thread AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
+  @@index([threadId, connectionId, fileId])
 }
 
 enum AgentJobKind {

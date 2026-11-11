@@ -10,7 +10,7 @@ function at(month: number, day: number, hour: number, minute = 0, year = 2026): 
 }
 
 function entry(id: string, kind: 'person' | 'assistant', when: string): ChatEntry {
-	return {id, kind, text: id, isError: false, at: when};
+	return {id, kind, text: id, isError: false, at: when, attachments: []};
 }
 
 // A task the persona started, as the conversation shows it.

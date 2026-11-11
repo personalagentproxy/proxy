@@ -2,7 +2,14 @@ import {z} from 'zod';
 
 import {PAP_METHODS} from './cli-constants';
 
-export {CLI_CALL_PATH, CLI_STATUS, PAP_METHODS, type PapMethod} from './cli-constants';
+export {
+	CLI_CALL_PATH,
+	CLI_FILE_HEADER,
+	CLI_FILES_PATH,
+	CLI_STATUS,
+	PAP_METHODS,
+	type PapMethod,
+} from './cli-constants';
 
 /**
  * The CLI's routes (`/api/cli/…`), for code in a sandbox: what the `script` tool's `pap` object
@@ -41,3 +48,61 @@ export type CliCallBody = z.input<typeof cliCallBodySchema>;
 
 /** 422: the call failed, `error` the kind of error and `message` what went wrong, for a model. */
 export type CliCallFailure = {error: string; message: string};
+
+/**
+ * A drive's files by path, for code in a sandbox (`/api/cli/files/:connection/…`), which a tool
+ * can't carry: a tool's answer is text, and a file is bytes. With the same token, through the same
+ * gate and into the same log as a tool run: listing and reading need Read files, a new file Add
+ * files, and writing over one Edit files. A path is the names from the drive's top with `/`
+ * between them, as `Reports/2026/q3.csv`; the top is the empty path. Answered with the statuses
+ * `/api/cli/call` uses: 200, 422 with `{error, message}` for what went wrong, in words for a
+ * model, and 401 for the token.
+ * - `GET …/list?path=`: what the folder holds (`cliFileListSchema`).
+ * - `GET …/content?path=` or `?id=`, with `&version=` for an earlier version: the file's bytes,
+ *   and which file they are in the `x-pap-file` header (`cliFileSchema`, URI-encoded JSON).
+ * - `PUT …/content?path=`, its body the bytes, sent as `application/octet-stream`: a new file
+ *   there, the folders on the way made where they are missing; or, where a file is there, its next
+ *   version, by whoever names the version it holds (`&version=`), as the write tool takes it, or
+ *   says `&force=1` to write over whatever it holds. Answers `cliPushedSchema`.
+ */
+export const cliFileSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	/** Where it is, from the drive's top. */
+	path: z.string(),
+	folder: z.boolean(),
+	/** What a file holds: its version's id, its size in bytes and its media type; null for a folder. */
+	version: z.string().nullable(),
+	size: z.number().nullable(),
+	type: z.string().nullable(),
+});
+
+export type CliFile = z.infer<typeof cliFileSchema>;
+
+export const cliFileListSchema = z.object({path: z.string(), files: z.array(cliFileSchema)});
+
+export const cliPushedSchema = z.object({
+	file: cliFileSchema,
+	/** Whether the file is new, rather than a new version of one that was there. */
+	created: z.boolean(),
+	/** The page the person opens it on. */
+	link: z.string(),
+});
+
+export const cliListQuerySchema = z.object({path: z.string().max(2000).default('')});
+
+export const cliPullQuerySchema = z
+	.object({
+		path: z.string().min(1).max(2000).optional(),
+		id: z.string().min(1).optional(),
+		version: z.string().min(1).optional(),
+	})
+	.refine(({path, id}) => (path === undefined) !== (id === undefined), {
+		message: 'Name the file by path or by id, one of them',
+	});
+
+export const cliPushQuerySchema = z.object({
+	path: z.string().min(1).max(2000),
+	version: z.string().min(1).optional(),
+	force: z.enum(['1']).optional(),
+});

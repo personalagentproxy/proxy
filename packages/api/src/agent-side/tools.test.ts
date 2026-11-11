@@ -783,6 +783,23 @@ describe("an integration's own tools", () => {
 		expect(logAgentRequest).toHaveBeenCalledTimes(1);
 	});
 
+	test('one the agent lacks the action for runs all the same where the person allowed that very run, as its module says, and is logged as allowed', async () => {
+		getAgentById.mockResolvedValue(Ok({...agent, grants: []}));
+		const allowed = mock(async (run: {params: Record<string, unknown>}) => Ok(run.params.days === 30));
+		apiIntegration.mockImplementation((id) => (id === 'vault' ? {...vaultModule, allowances: {entries_purge: allowed}} : undefined));
+		purgeEntries.mockResolvedValue(Ok('Purged'));
+		const {runAgentTool} = await import('./tools');
+
+		expect((await runAgentTool(caller, 'vault-1', 'entries_purge', {days: 30})).unwrap()).toEqual({text: 'Purged'});
+		expect(allowed).toHaveBeenCalledWith({caller, connection: vaultConnection, params: {days: 30}});
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'entries_purge', outcome: 'allowed'});
+
+		// Another run of the same tool is refused as before.
+		logAgentRequest.mockClear();
+		expect((await runAgentTool(caller, 'vault-1', 'entries_purge', {days: 7})).unwrapErr().kind).toBe('forbidden');
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'entries_purge', outcome: 'denied'});
+	});
+
 	test('what the runner failed with is passed on, logged as failed; a tool without a runner is not found', async () => {
 		countEntries.mockResolvedValue(Err(ApiErr.validationError('Not a type of entry')));
 		const {runAgentTool} = await import('./tools');

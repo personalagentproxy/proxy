@@ -1,16 +1,25 @@
-import type {TaskChat, TaskChatEntry} from '@proxy/contracts/harness';
+import type {ChatAttachment, TaskChat, TaskChatEntry} from '@proxy/contracts/harness';
+import {PaperclipIcon} from 'lucide-react';
 import {
+	Fragment,
 	type FormEvent,
-	type KeyboardEvent,
 	memo,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
+	useMemo,
 	useRef,
 	useState,
 } from 'react';
-import {getTask, postTaskMessage} from '@/client/harness-client';
+import {getTask, postTaskMessage, uploadTaskAttachment} from '@/client/harness-client';
+import {DropToAttach, SentChip} from '@/components/chat/attachments';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {Message, MessageContent} from '@/components/chat/message';
+import {
+	MessageEditor,
+	type MessageEditorHandle,
+	type Typed,
+} from '@/components/chat/message-editor';
 import {
 	MessageScroller,
 	MessageScrollerButton,
@@ -22,15 +31,20 @@ import {WorkingLine} from '@/components/chat/task-line';
 import {Head} from '@/components/head';
 import {Markdown} from '@/components/markdown';
 import {PillButton} from '@proxy/ui/components/pill-button';
+import {type AttachmentInput, takenFiles, useAttachments} from '@/hooks/use-attachments';
+import {useExperiments} from '@/hooks/use-experiment';
 import {useLoaded} from '@/hooks/use-loaded';
 import {useOrgSlug} from '@/hooks/use-org';
 import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
 import {useSending} from '@/hooks/use-sending';
+import {useWindowFileDrop} from '@/hooks/use-window-file-drop';
 import {keepEntries, sameJson} from '@/lib/chat-log';
 import {chatRuns} from '@/lib/chat-runs';
-import {describeFetchError} from '@/lib/loader-utils';
+import {describeApiError} from '@/lib/loader-utils';
 import type {chatTaskLoader} from '@/loaders';
-import {InputGroup, InputGroupAddon, InputGroupTextarea} from '@proxy/ui/components/input-group';
+import {attachedParts, ATTACHMENT_MARK} from '@proxy/utils/harness';
+import {InputGroup, InputGroupAddon} from '@proxy/ui/components/input-group';
+import {cn} from '@proxy/ui/lib/utils';
 
 // How often the chat is read again while the task is at work, and while it is not.
 const BUSY_POLL_MS = 1000;
@@ -55,7 +69,8 @@ function RunLabel({from, chat}: {from: TaskChatEntry['from']; chat: TaskChat}) {
 
 // One message of the chat: what the task said, on the left, as plain text, in a red bubble where
 // it failed; what the persona said to it, on the right, in an outlined one; and what the person
-// wrote to it, on the right, in a gray one, as they typed it. It is drawn again only as it
+// wrote to it, on the right, in a gray one, as they typed it, with the files they attached where
+// they put them. It is drawn again only as it
 // changes, since drawing it parses its Markdown; one that came while the chat was open rises into
 // place.
 const TaskTurn = memo(function TaskTurn({entry, fresh}: {entry: TaskChatEntry; fresh: boolean}) {
@@ -72,7 +87,15 @@ function TaskTurnBubble({entry}: {entry: TaskChatEntry}) {
 			<Message align="end">
 				<MessageContent>
 					<Bubble align="end" variant="muted">
-						<BubbleContent className="whitespace-pre-wrap">{entry.text}</BubbleContent>
+						<BubbleContent className="whitespace-pre-wrap">
+							{attachedParts(entry.text, entry.attachments).map((part, index) =>
+								'text' in part ? (
+									<Fragment key={index}>{part.text}</Fragment>
+								) : (
+									<SentChip key={index} attachment={part.file} />
+								),
+							)}
+						</BubbleContent>
 					</Bubble>
 				</MessageContent>
 			</Message>
@@ -117,9 +140,9 @@ function personText(entry: TaskChatEntry): string | null {
 
 // A task the persona started in the person's conversation, in its place, its title heading the
 // page (ChatPage): what the persona and the task said to each other, read again as the task
-// works, and an input, with which the person writes to the task themselves. The task takes it
-// up, and the persona is told, but only woken by what the task answers. What the person writes
-// shows at once, before the server has it.
+// works, and an input, with which the person writes to the task themselves, files attached as
+// in the conversation. The task takes it up, and the persona is told, but only woken by what the
+// task answers. What the person writes shows at once, before the server has it.
 function TaskConversation({loaded}: {loaded: TaskChat}) {
 	const org = useOrgSlug();
 	const [chat, setChat] = useState<TaskChat>(loaded);
@@ -157,10 +180,10 @@ function TaskConversation({loaded}: {loaded: TaskChat}) {
 		};
 	}, [readChat, busy]);
 
-	// Sends what the person wrote, shown at once and taken away again where the send fails: what
-	// it failed with, or null. The server answers with no entry: the chat read again brings it, by
-	// its text.
-	const send = async (message: string): Promise<string | null> => {
+	// Sends what the person wrote, with the files placed among it, shown at once and taken away
+	// again where the send fails: what it failed with, or null. The server answers with no entry:
+	// the chat read again brings it, by its text.
+	const send = async (message: string, files: ChatAttachment[]): Promise<string | null> => {
 		const key = `sending-${crypto.randomUUID()}`;
 		sending.start({
 			id: key,
@@ -168,16 +191,23 @@ function TaskConversation({loaded}: {loaded: TaskChat}) {
 			text: message,
 			isError: false,
 			at: new Date().toISOString(),
+			attachments: files,
 		});
-		const posted = await postTaskMessage(org, personaId, taskId, message);
+		const posted = await postTaskMessage(org, personaId, taskId, message, files);
 		if (posted.isErr()) {
 			sending.failed(key);
-			return describeFetchError(posted.error);
+			return describeApiError(posted.error);
 		}
 		sending.posted(key, null);
 		await readChat();
 		return null;
 	};
+
+	// Where a file put in the input goes: up to the person's own drive.
+	const upload = useCallback(
+		(file: File) => uploadTaskAttachment(org, personaId, taskId, file),
+		[org, personaId, taskId],
+	);
 
 	const runs = chatRuns(sending.entries, new Date(), (entry) => entry.from);
 
@@ -227,8 +257,9 @@ function TaskConversation({loaded}: {loaded: TaskChat}) {
 				<MessageScrollerButton />
 			</MessageScroller>
 			<TaskComposer
-				placeholder={`Message ${task.title}`}
+				name={task.title}
 				hint={`${persona.name} sees what you write here.`}
+				upload={upload}
 				onSend={send}
 			/>
 		</>
@@ -236,59 +267,108 @@ function TaskConversation({loaded}: {loaded: TaskChat}) {
 }
 
 // The input under a task's chat. What is typed is its own, so typing draws the input, not the
-// chat over it. A message sent leaves the input at once, and comes back to it where the send
-// fails.
+// chat over it. A message sent leaves the input at once, its files with it, and comes back to it
+// where the send fails. Files go to the person's own drive as they are put in; the page holds them
+// until the message is sent, and one taken out stays in the drive, as it does from a
+// conversation's.
 function TaskComposer({
-	placeholder,
+	name,
 	hint,
+	upload,
 	onSend,
 }: {
-	placeholder: string;
+	// What the task is called, which the input is a message to.
+	name: string;
 	hint: string;
-	// Sends a message: what it failed with, or null.
-	onSend: (message: string) => Promise<string | null>;
+	upload: AttachmentInput['upload'];
+	// Sends a message, with the files placed among it: what it failed with, or null.
+	onSend: (message: string, files: ChatAttachment[]) => Promise<string | null>;
 }) {
+	const attaches = useExperiments().includes('files');
+	const input = useMemo((): AttachmentInput => ({upload, remove: () => undefined}), [upload]);
+	const attachments = useAttachments(input, []);
+	// The files in the input now, as a send that waited on the server finds them.
+	const pendingNow = useRef(attachments.pending);
+	useLayoutEffect(() => {
+		pendingNow.current = attachments.pending;
+	});
+	// What the box opens holding: nothing, or, made again where a send failed (`made` times),
+	// what the send gave back.
+	const [box, setBox] = useState<{
+		made: number;
+		text: string;
+		files: typeof attachments.pending;
+	}>({made: 0, text: '', files: []});
+	// What is typed, with a mark where each file sits among the words, and those files in the
+	// order of their marks (message-editor.tsx).
 	const [text, setText] = useState('');
+	const [placed, setPlaced] = useState<ChatAttachment[]>([]);
 	// What is in the box now, as a send that waited on the server finds it.
-	const typedNow = useRef('');
+	const typedNow = useRef<Typed>({text: '', files: []});
 	const [sending, setSending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const form = useRef<HTMLFormElement>(null);
-	useReloadWhileHidden(text === '' && !sending);
+	const editor = useRef<MessageEditorHandle>(null);
+	useReloadWhileHidden(text === '' && attachments.pending.length === 0 && !sending);
 
-	const type = (value: string) => {
-		setText(value);
-		typedNow.current = value;
+	// The box made again, where a send failed, keeps the caret.
+	useEffect(() => {
+		if (box.made > 0) {
+			editor.current?.focus();
+		}
+	}, [box.made]);
+
+	const type = (typed: Typed) => {
+		setText(typed.text);
+		setPlaced(typed.files);
+		typedNow.current = typed;
 	};
 
-	// The message leaves the box at once; where the send fails, it comes back, before anything
-	// typed since.
+	const picker = useRef<HTMLInputElement>(null);
+	// A file that could not be uploaded says why under the chat, by its name.
+	const failedFile = attachments.pending.find((one) => one.error !== null);
+	const failedUpload = failedFile ? `${failedFile.name}: ${failedFile.error ?? ''}` : null;
+	const words = text.replaceAll(ATTACHMENT_MARK, '').trim();
+	const sendable = !attachments.uploading && (words !== '' || placed.length > 0);
+	// Files dropped anywhere on the window are attached.
+	const dropping = useWindowFileDrop(attaches, attachments.add);
+
+	// The message leaves the box at once, its files with it; where the send fails, it comes back,
+	// before anything typed since.
 	const submit = async (event: FormEvent) => {
 		event.preventDefault();
 		const message = text.trim();
-		if (message === '' || sending) {
+		if (!sendable || sending) {
 			return;
 		}
+		const files = placed;
+		const taken = takenFiles(attachments.pending, files);
 		setSending(true);
 		setError(null);
-		type('');
-		const failed = await onSend(message);
+		editor.current?.clear();
+		attachments.sent();
+		type({text: '', files: []});
+		const failed = await onSend(message, files);
 		setSending(false);
 		if (failed === null) {
 			return;
 		}
 		setError(failed);
 		const since = typedNow.current;
-		type(since === '' ? text : `${text}\n${since}`);
+		const back: Typed = {
+			text: since.text === '' ? text : `${text}\n${since.text}`,
+			files: [...files, ...since.files],
+		};
+		attachments.restore(taken);
+		setBox((before) => ({
+			made: before.made + 1,
+			text: back.text,
+			files: [...taken, ...takenFiles(pendingNow.current, since.files)],
+		}));
+		type(back);
 	};
 
-	// Enter sends; Shift+Enter breaks the line.
-	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-		if (event.key === 'Enter' && !event.shiftKey) {
-			event.preventDefault();
-			form.current?.requestSubmit();
-		}
-	};
+	const shownError = error ?? attachments.refused ?? failedUpload;
 
 	return (
 		<form
@@ -296,25 +376,54 @@ function TaskComposer({
 			onSubmit={(event) => void submit(event)}
 			className="page-column mx-auto flex w-full max-w-4xl shrink-0 flex-col gap-2 pt-2 pb-4"
 		>
-			{error && <p className="text-sm text-destructive">{error}</p>}
-			<InputGroup className="rounded-xl bg-background shadow-xs">
-				<InputGroupTextarea
-					value={text}
-					onChange={(event) => type(event.target.value)}
-					onKeyDown={onKeyDown}
-					placeholder={placeholder}
-					aria-label="Message"
-					className="min-h-10 p-3"
-					rows={1}
+			{dropping && <DropToAttach name={name} />}
+			{shownError && <p className="text-sm text-destructive">{shownError}</p>}
+			<input
+				ref={picker}
+				type="file"
+				multiple
+				className="hidden"
+				aria-label="Files to attach"
+				onChange={(event) => {
+					const picked = [...(event.target.files ?? [])];
+					event.target.value = '';
+					attachments.add(picked);
+				}}
+			/>
+			{/* No focus ring: the caret in the only input on the page says where typing goes. */}
+			<InputGroup className="rounded-xl bg-background shadow-xs has-[[data-slot=input-group-control]:focus-visible]:border-input has-[[data-slot=input-group-control]:focus-visible]:ring-0">
+				<MessageEditor
+					key={box.made}
+					ref={editor}
+					opening={box}
+					files={attachments.pending}
+					label="Message"
+					placeholder={`Message ${name}`}
+					onChange={type}
+					onRemove={attachments.remove}
+					onFiles={attaches ? attachments.add : undefined}
+					onSubmit={() => form.current?.requestSubmit()}
 				/>
 				<InputGroupAddon align="block-end" className="items-end">
 					<span className="text-xs text-muted-foreground">{hint}</span>
+					{attaches && (
+						<PillButton
+							type="button"
+							variant="ghost"
+							icon
+							className="ml-auto"
+							onClick={() => picker.current?.click()}
+							aria-label="Attach files"
+						>
+							<PaperclipIcon />
+						</PillButton>
+					)}
 					{/* The command bar's main button without its label: Enter's mark, as Enter sends. */}
 					<PillButton
 						type="submit"
 						enter
-						className="ml-auto"
-						disabled={sending || text.trim() === ''}
+						className={cn(!attaches && 'ml-auto')}
+						disabled={sending || !sendable}
 						aria-label="Send"
 					/>
 				</InputGroupAddon>

@@ -8,15 +8,28 @@ type Props = {
 	children: ReactNode;
 	disabled?: boolean;
 } & (
-	| {onClick: () => void; to?: never; href?: never}
-	| {to: string; onClick?: never; href?: never}
+	| {onClick: () => void; to?: never; href?: never; download?: never}
+	| {to: string; onClick?: never; href?: never; download?: never}
 	// A full navigation, such as to an api route that sends the browser on to a sign-in, with what
-	// the desktop app does with it instead (`onSignInClick`).
-	| {href: string; onClick?: (event: MouseEvent<HTMLAnchorElement>) => void; to?: never}
+	// the desktop app does with it instead (`onSignInClick`), or a file saved under `download`.
+	| {
+			href: string;
+			onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+			download?: string;
+			to?: never;
+	  }
 );
 
 // A header's icon action: a ghost pill that is an icon alone, a circle, with its label in a tooltip.
-export function IconButton({label, children, disabled = false, onClick, to, href}: Props) {
+export function IconButton({
+	label,
+	children,
+	disabled = false,
+	onClick,
+	to,
+	href,
+	download,
+}: Props) {
 	const button =
 		to !== undefined ? (
 			<PillButton
@@ -32,7 +45,7 @@ export function IconButton({label, children, disabled = false, onClick, to, href
 				icon
 				aria-label={label}
 				nativeButton={false}
-				render={<a href={href} onClick={onClick} />}
+				render={<a href={href} download={download} onClick={onClick} />}
 			/>
 		) : (
 			<PillButton variant="ghost" icon aria-label={label} disabled={disabled} onClick={onClick} />

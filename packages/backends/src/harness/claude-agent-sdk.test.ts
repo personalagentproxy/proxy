@@ -15,7 +15,7 @@ import {CALL_INTERRUPTED, OUTCOME_UNKNOWN} from '@proxy/utils/harness';
 import type {ContextEntry} from '@proxy/utils/harness-context';
 
 import type {HarnessEntry, HarnessEvent, HarnessTurn} from './backend';
-import {claudeAgentSdkHarness, type ClaudeAgentSdkDeps, proxyToolServer, type SdkQuery} from './claude-agent-sdk';
+import {claudeAgentSdkHarness, type ClaudeAgentSdkDeps, proxyToolServer, type SdkPrompt, type SdkQuery} from './claude-agent-sdk';
 import {harnessConformance, type ScriptedModel} from './conformance';
 import {fakeToolSurface} from './fake';
 import {memorySessionStore} from './session-store';
@@ -27,7 +27,7 @@ type Script = ((options: Options | undefined) => AsyncIterable<SDKMessage>) | {t
 
 type FakeQuery = {
 	query: SdkQuery;
-	calls: Array<{prompt: string; options: Options | undefined}>;
+	calls: Array<{prompt: SdkPrompt; options: Options | undefined}>;
 	interrupts: number;
 	script: (run: Script) => void;
 };
@@ -313,10 +313,11 @@ describe('claudeAgentSdkHarness', () => {
 		const fake = fakeQuery();
 		const harness = claudeAgentSdkHarness(deps(fake));
 
+		// Each sees pictures, so a turn on any of them is given those the person attached.
 		expect(harness.models).toEqual([
-			{id: 'sonnet', label: 'Claude Sonnet 5.5'},
-			{id: 'opus', label: 'Claude Opus 5.5'},
-			{id: 'fable', label: 'Claude Fable 5.2'},
+			{id: 'sonnet', label: 'Claude Sonnet 5.5', images: true},
+			{id: 'opus', label: 'Claude Opus 5.5', images: true},
+			{id: 'fable', label: 'Claude Fable 5.2', images: true},
 		]);
 		for (const model of harness.models) {
 			fake.script(messages([init(), result()]));
@@ -367,6 +368,45 @@ describe('claudeAgentSdkHarness', () => {
 		for (const env of [withScopes, withoutScopes, apiKey]) {
 			expect(env).not.toHaveProperty('OPENROUTER_KEY');
 		}
+	});
+
+	test('prompts with the pictures the person attached to what the session hasn’t got, as one message of theirs: each picture under its file’s name, then the words', async () => {
+		const fake = fakeQuery();
+		fake.script(messages([init(), result()]));
+		fake.script(messages([init(), result()]));
+		const seen: HarnessEntry = {...entry('person', 'What is this?'), images: [{name: 'old.png', mediaType: 'image/png', data: 'T0xE'}]};
+		const again: HarnessEntry = {...entry('person', 'And this one?'), images: [{name: 'chart.png', mediaType: 'image/png', data: 'QUJD'}]};
+
+		await collect(fake, {...turnInput(), session: {id: 'sdk-session-9', state: {lastSeq: seen.seq, job: 'job-0'}}, entries: [seen, again]});
+
+		const prompt = fake.calls[0]?.prompt;
+		if (prompt === undefined || typeof prompt === 'string') {
+			throw new Error('expected a message with pictures');
+		}
+		const sent = [];
+		for await (const message of prompt) {
+			sent.push(message);
+		}
+		// The picture the session saw with an earlier turn is not sent again.
+		expect(sent).toEqual([
+			{
+				type: 'user',
+				parent_tool_use_id: null,
+				message: {
+					role: 'user',
+					content: [
+						{type: 'text', text: 'chart.png:'},
+						{type: 'image', source: {type: 'base64', media_type: 'image/png', data: 'QUJD'}},
+						{type: 'text', text: 'And this one?'},
+					],
+				},
+			},
+		]);
+		expect(fake.calls[0]?.options?.resume).toBe('sdk-session-9');
+
+		// With no picture among what is new, the prompt is the words alone, as ever.
+		await collect(fake, {...turnInput(), session: {id: 'sdk-session-9', state: {lastSeq: again.seq, job: 'job-0'}}, entries: [seen, again, entry('person', 'Thanks')]});
+		expect(fake.calls[1]?.prompt).toBe('Thanks');
 	});
 
 	test('prompts with what came since the session last saw the log, less the steps of the turn that kept it, resumes the session, and keeps the last seq and the turn’s job', async () => {

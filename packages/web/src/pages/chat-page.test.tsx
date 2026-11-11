@@ -7,6 +7,8 @@ import type {
 	TaskChat,
 	ThreadLog,
 } from '@proxy/contracts/harness';
+import type {Experiment} from '@proxy/utils';
+import {ATTACHMENT_MARK} from '@proxy/utils/harness';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
@@ -57,6 +59,7 @@ const log: ThreadLog = {
 	entries: [],
 	busy: false,
 	draft: null,
+	draftAttachments: [],
 };
 // A task General started, as its chat shows it.
 const flights: TaskChat = {
@@ -71,6 +74,7 @@ const flights: TaskChat = {
 			text: 'Flights to Lisbon',
 			isError: false,
 			at: '2026-10-21T10:00:00Z',
+			attachments: [],
 		},
 		{
 			id: 's2',
@@ -78,8 +82,16 @@ const flights: TaskChat = {
 			text: 'Three direct flights.',
 			isError: false,
 			at: '2026-10-21T10:01:00Z',
+			attachments: [],
 		},
-		{id: 's3', from: 'person', text: 'Only mornings', isError: false, at: '2026-10-21T10:02:00Z'},
+		{
+			id: 's3',
+			from: 'person',
+			text: 'Only mornings',
+			isError: false,
+			at: '2026-10-21T10:02:00Z',
+			attachments: [],
+		},
 	],
 };
 // The last answers the provider around the page is given: none, unless a test says otherwise.
@@ -105,6 +117,12 @@ afterEach(() => {
 	globalThis.fetch = realFetch;
 });
 
+// Types into the message's box as a browser does: what it holds changes, and it says so.
+function typeIn(box: HTMLElement, value: string): void {
+	box.textContent = value;
+	fireEvent.input(box);
+}
+
 function renderChatPage({
 	personas = [general, finance],
 	entries = [],
@@ -112,9 +130,12 @@ function renderChatPage({
 	pinnedTasks = [],
 	open = 'general',
 	draft = null,
+	draftAttachments = [],
+	experiments = [],
 	answered = () => Promise.resolve(),
 	taskAnswered = () => Promise.resolve(),
 	initial,
+	task = flights,
 }: {
 	personas?: ChatPersona[];
 	entries?: ThreadLog['entries'];
@@ -123,18 +144,24 @@ function renderChatPage({
 	// The agent whose conversation is open, by its id.
 	open?: string;
 	draft?: string | null;
+	// The files put in the open conversation's input and not sent, as the server keeps them.
+	draftAttachments?: ThreadLog['draftAttachments'];
+	// What the organization is trying out: Chat, and Files where a test attaches.
+	experiments?: Experiment[];
 	// When the api answers for a conversation: at once, unless a test holds it back.
 	answered?: (personaId: string) => Promise<void>;
 	// When the api answers for a task's chat: at once, unless a test holds it back.
 	taskAnswered?: () => Promise<void>;
 	// The address the page opens on, where it is not the open conversation's.
 	initial?: string;
+	// The task whose chat is open, where the address is a task's.
+	task?: TaskChat;
 } = {}) {
 	const router = createMemoryRouter(
 		[
 			{
 				id: 'human',
-				loader: () => testHuman(testOrg),
+				loader: () => testHuman({...testOrg, experiments}),
 				element: <HumanSide />,
 				children: [
 					{
@@ -146,6 +173,7 @@ function renderChatPage({
 									...log,
 									entries,
 									draft,
+									draftAttachments,
 									persona: personas.find((candidate) => candidate.id === params.id) ?? general,
 								},
 								personas: listPersonas(),
@@ -159,7 +187,7 @@ function renderChatPage({
 						path: '/:org/chat/:id/tasks/:taskId',
 						loader: later(async () => {
 							await taskAnswered();
-							return {task: flights, personas: listPersonas(), pinnedTasks, harnesses};
+							return {task, personas: listPersonas(), pinnedTasks, harnesses};
 						}),
 						element: <ChatPage />,
 					},
@@ -501,7 +529,14 @@ describe('ChatPage', () => {
 		});
 		renderChatPage({
 			entries: [
-				{id: 'e1', kind: 'assistant', text: 'Hello', isError: false, at: '2026-10-21T10:00:01Z'},
+				{
+					id: 'e1',
+					kind: 'assistant',
+					text: 'Hello',
+					isError: false,
+					at: '2026-10-21T10:00:01Z',
+					attachments: [],
+				},
 			],
 			listPersonas: () => listed,
 		});
@@ -541,7 +576,16 @@ describe('ChatPage', () => {
 		// What the person said in the open conversation since puts General on top.
 		renderChatPage({
 			personas: [general, answered, travel],
-			entries: [{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-23T10:00:00Z'}],
+			entries: [
+				{
+					id: 'e1',
+					kind: 'person',
+					text: 'Hi',
+					isError: false,
+					at: '2026-10-23T10:00:00Z',
+					attachments: [],
+				},
+			],
 		});
 		await screen.findByRole('link', {name: /Travel/});
 		expect(order()).toEqual(['General', 'Travel', 'Finance']);
@@ -550,9 +594,30 @@ describe('ChatPage', () => {
 	test('reads the conversation up to the last answer it shows, what the person said after it aside', async () => {
 		renderChatPage({
 			entries: [
-				{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00Z'},
-				{id: 'e2', kind: 'assistant', text: 'Hello', isError: false, at: '2026-10-21T10:00:01Z'},
-				{id: 'e3', kind: 'person', text: 'And?', isError: false, at: '2026-10-21T10:00:02Z'},
+				{
+					id: 'e1',
+					kind: 'person',
+					text: 'Hi',
+					isError: false,
+					at: '2026-10-21T10:00:00Z',
+					attachments: [],
+				},
+				{
+					id: 'e2',
+					kind: 'assistant',
+					text: 'Hello',
+					isError: false,
+					at: '2026-10-21T10:00:01Z',
+					attachments: [],
+				},
+				{
+					id: 'e3',
+					kind: 'person',
+					text: 'And?',
+					isError: false,
+					at: '2026-10-21T10:00:02Z',
+					attachments: [],
+				},
 			],
 		});
 
@@ -572,15 +637,30 @@ describe('ChatPage', () => {
 		const evening = new Date(2026, 9, 20, 18, 30);
 		renderChatPage({
 			entries: [
-				{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: morning.toISOString()},
+				{
+					id: 'e1',
+					kind: 'person',
+					text: 'Hi',
+					isError: false,
+					at: morning.toISOString(),
+					attachments: [],
+				},
 				{
 					id: 'e2',
 					kind: 'assistant',
 					text: 'Hello',
 					isError: false,
 					at: new Date(morning.getTime() + 60_000).toISOString(),
+					attachments: [],
 				},
-				{id: 'e3', kind: 'person', text: 'Back again', isError: false, at: evening.toISOString()},
+				{
+					id: 'e3',
+					kind: 'person',
+					text: 'Back again',
+					isError: false,
+					at: evening.toISOString(),
+					attachments: [],
+				},
 			],
 		});
 
@@ -604,6 +684,7 @@ describe('ChatPage', () => {
 					text: 'Find me flights',
 					isError: false,
 					at: '2026-10-21T10:00:00Z',
+					attachments: [],
 				},
 				{
 					id: 'e2:c1',
@@ -659,19 +740,96 @@ describe('ChatPage', () => {
 		expect(taskRow.closest('ul')?.getAttribute('aria-label')).toBe('General’s tasks');
 		expect(within(taskRow).queryByLabelText('Pinned')).toBeNull();
 
-		const box = screen.getByLabelText('Message') as HTMLTextAreaElement;
-		expect(box.placeholder).toBe('Message Find flights');
-		fireEvent.change(box, {target: {value: ' Only direct ones '}});
+		const box = screen.getByLabelText('Message');
+		expect(box.getAttribute('aria-placeholder')).toBe('Message Find flights');
+		// Without the files experiment, nothing is attached.
+		expect(screen.queryByRole('button', {name: 'Attach files'})).toBeNull();
+		typeIn(box, ' Only direct ones ');
 		fireEvent.click(screen.getByRole('button', {name: 'Send'}));
 
-		await waitFor(() => expect(box.value).toBe(''));
+		await waitFor(() => expect(box.textContent).toBe(''));
 		// What was written is in the chat at once, before the chat is read again.
 		expect(within(chat).getByText('Only direct ones')).toBeTruthy();
 		const sent = fetchMock.mock.calls.find(
 			([url]) => url === '/api/orgs/acme/chat/personas/general/tasks/sub-1/messages',
 		);
 		expect(sent?.[1]?.method).toBe('POST');
-		expect(JSON.parse(String(sent?.[1]?.body))).toEqual({text: 'Only direct ones'});
+		expect(JSON.parse(String(sent?.[1]?.body))).toEqual({
+			text: 'Only direct ones',
+			attachments: [],
+		});
+	});
+
+	test('attaches files to what the person writes in a task’s chat, uploading each at once, and shows them with it', async () => {
+		const notes = {
+			connectionId: 'drive-1',
+			fileId: 'file-1',
+			version: 'v1',
+			name: 'itinerary.md',
+			type: 'text/markdown',
+			size: 2048,
+			shown: false,
+			gone: false,
+		};
+		const taskUrl = '/api/orgs/acme/chat/personas/general/tasks/sub-1';
+		const written = {
+			id: 's4',
+			from: 'person' as const,
+			text: `Use ${ATTACHMENT_MARK}`,
+			isError: false,
+			at: '2026-10-21T10:03:00Z',
+			attachments: [notes],
+		};
+		renderChatPage({
+			initial: '/acme/chat/general/tasks/sub-1',
+			experiments: ['files'],
+			task: {...flights, entries: [...flights.entries, written]},
+		});
+		fetchMock.mockImplementation((input, init) => {
+			if (input.startsWith(`${taskUrl}/attachments`) && init?.method === 'POST') {
+				return Promise.resolve(Response.json({attachment: notes}));
+			}
+			if (input === taskUrl) {
+				return Promise.resolve(Response.json({...flights, entries: [...flights.entries, written]}));
+			}
+			return Promise.resolve(
+				input.endsWith('/chat/answers')
+					? Response.json({answers})
+					: new Response(null, {status: 204}),
+			);
+		});
+
+		// What the person wrote before, with the file where they put it.
+		const chat = await screen.findByLabelText('Task');
+		expect(within(chat).getByRole('link', {name: /itinerary\.md/})).toBeTruthy();
+
+		const box = screen.getByLabelText('Message');
+		fireEvent.change(screen.getByLabelText('Files to attach'), {
+			target: {files: [new File(['# Day one'], 'itinerary.md', {type: 'text/markdown'})]},
+		});
+		await waitFor(() =>
+			expect(screen.queryByRole('button', {name: 'Remove itinerary.md'}) === null).toBe(false),
+		);
+		expect(
+			fetchMock.mock.calls.some(
+				([url, init]) =>
+					url === `${taskUrl}/attachments?name=itinerary.md&type=text%2Fmarkdown` &&
+					init?.method === 'POST',
+			),
+		).toBe(true);
+		await waitFor(() =>
+			expect((screen.getByRole('button', {name: 'Send'}) as HTMLButtonElement).disabled).toBe(
+				false,
+			),
+		);
+		fireEvent.click(screen.getByRole('button', {name: 'Send'}));
+
+		await waitFor(() => expect(box.textContent).toBe(''));
+		const sent = fetchMock.mock.calls.find(([url]) => url === `${taskUrl}/messages`);
+		expect(JSON.parse(String(sent?.[1]?.body))).toEqual({
+			text: ATTACHMENT_MARK,
+			attachments: [{connectionId: 'drive-1', fileId: 'file-1', version: 'v1'}],
+		});
 	});
 
 	test('lists pinned tasks under their agent, the open one after them where it isn’t pinned, and pins one from its right-click menu', async () => {
@@ -758,7 +916,16 @@ describe('ChatPage', () => {
 
 	test('marks nothing read before the agent has answered', async () => {
 		renderChatPage({
-			entries: [{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00Z'}],
+			entries: [
+				{
+					id: 'e1',
+					kind: 'person',
+					text: 'Hi',
+					isError: false,
+					at: '2026-10-21T10:00:00Z',
+					attachments: [],
+				},
+			],
 		});
 
 		await screen.findByRole('link', {name: /Finance/});
@@ -787,6 +954,7 @@ describe('ChatPage', () => {
 			text: 'Hello',
 			isError: false,
 			at: '2026-10-21T10:00:00Z',
+			attachments: [],
 		};
 
 		test('shows what is sent at once, rising into place, the agent at work under it, and keeps it as the server answers', async () => {
@@ -794,13 +962,13 @@ describe('ChatPage', () => {
 			answerSends(() => new Promise((resolve) => answered.push(resolve)));
 			renderChatPage({entries: [hello]});
 			const conversation = await screen.findByLabelText('Conversation');
-			const box = screen.getByLabelText('Message') as HTMLTextAreaElement;
+			const box = screen.getByLabelText('Message');
 
-			fireEvent.change(box, {target: {value: 'Book the train '}});
+			typeIn(box, 'Book the train ');
 			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
 
 			const sent = await within(conversation).findByText('Book the train');
-			expect(box.value).toBe('');
+			expect(box.textContent).toBe('');
 			expect(within(conversation).getByText('Working')).toBeTruthy();
 			expect(sent.closest('[data-enter]')?.getAttribute('data-enter')).toBe('rise');
 			// What was there as the conversation opened is simply there.
@@ -820,6 +988,7 @@ describe('ChatPage', () => {
 							text: 'Book the train',
 							isError: false,
 							at: '2026-10-21T10:01:00Z',
+							attachments: [],
 						},
 					}),
 				);
@@ -833,12 +1002,13 @@ describe('ChatPage', () => {
 			);
 			renderChatPage({entries: [hello]});
 			const conversation = await screen.findByLabelText('Conversation');
-			const box = screen.getByLabelText('Message') as HTMLTextAreaElement;
-
-			fireEvent.change(box, {target: {value: 'Book the train'}});
+			typeIn(screen.getByLabelText('Message'), 'Book the train');
 			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
 
-			await waitFor(() => expect(box.value).toBe('Book the train'));
+			// The box is made again, holding what was sent.
+			await waitFor(() =>
+				expect(screen.getByLabelText('Message').textContent).toBe('Book the train'),
+			);
 			expect(within(conversation).queryByText('Book the train')).toBeNull();
 			expect(within(conversation).queryByText('Working')).toBeNull();
 		});
@@ -855,8 +1025,8 @@ describe('ChatPage', () => {
 		test('opens with what was typed and not sent, safe to reload', async () => {
 			renderChatPage({draft: 'Move the pricing review'});
 
-			const box = (await screen.findByLabelText('Message')) as HTMLTextAreaElement;
-			expect(box.value).toBe('Move the pricing review');
+			const box = await screen.findByLabelText('Message');
+			expect(box.textContent).toBe('Move the pricing review');
 			expect(pageSaysSafeToReload()).toBe(true);
 			expect(saves()).toEqual([]);
 		});
@@ -865,8 +1035,8 @@ describe('ChatPage', () => {
 			renderChatPage();
 			const box = await screen.findByLabelText('Message');
 
-			fireEvent.change(box, {target: {value: 'Move the'}});
-			fireEvent.change(box, {target: {value: 'Move the pricing review'}});
+			typeIn(box, 'Move the');
+			typeIn(box, 'Move the pricing review');
 			expect(pageSaysSafeToReload()).toBe(false);
 
 			await waitFor(() => expect(saves()).toEqual([{text: 'Move the pricing review'}]), {
@@ -878,7 +1048,7 @@ describe('ChatPage', () => {
 		test('saves at once as another conversation opens, and lists it there as a draft', async () => {
 			renderChatPage();
 			const box = await screen.findByLabelText('Message');
-			fireEvent.change(box, {target: {value: 'Move the pricing review'}});
+			typeIn(box, 'Move the pricing review');
 
 			await follow(screen.getByRole('link', {name: /Finance/}));
 			await screen.findByText('What should Finance do?');
@@ -897,7 +1067,7 @@ describe('ChatPage', () => {
 			);
 			expect(screen.getByRole('link', {name: /General/}).textContent).not.toContain('Draft:');
 
-			fireEvent.change(box, {target: {value: 'Book the train'}});
+			typeIn(box, 'Book the train');
 			expect(screen.getByRole('link', {name: /General/}).textContent).toContain(
 				'Draft: Book the train',
 			);
@@ -914,6 +1084,7 @@ describe('ChatPage', () => {
 								text: 'Book the train',
 								isError: false,
 								at: '2026-10-21T10:00:00Z',
+								attachments: [],
 							},
 						}),
 					);
@@ -925,15 +1096,437 @@ describe('ChatPage', () => {
 				);
 			});
 			renderChatPage();
-			const box = (await screen.findByLabelText('Message')) as HTMLTextAreaElement;
+			const box = await screen.findByLabelText('Message');
 
-			fireEvent.change(box, {target: {value: 'Book the train'}});
+			typeIn(box, 'Book the train');
 			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
 
-			await waitFor(() => expect(box.value).toBe(''));
+			await waitFor(() => expect(box.textContent).toBe(''));
 			await new Promise((resolve) => setTimeout(resolve, 900));
 			expect(saves()).toEqual([]);
 			expect(screen.getByRole('link', {name: /General/}).textContent).not.toContain('Draft:');
+		});
+	});
+
+	test('shows the pictures an answer kept where its words put them, any other file it kept as a chip, and loads no picture from anywhere else', async () => {
+		const drive = `${window.location.origin}/acme/connections/drive-1`;
+		const chart = {
+			connectionId: 'drive-1',
+			fileId: 'file-1',
+			version: 'v2',
+			name: 'chart.png',
+			type: 'image/png',
+			size: 2048,
+			shown: true,
+			gone: false,
+		};
+		const sheet = {...chart, fileId: 'file-2', name: 'q3.csv', type: 'text/csv', shown: false};
+		renderChatPage({
+			entries: [
+				{
+					id: 'e1',
+					kind: 'assistant',
+					text: `Here it is: ![Revenue by month](${drive}?file=file-1), from ![the sheet](${drive}?file=file-2).\n\n![A cat](https://cdn.example.com/cat.png) ![Not kept](${drive}?file=file-3)`,
+					isError: false,
+					at: '2026-10-21T10:00:01Z',
+					attachments: [chart, sheet],
+				},
+			],
+		});
+
+		const picture = await screen.findByRole('img', {name: 'Revenue by month'});
+		// The version kept with the answer, as a tile, opening the viewer.
+		expect(picture.getAttribute('src')).toBe(
+			'/api/orgs/acme/connections/drive-1/files/file-1/content?version=v2',
+		);
+		expect(picture.className).toContain('object-cover');
+		expect(picture.closest('button')).toBeTruthy();
+		expect(screen.getByRole('link', {name: 'q3.csv'}).getAttribute('href')).toBe(
+			'/acme/connections/drive-1?file=file-2',
+		);
+		// Anything else is a link, and loads nothing.
+		expect(screen.getAllByRole('img').map((image) => image.getAttribute('alt'))).toEqual([
+			'Revenue by month',
+		]);
+		expect(screen.getByRole('link', {name: 'A cat'}).getAttribute('href')).toBe(
+			'https://cdn.example.com/cat.png',
+		);
+		expect(screen.getByRole('link', {name: 'Not kept'}).getAttribute('href')).toBe(
+			`${drive}?file=file-3`,
+		);
+	});
+
+	test('shows a file deleted for good since as its name alone, struck through, linking nowhere, a picture among them', async () => {
+		const drive = `${window.location.origin}/acme/connections/drive-1`;
+		const notes = {
+			connectionId: 'drive-1',
+			fileId: 'file-1',
+			version: 'v1',
+			name: 'notes.md',
+			type: 'text/markdown',
+			size: 2048,
+			shown: false,
+			gone: true,
+		};
+		const chart = {...notes, fileId: 'file-2', name: 'chart.png', type: 'image/png', shown: true};
+		renderChatPage({
+			entries: [
+				{
+					id: 'e1',
+					kind: 'person',
+					text: `Read ${ATTACHMENT_MARK}`,
+					isError: false,
+					at: '2026-10-21T10:00:00Z',
+					attachments: [notes],
+				},
+				{
+					id: 'e2',
+					kind: 'assistant',
+					text: `Here: ![Revenue](${drive}?file=file-2)`,
+					isError: false,
+					at: '2026-10-21T10:00:01Z',
+					attachments: [chart],
+				},
+			],
+		});
+
+		const said = await screen.findByTitle('notes.md was deleted');
+		expect(said.closest('a')).toBeNull();
+		expect(screen.getByTitle('chart.png was deleted').closest('a')).toBeNull();
+		expect(screen.queryByRole('img', {name: 'Revenue'})).toBeNull();
+	});
+
+	test('opens a picture an answer showed in the viewer, whole, and steps through the answer’s pictures there', async () => {
+		const drive = `${window.location.origin}/acme/connections/drive-1`;
+		const chart = {
+			connectionId: 'drive-1',
+			fileId: 'file-1',
+			version: 'v2',
+			name: 'chart.png',
+			type: 'image/png',
+			size: 2048,
+			shown: true,
+			gone: false,
+		};
+		const map = {...chart, fileId: 'file-2', version: 'v1', name: 'map.png'};
+		renderChatPage({
+			entries: [
+				{
+					id: 'e1',
+					kind: 'assistant',
+					text: `![Revenue](${drive}?file=file-1)\n\n![Stores](${drive}?file=file-2)`,
+					isError: false,
+					at: '2026-10-21T10:00:01Z',
+					attachments: [chart, map],
+				},
+			],
+		});
+
+		fireEvent.click(await screen.findByRole('img', {name: 'Stores'}));
+
+		const viewer = await screen.findByRole('dialog');
+		// Under the picture: what the answer said it shows, the file, and where it is among them.
+		expect(within(viewer).getByText('map.png · 2 KB · 2 of 2')).toBeTruthy();
+		expect(within(viewer).getByRole('link', {name: 'Open in Files'}).getAttribute('href')).toBe(
+			'/acme/connections/drive-1?file=file-2',
+		);
+		const whole = () => within(viewer).getByRole('img');
+		expect(whole().getAttribute('alt')).toBe('Stores');
+		expect(whole().className).toContain('object-contain');
+
+		// Round from the last to the first, by key and by its arrows.
+		fireEvent.keyDown(viewer, {key: 'ArrowRight'});
+		expect(whole().getAttribute('alt')).toBe('Revenue');
+		expect(within(viewer).getByText('chart.png · 2 KB · 1 of 2')).toBeTruthy();
+		fireEvent.click(within(viewer).getByRole('button', {name: 'Previous picture'}));
+		expect(whole().getAttribute('alt')).toBe('Stores');
+
+		fireEvent.click(within(viewer).getByRole('button', {name: 'Close'}));
+		await waitFor(() => expect(viewer.isConnected).toBe(false));
+	});
+
+	describe('files in the input', () => {
+		const attachmentsUrl = '/api/orgs/acme/chat/personas/general/attachments';
+		const kept = {
+			connectionId: 'drive-1',
+			fileId: 'file-1',
+			version: 'v1',
+			name: 'pricing.md',
+			type: 'text/markdown',
+			size: 2048,
+			shown: false,
+			gone: false,
+		};
+		const withFiles: Experiment[] = ['files'];
+		// The calls made to the input's files, in order: uploads and removals.
+		const calls = () =>
+			fetchMock.mock.calls
+				.filter(([url]) => url.startsWith(attachmentsUrl))
+				.map(([url, init]) => [init?.method, url.slice(attachmentsUrl.length), init?.body]);
+
+		// The chip of a file in the box, by its name: its cross's button, and the chip around it.
+		const chipOf = (name: string) => screen.queryByRole('button', {name: `Remove ${name}`});
+
+		test('opens with the files put there before, sends them with the message, and empties the input', async () => {
+			fetchMock.mockImplementation((input, init) => {
+				if (input.endsWith('/messages') && init?.method === 'POST') {
+					return Promise.resolve(
+						Response.json({
+							entry: {
+								id: 'e1',
+								kind: 'person',
+								text: ATTACHMENT_MARK,
+								isError: false,
+								at: '2026-10-21T10:00:00Z',
+								attachments: [kept],
+							},
+						}),
+					);
+				}
+				return Promise.resolve(
+					input.endsWith('/chat/answers')
+						? Response.json({answers})
+						: new Response(null, {status: 204}),
+				);
+			});
+			renderChatPage({draftAttachments: [kept], experiments: withFiles});
+
+			// A chip by its name in the box the message is typed in, its size said on hover.
+			const box = await screen.findByLabelText('Message');
+			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
+			// With a space after it, so the caret has text to be in.
+			expect(box.textContent).toBe('pricing.md ');
+			expect(chipOf('pricing.md')?.parentElement?.getAttribute('title')).toBe('pricing.md · 2 KB');
+			// The list beside the conversation says what is waiting, though nothing is typed.
+			await waitFor(() =>
+				expect(screen.getByRole('link', {name: /General/}).textContent).toContain(
+					'Draft: pricing.md',
+				),
+			);
+
+			// A file alone is something to send.
+			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
+
+			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(true));
+			expect(box.textContent).toBe('');
+			const sent = fetchMock.mock.calls.find(([url]) => url.endsWith('/messages'));
+			expect(JSON.parse(String(sent?.[1]?.body))).toEqual({
+				text: ATTACHMENT_MARK,
+				attachments: [{connectionId: 'drive-1', fileId: 'file-1', version: 'v1'}],
+			});
+		});
+
+		test('puts the files of a send that failed back in the box where they sat, and takes nothing out on the server', async () => {
+			fetchMock.mockImplementation((input, init) => {
+				if (input.endsWith('/messages') && init?.method === 'POST') {
+					return Promise.resolve(Response.json({error: 'The agent is gone'}, {status: 500}));
+				}
+				return Promise.resolve(
+					input.endsWith('/chat/answers')
+						? Response.json({answers})
+						: new Response(null, {status: 204}),
+				);
+			});
+			renderChatPage({
+				draft: `Read ${ATTACHMENT_MARK}`,
+				draftAttachments: [kept],
+				experiments: withFiles,
+			});
+			const conversation = await screen.findByLabelText('Conversation');
+			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
+
+			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
+
+			await waitFor(() =>
+				expect(screen.getByLabelText('Message').textContent).toBe('Read pricing.md '),
+			);
+			expect(chipOf('pricing.md') === null).toBe(false);
+			expect(within(conversation).queryByText(/Read/)).toBeNull();
+			expect(calls().filter(([method]) => method === 'DELETE')).toEqual([]);
+		});
+
+		test('opens with each file where it sat among the words, and sends the words with a mark for each, in their order', async () => {
+			const chart = {...kept, fileId: 'file-2', name: 'chart.png', type: 'image/png'};
+			const typed = `Does ${ATTACHMENT_MARK} match ${ATTACHMENT_MARK}?`;
+			renderChatPage({draft: typed, draftAttachments: [chart, kept], experiments: withFiles});
+
+			const box = await screen.findByLabelText('Message');
+			await waitFor(() => expect(box.textContent).toBe('Does chart.png match pricing.md?'));
+			// Nothing was typed since it opened, so nothing is saved.
+			expect(pageSaysSafeToReload()).toBe(true);
+
+			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
+
+			await waitFor(() =>
+				expect(fetchMock.mock.calls.some(([url]) => url.endsWith('/messages'))).toBe(true),
+			);
+			const sent = fetchMock.mock.calls.find(([url]) => url.endsWith('/messages'));
+			expect(JSON.parse(String(sent?.[1]?.body))).toEqual({
+				text: typed,
+				attachments: [
+					{connectionId: 'drive-1', fileId: 'file-2', version: 'v1'},
+					{connectionId: 'drive-1', fileId: 'file-1', version: 'v1'},
+				],
+			});
+		});
+
+		test('gives a file the message ends with a space after it, for the caret to be in, and saves nothing for it', async () => {
+			renderChatPage({
+				draft: `Look at ${ATTACHMENT_MARK}`,
+				draftAttachments: [kept],
+				experiments: withFiles,
+			});
+
+			const box = await screen.findByLabelText('Message');
+			await waitFor(() => expect(box.textContent).toBe('Look at pricing.md '));
+			expect(box.lastChild?.nodeType).toBe(Node.TEXT_NODE);
+			expect(pageSaysSafeToReload()).toBe(true);
+		});
+
+		test('marks a file whole where the selection takes it in, and not where it doesn’t', async () => {
+			renderChatPage({
+				draft: `Look at ${ATTACHMENT_MARK} today`,
+				draftAttachments: [kept],
+				experiments: withFiles,
+			});
+			const box = await screen.findByLabelText('Message');
+			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
+			const place = box.querySelector('[data-file]');
+
+			// Everything, as by selecting all.
+			window.getSelection()?.selectAllChildren(box);
+			fireEvent(document, new Event('selectionchange'));
+			expect(place?.getAttribute('data-selected')).toBe('true');
+
+			// The caret alone, after it.
+			window.getSelection()?.collapseToEnd();
+			fireEvent(document, new Event('selectionchange'));
+			expect(place?.getAttribute('data-selected')).toBe('false');
+		});
+
+		test('saves what is typed around a file with which file each mark is', async () => {
+			renderChatPage({draftAttachments: [kept], experiments: withFiles});
+			const box = await screen.findByLabelText('Message');
+			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
+
+			// Typed after the chip and the space it has after it, as a browser adds a word to the box.
+			box.append('what does this say?');
+			fireEvent.input(box);
+
+			const draftUrl = '/api/orgs/acme/chat/personas/general/draft';
+			await waitFor(
+				() =>
+					expect(
+						fetchMock.mock.calls
+							.filter(([url, init]) => url === draftUrl && init?.method === 'PUT')
+							.map(([, init]) => JSON.parse(String(init?.body)))
+							.at(-1),
+					).toEqual({
+						text: `${ATTACHMENT_MARK} what does this say?`,
+						attachments: [{connectionId: 'drive-1', fileId: 'file-1', version: 'v1'}],
+					}),
+				{timeout: 2000},
+			);
+		});
+
+		test('takes a file out of the input on the server too, by its cross or by deleting it from the text', async () => {
+			const chart = {...kept, fileId: 'file-2', name: 'chart.png', type: 'image/png'};
+			renderChatPage({draftAttachments: [kept, chart], experiments: withFiles});
+			const box = await screen.findByLabelText('Message');
+			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
+
+			fireEvent.click(screen.getByRole('button', {name: 'Remove pricing.md'}));
+
+			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(true));
+			expect(calls()).toEqual([
+				['DELETE', '', JSON.stringify({connectionId: 'drive-1', fileId: 'file-1', version: 'v1'})],
+			]);
+
+			// Backspace over a chip deletes it from the text as one thing: the box then has no place
+			// for it, and says it changed.
+			chipOf('chart.png')?.closest('[data-file]')?.remove();
+			fireEvent.input(box);
+
+			await waitFor(() => expect(calls()).toHaveLength(2));
+			expect(calls()[1]).toEqual([
+				'DELETE',
+				'',
+				JSON.stringify({connectionId: 'drive-1', fileId: 'file-2', version: 'v1'}),
+			]);
+			expect((screen.getByRole('button', {name: 'Send'}) as HTMLButtonElement).disabled).toBe(true);
+		});
+
+		test('uploads at once what is dropped anywhere on the window, showing where it will go while it is dragged', async () => {
+			fetchMock.mockImplementation((input, init) =>
+				Promise.resolve(
+					input.startsWith(attachmentsUrl) && init?.method === 'POST'
+						? Response.json({attachment: {...kept, fileId: 'file-2', name: 'notes.txt', size: 5}})
+						: input.endsWith('/chat/answers')
+							? Response.json({answers})
+							: new Response(null, {status: 204}),
+				),
+			);
+			renderChatPage({experiments: withFiles});
+			const box = await screen.findByLabelText('Message');
+			typeIn(box, 'See ');
+			const file = new File(['hello'], 'notes.txt', {type: 'text/plain'});
+			const dragged = {dataTransfer: {types: ['Files'], files: [file]}};
+
+			fireEvent.dragEnter(window, dragged);
+			expect(screen.getByText('Drop files to attach them')).toBeTruthy();
+			fireEvent.drop(window, dragged);
+
+			expect(screen.queryByText('Drop files to attach them')).toBeNull();
+			// Its chip goes in the box, after what was typed.
+			await waitFor(() => expect(box.textContent).toBe('See notes.txt '));
+			// The file's name and its type go in the address; its bytes are the body.
+			expect(calls()).toHaveLength(1);
+			expect(calls()[0]?.slice(0, 2)).toEqual([
+				'POST',
+				`?${new URLSearchParams({name: 'notes.txt', type: file.type}).toString()}`,
+			]);
+			expect(calls()[0]?.[2]).toBe(file);
+			await waitFor(() =>
+				expect((screen.getByRole('button', {name: 'Send'}) as HTMLButtonElement).disabled).toBe(
+					false,
+				),
+			);
+		});
+
+		test('shows the files a message was sent with where they sat among its words, each a link to the file in its drive; one from before files sat among words has them first', async () => {
+			const entry = {
+				kind: 'person' as const,
+				isError: false,
+				at: '2026-10-21T10:00:00Z',
+				attachments: [kept],
+			};
+			renderChatPage({
+				entries: [
+					{...entry, id: 'e1', text: `Compare ${ATTACHMENT_MARK} with last year`},
+					{...entry, id: 'e2', text: 'What does this say?'},
+				],
+				experiments: withFiles,
+			});
+
+			const [among, first] = await screen.findAllByRole('link', {name: 'pricing.md'});
+			expect(among?.getAttribute('href')).toBe('/acme/connections/drive-1?file=file-1');
+			expect(among?.getAttribute('title')).toBe('pricing.md · 2 KB');
+			expect(among?.closest('[data-slot=bubble-content]')?.textContent).toBe(
+				'Compare pricing.md with last year',
+			);
+			expect(first?.closest('[data-slot=bubble-content]')?.textContent).toBe(
+				'pricing.mdWhat does this say?',
+			);
+		});
+
+		test('takes no files where the organization has none: no paperclip, and a drop is left alone', async () => {
+			renderChatPage();
+			await screen.findByLabelText('Message');
+
+			fireEvent.dragEnter(window, {dataTransfer: {types: ['Files'], files: []}});
+
+			expect(screen.queryByRole('button', {name: 'Attach files'})).toBeNull();
+			expect(screen.queryByText('Drop files to attach them')).toBeNull();
 		});
 	});
 });

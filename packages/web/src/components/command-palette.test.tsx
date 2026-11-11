@@ -64,9 +64,14 @@ const claude: AgentLogin = {
 
 const personas = [persona('finance', 'Finance', false), persona('general', 'General', true)];
 
-// What the bar sends the api, as far as the tests look at it: what is typed, sent or kept as a
-// draft, and the name of an agent made.
-type Body = {text?: string; widget?: string; name?: string};
+// What the bar sends the api, as far as the tests look at it: what is typed, sent with the files
+// attached, which from the bar are none, or kept as a draft, and the name of an agent made.
+type Body = {
+	text?: string;
+	widget?: string;
+	name?: string;
+	attachments?: Array<{connectionId: string; fileId: string; version: string}>;
+};
 
 // What the api is asked, each request with its body, and what it answers: the widget picked for
 // what is typed and its fields as each test sets them, which a test may hold back.
@@ -102,7 +107,14 @@ async function answer(path: string, method: string): Promise<Response> {
 	if (path.endsWith('/messages')) {
 		await messageSent;
 		return Response.json({
-			entry: {id: 'e1', kind: 'person', text: '', isError: false, at: '2026-10-20T10:00:00Z'},
+			entry: {
+				id: 'e1',
+				kind: 'person',
+				text: '',
+				isError: false,
+				at: '2026-10-20T10:00:00Z',
+				attachments: [],
+			},
 		});
 	}
 	if (path.endsWith('/chat/answers')) {
@@ -348,7 +360,7 @@ describe('the command bar over any page', () => {
 
 		await arrivedAt('/acme/chat/general');
 		expect(posts('/chat/personas/general/messages').map((one) => one.body)).toEqual([
-			{text: 'plan my trip to Lisbon in March'},
+			{text: 'plan my trip to Lisbon in March', attachments: []},
 		]);
 		expect(barIsOpen()).toBe(false);
 	});
@@ -437,7 +449,7 @@ describe('the command bar over any page', () => {
 
 		await arrivedAt('/acme/chat/general');
 		expect(posts('/chat/personas/general/messages').map((one) => one.body)).toEqual([
-			{text: 'hello there'},
+			{text: 'hello there', attachments: []},
 		]);
 	});
 
@@ -494,7 +506,7 @@ describe('the command bar over any page', () => {
 
 		await arrivedAt('/acme/chat/finance');
 		expect(posts('/chat/personas/finance/messages').map((one) => one.body)).toEqual([
-			{text: 'what is on my calendar tomorrow'},
+			{text: 'what is on my calendar tomorrow', attachments: []},
 		]);
 		expect(posts('/intent')).toEqual([]);
 	});
@@ -523,7 +535,7 @@ describe('the command bar over any page', () => {
 		await arrivedAt('/acme/chat/made');
 		expect(posts('/chat/personas').map((one) => one.body)).toMatchObject([{name: 'Stretch'}]);
 		expect(posts('/chat/personas/made/messages').map((one) => one.body)).toEqual([
-			{text: 'Remind me to stretch every hour.'},
+			{text: 'Remind me to stretch every hour.', attachments: []},
 		]);
 	});
 

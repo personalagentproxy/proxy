@@ -20,6 +20,7 @@ import {
 	threadState,
 	type ToolCall,
 } from '@proxy/utils/harness';
+import type {EntryAttachment} from '@proxy/utils/harness-context';
 import {taskEndedLongAgo} from '@proxy/utils/tasks';
 
 import {db} from '.';
@@ -187,7 +188,8 @@ export type RanOn = {harness: string; model: string};
 /**
  * An entry of a turn's own output, as a harness that runs its tools itself tells it: what the
  * model said at a step, with the calls it made there and what the step cost, or what one of those
- * calls answered. `system` is the prompt the model was sent, on the turn's first answer at least.
+ * calls answered. `system` is the prompt the model was sent, on the turn's first answer at least;
+ * `attachments` the files the answer shows the person, each at the version it held then.
  */
 export type NewTurnEntry =
 	| {
@@ -198,6 +200,7 @@ export type NewTurnEntry =
 			outputTokens?: number;
 			system?: string;
 			ranOn?: RanOn;
+			attachments?: EntryAttachment[];
 	  }
 	| {kind: 'tool_result'; callId: string; text: string; isError: boolean};
 
@@ -357,14 +360,24 @@ export function toEntry(entry: EntryRecord): EntryRow {
 
 /**
  * The organization's personas the member sees, their own and those every member does, with the
- * last thing said in the member's conversation with each, and what they typed in it and haven't
- * sent, the one last active first: the last thing said in it, or, before anything was, its making.
+ * last thing said in the member's conversation with each, what they typed in it and the files they
+ * put in its input and haven't sent, the one last active first: the last thing said in it, or,
+ * before anything was, its making.
  */
 export async function listPersonas(
 	orgId: string,
 	userId: string,
 ): Promise<
-	Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null}>, ApiError>
+	Result<
+		Array<
+			PersonaRow & {
+				lastMessage: LastMessage | null;
+				draft: string | null;
+				draftAttachments: DraftAttachment[];
+			}
+		>,
+		ApiError
+	>
 > {
 	return (
 		await wrapDb(() =>
@@ -376,6 +389,11 @@ export async function listPersonas(
 						where: {userId, parentThreadId: null},
 						select: {
 							draft: true,
+							attachments: {
+								where: {entryId: null},
+								select: draftSelect,
+								orderBy: {position: 'asc'},
+							},
 							// The agent's turns that only made calls say nothing, so the last with words.
 							entries: {
 								where: {kind: {in: ['person', 'assistant']}, text: {not: ''}},
@@ -400,6 +418,7 @@ export async function listPersonas(
 							? {kind: last.kind, text: last.text, createdAt: last.createdAt}
 							: null,
 					draft: threads[0]?.draft ?? null,
+					draftAttachments: threads[0]?.attachments ?? [],
 				};
 			})
 			.toSorted((a, b) => lastActive(b).getTime() - lastActive(a).getTime()),
@@ -658,18 +677,146 @@ export async function getThreadDraft(threadId: string): Promise<Result<string | 
 }
 
 /**
+ * A file in a conversation's input, not sent yet: one of a drive's, by its connection, its id
+ * there and the version it held when it was put there, with its name, kind and size then. Kept
+ * as a file attached to an entry is (AgentEntryAttachment), with no entry yet.
+ */
+export type DraftAttachment = Omit<EntryAttachment, 'text' | 'cut'>;
+
+const draftSelect = {
+	connectionId: true,
+	fileId: true,
+	version: true,
+	name: true,
+	type: true,
+	size: true,
+} as const;
+
+// The files in a conversation's input: its attachments with no entry yet.
+function inInput(threadId: string) {
+	return {threadId, entryId: null};
+}
+
+/** The files the member put in their conversation's input and hasn't sent, in the order they sit there; none for no such thread. */
+export function listDraftAttachments(
+	threadId: string,
+): Promise<Result<DraftAttachment[], ApiError>> {
+	return wrapDb(() =>
+		db.agentEntryAttachment.findMany({
+			where: inInput(threadId),
+			select: draftSelect,
+			orderBy: {position: 'asc'},
+		}),
+	);
+}
+
+// The member's own conversation, locked for a change to its input; null for none, and for a
+// sub-agent's thread, which keeps no input.
+async function lockInput(tx: Tx, threadId: string): Promise<ThreadRow | null> {
+	const thread = await lockThread(tx, threadId);
+	return thread && thread.parentThreadId === null ? thread : null;
+}
+
+/**
+ * Puts a file in the conversation's input, after those there; one there already, at the same
+ * version, is there once. A conflict where it holds `max` already. `Ok(false)` means no such
+ * conversation.
+ */
+export function addDraftAttachment(
+	threadId: string,
+	attachment: DraftAttachment,
+	max: number,
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			if (!(await lockInput(tx, threadId))) {
+				return false;
+			}
+			const kept = await tx.agentEntryAttachment.findMany({
+				where: inInput(threadId),
+				select: {connectionId: true, fileId: true, version: true, position: true},
+				orderBy: {position: 'asc'},
+			});
+			if (kept.some((one) => sameFile(one, attachment))) {
+				return true;
+			}
+			if (kept.length >= max) {
+				throw ApiErr.conflict(`A message carries at most ${max} files.`);
+			}
+			const position = (kept.at(-1)?.position ?? -1) + 1;
+			await tx.agentEntryAttachment.create({
+				data: {...attachment, ...inInput(threadId), position},
+				select: {id: true},
+			});
+			return true;
+		}),
+	);
+}
+
+/** Takes a file out of the conversation's input; the file itself stays where it is kept. `Ok(false)` means no such conversation. */
+export function removeDraftAttachment(
+	threadId: string,
+	file: Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>,
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			if (!(await lockInput(tx, threadId))) {
+				return false;
+			}
+			await tx.agentEntryAttachment.deleteMany({where: {...inInput(threadId), ...file}});
+			return true;
+		}),
+	);
+}
+
+function sameFile(
+	one: Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>,
+	other: Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>,
+): boolean {
+	return (
+		one.connectionId === other.connectionId &&
+		one.fileId === other.fileId &&
+		one.version === other.version
+	);
+}
+
+/**
  * Keeps what the member typed in their conversation and hasn't sent, in place of what was kept;
- * null forgets it. `Ok(false)` means no such conversation: a sub-agent's thread keeps none.
+ * null forgets it. With `order`, the files in the input are kept in that order, as they sit among
+ * what was typed, any it doesn't name after them; none are put there or taken out by it.
+ * `Ok(false)` means no such conversation: a sub-agent's thread keeps none.
  */
 export async function saveThreadDraft(
 	threadId: string,
 	draft: string | null,
+	order?: Array<Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>>,
 ): Promise<Result<boolean, ApiError>> {
-	return (
-		await wrapDb(() =>
-			db.agentThread.updateMany({where: {id: threadId, parentThreadId: null}, data: {draft}}),
-		)
-	).map(({count}) => count > 0);
+	if (order === undefined) {
+		return (
+			await wrapDb(() =>
+				db.agentThread.updateMany({where: {id: threadId, parentThreadId: null}, data: {draft}}),
+			)
+		).map(({count}) => count > 0);
+	}
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			if (!(await lockInput(tx, threadId))) {
+				return false;
+			}
+			await tx.agentThread.update({where: {id: threadId}, data: {draft}});
+			const kept = await tx.agentEntryAttachment.findMany({
+				where: inInput(threadId),
+				select: {id: true, connectionId: true, fileId: true, version: true},
+				orderBy: {position: 'asc'},
+			});
+			const named = new Set(order.flatMap((file) => kept.filter((one) => sameFile(one, file))));
+			const ordered = [...named, ...kept.filter((one) => !named.has(one))];
+			for (const [position, one] of ordered.entries()) {
+				await tx.agentEntryAttachment.update({where: {id: one.id}, data: {position}});
+			}
+			return true;
+		}),
+	);
 }
 
 /**
@@ -1090,14 +1237,15 @@ export async function setTaskPinned(
  * sub-agent's log, as theirs (`direct`), taking it up as the agent's message would
  * (messageSubAgent); and in the conversation, as a note on the call that started it, which the
  * agent reads with what wakes it next, the sub-agent's answer among it, but is not woken by where
- * `wakes` says so (@proxy/utils/harness readyForInference). `Ok(false)` means no such sub-agent of
- * the conversation.
+ * `wakes` says so (@proxy/utils/harness readyForInference); with the files they attached, kept with
+ * both. `Ok(false)` means no such sub-agent of the conversation.
  */
 export async function messageSubAgentDirectly(
 	conversationId: string,
 	subAgentId: string,
 	text: string,
 	wakes: Wakes,
+	attachments: EntryAttachment[] = [],
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
@@ -1111,11 +1259,12 @@ export async function messageSubAgentDirectly(
 				subAgentId,
 				{kind: 'person', text, direct: true},
 				wakes,
+				attachments,
 			);
 			if (!subAgent) {
 				return false;
 			}
-			await appendEntry(
+			const note = await appendEntry(
 				tx,
 				conversation,
 				{
@@ -1125,6 +1274,7 @@ export async function messageSubAgentDirectly(
 				},
 				wakes,
 			);
+			await attach(tx, conversation.id, note.id, attachments);
 			return true;
 		}),
 	);
@@ -1138,6 +1288,7 @@ export async function appendPersonMessage(
 	threadId: string,
 	text: string,
 	wakes: Wakes,
+	attachments: EntryAttachment[] = [],
 ): Promise<Result<EntryRow | null, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
@@ -1146,9 +1297,98 @@ export async function appendPersonMessage(
 				return null;
 			}
 			await tx.agentThread.update({where: {id: threadId}, data: {draft: null}});
-			return appendEntry(tx, thread, {kind: 'person', text}, wakes);
+			await tx.agentEntryAttachment.deleteMany({where: inInput(threadId)});
+			const entry = await appendEntry(tx, thread, {kind: 'person', text}, wakes);
+			await attach(tx, threadId, entry.id, attachments);
+			return entry;
 		}),
 	);
+}
+
+// Keeps the files an entry goes with, in the order given.
+async function attach(
+	tx: Tx,
+	threadId: string,
+	entryId: string,
+	attachments: EntryAttachment[] = [],
+): Promise<void> {
+	if (attachments.length === 0) {
+		return;
+	}
+	await tx.agentEntryAttachment.createMany({
+		data: attachments.map((attachment, position) => ({...attachment, entryId, threadId, position})),
+	});
+}
+
+const attachmentSelect = {
+	entryId: true,
+	connectionId: true,
+	fileId: true,
+	version: true,
+	name: true,
+	type: true,
+	size: true,
+	text: true,
+	cut: true,
+} as const;
+
+/**
+ * A file attached to an entry of a thread's log, with the entry it is attached to, and whether the
+ * version attached is gone from its drive since, deleted for good with the file out of the trash
+ * or with the drive: only what the log kept of it is left then.
+ */
+export type AttachmentRow = EntryAttachment & {entryId: string; gone: boolean};
+
+/**
+ * The files of a thread's log, each with the entry it goes with, in the order attached: what the
+ * person attached to what they said, and the files the agent showed them in its answers.
+ */
+export function listAttachments(threadId: string): Promise<Result<AttachmentRow[], ApiError>> {
+	return wrapDb(async () => {
+		const rows = await db.agentEntryAttachment.findMany({
+			where: {threadId, entryId: {not: null}},
+			select: attachmentSelect,
+			orderBy: [{createdAt: 'asc'}, {position: 'asc'}],
+		});
+		const kept = await db.fileVersion.findMany({
+			where: {id: {in: [...new Set(rows.map((row) => row.version))]}},
+			select: {id: true},
+		});
+		const there = new Set(kept.map((version) => version.id));
+		return rows.flatMap(({entryId, ...row}) =>
+			entryId === null ? [] : [{...row, entryId, gone: !there.has(row.version)}],
+		);
+	});
+}
+
+/**
+ * Whether the person attached the version of the file in the conversation the task's work is for:
+ * the thread of a sub-agent whose task it is, and the conversation that thread was started from.
+ * False for a task that is no sub-agent's. A file the agent showed them hands nothing over: the
+ * agent could read it already.
+ */
+export async function isAttachedForTask(
+	task: {orgId: string; taskId: string},
+	file: {connectionId: string; fileId: string; version: string},
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(async () => {
+		const thread = await db.agentThread.findFirst({
+			where: task,
+			select: {id: true, parentThreadId: true},
+		});
+		if (!thread) {
+			return false;
+		}
+		const found = await db.agentEntryAttachment.findFirst({
+			where: {
+				threadId: {in: [thread.id, ...(thread.parentThreadId ? [thread.parentThreadId] : [])]},
+				entry: {kind: 'person' satisfies AgentEntryKind},
+				...file,
+			},
+			select: {entryId: true},
+		});
+		return found !== null;
+	});
 }
 
 /** A job as a worker claimed it, with whether it is a turn of a persona on the harness the claim was told is capped. */
@@ -1425,7 +1665,7 @@ export async function requeueJob(
 	);
 }
 
-/** What the model answered: its text, its tool calls, what they cost, the system prompt it was sent, null where it wasn't run for the answer, and the harness and the model it ran on, left out there. */
+/** What the model answered: its text, its tool calls, what they cost, the system prompt it was sent, null where it wasn't run for the answer, the harness and the model it ran on, left out there, and the files it shows the person, each at the version it held then. */
 export type AssistantTurn = {
 	text: string;
 	toolCalls: ToolCall[];
@@ -1433,6 +1673,7 @@ export type AssistantTurn = {
 	outputTokens: number;
 	system: string | null;
 	ranOn?: RanOn;
+	attachments?: EntryAttachment[];
 };
 
 /**
@@ -1492,7 +1733,7 @@ export async function appendTurnEntries(
 			}
 			for (const entry of entries) {
 				if (entry.kind === 'assistant') {
-					await tx.agentEntry.create({
+					const written = await tx.agentEntry.create({
 						data: {
 							threadId,
 							kind: 'assistant' satisfies AgentEntryKind,
@@ -1510,6 +1751,7 @@ export async function appendTurnEntries(
 						},
 						select: {id: true},
 					});
+					await attach(tx, threadId, written.id, entry.attachments);
 					continue;
 				}
 				await tx.agentEntry.create({
@@ -1690,6 +1932,7 @@ async function messageSubAgent(
 	subAgentId: string,
 	entry: NewEntry,
 	wakes: Wakes,
+	attachments: EntryAttachment[] = [],
 ): Promise<SubAgentRow | null> {
 	const found = await tx.agentThread.findFirst({
 		where: {id: subAgentId, parentThreadId: parent.id},
@@ -1710,7 +1953,8 @@ async function messageSubAgent(
 		where: {threadId: thread.id, kind: {in: ['tool', 'wake']}, status: 'queued', runAt: {gt: now}},
 		data: {runAt: now},
 	});
-	await appendEntry(tx, thread, entry, wakes);
+	const appended = await appendEntry(tx, thread, entry, wakes);
+	await attach(tx, thread.id, appended.id, attachments);
 	return {...thread, state: threadState(jobs, now)};
 }
 
@@ -1816,7 +2060,7 @@ export async function completeInference(
 					});
 				}
 				if (turn) {
-					await tx.agentEntry.create({
+					const written = await tx.agentEntry.create({
 						data: {
 							threadId,
 							kind: 'assistant' satisfies AgentEntryKind,
@@ -1831,6 +2075,7 @@ export async function completeInference(
 						},
 						select: {id: true},
 					});
+					await attach(tx, threadId, written.id, turn.attachments);
 				}
 				if ('stop' in after) {
 					await endTurn(tx, thread, after.stop, jobId, wakes);

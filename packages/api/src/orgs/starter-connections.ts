@@ -1,4 +1,4 @@
-import {SANDBOX_INTEGRATION_ID, VAULT_DEFAULT_ACTIONS, VAULT_INTEGRATION_ID} from '@proxy/integrations';
+import {FILES_INTEGRATION_ID, SANDBOX_INTEGRATION_ID, VAULT_DEFAULT_ACTIONS, VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import type {StarterConnection} from '@proxy/db/organization';
 
 /**
@@ -9,5 +9,5 @@ import type {StarterConnection} from '@proxy/db/organization';
  */
 export const MEMBER_CONNECTIONS: StarterConnection[] = [{integrationId: VAULT_INTEGRATION_ID, defaults: VAULT_DEFAULT_ACTIONS}];
 
-/** The integrations whose connections are called by the organization's name: the vaults, and the Sandboxes made later (native/sandbox/connections.ts). */
-export const NAMED_AFTER_ORGANIZATION: string[] = [VAULT_INTEGRATION_ID, SANDBOX_INTEGRATION_ID];
+/** The integrations whose connections are called by the organization's name: the vaults, and the Sandboxes and the Files made later (native/sandbox/connections.ts, native/files/connections.ts). */
+export const NAMED_AFTER_ORGANIZATION: string[] = [VAULT_INTEGRATION_ID, SANDBOX_INTEGRATION_ID, FILES_INTEGRATION_ID];
