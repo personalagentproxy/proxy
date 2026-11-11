@@ -197,7 +197,7 @@
 		@apply cursor-pointer;
 	}
 	body {
-		@apply bg-background text-foreground;
+		@apply bg-background text-foreground antialiased;
 	}
 	html {
 		@apply font-sans;
