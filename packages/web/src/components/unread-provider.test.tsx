@@ -1,7 +1,6 @@
 /// <reference types="bun" />
 
 import type {ChatAnswer} from '@proxy/contracts/harness';
-import type {Experiment} from '@proxy/utils';
 import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
 import {act, cleanup, render, screen, waitFor} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
@@ -63,12 +62,12 @@ function Consumer() {
 	);
 }
 
-function renderProvider(experiments: Experiment[] = ['harness'], entry = '/acme') {
+function renderProvider(entry = '/acme') {
 	const router = createMemoryRouter(
 		[
 			{
 				id: 'human',
-				loader: () => testHuman({...testOrg, experiments}),
+				loader: () => testHuman(testOrg),
 				element: <HumanSide />,
 				children: [
 					{path: '/account', element: <Consumer />},
@@ -304,7 +303,7 @@ describe('UnreadProvider', () => {
 	});
 
 	test('keeps the count of the organization in the sidebar on the person’s account page', async () => {
-		renderProvider(['harness'], '/account');
+		renderProvider('/account');
 
 		await waitFor(() => {
 			expect(screen.getByTestId('count').textContent).toBe('2');
@@ -399,13 +398,5 @@ describe('UnreadProvider', () => {
 
 		unmount();
 		expect(setBadge).toHaveBeenLastCalledWith(0);
-	});
-
-	test('asks nothing without the harness experiment', async () => {
-		renderProvider([]);
-
-		await screen.findByTestId('count');
-		expect(screen.getByTestId('count').textContent).toBe('0');
-		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });

@@ -2,7 +2,7 @@ import {describe, expect, test} from 'bun:test';
 
 import {fakeHarness} from '@proxy/backends/harness/fake';
 
-import {authFor, cappedHarness, chosenFor, CONNECT_CLAUDE, harnessesOf, harnessFor, needsCredential, NOT_SET_UP} from './harness';
+import {authFor, cappedHarness, chosenFor, CONNECT_CLAUDE, harnessesOf, harnessFor, needsCredential, NOT_SET_UP, offeredTo} from './harness';
 
 const proxy = fakeHarness('proxy');
 const sdk = fakeHarness('claude-agent-sdk');
@@ -22,7 +22,16 @@ describe('which harness runs a thread', () => {
 		expect(chosenFor(proxyOnly, {harness: 'claude-agent-sdk', chatModel: 'other'})).toEqual({harness: proxy, model: 'other'});
 		expect(chosenFor({proxy: null, claudeAgentSdk: sdk}, {harness: 'proxy', chatModel: 'claude'})).toEqual({harness: sdk, model: 'claude'});
 		expect(chosenFor({proxy: null, claudeAgentSdk: null}, {harness: 'proxy', chatModel: 'claude'})).toBeNull();
-		expect(harnessesOf(both)).toEqual([proxy, sdk]);
+		expect(harnessesOf(both)).toEqual([sdk, proxy]);
+		expect(chosenFor(both, {harness: 'codex', chatModel: 'other'})).toEqual({harness: sdk, model: 'other'});
+	});
+
+	test('OpenRouter is offered an organization only with the openrouter experiment on, and a persona on it without is read as on Claude', () => {
+		expect(offeredTo(both, {experiments: ['openrouter']})).toEqual(both);
+		expect(offeredTo(both, {experiments: []})).toEqual({proxy: null, claudeAgentSdk: sdk});
+		expect(offeredTo(both, {experiments: ['sandboxes']})).toEqual({proxy: null, claudeAgentSdk: sdk});
+		expect(chosenFor(offeredTo(both, {experiments: []}), {harness: 'proxy', chatModel: 'claude'})).toEqual({harness: sdk, model: 'claude'});
+		expect(harnessFor(offeredTo(proxyOnly, {experiments: []}), {harness: 'proxy', chatModel: 'claude'}, null)).toEqual({harness: null, auth: null, why: NOT_SET_UP});
 	});
 
 	test('a turn on the proxy harness takes no credential, whatever the member connected; one on the SDK harness takes the member’s, and a member without one is told to connect it', () => {

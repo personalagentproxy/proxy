@@ -1,5 +1,6 @@
-import {cleanup, fireEvent, render} from '@testing-library/react';
+import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import {afterEach, describe, expect, test} from 'bun:test';
+import {createMemoryRouter, RouterProvider} from 'react-router';
 
 import {Markdown} from './markdown';
 
@@ -21,12 +22,35 @@ describe('Markdown', () => {
 		expect(links[0]?.firstElementChild).toBe(favicons[0]);
 	});
 
-	test('leaves relative, email and insecure links without a favicon', () => {
+	test('leaves email and insecure links without a favicon', () => {
 		const {container} = render(
-			<Markdown text="[Email us](mailto:hello@example.com), [open settings](/settings), [use HTTP](http://example.com), or use malformed HTTPS links such as [one slash](https:/example.com) and [no slashes](https:example.com)." />,
+			<Markdown text="[Email us](mailto:hello@example.com), [use HTTP](http://example.com), or use malformed HTTPS links such as [one slash](https:/example.com) and [no slashes](https:example.com)." />,
 		);
 
-		expect(container.querySelectorAll('a')).toHaveLength(5);
+		expect(container.querySelectorAll('a')).toHaveLength(4);
+		expect(container.querySelector('img')).toBeNull();
+	});
+
+	test('opens a link into the app in place, without a favicon, the account page kept to the organization', async () => {
+		const router = createMemoryRouter(
+			[
+				{
+					path: '/:org/*',
+					element: (
+						<Markdown text="Connect it on the [Account page](/account), or [open settings](/acme/settings)." />
+					),
+				},
+			],
+			{initialEntries: ['/acme/chat']},
+		);
+		const {container} = render(<RouterProvider router={router} />);
+
+		const account = await screen.findByRole('link', {name: 'Account page'});
+		expect(account.getAttribute('href')).toBe('/account?org=acme');
+		expect(account.getAttribute('target')).toBeNull();
+		expect(screen.getByRole('link', {name: 'open settings'}).getAttribute('href')).toBe(
+			'/acme/settings',
+		);
 		expect(container.querySelector('img')).toBeNull();
 	});
 

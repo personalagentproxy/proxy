@@ -72,7 +72,6 @@ const personas = [finance, team, general];
 
 const everywhere = destinationsOf({
 	org: 'acme',
-	chat: true,
 	personas,
 	connections: [
 		connection('vault-1', 'vault', 'Acme'),
@@ -113,19 +112,6 @@ describe('destinationsOf', () => {
 		expect(detail.Granola).toBe('me@example.com');
 		expect(detail['Google (me@home.example)']).toBeNull();
 		expect(detail['My vault']).toBeNull();
-	});
-
-	test('without Chat, leaves out its pages, and a list still loading is left out', () => {
-		const labels = destinationsOf({
-			org: 'acme',
-			chat: false,
-			personas: null,
-			connections: null,
-			agents: null,
-		}).map((destination) => destination.label);
-		expect(labels).not.toContain('Chat');
-		expect(labels).not.toContain('Alerts');
-		expect(labels).toContain('Activity');
 	});
 });
 

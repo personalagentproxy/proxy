@@ -123,7 +123,9 @@ describe('AccountPage, the Claude card', () => {
 		expect(
 			await screen.findByText(/Run the built-in agent on your own Claude subscription/),
 		).toBeDefined();
-		expect(screen.getByText('Or sign in with Claude from the desktop app.')).toBeDefined();
+		expect(screen.getByRole('link', {name: 'desktop app'}).getAttribute('href')).toBe(
+			'https://github.com/personalagentproxy/proxy/releases/latest',
+		);
 		expect(screen.queryByRole('button', {name: 'Connect Claude'})).toBeNull();
 		expect(screen.queryByLabelText('Token or API key')).toBeNull();
 
@@ -201,7 +203,7 @@ describe('AccountPage, the Claude card', () => {
 		expect(
 			await screen.findByText(/Run the built-in agent on your own Claude subscription/),
 		).toBeDefined();
-		expect(screen.queryByText('Or sign in with Claude from the desktop app.')).toBeNull();
+		expect(screen.queryByRole('link', {name: 'desktop app'})).toBeNull();
 		expect(screen.queryByText(/An update to the desktop app/)).toBeNull();
 
 		fireEvent.click(screen.getByRole('button', {name: 'Connect Claude'}));
@@ -264,7 +266,7 @@ describe('AccountPage, the Claude card', () => {
 		});
 		renderPage({...token, expiresAt: new Date(Date.now() + 10 * DAY_MS).toISOString()});
 		expect(await screen.findByRole('button', {name: 'Connect Claude'})).toBeDefined();
-		expect(screen.queryByText('Or sign in with Claude from the desktop app.')).toBeNull();
+		expect(screen.queryByRole('link', {name: 'desktop app'})).toBeNull();
 
 		fireEvent.click(screen.getByRole('button', {name: 'Paste a token'}));
 		const dialog = await screen.findByRole('dialog');
@@ -283,7 +285,7 @@ describe('AccountPage, the Claude card', () => {
 		).toBeDefined();
 		expect(screen.getByText(/Quit and reopen the app to update it/)).toBeDefined();
 		expect(screen.queryByRole('button', {name: 'Connect Claude'})).toBeNull();
-		expect(screen.queryByText('Or sign in with Claude from the desktop app.')).toBeNull();
+		expect(screen.queryByRole('link', {name: 'desktop app'})).toBeNull();
 		expect(screen.getByRole('button', {name: 'Paste a token'})).toBeDefined();
 	});
 });

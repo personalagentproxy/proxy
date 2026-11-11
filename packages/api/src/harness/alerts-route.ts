@@ -9,15 +9,14 @@ import type {PersonaRow} from '@proxy/db/harness';
 import type {Alert, alertListSchema} from '@proxy/contracts/alerts';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
+import {requireViewer} from '../utils/user-org';
 import {collectionName, connectionName} from './alerts';
-import {requireChat} from './route';
 import type {HarnessStore} from './store';
 
 /**
  * The Alerts page's routes, under the organization: the member's own alerts, those the agents they
  * talk with on the Chat page set in their conversations, each with the connections it watches, and
- * deleting one. Behind the `harness` experiment, as the Chat page is. Nothing here sets an alert:
- * the agent does, asked to in its conversation (tool-job.ts).
+ * deleting one. Nothing here sets an alert: the agent does, asked to in its conversation (tool-job.ts).
  */
 
 /** What the Alerts page's routes need of the store. */
@@ -44,7 +43,7 @@ function toAlert(alert: AlertRow & {persona: PersonaRow}, connections: Map<strin
 /** `GET /api/orgs/:org/alerts`: the viewer's alerts in the organization, newest first, each with the persona it was set with and the connections it watches. */
 function handleListAlertsRoute(store: AlertsStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof alertListSchema>, ApiError>> {
 	return Do(async ($) => {
-		const viewer = $(await requireChat(request));
+		const viewer = $(await requireViewer(request));
 		const alerts = $(await store.listMemberAlerts(viewer.orgId, viewer.userId));
 		const ids = [...new Set(alerts.flatMap((alert) => alert.connectionIds))];
 		const connections = new Map($(await store.listConnectionsByIds(viewer.orgId, ids)).map((connection) => [connection.id, connection]));
@@ -55,7 +54,7 @@ function handleListAlertsRoute(store: AlertsStore, request: AuthenticatedRequest
 /** `DELETE /api/orgs/:org/alerts/:alertId`: one of the viewer's alerts; nothing more comes of it. */
 function handleDeleteAlertRoute(store: AlertsStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		const viewer = $(await requireChat(request));
+		const viewer = $(await requireViewer(request));
 		const alertId = request.params.alertId ?? '';
 		if (!$(await store.deleteAlert(alertId, {orgId: viewer.orgId, userId: viewer.userId}))) {
 			return $(Err(ApiErr.notFound('alert', alertId)));

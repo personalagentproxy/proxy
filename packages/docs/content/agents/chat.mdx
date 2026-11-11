@@ -29,9 +29,8 @@ the agent titled the sub-agent, with every call it made under it: finished, with
 as the outcome, each time the sub-agent stops, and under way again when a message takes it up.
 
 What it does differently from an agent you connect is where it runs: in Personal Agent Proxy, not
-on another company's servers. Unless you choose otherwise, the model is Claude Sonnet 5.5, reached
-through OpenRouter with a host that neither keeps prompts nor trains on them, so a self-hosted
-Personal Agent Proxy needs an `OPENROUTER_KEY`.
+on another company's servers. Unless you choose otherwise, the model is Claude Sonnet 5.5, on each
+member's own [Claude account](#your-claude-subscription).
 
 ## What runs an agent
 
@@ -42,15 +41,17 @@ mark, with the models of the one you look at beside them to switch between. The 
 agent's: it holds for every conversation with the agent, each member's with General, and for the
 sub-agents it starts, from the next turn on, and a conversation goes on from where it was.
 
-- **OpenRouter** runs on the server's key, for every member alike, with Claude Sonnet 5.5 or
-  GLM 5.3, each only on hosts that keep nothing of what is sent.
 - **Claude** runs on each member's own [Claude account](#your-claude-subscription), with
   Claude Sonnet 5.5, Claude Opus 5.5 or Claude Fable 5.2, and counts against that member's plan.
   A member who hasn't connected a Claude account is told to, in the conversation, and nothing of
   theirs runs on the server's key in its place.
+- **OpenRouter** runs on the server's key, for every member alike, with Claude Sonnet 5.5 or
+  GLM 5.3, each only on hosts that keep nothing of what is sent. It is only offered to an
+  organization that has it [turned on](#openrouter).
 
-A new agent runs on the first harness the server has, with that harness's first model. A harness
-the server hasn't got isn't offered, and an agent that was set to one runs on the first it has.
+A new agent runs on the first harness offered, Claude where the server has it, with that harness's
+first model. A harness that isn't offered can't be chosen, and an agent that was set to one runs on
+the first that is.
 
 ## How a conversation runs
 
@@ -127,14 +128,14 @@ that. **Disconnect** on the card deletes the credential, and deleting your accou
 an agent on Claude then asks you to connect one again. The token itself
 can be revoked at [claude.ai](https://claude.ai) as well, under your account's settings.
 
-<Callout>
-Chat is being tried out with some organizations first, so it is only offered to an organization
-that has it turned on. On a self-hosted Personal Agent Proxy, turn it on for every organization in
-its database:
+## OpenRouter
+
+Agents on the server's OpenRouter key are being tried out with some organizations first, so the
+OpenRouter harness is only offered to an organization that has it turned on, on a server with an
+`OPENROUTER_KEY`. On a self-hosted Personal Agent Proxy, turn it on for every organization in its
+database:
 
 ```sql
-UPDATE "Organization" SET experiments = array_append(experiments, 'harness')
-WHERE NOT 'harness' = ANY(experiments);
+UPDATE "Organization" SET experiments = array_append(experiments, 'openrouter')
+WHERE NOT 'openrouter' = ANY(experiments);
 ```
-
-</Callout>

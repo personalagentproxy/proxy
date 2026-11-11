@@ -9,7 +9,7 @@ import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {AppSidebar} from '@/components/nav';
 import {type Unread, UnreadContext} from '@/hooks/use-unread';
 import type {Human} from '@/lib/orgs';
-import {testHuman, testOrg} from '@/test-org';
+import {testHuman} from '@/test-org';
 
 afterEach(() => {
 	cleanup();
@@ -70,9 +70,9 @@ describe('AppSidebar', () => {
 		).toBe(false);
 
 		expect(groupLabels()).toEqual([
-			[],
+			['Chat'],
 			['Connections and permissions', 'External agents'],
-			['Activity'],
+			['Activity', 'Alerts'],
 		]);
 
 		fireEvent.click(screen.getByRole('button', {name: 'Organization: Acme'}));
@@ -82,24 +82,14 @@ describe('AppSidebar', () => {
 		expect(settings.getAttribute('href')).toBe('/acme/settings');
 	});
 
-	test('shows Chat under Search, and Alerts under Activity, with the harness experiment', async () => {
-		renderSidebar(testHuman({...testOrg, experiments: ['harness']}), '/acme/chat/general');
+	test('lights Chat in a conversation', async () => {
+		renderSidebar(testHuman(), '/acme/chat/general');
 		const chat = await screen.findByRole('link', {name: 'Chat'});
 		expect(chat.hasAttribute('data-active')).toBe(true);
-
-		expect(groupLabels()).toEqual([
-			['Chat'],
-			['Connections and permissions', 'External agents'],
-			['Activity', 'Alerts'],
-		]);
 	});
 
 	test('counts the conversations with something unread on Chat', async () => {
-		renderSidebar(
-			testHuman({...testOrg, experiments: ['harness']}),
-			'/acme/connections',
-			unreadOf(['general', 'finance']),
-		);
+		renderSidebar(testHuman(), '/acme/connections', unreadOf(['general', 'finance']));
 		await screen.findByRole('link', {name: 'Chat'});
 
 		const badge = screen.getByRole('status', {name: '2 unread'});

@@ -78,7 +78,6 @@ let fields: Fields | Promise<Fields> = [];
 // A message to an agent, answered once it settles, where a test holds it back.
 let messageSent: Promise<void> | null = null;
 // Whether the organization has Chat.
-let chat = true;
 // Whether the api refuses a message to an agent.
 let refusesMessages = false;
 // Whether what is connected is never answered, as on a slow connection.
@@ -123,7 +122,6 @@ beforeEach(() => {
 	picked = {widget: 'none'};
 	fields = [];
 	messageSent = null;
-	chat = true;
 	refusesMessages = false;
 	holdsConnections = false;
 	globalThis.fetch = (async (input: string, init?: RequestInit) => {
@@ -164,7 +162,7 @@ function Where() {
 }
 
 function renderApp(entry = '/acme/activity') {
-	const human = testHuman({...testOrg, experiments: chat ? ['harness'] : []});
+	const human = testHuman(testOrg);
 	const router = createMemoryRouter(
 		[
 			{
@@ -621,21 +619,6 @@ describe('the command bar over any page', () => {
 		expect(await where()).toBe('/acme/activity');
 		expect(asked.length).toBe(before);
 		expect(screen.getByRole('region', {name: 'Math'})).toBeTruthy();
-	});
-
-	test('without Chat, it goes places and does quick actions, and what none does is said to be an agent’s', async () => {
-		chat = false;
-		renderApp();
-		const input = await openBar();
-		await waitFor(() => expect(rows().some((row) => row.startsWith('Granola'))).toBe(true));
-		expect(rows().some((row) => row.startsWith('Chat'))).toBe(false);
-
-		fireEvent.change(input, {target: {value: 'plan my trip to Lisbon in March'}});
-		fireEvent.keyDown(input, {key: 'Enter'});
-
-		expect(await cardNamed('Not a quick action (yet)')).toBeTruthy();
-		expect(asked.some((one) => one.path.includes('/chat/personas'))).toBe(false);
-		expect(await where()).toBe('/acme/activity');
 	});
 
 	test('on the account page, which is no organization’s, it works in the one the page was opened from: it classifies there, sends there and goes to its pages', async () => {

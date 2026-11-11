@@ -131,7 +131,7 @@ function renderChatPage({
 		[
 			{
 				id: 'human',
-				loader: () => testHuman({...testOrg, experiments: ['harness']}),
+				loader: () => testHuman(testOrg),
 				element: <HumanSide />,
 				children: [
 					{

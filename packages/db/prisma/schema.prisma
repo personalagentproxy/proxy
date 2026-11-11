@@ -617,10 +617,10 @@ model Persona {
   color String
   // The harness that runs its turns, by the harness's id (@proxy/backends/harness), its
   // sub-agents' too, and the model it answers with, by the id the harness lists it under: chosen
-  // where it is made or changed. One the server hasn't got is read as one it has (the api's
-  // backends/harness.ts).
-  harness   String @default("proxy")
-  chatModel String @default("claude")
+  // where it is made or changed. One the server doesn't offer the organization is read as one it
+  // does (the api's backends/harness.ts).
+  harness   String @default("claude-agent-sdk")
+  chatModel String @default("sonnet")
   // The member whose persona it is, which nobody else in the organization sees, its owner
   // included; null for one every member sees, as General is, and as one from before personas
   // were anyone's is where others had talked to it.

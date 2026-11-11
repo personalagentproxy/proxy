@@ -52,8 +52,6 @@ type Page = {
 	to: (org: string) => string;
 	icon: LucideIcon;
 	keywords: string[];
-	// Only with Chat on (the `harness` experiment).
-	chat?: true;
 };
 
 /** The id of a destination's row in the bar, which the bar's input names as the one Enter opens. */
@@ -69,7 +67,6 @@ const PAGES: Page[] = [
 		to: (org) => `/${org}/chat`,
 		icon: MessageSquareIcon,
 		keywords: ['conversations', 'messages'],
-		chat: true,
 	},
 	{
 		label: 'Connections and permissions',
@@ -94,7 +91,6 @@ const PAGES: Page[] = [
 		to: (org) => `/${org}/alerts`,
 		icon: BellIcon,
 		keywords: ['reminders', 'watches'],
-		chat: true,
 	},
 	{
 		label: 'Members',
@@ -140,19 +136,18 @@ function accountOf(connection: Connection, label: string): string | null {
 /**
  * Everywhere the bar goes in the organization `org`: its pages, the person's conversations with
  * Chat's agents, their connections, and the external agents that aren't revoked. A list still
- * loading, or that couldn't be, is left out. `chat` is whether the organization has Chat.
+ * loading, or that couldn't be, is left out.
  */
 export function destinationsOf(lists: {
 	org: string;
-	chat: boolean;
 	personas: ChatPersona[] | null;
 	connections: Connection[] | null;
 	agents: AgentLogin[] | null;
 }): Destination[] {
-	const {org, chat} = lists;
+	const {org} = lists;
 	const connections = lists.connections ?? [];
 	return [
-		...PAGES.filter((page) => chat || !page.chat).map((page): Destination => ({
+		...PAGES.map((page): Destination => ({
 			id: `page:${page.label}`,
 			kind: 'page',
 			label: page.label,

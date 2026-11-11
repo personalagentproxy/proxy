@@ -1,15 +1,40 @@
-import {createContext, useContext, useState} from 'react';
+import {createContext, type ReactNode, useContext, useState} from 'react';
 import ReactMarkdown, {type Components} from 'react-markdown';
+import {Link} from 'react-router';
 import remarkGfm from 'remark-gfm';
 import {cn} from '@proxy/ui/lib/utils';
+import {useOrgSlug} from '@/hooks/use-org';
+import {accountPath} from '@/lib/orgs';
 
 const MAX_FAVICON_HOSTS = 8;
 const FaviconHostsContext = createContext<Set<string> | null>(null);
 
 // What a persona answers, as Markdown: paragraphs, lists, tables, code and links, styled to sit
-// in a chat bubble. Every link opens in a new tab, since the conversation stays here. Each
+// in a chat bubble. A link elsewhere opens in a new tab, since the conversation stays here; one
+// into the app, by its path, opens in place. Each
 // component takes the element's own props, without the syntax tree node react-markdown hands
 // along, which is no attribute of an element.
+
+const LINK_CLASS = 'underline underline-offset-4 hover:text-foreground';
+
+// A path in the app, as the conversation's own word on connecting Claude links the Account page:
+// that page kept to the organization the link was followed from.
+function AppLink({
+	path,
+	className,
+	children,
+}: {
+	path: string;
+	className?: string;
+	children: ReactNode;
+}) {
+	const org = useOrgSlug();
+	return (
+		<Link className={cn(LINK_CLASS, className)} to={path === '/account' ? accountPath(org) : path}>
+			{children}
+		</Link>
+	);
+}
 
 const MarkdownLink: NonNullable<Components['a']> = ({
 	node: _node,
@@ -19,10 +44,17 @@ const MarkdownLink: NonNullable<Components['a']> = ({
 	...props
 }) => {
 	const hosts = useContext(FaviconHostsContext);
+	if (href?.startsWith('/') && !href.startsWith('//')) {
+		return (
+			<AppLink path={href} className={className}>
+				{children}
+			</AppLink>
+		);
+	}
 	const host = hosts ? faviconHost(href, hosts) : null;
 	return (
 		<a
-			className={cn('underline underline-offset-4 hover:text-foreground', className)}
+			className={cn(LINK_CLASS, className)}
 			href={href}
 			target="_blank"
 			rel="noreferrer"

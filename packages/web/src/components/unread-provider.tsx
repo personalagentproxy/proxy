@@ -3,7 +3,6 @@ import type {FetchError} from '@proxy/utils';
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useNavigate} from 'react-router';
 import {listAnswers, markRead} from '@/client/harness-client';
-import {useExperiments} from '@/hooks/use-experiment';
 import {useOrgSlug} from '@/hooks/use-org';
 import {usePoll} from '@/hooks/use-poll';
 import {type Unread, UnreadContext, type Viewing} from '@/hooks/use-unread';
@@ -51,8 +50,7 @@ function sameAnswers(kept: ChatAnswer[] | null, listed: ChatAnswer[]): boolean {
 export function UnreadProvider({children}: {children: ReactNode}) {
 	const org = useOrgSlug();
 	const navigate = useNavigate();
-	const experiments = useExperiments();
-	const enabled = org !== '' && experiments.includes('harness');
+	const enabled = org !== '';
 	const [answers, setAnswers] = useState<ChatAnswer[] | null>(null);
 	const [viewing, setViewing] = useState<Viewing | null>(null);
 	const [attending, setAttending] = useState(isAttending);

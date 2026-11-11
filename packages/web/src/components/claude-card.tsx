@@ -26,6 +26,10 @@ type UsageWindow = NonNullable<Usage>['fiveHour'];
 
 const SETUP_TOKEN_COMMAND = 'claude setup-token';
 
+// Where the desktop app is downloaded: the repository's latest release, which only the desktop
+// app's releases are (.github/workflows/desktop.yml).
+const DESKTOP_DOWNLOADS = 'https://github.com/personalagentproxy/proxy/releases/latest';
+
 // How long before the token's end the card says to connect again: a month, so the reminder is
 // there well before a conversation stops.
 const CONNECT_AGAIN_WITHIN_MS = 30 * 24 * 60 * 60 * 1000;
@@ -34,8 +38,9 @@ const CONNECT_AGAIN_WITHIN_MS = 30 * 24 * 60 * 60 * 1000;
 // under for them. Not connected, or to connect again, it offers the ways to, each in a dialog: in
 // the desktop app, Connect Claude signs them in to Claude in the browser and the app mints a token
 // on their computer from the code they paste back; everywhere, Paste a token takes one from
-// `claude setup-token` or an Anthropic API key. In the browser, it points to the desktop app; in
-// a desktop app from before the sign-in, to the update that brings it. Connected, it says how,
+// `claude setup-token` or an Anthropic API key. In the browser, it links the desktop app's
+// downloads; in a desktop app from before the sign-in, it points to the update that brings it.
+// Connected, it says how,
 // when the token ends where that is known, with the way to connect again as the end nears, that
 // the credential was refused, until they connect again, and how much of the plan the last turn
 // found used.
@@ -102,7 +107,18 @@ export function ClaudeCard({account}: {account: Account}) {
 					</div>
 				</div>
 				{connecting && !desktop && (
-					<p className="text-muted-foreground">Or sign in with Claude from the desktop app.</p>
+					<p className="text-muted-foreground">
+						Or sign in with Claude from the{' '}
+						<a
+							href={DESKTOP_DOWNLOADS}
+							target="_blank"
+							rel="noreferrer"
+							className="text-foreground underline underline-offset-4"
+						>
+							desktop app
+						</a>
+						.
+					</p>
 				)}
 				{connecting && desktop && !signIn && (
 					<div className="flex flex-col gap-2">
