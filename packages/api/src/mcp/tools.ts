@@ -112,10 +112,14 @@ function vaultInstructions(connections: AgentConnection[]): string[] {
 
 const GITHUB_INTEGRATION_ID = 'github';
 
+function runsCommands(connection: AgentConnection): boolean {
+	return connection.integrationId === SANDBOX_INTEGRATION_ID && connection.actions.includes('run');
+}
+
 // The sandboxes, where the agent may use them: what for, and the rules the tools' own
 // descriptions don't carry; with a GitHub connection it can use, that pap git and pap gh are its.
 function sandboxInstructions(connections: AgentConnection[]): string[] {
-	const usable = connections.filter((connection) => connection.integrationId === SANDBOX_INTEGRATION_ID && connection.actions.includes('run'));
+	const usable = connections.filter(runsCommands);
 	const github = connections.some((connection) => connection.integrationId === GITHUB_INTEGRATION_ID && connection.actions.length > 0);
 	const gitAndGh = github ? ' In a sandbox, pap git and pap gh are git and gh as your GitHub connection’s account; plain git and gh are signed out.' : '';
 	return usable.map(
@@ -126,8 +130,8 @@ function sandboxInstructions(connections: AgentConnection[]): string[] {
 
 // The drives the agent may read: the person's own, for an agent of their own, and the ones
 // members made, each by its name, the only ones a shared agent has; the rule a write keeps, where
-// what the agent makes goes, and that a file made for the person is handed over by its link, the
-// one address here an agent points to.
+// what the agent makes goes, that a file made for the person is handed over by its link, the one
+// address here an agent points to, and, with a sandbox, that pap files moves files in and out of it.
 function filesInstructions(connections: AgentConnection[]): string[] {
 	const drives = connections.filter((connection) => connection.integrationId === FILES_INTEGRATION_ID && connection.actions.includes('readFiles'));
 	if (drives.length === 0) {
@@ -138,6 +142,9 @@ function filesInstructions(connections: AgentConnection[]): string[] {
 	const whose = (drive: AgentConnection) => (drive.name === null ? 'the person’s' : `“${drive.name}”${drive.shared ? ', shared with others' : ''}`);
 	const named = drives.map((drive) => `${drive.id}, ${whose(drive)}${takes(drive) || drive.actions.includes('editFiles') ? '' : ', read-only'}`);
 	const taking = drives.filter(takes);
+	// With a sandbox to run commands in, a file goes in and out of it as its bytes, which no tool's answer carries.
+	const sandboxed = connections.some(runsCommands);
+	const pushes = drives.some((drive) => takes(drive) || drive.actions.includes('editFiles'));
 	const where = () => {
 		if (taking.length < 2) {
 			return 'there';
@@ -149,6 +156,9 @@ function filesInstructions(connections: AgentConnection[]): string[] {
 			`Drives are folders and files kept here, with every version of each: ${named.join('; ')}. files_read reads one as text.`,
 			...(drives.some((drive) => drive.actions.includes('editFiles')) ? ['files_write takes the version files_read gave, and keeps the one before.'] : []),
 			...(taking.length > 0 ? [`Put what you make for the person ${where()}, and give them the Link the tool answers with: a file has no other address.`] : []),
+			...(sandboxed
+				? [`In a sandbox, pap files pull <drive> <path> brings a file in as it is, any kind${pushes ? ', and pap files push sends one back or to a new path' : ''}; pap files --help has the rest.`]
+				: []),
 		].join(' '),
 	];
 }

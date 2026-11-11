@@ -21,7 +21,10 @@ import {cn} from '@proxy/ui/lib/utils';
  * the place it was put: at the caret, or at the end where the box wasn't being typed in. It is
  * text and nothing but, edited in place by the browser: what is pasted is pasted as text, a line
  * is broken with Shift+Enter, and Enter sends. A chip is one thing to the caret, stepped over and
- * deleted whole, by Backspace as a letter is or by the cross in it.
+ * deleted whole, by Backspace as a letter is or by the cross in it. A chip always has text after
+ * it, a space where there is nothing else, as a word has: the caret is then in text wherever it
+ * is, since a browser has nowhere to draw one that follows a chip with nothing after it, and
+ * Safari draws it inside the chip.
  *
  * What the box holds is read from it as it changes (`onChange`): the text, with a mark where each
  * file sits (`ATTACHMENT_MARK`), and those files in the order of their marks. A file still on its
@@ -56,6 +59,9 @@ type Props = {
 
 // What marks a chip's place in the box, with its file's key.
 const FILE_KEY = 'data-file';
+// What marks the place of a chip that is in the selection, as by selecting everything: the chip
+// is then drawn marked whole, in the colors the words beside it are marked in.
+const SELECTED = 'data-selected';
 
 // A chip's place: a word of the line, with a hair of room either side, that the caret treats as
 // one thing.
@@ -63,7 +69,10 @@ function placeFor(key: number): HTMLElement {
 	const place = document.createElement('span');
 	place.setAttribute(FILE_KEY, String(key));
 	place.contentEditable = 'false';
-	place.className = 'inline-block px-0.5 py-0.5 align-middle';
+	// What is inside it is never marked as text is: in a selection, the place is marked whole
+	// (`SELECTED`), the room around the chip with it, so the marking runs on through the line.
+	place.className =
+		'group/place inline-block px-0.5 py-0.5 align-middle selection:bg-transparent! data-selected:bg-[color:Highlight]';
 	return place;
 }
 
@@ -73,6 +82,28 @@ function keyOf(node: Node): number | null {
 	}
 	const key = node.getAttribute(FILE_KEY);
 	return key === null ? null : Number(key);
+}
+
+function isText(node: Node | null | undefined): node is Text {
+	return node?.nodeType === Node.TEXT_NODE;
+}
+
+// Gives each chip of the box text after it where it has none, a space, and answers the spaces it
+// put there. A text node left empty, as a split at a caret leaves one, is no text and goes.
+function spaceChips(box: HTMLElement): Set<Text> {
+	const made = new Set<Text>();
+	for (const place of box.querySelectorAll(`[${FILE_KEY}]`)) {
+		while (isText(place.nextSibling) && place.nextSibling.data === '') {
+			place.nextSibling.remove();
+		}
+		if (isText(place.nextSibling)) {
+			continue;
+		}
+		const space = document.createTextNode(' ');
+		place.after(space);
+		made.add(space);
+	}
+	return made;
 }
 
 // What the box holds, read from its nodes in order: text as it is, a line break as one, and a
@@ -94,6 +125,31 @@ function readNodes(node: Node, into: Array<string | number>): void {
 		}
 		readNodes(child, into);
 	}
+}
+
+// What the box holds: the keys of the chips in it, and its text with a mark for each chip whose
+// file has landed, with those files in the order of their marks.
+function holdingOf(
+	box: HTMLElement,
+	files: PendingAttachment[],
+): {text: string; attached: ChatAttachment[]; kept: Set<number>} {
+	const nodes: Array<string | number> = [];
+	readNodes(box, nodes);
+	const attached: ChatAttachment[] = [];
+	const text = nodes
+		.map((node) => {
+			if (typeof node === 'string') {
+				return node;
+			}
+			const attachment = files.find((file) => file.key === node)?.attachment ?? null;
+			if (attachment === null) {
+				return '';
+			}
+			attached.push(attachment);
+			return ATTACHMENT_MARK;
+		})
+		.join('');
+	return {text, attached, kept: new Set(nodes.filter((node) => typeof node === 'number'))};
 }
 
 // What the box holds, as one string to tell two holdings apart by.
@@ -143,28 +199,24 @@ export function MessageEditor({
 		if (element === null) {
 			return;
 		}
-		const nodes: Array<string | number> = [];
-		readNodes(element, nodes);
+		// A chip left with nothing after it, as by deleting the space there, gets one again, and the
+		// caret that was at the box's end goes before it: in text, where it is drawn.
+		const [space] = spaceChips(element);
+		const selection = window.getSelection();
+		if (
+			space !== undefined &&
+			document.activeElement === element &&
+			selection?.isCollapsed === true &&
+			selection.anchorNode === element
+		) {
+			selection.collapse(space, 0);
+		}
 		const {files: now, onChange: tell, onRemove: gone} = latest.current;
-		const kept = new Set(nodes.filter((node) => typeof node === 'number'));
-		const attached: ChatAttachment[] = [];
-		const text = nodes
-			.map((node) => {
-				if (typeof node === 'string') {
-					return node;
-				}
-				const attachment = now.find((file) => file.key === node)?.attachment ?? null;
-				if (attachment === null) {
-					return '';
-				}
-				attached.push(attachment);
-				return ATTACHMENT_MARK;
-			})
-			.join('');
-		// Emptied of words and chips, the box is left with nothing, not the line break a browser
-		// leaves behind.
+		const {text, attached, kept} = holdingOf(element, now);
+		// Emptied of words and chips, the box is left with nothing: not the line break a browser
+		// leaves behind, nor the space a chip had after it.
 		const nothing = kept.size === 0 && text.trim() === '';
-		if (nothing && element.childNodes.length > 0 && text === '') {
+		if (nothing && element.childNodes.length > 0) {
 			element.textContent = '';
 		}
 		setEmpty(nothing);
@@ -205,6 +257,14 @@ export function MessageEditor({
 			element.append(place);
 		}
 		setPlaces(made);
+		// A space put after a file that had nothing after it is no change of the person's to tell:
+		// where the box held just what was told of it, it still does.
+		const before = holdingOf(element, opening.files);
+		const spaced = spaceChips(element).size > 0;
+		if (spaced && told.current === signature(before.text, before.attached)) {
+			const {text, attached} = holdingOf(element, opening.files);
+			told.current = signature(text, attached);
+		}
 		// Only as it opens: what it holds afterwards is what is typed in it.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
@@ -221,6 +281,11 @@ export function MessageEditor({
 			const key = keyOf(place);
 			if (key !== null && !keys.has(key)) {
 				placed.current.delete(key);
+				// With the space after it, as a word taken out of a line goes with one of its spaces.
+				const following = place.nextSibling;
+				if (isText(following) && following.data.startsWith(' ')) {
+					following.deleteData(0, 1);
+				}
 				place.remove();
 			}
 		}
@@ -247,10 +312,13 @@ export function MessageEditor({
 				after = place;
 			}
 			setPlaces((before) => new Map([...before, ...made]));
-			// The caret goes on after the last chip, where the next word is typed.
-			if (after !== null) {
+			// The caret goes on after the last chip, where the next word is typed: past the space
+			// put after it, or before the text that was there.
+			const spaces = spaceChips(element);
+			const following = after?.nextSibling;
+			if (isText(following)) {
 				const next = document.createRange();
-				next.setStartAfter(after);
+				next.setStart(following, spaces.has(following) ? 1 : 0);
 				next.collapse(true);
 				caret.current = next;
 				if (document.activeElement === element) {
@@ -270,6 +338,11 @@ export function MessageEditor({
 		const range = selection !== null && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
 		if (range !== null && box.current?.contains(range.startContainer)) {
 			caret.current = range.cloneRange();
+		}
+		// The chips the selection takes in are marked, whole.
+		for (const place of box.current?.querySelectorAll(`[${FILE_KEY}]`) ?? []) {
+			const within = selection !== null && !selection.isCollapsed && selection.containsNode(place);
+			place.setAttribute(SELECTED, String(within));
 		}
 	}, []);
 	useEffect(() => {
@@ -339,7 +412,11 @@ export function MessageEditor({
 				onPaste={onPaste}
 				className={cn(
 					'min-h-10 w-full p-3 text-base break-words whitespace-pre-wrap outline-none md:text-sm',
-					'data-[empty=true]:before:pointer-events-none data-[empty=true]:before:text-muted-foreground data-[empty=true]:before:content-[attr(data-placeholder)]',
+					// Marked in the system's colors, said here so a marked chip is drawn in the very same.
+					'selection:bg-[color:Highlight] selection:text-[color:HighlightText]',
+					// The hint takes no room in the line, so the caret of an empty box is at its start, not
+					// after the hint.
+					'data-[empty=true]:before:pointer-events-none data-[empty=true]:before:float-left data-[empty=true]:before:h-0 data-[empty=true]:before:text-muted-foreground data-[empty=true]:before:content-[attr(data-placeholder)]',
 				)}
 			/>
 			{files.map((file) => {

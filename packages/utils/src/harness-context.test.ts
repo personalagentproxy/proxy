@@ -342,7 +342,7 @@ describe('withAttachments', () => {
 
 		expect(read.split('\n\n')).toEqual([
 			'What do these say?',
-			'The person attached 2 files, kept in their drive. files_read {id, version} on its connection reads one whole, as a sub-agent can.',
+			'The person attached 2 files, kept in their drive. files_read {id, version} on its connection reads one whole, as a sub-agent can; in a sandbox, pap files pull <connection> --id <id> --version <version> brings one in as it is.',
 			'pricing.md (text/markdown, 2 KB): connection drive-1, id file-1, version v1. Its text:\n"""\n# Pricing\n"""',
 			'long.txt (text/plain, 2 KB): connection drive-1, id file-2, version v1. The first of its text, files_read having the rest:\n"""\nThe first part\n"""',
 		]);
@@ -366,16 +366,56 @@ describe('withAttachments', () => {
 		expect(withAttachments(ATTACHMENT_MARK, [file]).split('\n\n')[0]).toBe('[pricing.md]');
 	});
 
+	test('says of a picture the model is given with the message that it is shown, and of one it isn’t that it is not', () => {
+		const chart = {...file, fileId: 'file-2', name: 'chart.png', type: 'image/png', text: null};
+		const photo = {...chart, fileId: 'file-3', name: 'photo.jpg', type: 'image/jpeg'};
+
+		const read = withAttachments('What are these?', [chart, photo], [chart]);
+
+		expect(read.split('\n\n').slice(2)).toEqual([
+			'chart.png (image/png, 2 KB): connection drive-1, id file-2, version v1. A picture, shown to you with this message.',
+			'photo.jpg (image/jpeg, 2 KB): connection drive-1, id file-3, version v1. A picture, not shown to you here.',
+		]);
+	});
+
 	test('says of a file that isn’t text, or holds nothing, that there is nothing of it to read here, and stands alone where nothing was said', () => {
 		const read = withAttachments('', [
-			{...file, name: 'chart.png', type: 'image/png', text: null},
+			{...file, name: 'archive.zip', type: 'application/zip', text: null},
 			{...file, name: 'empty.txt', text: ''},
 		]);
 
 		expect(read.split('\n\n')).toEqual([
-			'The person attached 2 files, kept in their drive. files_read {id, version} on its connection reads one whole, as a sub-agent can.',
-			'chart.png (image/png, 2 KB): connection drive-1, id file-1, version v1. Not text, so nothing of it is here.',
+			'The person attached 2 files, kept in their drive. files_read {id, version} on its connection reads one whole, as a sub-agent can; in a sandbox, pap files pull <connection> --id <id> --version <version> brings one in as it is.',
+			'archive.zip (application/zip, 2 KB): connection drive-1, id file-1, version v1. Not text, so nothing of it is here.',
 			'empty.txt (text/markdown, 2 KB): connection drive-1, id file-1, version v1. It is empty.',
+		]);
+	});
+});
+
+describe('toMessages with pictures', () => {
+	test('gives what the person said with the pictures they attached in parts, each picture under its file’s name, and everything else as words', () => {
+		const said: ContextEntry = {
+			...entry(1, 'person', 'What is this?'),
+			images: [{name: 'chart.png', mediaType: 'image/png', data: 'QUJD'}],
+		};
+
+		const messages = toMessages(
+			[said, entry(2, 'assistant', 'A chart.'), entry(3, 'person', 'Thanks')],
+			[],
+			{clearOld: false},
+		);
+
+		expect(messages).toEqual([
+			{
+				role: 'user',
+				content: [
+					{type: 'text', text: 'chart.png:'},
+					{type: 'image_url', image_url: {url: 'data:image/png;base64,QUJD'}},
+					{type: 'text', text: 'What is this?'},
+				],
+			},
+			{role: 'assistant', content: 'A chart.'},
+			{role: 'user', content: 'Thanks'},
 		]);
 	});
 });

@@ -199,6 +199,23 @@ describe('handleMcpRoute', () => {
 		expect(await instructions()).not.toContain('Drives are');
 	});
 
+	test('with a sandbox to run commands in, a drive’s files go in and out of it with pap files', async () => {
+		const drive = {id: 'drive-1', integrationId: 'files', account: 'Acme', shared: false, actions: ['readFiles', 'createFiles'], tools: null, name: null};
+		const sandboxes = {id: 'sandboxes-1', integrationId: 'sandbox', account: 'Acme', shared: false, actions: ['read', 'run'], tools: null, name: null};
+		const instructions = async () => ((await post(rpc('initialize', {protocolVersion: '2025-06-18'}))).body as {result: {instructions: string}}).result.instructions;
+
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [drive, sandboxes]}));
+		expect(await instructions()).toContain(
+			'In a sandbox, pap files pull <drive> <path> brings a file in as it is, any kind, and pap files push sends one back or to a new path; pap files --help has the rest.',
+		);
+
+		// A drive it may only read is only pulled from; without a sandbox to run in, nothing is said of pap files.
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...drive, actions: ['readFiles']}, sandboxes]}));
+		expect(await instructions()).toContain('In a sandbox, pap files pull <drive> <path> brings a file in as it is, any kind; pap files --help has the rest.');
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [drive, {...sandboxes, actions: ['read']}]}));
+		expect(await instructions()).not.toContain('pap files');
+	});
+
 	test("a vault a member made is a memory by its name, the only kind a shared agent has, and beside the person's own says what goes where", async () => {
 		const own = {id: 'vault-1', integrationId: 'vault', account: 'Acme', shared: false, actions: ['readEntries', 'writeEntries'], tools: null, name: null};
 		const team = {...own, id: 'vault-2', name: 'Team handbook', shared: true};

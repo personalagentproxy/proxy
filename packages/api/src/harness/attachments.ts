@@ -1,11 +1,12 @@
 import type {Result} from 'ts-results-es';
 
-import type {ApiError} from '@proxy/utils';
-import {type EntryAttachment, withAttachments} from '@proxy/utils/harness-context';
+import {type ApiError, Do} from '@proxy/utils';
+import {type EntryAttachment, type EntryImage, withAttachments} from '@proxy/utils/harness-context';
 import type {ChatAttachment, postMessageBodySchema} from '@proxy/contracts/harness';
 import type {AttachmentRow, DraftAttachment, EntryRow} from '@proxy/db/harness';
 import type {z} from 'zod';
 
+import type {PictureOf} from '../backends/harness';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import type {OrgViewer} from '../utils/user-org';
 
@@ -18,7 +19,8 @@ import type {OrgViewer} from '../utils/user-org';
  * until the message it goes with is sent. The person sees it with what they said; the model
  * reads what they said with each file under it (@proxy/utils/harness-context withAttachments),
  * whichever harness runs the turn, since the log is given to a harness with that already written
- * into what the person said. Where the files come from is the drive's side (native/files/chat.ts),
+ * into what the person said; a model that sees pictures is given the pictures of the person's
+ * last turns beside their words. Where the files come from is the drive's side (native/files/chat.ts),
  * given to the routes as `ChatFiles`, so the routes are tested without one.
  */
 
@@ -32,15 +34,55 @@ export type ChatFiles = {
 	resolve: (viewer: OrgViewer, refs: AttachmentRef[]) => Promise<Result<EntryAttachment[], ApiError>>;
 	/** A file the log or the conversation's input keeps, as the page shows it. */
 	shown: (attachment: DraftAttachment) => ChatAttachment;
+	/** A file the log keeps as a picture for a model that sees pictures (`PictureOf`). */
+	picture: PictureOf;
 };
 
-/** The log with what the person attached written into what they said, as the model reads it. */
-export function withAttached(entries: EntryRow[], attachments: AttachmentRow[]): EntryRow[] {
+/** How many of the person's turns back a picture is still shown to the model: the turn it is answering and the one before, as their words are kept as said (@proxy/utils/harness-context). */
+const PICTURED_TURNS = 2;
+
+/** A picture read for the model, with the file it is of. */
+export type Picture = {of: AttachmentRow; image: EntryImage};
+
+/**
+ * The pictures among what the person attached that the model is to see with this turn: those of
+ * their last turns, each read and made small enough by `picture`. One that isn't a picture, or
+ * can't be read as one, is left out, and so is one the store no longer has: the model is then told
+ * of the file and nothing more, as it is of any file that isn't text.
+ */
+export function picturesOf(entries: EntryRow[], attachments: AttachmentRow[], picture: PictureOf): Promise<Result<Picture[], ApiError>> {
+	return Do(async ($) => {
+		const turns = entries.filter((entry) => entry.kind === 'person').slice(-PICTURED_TURNS);
+		const recent = attachments.filter((attachment) => turns.some((entry) => entry.id === attachment.entryId));
+		const pictures: Picture[] = [];
+		for (const of of recent) {
+			const read = await picture(of);
+			// Lost or unreadable is no reason to fail the turn; anything else is.
+			const image = read.isErr() && read.error.kind === 'not_found' ? null : $(read);
+			if (image !== null) {
+				pictures.push({of, image});
+			}
+		}
+		return pictures;
+	});
+}
+
+/** The log with what the person attached written into what they said, as the model reads it, and the pictures among it given beside their words. */
+export function withAttached(entries: EntryRow[], attachments: AttachmentRow[], pictures: Picture[] = []): Array<EntryRow & {images?: EntryImage[]}> {
 	if (attachments.length === 0) {
 		return entries;
 	}
 	return entries.map((entry) => {
 		const own = attachments.filter((attachment) => attachment.entryId === entry.id);
-		return own.length === 0 ? entry : {...entry, text: withAttachments(entry.text, own)};
+		if (own.length === 0) {
+			return entry;
+		}
+		const shown = pictures.filter((picture) => own.includes(picture.of));
+		const text = withAttachments(
+			entry.text,
+			own,
+			shown.map((picture) => picture.of),
+		);
+		return shown.length === 0 ? {...entry, text} : {...entry, text, images: shown.map((picture) => picture.image)};
 	});
 }

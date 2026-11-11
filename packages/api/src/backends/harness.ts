@@ -2,6 +2,7 @@ import type {Result} from 'ts-results-es';
 
 import type {HarnessAuth, HarnessBackend} from '@proxy/backends/harness/backend';
 import type {ApiError} from '@proxy/utils';
+import type {EntryAttachment, EntryImage} from '@proxy/utils/harness-context';
 import type {ClaudeUsage} from '@proxy/db/claude-account';
 import type {PersonaModel} from '@proxy/db/harness';
 
@@ -38,8 +39,14 @@ export type ClaudeCredentials = {
 	recordUsage: (userId: string, usage: ClaudeUsage) => Promise<Result<void, ApiError>>;
 };
 
-/** What the worker runs turns with: the harnesses, and how a member's credential is read, which the choice between them turns on. */
-export type Harnesses = {registry: HarnessRegistry; credentials: ClaudeCredentials};
+/**
+ * A picture the person attached, as a model is given it: read from where the file is kept and
+ * made small enough to send; null for a file that is no picture, or one that can't be read as one.
+ */
+export type PictureOf = (attachment: EntryAttachment) => Promise<Result<EntryImage | null, ApiError>>;
+
+/** What the worker runs turns with: the harnesses, how a member's credential is read, which the choice between them turns on, and how a picture the person attached is read for a model that sees pictures; without it, no turn is given any. */
+export type Harnesses = {registry: HarnessRegistry; credentials: ClaudeCredentials; picture?: PictureOf};
 
 /** The harness for a turn with the model to answer with and the credential to give it, or none, with what the person is told instead. */
 export type HarnessChoice = {harness: HarnessBackend; model: string; auth: HarnessAuth | null} | {harness: null; auth: null; why: string};

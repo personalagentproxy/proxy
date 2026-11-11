@@ -71,8 +71,11 @@ The conversation goes on meaning the file as it was when you attached it, whatev
 later.
 
 The agent reads a text file, a PDF, a Word document or a spreadsheet with your message, the
-first of it where it is long, and reads the rest when it needs it. A picture is attached and
-kept, but the agent can't see it yet. Attaching a file lets the agents working on that
+first of it where it is long, and reads the rest when it needs it. A picture, a screenshot or a
+photograph, it sees as you do, where the model it answers with sees pictures: every Claude model
+does. It is given the pictures of your last two messages, each made small enough to send, so one
+from further back has to be attached again to be looked at again. The agents it hands work to
+don't see pictures; it tells them what a picture shows. Attaching a file lets the agents working on that
 conversation read that version of it, whatever they may otherwise do in your drive.
 
 ## Agents and files
@@ -88,6 +91,27 @@ writes over what it hasn't seen. Every write, rename, move and trip to the trash
 which agent made each version.
 
 An agent points you to a file it made by its link, which opens the file in your drive.
+
+### Files in a sandbox
+
+An agent that also runs commands in a [sandbox](/connections/sandboxes) moves files between a
+drive and the sandbox as they are, a picture, a spreadsheet or an archive as much as text, with
+`pap files`, which a command with `pap` turned on can run:
+
+- `pap files ls <connection> [path]` lists a folder by its path from the drive's top, such as
+  `Reports/2026`.
+- `pap files pull <connection> <path> [to]` brings a file into the sandbox, under its own name
+  or to the path given. `--id` with `--version` pulls a file by its id at one version, which is
+  how a file you attached to a conversation is brought in.
+- `pap files push <file>` sends a pulled file back as its next version, and
+  `pap files push <file> <connection> <path>` sends any file to a path, making the folders on
+  the way.
+
+The rule of a write holds here too: a push over a file is taken where the file still holds the
+version that was pulled, and refused where it changed since, unless it is pushed with `--force`;
+the version before is kept either way. A pull is a read, a push to a new path an added file, and
+a push over a file an edit, each checked against what the agent may do with the drive and in the
+activity log as from a sandbox.
 
 ## Where the bytes are
 

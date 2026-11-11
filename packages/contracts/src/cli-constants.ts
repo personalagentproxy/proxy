@@ -20,3 +20,12 @@ export const CLI_CALL_PATH = '/api/cli/call';
 
 /** The statuses `/api/cli/call` answers with. */
 export const CLI_STATUS = {ok: 200, failed: 422, refused: 401} as const;
+
+/**
+ * Where the files of a drive are reached by path, under `PAP_URL` (cli.ts): `<this>/<connection>/list`
+ * and `<this>/<connection>/content`.
+ */
+export const CLI_FILES_PATH = '/api/cli/files';
+
+/** The header a file's bytes come with, saying which file they are: URI-encoded JSON (`cliFileSchema` in cli.ts). */
+export const CLI_FILE_HEADER = 'x-pap-file';

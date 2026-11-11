@@ -4,6 +4,7 @@ import {Do} from '@proxy/utils/do';
 
 import {type FlagSpec, type Parsed, parseArgs} from './args';
 import {clientFrom} from './client';
+import {FILES, FILES_HELP, listFiles, LS, PULL, pullFile, PUSH, pushFile} from './files';
 import {ghMain} from './gh';
 import {gitMain} from './git';
 import {EXIT, type Failure, type Io, isObject, type Json, type JsonObject, usage} from './io';
@@ -87,6 +88,48 @@ async function readParams(given: string | undefined, io: Io): Promise<Result<Jso
 	return Ok(value);
 }
 
+// `pap files`' own commands, each answered as any command that calls the api is.
+const FILES_COMMANDS: Record<string, Command> = {
+	ls: jsonCommand('files ls', {
+		usage: LS,
+		summary: 'what a folder holds',
+		help: FILES_HELP,
+		flags: {},
+		run: listFiles,
+	}),
+	pull: jsonCommand('files pull', {
+		usage: PULL,
+		summary: 'a file into the sandbox',
+		help: FILES_HELP,
+		flags: {id: 'value', version: 'value'},
+		run: pullFile,
+	}),
+	push: jsonCommand('files push', {
+		usage: PUSH,
+		summary: 'a file to the drive',
+		help: FILES_HELP,
+		flags: {force: 'switch'},
+		run: pushFile,
+	}),
+};
+
+// `pap files <ls|pull|push>`: the command named, given the rest; without one, or with one it
+// hasn't, what there is.
+async function filesMain(args: string[], io: Io): Promise<number> {
+	const [name, ...rest] = args;
+	const command =
+		name !== undefined && Object.hasOwn(FILES_COMMANDS, name) ? FILES_COMMANDS[name] : undefined;
+	if (command !== undefined) {
+		return command.main(rest, io);
+	}
+	if (name === undefined || name === '-h' || name === '--help') {
+		io.out(FILES_HELP);
+		return EXIT.ok;
+	}
+	io.err(`pap: no command files ${name}. See pap files --help.\n`);
+	return EXIT.usage;
+}
+
 const CONNECTIONS = 'pap connections';
 const TOOLS = 'pap tools <connection>';
 const CALL = 'pap call <connection> <tool> [json|-] [--all]';
@@ -155,6 +198,11 @@ Example: pap call <connection> entries_list '{"search":"invoice"}' | jq '.record
 				return $(await $(clientFrom(io)).call('feedback', [body]));
 			}),
 	}),
+	files: {
+		usage: FILES,
+		summary: 'a drive’s files by path: list a folder, pull a file in, push one back',
+		main: filesMain,
+	},
 	git: {
 		usage: 'pap git <args>',
 		summary: 'git, signed in to GitHub as your GitHub connection’s account',

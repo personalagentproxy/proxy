@@ -474,6 +474,46 @@ describe('runInference', () => {
 			expect(store.listAttachments).not.toHaveBeenCalled();
 		});
 
+		test('gives a model that sees pictures those of the person’s last two turns beside their words, and a model that doesn’t none; a picture that is lost is left out', async () => {
+			const {runInference} = await import('./inference');
+			const fake = fakeHarness();
+			const seeing = {...fake, models: [{id: 'claude', label: 'Claude', images: true as const}] satisfies HarnessBackend['models']};
+			const [first, second, third] = [entry('person', 'One'), entry('person', 'Two'), entry('person', 'Three')];
+			listEntries.mockResolvedValue(Ok([first, entry('assistant', 'A.'), second, entry('assistant', 'B.'), third]));
+			const file = {connectionId: 'drive-1', version: 'v1', type: 'image/png', size: 42, text: null, cut: false};
+			const attached = [
+				{...file, entryId: first.id, fileId: 'file-1', name: 'old.png'},
+				{...file, entryId: second.id, fileId: 'file-2', name: 'chart.png'},
+				{...file, entryId: third.id, fileId: 'file-3', name: 'lost.png'},
+				{...file, entryId: third.id, fileId: 'file-4', name: 'notes.md', type: 'text/markdown', text: 'Notes'},
+			];
+			store.listAttachments.mockResolvedValue(Ok(attached));
+			const picture = mock(async (attachment: {name: string; type: string}) => {
+				if (attachment.name === 'lost.png') {
+					return Err(ApiErr.notFound('blob', 'gone'));
+				}
+				return Ok(attachment.type === 'image/png' ? {name: attachment.name, mediaType: 'image/png' as const, data: 'QUJD'} : null);
+			});
+			fake.script([{kind: 'text', text: 'Seen.'}, done]);
+
+			(await runInference(store, {...on(seeing), picture}, job, 'w1', false, clock)).unwrap();
+
+			const given = fake.turns[0]?.entries.filter((one) => one.kind === 'person') ?? [];
+			expect(given.map((one) => one.images)).toEqual([undefined, [{name: 'chart.png', mediaType: 'image/png', data: 'QUJD'}], undefined]);
+			// The turn before last is not read again, and what the model is told of each file says which it sees.
+			expect(picture.mock.calls.map(([attachment]) => attachment.name)).toEqual(['chart.png', 'lost.png', 'notes.md']);
+			expect(given[0]?.text).toContain('old.png (image/png, 42 B): connection drive-1, id file-1, version v1. A picture, not shown to you here.');
+			expect(given[1]?.text).toContain('chart.png (image/png, 42 B): connection drive-1, id file-2, version v1. A picture, shown to you with this message.');
+			expect(given[2]?.text).toContain('lost.png (image/png, 42 B): connection drive-1, id file-3, version v1. A picture, not shown to you here.');
+
+			// A model that sees none is given none, and nothing is read for it.
+			picture.mockClear();
+			fake.script([{kind: 'text', text: 'Unseen.'}, done]);
+			(await runInference(store, {...on(fake), picture}, job, 'w1', false, clock)).unwrap();
+			expect(picture).not.toHaveBeenCalled();
+			expect(fake.turns[1]?.entries.some((one) => one.images !== undefined)).toBe(false);
+		});
+
 		test('gives the harness the thread, the log, its sub-agents, the prompt, the tools and the model, one step and no session, and writes the answer as it ended', async () => {
 			const {runInference} = await import('./inference');
 			const fake = fakeHarness();

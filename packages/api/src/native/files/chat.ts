@@ -11,8 +11,9 @@ import {loadConnection} from '../../records/target';
 import type {OrgViewer} from '../../utils/user-org';
 import {ensureFilesConnection} from './connections';
 import {requireFile} from './connector';
-import {maxFileBytes, storeContent, uploadBody} from './content';
+import {maxFileBytes, readContent, storeContent, uploadBody} from './content';
 import {isShownImage, mediaType, requireFileName} from './names';
+import {PICTURE_SOURCE_BYTES, toPicture} from './picture';
 import {readVersion} from './text';
 
 /**
@@ -21,8 +22,9 @@ import {readVersion} from './text';
  * the persona's under Chats, so it is there afterwards, with its versions, for them and their
  * agents alike. What they attach is named by where it is and the version it holds, read here as
  * the person, who may attach any file of a drive they use: the log keeps what it was, and the
- * first of its text for the model to read with the message. A file that isn't text is attached
- * all the same, with nothing of it for the model yet.
+ * first of its text for the model to read with the message. A picture is read for a model that
+ * sees pictures as the turn is run (picture.ts); any other file that isn't text is attached all
+ * the same, with nothing of it for the model.
  */
 
 /** The folder at the top of a drive that the conversations' folders are in. */
@@ -102,4 +104,16 @@ export const chatFiles: ChatFiles = {
 			return attachments;
 		}),
 	shown: ({connectionId, fileId, version, name, type, size}) => ({connectionId, fileId, version, name, type, size, shown: isShownImage(type)}),
+	// Read as the conversation's own, not as anyone's: the person attached it for the model to see.
+	picture: (attachment) =>
+		Do(async ($) => {
+			if (!isShownImage(attachment.type) || attachment.size > PICTURE_SOURCE_BYTES) {
+				return null;
+			}
+			const version = $(await getFileVersion(attachment.connectionId, attachment.fileId, attachment.version));
+			if (version === null) {
+				return null;
+			}
+			return toPicture(attachment.name, $(await readContent(version.blob)));
+		}),
 };

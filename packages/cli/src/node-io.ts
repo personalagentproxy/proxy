@@ -1,7 +1,7 @@
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
-import {accessSync, constants as fsConstants, statSync} from 'node:fs';
-import {chmod, mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {accessSync, constants as fsConstants, createWriteStream, statSync} from 'node:fs';
+import {chmod, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {createServer, type IncomingMessage, type ServerResponse} from 'node:http';
 import {constants as osConstants, tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
@@ -183,6 +183,57 @@ async function serve(path: string, handler: Handler): Promise<Result<() => Promi
 	});
 }
 
+function isDirectory(path: string): boolean {
+	return Result.wrap(() => statSync(path).isDirectory()).unwrapOr(false);
+}
+
+function readBytes(path: string): Promise<Result<Uint8Array<ArrayBuffer>, Error>> {
+	return Result.wrapAsync<Uint8Array<ArrayBuffer>, Error>(
+		async () => new Uint8Array(await readFile(path)),
+	);
+}
+
+// A file's text, or null where there is none; any other failure is one.
+async function readText(path: string): Promise<Result<string | null, Error>> {
+	const read = await Result.wrapAsync<string, NodeJS.ErrnoException>(() => readFile(path, 'utf8'));
+	if (read.isErr() && read.error.code === 'ENOENT') {
+		return Ok(null);
+	}
+	return read;
+}
+
+// Written as it comes, waiting where the disk is slower than the network.
+function saveStream(
+	path: string,
+	body: ReadableStream<Uint8Array>,
+): Promise<Result<number, Error>> {
+	return Result.wrapAsync<number, Error>(async () => {
+		await mkdir(dirname(path), {recursive: true});
+		const file = createWriteStream(path);
+		const failed = once(file, 'error').then(([error]: Error[]) => {
+			throw error;
+		});
+		let bytes = 0;
+		const written = (async () => {
+			const reader = body.getReader();
+			for (;;) {
+				const {done, value} = await reader.read();
+				if (done) {
+					break;
+				}
+				bytes += value.byteLength;
+				if (!file.write(value)) {
+					await once(file, 'drain');
+				}
+			}
+			file.end();
+			await once(file, 'finish');
+			return bytes;
+		})();
+		return Promise.race([written, failed]);
+	});
+}
+
 export function nodeIo(): Io {
 	return {
 		env: process.env,
@@ -196,6 +247,11 @@ export function nodeIo(): Io {
 		makeTempDir,
 		writeFile: writeFileWithMode,
 		removeDir,
+		absolutePath: (path) => resolve(path),
+		isDirectory,
+		readBytes,
+		readText,
+		saveStream,
 		serve,
 	};
 }

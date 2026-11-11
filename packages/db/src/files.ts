@@ -286,6 +286,36 @@ export function listFolder(
 	});
 }
 
+/**
+ * A path walked from the drive's top, a name at a time, outside the trash: the folders and the
+ * file found along it, in order, and the names left where it ends before the path does, as it
+ * does at a name nothing there has, or at a file with names still to go.
+ */
+export function findPath(
+	connectionId: string,
+	names: string[],
+): Promise<Result<{found: FileEntry[]; missing: string[]}, ApiError>> {
+	return wrapDb(async () => {
+		const found: FileNodeRow[] = [];
+		let parentId: string | null = null;
+		for (const [index, name] of names.entries()) {
+			const node: FileNodeRow | null = await db.fileNode.findFirst({
+				where: {connectionId, parentId, name, trashedAt: null},
+				select: nodeSelect,
+			});
+			if (!node) {
+				return {found: await withHeads(db, found), missing: names.slice(index)};
+			}
+			found.push(node);
+			if (!node.folder) {
+				return {found: await withHeads(db, found), missing: names.slice(index + 1)};
+			}
+			parentId = node.id;
+		}
+		return {found: await withHeads(db, found), missing: []};
+	});
+}
+
 // How many of a search's matches are answered at most.
 const MAX_FOUND = 100;
 

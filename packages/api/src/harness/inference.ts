@@ -10,7 +10,7 @@ import {agentInstructions, SCRIPT_TOOL} from '../mcp/tools';
 import {SIGN_IN_EXPIRED} from '../me/claude-token';
 import {log, serializeError} from '../observability/log';
 import {alertsParagraph} from './alerts';
-import {withAttached} from './attachments';
+import {picturesOf, withAttached} from './attachments';
 import {afterAnswer, failureNote, jobLost, planCalls} from './conversation';
 import type {HarnessStore} from './store';
 import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
@@ -356,7 +356,7 @@ function usageSink(credentials: ClaudeCredentials, choice: HarnessChoice, thread
 // the turns under way finish, as it always has.
 function askOnLog(
 	store: InferenceStore,
-	credentials: ClaudeCredentials,
+	{credentials, picture}: Harnesses,
 	choice: HarnessChoice & {harness: HarnessBackend},
 	job: JobRow,
 	workerId: string,
@@ -373,6 +373,9 @@ function askOnLog(
 			// What the person attached is read with what they said; a sub-agent's thread has none, its
 			// brief being the agent's own words.
 			const attached = thread.parentThreadId === null ? $(await store.listAttachments(thread.id)) : [];
+			// A model that sees pictures is given those of the person's last turns beside their words.
+			const sees = choice.harness.models.some((model) => model.id === choice.model && model.images === true);
+			const pictures = picture !== undefined && sees && attached.length > 0 ? $(await picturesOf(entries, attached, picture)) : [];
 			return $(
 				await consume(
 					store,
@@ -384,7 +387,7 @@ function askOnLog(
 						job: job.id,
 						...(choice.auth === null ? {} : {auth: choice.auth}),
 						session: thread.harness === choice.harness.id ? thread.harnessSession : null,
-						entries: withAttached(entries, attached),
+						entries: withAttached(entries, attached, pictures),
 						subAgents,
 						woken,
 						system,
@@ -510,7 +513,7 @@ export function runInference(store: InferenceStore, harnesses: Harnesses, job: J
 			$(await answerFailure(store, job, workerId, thread, choice.why));
 			return;
 		}
-		const outcome = $(await askOnLog(store, harnesses.credentials, choice, job, workerId, thread, entries, woken, clock));
+		const outcome = $(await askOnLog(store, harnesses, choice, job, workerId, thread, entries, woken, clock));
 		if (credentialRefused(outcome, choice)) {
 			// Noted on the account as best it can be: the person is told either way.
 			const marked = await harnesses.credentials.markRefused(thread.userId);

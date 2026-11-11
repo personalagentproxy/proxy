@@ -2,15 +2,15 @@ import {randomUUID} from 'node:crypto';
 import {mkdir, rm} from 'node:fs/promises';
 import {join} from 'node:path';
 
-import {type CanUseTool, type Options, query as sdkQuery, type SDKMessage, type SDKRateLimitInfo, type SDKResultMessage} from '@anthropic-ai/claude-agent-sdk';
-import type {MessageParam, ToolResultBlockParam} from '@anthropic-ai/sdk/resources';
+import {type CanUseTool, type Options, query as sdkQuery, type SDKMessage, type SDKRateLimitInfo, type SDKResultMessage, type SDKUserMessage} from '@anthropic-ai/claude-agent-sdk';
+import type {ContentBlockParam, MessageParam, ToolResultBlockParam} from '@anthropic-ai/sdk/resources';
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
 import {CallToolRequestSchema, ListToolsRequestSchema} from '@modelcontextprotocol/sdk/types.js';
 import {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
-import {type ContextEntry, eventLead, type SubAgent, toTranscript} from '@proxy/utils/harness-context';
+import {type ContextEntry, type EntryImage, eventLead, type SubAgent, toTranscript} from '@proxy/utils/harness-context';
 
 import type {HarnessAuth, HarnessBackend, HarnessEntry, HarnessEvent, HarnessTurn, ToolAnswer, ToolSurface} from './backend';
 import type {SdkSessionStore} from './session-store';
@@ -26,7 +26,8 @@ import type {SdkSessionStore} from './session-store';
  * the turn that kept it said and what its calls answered, which the model remembers, and less
  * what the api summarized, since the model compacts its own context. What the person said and an
  * event, with its lead-in, are given as the api's own harness would send them; a wake-up after a
- * sleep says so, and a turn with nothing new says to go on. What the log has of the model's own
+ * sleep says so, and a turn with nothing new says to go on. The pictures the person attached to
+ * what the session hasn't got go with the prompt, as one message of theirs. What the log has of the model's own
  * doing that the session can't be known to have is written out before them as the record, the
  * calls with what they answered, for the model to go on from rather than do again: the steps of an
  * attempt at the turn that was cut short, the worker having died or the model gone out of reach,
@@ -57,8 +58,11 @@ import type {SdkSessionStore} from './session-store';
  * window doesn't open for another try.
  */
 
+/** What a turn is asked with: words, or, with pictures, the one message of the person's that carries them. */
+export type SdkPrompt = string | AsyncIterable<SDKUserMessage>;
+
 /** The SDK's `query`, or a test's: what a turn runs through, read as a stream of SDK messages, with the interrupt that ends a turn early. */
-export type SdkQuery = (params: {prompt: string; options?: Options}) => AsyncIterable<SDKMessage> & {interrupt: () => Promise<unknown>};
+export type SdkQuery = (params: {prompt: SdkPrompt; options?: Options}) => AsyncIterable<SDKMessage> & {interrupt: () => Promise<unknown>};
 
 /** What the harness runs with: the session store, where its subprocesses work and keep their config, how many turns run at once, and the SDK's `query` or a test's. */
 export type ClaudeAgentSdkDeps = {
@@ -87,9 +91,9 @@ const STEP_KINDS = new Set<ContextEntry['kind']>(['assistant', 'tool_result']);
 // persona keeps it under; and each as the SDK is told it, the full model id, so that what answers
 // is what the label says, whatever the binary takes a bare `sonnet` to mean.
 const MODELS: HarnessBackend['models'] = [
-	{id: 'sonnet', label: 'Claude Sonnet 5.5'},
-	{id: 'opus', label: 'Claude Opus 5.5'},
-	{id: 'fable', label: 'Claude Fable 5.2'},
+	{id: 'sonnet', label: 'Claude Sonnet 5.5', images: true},
+	{id: 'opus', label: 'Claude Opus 5.5', images: true},
+	{id: 'fable', label: 'Claude Fable 5.2', images: true},
 ];
 const DEFAULT_SDK_MODEL = 'claude-sonnet-5-5';
 const SDK_MODELS = new Map([
@@ -179,6 +183,30 @@ function promptFor(input: HarnessTurn, session: Session | null, now: Date): stri
 	}
 	const record = unseen.filter((entry, index) => index <= lastStep || entry.kind === 'summary');
 	return [RECORD, toTranscript(record, subAgents), ...(news.length === 0 ? [GO_ON] : [SINCE, ...news])].join('\n\n');
+}
+
+/**
+ * The prompt as the SDK takes it: the words alone where the person attached no pictures the
+ * session hasn't got; with pictures, one message of the person's, each picture under its file's
+ * name and the words after them. A message given this way is the turn's whole input: the SDK
+ * closes the binary's input once the run it starts has ended, as it does after words alone.
+ */
+function withPictures(input: HarnessTurn, session: Session | null, words: string): SdkPrompt {
+	const pictures: EntryImage[] = unseenBy(session, input.entries).flatMap((entry) => (entry.kind === 'person' ? (entry.images ?? []) : []));
+	if (pictures.length === 0) {
+		return words;
+	}
+	const content: ContentBlockParam[] = [
+		...pictures.flatMap((picture): ContentBlockParam[] => [
+			{type: 'text', text: `${picture.name}:`},
+			{type: 'image', source: {type: 'base64', media_type: picture.mediaType, data: picture.data}},
+		]),
+		{type: 'text', text: words},
+	];
+	const message: SDKUserMessage = {type: 'user', message: {role: 'user', content}, parent_tool_use_id: null};
+	return (async function* () {
+		yield message;
+	})();
 }
 
 // The credential as the binary reads it from its environment.
@@ -480,7 +508,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 			let interrupted = false;
 			let ended = false;
 			let done = false;
-			const started = Result.wrap(() => query({prompt: promptFor(input, session, new Date()), options}));
+			const started = Result.wrap(() => query({prompt: withPictures(input, session, promptFor(input, session, new Date())), options}));
 			if (started.isErr()) {
 				input.signal.removeEventListener('abort', onAbort);
 				yield failed(ApiErr.providerUnreachable(started.error), true);

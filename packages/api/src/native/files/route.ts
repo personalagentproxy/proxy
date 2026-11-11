@@ -1,7 +1,5 @@
-import {once} from 'node:events';
-
 import type {Response} from 'express';
-import {Err, Result} from 'ts-results-es';
+import {Err, type Result} from 'ts-results-es';
 import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
@@ -47,7 +45,7 @@ import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {sendApiError} from '../../server/response';
 import {requireViewer} from '../../utils/user-org';
 import {requireFile} from './connector';
-import {maxFileBytes, openContent, storeContent, uploadBody} from './content';
+import {maxFileBytes, openContent, sendContent, storeContent, uploadBody} from './content';
 import {isShownImage, mediaType, requireFileName} from './names';
 
 /**
@@ -268,18 +266,8 @@ export async function handleFileContentRoute(request: AuthenticatedRequest, resp
 	response.setHeader('X-Content-Type-Options', 'nosniff');
 	response.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; frame-ancestors 'none'");
 	response.setHeader('Cache-Control', 'private, no-cache');
-	const sent = await Result.wrapAsync(async () => {
-		for await (const chunk of body) {
-			if (!response.write(chunk)) {
-				await once(response, 'drain');
-			}
-		}
-	});
+	const sent = await sendContent(response, body);
 	if (sent.isErr()) {
-		// The headers are sent: the connection is ended short, which a browser takes as a failed download.
 		log.warn('A file’s download failed partway', {fileName: name, ...serializeError(sent.error)});
-		response.destroy();
-		return;
 	}
-	response.end();
 }

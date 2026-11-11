@@ -662,7 +662,8 @@ describe('ChatPage', () => {
 			// A chip by its name in the box the message is typed in, its size said on hover.
 			const box = await screen.findByLabelText('Message');
 			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
-			expect(box.textContent).toBe('pricing.md');
+			// With a space after it, so the caret has text to be in.
+			expect(box.textContent).toBe('pricing.md ');
 			expect(chipOf('pricing.md')?.parentElement?.getAttribute('title')).toBe('pricing.md · 2 KB');
 			// The list beside the conversation says what is waiting, though nothing is typed.
 			await waitFor(() =>
@@ -708,12 +709,46 @@ describe('ChatPage', () => {
 			});
 		});
 
+		test('gives a file the message ends with a space after it, for the caret to be in, and saves nothing for it', async () => {
+			renderChatPage({
+				draft: `Look at ${ATTACHMENT_MARK}`,
+				draftAttachments: [kept],
+				experiments: withFiles,
+			});
+
+			const box = await screen.findByLabelText('Message');
+			await waitFor(() => expect(box.textContent).toBe('Look at pricing.md '));
+			expect(box.lastChild?.nodeType).toBe(Node.TEXT_NODE);
+			expect(pageSaysSafeToReload()).toBe(true);
+		});
+
+		test('marks a file whole where the selection takes it in, and not where it doesn’t', async () => {
+			renderChatPage({
+				draft: `Look at ${ATTACHMENT_MARK} today`,
+				draftAttachments: [kept],
+				experiments: withFiles,
+			});
+			const box = await screen.findByLabelText('Message');
+			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
+			const place = box.querySelector('[data-file]');
+
+			// Everything, as by selecting all.
+			window.getSelection()?.selectAllChildren(box);
+			fireEvent(document, new Event('selectionchange'));
+			expect(place?.getAttribute('data-selected')).toBe('true');
+
+			// The caret alone, after it.
+			window.getSelection()?.collapseToEnd();
+			fireEvent(document, new Event('selectionchange'));
+			expect(place?.getAttribute('data-selected')).toBe('false');
+		});
+
 		test('saves what is typed around a file with which file each mark is', async () => {
 			renderChatPage({draftAttachments: [kept], experiments: withFiles});
 			const box = await screen.findByLabelText('Message');
 			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
 
-			// Typed after the chip, as a browser adds a word to the box.
+			// Typed after the chip and the space it has after it, as a browser adds a word to the box.
 			box.append('what does this say?');
 			fireEvent.input(box);
 
@@ -726,7 +761,7 @@ describe('ChatPage', () => {
 							.map(([, init]) => JSON.parse(String(init?.body)))
 							.at(-1),
 					).toEqual({
-						text: `${ATTACHMENT_MARK}what does this say?`,
+						text: `${ATTACHMENT_MARK} what does this say?`,
 						attachments: [{connectionId: 'drive-1', fileId: 'file-1', version: 'v1'}],
 					}),
 				{timeout: 2000},
@@ -782,7 +817,7 @@ describe('ChatPage', () => {
 
 			expect(screen.queryByText('Drop files to attach them')).toBeNull();
 			// Its chip goes in the box, after what was typed.
-			await waitFor(() => expect(box.textContent).toBe('See notes.txt'));
+			await waitFor(() => expect(box.textContent).toBe('See notes.txt '));
 			// The file's name and its type go in the address; its bytes are the body.
 			expect(calls()).toHaveLength(1);
 			expect(calls()[0]?.slice(0, 2)).toEqual([

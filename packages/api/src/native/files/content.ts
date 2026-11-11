@@ -1,6 +1,7 @@
 import {randomBytes} from 'node:crypto';
+import {once} from 'node:events';
 
-import type {Request} from 'express';
+import type {Request, Response} from 'express';
 import {Err, Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
@@ -134,4 +135,25 @@ export function uploadBody(request: Request): Result<ReadableStream<Uint8Array>,
 				},
 			}),
 	).mapErr((cause) => ApiErr.internalError(cause));
+}
+
+/**
+ * Writes a file's bytes to a response as they come, waiting where the reader is slower than the
+ * store. The headers are sent by then: one that fails partway is cut off short, which whoever
+ * reads it takes as a download that failed.
+ */
+export async function sendContent(response: Response, body: ReadableStream<Uint8Array>): Promise<Result<void, Error>> {
+	const sent = await Result.wrapAsync<void, Error>(async () => {
+		for await (const chunk of body) {
+			if (!response.write(chunk)) {
+				await once(response, 'drain');
+			}
+		}
+	});
+	if (sent.isErr()) {
+		response.destroy();
+		return sent;
+	}
+	response.end();
+	return sent;
 }

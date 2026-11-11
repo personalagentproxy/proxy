@@ -64,6 +64,9 @@ export type ChatStore = Pick<
 	| 'saveThreadDraft'
 >;
 
+/** What the routes need of where a conversation's files are kept: putting one there, naming those attached, and showing one; reading a picture for a model is the worker's. */
+export type RouteFiles = Pick<ChatFiles, 'upload' | 'resolve' | 'shown'>;
+
 /** The harnesses this server has, read where a route needs them, so that nothing is made as the routes are mounted. */
 export type Harnesses = () => HarnessRegistry;
 
@@ -103,7 +106,7 @@ function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow 
 
 // The harnesses a persona can run on here, as the dialog offers them.
 function toHarnesses(registry: HarnessRegistry): ChatHarness[] {
-	return harnessesOf(registry).map(({id, label, models}) => ({id, label, models}));
+	return harnessesOf(registry).map(({id, label, models}) => ({id, label, models: models.map((model) => ({id: model.id, label: model.label}))}));
 }
 
 // The persona as the person made or changed it. What runs it is as they chose, where the server
@@ -252,7 +255,7 @@ function handleDeletePersonaRoute(store: ChatStore, request: AuthenticatedReques
 }
 
 /** `GET /api/orgs/:org/chat/personas/:personaId/thread`: the viewer's conversation with the persona, begun where there was none, what they said while it was answering at the end, whether the persona is busy on it, its sub-agents included, and what they typed in it and haven't sent. */
-function handleGetThreadRoute(store: ChatStore, harnesses: Harnesses, files: ChatFiles, request: AuthenticatedRequest): Promise<Result<ThreadLog, ApiError>> {
+function handleGetThreadRoute(store: ChatStore, harnesses: Harnesses, files: RouteFiles, request: AuthenticatedRequest): Promise<Result<ThreadLog, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const persona = $(await requirePersona(store, viewer, request));
@@ -281,7 +284,7 @@ function handleGetThreadRoute(store: ChatStore, harnesses: Harnesses, files: Cha
 }
 
 /** `POST /api/orgs/:org/chat/personas/:personaId/messages` with `{text, attachments}`: what the viewer says to the persona, with the files they attach to it, each as it is when it is said; it is woken. */
-function handlePostMessageRoute(store: ChatStore, files: ChatFiles, request: AuthenticatedRequest): Promise<Result<z.infer<typeof postedMessageSchema>, ApiError>> {
+function handlePostMessageRoute(store: ChatStore, files: RouteFiles, request: AuthenticatedRequest): Promise<Result<z.infer<typeof postedMessageSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const {text: typed, attachments: refs} = $(parseSchema(postMessageBodySchema, request.body));
@@ -302,7 +305,7 @@ function handlePostMessageRoute(store: ChatStore, files: ChatFiles, request: Aut
 const INPUT_FULL = `A message carries at most ${MAX_ATTACHMENTS} files.`;
 
 /** `POST /api/orgs/:org/chat/personas/:personaId/attachments`: a file put in the conversation's input, kept in the viewer's own drive and in the input, with what they typed there, until they send their next message or take it out. */
-function handleUploadAttachmentRoute(store: ChatStore, files: ChatFiles, request: AuthenticatedRequest): Promise<Result<z.infer<typeof uploadedAttachmentSchema>, ApiError>> {
+function handleUploadAttachmentRoute(store: ChatStore, files: RouteFiles, request: AuthenticatedRequest): Promise<Result<z.infer<typeof uploadedAttachmentSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const persona = $(await requirePersona(store, viewer, request));
@@ -358,7 +361,7 @@ function handleMarkReadRoute(store: ChatStore, request: AuthenticatedRequest): P
 }
 
 /** The Chat page's routes, on the store, the harnesses the server has, and where a conversation's files are kept. */
-export function chatRoutes(store: ChatStore, harnesses: Harnesses, files: ChatFiles) {
+export function chatRoutes(store: ChatStore, harnesses: Harnesses, files: RouteFiles) {
 	return {
 		handleListPersonasRoute: (request: AuthenticatedRequest) => handleListPersonasRoute(store, harnesses, request),
 		handleListAnswersRoute: (request: AuthenticatedRequest) => handleListAnswersRoute(store, request),

@@ -76,7 +76,14 @@ export function PendingChip({file, onRemove}: {file: PendingAttachment; onRemove
 	return (
 		<span
 			title={file.error ?? `${name} · ${formatBytes(file.size)}`}
-			className={cn(CHIP, 'group/chip', file.error && 'border-destructive text-destructive')}
+			className={cn(
+				CHIP,
+				'group/chip',
+				file.error && 'border-destructive text-destructive',
+				// In a selection of the message's text, its place is marked as the words beside it are
+				// (message-editor.tsx), and the chip is drawn in the marking's colors.
+				'group-data-selected/place:border-[color:HighlightText]/30 group-data-selected/place:bg-transparent group-data-selected/place:text-[color:HighlightText]',
+			)}
 		>
 			<button
 				type="button"
@@ -86,6 +93,7 @@ export function PendingChip({file, onRemove}: {file: PendingAttachment; onRemove
 					CELL,
 					'rounded-l-md hover:text-foreground',
 					file.error && 'border-destructive',
+					'group-data-selected/place:border-[color:HighlightText]/30 group-data-selected/place:text-[color:HighlightText]',
 				)}
 			>
 				{/* Its kind, or a turning circle while it is on its way up; under the pointer, the cross
