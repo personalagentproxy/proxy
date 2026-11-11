@@ -105,8 +105,8 @@ function nameTaken(name: string): ApiError {
 	return ApiErr.conflict(`Something is already called ${name} there.`);
 }
 
-function lockDrive(tx: Tx, connectionId: string): Promise<unknown> {
-	return tx.$queryRaw`SELECT "id" FROM "Connection" WHERE "id" = ${connectionId} FOR UPDATE`;
+async function lockDrive(tx: Tx, connectionId: string): Promise<void> {
+	await tx.$queryRaw`SELECT "id" FROM "Connection" WHERE "id" = ${connectionId} FOR UPDATE`;
 }
 
 // The folders above a place, from the top down, the folder itself last; none for the top. Thrown
@@ -265,8 +265,8 @@ type Journaled = {
 	beforeName?: string | null;
 };
 
-function journal(tx: Tx, change: FileChangeBy, entry: Journaled): Promise<unknown> {
-	return tx.fileChange.create({
+async function journal(tx: Tx, change: FileChangeBy, entry: Journaled): Promise<void> {
+	await tx.fileChange.create({
 		data: {
 			orgId: change.orgId,
 			connectionId: change.connectionId,

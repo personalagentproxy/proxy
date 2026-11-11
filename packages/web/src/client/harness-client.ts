@@ -14,10 +14,8 @@ import {
 	threadLogSchema,
 	uploadedAttachmentSchema,
 } from '@proxy/contracts/harness';
-import {httpRequest} from '@proxy/utils';
 import type {z} from 'zod';
-import {apiRequest, apiSend, orgApi} from '@/client/request';
-import {trackWrite} from '@/lib/writes-in-flight';
+import {apiRequest, apiSend, apiUpload, orgApi} from '@/client/request';
 
 // The Chat page's api: the personas the person sees, their own and General, which every member
 // does, each named and given a head, the person's own conversation with each, its turns, what
@@ -80,13 +78,12 @@ export function postMessage(
  * holds, its own type beside its name in the address.
  */
 export function uploadAttachment(org: string, personaId: string, file: File) {
-	const params = new URLSearchParams({name: file.name, ...(file.type ? {type: file.type} : {})});
-	return trackWrite(
-		httpRequest(
-			`${orgApi(org)}/chat/personas/${personaId}/attachments?${params.toString()}`,
-			{method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file},
-			{schema: uploadedAttachmentSchema},
-		),
+	return apiUpload(
+		'POST',
+		`${orgApi(org)}/chat/personas/${personaId}/attachments`,
+		{name: file.name},
+		file,
+		uploadedAttachmentSchema,
 	);
 }
 
@@ -130,13 +127,12 @@ export function postTaskMessage(
 
 /** Uploads a file put in a task's input to the person's own drive: what to attach to what they write to the task next, which the page holds until then. */
 export function uploadTaskAttachment(org: string, personaId: string, taskId: string, file: File) {
-	const params = new URLSearchParams({name: file.name, ...(file.type ? {type: file.type} : {})});
-	return trackWrite(
-		httpRequest(
-			`${orgApi(org)}/chat/personas/${personaId}/tasks/${taskId}/attachments?${params.toString()}`,
-			{method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file},
-			{schema: uploadedAttachmentSchema},
-		),
+	return apiUpload(
+		'POST',
+		`${orgApi(org)}/chat/personas/${personaId}/tasks/${taskId}/attachments`,
+		{name: file.name},
+		file,
+		uploadedAttachmentSchema,
 	);
 }
 

@@ -1,7 +1,5 @@
 import {fileAnswerSchema, fileDetailSchema, fileListSchema} from '@proxy/contracts/files';
-import {httpRequest} from '@proxy/utils';
-import {apiRequest, apiSend, orgApi} from '@/client/request';
-import {trackWrite} from '@/lib/writes-in-flight';
+import {apiRequest, apiSend, apiUpload, orgApi} from '@/client/request';
 
 // A drive's files, on its connection's page: its folders and the trash, a file with its versions,
 // and what the person does to one. A file's bytes go up as the request's body, as they are, and
@@ -50,26 +48,14 @@ export function createFolder(
 	});
 }
 
-// A file as an upload's body: sent as bytes whatever it holds, its own type beside its name in
-// the address, so nothing on the way reads it as anything.
-function upload(method: 'POST' | 'PUT', path: string, query: Record<string, string>, file: File) {
-	const params = new URLSearchParams({...query, ...(file.type ? {type: file.type} : {})});
-	return trackWrite(
-		httpRequest(
-			`${path}?${params.toString()}`,
-			{method, headers: {'Content-Type': 'application/octet-stream'}, body: file},
-			{schema: fileAnswerSchema},
-		),
-	);
-}
-
 /** Uploads a new file into `parent`, called a free name like its own where that is taken. */
 export function uploadFile(org: string, connectionId: string, file: File, parent: string | null) {
-	return upload(
+	return apiUpload(
 		'POST',
 		`${filesPath(org, connectionId)}/uploads`,
 		{name: file.name, ...(parent === null ? {} : {parent})},
 		file,
+		fileAnswerSchema,
 	);
 }
 
@@ -81,7 +67,13 @@ export function uploadFileVersion(
 	version: string,
 	file: File,
 ) {
-	return upload('PUT', `${filesPath(org, connectionId)}/${fileId}/content`, {version}, file);
+	return apiUpload(
+		'PUT',
+		`${filesPath(org, connectionId)}/${fileId}/content`,
+		{version},
+		file,
+		fileAnswerSchema,
+	);
 }
 
 /** Moves a file or a folder into `parent`, the top of the drive for null. */

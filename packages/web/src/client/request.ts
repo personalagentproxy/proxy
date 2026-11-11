@@ -58,3 +58,24 @@ export function apiSend(
 	});
 	return method === 'GET' ? request : trackWrite(request);
 }
+
+/**
+ * A file as an upload's body, parsed with `schema`: sent as bytes whatever it holds, its own type
+ * beside the rest of `query` in the address, so nothing on the way reads it as anything.
+ */
+export function apiUpload<S extends z.ZodType>(
+	method: 'POST' | 'PUT',
+	path: string,
+	query: Record<string, string>,
+	file: File,
+	schema: S,
+) {
+	const params = new URLSearchParams({...query, ...(file.type ? {type: file.type} : {})});
+	return trackWrite(
+		httpRequest(
+			`${path}?${params.toString()}`,
+			{method, headers: {'Content-Type': 'application/octet-stream'}, body: file},
+			{schema},
+		),
+	);
+}
