@@ -925,6 +925,15 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		await db.agentEntry.create({
 			data: {threadId: conversation.id, kind: 'event', callId: 'c1', text: 'Two found.'},
 		});
+		// An answer to it without a word ends the turn, which the conversation shows where it is.
+		await db.agentEntry.create({data: {threadId: conversation.id, kind: 'assistant', text: ''}});
+		expect(
+			unwrap(await listShownEntries(conversation.id, [])).map((entry) => [entry.kind, entry.text]),
+		).toEqual([
+			['person', 'Find me flights'],
+			['assistant', 'On it.'],
+			['assistant', ''],
+		]);
 		const [subRow] = unwrap(await listSubAgents(conversation.id));
 		if (!subRow) {
 			throw new Error('expected the sub-agent');

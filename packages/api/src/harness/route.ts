@@ -172,19 +172,34 @@ function callEntries(entry: EntryRow, call: ToolCall, subAgents: SubAgentRow[]):
 	return to ? [{id, kind: 'sent', task: toTask(to), at}] : [];
 }
 
-// What an entry of the conversation shows (db/harness listShownEntries): what the person said;
-// what the persona answered in words, then the tasks it started and the messages it sent them.
-function conversationEntries(subAgents: SubAgentRow[]): (entry: EntryRow) => ChatEntry[] {
-	return (entry) => {
+// What the conversation shows (db/harness listShownEntries): what the person said; what the
+// persona answered in words, then the tasks it started and the messages it sent them. What it
+// started or sent without a word is shown under its next words in the turn, which say what it
+// did, as of their time, or where the turn ended.
+function conversationEntries(entries: EntryRow[], subAgents: SubAgentRow[]): ChatEntry[] {
+	const shown: ChatEntry[] = [];
+	let held: ChatEntry[] = [];
+	for (const entry of entries) {
 		if (entry.kind === 'person') {
-			return [toMessage({...entry, kind: 'person'})];
+			shown.push(...held, toMessage({...entry, kind: 'person'}));
+			held = [];
+			continue;
 		}
 		if (entry.kind !== 'assistant') {
-			return [];
+			continue;
 		}
+		const calls = entry.toolCalls ?? [];
+		const lines = calls.flatMap((call) => callEntries(entry, call, subAgents));
+		if (entry.text === '' && calls.length > 0) {
+			held.push(...lines);
+			continue;
+		}
+		const at = entry.createdAt.toISOString();
 		const said = entry.text === '' ? [] : [toMessage({...entry, kind: 'assistant'})];
-		return [...said, ...(entry.toolCalls ?? []).flatMap((call) => callEntries(entry, call, subAgents))];
-	};
+		shown.push(...said, ...held.map((line) => ({...line, at})), ...lines);
+		held = [];
+	}
+	return [...shown, ...held];
 }
 
 // What an entry of a task's chat shows (db/harness listShownSubAgentEntries): what the persona
@@ -331,7 +346,7 @@ function handleGetThreadRoute(store: ChatStore, harnesses: Harnesses, request: A
 		const state = threadState($(jobs), now);
 		return {
 			persona: toPersona(harnesses, viewer, persona),
-			entries: $(entries).flatMap(conversationEntries($(subAgents))),
+			entries: conversationEntries($(entries), $(subAgents)),
 			busy: state.kind === 'working',
 			draft: $(draft),
 		};
