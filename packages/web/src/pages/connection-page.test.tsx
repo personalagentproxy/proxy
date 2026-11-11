@@ -136,6 +136,14 @@ describe('ConnectionPage', () => {
 		expect(screen.queryByRole('button', {name: 'Refresh activity'})).toBeNull();
 	});
 
+	test('every integration’s grid has an All row, not only a custom MCP server’s', async () => {
+		renderConnectionPage('/acme/connections/conn-1');
+
+		expect(
+			(await screen.findByRole('checkbox', {name: 'All by default'})).getAttribute('aria-checked'),
+		).toBe('mixed');
+	});
+
 	test('a tab shows its part alone, at an address of its own, without loading the page again', async () => {
 		const loads = renderConnectionPage('/acme/connections/conn-1');
 		await screen.findByRole('checkbox', {name: 'Read by default'});
