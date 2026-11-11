@@ -5,7 +5,7 @@ import {cva, type VariantProps} from 'class-variance-authority';
 import {cn} from '@proxy/ui/lib/utils';
 
 const bubbleVariants = cva(
-	'group/bubble relative flex w-fit max-w-[80%] min-w-0 flex-col gap-1 group-data-[align=end]/message:self-end data-[align=end]:self-end data-[variant=ghost]:max-w-full',
+	'group/bubble relative flex w-fit max-w-3xl min-w-0 flex-col gap-1 group-data-[align=end]/message:self-end data-[align=end]:self-end data-[variant=ghost]:max-w-full',
 	{
 		variants: {
 			variant: {

@@ -803,7 +803,7 @@ const Conversation = memo(function Conversation({
 		<>
 			<MessageScroller className="min-h-0 flex-1">
 				<MessageScrollerViewport aria-label="Conversation">
-					<MessageScrollerContent className="page-column mx-auto w-full max-w-3xl pt-6 pb-4">
+					<MessageScrollerContent className="page-column mx-auto w-full max-w-4xl pt-6 pb-4">
 						{runs.length === 0 && (
 							<div className="flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
 								<LiveHead look={current.look} color={current.color} size={64} />
@@ -1015,7 +1015,7 @@ function Composer({
 		<form
 			ref={form}
 			onSubmit={(event) => void submit(event)}
-			className="page-column mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-2 pt-2 pb-4"
+			className="page-column mx-auto flex w-full max-w-4xl shrink-0 flex-col gap-2 pt-2 pb-4"
 		>
 			{(error ?? listError) && <p className="text-sm text-destructive">{error ?? listError}</p>}
 			{/* No focus ring: the caret in the only input on the page says where typing goes. */}

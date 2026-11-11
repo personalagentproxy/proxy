@@ -185,7 +185,7 @@ function TaskConversation({loaded}: {loaded: TaskChat}) {
 		<>
 			<MessageScroller className="min-h-0 flex-1">
 				<MessageScrollerViewport aria-label="Task">
-					<MessageScrollerContent className="page-column mx-auto w-full max-w-3xl pt-6 pb-4">
+					<MessageScrollerContent className="page-column mx-auto w-full max-w-4xl pt-6 pb-4">
 						{runs.map((run) => {
 							const first = run.entries[0];
 							if (!first) {
@@ -294,7 +294,7 @@ function TaskComposer({
 		<form
 			ref={form}
 			onSubmit={(event) => void submit(event)}
-			className="page-column mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-2 pt-2 pb-4"
+			className="page-column mx-auto flex w-full max-w-4xl shrink-0 flex-col gap-2 pt-2 pb-4"
 		>
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<InputGroup className="rounded-xl bg-background shadow-xs">
