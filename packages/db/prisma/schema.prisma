@@ -716,6 +716,9 @@ model AgentThread {
   // back, on any device; the message they send empties it. Null when there is none, and for a
   // sub-agent's thread.
   draft   String?
+  // When the member pinned the sub-agent, as a task of their conversation, to the Chat page's list
+  // under its persona; null for one not pinned, and for a conversation.
+  pinnedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -737,15 +740,17 @@ model AgentThread {
 
 // What an entry of a thread's log is: what the person said (a sub-agent's brief, in its thread),
 // what the model answered, with the tool calls it made, what one of those calls answered, an
-// event that came since (what a call run in the background came to, a sub-agent's report), or a
+// event that came since (what a call run in the background came to, a sub-agent's report), a
 // summary of the log up to a point, which the model reads in place of what it covers once the log
-// has grown long.
+// has grown long, or a note: in the member's conversation, what they wrote to one of its
+// sub-agents in that sub-agent's chat, which the agent reads but is not woken by.
 enum AgentEntryKind {
   person
   assistant
   tool_result
   event
   summary
+  note
 }
 
 // One entry of a thread's log, in the order of `seq`. The log is the transcript the model reads:
@@ -763,8 +768,12 @@ model AgentEntry {
   text     String
   // An assistant entry's tool calls as JSON (`@proxy/utils/harness` ToolCall[]); null otherwise.
   toolCalls String?
-  // A tool_result or event entry's call, by the id the model gave it; null otherwise.
+  // A tool_result or event entry's call, by the id the model gave it, or a note's, the call that
+  // started the sub-agent it was written to; null otherwise.
   callId   String?
+  // A person entry of a sub-agent's thread that the member wrote in the sub-agent's chat, rather
+  // than the agent that started it; false for every other entry.
+  direct   Boolean        @default(false)
   // A tool_result or event that is an error, in words the model can act on.
   isError  Boolean        @default(false)
   // An assistant entry's cost.

@@ -2,20 +2,36 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, hasExperiment, parseSchema, requirePresent} from '@proxy/utils';
-import {preview, threadState, toAvatarColor} from '@proxy/utils/harness';
-import type {EntryRow, LastMessage, Persona, PersonaModel, PersonaRow, ThreadRow} from '@proxy/db/harness';
+import {
+	callArguments,
+	CREATE_SUBAGENT_TOOL,
+	parentMessageArgs,
+	preview,
+	SEND_TO_PARENT_TOOL,
+	SEND_TO_SUBAGENT_TOOL,
+	subAgentMessageArgs,
+	threadState,
+	toAvatarColor,
+	type ToolCall,
+} from '@proxy/utils/harness';
+import type {EntryRow, LastMessage, Persona, PersonaModel, PersonaRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
 import {
 	type ChatEntry,
 	type chatAnswersSchema,
 	type ChatHarness,
+	type ChatMessage,
 	type ChatPersona,
+	type ChatTask,
 	markReadBodySchema,
 	personaBodySchema,
+	pinTaskBodySchema,
 	type personaAnswerSchema,
 	type personaListSchema,
 	postMessageBodySchema,
 	type postedMessageSchema,
 	saveDraftBodySchema,
+	type TaskChat,
+	type TaskChatEntry,
 	type ThreadLog,
 } from '@proxy/contracts/harness';
 
@@ -24,12 +40,15 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {manages} from '../utils/manages';
 import {type OrgViewer, requireViewer} from '../utils/user-org';
 import {ensureBuiltInAgent} from './built-in-agent';
+import {STOPPED_NOTE} from './conversation';
 import type {HarnessStore} from './store';
 
 /**
  * The Chat page's routes, under the organization: its personas, which every member sees, each
  * named and given a head, all acting through the organization's one built-in agent login, and the
- * member's own conversation with each, its log, and what it and its sub-agents are up to. A persona
+ * member's own conversation with each, its log, and what it and its sub-agents are up to. Each
+ * sub-agent is a task to the member, shown where it was started, with a chat of its own: what it
+ * and the persona said to each other, and what the member writes to it there. A persona
  * says which of the server's harnesses runs it and which of that harness's models it answers with
  * (backends/harness.ts), chosen from the conversation's input by whoever may change it. Behind the `harness` experiment. Nothing here runs the model: a message queues a job, and
  * the worker (worker.ts) does the rest; the page reads the log again as it goes.
@@ -48,8 +67,13 @@ export type ChatStore = Pick<
 	| 'getMemberThread'
 	| 'ensureMemberThread'
 	| 'listShownEntries'
+	| 'listShownSubAgentEntries'
+	| 'listSubAgents'
 	| 'listOpenJobs'
 	| 'appendPersonMessage'
+	| 'messageSubAgentDirectly'
+	| 'listPinnedTasks'
+	| 'setTaskPinned'
 	| 'markThreadRead'
 	| 'getThreadDraft'
 	| 'saveThreadDraft'
@@ -115,13 +139,76 @@ function readPersona(harnesses: Harnesses, request: AuthenticatedRequest, existi
 	return Ok({...persona, harness: chosen.harness.id, chatModel: chosen.model});
 }
 
-// The entries the person sees (db/harness listShownEntries), as their kinds, for the response.
-function isShown(entry: EntryRow): entry is EntryRow & {kind: ChatEntry['kind']} {
-	return entry.kind === 'person' || (entry.kind === 'assistant' && entry.text !== '');
+// The calls the person sees in their conversation, as the tasks the persona started and what it
+// sent them; and in a task's chat, what the task told the persona as it went.
+const CONVERSATION_CALLS = [CREATE_SUBAGENT_TOOL, SEND_TO_SUBAGENT_TOOL];
+const TASK_CALLS = [SEND_TO_PARENT_TOOL];
+
+function toMessage(entry: EntryRow & {kind: ChatMessage['kind']}): ChatMessage {
+	return {id: entry.id, kind: entry.kind, text: entry.text, isError: entry.isError, at: entry.createdAt.toISOString()};
 }
 
-function toEntry(entry: EntryRow & {kind: ChatEntry['kind']}): ChatEntry {
-	return {id: entry.id, kind: entry.kind, text: entry.text, isError: entry.isError, at: entry.createdAt.toISOString()};
+function toTask(subAgent: SubAgentRow): ChatTask {
+	return {id: subAgent.id, title: subAgent.title ?? ''};
+}
+
+// What a call of the persona's shows in the conversation, as the answer that made it says: a task
+// it started, where one was, and a message to a task of the conversation's.
+function callEntries(entry: EntryRow, call: ToolCall, subAgents: SubAgentRow[]): ChatEntry[] {
+	const id = `${entry.id}:${call.id}`;
+	const at = entry.createdAt.toISOString();
+	if (call.name === CREATE_SUBAGENT_TOOL) {
+		const started = subAgents.find((subAgent) => subAgent.parentCallId === call.id);
+		return started ? [{id, kind: 'task', task: toTask(started), at}] : [];
+	}
+	if (call.name !== SEND_TO_SUBAGENT_TOOL) {
+		return [];
+	}
+	const sent = subAgentMessageArgs(callArguments(call));
+	const to = subAgents.find((subAgent) => subAgent.id === sent?.subagent);
+	return to ? [{id, kind: 'sent', task: toTask(to), at}] : [];
+}
+
+// What an entry of the conversation shows (db/harness listShownEntries): what the person said;
+// what the persona answered in words, then the tasks it started and the messages it sent them.
+function conversationEntries(subAgents: SubAgentRow[]): (entry: EntryRow) => ChatEntry[] {
+	return (entry) => {
+		if (entry.kind === 'person') {
+			return [toMessage({...entry, kind: 'person'})];
+		}
+		if (entry.kind !== 'assistant') {
+			return [];
+		}
+		const said = entry.text === '' ? [] : [toMessage({...entry, kind: 'assistant'})];
+		return [...said, ...(entry.toolCalls ?? []).flatMap((call) => callEntries(entry, call, subAgents))];
+	};
+}
+
+// What an entry of a task's chat shows (db/harness listShownSubAgentEntries): what the persona
+// said to it, or the person; what it answered, without the calls it worked through, and what it
+// told the persona as it went; and its failures, which the conversation's log has, without the
+// note that it stopped, which the chat shows otherwise.
+function taskChatEntries(subAgent: SubAgentRow): (entry: EntryRow) => TaskChatEntry[] {
+	return (entry) => {
+		const at = entry.createdAt.toISOString();
+		if (entry.threadId !== subAgent.id) {
+			return [{id: entry.id, from: 'task', text: entry.text.replace(`\n\n${STOPPED_NOTE}`, ''), isError: true, at}];
+		}
+		if (entry.kind === 'person') {
+			return [{id: entry.id, from: entry.direct ? 'person' : 'persona', text: entry.text, isError: false, at}];
+		}
+		if (entry.kind !== 'assistant') {
+			return [];
+		}
+		const calls = entry.toolCalls ?? [];
+		if (calls.length === 0) {
+			return [{id: entry.id, from: 'task', text: entry.text, isError: entry.isError, at}];
+		}
+		return calls.flatMap((call) => {
+			const told = call.name === SEND_TO_PARENT_TOOL ? parentMessageArgs(callArguments(call)) : null;
+			return told ? [{id: `${entry.id}:${call.id}`, from: 'task' as const, text: told.text, isError: false, at}] : [];
+		});
+	};
 }
 
 /** The viewer, in an organization with Chat on: the Chat page's routes and the Alerts page's take it. */
@@ -167,17 +254,19 @@ function requireThread(store: ChatStore, viewer: OrgViewer, persona: PersonaRow)
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas`: the organization's personas, the one last active in the viewer's conversation first, with the viewer's conversations, and the harnesses the server has for one to run on; a General one is made where it has none. */
+/** `GET /api/orgs/:org/chat/personas`: the organization's personas, the one last active in the viewer's conversation first, with the viewer's conversations, the tasks they pinned in them, and the harnesses the server has for one to run on; a General one is made where it has none. */
 function handleListPersonasRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
-		const personas = $(await store.listPersonas(viewer.orgId, viewer.userId));
+		const [listed, pinned] = await Promise.all([store.listPersonas(viewer.orgId, viewer.userId), store.listPinnedTasks(viewer.orgId, viewer.userId)]);
+		const personas = $(listed);
 		const offered = toHarnesses(harnesses());
+		const pinnedTasks = $(pinned).map(({id, personaId, title}) => ({id, personaId, title}));
 		if (personas.length > 0) {
-			return {personas: personas.map((persona) => toPersona(harnesses, viewer, persona)), harnesses: offered};
+			return {personas: personas.map((persona) => toPersona(harnesses, viewer, persona)), pinnedTasks, harnesses: offered};
 		}
 		const first = $(await store.ensureFirstPersona(viewer.orgId));
-		return {personas: [toPersona(harnesses, viewer, first)], harnesses: offered};
+		return {personas: [toPersona(harnesses, viewer, first)], pinnedTasks, harnesses: offered};
 	});
 }
 
@@ -232,20 +321,25 @@ function handleDeletePersonaRoute(store: ChatStore, request: AuthenticatedReques
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas/:personaId/thread`: the viewer's conversation with the persona, begun where there was none, what they said while it was answering at the end, whether the persona is busy on it, its sub-agents included, and what they typed in it and haven't sent. */
+/** `GET /api/orgs/:org/chat/personas/:personaId/thread`: the viewer's conversation with the persona, begun where there was none, what they said while it was answering at the end, the tasks the persona started in it and what it sent them, whether the persona is busy on it, its sub-agents included, and what they typed in it and haven't sent. */
 function handleGetThreadRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<ThreadLog, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const persona = $(await requirePersona(store, viewer, request));
 		const thread = $(await requireThread(store, viewer, persona));
-		const [entries, jobs, draft] = await Promise.all([store.listShownEntries(thread.id), store.listOpenJobs(thread.id), store.getThreadDraft(thread.id)]);
-		// The conversation's and its sub-agents' jobs together: asleep only when every one of them is.
-		const state = threadState($(jobs), new Date());
+		const now = new Date();
+		const [entries, jobs, draft, subAgents] = await Promise.all([
+			store.listShownEntries(thread.id, CONVERSATION_CALLS),
+			store.listOpenJobs(thread.id),
+			store.getThreadDraft(thread.id),
+			store.listSubAgents(thread.id, now),
+		]);
+		// The conversation's and its sub-agents' jobs together: busy while any of them is at work.
+		const state = threadState($(jobs), now);
 		return {
 			persona: toPersona(harnesses, viewer, persona),
-			entries: $(entries).filter(isShown).map(toEntry),
+			entries: $(entries).flatMap(conversationEntries($(subAgents))),
 			busy: state.kind === 'working',
-			sleepingUntil: state.kind === 'asleep' ? state.until.toISOString() : null,
 			draft: $(draft),
 		};
 	});
@@ -259,7 +353,49 @@ function handlePostMessageRoute(store: ChatStore, request: AuthenticatedRequest)
 		const persona = $(await requirePersona(store, viewer, request));
 		const thread = $(await requireThread(store, viewer, persona));
 		const entry = $(requirePresent($(await store.appendPersonMessage(thread.id, text)), ApiErr.notFound('thread', thread.id)));
-		return {entry: toEntry({...entry, kind: 'person'})};
+		return {entry: toMessage({...entry, kind: 'person'})};
+	});
+}
+
+// The viewer's conversation with the persona in the address, which a task is of; never begun: a
+// viewer without one has no task in it.
+function requireExistingThread(store: ChatStore, viewer: OrgViewer, persona: PersonaRow, taskId: string): Promise<Result<ThreadRow, ApiError>> {
+	return Do(async ($) => {
+		return $(requirePresent($(await store.getMemberThread(persona.id, viewer.userId)), ApiErr.notFound('task', taskId)));
+	});
+}
+
+/** `GET /api/orgs/:org/chat/personas/:personaId/tasks/:taskId`: a task the persona started in the viewer's conversation with it, as its chat shows it: what it is up to, and what it, the persona and the viewer said in it. */
+function handleGetTaskRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<TaskChat, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireChat(request));
+		const taskId = request.params.taskId ?? '';
+		const persona = $(await requirePersona(store, viewer, request));
+		const thread = $(await requireExistingThread(store, viewer, persona, taskId));
+		const subAgents = $(await store.listSubAgents(thread.id, new Date()));
+		const subAgent = $(requirePresent(subAgents.find((candidate) => candidate.id === taskId) ?? null, ApiErr.notFound('task', taskId)));
+		const entries = $(await store.listShownSubAgentEntries(subAgent, TASK_CALLS));
+		return {
+			persona: toPersona(harnesses, viewer, persona),
+			task: toTask(subAgent),
+			busy: subAgent.state.kind === 'working',
+			activityTaskId: subAgent.taskId,
+			entries: entries.flatMap(taskChatEntries(subAgent)),
+		};
+	});
+}
+
+/** `POST /api/orgs/:org/chat/personas/:personaId/tasks/:taskId/messages` with `{text}`: what the viewer writes to a task of their conversation with the persona, in its chat; the task takes it up, and the persona is told, but not woken by it: the task's answer wakes it. */
+function handlePostTaskMessageRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireChat(request));
+		const taskId = request.params.taskId ?? '';
+		const {text} = $(parseSchema(postMessageBodySchema, request.body));
+		const persona = $(await requirePersona(store, viewer, request));
+		const thread = $(await requireExistingThread(store, viewer, persona, taskId));
+		if (!$(await store.messageSubAgentDirectly(thread.id, taskId, text))) {
+			return $(Err(ApiErr.notFound('task', taskId)));
+		}
 	});
 }
 
@@ -290,6 +426,20 @@ function handleMarkReadRoute(store: ChatStore, request: AuthenticatedRequest): P
 	});
 }
 
+/** `PUT /api/orgs/:org/chat/personas/:personaId/tasks/:taskId/pin` with `{pinned}`: a task of the viewer's conversation with the persona pinned to the list under it, or unpinned. */
+function handlePinTaskRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireChat(request));
+		const taskId = request.params.taskId ?? '';
+		const {pinned} = $(parseSchema(pinTaskBodySchema, request.body));
+		const persona = $(await requirePersona(store, viewer, request));
+		const thread = $(await requireExistingThread(store, viewer, persona, taskId));
+		if (!$(await store.setTaskPinned(thread.id, taskId, pinned))) {
+			return $(Err(ApiErr.notFound('task', taskId)));
+		}
+	});
+}
+
 /** The Chat page's routes, on the store and the harnesses the server has. */
 export function chatRoutes(store: ChatStore, harnesses: Harnesses) {
 	return {
@@ -300,6 +450,9 @@ export function chatRoutes(store: ChatStore, harnesses: Harnesses) {
 		handleDeletePersonaRoute: (request: AuthenticatedRequest) => handleDeletePersonaRoute(store, request),
 		handleGetThreadRoute: (request: AuthenticatedRequest) => handleGetThreadRoute(store, harnesses, request),
 		handlePostMessageRoute: (request: AuthenticatedRequest) => handlePostMessageRoute(store, request),
+		handleGetTaskRoute: (request: AuthenticatedRequest) => handleGetTaskRoute(store, harnesses, request),
+		handlePostTaskMessageRoute: (request: AuthenticatedRequest) => handlePostTaskMessageRoute(store, request),
+		handlePinTaskRoute: (request: AuthenticatedRequest) => handlePinTaskRoute(store, request),
 		handleMarkReadRoute: (request: AuthenticatedRequest) => handleMarkReadRoute(store, request),
 		handleSaveDraftRoute: (request: AuthenticatedRequest) => handleSaveDraftRoute(store, request),
 	};

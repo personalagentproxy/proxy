@@ -17,11 +17,13 @@ export type ModelMessage =
 
 /** An entry of the log, as much of it as reading the log needs: its kind and text, its calls or the call it answers, its place, how far a summary reaches, and what an answer cost. */
 export type ContextEntry = {
-	kind: 'person' | 'assistant' | 'tool_result' | 'event' | 'summary';
+	kind: 'person' | 'assistant' | 'tool_result' | 'event' | 'summary' | 'note';
 	text: string;
 	toolCalls: ToolCall[] | null;
 	callId: string | null;
 	isError: boolean;
+	// A sub-agent's person entry the member wrote in its chat, rather than the agent it works for.
+	direct: boolean;
 	seq: number;
 	coversSeq: number | null;
 	inputTokens: number | null;
@@ -84,9 +86,33 @@ export function eventLead(subAgents: SubAgent[], event: ContextEntry): string {
 	return `From ${who}; not from the person.`;
 }
 
+/**
+ * How what the person wrote in a sub-agent's chat is led in, for the model: in the sub-agent's
+ * thread, as theirs rather than the agent's it works for; in the conversation, as a note of what
+ * they wrote to which sub-agent, by the call that started it. Null for what is led in as nothing
+ * but itself. Exported for a harness that renders the log as text itself.
+ */
+export function directLead(subAgents: SubAgent[], entry: ContextEntry): string | null {
+	if (entry.kind === 'person' && entry.direct) {
+		return 'From the person themselves, written in your chat, where they see what you answer; not from the agent you work for.';
+	}
+	if (entry.kind !== 'note') {
+		return null;
+	}
+	const to = subAgents.find((candidate) => candidate.parentCallId === entry.callId);
+	const who = to ? `the sub-agent “${to.title ?? ''}” (${to.id})` : 'one of your sub-agents';
+	return `The person wrote this to ${who} themselves, in its chat, where they see what it answers; not to you. Its answer comes to you as its messages do.`;
+}
+
+// The entry's text, led in where it is what the person wrote in a sub-agent's chat.
+function directText(subAgents: SubAgent[], entry: ContextEntry, gap: string): string {
+	const lead = directLead(subAgents, entry);
+	return lead === null ? entry.text : `${lead}${gap}${entry.text}`;
+}
+
 function toMessage(subAgents: SubAgent[], entry: ContextEntry): ModelMessage {
-	if (entry.kind === 'person') {
-		return {role: 'user', content: entry.text};
+	if (entry.kind === 'person' || entry.kind === 'note') {
+		return {role: 'user', content: directText(subAgents, entry, '\n\n')};
 	}
 	if (entry.kind === 'tool_result') {
 		return {role: 'tool', tool_call_id: entry.callId ?? '', content: entry.text};
@@ -164,8 +190,8 @@ export function toMessages(
 
 // An entry as the transcript has it.
 function toLine(entries: ContextEntry[], subAgents: SubAgent[], entry: ContextEntry): string {
-	if (entry.kind === 'person') {
-		return `Person:\n${entry.text}`;
+	if (entry.kind === 'person' || entry.kind === 'note') {
+		return `Person:\n${directText(subAgents, entry, '\n')}`;
 	}
 	if (entry.kind === 'tool_result') {
 		return `${callOf(entries, entry.callId)?.name ?? 'The call'} answered${entry.isError ? ' with an error' : ''}:\n${entry.text}`;

@@ -22,6 +22,7 @@ import type {
 	Persona,
 	PersonaModel,
 	PersonaRow,
+	PinnedTaskRow,
 	SubAgentRow,
 	SubAgentStart,
 	ThreadRow,
@@ -80,9 +81,13 @@ export type HarnessStore = {
 	deletePersona: (orgId: string, personaId: string) => Promise<Result<boolean, ApiError>>;
 	getMemberThread: (personaId: string, userId: string) => Promise<Result<ThreadRow | null, ApiError>>;
 	ensureMemberThread: (data: {orgId: string; agentId: string; personaId: string; userId: string}) => Promise<Result<ThreadRow, ApiError>>;
-	listShownEntries: (threadId: string) => Promise<Result<EntryRow[], ApiError>>;
+	listShownEntries: (threadId: string, calls: string[]) => Promise<Result<EntryRow[], ApiError>>;
+	listShownSubAgentEntries: (subAgent: ThreadRow, calls: string[]) => Promise<Result<EntryRow[], ApiError>>;
 	listOpenJobs: (threadId: string) => Promise<Result<JobRow[], ApiError>>;
 	appendPersonMessage: (threadId: string, text: string) => Promise<Result<EntryRow | null, ApiError>>;
+	messageSubAgentDirectly: (conversationId: string, subAgentId: string, text: string) => Promise<Result<boolean, ApiError>>;
+	listPinnedTasks: (orgId: string, userId: string) => Promise<Result<PinnedTaskRow[], ApiError>>;
+	setTaskPinned: (conversationId: string, subAgentId: string, pinned: boolean) => Promise<Result<boolean, ApiError>>;
 	markThreadRead: (threadId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
 	getThreadDraft: (threadId: string) => Promise<Result<string | null, ApiError>>;
 	saveThreadDraft: (threadId: string, draft: string | null) => Promise<Result<boolean, ApiError>>;
@@ -145,8 +150,12 @@ export const harnessStore: HarnessStore = {
 	getMemberThread: harness.getMemberThread,
 	ensureMemberThread: harness.ensureMemberThread,
 	listShownEntries: harness.listShownEntries,
+	listShownSubAgentEntries: harness.listShownSubAgentEntries,
 	listOpenJobs: harness.listOpenJobs,
 	appendPersonMessage: (threadId, text) => harness.appendPersonMessage(threadId, text, readyForInference),
+	messageSubAgentDirectly: (conversationId, subAgentId, text) => harness.messageSubAgentDirectly(conversationId, subAgentId, text, readyForInference),
+	listPinnedTasks: harness.listPinnedTasks,
+	setTaskPinned: harness.setTaskPinned,
 	markThreadRead: harness.markThreadRead,
 	getThreadDraft: harness.getThreadDraft,
 	saveThreadDraft: harness.saveThreadDraft,

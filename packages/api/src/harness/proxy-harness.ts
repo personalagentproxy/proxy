@@ -92,6 +92,7 @@ export function proxyHarness(deps: ProxyHarnessDeps): HarnessBackend {
 					toolCalls: null,
 					callId: null,
 					isError: false,
+					direct: false,
 					seq: (entries.at(-1)?.seq ?? 0) + 1,
 					coversSeq: last.seq,
 					inputTokens: null,
