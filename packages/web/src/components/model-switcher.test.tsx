@@ -1,7 +1,7 @@
 /// <reference types="bun" />
 
 import {afterEach, describe, expect, mock, test} from 'bun:test';
-import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import type {ChatHarness} from '@proxy/contracts/harness';
 import {ModelSwitcher} from '@/components/model-switcher';
 
@@ -53,28 +53,24 @@ describe('ModelSwitcher', () => {
 		expect(trigger.textContent).toBe('Claude Opus 5.5Claude');
 	});
 
-	test('opens in two columns: the harnesses down the side, each by its mark, and the models of the agent’s own beside them and nothing else, the one chosen checked', async () => {
+	test('opens on the harnesses as tabs, the agent’s own selected, and under them its models and nothing else, the one chosen checked', async () => {
 		open({harness: 'proxy', chatModel: 'glm'});
 
-		const side = await screen.findByRole('group', {name: 'Harness'});
-		const marks = within(side).getAllByRole('menuitem');
-		expect(
-			marks.map((mark) => [mark.getAttribute('aria-label'), mark.getAttribute('aria-current')]),
-		).toEqual([
+		const tabs = await screen.findAllByRole('tab');
+		expect(tabs.map((tab) => [tab.textContent, tab.getAttribute('aria-selected')])).toEqual([
 			['OpenRouter', 'true'],
 			['Claude', 'false'],
 		]);
-		expect(marks.map((mark) => mark.querySelector('img')?.getAttribute('src'))).toEqual([
-			'/harnesses/openrouter.svg',
-			'/agent-providers/claude.png',
-		]);
+		expect(screen.getByRole('tablist', {name: 'Harness'})).toBeTruthy();
 		const models = screen.getAllByRole('menuitemradio');
 		expect(models.map((item) => [item.textContent, item.getAttribute('aria-checked')])).toEqual([
 			['Claude Sonnet 5.5', 'false'],
 			['GLM 5.3', 'true'],
 		]);
-		// No harness is written out in the list: its mark says which, and names it when pointed at.
-		expect(screen.getByRole('menu').textContent).toBe('Claude Sonnet 5.5GLM 5.3');
+		// The panel under the tabs is the one they control.
+		expect(tabs[0]?.getAttribute('aria-controls')).toBe(
+			screen.getByRole('group', {name: 'OpenRouter models'}).id,
+		);
 		// A model not chosen carries the tick that shows as it is pointed at; the one chosen has its
 		// own alone.
 		expect(
@@ -82,21 +78,23 @@ describe('ModelSwitcher', () => {
 		).toEqual([true, false]);
 	});
 
-	test('names a harness as the pointer rests on its mark', async () => {
+	test('the arrow keys move between the tabs, listing the models of the one moved to', async () => {
 		open({harness: 'proxy', chatModel: 'claude'});
 
-		fireEvent.mouseEnter(await screen.findByRole('menuitem', {name: 'Claude'}));
-		fireEvent.mouseMove(screen.getByRole('menuitem', {name: 'Claude'}));
+		fireEvent.keyDown(await screen.findByRole('tab', {name: 'OpenRouter'}), {key: 'ArrowRight'});
 
-		expect(
-			(await screen.findByText('Claude')).closest('[data-slot="tooltip-content"]'),
-		).not.toBeNull();
+		expect(screen.getByRole('tab', {name: 'Claude'}).getAttribute('aria-selected')).toBe('true');
+		expect(screen.getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
+			'Claude Sonnet 5.5',
+			'Claude Opus 5.5',
+			'Claude Fable 5.2',
+		]);
 	});
 
 	test('looking at another harness lists its models, none checked, and changes nothing until one is picked, which takes its harness with it and closes the list', async () => {
 		const onPick = open({harness: 'proxy', chatModel: 'claude'});
 
-		fireEvent.click(await screen.findByRole('menuitem', {name: 'Claude'}));
+		fireEvent.click(await screen.findByRole('tab', {name: 'Claude'}));
 
 		const models = screen.getAllByRole('menuitemradio');
 		expect(models.map((item) => [item.textContent, item.getAttribute('aria-checked')])).toEqual([
@@ -115,7 +113,7 @@ describe('ModelSwitcher', () => {
 	test('opens on the agent’s own harness again after another was looked at', async () => {
 		// The pick goes nowhere here, so the agent stays on OpenRouter once the list has closed.
 		open({harness: 'proxy', chatModel: 'claude'});
-		fireEvent.click(await screen.findByRole('menuitem', {name: 'Claude'}));
+		fireEvent.click(await screen.findByRole('tab', {name: 'Claude'}));
 		fireEvent.click(screen.getByRole('menuitemradio', {name: 'Claude Opus 5.5'}));
 		await waitFor(() => expect(screen.queryByRole('menuitemradio')).toBeNull());
 
