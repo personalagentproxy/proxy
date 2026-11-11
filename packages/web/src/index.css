@@ -227,3 +227,33 @@
 [data-slot='message-scroller-viewport'][data-scrollable-end='false'] {
 	--scroll-fade-b: 0px;
 }
+
+/* What comes to a chat while it is open rises into place (`data-enter="rise"`), and the line
+   saying the agent is at work fades in (`data-enter="fade"`); what was there as it opened is
+   simply there. With reduced motion, what comes fades in, briefly, without moving. */
+@keyframes chat-rise {
+	from {
+		opacity: 0;
+		translate: 0 0.75rem;
+	}
+}
+
+@keyframes chat-fade {
+	from {
+		opacity: 0;
+	}
+}
+
+[data-enter='rise'] {
+	animation: chat-rise 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+[data-enter='fade'] {
+	animation: chat-fade 200ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	[data-enter='rise'] {
+		animation: chat-fade 160ms ease-out both;
+	}
+}

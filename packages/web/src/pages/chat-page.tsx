@@ -13,9 +13,11 @@ import {CornerDownRightIcon, PencilIcon, PinIcon, PinOffIcon, Trash2Icon} from '
 import {
 	type FormEvent,
 	type KeyboardEvent,
+	memo,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
+	useMemo,
 	useRef,
 	useState,
 } from 'react';
@@ -44,7 +46,6 @@ import {
 	MessageScrollerButton,
 	MessageScrollerContent,
 	MessageScrollerItem,
-	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
 import {TaskLine, WorkingLine} from '@/components/chat/task-line';
@@ -55,8 +56,10 @@ import {useLastLoaded, useLoaded} from '@/hooks/use-loaded';
 import {useListMotion} from '@/hooks/use-list-motion';
 import {useOrgSlug} from '@/hooks/use-org';
 import {useReload} from '@/hooks/use-reload';
+import {useSending} from '@/hooks/use-sending';
 import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
 import {useUnread} from '@/hooks/use-unread';
+import {keepEntries, sameJson} from '@/lib/chat-log';
 import {chatRuns, conversationSide} from '@/lib/chat-runs';
 import {formatAgo} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
@@ -137,6 +140,11 @@ function lastActive(persona: ChatPersona, last: ChatPersona['lastMessage']): num
 
 // A conversation as the page shows it, fresher than the list: its log, and what is being typed.
 type Shown = {personaId: string; log: ThreadLog; draft: string};
+
+// Each as its own part of the conversation says it: the log as it is drawn, what is typed as it is
+// typed, so typing draws the input and the list again, not the conversation.
+type ShownLog = {personaId: string; log: ThreadLog};
+type ShownDraft = {personaId: string; draft: string};
 
 // The tasks a conversation names: those the persona started in it, and those it wrote to.
 function tasksOf(log: ThreadLog): ChatTask[] {
@@ -386,7 +394,12 @@ export function ChatPage() {
 	const listed = useLastLoaded<typeof chatLoader | typeof chatTaskLoader>();
 	const personas = listed.answer?.personas ?? null;
 	const name = personas?.find((persona) => persona.id === current)?.name;
-	const [shown, setShown] = useState<Shown | null>(null);
+	const [shownLog, setShownLog] = useState<ShownLog | null>(null);
+	const [shownDraft, setShownDraft] = useState<ShownDraft | null>(null);
+	const shown: Shown | null =
+		shownLog !== null && shownDraft?.personaId === shownLog.personaId
+			? {...shownLog, draft: shownDraft.draft}
+			: null;
 	// The agent dialog: making a new one, or changing the selected one; closed as null.
 	const [editing, setEditing] = useState<'new' | ChatPersona | null>(null);
 	const [deleting, setDeleting] = useState<ChatPersona | null>(null);
@@ -395,6 +408,7 @@ export function ChatPage() {
 	// Nothing is requested on an ordinary page load, so it does not steal focus or open a phone's
 	// keyboard just because the Chat page was visited.
 	const [focusRequestedFor, setFocusRequestedFor] = useState<string | null>(null);
+	const focused = useCallback(() => setFocusRequestedFor(null), [setFocusRequestedFor]);
 	// What was typed in each conversation while the page was open, fresher than the list, which
 	// is read as another opens, perhaps before the save of what was typed in the last has landed.
 	const drafts = useRef(new Map<string, string>());
@@ -522,11 +536,12 @@ export function ChatPage() {
 					<OpenConversation
 						recallDraft={recallDraft}
 						rememberDraft={rememberDraft}
-						onShown={setShown}
+						onShownLog={setShownLog}
+						onShownDraft={setShownDraft}
 						managing={editing !== null || deleting !== null}
 						listError={error}
 						focusRequested={focusRequestedFor === current}
-						onFocused={() => setFocusRequestedFor(null)}
+						onFocused={focused}
 					/>
 				) : (
 					<OpenTask />
@@ -601,8 +616,9 @@ function TaskActions({task}: {task: TaskChat | null}) {
 type Opened = {
 	recallDraft: (personaId: string) => string | null;
 	rememberDraft: (personaId: string, text: string) => void;
-	// The list beside the conversation shows it as the page does.
-	onShown: (shown: Shown) => void;
+	// The list beside the conversation shows it as the page does: its log, and what is typed in it.
+	onShownLog: (shown: ShownLog) => void;
+	onShownDraft: (shown: ShownDraft) => void;
 	// An agent is being made, changed or deleted in a dialog.
 	managing: boolean;
 	// What deleting an agent from the list failed with.
@@ -618,18 +634,57 @@ function OpenConversation(opened: Opened) {
 	return <Conversation key={log.persona.id} loaded={log} harnesses={harnesses} {...opened} />;
 }
 
+// What the person said in something of the conversation; null for what isn't theirs.
+function personText(entry: ChatEntry): string | null {
+	return entry.kind === 'person' ? entry.text : null;
+}
+
+// One thing of the conversation: a turn, or a line about one of its tasks. It is drawn again only
+// as it changes, not as the conversation is read again or something else comes, since drawing an
+// answer parses its Markdown; one that came while the conversation was open rises into place.
+const Entry = memo(function Entry({
+	entry,
+	fresh,
+	org,
+	personaId,
+}: {
+	entry: ChatEntry;
+	fresh: boolean;
+	org: string;
+	personaId: string;
+}) {
+	if (entry.kind === 'task' || entry.kind === 'sent') {
+		return (
+			<div data-enter={fresh ? 'rise' : undefined}>
+				<TaskLine
+					verb={entry.kind === 'task' ? 'Created task' : 'Sent to'}
+					task={entry.task}
+					to={`/${org}/chat/${personaId}/tasks/${entry.task.id}`}
+				/>
+			</div>
+		);
+	}
+	return (
+		<div data-enter={fresh ? 'rise' : undefined}>
+			<Turn entry={entry} />
+		</div>
+	);
+});
+
 // The person's conversation with one of the personas they see: its log, read again as the
 // persona works, and an input. The persona hands each piece of work to a sub-agent it keeps
 // talking with, which acts as the person through the organization's built-in login, whose calls
 // go through the same gate as any agent's, so its activity is in the log by the sub-agent's task.
 // Each sub-agent is a task to the person, a line where it was started and one where the persona
-// sent it more, each opening its chat.
-function Conversation({
+// sent it more, each opening its chat. What the person sends shows at once, the persona at work
+// under it, before the server has it.
+const Conversation = memo(function Conversation({
 	loaded,
 	harnesses,
 	recallDraft,
 	rememberDraft,
-	onShown,
+	onShownLog,
+	onShownDraft,
 	managing,
 	listError,
 	focusRequested,
@@ -639,60 +694,26 @@ function Conversation({
 	const reload = useReload();
 	const [log, setLog] = useState<ThreadLog>(loaded);
 	const personaId = loaded.persona.id;
-	// What was typed and not sent, as the conversation opened: as this page left it, or as the
-	// server keeps it. Read once: the log read again later says nothing of what is being typed.
-	const [opening] = useState(() => {
-		const kept = loaded.draft ?? '';
-		return {kept, text: recallDraft(personaId) ?? kept};
-	});
-	const [text, setText] = useState(opening.text);
-	const draft = useChatDraft(org, personaId, opening.kept);
-	const [sending, setSending] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const form = useRef<HTMLFormElement>(null);
-	const input = useRef<HTMLTextAreaElement>(null);
 	const current = loaded.persona;
-	// What runs the persona, as the switcher shows it: the persona's, or what was just picked.
-	const [runsOn, setRunsOn] = useState<ModelChoice>({
-		harness: current.harness,
-		chatModel: current.chatModel,
-	});
-	// A conversation is open all day: a new release is loaded while it is out of view, as long as
-	// what is typed is saved as the draft and no dialog is open, since the log and the draft come
-	// back from the server.
-	useReloadWhileHidden(text === draft.saved && !sending && !managing);
+	const sending = useSending(log.entries, personText);
+	const busy = log.busy || sending.waiting;
+	// What the conversation had as it opened: what comes after it rises into place.
+	const [opened] = useState(() => new Set(loaded.entries.map((entry) => entry.id)));
 
-	// Said as it is drawn, so the list shows the conversation as it is shown, and from the answer
-	// it came with, in the same frame.
+	// The log as it is shown, what was just sent in it, said as it is drawn, so the list shows the
+	// conversation as it is shown, and from the answer it came with, in the same frame.
+	const shownLog = useMemo(
+		() => ({...log, entries: sending.entries, busy}),
+		[log, sending.entries, busy],
+	);
 	useLayoutEffect(() => {
-		onShown({personaId, log, draft: text});
-	}, [onShown, personaId, log, text]);
-
-	useEffect(() => {
-		if (!focusRequested || input.current === null) {
-			return;
-		}
-		input.current.focus();
-		onFocused();
-	}, [focusRequested, onFocused]);
-
-	// What this page had typed here that the server doesn't have yet, as it was left for another
-	// conversation a moment before its save landed, is saved again.
-	const {typed} = draft;
-	useEffect(() => {
-		if (opening.text !== opening.kept) {
-			typed(opening.text);
-		}
-	}, [typed, opening]);
-
-	const type = (value: string) => {
-		setText(value);
-		draft.typed(value);
-		rememberDraft(personaId, value);
-	};
+		onShownLog({personaId, log: shownLog});
+	}, [onShownLog, personaId, shownLog]);
 
 	// Which read of the log was asked for last: one asked for before it that answers after it is
 	// dropped, so a poll begun before a send can't put back the log as it was without the message.
+	// A read that brings nothing new changes nothing, and what didn't change is kept as it was, so
+	// the conversation isn't drawn again for it.
 	const latestRead = useRef(0);
 	const readLog = useCallback(async () => {
 		latestRead.current += 1;
@@ -701,16 +722,21 @@ function Conversation({
 		if (read !== latestRead.current || result.isErr()) {
 			return;
 		}
-		setLog(result.value);
+		const after = result.value;
+		setLog((before) =>
+			sameJson(before, after)
+				? before
+				: {...after, entries: keepEntries(before.entries, after.entries)},
+		);
 	}, [org, personaId]);
 
 	// The log as it is now, while the page is open.
 	useEffect(() => {
-		const timer = setInterval(() => void readLog(), log.busy ? BUSY_POLL_MS : IDLE_POLL_MS);
+		const timer = setInterval(() => void readLog(), busy ? BUSY_POLL_MS : IDLE_POLL_MS);
 		return () => {
 			clearInterval(timer);
 		};
-	}, [readLog, log.busy]);
+	}, [readLog, busy]);
 
 	// The provider is told which conversation the page shows, and its last answer: while the person
 	// looks at it, it is neither counted nor notified of, and is read up to that answer.
@@ -747,6 +773,190 @@ function Conversation({
 		void reload();
 	}, [answered, reload]);
 
+	// Sends what the person wrote, shown at once and taken away again where the send fails, once
+	// `settle` has: what it failed with, or null.
+	const send = async (message: string, settle: () => Promise<void>): Promise<string | null> => {
+		const key = `sending-${crypto.randomUUID()}`;
+		sending.start({
+			id: key,
+			kind: 'person',
+			text: message,
+			isError: false,
+			at: new Date().toISOString(),
+		});
+		await settle();
+		const posted = await postMessage(org, personaId, message);
+		if (posted.isErr()) {
+			sending.failed(key);
+			return describeFetchError(posted.error);
+		}
+		sending.posted(key, posted.value.entry.id);
+		await readLog();
+		return null;
+	};
+
+	// Turns in a row from the same side sit closer together than the sides do, under the time
+	// their stretch of the conversation began.
+	const runs = chatRuns(sending.entries, new Date(), conversationSide);
+
+	return (
+		<>
+			<MessageScroller className="min-h-0 flex-1">
+				<MessageScrollerViewport aria-label="Conversation">
+					<MessageScrollerContent className="page-column mx-auto w-full max-w-3xl pt-6 pb-4">
+						{runs.length === 0 && (
+							<div className="flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
+								<LiveHead look={current.look} color={current.color} size={64} />
+								<p className="text-lg font-medium">What should {current.name} do?</p>
+								<p className="max-w-md text-sm text-muted-foreground">
+									This conversation is yours alone. {current.name} can use what is shared with
+									everyone and what you connected yourself, as far as its access allows. Everything
+									it does is in the activity log.
+								</p>
+							</div>
+						)}
+						{runs.map((run) => {
+							const first = run.entries[0];
+							if (!first) {
+								return null;
+							}
+							const key = sending.keyOf(first);
+							return (
+								<MessageScrollerItem
+									key={key}
+									scrollAnchor={sending.sentHere(first)}
+									className="flex flex-col gap-4"
+								>
+									{run.heading !== null && (
+										<h2 className="text-center text-xs font-medium text-muted-foreground">
+											{run.heading}
+										</h2>
+									)}
+									<div className="flex flex-col gap-2">
+										{run.entries.map((entry) => {
+											const entryKey = sending.keyOf(entry);
+											return (
+												<Entry
+													key={entryKey}
+													entry={entry}
+													fresh={!opened.has(entryKey)}
+													org={org}
+													personaId={personaId}
+												/>
+											);
+										})}
+									</div>
+								</MessageScrollerItem>
+							);
+						})}
+						{busy && (
+							<MessageScrollerItem>
+								<div data-enter="fade">
+									<WorkingLine />
+								</div>
+							</MessageScrollerItem>
+						)}
+					</MessageScrollerContent>
+				</MessageScrollerViewport>
+				<MessageScrollerButton />
+			</MessageScroller>
+			<Composer
+				persona={current}
+				kept={loaded.draft ?? ''}
+				harnesses={harnesses}
+				recallDraft={recallDraft}
+				rememberDraft={rememberDraft}
+				onShownDraft={onShownDraft}
+				managing={managing}
+				listError={listError}
+				focusRequested={focusRequested}
+				onFocused={onFocused}
+				onSend={send}
+			/>
+		</>
+	);
+});
+
+// The input under the conversation, with what runs the persona. What is typed is its own, so
+// typing draws the input, and the list's line for the draft, not the conversation over it. A
+// message sent leaves the input at once, and comes back to it where the send fails.
+function Composer({
+	persona,
+	kept,
+	harnesses,
+	recallDraft,
+	rememberDraft,
+	onShownDraft,
+	managing,
+	listError,
+	focusRequested,
+	onFocused,
+	onSend,
+}: Omit<Opened, 'onShownLog'> & {
+	persona: ChatPersona;
+	// The draft the server keeps, as the conversation opened.
+	kept: string;
+	harnesses: ChatHarness[];
+	// Sends a message once `settle` has: what it failed with, or null.
+	onSend: (message: string, settle: () => Promise<void>) => Promise<string | null>;
+}) {
+	const org = useOrgSlug();
+	const reload = useReload();
+	const personaId = persona.id;
+	// What was typed and not sent, as the conversation opened: as this page left it, or as the
+	// server keeps it. Read once: the log read again later says nothing of what is being typed.
+	const [opening] = useState(() => ({kept, text: recallDraft(personaId) ?? kept}));
+	const [text, setText] = useState(opening.text);
+	// What is in the box now, as a send that waited on the server finds it.
+	const typedNow = useRef(opening.text);
+	const draft = useChatDraft(org, personaId, opening.kept);
+	const [sending, setSending] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const form = useRef<HTMLFormElement>(null);
+	const input = useRef<HTMLTextAreaElement>(null);
+	// What runs the persona, as the switcher shows it: the persona's, or what was just picked.
+	const [runsOn, setRunsOn] = useState<ModelChoice>({
+		harness: persona.harness,
+		chatModel: persona.chatModel,
+	});
+	// A conversation is open all day: a new release is loaded while it is out of view, as long as
+	// what is typed is saved as the draft and no dialog is open, since the log and the draft come
+	// back from the server.
+	useReloadWhileHidden(text === draft.saved && !sending && !managing);
+
+	// Said as it is drawn, so the list shows the draft as it is typed.
+	useLayoutEffect(() => {
+		onShownDraft({personaId, draft: text});
+	}, [onShownDraft, personaId, text]);
+
+	useEffect(() => {
+		if (!focusRequested || input.current === null) {
+			return;
+		}
+		input.current.focus();
+		onFocused();
+	}, [focusRequested, onFocused]);
+
+	// What this page had typed here that the server doesn't have yet, as it was left for another
+	// conversation a moment before its save landed, is saved again.
+	const {typed} = draft;
+	useEffect(() => {
+		if (opening.text !== opening.kept) {
+			typed(opening.text);
+		}
+	}, [typed, opening]);
+
+	// What the box shows, as the page remembers it; `type` saves it as the draft too.
+	const show = (value: string) => {
+		setText(value);
+		typedNow.current = value;
+		rememberDraft(personaId, value);
+	};
+	const type = (value: string) => {
+		show(value);
+		draft.typed(value);
+	};
+
 	// Switches what runs the persona, the harness and the model, from the input's switcher: shown
 	// at once, kept with the persona as it is otherwise, and put back where the server refused it.
 	const switchModel = async (choice: ModelChoice) => {
@@ -754,9 +964,9 @@ function Conversation({
 		setRunsOn(choice);
 		setError(null);
 		const changed = await updatePersona(org, personaId, {
-			name: current.name,
-			look: current.look,
-			color: current.color,
+			name: persona.name,
+			look: persona.look,
+			color: persona.color,
 			...choice,
 		});
 		if (changed.isErr()) {
@@ -767,7 +977,10 @@ function Conversation({
 		await reload();
 	};
 
-	const send = async (event: FormEvent) => {
+	// The message leaves the box at once. Where the send fails, it comes back, before anything
+	// typed since; where it doesn't, what was typed since is saved as the draft, which the send
+	// forgot.
+	const submit = async (event: FormEvent) => {
 		event.preventDefault();
 		const message = text.trim();
 		if (message === '' || sending) {
@@ -775,18 +988,19 @@ function Conversation({
 		}
 		setSending(true);
 		setError(null);
-		await draft.settle();
-		const posted = await postMessage(org, personaId, message);
+		show('');
+		const failed = await onSend(message, draft.settle);
 		setSending(false);
-		if (posted.isErr()) {
-			setError(describeFetchError(posted.error));
-			draft.typed(text);
+		if (failed !== null) {
+			setError(failed);
+			const since = typedNow.current;
+			type(since === '' ? text : `${text}\n${since}`);
 			return;
 		}
 		draft.sent();
-		setText('');
-		rememberDraft(personaId, '');
-		await readLog();
+		if (typedNow.current !== '') {
+			draft.typed(typedNow.current);
+		}
 	};
 
 	// Enter sends; Shift+Enter breaks the line.
@@ -797,104 +1011,44 @@ function Conversation({
 		}
 	};
 
-	const shownEntry = (entry: ChatEntry) => {
-		if (entry.kind === 'task' || entry.kind === 'sent') {
-			return (
-				<TaskLine
-					key={entry.id}
-					verb={entry.kind === 'task' ? 'Created task' : 'Sent to'}
-					task={entry.task}
-					to={`/${org}/chat/${personaId}/tasks/${entry.task.id}`}
-				/>
-			);
-		}
-		return <Turn key={entry.id} entry={entry} />;
-	};
-
-	// Turns in a row from the same side sit closer together than the sides do, under the time
-	// their stretch of the conversation began.
-	const runs = chatRuns(log.entries, new Date(), conversationSide);
-
 	return (
-		<>
-			<MessageScrollerProvider autoScroll defaultScrollPosition="end">
-				<MessageScroller className="min-h-0 flex-1">
-					<MessageScrollerViewport aria-label="Conversation">
-						<MessageScrollerContent className="page-column mx-auto w-full max-w-3xl pt-6 pb-4">
-							{runs.length === 0 && (
-								<div className="flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
-									<LiveHead look={current.look} color={current.color} size={64} />
-									<p className="text-lg font-medium">What should {current.name} do?</p>
-									<p className="max-w-md text-sm text-muted-foreground">
-										This conversation is yours alone. {current.name} can use what is shared with
-										everyone and what you connected yourself, as far as its access allows.
-										Everything it does is in the activity log.
-									</p>
-								</div>
-							)}
-							{runs.map((run) => (
-								<MessageScrollerItem
-									key={run.entries[0]?.id}
-									messageId={run.entries[0]?.id ?? ''}
-									scrollAnchor={run.entries[0]?.kind === 'person'}
-									className="flex flex-col gap-4"
-								>
-									{run.heading !== null && (
-										<h2 className="text-center text-xs font-medium text-muted-foreground">
-											{run.heading}
-										</h2>
-									)}
-									<div className="flex flex-col gap-2">{run.entries.map(shownEntry)}</div>
-								</MessageScrollerItem>
-							))}
-							{log.busy && (
-								<MessageScrollerItem messageId="status">
-									<WorkingLine />
-								</MessageScrollerItem>
-							)}
-						</MessageScrollerContent>
-					</MessageScrollerViewport>
-					<MessageScrollerButton />
-				</MessageScroller>
-			</MessageScrollerProvider>
-			<form
-				ref={form}
-				onSubmit={(event) => void send(event)}
-				className="page-column mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-2 pt-2 pb-4"
-			>
-				{(error ?? listError) && <p className="text-sm text-destructive">{error ?? listError}</p>}
-				{/* No focus ring: the caret in the only input on the page says where typing goes. */}
-				<InputGroup className="rounded-xl bg-background shadow-xs has-[[data-slot=input-group-control]:focus-visible]:border-input has-[[data-slot=input-group-control]:focus-visible]:ring-0">
-					<InputGroupTextarea
-						ref={input}
-						value={text}
-						onChange={(event) => type(event.target.value)}
-						onKeyDown={onKeyDown}
-						placeholder={`Message ${current.name}`}
-						aria-label="Message"
-						className="min-h-10 p-3"
-						rows={1}
+		<form
+			ref={form}
+			onSubmit={(event) => void submit(event)}
+			className="page-column mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-2 pt-2 pb-4"
+		>
+			{(error ?? listError) && <p className="text-sm text-destructive">{error ?? listError}</p>}
+			{/* No focus ring: the caret in the only input on the page says where typing goes. */}
+			<InputGroup className="rounded-xl bg-background shadow-xs has-[[data-slot=input-group-control]:focus-visible]:border-input has-[[data-slot=input-group-control]:focus-visible]:ring-0">
+				<InputGroupTextarea
+					ref={input}
+					value={text}
+					onChange={(event) => type(event.target.value)}
+					onKeyDown={onKeyDown}
+					placeholder={`Message ${persona.name}`}
+					aria-label="Message"
+					className="min-h-10 p-3"
+					rows={1}
+				/>
+				{/* The model's name starts where the message's hint does: 5px, the switcher's 1px border
+				    and its 6px padding make the textarea's 12px. It sits on the send button's bottom. */}
+				<InputGroupAddon align="block-end" className="items-end pl-[5px]">
+					<ModelSwitcher
+						harnesses={harnesses}
+						chosen={runsOn}
+						mayChange={persona.mayChange}
+						onPick={(choice) => void switchModel(choice)}
 					/>
-					{/* The model's name starts where the message's hint does: 5px, the switcher's 1px border
-					    and its 6px padding make the textarea's 12px. It sits on the send button's bottom. */}
-					<InputGroupAddon align="block-end" className="items-end pl-[5px]">
-						<ModelSwitcher
-							harnesses={harnesses}
-							chosen={runsOn}
-							mayChange={current.mayChange}
-							onPick={(choice) => void switchModel(choice)}
-						/>
-						{/* The command bar's main button without its label: Enter's mark, as Enter sends. */}
-						<PillButton
-							type="submit"
-							enter
-							className="ml-auto"
-							disabled={sending || text.trim() === ''}
-							aria-label="Send"
-						/>
-					</InputGroupAddon>
-				</InputGroup>
-			</form>
-		</>
+					{/* The command bar's main button without its label: Enter's mark, as Enter sends. */}
+					<PillButton
+						type="submit"
+						enter
+						className="ml-auto"
+						disabled={sending || text.trim() === ''}
+						aria-label="Send"
+					/>
+				</InputGroupAddon>
+			</InputGroup>
+		</form>
 	);
 }
