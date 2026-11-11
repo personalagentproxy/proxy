@@ -9,6 +9,7 @@ import {
 	addDraftAttachment,
 	appendPersonMessage,
 	appendSummary,
+	appendTurnEntries,
 	claimJob,
 	completeInference,
 	completeToolJob,
@@ -859,6 +860,89 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		expect(unwrap(await isAttachedForTask({orgId: 'another-org', taskId: task.id}, attached))).toBe(
 			false,
 		);
+	});
+	test('the files an answer shows land with it, whether written as the turn goes or as it ends, and hand nothing over to sub-agents', async () => {
+		const own = await db.agentThread.create({
+			data: {
+				orgId,
+				agentId,
+				personaId: thread.personaId,
+				userId,
+				parentThreadId: thread.id,
+				parentCallId: 'c-shown',
+				title: 'Chart it',
+			},
+		});
+		const job = await db.agentJob.create({
+			data: {
+				threadId: own.id,
+				kind: 'inference',
+				status: 'running',
+				claimedBy: 'worker-shown',
+				leaseExpiresAt: new Date(Date.now() + 60_000),
+			},
+		});
+		const chart = {
+			connectionId: 'drive-1',
+			fileId: 'file-9',
+			version: 'v1',
+			name: 'chart.png',
+			type: 'image/png',
+			size: 42,
+			text: null,
+			cut: false,
+		};
+		const sheet = {...chart, fileId: 'file-10', name: 'q3.csv', type: 'text/csv'};
+
+		unwrap(
+			await appendTurnEntries(job.id, 'worker-shown', own.id, [
+				{
+					kind: 'assistant',
+					text: 'Made ![Chart](link)',
+					toolCalls: [{id: 'c1', name: 'read', arguments: '{}'}],
+					attachments: [chart],
+				},
+				{kind: 'tool_result', callId: 'c1', text: 'one', isError: false},
+			]),
+		);
+		unwrap(
+			await completeInference(
+				job.id,
+				'worker-shown',
+				own.id,
+				{
+					text: 'Both: ![Chart](link) ![Sheet](link)',
+					toolCalls: [],
+					inputTokens: 1,
+					outputTokens: 1,
+					system: null,
+					attachments: [chart, sheet],
+				},
+				{plans: {}},
+				readyForInference,
+			),
+		);
+
+		const answers = unwrap(await listEntries(own.id)).filter((entry) => entry.kind === 'assistant');
+		expect(unwrap(await listAttachments(own.id))).toEqual([
+			{...chart, entryId: answers[0]?.id ?? ''},
+			{...chart, entryId: answers[1]?.id ?? ''},
+			{...sheet, entryId: answers[1]?.id ?? ''},
+		]);
+
+		// What the agent showed lets no sub-agent read it as an attachment would.
+		const task = await db.agentTask.create({
+			data: {orgId, agentId, title: 'Chart task', goal: 'Chart', via: 'harness'},
+		});
+		await db.agentThread.update({where: {id: own.id}, data: {taskId: task.id}});
+		expect(
+			unwrap(
+				await isAttachedForTask(
+					{orgId, taskId: task.id},
+					{connectionId: 'drive-1', fileId: 'file-9', version: 'v1'},
+				),
+			),
+		).toBe(false);
 	});
 	test('the files put in a conversation’s input wait there in order, each once, up to as many as a message carries, are taken out one at a time, and go with the message that is sent', async () => {
 		const file = (id: string, name: string) => ({

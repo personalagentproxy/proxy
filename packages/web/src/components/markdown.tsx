@@ -1,4 +1,5 @@
-import {createContext, useContext, useState} from 'react';
+import {createContext, type ReactNode, useContext, useState} from 'react';
+import {ImageIcon} from 'lucide-react';
 import ReactMarkdown, {type Components} from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {cn} from '@proxy/ui/lib/utils';
@@ -7,9 +8,17 @@ const MAX_FAVICON_HOSTS = 8;
 const FaviconHostsContext = createContext<Set<string> | null>(null);
 
 // What a persona answers, as Markdown: paragraphs, lists, tables, code and links, styled to sit
-// in a chat bubble. Every link opens in a new tab, since the conversation stays here. Each
-// component takes the element's own props, without the syntax tree node react-markdown hands
-// along, which is no attribute of an element.
+// in a chat bubble. Every link opens in a new tab, since the conversation stays here. A picture is
+// never loaded from the address it gives, since loading it would hand that address whatever the
+// answer put in it, unasked: it is what `image` makes of it, a file kept with the answer, or
+// else a link to the address, which the person may open. Each component takes the element's own
+// props, without the syntax tree node react-markdown hands along, which is no attribute of an
+// element.
+
+/** A picture of the text as the page shows it, by its address and what it says it shows; null for one the page has nothing for. */
+export type ImageOf = (src: string, alt: string) => ReactNode | null;
+
+const ImageContext = createContext<ImageOf | null>(null);
 
 const MarkdownLink: NonNullable<Components['a']> = ({
 	node: _node,
@@ -44,8 +53,34 @@ const MarkdownLink: NonNullable<Components['a']> = ({
 	);
 };
 
+// A picture as `image` shows it, or as a link to it, saying what it shows.
+const MarkdownImage: NonNullable<Components['img']> = ({src, alt}) => {
+	const image = useContext(ImageContext);
+	const href = typeof src === 'string' ? src : '';
+	const said = alt ?? '';
+	const shown = href === '' || image === null ? null : image(href, said);
+	if (shown !== null) {
+		return shown;
+	}
+	if (href === '') {
+		return said;
+	}
+	return (
+		<a
+			className="underline underline-offset-4 hover:text-foreground"
+			href={href}
+			target="_blank"
+			rel="noreferrer"
+		>
+			<ImageIcon className="inline-block h-3.5 w-[18px] pr-1 align-[-2px]" />
+			{said === '' ? href : said}
+		</a>
+	);
+};
+
 const components: Components = {
 	a: MarkdownLink,
+	img: MarkdownImage,
 	p: ({node: _node, className, ...props}) => (
 		<p className={cn('leading-relaxed', className)} {...props} />
 	),
@@ -125,15 +160,25 @@ function faviconHost(href: string | undefined, hosts: Set<string>): string | nul
 	return url.hostname;
 }
 
-export function Markdown({text, className}: {text: string; className?: string}) {
+export function Markdown({
+	text,
+	className,
+	image = null,
+}: {
+	text: string;
+	className?: string;
+	image?: ImageOf | null;
+}) {
 	const [faviconHosts] = useState(() => new Set<string>());
 	return (
 		<FaviconHostsContext.Provider value={faviconHosts}>
-			<div className={cn('flex flex-col gap-2 wrap-break-word', className)}>
-				<ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-					{text}
-				</ReactMarkdown>
-			</div>
+			<ImageContext.Provider value={image}>
+				<div className={cn('flex flex-col gap-2 wrap-break-word', className)}>
+					<ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+						{text}
+					</ReactMarkdown>
+				</div>
+			</ImageContext.Provider>
 		</FaviconHostsContext.Provider>
 	);
 }

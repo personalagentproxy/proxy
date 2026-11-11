@@ -3,6 +3,7 @@ import type {Result} from 'ts-results-es';
 import type {HarnessAuth, HarnessBackend} from '@proxy/backends/harness/backend';
 import type {ApiError} from '@proxy/utils';
 import type {EntryAttachment, EntryImage} from '@proxy/utils/harness-context';
+import type {SignedInAgent} from '@proxy/db/agent';
 import type {ClaudeUsage} from '@proxy/db/claude-account';
 import type {PersonaModel} from '@proxy/db/harness';
 
@@ -45,8 +46,15 @@ export type ClaudeCredentials = {
  */
 export type PictureOf = (attachment: EntryAttachment) => Promise<Result<EntryImage | null, ApiError>>;
 
-/** What the worker runs turns with: the harnesses, how a member's credential is read, which the choice between them turns on, and how a picture the person attached is read for a model that sees pictures; without it, no turn is given any. */
-export type Harnesses = {registry: HarnessRegistry; credentials: ClaudeCredentials; picture?: PictureOf};
+/**
+ * The files an answer of the agent's shows the person, as pictures among its words (`![what it
+ * shows](link)`), each at the version it holds as the answer is written: those of a drive the
+ * agent, as the member it acts for, may read. A picture of anything else is left a link.
+ */
+export type PinnedIn = (agent: SignedInAgent, text: string) => Promise<Result<EntryAttachment[], ApiError>>;
+
+/** What the worker runs turns with: the harnesses, how a member's credential is read, which the choice between them turns on, how a picture the person attached is read for a model that sees pictures, without which no turn is given any, and how the files an answer shows are kept with it, without which none is. */
+export type Harnesses = {registry: HarnessRegistry; credentials: ClaudeCredentials; picture?: PictureOf; pinned?: PinnedIn};
 
 /** The harness for a turn with the model to answer with and the credential to give it, or none, with what the person is told instead. */
 export type HarnessChoice = {harness: HarnessBackend; model: string; auth: HarnessAuth | null} | {harness: null; auth: null; why: string};

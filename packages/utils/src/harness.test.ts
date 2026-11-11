@@ -299,6 +299,14 @@ describe('attachedParts', () => {
 		expect(keepMarks('plain', 3)).toBe('plain');
 	});
 
+	test('a preview of a message shows a picture as what it shows', () => {
+		expect(
+			preview(
+				'Here: ![Revenue by month](https://app.example.com/a/connections/d?file=f) and ![](https://x.example.com/p.png)',
+			),
+		).toBe('Here: Revenue by month and Picture');
+	});
+
 	test('a preview of a message says nothing of where its files are', () => {
 		expect(preview(`Does ${mark} match ${mark}?`)).toBe('Does match ?');
 	});

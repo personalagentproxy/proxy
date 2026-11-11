@@ -351,13 +351,14 @@ export function keepMarks(text: string, count: number): string {
 	});
 }
 
-/** A message as a line of words, for a list: its Markdown marks dropped, the places of its files too, its whitespace folded, cut to a line. */
+/** A message as a line of words, for a list: its Markdown marks dropped, a picture as what it shows, the places of its files too, its whitespace folded, cut to a line. */
 export function preview(text: string): string {
 	return text
 		.replaceAll(ATTACHMENT_MARK, ' ')
 		.replace(/```[\s\S]*?```/g, ' ')
 		.replace(/^\s*(?:[-*+]|\d+\.|#{1,6}|>)\s+/gm, '')
 		.replace(/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$/gm, '')
+		.replace(/!\[([^\]]*)\]\([^)]*\)/g, (_, alt: string) => (alt.trim() === '' ? 'Picture' : alt))
 		.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
 		.replace(/[*_`~|]+/g, '')
 		.replace(/\s+/g, ' ')

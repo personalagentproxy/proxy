@@ -15,6 +15,7 @@ import {
 	XIcon,
 } from 'lucide-react';
 import {Link} from 'react-router';
+import {fileContentPath} from '@/client/files-client';
 import type {PendingAttachment} from '@/hooks/use-attachments';
 import {useOrgSlug} from '@/hooks/use-org';
 import {driveQuery, type FileKind, fileKind} from '@/lib/files';
@@ -61,6 +62,31 @@ export function SentChip({attachment}: {attachment: ChatAttachment}) {
 				<span className={NAME}>{name}</span>
 			</Link>
 		</span>
+	);
+}
+
+// A file the persona showed in its answer, where its words put it: a picture as itself, at the
+// version kept with the answer, whatever the file holds now, which opens the file in its drive; any
+// other file as its chip.
+export function ShownFile({attachment, alt}: {attachment: ChatAttachment; alt: string}) {
+	const org = useOrgSlug();
+	const {connectionId, fileId, version, name, size} = attachment;
+	if (!attachment.shown) {
+		return <SentChip attachment={attachment} />;
+	}
+	return (
+		<Link
+			to={`/${org}/connections/${connectionId}${driveQuery({file: fileId})}`}
+			title={`${name} · ${formatBytes(size)}`}
+			className="block w-fit max-w-full py-1"
+		>
+			<img
+				src={fileContentPath(org, connectionId, fileId, version)}
+				alt={alt === '' ? name : alt}
+				loading="lazy"
+				className="max-h-96 max-w-full rounded-md border bg-background object-contain"
+			/>
+		</Link>
 	);
 }
 

@@ -3,6 +3,8 @@ import {Err, type Result} from 'ts-results-es';
 import type {HarnessBackend, HarnessEvent} from '@proxy/backends/harness/backend';
 import {ApiErr, type ApiError, Do, requirePresent, semaphore, type Semaphore} from '@proxy/utils';
 import {CALL_INTERRUPTED, type HarnessSession, OUTCOME_UNKNOWN, pendingToolCalls, type ToolCall} from '@proxy/utils/harness';
+import type {EntryAttachment} from '@proxy/utils/harness-context';
+import type {SignedInAgent} from '@proxy/db/agent';
 import type {AssistantTurn, EntryRow, JobRow, NewTurnEntry, RanOn, SubAgentRow, ThreadRow, ThreadSession} from '@proxy/db/harness';
 
 import {chosenFor, type ClaudeCredentials, type HarnessChoice, type Harnesses, harnessFor, needsCredential} from '../backends/harness';
@@ -45,7 +47,10 @@ import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
  * calls, is written as that said: the person would otherwise see nothing, and the model refuses a
  * log with an empty turn in it. The harness and the model are the thread's persona's, read at each
  * turn, a sub-agent's the persona's it works as (backends/harness.ts), and each answer is written
- * with the two it ran on. The answer is written with the system prompt the model was sent, which is built
+ * with the two it ran on. An answer of the agent talking with the person is written with the files it shows them,
+ * pictures among its words that link to files the agent may read, each at the version it holds
+ * then (native/files/chat.ts), as best they can be read: one that can't is left a link, and the
+ * answer is written all the same. The answer is written with the system prompt the model was sent, which is built
  * from the login's grants as they are then and, for the agent talking with the person, its
  * sub-agents as they are then, so that what the model read can be told later; the rest of the
  * request is rebuilt from the log. The agent talking with the person is told the alerts set in the
@@ -84,7 +89,7 @@ export type InferenceStore = Pick<
 // How the agent talking with the person is to go about it: it does nothing itself, and hands
 // every piece of work to a sub-agent, which it can go on talking with.
 const MAIN_FLOW =
-	'You are chatting with the person on Personal Agent Proxy’s Chat page. Answer in short Markdown: sentences, a list or table where clearer, no headings. You can’t reach their accounts yourself: sub-agents do it for you, so the pap calls these instructions name go in a sub-agent’s brief. Give one question to one sub-agent, even across accounts; start several only for separate, sizeable jobs. A stopped sub-agent keeps what it found: message it for follow-ups rather than starting another. While sub-agents work, tell the person in a few words what you are looking into, and stop. Never mention sub-agents, briefs or messages: to the person, you do the work. When a sub-agent’s message needs no word to the person yet, as while others are still at work, answer with nothing. For something at a time, or something new in their accounts, set an alert rather than a sub-agent. Don’t mention summaries of the conversation.';
+	'You are chatting with the person on Personal Agent Proxy’s Chat page. Answer in short Markdown: sentences, a list or table where clearer, no headings. To show the person a picture, such as a chart or a screenshot, have it put in a drive and write it as a Markdown image of its Link: ![what it shows](Link); a picture anywhere else is shown as a link only. You can’t reach their accounts yourself: sub-agents do it for you, so the pap calls these instructions name go in a sub-agent’s brief. Give one question to one sub-agent, even across accounts; start several only for separate, sizeable jobs. A stopped sub-agent keeps what it found: message it for follow-ups rather than starting another. While sub-agents work, tell the person in a few words what you are looking into, and stop. Never mention sub-agents, briefs or messages: to the person, you do the work. When a sub-agent’s message needs no word to the person yet, as while others are still at work, answer with nothing. For something at a time, or something new in their accounts, set an alert rather than a sub-agent. Don’t mention summaries of the conversation.';
 
 // How a sub-agent is to go about it: a brief, its tools, messages to and from the agent it works
 // for, and an answer when it stops.
@@ -134,12 +139,23 @@ function turnsAlone(entries: EntryRow[]): number {
 	return entries.slice(since + 1).filter((entry) => entry.kind === 'assistant').length;
 }
 
-// What the turn came to: what the model said last and the calls it made then, those it left open
+// What the turn came to: what the model said last, the files it showed there and the calls it made then, those it left open
 // among all it made, whether the turn wrote to the log as it went, what it cost, the system prompt
 // sent and the session the harness kept; or a failure, with whether the turn is worth trying again
 // as it is, and, where it is the member's account at its limit, when that resets.
 type TurnOutcome =
-	| {kind: 'done'; text: string; toolCalls: ToolCall[]; open: ToolCall[]; wroteInline: boolean; inputTokens: number; outputTokens: number; system: string; session: HarnessSession}
+	| {
+			kind: 'done';
+			text: string;
+			attachments: EntryAttachment[];
+			toolCalls: ToolCall[];
+			open: ToolCall[];
+			wroteInline: boolean;
+			inputTokens: number;
+			outputTokens: number;
+			system: string;
+			session: HarnessSession;
+	  }
 	| {kind: 'failed'; error: ApiError; retry: boolean; limitReached?: {resetsAt: Date | null}};
 
 // The answer as it goes in the log: an answer of nothing says so, but for the agent talking with
@@ -217,9 +233,8 @@ function unreachable(failure: ApiError): string {
 // The system prompt: the instructions any agent with the login gets, for the agent as it acts in
 // the thread, as the member whose conversation it is, how to go about it on this thread, and, for
 // the agent talking with the person, its sub-agents and the alerts set in the conversation.
-function systemPrompt(store: InferenceStore, thread: ThreadRow, subAgents: SubAgentRow[], now: Date): Promise<Result<string, ApiError>> {
+function systemPrompt(store: InferenceStore, thread: ThreadRow, signedIn: SignedInAgent, subAgents: SubAgentRow[], now: Date): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
-		const signedIn = $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
 		const instructions = $(await agentInstructions(signedIn, thread.parentThreadId === null ? MAIN_FLOW : SUB_FLOW));
 		const about = thread.parentThreadId === null ? [roster(subAgents), alertsParagraph($(await store.listThreadAlerts(thread.id)))] : [];
 		return [instructions, ...about, `The time now is ${now.toISOString()}.`].join('\n\n');
@@ -229,11 +244,35 @@ function systemPrompt(store: InferenceStore, thread: ThreadRow, subAgents: SubAg
 /** What a turn's `usage` event is given to: what the provider said of the member's plan. */
 type UsageSink = (usage: Extract<HarnessEvent, {kind: 'usage'}>) => Promise<void>;
 
+/** The files an answer shows the person, as best they can be read: none where they can't. */
+type Pin = (text: string) => Promise<EntryAttachment[]>;
+
+const PINS_NOTHING: Pin = async () => [];
+
+// The files the answers of the agent talking with the person show them, read as the agent acts for
+// them; a sub-agent's answers are for the agent it works for, and show the person nothing. What
+// can't be read is logged, and the answer goes without them: the model has answered, and a turn
+// run again for a picture would answer anew.
+function pinFor(harnesses: Harnesses, thread: ThreadRow, signedIn: SignedInAgent): Pin {
+	const {pinned} = harnesses;
+	if (pinned === undefined || thread.parentThreadId !== null) {
+		return PINS_NOTHING;
+	}
+	return async (text) => {
+		const read = await pinned(signedIn, text);
+		if (read.isErr()) {
+			log.warn('The files an answer shows could not be kept with it, and are left links', {threadId: thread.id, ...serializeError('cause' in read.error ? read.error.cause : read.error)});
+			return [];
+		}
+		return read.value;
+	};
+}
+
 // What the harness did, from its events, written as it goes, every write fenced by the lease: a
 // summary as it comes; the answer's words, each piece after the last, and its calls kept as the
 // step under way, which a result the harness answered a call with ends, the step written as an
-// assistant entry, with the harness and the model it ran on, and the result after it, the first
-// step with the system prompt; what is left
+// assistant entry, with the harness and the model it ran on and the files its words show (`pin`),
+// and the result after it, the first step with the system prompt; what is left
 // when `done` comes is the turn's last step, given back with what the turn cost, the session kept
 // and the calls still open. What the provider said of the plan goes to `onUsage`. A result for a
 // call the turn didn't make, or answered already, and a turn that ends without `done` or `failed`,
@@ -245,6 +284,7 @@ function consume(
 	sent: {system: string; ranOn: RanOn},
 	events: AsyncIterable<HarnessEvent>,
 	onUsage: UsageSink,
+	pin: Pin,
 ): Promise<Result<TurnOutcome, ApiError>> {
 	return Do(async ($) => {
 		let pieces: string[] = [];
@@ -277,8 +317,12 @@ function consume(
 				if (!open.delete(event.callId)) {
 					return $(Err(ApiErr.internalError(new Error(`The harness answered the call ${event.callId}, which the turn did not make, or answered already`))));
 				}
+				const text = pieces.join('\n\n');
+				const attachments = await pin(text);
 				const step: NewTurnEntry[] =
-					pieces.length === 0 && toolCalls.length === 0 ? [] : [{kind: 'assistant', text: pieces.join('\n\n'), toolCalls, ranOn: sent.ranOn, ...(wroteInline ? {} : {system: sent.system})}];
+					pieces.length === 0 && toolCalls.length === 0
+						? []
+						: [{kind: 'assistant', text, toolCalls, ranOn: sent.ranOn, ...(wroteInline ? {} : {system: sent.system}), ...(attachments.length === 0 ? {} : {attachments})}];
 				const result: NewTurnEntry = {kind: 'tool_result', callId: event.callId, text: event.text, isError: event.isError};
 				if (!$(await store.appendTurnEntries(job.id, workerId, job.threadId, [...step, result]))) {
 					return $(Err(jobLost()));
@@ -291,9 +335,11 @@ function consume(
 			if (event.kind === 'failed') {
 				return {kind: 'failed', error: event.error, retry: event.retry, ...(event.limitReached ? {limitReached: event.limitReached} : {})};
 			}
+			const text = pieces.join('\n\n');
 			return {
 				kind: 'done',
-				text: pieces.join('\n\n'),
+				text,
+				attachments: await pin(text),
 				toolCalls,
 				open: [...open.values()],
 				wroteInline,
@@ -356,7 +402,7 @@ function usageSink(credentials: ClaudeCredentials, choice: HarnessChoice, thread
 // the turns under way finish, as it always has.
 function askOnLog(
 	store: InferenceStore,
-	{credentials, picture}: Harnesses,
+	harnesses: Harnesses,
 	choice: HarnessChoice & {harness: HarnessBackend},
 	job: JobRow,
 	workerId: string,
@@ -367,9 +413,11 @@ function askOnLog(
 ): Promise<Result<TurnOutcome, ApiError>> {
 	return limited(choice.harness, () =>
 		Do(async ($) => {
+			const {credentials, picture} = harnesses;
 			const now = clock();
 			const subAgents = thread.parentThreadId === null ? $(await store.listSubAgents(thread.id, now)) : [];
-			const system = $(await systemPrompt(store, thread, subAgents, now));
+			const signedIn = $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
+			const system = $(await systemPrompt(store, thread, signedIn, subAgents, now));
 			// What the person attached is read with what they said; a sub-agent's thread has none, its
 			// brief being the agent's own words.
 			const attached = thread.parentThreadId === null ? $(await store.listAttachments(thread.id)) : [];
@@ -397,6 +445,7 @@ function askOnLog(
 						signal: new AbortController().signal,
 					}),
 					usageSink(credentials, choice, thread, clock),
+					pinFor(harnesses, thread, signedIn),
 				),
 			);
 		}),
@@ -428,6 +477,7 @@ function writeBack(
 			? null
 			: {
 					text: said(thread, entries, outcome),
+					...(outcome.attachments.length === 0 ? {} : {attachments: outcome.attachments}),
 					toolCalls: outcome.toolCalls,
 					inputTokens: outcome.inputTokens,
 					outputTokens: outcome.outputTokens,

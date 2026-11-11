@@ -6,7 +6,7 @@ import type {ChatAttachment, postMessageBodySchema} from '@proxy/contracts/harne
 import type {AttachmentRow, DraftAttachment, EntryRow} from '@proxy/db/harness';
 import type {z} from 'zod';
 
-import type {PictureOf} from '../backends/harness';
+import type {PictureOf, PinnedIn} from '../backends/harness';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import type {OrgViewer} from '../utils/user-org';
 
@@ -20,7 +20,9 @@ import type {OrgViewer} from '../utils/user-org';
  * reads what they said with each file under it (@proxy/utils/harness-context withAttachments),
  * whichever harness runs the turn, since the log is given to a harness with that already written
  * into what the person said; a model that sees pictures is given the pictures of the person's
- * last turns beside their words. Where the files come from is the drive's side (native/files/chat.ts),
+ * last turns beside their words. The other way, the files the agent's answers show the person, as
+ * pictures among its words, are kept with the answer the same way (inference.ts), and shown where
+ * the answer puts them. Where the files come from is the drive's side (native/files/chat.ts),
  * given to the routes as `ChatFiles`, so the routes are tested without one.
  */
 
@@ -36,6 +38,8 @@ export type ChatFiles = {
 	shown: (attachment: DraftAttachment) => ChatAttachment;
 	/** A file the log keeps as a picture for a model that sees pictures (`PictureOf`). */
 	picture: PictureOf;
+	/** The files an answer of the agent's shows the person, kept with it (`PinnedIn`). */
+	pinned: PinnedIn;
 };
 
 /** How many of the person's turns back a picture is still shown to the model: the turn it is answering and the one before, as their words are kept as said (@proxy/utils/harness-context). */
@@ -67,13 +71,17 @@ export function picturesOf(entries: EntryRow[], attachments: AttachmentRow[], pi
 	});
 }
 
-/** The log with what the person attached written into what they said, as the model reads it, and the pictures among it given beside their words. */
+/**
+ * The log with what the person attached written into what they said, as the model reads it, and
+ * the pictures among it given beside their words. What the agent's answers show the person is in
+ * its words already, as it wrote them, and is told it no more.
+ */
 export function withAttached(entries: EntryRow[], attachments: AttachmentRow[], pictures: Picture[] = []): Array<EntryRow & {images?: EntryImage[]}> {
 	if (attachments.length === 0) {
 		return entries;
 	}
 	return entries.map((entry) => {
-		const own = attachments.filter((attachment) => attachment.entryId === entry.id);
+		const own = entry.kind === 'person' ? attachments.filter((attachment) => attachment.entryId === entry.id) : [];
 		if (own.length === 0) {
 			return entry;
 		}

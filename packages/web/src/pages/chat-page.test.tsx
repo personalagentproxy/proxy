@@ -614,6 +614,54 @@ describe('ChatPage', () => {
 		});
 	});
 
+	test('shows the pictures an answer kept where its words put them, any other file it kept as a chip, and loads no picture from anywhere else', async () => {
+		const drive = `${window.location.origin}/acme/connections/drive-1`;
+		const chart = {
+			connectionId: 'drive-1',
+			fileId: 'file-1',
+			version: 'v2',
+			name: 'chart.png',
+			type: 'image/png',
+			size: 2048,
+			shown: true,
+		};
+		const sheet = {...chart, fileId: 'file-2', name: 'q3.csv', type: 'text/csv', shown: false};
+		renderChatPage({
+			entries: [
+				{
+					id: 'e1',
+					kind: 'assistant',
+					text: `Here it is: ![Revenue by month](${drive}?file=file-1), from ![the sheet](${drive}?file=file-2).\n\n![A cat](https://cdn.example.com/cat.png) ![Not kept](${drive}?file=file-3)`,
+					isError: false,
+					at: '2026-10-21T10:00:01Z',
+					attachments: [chart, sheet],
+				},
+			],
+		});
+
+		const picture = await screen.findByRole('img', {name: 'Revenue by month'});
+		// The version kept with the answer, opening the file in its drive.
+		expect(picture.getAttribute('src')).toBe(
+			'/api/orgs/acme/connections/drive-1/files/file-1/content?version=v2',
+		);
+		expect(picture.closest('a')?.getAttribute('href')).toBe(
+			'/acme/connections/drive-1?file=file-1',
+		);
+		expect(screen.getByRole('link', {name: 'q3.csv'}).getAttribute('href')).toBe(
+			'/acme/connections/drive-1?file=file-2',
+		);
+		// Anything else is a link, and loads nothing.
+		expect(screen.getAllByRole('img').map((image) => image.getAttribute('alt'))).toEqual([
+			'Revenue by month',
+		]);
+		expect(screen.getByRole('link', {name: 'A cat'}).getAttribute('href')).toBe(
+			'https://cdn.example.com/cat.png',
+		);
+		expect(screen.getByRole('link', {name: 'Not kept'}).getAttribute('href')).toBe(
+			`${drive}?file=file-3`,
+		);
+	});
+
 	describe('files in the input', () => {
 		const attachmentsUrl = '/api/orgs/acme/chat/personas/general/attachments';
 		const kept = {

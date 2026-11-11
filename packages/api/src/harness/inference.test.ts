@@ -514,6 +514,71 @@ describe('runInference', () => {
 			expect(fake.turns[1]?.entries.some((one) => one.images !== undefined)).toBe(false);
 		});
 
+		test('keeps the files an answer to the person shows with it, as its steps are written and as it ends; a sub-agent’s answers show none', async () => {
+			const {runInference} = await import('./inference');
+			const fake: HarnessBackend & ReturnType<typeof fakeHarness> = {...fakeHarness(), stepsPerTurn: 'many'};
+			const chart = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'chart.png', type: 'image/png', size: 42, text: null, cut: false};
+			const pinned = mock(async (_agent: unknown, text: string) => Ok(text.includes('![') ? [chart] : []));
+			const link = 'https://app.example.com/acme/connections/drive-1?file=file-1';
+			fake.script([
+				{kind: 'text', text: `Made it: ![Chart](${link})`},
+				{kind: 'tool_call', id: 'c1', name: 'read', arguments: '{}'},
+				{kind: 'tool_result', callId: 'c1', text: 'one', isError: false},
+				{kind: 'text', text: `Here again: ![Chart](${link})`},
+				done,
+			]);
+
+			(await runInference(store, {...on(fake), pinned}, job, 'w1', false, clock)).unwrap();
+
+			expect(pinned.mock.calls.map(([agent, text]) => [(agent as {agentId: string}).agentId, text])).toEqual([
+				['agent-1', `Made it: ![Chart](${link})`],
+				['agent-1', `Here again: ![Chart](${link})`],
+			]);
+			expect(appendTurnEntries.mock.calls[0]?.[3]?.[0]).toMatchObject({kind: 'assistant', attachments: [chart]});
+			expect(completeInference.mock.calls[0]?.[3]).toMatchObject({text: `Here again: ![Chart](${link})`, attachments: [chart]});
+
+			// An answer showing nothing is written without files.
+			fake.script([{kind: 'text', text: 'Nothing to show.'}, done]);
+			(await runInference(store, {...on(fake), pinned}, job, 'w1', false, clock)).unwrap();
+			expect(completeInference.mock.calls[1]?.[3]).not.toHaveProperty('attachments');
+
+			// A sub-agent's answers are for the agent it works for.
+			pinned.mockClear();
+			getJobThread.mockResolvedValue(Ok(sub));
+			fake.script([{kind: 'text', text: `Made it: ![Chart](${link})`}, done]);
+			(await runInference(store, {...on(fake), pinned}, {...job, threadId: 'thread-2'}, 'w1', false, clock)).unwrap();
+			expect(pinned).not.toHaveBeenCalled();
+		});
+
+		test('writes the answer all the same where the files it shows can’t be read, without them', async () => {
+			const {runInference} = await import('./inference');
+			const fake = fakeHarness();
+			const pinned = mock(async () => Err(ApiErr.dbError(new Error('down'))));
+			fake.script([{kind: 'text', text: '![Chart](https://app.example.com/acme/connections/drive-1?file=file-1)'}, done]);
+
+			(await runInference(store, {...on(fake), pinned}, job, 'w1', false, clock)).unwrap();
+
+			expect(pinned).toHaveBeenCalledTimes(1);
+			const written = completeInference.mock.calls[0]?.[3];
+			expect(written?.text).toContain('![Chart]');
+			expect(written).not.toHaveProperty('attachments');
+		});
+
+		test('tells the model nothing of the files its own answers showed', async () => {
+			const {runInference} = await import('./inference');
+			const fake = fakeHarness();
+			const answer = entry('assistant', 'Here: ![Chart](https://app.example.com/acme/connections/drive-1?file=file-1)');
+			listEntries.mockResolvedValue(Ok([entry('person', 'Chart it'), answer, entry('person', 'Thanks')]));
+			store.listAttachments.mockResolvedValue(
+				Ok([{entryId: answer.id, connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'chart.png', type: 'image/png', size: 42, text: null, cut: false}]),
+			);
+			fake.script([{kind: 'text', text: 'You’re welcome.'}, done]);
+
+			(await runInference(store, on(fake), job, 'w1', false, clock)).unwrap();
+
+			expect(fake.turns[0]?.entries.map((given) => given.text)).toEqual(['Chart it', answer.text, 'Thanks']);
+		});
+
 		test('gives the harness the thread, the log, its sub-agents, the prompt, the tools and the model, one step and no session, and writes the answer as it ended', async () => {
 			const {runInference} = await import('./inference');
 			const fake = fakeHarness();

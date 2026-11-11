@@ -90,6 +90,7 @@ async function startApiServer(): Promise<void> {
 			registry: serverHarnesses(),
 			credentials: {claudeCredentialFor, markRefused: markClaudeCredentialRefused, recordUsage: recordClaudeUsage},
 			picture: chatFiles.picture,
+			pinned: chatFiles.pinned,
 		});
 		sweeper = startAlertSweeper(harnessStore);
 		void startSandboxSweeper();

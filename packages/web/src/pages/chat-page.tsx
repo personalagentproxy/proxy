@@ -19,10 +19,10 @@ import {AddButton} from '@/components/add-button';
 import {AppShell, PageTitle, PanelWaiting, TitleWaiting} from '@/components/app-shell';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {LiveHead} from '@/components/head';
-import {Markdown} from '@/components/markdown';
+import {type ImageOf, Markdown} from '@/components/markdown';
 import {type ModelChoice, ModelSwitcher} from '@/components/model-switcher';
 import {PersonaDialog} from '@/components/persona-dialog';
-import {DropToAttach, SentChip} from '@/components/chat/attachments';
+import {DropToAttach, SentChip, ShownFile} from '@/components/chat/attachments';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {
 	MessageEditor,
@@ -40,6 +40,7 @@ import {
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
 import {Trace, TraceIcon, TraceLine, TraceTitle} from '@/components/chat/trace';
+import {readFileLink} from '@proxy/utils/file-links';
 import {ATTACHMENT_MARK, attachedParts, preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
 import {useAttachments} from '@/hooks/use-attachments';
@@ -66,9 +67,25 @@ import {
 const BUSY_POLL_MS = 1000;
 const IDLE_POLL_MS = 4000;
 
+// How an answer's pictures are shown: each that links to a file kept with the answer, as that
+// file; any other as the link it is.
+function shownFrom(attachments: ChatEntry['attachments']): ImageOf | null {
+	if (attachments.length === 0) {
+		return null;
+	}
+	return (src, alt) => {
+		const target = readFileLink(src, window.location.origin);
+		const attachment = attachments.find(
+			(candidate) =>
+				candidate.connectionId === target?.connectionId && candidate.fileId === target.fileId,
+		);
+		return attachment === undefined ? null : <ShownFile attachment={attachment} alt={alt} />;
+	};
+}
+
 // One turn of the conversation: what the person said in a dark bubble on the right (a light one
 // in dark mode), as they typed it, or what the persona answered in a gray one on the left, as
-// Markdown, in a red one where its turn failed. What it did in between, the sub-agents it started
+// Markdown, with the files it showed where it put them, in a red one where its turn failed. What it did in between, the sub-agents it started
 // and what they said, is in the activity log, not here: this is a conversation.
 function Turn({entry}: {entry: ChatEntry}) {
 	if (entry.kind === 'person') {
@@ -95,7 +112,7 @@ function Turn({entry}: {entry: ChatEntry}) {
 			<MessageContent>
 				<Bubble variant={entry.isError ? 'destructive' : 'muted'}>
 					<BubbleContent>
-						<Markdown text={entry.text} />
+						<Markdown text={entry.text} image={shownFrom(entry.attachments)} />
 					</BubbleContent>
 				</Bubble>
 			</MessageContent>

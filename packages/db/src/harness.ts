@@ -183,7 +183,8 @@ export type RanOn = {harness: string; model: string};
 /**
  * An entry of a turn's own output, as a harness that runs its tools itself tells it: what the
  * model said at a step, with the calls it made there and what the step cost, or what one of those
- * calls answered. `system` is the prompt the model was sent, on the turn's first answer at least.
+ * calls answered. `system` is the prompt the model was sent, on the turn's first answer at least;
+ * `attachments` the files the answer shows the person, each at the version it held then.
  */
 export type NewTurnEntry =
 	| {
@@ -194,6 +195,7 @@ export type NewTurnEntry =
 			outputTokens?: number;
 			system?: string;
 			ranOn?: RanOn;
+			attachments?: EntryAttachment[];
 	  }
 	| {kind: 'tool_result'; callId: string; text: string; isError: boolean};
 
@@ -1097,19 +1099,25 @@ export async function appendPersonMessage(
 				data: {draft: null, draftAttachments: null},
 			});
 			const entry = await appendEntry(tx, thread, {kind: 'person', text}, wakes);
-			if (attachments.length > 0) {
-				await tx.agentEntryAttachment.createMany({
-					data: attachments.map((attachment, position) => ({
-						...attachment,
-						entryId: entry.id,
-						threadId,
-						position,
-					})),
-				});
-			}
+			await attach(tx, threadId, entry.id, attachments);
 			return entry;
 		}),
 	);
+}
+
+// Keeps the files an entry goes with, in the order given.
+async function attach(
+	tx: Tx,
+	threadId: string,
+	entryId: string,
+	attachments: EntryAttachment[] = [],
+): Promise<void> {
+	if (attachments.length === 0) {
+		return;
+	}
+	await tx.agentEntryAttachment.createMany({
+		data: attachments.map((attachment, position) => ({...attachment, entryId, threadId, position})),
+	});
 }
 
 const attachmentSelect = {
@@ -1127,7 +1135,10 @@ const attachmentSelect = {
 /** A file attached to an entry of a thread's log, with the entry it is attached to. */
 export type AttachmentRow = EntryAttachment & {entryId: string};
 
-/** What the person attached in a thread, each with the entry it was said with, in the order attached. */
+/**
+ * The files of a thread's log, each with the entry it goes with, in the order attached: what the
+ * person attached to what they said, and the files the agent showed them in its answers.
+ */
 export async function listAttachments(
 	threadId: string,
 ): Promise<Result<AttachmentRow[], ApiError>> {
@@ -1141,9 +1152,10 @@ export async function listAttachments(
 }
 
 /**
- * Whether the version of the file was attached in the conversation the task's work is for: the
- * thread of a sub-agent whose task it is, and the conversation that thread was started from.
- * False for a task that is no sub-agent's.
+ * Whether the person attached the version of the file in the conversation the task's work is for:
+ * the thread of a sub-agent whose task it is, and the conversation that thread was started from.
+ * False for a task that is no sub-agent's. A file the agent showed them hands nothing over: the
+ * agent could read it already.
  */
 export async function isAttachedForTask(
 	task: {orgId: string; taskId: string},
@@ -1160,6 +1172,7 @@ export async function isAttachedForTask(
 		const found = await db.agentEntryAttachment.findFirst({
 			where: {
 				threadId: {in: [thread.id, ...(thread.parentThreadId ? [thread.parentThreadId] : [])]},
+				entry: {kind: 'person' satisfies AgentEntryKind},
 				...file,
 			},
 			select: {entryId: true},
@@ -1442,7 +1455,7 @@ export async function requeueJob(
 	);
 }
 
-/** What the model answered: its text, its tool calls, what they cost, the system prompt it was sent, null where it wasn't run for the answer, and the harness and the model it ran on, left out there. */
+/** What the model answered: its text, its tool calls, what they cost, the system prompt it was sent, null where it wasn't run for the answer, the harness and the model it ran on, left out there, and the files it shows the person, each at the version it held then. */
 export type AssistantTurn = {
 	text: string;
 	toolCalls: ToolCall[];
@@ -1450,6 +1463,7 @@ export type AssistantTurn = {
 	outputTokens: number;
 	system: string | null;
 	ranOn?: RanOn;
+	attachments?: EntryAttachment[];
 };
 
 /**
@@ -1509,7 +1523,7 @@ export async function appendTurnEntries(
 			}
 			for (const entry of entries) {
 				if (entry.kind === 'assistant') {
-					await tx.agentEntry.create({
+					const written = await tx.agentEntry.create({
 						data: {
 							threadId,
 							kind: 'assistant' satisfies AgentEntryKind,
@@ -1527,6 +1541,7 @@ export async function appendTurnEntries(
 						},
 						select: {id: true},
 					});
+					await attach(tx, threadId, written.id, entry.attachments);
 					continue;
 				}
 				await tx.agentEntry.create({
@@ -1833,7 +1848,7 @@ export async function completeInference(
 					});
 				}
 				if (turn) {
-					await tx.agentEntry.create({
+					const written = await tx.agentEntry.create({
 						data: {
 							threadId,
 							kind: 'assistant' satisfies AgentEntryKind,
@@ -1848,6 +1863,7 @@ export async function completeInference(
 						},
 						select: {id: true},
 					});
+					await attach(tx, threadId, written.id, turn.attachments);
 				}
 				if ('stop' in after) {
 					await endTurn(tx, thread, after.stop, jobId, wakes);

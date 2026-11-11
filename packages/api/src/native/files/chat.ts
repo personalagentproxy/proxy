@@ -1,13 +1,19 @@
 import {Err, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
+import {type FileLinkTarget, markdownImages, readFileLink} from '@proxy/utils/file-links';
 import type {EntryAttachment} from '@proxy/utils/harness-context';
 import {FILES_INTEGRATION_ID} from '@proxy/integrations';
 import {uploadAttachmentQuerySchema} from '@proxy/contracts/harness';
+import type {AgentRow, SignedInAgent} from '@proxy/db/agent';
 import {createFile, ensureFolder, type FileChangeBy, getFileVersion, getOwnDrive} from '@proxy/db/files';
 
+import {actionsOf, agentViewer, requireAgent} from '../../agent-side/tools';
+import {unavailableActions} from '../../connections/unavailable';
 import type {AttachmentRef, ChatFiles} from '../../harness/attachments';
+import {log} from '../../observability/log';
 import {loadConnection} from '../../records/target';
+import {env} from '../../utils/env';
 import type {OrgViewer} from '../../utils/user-org';
 import {ensureFilesConnection} from './connections';
 import {requireFile} from './connector';
@@ -24,7 +30,11 @@ import {readVersion} from './text';
  * the person, who may attach any file of a drive they use: the log keeps what it was, and the
  * first of its text for the model to read with the message. A picture is read for a model that
  * sees pictures as the turn is run (picture.ts); any other file that isn't text is attached all
- * the same, with nothing of it for the model.
+ * the same, with nothing of it for the model. The other way, what the agent shows the person, a
+ * picture among its words that is a link to a file (@proxy/utils/file-links), is kept with its
+ * answer at the version the file holds then, where the agent may read the drive, read as the
+ * member it acts for: the person is shown that, whatever the file holds later, and a picture
+ * anywhere else stays a link, which their browser loads nothing from.
  */
 
 /** The folder at the top of a drive that the conversations' folders are in. */
@@ -35,6 +45,9 @@ const FILE_CHARACTERS = 8000;
 const MESSAGE_CHARACTERS = 24_000;
 
 const NO_DRIVE = 'Files aren’t set up here, so nothing can be attached.';
+
+/** The most files one answer shows; a picture beyond them stays a link. */
+const MAX_SHOWN = 10;
 
 // The viewer's own drive, made where they have none yet.
 function ownDrive(viewer: OrgViewer): Promise<Result<FileChangeBy, ApiError>> {
@@ -79,6 +92,42 @@ function resolveOne(viewer: OrgViewer, ref: AttachmentRef, room: number): Promis
 	});
 }
 
+// One file an answer shows, as the log keeps it: one of a drive the agent may read, not a folder
+// nor in the trash, at the version it holds now. Anything else is not found, which leaves it a link.
+function pinOne(signedIn: SignedInAgent, agent: AgentRow, target: FileLinkTarget): Promise<Result<EntryAttachment, ApiError>> {
+	return Do(async ($) => {
+		const {connection, integration} = $(await loadConnection(agentViewer(signedIn), target.connectionId));
+		if (integration.id !== FILES_INTEGRATION_ID || !actionsOf(agent, connection, integration, unavailableActions(connection)).includes('readFiles')) {
+			return $(Err(ApiErr.notFound('connection', target.connectionId)));
+		}
+		const file = $(await requireFile(connection.id, target.fileId));
+		const head = $(requirePresent(file.folder ? null : file.head, ApiErr.notFound('file', file.id)));
+		return {connectionId: connection.id, fileId: file.id, version: head.id, name: file.name, type: head.type, size: head.size, text: null, cut: false};
+	});
+}
+
+// The files the pictures of an answer link to, each once, in the order shown: none without the
+// web app's address, which every link to a file is made with.
+function shownTargets(signedIn: SignedInAgent, text: string): FileLinkTarget[] {
+	const origin = env.APP_URL;
+	if (origin === undefined) {
+		return [];
+	}
+	const targets = new Map<string, FileLinkTarget>();
+	for (const href of markdownImages(text)) {
+		const target = readFileLink(href, origin);
+		if (target !== null && target.org === signedIn.orgSlug) {
+			targets.set(`${target.connectionId}/${target.fileId}`, target);
+		}
+	}
+	return [...targets.values()].slice(0, MAX_SHOWN);
+}
+
+// What leaves a picture a link, rather than failing the answer: what isn't there, or isn't the agent's to show.
+function leftALink(error: ApiError): boolean {
+	return error.kind === 'not_found' || error.kind === 'forbidden' || error.kind === 'validation_error';
+}
+
 export const chatFiles: ChatFiles = {
 	upload: (viewer, persona, request) =>
 		Do(async ($) => {
@@ -115,5 +164,23 @@ export const chatFiles: ChatFiles = {
 				return null;
 			}
 			return toPicture(attachment.name, $(await readContent(version.blob)));
+		}),
+	pinned: (signedIn, text) =>
+		Do(async ($) => {
+			const targets = shownTargets(signedIn, text);
+			if (targets.length === 0) {
+				return [];
+			}
+			const agent = $(await requireAgent(signedIn));
+			const pinned: EntryAttachment[] = [];
+			for (const target of targets) {
+				const one = await pinOne(signedIn, agent, target);
+				if (one.isErr() && leftALink(one.error)) {
+					log.info('A picture in an answer is left a link', {connectionId: target.connectionId, fileId: target.fileId, kind: one.error.kind});
+					continue;
+				}
+				pinned.push($(one));
+			}
+			return pinned;
 		}),
 };

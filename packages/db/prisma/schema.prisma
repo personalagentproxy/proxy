@@ -917,13 +917,15 @@ model AgentEntry {
   @@index([threadId, seq])
 }
 
-// A file the person attached to what they said in a conversation: one of a drive's (FileNode, by
-// plain ids, so it stays as it was said when the file or the drive is gone), at the version it
-// held then, which the conversation keeps meaning whatever the file holds later, with its name,
-// kind and size as they were. `text` is what the model is given of it with the message: the first
-// of the file's text, `cut` where there was more; null for a file that isn't text. Attaching a
-// file lets the conversation's agents read that version, whatever they may do in its drive
-// otherwise (api native/files/attached.ts). In the order they were attached, by `position`.
+// A file the person attached to what they said in a conversation, or one the agent showed them in
+// an answer, as a picture in its words: one of a drive's (FileNode, by plain ids, so it stays as it
+// was said when the file or the drive is gone), at the version it held then, which the
+// conversation keeps meaning whatever the file holds later, with its name, kind and size as they
+// were. `text` is what the model is given of it with the message: the first of the file's text,
+// `cut` where there was more; null for a file that isn't text, and for one the agent showed. A
+// file the person attached lets the conversation's agents read that version, whatever they may do
+// in its drive otherwise (api native/files/attached.ts). In the order they were attached, by
+// `position`.
 model AgentEntryAttachment {
   id           String  @id @default(cuid())
   entryId      String
