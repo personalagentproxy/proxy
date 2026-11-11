@@ -1,5 +1,5 @@
 import type {ReactNode} from 'react';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {type BarAction, useBarAction} from '@/hooks/use-bar-action';
 
 // A widget's main button, the dark pill (pill-button.tsx): Enter in the command bar's input presses it while it can

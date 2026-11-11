@@ -1,4 +1,4 @@
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 
 // Something that can't be undone, in red: what it does, and its button; disabled, the description
 // says what has to happen first.

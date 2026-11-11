@@ -2,7 +2,7 @@
 
 import {CheckIcon, CopyIcon} from 'lucide-react';
 import {useRef, useState, type ComponentProps} from 'react';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {cn} from '@proxy/ui/lib/utils';
 
 // Solid, so code scrolled under the copy button does not show through it.
@@ -26,9 +26,9 @@ export function CodeBlock({className, children, ...props}: ComponentProps<'pre'>
 			>
 				{children}
 			</pre>
-			<Button
+			<PillButton
 				variant="ghost"
-				size="icon-sm"
+				icon
 				className={cn('absolute top-1.5 right-1.5 text-muted-foreground', BACKGROUND)}
 				aria-label={copied ? 'Copied' : 'Copy code'}
 				onClick={() => {
@@ -39,7 +39,7 @@ export function CodeBlock({className, children, ...props}: ComponentProps<'pre'>
 				}}
 			>
 				{copied ? <CheckIcon /> : <CopyIcon />}
-			</Button>
+			</PillButton>
 		</div>
 	);
 }

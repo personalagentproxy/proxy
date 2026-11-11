@@ -1,6 +1,6 @@
 import type {Connection} from '@proxy/contracts/connections';
 import type {FetchError} from '@proxy/utils';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {useEffect, useState, type ReactNode} from 'react';
 import {usePlaidLink} from 'react-plaid-link';
 import {connectPlaid, createPlaidLinkToken} from '@/client/connections-client';

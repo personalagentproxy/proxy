@@ -10,7 +10,7 @@ import {
 } from 'react';
 import {createPortal} from 'react-dom';
 import {useLoaderData, useLocation, useNavigate} from 'react-router';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {ContentBoundary} from '@/components/route-error';
 import {Sheet, SheetContent, SheetTitle} from '@proxy/ui/components/sheet';
 import {SidebarTrigger} from '@proxy/ui/components/sidebar';

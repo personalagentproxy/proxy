@@ -29,14 +29,13 @@ import {
 	updatePersona,
 } from '@/client/harness-client';
 import {AddButton} from '@/components/add-button';
-import {Button} from '@proxy/ui/components/button';
 import {AppShell, PageTitle, PanelWaiting, TitleWaiting} from '@/components/app-shell';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {LiveHead} from '@/components/head';
 import {Markdown} from '@/components/markdown';
 import {type ModelChoice, ModelSwitcher} from '@/components/model-switcher';
 import {PersonaDialog} from '@/components/persona-dialog';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {InputGroup, InputGroupAddon, InputGroupTextarea} from '@proxy/ui/components/input-group';
 import {Message, MessageContent} from '@/components/chat/message';
@@ -211,6 +210,8 @@ function PersonaList({
 							lit={open && candidate.id === task?.id}
 							pinned={pinnedHere.some((pin) => pin.id === candidate.id)}
 							onPin={(pin) => onPin(persona.id, candidate.id, pin)}
+							// The open task slides in under its agent; the pinned are there already.
+							enter={openTask.includes(candidate)}
 						/>
 					));
 					const row = (
@@ -303,7 +304,7 @@ function PersonaList({
 								row
 							)}
 							{tasks.length > 0 && (
-								<ul aria-label={`${persona.name}’s tasks`} className="flex flex-col gap-0.5 pt-0.5">
+								<ul aria-label={`${persona.name}’s tasks`} className="flex flex-col">
 									{tasks}
 								</ul>
 							)}
@@ -316,37 +317,42 @@ function PersonaList({
 }
 
 // A task in the list, under its agent: its title, opening its chat, lit while it is open, marked
-// where it is pinned, and pinned or unpinned from its right-click menu.
+// where it is pinned, and pinned or unpinned from its right-click menu. One that enters slides in,
+// its room, gap above it included, opening as it fades in.
 function TaskRow({
 	task,
 	to,
 	lit,
 	pinned,
 	onPin,
+	enter,
 }: {
 	task: ChatTask;
 	to: string;
 	lit: boolean;
 	pinned: boolean;
 	onPin: (pinned: boolean) => void;
+	enter: boolean;
 }) {
 	return (
 		<ContextMenu>
-			<ContextMenuTrigger render={<li />}>
-				<Link
-					to={to}
-					aria-current={lit ? 'page' : undefined}
-					className={cn(
-						'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent',
-						lit && 'bg-sidebar-accent',
-					)}
-				>
-					<CornerDownRightIcon className="size-4 shrink-0" aria-hidden />
-					<span className="min-w-0 flex-1 truncate font-medium text-sidebar-foreground">
-						{task.title}
-					</span>
-					{pinned && <PinIcon className="size-3.5 shrink-0" aria-label="Pinned" />}
-				</Link>
+			<ContextMenuTrigger render={<li className={cn('grid', enter && 'task-row-enter')} />}>
+				<div className="min-h-0 overflow-hidden pt-0.5">
+					<Link
+						to={to}
+						aria-current={lit ? 'page' : undefined}
+						className={cn(
+							'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent',
+							lit && 'bg-sidebar-accent',
+						)}
+					>
+						<CornerDownRightIcon className="size-4 shrink-0" aria-hidden />
+						<span className="min-w-0 flex-1 truncate font-medium text-sidebar-foreground">
+							{task.title}
+						</span>
+						{pinned && <PinIcon className="size-3.5 shrink-0" aria-label="Pinned" />}
+					</Link>
+				</div>
 			</ContextMenuTrigger>
 			<ContextMenuContent>
 				<ContextMenuItem onClick={() => onPin(!pinned)}>
@@ -560,14 +566,13 @@ function TaskActions({task}: {task: TaskChat | null}) {
 		return null;
 	}
 	return (
-		<Button
-			variant="outline"
-			size="sm"
+		<PillButton
+			variant="ghost"
 			nativeButton={false}
 			render={<Link to={`/${org}/activity/tasks/${encodeURIComponent(activityTaskId)}`} />}
 		>
 			View activity
-		</Button>
+		</PillButton>
 	);
 }
 

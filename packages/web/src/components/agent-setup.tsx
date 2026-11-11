@@ -14,7 +14,7 @@ import {createAgent, listMcpClients, resetAgentPassword} from '@/client/agents-c
 import {AgentProviderTile} from '@/components/agent-provider-tile';
 import {CopyButton} from '@/components/copy-button';
 import {StepHeading} from '@/components/step-heading';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Card} from '@proxy/ui/components/card';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';

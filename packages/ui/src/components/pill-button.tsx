@@ -1,8 +1,8 @@
 import type {ComponentProps} from 'react';
 import {Button} from '@proxy/ui/components/button';
 import {cn} from '@proxy/ui/lib/utils';
-import {EnterHint} from '@/components/widgets/enter-hint';
-import {type PillVariant, pillClasses} from '@/lib/pill-variants';
+import {EnterHint} from '@proxy/ui/components/enter-hint';
+import {type PillVariant, pillClasses} from '@proxy/ui/lib/pill-variants';
 
 /**
  * The app's button: round, solid and dark for the main action, ghost for any other (Cancel), red

@@ -2,7 +2,7 @@ import {CheckIcon, ChevronsUpDownIcon, PlusIcon, SettingsIcon, UsersIcon} from '
 import {useState} from 'react';
 import {Link, useLocation, useNavigate} from 'react-router';
 import {createOrg} from '@/client/orgs-client';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {
 	Dialog,
 	DialogContent,

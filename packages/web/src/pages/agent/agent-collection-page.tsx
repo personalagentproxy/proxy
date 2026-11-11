@@ -10,7 +10,7 @@ import {
 	PersonLinkHint,
 } from '@/components/agent-shell';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {canStartNew, displayValue, recordTitle} from '@/lib/access';

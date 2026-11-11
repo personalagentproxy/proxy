@@ -227,3 +227,27 @@
 [data-slot='message-scroller-viewport'][data-scrollable-end='false'] {
 	--scroll-fade-b: 0px;
 }
+
+/* A task coming into Chat's list under its agent opens its room there, the rows below it moving
+   down, rather than appearing all at once. */
+.task-row-enter {
+	animation: task-row-enter 150ms ease-out;
+}
+
+@keyframes task-row-enter {
+	from {
+		grid-template-rows: 0fr;
+		opacity: 0;
+	}
+
+	to {
+		grid-template-rows: 1fr;
+		opacity: 1;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.task-row-enter {
+		animation: none;
+	}
+}

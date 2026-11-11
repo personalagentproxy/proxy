@@ -1,5 +1,5 @@
 import {Link} from 'react-router';
-import {pillVariants} from '@/lib/pill-variants';
+import {pillVariants} from '@proxy/ui/lib/pill-variants';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {WidgetFrame} from '@/components/widgets/widget-frame';
 import {onSignInClick} from '@/lib/desktop';

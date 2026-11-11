@@ -1,6 +1,6 @@
 import {MonitorIcon, MoonIcon, SunIcon, type LucideIcon} from 'lucide-react';
 import {useTheme, type Theme} from '@proxy/ui/lib/theme';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 
 type ThemeOption = {
 	value: Theme;

@@ -1,6 +1,6 @@
 import {useEffect} from 'react';
 import {useLoaderData} from 'react-router';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {StepHeading} from '@/components/step-heading';
 import type {desktopAuthLoader} from '@/loaders';
 

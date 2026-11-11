@@ -16,7 +16,7 @@ import {ConnectionAccess, SignInAgain} from '@/components/connection-access';
 import {IntegrationCatalog, SignInFailed} from '@/components/integration-catalog';
 import {StepHeading} from '@/components/step-heading';
 import {SuccessLine} from '@/components/success-line';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Card} from '@proxy/ui/components/card';
 import {defaultActions, integrationOf} from '@/lib/access';
 import {

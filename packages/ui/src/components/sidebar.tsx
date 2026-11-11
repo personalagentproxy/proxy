@@ -7,7 +7,7 @@ import {cva, type VariantProps} from 'class-variance-authority';
 import {cn} from '@proxy/ui/lib/utils';
 
 import {useIsMobile} from '@proxy/ui/hooks/use-mobile';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {
 	Sheet,
 	SheetContent,
@@ -186,15 +186,15 @@ function Sidebar({
 }
 
 // Opens the sidebar's sheet on phones.
-function SidebarTrigger({className, onClick, ...props}: React.ComponentProps<typeof Button>) {
+function SidebarTrigger({className, onClick, ...props}: React.ComponentProps<typeof PillButton>) {
 	const {openMobile, setOpenMobile} = useSidebar();
 
 	return (
-		<Button
+		<PillButton
 			data-sidebar="trigger"
 			data-slot="sidebar-trigger"
 			variant="ghost"
-			size="icon-sm"
+			icon
 			className={cn(className)}
 			onClick={(event) => {
 				onClick?.(event);
@@ -204,7 +204,7 @@ function SidebarTrigger({className, onClick, ...props}: React.ComponentProps<typ
 		>
 			<PanelLeftIcon className="cn-rtl-flip" />
 			<span className="sr-only">Open sidebar</span>
-		</Button>
+		</PillButton>
 	);
 }
 

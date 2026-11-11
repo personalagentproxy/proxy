@@ -1,6 +1,6 @@
 import type {ClaudeAccount} from '@proxy/contracts/me';
 import {useState} from 'react';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {
 	Dialog,
 	DialogContent,

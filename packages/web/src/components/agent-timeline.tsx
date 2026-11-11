@@ -22,7 +22,7 @@ import {
 	zoomedOn,
 } from '@/lib/timeline-window';
 import {zoomPath} from '@/lib/zoom-path';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {cn} from '@proxy/ui/lib/utils';
 import {
 	Select,

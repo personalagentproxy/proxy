@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import type {Intent} from '@/client/intent-client';
 import type {Answer, AskedCollection, Failure, Source} from '@/client/widgets-client';
-import {pillVariants} from '@/lib/pill-variants';
+import {pillVariants} from '@proxy/ui/lib/pill-variants';
 import {Skeleton} from '@proxy/ui/components/skeleton';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {ConnectWidget} from '@/components/widgets/connect-widget';

@@ -2,7 +2,7 @@ import {useState} from 'react';
 import type {Intent} from '@/client/intent-client';
 import {writeEmail} from '@/client/widgets-client';
 import {Badge} from '@proxy/ui/components/badge';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
 import {EnterButton} from '@/components/widgets/enter-button';
 import {Missing, WidgetFrame, WidgetInput, WidgetTextarea} from '@/components/widgets/widget-frame';

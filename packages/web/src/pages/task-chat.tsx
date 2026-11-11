@@ -14,7 +14,7 @@ import {
 import {WorkingLine} from '@/components/chat/task-line';
 import {Head} from '@/components/head';
 import {Markdown} from '@/components/markdown';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {useLoaded} from '@/hooks/use-loaded';
 import {useOrgSlug} from '@/hooks/use-org';
 import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';

@@ -4,7 +4,7 @@ import {useState} from 'react';
 import {AGENT_NAME_MAX} from '@proxy/utils/agent-providers';
 import {AVATAR_COLORS, type AvatarColor, shuffleLook} from '@proxy/utils/harness';
 import {LiveHead} from '@/components/head';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {
 	Dialog,
 	DialogContent,

@@ -1,6 +1,6 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import {Link} from 'react-router';
-import {pillVariants} from '@/lib/pill-variants';
+import {pillVariants} from '@proxy/ui/lib/pill-variants';
 import {WidgetFrame} from '@/components/widgets/widget-frame';
 import {useOrgSlug} from '@/hooks/use-org';
 

@@ -1,6 +1,6 @@
 import type {ReactNode} from 'react';
 import {EmptyRows} from '@/components/row-list';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import type {SideChoice} from '@/hooks/use-side';
 
 type Props = {

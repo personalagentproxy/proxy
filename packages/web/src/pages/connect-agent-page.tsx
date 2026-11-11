@@ -9,7 +9,7 @@ import {listAgents} from '@/client/agents-client';
 import {answerAuthorizationRequest} from '@/client/oauth-client';
 import {AgentLogo} from '@/components/brand-logo';
 import {OrgTile} from '@/components/org-switcher';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {

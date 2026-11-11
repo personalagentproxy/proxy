@@ -10,7 +10,7 @@ import {
 	PersonLinkHint,
 } from '@/components/agent-shell';
 import {RecordFields, RecordForm} from '@/components/record-form';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {allows, recordTitle} from '@/lib/access';
 import {agentErrorMessage} from '@/lib/agent-errors';
