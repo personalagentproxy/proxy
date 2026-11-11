@@ -15,7 +15,7 @@ services:
     # Room for the built-in agent's turns on the Claude Agent SDK, each Claude Code as a
     # subprocess of a few hundred megabytes, CLAUDE_AGENT_SDK_TURNS of them at once per instance,
     # beside the api itself.
-    plan: 2c-4g
+    plan: 1c-2g
     # Two, so a deploy or a failed instance never takes Personal Agent Proxy down. The api keeps
     # nothing in memory between requests, and two instances starting at once migrate safely: Prisma
     # takes a lock on the database first.
@@ -74,7 +74,7 @@ services:
       # How many of the built-in agent's turns on the Claude Agent SDK one instance runs at once,
       # as the plan above has the memory for; the rest wait their turn.
       - key: CLAUDE_AGENT_SDK_TURNS
-        value: '4'
+        value: '3'
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
