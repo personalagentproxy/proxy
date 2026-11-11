@@ -65,14 +65,75 @@ function gallery(run: Element[]): Element[] {
 	];
 }
 
-// Gathers the answer's pictures that stand one after another, in a paragraph or in paragraphs of
-// their own, into galleries.
+function paragraph(children: ElementContent[]): Element {
+	return {type: 'element', tagName: 'p', properties: {}, children};
+}
+
+// Where in a paragraph pictures stand one after another, two or more with nothing but space
+// between them: from the first to the last, by index.
+function pictureRuns(children: ElementContent[]): Array<[number, number]> {
+	const runs: Array<[number, number]> = [];
+	let start: number | null = null;
+	let end = 0;
+	let count = 0;
+	for (const [index, child] of children.entries()) {
+		if (isPicture(child)) {
+			start ??= index;
+			end = index;
+			count += 1;
+			continue;
+		}
+		if (start !== null && isBlank(child)) {
+			continue;
+		}
+		if (start !== null && count >= 2) {
+			runs.push([start, end]);
+		}
+		start = null;
+		count = 0;
+	}
+	if (start !== null && count >= 2) {
+		runs.push([start, end]);
+	}
+	return runs;
+}
+
+// A paragraph with pictures one after another among words, as an answer cut short mid-link
+// leaves one, as a paragraph of its pictures between paragraphs of the words around them; any
+// other as it is.
+function splitPictures(node: RootContent): RootContent[] {
+	if (node.type !== 'element' || node.tagName !== 'p') {
+		return [node];
+	}
+	const runs = pictureRuns(node.children);
+	if (runs.length === 0) {
+		return [node];
+	}
+	const pieces: Element[] = [];
+	let from = 0;
+	for (const [start, end] of runs) {
+		const before = node.children.slice(from, start);
+		if (!before.every(isBlank)) {
+			pieces.push(paragraph(before));
+		}
+		pieces.push(paragraph(node.children.slice(start, end + 1)));
+		from = end + 1;
+	}
+	const after = node.children.slice(from);
+	if (!after.every(isBlank)) {
+		pieces.push(paragraph(after));
+	}
+	return pieces;
+}
+
+// Gathers the answer's pictures that stand one after another, in a paragraph, among words or not,
+// or in paragraphs of their own, into galleries.
 function gatherPictures() {
 	return (tree: Root) => {
 		const children: RootContent[] = [];
 		let run: Element[] = [];
 		let between: RootContent[] = [];
-		for (const node of tree.children) {
+		for (const node of tree.children.flatMap(splitPictures)) {
 			if (isPictures(node)) {
 				run.push(node);
 				between = [];

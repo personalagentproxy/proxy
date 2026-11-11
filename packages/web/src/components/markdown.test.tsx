@@ -77,6 +77,19 @@ describe('Markdown', () => {
 		expect(container.querySelectorAll('p')).toHaveLength(2);
 	});
 
+	test('gathers pictures one after another among words, as an answer cut short leaves them, keeping the words', () => {
+		const text = 'Here:\n![one](a.png)\n![two](b.png)\n![three](c.png)\n![four](d.p';
+		const {container} = render(<Markdown text={text} image={image} />);
+		const pictures = container.querySelectorAll('img');
+
+		expect(pictures).toHaveLength(3);
+		expect([...pictures].map((picture) => picture.dataset.tile)).toEqual(['true', 'true', 'true']);
+		expect([...container.querySelectorAll('p')].map((words) => words.textContent?.trim())).toEqual([
+			'Here:',
+			'![four](d.p',
+		]);
+	});
+
 	test('lays out two or four pictures two to a row', () => {
 		const {container} = render(<Markdown text={'![one](a.png)\n\n![two](b.png)'} image={image} />);
 
