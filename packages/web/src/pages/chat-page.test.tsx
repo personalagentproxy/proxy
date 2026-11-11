@@ -1,6 +1,12 @@
 /// <reference types="bun" />
 
-import type {ChatAnswer, ChatPersona, ThreadLog} from '@proxy/contracts/harness';
+import type {
+	ChatAnswer,
+	ChatPersona,
+	PinnedTask,
+	TaskChat,
+	ThreadLog,
+} from '@proxy/contracts/harness';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
@@ -50,8 +56,31 @@ const log: ThreadLog = {
 	persona: general,
 	entries: [],
 	busy: false,
-	sleepingUntil: null,
 	draft: null,
+};
+// A task General started, as its chat shows it.
+const flights: TaskChat = {
+	persona: general,
+	task: {id: 'sub-1', title: 'Find flights'},
+	busy: true,
+	activityTaskId: 'task-7',
+	entries: [
+		{
+			id: 's1',
+			from: 'persona',
+			text: 'Flights to Lisbon',
+			isError: false,
+			at: '2026-10-21T10:00:00Z',
+		},
+		{
+			id: 's2',
+			from: 'task',
+			text: 'Three direct flights.',
+			isError: false,
+			at: '2026-10-21T10:01:00Z',
+		},
+		{id: 's3', from: 'person', text: 'Only mornings', isError: false, at: '2026-10-21T10:02:00Z'},
+	],
 };
 // The last answers the provider around the page is given: none, unless a test says otherwise.
 let answers: ChatAnswer[] = [];
@@ -80,18 +109,23 @@ function renderChatPage({
 	personas = [general, finance],
 	entries = [],
 	listPersonas = () => personas,
+	pinnedTasks = [],
 	open = 'general',
 	draft = null,
 	answered = () => Promise.resolve(),
+	initial,
 }: {
 	personas?: ChatPersona[];
 	entries?: ThreadLog['entries'];
 	listPersonas?: () => ChatPersona[];
+	pinnedTasks?: PinnedTask[];
 	// The agent whose conversation is open, by its id.
 	open?: string;
 	draft?: string | null;
 	// When the api answers for a conversation: at once, unless a test holds it back.
 	answered?: (personaId: string) => Promise<void>;
+	// The address the page opens on, where it is not the open conversation's.
+	initial?: string;
 } = {}) {
 	const router = createMemoryRouter(
 		[
@@ -112,15 +146,27 @@ function renderChatPage({
 									persona: personas.find((candidate) => candidate.id === params.id) ?? general,
 								},
 								personas: listPersonas(),
+								pinnedTasks,
 								harnesses,
 							};
 						}),
 						element: <ChatPage />,
 					},
+					{
+						path: '/:org/chat/:id/tasks/:taskId',
+						loader: later(async () => ({
+							task: flights,
+							personas: listPersonas(),
+							pinnedTasks,
+							harnesses,
+						})),
+						element: <ChatPage />,
+					},
+					{path: '/:org/activity/tasks/:taskId', element: <p>The task’s activity</p>},
 				],
 			},
 		],
-		{initialEntries: [`/acme/chat/${open}`]},
+		{initialEntries: [initial ?? `/acme/chat/${open}`]},
 	);
 
 	return render(
@@ -221,6 +267,21 @@ describe('ChatPage', () => {
 
 		fireEvent.pointerLeave(secondRow);
 		expect(secondHead.getAttribute('data-state')).toBe('rest');
+	});
+
+	test('lets an agent head follow the pointer while one of its tasks is hovered', async () => {
+		const {container} = renderChatPage({
+			pinnedTasks: [{id: 'sub-2', personaId: 'general', title: 'Check the calendar'}],
+		});
+
+		const task = await screen.findByRole('link', {name: /^Check the calendar/});
+		const [generalHead, financeHead] = rowHeads(container);
+		fireEvent.pointerEnter(task);
+		expect(generalHead?.getAttribute('data-state')).toBe('watching');
+		expect(financeHead?.getAttribute('data-state')).toBe('rest');
+
+		fireEvent.pointerLeave(task.closest('ul')?.closest('li') as HTMLElement);
+		expect(generalHead?.getAttribute('data-state')).toBe('rest');
 	});
 
 	test('keeps a hovered head in place when its chat opens', async () => {
@@ -524,6 +585,127 @@ describe('ChatPage', () => {
 		expect(headings).toHaveLength(2);
 		expect(headings[0]).toMatch(/^Tue, Oct 20(, 2026)? 9:00 AM$/);
 		expect(headings[1]).toMatch(/^Tue, Oct 20(, 2026)? 6:30 PM$/);
+	});
+
+	test('shows where the agent started a task and where it sent it more, each opening its chat', async () => {
+		renderChatPage({
+			entries: [
+				{
+					id: 'e1',
+					kind: 'person',
+					text: 'Find me flights',
+					isError: false,
+					at: '2026-10-21T10:00:00Z',
+				},
+				{
+					id: 'e2:c1',
+					kind: 'task',
+					task: {id: 'sub-1', title: 'Find flights'},
+					at: '2026-10-21T10:00:00Z',
+				},
+				{
+					id: 'e3:c2',
+					kind: 'sent',
+					task: {id: 'sub-1', title: 'Find flights'},
+					at: '2026-10-21T10:01:00Z',
+				},
+			],
+		});
+
+		const [created, sent] = await screen.findAllByRole('link', {name: 'Find flights'});
+		expect(created?.closest('[data-slot="trace-line"]')?.textContent).toBe(
+			'Created task Find flights',
+		);
+		expect(sent?.closest('[data-slot="trace-line"]')?.textContent).toBe('Sent to Find flights');
+		expect(created?.getAttribute('href')).toBe('/acme/chat/general/tasks/sub-1');
+		expect(sent?.getAttribute('href')).toBe('/acme/chat/general/tasks/sub-1');
+
+		fireEvent.click(sent as HTMLElement);
+		const chat = await screen.findByLabelText('Task');
+		expect(within(chat).getByText('Three direct flights.')).toBeTruthy();
+	});
+
+	test('shows a task’s chat, who said what, and sends what the person writes to the task', async () => {
+		renderChatPage({initial: '/acme/chat/general/tasks/sub-1'});
+
+		const chat = await screen.findByLabelText('Task');
+		// The task's title heads the page in the agent's place, and the task is at work.
+		const header = screen.getByRole('banner');
+		await waitFor(() => expect(within(header).queryByText('Find flights')).toBeTruthy());
+		expect(within(header).queryByText('General')).toBeNull();
+		expect(within(chat).getByText('Working')).toBeTruthy();
+		expect(within(header).getByText('View activity').closest('a')?.getAttribute('href')).toBe(
+			'/acme/activity/tasks/task-7',
+		);
+		expect(within(chat).getByText('Flights to Lisbon')).toBeTruthy();
+		expect(within(chat).getByText('You')).toBeTruthy();
+		// The task is a row of its own under General in the list, lit in General's stead; General's
+		// row goes back to its conversation.
+		const back = screen.getByRole('link', {name: /^General/});
+		const agents = back.closest('ul') as HTMLElement;
+		expect(back.getAttribute('aria-current')).toBeNull();
+		expect(back.getAttribute('href')).toBe('/acme/chat/general');
+		const taskRow = await within(agents).findByRole('link', {name: 'Find flights'});
+		expect(taskRow.getAttribute('aria-current')).toBe('page');
+		expect(taskRow.getAttribute('href')).toBe('/acme/chat/general/tasks/sub-1');
+		expect(taskRow.closest('ul')?.getAttribute('aria-label')).toBe('General’s tasks');
+		expect(within(taskRow).queryByLabelText('Pinned')).toBeNull();
+
+		const box = screen.getByLabelText('Message') as HTMLTextAreaElement;
+		expect(box.placeholder).toBe('Message Find flights');
+		fireEvent.change(box, {target: {value: ' Only direct ones '}});
+		fireEvent.click(screen.getByRole('button', {name: 'Send'}));
+
+		await waitFor(() => expect(box.value).toBe(''));
+		const sent = fetchMock.mock.calls.find(
+			([url]) => url === '/api/orgs/acme/chat/personas/general/tasks/sub-1/messages',
+		);
+		expect(sent?.[1]?.method).toBe('POST');
+		expect(JSON.parse(String(sent?.[1]?.body))).toEqual({text: 'Only direct ones'});
+	});
+
+	test('lists pinned tasks under their agent, the open one after them where it isn’t pinned, and pins one from its right-click menu', async () => {
+		renderChatPage({
+			initial: '/acme/chat/general/tasks/sub-1',
+			pinnedTasks: [
+				{id: 'sub-3', personaId: 'general', title: 'Book the hotel'},
+				{id: 'sub-2', personaId: 'general', title: 'Check the calendar'},
+				{id: 'sub-4', personaId: 'finance', title: 'Pay the invoice'},
+			],
+		});
+
+		const general = await screen.findByRole('list', {name: 'General’s tasks'});
+		await within(general).findByRole('link', {name: 'Find flights'});
+		expect(
+			within(general)
+				.getAllByRole('link')
+				.map((row) => row.textContent),
+		).toEqual(['Book the hotel', 'Check the calendar', 'Find flights']);
+		expect(within(general).getAllByLabelText('Pinned')).toHaveLength(2);
+		const finance = screen.getByRole('list', {name: 'Finance’s tasks'});
+		expect(
+			within(finance)
+				.getByRole('link', {name: /^Pay the invoice/})
+				.getAttribute('href'),
+		).toBe('/acme/chat/finance/tasks/sub-4');
+
+		fireEvent.contextMenu(within(general).getByRole('link', {name: 'Find flights'}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Pin'}));
+		await waitFor(() =>
+			expect(fetchMock).toHaveBeenCalledWith(
+				'/api/orgs/acme/chat/personas/general/tasks/sub-1/pin',
+				expect.objectContaining({method: 'PUT', body: JSON.stringify({pinned: true})}),
+			),
+		);
+
+		fireEvent.contextMenu(within(general).getByRole('link', {name: /^Book the hotel/}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Unpin'}));
+		await waitFor(() =>
+			expect(fetchMock).toHaveBeenCalledWith(
+				'/api/orgs/acme/chat/personas/general/tasks/sub-3/pin',
+				expect.objectContaining({method: 'PUT', body: JSON.stringify({pinned: false})}),
+			),
+		);
 	});
 
 	test('marks nothing read before the agent has answered', async () => {

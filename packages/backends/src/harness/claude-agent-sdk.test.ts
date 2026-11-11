@@ -263,6 +263,7 @@ function entry(kind: ContextEntry['kind'], text: string, extra: Partial<Pick<Har
 		toolCalls: extra.toolCalls ?? null,
 		callId: extra.callId ?? null,
 		isError: extra.isError ?? false,
+		direct: false,
 		seq,
 		coversSeq: extra.coversSeq ?? null,
 		inputTokens: null,

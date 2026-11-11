@@ -10,7 +10,7 @@ import {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
-import {type ContextEntry, eventLead, type SubAgent, toTranscript} from '@proxy/utils/harness-context';
+import {type ContextEntry, directLead, eventLead, type SubAgent, toTranscript} from '@proxy/utils/harness-context';
 
 import type {HarnessAuth, HarnessBackend, HarnessEntry, HarnessEvent, HarnessTurn, ToolAnswer, ToolSurface} from './backend';
 import type {SdkSessionStore} from './session-store';
@@ -152,10 +152,11 @@ function unseenBy(session: Session | null, entries: HarnessEntry[]): HarnessEntr
 }
 
 // An entry that came to the model as the prompt has it: what the person said, or an event with
-// its lead-in.
+// its lead-in, or what the person wrote in a sub-agent's chat with its own.
 function pieceOf(subAgents: SubAgent[], entry: HarnessEntry): string[] {
-	if (entry.kind === 'person') {
-		return [entry.text];
+	if (entry.kind === 'person' || entry.kind === 'note') {
+		const lead = directLead(subAgents, entry);
+		return [lead === null ? entry.text : `${lead}\n\n${entry.text}`];
 	}
 	if (entry.kind === 'event') {
 		return [`${eventLead(subAgents, entry)}\n\n${entry.text}`];

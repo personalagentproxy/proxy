@@ -55,6 +55,7 @@ function entryWith(calls: Array<{id: string; name: string; arguments: string}>):
 		toolCalls: calls,
 		callId: null,
 		isError: false,
+		direct: false,
 		inputTokens: 1,
 		outputTokens: 1,
 		coversSeq: null,

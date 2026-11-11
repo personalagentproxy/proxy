@@ -29,7 +29,18 @@ let seq = 0;
 
 function entry(kind: ContextEntry['kind'], text: string, extra: Partial<Pick<ContextEntry, 'toolCalls' | 'callId' | 'inputTokens' | 'coversSeq'>> = {}): HarnessEntry {
 	seq += 1;
-	return {kind, text, toolCalls: extra.toolCalls ?? null, callId: extra.callId ?? null, isError: false, seq, coversSeq: extra.coversSeq ?? null, inputTokens: extra.inputTokens ?? null, jobId: null};
+	return {
+		kind,
+		text,
+		toolCalls: extra.toolCalls ?? null,
+		callId: extra.callId ?? null,
+		isError: false,
+		direct: false,
+		seq,
+		coversSeq: extra.coversSeq ?? null,
+		inputTokens: extra.inputTokens ?? null,
+		jobId: null,
+	};
 }
 
 const read = {name: 'read', description: 'Reads', inputSchema: {type: 'object', properties: {}}, readOnly: true};

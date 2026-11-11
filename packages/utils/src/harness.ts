@@ -26,10 +26,11 @@ export function cut(text: string, max: number): string {
 }
 
 export type LogEntry = {
-	kind: 'person' | 'assistant' | 'tool_result' | 'event' | 'summary';
+	kind: 'person' | 'assistant' | 'tool_result' | 'event' | 'summary' | 'note';
 	text: string;
 	toolCalls: ToolCall[] | null;
-	// A tool_result's or an event's call, by the id the model gave it.
+	// A tool_result's or an event's call, by the id the model gave it; a note's, the call that
+	// started the sub-agent it was written to.
 	callId: string | null;
 };
 
@@ -59,13 +60,15 @@ export const CALL_INTERRUPTED = 'This call was interrupted before it was answere
 
 /**
  * Whether the model should be run on the log: something has come since it last answered, and
- * every call it made has its result.
+ * every call it made has its result. A note, what the person wrote to one of the agent's
+ * sub-agents in its chat, is not something come: the agent reads it with what wakes it next, the
+ * sub-agent's answer among it.
  */
 export function readyForInference(entries: LogEntry[]): boolean {
 	if (pendingToolCalls(entries).length > 0) {
 		return false;
 	}
-	const last = entries.at(-1);
+	const last = entries.findLast((entry) => entry.kind !== 'note');
 	if (!last) {
 		return false;
 	}

@@ -1,11 +1,15 @@
 import type {
 	ChatEntry,
 	ChatHarness,
+	ChatMessage,
 	ChatPersona,
+	ChatTask,
 	Persona,
+	PinnedTask,
+	TaskChat,
 	ThreadLog,
 } from '@proxy/contracts/harness';
-import {MoonIcon, PencilIcon, Trash2Icon} from 'lucide-react';
+import {CornerDownRightIcon, PencilIcon, PinIcon, PinOffIcon, Trash2Icon} from 'lucide-react';
 import {
 	type FormEvent,
 	type KeyboardEvent,
@@ -20,10 +24,12 @@ import {
 	createPersona,
 	deletePersona,
 	getThread,
+	pinTask,
 	postMessage,
 	updatePersona,
 } from '@/client/harness-client';
 import {AddButton} from '@/components/add-button';
+import {Button} from '@proxy/ui/components/button';
 import {AppShell, PageTitle, PanelWaiting, TitleWaiting} from '@/components/app-shell';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {LiveHead} from '@/components/head';
@@ -42,7 +48,7 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
-import {Trace, TraceIcon, TraceLine, TraceTitle} from '@/components/chat/trace';
+import {TaskLine, WorkingLine} from '@/components/chat/task-line';
 import {preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
 import {useChatDraft} from '@/hooks/use-chat-draft';
@@ -51,10 +57,11 @@ import {useOrgSlug} from '@/hooks/use-org';
 import {useReload} from '@/hooks/use-reload';
 import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
 import {useUnread} from '@/hooks/use-unread';
-import {chatRuns} from '@/lib/chat-runs';
-import {formatAgo, formatDateTime} from '@/lib/format';
+import {chatRuns, conversationSide} from '@/lib/chat-runs';
+import {formatAgo} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
-import type {chatLoader} from '@/loaders';
+import type {chatLoader, chatTaskLoader} from '@/loaders';
+import {OpenTask} from '@/pages/task-chat';
 import {
 	ContextMenu,
 	ContextMenuContent,
@@ -69,9 +76,8 @@ const IDLE_POLL_MS = 4000;
 
 // One turn of the conversation: what the person said in a dark bubble on the right (a light one
 // in dark mode), as they typed it, or what the persona answered in a gray one on the left, as
-// Markdown, in a red one where its turn failed. What it did in between, the sub-agents it started
-// and what they said, is in the activity log, not here: this is a conversation.
-function Turn({entry}: {entry: ChatEntry}) {
+// Markdown, in a red one where its turn failed.
+function Turn({entry}: {entry: ChatMessage}) {
 	if (entry.kind === 'person') {
 		return (
 			<Message align="end">
@@ -96,28 +102,6 @@ function Turn({entry}: {entry: ChatEntry}) {
 	);
 }
 
-// What the agent is up to when it isn't answering: at work, or asleep until a time.
-function Status({log}: {log: ThreadLog}) {
-	if (log.busy) {
-		return (
-			<TraceLine status="running">
-				<TraceTitle>Working</TraceTitle>
-			</TraceLine>
-		);
-	}
-	if (log.sleepingUntil === null) {
-		return null;
-	}
-	return (
-		<TraceLine>
-			<TraceIcon>
-				<MoonIcon />
-			</TraceIcon>
-			<TraceTitle>Asleep until {formatDateTime(log.sleepingUntil)}</TraceTitle>
-		</TraceLine>
-	);
-}
-
 // What a row shows under the name: the last thing said in the conversation, the person's with "You:".
 function subtitle(last: ChatPersona['lastMessage']): string {
 	if (last === null) {
@@ -134,10 +118,15 @@ function draftLine(draft: string | null): string | null {
 	return preview(draft);
 }
 
+// Whether something of the conversation is a turn of it, said by the person or the persona.
+function isMessage(entry: ChatEntry): entry is ChatMessage {
+	return entry.kind === 'person' || entry.kind === 'assistant';
+}
+
 // The last thing said in the open conversation, as the page has it, fresher than the list, cut
 // to a line as the list has it.
 function lastOf(log: ThreadLog): ChatPersona['lastMessage'] {
-	const last = log.entries.at(-1);
+	const last = log.entries.findLast(isMessage);
 	return last ? {kind: last.kind, text: preview(last.text), at: last.at} : null;
 }
 
@@ -152,25 +141,35 @@ type Shown = {personaId: string; log: ThreadLog; draft: string};
 // The personas the person sees, their own and General, in the second sidebar, each with its head, its name and the last
 // thing said between it and the person, marked where the person hasn't seen it, or what they
 // typed and haven't sent, the open one's as it is typed, the open one lit,
-// each head watching the pointer while it is over that agent's row. The one last active is on
+// each head watching the pointer while it is over that agent's row or its tasks'. The one last active is on
 // top, the open one by its log, so what the person just said moves it up at once. It stays as it
 // is from one conversation to the next: the one in the address is lit at once, while it loads.
+// Under each, the tasks the person pinned in its conversation, the one with something said in it
+// last first, then, under the open one, the task open in its place where it isn't pinned, lit in
+// the agent's stead.
 function PersonaList({
 	personas,
 	current,
+	task,
+	pinned,
 	shown,
 	recallDraft,
 	onOpen,
 	onEdit,
 	onDelete,
+	onPin,
 }: {
 	personas: ChatPersona[];
 	current: string;
+	// The task of the open agent's conversation that is open in its place, if one is.
+	task: ChatTask | null;
+	pinned: PinnedTask[];
 	shown: Shown | null;
 	recallDraft: (personaId: string) => string | null;
 	onOpen: (personaId: string) => void;
 	onEdit: (persona: ChatPersona) => void;
 	onDelete: (persona: ChatPersona) => void;
+	onPin: (personaId: string, taskId: string, pinned: boolean) => void;
 }) {
 	const org = useOrgSlug();
 	const unread = useUnread();
@@ -196,10 +195,28 @@ function PersonaList({
 			<ul className="flex flex-col gap-0.5">
 				{rows.map(({persona, last, draft}) => {
 					const fresh = isUnread(persona);
+					const open = persona.id === current;
+					// The row is lit while its conversation is open, and the task's under it in its place.
+					const lit = open && task === null;
+					const pinnedHere = pinned.filter((candidate) => candidate.personaId === persona.id);
+					const openTask =
+						open && task !== null && !pinnedHere.some((candidate) => candidate.id === task.id)
+							? [task]
+							: [];
+					const tasks = [...pinnedHere, ...openTask].map((candidate) => (
+						<TaskRow
+							key={candidate.id}
+							task={candidate}
+							to={`/${org}/chat/${persona.id}/tasks/${candidate.id}`}
+							lit={open && candidate.id === task?.id}
+							pinned={pinnedHere.some((pin) => pin.id === candidate.id)}
+							onPin={(pin) => onPin(persona.id, candidate.id, pin)}
+						/>
+					));
 					const row = (
 						<Link
 							to={`/${org}/chat/${persona.id}`}
-							aria-current={persona.id === current ? 'page' : undefined}
+							aria-current={lit ? 'page' : undefined}
 							onClick={(event) => {
 								if (
 									event.button !== 0 ||
@@ -212,11 +229,9 @@ function PersonaList({
 								}
 								onOpen(persona.id);
 							}}
-							onPointerEnter={() => setHovered(persona.id)}
-							onPointerLeave={() => setHovered(null)}
 							className={cn(
 								'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-								persona.id === current && 'bg-sidebar-accent text-sidebar-accent-foreground',
+								lit && 'bg-sidebar-accent text-sidebar-accent-foreground',
 							)}
 						>
 							<LiveHead
@@ -263,23 +278,36 @@ function PersonaList({
 							</span>
 						</Link>
 					);
-					if (!persona.mayChange) {
-						return <li key={persona.id}>{row}</li>;
-					}
 					return (
-						<ContextMenu key={persona.id}>
-							<ContextMenuTrigger render={<li />}>{row}</ContextMenuTrigger>
-							<ContextMenuContent>
-								<ContextMenuItem onClick={() => onEdit(persona)}>
-									<PencilIcon />
-									Edit
-								</ContextMenuItem>
-								<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
-									<Trash2Icon />
-									Delete
-								</ContextMenuItem>
-							</ContextMenuContent>
-						</ContextMenu>
+						// The head watches the pointer while it is over the agent's row or its tasks'.
+						<li
+							key={persona.id}
+							onPointerEnter={() => setHovered(persona.id)}
+							onPointerLeave={() => setHovered(null)}
+						>
+							{persona.mayChange ? (
+								<ContextMenu>
+									<ContextMenuTrigger render={<div />}>{row}</ContextMenuTrigger>
+									<ContextMenuContent>
+										<ContextMenuItem onClick={() => onEdit(persona)}>
+											<PencilIcon />
+											Edit
+										</ContextMenuItem>
+										<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
+											<Trash2Icon />
+											Delete
+										</ContextMenuItem>
+									</ContextMenuContent>
+								</ContextMenu>
+							) : (
+								row
+							)}
+							{tasks.length > 0 && (
+								<ul aria-label={`${persona.name}’s tasks`} className="flex flex-col gap-0.5 pt-0.5">
+									{tasks}
+								</ul>
+							)}
+						</li>
 					);
 				})}
 			</ul>
@@ -287,17 +315,61 @@ function PersonaList({
 	);
 }
 
+// A task in the list, under its agent: its title, opening its chat, lit while it is open, marked
+// where it is pinned, and pinned or unpinned from its right-click menu.
+function TaskRow({
+	task,
+	to,
+	lit,
+	pinned,
+	onPin,
+}: {
+	task: ChatTask;
+	to: string;
+	lit: boolean;
+	pinned: boolean;
+	onPin: (pinned: boolean) => void;
+}) {
+	return (
+		<ContextMenu>
+			<ContextMenuTrigger render={<li />}>
+				<Link
+					to={to}
+					aria-current={lit ? 'page' : undefined}
+					className={cn(
+						'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent',
+						lit && 'bg-sidebar-accent',
+					)}
+				>
+					<CornerDownRightIcon className="size-4 shrink-0" aria-hidden />
+					<span className="min-w-0 flex-1 truncate font-medium text-sidebar-foreground">
+						{task.title}
+					</span>
+					{pinned && <PinIcon className="size-3.5 shrink-0" aria-label="Pinned" />}
+				</Link>
+			</ContextMenuTrigger>
+			<ContextMenuContent>
+				<ContextMenuItem onClick={() => onPin(!pinned)}>
+					{pinned ? <PinOffIcon /> : <PinIcon />}
+					{pinned ? 'Unpin' : 'Pin'}
+				</ContextMenuItem>
+			</ContextMenuContent>
+		</ContextMenu>
+	);
+}
+
 // The page: the organization's agents beside the conversation with the one in its address. The
 // list is the frame's, so moving to another conversation shows it at once, lit in the list and
 // named in the header, while it loads; the conversation is started over as the address changes,
-// so what one showed never lingers on another.
+// so what one showed never lingers on another. A task of the conversation opens in its place, as
+// the address names it, under the agent in the list.
 export function ChatPage() {
 	const org = useOrgSlug();
 	const navigate = useNavigate();
 	const reload = useReload();
-	const {id: current = ''} = useParams();
-	// The agents as last listed, with each conversation as it loads.
-	const listed = useLastLoaded<typeof chatLoader>();
+	const {id: current = '', taskId} = useParams();
+	// The agents as last listed, with each conversation, or task of one, as it loads.
+	const listed = useLastLoaded<typeof chatLoader | typeof chatTaskLoader>();
 	const personas = listed.answer?.personas ?? null;
 	const name = personas?.find((persona) => persona.id === current)?.name;
 	const [shown, setShown] = useState<Shown | null>(null);
@@ -355,7 +427,28 @@ export function ChatPage() {
 		await reload();
 	};
 
+	// The task the address names, once it has loaded: its title heads the page in the agent's place.
+	const answer = listed.answer;
+	const task =
+		taskId !== undefined && answer !== null && 'task' in answer && answer.task.task.id === taskId
+			? answer.task
+			: null;
+
+	// Pins a task under its agent, or unpins it, and reads the list again with it so.
+	const pinOne = async (personaId: string, pinnedTaskId: string, pin: boolean) => {
+		const done = await pinTask(org, personaId, pinnedTaskId, pin);
+		if (done.isErr()) {
+			setError(describeFetchError(done.error));
+			return;
+		}
+		setError(null);
+		await reload();
+	};
+
 	const title = () => {
+		if (taskId !== undefined) {
+			return task === null ? <TitleWaiting /> : <PageTitle>{task.task.title}</PageTitle>;
+		}
 		if (name !== undefined) {
 			return <PageTitle>{name}</PageTitle>;
 		}
@@ -371,7 +464,10 @@ export function ChatPage() {
 			<PersonaList
 				personas={personas}
 				current={current}
-				shown={shown}
+				task={task?.task ?? null}
+				pinned={listed.answer?.pinnedTasks ?? []}
+				onPin={(personaId, pinnedTaskId, pin) => void pinOne(personaId, pinnedTaskId, pin)}
+				shown={taskId === undefined ? shown : null}
 				recallDraft={recallDraft}
 				onOpen={setFocusRequestedFor}
 				onEdit={setEditing}
@@ -384,20 +480,30 @@ export function ChatPage() {
 		<>
 			<AppShell
 				title={title()}
-				actions={<AddButton label="New agent" onClick={() => setEditing('new')} />}
+				actions={
+					taskId === undefined ? (
+						<AddButton label="New agent" onClick={() => setEditing('new')} />
+					) : (
+						<TaskActions task={task} />
+					)
+				}
 				panel={panel()}
 				panelLabel="Agents"
 				scroll="inside"
 			>
-				<OpenConversation
-					recallDraft={recallDraft}
-					rememberDraft={rememberDraft}
-					onShown={setShown}
-					managing={editing !== null || deleting !== null}
-					listError={error}
-					focusRequested={focusRequestedFor === current}
-					onFocused={() => setFocusRequestedFor(null)}
-				/>
+				{taskId === undefined ? (
+					<OpenConversation
+						recallDraft={recallDraft}
+						rememberDraft={rememberDraft}
+						onShown={setShown}
+						managing={editing !== null || deleting !== null}
+						listError={error}
+						focusRequested={focusRequestedFor === current}
+						onFocused={() => setFocusRequestedFor(null)}
+					/>
+				) : (
+					<OpenTask />
+				)}
 			</AppShell>
 			{editing !== null && (
 				<PersonaDialog
@@ -446,6 +552,25 @@ export function ChatPage() {
 	);
 }
 
+// What the header offers in a task's place: its requests in the activity log, once it made one.
+function TaskActions({task}: {task: TaskChat | null}) {
+	const org = useOrgSlug();
+	const activityTaskId = task?.activityTaskId ?? null;
+	if (activityTaskId === null) {
+		return null;
+	}
+	return (
+		<Button
+			variant="outline"
+			size="sm"
+			nativeButton={false}
+			render={<Link to={`/${org}/activity/tasks/${encodeURIComponent(activityTaskId)}`} />}
+		>
+			View activity
+		</Button>
+	);
+}
+
 // What the page gives the conversation open in it.
 type Opened = {
 	recallDraft: (personaId: string) => string | null;
@@ -471,6 +596,8 @@ function OpenConversation(opened: Opened) {
 // persona works, and an input. The persona hands each piece of work to a sub-agent it keeps
 // talking with, which acts as the person through the organization's built-in login, whose calls
 // go through the same gate as any agent's, so its activity is in the log by the sub-agent's task.
+// Each sub-agent is a task to the person, a line where it was started and one where the persona
+// sent it more, each opening its chat.
 function Conversation({
 	loaded,
 	harnesses,
@@ -644,9 +771,23 @@ function Conversation({
 		}
 	};
 
+	const shownEntry = (entry: ChatEntry) => {
+		if (entry.kind === 'task' || entry.kind === 'sent') {
+			return (
+				<TaskLine
+					key={entry.id}
+					verb={entry.kind === 'task' ? 'Created task' : 'Sent to'}
+					task={entry.task}
+					to={`/${org}/chat/${personaId}/tasks/${entry.task.id}`}
+				/>
+			);
+		}
+		return <Turn key={entry.id} entry={entry} />;
+	};
+
 	// Turns in a row from the same side sit closer together than the sides do, under the time
 	// their stretch of the conversation began.
-	const runs = chatRuns(log.entries, new Date());
+	const runs = chatRuns(log.entries, new Date(), conversationSide);
 
 	return (
 		<>
@@ -677,18 +818,12 @@ function Conversation({
 											{run.heading}
 										</h2>
 									)}
-									<div className="flex flex-col gap-2">
-										{run.entries.map((entry) => (
-											<Turn key={entry.id} entry={entry} />
-										))}
-									</div>
+									<div className="flex flex-col gap-2">{run.entries.map(shownEntry)}</div>
 								</MessageScrollerItem>
 							))}
-							{(log.busy || log.sleepingUntil !== null) && (
+							{log.busy && (
 								<MessageScrollerItem messageId="status">
-									<Trace>
-										<Status log={log} />
-									</Trace>
+									<WorkingLine />
 								</MessageScrollerItem>
 							)}
 						</MessageScrollerContent>

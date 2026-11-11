@@ -35,6 +35,7 @@ import {
 	agentsLoader,
 	chatIndexLoader,
 	chatLoader,
+	chatTaskLoader,
 	connectAgentLoader,
 	connectionLoader,
 	connectionsLoader,
@@ -309,6 +310,7 @@ const routes: RouteObject[] = [
 			// The built-in agents, behind the `harness` experiment: the api refuses it otherwise.
 			{path: '/:org/chat', loader: chatIndexLoader, element: <ChatPage />},
 			{path: '/:org/chat/:id', loader: chatLoader, element: <ChatPage />},
+			{path: '/:org/chat/:id/tasks/:taskId', loader: chatTaskLoader, element: <ChatPage />},
 			{path: '/:org/alerts', loader: alertsLoader, element: <AlertsPage />},
 			{path: '/:org/agents', loader: agentsLoader, element: <AgentsPage />},
 			{path: '/:org/agents/new', loader: agentsLoader, element: <NewAgentPage />},
