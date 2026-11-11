@@ -235,12 +235,16 @@ function TaskConversation({loaded}: {loaded: TaskChat}) {
 									)}
 									<div className="flex flex-col gap-2">
 										<RunLabel from={first.from} chat={chat} />
-										{run.entries.map((entry) => {
-											const entryKey = sending.keyOf(entry);
-											return (
-												<TaskTurn key={entryKey} entry={entry} fresh={!opened.has(entryKey)} />
-											);
-										})}
+										{/* The task's turns, without a bubble apiece, stand further apart than the
+										    paragraphs within one. */}
+										<div className={cn('flex flex-col', first.from === 'task' ? 'gap-5' : 'gap-2')}>
+											{run.entries.map((entry) => {
+												const entryKey = sending.keyOf(entry);
+												return (
+													<TaskTurn key={entryKey} entry={entry} fresh={!opened.has(entryKey)} />
+												);
+											})}
+										</div>
 									</div>
 								</MessageScrollerItem>
 							);
