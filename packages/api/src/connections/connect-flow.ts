@@ -261,7 +261,9 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 		userId: z.string(),
 		orgId: z.string(),
 		slug: z.string(),
-		returnTo: returnToSchema.optional(),
+		// 'home': a sign-in begun from the home page's widgets, which are gone, and which ends on the
+		// connection's page as any other does.
+		returnTo: z.union([returnToSchema, z.literal('home').transform(() => undefined)]).optional(),
 		desktop: z.boolean().optional(),
 		shared: z.boolean().optional(),
 		connectionId: z.string().optional(),

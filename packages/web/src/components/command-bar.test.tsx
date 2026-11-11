@@ -143,6 +143,7 @@ function renderBar() {
 								connections={lists.connections}
 								agents={lists.agents}
 								personas={null}
+								open
 								onClose={() => undefined}
 							/>
 						),

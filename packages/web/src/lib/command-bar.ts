@@ -272,6 +272,33 @@ const BEFORE_NAME = '(?:(?:my|our|the)\\s+)?';
 const AFTER_NAME = '(?:\\s+(?:agent|assistant|bot))?';
 const NOT_ONLY_AFTER_NAME = '(?!(?:agent|assistant|bot)\\s*$)';
 
+// Each persona's patterns, the longest name first: whether a text is said to it, with what is
+// said to it, and whether a text names it. Made once for a list of them, rather than each time
+// a text is looked at, which is every keystroke.
+type Patterns = {persona: ChatPersona; said: RegExp; named: RegExp};
+
+const patternsFor = new WeakMap<ChatPersona[], Patterns[]>();
+
+function patternsOf(personas: ChatPersona[]): Patterns[] {
+	const made = patternsFor.get(personas);
+	if (made) {
+		return made;
+	}
+	const patterns = byNameLength(personas).map((persona): Patterns => {
+		const name = `${namePattern(persona)}${AFTER_NAME}`;
+		return {
+			persona,
+			said: new RegExp(
+				`^\\s*(?:@${name}[\\s,:]*|(?:ask|tell|message|ping|hey|hi)\\s+${BEFORE_NAME}@?${name}[\\s,:]*(?:(?:to|that)\\s+)?|${name}\\s*[,:]\\s*)${NOT_ONLY_AFTER_NAME}(\\S.*)$`,
+				'isu',
+			),
+			named: new RegExp(namePattern(persona), 'iu'),
+		};
+	});
+	patternsFor.set(personas, patterns);
+	return patterns;
+}
+
 /**
  * The persona a text is said to, by name, and what is said to it: "@Finance …", "ask Finance …",
  * "tell Finance …", "Finance, …" or "Finance: …", the name also as "my Finance agent". Such a text
@@ -280,12 +307,7 @@ const NOT_ONLY_AFTER_NAME = '(?!(?:agent|assistant|bot)\\s*$)';
  * Null for any other text, and while nothing follows the name yet.
  */
 export function addressedPersona(text: string, personas: ChatPersona[]): Addressed | null {
-	for (const persona of byNameLength(personas)) {
-		const name = `${namePattern(persona)}${AFTER_NAME}`;
-		const said = new RegExp(
-			`^\\s*(?:@${name}[\\s,:]*|(?:ask|tell|message|ping|hey|hi)\\s+${BEFORE_NAME}@?${name}[\\s,:]*(?:(?:to|that)\\s+)?|${name}\\s*[,:]\\s*)${NOT_ONLY_AFTER_NAME}(\\S.*)$`,
-			'isu',
-		);
+	for (const {persona, said} of patternsOf(personas)) {
 		const message = said.exec(text)?.[1]?.trim();
 		if (message) {
 			return {persona, message};
@@ -296,10 +318,7 @@ export function addressedPersona(text: string, personas: ChatPersona[]): Address
 
 // The persona whose name a text has in it, the longest such name.
 function mentionedPersona(text: string, personas: ChatPersona[]): ChatPersona | null {
-	return (
-		byNameLength(personas).find((persona) => new RegExp(namePattern(persona), 'iu').test(text)) ??
-		null
-	);
+	return patternsOf(personas).find(({named}) => named.test(text))?.persona ?? null;
 }
 
 // The persona a message goes to when it names none: General, which is the one every member

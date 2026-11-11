@@ -87,10 +87,11 @@ export function WriteEmailWidget({
 					>
 						Save draft
 					</PillButton>
+					{/* Sent only with something written, as Enter presses it once the card shows. */}
 					<EnterButton
 						bar={bar}
 						onClick={() => write(true)}
-						disabled={!from || to.length === 0 || busy}
+						disabled={!from || to.length === 0 || body.trim() === '' || busy}
 					>
 						Send email
 					</EnterButton>

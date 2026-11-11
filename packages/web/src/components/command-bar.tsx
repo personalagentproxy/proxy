@@ -95,6 +95,8 @@ type Props = {
 	connections: Connection[] | null;
 	agents: AgentLogin[] | null;
 	personas: ChatPersona[] | null;
+	// Whether the dialog it is in is up: closed, it is still drawn as it fades out.
+	open: boolean;
 	// Closes the dialog it is in.
 	onClose: () => void;
 };
@@ -111,7 +113,7 @@ type Props = {
  * by name ("ask Finance …") is a message to it, of what follows the name, without being classified
  * at all.
  */
-export function CommandBar({connections, agents, personas, onClose}: Props) {
+export function CommandBar({connections, agents, personas, open: up, onClose}: Props) {
 	const here = useOrgSlug();
 	const human = useHuman();
 	// On the person's account page the address names no organization: the bar goes to their first
@@ -138,9 +140,11 @@ export function CommandBar({connections, agents, personas, onClose}: Props) {
 	const [pausedOn, setPausedOn] = useState('');
 	const pausedOnNow = useRef('');
 	const pause = useRef<ReturnType<typeof setTimeout>>(undefined);
-	// What is typed now, trimmed, and what the last request was sent with.
+	// What is typed now, trimmed, and what the last request was sent with; `asking` while the
+	// answer to it is still on its way.
 	const typed = useRef('');
 	const sent = useRef('');
+	const asking = useRef(false);
 	// Requests are numbered as they are sent. An answer is shown when it is newer than the one on
 	// screen, so answers keep coming while typing goes on, but a slow one never replaces a newer one:
 	// `shown` is the newest pick on screen, `filled` the newest fields.
@@ -158,6 +162,16 @@ export function CommandBar({connections, agents, personas, onClose}: Props) {
 		[],
 	);
 
+	// Whether the bar is still up, for what a widget finishes after a request: closed meanwhile, it
+	// takes the person nowhere.
+	const live = useRef(up);
+	useEffect(() => {
+		live.current = up;
+		return () => {
+			live.current = false;
+		};
+	}, [up]);
+
 	const destinations = useMemo(
 		() => destinationsOf({org, chat, personas, connections, agents}),
 		[org, chat, personas, connections, agents],
@@ -171,7 +185,10 @@ export function CommandBar({connections, agents, personas, onClose}: Props) {
 	// the lists coming in do.
 	const at = selected < rows.length ? selected : 0;
 	// The agent the text is said to by name, which makes it a message to that agent.
-	const addressed = asks && personas !== null ? addressedPersona(text, personas) : null;
+	const addressed = useMemo(
+		() => (asks && personas !== null ? addressedPersona(text, personas) : null),
+		[asks, personas, text],
+	);
 
 	const pauseOn = (paused: string) => {
 		pausedOnNow.current = paused;
@@ -217,9 +234,13 @@ export function CommandBar({connections, agents, personas, onClose}: Props) {
 		}
 
 		sent.current = asked;
+		asking.current = true;
 		sequence.current += 1;
 		const request = sequence.current;
 		void pickIntent(org, asked).then((result) => {
+			if (request === sequence.current) {
+				asking.current = false;
+			}
 			if (request <= shown.current) {
 				return;
 			}
@@ -259,6 +280,7 @@ export function CommandBar({connections, agents, personas, onClose}: Props) {
 		clearTimeout(tick.current);
 		tick.current = undefined;
 		sent.current = '';
+		asking.current = false;
 		shown.current = sequence.current;
 		filled.current = sequence.current;
 	};
@@ -311,6 +333,14 @@ export function CommandBar({connections, agents, personas, onClose}: Props) {
 		void navigate(to);
 	};
 
+	// A widget is done, which leads `to` while the bar is still up.
+	const done = (to: string) => {
+		if (!live.current) {
+			return;
+		}
+		leave(to);
+	};
+
 	const open = (destination: Destination) => leave(destination.to);
 
 	// Enter opens the lit row where what is typed leads somewhere. Otherwise it presses the main
@@ -339,6 +369,12 @@ export function CommandBar({connections, agents, personas, onClose}: Props) {
 		}
 		enter(asked);
 		if (current) {
+			return;
+		}
+		// The answer for it is on its way, or its widget is being filled in: it is waited for, as
+		// asking again would fill the widget in twice.
+		const filling = answer !== null && answer.text === asked && answer.filling && error === null;
+		if (filling || (asking.current && sent.current === asked)) {
 			return;
 		}
 		clearTimeout(tick.current);
@@ -373,7 +409,7 @@ export function CommandBar({connections, agents, personas, onClose}: Props) {
 							entered: enteredOn(words),
 							onEnter: onEnterKey,
 							setAction,
-							done: leave,
+							done,
 						}}
 					/>
 				),
@@ -396,7 +432,7 @@ export function CommandBar({connections, agents, personas, onClose}: Props) {
 						typed={answer.text}
 						now={answer.at}
 						onAsk={ask}
-						bar={{entered: pressed, onEnter: onEnterKey, setAction, done: leave}}
+						bar={{entered: pressed, onEnter: onEnterKey, setAction, done}}
 					/>
 				),
 			};
@@ -425,7 +461,7 @@ export function CommandBar({connections, agents, personas, onClose}: Props) {
 							entered: enteredOn(words),
 							onEnter: onEnterKey,
 							setAction,
-							done: leave,
+							done,
 						}}
 					/>
 				),

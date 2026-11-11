@@ -387,6 +387,24 @@ export const WIDGET_IDS = [
 	'new_agent',
 ] as const satisfies readonly WidgetId[];
 
+/** What each widget is called, as it says it is. */
+export const WIDGET_NAMES: Record<WidgetId, string> = {
+	new_event: 'New event',
+	change_event: 'Change event',
+	show_calendar: 'Calendar',
+	find_person: 'Person',
+	write_email: 'Write email',
+	reply_email: 'Reply to email',
+	find_email: 'Find email',
+	find_file: 'Find file',
+	ask: 'Ask',
+	calculate: 'Math',
+	convert_units: 'Convert units',
+	show_balances: 'Balances',
+	find_transactions: 'Transactions',
+	new_agent: 'New agent',
+};
+
 /** The widgets that work with Chat's agents, picked only for an organization that has Chat. */
 export const CHAT_WIDGET_IDS: readonly WidgetId[] = ['new_agent'];
 

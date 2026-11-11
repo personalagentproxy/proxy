@@ -326,6 +326,11 @@ describe('IntentWidget', () => {
 			'value',
 			'lunch next week',
 		);
+		// Nothing written, nothing sent: Enter in the bar would press it as soon as it shows.
+		expect(within(widget).getByRole('button', {name: 'Send email'})).toHaveProperty(
+			'disabled',
+			true,
+		);
 		fireEvent.change(within(widget).getByRole('textbox', {name: 'Message'}), {
 			target: {value: 'Free on Tuesday?'},
 		});

@@ -26,14 +26,31 @@ type BarLists = {
 
 const NOTHING_READ = {connections: null, agents: null, personas: null};
 
-// The lists, kept from one opening of the bar to the next and read again as it opens, so it goes
-// to what there is now without waiting for it: what was read last shows meanwhile, and stays where
-// it can't be read again. Another organization's are none of this one's.
-function useBarLists(org: string, chat: boolean, open: boolean): BarLists {
+// How long lists read as the bar opened are new enough for it to open again on the same page
+// without reading them again, as when it is opened and closed in a row.
+const FRESH_MS = 30_000;
+
+// The lists, kept from one opening of the bar to the next, so it goes to what there is without
+// waiting for it: what was read last shows meanwhile, and stays where it can't be read again.
+// They are read again as it opens, unless it was opened on the same page a moment ago, as it then
+// has what there is. Another organization's are none of this one's.
+function useBarLists(org: string, chat: boolean, open: boolean, page: string): BarLists {
 	const [lists, setLists] = useState<BarLists>({org, ...NOTHING_READ});
+	// When all of them were last read, and for what.
+	const read = useRef<{org: string; chat: boolean; page: string; at: number} | null>(null);
 
 	useEffect(() => {
 		if (!open || org === '') {
+			return;
+		}
+		const last = read.current;
+		if (
+			last !== null &&
+			last.org === org &&
+			last.chat === chat &&
+			last.page === page &&
+			Date.now() - last.at < FRESH_MS
+		) {
 			return;
 		}
 		let current = true;
@@ -44,6 +61,9 @@ function useBarLists(org: string, chat: boolean, open: boolean): BarLists {
 		]).then(([connections, agents, personas]) => {
 			if (!current) {
 				return;
+			}
+			if (connections.isOk() && agents.isOk() && personas.isOk()) {
+				read.current = {org, chat, page, at: Date.now()};
 			}
 			setLists((previous) => {
 				const kept = previous.org === org ? previous : NOTHING_READ;
@@ -58,7 +78,7 @@ function useBarLists(org: string, chat: boolean, open: boolean): BarLists {
 		return () => {
 			current = false;
 		};
-	}, [org, chat, open]);
+	}, [org, chat, open, page]);
 
 	if (lists.org !== org) {
 		return {org, ...NOTHING_READ};
@@ -69,7 +89,7 @@ function useBarLists(org: string, chat: boolean, open: boolean): BarLists {
 /**
  * Around the human side's pages: Cmd+K (Ctrl+K off a Mac) opens the command bar in a dialog over
  * whatever page is up, and closes it again. The dialog is the page's it was opened on, so going
- * anywhere closes it.
+ * anywhere closes it, for good: back on that page, it stays closed.
  */
 export function CommandPaletteProvider({children}: {children: ReactNode}) {
 	// The sidebar's organization: the address's, or on the person's account page, their first.
@@ -83,6 +103,10 @@ export function CommandPaletteProvider({children}: {children: ReactNode}) {
 	const toggle = useCallback(() => {
 		setOpenedOn((on) => (on === here.current ? null : here.current));
 	}, []);
+	// Left however it was, a link in a card or the browser's Back as much as Enter, it is closed.
+	if (openedOn !== null && openedOn !== pathname) {
+		setOpenedOn(null);
+	}
 	const palette = useMemo(() => ({toggle}), [toggle]);
 
 	useEffect(() => {
@@ -102,7 +126,7 @@ export function CommandPaletteProvider({children}: {children: ReactNode}) {
 	// Whether the organization has Chat (the `harness` experiment), whose agents the bar goes to,
 	// makes and sends messages to.
 	const chat = useExperiments().includes('harness');
-	const lists = useBarLists(org, chat, open);
+	const lists = useBarLists(org, chat, open, pathname);
 
 	return (
 		<CommandPaletteContext value={palette}>
@@ -125,6 +149,7 @@ export function CommandPaletteProvider({children}: {children: ReactNode}) {
 						connections={lists.connections}
 						agents={lists.agents}
 						personas={lists.personas}
+						open={open}
 						onClose={close}
 					/>
 				</DialogContent>

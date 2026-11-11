@@ -1,5 +1,5 @@
 import type {ReactNode} from 'react';
-import {NO_WIDGET, type WidgetId} from '@proxy/contracts/intent';
+import {NO_WIDGET, WIDGET_NAMES, type WidgetId} from '@proxy/contracts/intent';
 import type {Intent} from '@/client/intent-client';
 import {Skeleton} from '@proxy/ui/components/skeleton';
 import {AskWidget} from '@/components/widgets/ask-widget';
@@ -71,31 +71,13 @@ export function IntentWidget(props: Props) {
 	return VIEWS[widget](props);
 }
 
-// What each widget is called, as it says it is, for its frame while its fields are filled in.
-const NAMES: Record<WidgetId, string> = {
-	new_event: 'New event',
-	change_event: 'Change event',
-	show_calendar: 'Calendar',
-	find_person: 'Person',
-	write_email: 'Write email',
-	reply_email: 'Reply to email',
-	find_email: 'Find email',
-	find_file: 'Find file',
-	ask: 'Ask',
-	calculate: 'Math',
-	convert_units: 'Convert units',
-	show_balances: 'Balances',
-	find_transactions: 'Transactions',
-	new_agent: 'New agent',
-};
-
 // The widget the api picked, as soon as it is picked: lines in its place, until its fields are filled in.
 export function FillingWidget({widget}: {widget: Intent['widget']}) {
 	if (widget === NO_WIDGET) {
 		return null;
 	}
 	return (
-		<WidgetFrame name={NAMES[widget]}>
+		<WidgetFrame name={WIDGET_NAMES[widget]}>
 			<p className="sr-only">Filling in…</p>
 			<div aria-hidden className="flex flex-col gap-3">
 				<Skeleton className="h-4 w-2/3" />

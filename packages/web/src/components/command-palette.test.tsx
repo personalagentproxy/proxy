@@ -3,7 +3,7 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import type {ChatPersona} from '@proxy/contracts/harness';
-import {afterEach, beforeEach, describe, expect, test} from 'bun:test';
+import {afterEach, beforeEach, describe, expect, setSystemTime, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider, useLocation} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
@@ -64,12 +64,19 @@ const claude: AgentLogin = {
 
 const personas = [persona('finance', 'Finance', false), persona('general', 'General', true)];
 
+// What the bar sends the api, as far as the tests look at it: what is typed, sent or kept as a
+// draft, and the name of an agent made.
+type Body = {text?: string; widget?: string; name?: string};
+
 // What the api is asked, each request with its body, and what it answers: the widget picked for
-// what is typed and its fields as each test sets them.
-type Asked = {method: string; path: string; body: Record<string, unknown> | null};
+// what is typed and its fields as each test sets them, which a test may hold back.
+type Asked = {method: string; path: string; body: Body | null};
+type Fields = Array<{id: string; name: string; values: string[]}>;
 let asked: Asked[] = [];
 let picked: {widget: string} | Promise<{widget: string}> = {widget: 'none'};
-let fields: Array<{id: string; name: string; values: string[]}> = [];
+let fields: Fields | Promise<Fields> = [];
+// A message to an agent, answered once it settles, where a test holds it back.
+let messageSent: Promise<void> | null = null;
 // Whether the organization has Chat.
 let chat = true;
 // Whether the api refuses a message to an agent.
@@ -85,7 +92,7 @@ async function answer(path: string, method: string): Promise<Response> {
 		return Response.json({...(await picked), ms: 1});
 	}
 	if (path.endsWith('/intent/fields')) {
-		return Response.json({fields, ms: 1});
+		return Response.json({fields: await fields, ms: 1});
 	}
 	if (path.endsWith('/chat/personas') && method === 'GET') {
 		return Response.json({personas, harnesses: []});
@@ -94,6 +101,7 @@ async function answer(path: string, method: string): Promise<Response> {
 		return Response.json({persona: persona('made', 'Stretch reminders', false)});
 	}
 	if (path.endsWith('/messages')) {
+		await messageSent;
 		return Response.json({
 			entry: {id: 'e1', kind: 'person', text: '', isError: false, at: '2026-10-20T10:00:00Z'},
 		});
@@ -114,12 +122,13 @@ beforeEach(() => {
 	asked = [];
 	picked = {widget: 'none'};
 	fields = [];
+	messageSent = null;
 	chat = true;
 	refusesMessages = false;
 	holdsConnections = false;
 	globalThis.fetch = (async (input: string, init?: RequestInit) => {
 		const method = init?.method ?? 'GET';
-		const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
+		const body = init?.body ? (JSON.parse(String(init.body)) as Body) : null;
 		asked.push({method, path: input, body});
 		if (holdsConnections && input.endsWith('/connections')) {
 			return new Promise<Response>(() => undefined);
@@ -144,6 +153,7 @@ afterEach(async () => {
 		SOON,
 	);
 	globalThis.fetch = realFetch;
+	setSystemTime();
 	clearWidgetLookups();
 	cleanup();
 });
@@ -170,13 +180,14 @@ function renderApp(entry = '/acme/activity') {
 		{initialEntries: [entry]},
 	);
 
-	return render(
+	render(
 		<ThemeProvider>
 			<TooltipProvider>
 				<RouterProvider router={router} />
 			</TooltipProvider>
 		</ThemeProvider>,
 	);
+	return router;
 }
 
 async function where(): Promise<string | null> {
@@ -236,20 +247,49 @@ describe('the command bar over any page', () => {
 		await waitFor(() => expect(barIsOpen()).toBe(false));
 	});
 
-	test('opened again, it goes to what it read the last time at once, while it reads it again', async () => {
+	test('opened again, it goes to what it read the last time at once, reading it again only once that is a while ago', async () => {
 		renderApp();
 		await openBar();
 		await waitFor(() => expect(rows().some((row) => row.startsWith('Granola'))).toBe(true));
+		const reads = () => asked.filter((one) => one.path.endsWith('/connections')).length;
+		const read = reads();
+
 		pressShortcut();
 		await waitFor(() => expect(barIsOpen()).toBe(false));
+		await openBar();
+		expect(reads()).toBe(read);
 
+		pressShortcut();
+		await waitFor(() => expect(barIsOpen()).toBe(false));
+		setSystemTime(new Date(Date.now() + 60_000));
 		holdsConnections = true;
-		const reads = asked.filter((one) => one.path.endsWith('/connections')).length;
 		await openBar();
 
 		expect(rows().some((row) => row.startsWith('Granola'))).toBe(true);
 		expect(rows().some((row) => row.startsWith('Finance'))).toBe(true);
-		expect(asked.filter((one) => one.path.endsWith('/connections'))).toHaveLength(reads + 1);
+		expect(reads()).toBe(read + 1);
+	});
+
+	test('left by a link in a card or the browser’s Back, it stays closed back on the page it was opened on', async () => {
+		const router = renderApp();
+		await openBar();
+
+		await router.navigate('/acme/members');
+		await waitFor(() => expect(barIsOpen()).toBe(false));
+		await router.navigate(-1);
+
+		await arrivedAt('/acme/activity');
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(barIsOpen()).toBe(false);
+	});
+
+	test('opens on the shortcut on a keyboard of another script, by where K is', async () => {
+		renderApp();
+		await where();
+
+		fireEvent.keyDown(window, {key: 'л', code: 'KeyK', ctrlKey: true});
+
+		expect(await screen.findByRole('searchbox', {name: 'Quick actions'}, SOON)).toBeTruthy();
 	});
 
 	test('is also opened from the sidebar', async () => {
@@ -401,6 +441,45 @@ describe('the command bar over any page', () => {
 		expect(posts('/chat/personas/general/messages').map((one) => one.body)).toEqual([
 			{text: 'hello there'},
 		]);
+	});
+
+	test('Enter while the widget for what is typed is filled in waits for it, asking nothing again', async () => {
+		picked = {widget: 'calculate'};
+		let fill: (value: Fields) => void = () => undefined;
+		fields = new Promise((resolved) => {
+			fill = resolved;
+		});
+		renderApp();
+		const input = await openBar();
+
+		fireEvent.change(input, {target: {value: 'what is 2 + 2'}});
+		await waitFor(() => expect(posts('/intent/fields')).toHaveLength(1), SOON);
+		fireEvent.keyDown(input, {key: 'Enter'});
+		fill([{id: 'expression', name: 'Calculation', values: ['2 + 2']}]);
+
+		await cardNamed('Math');
+		expect(posts('/intent')).toHaveLength(1);
+		expect(posts('/intent/fields')).toHaveLength(1);
+	});
+
+	test('a message whose bar was closed while it was sent leads nowhere', async () => {
+		let settle: () => void = () => undefined;
+		messageSent = new Promise((resolved) => {
+			settle = resolved;
+		});
+		renderApp();
+		const input = await openBar();
+
+		fireEvent.change(input, {target: {value: 'plan my trip to Lisbon in March'}});
+		await cardNamed('Send to an agent');
+		fireEvent.keyDown(input, {key: 'Enter'});
+		await waitFor(() => expect(posts('/messages')).toHaveLength(1));
+		fireEvent.keyDown(input, {key: 'Escape'});
+		await waitFor(() => expect(barIsOpen()).toBe(false));
+		settle();
+
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(screen.getByTestId('where').textContent).toBe('/acme/activity');
 	});
 
 	test('a text said to an agent by name is a message to it of what follows the name, and no quick action is looked for', async () => {
