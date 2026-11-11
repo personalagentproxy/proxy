@@ -77,15 +77,15 @@ import {
 const BUSY_POLL_MS = 1000;
 const IDLE_POLL_MS = 4000;
 
-// One turn of the conversation: what the person said in a dark bubble on the right (a light one
-// in dark mode), as they typed it, or what the persona answered in a gray one on the left, as
-// Markdown, in a red one where its turn failed.
+// One turn of the conversation: what the person said in a gray bubble on the right, as they typed
+// it, or what the persona answered on the left as plain Markdown, without a bubble, in a red one
+// where its turn failed.
 function Turn({entry}: {entry: ChatMessage}) {
 	if (entry.kind === 'person') {
 		return (
 			<Message align="end">
 				<MessageContent>
-					<Bubble align="end" variant="inverted">
+					<Bubble align="end" variant="muted">
 						<BubbleContent className="whitespace-pre-wrap">{entry.text}</BubbleContent>
 					</Bubble>
 				</MessageContent>
@@ -95,7 +95,7 @@ function Turn({entry}: {entry: ChatMessage}) {
 	return (
 		<Message>
 			<MessageContent>
-				<Bubble variant={entry.isError ? 'destructive' : 'muted'}>
+				<Bubble variant={entry.isError ? 'destructive' : 'ghost'}>
 					<BubbleContent>
 						<Markdown text={entry.text} />
 					</BubbleContent>
@@ -803,7 +803,7 @@ const Conversation = memo(function Conversation({
 		<>
 			<MessageScroller className="min-h-0 flex-1">
 				<MessageScrollerViewport aria-label="Conversation">
-					<MessageScrollerContent className="page-column mx-auto w-full max-w-3xl pt-6 pb-4">
+					<MessageScrollerContent className="page-column mx-auto w-full max-w-4xl pt-6 pb-4">
 						{runs.length === 0 && (
 							<div className="flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
 								<LiveHead look={current.look} color={current.color} size={64} />
@@ -1015,7 +1015,7 @@ function Composer({
 		<form
 			ref={form}
 			onSubmit={(event) => void submit(event)}
-			className="page-column mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-2 pt-2 pb-4"
+			className="page-column mx-auto flex w-full max-w-4xl shrink-0 flex-col gap-2 pt-2 pb-4"
 		>
 			{(error ?? listError) && <p className="text-sm text-destructive">{error ?? listError}</p>}
 			{/* No focus ring: the caret in the only input on the page says where typing goes. */}

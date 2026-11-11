@@ -53,9 +53,9 @@ function RunLabel({from, chat}: {from: TaskChatEntry['from']; chat: TaskChat}) {
 	return <span className="text-xs font-medium text-muted-foreground">{chat.task.title}</span>;
 }
 
-// One message of the chat: what the task said, on the left, in a gray bubble, a red one where it
-// failed; what the persona said to it, on the right, in an outlined one; and what the person
-// wrote to it, on the right, in a dark one, as they typed it. It is drawn again only as it
+// One message of the chat: what the task said, on the left, as plain text, in a red bubble where
+// it failed; what the persona said to it, on the right, in an outlined one; and what the person
+// wrote to it, on the right, in a gray one, as they typed it. It is drawn again only as it
 // changes, since drawing it parses its Markdown; one that came while the chat was open rises into
 // place.
 const TaskTurn = memo(function TaskTurn({entry, fresh}: {entry: TaskChatEntry; fresh: boolean}) {
@@ -71,7 +71,7 @@ function TaskTurnBubble({entry}: {entry: TaskChatEntry}) {
 		return (
 			<Message align="end">
 				<MessageContent>
-					<Bubble align="end" variant="inverted">
+					<Bubble align="end" variant="muted">
 						<BubbleContent className="whitespace-pre-wrap">{entry.text}</BubbleContent>
 					</Bubble>
 				</MessageContent>
@@ -94,7 +94,7 @@ function TaskTurnBubble({entry}: {entry: TaskChatEntry}) {
 	return (
 		<Message>
 			<MessageContent>
-				<Bubble variant={entry.isError ? 'destructive' : 'muted'}>
+				<Bubble variant={entry.isError ? 'destructive' : 'ghost'}>
 					<BubbleContent>
 						<Markdown text={entry.text} />
 					</BubbleContent>
@@ -185,7 +185,7 @@ function TaskConversation({loaded}: {loaded: TaskChat}) {
 		<>
 			<MessageScroller className="min-h-0 flex-1">
 				<MessageScrollerViewport aria-label="Task">
-					<MessageScrollerContent className="page-column mx-auto w-full max-w-3xl pt-6 pb-4">
+					<MessageScrollerContent className="page-column mx-auto w-full max-w-4xl pt-6 pb-4">
 						{runs.map((run) => {
 							const first = run.entries[0];
 							if (!first) {
@@ -294,7 +294,7 @@ function TaskComposer({
 		<form
 			ref={form}
 			onSubmit={(event) => void submit(event)}
-			className="page-column mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-2 pt-2 pb-4"
+			className="page-column mx-auto flex w-full max-w-4xl shrink-0 flex-col gap-2 pt-2 pb-4"
 		>
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<InputGroup className="rounded-xl bg-background shadow-xs">
