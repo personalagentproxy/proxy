@@ -413,6 +413,42 @@ describe.skipIf(!databaseUrl)('files, against the database', () => {
 		]);
 	});
 
+	// Slow: each folder of a chain 45 deep is read up to the top as it is made.
+	test('moves a folder only where what it holds stays no deeper than anything may be put', async () => {
+		// Folders in a chain, `count` deep under `parentId`: each one, the top first.
+		async function chain(parentId: string | null, name: string, count: number) {
+			const folders = [];
+			let under = parentId;
+			for (let at = 1; at <= count; at++) {
+				const folder = unwrap(await createFolder(person, {parentId: under, name: `${name} ${at}`}));
+				folders.push(folder);
+				under = folder.id;
+			}
+			return folders;
+		}
+		const deep = await chain(null, 'Deep', 45);
+		// A folder with four more under it, and a file in the last: five levels under the first.
+		const tree = await chain(null, 'Tree', 5);
+		const last = tree.at(-1);
+		const top = tree[0];
+		if (!last || !top) {
+			throw new Error('no tree');
+		}
+		const file = unwrap(
+			await createFile(person, {parentId: last.id, name: 'bottom.txt', content: await content()}),
+		);
+
+		// The file would be in a folder 50 deep, where nothing may be put.
+		expect(refusal(await moveFile(person, {id: top.id, parentId: deep[44]?.id}))).toBe(
+			'validation_error: Folders can’t be nested that deep.',
+		);
+		// A folder higher, it is in one 49 deep, and still opens.
+		unwrap(await moveFile(person, {id: top.id, parentId: deep[43]?.id}));
+		expect(unwrap(await getFile(connectionId, file.id))?.trail).toHaveLength(49);
+		// Renamed where it is, it moves nowhere.
+		unwrap(await moveFile(person, {id: top.id, name: 'Tree, renamed'}));
+	}, 60_000);
+
 	test('puts a folder in the trash with everything in it, where nothing is written, and takes it out again', async () => {
 		const folder = unwrap(await createFolder(person, {parentId: null, name: 'Old'}));
 		const file = unwrap(

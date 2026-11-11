@@ -160,9 +160,10 @@ export const envSchema = z.object({
 			description: 'What every object goes under in `FILES_S3_BUCKET`, such as `proxy`, for a bucket that holds more than this.',
 		},
 	),
-	FILES_MAX_MB: documented(z.coerce.number().int().positive().default(100), {
+	// A file's size is kept in a 32-bit column, so a file is under 2 GB.
+	FILES_MAX_MB: documented(z.coerce.number().int().positive().max(2047).default(100), {
 		group: 'Connections',
-		description: 'The largest file Files takes, in megabytes.',
+		description: 'The largest file Files takes, in megabytes: at most 2047.',
 	}),
 
 	TYPESAFE_API_KEY: documented(z.string().min(1).optional(), {

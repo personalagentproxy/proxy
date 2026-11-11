@@ -46,6 +46,8 @@ describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 	// not write over files.
 	let agentId = '';
 	let readerId = '';
+	// An agent that may not read the drive, and so may not change it either.
+	let strangerId = '';
 	let server: Server | null = null;
 	let origin = '';
 
@@ -92,6 +94,9 @@ describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 		const reader = await db.agent.create({data: {orgId, providerId: 'claude', name: 'Reader', username: `files-cli-test-reader-${stamp}`, passwordHash: '', ownerUserId: userId}});
 		readerId = reader.id;
 		await db.agentGrant.create({data: {agentId: readerId, connectionId, actionId: 'editFiles', allowed: false}});
+		const stranger = await db.agent.create({data: {orgId, providerId: 'claude', name: 'Stranger', username: `files-cli-test-stranger-${stamp}`, passwordHash: '', ownerUserId: userId}});
+		strangerId = stranger.id;
+		await db.agentGrant.create({data: {agentId: strangerId, connectionId, actionId: 'readFiles', allowed: false}});
 		taskId = (await db.agentTask.create({data: {orgId, agentId, title: 'Chart the quarter', goal: 'A chart', via: 'mcp'}})).id;
 
 		const {handleCliListFilesRoute, handleCliPullFileRoute, handleCliPushFileRoute} = await import('./cli');
@@ -217,5 +222,27 @@ describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 		const vault = await pap(`/files/${vaultId}/list`);
 		expect(vault.status).toBe(422);
 		expect((await vault.json()).message).toStartWith(`${vaultId} is not a drive`);
+	});
+
+	test('tells an agent that may not read the drive nothing of its paths by how a push is refused', async () => {
+		const before = (await logged()).length;
+		// What a push was answered with, as [error, message].
+		const said = async (response: Response) => {
+			const body = await response.json();
+			return [body.error, body.message];
+		};
+
+		const there = await said(await push('Reports/2026/q3.csv', 'x', {}, strangerId));
+		const nothing = await said(await push('Reports/none.txt', 'x', {}, strangerId));
+		const inFile = await said(await push('Reports/2026/q3.csv/inside.txt', 'x', {}, strangerId));
+		expect(there[0]).toBe('forbidden');
+		expect(nothing).toEqual(there);
+		expect(inFile).toEqual(there);
+
+		expect((await logged()).slice(before)).toEqual([
+			['files_create', 'denied', 'cli'],
+			['files_create', 'denied', 'cli'],
+			['files_create', 'denied', 'cli'],
+		]);
 	});
 });

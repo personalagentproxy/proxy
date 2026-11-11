@@ -206,9 +206,10 @@ export function handleUploadFileRoute(request: AuthenticatedRequest): Promise<Re
 		const {change, connectionId} = $(await driveOf(request));
 		const {name: raw, parent = null, type} = $(parseSchema(uploadQuerySchema, request.query));
 		const name = $(requireFileName(raw));
-		// Before the bytes are taken, so an upload into a folder that isn't there stores nothing.
-		if (parent !== null) {
-			$(await requireFile(connectionId, parent));
+		// Before the bytes are taken, so an upload into a folder that isn't there, or into a file,
+		// stores nothing.
+		if (parent !== null && !$(await requireFile(connectionId, parent)).folder) {
+			return $(Err(ApiErr.validationError('Files go into a folder, not into another file.')));
 		}
 		const stored = $(await storeContent(change.orgId, $(uploadBody(request)), maxFileBytes()));
 		const made = $(await createFile(change, {parentId: parent, name, rename: true, content: {blobId: stored.blobId, size: stored.size, type: mediaType(name, type, 'bytes')}}));

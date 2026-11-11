@@ -190,6 +190,25 @@ async function requireOpenFolder(
 	return trail;
 }
 
+// How many levels of files and folders there are under a folder, in the trash or not: none for
+// an empty one, or a file. Counted no deeper than a drive goes.
+async function levelsBelow(tx: Tx, connectionId: string, id: string): Promise<number> {
+	let levels = 0;
+	let level = [id];
+	while (levels <= MAX_DEPTH) {
+		const children = await tx.fileNode.findMany({
+			where: {connectionId, parentId: {in: level}},
+			select: {id: true},
+		});
+		if (children.length === 0) {
+			return levels;
+		}
+		levels += 1;
+		level = children.map((child) => child.id);
+	}
+	return levels;
+}
+
 // A file or folder to change: one of the drive's, outside the trash.
 async function requireLive(tx: Tx, connectionId: string, id: string): Promise<FileNodeRow> {
 	const node = await tx.fileNode.findFirst({where: {id, connectionId}, select: nodeSelect});
@@ -639,6 +658,15 @@ export function moveFile(
 			const trail = await requireOpenFolder(tx, connectionId, parentId);
 			if (trail.some((folder) => folder.id === node.id)) {
 				throw ApiErr.validationError('A folder can’t be moved inside itself.');
+			}
+			// What the folder holds goes with it: the deepest of it may be no deeper than anything
+			// may be put.
+			if (
+				node.folder &&
+				parentId !== node.parentId &&
+				trail.length + (await levelsBelow(tx, connectionId, node.id)) >= MAX_DEPTH
+			) {
+				throw ApiErr.validationError('Folders can’t be nested that deep.');
 			}
 			if (await isTaken(tx, connectionId, parentId, name, node.id)) {
 				throw nameTaken(name);
