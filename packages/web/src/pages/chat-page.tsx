@@ -29,7 +29,7 @@ import {
 	useRef,
 	useState,
 } from 'react';
-import {Link, useNavigate, useParams} from 'react-router';
+import {Link, useLocation, useNavigate, useParams} from 'react-router';
 import {
 	createPersona,
 	deletePersona,
@@ -72,6 +72,7 @@ import {cn} from '@proxy/ui/lib/utils';
 import {type AttachmentInput, takenFiles, useAttachments} from '@/hooks/use-attachments';
 import {useChatDraft} from '@/hooks/use-chat-draft';
 import {useExperiments} from '@/hooks/use-experiment';
+import {FROM_COMMAND_BAR} from '@/lib/command-bar';
 import {useLastLoaded, useLoaded} from '@/hooks/use-loaded';
 import {useListMotion} from '@/hooks/use-list-motion';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -486,10 +487,22 @@ export function ChatPage() {
 	const [editing, setEditing] = useState<'new' | ChatPersona | null>(null);
 	const [deleting, setDeleting] = useState<ChatPersona | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	// A conversation picked in the list focuses its input once that conversation has loaded.
-	// Nothing is requested on an ordinary page load, so it does not steal focus or open a phone's
-	// keyboard just because the Chat page was visited.
-	const [focusRequestedFor, setFocusRequestedFor] = useState<string | null>(null);
+	// A conversation picked in the list, or in the command bar, focuses its input once that
+	// conversation has loaded. Nothing is requested on an ordinary page load, so it does not steal
+	// focus or open a phone's keyboard just because the Chat page was visited.
+	const location = useLocation();
+	const fromBar = location.state === FROM_COMMAND_BAR;
+	const [focusRequestedFor, setFocusRequestedFor] = useState<string | null>(
+		fromBar ? current : null,
+	);
+	// The bar can go to a conversation while the page is up, as from another one.
+	const [arrival, setArrival] = useState(location.key);
+	if (arrival !== location.key) {
+		setArrival(location.key);
+		if (fromBar) {
+			setFocusRequestedFor(current);
+		}
+	}
 	const focused = useCallback(() => setFocusRequestedFor(null), [setFocusRequestedFor]);
 	// What was typed in each conversation while the page was open, fresher than the list, which
 	// is read as another opens, perhaps before the save of what was typed in the last has landed.

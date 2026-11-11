@@ -20,6 +20,7 @@ import {
 	addressedPersona,
 	type Destination,
 	destinationsOf,
+	FROM_COMMAND_BAR,
 	findDestinations,
 	personaFor,
 	rowId,
@@ -317,7 +318,7 @@ export function CommandBar({connections, agents, personas, open: up, onClose}: P
 	const leave = (to: string) => {
 		change('');
 		onClose();
-		void navigate(to);
+		void navigate(to, {state: FROM_COMMAND_BAR});
 	};
 
 	// A widget is done, which leads `to` while the bar is still up.
