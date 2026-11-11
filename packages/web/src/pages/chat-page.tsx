@@ -6,7 +6,15 @@ import type {
 	ThreadLog,
 } from '@proxy/contracts/harness';
 import {MoonIcon, PencilIcon, Trash2Icon} from 'lucide-react';
-import {type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState} from 'react';
+import {
+	type FormEvent,
+	type KeyboardEvent,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from 'react';
 import {Link, useNavigate, useParams} from 'react-router';
 import {
 	createPersona,
@@ -501,7 +509,9 @@ function Conversation({
 	// back from the server.
 	useReloadWhileHidden(text === draft.saved && !sending && !managing);
 
-	useEffect(() => {
+	// Said as it is drawn, so the list shows the conversation as it is shown, and from the answer
+	// it came with, in the same frame.
+	useLayoutEffect(() => {
 		onShown({personaId, log, draft: text});
 	}, [onShown, personaId, log, text]);
 

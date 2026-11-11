@@ -2,7 +2,15 @@ import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import type {ChatPersona} from '@proxy/contracts/harness';
 import {Ok} from 'ts-results-es';
-import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from 'react';
 import {useLocation} from 'react-router';
 import {listAgents} from '@/client/agents-client';
 import {listConnections} from '@/client/connections-client';
@@ -96,8 +104,10 @@ export function CommandPaletteProvider({children}: {children: ReactNode}) {
 	const org = useHuman()?.org.slug ?? '';
 	const {pathname} = useLocation();
 	const [openedOn, setOpenedOn] = useState<string | null>(null);
+	// The page, and the shortcut below, are the provider's as the page is drawn, not a moment
+	// after: Cmd+K pressed the instant a page shows opens the bar over it.
 	const here = useRef(pathname);
-	useEffect(() => {
+	useLayoutEffect(() => {
 		here.current = pathname;
 	}, [pathname]);
 	const toggle = useCallback(() => {
@@ -109,7 +119,7 @@ export function CommandPaletteProvider({children}: {children: ReactNode}) {
 	}
 	const palette = useMemo(() => ({toggle}), [toggle]);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (!isShortcut(event, 'k') || event.repeat) {
 				return;

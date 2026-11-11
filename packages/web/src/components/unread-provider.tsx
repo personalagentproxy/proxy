@@ -68,7 +68,9 @@ export function UnreadProvider({children}: {children: ReactNode}) {
 	const told = useRef<Map<string, string> | null>(null);
 	// The answers waiting to be told of, by the persona, and when to ask about them again.
 	const waiting = useRef(new Map<string, Waiting>());
-	const [confirmAt, setConfirmAt] = useState<number | null>(null);
+	// How long from the poll that found them, each poll's own, so the wait is timed from what the
+	// poll saw rather than from whenever the timer is set.
+	const [confirmIn, setConfirmIn] = useState<{ms: number} | null>(null);
 	// Which poll was asked for last: one asked for before it that answers after it is dropped, so a
 	// poll begun before a read can't put back what was unread.
 	const latestPoll = useRef(0);
@@ -132,7 +134,7 @@ export function UnreadProvider({children}: {children: ReactNode}) {
 			told.current = nextTold;
 			waiting.current = nextWaiting;
 			const since = [...nextWaiting.values()].map((waited) => waited.since);
-			setConfirmAt(since.length === 0 ? null : Math.min(...since) + CONFIRM_MS);
+			setConfirmIn(since.length === 0 ? null : {ms: Math.min(...since) + CONFIRM_MS - now});
 		},
 		[org, navigate],
 	);
@@ -146,14 +148,14 @@ export function UnreadProvider({children}: {children: ReactNode}) {
 	});
 
 	useEffect(() => {
-		if (confirmAt === null) {
+		if (confirmIn === null) {
 			return;
 		}
-		const timer = setTimeout(askNow, Math.max(0, confirmAt - Date.now()));
+		const timer = setTimeout(askNow, Math.max(0, confirmIn.ms));
 		return () => {
 			clearTimeout(timer);
 		};
-	}, [confirmAt, askNow]);
+	}, [confirmIn, askNow]);
 
 	useEffect(() => {
 		const onChange = () => setAttending(isAttending());

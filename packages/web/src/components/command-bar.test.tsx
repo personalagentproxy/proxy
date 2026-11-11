@@ -2,8 +2,8 @@
 
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
-import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
-import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {afterEach, beforeEach, describe, expect, jest, mock, test} from 'bun:test';
+import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
@@ -98,7 +98,11 @@ function fieldsFor(init?: RequestInit): Promise<Response> {
 // tests after these from ever reloading for a new release.
 let endTest: () => void = () => undefined;
 
+// The bar times what it asks by typing (a tick, and a pause), and the tests say what shows at each
+// moment of it: time passes only as a test moves it on, or as Testing Library does while it waits,
+// so what shows doesn't depend on how fast the machine is.
 beforeEach(() => {
+	jest.useFakeTimers();
 	fetchMock.mockReset();
 	fieldsMock.mockReset();
 	fieldsMock.mockImplementation((_input, init) => fieldsFor(init));
@@ -122,6 +126,7 @@ beforeEach(() => {
 
 afterEach(async () => {
 	cleanup();
+	jest.useRealTimers();
 	endTest();
 	await new Promise((resolve) => setTimeout(resolve, 0));
 	globalThis.fetch = realFetch;
@@ -168,6 +173,13 @@ const person = {
 	fields: [{id: 'person', name: 'Person', values: ['hugo']}],
 	ms: 1,
 };
+
+// `ms` go by, and what the bar's timers asked is answered.
+async function pass(ms: number) {
+	await act(async () => {
+		jest.advanceTimersByTime(ms);
+	});
+}
 
 async function typeInto(value: string): Promise<HTMLElement> {
 	const input = await screen.findByRole('searchbox', {name: 'Quick actions'});
@@ -240,7 +252,7 @@ describe('CommandBar', () => {
 		fieldsMock.mockImplementation(() => new Promise<Response>(() => {}));
 		await typeInto('lunch with Jacky Doe at Nopa');
 		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await pass(50);
 
 		expect(screen.queryByText('Filling in…')).toBeNull();
 		expect(
@@ -262,7 +274,7 @@ describe('CommandBar', () => {
 
 		expect(fieldsMock).toHaveBeenCalledTimes(2);
 		fields(Response.json({fields: intent.fields, ms: 1}));
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await pass(50);
 		expect(screen.getByRole('region', {name: 'Person'})).toBeTruthy();
 		expect(screen.queryByRole('region', {name: 'New event'})).toBeNull();
 	});
@@ -285,11 +297,10 @@ describe('CommandBar', () => {
 		renderBar();
 
 		await typeInto('what');
-		// At least the first request: on a slow runner, typing's pause can send another before this looks.
 		await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 		await typeInto('whats hugos number');
 		answer(Response.json({widget: 'none', fields: [], ms: 1}));
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await pass(50);
 
 		expect(screen.queryByRole('region', {name: 'Not a quick action (yet)'})).toBeNull();
 	});
@@ -302,7 +313,7 @@ describe('CommandBar', () => {
 
 		await typeInto('summarize my week');
 		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-		await new Promise((resolve) => setTimeout(resolve, 100));
+		await pass(100);
 		expect(screen.queryByRole('region', {name: 'Not a quick action (yet)'})).toBeNull();
 
 		expect(await screen.findByRole('region', {name: 'Not a quick action (yet)'})).toBeTruthy();
@@ -319,7 +330,7 @@ describe('CommandBar', () => {
 		expect(await screen.findByRole('region', {name: 'New event'})).toBeTruthy();
 		await typeInto('lunch with Jacky Doe and');
 		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-		await new Promise((resolve) => setTimeout(resolve, 700));
+		await pass(700);
 
 		expect(screen.getByRole('region', {name: 'New event'})).toBeTruthy();
 		expect(screen.queryByRole('region', {name: 'Not a quick action (yet)'})).toBeNull();
@@ -333,7 +344,7 @@ describe('CommandBar', () => {
 
 		await typeInto('find the');
 		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-		await new Promise((resolve) => setTimeout(resolve, 700));
+		await pass(700);
 
 		expect(screen.queryAllByRole('region')).toEqual([]);
 	});
@@ -361,7 +372,7 @@ describe('CommandBar', () => {
 		const sentence = 'lunch with Jacky Doe at Nopa';
 		for (let end = 1; end <= sentence.length; end += 3) {
 			await typeInto(sentence.slice(0, end));
-			await new Promise((resolve) => setTimeout(resolve, 100));
+			await pass(100);
 		}
 		expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
 
@@ -388,7 +399,7 @@ describe('CommandBar', () => {
 		expect(await screen.findByRole('region', {name: 'New event'})).toBeTruthy();
 
 		answerFirst(Response.json(person));
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await pass(50);
 		expect(screen.getByRole('region', {name: 'New event'})).toBeTruthy();
 		expect(screen.queryByRole('region', {name: 'Person'})).toBeNull();
 	});

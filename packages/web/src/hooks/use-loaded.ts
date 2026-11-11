@@ -1,6 +1,6 @@
 import {use, useEffect, useState} from 'react';
 import {useLoaderData} from 'react-router';
-import {type Later, Redirected} from '@/lib/loader-utils';
+import {type Later, Redirected, settledAs} from '@/lib/loader-utils';
 
 type LaterLoader<T> = (...args: never[]) => Later<T>;
 
@@ -66,5 +66,14 @@ export function useLastLoaded<T>(): Last<T> {
 			left = true;
 		};
 	}, [later]);
+	// An answer that has come is read at once, as `useLoaded` reads it, so what is drawn from it
+	// beside the content shows as the content does, rather than a moment after.
+	const settled = settledAs(later);
+	if (settled === 'failed') {
+		return {answer: last.answer, pending: false};
+	}
+	if (settled !== null && !(settled.value instanceof Redirected)) {
+		return {answer: settled.value, pending: false};
+	}
 	return {answer: last.answer, pending: last.of !== later};
 }
