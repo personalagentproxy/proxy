@@ -290,8 +290,22 @@ export type EntryAttachment = {
 	cut: boolean;
 };
 
-function attachmentLines(attachment: EntryAttachment, pictured: boolean): string {
-	const {name, type, size, connectionId, fileId, version, text, cut} = attachment;
+/** A file attached to an entry of the log, with whether its version is gone from its drive since, deleted for good. */
+export type AttachedFile = EntryAttachment & {gone: boolean};
+
+function attachmentLines(attachment: AttachedFile, pictured: boolean): string {
+	const {name, type, size, connectionId, fileId, version, text, cut, gone} = attachment;
+	// Deleted for good since: what was kept of its text with the message is all there is of it.
+	if (gone) {
+		const lost = `${name} (${type}, ${formatBytes(size)}): deleted from the drive since, so it can’t be read.`;
+		if (text === null || text === '') {
+			return lost;
+		}
+		const kept = cut
+			? 'The first of its text, kept with the message:'
+			: 'Its text, kept with the message:';
+		return `${lost} ${kept}\n"""\n${text}\n"""`;
+	}
 	const what = `${name} (${type}, ${formatBytes(size)}): connection ${connectionId}, id ${fileId}, version ${version}.`;
 	if (pictured) {
 		return `${what} A picture, shown to you with this message.`;
@@ -322,8 +336,8 @@ function attachmentLines(attachment: EntryAttachment, pictured: boolean): string
  */
 export function withAttachments(
 	said: string,
-	attachments: EntryAttachment[],
-	pictured: EntryAttachment[] = [],
+	attachments: AttachedFile[],
+	pictured: AttachedFile[] = [],
 ): string {
 	if (attachments.length === 0) {
 		return said;

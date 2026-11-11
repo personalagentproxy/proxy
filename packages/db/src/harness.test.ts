@@ -857,10 +857,41 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		);
 		unwrap(await appendPersonMessage(thread.id, 'And nothing with this one.', readyForInference));
 
+		// Versions of no drive here, so gone from it.
 		expect(unwrap(await listAttachments(thread.id))).toEqual([
-			{...file, entryId: said?.id ?? ''},
-			{...picture, entryId: said?.id ?? ''},
+			{...file, entryId: said?.id ?? '', gone: true},
+			{...picture, entryId: said?.id ?? '', gone: true},
 		]);
+		// A version its drive still keeps is not: both are of v1 here.
+		const drive = await db.connection.create({
+			data: {
+				orgId,
+				integrationId: 'files',
+				account: 'Files',
+				credential: null,
+				ownerUserId: userId,
+			},
+		});
+		const blob = await db.fileBlob.create({
+			data: {orgId, backendId: 'disk', key: `harness-test-${drive.id}`},
+		});
+		await db.fileVersion.create({
+			data: {
+				id: file.version,
+				connectionId: drive.id,
+				fileId: file.fileId,
+				blobId: blob.id,
+				size: 42,
+				type: file.type,
+			},
+		});
+		expect(unwrap(await listAttachments(thread.id)).map((attachment) => attachment.gone)).toEqual([
+			false,
+			false,
+		]);
+		await db.fileVersion.delete({where: {id: file.version}});
+		await db.fileBlob.delete({where: {id: blob.id}});
+		await db.connection.delete({where: {id: drive.id}});
 
 		const task = await db.agentTask.create({
 			data: {orgId, agentId, title: 'Read the files', goal: 'Read', via: 'harness'},
@@ -961,9 +992,9 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 
 		const answers = unwrap(await listEntries(own.id)).filter((entry) => entry.kind === 'assistant');
 		expect(unwrap(await listAttachments(own.id))).toEqual([
-			{...chart, entryId: answers[0]?.id ?? ''},
-			{...chart, entryId: answers[1]?.id ?? ''},
-			{...sheet, entryId: answers[1]?.id ?? ''},
+			{...chart, entryId: answers[0]?.id ?? '', gone: true},
+			{...chart, entryId: answers[1]?.id ?? '', gone: true},
+			{...sheet, entryId: answers[1]?.id ?? '', gone: true},
 		]);
 
 		// What the agent showed lets no sub-agent read it as an attachment would.
@@ -1035,7 +1066,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([]);
 		expect(unwrap(await listAttachments(thread.id))).toEqual([
 			...logged,
-			{...sent, entryId: entry?.id ?? ''},
+			{...sent, entryId: entry?.id ?? '', gone: true},
 		]);
 		// A thread that isn't a conversation keeps none.
 		expect(unwrap(await addDraftAttachment('no-such-thread', notes, 2))).toBe(false);
@@ -1175,10 +1206,10 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		const written = unwrap(await listEntries(sub.id)).at(-1);
 		const noted = unwrap(await listEntries(conversation.id)).at(-1);
 		expect(unwrap(await listAttachments(sub.id))).toEqual([
-			{...itinerary, entryId: written?.id ?? ''},
+			{...itinerary, entryId: written?.id ?? '', gone: true},
 		]);
 		expect(unwrap(await listAttachments(conversation.id))).toEqual([
-			{...itinerary, entryId: noted?.id ?? ''},
+			{...itinerary, entryId: noted?.id ?? '', gone: true},
 		]);
 		await db.agentEntry.deleteMany({where: {id: {in: [written?.id ?? '', noted?.id ?? '']}}});
 

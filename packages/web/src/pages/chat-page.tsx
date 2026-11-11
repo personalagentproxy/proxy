@@ -115,7 +115,7 @@ function keptFile(
 function picturesOf(entry: ChatMessage): ViewedPicture[] {
 	return markdownPictures(entry.text).flatMap(({src, alt}) => {
 		const attachment = keptFile(entry.attachments, src);
-		return attachment?.shown === true ? [{attachment, alt}] : [];
+		return attachment?.shown === true && !attachment.gone ? [{attachment, alt}] : [];
 	});
 }
 

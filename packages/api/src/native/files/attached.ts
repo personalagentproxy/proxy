@@ -25,8 +25,9 @@ export const readsAttached: NativeToolAllowance = async ({caller, connection, pa
 
 /**
  * The file a read names, by `files_read` or `pap files pull`: one in the trash is not found, but
- * for the version of it attached to the caller's conversation, which stays readable there as the
- * conversation still shows it.
+ * for the version of it attached to the caller's conversation, which stays readable there while
+ * the file is in the trash. Once the trash is emptied of it, it is gone, and the conversation says
+ * so (@proxy/db/harness listAttachments).
  */
 export function requireReadFile(caller: TaskCaller, connectionId: string, id: string, version: string | undefined): Promise<Result<FileFound, ApiError>> {
 	return Do(async ($) => {

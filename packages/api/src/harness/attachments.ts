@@ -36,8 +36,8 @@ export type ChatFiles = {
 	discard: (viewer: OrgViewer, attachment: Pick<ChatAttachment, 'connectionId' | 'fileId'>) => Promise<Result<void, ApiError>>;
 	/** The files named, each one the person can read, as the log keeps them; refused where one isn't. */
 	resolve: (viewer: OrgViewer, refs: AttachmentRef[]) => Promise<Result<EntryAttachment[], ApiError>>;
-	/** A file the log or the conversation's input keeps, as the page shows it. */
-	shown: (attachment: DraftAttachment) => ChatAttachment;
+	/** A file the log or the conversation's input keeps, as the page shows it, with whether its version is gone from its drive since. */
+	shown: (attachment: DraftAttachment & {gone: boolean}) => ChatAttachment;
 	/** A file the log keeps as a picture for a model that sees pictures (`PictureOf`). */
 	picture: PictureOf;
 	/** The files an answer of the agent's shows the person, kept with it (`PinnedIn`). */
@@ -56,13 +56,13 @@ export type Picture = {of: AttachmentRow; image: EntryImage};
 /**
  * The pictures among what the person attached that the model is to see with this turn: those of
  * their last turns, each read and made small enough by `picture`. One that isn't a picture, or
- * can't be read as one, is left out, and so is one the store no longer has: the model is then told
- * of the file and nothing more, as it is of any file that isn't text.
+ * can't be read as one, is left out, and so is one deleted for good since or the store no longer
+ * has: the model is then told of the file and nothing more, as it is of any file that isn't text.
  */
 export function picturesOf(entries: EntryRow[], attachments: AttachmentRow[], picture: PictureOf): Promise<Result<Picture[], ApiError>> {
 	return Do(async ($) => {
 		const turns = entries.filter((entry) => entry.kind === 'person').slice(-PICTURED_TURNS);
-		const recent = attachments.filter((attachment) => turns.some((entry) => entry.id === attachment.entryId));
+		const recent = attachments.filter((attachment) => !attachment.gone && turns.some((entry) => entry.id === attachment.entryId));
 		const pictures: Picture[] = [];
 		for (const of of recent) {
 			const read = await picture(of);

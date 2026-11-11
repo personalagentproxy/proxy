@@ -376,7 +376,8 @@ function handleGetThreadRoute(store: ChatStore, harnesses: Harnesses, files: Rou
 			entries: conversationEntries($(entries), $(subAgents), attachmentsOf),
 			busy: state.kind === 'working',
 			draft: $(draft),
-			draftAttachments: $(waiting).map(files.shown),
+			// Put in the input from the person's drive, where a file is kept as long as it waits there.
+			draftAttachments: $(waiting).map((attachment) => files.shown({...attachment, gone: false})),
 		};
 	});
 }
@@ -406,7 +407,13 @@ function handlePostMessageRoute(store: ChatStore, files: RouteFiles, request: Au
 		const thread = $(await requireThread(store, viewer, persona));
 		const attachments = refs.length === 0 ? [] : $(await files.resolve(viewer, refs));
 		const entry = $(requirePresent($(await store.appendPersonMessage(thread.id, text, attachments)), ApiErr.notFound('thread', thread.id)));
-		return {entry: toMessage({...entry, kind: 'person'}, attachments.map(files.shown))};
+		// Read from their drives just now.
+		return {
+			entry: toMessage(
+				{...entry, kind: 'person'},
+				attachments.map((attachment) => files.shown({...attachment, gone: false})),
+			),
+		};
 	});
 }
 
@@ -484,7 +491,7 @@ function handleUploadAttachmentRoute(store: ChatStore, files: RouteFiles, reques
 			return $(Err(ApiErr.conflict(INPUT_FULL)));
 		}
 		const attachment = $(await files.upload(viewer, persona, request));
-		const {shown: _shown, ...kept} = attachment;
+		const {shown: _shown, gone: _gone, ...kept} = attachment;
 		const added = await store.addDraftAttachment(thread.id, kept, MAX_ATTACHMENTS);
 		// A file the input didn't take isn't left in the drive with nothing pointing at it.
 		if (added.isErr() || !added.value) {

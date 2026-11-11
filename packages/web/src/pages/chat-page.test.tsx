@@ -769,6 +769,7 @@ describe('ChatPage', () => {
 			type: 'text/markdown',
 			size: 2048,
 			shown: false,
+			gone: false,
 		};
 		const taskUrl = '/api/orgs/acme/chat/personas/general/tasks/sub-1';
 		const written = {
@@ -1117,6 +1118,7 @@ describe('ChatPage', () => {
 			type: 'image/png',
 			size: 2048,
 			shown: true,
+			gone: false,
 		};
 		const sheet = {...chart, fileId: 'file-2', name: 'q3.csv', type: 'text/csv', shown: false};
 		renderChatPage({
@@ -1154,6 +1156,46 @@ describe('ChatPage', () => {
 		);
 	});
 
+	test('shows a file deleted for good since as its name alone, struck through, linking nowhere, a picture among them', async () => {
+		const drive = `${window.location.origin}/acme/connections/drive-1`;
+		const notes = {
+			connectionId: 'drive-1',
+			fileId: 'file-1',
+			version: 'v1',
+			name: 'notes.md',
+			type: 'text/markdown',
+			size: 2048,
+			shown: false,
+			gone: true,
+		};
+		const chart = {...notes, fileId: 'file-2', name: 'chart.png', type: 'image/png', shown: true};
+		renderChatPage({
+			entries: [
+				{
+					id: 'e1',
+					kind: 'person',
+					text: `Read ${ATTACHMENT_MARK}`,
+					isError: false,
+					at: '2026-10-21T10:00:00Z',
+					attachments: [notes],
+				},
+				{
+					id: 'e2',
+					kind: 'assistant',
+					text: `Here: ![Revenue](${drive}?file=file-2)`,
+					isError: false,
+					at: '2026-10-21T10:00:01Z',
+					attachments: [chart],
+				},
+			],
+		});
+
+		const said = await screen.findByTitle('notes.md was deleted');
+		expect(said.closest('a')).toBeNull();
+		expect(screen.getByTitle('chart.png was deleted').closest('a')).toBeNull();
+		expect(screen.queryByRole('img', {name: 'Revenue'})).toBeNull();
+	});
+
 	test('opens a picture an answer showed in the viewer, whole, and steps through the answer’s pictures there', async () => {
 		const drive = `${window.location.origin}/acme/connections/drive-1`;
 		const chart = {
@@ -1164,6 +1206,7 @@ describe('ChatPage', () => {
 			type: 'image/png',
 			size: 2048,
 			shown: true,
+			gone: false,
 		};
 		const map = {...chart, fileId: 'file-2', version: 'v1', name: 'map.png'};
 		renderChatPage({
@@ -1212,6 +1255,7 @@ describe('ChatPage', () => {
 			type: 'text/markdown',
 			size: 2048,
 			shown: false,
+			gone: false,
 		};
 		const withFiles: Experiment[] = ['files'];
 		// The calls made to the input's files, in order: uploads and removals.

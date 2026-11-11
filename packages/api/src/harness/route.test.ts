@@ -85,7 +85,7 @@ let routes: ReturnType<typeof import('./route').chatRoutes>;
 
 // A file as the log keeps it once attached, and as the page shows it.
 const attached = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'pricing.md', type: 'text/markdown', size: 42, text: '# Pricing', cut: false};
-const shownAttachment = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'pricing.md', type: 'text/markdown', size: 42, shown: false};
+const shownAttachment = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'pricing.md', type: 'text/markdown', size: 42, shown: false, gone: false};
 
 // Where a conversation's files are kept, as the routes are given it: a drive that has the one file.
 const files = {
@@ -417,13 +417,13 @@ describe('the chat routes', () => {
 		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: 'Too many', attachments: Array.from({length: 11}, () => ref)}))).unwrapErr().kind).toBe('parse_error');
 
 		// The conversation shows each file with the turn it was said with.
-		store.listAttachments.mockResolvedValue(Ok([{...attached, entryId: 'e1'}]));
+		store.listAttachments.mockResolvedValue(Ok([{...attached, entryId: 'e1', gone: false}]));
 		expect((await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap().entries.map((entry) => ('attachments' in entry ? entry.attachments : null))).toEqual([[shownAttachment]]);
 	});
 
 	test('keep a file put in the conversation’s input in the person’s drive and in the input, where it waits with what they typed; a full input takes no more', async () => {
 		const {handleUploadAttachmentRoute, handleGetThreadRoute, handleListPersonasRoute} = routes;
-		const {shown: _shown, ...kept} = shownAttachment;
+		const {shown: _shown, gone: _gone, ...kept} = shownAttachment;
 
 		const uploaded = await handleUploadAttachmentRoute(request({personaId: 'persona-1'}));
 
@@ -579,7 +579,7 @@ describe('the chat routes', () => {
 			{id: 'e9', from: 'task', text: 'The sub-agent failed: no model.', isError: true},
 		]);
 		// What the viewer wrote, with the files they attached to it; the rest with none.
-		store.listAttachments.mockResolvedValue(Ok([{...attached, entryId: 's4'}]));
+		store.listAttachments.mockResolvedValue(Ok([{...attached, entryId: 's4', gone: false}]));
 		const withFiles = (await handleGetTaskRoute(request({personaId: 'persona-1', taskId: 'sub-1'}))).unwrap();
 		expect(store.listAttachments).toHaveBeenCalledWith('sub-1');
 		expect(withFiles.entries.map(({id, attachments}) => [id, attachments])).toEqual([

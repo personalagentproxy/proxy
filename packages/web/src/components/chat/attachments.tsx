@@ -42,11 +42,25 @@ const GLYPH = 'size-3.5';
 
 // A file attached to what the person said, where they put it among their words: a chip, by its
 // kind and its name, in the line of the message as a word is, and a link to the file in its
-// drive, where it is shown and its versions are.
+// drive, where it is shown and its versions are; one deleted for good since, its name struck
+// through and a link to nothing, saying so.
 export function SentChip({attachment}: {attachment: ChatAttachment}) {
 	const org = useOrgSlug();
 	const {connectionId, fileId, name, type, size} = attachment;
 	const Icon = KIND_ICONS[fileKind(name, type)];
+	if (attachment.gone) {
+		return (
+			<span className="inline-block px-0.5 py-0.5 align-middle">
+				<span title={`${name} was deleted`} className={cn(CHIP, 'text-muted-foreground')}>
+					<span className={CELL}>
+						<Icon className={GLYPH} />
+					</span>
+					<span className={cn(NAME, 'line-through')}>{name}</span>
+					<span className="sr-only">, deleted</span>
+				</span>
+			</span>
+		);
+	}
 	return (
 		// With the room a word has around it: padding of its own, the line's text having no gap
 		// to give.
@@ -73,7 +87,8 @@ const TILE_HEIGHT = 144;
 
 // A file the persona showed in its answer, where its words put it: a picture, at the version kept
 // with the answer, whatever the file holds now, as a tile on a line of its own, never among words,
-// which opens it in the viewer (picture-viewer.tsx); any other file as its chip.
+// which opens it in the viewer (picture-viewer.tsx); any other file, or one deleted since, as its
+// chip.
 export function ShownFile({
 	attachment,
 	alt,
@@ -87,7 +102,7 @@ export function ShownFile({
 	// Whether the picture, once loaded, fits in a tile as it is.
 	const [small, setSmall] = useState(false);
 	const {connectionId, fileId, version, name, size} = attachment;
-	if (!attachment.shown) {
+	if (!attachment.shown || attachment.gone) {
 		return <SentChip attachment={attachment} />;
 	}
 	return (

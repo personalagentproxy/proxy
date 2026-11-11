@@ -1332,27 +1332,33 @@ const attachmentSelect = {
 	cut: true,
 } as const;
 
-/** A file attached to an entry of a thread's log, with the entry it is attached to. */
-export type AttachmentRow = EntryAttachment & {entryId: string};
+/**
+ * A file attached to an entry of a thread's log, with the entry it is attached to, and whether the
+ * version attached is gone from its drive since, deleted for good with the file out of the trash
+ * or with the drive: only what the log kept of it is left then.
+ */
+export type AttachmentRow = EntryAttachment & {entryId: string; gone: boolean};
 
 /**
  * The files of a thread's log, each with the entry it goes with, in the order attached: what the
  * person attached to what they said, and the files the agent showed them in its answers.
  */
-export async function listAttachments(
-	threadId: string,
-): Promise<Result<AttachmentRow[], ApiError>> {
-	return (
-		await wrapDb(() =>
-			db.agentEntryAttachment.findMany({
-				where: {threadId, entryId: {not: null}},
-				select: attachmentSelect,
-				orderBy: [{createdAt: 'asc'}, {position: 'asc'}],
-			}),
-		)
-	).map((rows) =>
-		rows.flatMap(({entryId, ...row}) => (entryId === null ? [] : [{...row, entryId}])),
-	);
+export function listAttachments(threadId: string): Promise<Result<AttachmentRow[], ApiError>> {
+	return wrapDb(async () => {
+		const rows = await db.agentEntryAttachment.findMany({
+			where: {threadId, entryId: {not: null}},
+			select: attachmentSelect,
+			orderBy: [{createdAt: 'asc'}, {position: 'asc'}],
+		});
+		const kept = await db.fileVersion.findMany({
+			where: {id: {in: [...new Set(rows.map((row) => row.version))]}},
+			select: {id: true},
+		});
+		const there = new Set(kept.map((version) => version.id));
+		return rows.flatMap(({entryId, ...row}) =>
+			entryId === null ? [] : [{...row, entryId, gone: !there.has(row.version)}],
+		);
+	});
 }
 
 /**

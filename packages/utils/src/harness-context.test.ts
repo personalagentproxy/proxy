@@ -4,7 +4,7 @@ import {
 	COMPACT_AT_TOKENS,
 	compactionCut,
 	type ContextEntry,
-	type EntryAttachment,
+	type AttachedFile,
 	toMessages,
 	toTranscript,
 	withAttachments,
@@ -350,7 +350,7 @@ describe('toTranscript', () => {
 });
 
 describe('withAttachments', () => {
-	const file: EntryAttachment = {
+	const file: AttachedFile = {
 		connectionId: 'drive-1',
 		fileId: 'file-1',
 		version: 'v1',
@@ -359,6 +359,7 @@ describe('withAttachments', () => {
 		size: 2048,
 		text: '# Pricing',
 		cut: false,
+		gone: false,
 	};
 
 	test('leaves what the person said as it is where they attached nothing', () => {
@@ -413,6 +414,20 @@ describe('withAttachments', () => {
 		expect(read.split('\n\n').slice(2)).toEqual([
 			'chart.png (image/png, 2 KB): connection drive-1, id file-2, version v1. A picture, shown to you with this message.',
 			'photo.jpg (image/jpeg, 2 KB): connection drive-1, id file-3, version v1. A picture, not shown to you here.',
+		]);
+	});
+
+	test('says of a file deleted for good since that it can’t be read, giving what was kept of its text, and nothing that names it for a read', () => {
+		const read = withAttachments('What changed?', [
+			{...file, gone: true},
+			{...file, fileId: 'file-2', name: 'long.txt', text: 'The first part', cut: true, gone: true},
+			{...file, fileId: 'file-3', name: 'chart.png', type: 'image/png', text: null, gone: true},
+		]);
+
+		expect(read.split('\n\n').slice(2)).toEqual([
+			'pricing.md (text/markdown, 2 KB): deleted from the drive since, so it can’t be read. Its text, kept with the message:\n"""\n# Pricing\n"""',
+			'long.txt (text/markdown, 2 KB): deleted from the drive since, so it can’t be read. The first of its text, kept with the message:\n"""\nThe first part\n"""',
+			'chart.png (image/png, 2 KB): deleted from the drive since, so it can’t be read.',
 		]);
 	});
 

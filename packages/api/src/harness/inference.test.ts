@@ -455,7 +455,20 @@ describe('runInference', () => {
 			const said = entry('person', 'What does this say?');
 			listEntries.mockResolvedValue(Ok([entry('person', 'Hi'), said]));
 			store.listAttachments.mockResolvedValue(
-				Ok([{entryId: said.id, connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'pricing.md', type: 'text/markdown', size: 42, text: '# Pricing review with Dana', cut: false}]),
+				Ok([
+					{
+						entryId: said.id,
+						connectionId: 'drive-1',
+						fileId: 'file-1',
+						version: 'v1',
+						name: 'pricing.md',
+						type: 'text/markdown',
+						size: 42,
+						text: '# Pricing review with Dana',
+						cut: false,
+						gone: false,
+					},
+				]),
 			);
 			fake.script([{kind: 'text', text: 'A pricing review.'}, done]);
 
@@ -472,7 +485,7 @@ describe('runInference', () => {
 			const written = entry('person', 'Use this one');
 			listEntries.mockResolvedValue(Ok([entry('person', 'Read the pricing notes'), written]));
 			store.listAttachments.mockResolvedValue(
-				Ok([{entryId: written.id, connectionId: 'drive-1', fileId: 'file-2', version: 'v3', name: 'notes.md', type: 'text/markdown', size: 12, text: '# Notes', cut: false}]),
+				Ok([{entryId: written.id, connectionId: 'drive-1', fileId: 'file-2', version: 'v3', name: 'notes.md', type: 'text/markdown', size: 12, text: '# Notes', cut: false, gone: false}]),
 			);
 			getJobThread.mockResolvedValue(Ok(sub));
 			fake.script([{kind: 'text', text: 'Done.'}, done]);
@@ -489,7 +502,7 @@ describe('runInference', () => {
 			const seeing = {...fake, models: [{id: 'claude', label: 'Claude', images: true as const}] satisfies HarnessBackend['models']};
 			const [first, second, third] = [entry('person', 'One'), entry('person', 'Two'), entry('person', 'Three')];
 			listEntries.mockResolvedValue(Ok([first, entry('assistant', 'A.'), second, entry('assistant', 'B.'), third]));
-			const file = {connectionId: 'drive-1', version: 'v1', type: 'image/png', size: 42, text: null, cut: false};
+			const file = {connectionId: 'drive-1', version: 'v1', type: 'image/png', size: 42, text: null, cut: false, gone: false};
 			const attached = [
 				{...file, entryId: first.id, fileId: 'file-1', name: 'old.png'},
 				{...file, entryId: second.id, fileId: 'file-2', name: 'chart.png'},
@@ -579,7 +592,7 @@ describe('runInference', () => {
 			const answer = entry('assistant', 'Here: ![Chart](https://app.example.com/acme/connections/drive-1?file=file-1)');
 			listEntries.mockResolvedValue(Ok([entry('person', 'Chart it'), answer, entry('person', 'Thanks')]));
 			store.listAttachments.mockResolvedValue(
-				Ok([{entryId: answer.id, connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'chart.png', type: 'image/png', size: 42, text: null, cut: false}]),
+				Ok([{entryId: answer.id, connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'chart.png', type: 'image/png', size: 42, text: null, cut: false, gone: false}]),
 			);
 			fake.script([{kind: 'text', text: 'You’re welcome.'}, done]);
 

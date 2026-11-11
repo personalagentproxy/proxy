@@ -139,7 +139,16 @@ export const chatFiles: ChatFiles = {
 			const stored = $(await storeContent(change.orgId, $(uploadBody(request)), maxFileBytes()));
 			const content = {blobId: stored.blobId, size: stored.size, type: mediaType(name, type, 'bytes')};
 			const made = $(await createFile(change, {parentId: folder.id, name, rename: true, content}));
-			return {connectionId: change.connectionId, fileId: made.id, version: made.head?.id ?? '', name: made.name, type: content.type, size: content.size, shown: isShownImage(content.type)};
+			return {
+				connectionId: change.connectionId,
+				fileId: made.id,
+				version: made.head?.id ?? '',
+				name: made.name,
+				type: content.type,
+				size: content.size,
+				shown: isShownImage(content.type),
+				gone: false,
+			};
 		}),
 	discard: (viewer, {connectionId, fileId}) =>
 		Do(async ($) => {
@@ -161,7 +170,7 @@ export const chatFiles: ChatFiles = {
 			}
 			return attachments;
 		}),
-	shown: ({connectionId, fileId, version, name, type, size}) => ({connectionId, fileId, version, name, type, size, shown: isShownImage(type)}),
+	shown: ({connectionId, fileId, version, name, type, size, gone}) => ({connectionId, fileId, version, name, type, size, shown: isShownImage(type), gone}),
 	// Read as the conversation's own, not as anyone's: the person attached it for the model to see.
 	picture: (attachment) =>
 		Do(async ($) => {

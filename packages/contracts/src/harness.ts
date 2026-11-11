@@ -127,7 +127,8 @@ export const personaAnswerSchema = z.object({persona: chatPersonaSchema});
 /**
  * A file attached to what the person said: one of a drive's, by its connection and its id there,
  * at the version it held when it was attached, with its name, media type and size in bytes as
- * they were, and whether a browser may show it in place, as a picture.
+ * they were, whether a browser may show it in place, as a picture, and whether that version is
+ * gone from the drive since, deleted for good, so that only its name is left.
  */
 export const chatAttachmentSchema = z.object({
 	connectionId: z.string(),
@@ -137,6 +138,7 @@ export const chatAttachmentSchema = z.object({
 	type: z.string(),
 	size: z.number(),
 	shown: z.boolean(),
+	gone: z.boolean(),
 });
 
 export type ChatAttachment = z.infer<typeof chatAttachmentSchema>;
