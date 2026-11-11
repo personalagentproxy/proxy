@@ -142,7 +142,7 @@ function filesInstructions(connections: AgentConnection[]): string[] {
 		[
 			'Drives (Files) keep folders and files with every version of each.',
 			...(makes
-				? ['Put what you make for the person in their own drive (the one without a name), or the one they name, and give them the Link the tool answers with: a file has no other address.']
+				? ['Put what you make for the person, such as screenshots, exports and reports, in their own drive (the one without a name), or the one they name, rather than Google Drive or another service, and give them the Link the tool answers with: a file has no other address.']
 				: []),
 			...(connections.some(runsCommands)
 				? ['In a sandbox, pap files pull <drive> <path> and pap files push <file> <drive> <path> move a file in and out as it is; pap files --help has the rest.']

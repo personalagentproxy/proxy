@@ -179,7 +179,7 @@ describe('handleMcpRoute', () => {
 		expect(both).toContain('- drive-1: Files (Acme): Read files, Add files, Edit files, Move to trash');
 		expect(both).toContain('- drive-2: Launch (Files, Acme), shared: Read files');
 		expect(both).toContain(
-			'Drives (Files) keep folders and files with every version of each. Put what you make for the person in their own drive (the one without a name), or the one they name, and give them the Link the tool answers with: a file has no other address.',
+			'Drives (Files) keep folders and files with every version of each. Put what you make for the person, such as screenshots, exports and reports, in their own drive (the one without a name), or the one they name, rather than Google Drive or another service, and give them the Link the tool answers with: a file has no other address.',
 		);
 		// Files are built in, so never something to suggest connecting.
 		expect(both).not.toMatch(/Connectable here: [^.]*Files/);
