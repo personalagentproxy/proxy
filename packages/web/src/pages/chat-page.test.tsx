@@ -748,6 +748,8 @@ describe('ChatPage', () => {
 		fireEvent.click(screen.getByRole('button', {name: 'Send'}));
 
 		await waitFor(() => expect(box.textContent).toBe(''));
+		// What was written is in the chat at once, before the chat is read again.
+		expect(within(chat).getByText('Only direct ones')).toBeTruthy();
 		const sent = fetchMock.mock.calls.find(
 			([url]) => url === '/api/orgs/acme/chat/personas/general/tasks/sub-1/messages',
 		);
@@ -929,6 +931,86 @@ describe('ChatPage', () => {
 		expect(
 			fetchMock.mock.calls.filter(([url]) => url === '/api/orgs/acme/chat/personas/general/read'),
 		).toHaveLength(0);
+	});
+
+	describe('sending', () => {
+		// The api as it answers a send: as `post` says, the rest as before.
+		function answerSends(post: () => Promise<Response>) {
+			fetchMock.mockImplementation((input, init) => {
+				if (input.endsWith('/messages') && init?.method === 'POST') {
+					return post();
+				}
+				return Promise.resolve(
+					input.endsWith('/chat/answers')
+						? Response.json({answers})
+						: new Response(null, {status: 204}),
+				);
+			});
+		}
+		const hello = {
+			id: 'e1',
+			kind: 'assistant' as const,
+			text: 'Hello',
+			isError: false,
+			at: '2026-10-21T10:00:00Z',
+			attachments: [],
+		};
+
+		test('shows what is sent at once, rising into place, the agent at work under it, and keeps it as the server answers', async () => {
+			const answered: ((response: Response) => void)[] = [];
+			answerSends(() => new Promise((resolve) => answered.push(resolve)));
+			renderChatPage({entries: [hello]});
+			const conversation = await screen.findByLabelText('Conversation');
+			const box = screen.getByLabelText('Message');
+
+			typeIn(box, 'Book the train ');
+			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
+
+			const sent = await within(conversation).findByText('Book the train');
+			expect(box.textContent).toBe('');
+			expect(within(conversation).getByText('Working')).toBeTruthy();
+			expect(sent.closest('[data-enter]')?.getAttribute('data-enter')).toBe('rise');
+			// What was there as the conversation opened is simply there.
+			expect(within(conversation).getByText('Hello').closest('[data-enter]')).toBeNull();
+			// The list has it as the last thing said at once.
+			expect(screen.getByRole('link', {name: /General/}).textContent).toContain(
+				'You: Book the train',
+			);
+
+			await waitFor(() => expect(answered).toHaveLength(1));
+			await act(async () => {
+				answered[0]?.(
+					Response.json({
+						entry: {
+							id: 'e2',
+							kind: 'person',
+							text: 'Book the train',
+							isError: false,
+							at: '2026-10-21T10:01:00Z',
+							attachments: [],
+						},
+					}),
+				);
+			});
+			expect(within(conversation).getByText('Book the train')).toBe(sent);
+		});
+
+		test('puts what was sent back in the box, and takes it out of the conversation, where the send fails', async () => {
+			answerSends(() =>
+				Promise.resolve(Response.json({error: 'The agent is gone'}, {status: 500})),
+			);
+			renderChatPage({entries: [hello]});
+			const conversation = await screen.findByLabelText('Conversation');
+			typeIn(screen.getByLabelText('Message'), 'Book the train');
+			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
+
+			// The box is made again, holding what was sent.
+			await waitFor(() =>
+				expect(screen.getByLabelText('Message').textContent).toBe('Book the train'),
+			);
+			expect(within(conversation).queryByText('Book the train')).toBeNull();
+			expect(within(conversation).queryByText('Working')).toBeNull();
+		});
 	});
 
 	describe('drafts', () => {
@@ -1141,6 +1223,35 @@ describe('ChatPage', () => {
 				text: ATTACHMENT_MARK,
 				attachments: [{connectionId: 'drive-1', fileId: 'file-1', version: 'v1'}],
 			});
+		});
+
+		test('puts the files of a send that failed back in the box where they sat, and takes nothing out on the server', async () => {
+			fetchMock.mockImplementation((input, init) => {
+				if (input.endsWith('/messages') && init?.method === 'POST') {
+					return Promise.resolve(Response.json({error: 'The agent is gone'}, {status: 500}));
+				}
+				return Promise.resolve(
+					input.endsWith('/chat/answers')
+						? Response.json({answers})
+						: new Response(null, {status: 204}),
+				);
+			});
+			renderChatPage({
+				draft: `Read ${ATTACHMENT_MARK}`,
+				draftAttachments: [kept],
+				experiments: withFiles,
+			});
+			const conversation = await screen.findByLabelText('Conversation');
+			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
+
+			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
+
+			await waitFor(() =>
+				expect(screen.getByLabelText('Message').textContent).toBe('Read pricing.md '),
+			);
+			expect(chipOf('pricing.md') === null).toBe(false);
+			expect(within(conversation).queryByText(/Read/)).toBeNull();
+			expect(calls().filter(([method]) => method === 'DELETE')).toEqual([]);
 		});
 
 		test('opens with each file where it sat among the words, and sends the words with a mark for each, in their order', async () => {

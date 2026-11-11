@@ -1,5 +1,12 @@
 import type {Element, ElementContent, Root, RootContent} from 'hast';
-import {createContext, type ReactNode, useContext, useState} from 'react';
+import {
+	createContext,
+	type ReactElement,
+	type ReactNode,
+	useContext,
+	useMemo,
+	useState,
+} from 'react';
 import {ImageIcon} from 'lucide-react';
 import ReactMarkdown, {type Components} from 'react-markdown';
 import {Link} from 'react-router';
@@ -350,6 +357,35 @@ function faviconHost(href: string | undefined, hosts: Set<string>): string | nul
 	return url.hostname;
 }
 
+// What each text was drawn as, the last few hundred: parsing is most of what drawing Markdown
+// costs, and a chat draws the same answers again as it is opened again or a turn moves in it. The
+// tree is a description, the same wherever it is drawn: its links read the favicons and the
+// organization, and its pictures the page's `image`, where they are drawn.
+const MAX_PARSED = 300;
+const parsed = new Map<string, ReactElement>();
+
+function parse(text: string, allowImages: boolean): ReactElement {
+	const key = `${allowImages ? 'images' : 'no-images'}:${text}`;
+	const known = parsed.get(key);
+	if (known !== undefined) {
+		parsed.delete(key);
+		parsed.set(key, known);
+		return known;
+	}
+	const tree = ReactMarkdown({
+		children: text,
+		remarkPlugins: [remarkGfm],
+		rehypePlugins: [gatherPictures],
+		components: allowImages ? components : componentsWithoutImages,
+	});
+	parsed.set(key, tree);
+	const oldest = parsed.keys().next().value;
+	if (parsed.size > MAX_PARSED && oldest !== undefined) {
+		parsed.delete(oldest);
+	}
+	return tree;
+}
+
 export function Markdown({
 	text,
 	className,
@@ -364,18 +400,11 @@ export function Markdown({
 	showFavicons?: boolean;
 }) {
 	const [faviconHosts] = useState(() => new Set<string>());
+	const tree = useMemo(() => parse(text, allowImages), [text, allowImages]);
 	return (
 		<FaviconHostsContext.Provider value={showFavicons ? faviconHosts : null}>
 			<ImageContext.Provider value={image}>
-				<div className={cn('flex flex-col gap-2 wrap-break-word', className)}>
-					<ReactMarkdown
-						remarkPlugins={[remarkGfm]}
-						rehypePlugins={[gatherPictures]}
-						components={allowImages ? components : componentsWithoutImages}
-					>
-						{text}
-					</ReactMarkdown>
-				</div>
+				<div className={cn('flex flex-col gap-2 wrap-break-word', className)}>{tree}</div>
 			</ImageContext.Provider>
 		</FaviconHostsContext.Provider>
 	);

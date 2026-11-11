@@ -135,7 +135,7 @@ export function createMainWindow(): BrowserWindow {
 		// The window's icon where the window carries one, Windows and Linux, in a development run;
 		// a packaged app has its own, and no build/ beside it.
 		...(app.isPackaged ? {} : {icon: path.join(__dirname, '../build/icon.png')}),
-		backgroundColor: nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#ffffff',
+		backgroundColor: nativeTheme.shouldUseDarkColors ? '#16130c' : '#f5f5f2',
 		// What the page may ask of the app (src/preload.ts), bundled beside the main process.
 		webPreferences: {preload: path.join(__dirname, 'preload.cjs')},
 	});

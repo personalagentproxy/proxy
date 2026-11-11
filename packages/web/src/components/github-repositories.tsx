@@ -2,7 +2,7 @@ import type {GitHubInstallation} from '@proxy/contracts/github';
 import {ExternalLinkIcon} from 'lucide-react';
 import {useState} from 'react';
 import {Badge} from '@proxy/ui/components/badge';
-import {pillVariants} from '@proxy/ui/lib/pill-variants';
+import {pillButtonVariants} from '@proxy/ui/lib/pill-variants';
 import {cn} from '@proxy/ui/lib/utils';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
 import {formatAgo} from '@/lib/format';
@@ -130,7 +130,7 @@ function NotInstalled({installUrl}: {installUrl: string}) {
 				yet. Install it on your account or an organization and pick the repositories; they show up
 				here.
 			</p>
-			<ExternalLink href={installUrl} className={cn(pillVariants(), 'gap-1.5')}>
+			<ExternalLink href={installUrl} className={cn(pillButtonVariants(), 'gap-1.5')}>
 				Install on GitHub
 			</ExternalLink>
 		</div>

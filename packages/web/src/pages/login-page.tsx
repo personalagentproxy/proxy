@@ -85,7 +85,7 @@ export function LoginPage() {
 				{methods.google && (
 					<>
 						<PillButton
-							variant="ghost"
+							variant="outline"
 							onClick={() => {
 								window.location.href = googleSignInUrl(callbackUrl);
 							}}

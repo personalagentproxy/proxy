@@ -13,6 +13,24 @@ export type PendingAttachment = {
 	error: string | null;
 };
 
+/** The files of an input that `files` names, in the order `files` names them, each once. */
+export function takenFiles(
+	pending: PendingAttachment[],
+	files: ChatAttachment[],
+): PendingAttachment[] {
+	const left = [...pending];
+	return files.flatMap((file) => {
+		const index = left.findIndex(
+			({attachment}) =>
+				attachment !== null &&
+				attachment.connectionId === file.connectionId &&
+				attachment.fileId === file.fileId &&
+				attachment.version === file.version,
+		);
+		return index === -1 ? [] : left.splice(index, 1);
+	});
+}
+
 /**
  * Where an input's files go: up to the person's own drive, and out of the input again, where the
  * server keeps the input (the conversation's does; a task's is the page's alone).
@@ -108,10 +126,15 @@ export function useAttachments(input: AttachmentInput, kept: ChatAttachment[]) {
 		},
 		[input],
 	);
-	// After a send, which emptied the input on the server.
+	// As a message is sent: the input is emptied at once, as the send empties it on the server.
 	const sent = useCallback(() => {
 		held.current = 0;
 		setPending([]);
+	}, []);
+	// A send that failed: the files it took go back in the input, before any put there since.
+	const restore = useCallback((files: PendingAttachment[]) => {
+		held.current += files.length;
+		setPending((before) => [...files, ...before]);
 	}, []);
 
 	return {
@@ -120,6 +143,7 @@ export function useAttachments(input: AttachmentInput, kept: ChatAttachment[]) {
 		add,
 		remove,
 		sent,
+		restore,
 		// Whether any is still on its way up: the message waits for it.
 		uploading: pending.some((one) => one.attachment === null && one.error === null),
 	};

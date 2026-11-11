@@ -9,7 +9,7 @@ import {
 	DropdownMenuTrigger,
 } from '@proxy/ui/components/dropdown-menu';
 import {InputGroupButton} from '@proxy/ui/components/input-group';
-import {PillButton} from '@proxy/ui/components/pill-button';
+import {PillTab} from '@proxy/ui/components/pill-tab';
 
 /** What runs an agent: the harness and the model it answers with, each by its id. */
 export type ModelChoice = {harness: string; chatModel: string};
@@ -109,10 +109,10 @@ export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
 					className="flex flex-wrap gap-1 border-b p-1"
 				>
 					{harnesses.map((candidate) => (
-						<PillButton
+						<PillTab
 							key={candidate.id}
 							id={tabId(candidate.id)}
-							variant="ghost"
+							chosen={candidate.id === listed.id}
 							role="tab"
 							aria-selected={candidate.id === listed.id}
 							aria-controls={PANEL_ID}
@@ -120,7 +120,7 @@ export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
 							onClick={() => setLookedAt(candidate.id)}
 						>
 							{candidate.label}
-						</PillButton>
+						</PillTab>
 					))}
 				</div>
 				<DropdownMenuRadioGroup

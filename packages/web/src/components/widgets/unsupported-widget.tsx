@@ -1,6 +1,6 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import {Link} from 'react-router';
-import {pillVariants} from '@proxy/ui/lib/pill-variants';
+import {pillButtonVariants} from '@proxy/ui/lib/pill-variants';
 import {WidgetFrame} from '@/components/widgets/widget-frame';
 import {useOrgSlug} from '@/hooks/use-org';
 
@@ -23,7 +23,7 @@ export function UnsupportedWidget({agents}: {agents: AgentLogin[]}) {
 			name="Not a quick action (yet)"
 			actions={
 				active.length === 0 && (
-					<Link to={`/${org}/agents/new`} className={pillVariants({variant: 'ghost'})}>
+					<Link to={`/${org}/agents/new`} className={pillButtonVariants({variant: 'ghost'})}>
 						Add an agent
 					</Link>
 				)

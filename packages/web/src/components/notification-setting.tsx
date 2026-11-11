@@ -1,5 +1,6 @@
 import {useState} from 'react';
-import {PillButton} from '@proxy/ui/components/pill-button';
+import {BellIcon, BellOffIcon} from 'lucide-react';
+import {PillTab} from '@proxy/ui/components/pill-tab';
 import {
 	notificationsBlocked,
 	notificationsOn,
@@ -7,9 +8,9 @@ import {
 	turnNotificationsOn,
 } from '@/lib/notifications';
 
-// Notifications of what the agents say while the person is elsewhere, on this device: on or off,
-// with the button that turns them the other way; where the browser has refused the page its
-// leave, the way to change that is the browser's own.
+// Notifications of what the agents say while the person is elsewhere, on this device: one button
+// for on and one for off, the one in use pressed, as the theme picker looks; where the browser has
+// refused the page its leave, the way to change that is the browser's own.
 export function NotificationSetting() {
 	const [on, setOn] = useState(notificationsOn);
 	const [blocked, setBlocked] = useState(notificationsBlocked);
@@ -30,11 +31,15 @@ export function NotificationSetting() {
 	}
 
 	return (
-		<span className="flex items-center gap-3">
-			<span>{on ? 'On' : 'Off'}</span>
-			<PillButton variant="ghost" onClick={on ? turnOff : () => void turnOn()}>
-				{on ? 'Turn off' : 'Turn on'}
-			</PillButton>
-		</span>
+		<div role="group" aria-label="Notifications" className="flex items-center gap-2">
+			<PillTab chosen={on} aria-pressed={on} onClick={() => void turnOn()}>
+				<BellIcon data-icon="inline-start" />
+				On
+			</PillTab>
+			<PillTab chosen={!on} aria-pressed={!on} onClick={turnOff}>
+				<BellOffIcon data-icon="inline-start" />
+				Off
+			</PillTab>
+		</div>
 	);
 }
