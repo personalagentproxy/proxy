@@ -3,7 +3,6 @@ import {useState, type FormEvent} from 'react';
 import {Link, useLoaderData, useSearchParams} from 'react-router';
 import {devLogin, googleSignInUrl, requestMagicLink} from '@/client/auth-client';
 import {GoogleIcon} from '@/components/google-icon';
-import {Button} from '@proxy/ui/components/button';
 import {PillButton} from '@/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
@@ -155,8 +154,8 @@ function DevLoginButton({callbackUrl}: {callbackUrl: string | undefined}) {
 	const [loading, setLoading] = useState(false);
 
 	return (
-		<Button
-			variant="secondary"
+		<PillButton
+			variant="ghost"
 			disabled={loading}
 			onClick={async () => {
 				setLoading(true);
@@ -169,6 +168,6 @@ function DevLoginButton({callbackUrl}: {callbackUrl: string | undefined}) {
 			}}
 		>
 			Log in as dev user
-		</Button>
+		</PillButton>
 	);
 }

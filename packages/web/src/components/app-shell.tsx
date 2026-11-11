@@ -10,8 +10,8 @@ import {
 } from 'react';
 import {createPortal} from 'react-dom';
 import {useLoaderData, useLocation, useNavigate} from 'react-router';
+import {PillButton} from '@/components/pill-button';
 import {ContentBoundary} from '@/components/route-error';
-import {Button} from '@proxy/ui/components/button';
 import {Sheet, SheetContent, SheetTitle} from '@proxy/ui/components/sheet';
 import {SidebarTrigger} from '@proxy/ui/components/sidebar';
 import {Skeleton} from '@proxy/ui/components/skeleton';
@@ -76,9 +76,9 @@ function PanelSheet({panel, label}: {panel: ReactNode; label: string}) {
 
 	return (
 		<Sheet open={open} onOpenChange={setOpen}>
-			<Button variant="ghost" size="icon-sm" aria-label={label} onClick={() => setOpen(true)}>
+			<PillButton variant="ghost" icon aria-label={label} onClick={() => setOpen(true)}>
 				<PanelLeftIcon />
-			</Button>
+			</PillButton>
 			<SheetContent
 				side="left"
 				showCloseButton={false}

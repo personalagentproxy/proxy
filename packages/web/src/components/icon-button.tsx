@@ -1,7 +1,7 @@
 import type {MouseEvent, ReactNode} from 'react';
 import {Link} from 'react-router';
-import {Button} from '@proxy/ui/components/button';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
+import {PillButton} from '@/components/pill-button';
 
 type Props = {
 	label: string;
@@ -15,33 +15,27 @@ type Props = {
 	| {href: string; onClick?: (event: MouseEvent<HTMLAnchorElement>) => void; to?: never}
 );
 
-// A header's icon action: a ghost icon button with its label in a tooltip.
+// A header's icon action: a ghost pill that is an icon alone, a circle, with its label in a tooltip.
 export function IconButton({label, children, disabled = false, onClick, to, href}: Props) {
 	const button =
 		to !== undefined ? (
-			<Button
+			<PillButton
 				variant="ghost"
-				size="icon-sm"
+				icon
 				aria-label={label}
 				nativeButton={false}
 				render={<Link to={to} />}
 			/>
 		) : href !== undefined ? (
-			<Button
+			<PillButton
 				variant="ghost"
-				size="icon-sm"
+				icon
 				aria-label={label}
 				nativeButton={false}
 				render={<a href={href} onClick={onClick} />}
 			/>
 		) : (
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				aria-label={label}
-				disabled={disabled}
-				onClick={onClick}
-			/>
+			<PillButton variant="ghost" icon aria-label={label} disabled={disabled} onClick={onClick} />
 		);
 
 	return (

@@ -115,9 +115,10 @@ export function CommandPaletteProvider({children}: {children: ReactNode}) {
 					}
 				}}
 			>
+				{/* Chat's message box's surface (lib/pill-variants.ts), which the bar and its cards are drawn as. */}
 				<DialogContent
 					showCloseButton={false}
-					className="top-[14vh] max-h-[80dvh] translate-y-0 gap-0 overflow-y-auto rounded-2xl bg-card p-0 sm:max-w-2xl"
+					className="top-[14vh] max-h-[80dvh] translate-y-0 gap-0 overflow-y-auto rounded-xl bg-background p-0 sm:max-w-2xl"
 				>
 					<DialogTitle className="sr-only">Go somewhere, or ask for something</DialogTitle>
 					<CommandBar

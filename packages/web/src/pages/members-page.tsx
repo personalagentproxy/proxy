@@ -10,7 +10,6 @@ import {OrgTile} from '@/components/org-switcher';
 import {PersonAvatar} from '@/components/person-avatar';
 import {RowHeader, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
-import {Button} from '@proxy/ui/components/button';
 import {PillButton} from '@/components/pill-button';
 import {
 	Dialog,
@@ -257,7 +256,7 @@ function MemberMenu({
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
-				render={<Button variant="ghost" size="icon-sm" aria-label={`Actions for ${name}`} />}
+				render={<PillButton variant="ghost" icon aria-label={`Actions for ${name}`} />}
 			>
 				<EllipsisIcon />
 			</DropdownMenuTrigger>

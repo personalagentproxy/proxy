@@ -8,10 +8,12 @@ import {initials} from '@/lib/widget-values';
 
 type Props = {
 	name: string;
-	children: ReactNode;
+	// What it shows; none for a widget that is only its foot, as a message to an agent is.
+	children?: ReactNode;
 	// Its buttons, the main one last.
 	actions?: ReactNode;
-	// What its last write did, or why it failed, beside its buttons.
+	// What its last write did, or why it failed, beside its buttons, in small print, which takes
+	// what room they leave.
 	status?: ReactNode;
 	// The connections it couldn't read, which it shows without.
 	failed?: Failure[];
@@ -20,8 +22,8 @@ type Props = {
 // One widget, as the command bar opens into it, in the manner of Chat's message box: one surface
 // with the input, no line between them and no heading, since what it shows and what its buttons
 // say tell what it is; `name` is what it is called to whoever can't see it. At its foot, what its
-// last write did beside its buttons, rounded as the button that sends a message is. The bar draws
-// the border, and the widget's rows reach it.
+// last write did beside its buttons, pills as the button that sends a message is. The bar draws
+// the surface, as Chat's box (lib/pill-variants.ts), and the widget's rows reach its edge.
 export function WidgetFrame({name, children, actions, status, failed = []}: Props) {
 	return (
 		<section
@@ -40,7 +42,7 @@ export function WidgetFrame({name, children, actions, status, failed = []}: Prop
 			)}
 			{(status || actions) && (
 				<footer className="flex flex-wrap items-center justify-between gap-3">
-					<div className="min-w-0 text-xs text-muted-foreground">{status}</div>
+					<div className="min-w-0 flex-1 text-xs text-muted-foreground">{status}</div>
 					{actions && <div className="flex gap-1.5">{actions}</div>}
 				</footer>
 			)}
