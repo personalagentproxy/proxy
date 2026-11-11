@@ -104,7 +104,9 @@ export type HarnessTurn = {
 	subAgents?: SubAgent[];
 	/** Whether the job is a wake-up after a sleep rather than something new in the log. */
 	woken: boolean;
-	/** The system prompt, built by the api. */
+	/** Where things stand as the turn starts, built by the api: the time, and for the agent talking with the person its sub-agents and alerts. Kept out of the system prompt, which then stays the same from one turn to the next. */
+	context: string;
+	/** The system prompt, built by the api, as it is now: a harness that keeps a session gives the model this one, not the one the session started with. */
 	system: string;
 	tools: ToolSurface;
 	/** The model to answer with: one of the harness's `models`, by its id. */

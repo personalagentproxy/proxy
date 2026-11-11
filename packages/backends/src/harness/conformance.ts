@@ -42,6 +42,7 @@ function turnInput(signal = new AbortController().signal): HarnessTurn {
 		entries: ENTRIES,
 		subAgents: [],
 		woken: false,
+		context: `The time now is ${new Date().toISOString()}.`,
 		system: 'You are a test.',
 		tools: fakeToolSurface(TOOLS),
 		model: 'claude',

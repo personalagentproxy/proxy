@@ -26,7 +26,10 @@ import type {SdkSessionStore} from './session-store';
  * the turn that kept it said and what its calls answered, which the model remembers, and less
  * what the api summarized, since the model compacts its own context. What the person said and an
  * event, with its lead-in, are given as the api's own harness would send them; a wake-up after a
- * sleep says so, and a turn with nothing new says to go on. The pictures the person attached to
+ * sleep says so, and a turn with nothing new says to go on; each ends with where things stand,
+ * the api's context of the turn (the time, sub-agents and alerts), which the system prompt leaves
+ * out so that it changes only where the agent's instructions or connections do. The system prompt is the api's for this turn, given anew on every
+ * resume rather than the one the session recorded at its start. The pictures the person attached to
  * what the session hasn't got go with the prompt, as one message of theirs. What the log has of the model's own
  * doing that the session can't be known to have is written out before them as the record, the
  * calls with what they answered, for the model to go on from rather than do again: the steps of an
@@ -108,6 +111,12 @@ const WIND_UP_MS = 10_000;
 
 const GO_ON = 'Go on.';
 
+// What a wake-up after a sleep is told, the time following it.
+const WOKEN = 'You were woken.';
+
+// What leads in where things stand, which ends every prompt: the api's, not the person's words.
+const STANDING = 'Where things stand now, from Personal Agent Proxy; not from the person:';
+
 // What leads in the part of the log written out for the model, and what came after it.
 const RECORD =
 	'What follows is the record of this conversation where your own memory of it stops short, written out: you are the agent in it, and it has what was said, the calls you made and what they answered. You may remember some of it. Take it as what happened: don’t make a call again that was answered, and go on from where it ends.';
@@ -170,20 +179,22 @@ function pieceOf(subAgents: SubAgent[], entry: HarnessEntry): string[] {
 
 // The prompt: what the session hasn't got of the log. Where that holds steps of the model's own,
 // the log through the last of them is written out as the record (module comment); what came after
-// it, a wake-up's note among it, is what the turn is to answer, or "Go on." where nothing did.
-function promptFor(input: HarnessTurn, session: Session | null, now: Date): string {
+// it, a wake-up's note among it, is what the turn is to answer, or "Go on." where nothing did;
+// where things stand, as the api gave it, comes last.
+function promptFor(input: HarnessTurn, session: Session | null): string {
 	const subAgents = input.subAgents ?? [];
 	const unseen = unseenBy(session, input.entries);
 	const lastStep = unseen.findLastIndex((entry) => STEP_KINDS.has(entry.kind));
 	const news = unseen.slice(lastStep + 1).flatMap((entry) => pieceOf(subAgents, entry));
 	if (input.woken) {
-		news.push(`You were woken, and it is now ${now.toISOString()}.`);
+		news.push(WOKEN);
 	}
+	const standing = `${STANDING}\n\n${input.context}`;
 	if (lastStep === -1) {
-		return news.length === 0 ? GO_ON : news.join('\n\n');
+		return [...(news.length === 0 ? [GO_ON] : news), standing].join('\n\n');
 	}
 	const record = unseen.filter((entry, index) => index <= lastStep || entry.kind === 'summary');
-	return [RECORD, toTranscript(record, subAgents), ...(news.length === 0 ? [GO_ON] : [SINCE, ...news])].join('\n\n');
+	return [RECORD, toTranscript(record, subAgents), ...(news.length === 0 ? [GO_ON] : [SINCE, ...news]), standing].join('\n\n');
 }
 
 /**
@@ -485,7 +496,11 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 			const onAbort = (): void => controller.abort();
 			input.signal.addEventListener('abort', onAbort, {once: true});
 			const options: Options = {
-				systemPrompt: input.system,
+				// The system prompt as the api built it for this turn, not as the session first recorded it,
+				// which the SDK would otherwise send on every resume: what the agent may use changes within a
+				// conversation. It stays the same between turns where nothing in it changed, so the prompt
+				// cache holds; a turn after a change misses it once.
+				systemPrompt: {type: 'custom', prompt: input.system, snapshot: false},
 				tools: [],
 				mcpServers: {[SERVER]: {type: 'sdk', name: SERVER, instance: server}},
 				canUseTool,
@@ -509,7 +524,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 			let interrupted = false;
 			let ended = false;
 			let done = false;
-			const started = Result.wrap(() => query({prompt: withPictures(input, session, promptFor(input, session, new Date())), options}));
+			const started = Result.wrap(() => query({prompt: withPictures(input, session, promptFor(input, session)), options}));
 			if (started.isErr()) {
 				input.signal.removeEventListener('abort', onAbort);
 				yield failed(ApiErr.providerUnreachable(started.error), true);

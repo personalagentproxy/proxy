@@ -212,7 +212,7 @@ function rosterLine(subAgent: SubAgentRow): string {
 // number.
 const MAX_STOPPED_LISTED = 10;
 
-// The main agent's sub-agents, for its system prompt: what it has started, by id, and what each
+// The main agent's sub-agents, for the context of its turn: what it has started, by id, and what each
 // is doing now, which a summary of the conversation might have lost; of those that have stopped,
 // the latest, with how many older ones there are.
 function roster(subAgents: SubAgentRow[]): string {
@@ -233,17 +233,25 @@ function unreachable(failure: ApiError): string {
 }
 
 // The system prompt: the instructions any agent with the login gets, for the agent as it acts in
-// the thread, as the member whose conversation it is, how to go about it on this thread, and, for
-// the agent talking with the person, its sub-agents and the alerts set in the conversation. What the
+// the thread, as the member whose conversation it is, and how to go about it on this thread: built
+// anew each turn, so what it may use now, and nothing that changes from turn to turn. What the
 // agent makes goes beside what the person attached: in the persona's folder, a sub-agent's in one
 // of its title's there, a title being kept as the sub-agent was started.
-function systemPrompt(store: InferenceStore, thread: ThreadRow, signedIn: SignedInAgent, subAgents: SubAgentRow[], now: Date): Promise<Result<string, ApiError>> {
+function systemPrompt(store: InferenceStore, thread: ThreadRow, signedIn: SignedInAgent): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const persona = $(await store.getPersonaName(thread));
 		const folder = persona === null ? undefined : chatFolder(persona, thread.parentThreadId === null ? null : thread.title);
-		const instructions = $(await agentInstructions(signedIn, thread.parentThreadId === null ? MAIN_FLOW : SUB_FLOW, folder));
+		return $(await agentInstructions(signedIn, thread.parentThreadId === null ? MAIN_FLOW : SUB_FLOW, folder));
+	});
+}
+
+// Where things stand as the turn starts, given with it rather than in the system prompt, as it
+// changes from turn to turn: for the agent talking with the person, its sub-agents and the alerts
+// set in the conversation; for any, the time.
+function turnContext(store: InferenceStore, thread: ThreadRow, subAgents: SubAgentRow[], now: Date): Promise<Result<string, ApiError>> {
+	return Do(async ($) => {
 		const about = thread.parentThreadId === null ? [roster(subAgents), alertsParagraph($(await store.listThreadAlerts(thread.id)))] : [];
-		return [instructions, ...about, `The time now is ${now.toISOString()}.`].join('\n\n');
+		return [...about, `The time now is ${now.toISOString()}.`].join('\n\n');
 	});
 }
 
@@ -423,7 +431,8 @@ function askOnLog(
 			const now = clock();
 			const subAgents = thread.parentThreadId === null ? $(await store.listSubAgents(thread.id, now)) : [];
 			const signedIn = $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
-			const system = $(await systemPrompt(store, thread, signedIn, subAgents, now));
+			const system = $(await systemPrompt(store, thread, signedIn));
+			const context = $(await turnContext(store, thread, subAgents, now));
 			// What the person attached is read with what they said: in the conversation, and in a
 			// sub-agent's thread what they wrote in its chat, its brief being the agent's own words.
 			const attached = $(await store.listAttachments(thread.id));
@@ -444,6 +453,7 @@ function askOnLog(
 						entries: withAttached(entries, attached, pictures),
 						subAgents,
 						woken,
+						context,
 						system,
 						tools: toolSurfaceFor(store, thread, job, workerId, clock),
 						model: choice.model,

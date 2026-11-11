@@ -766,6 +766,28 @@ describe('runInference', () => {
 			claudeCredentialFor.mockResolvedValue(Ok({kind: 'setup_token', token: 'tok'}));
 		});
 
+		test('gives a thread’s session the instructions and connections as they are now on each turn, and its sub-agents, alerts and the time beside them, not in them', async () => {
+			const {runInference} = await import('./inference');
+			getJobThread.mockResolvedValue(Ok({...thread, harness: 'claude-agent-sdk', harnessSession: session}));
+			listEntries.mockResolvedValue(Ok([entry('person', 'Save the screenshots')]));
+			listSubAgents.mockResolvedValueOnce(Ok([]));
+			agentInstructions.mockResolvedValueOnce(Ok('Connections:\n- vault-1: Vault'));
+			fake.script([ended(session)]);
+			await runInference(store, on(null, fake), job, 'w1', false, clock);
+
+			// A drive connected, a sub-agent started and an hour gone by, in the same conversation.
+			listSubAgents.mockResolvedValueOnce(Ok([{...sub, state: {kind: 'working'}}]));
+			agentInstructions.mockResolvedValueOnce(Ok('Connections:\n- vault-1: Vault\n- files-1: Files'));
+			fake.script([ended(session)]);
+			await runInference(store, on(null, fake), job, 'w1', false, () => new Date('2026-10-21T11:00:00Z'));
+
+			expect(fake.turns.at(-2)).toMatchObject({session, system: 'Connections:\n- vault-1: Vault'});
+			expect(fake.turns.at(-2)?.context).toBe('No sub-agents yet.\n\nNo alerts.\n\nThe time now is 2026-10-21T10:00:00.000Z.');
+			expect(fake.turns.at(-1)).toMatchObject({session, system: 'Connections:\n- vault-1: Vault\n- files-1: Files'});
+			expect(fake.turns.at(-1)?.context).toContain('- thread-2: “Find the invoices”, at work');
+			expect(fake.turns.at(-1)?.context).toContain('The time now is 2026-10-21T11:00:00.000Z.');
+		});
+
 		test('writes each step as its first call is answered, the step’s words and calls then the result, the first step with the prompt, and the last step as the job ends, the session kept', async () => {
 			const {runInference} = await import('./inference');
 			getJobThread.mockResolvedValue(Ok(sub));

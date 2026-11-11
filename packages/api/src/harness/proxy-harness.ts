@@ -101,10 +101,12 @@ export function proxyHarness(deps: ProxyHarnessDeps): HarnessBackend {
 				};
 				entries = [...entries, stored];
 			}
+			// Where things stand goes after the instructions: the whole log is sent every turn anyway.
+			const system = `${input.system}\n\n${input.context}`;
 			const turn = await deps.askForTurn({
 				key: deps.key,
 				model,
-				messages: [{role: 'system', content: input.system}, ...toMessages(entries, subAgents, {clearOld: true})],
+				messages: [{role: 'system', content: system}, ...toMessages(entries, subAgents, {clearOld: true})],
 				tools: toModelTools(input),
 				maxTokens: MAX_TOKENS,
 				timeoutMs: TIMEOUT_MS,
@@ -119,7 +121,7 @@ export function proxyHarness(deps: ProxyHarnessDeps): HarnessBackend {
 			for (const call of turn.value.toolCalls) {
 				yield {kind: 'tool_call', ...call};
 			}
-			yield {kind: 'done', session: input.session, system: input.system, inputTokens: turn.value.inputTokens, outputTokens: turn.value.outputTokens};
+			yield {kind: 'done', session: input.session, system, inputTokens: turn.value.inputTokens, outputTokens: turn.value.outputTokens};
 		},
 	};
 }

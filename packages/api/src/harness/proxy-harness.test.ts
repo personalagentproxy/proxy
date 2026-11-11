@@ -11,6 +11,9 @@ import type {askForTurn as askForTurnOverRouter} from '../llm/open-router';
 import {proxyHarness} from './proxy-harness';
 
 // The model over OpenRouter, as the harness asks it.
+// The system prompt as the model is sent it: the api's instructions, then where things stand.
+const SENT = 'You are signed in.\n\nThe time now is 2026-10-21T10:00:00.000Z.';
+
 const askForTurn = mock<typeof askForTurnOverRouter>();
 const harness = proxyHarness({askForTurn, key: 'sk-test'});
 
@@ -53,6 +56,7 @@ function turnInput(entries: HarnessEntry[], extra: Partial<HarnessTurn> = {}): H
 		entries,
 		subAgents: [],
 		woken: false,
+		context: 'The time now is 2026-10-21T10:00:00.000Z.',
 		system: 'You are signed in.',
 		tools: fakeToolSurface([read]),
 		model: 'claude',
@@ -81,7 +85,7 @@ describe('proxyHarness', () => {
 				key: 'sk-test',
 				model: 'glm',
 				messages: [
-					{role: 'system', content: 'You are signed in.'},
+					{role: 'system', content: SENT},
 					{role: 'user', content: 'Hi'},
 					{role: 'assistant', content: null, tool_calls: [{id: 'c1', type: 'function', function: {name: 'read', arguments: '{}'}}]},
 					{role: 'tool', tool_call_id: 'c1', content: 'rows'},
@@ -94,7 +98,7 @@ describe('proxyHarness', () => {
 		expect(events).toEqual([
 			{kind: 'text', text: 'Looking.'},
 			{kind: 'tool_call', id: 'c2', name: 'read', arguments: '{"a":1}'},
-			{kind: 'done', session: {id: 's1', state: {}}, system: 'You are signed in.', inputTokens: 10, outputTokens: 2},
+			{kind: 'done', session: {id: 's1', state: {}}, system: SENT, inputTokens: 10, outputTokens: 2},
 		]);
 	});
 
@@ -138,7 +142,7 @@ describe('proxyHarness', () => {
 		expect(events).toEqual([
 			{kind: 'summary', text: 'The person asked for one; it was done.', coversSeq: log[3]?.seq ?? -1, inputTokens: 90_000, outputTokens: 300},
 			{kind: 'text', text: 'Three is done too.'},
-			{kind: 'done', session: null, system: 'You are signed in.', inputTokens: 2000, outputTokens: 20},
+			{kind: 'done', session: null, system: SENT, inputTokens: 2000, outputTokens: 20},
 		]);
 	});
 

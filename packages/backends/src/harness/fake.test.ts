@@ -33,6 +33,7 @@ describe('fakeHarness', () => {
 			session: null,
 			entries: [],
 			woken: false,
+			context: `The time now is ${new Date().toISOString()}.`,
 			system: 'You are a test.',
 			tools: fakeToolSurface([]),
 			model: 'claude',
