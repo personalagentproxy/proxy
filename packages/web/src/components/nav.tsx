@@ -25,7 +25,9 @@ import {
 } from '@proxy/ui/components/sidebar';
 import {useCommandPalette} from '@/hooks/use-command-palette';
 import {useHuman} from '@/hooks/use-human';
+import {useOrgSlug} from '@/hooks/use-org';
 import {useUnread} from '@/hooks/use-unread';
+import {accountPath} from '@/lib/orgs';
 import {shortcutLabel} from '@/lib/platform';
 
 // `experiment` is the experiment a destination is behind, shown only with it on.
@@ -72,7 +74,8 @@ export function AppSidebar() {
 	const unread = useUnread();
 	const {setOpenMobile} = useSidebar();
 	const palette = useCommandPalette();
-	const base = `/${human?.org.slug ?? ''}`;
+	const org = useOrgSlug();
+	const base = `/${org}`;
 	const groups = GROUPS.map((group) =>
 		group.filter(
 			(destination) =>
@@ -135,7 +138,7 @@ export function AppSidebar() {
 						<SidebarMenuButton
 							isActive={pathname === '/account'}
 							tooltip="Account"
-							render={<Link to="/account" onClick={() => setOpenMobile(false)} />}
+							render={<Link to={accountPath(org)} onClick={() => setOpenMobile(false)} />}
 						>
 							<span className="flex size-4 shrink-0 items-center justify-center">
 								{human ? <PersonAvatar person={human.user} className="size-6" /> : null}
