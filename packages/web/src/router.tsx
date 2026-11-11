@@ -152,7 +152,7 @@ function oldVaultLoader({params, request}: {params: {org?: string}; request: Req
 // one that has not been through the welcome flow goes there first. With who is signed in, the
 // organization and the organizations they are in, for the switcher and every page that says which
 // is open. The account is in none: the sidebar shows the one it was opened from (`?org=`), or
-// their first.
+// their first, with its experiments.
 async function humanLoader({
 	params,
 	request,
@@ -165,7 +165,10 @@ async function humanLoader({
 		const signedIn = unwrapLoaderResult(me);
 		const all = unwrapLoaderResult(orgs).orgs;
 		const from = new URL(request.url).searchParams.get('org');
-		const org = all.find((one) => one.slug === from) ?? firstOrg(all);
+		const picked = all.find((one) => one.slug === from) ?? firstOrg(all);
+		// The list leaves each organization's experiments out: its own page says them, for the
+		// sidebar's and the command bar's Chat.
+		const org = unwrapLoaderResult(await getOrg(picked.slug));
 		return {...signedIn, org, orgs: all};
 	}
 
