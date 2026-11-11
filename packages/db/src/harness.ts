@@ -881,8 +881,9 @@ function withCall(tool: string): Prisma.AgentEntryWhereInput {
 /**
  * The thread's turns as the person sees them, what was said and what was answered in words, and
  * the answers that made a call of one of the tools in `calls`, which the person sees as what the
- * call did; not the other calls, their results, the reports, the notes or the summaries: the
- * log's, then what is pending, each in order.
+ * call did; and the answers that end a turn without a word, which show nothing but where the turn
+ * ended; not the other calls, their results, the reports, the notes or the summaries: the log's,
+ * then what is pending, each in order.
  */
 export async function listShownEntries(
 	threadId: string,
@@ -893,7 +894,12 @@ export async function listShownEntries(
 			db.agentEntry.findMany({
 				where: {
 					threadId,
-					OR: [{kind: 'person'}, {kind: 'assistant', text: {not: ''}}, ...calls.map(withCall)],
+					OR: [
+						{kind: 'person'},
+						{kind: 'assistant', text: {not: ''}},
+						{kind: 'assistant', toolCalls: null},
+						...calls.map(withCall),
+					],
 				},
 				select: entrySelect,
 				orderBy: [{pending: 'asc'}, {seq: 'asc'}],
@@ -903,9 +909,10 @@ export async function listShownEntries(
 }
 
 /**
- * A sub-agent's chat, as the member sees it: its thread's turns as `listShownEntries` has them, and
- * what of what it told the thread it was started from was an error, its failures, which only that
- * thread's log has: the logs', then what is pending, each in order.
+ * A sub-agent's chat, as the member sees it: its thread's turns as `listShownEntries` has them,
+ * but for the answers that end a turn without a word, and what of what it told the thread it was
+ * started from was an error, its failures, which only that thread's log has: the logs', then what
+ * is pending, each in order.
  */
 export async function listShownSubAgentEntries(
 	subAgent: ThreadRow,

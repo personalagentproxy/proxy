@@ -1,6 +1,5 @@
 /// <reference types="bun" />
 
-import type {Experiment} from '@proxy/utils';
 import {afterEach, describe, expect, test} from 'bun:test';
 import {cleanup, render, screen} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider, useLocation} from 'react-router';
@@ -16,12 +15,12 @@ function Where() {
 	return <p data-testid="where">{useLocation().pathname}</p>;
 }
 
-function renderOrg(experiments: Experiment[]) {
+function renderOrg() {
 	const router = createMemoryRouter(
 		[
 			{
 				id: 'human',
-				loader: () => testHuman({...testOrg, experiments}),
+				loader: () => testHuman(testOrg),
 				children: [
 					{path: '/:org', element: <OrgStart />},
 					{path: '/:org/*', element: <Where />},
@@ -34,13 +33,8 @@ function renderOrg(experiments: Experiment[]) {
 }
 
 describe('OrgStart', () => {
-	test('opens Chat in an organization that has it', async () => {
-		renderOrg(['harness']);
+	test('opens Chat', async () => {
+		renderOrg();
 		expect((await screen.findByTestId('where')).textContent).toBe('/acme/chat');
-	});
-
-	test('opens Connections in one without it', async () => {
-		renderOrg([]);
-		expect((await screen.findByTestId('where')).textContent).toBe('/acme/connections');
 	});
 });

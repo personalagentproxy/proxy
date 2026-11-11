@@ -173,12 +173,12 @@ export const envSchema = z.object({
 	OPENROUTER_KEY: documented(z.string().min(1).optional(), {
 		group: 'Core',
 		description:
-			'An OpenRouter API key, for the model that fills in the fields of the widget Jev picks in the command bar (gpt-oss-120b, on Cerebras or Groq), and for the built-in agent on the Chat page (Claude Sonnet 5.5, or GLM 5.3 where an agent is set to it). What is typed there is sent to it. Without it, or without `TYPESAFE_API_KEY`, the command bar says it is not set up, and without it the Chat page does; everything else works as before.',
+			'An OpenRouter API key, for the model that fills in the fields of the widget Jev picks in the command bar (gpt-oss-120b, on Cerebras or Groq), and for the built-in agent on the Chat page in an organization with the `openrouter` experiment on, where an agent can be set to run on it (Claude Sonnet 5.5, or GLM 5.3). What is typed there is sent to it. Without it, or without `TYPESAFE_API_KEY`, the command bar says it is not set up; everything else works as before.',
 	}),
 	CLAUDE_AGENT_SDK: documented(z.enum(['on', 'off']).default('on'), {
 		group: 'Core',
 		description:
-			'Whether an agent on the Chat page can be set to run on the Claude Agent SDK, under each member’s own Claude account, connected on the Account page: their conversations with it then go to Anthropic directly, as from Claude Code, and count against their plan rather than `OPENROUTER_KEY`. `off` takes the harness away, and an agent that was set to it runs on the server’s OpenRouter key. Each turn on the SDK runs Claude Code as a subprocess of a few hundred megabytes; `CLAUDE_AGENT_SDK_TURNS` caps how many run at once.',
+			'Whether the built-in agent on the Chat page runs on the Claude Agent SDK, under each member’s own Claude account, connected on the Account page: their conversations with it then go to Anthropic directly, as from Claude Code, and count against their plan. `off` takes the harness away: an agent then runs on `OPENROUTER_KEY` in an organization with the `openrouter` experiment on, and the Chat page says it is not set up everywhere else. Each turn on the SDK runs Claude Code as a subprocess of a few hundred megabytes; `CLAUDE_AGENT_SDK_TURNS` caps how many run at once.',
 	}),
 	CLAUDE_AGENT_SDK_TURNS: documented(z.coerce.number().int().positive().default(1), {
 		group: 'Core',

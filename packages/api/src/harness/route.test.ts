@@ -12,7 +12,7 @@ import type {HarnessRegistry} from '../backends/harness';
 import type {ChatFiles} from './attachments';
 import {type FakeStore, fakeStore} from './fake-store';
 
-const viewer = {orgId: 'org-1', userId: 'user-1', slug: 'acme', name: 'Acme', role: 'member' as 'member' | 'owner', onboarded: true, experiments: ['harness']};
+const viewer = {orgId: 'org-1', userId: 'user-1', slug: 'acme', name: 'Acme', role: 'member' as 'member' | 'owner', onboarded: true, experiments: ['openrouter']};
 const requireViewer = mock(async () => Ok(viewer));
 mock.module('../utils/user-org', () => ({requireViewer}));
 
@@ -37,7 +37,8 @@ const personaResponse = {
 };
 
 // The harnesses the server has, unless a test says otherwise: the loop over OpenRouter, with its
-// two models, and the Claude Agent SDK's, with its three.
+// two models, which the viewer's organization is offered with the `openrouter` experiment, and
+// the Claude Agent SDK's, with its three.
 const proxy: HarnessBackend = {
 	...fakeHarness('proxy'),
 	label: 'OpenRouter',
@@ -57,8 +58,8 @@ const sdk: HarnessBackend = {
 };
 let registry: HarnessRegistry = {proxy, claudeAgentSdk: sdk};
 const offered = [
-	{id: 'proxy', label: 'OpenRouter', models: proxy.models},
 	{id: 'claude-agent-sdk', label: 'Claude', models: sdk.models},
+	{id: 'proxy', label: 'OpenRouter', models: proxy.models},
 ];
 const thread: ThreadRow = {
 	id: 'thread-1',
@@ -167,14 +168,23 @@ beforeEach(async () => {
 });
 
 describe('the chat routes', () => {
-	test('are refused without the experiment', async () => {
-		const {handleListPersonasRoute, handleListAnswersRoute, handlePostMessageRoute} = routes;
+	test('offer OpenRouter only with the openrouter experiment: without it, a persona on it is shown on Claude, and none is made or switched to it', async () => {
+		const {handleCreatePersonaRoute, handleListPersonasRoute, handleUpdatePersonaRoute} = routes;
 		requireViewer.mockResolvedValue(Ok({...viewer, experiments: []}));
+		store.listPersonas.mockResolvedValue(Ok([{...persona, ownerUserId: null, lastMessage: null, draft: null, draftAttachments: []}]));
 
-		expect((await handleListPersonasRoute(request())).unwrapErr().kind).toBe('forbidden');
-		expect((await handleListAnswersRoute(request())).unwrapErr().kind).toBe('forbidden');
-		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: 'Hi'}))).unwrapErr().kind).toBe('forbidden');
-		expect(store.appendPersonMessage).not.toHaveBeenCalled();
+		const listed = (await handleListPersonasRoute(request())).unwrap();
+		expect(listed.harnesses.map((harness) => harness.id)).toEqual(['claude-agent-sdk']);
+		expect(listed.personas.map(({harness, chatModel}) => [harness, chatModel])).toEqual([['claude-agent-sdk', 'sonnet']]);
+
+		const body = {name: 'Finance', look, color: 'blue', harness: 'proxy'};
+		expect((await handleCreatePersonaRoute(request({}, body))).unwrapErr()).toMatchObject({kind: 'validation_error', message: 'This server has no harness proxy.'});
+		expect((await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, body))).unwrapErr().kind).toBe('validation_error');
+		expect(store.createPersona).not.toHaveBeenCalled();
+		expect(store.updatePersona).not.toHaveBeenCalled();
+
+		await handleCreatePersonaRoute(request({}, {name: 'Finance', look, color: 'blue'}));
+		expect(store.createPersona).toHaveBeenCalledWith('org-1', 'user-1', {name: 'Finance', look, color: 'blue', harness: 'claude-agent-sdk', chatModel: 'sonnet'});
 	});
 
 	test('list the personas the viewer sees, their own and every member’s, with their heads, what runs each, whether the viewer may change each, and the last thing said with each and what the viewer typed and hasn’t sent, on one line, and the harnesses the server has with their models', async () => {
@@ -247,7 +257,7 @@ describe('the chat routes', () => {
 		const made = await handleCreatePersonaRoute(request({}, {name: ' Finance ', look, color: 'blue'}));
 
 		expect(ensureBuiltInAgent).toHaveBeenCalledWith('org-1');
-		expect(store.createPersona).toHaveBeenCalledWith('org-1', 'user-1', {name: 'Finance', look, color: 'blue', harness: 'proxy', chatModel: 'claude'});
+		expect(store.createPersona).toHaveBeenCalledWith('org-1', 'user-1', {name: 'Finance', look, color: 'blue', harness: 'claude-agent-sdk', chatModel: 'sonnet'});
 		expect(made.unwrap().persona).toEqual({...personaResponse, id: 'persona-2'});
 	});
 
@@ -499,6 +509,32 @@ describe('the chat routes', () => {
 		]);
 	});
 
+	test('show what the persona started or sent without a word under its next words in the turn, or where the turn ended', async () => {
+		const {handleGetThreadRoute} = routes;
+		const later = new Date('2026-10-21T10:00:05.000Z');
+		store.listSubAgents.mockResolvedValue(Ok([subAgent({id: 'sub-1', parentCallId: 'c1', title: 'Weekly check'})]));
+		store.listShownEntries.mockResolvedValue(
+			Ok([
+				logEntry({id: 'e1', seq: 1, kind: 'assistant', text: '', toolCalls: [call('c2', 'send_to_subagent', {subagent: 'sub-1', text: 'Run it'})]}),
+				logEntry({id: 'e2', seq: 3, kind: 'assistant', text: 'I’m running the check.', createdAt: later}),
+				logEntry({id: 'e3', seq: 5, kind: 'assistant', text: 'All quiet.', createdAt: later}),
+				logEntry({id: 'e4', seq: 6, kind: 'assistant', text: '', toolCalls: [call('c3', 'send_to_subagent', {subagent: 'sub-1', text: 'Again'})]}),
+				logEntry({id: 'e5', seq: 8, kind: 'assistant', text: '', createdAt: later}),
+				logEntry({id: 'e6', seq: 9, kind: 'assistant', text: 'Here it is again.', createdAt: later}),
+			]),
+		);
+
+		const log = (await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap();
+
+		expect(log.entries).toEqual([
+			{id: 'e2', kind: 'assistant', text: 'I’m running the check.', isError: false, at: '2026-10-21T10:00:05.000Z', attachments: []},
+			{id: 'e1:c2', kind: 'sent', task: {id: 'sub-1', title: 'Weekly check'}, at: '2026-10-21T10:00:05.000Z'},
+			{id: 'e3', kind: 'assistant', text: 'All quiet.', isError: false, at: '2026-10-21T10:00:05.000Z', attachments: []},
+			{id: 'e4:c3', kind: 'sent', task: {id: 'sub-1', title: 'Weekly check'}, at: '2026-10-21T10:00:05.000Z'},
+			{id: 'e6', kind: 'assistant', text: 'Here it is again.', isError: false, at: '2026-10-21T10:00:05.000Z', attachments: []},
+		]);
+	});
+
 	test('give a task’s chat: the persona’s brief and messages, the viewer’s own, and what the task answered and told the persona, without its calls, and its failures', async () => {
 		const {handleGetTaskRoute} = routes;
 		const task = subAgent({id: 'sub-1', parentCallId: 'c1', title: 'Find flights', taskId: 'task-7', state: {kind: 'stopped'}});
@@ -607,9 +643,6 @@ describe('the chat routes', () => {
 		store.getMemberThread.mockResolvedValue(Ok(null));
 		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: 'Hi'}))).unwrapErr().kind).toBe('not_found');
 		expect(store.messageSubAgentDirectly).toHaveBeenCalledTimes(1);
-
-		requireViewer.mockResolvedValue(Ok({...viewer, experiments: []}));
-		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: 'Hi'}))).unwrapErr().kind).toBe('forbidden');
 	});
 
 	test('put a file in a task’s input into the viewer’s own drive, keeping it in no input on the server, only for a task of their conversation', async () => {

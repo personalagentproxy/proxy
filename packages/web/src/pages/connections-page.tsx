@@ -18,21 +18,29 @@ import {OrgNotice} from '@/components/org-notice';
 import {RenameDialog} from '@/components/rename-dialog';
 import {Row, RowHeader, RowList} from '@/components/row-list';
 import {SideEmpty, SideToggle} from '@/components/share-toggle';
+import {PersonHead, PersonHeads} from '@/components/person-heads';
 import {ContextMenuItem} from '@proxy/ui/components/context-menu';
 import {useHuman} from '@/hooks/use-human';
 import {useLoaded} from '@/hooks/use-loaded';
 import {useReload} from '@/hooks/use-reload';
 import {useSide} from '@/hooks/use-side';
-import {agentsWithAccess, connectionTitle, integrationOf} from '@/lib/access';
+import {
+	agentsWithAccess,
+	connectionTitle,
+	integrationOf,
+	ownerOfConnection,
+	sharedWithPeople,
+} from '@/lib/access';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
-import {actsAs, manages} from '@/lib/orgs';
+import {manages} from '@/lib/orgs';
 import type {connectionsLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 
 // Widths and visibility shared by the header and every row, so the columns line up.
 const CELLS = {
 	account: 'hidden w-48 shrink-0 truncate text-right text-muted-foreground md:block',
-	actsAs: 'hidden w-48 shrink-0 truncate text-right text-muted-foreground md:block',
+	connectedBy: 'hidden w-24 shrink-0 justify-end md:flex',
+	sharedWith: 'hidden w-24 shrink-0 justify-end md:flex',
 	agents: 'w-20 shrink-0 text-right text-muted-foreground tabular-nums',
 };
 
@@ -62,11 +70,12 @@ function needsName(connection: Connection): boolean {
 // shared with them, never another member's that isn't. With anyone else in it or invited, a toggle
 // picks the list, in the address as `?for=me` or `?for=everyone`: what is theirs alone, or what is
 // shared, by them or with them, with every member or some by name, opening on what is theirs
-// alone, the shared one saying who the provider sees when an agent uses each. The person's own
-// vault and Sandboxes come first among what is theirs alone, each opening its connection's page,
-// as every connection does, where what it holds is the first tab. A right click on a row renames or
-// deletes a connection the person may change: their own, or, as the organization's owner, one
-// shared with every member; and, in someone with another organization, moves their own into it.
+// alone, the shared one showing the face of who connected each, whose account agents act as, and
+// the faces of who it is shared with. The person's own vault and Sandboxes come first among what
+// is theirs alone, each opening its connection's page, as every connection does, where what it
+// holds is the first tab. A right click on a row renames or deletes a connection the person may
+// change: their own, or, as the organization's owner, one shared with every member; and, in
+// someone with another organization, moves their own into it.
 export function ConnectionsPage() {
 	return (
 		<AppShell title={<PageTitle>Connections and permissions</PageTitle>}>
@@ -77,7 +86,7 @@ export function ConnectionsPage() {
 
 function Connections() {
 	const org = useOrgSlug();
-	const {connections: all, agents} = useLoaded<typeof connectionsLoader>();
+	const {connections: all, agents, members} = useLoaded<typeof connectionsLoader>();
 	const reload = useReload();
 	const human = useHuman();
 	const [pending, setPending] = useState<Pending | null>(null);
@@ -126,7 +135,8 @@ function Connections() {
 						<span className="size-5 shrink-0" />
 						<span className="min-w-0 flex-1">Service</span>
 						<span className={CELLS.account}>Account</span>
-						{showingShared && <span className={CELLS.actsAs}>Acts as</span>}
+						{showingShared && <span className={CELLS.connectedBy}>Connected by</span>}
+						{showingShared && <span className={CELLS.sharedWith}>Shared with</span>}
 						<span className={CELLS.agents}>Agents</span>
 					</RowHeader>
 				}
@@ -166,8 +176,13 @@ function Connections() {
 								<>
 									<span className={CELLS.account}>{connection.account}</span>
 									{showingShared && (
-										<span className={CELLS.actsAs}>
-											{integration?.native ? '' : actsAs(connection, human)}
+										<span className={CELLS.connectedBy}>
+											<PersonHead person={ownerOfConnection(connection, members)} />
+										</span>
+									)}
+									{showingShared && (
+										<span className={CELLS.sharedWith}>
+											<PersonHeads people={sharedWithPeople(connection, members)} />
 										</span>
 									)}
 									<span className={CELLS.agents}>

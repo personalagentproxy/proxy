@@ -268,7 +268,8 @@ function TaskConversation({loaded}: {loaded: TaskChat}) {
 						attachments.add(picked);
 					}}
 				/>
-				<InputGroup className="rounded-xl bg-background shadow-xs">
+				{/* No focus ring: the caret in the only input on the page says where typing goes. */}
+				<InputGroup className="rounded-xl bg-background shadow-xs has-[[data-slot=input-group-control]:focus-visible]:border-input has-[[data-slot=input-group-control]:focus-visible]:ring-0">
 					<MessageEditor
 						ref={editor}
 						opening={opening}

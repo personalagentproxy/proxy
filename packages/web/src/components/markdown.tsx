@@ -2,20 +2,24 @@ import type {Element, ElementContent, Root, RootContent} from 'hast';
 import {createContext, type ReactNode, useContext, useState} from 'react';
 import {ImageIcon} from 'lucide-react';
 import ReactMarkdown, {type Components} from 'react-markdown';
+import {Link} from 'react-router';
 import remarkGfm from 'remark-gfm';
 import {cn} from '@proxy/ui/lib/utils';
+import {useOrgSlug} from '@/hooks/use-org';
+import {accountPath} from '@/lib/orgs';
 
 const MAX_FAVICON_HOSTS = 8;
 const FaviconHostsContext = createContext<Set<string> | null>(null);
 
 // What a persona answers, as Markdown: paragraphs, lists, tables, code and links, styled to sit
-// in a chat bubble. Every link opens in a new tab, since the conversation stays here. A picture is
-// never loaded from the address it gives, since loading it would hand that address whatever the
-// answer put in it, unasked: it is what `image` makes of it, a file kept with the answer, or
-// else a link to the address, which the person may open. Each component takes the element's own
-// props, without the syntax tree node react-markdown hands along, which is no attribute of an
-// element. Pictures one after another, with nothing but space between them, are a gallery: tiles in
-// a grid, as a set of screenshots is shown, not a column of them as tall as the window.
+// in a chat bubble. A link elsewhere opens in a new tab, since the conversation stays here; one
+// into the app, by its path, opens in place. A picture is never loaded from the address it gives,
+// since loading it would hand that address whatever the answer put in it, unasked: it is what
+// `image` makes of it, a file kept with the answer, or else a link to the address, which the
+// person may open. Pictures one after another, with nothing but space between them, are a
+// gallery: tiles in a grid, as a set of screenshots is shown, not a column of them as tall as the
+// window. Each component takes the element's own props, without the syntax tree node
+// react-markdown hands along, which is no attribute of an element.
 
 /**
  * A picture of the text as the page shows it, by its address and what it says it shows, as a tile
@@ -169,6 +173,27 @@ function Pictures({count, children}: {count: number; children: ReactNode}) {
 	);
 }
 
+const LINK_CLASS = 'underline underline-offset-4 hover:text-foreground';
+
+// A path in the app, as the conversation's own word on connecting Claude links the Account page:
+// that page kept to the organization the link was followed from.
+function AppLink({
+	path,
+	className,
+	children,
+}: {
+	path: string;
+	className?: string;
+	children: ReactNode;
+}) {
+	const org = useOrgSlug();
+	return (
+		<Link className={cn(LINK_CLASS, className)} to={path === '/account' ? accountPath(org) : path}>
+			{children}
+		</Link>
+	);
+}
+
 const MarkdownLink: NonNullable<Components['a']> = ({
 	node: _node,
 	className,
@@ -177,10 +202,17 @@ const MarkdownLink: NonNullable<Components['a']> = ({
 	...props
 }) => {
 	const hosts = useContext(FaviconHostsContext);
+	if (href?.startsWith('/') && !href.startsWith('//')) {
+		return (
+			<AppLink path={href} className={className}>
+				{children}
+			</AppLink>
+		);
+	}
 	const host = hosts ? faviconHost(href, hosts) : null;
 	return (
 		<a
-			className={cn('underline underline-offset-4 hover:text-foreground', className)}
+			className={cn(LINK_CLASS, className)}
 			href={href}
 			target="_blank"
 			rel="noreferrer"
@@ -216,12 +248,7 @@ const MarkdownImage: NonNullable<Components['img']> = ({src, alt}) => {
 		return said;
 	}
 	return (
-		<a
-			className="underline underline-offset-4 hover:text-foreground"
-			href={href}
-			target="_blank"
-			rel="noreferrer"
-		>
+		<a className={LINK_CLASS} href={href} target="_blank" rel="noreferrer">
 			<ImageIcon className="inline-block h-3.5 w-[18px] pr-1 align-[-2px]" />
 			{said === '' ? href : said}
 		</a>

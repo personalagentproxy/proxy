@@ -1,7 +1,7 @@
 import type {Result} from 'ts-results-es';
 
 import type {HarnessAuth, HarnessBackend} from '@proxy/backends/harness/backend';
-import type {ApiError} from '@proxy/utils';
+import {type ApiError, type Experiment, hasExperiment} from '@proxy/utils';
 import type {EntryAttachment, EntryImage} from '@proxy/utils/harness-context';
 import type {SignedInAgent} from '@proxy/db/agent';
 import type {ClaudeUsage} from '@proxy/db/claude-account';
@@ -10,15 +10,17 @@ import type {PersonaModel} from '@proxy/db/harness';
 import type {ClaudeCredential} from '../me/claude-credential';
 
 /**
- * Which harness runs a thread's turns (@proxy/backends/harness), of those this server has: the
- * api's own loop over OpenRouter, where there is a key for it, and the Claude Agent SDK's, which
- * runs as the member, on the Claude credential they connected on the Account page. The choice is
+ * Which harness runs a thread's turns (@proxy/backends/harness), of those this server has and
+ * offers the organization (`offeredTo`): the Claude Agent SDK's, which runs as the member, on the
+ * Claude credential they connected on the Account page, and the api's own loop over OpenRouter, on
+ * the server's key, where there is one and the organization has the `openrouter` experiment. The choice is
  * the persona's, made where it is made or changed, with the model it answers with, one of those
  * the harness lists; its sub-agents' turns go the same way. It is read anew for each turn, so a
  * persona switched to another harness moves every member's conversation with it from the next
  * turn on: the log is the record on either, and a harness whose session the thread hasn't got is
- * given the log in its place. A harness the server hasn't got, as the SDK harness on a server
- * that turned it off, is read as the first it has, and a model the harness hasn't got as its
+ * given the log in its place. A harness the organization isn't offered, as the SDK harness on a
+ * server that turned it off, or OpenRouter without the experiment, is read as the first it is,
+ * and a model the harness hasn't got as its
  * first. A persona on the SDK harness needs each member's own credential: a member without one
  * is told to connect it, and one whose credential ran out or was refused to connect it again
  * (inference.ts), never quietly moved to the server's key, which would bill the organization for
@@ -59,7 +61,7 @@ export type Harnesses = {registry: HarnessRegistry; credentials: ClaudeCredentia
 /** The harness for a turn with the model to answer with and the credential to give it, or none, with what the person is told instead. */
 export type HarnessChoice = {harness: HarnessBackend; model: string; auth: HarnessAuth | null} | {harness: null; auth: null; why: string};
 
-export const NOT_SET_UP = 'Chat is not set up on this server: it needs an OpenRouter key (OPENROUTER_KEY). Everything else works as before.';
+export const NOT_SET_UP = 'Chat is not set up on this server: it has no harness to run agents on. Everything else works as before.';
 
 /** The credential as the harness is handed it: a token goes as a sign-in's access token would, with no scopes, which is how the SDK takes `CLAUDE_CODE_OAUTH_TOKEN`. */
 export function authFor(credential: ClaudeCredential): HarnessAuth {
@@ -69,18 +71,33 @@ export function authFor(credential: ClaudeCredential): HarnessAuth {
 	return {kind: 'api_key', key: credential.key};
 }
 
-/** What the person is told where the persona runs on their own Claude account and they connected none. */
-export const CONNECT_CLAUDE = 'This agent runs on your own Claude account, and you haven’t connected one. Connect it under Claude on the Account page.';
+// The Account page, where a member connects their Claude account, as a link in what the
+// conversation tells them, which the Chat page opens in place.
+const ACCOUNT_PAGE = '[Account page](/account)';
 
-/** The harnesses this server has, in the order a choice among them is offered: the first is what a persona gets that chose none, or one the server hasn't got. */
+/** What the person is told where the persona runs on their own Claude account and they connected none. */
+export const CONNECT_CLAUDE = `This agent runs on your own Claude account, and you haven’t connected one. Connect it under Claude on the ${ACCOUNT_PAGE}.`;
+
+/** What the person is told where their Claude credential ran out or was refused. */
+export const RECONNECT_CLAUDE = `Your Claude sign-in has run out or was refused. Connect it again on the ${ACCOUNT_PAGE}.`;
+
+/** The harnesses of the server's the organization is offered: OpenRouter, on the server's key, only with the `openrouter` experiment on. */
+export function offeredTo(registry: HarnessRegistry, org: {experiments: Experiment[]}): HarnessRegistry {
+	if (hasExperiment(org, 'openrouter')) {
+		return registry;
+	}
+	return {...registry, proxy: null};
+}
+
+/** The harnesses in the registry, in the order a choice among them is offered: the first is what a persona gets that chose none, or one it isn't offered. */
 export function harnessesOf(registry: HarnessRegistry): HarnessBackend[] {
-	return [registry.proxy, registry.claudeAgentSdk].flatMap((harness) => (harness === null ? [] : [harness]));
+	return [registry.claudeAgentSdk, registry.proxy].flatMap((harness) => (harness === null ? [] : [harness]));
 }
 
 /**
- * The persona's choice as this server has it: the harness it chose, or the first the server has
+ * The persona's choice as the registry has it: the harness it chose, or the first the registry has
  * where it hasn't got that one, with the model it chose of that harness's, or the harness's first.
- * Null on a server with no harness at all.
+ * Null where the registry has no harness at all.
  */
 export function chosenFor(registry: HarnessRegistry, persona: PersonaModel): {harness: HarnessBackend; model: string} | null {
 	const harnesses = harnessesOf(registry);

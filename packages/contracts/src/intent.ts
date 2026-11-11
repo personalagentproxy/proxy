@@ -8,7 +8,7 @@ import {UNITS} from '@proxy/utils/units';
  * the text (`packages/api/src/intent/`). Most are meant for one kind of data: Calendar, Contacts,
  * Gmail or Drive, or a bank; Math and Convert units are worked out in the web app; Ask reads one
  * meeting, file, email, page or issue and answers from it; New agent makes an agent of Chat's and
- * hands it what it is for, so it is offered only where Chat is (`CHAT_WIDGET_IDS`).
+ * hands it what it is for.
  */
 
 type FieldOf<Id extends string> = {
@@ -405,7 +405,7 @@ export const WIDGET_NAMES: Record<WidgetId, string> = {
 	new_agent: 'New agent',
 };
 
-/** The widgets that work with Chat's agents, picked only for an organization that has Chat. */
+/** The widgets that work with Chat's agents. */
 export const CHAT_WIDGET_IDS: readonly WidgetId[] = ['new_agent'];
 
 /** Every field's id, of any widget, each once. */

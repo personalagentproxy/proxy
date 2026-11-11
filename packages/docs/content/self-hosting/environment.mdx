@@ -9,7 +9,7 @@ An empty variable counts as unset. With Docker Compose, the
 ## Core
 
 The variables marked **Required** are needed for Personal Agent Proxy to work. The optional Core
-variables turn on quick actions and the built-in agent on the Chat page.
+variables turn on quick actions, and set what the built-in agent on the Chat page runs on.
 
 <EnvTable group="Core" />
 
@@ -17,8 +17,9 @@ A Chat agent can be set to run on the Claude Agent SDK, under each member's own 
 which runs Claude Code as a subprocess for each turn: a few hundred megabytes of memory while the
 turn lasts, on top of the server's own. `CLAUDE_AGENT_SDK_TURNS` is how many such turns one server
 runs at once, one unless you raise it; a server with little memory to spare can turn the SDK off
-with `CLAUDE_AGENT_SDK=off`: it is then not offered for an agent, and an agent that was set to it
-runs on `OPENROUTER_KEY`.
+with `CLAUDE_AGENT_SDK=off`. Agents then run on `OPENROUTER_KEY` in an organization that has
+[OpenRouter turned on](/agents/chat#openrouter), and nowhere else: the Chat page says it is not set
+up.
 
 ## Sign-in
 

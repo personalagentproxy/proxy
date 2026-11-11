@@ -7,11 +7,9 @@ import {
 	SearchIcon,
 	type LucideIcon,
 } from 'lucide-react';
-import type {Experiment} from '@proxy/utils';
 import {Link, useLocation} from 'react-router';
 import {OrgSwitcher} from '@/components/org-switcher';
 import {PersonAvatar} from '@/components/person-avatar';
-import {useExperiments} from '@/hooks/use-experiment';
 import {
 	Sidebar,
 	SidebarContent,
@@ -30,8 +28,7 @@ import {useUnread} from '@/hooks/use-unread';
 import {accountPath} from '@/lib/orgs';
 import {shortcutLabel} from '@/lib/platform';
 
-// `experiment` is the experiment a destination is behind, shown only with it on.
-type Destination = {to: string; label: string; icon: LucideIcon; experiment?: Experiment};
+type Destination = {to: string; label: string; icon: LucideIcon};
 
 const CHAT = '/chat';
 
@@ -52,14 +49,14 @@ function UnreadBadge({count}: {count: number}) {
 // The organization's, under the switcher, each under its slug, in groups set apart from each
 // other, the first under Search. Its members and settings are in the switcher.
 const GROUPS: Destination[][] = [
-	[{to: CHAT, label: 'Chat', icon: MessageSquareIcon, experiment: 'harness'}],
+	[{to: CHAT, label: 'Chat', icon: MessageSquareIcon}],
 	[
 		{to: '/connections', label: 'Connections and permissions', icon: PlugIcon},
 		{to: '/agents', label: 'External agents', icon: ListChecksIcon},
 	],
 	[
 		{to: '/activity', label: 'Activity', icon: ChartNoAxesGanttIcon},
-		{to: '/alerts', label: 'Alerts', icon: BellIcon, experiment: 'harness'},
+		{to: '/alerts', label: 'Alerts', icon: BellIcon},
 	],
 ];
 
@@ -70,19 +67,11 @@ const GROUPS: Destination[][] = [
 export function AppSidebar() {
 	const {pathname} = useLocation();
 	const human = useHuman();
-	const experiments = useExperiments();
 	const unread = useUnread();
 	const {setOpenMobile} = useSidebar();
 	const palette = useCommandPalette();
 	const org = useOrgSlug();
 	const base = `/${org}`;
-	const groups = GROUPS.map((group) =>
-		group.filter(
-			(destination) =>
-				destination.experiment === undefined || experiments.includes(destination.experiment),
-		),
-	);
-
 	return (
 		<Sidebar collapsible="icon">
 			<SidebarHeader>
@@ -93,7 +82,7 @@ export function AppSidebar() {
 				</SidebarMenu>
 			</SidebarHeader>
 			<SidebarContent>
-				{groups.map((group, index) => (
+				{GROUPS.map((group, index) => (
 					<SidebarGroup key={index} className={index === 0 ? 'pt-0' : undefined}>
 						<SidebarMenu>
 							{index === 0 && (
