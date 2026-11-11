@@ -17,19 +17,22 @@ import {authenticateCliRequest, type CliCaller} from '../authenticate';
 import {apiQuery, type GitHubEntry, logGitHubRequest, pushQuery} from './activity';
 import {githubTarget, type GitHubTarget, refusalMessage} from './connection';
 import {abortWithClient, forwardedHeaders, passBack, relay} from './forward';
+import {defaultBranch, type DefaultBranchFailure} from './default-branch';
 import type {Operation} from './graphql';
+import {bodyTarget, type GitHubAction, graphqlNeed, needsDefaultBranch, pushActions, pushTargets, type RefTarget, restNeed} from './needs';
 import {GITHUB_ORIGINS} from './origins';
 import {bodyStream, peekBody, readBody} from './peek';
 import {errPacket, leadingPackets, pushedRefs, sidebandError} from './pkt-line';
-import {apiAction, apiRequest, type GitPhase, type GitRequest, type GitService, gitAction, gitRequest, graphqlAction, isGraphql} from './requests';
+import {type ApiRequest, apiRequest, type GitPhase, type GitRequest, type GitService, gitAction, gitRequest, isGraphql} from './requests';
 
 /**
  * `/api/cli/github/…` (@proxy/contracts/cli-github): GitHub's git and API requests from a sandbox,
  * for `pap git` and `pap gh`, relayed to GitHub as the person, with the connection's token, which
  * never goes back. Each is authenticated with the command's token (cli/authenticate.ts), for the
  * GitHub connection it names or the agent's only one (connection.ts), and checked against the
- * action it needs (requests.ts) as the gate does a tool run; one the agent doesn't have is refused
- * and logged as denied. The token is refreshed before the request where it is running out, since
+ * actions it needs (requests.ts for git, needs.ts for the API, and for a push, whether it reaches
+ * the repository's default branch, asked of GitHub: default-branch.ts) as the gate does a tool
+ * run; one the agent doesn't have is refused and logged as denied. The token is refreshed before the request where it is running out, since
  * a streamed request can't be made twice; GitHub turning it down anyway is the sign-in rejected,
  * logged as failed. What is logged of what was relayed (activity.ts): a fetch, by its `info/refs`,
  * which git asks for once for each fetch, clone or ls-remote; a push, by its POST, with the refs it
@@ -45,8 +48,12 @@ import {apiAction, apiRequest, type GitPhase, type GitRequest, type GitService, 
 // How much of a push's start is read for the log: its commands come long before this.
 const PEEK_LIMIT = 64 * 1024;
 
-// The most of a GraphQL request read, to tell a query from a mutation, which GitHub's are far under.
+// The most of a GraphQL request read, to tell what it runs, which GitHub's are far under.
 const GRAPHQL_LIMIT = 1024 * 1024;
+
+// The most of a write read to find the branch its body names, a file's content among it for one
+// written through the API.
+const PUSH_BODY_LIMIT = 10 * 1024 * 1024;
 
 type Refusal = {status: number; message: string};
 
@@ -145,27 +152,81 @@ async function relayFailure(authed: Authed, entry: GitHubEntry, startedAt: numbe
 	return logged(authed.caller, authed.target, entry, 'failed', startedAt, REJECTED, 'credentials_rejected 401');
 }
 
+// What a push is refused with where GitHub didn't say which branch is the default, logged as failed.
+function defaultBranchRefusal(authed: Authed, entry: GitHubEntry, startedAt: number, failure: DefaultBranchFailure): Promise<Refusal> {
+	const {caller, target} = authed;
+	if (failure.kind === 'unreachable') {
+		return logged(caller, target, entry, 'failed', startedAt, UNREACHABLE, 'provider_unreachable');
+	}
+	if (failure.kind === 'rejected') {
+		return logged(caller, target, entry, 'failed', startedAt, REJECTED, 'credentials_rejected 401');
+	}
+	const repository = entry.repository ?? 'the repository';
+	const message = `GitHub didn’t say which branch is ${repository}’s default (it answered ${failure.status}), so the push wasn’t made; try again.`;
+	return logged(caller, target, entry, 'failed', startedAt, {status: 502, message}, `default_branch ${failure.status}`);
+}
+
+type Resolved = {actions: GitHubAction[]; defaultBranch: string | null};
+
+/** What a push to `targets` needs, GitHub asked for the repository's default branch only where that tells. */
+async function resolvePush(authed: Authed, entry: GitHubEntry, startedAt: number, targets: RefTarget[], token: string, signal: AbortSignal): Promise<Result<Resolved, Refusal>> {
+	if (entry.repository === null || !needsDefaultBranch(targets)) {
+		return Ok({actions: pushActions(targets, null), defaultBranch: null});
+	}
+	const branch = await defaultBranch(entry.repository, token, signal);
+	if (branch.isErr()) {
+		return Err(await defaultBranchRefusal(authed, entry, startedAt, branch.error));
+	}
+	return Ok({actions: pushActions(targets, branch.value), defaultBranch: branch.value});
+}
+
+// The first of `needed` the agent doesn't have, or null where it has them all.
+function firstMissing(target: GitHubTarget, needed: GitHubAction[]): GitHubAction | null {
+	return needed.find((action) => !target.actions.includes(action)) ?? null;
+}
+
+// The action an allowed request is logged with: the last it needed, never none.
+function loggedAction(needed: GitHubAction[]): GitHubAction {
+	return needed.at(-1) ?? 'read';
+}
+
+// What a refusal of Push to the default branch says beside the action, for a model to go on.
+function pushDefaultHint(resolved: Resolved): string {
+	const branch = resolved.defaultBranch ?? 'the default branch';
+	return ` Push to a branch of your own instead and open a pull request into ${branch}.`;
+}
+
+// What needed Push to the default branch, in the refusal's words.
+function pushToDefault(resolved: Resolved): string {
+	return resolved.defaultBranch ? `a push to ${resolved.defaultBranch} (the default branch)` : 'a push that may reach the default branch';
+}
+
 // Whether a request has a body to relay: one it says the length of, or sends chunked.
 function hasBody(request: Request): boolean {
 	const length = request.headers['content-length'];
 	return (length !== undefined && length !== '0') || request.headers['transfer-encoding'] !== undefined;
 }
 
-type GitBody = {body: ReadableStream<Uint8Array> | null; logged: GitHubEntry | null};
+// Whether a request's body is compressed, which can't be read here.
+function isEncoded(request: Request): boolean {
+	return (request.headers['content-encoding'] ?? 'identity').trim().toLowerCase() !== 'identity';
+}
 
-// A push's body to relay, and its entry with the refs it updates, read from the commands at its
-// start. git never compresses a push, so one that is compressed is relayed and logged without them.
+type GitBody = {body: ReadableStream<Uint8Array> | null; logged: GitHubEntry | null; targets: RefTarget[]};
+
+// A push's body to relay, its entry with the refs it updates, and those, read from the commands at
+// its start. git never compresses a push, so one that is compressed is relayed and logged without
+// them, taken as reaching the default branch.
 async function pushBody(request: Request, entry: GitHubEntry): Promise<Result<GitBody, Error>> {
-	const encoding = (request.headers['content-encoding'] ?? 'identity').trim().toLowerCase();
-	if (encoding !== 'identity') {
-		return Ok({body: bodyStream(request), logged: entry});
+	if (isEncoded(request)) {
+		return Ok({body: bodyStream(request), logged: entry, targets: [{kind: 'default'}]});
 	}
 	const peeked = await Result.wrapAsync(() => peekBody(request, PEEK_LIMIT, (start) => leadingPackets(start).flushed));
 	return peeked
 		.mapErr((error) => (error instanceof Error ? error : new Error(String(error))))
 		.map(({start, body}) => {
 			const {refs, complete} = pushedRefs(start);
-			return {body, logged: {...entry, query: pushQuery(refs, complete)}};
+			return {body, logged: {...entry, query: pushQuery(refs, complete)}, targets: pushTargets(refs, complete)};
 		});
 }
 
@@ -173,17 +234,18 @@ async function pushBody(request: Request, entry: GitHubEntry): Promise<Result<Gi
 // a push's at its POST; none for the rest, the upload-pack POSTs of a fetch logged already.
 async function gitBody(request: Request, git: GitRequest, entry: GitHubEntry): Promise<Result<GitBody, Error>> {
 	if (git.phase === 'refs') {
-		return Ok({body: null, logged: git.service === 'git-upload-pack' ? entry : null});
+		return Ok({body: null, logged: git.service === 'git-upload-pack' ? entry : null, targets: []});
 	}
 	if (git.service === 'git-upload-pack') {
-		return Ok({body: bodyStream(request), logged: null});
+		return Ok({body: bodyStream(request), logged: null, targets: []});
 	}
 	return pushBody(request, entry);
 }
 
 /**
  * `/api/cli/github/git/<owner>/<repo>[.git]/…`: git's smart HTTP, relayed to GitHub's git server
- * with the token as git's Basic password.
+ * with the token as git's Basic password. A push's POST needs Push to the default branch as well
+ * where it updates that, or where what it updates can't be read.
  */
 export async function handleGitHubGitRoute(request: Request, response: Response): Promise<void> {
 	const startedAt = Date.now();
@@ -218,6 +280,22 @@ export async function handleGitHubGitRoute(request: Request, response: Response)
 		return;
 	}
 	const controller = abortWithClient(response);
+	const pushing = git.service === 'git-receive-pack' && git.phase === 'pack';
+	const pushEntry = pack.value.logged ?? entry;
+	const resolved = pushing ? await resolvePush(authed.value, pushEntry, startedAt, pack.value.targets, token.value, controller.signal) : Ok({actions: [action], defaultBranch: null});
+	if (controller.signal.aborted) {
+		return;
+	}
+	if (resolved.isErr()) {
+		answerGit(response, git, resolved.error);
+		return;
+	}
+	const missing = firstMissing(target, resolved.value.actions);
+	if (missing !== null) {
+		const message = `${refusalMessage(target, missing, pushToDefault(resolved.value))}${pushDefaultHint(resolved.value)}`;
+		answerGit(response, git, await logged(caller, target, {...pushEntry, action: missing}, 'denied', startedAt, {status: 403, message}));
+		return;
+	}
 	const answer = await relay({
 		method: request.method,
 		url: git.url,
@@ -235,33 +313,68 @@ export async function handleGitHubGitRoute(request: Request, response: Response)
 	}
 	const relayed = pack.value.logged;
 	if (relayed !== null) {
-		await logRelayed(caller, target, relayed, startedAt);
+		await logRelayed(caller, target, {...relayed, action: loggedAction(resolved.value.actions)}, startedAt);
 	}
 	await passBack(response, answer.value);
 }
 
-type ApiBody = {action: 'read' | 'write'; operation?: Operation | null; body: ReadableStream<Uint8Array> | Uint8Array<ArrayBuffer> | null};
+type KnownNeed = {kind: 'actions'; actions: GitHubAction[]} | {kind: 'push'; targets: RefTarget[]};
 
-// What an API request needs and the body to relay: a GraphQL request's read whole, as far as
-// GRAPHQL_LIMIT, to tell a query from a mutation, and taken as a write where it is compressed; any
-// other's streamed. Null for a GraphQL request over the limit.
-async function apiBody(request: Request, path: string): Promise<Result<ApiBody | null, Error>> {
-	const {method} = request;
-	const stream = (): ReadableStream<Uint8Array> | null => (hasBody(request) ? bodyStream(request) : null);
-	if (!isGraphql(method, path)) {
-		return Ok({action: apiAction(method), body: method === 'GET' || method === 'HEAD' ? null : stream()});
-	}
-	const encoding = (request.headers['content-encoding'] ?? 'identity').trim().toLowerCase();
-	if (encoding !== 'identity') {
-		return Ok({action: 'write', operation: null, body: stream()});
+type ApiBody = {kind: 'body'; need: KnownNeed; operation?: Operation | null; body: ReadableStream<Uint8Array> | Uint8Array<ArrayBuffer> | null} | {kind: 'refused'; refusal: Refusal};
+
+// A body read whole, to relay as it was.
+function wholeBody(body: Buffer): Uint8Array<ArrayBuffer> | null {
+	return body.length === 0 ? null : new Uint8Array(body);
+}
+
+// A GraphQL request's body, read whole, as far as GRAPHQL_LIMIT, to tell what it runs, and taken as
+// needing Manage where it is compressed.
+async function graphqlBody(request: Request): Promise<Result<ApiBody, Error>> {
+	if (isEncoded(request)) {
+		return Ok({kind: 'body', need: {kind: 'actions', actions: ['manage']}, operation: null, body: bodyStream(request)});
 	}
 	const read = await Result.wrapAsync(() => readBody(request, GRAPHQL_LIMIT));
-	return read.mapErr((error) => (error instanceof Error ? error : new Error(String(error)))).map((body) => (body === null ? null : {...graphqlAction(body), body: new Uint8Array(body)}));
+	return read
+		.mapErr((error) => (error instanceof Error ? error : new Error(String(error))))
+		.map((body): ApiBody => {
+			if (body === null) {
+				return {kind: 'refused', refusal: {status: 413, message: `A GraphQL request over ${GRAPHQL_LIMIT / 1024 / 1024} MB isn’t relayed: send a smaller one.`}};
+			}
+			const {actions, operation} = graphqlNeed(body);
+			return {kind: 'body', need: {kind: 'actions', actions}, operation, body: new Uint8Array(body)};
+		});
+}
+
+// What an API request needs and the body to relay: a GraphQL request's, and a push's that names
+// its branch in its body, read whole; any other's streamed. A push's that is compressed, or over
+// PUSH_BODY_LIMIT, can't be read, and is taken as reaching the default branch, or refused.
+async function apiBody(request: Request, api: ApiRequest): Promise<Result<ApiBody, Error>> {
+	const {method} = request;
+	if (isGraphql(method, api.path)) {
+		return graphqlBody(request);
+	}
+	const need = restNeed(method, api.segments);
+	const stream = (): ReadableStream<Uint8Array> | null => (method !== 'GET' && method !== 'HEAD' && hasBody(request) ? bodyStream(request) : null);
+	if (need.kind !== 'pushBody') {
+		return Ok({kind: 'body', need, body: stream()});
+	}
+	if (isEncoded(request)) {
+		return Ok({kind: 'body', need: {kind: 'push', targets: [{kind: 'default'}]}, body: stream()});
+	}
+	const read = await Result.wrapAsync(() => readBody(request, PUSH_BODY_LIMIT));
+	return read
+		.mapErr((error) => (error instanceof Error ? error : new Error(String(error))))
+		.map((body): ApiBody => {
+			if (body === null) {
+				return {kind: 'refused', refusal: {status: 413, message: `A request over ${PUSH_BODY_LIMIT / 1024 / 1024} MB that writes to a branch isn’t relayed: commit with pap git and push instead.`}};
+			}
+			return {kind: 'body', need: {kind: 'push', targets: [bodyTarget(body, need.field)]}, body: wholeBody(body)};
+		});
 }
 
 /**
  * `/api/cli/github/api/<path>`: GitHub's API, relayed to `https://api.github.com/<path>` with the
- * token as the bearer, and every request logged.
+ * token as the bearer, and every request logged, with the action it needed (needs.ts).
  */
 export async function handleGitHubApiRoute(request: Request, response: Response): Promise<void> {
 	const startedAt = Date.now();
@@ -276,27 +389,45 @@ export async function handleGitHubApiRoute(request: Request, response: Response)
 		return;
 	}
 	const {caller, target} = authed.value;
-	const read = await apiBody(request, api.path);
+	const read = await apiBody(request, api);
 	if (read.isErr()) {
 		response.destroy();
 		return;
 	}
-	if (read.value === null) {
-		answerApi(response, {status: 413, message: `A GraphQL request over ${GRAPHQL_LIMIT / 1024 / 1024} MB isn’t relayed: send a smaller one.`});
+	if (read.value.kind === 'refused') {
+		answerApi(response, read.value.refusal);
 		return;
 	}
-	const {action, operation, body} = read.value;
-	const entry: GitHubEntry = {collection: API_REQUESTS_ID, action, repository: api.repository, query: apiQuery(request.method, api.path, operation)};
-	if (!target.actions.includes(action)) {
-		answerApi(response, await logged(caller, target, entry, 'denied', startedAt, {status: 403, message: refusalMessage(target, action, `${request.method} ${api.path}`)}));
+	const {need, operation, body} = read.value;
+	const entryFor = (action: GitHubAction): GitHubEntry => ({collection: API_REQUESTS_ID, action, repository: api.repository, query: apiQuery(request.method, api.path, operation)});
+	const requested = `${request.method} ${api.path}`;
+	const needed: GitHubAction[] = need.kind === 'actions' ? need.actions : ['push'];
+	const missing = firstMissing(target, needed);
+	if (missing !== null) {
+		answerApi(response, await logged(caller, target, entryFor(missing), 'denied', startedAt, {status: 403, message: refusalMessage(target, missing, requested)}));
 		return;
 	}
-	const token = await tokenFor(authed.value, entry, startedAt);
+	const token = await tokenFor(authed.value, entryFor(loggedAction(needed)), startedAt);
 	if (token.isErr()) {
 		answerApi(response, token.error);
 		return;
 	}
 	const controller = abortWithClient(response);
+	const resolved = need.kind === 'push' ? await resolvePush(authed.value, entryFor('push'), startedAt, need.targets, token.value, controller.signal) : Ok({actions: needed, defaultBranch: null});
+	if (controller.signal.aborted) {
+		return;
+	}
+	if (resolved.isErr()) {
+		answerApi(response, resolved.error);
+		return;
+	}
+	const stillMissing = firstMissing(target, resolved.value.actions);
+	if (stillMissing !== null) {
+		const message = `${refusalMessage(target, stillMissing, `${requested}, ${pushToDefault(resolved.value)},`)}${pushDefaultHint(resolved.value)}`;
+		answerApi(response, await logged(caller, target, entryFor(stillMissing), 'denied', startedAt, {status: 403, message}));
+		return;
+	}
+	const entry = entryFor(loggedAction(resolved.value.actions));
 	const answer = await relay({method: request.method, url: api.url, headers: forwardedHeaders(request.headers, `Bearer ${token.value}`), body, signal: controller.signal});
 	if (controller.signal.aborted) {
 		return;

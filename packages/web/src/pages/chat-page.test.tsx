@@ -138,6 +138,56 @@ function rowHeads(container: HTMLElement): Element[] {
 }
 
 describe('ChatPage', () => {
+	test('focuses the message input after a conversation is picked from the list', async () => {
+		let arrive = () => undefined;
+		const held = new Promise<void>((resolve) => {
+			arrive = () => {
+				resolve();
+				return undefined;
+			};
+		});
+		renderChatPage({answered: (personaId) => (personaId === 'finance' ? held : Promise.resolve())});
+
+		const initialBox = await screen.findByLabelText('Message');
+		expect(document.activeElement).not.toBe(initialBox);
+
+		fireEvent.click(screen.getByRole('link', {name: /Finance/}));
+		await screen.findByRole('status', {name: 'Loading'});
+		await act(async () => arrive());
+
+		await screen.findByText('What should Finance do?');
+		await waitFor(() => {
+			expect(document.activeElement).toBe(screen.getByLabelText('Message'));
+		});
+	});
+
+	test('focuses the message input when the open conversation is picked again', async () => {
+		renderChatPage();
+
+		const box = await screen.findByLabelText('Message');
+		expect(document.activeElement).not.toBe(box);
+
+		await act(async () => {
+			fireEvent.click(screen.getByRole('link', {name: /General/}));
+		});
+
+		await waitFor(() => {
+			expect(document.activeElement).toBe(box);
+		});
+	});
+
+	test('does not focus or navigate for a modified conversation click', async () => {
+		renderChatPage();
+
+		await screen.findByLabelText('Message');
+		const financeRow = screen.getByRole('link', {name: /Finance/});
+		financeRow.focus();
+		fireEvent.click(financeRow, {metaKey: true});
+
+		expect(screen.getByText('What should General do?')).toBeDefined();
+		expect(document.activeElement).toBe(financeRow);
+	});
+
 	test('lets the head of an empty chat follow the pointer', async () => {
 		const {container} = renderChatPage();
 
@@ -446,6 +496,34 @@ describe('ChatPage', () => {
 		expect(
 			fetchMock.mock.calls.filter(([url]) => url === '/api/orgs/acme/chat/personas/general/read'),
 		).toHaveLength(1);
+	});
+
+	test('heads each stretch of the conversation with when it began', async () => {
+		const morning = new Date(2026, 9, 20, 9, 0);
+		const evening = new Date(2026, 9, 20, 18, 30);
+		renderChatPage({
+			entries: [
+				{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: morning.toISOString()},
+				{
+					id: 'e2',
+					kind: 'assistant',
+					text: 'Hello',
+					isError: false,
+					at: new Date(morning.getTime() + 60_000).toISOString(),
+				},
+				{id: 'e3', kind: 'person', text: 'Back again', isError: false, at: evening.toISOString()},
+			],
+		});
+
+		const conversation = await screen.findByLabelText('Conversation');
+		await within(conversation).findByText('Back again');
+		const headings = within(conversation)
+			.getAllByRole('heading')
+			.map((heading) => heading.textContent);
+		// The year joins the day once the test runs in another one.
+		expect(headings).toHaveLength(2);
+		expect(headings[0]).toMatch(/^Tue, Oct 20(, 2026)? 9:00 AM$/);
+		expect(headings[1]).toMatch(/^Tue, Oct 20(, 2026)? 6:30 PM$/);
 	});
 
 	test('marks nothing read before the agent has answered', async () => {

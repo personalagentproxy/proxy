@@ -7,11 +7,17 @@ const other = secretCipher(Buffer.alloc(32, 8));
 
 describe('secret cipher', () => {
 	test('decrypts what it encrypted', () => {
-		const stored = cipher.encrypt('{"password":"abcd efgh ijkl mnop"}');
+		const secret = '{"password":"abcd efgh ijkl mnop"}';
+		const stored = cipher.encrypt(secret);
 
 		expect(stored.startsWith('v1.')).toBe(true);
-		expect(stored).not.toContain('abcd');
-		expect(cipher.decrypt(stored).unwrap()).toBe('{"password":"abcd efgh ijkl mnop"}');
+		// Neither as it is nor encoded: a whole value, since a few letters of it turn up by chance in
+		// the random characters of what is stored.
+		const body = Buffer.from(stored.split('.')[3] ?? '', 'base64url');
+		expect(body.includes(secret)).toBe(false);
+		expect(stored).not.toContain(secret);
+		expect(stored).not.toContain(Buffer.from(secret).toString('base64url'));
+		expect(cipher.decrypt(stored).unwrap()).toBe(secret);
 	});
 
 	test('encrypts the same value differently each time', () => {

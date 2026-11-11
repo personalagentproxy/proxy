@@ -223,15 +223,14 @@ function ConnectionDetail() {
 							unavailable={connection.unavailable}
 							signInNeeded={connection.signInNeeded}
 							mayChangeDefaults={mayChange}
+							all={integration.custom}
 							onChangeDefaults={async (actions) => {
 								const result = await setConnectionDefaults(org, connection.id, actions);
 								setError(result.isErr() ? describeFetchError(result.error) : null);
 								await reload();
 							}}
-							onChangeAgent={async (agentId, actionId, allowed) => {
-								const result = await setAgentGrants(org, agentId, connection.id, {
-									[actionId]: allowed,
-								});
+							onChangeAgent={async (agentId, actions) => {
+								const result = await setAgentGrants(org, agentId, connection.id, actions);
 								setError(result.isErr() ? describeApiError(result.error) : null);
 								await reload();
 							}}

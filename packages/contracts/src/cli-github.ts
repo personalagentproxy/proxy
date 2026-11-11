@@ -12,7 +12,8 @@
  * - `CLI_GITHUB_GIT_PATH/<owner>/<repo>[.git]/…`: git's smart HTTP, relayed to
  *   `https://github.com/<owner>/<repo>.git/…`: `GET info/refs?service=git-upload-pack` and
  *   `POST git-upload-pack` need Read, `GET info/refs?service=git-receive-pack` and
- *   `POST git-receive-pack` need Push. Nothing else, Git LFS among it. A refusal is a git `ERR`
+ *   `POST git-receive-pack` need Push, and the POST Push to the default branch (`pushDefault`)
+ *   as well where it updates the repository's default branch. Nothing else, Git LFS among it. A refusal is a git `ERR`
  *   packet, which git prints as `fatal: remote error: <message>`. Run the real git with, for this
  *   invocation alone (`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>`, `GIT_CONFIG_VALUE_<n>`):
  *   `url.<PAP_URL>/api/cli/github/git/.insteadOf=https://github.com/` (and `git@github.com:` and
@@ -20,8 +21,9 @@
  *   `http.<PAP_URL>/api/cli/github/git/.extraHeader=Authorization: Bearer <PAP_TOKEN>`, and
  *   `http.<…>.extraHeader=x-pap-connection: <id>` to name a connection.
  * - `CLI_GITHUB_API_PATH/<path>`: GitHub's REST and GraphQL API, relayed to
- *   `https://api.github.com/<path>` with its query, any method. `GET` and `HEAD` need Read;
- *   `POST graphql` needs Read for a query and Write for a mutation; anything else needs Write.
+ *   `https://api.github.com/<path>` with its query, any method. `GET` and `HEAD` need Read, as
+ *   does a GraphQL query; a change needs the action that covers it, by its path or its mutation's
+ *   fields: Push or Push to the default branch, Contribute, Merge, or Manage for anything else.
  *   Redirects are passed back as GitHub sent them. A refusal is answered as GitHub's API answers
  *   one, `{"message": …}`: 401 for the token, 403 for an action the agent doesn't have, 404 for a
  *   connection it doesn't reach, 400 for a request that can't be relayed, and 502 where GitHub

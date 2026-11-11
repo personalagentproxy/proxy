@@ -28,8 +28,8 @@ change it on GitHub, or says the app is installed nowhere you reach yet, with a 
 ### Review the defaults
 
 A new GitHub connection gives every agent Read repositories, and nothing that changes anything.
-Turn on Push commits or Change things on GitHub for every agent on the connection's page, or only
-for one agent on the agent's page.
+Turn on what agents may change for every agent on the connection's page, or only for one agent on
+the agent's page.
 
 </Steps>
 
@@ -38,13 +38,20 @@ for one agent on the agent's page.
 - **Read repositories** lists the repositories the app is installed on and opens one, with its
   description, visibility, default branch, language and when it was last pushed to. From a
   sandbox, it also clones and fetches them, and reads anything through GitHub's API.
-- **Push commits** pushes branches and tags to them from a sandbox. Off unless you turn it on.
-- **Change things on GitHub** is anything that changes something through GitHub's API from a
-  sandbox: opening, editing and merging pull requests, opening and editing issues, commenting,
-  and whatever else the API writes. Off unless you turn it on.
+- **Push to branches** pushes to any branch but the repository's default one, and pushes tags,
+  from a sandbox, with git or through GitHub's API.
+- **Push to the default branch** pushes to the repository's default branch, such as `main`,
+  without a pull request: committing to it, resetting it or deleting it. It only counts with Push
+  to branches. Without it, an agent pushes a branch of its own and opens a pull request instead.
+- **Open pull requests and issues** opens, edits, closes and reviews pull requests, opens and
+  edits issues, comments on both, and labels and assigns them.
+- **Merge pull requests** merges them, or has GitHub merge one once its checks pass.
+- **Change anything else on GitHub** is whatever else GitHub's API changes: a repository's
+  settings, releases, workflow runs, forks, labels, webhooks and the like.
 
-Each is also bounded by what the app may do on GitHub and by the repositories you installed it
-on: an agent can never do more on GitHub than the app and your own account can.
+All but Read repositories are off unless you turn them on. Each is also bounded by what the app
+may do on GitHub and by the repositories you installed it on: an agent can never do more on GitHub
+than the app and your own account can.
 
 ## Working in repositories from a sandbox
 
@@ -70,9 +77,13 @@ is written to the repository's or the sandbox's git or gh configuration: a clone
 `https://github.com/…` as its remote, and `pap gh` gives gh a configuration of its own that is
 removed when it exits.
 
-Reading through the API needs Read repositories; a GraphQL query does too, and a GraphQL mutation
-needs Change things on GitHub. A request the agent isn't allowed is refused, saying which action it
-needs, and doesn't reach GitHub.
+Reading through the API needs Read repositories, as a GraphQL query does. A change needs the
+action above that covers it, told by the request's path, or for a GraphQL mutation by the
+mutations it runs; one none of them covers needs Change anything else on GitHub. A push, with git
+or through the API, asks GitHub which branch is the repository's default to tell whether it needs
+Push to the default branch; one whose branch can't be told, such as a ref moved through GraphQL,
+needs it. A request the agent isn't allowed is refused, saying which action it needs, and doesn't
+reach GitHub.
 
 ### In the activity log
 
@@ -95,7 +106,7 @@ upload` and the like are refused, saying so.
 
 A GitHub connection shared with everyone, or with some members, is used by their agents as yours
 is: what they push, open and comment on GitHub shows as made by your account. Share it with that
-in mind, and turn on Push commits and Change things on GitHub only for the agents you mean to.
+in mind, and turn on what changes things only for the agents you mean to.
 
 ## Self-hosting
 

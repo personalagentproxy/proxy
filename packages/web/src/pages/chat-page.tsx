@@ -43,6 +43,7 @@ import {useOrgSlug} from '@/hooks/use-org';
 import {useReload} from '@/hooks/use-reload';
 import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
 import {useUnread} from '@/hooks/use-unread';
+import {chatRuns} from '@/lib/chat-runs';
 import {formatAgo, formatDateTime} from '@/lib/format';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {chatLoader} from '@/loaders';
@@ -151,6 +152,7 @@ function PersonaList({
 	current,
 	shown,
 	recallDraft,
+	onOpen,
 	onEdit,
 	onDelete,
 }: {
@@ -158,6 +160,7 @@ function PersonaList({
 	current: string;
 	shown: Shown | null;
 	recallDraft: (personaId: string) => string | null;
+	onOpen: (personaId: string) => void;
 	onEdit: (persona: ChatPersona) => void;
 	onDelete: (persona: ChatPersona) => void;
 }) {
@@ -189,6 +192,18 @@ function PersonaList({
 						<Link
 							to={`/${org}/chat/${persona.id}`}
 							aria-current={persona.id === current ? 'page' : undefined}
+							onClick={(event) => {
+								if (
+									event.button !== 0 ||
+									event.metaKey ||
+									event.ctrlKey ||
+									event.shiftKey ||
+									event.altKey
+								) {
+									return;
+								}
+								onOpen(persona.id);
+							}}
 							onPointerEnter={() => setHovered(persona.id)}
 							onPointerLeave={() => setHovered(null)}
 							className={cn(
@@ -282,6 +297,10 @@ export function ChatPage() {
 	const [editing, setEditing] = useState<'new' | ChatPersona | null>(null);
 	const [deleting, setDeleting] = useState<ChatPersona | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	// A conversation picked in the list focuses its input once that conversation has loaded.
+	// Nothing is requested on an ordinary page load, so it does not steal focus or open a phone's
+	// keyboard just because the Chat page was visited.
+	const [focusRequestedFor, setFocusRequestedFor] = useState<string | null>(null);
 	// What was typed in each conversation while the page was open, fresher than the list, which
 	// is read as another opens, perhaps before the save of what was typed in the last has landed.
 	const drafts = useRef(new Map<string, string>());
@@ -346,6 +365,7 @@ export function ChatPage() {
 				current={current}
 				shown={shown}
 				recallDraft={recallDraft}
+				onOpen={setFocusRequestedFor}
 				onEdit={setEditing}
 				onDelete={setDeleting}
 			/>
@@ -367,6 +387,8 @@ export function ChatPage() {
 					onShown={setShown}
 					managing={editing !== null || deleting !== null}
 					listError={error}
+					focusRequested={focusRequestedFor === current}
+					onFocused={() => setFocusRequestedFor(null)}
 				/>
 			</AppShell>
 			{editing !== null && (
@@ -426,6 +448,9 @@ type Opened = {
 	managing: boolean;
 	// What deleting an agent from the list failed with.
 	listError: string | null;
+	// Whether this conversation was explicitly picked in the list and should take keyboard focus.
+	focusRequested: boolean;
+	onFocused: () => void;
 };
 
 // The conversation the address names, once loaded: started over when the address names another.
@@ -446,6 +471,8 @@ function Conversation({
 	onShown,
 	managing,
 	listError,
+	focusRequested,
+	onFocused,
 }: Opened & {loaded: ThreadLog; harnesses: ChatHarness[]}) {
 	const org = useOrgSlug();
 	const reload = useReload();
@@ -462,6 +489,7 @@ function Conversation({
 	const [sending, setSending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const form = useRef<HTMLFormElement>(null);
+	const input = useRef<HTMLTextAreaElement>(null);
 	const current = loaded.persona;
 	// What runs the persona, as the switcher shows it: the persona's, or what was just picked.
 	const [runsOn, setRunsOn] = useState<ModelChoice>({
@@ -476,6 +504,14 @@ function Conversation({
 	useEffect(() => {
 		onShown({personaId, log, draft: text});
 	}, [onShown, personaId, log, text]);
+
+	useEffect(() => {
+		if (!focusRequested || input.current === null) {
+			return;
+		}
+		input.current.focus();
+		onFocused();
+	}, [focusRequested, onFocused]);
 
 	// What this page had typed here that the server doesn't have yet, as it was left for another
 	// conversation a moment before its save landed, is saved again.
@@ -598,15 +634,9 @@ function Conversation({
 		}
 	};
 
-	// Turns in a row from the same side sit closer together than the sides do.
-	const runs = log.entries.reduce<ChatEntry[][]>((grouped, entry) => {
-		const last = grouped.at(-1);
-		if (last && last[0]?.kind === entry.kind) {
-			last.push(entry);
-			return grouped;
-		}
-		return [...grouped, [entry]];
-	}, []);
+	// Turns in a row from the same side sit closer together than the sides do, under the time
+	// their stretch of the conversation began.
+	const runs = chatRuns(log.entries, new Date());
 
 	return (
 		<>
@@ -627,12 +657,18 @@ function Conversation({
 							)}
 							{runs.map((run) => (
 								<MessageScrollerItem
-									key={run[0]?.id}
-									messageId={run[0]?.id ?? ''}
-									scrollAnchor={run[0]?.kind === 'person'}
+									key={run.entries[0]?.id}
+									messageId={run.entries[0]?.id ?? ''}
+									scrollAnchor={run.entries[0]?.kind === 'person'}
+									className="flex flex-col gap-4"
 								>
+									{run.heading !== null && (
+										<h2 className="text-center text-xs font-medium text-muted-foreground">
+											{run.heading}
+										</h2>
+									)}
 									<div className="flex flex-col gap-2">
-										{run.map((entry) => (
+										{run.entries.map((entry) => (
 											<Turn key={entry.id} entry={entry} />
 										))}
 									</div>
@@ -658,6 +694,7 @@ function Conversation({
 				{(error ?? listError) && <p className="text-sm text-destructive">{error ?? listError}</p>}
 				<InputGroup className="rounded-xl bg-background shadow-xs">
 					<InputGroupTextarea
+						ref={input}
 						value={text}
 						onChange={(event) => type(event.target.value)}
 						onKeyDown={onKeyDown}

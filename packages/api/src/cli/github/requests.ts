@@ -1,18 +1,14 @@
 import {Err, Ok, Result} from 'ts-results-es';
-import {z} from 'zod';
-
-import {type Operation, operationRun} from './graphql';
 
 /**
- * What a request relayed to GitHub is (route.ts): where it goes, the repository it names, and the
- * connection's action it needs. The upstream URL is built on a fixed origin (origins.ts) from a
+ * What a request relayed to GitHub is (route.ts): where it goes, the repository it names, and for
+ * git, the connection's action it needs; an API request's is needs.ts'. The upstream URL is built on a fixed origin (origins.ts) from a
  * path checked first, and checked again once built to be on that origin with that path, so no
  * path, `//host`, `@`, an encoded slash or a `..` among them, sends the token anywhere else.
  *
  * git: only its smart HTTP, `info/refs?service=…` and the two services' POSTs, of a repository
- * named `<owner>/<repo>`, with or without `.git`. Upload-pack needs Read, receive-pack Push.
- * The API: any path, `GET` and `HEAD` needing Read, a GraphQL request Read for a query and Write
- * for a mutation, anything else Write.
+ * named `<owner>/<repo>`, with or without `.git`. Upload-pack needs Read, receive-pack Push, and
+ * Push to the default branch as well where it updates that (route.ts). The API: any path.
  */
 
 export type GitService = 'git-upload-pack' | 'git-receive-pack';
@@ -25,7 +21,7 @@ export type GitRequest = {service: GitService; phase: GitPhase; repository: stri
 /** A git request that isn't relayed, with what git can show of why: as the service's answer where it is one. */
 export type GitRefusal = {message: string; service: GitService | null; phase: GitPhase};
 
-export type ApiRequest = {path: string; repository: string | null; url: URL};
+export type ApiRequest = {path: string; segments: string[]; repository: string | null; url: URL};
 
 const LFS = 'Git LFS isn’t supported through pap git yet: only the repository’s own objects can be fetched and pushed.';
 const SMART_ONLY = 'Only git’s smart HTTP is relayed: info/refs?service=git-upload-pack or git-receive-pack, and their POSTs.';
@@ -123,31 +119,10 @@ export function apiRequest(target: string, origin: string): ApiRequest | null {
 		return null;
 	}
 	const [first, owner, repo] = segments;
-	return {path, repository: first === 'repos' && owner && repo ? `${owner}/${repo}` : null, url};
+	return {path, segments, repository: first === 'repos' && owner && repo ? `${owner}/${repo}` : null, url};
 }
 
 /** Whether a request is GitHub's GraphQL endpoint's, whose body says whether it reads or writes. */
 export function isGraphql(method: string, path: string): boolean {
 	return method === 'POST' && path === '/graphql';
-}
-
-/** The action an API request needs, but for GraphQL's (`graphqlAction`): Read to read, Write for anything else. */
-export function apiAction(method: string): 'read' | 'write' {
-	return method === 'GET' || method === 'HEAD' ? 'read' : 'write';
-}
-
-const graphqlBodySchema = z.object({query: z.string(), operationName: z.string().nullish()});
-
-/**
- * What a GraphQL request's body runs, and the action it needs: Read for a query, Write for a
- * mutation, and Write too for anything it can't tell, a body that isn't JSON among them.
- */
-export function graphqlAction(body: Buffer): {action: 'read' | 'write'; operation: Operation | null} {
-	const json = Result.wrap((): unknown => JSON.parse(body.toString('utf8'))).unwrapOr(null);
-	const parsed = graphqlBodySchema.safeParse(json);
-	if (!parsed.success) {
-		return {action: 'write', operation: null};
-	}
-	const operation = operationRun(parsed.data.query, parsed.data.operationName ?? null);
-	return {action: operation?.type === 'query' ? 'read' : 'write', operation};
 }

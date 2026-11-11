@@ -31,6 +31,9 @@ describe('describeEntry, for requests relayed from a sandbox', () => {
 			'Pushed to acme/demo: fix-login',
 		);
 		expect(describeEntry(relayed({action: 'push'}), null)).toBe('Pushed to acme/demo');
+		expect(describeEntry(relayed({action: 'pushDefault', query: 'main'}), null)).toBe(
+			'Pushed to acme/demo: main',
+		);
 		expect(describeEntry(relayed({action: 'push', outcome: 'denied'}), null)).toBe(
 			'Tried to push to acme/demo',
 		);
@@ -38,7 +41,7 @@ describe('describeEntry, for requests relayed from a sandbox', () => {
 	});
 
 	test('the API’s requests, by their method and path', () => {
-		const api = {collectionId: 'api', query: 'POST /repos/acme/demo/pulls', action: 'write'};
+		const api = {collectionId: 'api', query: 'POST /repos/acme/demo/pulls', action: 'contribute'};
 
 		expect(describeEntry(relayed(api), null)).toBe('POST /repos/acme/demo/pulls');
 		expect(describeEntry(relayed({...api, outcome: 'denied'}), null)).toBe(

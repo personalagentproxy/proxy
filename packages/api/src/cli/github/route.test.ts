@@ -61,6 +61,28 @@ beforeEach(() => {
 
 const BASIC = `Basic ${Buffer.from(`x-access-token:${GITHUB_TOKEN}`).toString('base64')}`;
 
+// GitHub's answers with acme/demo's default branch `main` for the repository, and `ok` to the rest.
+function withDefaultBranch(branch = 'main'): void {
+	answer = (req, res) => {
+		if (req.method === 'GET' && req.url === '/repos/acme/demo') {
+			res.writeHead(200, {'content-type': 'application/json'});
+			res.end(JSON.stringify({full_name: 'acme/demo', default_branch: branch}));
+			return;
+		}
+		res.end('ok');
+	};
+}
+
+// A push's body: its commands, `<old> <new> <ref>` for each ref, then a flush and the pack.
+function pushOf(...refs: string[]): Buffer {
+	const commands = refs.map((ref, index) => pktLine(`${'a'.repeat(40)} ${'b'.repeat(40)} ${ref}${index === 0 ? '\0report-status side-band-64k' : ''}`));
+	return Buffer.concat([...commands, Buffer.from('0000PACK')]);
+}
+
+function push(body: Buffer): Promise<Response> {
+	return request('/git/acme/demo.git/git-receive-pack', {method: 'POST', headers: {'content-type': 'application/x-git-receive-pack-request'}, body: new Uint8Array(body)});
+}
+
 function request(path: string, init: RequestInit & {decompress?: boolean} = {}): Promise<Response> {
 	const headers = new Headers(init.headers);
 	if (!headers.has('authorization')) {
@@ -213,8 +235,9 @@ describe('git', () => {
 		expect(logAgentRequest).not.toHaveBeenCalled();
 	});
 
-	test('a push is logged once, at its POST, with the refs it updates', async () => {
+	test('a push is logged once, at its POST, with the refs it updates, GitHub asked which branch is the default', async () => {
 		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'push'])]);
+		withDefaultBranch();
 		await request('/git/acme/demo.git/info/refs?service=git-receive-pack');
 		const body = Buffer.concat([
 			pktLine(`${'a'.repeat(40)} ${'b'.repeat(40)} refs/heads/fix-login\0report-status side-band-64k`),
@@ -222,11 +245,73 @@ describe('git', () => {
 			Buffer.from('0000PACK'),
 		]);
 
-		const res = await request('/git/acme/demo.git/git-receive-pack', {method: 'POST', headers: {'content-type': 'application/x-git-receive-pack-request'}, body});
+		const res = await push(body);
 
 		expect(res.status).toBe(200);
-		expect(received[1]?.body.equals(body)).toBe(true);
+		expect(received.map(({method, url}) => `${method} ${url}`)).toEqual(['GET /acme/demo.git/info/refs?service=git-receive-pack', 'GET /repos/acme/demo', 'POST /acme/demo.git/git-receive-pack']);
+		expect(received[1]?.headers.authorization).toBe(`Bearer ${GITHUB_TOKEN}`);
+		expect(received[2]?.body.equals(body)).toBe(true);
 		expect(logged()).toEqual([{collectionId: 'git', action: 'push', recordTitle: 'acme/demo', query: 'fix-login, refs/tags/v1.2', outcome: 'allowed'}]);
+	});
+
+	test('a push to the default branch without Push to the default branch is refused on the side band, saying what to do instead', async () => {
+		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'push'])]);
+		withDefaultBranch('trunk');
+
+		const res = await push(pushOf('refs/heads/fix-login', 'refs/heads/trunk'));
+		const text = await res.text();
+
+		expect(res.headers.get('content-type')).toBe('application/x-git-receive-pack-result');
+		expect(text).toContain(
+			'\x03Not allowed: Push to the default branch (pushDefault), which a push to trunk (the default branch) needs, on GitHub connection github-1. The person who made this login can allow it. Push to a branch of your own instead and open a pull request into trunk.',
+		);
+		expect(received.map(({method, url}) => `${method} ${url}`)).toEqual(['GET /repos/acme/demo']);
+		expect(logged()).toEqual([{collectionId: 'git', action: 'pushDefault', recordTitle: 'acme/demo', query: 'fix-login, trunk', outcome: 'denied'}]);
+	});
+
+	test('with Push to the default branch, a push to it goes, logged as one', async () => {
+		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'push', 'pushDefault'])]);
+		withDefaultBranch();
+
+		const res = await push(pushOf('refs/heads/main'));
+
+		expect(res.status).toBe(200);
+		expect(received.map(({method, url}) => `${method} ${url}`)).toEqual(['GET /repos/acme/demo', 'POST /acme/demo.git/git-receive-pack']);
+		expect(logged()).toEqual([{collectionId: 'git', action: 'pushDefault', recordTitle: 'acme/demo', query: 'main', outcome: 'allowed'}]);
+	});
+
+	test('a push of tags alone doesn’t ask GitHub for the default branch', async () => {
+		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'push'])]);
+
+		const res = await push(pushOf('refs/tags/v2'));
+
+		expect(res.status).toBe(200);
+		expect(received.map(({method, url}) => `${method} ${url}`)).toEqual(['POST /acme/demo.git/git-receive-pack']);
+		expect(logged()).toEqual([{collectionId: 'git', action: 'push', recordTitle: 'acme/demo', query: 'refs/tags/v2', outcome: 'allowed'}]);
+	});
+
+	test('a push whose commands can’t be read is taken as reaching the default branch', async () => {
+		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'push'])]);
+		const body = gzipSync(pushOf('refs/heads/fix-login'));
+
+		const res = await request('/git/acme/demo.git/git-receive-pack', {method: 'POST', headers: {'content-type': 'application/x-git-receive-pack-request', 'content-encoding': 'gzip'}, body});
+
+		expect(await res.text()).toContain('Not allowed: Push to the default branch (pushDefault), which a push that may reach the default branch needs');
+		expect(received).toEqual([]);
+	});
+
+	test('where GitHub doesn’t say which branch is the default, the push isn’t made, and is logged as failed', async () => {
+		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'push'])]);
+		answer = (_req, res) => {
+			res.writeHead(404, {'content-type': 'application/json'});
+			res.end('{"message":"Not Found"}');
+		};
+
+		const res = await push(pushOf('refs/heads/fix-login'));
+
+		expect(await res.text()).toContain('GitHub didn’t say which branch is acme/demo’s default (it answered 404), so the push wasn’t made; try again.');
+		expect(received.map(({method, url}) => `${method} ${url}`)).toEqual(['GET /repos/acme/demo']);
+		expect(logged()).toEqual([{collectionId: 'git', action: 'push', recordTitle: 'acme/demo', query: 'fix-login', outcome: 'failed', error: 'default_branch 404'}]);
 	});
 
 	test('without Push, info/refs for a push is refused as git shows it, logged, and GitHub sent nothing', async () => {
@@ -235,7 +320,7 @@ describe('git', () => {
 
 		expect(res.status).toBe(200);
 		expect(res.headers.get('content-type')).toBe('application/x-git-receive-pack-advertisement');
-		expect(text).toMatch(/^[0-9a-f]{4}ERR Not allowed: Push commits \(push\), which git push needs, on GitHub connection github-1\. The person who made this login can allow it\.$/);
+		expect(text).toMatch(/^[0-9a-f]{4}ERR Not allowed: Push to branches \(push\), which git push needs, on GitHub connection github-1\. The person who made this login can allow it\.$/);
 		expect(received).toEqual([]);
 		expect(logged()).toEqual([{collectionId: 'git', action: 'push', recordTitle: 'acme/demo', query: null, outcome: 'denied'}]);
 	});
@@ -244,7 +329,7 @@ describe('git', () => {
 		const res = await request('/git/acme/demo.git/git-receive-pack', {method: 'POST', body: '0000'});
 
 		expect(res.headers.get('content-type')).toBe('application/x-git-receive-pack-result');
-		expect(await res.text()).toMatch(/^[0-9a-f]{4}\x03Not allowed: Push commits/);
+		expect(await res.text()).toMatch(/^[0-9a-f]{4}\x03Not allowed: Push to branches/);
 		expect(logged()).toEqual([{collectionId: 'git', action: 'push', recordTitle: 'acme/demo', query: null, outcome: 'denied'}]);
 	});
 
@@ -305,19 +390,71 @@ describe('the API', () => {
 		expect(logged()).toEqual([{collectionId: 'api', action: 'read', recordTitle: 'acme/demo', query: 'GET /repos/acme/demo', outcome: 'allowed'}]);
 	});
 
-	test('a write without Write is refused as GitHub refuses, logged, and GitHub sent nothing', async () => {
+	test('a write without the action it needs is refused as GitHub refuses, logged, and GitHub sent nothing', async () => {
 		const res = await request('/api/repos/acme/demo/pulls', {method: 'POST', headers: {'content-type': 'application/json'}, body: '{"title":"Fix"}'});
 
 		expect(res.status).toBe(403);
 		expect(await res.json()).toEqual({
-			message: 'Not allowed: Change things on GitHub (write), which POST /repos/acme/demo/pulls needs, on GitHub connection github-1. The person who made this login can allow it.',
+			message: 'Not allowed: Open pull requests and issues (contribute), which POST /repos/acme/demo/pulls needs, on GitHub connection github-1. The person who made this login can allow it.',
 		});
 		expect(received).toEqual([]);
-		expect(logged()).toEqual([{collectionId: 'api', action: 'write', recordTitle: 'acme/demo', query: 'POST /repos/acme/demo/pulls', outcome: 'denied'}]);
+		expect(logged()).toEqual([{collectionId: 'api', action: 'contribute', recordTitle: 'acme/demo', query: 'POST /repos/acme/demo/pulls', outcome: 'denied'}]);
 	});
 
-	test('a write with Write goes with its JSON body as it was sent, not read by the server’s JSON parser', async () => {
-		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'write'])]);
+	test('merging a pull request needs Merge, Contribute or not', async () => {
+		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'contribute'])]);
+		const merge = JSON.stringify({query: 'mutation PullRequestMerge($input: MergePullRequestInput!) { mergePullRequest(input: $input) { clientMutationId } }', variables: {input: {}}});
+
+		const rest = await request('/api/repos/acme/demo/pulls/7/merge', {method: 'PUT', headers: {'content-type': 'application/json'}, body: '{}'});
+		const graphql = await request('/api/graphql', {method: 'POST', headers: {'content-type': 'application/json'}, body: merge});
+
+		expect(rest.status).toBe(403);
+		expect(((await rest.json()) as {message: string}).message).toStartWith('Not allowed: Merge pull requests (merge), which PUT /repos/acme/demo/pulls/7/merge needs');
+		expect(graphql.status).toBe(403);
+		expect(received).toEqual([]);
+		expect(logged().map(({action, outcome}) => `${action} ${outcome}`)).toEqual(['merge denied', 'merge denied']);
+	});
+
+	test('a file written through the API is a push to the branch its body names, the default where it names none', async () => {
+		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'push'])]);
+		withDefaultBranch();
+		const toDocs = '{"message":"Add a","content":"eA==","branch":"docs"}';
+		const toDefault = '{"message":"Add a","content":"eA=="}';
+
+		const docs = await request('/api/repos/acme/demo/contents/a.md', {method: 'PUT', headers: {'content-type': 'application/json'}, body: toDocs});
+		const main = await request('/api/repos/acme/demo/contents/a.md', {method: 'PUT', headers: {'content-type': 'application/json'}, body: toDefault});
+
+		expect(docs.status).toBe(200);
+		expect(main.status).toBe(403);
+		expect(((await main.json()) as {message: string}).message).toBe(
+			'Not allowed: Push to the default branch (pushDefault), which PUT /repos/acme/demo/contents/a.md, a push that may reach the default branch, needs, on GitHub connection github-1. The person who made this login can allow it. Push to a branch of your own instead and open a pull request into the default branch.',
+		);
+		expect(received.map(({method, url}) => `${method} ${url}`)).toEqual(['GET /repos/acme/demo', 'PUT /repos/acme/demo/contents/a.md']);
+		expect(received[1]?.body.toString()).toBe(toDocs);
+		expect(logged()).toEqual([
+			{collectionId: 'api', action: 'push', recordTitle: 'acme/demo', query: 'PUT /repos/acme/demo/contents/a.md', outcome: 'allowed'},
+			{collectionId: 'api', action: 'pushDefault', recordTitle: 'acme/demo', query: 'PUT /repos/acme/demo/contents/a.md', outcome: 'denied'},
+		]);
+	});
+
+	test('moving the default branch by its ref needs Push to the default branch; without Push, Push is named', async () => {
+		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'push'])]);
+		withDefaultBranch();
+		const moved = await request('/api/repos/acme/demo/git/refs/heads/main', {method: 'PATCH', headers: {'content-type': 'application/json'}, body: '{"sha":"abc","force":true}'});
+		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'pushDefault'])]);
+		const withoutPush = await request('/api/repos/acme/demo/git/refs/heads/main', {method: 'DELETE'});
+
+		expect(moved.status).toBe(403);
+		expect(((await moved.json()) as {message: string}).message).toStartWith(
+			'Not allowed: Push to the default branch (pushDefault), which PATCH /repos/acme/demo/git/refs/heads/main, a push to main (the default branch), needs',
+		);
+		expect(withoutPush.status).toBe(403);
+		expect(((await withoutPush.json()) as {message: string}).message).toStartWith('Not allowed: Push to branches (push), which DELETE /repos/acme/demo/git/refs/heads/main needs');
+		expect(received.map(({method, url}) => `${method} ${url}`)).toEqual(['GET /repos/acme/demo']);
+	});
+
+	test('a write with the action it needs goes with its JSON body as it was sent, not read by the server’s JSON parser', async () => {
+		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'contribute'])]);
 		answer = (_req, res) => {
 			res.writeHead(201, {'content-type': 'application/json'});
 			res.end('{"number":7}');
@@ -328,10 +465,10 @@ describe('the API', () => {
 		expect(res.status).toBe(201);
 		expect(received[0]?.body.toString()).toBe(body);
 		expect(received[0]?.headers['content-type']).toBe('application/json');
-		expect(logged()).toEqual([{collectionId: 'api', action: 'write', recordTitle: 'acme/demo', query: 'POST /repos/acme/demo/pulls', outcome: 'allowed'}]);
+		expect(logged()).toEqual([{collectionId: 'api', action: 'contribute', recordTitle: 'acme/demo', query: 'POST /repos/acme/demo/pulls', outcome: 'allowed'}]);
 	});
 
-	test('a GraphQL query reads; a mutation writes; each logged with its operation', async () => {
+	test('a GraphQL query reads; a mutation needs its fields’ actions; each logged with its operation', async () => {
 		const query = JSON.stringify({query: 'query Viewer { viewer { login } }'});
 		const mutation = JSON.stringify({query: 'mutation AddComment($input: AddCommentInput!) { addComment(input: $input) { clientMutationId } }', variables: {input: {}}});
 
@@ -344,7 +481,7 @@ describe('the API', () => {
 		expect(write.status).toBe(403);
 		expect(logged()).toEqual([
 			{collectionId: 'api', action: 'read', recordTitle: null, query: 'POST /graphql query Viewer', outcome: 'allowed'},
-			{collectionId: 'api', action: 'write', recordTitle: null, query: 'POST /graphql mutation AddComment', outcome: 'denied'},
+			{collectionId: 'api', action: 'contribute', recordTitle: null, query: 'POST /graphql mutation AddComment', outcome: 'denied'},
 		]);
 	});
 
@@ -374,7 +511,7 @@ describe('the API', () => {
 	});
 
 	test('a large body streams through as it is sent, never held whole', async () => {
-		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'write'])]);
+		useConnections([githubConnection('github-1', 'octo-dana', ['read', 'manage'])]);
 		const chunk = new Uint8Array(1024 * 1024).fill(7);
 		const total = 24;
 		let arrived = 0;
