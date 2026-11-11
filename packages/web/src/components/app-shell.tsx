@@ -11,11 +11,13 @@ import {
 import {createPortal} from 'react-dom';
 import {useLoaderData, useLocation, useNavigate} from 'react-router';
 import {PillButton} from '@proxy/ui/components/pill-button';
+import {PanelResizeHandle} from '@/components/panel-resize-handle';
 import {ContentBoundary} from '@/components/route-error';
 import {Sheet, SheetContent, SheetTitle} from '@proxy/ui/components/sheet';
 import {SidebarTrigger} from '@proxy/ui/components/sidebar';
 import {Skeleton} from '@proxy/ui/components/skeleton';
 import {InTitleBar} from '@/components/title-bar-slot';
+import {usePanelWidth} from '@/hooks/use-panel-width';
 import {useTitleBarHeader} from '@/hooks/use-title-bar-header';
 import {type Later, Redirected} from '@/lib/loader-utils';
 import {hasHiddenDesktopTitleBar} from '@/lib/desktop';
@@ -36,9 +38,9 @@ type Props = {
 	// The header's actions that need nothing of what the content loads; the content adds its own
 	// (`PageHeader`).
 	actions?: ReactNode;
-	// A second sidebar beside the first, as Chat's conversations: a column on desktop, and on a
-	// phone a sheet opened from the header, named by `panelLabel`. It is the frame's, so it stays
-	// as it is while the content loads.
+	// A second sidebar beside the first, as Chat's conversations: a column on desktop, as wide as
+	// the person dragged its edge to (`usePanelWidth`), and on a phone a sheet opened from the
+	// header, named by `panelLabel`. It is the frame's, so it stays as it is while the content loads.
 	panel?: ReactNode;
 	panelLabel?: string;
 	// `inside`: the page is as tall as the window and scrolls a part of itself, as Chat scrolls its
@@ -180,6 +182,7 @@ export function AppShell({
 	const desktop = useDesktop();
 	const {pathname} = useLocation();
 	const titleBarHeader = useTitleBarHeader();
+	const panelWidth = usePanelWidth();
 	const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null);
 	const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
 	const slots = useMemo(() => ({title: titleSlot, actions: actionsSlot}), [titleSlot, actionsSlot]);
@@ -191,9 +194,11 @@ export function AppShell({
 			{panel !== undefined && desktop && (
 				<aside
 					data-desktop-panel
-					className="sticky top-0 flex h-dvh w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground"
+					className="sticky top-0 flex h-dvh shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground"
+					style={{width: panelWidth.width}}
 				>
 					{panel}
+					<PanelResizeHandle label={`Resize ${panelLabel.toLowerCase()}`} panel={panelWidth} />
 				</aside>
 			)}
 			<div
