@@ -734,14 +734,18 @@ function personText(entry: ChatEntry): string | null {
 	return entry.kind === 'person' ? entry.text : null;
 }
 
-// How far a turn stands below the one before it in its run: the persona's turns, without a bubble
-// apiece, stand further apart than the paragraphs within one, while a line about a task sits close
-// under the turn it came with.
-function entrySpacing(entry: ChatEntry): string {
-	if (entry.kind === 'person' || entry.kind === 'task' || entry.kind === 'sent') {
-		return 'mt-2';
+// A run's entries, each turn with the lines about tasks that came after it.
+function withTaskLines(entries: ChatEntry[]): ChatEntry[][] {
+	const groups: ChatEntry[][] = [];
+	for (const entry of entries) {
+		const last = groups.at(-1);
+		if (last && (entry.kind === 'task' || entry.kind === 'sent')) {
+			last.push(entry);
+			continue;
+		}
+		groups.push([entry]);
 	}
-	return 'mt-5';
+	return groups;
 }
 
 // One thing of the conversation: a turn, or a line about one of its tasks. It is drawn again only
@@ -752,17 +756,15 @@ const Entry = memo(function Entry({
 	fresh,
 	org,
 	personaId,
-	className,
 }: {
 	entry: ChatEntry;
 	fresh: boolean;
 	org: string;
 	personaId: string;
-	className?: string;
 }) {
 	if (entry.kind === 'task' || entry.kind === 'sent') {
 		return (
-			<div data-enter={fresh ? 'rise' : undefined} className={className}>
+			<div data-enter={fresh ? 'rise' : undefined}>
 				<TaskLine
 					verb={entry.kind === 'task' ? 'Created task' : 'Sent to'}
 					task={entry.task}
@@ -772,7 +774,7 @@ const Entry = memo(function Entry({
 		);
 	}
 	return (
-		<div data-enter={fresh ? 'rise' : undefined} className={className}>
+		<div data-enter={fresh ? 'rise' : undefined}>
 			<Turn entry={entry} />
 		</div>
 	);
@@ -949,18 +951,35 @@ const Conversation = memo(function Conversation({
 											{run.heading}
 										</h2>
 									)}
-									<div className="flex flex-col">
-										{run.entries.map((entry, index) => {
-											const entryKey = sending.keyOf(entry);
+									{/* The persona's turns, without a bubble apiece, stand further apart than the
+									    paragraphs within one; a line about a task sits close under the turn it
+									    came with. */}
+									<div
+										className={cn(
+											'flex flex-col',
+											conversationSide(first) === 'person' ? 'gap-2' : 'gap-5',
+										)}
+									>
+										{withTaskLines(run.entries).map((group) => {
+											const head = group[0];
+											if (!head) {
+												return null;
+											}
 											return (
-												<Entry
-													key={entryKey}
-													entry={entry}
-													fresh={!opened.has(entryKey)}
-													org={org}
-													personaId={personaId}
-													className={index === 0 ? undefined : entrySpacing(entry)}
-												/>
+												<div key={sending.keyOf(head)} className="flex flex-col gap-2">
+													{group.map((entry) => {
+														const entryKey = sending.keyOf(entry);
+														return (
+															<Entry
+																key={entryKey}
+																entry={entry}
+																fresh={!opened.has(entryKey)}
+																org={org}
+																personaId={personaId}
+															/>
+														);
+													})}
+												</div>
 											);
 										})}
 									</div>
