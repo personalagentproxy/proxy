@@ -410,6 +410,32 @@ describe('the chat routes', () => {
 		]);
 	});
 
+	test('show what the persona started or sent without a word under its next words in the turn, or where the turn ended', async () => {
+		const {handleGetThreadRoute} = routes;
+		const later = new Date('2026-10-21T10:00:05.000Z');
+		store.listSubAgents.mockResolvedValue(Ok([subAgent({id: 'sub-1', parentCallId: 'c1', title: 'Weekly check'})]));
+		store.listShownEntries.mockResolvedValue(
+			Ok([
+				logEntry({id: 'e1', seq: 1, kind: 'assistant', text: '', toolCalls: [call('c2', 'send_to_subagent', {subagent: 'sub-1', text: 'Run it'})]}),
+				logEntry({id: 'e2', seq: 3, kind: 'assistant', text: 'I’m running the check.', createdAt: later}),
+				logEntry({id: 'e3', seq: 5, kind: 'assistant', text: 'All quiet.', createdAt: later}),
+				logEntry({id: 'e4', seq: 6, kind: 'assistant', text: '', toolCalls: [call('c3', 'send_to_subagent', {subagent: 'sub-1', text: 'Again'})]}),
+				logEntry({id: 'e5', seq: 8, kind: 'assistant', text: '', createdAt: later}),
+				logEntry({id: 'e6', seq: 9, kind: 'assistant', text: 'Here it is again.', createdAt: later}),
+			]),
+		);
+
+		const log = (await handleGetThreadRoute(request({personaId: 'persona-1'}))).unwrap();
+
+		expect(log.entries).toEqual([
+			{id: 'e2', kind: 'assistant', text: 'I’m running the check.', isError: false, at: '2026-10-21T10:00:05.000Z'},
+			{id: 'e1:c2', kind: 'sent', task: {id: 'sub-1', title: 'Weekly check'}, at: '2026-10-21T10:00:05.000Z'},
+			{id: 'e3', kind: 'assistant', text: 'All quiet.', isError: false, at: '2026-10-21T10:00:05.000Z'},
+			{id: 'e4:c3', kind: 'sent', task: {id: 'sub-1', title: 'Weekly check'}, at: '2026-10-21T10:00:05.000Z'},
+			{id: 'e6', kind: 'assistant', text: 'Here it is again.', isError: false, at: '2026-10-21T10:00:05.000Z'},
+		]);
+	});
+
 	test('give a task’s chat: the persona’s brief and messages, the viewer’s own, and what the task answered and told the persona, without its calls, and its failures', async () => {
 		const {handleGetTaskRoute} = routes;
 		const task = subAgent({id: 'sub-1', parentCallId: 'c1', title: 'Find flights', taskId: 'task-7', state: {kind: 'stopped'}});
