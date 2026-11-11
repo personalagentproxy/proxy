@@ -17,6 +17,7 @@ import {createMemoryRouter, RouterProvider} from 'react-router';
 import {HumanSide} from '@/components/human-side';
 import {pageSaysSafeToReload} from '@/hooks/use-reload-on-release';
 import {ChatPage} from '@/pages/chat-page';
+import {FROM_COMMAND_BAR} from '@/lib/command-bar';
 import {later} from '@/lib/loader-utils';
 import {testHuman, testOrg} from '@/test-org';
 
@@ -152,8 +153,9 @@ function renderChatPage({
 	answered?: (personaId: string) => Promise<void>;
 	// When the api answers for a task's chat: at once, unless a test holds it back.
 	taskAnswered?: () => Promise<void>;
-	// The address the page opens on, where it is not the open conversation's.
-	initial?: string;
+	// The address the page opens on, where it is not the open conversation's, with the history
+	// state it came with.
+	initial?: string | {pathname: string; state: string};
 	// The task whose chat is open, where the address is a task's.
 	task?: TaskChat;
 } = {}) {
@@ -198,13 +200,16 @@ function renderChatPage({
 		{initialEntries: [initial ?? `/acme/chat/${open}`]},
 	);
 
-	return render(
-		<ThemeProvider>
-			<TooltipProvider>
-				<RouterProvider router={router} />
-			</TooltipProvider>
-		</ThemeProvider>,
-	);
+	return {
+		router,
+		...render(
+			<ThemeProvider>
+				<TooltipProvider>
+					<RouterProvider router={router} />
+				</TooltipProvider>
+			</ThemeProvider>,
+		),
+	};
 }
 
 // The heads in the agent rows: each row is a link. The empty chat's own head is beside them, not in one.
@@ -255,6 +260,30 @@ describe('ChatPage', () => {
 
 		await waitFor(() => {
 			expect(document.activeElement).toBe(box);
+		});
+	});
+
+	test('focuses the message input of a conversation opened from the command bar', async () => {
+		renderChatPage({initial: {pathname: '/acme/chat/general', state: FROM_COMMAND_BAR}});
+
+		await waitFor(() => {
+			expect(document.activeElement).toBe(screen.getByLabelText('Message'));
+		});
+	});
+
+	test('focuses the message input when the command bar goes to another conversation', async () => {
+		const {router} = renderChatPage();
+
+		await screen.findByText('What should General do?');
+		expect(document.activeElement).not.toBe(screen.getByLabelText('Message'));
+
+		await act(async () => {
+			await router.navigate('/acme/chat/finance', {state: FROM_COMMAND_BAR});
+		});
+
+		await screen.findByText('What should Finance do?');
+		await waitFor(() => {
+			expect(document.activeElement).toBe(screen.getByLabelText('Message'));
 		});
 	});
 

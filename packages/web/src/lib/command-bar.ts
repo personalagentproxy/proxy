@@ -22,6 +22,12 @@ import {accountPath} from '@/lib/orgs';
  * conversation, a connection, an external agent), and which of Chat's agents a message is for.
  */
 
+/**
+ * The history state of a page the bar went to, so the page can tell it was picked there: Chat
+ * then puts the caret in the conversation's input, as a click in its list does.
+ */
+export const FROM_COMMAND_BAR = 'command-bar';
+
 /** Somewhere the bar goes: what it is called, where it is, and what is drawn beside it. */
 export type Destination = {
 	id: string;
