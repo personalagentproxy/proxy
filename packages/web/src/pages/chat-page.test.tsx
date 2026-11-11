@@ -113,6 +113,7 @@ function renderChatPage({
 	open = 'general',
 	draft = null,
 	answered = () => Promise.resolve(),
+	taskAnswered = () => Promise.resolve(),
 	initial,
 }: {
 	personas?: ChatPersona[];
@@ -124,6 +125,8 @@ function renderChatPage({
 	draft?: string | null;
 	// When the api answers for a conversation: at once, unless a test holds it back.
 	answered?: (personaId: string) => Promise<void>;
+	// When the api answers for a task's chat: at once, unless a test holds it back.
+	taskAnswered?: () => Promise<void>;
 	// The address the page opens on, where it is not the open conversation's.
 	initial?: string;
 } = {}) {
@@ -154,12 +157,10 @@ function renderChatPage({
 					},
 					{
 						path: '/:org/chat/:id/tasks/:taskId',
-						loader: later(async () => ({
-							task: flights,
-							personas: listPersonas(),
-							pinnedTasks,
-							harnesses,
-						})),
+						loader: later(async () => {
+							await taskAnswered();
+							return {task: flights, personas: listPersonas(), pinnedTasks, harnesses};
+						}),
 						element: <ChatPage />,
 					},
 					{path: '/:org/activity/tasks/:taskId', element: <p>The task’s activity</p>},
@@ -183,6 +184,15 @@ function rowHeads(container: HTMLElement): Element[] {
 	return [...container.querySelectorAll('a [data-slot="live-head"]')];
 }
 
+// Follows a link of the page, and waits for React to have drawn where it leads. A click's own
+// `act` ends at once: a render under it that reads the page's answer with `use` and isn't done by
+// then is dropped, and React, holding on to it as still to come, never draws that page.
+async function follow(link: HTMLElement, init?: MouseEventInit): Promise<void> {
+	await act(async () => {
+		fireEvent.click(link, init);
+	});
+}
+
 describe('ChatPage', () => {
 	test('focuses the message input after a conversation is picked from the list', async () => {
 		let arrive = () => undefined;
@@ -197,7 +207,7 @@ describe('ChatPage', () => {
 		const initialBox = await screen.findByLabelText('Message');
 		expect(document.activeElement).not.toBe(initialBox);
 
-		fireEvent.click(screen.getByRole('link', {name: /Finance/}));
+		await follow(screen.getByRole('link', {name: /Finance/}));
 		await screen.findByRole('status', {name: 'Loading'});
 		await act(async () => arrive());
 
@@ -213,9 +223,7 @@ describe('ChatPage', () => {
 		const box = await screen.findByLabelText('Message');
 		expect(document.activeElement).not.toBe(box);
 
-		await act(async () => {
-			fireEvent.click(screen.getByRole('link', {name: /General/}));
-		});
+		await follow(screen.getByRole('link', {name: /General/}));
 
 		await waitFor(() => {
 			expect(document.activeElement).toBe(box);
@@ -299,7 +307,7 @@ describe('ChatPage', () => {
 		fireEvent.pointerEnter(secondRow);
 		expect(secondHead.getAttribute('data-state')).toBe('watching');
 		fireEvent.pointerUp(secondRow, {pointerType: 'mouse', button: 0});
-		fireEvent.click(secondRow);
+		await follow(secondRow);
 
 		await waitFor(() => {
 			const openedHead = rowHeads(container)[1];
@@ -312,7 +320,7 @@ describe('ChatPage', () => {
 		const {container} = renderChatPage();
 		const financeRow = await screen.findByRole('link', {name: /Finance/});
 
-		fireEvent.click(financeRow, {detail: 0});
+		await follow(financeRow, {detail: 0});
 
 		await waitFor(() => {
 			const openedHead = rowHeads(container)[1];
@@ -328,7 +336,7 @@ describe('ChatPage', () => {
 		fireEvent.pointerEnter(financeRow);
 		fireEvent.pointerUp(financeRow, {pointerType: 'mouse', button: 0});
 		fireEvent.pointerLeave(financeRow);
-		fireEvent.click(financeRow);
+		await follow(financeRow);
 
 		await waitFor(() => {
 			const openedHead = rowHeads(container)[1];
@@ -348,7 +356,7 @@ describe('ChatPage', () => {
 		renderChatPage({answered: (personaId) => (personaId === 'finance' ? held : Promise.resolve())});
 		await screen.findByText('What should General do?');
 
-		fireEvent.click(screen.getByRole('link', {name: /Finance/}));
+		await follow(screen.getByRole('link', {name: /Finance/}));
 		await screen.findByRole('status', {name: 'Loading'});
 		expect(screen.getByRole('link', {name: /Finance/}).getAttribute('aria-current')).toBe('page');
 		expect(screen.getByRole('link', {name: /General/}).getAttribute('aria-current')).toBeNull();
@@ -620,7 +628,7 @@ describe('ChatPage', () => {
 		expect(created?.getAttribute('href')).toBe('/acme/chat/general/tasks/sub-1');
 		expect(sent?.getAttribute('href')).toBe('/acme/chat/general/tasks/sub-1');
 
-		fireEvent.click(sent as HTMLElement);
+		await follow(sent as HTMLElement);
 		const chat = await screen.findByLabelText('Task');
 		expect(within(chat).getByText('Three direct flights.')).toBeTruthy();
 	});
@@ -708,21 +716,42 @@ describe('ChatPage', () => {
 		);
 	});
 
-	test('slides the open task in under its agent, and out again as it closes', async () => {
-		renderChatPage({initial: '/acme/chat/general/tasks/sub-1'});
+	test('names a task opened from the conversation at once, in the header and under its agent, while its chat loads, and takes its row away as it closes', async () => {
+		let arrive = () => undefined;
+		const held = new Promise<void>((resolve) => {
+			arrive = () => {
+				resolve();
+				return undefined;
+			};
+		});
+		renderChatPage({
+			entries: [
+				{
+					id: 'e2:c1',
+					kind: 'task',
+					task: {id: 'sub-1', title: 'Find flights'},
+					at: '2026-10-21T10:00:00Z',
+				},
+			],
+			taskAnswered: () => held,
+		});
 
-		const general = await screen.findByRole('list', {name: 'General’s tasks'});
-		const opened = (await within(general).findByText('Find flights')).closest('li') as HTMLElement;
-		expect(opened.className).toContain('task-row-enter');
+		await follow(await screen.findByRole('link', {name: 'Find flights'}));
+		await screen.findByRole('status', {name: 'Loading'});
+		const tasks = screen.getByRole('list', {name: 'General’s tasks'});
+		const row = within(tasks).getByRole('link', {name: 'Find flights'});
+		expect(row.getAttribute('aria-current')).toBe('page');
+		expect(screen.getByRole('link', {name: /^General/}).getAttribute('aria-current')).toBeNull();
+		expect(within(screen.getByRole('banner')).getByText('Find flights')).toBeTruthy();
 
-		// Back in General's conversation, the task's row stays, out of reach, until it has slid out.
-		fireEvent.click(screen.getByRole('link', {name: /^General/}));
-		await waitFor(() => expect(opened.className).toContain('task-row-leave'));
-		expect(opened.isConnected).toBe(true);
-		expect(opened.inert).toBe(true);
+		await act(async () => arrive());
+		await screen.findByLabelText('Task');
+		expect(within(tasks).getByRole('link', {name: 'Find flights'})).toBe(row);
 
-		fireEvent.animationEnd(opened);
-		await waitFor(() => expect(screen.queryByRole('list', {name: 'General’s tasks'})).toBeNull());
+		await follow(screen.getByRole('link', {name: /^General/}));
+		await waitFor(() => expect(tasks.isConnected).toBe(false));
+		expect(screen.queryByRole('list', {name: 'General’s tasks'})).toBeNull();
+		expect(screen.getByRole('link', {name: /^General/}).getAttribute('aria-current')).toBe('page');
 	});
 
 	test('marks nothing read before the agent has answered', async () => {
@@ -772,7 +801,7 @@ describe('ChatPage', () => {
 			const box = await screen.findByLabelText('Message');
 			fireEvent.change(box, {target: {value: 'Move the pricing review'}});
 
-			fireEvent.click(screen.getByRole('link', {name: /Finance/}));
+			await follow(screen.getByRole('link', {name: /Finance/}));
 			await screen.findByText('What should Finance do?');
 
 			expect(saves()).toEqual([{text: 'Move the pricing review'}]);
