@@ -98,44 +98,44 @@
 	--radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Newsprint: a warm, slightly deep paper with soft near-black ink, and in dark a warm charcoal
-   with off-white ink. Lines, fields and quiet text are the ink at a strength over the page (11%,
-   16%, 40%, 60%), worked out to plain colors. */
+/* Newsprint: a warm off-white paper with near-black ink, and in dark a warm near-black with
+   off-white ink. Lines, fields and quiet text are the ink at a strength over the page (11%, 16%,
+   40%, 60%), worked out to plain colors. */
 :root {
-	--background: #f2f1ed;
-	--foreground: #322f26;
-	--card: #f6f5f3;
-	--card-foreground: #322f26;
-	--popover: #f6f5f3;
-	--popover-foreground: #322f26;
-	--primary: #322f26;
-	--primary-foreground: #f2f1ed;
-	--secondary: #e6e4de;
-	--secondary-foreground: #322f26;
-	--muted: #ebe9e4;
-	--muted-foreground: #79766f;
-	--accent: #e6e4de;
-	--accent-foreground: #322f26;
+	--background: #f5f5f2;
+	--foreground: #292720;
+	--card: #f9f9f7;
+	--card-foreground: #292720;
+	--popover: #f9f9f7;
+	--popover-foreground: #292720;
+	--primary: #292720;
+	--primary-foreground: #f5f5f2;
+	--secondary: #e9e8e3;
+	--secondary-foreground: #292720;
+	--muted: #eeede9;
+	--muted-foreground: #73726c;
+	--accent: #e9e8e3;
+	--accent-foreground: #292720;
 	--destructive: oklch(0.577 0.245 27.325);
-	--border: #dbd9d5;
-	--input: #d0cfca;
-	--ring: #9f9d97;
+	--border: #dcdcd8;
+	--input: #d1d0cc;
+	--ring: #9d9c96;
 	--chart-1: oklch(0.87 0 0);
 	--chart-2: oklch(0.556 0 0);
 	--chart-3: oklch(0.439 0 0);
 	--chart-4: oklch(0.371 0 0);
 	--chart-5: oklch(0.269 0 0);
 	--radius: 0.625rem;
-	--sidebar: #ebe9e4;
-	--sidebar-foreground: #322f26;
-	--sidebar-primary: #322f26;
-	--sidebar-primary-foreground: #f2f1ed;
-	--sidebar-accent: #e6e4de;
-	--sidebar-accent-foreground: #322f26;
-	--sidebar-border: #dbd9d5;
-	--sidebar-ring: #9f9d97;
+	--sidebar: #eeede9;
+	--sidebar-foreground: #292720;
+	--sidebar-primary: #292720;
+	--sidebar-primary-foreground: #f5f5f2;
+	--sidebar-accent: #e9e8e3;
+	--sidebar-accent-foreground: #292720;
+	--sidebar-border: #dcdcd8;
+	--sidebar-ring: #9d9c96;
 	/* A persona's avatar colors (@proxy/utils/harness AVATAR_COLORS), one hue each, and mono, the page's ink. */
-	--avatar-mono: #322f26;
+	--avatar-mono: #292720;
 	--avatar-red: oklch(0.64 0.21 25);
 	--avatar-orange: oklch(0.72 0.17 55);
 	--avatar-yellow: oklch(0.8 0.16 90);
@@ -147,38 +147,38 @@
 }
 
 .dark {
-	--background: #1c1910;
-	--foreground: #e0dfdd;
-	--card: #232018;
-	--card-foreground: #e0dfdd;
-	--popover: #28251d;
-	--popover-foreground: #e0dfdd;
-	--primary: #e0dfdd;
-	--primary-foreground: #1c1910;
-	--secondary: #2e2b24;
-	--secondary-foreground: #e0dfdd;
-	--muted: #25221a;
-	--muted-foreground: #8a8883;
-	--accent: #2e2b24;
-	--accent-foreground: #e0dfdd;
+	--background: #16130c;
+	--foreground: #e9e8e8;
+	--card: #1d1a14;
+	--card-foreground: #e9e8e8;
+	--popover: #221f19;
+	--popover-foreground: #e9e8e8;
+	--primary: #e9e8e8;
+	--primary-foreground: #16130c;
+	--secondary: #28251f;
+	--secondary-foreground: #e9e8e8;
+	--muted: #1f1c16;
+	--muted-foreground: #8c8a86;
+	--accent: #28251f;
+	--accent-foreground: #e9e8e8;
 	--destructive: oklch(0.704 0.191 22.216);
-	--border: #2e2b22;
-	--input: #37342b;
-	--ring: #636059;
+	--border: #29261f;
+	--input: #322f29;
+	--ring: #615f5a;
 	--chart-1: oklch(0.87 0 0);
 	--chart-2: oklch(0.556 0 0);
 	--chart-3: oklch(0.439 0 0);
 	--chart-4: oklch(0.371 0 0);
 	--chart-5: oklch(0.269 0 0);
-	--sidebar: #232018;
-	--sidebar-foreground: #e0dfdd;
-	--sidebar-primary: #e0dfdd;
-	--sidebar-primary-foreground: #1c1910;
-	--sidebar-accent: #2e2b24;
-	--sidebar-accent-foreground: #e0dfdd;
-	--sidebar-border: #2e2b22;
-	--sidebar-ring: #636059;
-	--avatar-mono: #e0dfdd;
+	--sidebar: #1d1a14;
+	--sidebar-foreground: #e9e8e8;
+	--sidebar-primary: #e9e8e8;
+	--sidebar-primary-foreground: #16130c;
+	--sidebar-accent: #28251f;
+	--sidebar-accent-foreground: #e9e8e8;
+	--sidebar-border: #29261f;
+	--sidebar-ring: #615f5a;
+	--avatar-mono: #e9e8e8;
 	--avatar-red: oklch(0.7 0.19 25);
 	--avatar-orange: oklch(0.76 0.16 55);
 	--avatar-yellow: oklch(0.84 0.15 90);
