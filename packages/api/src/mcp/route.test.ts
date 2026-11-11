@@ -193,6 +193,17 @@ describe('handleMcpRoute', () => {
 		expect(await instructions()).not.toContain('Drives (Files)');
 	});
 
+	test('in a conversation, what the agent makes goes in the folder it is given', async () => {
+		const {agentInstructions} = await import('./tools');
+		const own = {id: 'drive-1', integrationId: 'files', account: 'Acme', shared: false, actions: ['readFiles', 'createFiles'], tools: null, name: null};
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [own]}));
+
+		const told = (await agentInstructions(signedIn, 'Work.', 'Chats/Coding Agent/Show all active tasks in sidebar')).unwrap();
+		expect(told).toContain(
+			'Put what you make for the person, such as screenshots, exports and reports, in their own drive (the one without a name), in Chats/Coding Agent/Show all active tasks in sidebar, or the one they name, rather than Google Drive or another service, and give them the Link the tool answers with: a file has no other address.',
+		);
+	});
+
 	test('with a sandbox to run commands in, a drive’s files go in and out of it with pap files', async () => {
 		const drive = {id: 'drive-1', integrationId: 'files', account: 'Acme', shared: false, actions: ['readFiles', 'createFiles'], tools: null, name: null};
 		const sandboxes = {id: 'sandboxes-1', integrationId: 'sandbox', account: 'Acme', shared: false, actions: ['read', 'run'], tools: null, name: null};

@@ -1,6 +1,6 @@
 import {describe, expect, test} from 'bun:test';
 
-import {isShownImage, mediaType, requireFileName} from './names';
+import {chatFolder, isShownImage, mediaType, requireFileName} from './names';
 
 describe('requireFileName', () => {
 	test('keeps a name as it is, trimmed', () => {
@@ -41,5 +41,15 @@ describe('isShownImage', () => {
 	test('shows the pictures with nothing in them that runs, never an SVG or a page', () => {
 		expect(['image/png', 'image/jpeg', 'image/gif', 'image/webp'].map(isShownImage)).toEqual([true, true, true, true]);
 		expect(['image/svg+xml', 'text/html', 'application/pdf', 'image/heic'].map(isShownImage)).toEqual([false, false, false, false]);
+	});
+});
+
+describe('chatFolder', () => {
+	test('is the persona’s folder under Chats, and a sub-agent’s title’s in it, each as a folder may be named', () => {
+		expect(chatFolder('Coding Agent', null)).toBe('Chats/Coding Agent');
+		expect(chatFolder('Coding Agent', 'Show all active tasks in sidebar')).toBe('Chats/Coding Agent/Show all active tasks in sidebar');
+		expect(chatFolder('R&D / Ops', 'Q3 a/b test')).toBe('Chats/R&D   Ops/Q3 a b test');
+		// What can't be a folder's name: the persona's is Agent, as for what the person attaches; a title's is left out.
+		expect(chatFolder('..', '  ')).toBe('Chats/Agent');
 	});
 });
