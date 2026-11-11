@@ -169,17 +169,18 @@ function requireThread(store: ChatStore, viewer: OrgViewer, persona: PersonaRow)
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas`: the organization's personas the viewer sees, their own and those every member does, the one last active in the viewer's conversation first, with the viewer's conversations, and the harnesses the server has for one to run on; a General one is made where it has none. */
+/** `GET /api/orgs/:org/chat/personas`: the organization's personas the viewer sees, their own and those every member does, the one last active in the viewer's conversation first, with the viewer's conversations, and the harnesses the server has for one to run on; a General one, every member's, is made where there is none, after the viewer's own, so a message that names no agent always has one to go to. */
 function handleListPersonasRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireChat(request));
 		const personas = $(await store.listPersonas(viewer.orgId, viewer.userId));
 		const offered = toHarnesses(harnesses());
-		if (personas.length > 0) {
-			return {personas: personas.map((persona) => toPersona(harnesses, viewer, persona)), harnesses: offered};
+		const listed = personas.map((persona) => toPersona(harnesses, viewer, persona));
+		if (personas.some((persona) => persona.ownerUserId === null)) {
+			return {personas: listed, harnesses: offered};
 		}
-		const first = $(await store.ensureFirstPersona(viewer.orgId));
-		return {personas: [toPersona(harnesses, viewer, first)], harnesses: offered};
+		const general = $(await store.ensureFirstPersona(viewer.orgId));
+		return {personas: [...listed, toPersona(harnesses, viewer, general)], harnesses: offered};
 	});
 }
 

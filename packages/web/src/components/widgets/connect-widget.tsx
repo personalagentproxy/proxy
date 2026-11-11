@@ -15,7 +15,8 @@ type Props = {
 };
 
 // A widget with nothing connected to read: what it needs, and a button per integration that has
-// one of its collections, which signs in and comes back to the organization's address, where the app opens, or opens the integration's form.
+// one of its collections, which signs in and comes back to the new connection's page, saying it
+// was added, or opens the integration's form.
 export function ConnectWidget({name, collectionIds, children}: Props) {
 	const org = useOrgSlug();
 	const offering = INTEGRATIONS.filter(
@@ -35,7 +36,7 @@ export function ConnectWidget({name, collectionIds, children}: Props) {
 						Connect {integration.name}
 					</>
 				);
-				const signIn = signInPath(org, integration.id, {returnTo: 'home'});
+				const signIn = signInPath(org, integration.id);
 				if (signIn) {
 					return (
 						<a key={integration.id} href={signIn} onClick={onSignInClick} className={className}>

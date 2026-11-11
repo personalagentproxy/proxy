@@ -233,7 +233,7 @@ describe('IntentWidget', () => {
 		);
 	});
 
-	test('a widget with nothing connected to read asks to connect it, and comes back home', async () => {
+	test('a widget with nothing connected to read asks to connect it, and comes back to the new connection', async () => {
 		fetchMock.mockImplementationOnce(() =>
 			Promise.resolve(
 				Response.json({sources: [], calendars: [], events: [], target: null, failed: []}),
@@ -242,9 +242,7 @@ describe('IntentWidget', () => {
 		show(intentWith('new_event', {}), 'meeting tomorrow at 2');
 
 		const connect = await screen.findByRole('link', {name: /Connect Google/});
-		expect(connect.getAttribute('href')).toBe(
-			'/api/orgs/org-1/connections/google/start?returnTo=home',
-		);
+		expect(connect.getAttribute('href')).toBe('/api/orgs/org-1/connections/google/start');
 		expect(
 			screen.getByText('Connect a calendar to see your day and send invites from here.'),
 		).toBeTruthy();

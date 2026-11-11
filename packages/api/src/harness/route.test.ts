@@ -103,8 +103,22 @@ beforeEach(async () => {
 	store = fakeStore();
 	registry = {proxy, claudeAgentSdk: sdk};
 	routes = (await import('./route')).chatRoutes(store, () => registry);
-	const {listPersonas, getPersona, createPersona, updatePersona, deletePersona, getMemberThread, ensureMemberThread, listShownEntries, listOpenJobs, appendPersonMessage, getThreadDraft} = store;
+	const {
+		listPersonas,
+		ensureFirstPersona,
+		getPersona,
+		createPersona,
+		updatePersona,
+		deletePersona,
+		getMemberThread,
+		ensureMemberThread,
+		listShownEntries,
+		listOpenJobs,
+		appendPersonMessage,
+		getThreadDraft,
+	} = store;
 	deletePersona.mockResolvedValue(Ok(true));
+	ensureFirstPersona.mockResolvedValue(Ok({...persona, id: 'persona-9', name: 'General', ownerUserId: null, createdById: null}));
 	requireViewer.mockResolvedValue(Ok(viewer));
 	listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, draft: null}]));
 	getPersona.mockResolvedValue(Ok(persona));
@@ -179,6 +193,18 @@ describe('the chat routes', () => {
 
 		expect(store.ensureFirstPersona).toHaveBeenCalledWith('org-1');
 		expect(listed).toEqual({personas: [{...personaResponse, id: 'persona-9', name: 'General', shared: true, mayChange: false}], harnesses: offered});
+	});
+
+	test('a viewer who sees personas of their own but none every member’s, as where General was deleted, gets General made again, after their own', async () => {
+		const {handleListPersonasRoute} = routes;
+
+		const listed = (await handleListPersonasRoute(request())).unwrap();
+
+		expect(store.ensureFirstPersona).toHaveBeenCalledWith('org-1');
+		expect(listed.personas.map(({id, shared}) => [id, shared])).toEqual([
+			['persona-1', false],
+			['persona-9', true],
+		]);
 	});
 
 	test('make a persona as given, the viewer’s own, on the server’s first harness with its first model where none was chosen, with the organization’s built-in login where there is none', async () => {
@@ -270,7 +296,7 @@ describe('the chat routes', () => {
 		store.listPersonas.mockResolvedValue(
 			Ok([
 				{...persona, harness: 'claude-agent-sdk', chatModel: 'opus', lastMessage: null, draft: null},
-				{...persona, id: 'persona-3', chatModel: 'dropped-long-ago', lastMessage: null, draft: null},
+				{...persona, id: 'persona-3', ownerUserId: null, chatModel: 'dropped-long-ago', lastMessage: null, draft: null},
 			]),
 		);
 

@@ -74,37 +74,40 @@ let fields: Array<{id: string; name: string; values: string[]}> = [];
 let chat = true;
 // Whether the api refuses a message to an agent.
 let refusesMessages = false;
+// Whether what is connected is never answered, as on a slow connection.
+let holdsConnections = false;
 
 const realFetch = globalThis.fetch;
 
-async function answer(path: string, method: string): Promise<unknown> {
+// What the api answers a request.
+async function answer(path: string, method: string): Promise<Response> {
 	if (path.endsWith('/intent')) {
-		return {...(await picked), ms: 1};
+		return Response.json({...(await picked), ms: 1});
 	}
 	if (path.endsWith('/intent/fields')) {
-		return {fields, ms: 1};
+		return Response.json({fields, ms: 1});
 	}
 	if (path.endsWith('/chat/personas') && method === 'GET') {
-		return {personas, harnesses: []};
+		return Response.json({personas, harnesses: []});
 	}
 	if (path.endsWith('/chat/personas') && method === 'POST') {
-		return {persona: persona('made', 'Stretch reminders', false)};
+		return Response.json({persona: persona('made', 'Stretch reminders', false)});
 	}
 	if (path.endsWith('/messages')) {
-		return {
+		return Response.json({
 			entry: {id: 'e1', kind: 'person', text: '', isError: false, at: '2026-10-20T10:00:00Z'},
-		};
+		});
 	}
 	if (path.endsWith('/chat/answers')) {
-		return {answers: []};
+		return Response.json({answers: []});
 	}
 	if (path.endsWith('/connections')) {
-		return {connections: [granola]};
+		return Response.json({connections: [granola]});
 	}
 	if (path.endsWith('/agents')) {
-		return {agents: [claude]};
+		return Response.json({agents: [claude]});
 	}
-	return {};
+	return Response.json({});
 }
 
 beforeEach(() => {
@@ -113,14 +116,18 @@ beforeEach(() => {
 	fields = [];
 	chat = true;
 	refusesMessages = false;
+	holdsConnections = false;
 	globalThis.fetch = (async (input: string, init?: RequestInit) => {
 		const method = init?.method ?? 'GET';
 		const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
 		asked.push({method, path: input, body});
+		if (holdsConnections && input.endsWith('/connections')) {
+			return new Promise<Response>(() => undefined);
+		}
 		if (refusesMessages && input.endsWith('/messages')) {
 			return Response.json({error: 'unavailable', message: 'Try again later.'}, {status: 503});
 		}
-		return Response.json(await answer(input, method));
+		return answer(input, method);
 	}) as typeof fetch;
 });
 
@@ -229,6 +236,22 @@ describe('the command bar over any page', () => {
 		await waitFor(() => expect(barIsOpen()).toBe(false));
 	});
 
+	test('opened again, it goes to what it read the last time at once, while it reads it again', async () => {
+		renderApp();
+		await openBar();
+		await waitFor(() => expect(rows().some((row) => row.startsWith('Granola'))).toBe(true));
+		pressShortcut();
+		await waitFor(() => expect(barIsOpen()).toBe(false));
+
+		holdsConnections = true;
+		const reads = asked.filter((one) => one.path.endsWith('/connections')).length;
+		await openBar();
+
+		expect(rows().some((row) => row.startsWith('Granola'))).toBe(true);
+		expect(rows().some((row) => row.startsWith('Finance'))).toBe(true);
+		expect(asked.filter((one) => one.path.endsWith('/connections'))).toHaveLength(reads + 1);
+	});
+
 	test('is also opened from the sidebar', async () => {
 		renderApp();
 		await where();
@@ -303,6 +326,61 @@ describe('the command bar over any page', () => {
 
 		await arrivedAt('/acme/chat/finance');
 		expect(posts('/chat/personas/finance/messages')).toHaveLength(1);
+	});
+
+	test('an agent picked for one message is not kept for a text said to another by name', async () => {
+		renderApp();
+		const input = await openBar();
+
+		fireEvent.change(input, {target: {value: 'plan my trip to Lisbon in March'}});
+		const card = await cardNamed('Send to an agent');
+		fireEvent.click(within(card).getByRole('combobox', {name: 'Agent'}));
+		// A click on an option counts where the pointer went down on it, as a person's does.
+		const finance = await screen.findByRole('option', {name: 'Finance'});
+		fireEvent.pointerDown(finance, {pointerType: 'mouse'});
+		fireEvent.click(finance);
+		await waitFor(() =>
+			expect(
+				within(card).getByRole('combobox', {name: 'Agent'}).textContent?.includes('Finance'),
+			).toBe(true),
+		);
+
+		fireEvent.change(input, {target: {value: 'ask General to plan my trip to Lisbon in March'}});
+		const addressed = await cardNamed('Send to an agent');
+		expect(within(addressed).getByRole('combobox', {name: 'Agent'}).textContent).toContain(
+			'General',
+		);
+		fireEvent.keyDown(input, {key: 'Enter'});
+
+		await arrivedAt('/acme/chat/general');
+		expect(posts('/messages').map((one) => one.path)).toEqual([
+			'/api/orgs/acme/chat/personas/general/messages',
+		]);
+	});
+
+	test('Enter on a message card for words typed since waits for what the words now are', async () => {
+		fields = [
+			{id: 'agentName', name: 'Name', values: ['Stretch reminders']},
+			{id: 'agentTask', name: 'Task', values: []},
+		];
+		renderApp();
+		const input = await openBar();
+
+		fireEvent.change(input, {target: {value: 'plan my trip to Lisbon in March'}});
+		await cardNamed('Send to an agent');
+		picked = {widget: 'new_agent'};
+		fireEvent.change(input, {
+			target: {
+				value: 'plan my trip to Lisbon in March, and add an agent that reminds me to stretch',
+			},
+		});
+		fireEvent.keyDown(input, {key: 'Enter'});
+
+		await arrivedAt('/acme/chat/made');
+		expect(posts('/chat/personas').map((one) => one.body)).toMatchObject([
+			{name: 'Stretch reminders'},
+		]);
+		expect(posts('/chat/personas/general/messages')).toEqual([]);
 	});
 
 	test('Enter pressed before the answer has come sends once it says no quick action does it, whole or not', async () => {

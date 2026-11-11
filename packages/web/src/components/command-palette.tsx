@@ -1,41 +1,69 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
+import type {ChatPersona} from '@proxy/contracts/harness';
+import {Ok} from 'ts-results-es';
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useLocation} from 'react-router';
 import {listAgents} from '@/client/agents-client';
 import {listConnections} from '@/client/connections-client';
+import {listPersonas} from '@/client/harness-client';
 import {CommandBar} from '@/components/command-bar';
 import {Dialog, DialogContent, DialogTitle} from '@proxy/ui/components/dialog';
 import {CommandPaletteContext} from '@/hooks/use-command-palette';
+import {useExperiments} from '@/hooks/use-experiment';
 import {useHuman} from '@/hooks/use-human';
 import {isShortcut} from '@/lib/platform';
 
-// The command bar as the dialog shows it: what is connected and the external agents are read as
-// it opens, so it goes to what there is now; until they come, and where they can't be read, it
-// goes to the pages alone.
-function PaletteBar({org, onClose}: {org: string; onClose: () => void}) {
-	const [lists, setLists] = useState<{
-		connections: Connection[] | null;
-		agents: AgentLogin[] | null;
-	}>({connections: null, agents: null});
+// What the bar goes to and sends messages to, in `org`: what is connected, the external agents,
+// and Chat's agents as the person sees them; each null until it has come, where it couldn't be
+// read, and Chat's without Chat.
+type BarLists = {
+	org: string;
+	connections: Connection[] | null;
+	agents: AgentLogin[] | null;
+	personas: ChatPersona[] | null;
+};
+
+const NOTHING_READ = {connections: null, agents: null, personas: null};
+
+// The lists, kept from one opening of the bar to the next and read again as it opens, so it goes
+// to what there is now without waiting for it: what was read last shows meanwhile, and stays where
+// it can't be read again. Another organization's are none of this one's.
+function useBarLists(org: string, chat: boolean, open: boolean): BarLists {
+	const [lists, setLists] = useState<BarLists>({org, ...NOTHING_READ});
 
 	useEffect(() => {
+		if (!open || org === '') {
+			return;
+		}
 		let current = true;
-		void Promise.all([listConnections(org), listAgents(org)]).then(([connections, agents]) => {
+		void Promise.all([
+			listConnections(org),
+			listAgents(org),
+			chat ? listPersonas(org) : Promise.resolve(Ok(null)),
+		]).then(([connections, agents, personas]) => {
 			if (!current) {
 				return;
 			}
-			setLists({
-				connections: connections.map((answer) => answer.connections).unwrapOr(null),
-				agents: agents.map((answer) => answer.agents).unwrapOr(null),
+			setLists((previous) => {
+				const kept = previous.org === org ? previous : NOTHING_READ;
+				return {
+					org,
+					connections: connections.map((answer) => answer.connections).unwrapOr(kept.connections),
+					agents: agents.map((answer) => answer.agents).unwrapOr(kept.agents),
+					personas: personas.map((answer) => answer?.personas ?? null).unwrapOr(kept.personas),
+				};
 			});
 		});
 		return () => {
 			current = false;
 		};
-	}, [org]);
+	}, [org, chat, open]);
 
-	return <CommandBar connections={lists.connections} agents={lists.agents} onClose={onClose} />;
+	if (lists.org !== org) {
+		return {org, ...NOTHING_READ};
+	}
+	return chat ? lists : {...lists, personas: null};
 }
 
 /**
@@ -70,12 +98,17 @@ export function CommandPaletteProvider({children}: {children: ReactNode}) {
 	}, [toggle]);
 
 	const close = useCallback(() => setOpenedOn(null), []);
+	const open = org !== '' && openedOn === pathname;
+	// Whether the organization has Chat (the `harness` experiment), whose agents the bar goes to,
+	// makes and sends messages to.
+	const chat = useExperiments().includes('harness');
+	const lists = useBarLists(org, chat, open);
 
 	return (
 		<CommandPaletteContext value={palette}>
 			{children}
 			<Dialog
-				open={org !== '' && openedOn === pathname}
+				open={open}
 				onOpenChange={(next) => {
 					if (!next) {
 						close();
@@ -87,7 +120,12 @@ export function CommandPaletteProvider({children}: {children: ReactNode}) {
 					className="top-[14vh] max-h-[80dvh] translate-y-0 gap-0 overflow-y-auto rounded-2xl bg-card p-0 sm:max-w-2xl"
 				>
 					<DialogTitle className="sr-only">Go somewhere, or ask for something</DialogTitle>
-					<PaletteBar org={org} onClose={close} />
+					<CommandBar
+						connections={lists.connections}
+						agents={lists.agents}
+						personas={lists.personas}
+						onClose={close}
+					/>
 				</DialogContent>
 			</Dialog>
 		</CommandPaletteContext>

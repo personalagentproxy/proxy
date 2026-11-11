@@ -142,6 +142,7 @@ function renderBar() {
 							<CommandBar
 								connections={lists.connections}
 								agents={lists.agents}
+								personas={null}
 								onClose={() => undefined}
 							/>
 						),

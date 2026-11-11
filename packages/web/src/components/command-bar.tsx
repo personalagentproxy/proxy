@@ -5,7 +5,6 @@ import {CHAT_WIDGET_IDS, INCOMPLETE, NO_WIDGET, type WidgetId} from '@proxy/cont
 import type {FetchError} from '@proxy/utils';
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useNavigate} from 'react-router';
-import {listPersonas} from '@/client/harness-client';
 import {fillIntent, type Intent, pickIntent} from '@/client/intent-client';
 import {AnimatedHeight} from '@/components/animated-height';
 import {CommandRows} from '@/components/command-rows';
@@ -90,31 +89,12 @@ function actsAtOnce(widget: Intent['widget']): boolean {
 	return widget !== NO_WIDGET && CHAT_WIDGET_IDS.includes(widget);
 }
 
-// Chat's agents as the person sees them, read as the bar opens, for where it goes and whom it
-// sends a message to; null until they have come, where they couldn't be read, and without Chat.
-function useChatPersonas(org: string, chat: boolean): ChatPersona[] | null {
-	const [personas, setPersonas] = useState<ChatPersona[] | null>(null);
-	useEffect(() => {
-		if (!chat) {
-			return;
-		}
-		let current = true;
-		void listPersonas(org).then((result) => {
-			if (current && result.isOk()) {
-				setPersonas(result.value.personas);
-			}
-		});
-		return () => {
-			current = false;
-		};
-	}, [org, chat]);
-	return chat ? personas : null;
-}
-
 type Props = {
-	// What is connected and the external agents, to go to; null while they load.
+	// What is connected and the external agents, to go to, and Chat's agents as the person sees
+	// them, to go to and send messages to; null while they load, and Chat's without Chat.
 	connections: Connection[] | null;
 	agents: AgentLogin[] | null;
+	personas: ChatPersona[] | null;
 	// Closes the dialog it is in.
 	onClose: () => void;
 };
@@ -131,7 +111,7 @@ type Props = {
  * by name ("ask Finance …") is a message to it, of what follows the name, without being classified
  * at all.
  */
-export function CommandBar({connections, agents, onClose}: Props) {
+export function CommandBar({connections, agents, personas, onClose}: Props) {
 	const here = useOrgSlug();
 	const human = useHuman();
 	// On the person's account page the address names no organization: the bar goes to their first
@@ -142,7 +122,6 @@ export function CommandBar({connections, agents, onClose}: Props) {
 	// makes and sends messages to.
 	const chat = useExperiments().includes('harness');
 	const navigate = useNavigate();
-	const personas = useChatPersonas(org, chat);
 	const [text, setText] = useState('');
 	const [answer, setAnswer] = useState<Answer | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -188,6 +167,9 @@ export function CommandBar({connections, agents, onClose}: Props) {
 		() => (words === '' ? destinations : findDestinations(words, destinations)),
 		[words, destinations],
 	);
+	// The lit row: the one moved to, or the first where the rows have since changed under it, as
+	// the lists coming in do.
+	const at = selected < rows.length ? selected : 0;
 	// The agent the text is said to by name, which makes it a message to that agent.
 	const addressed = asks && personas !== null ? addressedPersona(text, personas) : null;
 
@@ -337,7 +319,7 @@ export function CommandBar({connections, agents, onClose}: Props) {
 	// a message to an agent, or an agent to make, is then done as soon as the answer comes, and a
 	// quick action shows, for Enter to press its button once it has been looked over.
 	const onEnter = () => {
-		const row = rows[selected];
+		const row = rows[at];
 		if (row) {
 			open(row);
 			return;
@@ -347,11 +329,12 @@ export function CommandBar({connections, agents, onClose}: Props) {
 			return;
 		}
 		const current = answer !== null && answer.text === asked && !answer.filling;
-		if (action.current && (addressed !== null || current || answer?.intent.widget === NO_WIDGET)) {
+		if (action.current && (addressed !== null || current)) {
 			action.current();
 			return;
 		}
-		if (!asks || (current && answer.intent.widget !== NO_WIDGET)) {
+		// Said to an agent by name, it is a message to it, whose card takes Enter: nothing to classify.
+		if (!asks || addressed !== null || (current && answer.intent.widget !== NO_WIDGET)) {
 			return;
 		}
 		enter(asked);
@@ -376,8 +359,10 @@ export function CommandBar({connections, agents, onClose}: Props) {
 	// another, and one made anew once Enter was pressed for its text does its action then.
 	const card = (): {key: string; view: ReactNode} | null => {
 		if (addressed !== null && personas !== null) {
+			// Keyed by the agent named, so an agent picked in another card, or for another name, is
+			// none of this one's.
 			return {
-				key: 'agent',
+				key: `agent:${addressed.persona.id}`,
 				view: (
 					<AgentWidget
 						text={addressed.message}
@@ -419,6 +404,11 @@ export function CommandBar({connections, agents, onClose}: Props) {
 		if (!saysUnsupported(answer, pausedOn) && entered !== answer.text) {
 			return null;
 		}
+		// Enter was pressed on text this answer is not for, which may be a quick action's after all:
+		// the answer for it is waited for, and does what it says once it comes.
+		if (answer.text !== words && entered === words) {
+			return null;
+		}
 		// What is typed names somewhere to go, which is what Enter does.
 		if (rows.length > 0) {
 			return null;
@@ -447,7 +437,7 @@ export function CommandBar({connections, agents, onClose}: Props) {
 	// Enter was pressed, and the answer it waits for has not come.
 	const waiting = shownCard === null && error === null && entered !== null && rows.length === 0;
 	const opened = rows.length > 0 || shownCard !== null || error !== null || waiting;
-	const lit = rows[selected];
+	const lit = rows[at];
 
 	return (
 		<div className="relative w-full overflow-hidden">
@@ -481,7 +471,7 @@ export function CommandBar({connections, agents, onClose}: Props) {
 					}
 					event.preventDefault();
 					const step = event.key === 'ArrowDown' ? 1 : -1;
-					setSelected((selected + step + rows.length) % rows.length);
+					setSelected((at + step + rows.length) % rows.length);
 				}}
 				className="h-12 appearance-none rounded-none border-0 bg-transparent px-4 shadow-none focus-visible:ring-0 dark:bg-transparent [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none"
 			/>
@@ -490,7 +480,7 @@ export function CommandBar({connections, agents, onClose}: Props) {
 					    box, with no line between them; only the rows it leads to are set apart from it. */}
 				<div className={cn(rows.length > 0 && 'border-t')}>
 					{rows.length > 0 && (
-						<CommandRows rows={rows} selected={selected} onSelect={setSelected} onOpen={open} />
+						<CommandRows rows={rows} selected={at} onSelect={setSelected} onOpen={open} />
 					)}
 					{error && (
 						<p
