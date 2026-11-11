@@ -26,6 +26,7 @@ function persona(id: string, name: string, shared: boolean): ChatPersona {
 		chatModel: 'claude',
 		lastMessage: null,
 		draft: null,
+		pinned: false,
 		createdAt: '2026-10-20T10:00:00Z',
 	};
 }

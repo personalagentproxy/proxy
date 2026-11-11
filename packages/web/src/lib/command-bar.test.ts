@@ -25,6 +25,7 @@ function persona(
 		chatModel: 'claude',
 		lastMessage: null,
 		draft: null,
+		pinned: false,
 		createdAt,
 	};
 }

@@ -22,6 +22,7 @@ import {
 	Fragment,
 	type FormEvent,
 	memo,
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -34,6 +35,7 @@ import {
 	createPersona,
 	deletePersona,
 	getThread,
+	pinChat,
 	pinTask,
 	postMessage,
 	removeAttachment,
@@ -256,6 +258,7 @@ function PersonaList({
 	onOpen,
 	onEdit,
 	onDelete,
+	onPinChat,
 	onPin,
 }: {
 	personas: ChatPersona[];
@@ -268,6 +271,7 @@ function PersonaList({
 	onOpen: (personaId: string) => void;
 	onEdit: (persona: ChatPersona) => void;
 	onDelete: (persona: ChatPersona) => void;
+	onPinChat: (personaId: string, pinned: boolean) => void;
 	onPin: (personaId: string, taskId: string, pinned: boolean) => void;
 }) {
 	const org = useOrgSlug();
@@ -287,32 +291,137 @@ function PersonaList({
 			};
 		})
 		.toSorted((a, b) => lastActive(b.persona, b.last) - lastActive(a.persona, a.last));
+	const pinnedRows = rows.filter(({persona}) => persona.pinned);
+	const regularRows = rows.filter(({persona}) => !persona.pinned);
+	const openTaskRows = (persona: ChatPersona) => {
+		const open = persona.id === current;
+		const pinnedHere = pinned.filter((candidate) => candidate.personaId === persona.id);
+		const openTask =
+			open && task !== null && !pinnedHere.some((candidate) => candidate.id === task.id)
+				? [task]
+				: [];
+		return [...pinnedHere, ...openTask].map((candidate) => (
+			<TaskRow
+				key={candidate.id}
+				task={candidate}
+				to={`/${org}/chat/${persona.id}/tasks/${candidate.id}`}
+				lit={open && candidate.id === task?.id}
+				pinned={pinnedHere.some((pin) => pin.id === candidate.id)}
+				onPin={(pin) => onPin(persona.id, candidate.id, pin)}
+			/>
+		));
+	};
+	const menu = (persona: ChatPersona, row: ReactNode) => (
+		<ContextMenu>
+			<ContextMenuTrigger render={<div />}>{row}</ContextMenuTrigger>
+			<ContextMenuContent>
+				<ContextMenuItem onClick={() => onPinChat(persona.id, !persona.pinned)}>
+					{persona.pinned ? <PinOffIcon /> : <PinIcon />}
+					{persona.pinned ? 'Unpin' : 'Pin'}
+				</ContextMenuItem>
+				{persona.mayChange && (
+					<>
+						<ContextMenuItem onClick={() => onEdit(persona)}>
+							<PencilIcon />
+							Edit
+						</ContextMenuItem>
+						<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
+							<Trash2Icon />
+							Delete
+						</ContextMenuItem>
+					</>
+				)}
+			</ContextMenuContent>
+		</ContextMenu>
+	);
 	return (
 		<div ref={list} className="relative flex h-full min-h-0 flex-col overflow-y-auto p-2">
 			{personas.length === 0 && (
 				<span className="px-2 py-1.5 text-sm text-muted-foreground">No agents yet.</span>
 			)}
+			{pinnedRows.length > 0 && (
+				<ul aria-label="Pinned chats" className="grid grid-cols-3 gap-1 pb-2">
+					{pinnedRows.map(({persona}) => {
+						const fresh = isUnread(persona);
+						const lit = persona.id === current && task === null;
+						const row = (
+							<Link
+								to={`/${org}/chat/${persona.id}`}
+								aria-current={lit ? 'page' : undefined}
+								onClick={(event) => {
+									if (
+										event.button !== 0 ||
+										event.metaKey ||
+										event.ctrlKey ||
+										event.shiftKey ||
+										event.altKey
+									) {
+										return;
+									}
+									onOpen(persona.id);
+								}}
+								className={cn(
+									'flex min-w-0 flex-col items-center rounded-lg px-1 py-2 text-center hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+									lit && 'bg-sidebar-accent text-sidebar-accent-foreground',
+								)}
+							>
+								<span className="relative">
+									<LiveHead
+										look={persona.look}
+										color={persona.color}
+										size={56}
+										watching={hovered === persona.id}
+										tracking="head"
+									/>
+									{fresh && (
+										<span
+											role="status"
+											aria-label="Unread"
+											className="absolute top-0 right-0 size-2.5 rounded-full bg-primary ring-2 ring-sidebar"
+										/>
+									)}
+								</span>
+								<span className="w-full truncate text-xs font-medium">{persona.name}</span>
+							</Link>
+						);
+						return (
+							<li
+								key={persona.id}
+								data-row={persona.id}
+								className="min-w-0"
+								onPointerEnter={() => setHovered(persona.id)}
+								onPointerLeave={() => setHovered(null)}
+							>
+								{menu(persona, row)}
+							</li>
+						);
+					})}
+				</ul>
+			)}
+			{pinnedRows.map(({persona}) => {
+				const tasks = openTaskRows(persona);
+				if (tasks.length === 0) {
+					return null;
+				}
+				return (
+					<div
+						key={`${persona.id}-tasks`}
+						onPointerEnter={() => setHovered(persona.id)}
+						onPointerLeave={() => setHovered(null)}
+					>
+						<ul aria-label={`${persona.name}’s tasks`} className="flex flex-col pb-1">
+							{tasks}
+						</ul>
+					</div>
+				);
+			})}
 			<ul className="flex flex-col gap-0.5">
-				{rows.map(({persona, last, draft}) => {
+				{regularRows.map(({persona, last, draft}) => {
 					const fresh = isUnread(persona);
 					const open = persona.id === current;
 					// The row is lit while its conversation is open, and the task's under it in its place.
 					const lit = open && task === null;
-					const pinnedHere = pinned.filter((candidate) => candidate.personaId === persona.id);
-					const openTask =
-						open && task !== null && !pinnedHere.some((candidate) => candidate.id === task.id)
-							? [task]
-							: [];
-					const tasks = [...pinnedHere, ...openTask].map((candidate) => (
-						<TaskRow
-							key={candidate.id}
-							task={candidate}
-							to={`/${org}/chat/${persona.id}/tasks/${candidate.id}`}
-							lit={open && candidate.id === task?.id}
-							pinned={pinnedHere.some((pin) => pin.id === candidate.id)}
-							onPin={(pin) => onPin(persona.id, candidate.id, pin)}
-						/>
-					));
+					const tasks = openTaskRows(persona);
 					const row = (
 						<Link
 							to={`/${org}/chat/${persona.id}`}
@@ -385,25 +494,7 @@ function PersonaList({
 							onPointerEnter={() => setHovered(persona.id)}
 							onPointerLeave={() => setHovered(null)}
 						>
-							<div data-row={persona.id}>
-								{persona.mayChange ? (
-									<ContextMenu>
-										<ContextMenuTrigger render={<div />}>{row}</ContextMenuTrigger>
-										<ContextMenuContent>
-											<ContextMenuItem onClick={() => onEdit(persona)}>
-												<PencilIcon />
-												Edit
-											</ContextMenuItem>
-											<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
-												<Trash2Icon />
-												Delete
-											</ContextMenuItem>
-										</ContextMenuContent>
-									</ContextMenu>
-								) : (
-									row
-								)}
-							</div>
+							<div data-row={persona.id}>{menu(persona, row)}</div>
 							{tasks.length > 0 && (
 								<ul aria-label={`${persona.name}’s tasks`} className="flex flex-col">
 									{tasks}
@@ -581,6 +672,17 @@ export function ChatPage() {
 		await reload();
 	};
 
+	// Pins a conversation to the compact grid, or returns it to the regular list.
+	const pinConversation = async (personaId: string, pin: boolean) => {
+		const done = await pinChat(org, personaId, pin);
+		if (done.isErr()) {
+			setError(describeFetchError(done.error));
+			return;
+		}
+		setError(null);
+		await reload();
+	};
+
 	const title = () => {
 		if (taskId !== undefined) {
 			return named === null ? <TitleWaiting /> : <PageTitle>{named.title}</PageTitle>;
@@ -603,6 +705,7 @@ export function ChatPage() {
 				task={named}
 				pinned={pinned}
 				onPin={(personaId, pinnedTaskId, pin) => void pinOne(personaId, pinnedTaskId, pin)}
+				onPinChat={(personaId, pin) => void pinConversation(personaId, pin)}
 				shown={fresher}
 				recallDraft={recallDraft}
 				onOpen={setFocusRequestedFor}

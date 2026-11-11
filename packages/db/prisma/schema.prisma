@@ -849,6 +849,9 @@ model AgentThread {
   // When the member pinned the sub-agent, as a task of their conversation, to the Chat page's list
   // under its persona; null for one not pinned, and for a conversation.
   pinnedAt DateTime?
+  // When the member pinned their conversation to the Chat page's pinned grid; null for one not
+  // pinned, and always null for a sub-agent's thread.
+  chatPinnedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -867,6 +870,7 @@ model AgentThread {
   @@index([agentId])
   @@index([parentThreadId])
   @@index([orgId, createdAt])
+  @@index([orgId, userId, parentThreadId, chatPinnedAt])
 }
 
 // What an entry of a thread's log is: what the person said (a sub-agent's brief, in its thread),

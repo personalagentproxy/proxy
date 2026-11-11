@@ -38,6 +38,7 @@ import {
 	removeDraftAttachment,
 	requeueJob,
 	saveThreadDraft,
+	setChatPinned,
 	type JobRow,
 	type NewEntry,
 	type SubAgentRow,
@@ -368,6 +369,103 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			throw new Error(`expected the travel thread's job, got ${JSON.stringify(job)}`);
 		}
 		unwrap(await finishJob(job.id, 'worker-p'));
+	});
+
+	test('chat pins persist only for the member, order pinned and regular conversations independently, unpin, and reject sub-agents', async () => {
+		const look = {nose: 0.5, noseOut: 0.3, eye: 25, eyeTheta: 50, eyeLat: 8, eyes: 2 as const};
+		const pinnedOlder = unwrap(
+			await createPersona(orgId, userId, {name: 'Pinned older', look, color: 'teal'}),
+		);
+		const pinnedNewer = unwrap(
+			await createPersona(orgId, userId, {name: 'Pinned newer', look, color: 'pink'}),
+		);
+		const regularNewest = unwrap(
+			await createPersona(orgId, userId, {name: 'Regular newest', look, color: 'red'}),
+		);
+		const pinnedOlderThread = unwrap(
+			await ensureMemberThread({orgId, agentId, personaId: pinnedOlder.id, userId}),
+		);
+		const pinnedNewerThread = unwrap(
+			await ensureMemberThread({orgId, agentId, personaId: pinnedNewer.id, userId}),
+		);
+		const regularNewestThread = unwrap(
+			await ensureMemberThread({orgId, agentId, personaId: regularNewest.id, userId}),
+		);
+		await db.agentEntry.create({
+			data: {
+				threadId: pinnedOlderThread.id,
+				kind: 'person',
+				text: 'Older pinned activity',
+				createdAt: new Date('2026-10-02T10:00:00Z'),
+			},
+		});
+		await db.agentEntry.create({
+			data: {
+				threadId: pinnedNewerThread.id,
+				kind: 'person',
+				text: 'Newer pinned activity',
+				createdAt: new Date('2026-10-03T10:00:00Z'),
+			},
+		});
+		await db.agentEntry.create({
+			data: {
+				threadId: regularNewestThread.id,
+				kind: 'person',
+				text: 'Newest regular activity',
+				createdAt: new Date('2026-10-04T10:00:00Z'),
+			},
+		});
+
+		expect(unwrap(await setChatPinned(pinnedOlderThread.id, true))).toBe(true);
+		expect(unwrap(await setChatPinned(pinnedNewerThread.id, true))).toBe(true);
+		const ids = new Set([pinnedOlder.id, pinnedNewer.id, regularNewest.id]);
+		const listed = unwrap(await listPersonas(orgId, userId)).filter((persona) =>
+			ids.has(persona.id),
+		);
+		expect(listed.map(({id, pinned}) => [id, pinned])).toEqual([
+			[pinnedNewer.id, true],
+			[pinnedOlder.id, true],
+			[regularNewest.id, false],
+		]);
+
+		const general = unwrap(await ensureFirstPersona(orgId));
+		const other = await db.user.create({data: {email: `harness-pin-other-${stamp}@example.test`}});
+		await db.orgMember.create({data: {orgId, userId: other.id}});
+		await ensureMemberThread({orgId, agentId, personaId: general.id, userId: other.id});
+		expect(unwrap(await setChatPinned(thread.id, true))).toBe(true);
+		expect(
+			unwrap(await listPersonas(orgId, userId)).find((candidate) => candidate.id === general.id)
+				?.pinned,
+		).toBe(true);
+		expect(
+			unwrap(await listPersonas(orgId, other.id)).find((candidate) => candidate.id === general.id)
+				?.pinned,
+		).toBe(false);
+		expect(unwrap(await setChatPinned(thread.id, false))).toBe(true);
+		expect(
+			unwrap(await listPersonas(orgId, userId)).find((candidate) => candidate.id === general.id)
+				?.pinned,
+		).toBe(false);
+
+		const subAgent = await db.agentThread.create({
+			data: {
+				orgId,
+				agentId,
+				personaId: pinnedNewer.id,
+				userId,
+				parentThreadId: pinnedNewerThread.id,
+				parentCallId: 'pin-test',
+				title: 'Not a conversation',
+			},
+		});
+		expect(unwrap(await setChatPinned(subAgent.id, true))).toBe(false);
+		expect(
+			(await db.agentThread.findUnique({where: {id: subAgent.id}, select: {chatPinnedAt: true}}))
+				?.chatPinnedAt,
+		).toBeNull();
+
+		await db.persona.deleteMany({where: {id: {in: [...ids]}}});
+		await db.user.delete({where: {id: other.id}});
 	});
 
 	test('a persona is its maker’s, which no other member lists or finds, where General is every member’s, and it goes when its maker leaves', async () => {

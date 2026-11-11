@@ -56,6 +56,8 @@ export const chatPersonaSchema = z.object({
 	draft: z.string().nullable(),
 	/** When it was made, which stands for its last activity before anything was said. */
 	createdAt: z.string(),
+	/** Whether this member pinned their conversation with it to the Chat sidebar. */
+	pinned: z.boolean(),
 });
 
 export type ChatPersona = z.infer<typeof chatPersonaSchema>;
@@ -87,10 +89,11 @@ export const pinnedTaskSchema = chatTaskSchema.extend({personaId: z.string()});
 export type PinnedTask = z.infer<typeof pinnedTaskSchema>;
 
 /**
- * `GET chat/personas`: the organization's personas, the one last active in the person's
- * conversation first: the last thing said in it, or, before anything was, its making; the tasks
- * the person pinned in their conversations, the one with something said in it last first; and the
- * harnesses this server has for a persona to run on, the first what a new one gets.
+ * `GET chat/personas`: the organization's personas, pinned conversations first, each group with
+ * the one last active in the person's conversation first: the last thing said in it, or, before
+ * anything was, its making; the tasks the person pinned in their conversations, the one with
+ * something said in it last first; and the harnesses this server has for a persona to run on, the
+ * first what a new one gets.
  */
 export const personaListSchema = z.object({
 	personas: z.array(chatPersonaSchema),
@@ -100,6 +103,9 @@ export const personaListSchema = z.object({
 
 /** `PUT chat/personas/:personaId/tasks/:taskId/pin`: the task pinned to the list, or unpinned. */
 export const pinTaskBodySchema = z.object({pinned: z.boolean()});
+
+/** `PUT chat/personas/:personaId/pin`: the member's conversation pinned to the Chat sidebar, or unpinned. */
+export const pinChatBodySchema = z.object({pinned: z.boolean()});
 
 /**
  * The persona's last answer in one of the person's conversations, cut to a line, which may come

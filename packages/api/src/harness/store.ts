@@ -75,7 +75,10 @@ export type HarnessStore = {
 	getAgentTask: (orgId: string, agentId: string, taskId: string) => Promise<Result<AgentTaskRow | null, ApiError>>;
 	createAgentTask: (task: NewAgentTask) => Promise<Result<AgentTaskRow | null, ApiError>>;
 
-	listPersonas: (orgId: string, userId: string) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null; draftAttachments: DraftAttachment[]}>, ApiError>>;
+	listPersonas: (
+		orgId: string,
+		userId: string,
+	) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null; draftAttachments: DraftAttachment[]; pinned: boolean}>, ApiError>>;
 	listAnswers: (orgId: string, userId: string) => Promise<Result<ConversationAnswer[], ApiError>>;
 	ensureFirstPersona: (orgId: string) => Promise<Result<PersonaRow, ApiError>>;
 	getPersona: (orgId: string, userId: string, personaId: string) => Promise<Result<PersonaRow | null, ApiError>>;
@@ -94,6 +97,7 @@ export type HarnessStore = {
 	/** What the person writes in a sub-agent's chat, with the files they attached to it. */
 	messageSubAgentDirectly: (conversationId: string, subAgentId: string, text: string, attachments?: EntryAttachment[]) => Promise<Result<boolean, ApiError>>;
 	listPinnedTasks: (orgId: string, userId: string) => Promise<Result<PinnedTaskRow[], ApiError>>;
+	setChatPinned: (threadId: string, pinned: boolean) => Promise<Result<boolean, ApiError>>;
 	setTaskPinned: (conversationId: string, subAgentId: string, pinned: boolean) => Promise<Result<boolean, ApiError>>;
 	markThreadRead: (threadId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
 	getThreadDraft: (threadId: string) => Promise<Result<string | null, ApiError>>;
@@ -167,6 +171,7 @@ export const harnessStore: HarnessStore = {
 	listAttachments: harness.listAttachments,
 	messageSubAgentDirectly: (conversationId, subAgentId, text, attachments) => harness.messageSubAgentDirectly(conversationId, subAgentId, text, readyForInference, attachments),
 	listPinnedTasks: harness.listPinnedTasks,
+	setChatPinned: harness.setChatPinned,
 	setTaskPinned: harness.setTaskPinned,
 	markThreadRead: harness.markThreadRead,
 	getThreadDraft: harness.getThreadDraft,

@@ -161,12 +161,13 @@ export const connectionLoader = later(
 	},
 );
 
-// Chat opens on the persona the person was last active with, the first the api lists, which makes
-// one where the organization has none yet.
+// Chat opens on the persona the person was last active with among those pinned, or among the rest
+// where none is pinned. The api orders both groups by activity and makes one where the
+// organization has none yet.
 export const chatIndexLoader = later(async (args: OrgParams) => {
 	const org = orgOf(args);
 	const {personas} = unwrapLoaderResult(await listPersonas(org));
-	const first = personas[0];
+	const first = personas.find((persona) => persona.pinned) ?? personas[0];
 	if (!first) {
 		throw redirect(`/${org}/connections`);
 	}

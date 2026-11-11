@@ -18,7 +18,8 @@ import {HumanSide} from '@/components/human-side';
 import {pageSaysSafeToReload} from '@/hooks/use-reload-on-release';
 import {ChatPage} from '@/pages/chat-page';
 import {FROM_COMMAND_BAR} from '@/lib/command-bar';
-import {later} from '@/lib/loader-utils';
+import {later, Redirected} from '@/lib/loader-utils';
+import {chatIndexLoader} from '@/loaders';
 import {testHuman, testOrg} from '@/test-org';
 
 const realFetch = globalThis.fetch;
@@ -38,6 +39,7 @@ function persona(id: string, name: string, mayChange: boolean): ChatPersona {
 		lastMessage: null,
 		draft: null,
 		createdAt: '2026-10-20T10:00:00Z',
+		pinned: false,
 	};
 }
 
@@ -227,6 +229,43 @@ async function follow(link: HTMLElement, init?: MouseEventInit): Promise<void> {
 }
 
 describe('ChatPage', () => {
+	test('opens Chat on the most recently active pinned chat, falling back to the most active regular chat', async () => {
+		const regular = {
+			...finance,
+			lastMessage: {
+				kind: 'assistant' as const,
+				text: 'Newest overall',
+				at: '2026-10-23T10:00:00Z',
+			},
+		};
+		const pinned = {
+			...general,
+			pinned: true,
+			lastMessage: {
+				kind: 'assistant' as const,
+				text: 'Newest pinned',
+				at: '2026-10-22T10:00:00Z',
+			},
+		};
+		fetchMock.mockResolvedValueOnce(
+			Response.json({personas: [regular, pinned], pinnedTasks: [], harnesses}),
+		);
+		const pinnedDestination = await chatIndexLoader({params: {org: 'acme'}}).later;
+		if (!(pinnedDestination instanceof Redirected)) {
+			throw new Error('Expected Chat to redirect to a conversation');
+		}
+		expect(pinnedDestination.to).toBe('/acme/chat/general');
+
+		fetchMock.mockResolvedValueOnce(
+			Response.json({personas: [regular, general], pinnedTasks: [], harnesses}),
+		);
+		const regularDestination = await chatIndexLoader({params: {org: 'acme'}}).later;
+		if (!(regularDestination instanceof Redirected)) {
+			throw new Error('Expected Chat to redirect to a conversation');
+		}
+		expect(regularDestination.to).toBe('/acme/chat/finance');
+	});
+
 	test('focuses the message input after a conversation is picked from the list', async () => {
 		let arrive = () => undefined;
 		const held = new Promise<void>((resolve) => {
@@ -512,6 +551,136 @@ describe('ChatPage', () => {
 
 		expect(screen.queryByRole('menuitem', {name: 'Edit'})).toBeNull();
 		expect(screen.queryByRole('menuitem', {name: 'Delete'})).toBeNull();
+	});
+
+	test('shows pinned chats above regular chats in a three-column avatar grid, ordering each group by activity', async () => {
+		const pinnedOlder = {
+			...persona('pinned-older', 'Pinned older', true),
+			pinned: true,
+			lastMessage: {
+				kind: 'assistant' as const,
+				text: 'Older',
+				at: '2026-10-21T10:00:00Z',
+			},
+		};
+		const pinnedNewer = {
+			...persona('pinned-newer', 'Pinned newer with a long name', true),
+			pinned: true,
+			lastMessage: {
+				kind: 'assistant' as const,
+				text: 'Newer',
+				at: '2026-10-22T10:00:00Z',
+			},
+		};
+		const regularOlder = {
+			...persona('regular-older', 'Regular older', true),
+			lastMessage: {
+				kind: 'assistant' as const,
+				text: 'Old',
+				at: '2026-10-20T10:00:00Z',
+			},
+		};
+		const regularNewer = {
+			...persona('regular-newer', 'Regular newer', true),
+			lastMessage: {
+				kind: 'assistant' as const,
+				text: 'New',
+				at: '2026-10-23T10:00:00Z',
+			},
+		};
+		const {container} = renderChatPage({
+			personas: [regularOlder, pinnedOlder, regularNewer, pinnedNewer],
+			open: 'pinned-newer',
+			entries: [
+				{
+					id: 'pinned-newer-answer',
+					kind: 'assistant',
+					text: 'Newer',
+					isError: false,
+					at: '2026-10-22T10:00:00Z',
+					attachments: [],
+				},
+			],
+		});
+
+		const grid = await screen.findByRole('list', {name: 'Pinned chats'});
+		expect(grid.className).toContain('grid-cols-3');
+		expect(
+			within(grid)
+				.getAllByRole('link')
+				.map((row) => row.textContent),
+		).toEqual(['Pinned newer with a long name', 'Pinned older']);
+		const names = [
+			'Pinned newer with a long name',
+			'Pinned older',
+			'Regular newer',
+			'Regular older',
+		];
+		expect(
+			screen
+				.getAllByRole('link')
+				.map((row) => names.find((name) => row.textContent?.includes(name)))
+				.filter((name) => name !== undefined),
+		).toEqual(names);
+		const open = within(grid).getByRole('link', {name: 'Pinned newer with a long name'});
+		expect(open.getAttribute('aria-current')).toBe('page');
+		expect(within(open).getByText('Pinned newer with a long name').className).toContain('truncate');
+		expect(
+			(container.querySelector('[data-row="pinned-newer"] canvas') as HTMLElement).style.width,
+		).toBe('56px');
+	});
+
+	test('pins a protected chat and unpins a changeable chat from their right-click menus', async () => {
+		const pinnedFinance = {...finance, pinned: true};
+		renderChatPage({personas: [general, pinnedFinance]});
+
+		fireEvent.contextMenu(await screen.findByRole('link', {name: /General/}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Pin'}));
+		await waitFor(() =>
+			expect(fetchMock).toHaveBeenCalledWith(
+				'/api/orgs/acme/chat/personas/general/pin',
+				expect.objectContaining({method: 'PUT', body: JSON.stringify({pinned: true})}),
+			),
+		);
+
+		fireEvent.contextMenu(screen.getByRole('link', {name: 'Finance'}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Unpin'}));
+		await waitFor(() =>
+			expect(fetchMock).toHaveBeenCalledWith(
+				'/api/orgs/acme/chat/personas/finance/pin',
+				expect.objectContaining({method: 'PUT', body: JSON.stringify({pinned: false})}),
+			),
+		);
+	});
+
+	test('marks unread pinned chats on their avatars and keeps pointer and keyboard navigation behavior', async () => {
+		answers = [
+			{
+				personaId: 'finance',
+				name: 'Finance',
+				answer: {id: 'finance-answer', text: 'Done.'},
+				unread: true,
+			},
+		];
+		const {container} = renderChatPage({personas: [general, {...finance, pinned: true}]});
+		const financeRow = await screen.findByRole('link', {name: /Finance/});
+		await waitFor(() => {
+			expect(within(financeRow).getByRole('status', {name: 'Unread'})).toBeDefined();
+		});
+		const head = financeRow.querySelector('[data-slot="live-head"]');
+		fireEvent.pointerEnter(financeRow);
+		expect(head?.getAttribute('data-state')).toBe('watching');
+		fireEvent.pointerLeave(financeRow);
+		expect(head?.getAttribute('data-state')).toBe('rest');
+
+		await follow(financeRow, {detail: 0});
+		await waitFor(() => {
+			const opened = container.querySelector('[data-row="finance"] a');
+			expect(opened?.getAttribute('aria-current')).toBe('page');
+			expect(opened?.querySelector('[data-slot="live-head"]')?.getAttribute('data-state')).toBe(
+				'rest',
+			);
+		});
 	});
 
 	test('marks the agents with something unread in the list, never the open one', async () => {
@@ -1087,8 +1256,14 @@ describe('ChatPage', () => {
 			expect(generalRow.textContent).toContain('Draft: Move the pricing review');
 		});
 
-		test('lists the open conversation’s draft as it is typed, and another’s as the server keeps it', async () => {
-			renderChatPage({personas: [general, {...finance, draft: 'Pay the invoice'}]});
+		test('keeps server-backed draft previews on regular rows beside the pinned grid', async () => {
+			renderChatPage({
+				personas: [
+					general,
+					{...finance, draft: 'Pay the invoice'},
+					{...persona('pinned', 'Pinned', true), pinned: true},
+				],
+			});
 			const box = await screen.findByLabelText('Message');
 
 			expect(screen.getByRole('link', {name: /Finance/}).textContent).toContain(
