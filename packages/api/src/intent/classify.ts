@@ -2,7 +2,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, httpRequest} from '@proxy/utils';
-import {CHAT_WIDGET_IDS, type Filled, type FilledField, INCOMPLETE, NO_WIDGET, type Picked, type Widget, type WidgetField, WIDGETS} from '@proxy/contracts/intent';
+import {type Filled, type FilledField, INCOMPLETE, NO_WIDGET, type Picked, type Widget, type WidgetField, WIDGETS} from '@proxy/contracts/intent';
 
 import {askForJson} from '../llm/open-router';
 import {env} from '../utils/env';
@@ -144,26 +144,21 @@ function keys(): Result<{typesafe: string; openRouter: string}, ApiError> {
 	return Ok({typesafe: env.TYPESAFE_API_KEY, openRouter: env.OPENROUTER_KEY});
 }
 
-/** The widgets a person is offered: every one, those that work with Chat's agents only `withChat`. */
-export function widgetsOffered(withChat: boolean): readonly Widget[] {
-	return withChat ? WIDGETS : WIDGETS.filter((widget) => !CHAT_WIDGET_IDS.includes(widget.id));
-}
-
-/** Which of the widgets `offered` fits `text`, as Jev picks it. */
-export function pickIntent(text: string, offered: readonly Widget[]): Promise<Result<Picked, ApiError>> {
+/** Which of the widgets fits `text`, as Jev picks it. */
+export function pickIntent(text: string): Promise<Result<Picked, ApiError>> {
 	return Do(async ($) => {
 		const {typesafe} = $(keys());
 		const start = performance.now();
-		const picked = $(await pickWidget(text, offered, typesafe));
+		const picked = $(await pickWidget(text, WIDGETS, typesafe));
 		return {widget: typeof picked === 'string' ? picked : picked.id, ms: Math.round(performance.now() - start)};
 	});
 }
 
-/** The fields of `widgetId`, one of the widgets `offered`, as gpt-oss-120b fills them in from `text`. */
-export function fillIntent(text: string, widgetId: string, offered: readonly Widget[]): Promise<Result<Filled, ApiError>> {
+/** The fields of `widgetId`, one of the widgets, as gpt-oss-120b fills them in from `text`. */
+export function fillIntent(text: string, widgetId: string): Promise<Result<Filled, ApiError>> {
 	return Do(async ($) => {
 		const {openRouter} = $(keys());
-		const widget = offered.find((candidate) => candidate.id === widgetId);
+		const widget = WIDGETS.find((candidate) => candidate.id === widgetId);
 		if (!widget) {
 			return $(Err(ApiErr.notFound('widget', widgetId)));
 		}

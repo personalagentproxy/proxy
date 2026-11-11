@@ -6,9 +6,9 @@
  * left in the database is ignored.
  */
 export const EXPERIMENTS = {
-	// The built-in agent: a conversation with an agent Personal Agent Proxy runs itself, behind its
-	// own gate, on the Chat page.
-	harness: 'Built-in agent',
+	// The built-in agent on the server's OpenRouter key (OPENROUTER_KEY), beside each member's own
+	// Claude account, which every organization has.
+	openrouter: 'OpenRouter models',
 	// Sandboxes: computers of their own that agents ask for, kept while they are away, run by the
 	// sandbox backend the server is set up with.
 	sandboxes: 'Sandboxes',

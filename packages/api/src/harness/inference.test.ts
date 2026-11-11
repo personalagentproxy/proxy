@@ -109,7 +109,7 @@ beforeEach(() => {
 	listEntries.mockResolvedValue(Ok([entry('person', 'Hi')]));
 	listSubAgents.mockResolvedValue(Ok([]));
 	store.listThreadAlerts.mockResolvedValue(Ok([]));
-	getThreadAgent.mockResolvedValue(Ok({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: []}));
+	getThreadAgent.mockResolvedValue(Ok({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: ['openrouter']}));
 	getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'claude'}));
 	for (const write of [finishJob, completeInference, requeueJob, appendSummary, appendTurnEntries, store.failJob]) {
 		write.mockResolvedValue(Ok(true));
@@ -342,13 +342,13 @@ describe('runInference', () => {
 		expect(askForTurn).not.toHaveBeenCalled();
 	});
 
-	test('without a harness, which a server without a key has none of, the person is told the server is not set up', async () => {
+	test('without a harness, as on a server with the SDK harness off and no key, the person is told the server is not set up', async () => {
 		const {runInference} = await import('./inference');
 
 		await runInference(store, on(null), job, 'w1', false, clock);
 
 		expect(askForTurn).not.toHaveBeenCalled();
-		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('OPENROUTER_KEY'), toolCalls: []}), {plans: {}});
+		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('Chat is not set up'), toolCalls: []}), {plans: {}});
 	});
 
 	test('a model that can’t be reached is tried again later, and the person told after the last try', async () => {
@@ -717,7 +717,7 @@ describe('runInference', () => {
 				'job-1',
 				'w1',
 				'thread-1',
-				expect.objectContaining({text: 'Your Claude sign-in has run out or was refused. Connect it again on the Account page.'}),
+				expect.objectContaining({text: 'Your Claude sign-in has run out or was refused. Connect it again on the [Account page](/account).'}),
 				{
 					plans: {},
 				},
@@ -774,7 +774,7 @@ describe('runInference', () => {
 				'job-1',
 				'w1',
 				'thread-1',
-				expect.objectContaining({text: 'This agent runs on your own Claude account, and you haven’t connected one. Connect it under Claude on the Account page.'}),
+				expect.objectContaining({text: 'This agent runs on your own Claude account, and you haven’t connected one. Connect it under Claude on the [Account page](/account).'}),
 				{plans: {}},
 			);
 			expect(proxy.turns).toHaveLength(0);
@@ -848,10 +848,30 @@ describe('runInference', () => {
 			const {runInference} = await import('./inference');
 			const proxy = fakeHarness('proxy');
 			getPersonaModel.mockResolvedValue(Ok(null));
+			fake.script([ended(session)]);
 
 			await runInference(store, on(proxy, fake), job, 'w1', false, clock);
 
-			expect(proxy.turns.at(-1)).toMatchObject({model: 'claude'});
+			expect(fake.turns.at(-1)).toMatchObject({model: 'claude'});
+			expect(proxy.turns).toHaveLength(0);
+		});
+
+		test('a persona on the proxy harness, in an organization without the openrouter experiment, runs on the member’s Claude account, and one who connected none is told to connect it', async () => {
+			const {runInference} = await import('./inference');
+			const proxy = fakeHarness('proxy');
+			getThreadAgent.mockResolvedValue(Ok({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: []}));
+			getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'other'}));
+			fake.script([ended(session)]);
+
+			await runInference(store, on(proxy, fake), job, 'w1', false, clock);
+
+			expect(proxy.turns).toHaveLength(0);
+			expect(fake.turns.at(-1)).toMatchObject({model: 'other', auth: {kind: 'oauth', accessToken: 'tok', scopes: []}});
+
+			claudeCredentialFor.mockResolvedValue(Ok(null));
+			await runInference(store, on(proxy, fake), job, 'w1', false, clock);
+			expect(proxy.turns).toHaveLength(0);
+			expect(completeInference).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: expect.stringContaining('Connect it under Claude')}), {plans: {}});
 		});
 
 		test('a harness with a cap on its turns at once runs that many, the rest waiting their turn', async () => {

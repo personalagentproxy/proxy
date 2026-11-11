@@ -72,7 +72,6 @@ function Account() {
 
 	// The organizations deleted with the account that others are in or invited to.
 	const shared = human.orgs.filter((org) => org.role === 'owner' && hasOtherPeople(org));
-	const chats = human.orgs.some((org) => org.experiments.includes('harness'));
 	const desktop = desktopBridge()?.checkForUpdates ? desktopVersion() : null;
 
 	return (
@@ -91,7 +90,7 @@ function Account() {
 						</SettingRow>
 					</RowList>
 				</Section>
-				{chats && notificationSupport() !== 'none' && (
+				{notificationSupport() !== 'none' && (
 					<Section title="Notifications">
 						<RowList>
 							<SettingRow label="Messages">

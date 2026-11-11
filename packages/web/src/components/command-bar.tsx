@@ -14,7 +14,6 @@ import {UnsupportedWidget} from '@/components/widgets/unsupported-widget';
 import {Input} from '@proxy/ui/components/input';
 import {Skeleton} from '@proxy/ui/components/skeleton';
 import {cn} from '@proxy/ui/lib/utils';
-import {useExperiments} from '@/hooks/use-experiment';
 import {useOrgSlug} from '@/hooks/use-org';
 import {apiMessage} from '@/lib/agent-errors';
 import {
@@ -48,10 +47,7 @@ const EXAMPLES = [
 	'72°F in Celsius',
 	"What's my checking balance?",
 	'How much did I spend on restaurants last month?',
-];
-
-// What it suggests beside them where the organization has Chat: an agent made, and one asked.
-const CHAT_EXAMPLES = [
+	// An agent made, and one asked.
 	'Add an agent that reminds me to stretch every hour',
 	'Plan my trip to Lisbon in March',
 ];
@@ -114,9 +110,6 @@ type Props = {
  */
 export function CommandBar({connections, agents, personas, open: up, onClose}: Props) {
 	const org = useOrgSlug();
-	// Whether the organization has Chat (the `harness` experiment), whose agents it then goes to,
-	// makes and sends messages to.
-	const chat = useExperiments().includes('harness');
 	const navigate = useNavigate();
 	const [text, setText] = useState('');
 	const [answer, setAnswer] = useState<Answer | null>(null);
@@ -167,8 +160,8 @@ export function CommandBar({connections, agents, personas, open: up, onClose}: P
 	}, [up]);
 
 	const destinations = useMemo(
-		() => destinationsOf({org, chat, personas, connections, agents}),
-		[org, chat, personas, connections, agents],
+		() => destinationsOf({org, personas, connections, agents}),
+		[org, personas, connections, agents],
 	);
 	const words = text.trim();
 	const rows = useMemo(
@@ -471,7 +464,7 @@ export function CommandBar({connections, agents, personas, open: up, onClose}: P
 
 	return (
 		<div className="relative w-full overflow-hidden">
-			{!active && <QuickActions examples={chat ? [...EXAMPLES, ...CHAT_EXAMPLES] : EXAMPLES} />}
+			{!active && <QuickActions examples={EXAMPLES} />}
 			<Input
 				ref={input}
 				autoFocus

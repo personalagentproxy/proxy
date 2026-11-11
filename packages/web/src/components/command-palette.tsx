@@ -1,7 +1,6 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import type {ChatPersona} from '@proxy/contracts/harness';
-import {Ok} from 'ts-results-es';
 import {
 	type ReactNode,
 	useCallback,
@@ -18,7 +17,6 @@ import {listPersonas} from '@/client/harness-client';
 import {CommandBar} from '@/components/command-bar';
 import {Dialog, DialogContent, DialogTitle} from '@proxy/ui/components/dialog';
 import {CommandPaletteContext} from '@/hooks/use-command-palette';
-import {useExperiments} from '@/hooks/use-experiment';
 import {useOrgSlug} from '@/hooks/use-org';
 import {isShortcut} from '@/lib/platform';
 
@@ -42,10 +40,10 @@ const FRESH_MS = 30_000;
 // waiting for it: what was read last shows meanwhile, and stays where it can't be read again.
 // They are read again as it opens, unless it was opened on the same page a moment ago, as it then
 // has what there is. Another organization's are none of this one's.
-function useBarLists(org: string, chat: boolean, open: boolean, page: string): BarLists {
+function useBarLists(org: string, open: boolean, page: string): BarLists {
 	const [lists, setLists] = useState<BarLists>({org, ...NOTHING_READ});
 	// When all of them were last read, and for what.
-	const read = useRef<{org: string; chat: boolean; page: string; at: number} | null>(null);
+	const read = useRef<{org: string; page: string; at: number} | null>(null);
 
 	useEffect(() => {
 		if (!open || org === '') {
@@ -55,43 +53,40 @@ function useBarLists(org: string, chat: boolean, open: boolean, page: string): B
 		if (
 			last !== null &&
 			last.org === org &&
-			last.chat === chat &&
 			last.page === page &&
 			Date.now() - last.at < FRESH_MS
 		) {
 			return;
 		}
 		let current = true;
-		void Promise.all([
-			listConnections(org),
-			listAgents(org),
-			chat ? listPersonas(org) : Promise.resolve(Ok(null)),
-		]).then(([connections, agents, personas]) => {
-			if (!current) {
-				return;
-			}
-			if (connections.isOk() && agents.isOk() && personas.isOk()) {
-				read.current = {org, chat, page, at: Date.now()};
-			}
-			setLists((previous) => {
-				const kept = previous.org === org ? previous : NOTHING_READ;
-				return {
-					org,
-					connections: connections.map((answer) => answer.connections).unwrapOr(kept.connections),
-					agents: agents.map((answer) => answer.agents).unwrapOr(kept.agents),
-					personas: personas.map((answer) => answer?.personas ?? null).unwrapOr(kept.personas),
-				};
-			});
-		});
+		void Promise.all([listConnections(org), listAgents(org), listPersonas(org)]).then(
+			([connections, agents, personas]) => {
+				if (!current) {
+					return;
+				}
+				if (connections.isOk() && agents.isOk() && personas.isOk()) {
+					read.current = {org, page, at: Date.now()};
+				}
+				setLists((previous) => {
+					const kept = previous.org === org ? previous : NOTHING_READ;
+					return {
+						org,
+						connections: connections.map((answer) => answer.connections).unwrapOr(kept.connections),
+						agents: agents.map((answer) => answer.agents).unwrapOr(kept.agents),
+						personas: personas.map((answer) => answer.personas).unwrapOr(kept.personas),
+					};
+				});
+			},
+		);
 		return () => {
 			current = false;
 		};
-	}, [org, chat, open, page]);
+	}, [org, open, page]);
 
 	if (lists.org !== org) {
 		return {org, ...NOTHING_READ};
 	}
-	return chat ? lists : {...lists, personas: null};
+	return lists;
 }
 
 /**
@@ -132,10 +127,7 @@ export function CommandPaletteProvider({children}: {children: ReactNode}) {
 
 	const close = useCallback(() => setOpenedOn(null), []);
 	const open = org !== '' && openedOn === pathname;
-	// Whether the organization has Chat (the `harness` experiment), whose agents the bar goes to,
-	// makes and sends messages to.
-	const chat = useExperiments().includes('harness');
-	const lists = useBarLists(org, chat, open, pathname);
+	const lists = useBarLists(org, open, pathname);
 
 	return (
 		<CommandPaletteContext value={palette}>

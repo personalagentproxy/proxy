@@ -8,7 +8,7 @@ import type {EntryRow, JobRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
 import type {HarnessRegistry} from '../backends/harness';
 import {type FakeStore, fakeStore} from './fake-store';
 
-const viewer = {orgId: 'org-1', userId: 'user-1', slug: 'acme', name: 'Acme', role: 'member' as 'member' | 'owner', onboarded: true, experiments: ['harness']};
+const viewer = {orgId: 'org-1', userId: 'user-1', slug: 'acme', name: 'Acme', role: 'member' as 'member' | 'owner', onboarded: true, experiments: ['openrouter']};
 const requireViewer = mock(async () => Ok(viewer));
 mock.module('../utils/user-org', () => ({requireViewer}));
 
@@ -33,7 +33,8 @@ const personaResponse = {
 };
 
 // The harnesses the server has, unless a test says otherwise: the loop over OpenRouter, with its
-// two models, and the Claude Agent SDK's, with its three.
+// two models, which the viewer's organization is offered with the `openrouter` experiment, and
+// the Claude Agent SDK's, with its three.
 const proxy: HarnessBackend = {
 	...fakeHarness('proxy'),
 	label: 'OpenRouter',
@@ -53,8 +54,8 @@ const sdk: HarnessBackend = {
 };
 let registry: HarnessRegistry = {proxy, claudeAgentSdk: sdk};
 const offered = [
-	{id: 'proxy', label: 'OpenRouter', models: proxy.models},
 	{id: 'claude-agent-sdk', label: 'Claude', models: sdk.models},
+	{id: 'proxy', label: 'OpenRouter', models: proxy.models},
 ];
 const thread: ThreadRow = {
 	id: 'thread-1',
@@ -148,14 +149,23 @@ beforeEach(async () => {
 });
 
 describe('the chat routes', () => {
-	test('are refused without the experiment', async () => {
-		const {handleListPersonasRoute, handleListAnswersRoute, handlePostMessageRoute} = routes;
+	test('offer OpenRouter only with the openrouter experiment: without it, a persona on it is shown on Claude, and none is made or switched to it', async () => {
+		const {handleCreatePersonaRoute, handleListPersonasRoute, handleUpdatePersonaRoute} = routes;
 		requireViewer.mockResolvedValue(Ok({...viewer, experiments: []}));
+		store.listPersonas.mockResolvedValue(Ok([{...persona, ownerUserId: null, lastMessage: null, draft: null}]));
 
-		expect((await handleListPersonasRoute(request())).unwrapErr().kind).toBe('forbidden');
-		expect((await handleListAnswersRoute(request())).unwrapErr().kind).toBe('forbidden');
-		expect((await handlePostMessageRoute(request({personaId: 'persona-1'}, {text: 'Hi'}))).unwrapErr().kind).toBe('forbidden');
-		expect(store.appendPersonMessage).not.toHaveBeenCalled();
+		const listed = (await handleListPersonasRoute(request())).unwrap();
+		expect(listed.harnesses.map((harness) => harness.id)).toEqual(['claude-agent-sdk']);
+		expect(listed.personas.map(({harness, chatModel}) => [harness, chatModel])).toEqual([['claude-agent-sdk', 'sonnet']]);
+
+		const body = {name: 'Finance', look, color: 'blue', harness: 'proxy'};
+		expect((await handleCreatePersonaRoute(request({}, body))).unwrapErr()).toMatchObject({kind: 'validation_error', message: 'This server has no harness proxy.'});
+		expect((await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, body))).unwrapErr().kind).toBe('validation_error');
+		expect(store.createPersona).not.toHaveBeenCalled();
+		expect(store.updatePersona).not.toHaveBeenCalled();
+
+		await handleCreatePersonaRoute(request({}, {name: 'Finance', look, color: 'blue'}));
+		expect(store.createPersona).toHaveBeenCalledWith('org-1', 'user-1', {name: 'Finance', look, color: 'blue', harness: 'claude-agent-sdk', chatModel: 'sonnet'});
 	});
 
 	test('list the personas the viewer sees, their own and every member’s, with their heads, what runs each, whether the viewer may change each, and the last thing said with each and what the viewer typed and hasn’t sent, on one line, and the harnesses the server has with their models', async () => {
@@ -227,7 +237,7 @@ describe('the chat routes', () => {
 		const made = await handleCreatePersonaRoute(request({}, {name: ' Finance ', look, color: 'blue'}));
 
 		expect(ensureBuiltInAgent).toHaveBeenCalledWith('org-1');
-		expect(store.createPersona).toHaveBeenCalledWith('org-1', 'user-1', {name: 'Finance', look, color: 'blue', harness: 'proxy', chatModel: 'claude'});
+		expect(store.createPersona).toHaveBeenCalledWith('org-1', 'user-1', {name: 'Finance', look, color: 'blue', harness: 'claude-agent-sdk', chatModel: 'sonnet'});
 		expect(made.unwrap().persona).toEqual({...personaResponse, id: 'persona-2'});
 	});
 
@@ -497,9 +507,6 @@ describe('the chat routes', () => {
 		store.getMemberThread.mockResolvedValue(Ok(null));
 		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: 'Hi'}))).unwrapErr().kind).toBe('not_found');
 		expect(store.messageSubAgentDirectly).toHaveBeenCalledTimes(2);
-
-		requireViewer.mockResolvedValue(Ok({...viewer, experiments: []}));
-		expect((await handlePostTaskMessageRoute(request({personaId: 'persona-1', taskId: 'sub-1'}, {text: 'Hi'}))).unwrapErr().kind).toBe('forbidden');
 	});
 
 	test('give what the viewer typed in the conversation and hasn’t sent, whole', async () => {

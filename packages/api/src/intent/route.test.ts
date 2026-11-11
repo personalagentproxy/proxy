@@ -3,13 +3,10 @@ import {Ok} from 'ts-results-es';
 
 const pickIntent = mock();
 const fillIntent = mock();
-// The widgets offered, as told apart by whether Chat's are among them.
-const widgetsOffered = (withChat: boolean) => (withChat ? ['with chat'] : ['without chat']);
 
-mock.module('./classify', () => ({pickIntent, fillIntent, widgetsOffered}));
+mock.module('./classify', () => ({pickIntent, fillIntent}));
 
-let experiments: string[] = [];
-mock.module('../utils/user-org', () => ({requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments})}));
+mock.module('../utils/user-org', () => ({requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []})}));
 
 function makeRequest(body: unknown) {
 	return {user: {userId: 'user-1'}, params: {org: 'org-1'}, body} as never;
@@ -17,7 +14,6 @@ function makeRequest(body: unknown) {
 
 beforeEach(() => {
 	mock.clearAllMocks();
-	experiments = [];
 	pickIntent.mockResolvedValue(Ok({widget: 'none', ms: 1}));
 	fillIntent.mockResolvedValue(Ok({fields: [], ms: 1}));
 });
@@ -28,18 +24,7 @@ describe('handlePickIntentRoute', () => {
 		const result = await handlePickIntentRoute(makeRequest({text: '  who is hugo  '}));
 
 		expect(result.isOk()).toBe(true);
-		expect(pickIntent).toHaveBeenCalledWith('who is hugo', ['without chat']);
-	});
-
-	test('offers the widgets that work with Chat’s agents in an organization that has Chat', async () => {
-		const {handleFillIntentRoute, handlePickIntentRoute} = await import('./route');
-		experiments = ['harness'];
-
-		await handlePickIntentRoute(makeRequest({text: 'add an agent for my finances'}));
-		await handleFillIntentRoute(makeRequest({text: 'add an agent for my finances', widget: 'new_agent'}));
-
-		expect(pickIntent).toHaveBeenCalledWith('add an agent for my finances', ['with chat']);
-		expect(fillIntent).toHaveBeenCalledWith('add an agent for my finances', 'new_agent', ['with chat']);
+		expect(pickIntent).toHaveBeenCalledWith('who is hugo');
 	});
 
 	test('refuses empty text, and text past 500 characters, without asking the models', async () => {
@@ -58,7 +43,7 @@ describe('handleFillIntentRoute', () => {
 		const result = await handleFillIntentRoute(makeRequest({text: '  who is hugo  ', widget: 'find_person'}));
 
 		expect(result.isOk()).toBe(true);
-		expect(fillIntent).toHaveBeenCalledWith('who is hugo', 'find_person', ['without chat']);
+		expect(fillIntent).toHaveBeenCalledWith('who is hugo', 'find_person');
 	});
 
 	test('refuses a request without a widget, or with text that is empty or past 500 characters', async () => {

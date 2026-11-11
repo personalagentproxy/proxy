@@ -1,7 +1,7 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 import type {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, hasExperiment, parseSchema, requirePresent} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {
 	callArguments,
 	CREATE_SUBAGENT_TOOL,
@@ -35,7 +35,7 @@ import {
 	type ThreadLog,
 } from '@proxy/contracts/harness';
 
-import {chosenFor, harnessesOf, type HarnessRegistry} from '../backends/harness';
+import {chosenFor, harnessesOf, type HarnessRegistry, offeredTo} from '../backends/harness';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {manages} from '../utils/manages';
 import {type OrgViewer, requireViewer} from '../utils/user-org';
@@ -50,8 +50,9 @@ import type {HarnessStore} from './store';
  * and what it and its sub-agents are up to. Each sub-agent is a task to the member, shown where it
  * was started, with a chat of its own: what it and the persona said to each other, and what the
  * member writes to it there. A persona
- * says which of the server's harnesses runs it and which of that harness's models it answers with
- * (backends/harness.ts), chosen from the conversation's input by whoever may change it. Behind the `harness` experiment. Nothing here runs the model: a message queues a job, and
+ * says which of the harnesses the server offers the organization runs it and which of that
+ * harness's models it answers with (backends/harness.ts), chosen from the conversation's input by
+ * whoever may change it. Nothing here runs the model: a message queues a job, and
  * the worker (worker.ts) does the rest; the page reads the log again as it goes.
  */
 
@@ -90,9 +91,9 @@ function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
 
 function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null; draft?: string | null}): ChatPersona {
 	const last = persona.lastMessage ?? null;
-	// What runs it as this server has it, which is what a turn of its gets; as kept on a server
-	// with no harness at all, where nothing runs.
-	const chosen = chosenFor(harnesses(), persona);
+	// What runs it as this server offers the organization, which is what a turn of its gets; as
+	// kept where there is no harness at all, where nothing runs.
+	const chosen = chosenFor(offeredTo(harnesses(), viewer), persona);
 	return {
 		id: persona.id,
 		name: persona.name,
@@ -108,17 +109,17 @@ function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow 
 	};
 }
 
-// The harnesses a persona can run on here, as the dialog offers them.
-function toHarnesses(registry: HarnessRegistry): ChatHarness[] {
-	return harnessesOf(registry).map(({id, label, models}) => ({id, label, models}));
+// The harnesses a persona of the viewer's organization can run on here, as the dialog offers them.
+function toHarnesses(registry: HarnessRegistry, viewer: OrgViewer): ChatHarness[] {
+	return harnessesOf(offeredTo(registry, viewer)).map(({id, label, models}) => ({id, label, models}));
 }
 
 // The persona as the person made or changed it. What runs it is as they chose, where the server
-// has it: a harness named has to be one of the server's, and a model named one of the harness's;
-// the model left out is the harness's first, or the persona's own where the harness stays. With
-// neither named, one changed (`existing`) keeps what it has, and a new one gets the server's
-// first harness with its first model.
-function readPersona(harnesses: Harnesses, request: AuthenticatedRequest, existing: PersonaModel | null): Result<Persona, ApiError> {
+// offers it the organization: a harness named has to be one of those, and a model named one of
+// the harness's; the model left out is the harness's first, or the persona's own where the harness
+// stays. With neither named, one changed (`existing`) keeps what it has, and a new one gets the
+// first harness offered with its first model.
+function readPersona(harnesses: Harnesses, viewer: OrgViewer, request: AuthenticatedRequest, existing: PersonaModel | null): Result<Persona, ApiError> {
 	const parsed = parseSchema(personaBodySchema, request.body);
 	if (parsed.isErr()) {
 		return Err(parsed.error);
@@ -128,7 +129,7 @@ function readPersona(harnesses: Harnesses, request: AuthenticatedRequest, existi
 		return Ok(persona);
 	}
 	const sameHarness = harness === undefined || harness === existing?.harness;
-	const chosen = chosenFor(harnesses(), {harness: harness ?? existing?.harness ?? '', chatModel: chatModel ?? (sameHarness ? (existing?.chatModel ?? '') : '')});
+	const chosen = chosenFor(offeredTo(harnesses(), viewer), {harness: harness ?? existing?.harness ?? '', chatModel: chatModel ?? (sameHarness ? (existing?.chatModel ?? '') : '')});
 	if (chosen === null) {
 		return Ok(persona);
 	}
@@ -213,17 +214,6 @@ function taskChatEntries(subAgent: SubAgentRow): (entry: EntryRow) => TaskChatEn
 	};
 }
 
-/** The viewer, in an organization with Chat on: the Chat page's routes and the Alerts page's take it. */
-export function requireChat(request: AuthenticatedRequest): Promise<Result<OrgViewer, ApiError>> {
-	return Do(async ($) => {
-		const viewer = $(await requireViewer(request));
-		if (!hasExperiment(viewer, 'harness')) {
-			return $(Err(ApiErr.forbidden()));
-		}
-		return viewer;
-	});
-}
-
 // The persona in the address, one of the organization's the viewer sees: another member's own is not found.
 function requirePersona(store: ChatStore, viewer: OrgViewer, request: AuthenticatedRequest): Promise<Result<PersonaRow, ApiError>> {
 	return Do(async ($) => {
@@ -259,10 +249,10 @@ function requireThread(store: ChatStore, viewer: OrgViewer, persona: PersonaRow)
 /** `GET /api/orgs/:org/chat/personas`: the organization's personas the viewer sees, their own and those every member does, the one last active in the viewer's conversation first, with the viewer's conversations, the tasks they pinned in them, and the harnesses the server has for one to run on; a General one, every member's, is made where there is none, after the viewer's own, so a message that names no agent always has one to go to. */
 function handleListPersonasRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaListSchema>, ApiError>> {
 	return Do(async ($) => {
-		const viewer = $(await requireChat(request));
+		const viewer = $(await requireViewer(request));
 		const [found, pinned] = await Promise.all([store.listPersonas(viewer.orgId, viewer.userId), store.listPinnedTasks(viewer.orgId, viewer.userId)]);
 		const personas = $(found);
-		const offered = toHarnesses(harnesses());
+		const offered = toHarnesses(harnesses(), viewer);
 		const pinnedTasks = $(pinned).map(({id, personaId, title}) => ({id, personaId, title}));
 		const listed = personas.map((persona) => toPersona(harnesses, viewer, persona));
 		if (personas.some((persona) => persona.ownerUserId === null)) {
@@ -276,7 +266,7 @@ function handleListPersonasRoute(store: ChatStore, harnesses: Harnesses, request
 /** `GET /api/orgs/:org/chat/answers`: the persona's last answer in each of the viewer's conversations that has one, and whether they haven't seen it; read only, for every page to ask every so often. */
 function handleListAnswersRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof chatAnswersSchema>, ApiError>> {
 	return Do(async ($) => {
-		const viewer = $(await requireChat(request));
+		const viewer = $(await requireViewer(request));
 		const answers = $(await store.listAnswers(viewer.orgId, viewer.userId));
 		return {
 			answers: answers.map(({personaId, personaName, answer, unread}) => ({
@@ -292,8 +282,8 @@ function handleListAnswersRoute(store: ChatStore, request: AuthenticatedRequest)
 /** `POST /api/orgs/:org/chat/personas` with `{name, look, color, harness?, chatModel?}`: a new persona, the viewer's own, and the organization's built-in login with it where there is none yet. */
 function handleCreatePersonaRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaAnswerSchema>, ApiError>> {
 	return Do(async ($) => {
-		const viewer = $(await requireChat(request));
-		const persona = $(readPersona(harnesses, request, null));
+		const viewer = $(await requireViewer(request));
+		const persona = $(readPersona(harnesses, viewer, request, null));
 		$(await ensureBuiltInAgent(viewer.orgId));
 		const made = $(await store.createPersona(viewer.orgId, viewer.userId, persona));
 		return {persona: toPersona(harnesses, viewer, made)};
@@ -303,9 +293,9 @@ function handleCreatePersonaRoute(store: ChatStore, harnesses: Harnesses, reques
 /** `PUT /api/orgs/:org/chat/personas/:personaId` with `{name, look, color, harness?, chatModel?}`: the persona renamed, with another head, or switched to another harness or model from its next turn on, every conversation with it and its sub-agents'. */
 function handleUpdatePersonaRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaAnswerSchema>, ApiError>> {
 	return Do(async ($) => {
-		const viewer = $(await requireChat(request));
+		const viewer = $(await requireViewer(request));
 		const existing = $(await requireManagedPersona(store, viewer, request));
-		const persona = $(readPersona(harnesses, request, existing));
+		const persona = $(readPersona(harnesses, viewer, request, existing));
 		if (!$(await store.updatePersona(viewer.orgId, existing.id, persona))) {
 			return $(Err(ApiErr.notFound('persona', existing.id)));
 		}
@@ -316,7 +306,7 @@ function handleUpdatePersonaRoute(store: ChatStore, harnesses: Harnesses, reques
 /** `DELETE /api/orgs/:org/chat/personas/:personaId`: the persona, with every conversation with it. */
 function handleDeletePersonaRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		const viewer = $(await requireChat(request));
+		const viewer = $(await requireViewer(request));
 		const persona = $(await requireManagedPersona(store, viewer, request));
 		if (!$(await store.deletePersona(viewer.orgId, persona.id))) {
 			return $(Err(ApiErr.notFound('persona', persona.id)));
@@ -327,7 +317,7 @@ function handleDeletePersonaRoute(store: ChatStore, request: AuthenticatedReques
 /** `GET /api/orgs/:org/chat/personas/:personaId/thread`: the viewer's conversation with the persona, begun where there was none, what they said while it was answering at the end, the tasks the persona started in it and what it sent them, whether the persona is busy on it, its sub-agents included, and what they typed in it and haven't sent. */
 function handleGetThreadRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<ThreadLog, ApiError>> {
 	return Do(async ($) => {
-		const viewer = $(await requireChat(request));
+		const viewer = $(await requireViewer(request));
 		const persona = $(await requirePersona(store, viewer, request));
 		const thread = $(await requireThread(store, viewer, persona));
 		const now = new Date();
@@ -351,7 +341,7 @@ function handleGetThreadRoute(store: ChatStore, harnesses: Harnesses, request: A
 /** `POST /api/orgs/:org/chat/personas/:personaId/messages` with `{text}`: what the viewer says to the persona; it is woken. */
 function handlePostMessageRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof postedMessageSchema>, ApiError>> {
 	return Do(async ($) => {
-		const viewer = $(await requireChat(request));
+		const viewer = $(await requireViewer(request));
 		const {text} = $(parseSchema(postMessageBodySchema, request.body));
 		const persona = $(await requirePersona(store, viewer, request));
 		const thread = $(await requireThread(store, viewer, persona));
@@ -371,7 +361,7 @@ function requireExistingThread(store: ChatStore, viewer: OrgViewer, persona: Per
 /** `GET /api/orgs/:org/chat/personas/:personaId/tasks/:taskId`: a task the persona started in the viewer's conversation with it, as its chat shows it: what it is up to, and what it, the persona and the viewer said in it. */
 function handleGetTaskRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<TaskChat, ApiError>> {
 	return Do(async ($) => {
-		const viewer = $(await requireChat(request));
+		const viewer = $(await requireViewer(request));
 		const taskId = request.params.taskId ?? '';
 		const persona = $(await requirePersona(store, viewer, request));
 		const thread = $(await requireExistingThread(store, viewer, persona, taskId));
@@ -391,7 +381,7 @@ function handleGetTaskRoute(store: ChatStore, harnesses: Harnesses, request: Aut
 /** `POST /api/orgs/:org/chat/personas/:personaId/tasks/:taskId/messages` with `{text}`: what the viewer writes to a task of their conversation with the persona, in its chat; the task takes it up, and the persona is told, but not woken by it: the task's answer wakes it. */
 function handlePostTaskMessageRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		const viewer = $(await requireChat(request));
+		const viewer = $(await requireViewer(request));
 		const taskId = request.params.taskId ?? '';
 		const {text} = $(parseSchema(postMessageBodySchema, request.body));
 		const persona = $(await requirePersona(store, viewer, request));
@@ -405,7 +395,7 @@ function handlePostTaskMessageRoute(store: ChatStore, request: AuthenticatedRequ
 /** `PUT /api/orgs/:org/chat/personas/:personaId/draft` with `{text}`: what the viewer has typed to the persona and not sent, kept in place of what was; nothing but whitespace forgets it. */
 function handleSaveDraftRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		const viewer = $(await requireChat(request));
+		const viewer = $(await requireViewer(request));
 		const {text} = $(parseSchema(saveDraftBodySchema, request.body));
 		const persona = $(await requirePersona(store, viewer, request));
 		const thread = $(await requireThread(store, viewer, persona));
@@ -418,7 +408,7 @@ function handleSaveDraftRoute(store: ChatStore, request: AuthenticatedRequest): 
 /** `POST /api/orgs/:org/chat/personas/:personaId/read` with `{entryId}`: the viewer was shown their conversation with the persona up to that answer; what the persona said after it stays unread. */
 function handleMarkReadRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		const viewer = $(await requireChat(request));
+		const viewer = $(await requireViewer(request));
 		const {entryId} = $(parseSchema(markReadBodySchema, request.body));
 		const persona = $(await requirePersona(store, viewer, request));
 		// Read, never begun: a viewer without a conversation has no answer in it to have seen.
@@ -432,7 +422,7 @@ function handleMarkReadRoute(store: ChatStore, request: AuthenticatedRequest): P
 /** `PUT /api/orgs/:org/chat/personas/:personaId/tasks/:taskId/pin` with `{pinned}`: a task of the viewer's conversation with the persona pinned to the list under it, or unpinned. */
 function handlePinTaskRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		const viewer = $(await requireChat(request));
+		const viewer = $(await requireViewer(request));
 		const taskId = request.params.taskId ?? '';
 		const {pinned} = $(parseSchema(pinTaskBodySchema, request.body));
 		const persona = $(await requirePersona(store, viewer, request));

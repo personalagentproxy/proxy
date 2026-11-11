@@ -5,9 +5,8 @@ import {ApiErr, type ApiError, Do, requirePresent, semaphore, type Semaphore} fr
 import {CALL_INTERRUPTED, type HarnessSession, OUTCOME_UNKNOWN, pendingToolCalls, type ToolCall} from '@proxy/utils/harness';
 import type {AssistantTurn, EntryRow, JobRow, NewTurnEntry, RanOn, SubAgentRow, ThreadRow, ThreadSession} from '@proxy/db/harness';
 
-import {chosenFor, type ClaudeCredentials, type HarnessChoice, type Harnesses, harnessFor, needsCredential} from '../backends/harness';
+import {chosenFor, type ClaudeCredentials, type HarnessChoice, type Harnesses, harnessFor, needsCredential, offeredTo, RECONNECT_CLAUDE} from '../backends/harness';
 import {agentInstructions, SCRIPT_TOOL} from '../mcp/tools';
-import {SIGN_IN_EXPIRED} from '../me/claude-token';
 import {log, serializeError} from '../observability/log';
 import {alertsParagraph} from './alerts';
 import {afterAnswer, failureNote, jobLost, planCalls} from './conversation';
@@ -462,24 +461,27 @@ function readyLog(store: InferenceStore, job: JobRow, workerId: string, thread: 
 
 // What a thread's persona runs on where it is gone, the thread about to go with it: the database's
 // defaults for a persona.
-const NO_PERSONA = {harness: 'proxy', chatModel: 'claude'};
+const NO_PERSONA = {harness: 'claude-agent-sdk', chatModel: 'sonnet'};
 
-// The harness for a turn on the thread, and the model: its persona's choice as the server has it,
-// with the member's credential where the harness runs on it (backends/harness.ts). A credential
-// that ran out or was refused is what the person is told; one that couldn't be read for another
+// The harness for a turn on the thread, and the model: its persona's choice as the server offers
+// the thread's organization, as its login says what that has on, with the member's credential
+// where the harness runs on it (backends/harness.ts). A credential that ran out or was refused is
+// what the person is told, with where to connect it again; one that couldn't be read for another
 // reason fails the turn with it.
 function chooseHarness(store: InferenceStore, harnesses: Harnesses, thread: ThreadRow): Promise<Result<HarnessChoice, ApiError>> {
 	return Do(async ($) => {
+		const signedIn = $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
+		const registry = offeredTo(harnesses.registry, signedIn);
 		const persona = $(await store.getPersonaModel(thread)) ?? NO_PERSONA;
-		const chosen = chosenFor(harnesses.registry, persona);
-		if (chosen === null || !needsCredential(harnesses.registry, chosen.harness)) {
-			return harnessFor(harnesses.registry, persona, null);
+		const chosen = chosenFor(registry, persona);
+		if (chosen === null || !needsCredential(registry, chosen.harness)) {
+			return harnessFor(registry, persona, null);
 		}
 		const credential = await harnesses.credentials.claudeCredentialFor(thread.userId);
 		if (credential.isErr() && credential.error.kind === 'unavailable') {
-			return {harness: null, auth: null, why: credential.error.message};
+			return {harness: null, auth: null, why: RECONNECT_CLAUDE};
 		}
-		return harnessFor(harnesses.registry, persona, $(credential));
+		return harnessFor(registry, persona, $(credential));
 	});
 }
 
@@ -513,7 +515,7 @@ export function runInference(store: InferenceStore, harnesses: Harnesses, job: J
 			if (marked.isErr()) {
 				log.warn('The model turned the member’s Claude credential down, which could not be noted on their account', {userId: thread.userId, ...serializeError(marked.error)});
 			}
-			$(await answerFailure(store, job, workerId, thread, SIGN_IN_EXPIRED));
+			$(await answerFailure(store, job, workerId, thread, RECONNECT_CLAUDE));
 			return;
 		}
 		if (outcome.kind === 'failed' && outcome.limitReached) {
