@@ -3,7 +3,7 @@ import {AnimatedHeight} from '@/components/animated-height';
 import {Markdown} from '@/components/markdown';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
-import {pillVariants} from '@/lib/pill-variants';
+import {pillVariants} from '@proxy/ui/lib/pill-variants';
 
 // What a task set out to do and what came of it, one at a time: a switch between the two, and the
 // text itself, the one shown fading in and the room it takes growing or shrinking to fit, so

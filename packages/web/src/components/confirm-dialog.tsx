@@ -1,5 +1,5 @@
 import type {ReactNode} from 'react';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {
 	Dialog,
 	DialogContent,

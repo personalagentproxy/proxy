@@ -3,7 +3,7 @@ import {findIntegration, type IntegrationId} from '@proxy/integrations';
 import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
 import {connectWithKey} from '@/client/connections-client';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {
 	Dialog,
 	DialogContent,

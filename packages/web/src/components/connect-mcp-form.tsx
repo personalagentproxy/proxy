@@ -3,7 +3,7 @@ import type {FetchError} from '@proxy/utils';
 import {useState, type ReactNode} from 'react';
 import {useSearchParams} from 'react-router';
 import {connectMcp} from '@/client/connections-client';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {apiMessage} from '@/lib/agent-errors';

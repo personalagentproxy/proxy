@@ -10,7 +10,7 @@ import {OrgTile} from '@/components/org-switcher';
 import {PersonAvatar} from '@/components/person-avatar';
 import {RowHeader, RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {
 	Dialog,
 	DialogContent,

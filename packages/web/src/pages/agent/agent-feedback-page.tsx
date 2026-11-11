@@ -3,7 +3,7 @@ import {Link, useSearchParams} from 'react-router';
 import {sendAgentFeedback} from '@/client/agent-client';
 import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
 import {SuccessLine} from '@/components/success-line';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Label} from '@proxy/ui/components/label';
 import {Textarea} from '@proxy/ui/components/textarea';
 import {useAgentMe} from '@/hooks/use-agent-target';

@@ -1,7 +1,7 @@
 import {useId, useState, type ReactNode} from 'react';
 import type {Field} from '@proxy/integrations';
 import {displayValue} from '@/lib/access';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {

@@ -1,4 +1,4 @@
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {LogoDock} from '@/components/logo-dock';
 import {RiseInWords, riseInDelay} from '@/components/rise-in-words';
 import {SiteFooter} from '@/components/site-footer';
@@ -46,16 +46,16 @@ export default function Home() {
 						))}
 					</div>
 					<div className="rise-in flex gap-2" style={{animationDelay: riseInDelay(LINKS_WORD)}}>
-						<Button nativeButton={false} render={<a href={`${APP_URL}/login`} />}>
+						<PillButton nativeButton={false} render={<a href={`${APP_URL}/login`} />}>
 							For humans
-						</Button>
-						<Button
-							variant="outline"
+						</PillButton>
+						<PillButton
+							variant="ghost"
 							nativeButton={false}
 							render={<a href={`${APP_URL}/agent/login`} />}
 						>
 							For agents
-						</Button>
+						</PillButton>
 					</div>
 				</div>
 				<SiteFooter className="rise-in" style={{animationDelay: riseInDelay(LINKS_WORD)}} />

@@ -1,5 +1,5 @@
 import {Link} from 'react-router';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import type {PageTab} from '@/lib/page-tabs';
 
 // A page's parts as tabs under its title, one shown at a time (lib/page-tabs.ts): each a link, so

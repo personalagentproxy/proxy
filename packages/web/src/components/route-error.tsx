@@ -1,6 +1,6 @@
 import {Component, type ReactNode, useEffect} from 'react';
 import {isRouteErrorResponse, useRouteError} from 'react-router';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {LoadFailure} from '@/lib/loader-utils';
 import {log, serializeError} from '@/lib/log';
 import {cn} from '@proxy/ui/lib/utils';

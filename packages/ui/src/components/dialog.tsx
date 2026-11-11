@@ -4,7 +4,7 @@ import * as React from 'react';
 import {Dialog as DialogPrimitive} from '@base-ui/react/dialog';
 import {cn} from '@proxy/ui/lib/utils';
 
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {XIcon} from 'lucide-react';
 
 function Dialog({...props}: DialogPrimitive.Root.Props) {
@@ -59,7 +59,7 @@ function DialogContent({
 				{showCloseButton && (
 					<DialogPrimitive.Close
 						data-slot="dialog-close"
-						render={<Button variant="ghost" className="absolute top-2 right-2" size="icon-sm" />}
+						render={<PillButton variant="ghost" icon className="absolute top-2 right-2" />}
 					>
 						<XIcon />
 						<span className="sr-only">Close</span>

@@ -2,7 +2,7 @@ import {PlusIcon} from 'lucide-react';
 import {Link} from 'react-router';
 import {IconButton} from '@/components/icon-button';
 import {InTitleBar} from '@/components/title-bar-slot';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {hasHiddenDesktopTitleBar} from '@/lib/desktop';
 
 type Props = {

@@ -1,8 +1,7 @@
-import type {ComponentProps} from 'react';
-import {Button} from '@proxy/ui/components/button';
+import {Button as ButtonPrimitive} from '@base-ui/react/button';
 import {cn} from '@proxy/ui/lib/utils';
-import {EnterHint} from '@/components/widgets/enter-hint';
-import {type PillVariant, pillClasses} from '@/lib/pill-variants';
+import {EnterHint} from '@proxy/ui/components/enter-hint';
+import {type PillVariant, pillVariants} from '@proxy/ui/lib/pill-variants';
 
 /**
  * The app's button: round, solid and dark for the main action, ghost for any other (Cancel), red
@@ -21,7 +20,7 @@ export function PillButton({
 	className,
 	children,
 	...props
-}: Omit<ComponentProps<typeof Button>, 'variant' | 'size'> & {
+}: ButtonPrimitive.Props & {
 	variant?: PillVariant;
 	enter?: boolean;
 	icon?: boolean;
@@ -29,14 +28,9 @@ export function PillButton({
 	// Enter's mark with no label: a circle around it.
 	const alone = enter && (children === undefined || children === null);
 	return (
-		<Button
-			size={alone || icon ? 'icon-sm' : 'sm'}
-			variant={variant}
-			className={cn(pillClasses(variant), className)}
-			{...props}
-		>
+		<ButtonPrimitive className={cn(pillVariants({variant, icon: alone || icon}), className)} {...props}>
 			{children}
 			{enter && <EnterHint alone={alone} />}
-		</Button>
+		</ButtonPrimitive>
 	);
 }

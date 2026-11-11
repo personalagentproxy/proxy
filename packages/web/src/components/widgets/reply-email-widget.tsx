@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import type {Intent} from '@/client/intent-client';
 import {replyToEmail, type FoundEmail} from '@/client/widgets-client';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Skeleton} from '@proxy/ui/components/skeleton';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
 import {EnterButton} from '@/components/widgets/enter-button';

@@ -9,7 +9,7 @@ import {
 	DropdownMenuTrigger,
 } from '@proxy/ui/components/dropdown-menu';
 import {InputGroupButton} from '@proxy/ui/components/input-group';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 
 /** What runs an agent: the harness and the model it answers with, each by its id. */
 export type ModelChoice = {harness: string; chatModel: string};
@@ -94,7 +94,7 @@ export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
 				render={
 					<InputGroupButton
 						aria-label={`Model: ${model.label} on ${harness.label}`}
-						className="h-5 gap-1.5 rounded-full text-xs font-normal"
+						className="h-5 gap-1.5 text-xs font-normal"
 					/>
 				}
 			>

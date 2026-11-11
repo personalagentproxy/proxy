@@ -1,7 +1,7 @@
 'use client';
 
 import {MonitorIcon, MoonIcon, SunIcon, type LucideIcon} from 'lucide-react';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {useTheme, type Theme} from '@proxy/ui/lib/theme';
 
 type ThemeOption = {
@@ -28,15 +28,15 @@ export function ThemeToggle() {
 	const next = THEME_OPTIONS[(index + 1) % THEME_OPTIONS.length] ?? SYSTEM;
 
 	return (
-		<Button
+		<PillButton
 			variant="ghost"
-			size="icon-sm"
+			icon
 			className="text-muted-foreground hover:text-foreground"
 			aria-label={`Theme: ${current.label}. Switch to ${next.label}`}
 			title={`Theme: ${current.label}`}
 			onClick={() => setTheme(next.value)}
 		>
 			<current.icon />
-		</Button>
+		</PillButton>
 	);
 }

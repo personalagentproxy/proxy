@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import {useState} from 'react';
 import {Link} from 'react-router';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {signOut} from '@/client/auth-client';
 import {deleteAccount, deleteOtherSessions, deleteSession} from '@/client/me-client';
 import {AppShell, PageTitle} from '@/components/app-shell';

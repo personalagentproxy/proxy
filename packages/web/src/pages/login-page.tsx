@@ -3,7 +3,7 @@ import {useState, type FormEvent} from 'react';
 import {Link, useLoaderData, useSearchParams} from 'react-router';
 import {devLogin, googleSignInUrl, requestMagicLink} from '@/client/auth-client';
 import {GoogleIcon} from '@/components/google-icon';
-import {PillButton} from '@/components/pill-button';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {sanitizeCallbackUrl} from '@/lib/callback-url';
