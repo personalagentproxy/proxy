@@ -317,7 +317,9 @@ function handleUploadAttachmentRoute(store: ChatStore, files: RouteFiles, reques
 		}
 		const attachment = $(await files.upload(viewer, persona, request));
 		const {shown: _shown, ...kept} = attachment;
-		$(requirePresent($(await store.addDraftAttachment(thread.id, kept, MAX_ATTACHMENTS)), ApiErr.notFound('thread', thread.id)));
+		if (!$(await store.addDraftAttachment(thread.id, kept, MAX_ATTACHMENTS))) {
+			return $(Err(ApiErr.notFound('thread', thread.id)));
+		}
 		return {attachment};
 	});
 }
@@ -329,7 +331,9 @@ function handleRemoveAttachmentRoute(store: ChatStore, request: AuthenticatedReq
 		const file = $(parseSchema(removeAttachmentBodySchema, request.body));
 		const persona = $(await requirePersona(store, viewer, request));
 		const thread = $(await requireThread(store, viewer, persona));
-		$(requirePresent($(await store.removeDraftAttachment(thread.id, file)), ApiErr.notFound('thread', thread.id)));
+		if (!$(await store.removeDraftAttachment(thread.id, file))) {
+			return $(Err(ApiErr.notFound('thread', thread.id)));
+		}
 	});
 }
 

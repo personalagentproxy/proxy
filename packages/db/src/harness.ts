@@ -372,7 +372,11 @@ export async function listPersonas(
 						where: {userId, parentThreadId: null},
 						select: {
 							draft: true,
-							draftAttachments: true,
+							attachments: {
+								where: {entryId: null},
+								select: draftSelect,
+								orderBy: {position: 'asc'},
+							},
 							// The agent's turns that only made calls say nothing, so the last with words.
 							entries: {
 								where: {kind: {in: ['person', 'assistant']}, text: {not: ''}},
@@ -397,7 +401,7 @@ export async function listPersonas(
 							? {kind: last.kind, text: last.text, createdAt: last.createdAt}
 							: null,
 					draft: threads[0]?.draft ?? null,
-					draftAttachments: toDraftAttachments(threads[0]?.draftAttachments),
+					draftAttachments: threads[0]?.attachments ?? [],
 				};
 			})
 			.toSorted((a, b) => lastActive(b).getTime() - lastActive(a).getTime()),
@@ -650,88 +654,95 @@ export async function getThreadDraft(threadId: string): Promise<Result<string | 
 
 /**
  * A file in a conversation's input, not sent yet: one of a drive's, by its connection, its id
- * there and the version it held when it was put there, with its name, kind and size then.
+ * there and the version it held when it was put there, with its name, kind and size then. Kept
+ * as a file attached to an entry is (AgentEntryAttachment), with no entry yet.
  */
 export type DraftAttachment = Omit<EntryAttachment, 'text' | 'cut'>;
 
-function toDraftAttachments(stored: string | null | undefined): DraftAttachment[] {
-	return stored ? (JSON.parse(stored) as DraftAttachment[]) : [];
+const draftSelect = {
+	connectionId: true,
+	fileId: true,
+	version: true,
+	name: true,
+	type: true,
+	size: true,
+} as const;
+
+// The files in a conversation's input: its attachments with no entry yet.
+function inInput(threadId: string) {
+	return {threadId, entryId: null};
 }
 
-/** The files the member put in their conversation's input and hasn't sent, in the order they were put there; none for no such thread. */
-export async function listDraftAttachments(
+/** The files the member put in their conversation's input and hasn't sent, in the order they sit there; none for no such thread. */
+export function listDraftAttachments(
 	threadId: string,
 ): Promise<Result<DraftAttachment[], ApiError>> {
-	return (
-		await wrapDb(() =>
-			db.agentThread.findUnique({where: {id: threadId}, select: {draftAttachments: true}}),
-		)
-	).map((thread) => toDraftAttachments(thread?.draftAttachments));
-}
-
-// Changes the files in a conversation's input, one change at a time, with the thread locked:
-// what `change` makes of those kept, or null to leave them as they are. The files as they are
-// then; `null` for no such conversation, as a sub-agent's thread, which keeps none.
-function changeDraftAttachments(
-	threadId: string,
-	change: (kept: DraftAttachment[]) => DraftAttachment[] | null,
-	// What is written of the thread beside them, in the same change.
-	beside: {draft?: string | null} = {},
-): Promise<Result<DraftAttachment[] | null, ApiError>> {
 	return wrapDb(() =>
-		db.$transaction(async (tx) => {
-			const thread = await lockThread(tx, threadId);
-			if (!thread || thread.parentThreadId !== null) {
-				return null;
-			}
-			const row = await tx.agentThread.findUnique({
-				where: {id: threadId},
-				select: {draftAttachments: true},
-			});
-			const kept = toDraftAttachments(row?.draftAttachments);
-			const changed = change(kept);
-			if (changed === null) {
-				return kept;
-			}
-			await tx.agentThread.update({
-				where: {id: threadId},
-				data: {
-					...beside,
-					draftAttachments: changed.length === 0 ? null : JSON.stringify(changed),
-				},
-			});
-			return changed;
+		db.agentEntryAttachment.findMany({
+			where: inInput(threadId),
+			select: draftSelect,
+			orderBy: {position: 'asc'},
 		}),
 	);
 }
 
+// The member's own conversation, locked for a change to its input; null for none, and for a
+// sub-agent's thread, which keeps no input.
+async function lockInput(tx: Tx, threadId: string): Promise<ThreadRow | null> {
+	const thread = await lockThread(tx, threadId);
+	return thread && thread.parentThreadId === null ? thread : null;
+}
+
 /**
  * Puts a file in the conversation's input, after those there; one there already, at the same
- * version, is there once. A conflict where it holds `max` already. `Ok(null)` means no such
+ * version, is there once. A conflict where it holds `max` already. `Ok(false)` means no such
  * conversation.
  */
 export function addDraftAttachment(
 	threadId: string,
 	attachment: DraftAttachment,
 	max: number,
-): Promise<Result<DraftAttachment[] | null, ApiError>> {
-	return changeDraftAttachments(threadId, (kept) => {
-		if (kept.some((one) => sameFile(one, attachment))) {
-			return null;
-		}
-		if (kept.length >= max) {
-			throw ApiErr.conflict(`A message carries at most ${max} files.`);
-		}
-		return [...kept, attachment];
-	});
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			if (!(await lockInput(tx, threadId))) {
+				return false;
+			}
+			const kept = await tx.agentEntryAttachment.findMany({
+				where: inInput(threadId),
+				select: {connectionId: true, fileId: true, version: true, position: true},
+				orderBy: {position: 'asc'},
+			});
+			if (kept.some((one) => sameFile(one, attachment))) {
+				return true;
+			}
+			if (kept.length >= max) {
+				throw ApiErr.conflict(`A message carries at most ${max} files.`);
+			}
+			const position = (kept.at(-1)?.position ?? -1) + 1;
+			await tx.agentEntryAttachment.create({
+				data: {...attachment, ...inInput(threadId), position},
+				select: {id: true},
+			});
+			return true;
+		}),
+	);
 }
 
-/** Takes a file out of the conversation's input; the file itself stays where it is kept. `Ok(null)` means no such conversation. */
+/** Takes a file out of the conversation's input; the file itself stays where it is kept. `Ok(false)` means no such conversation. */
 export function removeDraftAttachment(
 	threadId: string,
 	file: Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>,
-): Promise<Result<DraftAttachment[] | null, ApiError>> {
-	return changeDraftAttachments(threadId, (kept) => kept.filter((one) => !sameFile(one, file)));
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			if (!(await lockInput(tx, threadId))) {
+				return false;
+			}
+			await tx.agentEntryAttachment.deleteMany({where: {...inInput(threadId), ...file}});
+			return true;
+		}),
+	);
 }
 
 function sameFile(
@@ -763,16 +774,25 @@ export async function saveThreadDraft(
 			)
 		).map(({count}) => count > 0);
 	}
-	return (
-		await changeDraftAttachments(
-			threadId,
-			(kept) => {
-				const named = order.flatMap((file) => kept.filter((one) => sameFile(one, file)));
-				return [...named, ...kept.filter((one) => !named.includes(one))];
-			},
-			{draft},
-		)
-	).map((kept) => kept !== null);
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			if (!(await lockInput(tx, threadId))) {
+				return false;
+			}
+			await tx.agentThread.update({where: {id: threadId}, data: {draft}});
+			const kept = await tx.agentEntryAttachment.findMany({
+				where: inInput(threadId),
+				select: {id: true, connectionId: true, fileId: true, version: true},
+				orderBy: {position: 'asc'},
+			});
+			const named = order.flatMap((file) => kept.filter((one) => sameFile(one, file)));
+			const ordered = [...named, ...kept.filter((one) => !named.includes(one))];
+			for (const [position, one] of ordered.entries()) {
+				await tx.agentEntryAttachment.update({where: {id: one.id}, data: {position}});
+			}
+			return true;
+		}),
+	);
 }
 
 /**
@@ -1094,10 +1114,8 @@ export async function appendPersonMessage(
 			if (!thread) {
 				return null;
 			}
-			await tx.agentThread.update({
-				where: {id: threadId},
-				data: {draft: null, draftAttachments: null},
-			});
+			await tx.agentThread.update({where: {id: threadId}, data: {draft: null}});
+			await tx.agentEntryAttachment.deleteMany({where: inInput(threadId)});
 			const entry = await appendEntry(tx, thread, {kind: 'person', text}, wakes);
 			await attach(tx, threadId, entry.id, attachments);
 			return entry;
@@ -1142,12 +1160,16 @@ export type AttachmentRow = EntryAttachment & {entryId: string};
 export async function listAttachments(
 	threadId: string,
 ): Promise<Result<AttachmentRow[], ApiError>> {
-	return wrapDb(() =>
-		db.agentEntryAttachment.findMany({
-			where: {threadId},
-			select: attachmentSelect,
-			orderBy: [{createdAt: 'asc'}, {position: 'asc'}],
-		}),
+	return (
+		await wrapDb(() =>
+			db.agentEntryAttachment.findMany({
+				where: {threadId, entryId: {not: null}},
+				select: attachmentSelect,
+				orderBy: [{createdAt: 'asc'}, {position: 'asc'}],
+			}),
+		)
+	).map((rows) =>
+		rows.flatMap(({entryId, ...row}) => (entryId === null ? [] : [{...row, entryId}])),
 	);
 }
 

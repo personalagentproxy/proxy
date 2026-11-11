@@ -3,20 +3,14 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
-import {FILES_INTEGRATION_ID, type Integration, TOOLS_COLLECTION_ID} from '@proxy/integrations';
+import {type ApiTool, FILES_INTEGRATION_ID, findTool, TOOLS_COLLECTION_ID} from '@proxy/integrations';
 import {CLI_FILE_HEADER, CLI_STATUS, type CliFile, type cliFileListSchema, cliListQuerySchema, cliPullQuerySchema, type cliPushedSchema, cliPushQuerySchema} from '@proxy/contracts/cli';
-import type {AgentRow} from '@proxy/db/agent';
-import {logAgentRequest} from '@proxy/db/audit';
-import type {ConnectionRow} from '@proxy/db/connection';
 import {createFile, ensureFolder, type FileChangeBy, type FileEntry, findPath, getFileVersion, listFolder, writeFile} from '@proxy/db/files';
 
-import {actionRefusal, actionsOf, agentViewer, failureOf, type Outcome, recordToolCall, requireAgent, type TaskCaller} from '../../agent-side/tools';
-import {unavailableActions} from '../../connections/unavailable';
+import {gateRun, loadRunTarget, type RunTarget, type TaskCaller} from '../../agent-side/tools';
 import {log as serverLog, serializeError} from '../../observability/log';
-import {loadConnection} from '../../records/target';
 import {agentErrorMessage} from '../../script/agent-host';
 import type {CliRequest} from '../../server/middleware/require-cli';
-import {readsAttached} from './attached';
 import {requireFile} from './connector';
 import {maxFileBytes, openContent, sendContent, storeContent, uploadBody} from './content';
 import {fileLink} from './links';
@@ -26,84 +20,39 @@ import {pathOf} from './text';
 /**
  * A drive's files by path, for code in a sandbox (@proxy/contracts/cli, `pap files`): listing a
  * folder, a file's bytes down, and a file's bytes up. What a tool can't do, its answer being
- * text, done the way a tool's run is: as the token's agent, for the token's task, checked against
- * what the agent may do with the drive as it is now, and written in the activity log as the read,
- * the new file or the write it is, coming in as `cli`; a change is in the drive's journal as the
+ * text, done through a tool's gate (agent-side/tools.ts gateRun): as the token's agent, for the
+ * token's task, checked against what the agent may do with the drive as it is now, and written in
+ * the activity log as the read, the new file or the write it is, coming in as `cli`; a change is in the drive's journal as the
  * agent's, for that task. A file written over is written by whoever names the version it holds,
  * as the write tool has it, unless the push says to write over whatever is there. A file the
  * person attached to the conversation is read at that version whatever the agent may do in the
  * drive otherwise, as the read tool reads it (attached.ts).
  */
 
-type Gate = {
-	caller: TaskCaller;
-	agent: AgentRow;
-	connection: ConnectionRow & {credential: string | null};
-	integration: Integration;
-	actions: string[];
-	change: FileChangeBy;
-	startedAt: number;
-};
-
-// What the activity log keeps of a request: the collection and the action it is logged as, as a
-// tool's run of the same would be, the folder listed, and the params as that tool takes them.
-type Entry = {collection: string; action: string; title?: string | null; query?: string | null};
+// A drive as the token's agent reaches it now, and who a change to it is made by.
+type Drive = RunTarget & {change: FileChangeBy};
 
 // The drive the address names, as the token's agent reaches it now.
-function open(request: CliRequest): Promise<Result<Gate, ApiError>> {
+function open(request: CliRequest): Promise<Result<Drive, ApiError>> {
 	return Do(async ($) => {
-		const startedAt = Date.now();
 		const caller: TaskCaller = {agent: request.cli.agent, via: 'cli', taskId: request.cli.taskId};
 		const connectionId = request.params.connectionId ?? '';
-		const [agentRead, connectionRead] = await Promise.all([requireAgent(caller.agent), loadConnection(agentViewer(caller.agent), connectionId)]);
-		const agent = $(agentRead);
-		const {connection, integration} = $(connectionRead);
-		if (integration.id !== FILES_INTEGRATION_ID) {
+		const target = $(await loadRunTarget(caller, connectionId));
+		if (target.integration.id !== FILES_INTEGRATION_ID) {
 			return $(Err(ApiErr.validationError(`${connectionId} is not a drive: pap files works on a Files connection (pap connections lists yours).`)));
 		}
-		const actions = actionsOf(agent, connection, integration, unavailableActions(connection));
-		const change: FileChangeBy = {orgId: connection.orgId, connectionId: connection.id, by: {agentId: caller.agent.agentId, taskId: caller.taskId}};
-		return {caller, agent, connection, integration, actions, change, startedAt};
+		const change: FileChangeBy = {orgId: target.connection.orgId, connectionId: target.connection.id, by: {agentId: caller.agent.agentId, taskId: caller.taskId}};
+		return {...target, change};
 	});
 }
 
-function logged(gate: Gate, entry: Entry, outcome: Outcome, error?: string): Promise<Result<void, ApiError>> {
-	recordToolCall(gate.caller, gate.connection, entry.action, outcome, gate.startedAt, error);
-	return logAgentRequest({
-		orgId: gate.caller.agent.orgId,
-		agentId: gate.caller.agent.agentId,
-		connectionId: gate.connection.id,
-		collectionId: entry.collection,
-		action: entry.action,
-		recordTitle: entry.title ?? null,
-		query: entry.query ?? null,
-		outcome,
-		via: 'cli',
-		taskId: gate.caller.taskId,
-		ownerUserId: gate.caller.agent.ownerUserId,
-		startedAt: gate.startedAt,
-		error,
-	});
-}
-
-/**
- * Does `work` where the agent has `action`, or `allowed` says the person allowed this very thing,
- * and logs how it went: refused, as denied; failed, with what went wrong; or done.
- */
-function gated<T>(gate: Gate, action: string, entry: Entry, allowed: boolean, work: () => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
-	return Do(async ($) => {
-		if (!gate.actions.includes(action) && !allowed) {
-			$(await logged(gate, entry, 'denied'));
-			return $(Err(actionRefusal(gate.integration, gate.agent, gate.connection, unavailableActions(gate.connection), action)));
-		}
-		const done = await work();
-		if (done.isErr()) {
-			$(await logged(gate, entry, 'failed', failureOf(done.error)));
-			return $(done);
-		}
-		$(await logged(gate, entry, 'allowed'));
-		return done.value;
-	});
+// The drive's tool a request does what it does as, which it is checked and logged as (agent-side/tools.ts gateRun).
+function toolOf(drive: Drive, name: string): Result<ApiTool, ApiError> {
+	const tool = findTool(drive.integration, name);
+	if (tool?.kind !== 'native') {
+		return Err(ApiErr.notFound('tool', name));
+	}
+	return Ok(tool);
 }
 
 // A path as its names, from the drive's top: none for the top.
@@ -142,14 +91,15 @@ function fail(response: Response, error: ApiError): void {
 /** `GET /api/cli/files/:connectionId/list?path=`: what a folder holds, by its path. */
 export async function handleCliListFilesRoute(request: CliRequest, response: Response): Promise<void> {
 	const listed = await Do<Listed, ApiError>(async ($) => {
-		const gate = $(await open(request));
+		const drive = $(await open(request));
 		const {path} = $(parseSchema(cliListQuerySchema, request.query));
 		const names = $(namesOf(path));
 		const at = names.join('/');
+		const entry = {collection: 'files', action: 'list', title: names.at(-1) ?? null, query: null};
 		return $(
-			await gated(gate, 'readFiles', {collection: 'files', action: 'list', title: names.at(-1) ?? null}, false, () =>
+			await gateRun(drive, $(toolOf(drive, 'files_read')), {path: at}, entry, () =>
 				Do<Listed, ApiError>(async ($$) => {
-					const {found, missing} = $$(await findPath(gate.connection.id, names));
+					const {found, missing} = $$(await findPath(drive.connection.id, names));
 					const folder = found.at(-1) ?? null;
 					if (missing.length > 0) {
 						return $$(Err(ApiErr.notFound('folder', at, `There is no ${at} in this drive.`)));
@@ -157,7 +107,7 @@ export async function handleCliListFilesRoute(request: CliRequest, response: Res
 					if (folder !== null && !folder.folder) {
 						return $$(Err(ApiErr.validationError(`${at} is a file: pap files pull reads it.`)));
 					}
-					const entries = $$(await listFolder(gate.connection.id, folder?.id ?? null));
+					const entries = $$(await listFolder(drive.connection.id, folder?.id ?? null));
 					return {path: at, files: entries.map((entry) => toCliFile(entry, at === '' ? entry.name : `${at}/${entry.name}`))};
 				}),
 			),
@@ -173,26 +123,27 @@ export async function handleCliListFilesRoute(request: CliRequest, response: Res
 /** `GET /api/cli/files/:connectionId/content?path=|id=&version=`: a file's bytes, with which file they are in a header. */
 export async function handleCliPullFileRoute(request: CliRequest, response: Response): Promise<void> {
 	const pulled = await Do<Pulled, ApiError>(async ($) => {
-		const gate = $(await open(request));
+		const drive = $(await open(request));
 		const {path, id, version: asked} = $(parseSchema(cliPullQuerySchema, request.query));
 		const names = path === undefined ? [] : $(namesOf(path));
 		// Found before the gate, by its path: the log says which file was read, by its id.
-		const byPath = path === undefined ? null : $(await findPath(gate.connection.id, names));
+		const byPath = path === undefined ? null : $(await findPath(drive.connection.id, names));
 		if (byPath !== null && (byPath.missing.length > 0 || byPath.found.length === 0)) {
 			return $(Err(ApiErr.notFound('file', names.join('/'), `There is no ${names.join('/')} in this drive.`)));
 		}
 		const fileId = id ?? byPath?.found.at(-1)?.id ?? '';
 		const params = {id: fileId, ...(asked === undefined ? {} : {version: asked})};
-		const attached = $(await readsAttached({caller: gate.caller, connection: gate.connection, params}));
+		// A file the person attached to the conversation is read whatever the agent may do in the drive otherwise (attached.ts).
+		const entry = {collection: TOOLS_COLLECTION_ID, action: 'files_read', title: null, query: JSON.stringify(params)};
 		return $(
-			await gated(gate, 'readFiles', {collection: TOOLS_COLLECTION_ID, action: 'files_read', query: JSON.stringify(params)}, attached, () =>
+			await gateRun(drive, $(toolOf(drive, 'files_read')), params, entry, () =>
 				Do<Pulled, ApiError>(async ($$) => {
-					const file = $$(await requireFile(gate.connection.id, fileId));
+					const file = $$(await requireFile(drive.connection.id, fileId));
 					if (file.folder) {
 						return $$(Err(ApiErr.validationError(`${file.name} is a folder: pap files ls lists it.`)));
 					}
 					const versionId = $$(requirePresent(asked ?? file.head?.id, ApiErr.notFound('file', fileId)));
-					const version = $$(requirePresent($$(await getFileVersion(gate.connection.id, file.id, versionId)), ApiErr.notFound('version', versionId, `${file.name} has no version ${versionId}.`)));
+					const version = $$(requirePresent($$(await getFileVersion(drive.connection.id, file.id, versionId)), ApiErr.notFound('version', versionId, `${file.name} has no version ${versionId}.`)));
 					const said: CliFile = {id: file.id, name: file.name, path: pathOf(file), folder: false, version: version.id, size: version.size, type: version.type};
 					return {said, body: $$(await openContent(version.blob))};
 				}),
@@ -217,12 +168,12 @@ export async function handleCliPullFileRoute(request: CliRequest, response: Resp
 /** `PUT /api/cli/files/:connectionId/content?path=&version=&force=`: a new file at the path, or the next version of the one there. */
 export async function handleCliPushFileRoute(request: CliRequest, response: Response): Promise<void> {
 	const pushed = await Do<Pushed, ApiError>(async ($) => {
-		const gate = $(await open(request));
+		const drive = $(await open(request));
 		const {path, version, force} = $(parseSchema(cliPushQuerySchema, request.query));
 		const names = $(namesOf(path));
 		const at = names.join('/');
 		const name = $(requirePresent(names.at(-1), ApiErr.validationError('Give the path to push to, as Reports/q3.csv.')));
-		const {found, missing} = $(await findPath(gate.connection.id, names));
+		const {found, missing} = $(await findPath(drive.connection.id, names));
 		const there = found.at(-1) ?? null;
 
 		// A file is there: its next version, by whoever names the one it holds, or says to write over it.
@@ -232,9 +183,10 @@ export async function handleCliPushFileRoute(request: CliRequest, response: Resp
 			}
 			const held = there.head?.id ?? '';
 			const ifVersion = force === '1' ? held : version;
-			const entry = {collection: TOOLS_COLLECTION_ID, action: 'files_write', query: JSON.stringify({id: there.id, version: ifVersion ?? null})};
+			const params = {id: there.id, version: ifVersion ?? null};
+			const entry = {collection: TOOLS_COLLECTION_ID, action: 'files_write', title: null, query: JSON.stringify(params)};
 			return $(
-				await gated(gate, 'editFiles', entry, false, () =>
+				await gateRun(drive, $(toolOf(drive, 'files_write')), params, entry, () =>
 					Do<Pushed, ApiError>(async ($$) => {
 						if (ifVersion !== held) {
 							const why = ifVersion === undefined ? `${at} is there already` : `${at} changed since it was pulled`;
@@ -244,9 +196,11 @@ export async function handleCliPushFileRoute(request: CliRequest, response: Resp
 								),
 							);
 						}
-						const stored = $$(await storeContent(gate.connection.orgId, $$(uploadBody(request)), maxFileBytes()));
-						const written = $$(await writeFile(gate.change, {fileId: there.id, ifVersion: held, content: {blobId: stored.blobId, size: stored.size, type: mediaType(there.name, undefined, 'bytes')}}));
-						return {file: toCliFile(written, at), created: false, link: fileLink(gate.caller.agent.orgSlug, gate.connection.id, written)};
+						const stored = $$(await storeContent(drive.connection.orgId, $$(uploadBody(request)), maxFileBytes()));
+						const written = $$(
+							await writeFile(drive.change, {fileId: there.id, ifVersion: held, content: {blobId: stored.blobId, size: stored.size, type: mediaType(there.name, undefined, 'bytes')}}),
+						);
+						return {file: toCliFile(written, at), created: false, link: fileLink(drive.caller.agent.orgSlug, drive.connection.id, written)};
 					}),
 				),
 			);
@@ -256,17 +210,18 @@ export async function handleCliPushFileRoute(request: CliRequest, response: Resp
 		if (there !== null && !there.folder) {
 			return $(Err(ApiErr.validationError(`${found.map((one) => one.name).join('/')} is a file, so nothing goes inside it.`)));
 		}
-		const entry = {collection: TOOLS_COLLECTION_ID, action: 'files_create', query: JSON.stringify({path: at})};
+		const params = {path: at};
+		const entry = {collection: TOOLS_COLLECTION_ID, action: 'files_create', title: null, query: JSON.stringify(params)};
 		return $(
-			await gated(gate, 'createFiles', entry, false, () =>
+			await gateRun(drive, $(toolOf(drive, 'files_create')), params, entry, () =>
 				Do<Pushed, ApiError>(async ($$) => {
-					const stored = $$(await storeContent(gate.connection.orgId, $$(uploadBody(request)), maxFileBytes()));
+					const stored = $$(await storeContent(drive.connection.orgId, $$(uploadBody(request)), maxFileBytes()));
 					let parentId = there?.id ?? null;
 					for (const folder of missing.slice(0, -1)) {
-						parentId = $$(await ensureFolder(gate.change, {parentId, name: folder})).id;
+						parentId = $$(await ensureFolder(drive.change, {parentId, name: folder})).id;
 					}
-					const made = $$(await createFile(gate.change, {parentId, name, content: {blobId: stored.blobId, size: stored.size, type: mediaType(name, undefined, 'bytes')}}));
-					return {file: toCliFile(made, at), created: true, link: fileLink(gate.caller.agent.orgSlug, gate.connection.id, made)};
+					const made = $$(await createFile(drive.change, {parentId, name, content: {blobId: stored.blobId, size: stored.size, type: mediaType(name, undefined, 'bytes')}}));
+					return {file: toCliFile(made, at), created: true, link: fileLink(drive.caller.agent.orgSlug, drive.connection.id, made)};
 				}),
 			),
 		);

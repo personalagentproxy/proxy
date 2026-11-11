@@ -250,7 +250,7 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 		const {connection, integration} = $(connectionRead);
 		const tool = $(requirePresent(findTool(integration, toolName), ApiErr.notFound('tool', toolName)));
 		if (tool.kind === 'call' || tool.kind === 'native') {
-			return $(await runParamsTool(caller, agent, connection, integration, tool, params, startedAt));
+			return $(await runParamsTool({caller, agent, connection, integration, startedAt}, tool, params));
 		}
 
 		const collection = $(requirePresent(findCollection(integration, tool.collectionId), ApiErr.notFound('tool', toolName)));
@@ -324,37 +324,43 @@ function allowedAnyway(integration: Integration, tool: ServerTool | ApiTool, run
 	return allowance(run);
 }
 
-// A tool with params of its own shape: a custom server's, called as it is, its params going to
-// the server as given, which checks them against its own schema; or one of the integration's own,
-// run by the api. Its answer comes back as text. Logged by the tool's name, with its params,
-// allowed, denied or failed; one the agent lacks the action for, or the one it needs beside it, is
-// refused as a collection's tool is, saying why, unless the person allowed that very run by what
-// they did, as by attaching the file it reads.
-function runParamsTool(
-	caller: TaskCaller,
-	agent: AgentRow,
-	connection: ConnectionRow & {credential: string | null},
-	integration: Integration,
-	tool: ServerTool | ApiTool,
-	params: unknown,
-	startedAt: number,
-): Promise<Result<ToolResult, ApiError>> {
+/** What a run is checked against: the agent, for the caller's task, on a connection as the agent reaches it now, since `startedAt`. */
+export type RunTarget = {caller: TaskCaller; agent: AgentRow; connection: ConnectionRow & {credential: string | null}; integration: Integration; startedAt: number};
+
+/** The agent and the connection a run of the caller's is for, read at once; the caller's task is the caller's to have checked. */
+export function loadRunTarget(caller: TaskCaller, connectionId: string): Promise<Result<RunTarget, ApiError>> {
 	return Do(async ($) => {
-		const args = params ?? {};
-		if (!isPlainObject(args)) {
-			return $(Err(ApiErr.validationError(`${tool.name} takes an object of params`)));
-		}
-		const logged = loggedParams(args);
+		const startedAt = Date.now();
+		const [agentRead, connectionRead] = await Promise.all([requireAgent(caller.agent), loadConnection(agentViewer(caller.agent), connectionId)]);
+		const agent = $(agentRead);
+		const {connection, integration} = $(connectionRead);
+		return {caller, agent, connection, integration, startedAt};
+	});
+}
+
+/** What the activity log keeps of a run: the collection and the action it is logged as, the record's title, and the params. */
+export type RunEntry = {collection: string; action: string; title: string | null; query: string | null};
+
+/**
+ * The gate of a tool with params of its own, and of what code in a sandbox does as one does
+ * (native/files/cli.ts): `work` is done where the agent has the tool's action, and the one it
+ * needs beside it, or where the person allowed this very run by what they did, as by attaching
+ * the file it reads. Logged as `entry`: refused, as denied, saying why; failed, with what went
+ * wrong; or allowed.
+ */
+export function gateRun<T>(target: RunTarget, tool: ServerTool | ApiTool, params: Record<string, unknown>, entry: RunEntry, work: () => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
+	return Do(async ($) => {
+		const {caller, agent, connection, integration, startedAt} = target;
 		const logRun = (outcome: Outcome, error?: string) => {
 			recordToolCall(caller, connection, tool.action, outcome, startedAt, error);
 			return logAgentRequest({
 				orgId: caller.agent.orgId,
 				agentId: caller.agent.agentId,
 				connectionId: connection.id,
-				collectionId: TOOLS_COLLECTION_ID,
-				action: tool.name,
-				recordTitle: null,
-				query: logged,
+				collectionId: entry.collection,
+				action: entry.action,
+				recordTitle: entry.title,
+				query: entry.query,
 				outcome,
 				via: caller.via,
 				taskId: caller.taskId,
@@ -366,16 +372,34 @@ function runParamsTool(
 		const unavailable = unavailableActions(connection);
 		const actions = actionsOf(agent, connection, integration, unavailable);
 		const missing = [tool.action, tool.requires].find((actionId) => actionId !== undefined && !actions.includes(actionId));
-		if (missing !== undefined && !$(await allowedAnyway(integration, tool, {caller, connection, params: args}))) {
+		if (missing !== undefined && !$(await allowedAnyway(integration, tool, {caller, connection, params}))) {
 			$(await logRun('denied'));
 			return $(Err(actionRefusal(integration, agent, connection, unavailable, missing)));
 		}
-		const answer = tool.kind === 'call' ? await callCustomTool(connection, tool.name, args) : await runNativeTool(integration, tool, {caller, connection, params: args});
-		if (answer.isErr()) {
-			$(await logRun('failed', failureOf(answer.error)));
+		const done = await work();
+		if (done.isErr()) {
+			$(await logRun('failed', failureOf(done.error)));
 		}
-		const text = $(answer);
+		const value = $(done);
 		$(await logRun('allowed'));
+		return value;
+	});
+}
+
+// A tool with params of its own shape: a custom server's, called as it is, its params going to
+// the server as given, which checks them against its own schema; or one of the integration's own,
+// run by the api. Its answer comes back as text. Logged by the tool's name, with its params.
+function runParamsTool(target: RunTarget, tool: ServerTool | ApiTool, params: unknown): Promise<Result<ToolResult, ApiError>> {
+	return Do(async ($) => {
+		const args = params ?? {};
+		if (!isPlainObject(args)) {
+			return $(Err(ApiErr.validationError(`${tool.name} takes an object of params`)));
+		}
+		const {caller, connection, integration} = target;
+		const entry = {collection: TOOLS_COLLECTION_ID, action: tool.name, title: null, query: loggedParams(args)};
+		const text = $(
+			await gateRun(target, tool, args, entry, () => (tool.kind === 'call' ? callCustomTool(connection, tool.name, args) : runNativeTool(integration, tool, {caller, connection, params: args}))),
+		);
 		return {text};
 	});
 }

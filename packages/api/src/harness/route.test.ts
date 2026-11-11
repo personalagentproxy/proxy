@@ -119,8 +119,8 @@ beforeEach(async () => {
 	routes = (await import('./route')).chatRoutes(store, () => registry, files);
 	store.listAttachments.mockResolvedValue(Ok([]));
 	store.listDraftAttachments.mockResolvedValue(Ok([]));
-	store.addDraftAttachment.mockImplementation(async (_threadId, attachment) => Ok([attachment]));
-	store.removeDraftAttachment.mockResolvedValue(Ok([]));
+	store.addDraftAttachment.mockResolvedValue(Ok(true));
+	store.removeDraftAttachment.mockResolvedValue(Ok(true));
 	const {listPersonas, getPersona, createPersona, updatePersona, deletePersona, getMemberThread, ensureMemberThread, listShownEntries, listOpenJobs, appendPersonMessage, getThreadDraft} = store;
 	deletePersona.mockResolvedValue(Ok(true));
 	requireViewer.mockResolvedValue(Ok(viewer));

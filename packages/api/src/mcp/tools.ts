@@ -128,36 +128,24 @@ function sandboxInstructions(connections: AgentConnection[]): string[] {
 	);
 }
 
-// The drives the agent may read: the person's own, for an agent of their own, and the ones
-// members made, each by its name, the only ones a shared agent has; the rule a write keeps, where
-// what the agent makes goes, that a file made for the person is handed over by its link, the one
-// address here an agent points to, and, with a sandbox, that pap files moves files in and out of it.
+// The drives, where the agent may read one: what they are, where what it makes goes and that the
+// person is handed it by its link, a file having no other address, and, with a sandbox, that pap
+// files moves files in and out of it. Which drives there are, and what it may do in each, the
+// connections above say.
 function filesInstructions(connections: AgentConnection[]): string[] {
 	const drives = connections.filter((connection) => connection.integrationId === FILES_INTEGRATION_ID && connection.actions.includes('readFiles'));
 	if (drives.length === 0) {
 		return [];
 	}
-	const takes = (drive: AgentConnection) => drive.actions.includes('createFiles');
-	// The person's own has no name; one a member made is called what they called it.
-	const whose = (drive: AgentConnection) => (drive.name === null ? 'the person’s' : `“${drive.name}”${drive.shared ? ', shared with others' : ''}`);
-	const named = drives.map((drive) => `${drive.id}, ${whose(drive)}${takes(drive) || drive.actions.includes('editFiles') ? '' : ', read-only'}`);
-	const taking = drives.filter(takes);
-	// With a sandbox to run commands in, a file goes in and out of it as its bytes, which no tool's answer carries.
-	const sandboxed = connections.some(runsCommands);
-	const pushes = drives.some((drive) => takes(drive) || drive.actions.includes('editFiles'));
-	const where = () => {
-		if (taking.length < 2) {
-			return 'there';
-		}
-		return taking.some((drive) => drive.name === null) ? 'in theirs, or in the drive named for it where it is a team’s or a project’s' : 'in the drive named for it';
-	};
+	const makes = drives.some((drive) => drive.actions.includes('createFiles'));
 	return [
 		[
-			`Drives are folders and files kept here, with every version of each: ${named.join('; ')}. files_read reads one as text.`,
-			...(drives.some((drive) => drive.actions.includes('editFiles')) ? ['files_write takes the version files_read gave, and keeps the one before.'] : []),
-			...(taking.length > 0 ? [`Put what you make for the person ${where()}, and give them the Link the tool answers with: a file has no other address.`] : []),
-			...(sandboxed
-				? [`In a sandbox, pap files pull <drive> <path> brings a file in as it is, any kind${pushes ? ', and pap files push sends one back or to a new path' : ''}; pap files --help has the rest.`]
+			'Drives (Files) keep folders and files with every version of each.',
+			...(makes
+				? ['Put what you make for the person in their own drive (the one without a name), or the one they name, and give them the Link the tool answers with: a file has no other address.']
+				: []),
+			...(connections.some(runsCommands)
+				? ['In a sandbox, pap files pull <drive> <path> and pap files push <file> <drive> <path> move a file in and out as it is; pap files --help has the rest.']
 				: []),
 		].join(' '),
 	];

@@ -955,11 +955,12 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		});
 		const notes = file('file-1', 'notes.txt');
 		const chart = file('file-2', 'chart.png');
+		const logged = unwrap(await listAttachments(thread.id));
 
-		expect(unwrap(await addDraftAttachment(thread.id, notes, 2))).toEqual([notes]);
-		expect(unwrap(await addDraftAttachment(thread.id, chart, 2))).toEqual([notes, chart]);
+		expect(unwrap(await addDraftAttachment(thread.id, notes, 2))).toBe(true);
+		expect(unwrap(await addDraftAttachment(thread.id, chart, 2))).toBe(true);
 		// The same file at the same version is there once, and a full input takes no more.
-		expect(unwrap(await addDraftAttachment(thread.id, notes, 2))).toEqual([notes, chart]);
+		expect(unwrap(await addDraftAttachment(thread.id, notes, 2))).toBe(true);
 		const full = await addDraftAttachment(thread.id, file('file-3', 'more.txt'), 2);
 		expect(full.isErr() && full.error.kind).toBe('conflict');
 		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([notes, chart]);
@@ -978,15 +979,25 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		expect(unwrap(await saveThreadDraft(thread.id, null, [notes]))).toBe(true);
 		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([notes, chart]);
 
-		expect(unwrap(await removeDraftAttachment(thread.id, notes))).toEqual([chart]);
-		// A later version of the file is another file to the input.
-		expect(unwrap(await removeDraftAttachment(thread.id, {...chart, version: 'v2'}))).toEqual([
-			chart,
-		]);
+		// What waits in the input is no part of the log, and lets no agent read it.
+		expect(unwrap(await listAttachments(thread.id))).toEqual(logged);
 
-		unwrap(await appendPersonMessage(thread.id, 'Here it is.', readyForInference));
+		expect(unwrap(await removeDraftAttachment(thread.id, notes))).toBe(true);
+		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([chart]);
+		// A later version of the file is another file to the input.
+		expect(unwrap(await removeDraftAttachment(thread.id, {...chart, version: 'v2'}))).toBe(true);
+		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([chart]);
+
+		const sent = {...chart, text: null, cut: false};
+		const entry = unwrap(
+			await appendPersonMessage(thread.id, 'Here it is.', readyForInference, [sent]),
+		);
 		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([]);
+		expect(unwrap(await listAttachments(thread.id))).toEqual([
+			...logged,
+			{...sent, entryId: entry?.id ?? ''},
+		]);
 		// A thread that isn't a conversation keeps none.
-		expect(unwrap(await addDraftAttachment('no-such-thread', notes, 2))).toBeNull();
+		expect(unwrap(await addDraftAttachment('no-such-thread', notes, 2))).toBe(false);
 	});
 });

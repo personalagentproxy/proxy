@@ -1,5 +1,7 @@
 import {Ok} from 'ts-results-es';
 
+import {isAttachedForTask} from '@proxy/db/harness';
+
 import type {NativeToolAllowance} from '../tool';
 
 /**
@@ -15,8 +17,5 @@ export const readsAttached: NativeToolAllowance = async ({caller, connection, pa
 	if (typeof id !== 'string' || typeof version !== 'string') {
 		return Ok(false);
 	}
-	// Read here rather than as the module loads, as the drive's connection is made
-	// (connections.ts): the gate's tests mock each database module they reach.
-	const {isAttachedForTask} = await import('@proxy/db/harness');
 	return isAttachedForTask({orgId: caller.agent.orgId, taskId: caller.taskId}, {connectionId: connection.id, fileId: id, version});
 };

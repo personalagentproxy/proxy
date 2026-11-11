@@ -1,10 +1,11 @@
 -- The files a person attached to what they said in a conversation with the built-in agent, each one
--- of a drive's at the version it held then, with what the model is given of it.
+-- of a drive's at the version it held then, with what the model is given of it; without an entry,
+-- the files they put in the conversation's input and haven't sent.
 
 -- CreateTable
 CREATE TABLE "AgentEntryAttachment" (
     "id" TEXT NOT NULL,
-    "entryId" TEXT NOT NULL,
+    "entryId" TEXT,
     "threadId" TEXT NOT NULL,
     "position" INTEGER NOT NULL,
     "connectionId" TEXT NOT NULL,

@@ -836,12 +836,6 @@ model AgentThread {
   // back, on any device; the message they send empties it. Null when there is none, and for a
   // sub-agent's thread.
   draft   String?
-  // The files the member put in the conversation's input and hasn't sent, as JSON (db/harness.ts
-  // DraftAttachment[]), in the order they were put there: each one of a drive's, by its connection,
-  // its id there and the version it held then, with its name, kind and size. Kept as the draft is,
-  // and emptied with it by the message they send. Null when there are none, and for a sub-agent's
-  // thread.
-  draftAttachments String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -850,10 +844,11 @@ model AgentThread {
   agent   Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
   persona Persona      @relation(fields: [personaId], references: [id], onDelete: Cascade)
   user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  entries   AgentEntry[]
-  jobs      AgentJob[]
-  jobEvents AgentJobEvent[]
-  alerts    AgentAlert[]
+  entries     AgentEntry[]
+  jobs        AgentJob[]
+  jobEvents   AgentJobEvent[]
+  alerts      AgentAlert[]
+  attachments AgentEntryAttachment[]
 
   @@index([personaId, userId])
   @@index([agentId])
@@ -921,16 +916,17 @@ model AgentEntry {
 // an answer, as a picture in its words: one of a drive's (FileNode, by plain ids, so it stays as it
 // was said when the file or the drive is gone), at the version it held then, which the
 // conversation keeps meaning whatever the file holds later, with its name, kind and size as they
-// were. `text` is what the model is given of it with the message: the first of the file's text,
-// `cut` where there was more; null for a file that isn't text, and for one the agent showed. A
+// were. Without an entry, a file the member put in the conversation's input and hasn't sent, kept
+// there as the draft is, on any device, until the message they send takes its place. `text` is
+// what the model is given of it with the message: the first of the file's text, `cut` where there
+// was more; null for a file that isn't text, for one the agent showed, and for one not sent yet. A
 // file the person attached lets the conversation's agents read that version, whatever they may do
-// in its drive otherwise (api native/files/attached.ts). In the order they were attached, by
-// `position`.
+// in its drive otherwise (api native/files/attached.ts). In the order they were attached, or sit in
+// the input, by `position`.
 model AgentEntryAttachment {
   id           String  @id @default(cuid())
-  entryId      String
-  // The entry's thread (AgentThread; as a column, the two going with the entry), so what a
-  // conversation has attached is one query.
+  // Null for a file in the input, not sent yet.
+  entryId      String?
   threadId     String
   position     Int
   connectionId String
@@ -944,7 +940,8 @@ model AgentEntryAttachment {
 
   createdAt DateTime @default(now())
 
-  entry AgentEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  entry  AgentEntry?  @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  thread AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
 
   @@index([entryId])
   @@index([threadId, connectionId, fileId])

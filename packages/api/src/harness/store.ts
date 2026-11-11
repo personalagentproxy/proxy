@@ -92,10 +92,10 @@ export type HarnessStore = {
 	markThreadRead: (threadId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
 	getThreadDraft: (threadId: string) => Promise<Result<string | null, ApiError>>;
 	saveThreadDraft: (threadId: string, draft: string | null, order?: Array<Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>>) => Promise<Result<boolean, ApiError>>;
-	/** The files in a conversation's input, not sent yet; put there after those there, at most `max`, and taken out. Null for no such conversation. */
+	/** The files in a conversation's input, not sent yet; put there after those there, at most `max`, and taken out. False for no such conversation. */
 	listDraftAttachments: (threadId: string) => Promise<Result<DraftAttachment[], ApiError>>;
-	addDraftAttachment: (threadId: string, attachment: DraftAttachment, max: number) => Promise<Result<DraftAttachment[] | null, ApiError>>;
-	removeDraftAttachment: (threadId: string, file: Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>) => Promise<Result<DraftAttachment[] | null, ApiError>>;
+	addDraftAttachment: (threadId: string, attachment: DraftAttachment, max: number) => Promise<Result<boolean, ApiError>>;
+	removeDraftAttachment: (threadId: string, file: Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>) => Promise<Result<boolean, ApiError>>;
 
 	completeSetAlert: (job: {jobId: string; workerId: string; threadId: string; callId: string}, alert: NewAlert, answer: (alert: AlertRow) => string) => Promise<Result<boolean, ApiError>>;
 	setAlertInline: (job: InlineJob, alert: NewAlert) => Promise<Result<AlertRow | null, ApiError>>;
