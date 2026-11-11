@@ -39,23 +39,6 @@ export function AgentLogo({providerId, className}: {providerId: string; classNam
 	);
 }
 
-// The marks of the harnesses an agent can run on, by the harness's id: whose service its turns go
-// through.
-const HARNESS_LOGOS: Record<string, string> = {
-	proxy: '/harnesses/openrouter.svg',
-	'claude-agent-sdk': '/agent-providers/claude.png',
-};
-
-// A harness's mark, in the model switcher; an empty tile for one that has none.
-export function HarnessLogo({harnessId, className}: {harnessId: string; className?: string}) {
-	const src = HARNESS_LOGOS[harnessId];
-	return (
-		<LogoTile className={className}>
-			{src && <img src={src} alt="" className="size-full object-contain p-[2px]" />}
-		</LogoTile>
-	);
-}
-
 // Personal Agent Proxy's own mark, for what it did itself in the activity log.
 export function ProxyLogo() {
 	return (
