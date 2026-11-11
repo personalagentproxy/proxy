@@ -12,7 +12,7 @@ import {sleepSandbox} from './machines';
  */
 
 const SWEEP_MS = 60_000;
-const IDLE_MS = 30 * 60_000;
+const IDLE_MS = 5 * 60_000;
 const BATCH = 20;
 
 export async function sweepIdleSandboxes(now = new Date()): Promise<void> {
