@@ -734,6 +734,16 @@ function personText(entry: ChatEntry): string | null {
 	return entry.kind === 'person' ? entry.text : null;
 }
 
+// How far a turn stands below the one before it in its run: the persona's turns, without a bubble
+// apiece, stand further apart than the paragraphs within one, while a line about a task sits close
+// under the turn it came with.
+function entrySpacing(entry: ChatEntry): string {
+	if (entry.kind === 'person' || entry.kind === 'task' || entry.kind === 'sent') {
+		return 'mt-2';
+	}
+	return 'mt-5';
+}
+
 // One thing of the conversation: a turn, or a line about one of its tasks. It is drawn again only
 // as it changes, not as the conversation is read again or something else comes, since drawing an
 // answer parses its Markdown; one that came while the conversation was open rises into place.
@@ -742,15 +752,17 @@ const Entry = memo(function Entry({
 	fresh,
 	org,
 	personaId,
+	className,
 }: {
 	entry: ChatEntry;
 	fresh: boolean;
 	org: string;
 	personaId: string;
+	className?: string;
 }) {
 	if (entry.kind === 'task' || entry.kind === 'sent') {
 		return (
-			<div data-enter={fresh ? 'rise' : undefined}>
+			<div data-enter={fresh ? 'rise' : undefined} className={className}>
 				<TaskLine
 					verb={entry.kind === 'task' ? 'Created task' : 'Sent to'}
 					task={entry.task}
@@ -760,7 +772,7 @@ const Entry = memo(function Entry({
 		);
 	}
 	return (
-		<div data-enter={fresh ? 'rise' : undefined}>
+		<div data-enter={fresh ? 'rise' : undefined} className={className}>
 			<Turn entry={entry} />
 		</div>
 	);
@@ -937,15 +949,8 @@ const Conversation = memo(function Conversation({
 											{run.heading}
 										</h2>
 									)}
-									{/* The persona's turns, without a bubble apiece, stand further apart than the
-									    paragraphs within one. */}
-									<div
-										className={cn(
-											'flex flex-col',
-											conversationSide(first) === 'person' ? 'gap-2' : 'gap-5',
-										)}
-									>
-										{run.entries.map((entry) => {
+									<div className="flex flex-col">
+										{run.entries.map((entry, index) => {
 											const entryKey = sending.keyOf(entry);
 											return (
 												<Entry
@@ -954,6 +959,7 @@ const Conversation = memo(function Conversation({
 													fresh={!opened.has(entryKey)}
 													org={org}
 													personaId={personaId}
+													className={index === 0 ? undefined : entrySpacing(entry)}
 												/>
 											);
 										})}
