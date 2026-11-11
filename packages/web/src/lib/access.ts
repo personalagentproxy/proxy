@@ -1,6 +1,7 @@
 import type {AuditEntry} from '@proxy/contracts/activity';
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
+import type {Member} from '@proxy/contracts/orgs';
 import type {DataRecord} from '@proxy/contracts/records';
 import {
 	API_REQUESTS_ID,
@@ -362,4 +363,35 @@ export function groupsOf(actions: Action[]): ActionGroup[] {
 		groups.push({name: action.group, actions: [action]});
 	}
 	return groups;
+}
+
+/** Someone a connection is someone's or shared with: a member, or the name alone of someone the members' list no longer has. */
+export type OrgPerson = {
+	userId: string;
+	name: string | null;
+	email: string;
+	image: string | null;
+};
+
+// A member by their id, or else what the connection itself says of them.
+function personOf(userId: string, name: string, members: Member[]): OrgPerson {
+	return (
+		members.find((member) => member.userId === userId) ?? {userId, name, email: '', image: null}
+	);
+}
+
+/** Whose a connection is: who connected it, and whose account agents act as. */
+export function ownerOfConnection(connection: Connection, members: Member[]): OrgPerson {
+	return personOf(connection.ownerUserId, connection.owner ?? 'A former member', members);
+}
+
+/**
+ * Everyone but its owner who has the connection: every other member where it is shared with
+ * everyone, else the members it is shared with by name, in the order it was shared with them.
+ */
+export function sharedWithPeople(connection: Connection, members: Member[]): OrgPerson[] {
+	if (connection.sharedWithEveryone) {
+		return members.filter((member) => member.userId !== connection.ownerUserId);
+	}
+	return connection.sharedWith.map((shared) => personOf(shared.userId, shared.name, members));
 }

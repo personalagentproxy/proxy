@@ -60,10 +60,16 @@ export function shouldRevalidateTimeline({
 
 export const connectionsLoader = later(async (args: OrgParams) => {
 	const org = orgOf(args);
-	const [connections, agents] = await Promise.all([listConnections(org), listAgents(org)]);
+	const [connections, agents, members] = await Promise.all([
+		listConnections(org),
+		listAgents(org),
+		listMembers(org),
+	]);
 	return {
 		connections: unwrapLoaderResult(connections).connections,
 		agents: unwrapLoaderResult(agents).agents,
+		// The faces of who each shared connection is shared with.
+		members: unwrapLoaderResult(members).members,
 	};
 });
 
