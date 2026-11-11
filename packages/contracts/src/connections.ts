@@ -102,8 +102,8 @@ export const moveConnectionBodySchema = z.object({
 	org: z.string().min(1),
 });
 
-/** Where a sign-in ends when not on the connection's page: the welcome flow or the home page it began from. */
-export const returnToSchema = z.enum(['welcome', 'home']);
+/** Where a sign-in ends when not on the connection's page: the welcome flow it began from. */
+export const returnToSchema = z.enum(['welcome']);
 
 export type ReturnTo = z.infer<typeof returnToSchema>;
 

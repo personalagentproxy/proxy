@@ -7,7 +7,7 @@ import {
 	type ConnectDatabaseInput,
 	type DatabaseDialect,
 } from '@/client/connections-client';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {
@@ -212,17 +212,17 @@ export function ConnectDatabaseForm({
 			)}
 			<div className="flex justify-end gap-2">
 				{cancel}
-				<Button
+				<PillButton
 					type="button"
-					variant="outline"
+					variant="ghost"
 					disabled={!ready || pending !== null}
 					onClick={() => void test()}
 				>
 					{pending === 'test' ? 'Testing…' : 'Test connection'}
-				</Button>
-				<Button type="submit" disabled={!ready || pending !== null}>
+				</PillButton>
+				<PillButton type="submit" disabled={!ready || pending !== null}>
 					{pending === 'connect' ? 'Signing in…' : passed ? continueLabel : 'Connect'}
-				</Button>
+				</PillButton>
 			</div>
 		</form>
 	);

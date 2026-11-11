@@ -5,8 +5,16 @@ import type {
 	Persona,
 	ThreadLog,
 } from '@proxy/contracts/harness';
-import {ArrowUpIcon, MoonIcon, PaperclipIcon, PencilIcon, Trash2Icon} from 'lucide-react';
-import {Fragment, type FormEvent, useCallback, useEffect, useRef, useState} from 'react';
+import {MoonIcon, PaperclipIcon, PencilIcon, Trash2Icon} from 'lucide-react';
+import {
+	Fragment,
+	type FormEvent,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from 'react';
 import {Link, useNavigate, useParams} from 'react-router';
 import {
 	createPersona,
@@ -22,6 +30,7 @@ import {LiveHead} from '@/components/head';
 import {type ImageOf, Markdown} from '@/components/markdown';
 import {type ModelChoice, ModelSwitcher} from '@/components/model-switcher';
 import {PersonaDialog} from '@/components/persona-dialog';
+import {PillButton} from '@/components/pill-button';
 import {DropToAttach, SentChip, ShownFile} from '@/components/chat/attachments';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {
@@ -29,7 +38,7 @@ import {
 	type MessageEditorHandle,
 	type Typed,
 } from '@/components/chat/message-editor';
-import {InputGroup, InputGroupAddon, InputGroupButton} from '@proxy/ui/components/input-group';
+import {InputGroup, InputGroupAddon} from '@proxy/ui/components/input-group';
 import {Message, MessageContent} from '@/components/chat/message';
 import {
 	MessageScroller,
@@ -52,6 +61,7 @@ import {useReload} from '@/hooks/use-reload';
 import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
 import {useUnread} from '@/hooks/use-unread';
 import {useWindowFileDrop} from '@/hooks/use-window-file-drop';
+import {chatRuns} from '@/lib/chat-runs';
 import {formatAgo, formatDateTime} from '@/lib/format';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
 import type {chatLoader} from '@/loaders';
@@ -173,7 +183,7 @@ function lastActive(persona: ChatPersona, last: ChatPersona['lastMessage']): num
 // A conversation as the page shows it, fresher than the list: its log, and what is being typed.
 type Shown = {personaId: string; log: ThreadLog; draft: string};
 
-// The organization's personas in the second sidebar, each with its head, its name and the last
+// The personas the person sees, their own and General, in the second sidebar, each with its head, its name and the last
 // thing said between it and the person, marked where the person hasn't seen it, or what they
 // typed and haven't sent, the open one's as it is typed, the open one lit,
 // each head watching the pointer while it is over that agent's row. The one last active is on
@@ -184,6 +194,7 @@ function PersonaList({
 	current,
 	shown,
 	recallDraft,
+	onOpen,
 	onEdit,
 	onDelete,
 }: {
@@ -191,6 +202,7 @@ function PersonaList({
 	current: string;
 	shown: Shown | null;
 	recallDraft: (personaId: string) => string | null;
+	onOpen: (personaId: string) => void;
 	onEdit: (persona: ChatPersona) => void;
 	onDelete: (persona: ChatPersona) => void;
 }) {
@@ -222,6 +234,18 @@ function PersonaList({
 						<Link
 							to={`/${org}/chat/${persona.id}`}
 							aria-current={persona.id === current ? 'page' : undefined}
+							onClick={(event) => {
+								if (
+									event.button !== 0 ||
+									event.metaKey ||
+									event.ctrlKey ||
+									event.shiftKey ||
+									event.altKey
+								) {
+									return;
+								}
+								onOpen(persona.id);
+							}}
 							onPointerEnter={() => setHovered(persona.id)}
 							onPointerLeave={() => setHovered(null)}
 							className={cn(
@@ -315,6 +339,10 @@ export function ChatPage() {
 	const [editing, setEditing] = useState<'new' | ChatPersona | null>(null);
 	const [deleting, setDeleting] = useState<ChatPersona | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	// A conversation picked in the list focuses its input once that conversation has loaded.
+	// Nothing is requested on an ordinary page load, so it does not steal focus or open a phone's
+	// keyboard just because the Chat page was visited.
+	const [focusRequestedFor, setFocusRequestedFor] = useState<string | null>(null);
 	// What was typed in each conversation while the page was open, fresher than the list, which
 	// is read as another opens, perhaps before the save of what was typed in the last has landed.
 	const drafts = useRef(new Map<string, string>());
@@ -344,7 +372,8 @@ export function ChatPage() {
 		return null;
 	};
 
-	// Deletes a persona with everyone's conversations with it. If it was open, opens whichever is
+	// Deletes a persona with the conversations with it: the person's, and for one every member
+	// sees, everyone's. If it was open, opens whichever is
 	// first; otherwise refreshes the list around the conversation that stays open.
 	const removePersona = async (persona: ChatPersona) => {
 		const removed = await deletePersona(org, persona.id);
@@ -378,6 +407,7 @@ export function ChatPage() {
 				current={current}
 				shown={shown}
 				recallDraft={recallDraft}
+				onOpen={setFocusRequestedFor}
 				onEdit={setEditing}
 				onDelete={setDeleting}
 			/>
@@ -399,6 +429,8 @@ export function ChatPage() {
 					onShown={setShown}
 					managing={editing !== null || deleting !== null}
 					listError={error}
+					focusRequested={focusRequestedFor === current}
+					onFocused={() => setFocusRequestedFor(null)}
 				/>
 			</AppShell>
 			{editing !== null && (
@@ -431,7 +463,7 @@ export function ChatPage() {
 				title={deleting ? `Delete ${deleting.name}?` : ''}
 				description={
 					deleting
-						? `This deletes ${deleting.name} and every member's conversation with it. This cannot be undone.`
+						? `This deletes ${deleting.name} and ${deleting.shared ? "every member's" : 'your'} conversation with it. This cannot be undone.`
 						: ''
 				}
 				confirmLabel="Delete"
@@ -458,6 +490,9 @@ type Opened = {
 	managing: boolean;
 	// What deleting an agent from the list failed with.
 	listError: string | null;
+	// Whether this conversation was explicitly picked in the list and should take keyboard focus.
+	focusRequested: boolean;
+	onFocused: () => void;
 };
 
 // The conversation the address names, once loaded: started over when the address names another.
@@ -466,7 +501,7 @@ function OpenConversation(opened: Opened) {
 	return <Conversation key={log.persona.id} loaded={log} harnesses={harnesses} {...opened} />;
 }
 
-// The person's conversation with one of the organization's personas: its log, read again as the
+// The person's conversation with one of the personas they see: its log, read again as the
 // persona works, and an input. The persona hands each piece of work to a sub-agent it keeps
 // talking with, which acts as the person through the organization's built-in login, whose calls
 // go through the same gate as any agent's, so its activity is in the log by the sub-agent's task.
@@ -478,6 +513,8 @@ function Conversation({
 	onShown,
 	managing,
 	listError,
+	focusRequested,
+	onFocused,
 }: Opened & {loaded: ThreadLog; harnesses: ChatHarness[]}) {
 	const org = useOrgSlug();
 	const reload = useReload();
@@ -515,11 +552,21 @@ function Conversation({
 	useReloadWhileHidden(text === draft.saved && !sending && !managing && !attachments.uploading);
 
 	// What the list says is waiting here: what is typed, or, with nothing typed, the files' names.
+	// Said as it is drawn, so the list shows the conversation as it is shown, and from the answer
+	// it came with, in the same frame.
 	const words = text.replaceAll(ATTACHMENT_MARK, '').trim();
 	const waiting = words === '' ? attachments.pending.map((one) => one.name).join(', ') : text;
-	useEffect(() => {
+	useLayoutEffect(() => {
 		onShown({personaId, log, draft: waiting});
 	}, [onShown, personaId, log, waiting]);
+
+	useEffect(() => {
+		if (!focusRequested || editor.current === null) {
+			return;
+		}
+		editor.current.focus();
+		onFocused();
+	}, [focusRequested, onFocused]);
 
 	// What this page had typed here that the server doesn't have yet, as it was left for another
 	// conversation a moment before its save landed, is saved again.
@@ -646,15 +693,9 @@ function Conversation({
 		await readLog();
 	};
 
-	// Turns in a row from the same side sit closer together than the sides do.
-	const runs = log.entries.reduce<ChatEntry[][]>((grouped, entry) => {
-		const last = grouped.at(-1);
-		if (last && last[0]?.kind === entry.kind) {
-			last.push(entry);
-			return grouped;
-		}
-		return [...grouped, [entry]];
-	}, []);
+	// Turns in a row from the same side sit closer together than the sides do, under the time
+	// their stretch of the conversation began.
+	const runs = chatRuns(log.entries, new Date());
 
 	return (
 		<>
@@ -676,12 +717,18 @@ function Conversation({
 							)}
 							{runs.map((run) => (
 								<MessageScrollerItem
-									key={run[0]?.id}
-									messageId={run[0]?.id ?? ''}
-									scrollAnchor={run[0]?.kind === 'person'}
+									key={run.entries[0]?.id}
+									messageId={run.entries[0]?.id ?? ''}
+									scrollAnchor={run.entries[0]?.kind === 'person'}
+									className="flex flex-col gap-4"
 								>
+									{run.heading !== null && (
+										<h2 className="text-center text-xs font-medium text-muted-foreground">
+											{run.heading}
+										</h2>
+									)}
 									<div className="flex flex-col gap-2">
-										{run.map((entry) => (
+										{run.entries.map((entry) => (
 											<Turn key={entry.id} entry={entry} />
 										))}
 									</div>
@@ -743,27 +790,25 @@ function Conversation({
 							onPick={(choice) => void switchModel(choice)}
 						/>
 						{attaches && (
-							<InputGroupButton
+							<PillButton
 								type="button"
-								size="icon-sm"
 								variant="ghost"
-								className="ml-auto rounded-full"
+								icon
+								className="ml-auto"
 								onClick={() => picker.current?.click()}
 								aria-label="Attach files"
 							>
 								<PaperclipIcon />
-							</InputGroupButton>
+							</PillButton>
 						)}
-						<InputGroupButton
+						{/* The command bar's main button without its label: Enter's mark, as Enter sends. */}
+						<PillButton
 							type="submit"
-							size="icon-sm"
-							variant="default"
-							className={cn('rounded-full', !attaches && 'ml-auto')}
+							enter
+							className={cn(!attaches && 'ml-auto')}
 							disabled={sending || !sendable}
 							aria-label="Send"
-						>
-							<ArrowUpIcon />
-						</InputGroupButton>
+						/>
 					</InputGroupAddon>
 				</InputGroup>
 			</form>

@@ -10,8 +10,8 @@ import {
 } from 'react';
 import {createPortal} from 'react-dom';
 import {useLoaderData, useLocation, useNavigate} from 'react-router';
+import {PillButton} from '@/components/pill-button';
 import {ContentBoundary} from '@/components/route-error';
-import {Button} from '@proxy/ui/components/button';
 import {Sheet, SheetContent, SheetTitle} from '@proxy/ui/components/sheet';
 import {SidebarTrigger} from '@proxy/ui/components/sidebar';
 import {Skeleton} from '@proxy/ui/components/skeleton';
@@ -27,7 +27,7 @@ type Props = {
 	// frame is up at once, and shows `waiting` in its place until the answer has come.
 	children: ReactNode;
 	// The header's title, where the page knows it before anything is loaded. A page with neither
-	// this nor `loadsTitle`, as Home, has no header, and on a phone the sidebar's button alone in
+	// this nor `loadsTitle` has no header, and on a phone the sidebar's button alone in
 	// its corner.
 	title?: ReactNode;
 	// The content names the page once loaded (`PageHeader`), as a page for one agent does; the
@@ -76,9 +76,9 @@ function PanelSheet({panel, label}: {panel: ReactNode; label: string}) {
 
 	return (
 		<Sheet open={open} onOpenChange={setOpen}>
-			<Button variant="ghost" size="icon-sm" aria-label={label} onClick={() => setOpen(true)}>
+			<PillButton variant="ghost" icon aria-label={label} onClick={() => setOpen(true)}>
 				<PanelLeftIcon />
-			</Button>
+			</PillButton>
 			<SheetContent
 				side="left"
 				showCloseButton={false}

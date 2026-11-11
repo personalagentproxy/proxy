@@ -8,12 +8,12 @@ import {type ShownText, TextPanel, TextSwitch} from '@/components/goal-and-outco
 afterEach(cleanup);
 
 // The two as a page holds them: the switch choosing what the panel shows.
-function Both({outcome}: {outcome: string | null}) {
+function Both({goal = 'Plan the week', outcome}: {goal?: string; outcome: string | null}) {
 	const [shown, setShown] = useState<ShownText>('goal');
 	return (
 		<>
 			<TextSwitch id="text" shown={shown} hasOutcome={outcome !== null} onChange={setShown} />
-			<TextPanel id="text" shown={shown} goal="Plan the week" outcome={outcome} />
+			<TextPanel id="text" shown={shown} goal={goal} outcome={outcome} />
 		</>
 	);
 }
@@ -33,6 +33,29 @@ describe('TextSwitch and TextPanel', () => {
 		expect(screen.getByRole('tab', {name: 'Outcome'}).getAttribute('aria-selected')).toBe('true');
 	});
 
+	test('renders Markdown in the description and outcome', () => {
+		render(
+			<Both
+				goal={
+					'Plan the **week** with [the team](https://example.com/team).\n\n![Tracking pixel](https://example.com/pixel.png)'
+				}
+				outcome={'Finished the plan:\n\n- Monday\n- Tuesday'}
+			/>,
+		);
+
+		expect(screen.getByText('week').tagName).toBe('STRONG');
+		expect(screen.getByRole('link', {name: 'the team'}).getAttribute('href')).toBe(
+			'https://example.com/team',
+		);
+		expect(screen.getByText('Tracking pixel').tagName).toBe('SPAN');
+		expect(screen.queryByRole('img')).toBeNull();
+
+		fireEvent.click(screen.getByRole('tab', {name: 'Outcome'}));
+
+		expect(screen.getByText('Monday').tagName).toBe('LI');
+		expect(screen.getByText('Tuesday').tagName).toBe('LI');
+	});
+
 	test('the arrow keys move between the two, and the panel is named by the tab shown', () => {
 		render(<Both outcome="Tuesday is the day to start" />);
 		const description = screen.getByRole('tab', {name: 'Description'});
@@ -49,15 +72,15 @@ describe('TextSwitch and TextPanel', () => {
 	});
 
 	test('a task without an outcome has only its description, and the switch can’t be moved', () => {
-		render(<Both outcome={null} />);
+		render(<Both goal="Plan the **week**" outcome={null} />);
 
-		expect(screen.getByText('Plan the week')).toBeTruthy();
+		expect(screen.getByText('week').tagName).toBe('STRONG');
 		const outcome = screen.getByRole('tab', {name: 'Outcome'});
 		expect(outcome.getAttribute('aria-disabled')).toBe('true');
 
 		fireEvent.click(outcome);
 
-		expect(screen.getByText('Plan the week')).toBeTruthy();
+		expect(screen.getByText('week').tagName).toBe('STRONG');
 		expect(screen.getByRole('tab', {name: 'Description'}).getAttribute('aria-selected')).toBe(
 			'true',
 		);

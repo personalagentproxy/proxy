@@ -15,15 +15,7 @@ import {
 	Trash2Icon,
 	UploadIcon,
 } from 'lucide-react';
-import {
-	Fragment,
-	useEffect,
-	useRef,
-	useState,
-	type DragEvent,
-	type ReactElement,
-	type ReactNode,
-} from 'react';
+import {Fragment, useEffect, useRef, useState, type DragEvent} from 'react';
 import {Link, useNavigate} from 'react-router';
 import {
 	createFolder,
@@ -37,6 +29,8 @@ import {
 	uploadFile,
 	uploadFileVersion,
 } from '@/client/files-client';
+import {IconButton} from '@/components/icon-button';
+import {PillButton} from '@/components/pill-button';
 import {RenameDialog} from '@/components/rename-dialog';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
 import {useApply} from '@/hooks/use-apply';
@@ -47,7 +41,6 @@ import {formatAgo, formatDateTime} from '@/lib/format';
 import {describeApiError} from '@/lib/loader-utils';
 import {formatBytes} from '@proxy/utils/bytes';
 import {Badge} from '@proxy/ui/components/badge';
-import {Button} from '@proxy/ui/components/button';
 import {ContextMenuItem} from '@proxy/ui/components/context-menu';
 import {
 	Dialog,
@@ -58,7 +51,6 @@ import {
 	DialogTitle,
 } from '@proxy/ui/components/dialog';
 import {Input} from '@proxy/ui/components/input';
-import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
 
 const EMPTY = 'Nothing here yet. Upload a file, or let your agents put what they make here.';
@@ -85,37 +77,6 @@ const LINK = 'underline underline-offset-4 hover:text-foreground';
 function FileGlyph({file}: {file: DriveFile}) {
 	const Icon = file.folder ? FolderIcon : file.shown ? ImageIcon : FileIcon;
 	return <Icon className="size-4 shrink-0 text-muted-foreground" />;
-}
-
-type IconButtonProps = {
-	label: string;
-	children: ReactNode;
-	disabled?: boolean;
-	onClick?: () => void;
-	render?: ReactElement;
-};
-
-// One of the list's actions, as its icon, named in a tooltip.
-function IconButton({label, children, disabled, onClick, render}: IconButtonProps) {
-	return (
-		<Tooltip>
-			<TooltipTrigger
-				render={
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						aria-label={label}
-						disabled={disabled}
-						onClick={onClick}
-						{...(render ? {nativeButton: false, render} : {})}
-					/>
-				}
-			>
-				{children}
-			</TooltipTrigger>
-			<TooltipContent>{label}</TooltipContent>
-		</Tooltip>
-	);
 }
 
 // Where the list is, from the drive's top down: each folder above a link to it, the one opened
@@ -223,7 +184,8 @@ function ShownFile({connectionId, shown, onClose, onRename, onMove}: ShownProps)
 				<span className="flex shrink-0 items-center gap-1">
 					<IconButton
 						label="Download"
-						render={<a href={fileContentPath(org, connectionId, file.id)} download={file.name} />}
+						href={fileContentPath(org, connectionId, file.id)}
+						download={file.name}
 					>
 						<DownloadIcon />
 					</IconButton>
@@ -288,9 +250,8 @@ function ShownFile({connectionId, shown, onClose, onRename, onMove}: ShownProps)
 								</Badge>
 							) : (
 								<>
-									<Button
+									<PillButton
 										variant="ghost"
-										size="sm"
 										nativeButton={false}
 										render={
 											<a
@@ -300,17 +261,16 @@ function ShownFile({connectionId, shown, onClose, onRename, onMove}: ShownProps)
 										}
 									>
 										Download
-									</Button>
+									</PillButton>
 									{!trashed && (
-										<Button
+										<PillButton
 											variant="ghost"
-											size="sm"
 											onClick={() =>
 												void apply(restoreFileVersion(org, connectionId, file.id, version.id))
 											}
 										>
 											Restore
-										</Button>
+										</PillButton>
 									)}
 								</>
 							)}
@@ -423,7 +383,7 @@ function MoveDialog({
 							<button
 								type="button"
 								onClick={() => setAt(folder.id)}
-								className="flex h-9 w-full min-w-0 items-center gap-3 rounded-md px-2 text-left hover:bg-muted/50"
+								className="flex h-9 w-full min-w-0 items-center gap-3 rounded-lg px-2 text-left hover:bg-muted/50"
 							>
 								<FolderIcon className="size-4 shrink-0 text-muted-foreground" />
 								<span className="min-w-0 flex-1 truncate">{folder.name}</span>
@@ -434,16 +394,16 @@ function MoveDialog({
 				</ul>
 				{error && <p className="text-sm text-destructive">{error}</p>}
 				<DialogFooter>
-					<Button type="button" variant="outline" onClick={onClose}>
+					<PillButton type="button" variant="ghost" onClick={onClose}>
 						Cancel
-					</Button>
-					<Button
+					</PillButton>
+					<PillButton
 						type="button"
 						disabled={list === null || moving || at === file.parentId}
 						onClick={() => void move()}
 					>
 						{moving ? 'Moving…' : 'Move here'}
-					</Button>
+					</PillButton>
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
@@ -558,7 +518,7 @@ export function FileBrowser({connectionId, place, list, shown}: Props) {
 				{!trash && list !== null && (
 					<span className="ml-auto flex items-center gap-1">
 						<Search key={folder ?? 'top'} place={place} />
-						<IconButton label="Trash" render={<Link to={driveQuery({trash: true})} />}>
+						<IconButton label="Trash" to={driveQuery({trash: true})}>
 							<Trash2Icon />
 						</IconButton>
 						<IconButton label="New folder" onClick={() => setNaming({file: null})}>

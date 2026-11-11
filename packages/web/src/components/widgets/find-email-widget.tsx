@@ -1,4 +1,3 @@
-import {InboxIcon} from 'lucide-react';
 import type {Intent} from '@/client/intent-client';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
 import {Missing, WidgetFrame} from '@/components/widgets/widget-frame';
@@ -14,7 +13,7 @@ export function FindEmailWidget({intent, typed, now}: {intent: Intent; typed: st
 
 	if (emails.data && sources.length === 0) {
 		return (
-			<ConnectWidget icon={InboxIcon} name="Find email" collectionIds={['emails']}>
+			<ConnectWidget name="Find email" collectionIds={['emails']}>
 				Connect a mailbox to search your email from here.
 			</ConnectWidget>
 		);
@@ -24,7 +23,7 @@ export function FindEmailWidget({intent, typed, now}: {intent: Intent; typed: st
 	const described = emailQueryRead(query);
 
 	return (
-		<WidgetFrame icon={InboxIcon} name="Find email" failed={emails.data?.failed}>
+		<WidgetFrame name="Find email" failed={emails.data?.failed}>
 			<p className="truncate">
 				<span className="text-muted-foreground">Email </span>
 				{described.length === 0 ? <Missing>of every kind</Missing> : described.join(' · ')}

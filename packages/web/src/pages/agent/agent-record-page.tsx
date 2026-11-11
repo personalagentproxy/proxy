@@ -10,7 +10,7 @@ import {
 	PersonLinkHint,
 } from '@/components/agent-shell';
 import {RecordFields, RecordForm} from '@/components/record-form';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {allows, recordTitle} from '@/lib/access';
 import {agentErrorMessage} from '@/lib/agent-errors';
@@ -104,34 +104,31 @@ export function AgentRecordPage() {
 			{(commands.length > 0 || canEdit || canDelete || record.hasChildren) && !editing && (
 				<div className="flex flex-wrap gap-2">
 					{record.hasChildren && (
-						<Button
-							size="sm"
-							variant="outline"
+						<PillButton
+							variant="ghost"
 							nativeButton={false}
 							render={<Link to={`${listPath}${inside(record.id)}`} />}
 						>
 							See what’s inside
-						</Button>
+						</PillButton>
 					)}
 					{commands.map((command) => (
-						<Button
+						<PillButton
 							key={command.id}
-							size="sm"
-							variant="outline"
+							variant="ghost"
 							disabled={running !== null}
 							onClick={() => void run(command)}
 						>
 							{running === command.id ? `${command.label}…` : command.label}
-						</Button>
+						</PillButton>
 					))}
 					{canEdit && (
-						<Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+						<PillButton variant="ghost" onClick={() => setEditing(true)}>
 							Edit
-						</Button>
+						</PillButton>
 					)}
 					{canDelete && (
-						<Button
-							size="sm"
+						<PillButton
 							variant="destructive"
 							onClick={async () => {
 								const result = await runAgentRecordTool(
@@ -148,7 +145,7 @@ export function AgentRecordPage() {
 							}}
 						>
 							Delete
-						</Button>
+						</PillButton>
 					)}
 				</div>
 			)}

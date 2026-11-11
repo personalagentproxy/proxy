@@ -66,8 +66,8 @@ export type Changes = (target: RecordTarget, cursor: string | null, now: Date) =
  * How one collection's records are read and written. A collection offers only some writes and
  * commands, as the catalog says, and its connector has exactly those, as `connectors.test.ts`
  * checks; callers have checked access and that the collection offers the write or command. A
- * connector reports a missing record as not_found. It may have capabilities for the home page's
- * widgets too (`capabilities.ts`), and `changes`, where a watch can be set on it.
+ * connector reports a missing record as not_found. It may have capabilities for the command
+ * bar's widgets too (`capabilities.ts`), and `changes`, where a watch can be set on it.
  */
 export type RecordStore = Capabilities & {
 	list: (target: RecordTarget, query: ListQuery) => Promise<Result<RecordPage, ApiError>>;

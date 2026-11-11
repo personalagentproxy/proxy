@@ -119,6 +119,25 @@ export function later<Args, T>(load: (args: Args) => Promise<T>): (args: Args) =
 	};
 }
 
+// A `later` answer, marked as React marks a promise once it has settled.
+type Marked<T> = Promise<T> &
+	({status?: undefined} | {status: 'fulfilled'; value: T} | {status: 'rejected'});
+
+/**
+ * What a `later` answer settled as, read at once as React's `use` reads it: its value once it has
+ * come, `failed` where it failed, and null while it is on its way.
+ */
+export function settledAs<T>(loading: Promise<T>): {value: T} | 'failed' | null {
+	const marked = loading as Marked<T>;
+	if (marked.status === 'fulfilled') {
+		return {value: marked.value};
+	}
+	if (marked.status === 'rejected') {
+		return 'failed';
+	}
+	return null;
+}
+
 /**
  * The answers on their way, for whoever loads a page again to wait for those that started with it
  * (use-reload.ts), and not for one of a page left before its answer came.

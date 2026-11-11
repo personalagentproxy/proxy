@@ -422,9 +422,7 @@ function ConnectionsAccess({
 									signInNeeded={connection.signInNeeded}
 									mayChangeDefaults={setsDefaults(connection)}
 									onChangeDefaults={(changes) => onChangeDefaults(connection.id, changes)}
-									onChangeAgent={(_agentId, actionId, allowed) =>
-										onChange(connection.id, {[actionId]: allowed})
-									}
+									onChangeAgent={(_agentId, changes) => onChange(connection.id, changes)}
 									unlinked
 									headed
 								/>

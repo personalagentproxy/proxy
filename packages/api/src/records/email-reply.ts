@@ -6,7 +6,7 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import type {NewCommandRunner, RecordTarget, RecordValues} from './connector';
 
 /**
- * A reply to an email, as the home page and agents write one, whatever the mailbox: from the
+ * A reply to an email, as the command bar and agents write one, whatever the mailbox: from the
  * connection's address, in the email's thread, sent at once or saved as a draft. Each mailbox's
  * connector reads the email and writes the reply in its own terms; agents write one as the
  * `replies` collection's commands.

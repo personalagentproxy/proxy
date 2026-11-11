@@ -45,8 +45,7 @@ import {ownership} from './ownership';
  * connection's page begins it, so only that page renews it. The callback ends on the connection's page, or back on the catalog with
  * `?error=<integration>` (with `?error=<integration>-unconfigured` when the server lacks what the
  * sign-in needs, such as Google's client); a sign-in begun from the welcome flow
- * (`returnTo: 'welcome'`) ends on its page for the connection, or its catalog, instead, and one
- * begun from a home page widget's card (`returnTo: 'home'`) back on the home page. One begun from
+ * (`returnTo: 'welcome'`) ends on its page for the connection, or its catalog, instead. One begun from
  * the desktop app runs in the browser, which the app hands over to (`auth/desktop.ts`) with
  * `?desktop=1` on the start, and ends on `/desktop-return`, which opens that page in the app. What
  * the provider's sign-in page is and how a code becomes tokens and a connection is the
@@ -262,7 +261,9 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 		userId: z.string(),
 		orgId: z.string(),
 		slug: z.string(),
-		returnTo: returnToSchema.optional(),
+		// 'home': a sign-in begun from the home page's widgets, which are gone, and which ends on the
+		// connection's page as any other does.
+		returnTo: z.union([returnToSchema, z.literal('home').transform(() => undefined)]).optional(),
 		desktop: z.boolean().optional(),
 		shared: z.boolean().optional(),
 		connectionId: z.string().optional(),
@@ -373,14 +374,11 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 		redirectBack(res, appUrl, back, landingPath(back, id, added));
 	}
 
-	// Where a finished sign-in lands: the welcome flow's page for the connection, the home page, or
-	// the connection's page, saying it was added unless it was only signed in to again.
+	// Where a finished sign-in lands: the welcome flow's page for the connection, or the connection's
+	// page, saying it was added unless it was only signed in to again.
 	function landingPath(back: Back, id: string, added: boolean): string {
 		if (back.returnTo === 'welcome') {
 			return `/${back.slug}/welcome/connections/${id}`;
-		}
-		if (back.returnTo === 'home') {
-			return `/${back.slug}`;
 		}
 		return `/${back.slug}/connections/${id}${added ? '?added' : ''}`;
 	}

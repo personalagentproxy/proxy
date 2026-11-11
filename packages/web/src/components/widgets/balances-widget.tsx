@@ -1,4 +1,3 @@
-import {LandmarkIcon} from 'lucide-react';
 import {useState} from 'react';
 import type {Intent} from '@/client/intent-client';
 import type {BankAccount, Source} from '@/client/widgets-client';
@@ -52,7 +51,7 @@ export function BalancesWidget({intent}: {intent: Intent}) {
 
 	if (read.data && sources.length === 0) {
 		return (
-			<ConnectWidget icon={LandmarkIcon} name="Balances" collectionIds={['accounts']}>
+			<ConnectWidget name="Balances" collectionIds={['accounts']}>
 				{CONNECT_BANK}
 			</ConnectWidget>
 		);
@@ -66,7 +65,7 @@ export function BalancesWidget({intent}: {intent: Intent}) {
 	const banks = sources.length > 1 ? sources : [];
 
 	return (
-		<WidgetFrame icon={LandmarkIcon} name="Balances" failed={read.data?.failed}>
+		<WidgetFrame name="Balances" failed={read.data?.failed}>
 			<p className="truncate">
 				<span className="text-muted-foreground">Balances </span>
 				{said ? `of ${said}` : <Missing>of every account</Missing>}

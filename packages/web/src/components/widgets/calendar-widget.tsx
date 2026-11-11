@@ -1,4 +1,3 @@
-import {CalendarDaysIcon} from 'lucide-react';
 import {useState} from 'react';
 import type {Intent} from '@/client/intent-client';
 import type {AgendaEvent, Failure} from '@/client/widgets-client';
@@ -74,7 +73,7 @@ export function CalendarWidget({intent, typed, now}: {intent: Intent; typed: str
 
 	if (agenda.data?.sources.length === 0 || found.data?.sources.length === 0) {
 		return (
-			<ConnectWidget icon={CalendarDaysIcon} name="Calendar" collectionIds={['events']}>
+			<ConnectWidget name="Calendar" collectionIds={['events']}>
 				Connect a calendar to see your days and find your meetings from here.
 			</ConnectWidget>
 		);
@@ -96,7 +95,7 @@ export function CalendarWidget({intent, typed, now}: {intent: Intent; typed: str
 	const failed = eachConnection([...(agenda.data?.failed ?? []), ...(found.data?.failed ?? [])]);
 
 	return (
-		<WidgetFrame icon={CalendarDaysIcon} name="Calendar" failed={failed}>
+		<WidgetFrame name="Calendar" failed={failed}>
 			{searching && (
 				<p className="truncate">
 					<span className="text-muted-foreground">{what && !who ? 'Next ' : 'Next event '}</span>

@@ -27,14 +27,19 @@ type Props = {
 	mayChangeDefaults: boolean;
 	// Turns default actions on or off.
 	onChangeDefaults: (actions: Record<string, boolean>) => Promise<void>;
-	// Gives an agent a setting of its own for an action; null returns it to the default.
-	onChangeAgent: (agentId: string, actionId: string, allowed: boolean | null) => Promise<void>;
+	// Gives an agent settings of its own for actions; null returns one to the default.
+	onChangeAgent: (agentId: string, actions: Record<string, boolean | null>) => Promise<void>;
 	// On an agent's own page, where its column needn't lead back to it or show whose it is: the
 	// agents' names stand alone, without their logos, and are not links.
 	unlinked?: boolean;
 	// Under a heading the page gives it, with the columns' names (`AccessGridColumns`): actions the
 	// integration doesn't group have no heading row of the grid's own. Groups keep theirs.
 	headed?: boolean;
+	// A first row, All, whose box in each column turns every action the sign-in allows on or off
+	// there at once: under Default the defaults, which leave agents' settings of their own as they
+	// are; under an agent its settings. Where the integration groups its actions, each group has one
+	// over its own.
+	all?: boolean;
 };
 
 // The first column is the action; every other one a box, the same width, so the boxes line up.
@@ -65,6 +70,7 @@ export function AccessGrid({
 	onChangeAgent,
 	unlinked = false,
 	headed = false,
+	all = false,
 }: Props) {
 	const org = useOrgSlug();
 	// What a box shows while its change is saved and the page's data loaded again, by column and
@@ -79,12 +85,77 @@ export function AccessGrid({
 		!isUnavailable(id) &&
 		(pending[key(column.agent.id, id)] ?? column.own[id] ?? defaults.includes(id));
 
-	// Shows the box as `next` until `save` is done.
-	const change = async (box: string, next: boolean, save: () => Promise<void>) => {
-		setPending((current) => ({...current, [box]: next}));
+	// Shows the boxes as `next` until `save` is done.
+	const change = async (boxes: string[], next: boolean, save: () => Promise<void>) => {
+		setPending((current) => ({...current, ...Object.fromEntries(boxes.map((box) => [box, next]))}));
 		await save();
 		setPending((current) =>
-			Object.fromEntries(Object.entries(current).filter(([one]) => one !== box)),
+			Object.fromEntries(Object.entries(current).filter(([box]) => !boxes.includes(box))),
+		);
+	};
+	// What an agent's box saves: what the default says is no setting of the agent's own, so the agent
+	// follows the default.
+	const ownSetting = (actionId: string, next: boolean) =>
+		next === defaults.includes(actionId) ? null : next;
+
+	// The All row over some actions, a whole group's where the integration groups them: in each
+	// column ticked when every one the sign-in allows is on there, a dash when some are. On a band of
+	// its own, so it reads as a control over the rows under it rather than as one more action: its text
+	// on the line with theirs, the band out into the gutter (`--bleed`) as a row's hover is, a cell
+	// at each end reaching there with a shadow, which a table cell has where a row has its margin.
+	const allRow = (over: Action[], group: string | undefined) => {
+		const available = over.filter((action) => !isUnavailable(action.id)).map(({id}) => id);
+		const allBox = (on: (id: string) => boolean) => {
+			const count = available.filter(on).length;
+			return {
+				checked: available.length > 0 && count === available.length,
+				indeterminate: count > 0 && count < available.length,
+			};
+		};
+		const name = group === undefined ? 'All' : `All of ${group}`;
+		const cell = 'bg-(--band) py-1.5 align-middle';
+		const left = 'rounded-l-md shadow-[calc(var(--bleed)*-1)_0_0_0_var(--band)]';
+		const right = 'rounded-r-md shadow-[var(--bleed)_0_0_0_var(--band)]';
+		return (
+			<tr className="border-t border-border/60 [--band:color-mix(in_oklab,var(--color-muted)_60%,transparent)]">
+				<th scope="row" className={cn(cell, left, 'text-left font-medium')}>
+					All
+				</th>
+				<td className={cn(BOX, cell, agents.length === 0 && right)}>
+					<Box
+						label={`${name} by default`}
+						{...allBox(isDefault)}
+						disabled={!mayChangeDefaults || available.length === 0}
+						onChange={(next) =>
+							void change(
+								available.map((id) => key(DEFAULT, id)),
+								next,
+								() => onChangeDefaults(Object.fromEntries(available.map((id) => [id, next]))),
+							)
+						}
+					/>
+				</td>
+				{agents.map((column, index) => (
+					<td key={column.agent.id} className={cn(BOX, cell, index === agents.length - 1 && right)}>
+						<Box
+							label={`${name} for ${column.agent.name}`}
+							{...allBox((id) => isOn(column, id))}
+							disabled={!column.mayChange || available.length === 0}
+							onChange={(next) =>
+								void change(
+									available.map((id) => key(column.agent.id, id)),
+									next,
+									() =>
+										onChangeAgent(
+											column.agent.id,
+											Object.fromEntries(available.map((id) => [id, ownSetting(id, next)])),
+										),
+								)
+							}
+						/>
+					</td>
+				))}
+			</tr>
 		);
 	};
 
@@ -116,7 +187,7 @@ export function AccessGrid({
 						checked={isDefault(action.id)}
 						disabled={!mayChangeDefaults || isUnavailable(action.id)}
 						onChange={(next) =>
-							void change(key(DEFAULT, action.id), next, () =>
+							void change([key(DEFAULT, action.id)], next, () =>
 								onChangeDefaults({[action.id]: next}),
 							)
 						}
@@ -130,13 +201,8 @@ export function AccessGrid({
 							own={isOwn(column, action.id)}
 							disabled={!column.mayChange || isUnavailable(action.id)}
 							onChange={(next) =>
-								void change(key(column.agent.id, action.id), next, () =>
-									// What the default says is no setting of the agent's own: it follows the default.
-									onChangeAgent(
-										column.agent.id,
-										action.id,
-										next === defaults.includes(action.id) ? null : next,
-									),
+								void change([key(column.agent.id, action.id)], next, () =>
+									onChangeAgent(column.agent.id, {[action.id]: ownSetting(action.id, next)}),
 								)
 							}
 						/>
@@ -178,6 +244,7 @@ export function AccessGrid({
 										))}
 									</tr>
 								)}
+								{all && allRow(group.actions, group.name)}
 								{group.actions.map(row)}
 							</tbody>
 						);
@@ -236,12 +303,14 @@ function AgentHeading({agent, to}: {agent: AgentLogin; to: string | null}) {
 function Box({
 	label,
 	checked,
+	indeterminate = false,
 	own = false,
 	disabled,
 	onChange,
 }: {
 	label: string;
 	checked: boolean;
+	indeterminate?: boolean;
 	own?: boolean;
 	disabled: boolean;
 	onChange: (next: boolean) => void;
@@ -250,6 +319,7 @@ function Box({
 		<Checkbox
 			aria-label={own ? `${label}, its own setting` : label}
 			checked={checked}
+			indeterminate={indeterminate}
 			disabled={disabled}
 			onCheckedChange={(next) => onChange(next)}
 		/>

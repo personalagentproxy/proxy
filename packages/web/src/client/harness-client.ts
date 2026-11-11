@@ -17,8 +17,8 @@ import type {z} from 'zod';
 import {apiRequest, apiSend, orgApi} from '@/client/request';
 import {trackWrite} from '@/lib/writes-in-flight';
 
-// The Chat page's api: the organization's personas, each named and given a head, which every
-// member sees, the person's own conversation with each, its turns, what they say in it, and how
+// The Chat page's api: the personas the person sees, their own and General, which every member
+// does, each named and given a head, the person's own conversation with each, its turns, what they say in it, and how
 // far they have read it.
 
 export function listPersonas(org: string) {

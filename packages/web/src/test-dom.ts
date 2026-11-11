@@ -1,3 +1,4 @@
+import {jest} from 'bun:test';
 import {Window} from 'happy-dom';
 import {log} from './lib/log';
 
@@ -31,6 +32,11 @@ Object.assign(globalThis, {
 	requestAnimationFrame: testWindow.requestAnimationFrame.bind(testWindow),
 	cancelAnimationFrame: testWindow.cancelAnimationFrame.bind(testWindow),
 });
+
+// Testing Library tells fake timers by a global `jest`, as Jest has: Bun's `jest.useFakeTimers()`
+// fakes the clock, and with this, waiting for something moves that clock on as it looks again,
+// rather than waiting on a clock that only a test moves.
+Object.assign(globalThis, {jest});
 
 // The app's log posts what it has every 5 seconds, from whatever test is running then: an error
 // one file logs on purpose would take a fetch another file's test answers. Shut down before any

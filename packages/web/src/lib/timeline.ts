@@ -1,7 +1,7 @@
 import type {AuditEntry} from '@proxy/contracts/activity';
 import {counted} from '@/lib/format';
 
-// What the two timelines share: the task page's, of one run, and the home page's, of every agent
+// What the two timelines share: the task page's, of one run, and the Activity page's, of every agent
 // over a window of time. Both lay out in pixels, measured from the chart's left edge, so that how
 // wide a thing is drawn is a plain number: a request too short to see is still drawn two pixels
 // wide, a task too short to name is grouped with its neighbors, and so on.

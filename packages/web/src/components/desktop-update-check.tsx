@@ -1,4 +1,4 @@
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {useDesktopUpdateStatus} from '@/hooks/use-desktop-update-status';
 import {desktopBridge, type DesktopUpdateStatus} from '@/lib/desktop';
 
@@ -16,9 +16,9 @@ export function DesktopUpdateCheck() {
 	if (status.state === 'ready') {
 		return (
 			<div className="flex flex-wrap items-center gap-3 text-sm">
-				<Button type="button" size="sm" onClick={() => desktopBridge()?.restart()}>
+				<PillButton type="button" onClick={() => desktopBridge()?.restart()}>
 					Restart to update
-				</Button>
+				</PillButton>
 				<span className="text-muted-foreground">Version {status.version} is downloaded.</span>
 			</div>
 		);
@@ -39,9 +39,9 @@ export function DesktopUpdateCheck() {
 	const busy = status.state === 'checking' || status.state === 'downloading';
 	return (
 		<div className="flex flex-wrap items-center gap-3 text-sm">
-			<Button type="button" size="sm" variant="outline" disabled={busy} onClick={check}>
+			<PillButton type="button" variant="ghost" disabled={busy} onClick={check}>
 				Check for updates
-			</Button>
+			</PillButton>
 			<span
 				role="status"
 				className={status.state === 'failed' ? 'text-destructive' : 'text-muted-foreground'}

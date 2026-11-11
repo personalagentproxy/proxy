@@ -142,6 +142,11 @@ const components: Components = {
 	),
 };
 
+const componentsWithoutImages: Components = {
+	...components,
+	img: ({node: _node, alt}) => (alt ? <span>{alt}</span> : null),
+};
+
 function faviconHost(href: string | undefined, hosts: Set<string>): string | null {
 	if (!href || !/^https:\/\//i.test(href) || !URL.canParse(href)) {
 		return null;
@@ -164,17 +169,24 @@ export function Markdown({
 	text,
 	className,
 	image = null,
+	allowImages = true,
+	showFavicons = true,
 }: {
 	text: string;
 	className?: string;
 	image?: ImageOf | null;
+	allowImages?: boolean;
+	showFavicons?: boolean;
 }) {
 	const [faviconHosts] = useState(() => new Set<string>());
 	return (
-		<FaviconHostsContext.Provider value={faviconHosts}>
+		<FaviconHostsContext.Provider value={showFavicons ? faviconHosts : null}>
 			<ImageContext.Provider value={image}>
 				<div className={cn('flex flex-col gap-2 wrap-break-word', className)}>
-					<ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+					<ReactMarkdown
+						remarkPlugins={[remarkGfm]}
+						components={allowImages ? components : componentsWithoutImages}
+					>
 						{text}
 					</ReactMarkdown>
 				</div>

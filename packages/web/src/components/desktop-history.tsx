@@ -62,15 +62,10 @@ export function DesktopHistory({
 
 	return (
 		<div data-desktop-history className="flex items-center gap-0.5">
-			<IconButton label="Back" size="xs" disabled={!canGoBack} onClick={() => void navigate(-1)}>
+			<IconButton label="Back" disabled={!canGoBack} onClick={() => void navigate(-1)}>
 				<ArrowLeftIcon className="size-4" />
 			</IconButton>
-			<IconButton
-				label="Forward"
-				size="xs"
-				disabled={!canGoForward}
-				onClick={() => void navigate(1)}
-			>
+			<IconButton label="Forward" disabled={!canGoForward} onClick={() => void navigate(1)}>
 				<ArrowRightIcon className="size-4" />
 			</IconButton>
 			<div ref={controlsRef} className="contents" />

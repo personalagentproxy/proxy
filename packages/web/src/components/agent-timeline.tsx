@@ -22,7 +22,7 @@ import {
 	zoomedOn,
 } from '@/lib/timeline-window';
 import {zoomPath} from '@/lib/zoom-path';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {cn} from '@proxy/ui/lib/utils';
 import {
 	Select,
@@ -62,7 +62,7 @@ function cancelZoom(zooming: {current: number | null}) {
 	}
 }
 
-// Under the home page's input, and over the activity log: who is doing what for the person. Every agent's row over the tasks
+// Over the activity log: who is doing what for the person. Every agent's row over the tasks
 // it was given in a window of time, up to now at the right edge, each with the requests made for
 // it; a task's bar opens its page, and a request opens in full. The window's
 // length is chosen above the timeline, or zoomed with Ctrl or Cmd and the wheel, or a pinch, as a
@@ -331,9 +331,8 @@ export function AgentTimeline({
 		<section aria-label="Agents" className="flex w-full max-w-3xl flex-col items-end gap-2 text-sm">
 			<div className="flex items-center gap-2">
 				{/* Always there, fading in and out, so nothing else moves when it comes and goes. */}
-				<Button
-					variant="outline"
-					size="sm"
+				<PillButton
+					variant="ghost"
 					onClick={() => {
 						stopZoom();
 						setEnd(null);
@@ -346,7 +345,7 @@ export function AgentTimeline({
 					)}
 				>
 					Now
-				</Button>
+				</PillButton>
 				<Select
 					value={preset ?? CUSTOM}
 					// What the closed select reads: "Last 6 hours" while the window ends at now, "6 hours"

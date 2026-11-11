@@ -77,7 +77,7 @@ export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
 				render={
 					<InputGroupButton
 						aria-label={`Model: ${model.label} on ${harness.label}`}
-						className="h-5 gap-1.5 text-xs font-normal"
+						className="h-5 gap-1.5 rounded-full text-xs font-normal"
 					/>
 				}
 			>

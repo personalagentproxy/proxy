@@ -16,7 +16,7 @@ import {
 	taskStatus,
 } from '@/lib/timeline-window';
 
-// The home page's timeline: who is doing what. Every agent has a row over a window of time
+// The Activity page's timeline: who is doing what. Every agent has a row over a window of time
 // ending now, or scrolled back from it, and in it a bar for every task it was given, with the
 // requests made for the task along the bottom of the bar as long as each took. A task's sub-tasks
 // are rolled into it here, their requests on its bar; the task's page lays them out. Tasks under

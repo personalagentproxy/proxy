@@ -1,6 +1,6 @@
 import {MonitorIcon, MoonIcon, SunIcon, type LucideIcon} from 'lucide-react';
 import {useTheme, type Theme} from '@proxy/ui/lib/theme';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 
 type ThemeOption = {
 	value: Theme;
@@ -22,16 +22,15 @@ export function ThemePicker() {
 	return (
 		<div role="group" aria-label="Theme" className="flex items-center gap-2">
 			{THEME_OPTIONS.map((option) => (
-				<Button
+				<PillButton
 					key={option.value}
-					size="sm"
-					variant={option.value === theme ? 'secondary' : 'outline'}
+					variant="ghost"
 					aria-pressed={option.value === theme}
 					onClick={() => setTheme(option.value)}
 				>
 					<option.icon data-icon="inline-start" />
 					{option.label}
-				</Button>
+				</PillButton>
 			))}
 		</div>
 	);

@@ -1,6 +1,6 @@
 import type {Action} from '@proxy/integrations';
 import {useId, useRef, useState} from 'react';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Checkbox} from '@proxy/ui/components/checkbox';
 import {groupsOf, howManyOn} from '@/lib/access';
 import {onSignInClick} from '@/lib/desktop';
@@ -206,9 +206,9 @@ export function ConnectionAccess({
 				{howManyOn(actions.filter((action) => isOn(action.id)).length, actions.length)}
 			</span>
 			{settable.length > 1 && (
-				<Button variant="outline" size="sm" onClick={() => setAll(!allOn)}>
+				<PillButton variant="ghost" onClick={() => setAll(!allOn)}>
 					{allOn ? 'Disable all' : 'Enable all'}
-				</Button>
+				</PillButton>
 			)}
 		</div>
 	);

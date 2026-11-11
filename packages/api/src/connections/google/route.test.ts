@@ -251,6 +251,16 @@ describe('handleGoogleCallbackRoute', () => {
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/welcome/connections/conn-1');
 	});
 
+	test("begun from the home page before its widgets were taken away, ends on the connection's page", async () => {
+		const {cookie, state} = await start();
+		const stored = (cookie?.value ?? '').replace(/^enc:/, '');
+		const home = `enc:${JSON.stringify({...(JSON.parse(stored) as object), returnTo: 'home'})}`;
+		const res = await callback({cookie: home, query: {state, code: 'code-1'}});
+
+		expect(createConnection).toHaveBeenCalled();
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-1?added');
+	});
+
 	test('a state that does not match is turned down without asking Google', async () => {
 		const {cookie} = await start({returnTo: 'welcome'});
 		const res = await callback({cookie: cookie?.value ?? '', query: {state: 'forged', code: 'code-1'}});

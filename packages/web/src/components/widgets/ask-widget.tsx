@@ -1,8 +1,7 @@
-import {MessageCircleQuestionMarkIcon} from 'lucide-react';
 import {useState} from 'react';
 import type {Intent} from '@/client/intent-client';
 import type {Answer, AskedCollection, Failure, Source} from '@/client/widgets-client';
-import {buttonVariants} from '@proxy/ui/components/button';
+import {pillVariants} from '@/lib/pill-variants';
 import {Skeleton} from '@proxy/ui/components/skeleton';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
@@ -275,11 +274,7 @@ export function AskWidget({intent, typed, now}: {intent: Intent; typed: string; 
 
 	if (found.sources && found.sources.length === 0) {
 		return (
-			<ConnectWidget
-				icon={MessageCircleQuestionMarkIcon}
-				name={NAME}
-				collectionIds={place.collectionIds}
-			>
+			<ConnectWidget name={NAME} collectionIds={place.collectionIds}>
 				{place.connect}
 			</ConnectWidget>
 		);
@@ -288,7 +283,6 @@ export function AskWidget({intent, typed, now}: {intent: Intent; typed: string; 
 	const from = picked && whereFrom(found.sources ?? [], picked);
 	return (
 		<WidgetFrame
-			icon={MessageCircleQuestionMarkIcon}
 			name={NAME}
 			failed={found.failed}
 			actions={
@@ -298,7 +292,7 @@ export function AskWidget({intent, typed, now}: {intent: Intent; typed: string; 
 						href={picked.link}
 						target="_blank"
 						rel="noreferrer"
-						className={buttonVariants({size: 'sm', variant: 'outline'})}
+						className={pillVariants({variant: 'ghost'})}
 					>
 						Open in {from.openIn}
 					</a>

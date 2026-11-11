@@ -3,7 +3,7 @@ import {findIntegration, type IntegrationId} from '@proxy/integrations';
 import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
 import {connectWithKey} from '@/client/connections-client';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {
 	Dialog,
 	DialogContent,
@@ -134,12 +134,12 @@ export function ConnectWithKeyDialog({
 					</div>
 					{error && <p className="text-sm text-destructive">{error}</p>}
 					<DialogFooter>
-						<Button type="button" variant="outline" onClick={onClose}>
+						<PillButton type="button" variant="ghost" onClick={onClose}>
 							Cancel
-						</Button>
-						<Button type="submit" disabled={!ready || pending}>
+						</PillButton>
+						<PillButton type="submit" disabled={!ready || pending}>
 							{pending ? 'Checking the key…' : 'Connect'}
-						</Button>
+						</PillButton>
 					</DialogFooter>
 				</form>
 			</DialogContent>

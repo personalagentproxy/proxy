@@ -9,7 +9,7 @@ import {listAgents} from '@/client/agents-client';
 import {answerAuthorizationRequest} from '@/client/oauth-client';
 import {AgentLogo} from '@/components/brand-logo';
 import {OrgTile} from '@/components/org-switcher';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {
@@ -213,10 +213,10 @@ function Consent({
 			)}
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<div className="flex justify-end gap-2">
-				<Button variant="outline" disabled={sending} onClick={() => void answer({allow: false})}>
+				<PillButton variant="ghost" disabled={sending} onClick={() => void answer({allow: false})}>
 					Deny
-				</Button>
-				<Button
+				</PillButton>
+				<PillButton
 					disabled={sending || !choice || (naming && shownName.trim() === '')}
 					onClick={() =>
 						choice &&
@@ -228,7 +228,7 @@ function Consent({
 					}
 				>
 					Allow
-				</Button>
+				</PillButton>
 			</div>
 		</Frame>
 	);

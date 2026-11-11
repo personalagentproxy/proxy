@@ -3,7 +3,7 @@ import {useNavigate} from 'react-router';
 import {createDrive} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {ShareNote} from '@/components/share-choice';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
@@ -64,9 +64,9 @@ export function AddDrivePage() {
 				</div>
 				{error && <p className="text-sm text-destructive">{error}</p>}
 				<div>
-					<Button type="submit" disabled={!ready || pending}>
+					<PillButton type="submit" disabled={!ready || pending}>
 						{pending ? 'Making it' : 'Make drive'}
-					</Button>
+					</PillButton>
 				</div>
 			</form>
 		</AppShell>

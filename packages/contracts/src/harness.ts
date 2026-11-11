@@ -3,9 +3,9 @@ import {AVATAR_COLORS, lookSchema} from '@proxy/utils/harness';
 import {z} from 'zod';
 
 /**
- * The Chat page (`/api/orgs/:org/chat/…`): the organization's personas, each named and given a
- * head, which every member sees, the person's own conversation with each, its turns, and what they
- * say in it.
+ * The Chat page (`/api/orgs/:org/chat/…`): the personas the person sees in the organization,
+ * their own and General, which every member does, each named and given a head, the person's own
+ * conversation with each, its turns, and what they say in it.
  */
 
 /**
@@ -37,9 +37,11 @@ export const chatPersonaSchema = z.object({
 	/** The harness that runs it and the model it answers with, by their ids, as this server has them. */
 	harness: z.string(),
 	chatModel: z.string(),
+	/** Every member's, as General is, rather than the person's own, which nobody else sees. */
+	shared: z.boolean(),
 	/**
-	 * Whether the person may rename, reface, switch the harness or the model of, or delete it: they
-	 * made it, or own the organization.
+	 * Whether the person may rename, reface, switch the harness or the model of, or delete it: it
+	 * is their own, or one every member sees that they made or whose organization they own.
 	 */
 	mayChange: z.boolean(),
 	/**

@@ -6,7 +6,7 @@ import {signOut} from '@/client/auth-client';
 import {acceptInvitation} from '@/client/orgs-client';
 import {OrgTile} from '@/components/org-switcher';
 import {StepHeading} from '@/components/step-heading';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {describeApiError} from '@/lib/loader-utils';
 import type {inviteLoader} from '@/loaders';
 
@@ -50,7 +50,7 @@ export function InvitePage() {
 					{invitation.orgName}; nothing changes for this account.
 				</StepHeading>
 				<div>
-					<Button onClick={() => void signOut()}>Sign out</Button>
+					<PillButton onClick={() => void signOut()}>Sign out</PillButton>
 				</div>
 			</Frame>
 		);
@@ -76,9 +76,9 @@ function AlreadyIn({invitation}: {invitation: InvitationLink}) {
 				You’re already a member, so there is nothing to join.
 			</StepHeading>
 			<div>
-				<Button onClick={() => void navigate(`/${invitation.orgSlug}`)}>
+				<PillButton onClick={() => void navigate(`/${invitation.orgSlug}`)}>
 					Open {invitation.orgName}
-				</Button>
+				</PillButton>
 			</div>
 		</Frame>
 	);
@@ -101,7 +101,7 @@ function JoinStep({token, invitation}: {token: string; invitation: InvitationLin
 			</StepHeading>
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<div className="flex gap-2">
-				<Button
+				<PillButton
 					disabled={joining}
 					onClick={async () => {
 						setJoining(true);
@@ -115,10 +115,10 @@ function JoinStep({token, invitation}: {token: string; invitation: InvitationLin
 					}}
 				>
 					{joining ? 'Joining…' : `Join ${invitation.orgName}`}
-				</Button>
-				<Button variant="outline" nativeButton={false} render={<Link to="/" />}>
+				</PillButton>
+				<PillButton variant="ghost" nativeButton={false} render={<Link to="/" />}>
 					Not now
-				</Button>
+				</PillButton>
 			</div>
 		</Frame>
 	);
