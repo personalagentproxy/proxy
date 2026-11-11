@@ -708,6 +708,23 @@ describe('ChatPage', () => {
 		);
 	});
 
+	test('slides the open task in under its agent, and out again as it closes', async () => {
+		renderChatPage({initial: '/acme/chat/general/tasks/sub-1'});
+
+		const general = await screen.findByRole('list', {name: 'General’s tasks'});
+		const opened = (await within(general).findByText('Find flights')).closest('li') as HTMLElement;
+		expect(opened.className).toContain('task-row-enter');
+
+		// Back in General's conversation, the task's row stays, out of reach, until it has slid out.
+		fireEvent.click(screen.getByRole('link', {name: /^General/}));
+		await waitFor(() => expect(opened.className).toContain('task-row-leave'));
+		expect(opened.isConnected).toBe(true);
+		expect(opened.inert).toBe(true);
+
+		fireEvent.animationEnd(opened);
+		await waitFor(() => expect(screen.queryByRole('list', {name: 'General’s tasks'})).toBeNull());
+	});
+
 	test('marks nothing read before the agent has answered', async () => {
 		renderChatPage({
 			entries: [{id: 'e1', kind: 'person', text: 'Hi', isError: false, at: '2026-10-21T10:00:00Z'}],

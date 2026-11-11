@@ -137,6 +137,12 @@ function lastActive(persona: ChatPersona, last: ChatPersona['lastMessage']): num
 // A conversation as the page shows it, fresher than the list: its log, and what is being typed.
 type Shown = {personaId: string; log: ThreadLog; draft: string};
 
+// A task open in its agent's place, under that agent in the list.
+type OpenedTask = {personaId: string; task: ChatTask};
+
+// How a task's row in the list moves: in as it opens, out as it closes, or not at all.
+type TaskMotion = 'enter' | 'leave' | null;
+
 // The personas the person sees, their own and General, in the second sidebar, each with its head, its name and the last
 // thing said between it and the person, marked where the person hasn't seen it, or what they
 // typed and haven't sent, the open one's as it is typed, the open one lit,
@@ -173,6 +179,27 @@ function PersonaList({
 	const org = useOrgSlug();
 	const unread = useUnread();
 	const [hovered, setHovered] = useState<string | null>(null);
+	// The task open in its agent's place where it isn't pinned, shown under the agent while it is.
+	const opened: OpenedTask | null =
+		task !== null && !pinned.some((pin) => pin.id === task.id) ? {personaId: current, task} : null;
+	// The ones open before it, kept a moment as they slide out, so the rows below them move up
+	// rather than jump. One the person pins stays where it is; one opened again is no longer leaving.
+	const [leaving, setLeaving] = useState<OpenedTask[]>([]);
+	const [previous, setPrevious] = useState<OpenedTask | null>(opened);
+	if (previous?.task.id !== opened?.task.id) {
+		setPrevious(opened);
+		setLeaving((rows) => {
+			const rest = rows.filter(
+				(row) => row.task.id !== opened?.task.id && row.task.id !== previous?.task.id,
+			);
+			if (previous === null || pinned.some((pin) => pin.id === previous.task.id)) {
+				return rest;
+			}
+			return [...rest, previous];
+		});
+	}
+	const left = (taskId: string) =>
+		setLeaving((rows) => rows.filter((row) => row.task.id !== taskId));
 	// Whether the persona said something the person hasn't seen, as the provider has it.
 	const isUnread = (persona: ChatPersona) =>
 		persona.id !== current && unread.unreadIds.has(persona.id);
@@ -198,11 +225,27 @@ function PersonaList({
 					// The row is lit while its conversation is open, and the task's under it in its place.
 					const lit = open && task === null;
 					const pinnedHere = pinned.filter((candidate) => candidate.personaId === persona.id);
-					const openTask =
-						open && task !== null && !pinnedHere.some((candidate) => candidate.id === task.id)
-							? [task]
-							: [];
-					const tasks = [...pinnedHere, ...openTask].map((candidate) => (
+					const openTask = opened?.personaId === persona.id ? [opened.task] : [];
+					// Above the open one, so one closing as another opens gives way to it in place.
+					const leavingHere = leaving
+						.filter(
+							(row) =>
+								row.personaId === persona.id && !pinnedHere.some((pin) => pin.id === row.task.id),
+						)
+						.map((row) => row.task);
+					// The open task slides in under its agent and out again as it closes; the pinned stay.
+					const motionOf = (candidate: ChatTask): TaskMotion => {
+						if (openTask.includes(candidate)) {
+							return 'enter';
+						}
+
+						if (leavingHere.includes(candidate)) {
+							return 'leave';
+						}
+
+						return null;
+					};
+					const tasks = [...pinnedHere, ...leavingHere, ...openTask].map((candidate) => (
 						<TaskRow
 							key={candidate.id}
 							task={candidate}
@@ -210,8 +253,8 @@ function PersonaList({
 							lit={open && candidate.id === task?.id}
 							pinned={pinnedHere.some((pin) => pin.id === candidate.id)}
 							onPin={(pin) => onPin(persona.id, candidate.id, pin)}
-							// The open task slides in under its agent; the pinned are there already.
-							enter={openTask.includes(candidate)}
+							motion={motionOf(candidate)}
+							onLeft={() => left(candidate.id)}
 						/>
 					));
 					const row = (
@@ -318,25 +361,46 @@ function PersonaList({
 
 // A task in the list, under its agent: its title, opening its chat, lit while it is open, marked
 // where it is pinned, and pinned or unpinned from its right-click menu. One that enters slides in,
-// its room, gap above it included, opening as it fades in.
+// its room, gap above it included, opening as it fades in; one that leaves slides out the same
+// way, out of reach meanwhile, and says so (`onLeft`) once it is gone.
 function TaskRow({
 	task,
 	to,
 	lit,
 	pinned,
 	onPin,
-	enter,
+	motion,
+	onLeft,
 }: {
 	task: ChatTask;
 	to: string;
 	lit: boolean;
 	pinned: boolean;
 	onPin: (pinned: boolean) => void;
-	enter: boolean;
+	motion: TaskMotion;
+	onLeft: () => void;
 }) {
+	const leave = motion === 'leave';
 	return (
 		<ContextMenu>
-			<ContextMenuTrigger render={<li className={cn('grid', enter && 'task-row-enter')} />}>
+			<ContextMenuTrigger
+				render={
+					<li
+						inert={leave}
+						className={cn(
+							'grid',
+							motion === 'enter' && 'task-row-enter',
+							leave && 'task-row-leave',
+						)}
+						onAnimationEnd={(event) => {
+							if (!leave || event.target !== event.currentTarget) {
+								return;
+							}
+							onLeft();
+						}}
+					/>
+				}
+			>
 				<div className="min-h-0 overflow-hidden pt-0.5">
 					<Link
 						to={to}
