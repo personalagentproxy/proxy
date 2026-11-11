@@ -113,6 +113,7 @@ function renderChatPage({
 	open = 'general',
 	draft = null,
 	answered = () => Promise.resolve(),
+	taskAnswered = () => Promise.resolve(),
 	initial,
 }: {
 	personas?: ChatPersona[];
@@ -124,6 +125,8 @@ function renderChatPage({
 	draft?: string | null;
 	// When the api answers for a conversation: at once, unless a test holds it back.
 	answered?: (personaId: string) => Promise<void>;
+	// When the api answers for a task's chat: at once, unless a test holds it back.
+	taskAnswered?: () => Promise<void>;
 	// The address the page opens on, where it is not the open conversation's.
 	initial?: string;
 } = {}) {
@@ -154,12 +157,10 @@ function renderChatPage({
 					},
 					{
 						path: '/:org/chat/:id/tasks/:taskId',
-						loader: later(async () => ({
-							task: flights,
-							personas: listPersonas(),
-							pinnedTasks,
-							harnesses,
-						})),
+						loader: later(async () => {
+							await taskAnswered();
+							return {task: flights, personas: listPersonas(), pinnedTasks, harnesses};
+						}),
 						element: <ChatPage />,
 					},
 					{path: '/:org/activity/tasks/:taskId', element: <p>The task’s activity</p>},
@@ -708,21 +709,42 @@ describe('ChatPage', () => {
 		);
 	});
 
-	test('slides the open task in under its agent, and out again as it closes', async () => {
-		renderChatPage({initial: '/acme/chat/general/tasks/sub-1'});
+	test('names a task opened from the conversation at once, in the header and under its agent, while its chat loads, and takes its row away as it closes', async () => {
+		let arrive = () => undefined;
+		const held = new Promise<void>((resolve) => {
+			arrive = () => {
+				resolve();
+				return undefined;
+			};
+		});
+		renderChatPage({
+			entries: [
+				{
+					id: 'e2:c1',
+					kind: 'task',
+					task: {id: 'sub-1', title: 'Find flights'},
+					at: '2026-10-21T10:00:00Z',
+				},
+			],
+			taskAnswered: () => held,
+		});
 
-		const general = await screen.findByRole('list', {name: 'General’s tasks'});
-		const opened = (await within(general).findByText('Find flights')).closest('li') as HTMLElement;
-		expect(opened.className).toContain('task-row-enter');
+		fireEvent.click(await screen.findByRole('link', {name: 'Find flights'}));
+		await screen.findByRole('status', {name: 'Loading'});
+		const tasks = screen.getByRole('list', {name: 'General’s tasks'});
+		const row = within(tasks).getByRole('link', {name: 'Find flights'});
+		expect(row.getAttribute('aria-current')).toBe('page');
+		expect(screen.getByRole('link', {name: /^General/}).getAttribute('aria-current')).toBeNull();
+		expect(within(screen.getByRole('banner')).getByText('Find flights')).toBeTruthy();
 
-		// Back in General's conversation, the task's row stays, out of reach, until it has slid out.
+		await act(async () => arrive());
+		await screen.findByLabelText('Task');
+		expect(within(tasks).getByRole('link', {name: 'Find flights'})).toBe(row);
+
 		fireEvent.click(screen.getByRole('link', {name: /^General/}));
-		await waitFor(() => expect(opened.className).toContain('task-row-leave'));
-		expect(opened.isConnected).toBe(true);
-		expect(opened.inert).toBe(true);
-
-		fireEvent.animationEnd(opened);
-		await waitFor(() => expect(screen.queryByRole('list', {name: 'General’s tasks'})).toBeNull());
+		await waitFor(() => expect(tasks.isConnected).toBe(false));
+		expect(screen.queryByRole('list', {name: 'General’s tasks'})).toBeNull();
+		expect(screen.getByRole('link', {name: /^General/}).getAttribute('aria-current')).toBe('page');
 	});
 
 	test('marks nothing read before the agent has answered', async () => {
