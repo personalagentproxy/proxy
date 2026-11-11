@@ -9,15 +9,16 @@ import type {
 	TaskChat,
 	ThreadLog,
 } from '@proxy/contracts/harness';
+import {CornerDownRightIcon, PencilIcon, PinIcon, PinOffIcon, Trash2Icon} from 'lucide-react';
 import {
-	ArrowUpIcon,
-	CornerDownRightIcon,
-	PencilIcon,
-	PinIcon,
-	PinOffIcon,
-	Trash2Icon,
-} from 'lucide-react';
-import {type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState} from 'react';
+	type FormEvent,
+	type KeyboardEvent,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from 'react';
 import {Link, useNavigate, useParams} from 'react-router';
 import {
 	createPersona,
@@ -35,13 +36,9 @@ import {LiveHead} from '@/components/head';
 import {Markdown} from '@/components/markdown';
 import {type ModelChoice, ModelSwitcher} from '@/components/model-switcher';
 import {PersonaDialog} from '@/components/persona-dialog';
+import {PillButton} from '@/components/pill-button';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
-import {
-	InputGroup,
-	InputGroupAddon,
-	InputGroupButton,
-	InputGroupTextarea,
-} from '@proxy/ui/components/input-group';
+import {InputGroup, InputGroupAddon, InputGroupTextarea} from '@proxy/ui/components/input-group';
 import {Message, MessageContent} from '@/components/chat/message';
 import {
 	MessageScroller,
@@ -141,7 +138,7 @@ function lastActive(persona: ChatPersona, last: ChatPersona['lastMessage']): num
 // A conversation as the page shows it, fresher than the list: its log, and what is being typed.
 type Shown = {personaId: string; log: ThreadLog; draft: string};
 
-// The organization's personas in the second sidebar, each with its head, its name and the last
+// The personas the person sees, their own and General, in the second sidebar, each with its head, its name and the last
 // thing said between it and the person, marked where the person hasn't seen it, or what they
 // typed and haven't sent, the open one's as it is typed, the open one lit,
 // each head watching the pointer while it is over that agent's row or its tasks'. The one last active is on
@@ -413,7 +410,8 @@ export function ChatPage() {
 		return null;
 	};
 
-	// Deletes a persona with everyone's conversations with it. If it was open, opens whichever is
+	// Deletes a persona with the conversations with it: the person's, and for one every member
+	// sees, everyone's. If it was open, opens whichever is
 	// first; otherwise refreshes the list around the conversation that stays open.
 	const removePersona = async (persona: ChatPersona) => {
 		const removed = await deletePersona(org, persona.id);
@@ -537,7 +535,7 @@ export function ChatPage() {
 				title={deleting ? `Delete ${deleting.name}?` : ''}
 				description={
 					deleting
-						? `This deletes ${deleting.name} and every member's conversation with it. This cannot be undone.`
+						? `This deletes ${deleting.name} and ${deleting.shared ? "every member's" : 'your'} conversation with it. This cannot be undone.`
 						: ''
 				}
 				confirmLabel="Delete"
@@ -594,7 +592,7 @@ function OpenConversation(opened: Opened) {
 	return <Conversation key={log.persona.id} loaded={log} harnesses={harnesses} {...opened} />;
 }
 
-// The person's conversation with one of the organization's personas: its log, read again as the
+// The person's conversation with one of the personas they see: its log, read again as the
 // persona works, and an input. The persona hands each piece of work to a sub-agent it keeps
 // talking with, which acts as the person through the organization's built-in login, whose calls
 // go through the same gate as any agent's, so its activity is in the log by the sub-agent's task.
@@ -638,7 +636,9 @@ function Conversation({
 	// back from the server.
 	useReloadWhileHidden(text === draft.saved && !sending && !managing);
 
-	useEffect(() => {
+	// Said as it is drawn, so the list shows the conversation as it is shown, and from the answer
+	// it came with, in the same frame.
+	useLayoutEffect(() => {
 		onShown({personaId, log, draft: text});
 	}, [onShown, personaId, log, text]);
 
@@ -857,16 +857,14 @@ function Conversation({
 							mayChange={current.mayChange}
 							onPick={(choice) => void switchModel(choice)}
 						/>
-						<InputGroupButton
+						{/* The command bar's main button without its label: Enter's mark, as Enter sends. */}
+						<PillButton
 							type="submit"
-							size="icon-sm"
-							variant="default"
-							className="ml-auto rounded-full"
+							enter
+							className="ml-auto"
 							disabled={sending || text.trim() === ''}
 							aria-label="Send"
-						>
-							<ArrowUpIcon />
-						</InputGroupButton>
+						/>
 					</InputGroupAddon>
 				</InputGroup>
 			</form>

@@ -14,9 +14,10 @@ import {
 import type {z} from 'zod';
 import {apiRequest, apiSend, orgApi} from '@/client/request';
 
-// The Chat page's api: the organization's personas, each named and given a head, which every
-// member sees, the person's own conversation with each, its turns, what they say in it, and how
-// far they have read it, and the tasks the persona started in it, each with a chat of its own.
+// The Chat page's api: the personas the person sees, their own and General, which every member
+// does, each named and given a head, the person's own conversation with each, its turns, what
+// they say in it, and how far they have read it, and the tasks the persona started in it, each
+// with a chat of its own.
 
 export function listPersonas(org: string) {
 	return apiRequest('GET', `${orgApi(org)}/chat/personas`, personaListSchema);

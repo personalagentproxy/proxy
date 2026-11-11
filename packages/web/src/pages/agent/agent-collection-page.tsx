@@ -10,7 +10,7 @@ import {
 	PersonLinkHint,
 } from '@/components/agent-shell';
 import {EmptyRows, Row, RowList} from '@/components/row-list';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {canStartNew, displayValue, recordTitle} from '@/lib/access';
@@ -66,18 +66,16 @@ export function AgentCollectionPage() {
 				<AgentHeading>{here?.title ?? collection.name}</AgentHeading>
 				<div className="flex gap-2">
 					{here && (
-						<Button
-							size="sm"
-							variant="outline"
+						<PillButton
+							variant="ghost"
 							nativeButton={false}
 							render={<Link to={recordPath(base, here.id)} />}
 						>
 							Open “{here.title}” itself
-						</Button>
+						</PillButton>
 					)}
 					{canStartNew(collection, actions) && (
-						<Button
-							size="sm"
+						<PillButton
 							nativeButton={false}
 							render={
 								<Link to={`${base}/new${inside(parent)}`} state={{parentTitle: here?.title}} />
@@ -85,7 +83,7 @@ export function AgentCollectionPage() {
 						>
 							New {collection.singular}
 							{here ? ' here' : ''}
-						</Button>
+						</PillButton>
 					)}
 				</div>
 			</div>
@@ -149,17 +147,17 @@ export function AgentCollectionPage() {
 							defaultValue={search}
 							key={search}
 						/>
-						<Button type="submit" variant="outline">
+						<PillButton type="submit" variant="ghost">
 							Search
-						</Button>
+						</PillButton>
 						{search && (
-							<Button
+							<PillButton
 								variant="ghost"
 								nativeButton={false}
 								render={<Link to={listLink({search: null})} />}
 							>
 								Clear search
-							</Button>
+							</PillButton>
 						)}
 					</Form>
 					<p className="text-sm text-muted-foreground">{collection.searchHint}</p>
@@ -168,15 +166,19 @@ export function AgentCollectionPage() {
 			{filter && (
 				<nav aria-label={`${filter.label} filter`} className="flex gap-1">
 					{[null, ...(filter.options ?? [])].map((option) => (
-						<Button
+						<PillButton
 							key={option ?? 'all'}
-							size="sm"
-							variant={chosen === option ? 'secondary' : 'ghost'}
+							variant="ghost"
 							nativeButton={false}
-							render={<Link to={listLink({filter: option})} />}
+							render={
+								<Link
+									to={listLink({filter: option})}
+									aria-current={chosen === option ? 'page' : undefined}
+								/>
+							}
 						>
 							{option ?? 'All'}
-						</Button>
+						</PillButton>
 					))}
 				</nav>
 			)}
@@ -228,14 +230,14 @@ export function AgentCollectionPage() {
 				))}
 			</RowList>
 			{nextPage && (
-				<Button
-					variant="outline"
+				<PillButton
+					variant="ghost"
 					className="self-start"
 					nativeButton={false}
 					render={<Link to={listLink({page: nextPage})} />}
 				>
 					{collection.upcoming ? 'Later' : 'Older'} {collection.name.toLowerCase()}
-				</Button>
+				</PillButton>
 			)}
 		</AgentShell>
 	);

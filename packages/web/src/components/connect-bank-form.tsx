@@ -1,6 +1,6 @@
 import type {Connection} from '@proxy/contracts/connections';
 import type {FetchError} from '@proxy/utils';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {useEffect, useState, type ReactNode} from 'react';
 import {usePlaidLink} from 'react-plaid-link';
 import {connectPlaid, createPlaidLinkToken} from '@/client/connections-client';
@@ -127,9 +127,9 @@ export function ConnectBankForm({
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<div className="flex justify-end gap-2">
 				{cancel}
-				<Button disabled={pending} onClick={() => void start()}>
+				<PillButton disabled={pending} onClick={() => void start()}>
 					{pending ? 'Opening Plaid…' : 'Choose your bank'}
-				</Button>
+				</PillButton>
 			</div>
 		</div>
 	);

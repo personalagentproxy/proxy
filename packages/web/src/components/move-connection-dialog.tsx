@@ -1,6 +1,6 @@
 import type {Org} from '@proxy/contracts/orgs';
 import {useState} from 'react';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {
 	Dialog,
 	DialogContent,
@@ -96,12 +96,12 @@ export function MoveConnectionDialog({title, orgs, onClose, onMove}: Props) {
 					</div>
 					{error && <p className="text-sm text-destructive">{error}</p>}
 					<DialogFooter>
-						<Button type="button" variant="outline" onClick={onClose}>
+						<PillButton type="button" variant="ghost" onClick={onClose}>
 							Cancel
-						</Button>
-						<Button type="submit" disabled={slug === '' || moving}>
+						</PillButton>
+						<PillButton type="submit" disabled={slug === '' || moving}>
 							{moving ? 'Moving…' : 'Move'}
-						</Button>
+						</PillButton>
 					</DialogFooter>
 				</form>
 			</DialogContent>

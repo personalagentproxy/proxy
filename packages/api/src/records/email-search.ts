@@ -5,7 +5,7 @@ import type {ApiError} from '@proxy/utils';
 import type {DataRecord, RecordTarget} from './connector';
 
 /**
- * A search for email as the home page asks it, whatever the mailbox: from someone, or involving
+ * A search for email as the command bar asks it, whatever the mailbox: from someone, or involving
  * them (from, to or copied), about some words, since a day. Each mailbox's connector puts it in its own terms: Gmail's search syntax,
  * over its API or over IMAP, or IMAP's own search elsewhere.
  */

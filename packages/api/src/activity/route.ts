@@ -101,7 +101,7 @@ export function handleTaskRunRoute(request: AuthenticatedRequest): Promise<Resul
 	});
 }
 
-// The home page's timeline: at most this many tasks of their own and this many sub-tasks of them,
+// The Activity page's timeline: at most this many tasks of their own and this many sub-tasks of them,
 // a window at most this far back, and at most this many requests made for the tasks.
 const MAX_TASKS = 200;
 const MAX_TIMELINE_SUB_TASKS = 1000;

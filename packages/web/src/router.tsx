@@ -40,7 +40,6 @@ import {
 	connectionLoader,
 	connectionsLoader,
 	desktopAuthLoader,
-	homeLoader,
 	inviteLoader,
 	membersLoader,
 	shouldRevalidateTimeline,
@@ -78,11 +77,11 @@ import {ConnectionPage} from '@/pages/connection-page';
 import {ConnectionsPage} from '@/pages/connections-page';
 import {DesktopAuthPage} from '@/pages/desktop-auth-page';
 import {DesktopReturnPage} from '@/pages/desktop-return-page';
-import {HomePage} from '@/pages/home-page';
 import {InvitePage} from '@/pages/invite-page';
 import {LoginPage} from '@/pages/login-page';
 import {MembersPage} from '@/pages/members-page';
 import {NewAgentPage} from '@/pages/new-agent-page';
+import {OrgStart} from '@/pages/org-start';
 import {OrgSettingsPage} from '@/pages/org-settings-page';
 import {WelcomeConnectionPage, WelcomePage} from '@/pages/welcome-page';
 
@@ -282,12 +281,7 @@ const routes: RouteObject[] = [
 		errorElement: <RouteError />,
 		children: [
 			{path: '/account', loader: accountLoader, element: <AccountPage />},
-			{
-				path: '/:org',
-				loader: homeLoader,
-				shouldRevalidate: shouldRevalidateTimeline,
-				element: <HomePage />,
-			},
+			{path: '/:org', element: <OrgStart />},
 			{path: '/:org/connections', loader: connectionsLoader, element: <ConnectionsPage />},
 			{path: '/:org/connections/new', loader: addConnectionLoader, element: <AddConnectionPage />},
 			{path: '/:org/connections/new/email', element: <AddEmailPage />},

@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {
 	Dialog,
 	DialogContent,
@@ -87,12 +87,12 @@ export function RenameDialog({
 					</div>
 					{error && <p className="text-sm text-destructive">{error}</p>}
 					<DialogFooter>
-						<Button type="button" variant="outline" onClick={onClose}>
+						<PillButton type="button" variant="ghost" onClick={onClose}>
 							Cancel
-						</Button>
-						<Button type="submit" disabled={!ready || saving}>
+						</PillButton>
+						<PillButton type="submit" disabled={!ready || saving}>
 							{saving ? 'Saving…' : 'Save'}
-						</Button>
+						</PillButton>
 					</DialogFooter>
 				</form>
 			</DialogContent>

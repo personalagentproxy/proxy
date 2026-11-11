@@ -14,7 +14,7 @@ import {createAgent, listMcpClients, resetAgentPassword} from '@/client/agents-c
 import {AgentProviderTile} from '@/components/agent-provider-tile';
 import {CopyButton} from '@/components/copy-button';
 import {StepHeading} from '@/components/step-heading';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Card} from '@proxy/ui/components/card';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
@@ -75,9 +75,9 @@ export function AddAgent({
 			{replace},
 		);
 	const chooseAnother = (
-		<Button variant="outline" onClick={() => show({})}>
+		<PillButton variant="ghost" onClick={() => show({})}>
 			Choose another agent
-		</Button>
+		</PillButton>
 	);
 
 	if (agent) {
@@ -214,9 +214,9 @@ function NameAgent({
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<div className="flex justify-between gap-2">
 				{back}
-				<Button type="submit" disabled={!ready}>
+				<PillButton type="submit" disabled={!ready}>
 					{pending ? 'Making…' : 'Continue'}
-				</Button>
+				</PillButton>
 			</div>
 		</form>
 	);
@@ -251,7 +251,7 @@ export function AgentSetup({
 	const actions = (
 		<div className={back ? 'flex justify-between gap-2' : 'flex justify-end gap-2'}>
 			{back}
-			<Button onClick={onContinue}>{continueLabel}</Button>
+			<PillButton onClick={onContinue}>{continueLabel}</PillButton>
 		</div>
 	);
 	if (provider.connects === 'mcp') {
@@ -563,14 +563,14 @@ function LoginAgent({
 						{agent.name}&apos;s login is {agent.username}. Its password was shown once, when it was
 						made. To hand it over again, make a new one; the current one stops working at once.
 					</p>
-					<Button
-						variant="outline"
+					<PillButton
+						variant="ghost"
 						className="justify-self-start"
 						disabled={pending}
 						onClick={() => void reset()}
 					>
 						{pending ? 'Making…' : 'New password'}
-					</Button>
+					</PillButton>
 				</Card>
 			)}
 			{error && <p className="text-sm text-destructive">{error}</p>}

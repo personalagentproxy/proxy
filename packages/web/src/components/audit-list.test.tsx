@@ -154,7 +154,7 @@ describe('AuditList', () => {
 		).toBeDefined();
 	});
 
-	test('what Personal Agent Proxy did itself from the home page says who asked', async () => {
+	test('what Personal Agent Proxy did itself from the command bar says who asked', async () => {
 		const byDana: AuditEntry = {
 			...entry,
 			id: 'entry-2',

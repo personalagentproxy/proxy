@@ -1,10 +1,10 @@
 import {
 	BellIcon,
 	ChartNoAxesGanttIcon,
-	HomeIcon,
 	ListChecksIcon,
 	MessageSquareIcon,
 	PlugIcon,
+	SearchIcon,
 	type LucideIcon,
 } from 'lucide-react';
 import type {Experiment} from '@proxy/utils';
@@ -23,8 +23,10 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from '@proxy/ui/components/sidebar';
+import {useCommandPalette} from '@/hooks/use-command-palette';
 import {useHuman} from '@/hooks/use-human';
 import {useUnread} from '@/hooks/use-unread';
+import {shortcutLabel} from '@/lib/platform';
 
 // `experiment` is the experiment a destination is behind, shown only with it on.
 type Destination = {to: string; label: string; icon: LucideIcon; experiment?: Experiment};
@@ -46,12 +48,9 @@ function UnreadBadge({count}: {count: number}) {
 }
 
 // The organization's, under the switcher, each under its slug, in groups set apart from each
-// other. Its members and settings are in the switcher.
+// other, the first under Search. Its members and settings are in the switcher.
 const GROUPS: Destination[][] = [
-	[
-		{to: '', label: 'Home', icon: HomeIcon},
-		{to: '/chat', label: 'Chat', icon: MessageSquareIcon, experiment: 'harness'},
-	],
+	[{to: CHAT, label: 'Chat', icon: MessageSquareIcon, experiment: 'harness'}],
 	[
 		{to: '/connections', label: 'Connections and permissions', icon: PlugIcon},
 		{to: '/agents', label: 'External agents', icon: ListChecksIcon},
@@ -62,23 +61,18 @@ const GROUPS: Destination[][] = [
 	],
 ];
 
-// Each destination is lit on its own pages too, as `/acme/connections/:id`; Home only on itself,
-// since every path in the organization starts with its slug.
-function isActive(pathname: string, path: string, home: string): boolean {
-	return path === home ? pathname === home : pathname.startsWith(path);
-}
-
 // The stock shadcn sidebar: always a rail in icon mode on desktop, labels in tooltips; a sheet from
 // the left on phones, opened from the header and closed again on every pick. The organization
-// switcher sits at its top, with the organization's pages in groups under it; the person's
-// account, where they sign out, at its foot.
+// switcher sits at its top, with the command bar's button (Cmd+K) and the organization's pages in
+// groups under it; the person's account, where they sign out, at its foot.
 export function AppSidebar() {
 	const {pathname} = useLocation();
 	const human = useHuman();
 	const experiments = useExperiments();
 	const unread = useUnread();
 	const {setOpenMobile} = useSidebar();
-	const home = `/${human?.org.slug ?? ''}`;
+	const palette = useCommandPalette();
+	const base = `/${human?.org.slug ?? ''}`;
 	const groups = GROUPS.map((group) =>
 		group.filter(
 			(destination) =>
@@ -99,13 +93,28 @@ export function AppSidebar() {
 				{groups.map((group, index) => (
 					<SidebarGroup key={index} className={index === 0 ? 'pt-0' : undefined}>
 						<SidebarMenu>
+							{index === 0 && (
+								<SidebarMenuItem>
+									<SidebarMenuButton
+										tooltip={`Search ${shortcutLabel('k')}`}
+										onClick={() => {
+											setOpenMobile(false);
+											palette.toggle();
+										}}
+									>
+										<SearchIcon />
+										<span>Search</span>
+									</SidebarMenuButton>
+								</SidebarMenuItem>
+							)}
 							{group.map((destination) => (
 								<SidebarMenuItem key={destination.to}>
 									<SidebarMenuButton
-										isActive={isActive(pathname, `${home}${destination.to}`, home)}
+										// Lit on its own pages too, as `/acme/connections/:id`.
+										isActive={pathname.startsWith(`${base}${destination.to}`)}
 										tooltip={destination.label}
 										render={
-											<Link to={`${home}${destination.to}`} onClick={() => setOpenMobile(false)} />
+											<Link to={`${base}${destination.to}`} onClick={() => setOpenMobile(false)} />
 										}
 									>
 										<destination.icon />

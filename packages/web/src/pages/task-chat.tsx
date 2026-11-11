@@ -1,5 +1,4 @@
 import type {TaskChat, TaskChatEntry} from '@proxy/contracts/harness';
-import {ArrowUpIcon} from 'lucide-react';
 import {type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState} from 'react';
 import {getTask, postTaskMessage} from '@/client/harness-client';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
@@ -15,18 +14,14 @@ import {
 import {WorkingLine} from '@/components/chat/task-line';
 import {Head} from '@/components/head';
 import {Markdown} from '@/components/markdown';
+import {PillButton} from '@/components/pill-button';
 import {useLoaded} from '@/hooks/use-loaded';
 import {useOrgSlug} from '@/hooks/use-org';
 import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
 import {chatRuns} from '@/lib/chat-runs';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {chatTaskLoader} from '@/loaders';
-import {
-	InputGroup,
-	InputGroupAddon,
-	InputGroupButton,
-	InputGroupTextarea,
-} from '@proxy/ui/components/input-group';
+import {InputGroup, InputGroupAddon, InputGroupTextarea} from '@proxy/ui/components/input-group';
 
 // How often the chat is read again while the task is at work, and while it is not.
 const BUSY_POLL_MS = 1000;
@@ -223,16 +218,14 @@ function TaskConversation({loaded}: {loaded: TaskChat}) {
 						<span className="text-xs text-muted-foreground">
 							{persona.name} sees what you write here.
 						</span>
-						<InputGroupButton
+						{/* The command bar's main button without its label: Enter's mark, as Enter sends. */}
+						<PillButton
 							type="submit"
-							size="icon-sm"
-							variant="default"
-							className="ml-auto rounded-full"
+							enter
+							className="ml-auto"
 							disabled={sending || text.trim() === ''}
 							aria-label="Send"
-						>
-							<ArrowUpIcon />
-						</InputGroupButton>
+						/>
 					</InputGroupAddon>
 				</InputGroup>
 			</form>

@@ -1,5 +1,4 @@
 import {findUnit, UNITS, convert, type Rates, type Unit} from '@proxy/utils/units';
-import {ArrowRightLeftIcon} from 'lucide-react';
 import type {Intent} from '@/client/intent-client';
 import {CopyButton} from '@/components/copy-button';
 import {Missing, WidgetFrame} from '@/components/widgets/widget-frame';
@@ -71,7 +70,7 @@ export function ConvertWidget({intent}: {intent: Intent}) {
 		from && to && Number.isFinite(amount) ? convert(amount, from, to, rates.data?.rates) : null;
 
 	return (
-		<WidgetFrame icon={ArrowRightLeftIcon} name="Convert units">
+		<WidgetFrame name="Convert units">
 			{!from && <Missing>Type an amount and its unit, such as 5 miles in km</Missing>}
 			{money && result === null && (
 				<Missing>

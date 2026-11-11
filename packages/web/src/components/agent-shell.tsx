@@ -3,7 +3,7 @@ import {Fragment, type ReactNode, useState} from 'react';
 import {Link, useNavigate, useParams} from 'react-router';
 import {finishAgentTask, signOutAgent} from '@/client/agent-client';
 import {AgentLogo} from '@/components/brand-logo';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {cn} from '@proxy/ui/lib/utils';
 import {useAgentMe, useAgentTask} from '@/hooks/use-agent-target';
 import {useTitleBarHeader} from '@/hooks/use-title-bar-header';
@@ -47,16 +47,15 @@ export function AgentShell({children, feedback = true}: {children: ReactNode; fe
 							<span className="truncate">Signed in as {agent.name}</span>
 						</span>
 					)}
-					<Button
-						size="sm"
-						variant="outline"
+					<PillButton
+						variant="ghost"
 						onClick={async () => {
 							await signOutAgent();
 							navigate('/agent/login');
 						}}
 					>
 						Sign out
-					</Button>
+					</PillButton>
 				</div>
 			</header>
 			{task && <TaskBar task={task} />}
@@ -123,9 +122,9 @@ function TaskBar({task}: {task: {task: string; title: string}}) {
 					</Link>
 					{error && <span className="min-w-0 truncate text-destructive">{error}</span>}
 				</p>
-				<Button size="sm" variant="outline" disabled={finishing} onClick={() => void finish()}>
+				<PillButton variant="ghost" disabled={finishing} onClick={() => void finish()}>
 					{finishing ? 'Finishing…' : 'Finish task'}
-				</Button>
+				</PillButton>
 			</div>
 		</div>
 	);

@@ -4,11 +4,11 @@ import {TRANSACTION_CATEGORIES} from '@proxy/utils/transaction-categories';
 import {UNITS} from '@proxy/utils/units';
 
 /**
- * The widgets the home page shows for what a person types, Sana's way: Jev picks the one that fits,
- * and a small, fast LLM fills in its fields from the text (`packages/api/src/intent/`). Most are
- * meant for one kind of data: Calendar, Contacts, Gmail or Drive, or a bank; Math and Convert units
- * are worked out in the web app; Ask reads one meeting, file, email, page or issue and answers from
- * it.
+ * The widgets the command bar shows for what a person types, over any page (Cmd+K), Sana's way: Jev picks the one that fits, and a small, fast LLM fills in its fields from
+ * the text (`packages/api/src/intent/`). Most are meant for one kind of data: Calendar, Contacts,
+ * Gmail or Drive, or a bank; Math and Convert units are worked out in the web app; Ask reads one
+ * meeting, file, email, page or issue and answers from it; New agent makes an agent of Chat's and
+ * hands it what it is for, so it is offered only where Chat is (`CHAT_WIDGET_IDS`).
  */
 
 type FieldOf<Id extends string> = {
@@ -333,6 +333,24 @@ const LIST = [
 			},
 		],
 	},
+	{
+		id: 'new_agent',
+		name: 'New agent',
+		description:
+			'Set up, add, create or make a new agent, assistant or bot of the person\'s own to do something for them, once, again and again or whenever something happens ("add an agent that reminds me to stretch every hour", "I want an agent for my finances", "create an assistant that watches my inbox for invoices"); never a request to just do the thing, which names no agent to make',
+		fields: [
+			{
+				id: 'agentName',
+				name: 'Name',
+				hint: 'what to call the agent: its name as written when one is given ("call it Penny" is "Penny"), else one to three words for what it is for, the first capitalized ("Stretch reminders", "Finance", "Invoice watch"); never "agent" or "assistant" alone',
+			},
+			{
+				id: 'agentTask',
+				name: 'Task',
+				hint: 'what the agent is to do, as an instruction said to it, with every detail the person gave ("add an agent that reminds me to stretch every hour" is "Remind me to stretch every hour."); null when only its name or what it is about is said',
+			},
+		],
+	},
 ] as const satisfies ReadonlyArray<WidgetOf<string, string>>;
 
 /** A widget's id, as the api picks it and the web app shows it. */
@@ -366,7 +384,29 @@ export const WIDGET_IDS = [
 	'convert_units',
 	'show_balances',
 	'find_transactions',
+	'new_agent',
 ] as const satisfies readonly WidgetId[];
+
+/** What each widget is called, as it says it is. */
+export const WIDGET_NAMES: Record<WidgetId, string> = {
+	new_event: 'New event',
+	change_event: 'Change event',
+	show_calendar: 'Calendar',
+	find_person: 'Person',
+	write_email: 'Write email',
+	reply_email: 'Reply to email',
+	find_email: 'Find email',
+	find_file: 'Find file',
+	ask: 'Ask',
+	calculate: 'Math',
+	convert_units: 'Convert units',
+	show_balances: 'Balances',
+	find_transactions: 'Transactions',
+	new_agent: 'New agent',
+};
+
+/** The widgets that work with Chat's agents, picked only for an organization that has Chat. */
+export const CHAT_WIDGET_IDS: readonly WidgetId[] = ['new_agent'];
 
 /** Every field's id, of any widget, each once. */
 export const FIELD_IDS = [
@@ -403,6 +443,8 @@ export const FIELD_IDS = [
 	'category',
 	'flow',
 	'transactionAccount',
+	'agentName',
+	'agentTask',
 ] as const satisfies readonly FieldId[];
 
 /** The answer when what was asked is whole and none of the widgets does it. */
@@ -410,7 +452,7 @@ export const NO_WIDGET = 'none';
 
 /**
  * The answer when the text is cut off or says too little to tell yet, as it is half-way through
- * typing: the home page waits for more rather than saying nothing fits.
+ * typing: the command bar waits for more rather than saying nothing fits.
  */
 export const INCOMPLETE = 'incomplete';
 

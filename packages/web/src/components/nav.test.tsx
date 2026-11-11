@@ -24,7 +24,7 @@ function unreadOf(ids: string[]): Unread {
 	};
 }
 
-function renderSidebar(human: Human, entry = '/acme', unread = unreadOf([])) {
+function renderSidebar(human: Human, entry = '/acme/connections', unread = unreadOf([])) {
 	const router = createMemoryRouter(
 		[
 			{
@@ -55,7 +55,7 @@ function groupLabels(): string[][] {
 	return [...document.querySelectorAll('[data-sidebar="content"] [data-sidebar="group"]')].map(
 		(group) =>
 			within(group as HTMLElement)
-				.getAllByRole('link')
+				.queryAllByRole('link')
 				.map((link) => link.textContent),
 	);
 }
@@ -63,14 +63,14 @@ function groupLabels(): string[][] {
 describe('AppSidebar', () => {
 	test("groups the organization's pages, its members and settings in the switcher", async () => {
 		renderSidebar(testHuman());
-		const home = await screen.findByRole('link', {name: 'Home'});
-		expect(home.hasAttribute('data-active')).toBe(true);
+		const connections = await screen.findByRole('link', {name: 'Connections and permissions'});
+		expect(connections.hasAttribute('data-active')).toBe(true);
 		expect(
 			screen.getByRole('button', {name: 'Organization: Acme'}).hasAttribute('data-active'),
 		).toBe(false);
 
 		expect(groupLabels()).toEqual([
-			['Home'],
+			[],
 			['Connections and permissions', 'External agents'],
 			['Activity'],
 		]);
@@ -82,12 +82,13 @@ describe('AppSidebar', () => {
 		expect(settings.getAttribute('href')).toBe('/acme/settings');
 	});
 
-	test('shows Chat beside Home, and Alerts under Activity, with the harness experiment', async () => {
-		renderSidebar(testHuman({...testOrg, experiments: ['harness']}));
-		await screen.findByRole('link', {name: 'Home'});
+	test('shows Chat under Search, and Alerts under Activity, with the harness experiment', async () => {
+		renderSidebar(testHuman({...testOrg, experiments: ['harness']}), '/acme/chat/general');
+		const chat = await screen.findByRole('link', {name: 'Chat'});
+		expect(chat.hasAttribute('data-active')).toBe(true);
 
 		expect(groupLabels()).toEqual([
-			['Home', 'Chat'],
+			['Chat'],
 			['Connections and permissions', 'External agents'],
 			['Activity', 'Alerts'],
 		]);
@@ -96,7 +97,7 @@ describe('AppSidebar', () => {
 	test('counts the conversations with something unread on Chat', async () => {
 		renderSidebar(
 			testHuman({...testOrg, experiments: ['harness']}),
-			'/acme',
+			'/acme/connections',
 			unreadOf(['general', 'finance']),
 		);
 		await screen.findByRole('link', {name: 'Chat'});
@@ -111,7 +112,12 @@ describe('AppSidebar', () => {
 
 		const switcher = await screen.findByRole('button', {name: 'Organization: Acme'});
 		expect(switcher.hasAttribute('data-active')).toBe(true);
-		expect(screen.getByRole('link', {name: 'Home'}).hasAttribute('data-active')).toBe(false);
+		expect(
+			screen
+				.getAllByRole('link')
+				.filter((link) => link.hasAttribute('data-active'))
+				.map((link) => link.textContent),
+		).toEqual([]);
 	});
 
 	test('links the signed-in Google profile image to Account', async () => {

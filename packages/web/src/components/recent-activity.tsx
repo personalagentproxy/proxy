@@ -42,7 +42,6 @@ export function RecentActivity({entries, agents, connections, tasks, allHref, of
 				</span>
 				<IconButton
 					label={loading ? 'Refreshing activity' : 'Refresh activity'}
-					size="xs"
 					disabled={loading}
 					onClick={async () => {
 						setLoading(true);

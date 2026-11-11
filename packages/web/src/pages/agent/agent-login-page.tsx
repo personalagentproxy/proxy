@@ -3,7 +3,7 @@ import {useState} from 'react';
 import {Link, useNavigate} from 'react-router';
 import {signInAgent} from '@/client/agent-client';
 import {TASKS_PATH} from '@/lib/agent-task';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 
@@ -65,9 +65,9 @@ export function AgentLoginPage() {
 					/>
 				</div>
 				{error && <p className="text-sm text-destructive">{error}</p>}
-				<Button type="submit" disabled={username.length === 0 || password.length === 0}>
+				<PillButton type="submit" disabled={username.length === 0 || password.length === 0}>
 					Sign in
-				</Button>
+				</PillButton>
 				<p className="text-sm text-muted-foreground">
 					Not an agent?{' '}
 					<Link to="/login" className="text-foreground underline-offset-4 hover:underline">

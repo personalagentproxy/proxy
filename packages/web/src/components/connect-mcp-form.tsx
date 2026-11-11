@@ -3,7 +3,7 @@ import type {FetchError} from '@proxy/utils';
 import {useState, type ReactNode} from 'react';
 import {useSearchParams} from 'react-router';
 import {connectMcp} from '@/client/connections-client';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {apiMessage} from '@/lib/agent-errors';
@@ -156,13 +156,13 @@ export function ConnectMcpForm({
 			{notice && <p className="text-sm text-muted-foreground">{notice}</p>}
 			<div className="flex justify-end gap-2">
 				{cancel}
-				<Button type="submit" disabled={!ready || pending !== null}>
+				<PillButton type="submit" disabled={!ready || pending !== null}>
 					{pending === 'signingIn'
 						? 'Opening sign-in…'
 						: pending === 'connecting'
 							? 'Connecting…'
 							: 'Connect'}
-				</Button>
+				</PillButton>
 			</div>
 		</form>
 	);

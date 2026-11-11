@@ -3,7 +3,7 @@ import {z} from 'zod';
 
 /**
  * The activity log (`/api/orgs/:org/activity/…`): the requests made of the connections the person
- * sees, the tasks they were made for, a task's page, and the home page's timeline.
+ * sees, the tasks they were made for, a task's page, and the Activity page's timeline.
  */
 
 /** The web app's agent pages, the MCP server, the built-in agent's own loop, or code in a sandbox (`/api/cli`). */
@@ -14,7 +14,7 @@ const outcomeSchema = z.enum(['allowed', 'denied', 'failed']);
 export const auditEntrySchema = z.object({
 	id: z.string(),
 	at: z.string(),
-	/** None for what Personal Agent Proxy did itself, as the home page's widgets write. */
+	/** None for what Personal Agent Proxy did itself, as the command bar's widgets write. */
 	agentId: z.string().nullable(),
 	connectionId: z.string(),
 	collectionId: z.string(),
@@ -125,7 +125,7 @@ export const taskRunSchema = z.object({
 export type TaskRun = z.infer<typeof taskRunSchema>;
 
 /**
- * `GET activity/timeline?from=…&to=…`: the home page's timeline, every task under way at some
+ * `GET activity/timeline?from=…&to=…`: the Activity page's timeline, every task under way at some
  * point between `from` and `to`, with its sub-tasks, and the requests made for them.
  */
 export const activityTimelineSchema = z.object({

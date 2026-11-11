@@ -1,7 +1,7 @@
 import {useId, useState, type ReactNode} from 'react';
 import type {Field} from '@proxy/integrations';
 import {displayValue} from '@/lib/access';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {
@@ -84,18 +84,22 @@ export function RecordForm({
 				{extra}
 				<span className="flex-1" />
 				{onCancel && (
-					<Button type="button" variant="outline" onClick={onCancel}>
+					<PillButton type="button" variant="ghost" onClick={onCancel}>
 						Cancel
-					</Button>
+					</PillButton>
 				)}
 				{alternative && (
-					<Button type="button" variant="outline" onClick={() => alternative.onSubmit(submitted())}>
+					<PillButton
+						type="button"
+						variant="ghost"
+						onClick={() => alternative.onSubmit(submitted())}
+					>
 						{alternative.label}
-					</Button>
+					</PillButton>
 				)}
-				<Button type="submit" disabled={requireNonEmpty && empty}>
+				<PillButton type="submit" disabled={requireNonEmpty && empty}>
 					{submitLabel}
-				</Button>
+				</PillButton>
 			</div>
 		</form>
 	);

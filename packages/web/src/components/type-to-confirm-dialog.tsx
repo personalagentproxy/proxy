@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {
 	Dialog,
 	DialogContent,
@@ -80,12 +80,12 @@ export function TypeToConfirmDialog({
 					</div>
 					{error && <p className="text-sm text-destructive">{error}</p>}
 					<DialogFooter>
-						<Button type="button" variant="outline" disabled={deleting} onClick={onClose}>
+						<PillButton type="button" variant="ghost" disabled={deleting} onClick={onClose}>
 							Cancel
-						</Button>
-						<Button type="submit" variant="destructive" disabled={!ready || deleting}>
+						</PillButton>
+						<PillButton type="submit" variant="destructive" disabled={!ready || deleting}>
 							{deleting ? 'Deleting…' : confirmLabel}
-						</Button>
+						</PillButton>
 					</DialogFooter>
 				</form>
 			</DialogContent>

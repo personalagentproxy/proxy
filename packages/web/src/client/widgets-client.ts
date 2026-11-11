@@ -23,7 +23,7 @@ import {
 } from '@proxy/contracts/widgets';
 import {apiRequest, orgApi} from '@/client/request';
 
-// The home page's widgets' reads and writes (`packages/api/src/widgets/`): every connection with
+// The command bar's widgets' reads and writes (`packages/api/src/widgets/`): every connection with
 // the collection a widget is about, read at once, each answer saying which connections it read
 // and which it couldn't. What they answer and take is `@proxy/contracts/widgets`.
 

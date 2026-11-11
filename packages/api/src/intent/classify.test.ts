@@ -1,5 +1,7 @@
 import {beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
 
+import {WIDGETS} from '@proxy/contracts/intent';
+
 const mockEnv: {TYPESAFE_API_KEY?: string; OPENROUTER_KEY?: string} = {};
 mock.module('../utils/env', () => ({env: mockEnv}));
 
@@ -60,7 +62,7 @@ beforeEach(() => {
 describe('pickIntent', () => {
 	test('asks Jev which widget fits, among the widgets, incomplete and none, and fills nothing in', async () => {
 		const {pickIntent} = await import('./classify');
-		expect((await pickIntent(text)).unwrap()).toMatchObject({widget: 'new_event'});
+		expect((await pickIntent(text, WIDGETS)).unwrap()).toMatchObject({widget: 'new_event'});
 
 		const [jev] = calls('https://api.typesafe.ai/');
 		expect(jev?.headers.authorization).toBe('Bearer ts-1');
@@ -82,6 +84,7 @@ describe('pickIntent', () => {
 			'convert_units',
 			'show_balances',
 			'find_transactions',
+			'new_agent',
 			'incomplete',
 			'none',
 		]);
@@ -94,7 +97,7 @@ describe('pickIntent', () => {
 		const {pickIntent} = await import('./classify');
 		pick('ask');
 
-		expect((await pickIntent('what did I talk to sam about yesterday')).unwrap()).toMatchObject({widget: 'ask'});
+		expect((await pickIntent('what did I talk to sam about yesterday', WIDGETS)).unwrap()).toMatchObject({widget: 'ask'});
 		expect(asked().questions.widget.criteria.ask).toContain('Ask what one meeting');
 	});
 
@@ -106,21 +109,36 @@ describe('pickIntent', () => {
 			['make_coffee', 'none'],
 		]) {
 			pick(picked ?? '');
-			expect((await pickIntent('hi')).unwrap()).toMatchObject({widget});
+			expect((await pickIntent('hi', WIDGETS)).unwrap()).toMatchObject({widget});
 		}
 	});
 
 	test('Jev failing is a provider out of reach', async () => {
 		const {pickIntent} = await import('./classify');
 		jevStatus = 503;
-		expect((await pickIntent(text)).unwrapErr().kind).toBe('provider_unreachable');
+		expect((await pickIntent(text, WIDGETS)).unwrapErr().kind).toBe('provider_unreachable');
+	});
+	test('offers New agent only with Chat: without it, Jev is asked about every other widget, and it is filled in for nobody', async () => {
+		const {fillIntent, pickIntent, widgetsOffered} = await import('./classify');
+		const text = 'add an agent that reminds me to stretch every hour';
+
+		await pickIntent(text, widgetsOffered(true));
+		expect(Object.keys(asked().questions.widget.criteria)).toContain('new_agent');
+
+		await pickIntent(text, widgetsOffered(false));
+		expect(Object.keys(asked().questions.widget.criteria)).not.toContain('new_agent');
+		expect(Object.keys(asked().questions.widget.criteria)).toContain('new_event');
+		// Picked all the same, as by an older answer, it is no widget.
+		pick('new_agent');
+		expect((await pickIntent(text, widgetsOffered(false))).unwrap()).toMatchObject({widget: 'none'});
+		expect((await fillIntent(text, 'new_agent', widgetsOffered(false))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'widget'});
 	});
 });
 
 describe('fillIntent', () => {
 	test("asks gpt-oss-120b, on Cerebras first, for the widget's fields alone", async () => {
 		const {fillIntent} = await import('./classify');
-		await fillIntent(text, 'new_event');
+		await fillIntent(text, 'new_event', WIDGETS);
 
 		const body = sent();
 		expect(body.model).toBe('openai/gpt-oss-120b');
@@ -137,7 +155,7 @@ describe('fillIntent', () => {
 
 	test("answers the widget's fields, each value trimmed and once", async () => {
 		const {fillIntent} = await import('./classify');
-		const filled = (await fillIntent(text, 'new_event')).unwrap();
+		const filled = (await fillIntent(text, 'new_event', WIDGETS)).unwrap();
 
 		expect(filled.fields).toEqual([
 			{id: 'attendees', name: 'Attendees', values: ['Jon Burke', 'Jacky Doe']},
@@ -149,7 +167,7 @@ describe('fillIntent', () => {
 	test('answers search terms as each one\'s words joined by " | "', async () => {
 		answer({from: null, about: [['flight', ' itinerary ', 'e|ticket'], ['SFO'], []]});
 		const {fillIntent} = await import('./classify');
-		const filled = (await fillIntent('find the email about my flight to sfo', 'find_email')).unwrap();
+		const filled = (await fillIntent('find the email about my flight to sfo', 'find_email', WIDGETS)).unwrap();
 
 		expect(filled.fields).toEqual([
 			{id: 'from', name: 'From', values: []},
@@ -162,7 +180,7 @@ describe('fillIntent', () => {
 		const {fillIntent} = await import('./classify');
 		answer({merchant: 'uber', category: 'TRANSPORTATION', flow: 'out', transactionAccount: null});
 
-		expect((await fillIntent('uber charges this month', 'find_transactions')).unwrap().fields).toMatchObject([
+		expect((await fillIntent('uber charges this month', 'find_transactions', WIDGETS)).unwrap().fields).toMatchObject([
 			{id: 'merchant', values: ['uber']},
 			{id: 'category', values: ['TRANSPORTATION']},
 			{id: 'flow', values: ['out']},
@@ -172,7 +190,7 @@ describe('fillIntent', () => {
 
 		fetchSpy.mockClear();
 		for (const widget of ['none', 'make_coffee']) {
-			expect((await fillIntent('uber charges this month', widget)).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'widget', id: widget});
+			expect((await fillIntent('uber charges this month', widget, WIDGETS)).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'widget', id: widget});
 		}
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
@@ -180,7 +198,7 @@ describe('fillIntent', () => {
 	test('holds a unit to the units there are', async () => {
 		answer({amount: '5', fromUnit: 'mi', toUnit: 'km'});
 		const {fillIntent} = await import('./classify');
-		await fillIntent('5 miles in km', 'convert_units');
+		await fillIntent('5 miles in km', 'convert_units', WIDGETS);
 
 		const properties = sent().response_format.json_schema.schema.properties as Record<string, {enum?: Array<string | null>}>;
 		expect(properties.fromUnit?.enum).toContain('mi');
@@ -191,10 +209,10 @@ describe('fillIntent', () => {
 		const {fillIntent} = await import('./classify');
 
 		openRouterStatus = 503;
-		expect((await fillIntent(text, 'new_event')).unwrapErr().kind).toBe('provider_unreachable');
+		expect((await fillIntent(text, 'new_event', WIDGETS)).unwrapErr().kind).toBe('provider_unreachable');
 		openRouterStatus = 200;
 		content = 'Sure! Here is the form:';
-		expect((await fillIntent(text, 'new_event')).unwrapErr().kind).toBe('provider_unreachable');
+		expect((await fillIntent(text, 'new_event', WIDGETS)).unwrapErr().kind).toBe('provider_unreachable');
 	});
 });
 
@@ -205,8 +223,8 @@ test('picking and filling in are unavailable without either key, and ask nothing
 		mockEnv.TYPESAFE_API_KEY = 'ts-1';
 		mockEnv.OPENROUTER_KEY = 'sk-or-1';
 		delete mockEnv[key];
-		for (const result of [await pickIntent(text), await fillIntent(text, 'new_event')]) {
-			expect(result.unwrapErr()).toMatchObject({kind: 'unavailable', message: 'The home page is not set up: set `TYPESAFE_API_KEY` and `OPENROUTER_KEY`.'});
+		for (const result of [await pickIntent(text, WIDGETS), await fillIntent(text, 'new_event', WIDGETS)]) {
+			expect(result.unwrapErr()).toMatchObject({kind: 'unavailable', message: 'Quick actions are not set up: set `TYPESAFE_API_KEY` and `OPENROUTER_KEY`.'});
 		}
 	}
 	expect(fetchSpy).not.toHaveBeenCalled();

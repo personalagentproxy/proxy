@@ -36,9 +36,9 @@ type Props = {
 	// integration doesn't group have no heading row of the grid's own. Groups keep theirs.
 	headed?: boolean;
 	// A first row, All, whose box in each column turns every action the sign-in allows on or off
-	// there at once, as for a custom MCP server's many tools: under Default the defaults, which leave
-	// agents' settings of their own as they are; under an agent its settings. Where the integration
-	// groups its actions, each group has one over its own.
+	// there at once: under Default the defaults, which leave agents' settings of their own as they
+	// are; under an agent its settings. Where the integration groups its actions, each group has one
+	// over its own.
 	all?: boolean;
 };
 

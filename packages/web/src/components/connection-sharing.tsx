@@ -7,7 +7,7 @@ import {ConfirmDialog} from '@/components/confirm-dialog';
 import {PersonAvatar} from '@/components/person-avatar';
 import {RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -129,9 +129,7 @@ export function ConnectionSharing({
 					mayChange &&
 					addable.length > 0 && (
 						<DropdownMenu>
-							<DropdownMenuTrigger
-								render={<Button variant="outline" size="sm" disabled={saving} />}
-							>
+							<DropdownMenuTrigger render={<PillButton variant="ghost" disabled={saving} />}>
 								<PlusIcon data-icon="inline-start" />
 								Add people
 							</DropdownMenuTrigger>
@@ -172,9 +170,8 @@ export function ConnectionSharing({
 							{shared.name !== null && <span className={DETAIL}>{shared.email}</span>}
 							<span className="flex w-20 shrink-0 justify-end">
 								{mayChange && (
-									<Button
+									<PillButton
 										variant="ghost"
-										size="sm"
 										disabled={saving}
 										aria-label={`Remove ${nameOf(shared)}`}
 										onClick={() =>
@@ -185,7 +182,7 @@ export function ConnectionSharing({
 										}
 									>
 										Remove
-									</Button>
+									</PillButton>
 								)}
 							</span>
 						</li>
@@ -207,9 +204,8 @@ export function ConnectionSharing({
 								</span>
 							</span>
 							{mayChange && (
-								<Button
-									variant={everyone ? 'ghost' : 'outline'}
-									size="sm"
+								<PillButton
+									variant="ghost"
 									disabled={saving}
 									onClick={() => {
 										if (everyone) {
@@ -220,7 +216,7 @@ export function ConnectionSharing({
 									}}
 								>
 									{everyone ? 'Stop sharing' : 'Share with everyone'}
-								</Button>
+								</PillButton>
 							)}
 						</li>
 					)}

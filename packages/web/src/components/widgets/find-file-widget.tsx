@@ -1,6 +1,5 @@
 import {
 	FileIcon,
-	FileSearchIcon,
 	FileTextIcon,
 	FolderIcon,
 	PresentationIcon,
@@ -32,7 +31,7 @@ export function FindFileWidget({intent, typed}: {intent: Intent; typed: string})
 
 	if (files.data && sources.length === 0) {
 		return (
-			<ConnectWidget icon={FileSearchIcon} name="Find file" collectionIds={['files']}>
+			<ConnectWidget name="Find file" collectionIds={['files']}>
 				Connect Google Drive to find your files from here.
 			</ConnectWidget>
 		);
@@ -46,7 +45,7 @@ export function FindFileWidget({intent, typed}: {intent: Intent; typed: string})
 	];
 
 	return (
-		<WidgetFrame icon={FileSearchIcon} name="Find file" failed={files.data?.failed}>
+		<WidgetFrame name="Find file" failed={files.data?.failed}>
 			<p className="truncate">
 				<span className="text-muted-foreground">Files </span>
 				{described.length === 0 ? <Missing>changed most recently</Missing> : described.join(' · ')}

@@ -27,8 +27,8 @@ const OUTCOMES: Option[] = [
 	{value: 'failed', label: 'Failed'},
 ];
 
-// The home page's timeline of who is doing what, over every request an agent made, and what
-// Personal Agent Proxy did itself from the home page, newest first, narrowed by agent, connection
+// The Activity page's timeline of who is doing what, over every request an agent made, and what
+// Personal Agent Proxy did itself from the command bar, newest first, narrowed by agent, connection
 // and outcome. The filters live in the URL, so the agent and connection pages can link straight to
 // their part of the log, and the api applies them (`?agent=proxy` for Personal Agent Proxy's own,
 // `?outcome=denied` for what was refused, `?outcome=failed` for what the provider failed). One

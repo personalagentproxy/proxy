@@ -41,6 +41,7 @@ model User {
   connections  Connection[]
   shares       ConnectionShare[]
   agents       Agent[]
+  personas     Persona[]
   threads      AgentThread[]
   writeTargets WriteTarget[]
   desktopCodes DesktopAuthCode[]
@@ -601,10 +602,12 @@ model OAuthGrant {
   @@index([userId])
 }
 
-// A persona of the Chat page: an agent Personal Agent Proxy runs itself, as the organization's
-// members see it, named and given a head, one of any number. Every persona acts through the
-// organization's one built-in agent login (Agent, provider `proxy`), whose grants are every
-// persona's: a persona is who did the work, the login is what it may do.
+// A persona of the Chat page: an agent Personal Agent Proxy runs itself, named and given a head,
+// one of any number. It is whoever made it's, who alone sees it, talks to it and changes it; General,
+// which every organization starts with, is nobody's, so every member sees it and has a
+// conversation of their own with it. Every persona acts through the organization's one built-in
+// agent login (Agent, provider `proxy`), whose grants are every persona's: a persona is who did
+// the work, the login is what it may do.
 model Persona {
   id    String @id @default(cuid())
   orgId String
@@ -618,16 +621,23 @@ model Persona {
   // backends/harness.ts).
   harness   String @default("proxy")
   chatModel String @default("claude")
-  // Who made it, who may change it beside the organization's owner.
+  // The member whose persona it is, which nobody else in the organization sees, its owner
+  // included; null for one every member sees, as General is, and as one from before personas
+  // were anyone's is where others had talked to it.
+  ownerUserId String?
+  // Who made it: who may change one every member sees, beside the organization's owner. A plain
+  // id rather than a relation, so such a persona stays when they are gone.
   createdById String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
   org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner   User?        @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   threads AgentThread[]
 
   @@index([orgId, createdAt])
+  @@index([ownerUserId])
 }
 
 // A thread of the built-in agent, holding its log of entries: a member's conversation with a
