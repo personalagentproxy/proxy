@@ -10,6 +10,7 @@ import {HumanSide} from '@/components/human-side';
 import {pageSaysSafeToReload} from '@/hooks/use-reload-on-release';
 import {ChatPage} from '@/pages/chat-page';
 import {later} from '@/lib/loader-utils';
+import {CURRENT_SEARCH_HIGHLIGHT, SEARCH_HIGHLIGHT} from '@/lib/conversation-search';
 import {testHuman, testOrg} from '@/test-org';
 
 const realFetch = globalThis.fetch;
@@ -54,6 +55,23 @@ const log: ThreadLog = {
 };
 // The last answers the provider around the page is given: none, unless a test says otherwise.
 let answers: ChatAnswer[] = [];
+const originalCss = Object.getOwnPropertyDescriptor(globalThis, 'CSS');
+const originalHighlight = Object.getOwnPropertyDescriptor(globalThis, 'Highlight');
+const highlights = new Map<string, TestHighlight>();
+
+class TestHighlight extends Set<Range> {
+	constructor(...ranges: Range[]) {
+		super(ranges);
+	}
+}
+
+function restoreGlobal(name: 'CSS' | 'Highlight', descriptor: PropertyDescriptor | undefined) {
+	if (descriptor) {
+		Object.defineProperty(globalThis, name, descriptor);
+		return;
+	}
+	Reflect.deleteProperty(globalThis, name);
+}
 
 beforeEach(() => {
 	fetchMock.mockReset();
@@ -68,11 +86,22 @@ beforeEach(() => {
 	);
 	globalThis.fetch = ((input: string, init?: RequestInit) =>
 		fetchMock(input, init)) as typeof fetch;
+	highlights.clear();
+	Object.defineProperty(globalThis, 'CSS', {
+		configurable: true,
+		value: {highlights},
+	});
+	Object.defineProperty(globalThis, 'Highlight', {
+		configurable: true,
+		value: TestHighlight,
+	});
 });
 
 afterEach(() => {
 	cleanup();
 	globalThis.fetch = realFetch;
+	restoreGlobal('CSS', originalCss);
+	restoreGlobal('Highlight', originalHighlight);
 });
 
 function renderChatPage({
@@ -150,7 +179,7 @@ describe('ChatPage', () => {
 		const initialBox = await screen.findByLabelText('Message');
 		expect(document.activeElement).not.toBe(initialBox);
 
-		fireEvent.click(screen.getByRole('link', {name: /Finance/}));
+		fireEvent.click(await screen.findByRole('link', {name: /Finance/}));
 		await screen.findByRole('status', {name: 'Loading'});
 		await act(async () => arrive());
 
@@ -165,9 +194,10 @@ describe('ChatPage', () => {
 
 		const box = await screen.findByLabelText('Message');
 		expect(document.activeElement).not.toBe(box);
+		const openConversation = await screen.findByRole('link', {name: /General/});
 
 		await act(async () => {
-			fireEvent.click(screen.getByRole('link', {name: /General/}));
+			fireEvent.click(openConversation);
 		});
 
 		await waitFor(() => {
@@ -185,6 +215,100 @@ describe('ChatPage', () => {
 
 		expect(screen.getByText('What should General do?')).toBeDefined();
 		expect(document.activeElement).toBe(financeRow);
+	});
+
+	test('searches the rendered conversation with Command+F and restores focus when closed', async () => {
+		renderChatPage({
+			entries: [
+				{
+					id: 'e1',
+					kind: 'person',
+					text: 'Pricing review, then pricing approval',
+					isError: false,
+					at: '2026-10-23T10:00:00Z',
+				},
+				{
+					id: 'e2',
+					kind: 'assistant',
+					text: 'Read the [pricing plan](https://example.com/pricing).',
+					isError: false,
+					at: '2026-10-23T10:00:01Z',
+				},
+			],
+		});
+		const message = await screen.findByLabelText('Message');
+		message.focus();
+
+		fireEvent.keyDown(window, {key: 'f', metaKey: true});
+
+		const search = await screen.findByLabelText('Find in conversation');
+		expect(document.activeElement).toBe(search);
+		fireEvent.change(search, {target: {value: 'PRICING'}});
+		expect((await screen.findByRole('status', {name: ''})).textContent).toBe('1 of 3');
+		const allMatches = highlights.get(SEARCH_HIGHLIGHT);
+		const firstCurrent = highlights.get(CURRENT_SEARCH_HIGHLIGHT);
+		expect(allMatches?.size).toBe(3);
+		expect(firstCurrent?.size).toBe(1);
+
+		fireEvent.keyDown(search, {key: 'Escape', isComposing: true});
+		expect(screen.getByRole('search', {name: 'Search conversation'})).toBeDefined();
+		fireEvent.keyDown(search, {key: 'Enter', isComposing: true});
+		expect(screen.getByRole('status', {name: ''}).textContent).toBe('1 of 3');
+		fireEvent.keyDown(search, {key: 'Enter'});
+		expect(screen.getByRole('status', {name: ''}).textContent).toBe('2 of 3');
+		expect(highlights.get(SEARCH_HIGHLIGHT)).toBe(allMatches);
+		expect(highlights.get(CURRENT_SEARCH_HIGHLIGHT)).not.toBe(firstCurrent);
+		fireEvent.keyDown(search, {key: 'Enter', shiftKey: true});
+		expect(screen.getByRole('status', {name: ''}).textContent).toBe('1 of 3');
+		fireEvent.click(screen.getByRole('button', {name: 'Previous match'}));
+		expect(screen.getByRole('status', {name: ''}).textContent).toBe('3 of 3');
+		fireEvent.click(screen.getByRole('button', {name: 'Next match'}));
+		expect(screen.getByRole('status', {name: ''}).textContent).toBe('1 of 3');
+
+		// The destination of a Markdown link is not visible conversation text.
+		fireEvent.change(search, {target: {value: 'example.com'}});
+		expect(screen.getByRole('status', {name: ''}).textContent).toBe('No matches');
+		expect(screen.getByRole('button', {name: 'Previous match'}).hasAttribute('disabled')).toBe(
+			true,
+		);
+
+		const previous = screen.getByRole('button', {name: 'Previous match'});
+		previous.focus();
+		fireEvent.keyDown(previous, {key: 'Escape'});
+		expect(screen.queryByRole('search', {name: 'Search conversation'})).toBeNull();
+		expect(document.activeElement).toBe(message);
+		expect(highlights.size).toBe(0);
+	});
+
+	test('also opens conversation search with Ctrl+F, but not through a persona dialog', async () => {
+		renderChatPage();
+		await screen.findByText('What should General do?');
+
+		fireEvent.keyDown(window, {key: 'f', ctrlKey: true});
+		expect(await screen.findByRole('search', {name: 'Search conversation'})).toBeDefined();
+		fireEvent.click(screen.getByRole('button', {name: 'Close search'}));
+
+		fireEvent.click(screen.getByRole('button', {name: 'New agent'}));
+		await screen.findByRole('heading', {name: 'New agent'});
+		fireEvent.keyDown(window, {key: 'f', metaKey: true});
+		expect(screen.queryByRole('search', {name: 'Search conversation'})).toBeNull();
+	});
+
+	test('leaves native find available when custom highlights are unsupported', async () => {
+		renderChatPage();
+		await screen.findByText('What should General do?');
+		Reflect.deleteProperty(globalThis, 'CSS');
+		Reflect.deleteProperty(globalThis, 'Highlight');
+		const find = new window.KeyboardEvent('keydown', {
+			key: 'f',
+			metaKey: true,
+			cancelable: true,
+		});
+
+		window.dispatchEvent(find);
+
+		expect(find.defaultPrevented).toBe(false);
+		expect(screen.queryByRole('search', {name: 'Search conversation'})).toBeNull();
 	});
 
 	test('lets the head of an empty chat follow the pointer', async () => {
@@ -286,7 +410,7 @@ describe('ChatPage', () => {
 		renderChatPage({answered: (personaId) => (personaId === 'finance' ? held : Promise.resolve())});
 		await screen.findByText('What should General do?');
 
-		fireEvent.click(screen.getByRole('link', {name: /Finance/}));
+		fireEvent.click(await screen.findByRole('link', {name: /Finance/}));
 		await screen.findByRole('status', {name: 'Loading'});
 		expect(screen.getByRole('link', {name: /Finance/}).getAttribute('aria-current')).toBe('page');
 		expect(screen.getByRole('link', {name: /General/}).getAttribute('aria-current')).toBeNull();
@@ -572,7 +696,7 @@ describe('ChatPage', () => {
 			const box = await screen.findByLabelText('Message');
 			fireEvent.change(box, {target: {value: 'Move the pricing review'}});
 
-			fireEvent.click(screen.getByRole('link', {name: /Finance/}));
+			fireEvent.click(await screen.findByRole('link', {name: /Finance/}));
 			await screen.findByText('What should Finance do?');
 
 			expect(saves()).toEqual([{text: 'Move the pricing review'}]);

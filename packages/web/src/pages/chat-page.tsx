@@ -30,6 +30,7 @@ import {
 	InputGroupTextarea,
 } from '@proxy/ui/components/input-group';
 import {Message, MessageContent} from '@/components/chat/message';
+import {ConversationSearch} from '@/components/chat/conversation-search';
 import {
 	MessageScroller,
 	MessageScrollerButton,
@@ -42,6 +43,7 @@ import {Trace, TraceIcon, TraceLine, TraceTitle} from '@/components/chat/trace';
 import {preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
 import {useChatDraft} from '@/hooks/use-chat-draft';
+import {useConversationSearch} from '@/hooks/use-conversation-search';
 import {useLastLoaded, useLoaded} from '@/hooks/use-loaded';
 import {useOrgSlug} from '@/hooks/use-org';
 import {useReload} from '@/hooks/use-reload';
@@ -62,6 +64,7 @@ import {
 // wake-up, shows within a moment either way.
 const BUSY_POLL_MS = 1000;
 const IDLE_POLL_MS = 4000;
+const CONVERSATION_LOG_ID = 'conversation-log';
 
 // One turn of the conversation: what the person said in a dark bubble on the right (a light one
 // in dark mode), as they typed it, or what the persona answered in a gray one on the left, as
@@ -73,7 +76,9 @@ function Turn({entry}: {entry: ChatEntry}) {
 			<Message align="end">
 				<MessageContent>
 					<Bubble align="end" variant="inverted">
-						<BubbleContent className="whitespace-pre-wrap">{entry.text}</BubbleContent>
+						<BubbleContent data-search-whitespace="preserve" className="whitespace-pre-wrap">
+							{entry.text}
+						</BubbleContent>
 					</Bubble>
 				</MessageContent>
 			</Message>
@@ -89,6 +94,26 @@ function Turn({entry}: {entry: ChatEntry}) {
 				</Bubble>
 			</MessageContent>
 		</Message>
+	);
+}
+
+// A stable callback ref keeps the search index from detaching and reattaching every turn whenever
+// the conversation page renders for typing, polling or unread-state changes.
+function SearchableTurn({
+	entry,
+	remember,
+}: {
+	entry: ChatEntry;
+	remember: (entryId: string, element: HTMLDivElement | null) => void;
+}) {
+	const ref = useCallback(
+		(element: HTMLDivElement | null) => remember(entry.id, element),
+		[entry.id, remember],
+	);
+	return (
+		<div ref={ref}>
+			<Turn entry={entry} />
+		</div>
 	);
 }
 
@@ -494,6 +519,21 @@ function Conversation({
 	const form = useRef<HTMLFormElement>(null);
 	const input = useRef<HTMLTextAreaElement>(null);
 	const current = loaded.persona;
+	const {
+		activeMatch: activeSearchMatch,
+		changeQuery: changeSearchQuery,
+		close: closeSearch,
+		inputRef: searchInputRef,
+		matchCount: searchMatchCount,
+		matchesTruncated: searchMatchesTruncated,
+		next: nextSearchMatch,
+		open: searchOpen,
+		overlayRef: searchOverlayRef,
+		previous: previousSearchMatch,
+		query: searchQuery,
+		rememberEntryElement,
+		viewportRef: conversationViewportRef,
+	} = useConversationSearch(log.entries, managing);
 	// What runs the persona, as the switcher shows it: the persona's, or what was just picked.
 	const [runsOn, setRunsOn] = useState<ModelChoice>({
 		harness: current.harness,
@@ -643,52 +683,79 @@ function Conversation({
 
 	return (
 		<>
-			<MessageScrollerProvider autoScroll defaultScrollPosition="end">
-				<MessageScroller className="min-h-0 flex-1">
-					<MessageScrollerViewport aria-label="Conversation">
-						<MessageScrollerContent className="page-column mx-auto w-full max-w-3xl pt-6 pb-4">
-							{runs.length === 0 && (
-								<div className="flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
-									<LiveHead look={current.look} color={current.color} size={64} />
-									<p className="text-lg font-medium">What should {current.name} do?</p>
-									<p className="max-w-md text-sm text-muted-foreground">
-										This conversation is yours alone. {current.name} can use what is shared with
-										everyone and what you connected yourself, as far as its access allows.
-										Everything it does is in the activity log.
-									</p>
-								</div>
-							)}
-							{runs.map((run) => (
-								<MessageScrollerItem
-									key={run.entries[0]?.id}
-									messageId={run.entries[0]?.id ?? ''}
-									scrollAnchor={run.entries[0]?.kind === 'person'}
-									className="flex flex-col gap-4"
-								>
-									{run.heading !== null && (
-										<h2 className="text-center text-xs font-medium text-muted-foreground">
-											{run.heading}
-										</h2>
-									)}
-									<div className="flex flex-col gap-2">
-										{run.entries.map((entry) => (
-											<Turn key={entry.id} entry={entry} />
-										))}
+			<div className="relative min-h-0 flex-1">
+				{searchOpen && (
+					<div className="absolute top-3 right-3 z-20 w-[calc(100%-1.5rem)] max-w-80">
+						<ConversationSearch
+							inputRef={searchInputRef}
+							rootRef={searchOverlayRef}
+							controlsId={CONVERSATION_LOG_ID}
+							query={searchQuery}
+							matchCount={searchMatchCount}
+							matchesTruncated={searchMatchesTruncated}
+							activeMatch={activeSearchMatch}
+							onQueryChange={changeSearchQuery}
+							onPrevious={previousSearchMatch}
+							onNext={nextSearchMatch}
+							onClose={closeSearch}
+						/>
+					</div>
+				)}
+				<MessageScrollerProvider autoScroll defaultScrollPosition="end">
+					<MessageScroller>
+						<MessageScrollerViewport
+							ref={conversationViewportRef}
+							id={CONVERSATION_LOG_ID}
+							aria-label="Conversation"
+						>
+							<MessageScrollerContent className="page-column mx-auto w-full max-w-3xl pt-6 pb-4">
+								{runs.length === 0 && (
+									<div className="flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
+										<LiveHead look={current.look} color={current.color} size={64} />
+										<p className="text-lg font-medium">What should {current.name} do?</p>
+										<p className="max-w-md text-sm text-muted-foreground">
+											This conversation is yours alone. {current.name} can use what is shared with
+											everyone and what you connected yourself, as far as its access allows.
+											Everything it does is in the activity log.
+										</p>
 									</div>
-								</MessageScrollerItem>
-							))}
-							{(log.busy || log.sleepingUntil !== null) && (
-								<MessageScrollerItem messageId="status">
-									<Trace>
-										<Status log={log} />
-									</Trace>
-								</MessageScrollerItem>
-							)}
-						</MessageScrollerContent>
-					</MessageScrollerViewport>
-					<MessageScrollerButton />
-				</MessageScroller>
-			</MessageScrollerProvider>
+								)}
+								{runs.map((run) => (
+									<MessageScrollerItem
+										key={run.entries[0]?.id}
+										messageId={run.entries[0]?.id ?? ''}
+										scrollAnchor={run.entries[0]?.kind === 'person'}
+										className="flex flex-col gap-4"
+									>
+										{run.heading !== null && (
+											<h2 className="text-center text-xs font-medium text-muted-foreground">
+												{run.heading}
+											</h2>
+										)}
+										<div className="flex flex-col gap-2">
+											{run.entries.map((entry) => (
+												<SearchableTurn
+													key={entry.id}
+													entry={entry}
+													remember={rememberEntryElement}
+												/>
+											))}
+										</div>
+									</MessageScrollerItem>
+								))}
+								{(log.busy || log.sleepingUntil !== null) && (
+									<MessageScrollerItem messageId="status">
+										<Trace>
+											<Status log={log} />
+										</Trace>
+									</MessageScrollerItem>
+								)}
+							</MessageScrollerContent>
+						</MessageScrollerViewport>
+						<MessageScrollerButton />
+					</MessageScroller>
+				</MessageScrollerProvider>
+			</div>
 			<form
 				ref={form}
 				onSubmit={(event) => void send(event)}
