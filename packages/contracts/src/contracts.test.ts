@@ -85,6 +85,9 @@ describe('contracts', () => {
 		expect(new Set(ids).size).toBe(ids.length);
 		expect([...intent.WIDGET_IDS]).toEqual(ids);
 		for (const widget of intent.WIDGETS) {
+			expect(intent.WIDGET_NAMES[widget.id]).toBe(widget.name);
+		}
+		for (const widget of intent.WIDGETS) {
 			const fields = widget.fields.map((field) => field.id);
 			expect(new Set(fields).size).toBe(fields.length);
 		}

@@ -10,7 +10,7 @@ import {
 import {finishAgentTask, startAgentTask} from '@/client/agent-client';
 import {AgentHeading, AgentShell} from '@/components/agent-shell';
 import {Row, RowList} from '@/components/row-list';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {Textarea} from '@proxy/ui/components/textarea';
@@ -83,9 +83,9 @@ function TaskRow({task, onError}: {task: AgentTask; onError: (message: string | 
 			subtitle={task.goal}
 			cells={<span className="shrink-0 text-muted-foreground">Work on this</span>}
 			after={
-				<Button size="sm" variant="outline" disabled={finishing} onClick={() => void finish()}>
+				<PillButton variant="ghost" disabled={finishing} onClick={() => void finish()}>
 					{finishing ? 'Finishing…' : 'Finish'}
-				</Button>
+				</PillButton>
 			}
 		/>
 	);
@@ -154,9 +154,12 @@ function StartTaskForm({first, notice}: {first: boolean; notice: string | null})
 					</div>
 					{error && <p className="text-sm text-destructive">{error}</p>}
 					<div className="flex justify-end">
-						<Button type="submit" disabled={starting || title.trim() === '' || goal.trim() === ''}>
+						<PillButton
+							type="submit"
+							disabled={starting || title.trim() === '' || goal.trim() === ''}
+						>
 							{starting ? 'Starting…' : 'Start task'}
-						</Button>
+						</PillButton>
 					</div>
 				</form>
 			</div>

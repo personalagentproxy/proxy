@@ -2,12 +2,12 @@ import {PlusIcon} from 'lucide-react';
 import {Link} from 'react-router';
 import {IconButton} from '@/components/icon-button';
 import {InTitleBar} from '@/components/title-bar-slot';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {hasHiddenDesktopTitleBar} from '@/lib/desktop';
 
 type Props = {
 	label: string;
-	variant?: 'default' | 'outline';
+	variant?: 'default' | 'ghost';
 } & ({to: string; onClick?: never} | {onClick: () => void; to?: never});
 
 // A header's add action. In a browser, a button with its label. In the desktop app, a plus alone
@@ -18,11 +18,11 @@ export function AddButton({label, variant = 'default', to, onClick}: Props) {
 		return (
 			<InTitleBar place="controls">
 				{to !== undefined ? (
-					<IconButton label={label} size="xs" to={to}>
+					<IconButton label={label} to={to}>
 						{icon}
 					</IconButton>
 				) : (
-					<IconButton label={label} size="xs" onClick={onClick}>
+					<IconButton label={label} onClick={onClick}>
 						{icon}
 					</IconButton>
 				)}
@@ -38,14 +38,14 @@ export function AddButton({label, variant = 'default', to, onClick}: Props) {
 	);
 	if (to !== undefined) {
 		return (
-			<Button size="sm" variant={variant} nativeButton={false} render={<Link to={to} />}>
+			<PillButton variant={variant} nativeButton={false} render={<Link to={to} />}>
 				{content}
-			</Button>
+			</PillButton>
 		);
 	}
 	return (
-		<Button size="sm" variant={variant} onClick={onClick}>
+		<PillButton variant={variant} onClick={onClick}>
 			{content}
-		</Button>
+		</PillButton>
 	);
 }

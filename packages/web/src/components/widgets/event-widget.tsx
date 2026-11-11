@@ -1,16 +1,22 @@
 import {CalendarIcon, ClockIcon, MapPinIcon} from 'lucide-react';
 import type {Intent} from '@/client/intent-client';
 import {createEvent, type Agenda} from '@/client/widgets-client';
-import {Button} from '@proxy/ui/components/button';
-import {Input} from '@proxy/ui/components/input';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
+import {EnterButton} from '@/components/widgets/enter-button';
 import {DayGrid} from '@/components/widgets/day-grid';
 import {dayAround, timedItems, type DayItem} from '@/lib/calendar-day';
-import {Avatar, DetailRow, Missing, WidgetFrame} from '@/components/widgets/widget-frame';
+import {
+	Avatar,
+	DetailRow,
+	Missing,
+	WidgetFrame,
+	WidgetInput,
+} from '@/components/widgets/widget-frame';
 import {WidgetSelect} from '@/components/widgets/widget-select';
 import {WriteResult} from '@/components/widgets/write-result';
 import {useAgenda, usePeople} from '@/hooks/widget-lookups';
 import {eventTime, fieldTexts, guestsOf, namesIn, personKey, type Guest} from '@/lib/widget-values';
+import type {BarAction} from '@/hooks/use-bar-action';
 import {useSuggested} from '@/hooks/use-suggested';
 import {useWriteStatus} from '@/hooks/use-write-status';
 import {writeErrorMessage} from '@/lib/write-status';
@@ -48,7 +54,17 @@ function calendarOptions(agenda: Agenda | null): CalendarOption[] {
 
 // New event: the title, when, who and where, the day it falls on with what is already in every
 // calendar, so a clash shows before the invite goes out, and the calendar it goes in.
-export function EventWidget({intent, typed, now}: {intent: Intent; typed: string; now: Date}) {
+export function EventWidget({
+	intent,
+	typed,
+	now,
+	bar,
+}: {
+	intent: Intent;
+	typed: string;
+	now: Date;
+	bar: BarAction;
+}) {
 	const org = useOrgSlug();
 	const names = namesIn(intent, 'attendees');
 	const people = usePeople(names.length > 0 ? names : null);
@@ -67,7 +83,7 @@ export function EventWidget({intent, typed, now}: {intent: Intent; typed: string
 
 	if (agenda.data?.sources.length === 0) {
 		return (
-			<ConnectWidget icon={CalendarIcon} name="New event" collectionIds={['events']}>
+			<ConnectWidget name="New event" collectionIds={['events']}>
 				Connect a calendar to see your day and send invites from here.
 			</ConnectWidget>
 		);
@@ -112,13 +128,12 @@ export function EventWidget({intent, typed, now}: {intent: Intent; typed: string
 
 	return (
 		<WidgetFrame
-			icon={CalendarIcon}
 			name="New event"
 			failed={agenda.data?.failed}
 			status={<WriteResult status={status} />}
 			actions={
-				<Button
-					size="sm"
+				<EnterButton
+					bar={bar}
 					onClick={create}
 					disabled={
 						!time ||
@@ -129,10 +144,16 @@ export function EventWidget({intent, typed, now}: {intent: Intent; typed: string
 					}
 				>
 					{invited.length > 0 ? 'Send invite' : 'Create event'}
-				</Button>
+				</EnterButton>
 			}
 		>
-			<Input aria-label="Title" value={edited} onChange={(event) => setTitle(event.target.value)} />
+			<WidgetInput
+				aria-label="Title"
+				placeholder="Title"
+				className="font-medium"
+				value={edited}
+				onChange={(event) => setTitle(event.target.value)}
+			/>
 			<div className="grid gap-4 md:grid-cols-2">
 				<div className="flex min-w-0 flex-col gap-3">
 					<DetailRow icon={ClockIcon}>

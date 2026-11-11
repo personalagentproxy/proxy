@@ -1,6 +1,6 @@
 import type {ClaudeAccount} from '@proxy/contracts/me';
 import {useState} from 'react';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {
 	Dialog,
 	DialogContent,
@@ -74,29 +74,27 @@ export function ClaudeCard({account}: {account: Account}) {
 				)}
 				<div className="flex flex-wrap gap-2">
 					{connecting && signIn && (
-						<Button type="button" size="sm" onClick={() => void startSignIn(signIn)}>
+						<PillButton type="button" onClick={() => void startSignIn(signIn)}>
 							Connect Claude
-						</Button>
+						</PillButton>
 					)}
 					{connecting && (
-						<Button
+						<PillButton
 							type="button"
-							size="sm"
-							variant={signIn ? 'outline' : 'default'}
+							variant={signIn ? 'ghost' : 'default'}
 							onClick={() => setDialog('paste')}
 						>
 							Paste a token
-						</Button>
+						</PillButton>
 					)}
 					{account && (
-						<Button
+						<PillButton
 							type="button"
-							size="sm"
-							variant="outline"
+							variant="ghost"
 							onClick={() => void apply(disconnectClaude())}
 						>
 							Disconnect
-						</Button>
+						</PillButton>
 					)}
 				</div>
 				{connecting && !desktop && (
@@ -180,12 +178,12 @@ function PasteTokenDialog({onClose}: {onClose: () => void}) {
 					</div>
 					{error && <p className="text-sm text-destructive">{error}</p>}
 					<DialogFooter>
-						<Button type="button" variant="outline" onClick={onClose}>
+						<PillButton type="button" variant="ghost" onClick={onClose}>
 							Cancel
-						</Button>
-						<Button type="submit" disabled={!ready || pending}>
+						</PillButton>
+						<PillButton type="submit" disabled={!ready || pending}>
 							Connect
-						</Button>
+						</PillButton>
 					</DialogFooter>
 				</form>
 			</DialogContent>
@@ -265,16 +263,16 @@ function SignInDialog({signIn, onClose}: {signIn: DesktopClaudeSignIn; onClose: 
 					</div>
 					{error && <p className="text-sm text-destructive">{error}</p>}
 					<DialogFooter className="sm:justify-between">
-						<Button type="button" variant="ghost" onClick={() => void reopen()}>
+						<PillButton type="button" variant="ghost" onClick={() => void reopen()}>
 							Open Claude again
-						</Button>
+						</PillButton>
 						<div className="flex flex-col-reverse gap-2 sm:flex-row">
-							<Button type="button" variant="outline" onClick={onClose}>
+							<PillButton type="button" variant="ghost" onClick={onClose}>
 								Cancel
-							</Button>
-							<Button type="submit" disabled={!ready || pending}>
+							</PillButton>
+							<PillButton type="submit" disabled={!ready || pending}>
 								Connect
-							</Button>
+							</PillButton>
 						</div>
 					</DialogFooter>
 				</form>

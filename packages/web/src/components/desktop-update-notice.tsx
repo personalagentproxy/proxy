@@ -1,6 +1,6 @@
 import {XIcon} from 'lucide-react';
 import {useState} from 'react';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {useDesktopUpdate} from '@/hooks/use-desktop-update';
 import {desktopBridge} from '@/lib/desktop';
 
@@ -34,18 +34,16 @@ export function DesktopUpdateNotice() {
 			className="fixed right-4 bottom-4 z-50 flex flex-col items-start gap-3 rounded-lg border bg-background p-4 pr-12 text-sm shadow-lg"
 		>
 			<span>A new version of Personal Agent Proxy is ready.</span>
-			<Button size="sm" onClick={restartDesktop}>
-				Restart
-			</Button>
-			<Button
+			<PillButton onClick={restartDesktop}>Restart</PillButton>
+			<PillButton
 				variant="ghost"
-				size="icon-xs"
+				icon
 				className="absolute top-2 right-2"
 				aria-label="Dismiss"
 				onClick={dismiss}
 			>
 				<XIcon />
-			</Button>
+			</PillButton>
 		</div>
 	);
 }

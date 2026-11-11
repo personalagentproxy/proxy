@@ -3,16 +3,19 @@ title: Chat with the built-in agent
 description: Talk to an agent Personal Agent Proxy runs itself, with the same access settings and activity log as any agent you connect.
 ---
 
-**Chat** in the sidebar is where you talk to agents Personal Agent Proxy runs itself. The
-organization's agents are everyone's, like coworkers: anyone makes one with **+**, giving it a name
-and a head, and whoever made it, or the organization's owner, renames or deletes it. All of them
-act through one entry on the **External agents** page, Chat, shared with everyone, as
-Claude or ChatGPT are one entry each however many assistants run inside them: what the agents may
-do with each shared connection is set there, once for all of them, and every call any of them makes
-is in the activity log, by the task it was made for, which says which agent it was.
+**Chat** in the sidebar is where you talk to agents Personal Agent Proxy runs itself. Every
+organization starts with one, **General**, which every member sees. An agent you make is yours
+alone: make one with **New agent**, giving it a name and a head, or ask for one from
+[the command bar](/quick-actions#handing-it-to-an-agent), and nobody else in the organization sees
+it, its owner included; you rename it, change its head or delete it. General is renamed or deleted
+by the organization's owner. All of them act through one entry on the **External agents** page,
+Chat, shared with everyone, as Claude or ChatGPT are one entry each however many assistants run
+inside them: what the agents may do with each shared connection is set there, once for all of them,
+and every call any of them makes is in the activity log, by the task it was made for, which says
+which agent it was.
 
-Your conversation with an agent is yours alone, as a direct message is: nobody else in the
-organization sees it. In it, the agent acts as you, so it reaches what you use: the connections
+Your conversation with an agent is yours alone, as a direct message is, General's too: nobody else
+in the organization sees it. In it, the agent acts as you, so it reaches what you use: the connections
 shared with everyone, the ones shared with you by name, the ones you connected yourself and your
 own vault. On a connection that isn't shared with everyone it follows the defaults, since a shared
 agent has no settings of its own there. What it does in your conversation is in your activity log alone.
@@ -33,11 +36,11 @@ Personal Agent Proxy needs an `OPENROUTER_KEY`.
 ## What runs an agent
 
 Under the message box, a conversation says what runs its agent: the **model**, and beside it the
-**harness**, the loop that runs its turns. For whoever made the agent, or owns the organization,
-it opens the harnesses down the side, each by its mark, with the models of the one you look at
-beside them to switch between. The choice is the agent's: it holds for every member's conversation
-with the agent and for the sub-agents it starts, from the next turn on, and a conversation goes on
-from where it was.
+**harness**, the loop that runs its turns. For whoever may change the agent, you for one of your
+own and the organization's owner for General, it opens the harnesses down the side, each by its
+mark, with the models of the one you look at beside them to switch between. The choice is the
+agent's: it holds for every conversation with the agent, each member's with General, and for the
+sub-agents it starts, from the next turn on, and a conversation goes on from where it was.
 
 - **OpenRouter** runs on the server's key, for every member alike, with Claude Sonnet 5.5 or
   GLM 5.3, each only on hosts that keep nothing of what is sent.

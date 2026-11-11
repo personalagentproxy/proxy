@@ -1,4 +1,3 @@
-import {CalculatorIcon} from 'lucide-react';
 import type {Intent} from '@/client/intent-client';
 import {CopyButton} from '@/components/copy-button';
 import {Missing, WidgetFrame} from '@/components/widgets/widget-frame';
@@ -12,7 +11,7 @@ export function MathWidget({intent}: {intent: Intent}) {
 	const result = expression ? calculate(expression) : null;
 
 	return (
-		<WidgetFrame icon={CalculatorIcon} name="Math">
+		<WidgetFrame name="Math">
 			{!expression && <Missing>Type a calculation</Missing>}
 			{expression && result === null && <Missing>Can’t work out “{expression}”</Missing>}
 			{expression && result !== null && (

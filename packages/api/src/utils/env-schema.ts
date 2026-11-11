@@ -127,12 +127,12 @@ export const envSchema = z.object({
 	TYPESAFE_API_KEY: documented(z.string().min(1).optional(), {
 		group: 'Core',
 		description:
-			'A TypeSafe AI API key, for Jev, which picks the widget on the home page that fits what a person types. What is typed there is sent to it. Without it, or without `OPENROUTER_KEY`, the home page says it is not set up; everything else works as before.',
+			'A TypeSafe AI API key, for Jev, which picks the widget in the command bar that fits what a person types. What is typed there is sent to it. Without it, or without `OPENROUTER_KEY`, the command bar says it is not set up; everything else works as before.',
 	}),
 	OPENROUTER_KEY: documented(z.string().min(1).optional(), {
 		group: 'Core',
 		description:
-			'An OpenRouter API key, for the model that fills in the fields of the widget Jev picks on the home page (gpt-oss-120b, on Cerebras or Groq), and for the built-in agent on the Chat page (Claude Sonnet 5.5, or GLM 5.3 where an agent is set to it). What is typed there is sent to it. Without it, or without `TYPESAFE_API_KEY`, the home page says it is not set up, and without it the Chat page does; everything else works as before.',
+			'An OpenRouter API key, for the model that fills in the fields of the widget Jev picks in the command bar (gpt-oss-120b, on Cerebras or Groq), and for the built-in agent on the Chat page (Claude Sonnet 5.5, or GLM 5.3 where an agent is set to it). What is typed there is sent to it. Without it, or without `TYPESAFE_API_KEY`, the command bar says it is not set up, and without it the Chat page does; everything else works as before.',
 	}),
 	CLAUDE_AGENT_SDK: documented(z.enum(['on', 'off']).default('on'), {
 		group: 'Core',

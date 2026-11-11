@@ -16,6 +16,7 @@ import {
 	ensureMemberThread,
 	failJob,
 	finishJob,
+	getPersona,
 	getThreadDraft,
 	listEntries,
 	listJobEvents,
@@ -32,6 +33,7 @@ import {
 	type SubAgentStop,
 	type ThreadRow,
 } from './harness';
+import {removeMembership} from './organization';
 import type {ToolCall} from '@proxy/utils/harness';
 
 // What the harness writes, against the local database: run with it up (`bun run dev`) and the
@@ -355,6 +357,35 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			throw new Error(`expected the travel thread's job, got ${JSON.stringify(job)}`);
 		}
 		unwrap(await finishJob(job.id, 'worker-p'));
+	});
+
+	test('a persona is its maker’s, which no other member lists or finds, where General is every member’s, and it goes when its maker leaves', async () => {
+		const general = unwrap(await ensureFirstPersona(orgId));
+		const look = {nose: 0.5, noseOut: 0.3, eye: 25, eyeTheta: 50, eyeLat: 8, eyes: 2 as const};
+		const other = await db.user.create({data: {email: `harness-test-other-${stamp}@example.test`}});
+		await db.orgMember.create({data: {orgId, userId: other.id}});
+		const own = unwrap(await createPersona(orgId, userId, {name: 'Reminders', look, color: 'red'}));
+		const theirs = unwrap(
+			await createPersona(orgId, other.id, {name: 'Errands', look, color: 'green'}),
+		);
+
+		expect(own).toMatchObject({ownerUserId: userId, createdById: userId});
+		expect(general.ownerUserId).toBeNull();
+		const listedBy = async (member: string) =>
+			unwrap(await listPersonas(orgId, member)).map((persona) => persona.id);
+		expect(await listedBy(userId)).toContain(own.id);
+		expect(await listedBy(userId)).not.toContain(theirs.id);
+		expect(await listedBy(other.id)).toEqual([theirs.id, general.id]);
+		expect(unwrap(await getPersona(orgId, userId, own.id))?.id).toBe(own.id);
+		expect(unwrap(await getPersona(orgId, other.id, own.id))).toBeNull();
+		expect(unwrap(await getPersona(orgId, other.id, general.id))?.id).toBe(general.id);
+		// General is the one every member sees, however many of their own there are.
+		expect(unwrap(await ensureFirstPersona(orgId)).id).toBe(general.id);
+
+		unwrap(await removeMembership({orgId, userId: other.id, sharedAgentPasswordHash: ''}));
+		expect(await db.persona.findUnique({where: {id: theirs.id}})).toBeNull();
+		expect(await db.persona.findUnique({where: {id: own.id}})).not.toBeNull();
+		await db.user.delete({where: {id: other.id}});
 	});
 
 	test('a draft is kept until it is replaced, forgotten or sent, and listed with its persona', async () => {

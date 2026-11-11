@@ -1,6 +1,6 @@
 import {useEffect} from 'react';
 import {useLoaderData} from 'react-router';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {StepHeading} from '@/components/step-heading';
 import type {desktopAuthLoader} from '@/loaders';
 
@@ -22,9 +22,9 @@ export function DesktopAuthPage() {
 					You’re signed in. The app opens with this account; you can close this tab once it has.
 				</StepHeading>
 				<div>
-					<Button nativeButton={false} render={<a href={link} />}>
+					<PillButton nativeButton={false} render={<a href={link} />}>
 						Open Personal Agent Proxy
-					</Button>
+					</PillButton>
 				</div>
 			</div>
 		</div>

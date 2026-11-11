@@ -1,5 +1,5 @@
 import type {ReactNode} from 'react';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {
 	Dialog,
 	DialogContent,
@@ -56,16 +56,18 @@ export function ConfirmDialog({
 						<DialogDescription>{description}</DialogDescription>
 					</DialogHeader>
 					<DialogFooter>
-						<Button type="button" variant="outline" autoFocus={destructive} onClick={onClose}>
+						<PillButton type="button" variant="ghost" autoFocus={destructive} onClick={onClose}>
 							Cancel
-						</Button>
-						<Button
-							type="submit"
-							variant={destructive ? 'destructive' : 'default'}
-							autoFocus={!destructive}
-						>
-							{confirmLabel}
-						</Button>
+						</PillButton>
+						{destructive ? (
+							<PillButton type="submit" variant="destructive">
+								{confirmLabel}
+							</PillButton>
+						) : (
+							<PillButton type="submit" autoFocus>
+								{confirmLabel}
+							</PillButton>
+						)}
 					</DialogFooter>
 				</form>
 			</DialogContent>

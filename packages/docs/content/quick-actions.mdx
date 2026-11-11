@@ -1,12 +1,24 @@
 ---
 title: Quick actions
-description: Find things, ask what a meeting, document, email or issue says, work with calendars and email, calculate, convert units and read bank activity from the home page.
+description: Go anywhere in the app, find things, ask what a meeting, document, email or issue says, work with calendars and email, calculate, convert units, read bank activity and hand work to an agent, from any page with Cmd+K.
 ---
 
-Type what you want into **Quick actions** on the home page. Personal Agent Proxy picks the matching
-card while you type and fills in its fields. Actions that change something stay on the card for you
-to review: no email or invitation is sent, and no record is created or changed, until you choose
-its button.
+Press **Cmd+K** (**Ctrl+K** on Windows and Linux) on any page to open **Quick actions** over it, and
+type what you want; **Search** at the top of the sidebar opens it too. Personal Agent
+Proxy picks the matching card while you type and fills in its fields. Actions that change something
+stay on the card for you to review: no email or invitation is sent, and no record is created or
+changed, until you choose its button. A card's main button, the dark one, is also **Enter** in the
+bar, as the mark on it says: once the card is on screen for what you typed, Enter presses it.
+Enter pressed before the card has shown only brings it up.
+
+## Going somewhere
+
+As you type, the bar lists where the words lead: the app's pages, your connections, the external
+agents and, with [Chat](/agents/chat), your conversations. Every word you type has to start a word
+of a name, so `conn perm` finds **Connections and permissions** and `gran` finds Granola, while a
+whole sentence finds nothing and is read as a request. **Enter** opens the row that is lit, the
+arrow keys move it, and a click opens any row. Opened with the shortcut, the bar lists everywhere
+it goes before you type anything.
 
 ## What they can do
 
@@ -14,7 +26,7 @@ its button.
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Calendar, New event, Change event       | Events from connected Google accounts. New events show the time, guests and conflicts, and let you choose a calendar when several are writable. Changes show the event and its proposed updates before you save.                                                                                                               |
 | Person                                  | Google Contacts, with names and email addresses from connected mailboxes as a fallback.                                                                                                                                                                                                                                        |
-| Find email, Write email, Reply to email | Connected Gmail or IMAP mailboxes whose sign-in grants the needed email access. Reply to email finds the email you mean and shows what it says, lets you pick another, and replies in its thread from the mailbox it is in. You choose **Save draft** or **Send** after reviewing a new email or reply.                        |
+| Find email, Write email, Reply to email | Connected Gmail or IMAP mailboxes whose sign-in grants the needed email access. Reply to email finds the email you mean and shows what it says, lets you pick another, and replies in its thread from the mailbox it is in. You choose **Save draft**, or **Send email** or **Send reply**, after reviewing it.                |
 | Find file                               | Files in connected Google Drives, searched by name or contents.                                                                                                                                                                                                                                                                |
 | Ask                                     | Meetings in a connected Granola account (notes, plus transcripts when the sign-in grants them), documents in connected Google Drives and Notion workspaces, emails in connected mailboxes, or issues in a connected Linear workspace. The card finds the one you mean, lets you pick another, and answers with quotes from it. |
 | Balances, Transactions                  | Accounts connected through Plaid. Transactions can be narrowed by merchant, category, account and dates, or added up.                                                                                                                                                                                                          |
@@ -28,6 +40,30 @@ agent's access settings do not limit them.
 For anything outside this list, ask one of your agents. Its requests still follow that agent
 login's access.
 
+## Handing it to an agent
+
+In an organization with [Chat](/agents/chat), the bar also works with the agents Personal Agent
+Proxy runs itself:
+
+- **What no quick action does** becomes a message to one of them: the bar says **Send this to
+  General**, or to another agent where what you typed names one, and the agent's name there opens
+  the others to pick from. **Enter**, or **Send**, sends it as you typed it and opens the
+  conversation, where the agent answers. Enter pressed before the bar says so sends it as soon as
+  the bar knows no quick action does it.
+- **Say it to an agent by name** to skip the quick actions altogether: `ask Finance …`,
+  `tell Finance …`, `@Finance …` or `Finance, …`, the name also as `my Finance agent` or `the
+Finance assistant`, is a message to Finance whatever else it reads like, such as a question a
+  quick action would have answered. The bar quotes what it will send,
+  which is what follows the name: `ask Finance to pay the invoice` sends "pay the invoice".
+- **Ask for a new agent**, as in `add an agent that reminds me to stretch every hour`, and the card
+  shows one to make: a name after what it is for, a head, and what it is told first, each of which
+  you can change. **Enter**, or **Create agent**, makes it, sends it that first message and opens
+  the conversation. The agent is yours alone, like any agent you make in Chat.
+
+Unlike a quick action, a message to an agent is work the agent does by itself, with what its login
+is allowed, so Enter here acts at once, before the card has shown too, rather than leaving
+something for you to review.
+
 ## Self-hosting
 
 Hosted Personal Agent Proxy has quick actions set up. A self-hosted instance needs both keys:
@@ -38,10 +74,11 @@ OPENROUTER_KEY="…"
 ```
 
 The current text in Quick actions goes to TypeSafe AI as you type so Jev can choose the card, then
-to OpenRouter so the card's fields can be filled in. Records read from connected services are not
+to OpenRouter so the card's fields can be filled in. Text that only finds somewhere to go is matched
+in the browser, and text said to an agent by name is sent to nobody but that agent. Records read from connected services are not
 part of those requests, with one exception: **Ask** sends the meeting, document, email or issue it
 reads to OpenRouter along with your question, so the answer can be written from it. Without either
-key, the rest of Personal Agent Proxy still works and the home page says quick actions are not set
-up.
+key, the rest of Personal Agent Proxy still works, the bar still goes places, and it says quick
+actions are not set up.
 
 See [Environment variables](/self-hosting/environment) for the full reference.

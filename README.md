@@ -27,7 +27,7 @@ their full private context or silently expanding what an agent may do.
 </p>
 
 Connect email, Google, Granola, Notion, Linear, Plaid, PostgreSQL, MySQL or any service with an
-MCP server. From Home, quick actions can find people, email and files, work with calendars, write
+MCP server. From any page, quick actions (Cmd+K) can find people, email and files, work with calendars, write
 email, calculate, convert units and show balances or spending. Each agent gets its own login and
 access. Successful connection actions and actions denied by access settings appear in the activity
 log.

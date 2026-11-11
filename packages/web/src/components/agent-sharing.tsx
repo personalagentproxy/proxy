@@ -7,7 +7,7 @@ import {ConfirmDialog} from '@/components/confirm-dialog';
 import {PersonAvatar} from '@/components/person-avatar';
 import {RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {useOrgSlug} from '@/hooks/use-org';
 
 type Props = {
@@ -109,9 +109,9 @@ export function AgentSharing({orgName, agent, members, userId, mayChange, alone,
 								</span>
 							</span>
 							{!agent.shared && (
-								<Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
+								<PillButton variant="ghost" onClick={() => setConfirming(true)}>
 									Share with everyone
-								</Button>
+								</PillButton>
 							)}
 						</li>
 					)}

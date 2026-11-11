@@ -40,16 +40,29 @@ function intentWith(widget: Intent['widget'], fields: Partial<Record<FieldId, st
 }
 
 const onAsk = mock((_text: string) => {});
+// The bar a widget is in, for one whose action is its Enter: what the widget says Enter does, and
+// where it led once done.
+const setAction = mock((_act: (() => void) | null) => {});
+const done = mock((_to: string) => {});
+let entered = false;
 
 function show(intent: Intent, typed = '') {
-	// On the organization's home page, as in the app: its api calls and links name it.
+	// In the organization, as in the app: its api calls and links name it.
 	return render(
 		<MemoryRouter initialEntries={['/org-1']}>
 			<TooltipProvider>
 				<Routes>
 					<Route
 						path="/:org"
-						element={<IntentWidget intent={intent} typed={typed} now={now} onAsk={onAsk} />}
+						element={
+							<IntentWidget
+								intent={intent}
+								typed={typed}
+								now={now}
+								onAsk={onAsk}
+								bar={{entered, onEnter: true, setAction, done}}
+							/>
+						}
 					/>
 				</Routes>
 			</TooltipProvider>
@@ -220,7 +233,7 @@ describe('IntentWidget', () => {
 		);
 	});
 
-	test('a widget with nothing connected to read asks to connect it, and comes back home', async () => {
+	test('a widget with nothing connected to read asks to connect it, and comes back to the new connection', async () => {
 		fetchMock.mockImplementationOnce(() =>
 			Promise.resolve(
 				Response.json({sources: [], calendars: [], events: [], target: null, failed: []}),
@@ -229,9 +242,7 @@ describe('IntentWidget', () => {
 		show(intentWith('new_event', {}), 'meeting tomorrow at 2');
 
 		const connect = await screen.findByRole('link', {name: /Connect Google/});
-		expect(connect.getAttribute('href')).toBe(
-			'/api/orgs/org-1/connections/google/start?returnTo=home',
-		);
+		expect(connect.getAttribute('href')).toBe('/api/orgs/org-1/connections/google/start');
 		expect(
 			screen.getByText('Connect a calendar to see your day and send invites from here.'),
 		).toBeTruthy();
@@ -315,14 +326,22 @@ describe('IntentWidget', () => {
 			'value',
 			'lunch next week',
 		);
+		// Nothing written, nothing sent: Enter in the bar would press it as soon as it shows.
+		expect(within(widget).getByRole('button', {name: 'Send email'})).toHaveProperty(
+			'disabled',
+			true,
+		);
 		fireEvent.change(within(widget).getByRole('textbox', {name: 'Message'}), {
 			target: {value: 'Free on Tuesday?'},
 		});
 
 		await waitFor(() =>
-			expect(within(widget).getByRole('button', {name: 'Send'})).toHaveProperty('disabled', false),
+			expect(within(widget).getByRole('button', {name: 'Send email'})).toHaveProperty(
+				'disabled',
+				false,
+			),
 		);
-		fireEvent.click(within(widget).getByRole('button', {name: 'Send'}));
+		fireEvent.click(within(widget).getByRole('button', {name: 'Send email'}));
 		expect(await within(widget).findByText('Sent')).toBeTruthy();
 		expect(sentTo('/api/orgs/org-1/widgets/emails')).toEqual({
 			connectionId: 'google-1',
@@ -361,9 +380,12 @@ describe('IntentWidget', () => {
 		);
 
 		await waitFor(() =>
-			expect(within(widget).getByRole('button', {name: 'Send'})).toHaveProperty('disabled', false),
+			expect(within(widget).getByRole('button', {name: 'Send reply'})).toHaveProperty(
+				'disabled',
+				false,
+			),
 		);
-		fireEvent.click(within(widget).getByRole('button', {name: 'Send'}));
+		fireEvent.click(within(widget).getByRole('button', {name: 'Send reply'}));
 		expect(await within(widget).findByText('Sent')).toBeTruthy();
 		expect(sentTo('/api/orgs/org-1/widgets/emails/reply')).toEqual({
 			connectionId: 'google-1',

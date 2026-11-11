@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {
 	notificationsBlocked,
 	notificationsOn,
@@ -32,9 +32,9 @@ export function NotificationSetting() {
 	return (
 		<span className="flex items-center gap-3">
 			<span>{on ? 'On' : 'Off'}</span>
-			<Button variant="outline" size="sm" onClick={on ? turnOff : () => void turnOn()}>
+			<PillButton variant="ghost" onClick={on ? turnOff : () => void turnOn()}>
 				{on ? 'Turn off' : 'Turn on'}
-			</Button>
+			</PillButton>
 		</span>
 	);
 }

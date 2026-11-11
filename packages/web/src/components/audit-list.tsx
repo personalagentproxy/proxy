@@ -83,7 +83,7 @@ type Props = {
 // The audit log's lines: when, which agent, what it did, for which task, and where, the agent and
 // the connection each a logo with its name in a tooltip. Denied requests read in red; those that
 // came in over MCP, or from code in a sandbox, say so. What Personal Agent Proxy did itself, as
-// the home page's widgets write, reads as its own. A row opens the entry in full.
+// the command bar's widgets write, reads as its own. A row opens the entry in full.
 export function AuditList({
 	entries,
 	agents,

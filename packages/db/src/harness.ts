@@ -27,7 +27,8 @@ import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed
 import type {NewAgentTask} from './task';
 
 /**
- * The Chat page: the organization's personas, each with a thread per member, the member's
+ * The Chat page: the organization's personas, each its maker's but General, which is every
+ * member's, with a thread per member who sees it, the member's
  * conversation with it, and a thread per sub-agent started from it, each with its log and its
  * jobs. Every persona acts through the organization's one built-in agent login, whose grants and
  * activity log are every persona's. Every change to a thread's log or its jobs is made with the
@@ -91,12 +92,14 @@ export type PersonaModel = {harness: string; chatModel: string};
 export type Persona = {name: string; look: Look; color: string} & Partial<PersonaModel>;
 
 /**
- * A persona as the Chat page lists it, with the harness and the model chosen for it, who made it,
- * who may change it beside the organization's owner, and when.
+ * A persona as the Chat page lists it, with the harness and the model chosen for it, whose it is,
+ * null for one every member sees, as General is, who made it, who may change such a one beside
+ * the organization's owner, and when.
  */
 export type PersonaRow = Omit<Persona, keyof PersonaModel> &
 	PersonaModel & {
 		id: string;
+		ownerUserId: string | null;
 		createdById: string | null;
 		createdAt: Date;
 	};
@@ -267,9 +270,18 @@ export const personaSelect = {
 	color: true,
 	harness: true,
 	chatModel: true,
+	ownerUserId: true,
 	createdById: true,
 	createdAt: true,
 } as const;
+
+// The organization's personas a member sees: their own, and those every member does.
+function seenBy(orgId: string, userId: string) {
+	return {
+		orgId,
+		OR: [{ownerUserId: userId}, {ownerUserId: null}],
+	} satisfies Prisma.PersonaWhereInput;
+}
 
 export function toPersona(persona: {
 	id: string;
@@ -278,6 +290,7 @@ export function toPersona(persona: {
 	color: string;
 	harness: string;
 	chatModel: string;
+	ownerUserId: string | null;
 	createdById: string | null;
 	createdAt: Date;
 }): PersonaRow {
@@ -340,8 +353,9 @@ export function toEntry(entry: EntryRecord): EntryRow {
 }
 
 /**
- * The organization's personas with the last thing said in the member's conversation with each,
- * and what they typed in it and haven't sent, the one last active first: the last thing said in it, or, before anything was, its making.
+ * The organization's personas the member sees, their own and those every member does, with the
+ * last thing said in the member's conversation with each, and what they typed in it and haven't
+ * sent, the one last active first: the last thing said in it, or, before anything was, its making.
  */
 export async function listPersonas(
 	orgId: string,
@@ -352,7 +366,7 @@ export async function listPersonas(
 	return (
 		await wrapDb(() =>
 			db.persona.findMany({
-				where: {orgId},
+				where: seenBy(orgId, userId),
 				select: {
 					...personaSelect,
 					threads: {
@@ -449,9 +463,9 @@ export async function listAnswers(
 }
 
 /**
- * The organization's first persona, General, made by nobody in particular where it has none: the
- * organization's row is locked meanwhile, so two first openings of Chat make one. The one there
- * is otherwise, which is the oldest.
+ * The organization's first persona, General, every member's, made by nobody in particular where
+ * it has none every member sees: the organization's row is locked meanwhile, so two first
+ * openings of Chat make one. The one there is otherwise, which is the oldest of them.
  */
 export async function ensureFirstPersona(orgId: string): Promise<Result<PersonaRow, ApiError>> {
 	return (
@@ -459,7 +473,7 @@ export async function ensureFirstPersona(orgId: string): Promise<Result<PersonaR
 			db.$transaction(async (tx) => {
 				await tx.$queryRaw`SELECT "id" FROM "Organization" WHERE "id" = ${orgId} FOR UPDATE`;
 				const existing = await tx.persona.findFirst({
-					where: {orgId},
+					where: {orgId, ownerUserId: null},
 					select: personaSelect,
 					orderBy: {createdAt: 'asc'},
 				});
@@ -494,20 +508,26 @@ export async function listPersonasById(
 	).map((personas) => personas.map(toPersona));
 }
 
-/** One of the organization's personas; `Ok(null)` for none. */
+/** One of the organization's personas the member sees; `Ok(null)` for none, another member's own among them. */
 export async function getPersona(
 	orgId: string,
+	userId: string,
 	personaId: string,
 ): Promise<Result<PersonaRow | null, ApiError>> {
 	return (
-		await wrapDb(() => db.persona.findFirst({where: {id: personaId, orgId}, select: personaSelect}))
+		await wrapDb(() =>
+			db.persona.findFirst({
+				where: {id: personaId, ...seenBy(orgId, userId)},
+				select: personaSelect,
+			}),
+		)
 	).map((persona) => (persona ? toPersona(persona) : null));
 }
 
-/** A new persona of the organization, made by the member. */
+/** A new persona in the organization, the member's own, which they made. */
 export async function createPersona(
 	orgId: string,
-	createdById: string,
+	userId: string,
 	persona: Persona,
 ): Promise<Result<PersonaRow, ApiError>> {
 	return (
@@ -515,7 +535,8 @@ export async function createPersona(
 			db.persona.create({
 				data: {
 					orgId,
-					createdById,
+					ownerUserId: userId,
+					createdById: userId,
 					name: persona.name,
 					look: JSON.stringify(persona.look),
 					color: persona.color,
@@ -550,7 +571,7 @@ export async function updatePersona(
 	).map(({count}) => count > 0);
 }
 
-/** Deletes a persona with every member's conversation with it; `Ok(false)` means no such persona in the organization. */
+/** Deletes a persona with every conversation with it; `Ok(false)` means no such persona in the organization. */
 export async function deletePersona(
 	orgId: string,
 	personaId: string,

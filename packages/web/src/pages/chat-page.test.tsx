@@ -20,6 +20,7 @@ function persona(id: string, name: string, mayChange: boolean): ChatPersona {
 	return {
 		id,
 		name,
+		shared: false,
 		mayChange,
 		look,
 		color: 'blue',
@@ -367,7 +368,7 @@ describe('ChatPage', () => {
 		fireEvent.click(await screen.findByRole('menuitem', {name: 'Delete'}));
 
 		expect(screen.getByRole('heading', {name: 'Delete Finance?'})).toBeDefined();
-		expect(screen.getByText(/every member's conversation/)).toBeDefined();
+		expect(screen.getByText(/and your conversation with it/)).toBeDefined();
 		fireEvent.click(screen.getByRole('button', {name: 'Delete'}));
 
 		await waitFor(() => {

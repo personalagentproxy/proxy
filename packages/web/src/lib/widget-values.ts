@@ -5,7 +5,7 @@ import type {Intent} from '@/client/intent-client';
 import type {EmailQuery, FileKind, People, Person} from '@/client/widgets-client';
 import {browserTimeZone} from '@/lib/time-zone';
 
-// What the home page's widgets make of the fields the api filled: the people names stand for,
+// What the command bar's widgets make of the fields the api filled: the people names stand for,
 // times read as dates, and what to search mailboxes and file stores for.
 
 const DEFAULT_MEETING_MINUTES = 30;

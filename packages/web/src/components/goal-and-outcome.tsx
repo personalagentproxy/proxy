@@ -2,6 +2,7 @@ import type {KeyboardEvent} from 'react';
 import {AnimatedHeight} from '@/components/animated-height';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
+import {pillVariants} from '@/lib/pill-variants';
 
 // What a task set out to do and what came of it, one at a time: a switch between the two, and the
 // text itself, the one shown fading in and the room it takes growing or shrinking to fit, so
@@ -21,8 +22,8 @@ const tabId = (id: string, shown: ShownText) => `${id}-${shown}`;
 const panelId = (id: string) => `${id}-panel`;
 
 /**
- * The switch between the description and the outcome, its highlight sliding to the one chosen;
- * without an outcome to show, the outcome can't be chosen, and hovering it says so. The arrow keys
+ * The switch between the description and the outcome, as two ghost pills (lib/pill-variants.ts),
+ * the one chosen filled in; without an outcome to show, the outcome can't be chosen, and hovering it says so. The arrow keys
  * move between the two, as between tabs, and only the one chosen is a stop for the Tab key.
  */
 export function TextSwitch({
@@ -59,15 +60,8 @@ export function TextSwitch({
 			role="tablist"
 			aria-label="Description or outcome"
 			onKeyDown={onKeyDown}
-			className="relative grid w-fit grid-cols-2 rounded-md bg-muted p-0.5 text-xs"
+			className="flex w-fit gap-1"
 		>
-			<span
-				aria-hidden
-				className={cn(
-					'absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-sm bg-background shadow-xs transition-transform duration-200 ease-out motion-reduce:transition-none',
-					shown === 'outcome' && 'translate-x-full',
-				)}
-			/>
 			{OPTIONS.map((option) => {
 				const blocked = option.id === 'outcome' && !hasOutcome;
 				const tab = (
@@ -86,12 +80,8 @@ export function TextSwitch({
 							}
 						}}
 						className={cn(
-							'relative rounded-sm px-2.5 py-0.5 transition-colors duration-200',
-							shown === option.id && 'text-foreground',
-							shown !== option.id &&
-								!blocked &&
-								'cursor-pointer text-muted-foreground hover:text-foreground',
-							blocked && 'cursor-not-allowed text-muted-foreground/50',
+							pillVariants({variant: 'ghost'}),
+							blocked && 'cursor-not-allowed opacity-50 hover:bg-transparent',
 						)}
 					>
 						{option.label}

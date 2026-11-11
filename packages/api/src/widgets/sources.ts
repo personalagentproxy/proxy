@@ -14,7 +14,7 @@ import {loadRecordTarget} from '../records/target';
 import {integrationOf} from '../utils/connection-actions';
 
 /**
- * Where the home page's widgets read and write: every connection the person sees in the
+ * Where the command bar's widgets read and write: every connection the person sees in the
  * organization, its shared ones and their own, with a collection of the kind a widget is about, as the catalog names it (`events`, `contacts`,
  * `emails`, `files`). A collection's id is the contract: every integration with an `emails`
  * collection has the same fields, so a widget works with any of them, and connecting a new

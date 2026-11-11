@@ -280,7 +280,7 @@ function allOf(conditions: SearchObject[]): SearchObject {
 	return {...first, not: {not: allOf(rest)}};
 }
 
-// A home page search in IMAP's own terms: from the sender, from, to or copied to someone, any of
+// A command bar search in IMAP's own terms: from the sender, from, to or copied to someone, any of
 // each term's words anywhere in the email, received since the day.
 function imapCriteria(search: EmailSearch): SearchObject {
 	const {involving} = search;
@@ -292,12 +292,12 @@ function imapCriteria(search: EmailSearch): SearchObject {
 	]);
 }
 
-// A record found for the home page's widgets, with who was copied, which they find people in.
+// A record found for the command bar's widgets, with who was copied, which they find people in.
 function withCc(record: DataRecord, message: FetchMessageObject): DataRecord {
 	return {...record, values: {...record.values, cc: formatAddresses(message.envelope?.cc, true)}};
 }
 
-// A home page search in the server's terms: Gmail's own syntax where it takes it, else IMAP's.
+// A command bar search in the server's terms: Gmail's own syntax where it takes it, else IMAP's.
 // Gmail is asked for every email by an empty search, which X-GM-RAW won't take.
 function findCriteria(client: ImapFlow, search: EmailSearch): SearchObject {
 	const query = isGmail(client) ? gmailQuery(search) : '';
@@ -354,7 +354,7 @@ async function findEveryone(session: Session, searches: Array<EmailSearch & {inv
 }
 
 /**
- * The newest emails in the inbox each home page search finds, at most `limit` each: in Gmail's
+ * The newest emails in the inbox each command bar search finds, at most `limit` each: in Gmail's
  * syntax on Gmail, else in IMAP's own terms. One sign-in runs them all, as servers allow an
  * account only so many connections at once: searches only for people, as the People widget's,
  * as one search for any of them where it can, any others one after the other.

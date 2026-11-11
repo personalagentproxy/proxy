@@ -8,8 +8,8 @@ import type {MailReply} from './email-reply';
 import type {MailSearch} from './email-search';
 
 /**
- * What a collection's connector does beyond listing, opening and writing its records, for the home
- * page's widgets: each capability belongs to one collection id, as `connectors.test.ts` checks, so
+ * What a collection's connector does beyond listing, opening and writing its records, for the command
+ * bar's widgets: each capability belongs to one collection id, as `connectors.test.ts` checks, so
  * a widget works with every connector of the collection that has it, and an integration joins the
  * widget by its connector offering it. A widget adds which connection each answer is from. The
  * shapes the browser is shown are the schemas of `@proxy/contracts/widgets`.

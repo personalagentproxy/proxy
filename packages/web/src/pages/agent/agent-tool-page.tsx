@@ -3,7 +3,7 @@ import {useId, useState} from 'react';
 import {useParams} from 'react-router';
 import {runAgentServerTool} from '@/client/agent-client';
 import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {
@@ -179,9 +179,9 @@ function AgentTool({connectionId, toolName}: {connectionId: string; toolName: st
 					})}
 					{error && <p className="text-sm text-destructive">{error}</p>}
 					<div className="flex justify-end">
-						<Button type="submit" disabled={running}>
+						<PillButton type="submit" disabled={running}>
 							{running ? 'Running…' : `Run ${title}`}
-						</Button>
+						</PillButton>
 					</div>
 				</form>
 				{output !== null && (

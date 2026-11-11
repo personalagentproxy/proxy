@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import {useState} from 'react';
 import {Link} from 'react-router';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {signOut} from '@/client/auth-client';
 import {deleteAccount, deleteOtherSessions, deleteSession} from '@/client/me-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
@@ -135,9 +135,9 @@ function Account() {
 					detail={sessions.length}
 					action={
 						sessions.some((session) => !session.current) && (
-							<Button size="sm" variant="outline" onClick={() => void signOutAll()}>
+							<PillButton variant="ghost" onClick={() => void signOutAll()}>
 								Sign out all
-							</Button>
+							</PillButton>
 						)
 					}
 				>

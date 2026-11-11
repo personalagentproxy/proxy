@@ -215,7 +215,7 @@ export function createApiRouter(): express.Router {
 	org.get('/activity/timeline', withAuthResult('Activity timeline route', handleActivityTimelineRoute));
 	org.get('/activity/tasks/:taskId', withAuthResult('Task run route', handleTaskRunRoute));
 
-	// The home page: which widget fits what the person types, then its fields filled in.
+	// The command bar: which widget fits what the person types, then its fields filled in.
 	org.post('/intent', withAuthResult('Pick intent route', handlePickIntentRoute));
 	org.post('/intent/fields', withAuthResult('Fill intent route', handleFillIntentRoute));
 	// Its widgets: every connection with the collection a widget is about, read at once, and

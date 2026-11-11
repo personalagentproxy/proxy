@@ -1,16 +1,13 @@
 /// <reference types="bun" />
 
-import type {ActivityTimeline} from '@proxy/contracts/activity';
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
-import {afterEach, beforeEach, describe, expect, mock, test} from 'bun:test';
-import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {afterEach, beforeEach, describe, expect, jest, mock, test} from 'bun:test';
+import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
-import {HumanSide} from '@/components/human-side';
-import {HomePage} from '@/pages/home-page';
-import {later} from '@/lib/loader-utils';
+import {CommandBar} from '@/components/command-bar';
 import {testHuman} from '@/test-org';
 import {clearWidgetLookups, widgetsAnswer} from '@/test-widgets-api';
 
@@ -65,49 +62,9 @@ const agent = (
 	grants: [],
 });
 
-// The past day's timeline: Claude working on the inbox, and a task it finished earlier.
-const activity: ActivityTimeline = {
-	now: '2026-10-16T12:00:00.000Z',
-	from: '2026-10-15T12:00:00.000Z',
-	to: '2026-10-16T12:00:00.000Z',
-	tasks: [
-		{
-			id: 't1',
-			agentId: 'a1',
-			title: 'Triage inbox',
-			goal: 'Archive the newsletters and flag what needs an answer',
-			via: 'mcp',
-			startedAt: '2026-10-16T11:00:00.000Z',
-			lastActiveAt: '2026-10-16T11:00:00.000Z',
-			finishedAt: null,
-			persona: null,
-			parentId: null,
-			outcome: null,
-		},
-		{
-			id: 't2',
-			agentId: 'a1',
-			title: 'Prepare for the Acme call',
-			goal: 'Pull the notes and draft an agenda',
-			via: 'web',
-			startedAt: '2026-10-16T08:00:00.000Z',
-			lastActiveAt: '2026-10-16T08:00:00.000Z',
-			finishedAt: '2026-10-16T08:30:00.000Z',
-			persona: null,
-			parentId: null,
-			outcome: null,
-		},
-	],
-	entries: [],
-};
-
-// What the home route's loader answers: the connections and agent logins, for the logos, and
-// what the agents are doing, for the timeline.
-let home: {
-	connections: Connection[];
-	agents: AgentLogin[];
-	activity: ActivityTimeline | null;
-} = {
+// What is connected and the external agents, as the dialog reads them for the bar: the vault, two
+// Google accounts and Notion, and Claude beside a revoked login.
+let lists: {connections: Connection[]; agents: AgentLogin[]} = {
 	connections: [
 		connection('vault-1', 'vault', 'Acme'),
 		connection('google-1', 'google', 'me@example.com'),
@@ -118,7 +75,6 @@ let home: {
 		agent('a1', 'claude', 'Claude'),
 		agent('a2', 'chatgpt', 'ChatGPT', '2026-10-02T00:00:00.000Z'),
 	],
-	activity,
 };
 
 const realFetch = globalThis.fetch;
@@ -128,41 +84,76 @@ const realFetch = globalThis.fetch;
 const fetchMock = mock<(input: string, init?: RequestInit) => Promise<Response>>();
 const fieldsMock = mock<(input: string, init?: RequestInit) => Promise<Response>>();
 
+// What the widgets wrote: each request that makes or sends something, with its body.
+let written: Array<{path: string; body: unknown}> = [];
+
 function fieldsFor(init?: RequestInit): Promise<Response> {
 	const {widget} = JSON.parse(String(init?.body)) as {widget: string};
 	const filled = [intent, person].find((one) => one.widget === widget);
 	return Promise.resolve(Response.json({fields: filled?.fields ?? [], ms: 1}));
 }
 
+// Answers what a test left unanswered once it is over. Every POST is a write on its way to the
+// app (lib/writes-in-flight.ts), the bar's questions too, and one left on its way would keep the
+// tests after these from ever reloading for a new release.
+let endTest: () => void = () => undefined;
+
+// The bar times what it asks by typing (a tick, and a pause), and the tests say what shows at each
+// moment of it: time passes only as a test moves it on, or as Testing Library does while it waits,
+// so what shows doesn't depend on how fast the machine is.
 beforeEach(() => {
+	jest.useFakeTimers();
 	fetchMock.mockReset();
 	fieldsMock.mockReset();
 	fieldsMock.mockImplementation((_input, init) => fieldsFor(init));
+	written = [];
+	const ended = new Promise<Response>((resolve) => {
+		endTest = () => resolve(Response.json({}, {status: 503}));
+	});
 	globalThis.fetch = ((input: string, init?: RequestInit) => {
+		if (init?.method === 'POST' && input.includes('/widgets/')) {
+			written.push({path: input, body: JSON.parse(String(init.body))});
+		}
 		const answer = widgetsAnswer(input, init);
 		if (answer) {
 			return Promise.resolve(answer);
 		}
-		return input === '/api/orgs/acme/intent/fields'
-			? fieldsMock(input, init)
-			: fetchMock(input, init);
+		const asked =
+			input === '/api/orgs/acme/intent/fields' ? fieldsMock(input, init) : fetchMock(input, init);
+		return Promise.race([asked, ended]);
 	}) as typeof fetch;
 });
 
-afterEach(() => {
+afterEach(async () => {
+	cleanup();
+	jest.useRealTimers();
+	endTest();
+	await new Promise((resolve) => setTimeout(resolve, 0));
 	globalThis.fetch = realFetch;
 	clearWidgetLookups();
-	cleanup();
 });
 
-function renderHomePage() {
+// The bar in an organization without Chat, as the dialog over a page shows it.
+function renderBar() {
 	const router = createMemoryRouter(
 		[
 			{
 				id: 'human',
 				loader: () => testHuman(),
-				element: <HumanSide />,
-				children: [{path: '/:org', loader: later(async () => home), element: <HomePage />}],
+				children: [
+					{
+						path: '/:org',
+						element: (
+							<CommandBar
+								connections={lists.connections}
+								agents={lists.agents}
+								personas={null}
+								open
+								onClose={() => undefined}
+							/>
+						),
+					},
+				],
 			},
 		],
 		{initialEntries: ['/acme']},
@@ -183,65 +174,23 @@ const person = {
 	ms: 1,
 };
 
+// `ms` go by, and what the bar's timers asked is answered.
+async function pass(ms: number) {
+	await act(async () => {
+		jest.advanceTimersByTime(ms);
+	});
+}
+
 async function typeInto(value: string): Promise<HTMLElement> {
 	const input = await screen.findByRole('searchbox', {name: 'Quick actions'});
 	fireEvent.change(input, {target: {value}});
 	return input;
 }
 
-describe('HomePage', () => {
-	test('shows the sources and agents connected under the input, the vault and revoked logins left out', async () => {
-		renderHomePage();
-
-		const sources = await screen.findByRole('link', {name: '3 sources'});
-		expect(sources.getAttribute('href')).toBe('/acme/connections');
-		expect(screen.getByRole('link', {name: '1 agent'}).getAttribute('href')).toBe('/acme/agents');
-	});
-
-	test('with nothing connected, leads to connecting a source and adding an agent', async () => {
-		const before = home;
-		home = {connections: [connection('vault-1', 'vault', 'Acme')], agents: [], activity: null};
-		renderHomePage();
-
-		expect((await screen.findByRole('link', {name: 'Connect a source'})).getAttribute('href')).toBe(
-			'/acme/connections/new',
-		);
-		expect(screen.getByRole('link', {name: 'Add an agent'}).getAttribute('href')).toBe(
-			'/acme/agents/new',
-		);
-		home = before;
-	});
-
-	test('shows who is doing what: every agent’s row, with a bar for each of its tasks leading to its page', async () => {
-		renderHomePage();
-
-		expect(await screen.findByRole('region', {name: 'Agents'})).toBeTruthy();
-		// The agent's row is named by the agent, opening its page.
-		expect(screen.getByRole('link', {name: /Claude/}).getAttribute('href')).toBe('/acme/agents/a1');
-		// Each task's bar leads to its page.
-		expect(screen.getByRole('link', {name: 'Triage inbox'}).getAttribute('href')).toBe(
-			'/acme/activity/tasks/t1',
-		);
-		expect(screen.getByRole('link', {name: 'Prepare for the Acme call'}).getAttribute('href')).toBe(
-			'/acme/activity/tasks/t2',
-		);
-		// A revoked login with no task in the window gets no row.
-		expect(screen.queryByText('ChatGPT')).toBeNull();
-	});
-
-	test('shows no timeline before there is any task', async () => {
-		const before = home;
-		home = {...home, activity: {...activity, tasks: []}};
-		renderHomePage();
-
-		await screen.findByRole('searchbox', {name: 'Quick actions'});
-		expect(screen.queryByRole('region', {name: 'Agents'})).toBeNull();
-		home = before;
-	});
-
+describe('CommandBar', () => {
 	test('suggests a quick action while the input is empty, and none once typing starts', async () => {
 		fetchMock.mockImplementation(() => Promise.resolve(Response.json(intent)));
-		renderHomePage();
+		renderBar();
 
 		expect(await screen.findByText('Quick actions:')).toBeTruthy();
 		expect(screen.getByText('Book lunch with Jacky tomorrow at 1')).toBeTruthy();
@@ -251,7 +200,7 @@ describe('HomePage', () => {
 
 	test('opens what is typed into its widget under the input, and nothing else', async () => {
 		fetchMock.mockImplementation(() => Promise.resolve(Response.json(intent)));
-		renderHomePage();
+		renderBar();
 
 		await typeInto('lunch with Jacky Doe at Nopa');
 		expect(fetchMock).not.toHaveBeenCalled();
@@ -280,7 +229,7 @@ describe('HomePage', () => {
 		fetchMock.mockImplementation(() => Promise.resolve(Response.json(intent)));
 		let fields: (response: Response) => void = () => {};
 		fieldsMock.mockImplementationOnce(() => new Promise<Response>((resolve) => (fields = resolve)));
-		renderHomePage();
+		renderBar();
 
 		await typeInto('lunch with Jacky Doe');
 		const filling = await screen.findByRole('region', {name: 'New event'});
@@ -294,7 +243,7 @@ describe('HomePage', () => {
 
 	test('the widget on screen, picked again, stays filled in until its new fields come', async () => {
 		fetchMock.mockImplementation(() => Promise.resolve(Response.json(intent)));
-		renderHomePage();
+		renderBar();
 
 		await typeInto('lunch with Jacky Doe');
 		const widget = await screen.findByRole('region', {name: 'New event'});
@@ -303,7 +252,7 @@ describe('HomePage', () => {
 		fieldsMock.mockImplementation(() => new Promise<Response>(() => {}));
 		await typeInto('lunch with Jacky Doe at Nopa');
 		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await pass(50);
 
 		expect(screen.queryByText('Filling in…')).toBeNull();
 		expect(
@@ -316,7 +265,7 @@ describe('HomePage', () => {
 		fetchMock.mockImplementationOnce(() => Promise.resolve(Response.json(person)));
 		let fields: (response: Response) => void = () => {};
 		fieldsMock.mockImplementationOnce(() => new Promise<Response>((resolve) => (fields = resolve)));
-		renderHomePage();
+		renderBar();
 
 		await typeInto('lunch with');
 		await screen.findByRole('region', {name: 'New event'});
@@ -325,7 +274,7 @@ describe('HomePage', () => {
 
 		expect(fieldsMock).toHaveBeenCalledTimes(2);
 		fields(Response.json({fields: intent.fields, ms: 1}));
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await pass(50);
 		expect(screen.getByRole('region', {name: 'Person'})).toBeTruthy();
 		expect(screen.queryByRole('region', {name: 'New event'})).toBeNull();
 	});
@@ -334,7 +283,7 @@ describe('HomePage', () => {
 		fetchMock.mockImplementation(() =>
 			Promise.resolve(Response.json({widget: 'none', fields: [], ms: 1})),
 		);
-		renderHomePage();
+		renderBar();
 
 		await typeInto('summarize my week');
 		const unsupported = await screen.findByRole('region', {name: 'Not a quick action (yet)'});
@@ -345,14 +294,13 @@ describe('HomePage', () => {
 		let answer: (response: Response) => void = () => {};
 		fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => (answer = resolve)));
 		fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
-		renderHomePage();
+		renderBar();
 
 		await typeInto('what');
-		// At least the first request: on a slow runner, typing's pause can send another before this looks.
 		await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 		await typeInto('whats hugos number');
 		answer(Response.json({widget: 'none', fields: [], ms: 1}));
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await pass(50);
 
 		expect(screen.queryByRole('region', {name: 'Not a quick action (yet)'})).toBeNull();
 	});
@@ -361,11 +309,11 @@ describe('HomePage', () => {
 		fetchMock.mockImplementation(() =>
 			Promise.resolve(Response.json({widget: 'none', fields: [], ms: 1})),
 		);
-		renderHomePage();
+		renderBar();
 
 		await typeInto('summarize my week');
 		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-		await new Promise((resolve) => setTimeout(resolve, 100));
+		await pass(100);
 		expect(screen.queryByRole('region', {name: 'Not a quick action (yet)'})).toBeNull();
 
 		expect(await screen.findByRole('region', {name: 'Not a quick action (yet)'})).toBeTruthy();
@@ -376,13 +324,13 @@ describe('HomePage', () => {
 		fetchMock.mockImplementation(() =>
 			Promise.resolve(Response.json({widget: 'incomplete', fields: [], ms: 1})),
 		);
-		renderHomePage();
+		renderBar();
 
 		await typeInto('lunch with Jacky Doe');
 		expect(await screen.findByRole('region', {name: 'New event'})).toBeTruthy();
 		await typeInto('lunch with Jacky Doe and');
 		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-		await new Promise((resolve) => setTimeout(resolve, 700));
+		await pass(700);
 
 		expect(screen.getByRole('region', {name: 'New event'})).toBeTruthy();
 		expect(screen.queryByRole('region', {name: 'Not a quick action (yet)'})).toBeNull();
@@ -392,41 +340,39 @@ describe('HomePage', () => {
 		fetchMock.mockImplementation(() =>
 			Promise.resolve(Response.json({widget: 'incomplete', fields: [], ms: 1})),
 		);
-		renderHomePage();
+		renderBar();
 
 		await typeInto('find the');
 		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-		await new Promise((resolve) => setTimeout(resolve, 700));
+		await pass(700);
 
-		expect(
-			screen.getAllByRole('region').map((region) => region.getAttribute('aria-label')),
-		).toEqual(['Agents']);
+		expect(screen.queryAllByRole('region')).toEqual([]);
 	});
 
 	test('with no agent yet, offers to add one for what fits no quick action', async () => {
-		const before = home;
-		home = {...home, agents: []};
+		const before = lists;
+		lists = {...lists, agents: []};
 		fetchMock.mockImplementation(() =>
 			Promise.resolve(Response.json({widget: 'none', fields: [], ms: 1})),
 		);
-		renderHomePage();
+		renderBar();
 
 		await typeInto('summarize my week');
 		const unsupported = await screen.findByRole('region', {name: 'Not a quick action (yet)'});
 		expect(within(unsupported).getByRole('link', {name: 'Add an agent'}).getAttribute('href')).toBe(
 			'/acme/agents/new',
 		);
-		home = before;
+		lists = before;
 	});
 
 	test('keeps classifying while typing goes on, and once more with the final text', async () => {
 		fetchMock.mockImplementation(() => Promise.resolve(Response.json(intent)));
-		renderHomePage();
+		renderBar();
 
 		const sentence = 'lunch with Jacky Doe at Nopa';
 		for (let end = 1; end <= sentence.length; end += 3) {
 			await typeInto(sentence.slice(0, end));
-			await new Promise((resolve) => setTimeout(resolve, 100));
+			await pass(100);
 		}
 		expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
 
@@ -445,7 +391,7 @@ describe('HomePage', () => {
 			() => new Promise<Response>((resolve) => (answerFirst = resolve)),
 		);
 		fetchMock.mockImplementationOnce(() => Promise.resolve(Response.json(intent)));
-		renderHomePage();
+		renderBar();
 
 		await typeInto('who is');
 		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -453,43 +399,9 @@ describe('HomePage', () => {
 		expect(await screen.findByRole('region', {name: 'New event'})).toBeTruthy();
 
 		answerFirst(Response.json(person));
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await pass(50);
 		expect(screen.getByRole('region', {name: 'New event'})).toBeTruthy();
 		expect(screen.queryByRole('region', {name: 'Person'})).toBeNull();
-	});
-
-	test('the Esc key in the input row folds the widget away too', async () => {
-		fetchMock.mockImplementation(() => Promise.resolve(Response.json(intent)));
-		renderHomePage();
-
-		expect(screen.queryByRole('button', {name: 'Dismiss'})).toBeNull();
-		const input = await typeInto('lunch with Jacky');
-		await screen.findByRole('region', {name: 'New event'});
-		fireEvent.click(screen.getByRole('button', {name: 'Dismiss'}));
-		expect(input).toHaveProperty('value', '');
-		expect(screen.queryByText('Esc to dismiss')).toBeNull();
-	});
-
-	test('Esc folds the widget away, and typing anew never shows the last one', async () => {
-		fetchMock.mockImplementationOnce(() => Promise.resolve(Response.json(intent)));
-		let answerSecond: (response: Response) => void = () => {};
-		fetchMock.mockImplementationOnce(
-			() => new Promise<Response>((resolve) => (answerSecond = resolve)),
-		);
-		renderHomePage();
-
-		const input = await typeInto('lunch with Jacky');
-		const widget = await screen.findByRole('region', {name: 'New event'});
-		fireEvent.keyDown(input, {key: 'Escape'});
-		expect(input).toHaveProperty('value', '');
-		expect(widget.closest('[inert]')).not.toBeNull();
-
-		await typeInto('who is hugo');
-		expect(screen.queryByRole('region', {name: 'New event'})).toBeNull();
-		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-		answerSecond(Response.json(person));
-		const opened = await screen.findByRole('region', {name: 'Person'});
-		expect(opened.closest('[inert]')).toBeNull();
 	});
 
 	test("a widget's action types what it leads to into the input, and asks about that", async () => {
@@ -498,7 +410,7 @@ describe('HomePage', () => {
 				Response.json(String(init?.body).includes('write an email') ? intent : person),
 			),
 		);
-		renderHomePage();
+		renderBar();
 
 		const input = await typeInto('who is hugo');
 		const widget = await screen.findByRole('region', {name: 'Person'});
@@ -518,23 +430,92 @@ describe('HomePage', () => {
 		expect(await screen.findByRole('region', {name: 'New event'})).toBeTruthy();
 	});
 
+	test('Enter in the input presses the main button of the card on screen, which says so', async () => {
+		fetchMock.mockImplementation(() =>
+			Promise.resolve(Response.json({widget: 'write_email', ms: 1})),
+		);
+		fieldsMock.mockImplementation(() =>
+			Promise.resolve(
+				Response.json({
+					fields: [
+						{id: 'to', name: 'To', values: ['hugo']},
+						{id: 'subject', name: 'Subject', values: ['Lunch']},
+						{id: 'body', name: 'Message', values: ['Free on Tuesday?']},
+					],
+					ms: 1,
+				}),
+			),
+		);
+		renderBar();
+
+		const input = await typeInto('email hugo about lunch on tuesday');
+		const card = await screen.findByRole('region', {name: 'Write email'});
+		const send = await within(card).findByRole('button', {name: 'Send email'});
+		await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+		expect(send.querySelector('svg')).not.toBeNull();
+		expect(written).toEqual([]);
+		fireEvent.keyDown(input, {key: 'Enter'});
+
+		expect(await within(card).findByText('Sent')).toBeTruthy();
+		expect(written).toMatchObject([
+			{path: '/api/orgs/acme/widgets/emails', body: {subject: 'Lunch', send: true}},
+		]);
+	});
+
+	test('Enter pressed before a card shows never presses its button: the card shows, to be looked over, and Enter then does', async () => {
+		let answer: (response: Response) => void = () => {};
+		fetchMock.mockImplementation(
+			() =>
+				new Promise<Response>((resolve) => {
+					answer = resolve;
+				}),
+		);
+		fieldsMock.mockImplementation(() =>
+			Promise.resolve(
+				Response.json({
+					fields: [
+						{id: 'to', name: 'To', values: ['hugo']},
+						{id: 'subject', name: 'Subject', values: ['Lunch']},
+						{id: 'body', name: 'Message', values: ['Free on Tuesday?']},
+					],
+					ms: 1,
+				}),
+			),
+		);
+		renderBar();
+
+		const input = await typeInto('email hugo about lunch on tuesday');
+		fireEvent.keyDown(input, {key: 'Enter'});
+		await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+		answer(Response.json({widget: 'write_email', ms: 1}));
+
+		const card = await screen.findByRole('region', {name: 'Write email'});
+		const send = await within(card).findByRole('button', {name: 'Send email'});
+		await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+		expect(written).toEqual([]);
+
+		fireEvent.keyDown(input, {key: 'Enter'});
+		expect(await within(card).findByText('Sent')).toBeTruthy();
+		expect(written).toHaveLength(1);
+	});
+
 	test("shows the api's reason when classifying isn't set up", async () => {
 		fetchMock.mockResolvedValue(
 			Response.json(
 				{
 					error: 'unavailable',
-					message: 'The home page is not set up: set `TYPESAFE_API_KEY` and `OPENROUTER_KEY`.',
+					message: 'Quick actions are not set up: set `TYPESAFE_API_KEY` and `OPENROUTER_KEY`.',
 				},
 				{status: 503},
 			),
 		);
-		renderHomePage();
+		renderBar();
 
 		await typeInto('who is hugo');
 
 		expect(
 			await screen.findByText(
-				'The home page is not set up: set `TYPESAFE_API_KEY` and `OPENROUTER_KEY`.',
+				'Quick actions are not set up: set `TYPESAFE_API_KEY` and `OPENROUTER_KEY`.',
 			),
 		).toBeTruthy();
 	});

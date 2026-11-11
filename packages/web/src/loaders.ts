@@ -36,25 +36,8 @@ function orgOf({params}: OrgParams): string {
 	return params.org ?? '';
 }
 
-// Home: what is connected, for the logos under its input, and what the agents are doing, for the
-// timeline under them. The page works without them, so a list the api doesn't answer shows as
-// empty, and a timeline it doesn't as none, rather than as an error.
-export const homeLoader = later(async (args: OrgParams) => {
-	const org = orgOf(args);
-	const [connections, agents, activity] = await Promise.all([
-		listConnections(org),
-		listAgents(org),
-		getActivityTimeline(org, windowStart(LOADED_MINUTES, new Date()).toISOString()),
-	]);
-	return {
-		connections: connections.map((answer) => answer.connections).unwrapOr([]),
-		agents: agents.map((answer) => answer.agents).unwrapOr([]),
-		activity: activity.unwrapOr(null),
-	};
-});
-
 // The timeline writes its window to the address as it moves (agent-timeline.tsx) and reads what
-// that needs itself, so a change of the window alone doesn't load its page, home or activity, again.
+// that needs itself, so a change of the window alone doesn't load its page again.
 export function shouldRevalidateTimeline({
 	currentUrl,
 	nextUrl,
@@ -153,7 +136,7 @@ export const chatIndexLoader = later(async (args: OrgParams) => {
 	const {personas} = unwrapLoaderResult(await listPersonas(org));
 	const first = personas[0];
 	if (!first) {
-		throw redirect(`/${org}`);
+		throw redirect(`/${org}/connections`);
 	}
 	throw redirect(`/${org}/chat/${first.id}`);
 });
@@ -264,7 +247,7 @@ const loadActivity = later(async ({org, filter}: {org: string; filter: ActivityF
 		tasks,
 		connections: unwrapLoaderResult(connections).connections,
 		agents: unwrapLoaderResult(agents).agents,
-		// The home page's timeline over the log; the log works without it, as home does.
+		// The timeline over the log; the log works without it.
 		timeline: timeline.unwrapOr(null),
 	};
 });

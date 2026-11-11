@@ -2,11 +2,16 @@ import {CalendarIcon, ClockIcon, MapPinIcon} from 'lucide-react';
 import {useState} from 'react';
 import type {Intent} from '@/client/intent-client';
 import {editEvent, type AgendaEvent, type EventChange} from '@/client/widgets-client';
-import {Button} from '@proxy/ui/components/button';
-import {Input} from '@proxy/ui/components/input';
 import {ConnectWidget} from '@/components/widgets/connect-widget';
+import {EnterButton} from '@/components/widgets/enter-button';
 import {DayAgenda, GuestRow} from '@/components/widgets/event-widget';
-import {Avatar, DetailRow, Missing, WidgetFrame} from '@/components/widgets/widget-frame';
+import {
+	Avatar,
+	DetailRow,
+	Missing,
+	WidgetFrame,
+	WidgetInput,
+} from '@/components/widgets/widget-frame';
 import {WidgetSelect} from '@/components/widgets/widget-select';
 import {WriteResult} from '@/components/widgets/write-result';
 import {dayAround, eventKey, searchFrom} from '@/lib/calendar-day';
@@ -21,6 +26,7 @@ import {
 	movedTime,
 	namesIn,
 } from '@/lib/widget-values';
+import type {BarAction} from '@/hooks/use-bar-action';
 import {useSuggested} from '@/hooks/use-suggested';
 import {useWriteStatus} from '@/hooks/use-write-status';
 import {writeErrorMessage} from '@/lib/write-status';
@@ -48,7 +54,17 @@ function optionLabel(event: AgendaEvent): string {
 // Change event: the event meant, found as the Calendar widget finds one, the first the person can
 // change unless they pick another; what changes of it, its time, title, place and guests, each
 // beside what it was; and the day it moves to, with what it would clash with.
-export function EditEventWidget({intent, typed, now}: {intent: Intent; typed: string; now: Date}) {
+export function EditEventWidget({
+	intent,
+	typed,
+	now,
+	bar,
+}: {
+	intent: Intent;
+	typed: string;
+	now: Date;
+	bar: BarAction;
+}) {
 	const org = useOrgSlug();
 	const [name] = namesIn(intent, 'changeWith');
 	const [what] = fieldTexts(intent, 'changeEvent');
@@ -89,7 +105,7 @@ export function EditEventWidget({intent, typed, now}: {intent: Intent; typed: st
 
 	if (found.data?.sources.length === 0) {
 		return (
-			<ConnectWidget icon={CalendarIcon} name="Change event" collectionIds={['events']}>
+			<ConnectWidget name="Change event" collectionIds={['events']}>
 				Connect a calendar to change your events from here.
 			</ConnectWidget>
 		);
@@ -152,20 +168,19 @@ export function EditEventWidget({intent, typed, now}: {intent: Intent; typed: st
 
 	return (
 		<WidgetFrame
-			icon={CalendarIcon}
 			name="Change event"
 			failed={found.data?.failed}
 			status={notice ? <span>{notice}</span> : <WriteResult status={status} />}
 			actions={
-				<Button
-					size="sm"
+				<EnterButton
+					bar={bar}
 					onClick={save}
 					disabled={
 						!event?.editable || changes === 0 || status.kind === 'saving' || status.kind === 'done'
 					}
 				>
-					{had.length > 0 || guests.length > 0 ? 'Send update' : 'Save'}
-				</Button>
+					{had.length > 0 || guests.length > 0 ? 'Send update' : 'Save changes'}
+				</EnterButton>
 			}
 		>
 			{searches.length === 0 ? (
@@ -184,8 +199,10 @@ export function EditEventWidget({intent, typed, now}: {intent: Intent; typed: st
 							/>
 						</DetailRow>
 					)}
-					<Input
+					<WidgetInput
 						aria-label="Title"
+						placeholder="Title"
+						className="font-medium"
 						value={title}
 						onChange={(change) => setTitle(change.target.value)}
 					/>

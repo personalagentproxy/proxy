@@ -3,7 +3,7 @@ import {isOffered, VAULT_INTEGRATION_ID, type IntegrationId} from '@proxy/integr
 import {useState} from 'react';
 import type {Experiment} from '@proxy/utils';
 import {Badge} from '@proxy/ui/components/badge';
-import {buttonVariants} from '@proxy/ui/components/button';
+import {pillVariants} from '@/lib/pill-variants';
 import {cn} from '@proxy/ui/lib/utils';
 import {KeyRoundIcon, PlusIcon} from 'lucide-react';
 import {IntegrationLogo} from '@/components/brand-logo';
@@ -32,7 +32,7 @@ import {onSignInClick} from '@/lib/desktop';
 // styled as a ghost icon button that lights up with the row, and dimmed on a row greyed out.
 const ROW =
 	'group flex min-h-14 w-full items-center gap-3 px-(--bleed) py-2 text-left text-sm outline-none';
-const PLUS_BUTTON = buttonVariants({variant: 'ghost', size: 'icon-sm'});
+const PLUS_BUTTON = pillVariants({variant: 'ghost', icon: true});
 const PLUS = cn(
 	PLUS_BUTTON,
 	'group-hover:bg-muted group-hover:text-foreground group-focus-visible:border-ring group-focus-visible:ring-3 group-focus-visible:ring-ring/50 group-active:translate-y-px dark:group-hover:bg-muted/50',

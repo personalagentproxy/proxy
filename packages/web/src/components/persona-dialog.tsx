@@ -4,7 +4,7 @@ import {useState} from 'react';
 import {AGENT_NAME_MAX} from '@proxy/utils/agent-providers';
 import {AVATAR_COLORS, type AvatarColor, shuffleLook} from '@proxy/utils/harness';
 import {LiveHead} from '@/components/head';
-import {Button} from '@proxy/ui/components/button';
+import {PillButton} from '@/components/pill-button';
 import {
 	Dialog,
 	DialogContent,
@@ -158,7 +158,7 @@ export function PersonaDialog({open, initial, onClose, onSave, onDelete}: Props)
 					{error && <p className="text-sm text-destructive">{error}</p>}
 					<DialogFooter>
 						{onDelete && (
-							<Button
+							<PillButton
 								type="button"
 								variant="destructive"
 								className="mr-auto"
@@ -169,14 +169,14 @@ export function PersonaDialog({open, initial, onClose, onSave, onDelete}: Props)
 								}}
 							>
 								Delete
-							</Button>
+							</PillButton>
 						)}
-						<Button type="button" variant="outline" onClick={onClose}>
+						<PillButton type="button" variant="ghost" onClick={onClose}>
 							Cancel
-						</Button>
-						<Button type="submit" disabled={!ready || busy}>
+						</PillButton>
+						<PillButton type="submit" disabled={!ready || busy}>
 							{busy ? 'Saving…' : initial ? 'Save' : 'Create'}
-						</Button>
+						</PillButton>
 					</DialogFooter>
 				</form>
 			</DialogContent>
