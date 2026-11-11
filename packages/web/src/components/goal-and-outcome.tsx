@@ -1,5 +1,6 @@
 import type {KeyboardEvent} from 'react';
 import {AnimatedHeight} from '@/components/animated-height';
+import {Markdown} from '@/components/markdown';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
 import {pillVariants} from '@/lib/pill-variants';
@@ -124,16 +125,20 @@ export function TextPanel({
 	if (outcome === null) {
 		return (
 			<div {...panel}>
-				<p>{goal}</p>
+				<Markdown text={goal} allowImages={false} showFavicons={false} />
 			</div>
 		);
 	}
 	return (
 		<div {...panel}>
 			<AnimatedHeight open>
-				<p key={shown} className="animate-in fade-in-0 duration-200 motion-reduce:animate-none">
-					{shown === 'goal' ? goal : outcome}
-				</p>
+				<Markdown
+					key={shown}
+					text={shown === 'goal' ? goal : outcome}
+					allowImages={false}
+					showFavicons={false}
+					className="animate-in fade-in-0 duration-200 motion-reduce:animate-none"
+				/>
 			</AnimatedHeight>
 		</div>
 	);
