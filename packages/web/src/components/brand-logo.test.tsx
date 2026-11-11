@@ -23,6 +23,13 @@ describe('AgentLogo', () => {
 		expect(container.querySelector('img')?.getAttribute('src')).toBe('/favicon.svg');
 		expect(container.querySelector('svg')).toBeNull();
 	});
+
+	test('draws the built-in agent, which the Chat page’s personas act through, as a head', () => {
+		const {container} = render(<AgentLogo providerId="proxy" />);
+
+		expect(container.querySelector('canvas')).not.toBeNull();
+		expect(container.querySelector('img')).toBeNull();
+	});
 });
 
 describe('IntegrationLogo', () => {
@@ -60,6 +67,6 @@ describe('IntegrationLogo', () => {
 		expect(document.activeElement).toBe(item);
 		expect(item.className).toContain('focus:**:not-data-[preserve-color]:text-accent-foreground');
 		expect(icon?.hasAttribute('data-preserve-color')).toBe(true);
-		expect(icon?.classList).toContain('text-neutral-500');
+		expect(icon?.classList).toContain('text-foreground');
 	});
 });

@@ -8,9 +8,10 @@ import {
 } from '@proxy/integrations';
 import {orgApi} from '@/client/request';
 
-// A brand's own logo, `public/integrations/<id>.svg`, unless `LOGOS` says otherwise. One found on
-// the internet has a file of ours to show where it can't be loaded.
-type IntegrationLogoImage = {src: string; fill?: boolean; fallback?: string};
+// A brand's own logo, `public/integrations/<id>.svg`, unless `LOGOS` says otherwise: `ink` for a
+// mark in one dark color, drawn white on a dark page. One found on the internet has our mark to
+// show where it can't be loaded.
+type IntegrationLogoImage = {src: string; ink?: boolean; fallback?: string};
 
 export type Integration = CatalogIntegration & {
 	logo: LucideIcon | IntegrationLogoImage;
@@ -51,17 +52,20 @@ const MCP_MARK = '/favicon.svg';
 
 // The integrations whose logo isn't `public/integrations/<id>.svg` as it is: an icon for those
 // that are no one brand's, the vault, the sandboxes and the files being ours and Email any mailbox, and our mark for custom
-// MCP servers until a connection has its server's site's icon (`serverLogo`); another kind of file;
-// or a logo that is already a square tile, as Granola's and Linear's are, which fills the tile
-// edge to edge.
+// MCP servers until a connection has its server's site's icon (`serverLogo`); or a mark in one
+// dark color (`ink`).
 const LOGOS: Partial<Record<IntegrationId, LucideIcon | IntegrationLogoImage>> = {
 	vault: LibraryIcon,
 	sandbox: SquareTerminalIcon,
 	files: FolderIcon,
 	email: MailIcon,
-	mcp: {src: MCP_MARK},
-	granola: {src: '/integrations/granola.png', fill: true},
-	linear: {src: '/integrations/linear.svg', fill: true},
+	mcp: {src: MCP_MARK, ink: true},
+	github: {src: '/integrations/github.svg', ink: true},
+	granola: {src: '/integrations/granola.svg', ink: true},
+	linear: {src: '/integrations/linear.svg', ink: true},
+	notion: {src: '/integrations/notion.svg', ink: true},
+	parallel: {src: '/integrations/parallel.svg', ink: true},
+	plaid: {src: '/integrations/plaid.svg', ink: true},
 };
 
 /** An integration's logo: its file in `public/integrations/`, named by its id, unless `LOGOS` has another. */
@@ -88,7 +92,7 @@ export function findIntegration(id: string): Integration | undefined {
 function serverLogo(account: string): IntegrationLogoImage {
 	const address = `https://${account}`;
 	if (!URL.canParse(address)) {
-		return {src: MCP_MARK};
+		return {src: MCP_MARK, ink: true};
 	}
 	return {
 		src: `/api/favicons/${encodeURIComponent(new URL(address).hostname)}`,
