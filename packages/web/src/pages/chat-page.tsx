@@ -734,6 +734,20 @@ function personText(entry: ChatEntry): string | null {
 	return entry.kind === 'person' ? entry.text : null;
 }
 
+// A run's entries, each turn with the lines about tasks that came after it.
+function withTaskLines(entries: ChatEntry[]): ChatEntry[][] {
+	const groups: ChatEntry[][] = [];
+	for (const entry of entries) {
+		const last = groups.at(-1);
+		if (last && (entry.kind === 'task' || entry.kind === 'sent')) {
+			last.push(entry);
+			continue;
+		}
+		groups.push([entry]);
+	}
+	return groups;
+}
+
 // One thing of the conversation: a turn, or a line about one of its tasks. It is drawn again only
 // as it changes, not as the conversation is read again or something else comes, since drawing an
 // answer parses its Markdown; one that came while the conversation was open rises into place.
@@ -938,23 +952,34 @@ const Conversation = memo(function Conversation({
 										</h2>
 									)}
 									{/* The persona's turns, without a bubble apiece, stand further apart than the
-									    paragraphs within one. */}
+									    paragraphs within one; a line about a task sits close under the turn it
+									    came with. */}
 									<div
 										className={cn(
 											'flex flex-col',
 											conversationSide(first) === 'person' ? 'gap-2' : 'gap-5',
 										)}
 									>
-										{run.entries.map((entry) => {
-											const entryKey = sending.keyOf(entry);
+										{withTaskLines(run.entries).map((group) => {
+											const head = group[0];
+											if (!head) {
+												return null;
+											}
 											return (
-												<Entry
-													key={entryKey}
-													entry={entry}
-													fresh={!opened.has(entryKey)}
-													org={org}
-													personaId={personaId}
-												/>
+												<div key={sending.keyOf(head)} className="flex flex-col gap-2">
+													{group.map((entry) => {
+														const entryKey = sending.keyOf(entry);
+														return (
+															<Entry
+																key={entryKey}
+																entry={entry}
+																fresh={!opened.has(entryKey)}
+																org={org}
+																personaId={personaId}
+															/>
+														);
+													})}
+												</div>
 											);
 										})}
 									</div>
