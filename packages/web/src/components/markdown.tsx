@@ -291,7 +291,7 @@ const components: Components = {
 	pre: ({node: _node, className, ...props}) => (
 		<pre
 			className={cn(
-				'overflow-x-auto rounded-md bg-background px-3 py-2 font-mono text-xs leading-relaxed',
+				'overflow-x-auto rounded-md bg-muted px-3 py-3.5 font-mono [text-box:trim-both_cap_alphabetic] text-xs leading-relaxed',
 				className,
 			)}
 			{...props}
@@ -299,20 +299,32 @@ const components: Components = {
 	),
 	code: ({node: _node, className, ...props}) => (
 		<code
-			className={cn('rounded bg-background px-1 py-0.5 font-mono text-xs in-[pre]:p-0', className)}
+			className={cn('rounded bg-muted px-1 py-0.5 font-mono text-xs in-[pre]:p-0', className)}
 			{...props}
 		/>
 	),
 	table: ({node: _node, className, ...props}) => (
-		<div className="overflow-x-auto">
+		<div className="overflow-x-auto rounded-md border">
 			<table className={cn('w-full border-collapse text-left', className)} {...props} />
 		</div>
 	),
 	th: ({node: _node, className, ...props}) => (
-		<th className={cn('border-b px-2 py-1 font-medium', className)} {...props} />
+		<th
+			className={cn(
+				'border-r border-b bg-muted px-3 py-1.5 font-semibold last:border-r-0',
+				className,
+			)}
+			{...props}
+		/>
 	),
 	td: ({node: _node, className, ...props}) => (
-		<td className={cn('border-b border-border/60 px-2 py-1 align-top', className)} {...props} />
+		<td
+			className={cn(
+				'border-r border-b px-3 py-1.5 align-top last:border-r-0 in-[tr:last-child]:border-b-0',
+				className,
+			)}
+			{...props}
+		/>
 	),
 };
 

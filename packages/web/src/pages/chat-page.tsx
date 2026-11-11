@@ -912,14 +912,26 @@ const Conversation = memo(function Conversation({
 								<MessageScrollerItem
 									key={key}
 									scrollAnchor={sending.sentHere(first)}
-									className="flex flex-col gap-4"
+									// What the person says next stands a little apart from the answer above it,
+									// as one under a time does from the time.
+									className={cn(
+										'flex flex-col gap-4',
+										run.heading === null && conversationSide(first) === 'person' && 'pt-4',
+									)}
 								>
 									{run.heading !== null && (
 										<h2 className="text-center text-xs font-medium text-muted-foreground">
 											{run.heading}
 										</h2>
 									)}
-									<div className="flex flex-col gap-2">
+									{/* The persona's turns, without a bubble apiece, stand further apart than the
+									    paragraphs within one. */}
+									<div
+										className={cn(
+											'flex flex-col',
+											conversationSide(first) === 'person' ? 'gap-2' : 'gap-5',
+										)}
+									>
 										{run.entries.map((entry) => {
 											const entryKey = sending.keyOf(entry);
 											return (

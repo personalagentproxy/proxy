@@ -418,7 +418,7 @@ export function MessageEditor({
 				onKeyDown={onKeyDown}
 				onPaste={onPaste}
 				className={cn(
-					'min-h-10 w-full p-3 text-base break-words whitespace-pre-wrap outline-none md:text-sm',
+					'min-h-16 w-full p-3 text-base break-words whitespace-pre-wrap outline-none md:text-sm',
 					// Marked in the system's colors, said here so a marked chip is drawn in the very same.
 					'selection:bg-[color:Highlight] selection:text-[color:HighlightText]',
 					// The hint takes no room in the line, so the caret of an empty box is at its start, not
