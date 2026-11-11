@@ -14,6 +14,7 @@ import {
 	FILE_CHANGED,
 	getFile,
 	getFileVersion,
+	listFileMakers,
 	listFileVersions,
 	listFolder,
 	listTrash,
@@ -186,7 +187,7 @@ describe.skipIf(!databaseUrl)('files, against the database', () => {
 
 	test('writes a file’s next version only for whoever read the one it holds, and keeps every one before', async () => {
 		const file = unwrap(
-			await createFile(person, {parentId: null, name: 'plan.md', content: await content(1)}),
+			await createFile(person, {parentId: null, name: 'roadmap.md', content: await content(1)}),
 		);
 		const first = file.head?.id ?? '';
 
@@ -262,6 +263,107 @@ describe.skipIf(!databaseUrl)('files, against the database', () => {
 				}),
 			),
 		).toStartWith('not_found');
+	});
+
+	test('says which agents made what a file holds, each once, the latest first, a persona by its head', async () => {
+		const coder = await db.agent.create({
+			data: {
+				orgId,
+				providerId: 'claude',
+				name: 'Claude Code',
+				username: `files-coder-${stamp}`,
+				passwordHash: '-',
+			},
+		});
+		const chat = await db.agent.create({
+			data: {
+				orgId,
+				providerId: 'proxy',
+				name: 'Chat',
+				username: `files-chat-${stamp}`,
+				passwordHash: '-',
+			},
+		});
+		const persona = await db.persona.create({
+			data: {orgId, name: 'General', look: '{}', color: 'green'},
+		});
+		const coding = await db.agentTask.create({
+			data: {orgId, agentId: coder.id, title: 'Write the plan', goal: 'Plan', via: 'mcp'},
+		});
+		const chatting = await db.agentTask.create({
+			data: {
+				orgId,
+				agentId: chat.id,
+				personaId: persona.id,
+				title: 'Answer',
+				goal: 'Answer',
+				via: 'harness',
+			},
+		});
+		const byCoder: FileChangeBy = {orgId, connectionId, by: {agentId: coder.id, taskId: coding.id}};
+		const byPersona: FileChangeBy = {
+			orgId,
+			connectionId,
+			by: {agentId: chat.id, taskId: chatting.id},
+		};
+		const file = unwrap(
+			await createFile(byCoder, {parentId: null, name: 'launch plan.md', content: await content()}),
+		);
+		const second = unwrap(
+			await writeFile(byPersona, {
+				fileId: file.id,
+				ifVersion: file.head?.id ?? '',
+				content: await content(),
+			}),
+		);
+		const third = unwrap(
+			await writeFile(byCoder, {
+				fileId: file.id,
+				ifVersion: second.head?.id ?? '',
+				content: await content(),
+			}),
+		);
+		unwrap(
+			await writeFile(person, {
+				fileId: file.id,
+				ifVersion: third.head?.id ?? '',
+				content: await content(),
+			}),
+		);
+		// Renamed by an agent, which made nothing it holds.
+		unwrap(await moveFile(agent, {id: file.id, name: 'the launch plan.md'}));
+		const mine = unwrap(
+			await createFile(person, {parentId: null, name: 'own notes.md', content: await content()}),
+		);
+
+		const makers = unwrap(await listFileMakers(connectionId, [file.id, mine.id]));
+
+		expect(makers.get(file.id)).toEqual([
+			{kind: 'agent', id: coder.id, name: 'Claude Code', providerId: 'claude'},
+			{kind: 'persona', id: persona.id, name: 'General', look: '{}', color: 'green'},
+		]);
+		expect(makers.get(mine.id)).toBeUndefined();
+		// Each version with what the file was called then and who made it, as the makers are.
+		expect(
+			unwrap(await listFileVersions(connectionId, file.id)).map((version) => [
+				version.author?.name,
+				version.author?.user?.name ?? version.author?.maker?.name,
+				version.author?.task?.title ?? null,
+			]),
+		).toEqual([
+			['launch plan.md', 'Dana', null],
+			['launch plan.md', 'Claude Code', 'Write the plan'],
+			['launch plan.md', 'General', 'Answer'],
+			['launch plan.md', 'Claude Code', 'Write the plan'],
+		]);
+
+		// Without its persona, the agent it worked through.
+		await db.persona.delete({where: {id: persona.id}});
+		expect(
+			unwrap(await listFileMakers(connectionId, [file.id]))
+				.get(file.id)
+				?.map((maker) => maker.name),
+		).toEqual(['Claude Code', 'Chat']);
 	});
 
 	test('renames and moves, never onto a name that is taken nor a folder into itself', async () => {

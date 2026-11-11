@@ -4,6 +4,7 @@ import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import type {Member} from '@proxy/contracts/orgs';
 import type {DataRecord} from '@proxy/contracts/records';
+import {DEFAULT_LOOK} from '@proxy/utils/harness';
 import type {GitHubReach} from '@/lib/github';
 import {afterEach, describe, expect, test, spyOn} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
@@ -255,6 +256,7 @@ describe('ConnectionPage', () => {
 			shown: false,
 			modifiedAt: '2026-10-21T00:00:00.000Z',
 			trashedAt: null,
+			makers: [],
 		};
 		renderConnectionPage(
 			'/acme/connections/conn-1',
@@ -284,6 +286,16 @@ describe('ConnectionPage', () => {
 							version: 'v2',
 							type: 'text/markdown',
 							size: 2048,
+							makers: [
+								{
+									kind: 'persona' as const,
+									id: 'persona-1',
+									name: 'General',
+									look: DEFAULT_LOOK,
+									color: 'blue' as const,
+								},
+								{kind: 'agent' as const, id: 'agent-1', name: 'Claude Code', providerId: 'claude'},
+							],
 						},
 					],
 					trail: [],
@@ -298,6 +310,11 @@ describe('ConnectionPage', () => {
 		const row = screen.getByRole('link', {name: /pricing\.md/});
 		expect(row.getAttribute('href')).toBe('/acme/connections/conn-1?file=file-1');
 		expect(row.textContent).toContain('2 KB');
+		// The agents that made it, by their heads, named for whoever can't see them.
+		expect(within(row).getByLabelText('Made by General and Claude Code')).toBeTruthy();
+		expect(
+			within(screen.getByRole('link', {name: /Reports/})).queryByLabelText(/Made by/),
+		).toBeNull();
 		expect(tabs()).toEqual([
 			['Files', 'page'],
 			['Permissions', null],
@@ -319,6 +336,7 @@ describe('ConnectionPage', () => {
 			shown: false,
 			modifiedAt: '2026-10-21T00:00:00.000Z',
 			trashedAt: null,
+			makers: [],
 		};
 		const version = {
 			size: 2048,
@@ -344,13 +362,23 @@ describe('ConnectionPage', () => {
 							...version,
 							id: 'v2',
 							current: true,
+							name: 'pricing.md',
 							by: {
-								kind: 'agent',
+								kind: 'persona' as const,
+								id: 'persona-1',
 								name: 'General',
+								look: DEFAULT_LOOK,
+								color: 'blue' as const,
 								task: {id: 'task-1', title: 'Tidy the pricing notes'},
 							},
 						},
-						{...version, id: 'v1', current: false, by: {kind: 'person', name: 'Alex', task: null}},
+						{
+							...version,
+							id: 'v1',
+							current: false,
+							name: 'pricing draft.md',
+							by: {kind: 'person' as const, name: 'Alex', email: 'alex@example.com', image: null},
+						},
 					],
 				},
 			},
@@ -358,8 +386,14 @@ describe('ConnectionPage', () => {
 
 		const dialog = await screen.findByRole('dialog');
 		expect(dialog.textContent).toContain('text/markdown · 2 KB');
-		expect(dialog.textContent).toContain('by General for Tidy the pricing notes');
-		expect(dialog.textContent).toContain('by Alex');
+		// A row a version: what the file was called then, its size, when, who made it, and whether it is held now.
+		const rows = within(dialog).getAllByRole('listitem');
+		expect(rows[0]?.textContent).toContain('pricing.md');
+		expect(rows[0]?.textContent).toContain('GeneralTidy the pricing notes');
+		expect(rows[0]?.textContent).toContain('Current');
+		expect(rows[1]?.textContent).toContain('pricing draft.md');
+		expect(rows[1]?.textContent).toContain('Alex');
+		expect(rows[1]?.textContent).not.toContain('Current');
 		expect(
 			within(dialog).getByRole('link', {name: 'Tidy the pricing notes'}).getAttribute('href'),
 		).toBe('/acme/activity/tasks/task-1');
@@ -367,12 +401,17 @@ describe('ConnectionPage', () => {
 			within(dialog)
 				.getAllByRole('button', {name: 'Download'})
 				.map((link) => link.getAttribute('href')),
+		).toEqual(['/api/orgs/acme/connections/conn-1/files/file-1/content']);
+		expect(
+			within(dialog)
+				.getAllByRole('button', {name: 'Download this version'})
+				.map((link) => link.getAttribute('href')),
 		).toEqual([
-			'/api/orgs/acme/connections/conn-1/files/file-1/content',
+			'/api/orgs/acme/connections/conn-1/files/file-1/content?version=v2',
 			'/api/orgs/acme/connections/conn-1/files/file-1/content?version=v1',
 		]);
-		// The version it holds is marked; one before it is given back or saved.
-		expect(within(dialog).getAllByRole('button', {name: 'Restore'})).toHaveLength(1);
+		// The version it holds is marked; one before it can be given back.
+		expect(within(dialog).getAllByRole('button', {name: 'Restore this version'})).toHaveLength(1);
 		expect(within(dialog).getByText('Current')).toBeTruthy();
 	});
 
@@ -385,6 +424,7 @@ describe('ConnectionPage', () => {
 			shown: false,
 			modifiedAt: '2026-10-21T00:00:00.000Z',
 			trashedAt: null,
+			makers: [],
 		};
 		renderConnectionPage(
 			'/acme/connections/conn-1?folder=folder-1&q=pricing',
@@ -435,6 +475,7 @@ describe('ConnectionPage', () => {
 			shown: false,
 			modifiedAt: '2026-10-21T00:00:00.000Z',
 			trashedAt: null,
+			makers: [],
 		});
 		const file = {...folder('file-1', 'pricing.md', null), folder: false, version: 'v1'};
 		globalThis.fetch = ((input: string, init?: RequestInit) => {

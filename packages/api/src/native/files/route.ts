@@ -3,6 +3,7 @@ import {Err, type Result} from 'ts-results-es';
 import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
+import {parseLook, toAvatarColor} from '@proxy/utils/harness';
 import {FILES_INTEGRATION_ID} from '@proxy/integrations';
 import {
 	contentQuerySchema,
@@ -12,7 +13,9 @@ import {
 	type FileCrumb,
 	type fileDetailSchema,
 	type fileListSchema,
+	type FileMaker,
 	type FileVersion,
+	type ListedFile,
 	listFilesQuerySchema,
 	moveFileBodySchema,
 	restoreFileBodySchema,
@@ -24,10 +27,12 @@ import {
 	createFolder,
 	type FileChangeBy,
 	type FileEntry,
+	type FileMaker as FileMakerRow,
 	type FileNodeRow,
 	type FileVersionEntry,
 	getFile,
 	getFileVersion,
+	listFileMakers,
 	listFileVersions,
 	listFolder,
 	listTrash,
@@ -92,22 +97,59 @@ function toFile(entry: FileEntry, above?: FileNodeRow[]): DriveFile {
 	};
 }
 
+function toMaker(maker: FileMakerRow): FileMaker {
+	if (maker.kind === 'persona') {
+		return {...maker, look: parseLook(maker.look), color: toAvatarColor(maker.color)};
+	}
+	return maker;
+}
+
+// Files and folders as a list shows them, each with the agents that made what it holds; with
+// `above`, as toFile has it, where each is.
+function toListed(connectionId: string, entries: (FileEntry & {trail?: FileNodeRow[]})[], above: boolean): Promise<Result<ListedFile[], ApiError>> {
+	return Do(async ($) => {
+		const makers = $(
+			await listFileMakers(
+				connectionId,
+				entries.map((entry) => entry.id),
+			),
+		);
+		return entries.map((entry) => ({
+			...toFile(entry, above ? (entry.trail ?? []) : undefined),
+			makers: (makers.get(entry.id) ?? []).map(toMaker),
+		}));
+	});
+}
+
 function toCrumbs(trail: FileNodeRow[]): FileCrumb[] {
 	return trail.map((folder) => ({id: folder.id, name: folder.name}));
 }
 
-function toVersion(version: FileVersionEntry, headId: string | null): FileVersion {
+function toVersion(version: FileVersionEntry, file: FileEntry): FileVersion {
 	const {author} = version;
 	const by = (): FileVersion['by'] => {
 		if (author === null) {
 			return null;
 		}
 		if (author.user !== null) {
-			return {kind: 'person', name: author.user.name ?? author.user.email, task: null};
+			return {kind: 'person', name: author.user.name ?? author.user.email, email: author.user.email, image: author.user.image};
 		}
-		return {kind: 'agent', name: author.personaName ?? author.agent?.name ?? 'An agent', task: author.task};
+		// An agent that is gone since, by no name and no mark.
+		if (author.maker === null) {
+			return {kind: 'agent', id: '', name: 'An agent', providerId: '', task: author.task};
+		}
+		return {...toMaker(author.maker), task: author.task};
 	};
-	return {id: version.id, size: version.size, type: version.type, at: version.createdAt.toISOString(), current: version.id === headId, by: by(), restored: author?.kind === 'restore'};
+	return {
+		id: version.id,
+		name: author?.name ?? file.name,
+		size: version.size,
+		type: version.type,
+		at: version.createdAt.toISOString(),
+		current: version.id === file.head?.id,
+		by: by(),
+		restored: author?.kind === 'restore',
+	};
 }
 
 /** `GET files`: what a folder holds, or what a search by name finds, with the folders down to it. */
@@ -123,9 +165,9 @@ export function handleListFilesRoute(request: AuthenticatedRequest): Promise<Res
 		const words = search?.trim();
 		if (words) {
 			const found = $(await searchFiles(connectionId, words, folder?.id ?? null));
-			return {files: found.map((entry) => toFile(entry, entry.trail)), trail};
+			return {files: $(await toListed(connectionId, found, true)), trail};
 		}
-		return {files: $(await listFolder(connectionId, folder?.id ?? null)).map((entry) => toFile(entry)), trail};
+		return {files: $(await toListed(connectionId, $(await listFolder(connectionId, folder?.id ?? null)), false)), trail};
 	});
 }
 
@@ -133,7 +175,7 @@ export function handleListFilesRoute(request: AuthenticatedRequest): Promise<Res
 export function handleListTrashRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof fileListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const {connectionId} = $(await driveOf(request));
-		return {files: $(await listTrash(connectionId)).map((entry) => toFile(entry, entry.trail)), trail: []};
+		return {files: $(await toListed(connectionId, $(await listTrash(connectionId)), true)), trail: []};
 	});
 }
 
@@ -144,7 +186,7 @@ export function handleGetFileRoute(request: AuthenticatedRequest): Promise<Resul
 		const fileId = request.params.fileId ?? '';
 		const file = $(requirePresent($(await getFile(connectionId, fileId)), ApiErr.notFound('file', fileId)));
 		const versions = file.folder ? [] : $(await listFileVersions(connectionId, file.id));
-		return {file: toFile(file), trail: toCrumbs(file.trail), versions: versions.map((version) => toVersion(version, file.head?.id ?? null))};
+		return {file: toFile(file), trail: toCrumbs(file.trail), versions: versions.map((version) => toVersion(version, file))};
 	});
 }
 

@@ -1,4 +1,11 @@
-import type {DriveFile, FileCrumb, FileDetail, FileList, FileVersion} from '@proxy/contracts/files';
+import type {
+	DriveFile,
+	FileCrumb,
+	FileDetail,
+	FileList,
+	FileMaker,
+	FileVersion,
+} from '@proxy/contracts/files';
 import {FILES_TRASH_DAYS} from '@proxy/integrations';
 import {
 	ArchiveRestoreIcon,
@@ -11,6 +18,7 @@ import {
 	ImageIcon,
 	LoaderCircleIcon,
 	PencilIcon,
+	RotateCcwIcon,
 	SearchIcon,
 	Trash2Icon,
 	UploadIcon,
@@ -30,7 +38,10 @@ import {
 	uploadFileVersion,
 } from '@/client/files-client';
 import {IconButton} from '@/components/icon-button';
+import {PersonAvatar} from '@/components/person-avatar';
 import {PillButton} from '@/components/pill-button';
+import {AgentLogo} from '@/components/brand-logo';
+import {Head} from '@/components/head';
 import {RenameDialog} from '@/components/rename-dialog';
 import {EmptyRows, Row, RowHeader, RowList} from '@/components/row-list';
 import {useApply} from '@/hooks/use-apply';
@@ -51,6 +62,7 @@ import {
 	DialogTitle,
 } from '@proxy/ui/components/dialog';
 import {Input} from '@proxy/ui/components/input';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
 
 const EMPTY = 'Nothing here yet. Upload a file, or let your agents put what they make here.';
@@ -68,6 +80,7 @@ const TRASH_NOTE = `What is put in the trash is deleted for good after ${FILES_T
 
 // The table's columns after the name.
 const CELLS = {
+	makers: 'hidden w-20 shrink-0 justify-end sm:flex',
 	size: 'hidden w-20 shrink-0 text-right text-muted-foreground tabular-nums sm:block',
 	modified: 'w-28 shrink-0 text-right text-muted-foreground',
 };
@@ -77,6 +90,50 @@ const LINK = 'underline underline-offset-4 hover:text-foreground';
 function FileGlyph({file}: {file: DriveFile}) {
 	const Icon = file.folder ? FolderIcon : file.shown ? ImageIcon : FileIcon;
 	return <Icon className="size-4 shrink-0 text-muted-foreground" />;
+}
+
+// How many of a file's makers are drawn; the rest are counted.
+const MAX_MAKERS = 3;
+
+// The names of a file's makers, as a sentence says them.
+const NAMES = new Intl.ListFormat('en', {type: 'conjunction'});
+
+// A maker as the activity log draws one: a persona by its head, any other agent by its mark.
+function MakerMark({maker}: {maker: FileMaker}) {
+	if (maker.kind === 'persona') {
+		return <Head look={maker.look} color={maker.color} size={20} />;
+	}
+	return <AgentLogo providerId={maker.providerId} />;
+}
+
+// The agents that made what a file holds, the latest in front, overlapping, the first few drawn
+// and the rest counted, named under the pointer; nothing for a file only members made.
+function Makers({makers}: {makers: FileMaker[]}) {
+	if (makers.length === 0) {
+		return null;
+	}
+	const names = `Made by ${NAMES.format(makers.map((maker) => maker.name))}`;
+	const drawn = makers.slice(0, MAX_MAKERS);
+	const more = makers.length - drawn.length;
+	return (
+		<Tooltip>
+			<TooltipTrigger render={<span aria-label={names} className="flex items-center gap-1" />}>
+				<span className="flex -space-x-1.5">
+					{drawn.map((maker, index) => (
+						<span
+							key={`${maker.kind}-${maker.id}`}
+							className="flex"
+							style={{zIndex: drawn.length - index}}
+						>
+							<MakerMark maker={maker} />
+						</span>
+					))}
+				</span>
+				{more > 0 && <span className="text-xs text-muted-foreground">+{more}</span>}
+			</TooltipTrigger>
+			<TooltipContent>{names}</TooltipContent>
+		</Tooltip>
+	);
 }
 
 // Where the list is, from the drive's top down: each folder above a link to it, the one opened
@@ -117,25 +174,39 @@ function Trail({trail, trash}: {trail: FileCrumb[]; trash: boolean}) {
 	);
 }
 
-// Who made a version, as far as it is known: a member, or an agent with the task it was for.
+// The versions table's columns: the file's name then, its size, when, by whom, whether the file
+// holds it now, and what can be done with it.
+const VERSION_COLUMNS =
+	'grid grid-cols-[minmax(0,1fr)_4rem_5.5rem_minmax(0,13rem)_4.5rem_4.5rem] items-center gap-3';
+
+// Who made a version, as far as it is known: a member by their avatar, or an agent as the file's
+// makers are drawn, with the task it was for under its name.
 function VersionBy({version}: {version: FileVersion}) {
 	const org = useOrgSlug();
-	if (version.by === null) {
-		return null;
+	const {by} = version;
+	if (by === null) {
+		return <span className="text-muted-foreground">Unknown</span>;
 	}
-	const {name, task} = version.by;
+	const task = by.kind === 'person' ? null : by.task;
 	return (
-		<span className="text-muted-foreground">
-			{version.restored ? 'given back by ' : 'by '}
-			{name}
-			{task && (
-				<>
-					{' for '}
-					<Link to={`/${org}/activity/tasks/${task.id}`} className={LINK}>
+		<span className="flex min-w-0 items-center gap-2">
+			{by.kind === 'person' ? (
+				<PersonAvatar person={by} className="size-5 text-[10px]" />
+			) : (
+				<MakerMark maker={by} />
+			)}
+			<span className="flex min-w-0 flex-col">
+				<span className="truncate">{by.name}</span>
+				{task && (
+					<Link
+						to={`/${org}/activity/tasks/${task.id}`}
+						title={task.title}
+						className={cn(LINK, 'truncate text-xs text-muted-foreground')}
+					>
 						{task.title}
 					</Link>
-				</>
-			)}
+				)}
+			</span>
 		</span>
 	);
 }
@@ -166,7 +237,7 @@ function ShownFile({connectionId, shown, onClose, onRename, onMove}: ShownProps)
 		.join(' · ');
 
 	return (
-		<DialogContent>
+		<DialogContent className="grid-cols-[minmax(0,1fr)] sm:max-w-3xl">
 			<DialogHeader>
 				<DialogTitle className="truncate">{file.name}</DialogTitle>
 			</DialogHeader>
@@ -232,48 +303,65 @@ function ShownFile({connectionId, shown, onClose, onRename, onMove}: ShownProps)
 				}}
 			/>
 			{error && <p className="text-sm text-destructive">{error}</p>}
-			<div className="flex flex-col gap-1">
+			<div className="flex min-w-0 flex-col gap-1">
 				<h3 className="text-sm font-medium">Versions</h3>
-				<ul className="flex max-h-64 flex-col overflow-y-auto text-sm">
+				<div className={cn(VERSION_COLUMNS, 'h-8 text-xs text-muted-foreground')}>
+					<span>Name</span>
+					<span className="text-right">Size</span>
+					<span>When</span>
+					<span>By</span>
+					<span>Status</span>
+					<span className="sr-only">Actions</span>
+				</div>
+				<ul className="flex max-h-80 flex-col overflow-y-auto text-sm">
 					{versions.map((version) => (
-						<li key={version.id} className="flex min-h-9 items-center gap-2">
-							<span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2">
-								<span title={formatDateTime(version.at)}>{formatAgo(version.at)}</span>
-								<span className="text-muted-foreground tabular-nums">
-									{formatBytes(version.size)}
+						<li
+							key={version.id}
+							className={cn(VERSION_COLUMNS, 'min-h-12 border-t border-border/60 py-1.5')}
+						>
+							<span className="flex min-w-0 flex-col">
+								<span className="truncate" title={version.name}>
+									{version.name}
 								</span>
-								<VersionBy version={version} />
+								{version.restored && (
+									<span className="text-xs text-muted-foreground">
+										An earlier version given back
+									</span>
+								)}
 							</span>
-							{version.current ? (
-								<Badge variant="secondary" className="font-normal">
-									Current
-								</Badge>
-							) : (
-								<>
-									<PillButton
-										variant="ghost"
-										nativeButton={false}
-										render={
-											<a
-												href={fileContentPath(org, connectionId, file.id, version.id)}
-												download={file.name}
-											/>
+							<span className="text-right text-muted-foreground tabular-nums">
+								{formatBytes(version.size)}
+							</span>
+							<span className="text-muted-foreground" title={formatDateTime(version.at)}>
+								{formatAgo(version.at)}
+							</span>
+							<VersionBy version={version} />
+							<span>
+								{version.current && (
+									<Badge variant="secondary" className="font-normal">
+										Current
+									</Badge>
+								)}
+							</span>
+							<span className="flex">
+								<IconButton
+									label="Download this version"
+									href={fileContentPath(org, connectionId, file.id, version.id)}
+									download={version.name}
+								>
+									<DownloadIcon />
+								</IconButton>
+								{!trashed && !version.current && (
+									<IconButton
+										label="Restore this version"
+										onClick={() =>
+											void apply(restoreFileVersion(org, connectionId, file.id, version.id))
 										}
 									>
-										Download
-									</PillButton>
-									{!trashed && (
-										<PillButton
-											variant="ghost"
-											onClick={() =>
-												void apply(restoreFileVersion(org, connectionId, file.id, version.id))
-											}
-										>
-											Restore
-										</PillButton>
-									)}
-								</>
-							)}
+										<RotateCcwIcon />
+									</IconButton>
+								)}
+							</span>
 						</li>
 					))}
 				</ul>
@@ -568,6 +656,7 @@ export function FileBrowser({connectionId, place, list, shown}: Props) {
 						<RowHeader>
 							<span className="size-4 shrink-0" />
 							<span className="min-w-0 flex-1">Name</span>
+							<span className={CELLS.makers}>Made by</span>
 							<span className={CELLS.size}>Size</span>
 							<span className={CELLS.modified}>{trash ? 'Trashed' : 'Modified'}</span>
 						</RowHeader>
@@ -598,6 +687,9 @@ export function FileBrowser({connectionId, place, list, shown}: Props) {
 							subtitle={file.path === null ? undefined : file.path || TOP}
 							cells={
 								<>
+									<span className={CELLS.makers}>
+										<Makers makers={file.makers} />
+									</span>
 									<span className={CELLS.size}>
 										{file.size === null ? '' : formatBytes(file.size)}
 									</span>

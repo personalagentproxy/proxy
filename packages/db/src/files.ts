@@ -687,13 +687,73 @@ export function untrashFile(
 	);
 }
 
-/** Who made a version, as far as the journal has it: the member, or the agent and the task it was for. */
+/**
+ * An agent that made what a file holds, by a version it wrote or gave back: as the persona it
+ * worked as, where it was one of the Chat page's and the persona is still there, or else as itself.
+ */
+export type FileMaker =
+	| {kind: 'persona'; id: string; name: string; look: string; color: string}
+	| {kind: 'agent'; id: string; name: string; providerId: string};
+
+type AgentChange = {agentId: string | null; taskId: string | null};
+
+// The agents, tasks and personas behind changes, read at once: each change's maker, where an agent
+// made it and the agent is still there, and its task.
+async function makersOf(changes: AgentChange[]): Promise<{
+	makerOf: (change: AgentChange) => FileMaker | null;
+	taskOf: (change: AgentChange) => {id: string; title: string} | null;
+}> {
+	const ids = <K extends keyof AgentChange>(key: K) => [
+		...new Set(changes.flatMap((change) => (change[key] === null ? [] : [change[key]]))),
+	];
+	const [agents, tasks] = await Promise.all([
+		db.agent.findMany({
+			where: {id: {in: ids('agentId')}},
+			select: {id: true, name: true, providerId: true},
+		}),
+		db.agentTask.findMany({
+			where: {id: {in: ids('taskId')}},
+			select: {id: true, title: true, personaId: true},
+		}),
+	]);
+	const personaIds = [
+		...new Set(tasks.flatMap((task) => (task.personaId === null ? [] : [task.personaId]))),
+	];
+	const personas =
+		personaIds.length === 0
+			? []
+			: await db.persona.findMany({
+					where: {id: {in: personaIds}},
+					select: {id: true, name: true, look: true, color: true},
+				});
+	const taskOf = (change: AgentChange) => tasks.find((task) => task.id === change.taskId) ?? null;
+	return {
+		makerOf: (change) => {
+			const personaId = taskOf(change)?.personaId;
+			const persona = personas.find((candidate) => candidate.id === personaId);
+			if (persona) {
+				return {kind: 'persona', ...persona};
+			}
+			const agent = agents.find((candidate) => candidate.id === change.agentId);
+			return agent ? {kind: 'agent', ...agent} : null;
+		},
+		taskOf: (change) => {
+			const task = taskOf(change);
+			return task ? {id: task.id, title: task.title} : null;
+		},
+	};
+}
+
+/**
+ * Who made a version, as far as the journal has it, and what the file was called then: the
+ * member, or the agent as its maker and the task it was for.
+ */
 export type VersionAuthor = {
 	kind: FileChangeKind;
-	user: {name: string | null; email: string} | null;
-	agent: {id: string; name: string} | null;
+	name: string;
+	user: {name: string | null; email: string; image: string | null} | null;
+	maker: FileMaker | null;
 	task: {id: string; title: string} | null;
-	personaName: string | null;
 };
 
 export type FileVersionEntry = FileVersionRow & {author: VersionAuthor | null};
@@ -716,52 +776,81 @@ export function listFileVersions(
 				afterVersion: {in: versions.map((version) => version.id)},
 				kind: {in: ['create', 'write', 'restore']},
 			},
-			select: {kind: true, afterVersion: true, userId: true, agentId: true, taskId: true},
+			select: {
+				kind: true,
+				name: true,
+				afterVersion: true,
+				userId: true,
+				agentId: true,
+				taskId: true,
+			},
 		});
-		const ids = <K extends 'userId' | 'agentId' | 'taskId'>(key: K) => [
-			...new Set(changes.flatMap((change) => (change[key] === null ? [] : [change[key]]))),
+		const userIds = [
+			...new Set(changes.flatMap((change) => (change.userId === null ? [] : [change.userId]))),
 		];
-		const [users, agents, tasks] = await Promise.all([
+		const [users, {makerOf, taskOf}] = await Promise.all([
 			db.user.findMany({
-				where: {id: {in: ids('userId')}},
-				select: {id: true, name: true, email: true},
+				where: {id: {in: userIds}},
+				select: {id: true, name: true, email: true, image: true},
 			}),
-			db.agent.findMany({where: {id: {in: ids('agentId')}}, select: {id: true, name: true}}),
-			db.agentTask.findMany({
-				where: {id: {in: ids('taskId')}},
-				select: {id: true, title: true, personaId: true},
-			}),
+			makersOf(changes),
 		]);
-		const personaIds = [
-			...new Set(tasks.flatMap((task) => (task.personaId === null ? [] : [task.personaId]))),
-		];
-		const personas =
-			personaIds.length === 0
-				? []
-				: await db.persona.findMany({
-						where: {id: {in: personaIds}},
-						select: {id: true, name: true},
-					});
 		return versions.map((version) => {
 			const change = changes.find((candidate) => candidate.afterVersion === version.id);
 			if (!change) {
 				return {...version, author: null};
 			}
 			const user = users.find((candidate) => candidate.id === change.userId);
-			const agent = agents.find((candidate) => candidate.id === change.agentId);
-			const task = tasks.find((candidate) => candidate.id === change.taskId);
-			const persona = personas.find((candidate) => candidate.id === task?.personaId);
 			return {
 				...version,
 				author: {
 					kind: change.kind,
-					user: user ? {name: user.name, email: user.email} : null,
-					agent: agent ?? null,
-					task: task ? {id: task.id, title: task.title} : null,
-					personaName: persona?.name ?? null,
+					name: change.name,
+					user: user ? {name: user.name, email: user.email, image: user.image} : null,
+					maker: makerOf(change),
+					task: taskOf(change),
 				},
 			};
 		});
+	});
+}
+
+/**
+ * The agents that made what each of `fileIds` holds, by file, the latest first, each once; a file
+ * only members made has none. One whose agent is gone is left out.
+ */
+export function listFileMakers(
+	connectionId: string,
+	fileIds: string[],
+): Promise<Result<Map<string, FileMaker[]>, ApiError>> {
+	return wrapDb(async () => {
+		const makers = new Map<string, FileMaker[]>();
+		if (fileIds.length === 0) {
+			return makers;
+		}
+		const changes = await db.fileChange.findMany({
+			where: {
+				connectionId,
+				fileId: {in: fileIds},
+				agentId: {not: null},
+				kind: {in: ['create', 'write', 'restore']},
+			},
+			select: {fileId: true, agentId: true, taskId: true},
+			orderBy: [{createdAt: 'desc'}, {id: 'desc'}],
+		});
+		const {makerOf} = await makersOf(changes);
+		for (const change of changes) {
+			const maker = makerOf(change);
+			const made = makers.get(change.fileId) ?? [];
+			if (
+				maker === null ||
+				made.some((other) => other.kind === maker.kind && other.id === maker.id)
+			) {
+				continue;
+			}
+			makers.set(change.fileId, [...made, maker]);
+		}
+		return makers;
 	});
 }
 

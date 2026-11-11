@@ -127,7 +127,7 @@ function authorText(author: VersionAuthor | null): string {
 	if (author.user !== null) {
 		return ` by ${author.user.name ?? author.user.email}${restored}`;
 	}
-	const who = author.personaName ?? author.agent?.name ?? 'an agent';
+	const who = author.maker?.name ?? 'an agent';
 	const task = author.task === null ? '' : ` for “${author.task.title}”`;
 	return ` by ${who}${task}${restored}`;
 }

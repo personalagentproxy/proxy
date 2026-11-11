@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {AVATAR_COLORS, lookSchema} from '@proxy/utils/harness';
 
 /**
  * Files, a drive kept in Personal Agent Proxy itself, as the person reads and changes it on its
@@ -34,6 +35,33 @@ export const fileSchema = z.object({
 
 export type DriveFile = z.infer<typeof fileSchema>;
 
+/**
+ * An agent that made what a file holds, by a version it wrote or gave back: as the persona of the
+ * Chat page it worked as, with its head, or as itself, with what it is.
+ */
+const personaMakerSchema = z.object({
+	kind: z.literal('persona'),
+	id: z.string(),
+	name: z.string(),
+	look: lookSchema,
+	color: z.enum(AVATAR_COLORS),
+});
+const agentMakerSchema = z.object({
+	kind: z.literal('agent'),
+	id: z.string(),
+	name: z.string(),
+	providerId: z.string(),
+});
+
+export const fileMakerSchema = z.discriminatedUnion('kind', [personaMakerSchema, agentMakerSchema]);
+
+export type FileMaker = z.infer<typeof fileMakerSchema>;
+
+/** A file or a folder in a list: with the agents that made what it holds, the latest first. */
+export const listedFileSchema = fileSchema.extend({makers: z.array(fileMakerSchema)});
+
+export type ListedFile = z.infer<typeof listedFileSchema>;
+
 /** A folder above a file or a list, by its id and name. */
 export const fileCrumbSchema = z.object({id: z.string(), name: z.string()});
 
@@ -45,7 +73,7 @@ export type FileCrumb = z.infer<typeof fileCrumbSchema>;
  * one listed. `GET files/trash`: what is in the trash, last trashed first.
  */
 export const fileListSchema = z.object({
-	files: z.array(fileSchema),
+	files: z.array(listedFileSchema),
 	trail: z.array(fileCrumbSchema),
 });
 
@@ -56,24 +84,34 @@ export const listFilesQuerySchema = z.object({
 
 export type FileList = z.infer<typeof fileListSchema>;
 
+/** The task an agent made a version for; null where the journal has none. */
+const versionTaskSchema = z.object({id: z.string(), title: z.string()}).nullable();
+
 /**
- * One of a file's versions: when it was made, and by whom as far as it is known: a member, or an
- * agent, by the name it works under, with the task it was for; and whether it gave an earlier
- * version back.
+ * One of a file's versions: what the file was called and held then, when it was made, and by whom
+ * as far as it is known: a member, or an agent as the file's makers are drawn, with the task it
+ * was for; and whether it gave an earlier version back.
  */
 export const fileVersionSchema = z.object({
 	id: z.string(),
+	/** The file's name when the version was made; its name now where the journal has none. */
+	name: z.string(),
 	size: z.number(),
 	type: z.string(),
 	at: z.string(),
 	/** The one the file holds now. */
 	current: z.boolean(),
 	by: z
-		.object({
-			kind: z.enum(['person', 'agent']),
-			name: z.string(),
-			task: z.object({id: z.string(), title: z.string()}).nullable(),
-		})
+		.discriminatedUnion('kind', [
+			z.object({
+				kind: z.literal('person'),
+				name: z.string(),
+				email: z.string(),
+				image: z.string().nullable(),
+			}),
+			personaMakerSchema.extend({task: versionTaskSchema}),
+			agentMakerSchema.extend({task: versionTaskSchema}),
+		])
 		.nullable(),
 	restored: z.boolean(),
 });
