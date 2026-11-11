@@ -184,6 +184,15 @@ function rowHeads(container: HTMLElement): Element[] {
 	return [...container.querySelectorAll('a [data-slot="live-head"]')];
 }
 
+// Follows a link of the page, and waits for React to have drawn where it leads. A click's own
+// `act` ends at once: a render under it that reads the page's answer with `use` and isn't done by
+// then is dropped, and React, holding on to it as still to come, never draws that page.
+async function follow(link: HTMLElement, init?: MouseEventInit): Promise<void> {
+	await act(async () => {
+		fireEvent.click(link, init);
+	});
+}
+
 describe('ChatPage', () => {
 	test('focuses the message input after a conversation is picked from the list', async () => {
 		let arrive = () => undefined;
@@ -198,7 +207,7 @@ describe('ChatPage', () => {
 		const initialBox = await screen.findByLabelText('Message');
 		expect(document.activeElement).not.toBe(initialBox);
 
-		fireEvent.click(screen.getByRole('link', {name: /Finance/}));
+		await follow(screen.getByRole('link', {name: /Finance/}));
 		await screen.findByRole('status', {name: 'Loading'});
 		await act(async () => arrive());
 
@@ -214,9 +223,7 @@ describe('ChatPage', () => {
 		const box = await screen.findByLabelText('Message');
 		expect(document.activeElement).not.toBe(box);
 
-		await act(async () => {
-			fireEvent.click(screen.getByRole('link', {name: /General/}));
-		});
+		await follow(screen.getByRole('link', {name: /General/}));
 
 		await waitFor(() => {
 			expect(document.activeElement).toBe(box);
@@ -300,7 +307,7 @@ describe('ChatPage', () => {
 		fireEvent.pointerEnter(secondRow);
 		expect(secondHead.getAttribute('data-state')).toBe('watching');
 		fireEvent.pointerUp(secondRow, {pointerType: 'mouse', button: 0});
-		fireEvent.click(secondRow);
+		await follow(secondRow);
 
 		await waitFor(() => {
 			const openedHead = rowHeads(container)[1];
@@ -313,7 +320,7 @@ describe('ChatPage', () => {
 		const {container} = renderChatPage();
 		const financeRow = await screen.findByRole('link', {name: /Finance/});
 
-		fireEvent.click(financeRow, {detail: 0});
+		await follow(financeRow, {detail: 0});
 
 		await waitFor(() => {
 			const openedHead = rowHeads(container)[1];
@@ -329,7 +336,7 @@ describe('ChatPage', () => {
 		fireEvent.pointerEnter(financeRow);
 		fireEvent.pointerUp(financeRow, {pointerType: 'mouse', button: 0});
 		fireEvent.pointerLeave(financeRow);
-		fireEvent.click(financeRow);
+		await follow(financeRow);
 
 		await waitFor(() => {
 			const openedHead = rowHeads(container)[1];
@@ -349,7 +356,7 @@ describe('ChatPage', () => {
 		renderChatPage({answered: (personaId) => (personaId === 'finance' ? held : Promise.resolve())});
 		await screen.findByText('What should General do?');
 
-		fireEvent.click(screen.getByRole('link', {name: /Finance/}));
+		await follow(screen.getByRole('link', {name: /Finance/}));
 		await screen.findByRole('status', {name: 'Loading'});
 		expect(screen.getByRole('link', {name: /Finance/}).getAttribute('aria-current')).toBe('page');
 		expect(screen.getByRole('link', {name: /General/}).getAttribute('aria-current')).toBeNull();
@@ -621,7 +628,7 @@ describe('ChatPage', () => {
 		expect(created?.getAttribute('href')).toBe('/acme/chat/general/tasks/sub-1');
 		expect(sent?.getAttribute('href')).toBe('/acme/chat/general/tasks/sub-1');
 
-		fireEvent.click(sent as HTMLElement);
+		await follow(sent as HTMLElement);
 		const chat = await screen.findByLabelText('Task');
 		expect(within(chat).getByText('Three direct flights.')).toBeTruthy();
 	});
@@ -729,7 +736,7 @@ describe('ChatPage', () => {
 			taskAnswered: () => held,
 		});
 
-		fireEvent.click(await screen.findByRole('link', {name: 'Find flights'}));
+		await follow(await screen.findByRole('link', {name: 'Find flights'}));
 		await screen.findByRole('status', {name: 'Loading'});
 		const tasks = screen.getByRole('list', {name: 'General’s tasks'});
 		const row = within(tasks).getByRole('link', {name: 'Find flights'});
@@ -741,7 +748,7 @@ describe('ChatPage', () => {
 		await screen.findByLabelText('Task');
 		expect(within(tasks).getByRole('link', {name: 'Find flights'})).toBe(row);
 
-		fireEvent.click(screen.getByRole('link', {name: /^General/}));
+		await follow(screen.getByRole('link', {name: /^General/}));
 		await waitFor(() => expect(tasks.isConnected).toBe(false));
 		expect(screen.queryByRole('list', {name: 'General’s tasks'})).toBeNull();
 		expect(screen.getByRole('link', {name: /^General/}).getAttribute('aria-current')).toBe('page');
@@ -794,7 +801,7 @@ describe('ChatPage', () => {
 			const box = await screen.findByLabelText('Message');
 			fireEvent.change(box, {target: {value: 'Move the pricing review'}});
 
-			fireEvent.click(screen.getByRole('link', {name: /Finance/}));
+			await follow(screen.getByRole('link', {name: /Finance/}));
 			await screen.findByText('What should Finance do?');
 
 			expect(saves()).toEqual([{text: 'Move the pricing review'}]);
