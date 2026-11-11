@@ -906,7 +906,8 @@ function Conversation({
 				className="page-column mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-2 pt-2 pb-4"
 			>
 				{(error ?? listError) && <p className="text-sm text-destructive">{error ?? listError}</p>}
-				<InputGroup className="rounded-xl bg-background shadow-xs">
+				{/* No focus ring: the caret in the only input on the page says where typing goes. */}
+				<InputGroup className="rounded-xl bg-background shadow-xs has-[[data-slot=input-group-control]:focus-visible]:border-input has-[[data-slot=input-group-control]:focus-visible]:ring-0">
 					<InputGroupTextarea
 						ref={input}
 						value={text}
