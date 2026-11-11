@@ -223,7 +223,7 @@ function ConnectionDetail() {
 							unavailable={connection.unavailable}
 							signInNeeded={connection.signInNeeded}
 							mayChangeDefaults={mayChange}
-							all={integration.custom}
+							all
 							onChangeDefaults={async (actions) => {
 								const result = await setConnectionDefaults(org, connection.id, actions);
 								setError(result.isErr() ? describeFetchError(result.error) : null);
