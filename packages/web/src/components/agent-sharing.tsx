@@ -9,6 +9,7 @@ import {RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {PillButton} from '@proxy/ui/components/pill-button';
 import {useOrgSlug} from '@/hooks/use-org';
+import {isBuiltInAgent} from '@/lib/access';
 
 type Props = {
 	orgName: string;
@@ -41,6 +42,18 @@ function nameOf(person: Person): string {
 // every member, which asks first, since sharing an agent is for good; a shared one is everyone's,
 // and says who made it, who changes it with the organization's owner. Alone in the organization,
 // it points to Members instead.
+// Who sees the agent and what it reaches: the built-in one, every member's, reaches what each
+// member who talks to it uses.
+function reachLine(agent: AgentLogin, orgName: string): string {
+	if (isBuiltInAgent(agent)) {
+		return `Everyone in ${orgName} talks to the agents on the Chat page, which act through ${agent.name} as whoever talks to them, reaching the connections they use.`;
+	}
+	if (agent.shared) {
+		return `Everyone in ${orgName} sees ${agent.name} and can give its login to their own tools. It reaches only the connections shared with everyone.`;
+	}
+	return `Only you see ${agent.name}. It reaches your connections and those shared with you.`;
+}
+
 export function AgentSharing({orgName, agent, members, userId, mayChange, alone, onShare}: Props) {
 	const org = useOrgSlug();
 	const [confirming, setConfirming] = useState(false);
@@ -72,11 +85,7 @@ export function AgentSharing({orgName, agent, members, userId, mayChange, alone,
 
 	return (
 		<div className="flex flex-col gap-6">
-			<p className="text-sm text-muted-foreground">
-				{agent.shared
-					? `Everyone in ${orgName} sees ${agent.name} and can give its login to their own tools. It reaches only the connections shared with everyone.`
-					: `Only you see ${agent.name}. It reaches your connections and those shared with you.`}
-			</p>
+			<p className="text-sm text-muted-foreground">{reachLine(agent, orgName)}</p>
 			<Section title="People with access">
 				<RowList>
 					{maker && (

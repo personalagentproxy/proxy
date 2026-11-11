@@ -35,7 +35,7 @@ import {useReload} from '@/hooks/use-reload';
 import {signInPath} from '@/lib/integrations';
 import {chosenTab, type PageTab} from '@/lib/page-tabs';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
-import {actsAs, hasOtherPeople, manages, ownerOf} from '@/lib/orgs';
+import {actsAs, hasOtherPeople, manages, managesAgentOn, ownerOf} from '@/lib/orgs';
 import type {connectionLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 
@@ -76,14 +76,15 @@ function ConnectionDetail() {
 		return <NotFound what="connection" />;
 	}
 
-	// The agents that reach it, a column each of its permissions: the person's own, and the shared
-	// ones where every member has it, theirs to change where the agent is.
+	// The agents that reach it, a column each of its permissions: the person's own, the shared ones
+	// where every member has it, theirs to change where the agent is, and Chat, the one the Chat
+	// page's personas all act through, theirs to change where the connection is.
 	const columns: GridAgent[] = agents
 		.filter((agent) => agent.revokedAt === null && reaches(agent, connection))
 		.map((agent) => ({
 			agent,
 			own: ownSettings(agent, connection.id),
-			mayChange: manages(human, agent),
+			mayChange: managesAgentOn(human, agent, connection),
 		}));
 	const activeOrg = human.org;
 	// One's own connection is one's to change and share, and one shared with every member is the

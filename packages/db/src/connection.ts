@@ -1,6 +1,7 @@
 import {Ok, type Result} from 'ts-results-es';
 
 import {type ApiError, wrapDb} from '@proxy/utils';
+import {BUILT_IN_AGENT_PROVIDER} from '@proxy/utils/agent-providers';
 
 import {db} from '.';
 import {leavingWith, type Viewer, usableBy} from './viewer';
@@ -165,7 +166,8 @@ export async function listLeavingConnectionsWithCredential(data: {
  * its owner. Whoever it is taken back from loses it at once, and what their agents were set to do
  * with it goes too, the shared agents' when it is no longer everyone's: a setting kept would apply
  * again, unasked, were it shared with them another time. So does where they last wrote from the
- * home page, where that was here.
+ * home page, where that was here. The built-in agent's settings stay: it reaches the connection
+ * however it is shared, acting as whoever talks to it.
  */
 export async function setConnectionSharing(data: {
 	connectionId: string;
@@ -193,7 +195,12 @@ export async function setConnectionSharing(data: {
 						db.agentGrant.deleteMany({
 							where: {
 								connectionId,
-								agent: {OR: [{ownerUserId: null}, {ownerUserId: {notIn: still}}]},
+								agent: {
+									OR: [
+										{ownerUserId: null, providerId: {not: BUILT_IN_AGENT_PROVIDER.id}},
+										{ownerUserId: {notIn: still}},
+									],
+								},
 							},
 						}),
 						db.writeTarget.deleteMany({where: {connectionId, userId: {notIn: still}}}),

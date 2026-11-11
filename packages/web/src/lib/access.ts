@@ -18,6 +18,7 @@ import {
 	TOOLS_COLLECTION_ID,
 	VAULT_INTEGRATION_ID,
 } from '@proxy/integrations';
+import {findAgentProvider} from '@proxy/utils/agent-providers';
 import {formatDate, formatDateTime} from '@/lib/format';
 import {integrationOf, type Integration} from '@/lib/integrations';
 
@@ -127,12 +128,18 @@ export function canStartNew(collection: Collection, actions: string[]): boolean 
 	return allows(collection, actions, 'create') || newCommands(collection, actions).length > 0;
 }
 
+/** The organization's built-in agent, which every persona of the Chat page acts through. */
+export function isBuiltInAgent(agent: Pick<AgentLogin, 'providerId'>): boolean {
+	return findAgentProvider(agent.providerId)?.connects === 'built-in';
+}
+
 /**
  * Whether an agent the person sees reaches a connection they use, as the api decides it: their own
- * agent reaches all of them, a shared agent only the ones shared with every member.
+ * agent reaches all of them, a shared agent only the ones shared with every member, and the built-in
+ * agent, which acts as whoever talks to it, all of them.
  */
 export function reaches(agent: AgentLogin, connection: Connection): boolean {
-	return !agent.shared || connection.sharedWithEveryone;
+	return !agent.shared || connection.sharedWithEveryone || isBuiltInAgent(agent);
 }
 
 // The agents, revoked ones left out, that reach the connection and can do anything with it.

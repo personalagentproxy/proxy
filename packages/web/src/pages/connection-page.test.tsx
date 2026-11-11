@@ -209,6 +209,45 @@ describe('ConnectionPage', () => {
 		).toBe('true');
 	});
 
+	test('Chat, which the Chat page’s personas act through, has a column on every connection, changed by whoever changes its defaults', async () => {
+		const chat: AgentLogin = {
+			...claude,
+			id: 'agent-chat',
+			providerId: 'proxy',
+			name: 'Chat',
+			shared: true,
+			createdById: null,
+			createdBy: null,
+		};
+		renderConnectionPage('/acme/connections/conn-1', mailbox, [claude, chat]);
+
+		expect(await screen.findByRole('checkbox', {name: 'Send for Chat'})).toBeDefined();
+		expect(screen.getAllByRole('columnheader').map((heading) => heading.textContent)).toEqual([
+			'Action',
+			'Default',
+			'Claude',
+			'Chat',
+		]);
+		expect(
+			screen.getByRole('checkbox', {name: 'Send for Chat'}).hasAttribute('data-disabled'),
+		).toBe(false);
+		cleanup();
+
+		// Dana's mailbox, shared with the person by name: Dana's to change, Chat's settings there too.
+		const danas: Connection = {
+			...mailbox,
+			ownerUserId: 'user-2',
+			owner: 'Dana',
+			sharedWith: [{userId: 'user-1', name: 'Alex'}],
+			shared: true,
+		};
+		renderConnectionPage('/acme/connections/conn-1', danas, [chat]);
+
+		expect(
+			(await screen.findByRole('checkbox', {name: 'Send for Chat'})).hasAttribute('data-disabled'),
+		).toBe(true);
+	});
+
 	test('the address opens the page on the tab it names', async () => {
 		renderConnectionPage('/acme/connections/conn-1?tab=sharing');
 
