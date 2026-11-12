@@ -1,5 +1,6 @@
 import type {Connection, ConnectionHealth} from '@proxy/contracts/connections';
-import {Button, buttonVariants} from '@proxy/ui/components/button';
+import {PillButton} from '@proxy/ui/components/pill-button';
+import {pillButtonVariants} from '@proxy/ui/lib/pill-variants';
 import {
 	ActivityIcon,
 	CircleAlertIcon,
@@ -88,53 +89,60 @@ export function ConnectionHealthPanel({
 		connection: connection.id,
 	});
 	const customReconnect = `/${org}/connections/new/mcp?${new URLSearchParams({name: connection.name ?? connection.account, url: `https://${connection.account}`})}`;
+	const reconnect = health?.status === 'sign_in_required' && mayChange;
 	return (
-		<section aria-label="Connection health" className="flex flex-col gap-2 rounded-lg border p-3">
+		<section
+			aria-label="Connection health"
+			className="flex flex-col gap-1 rounded-md border px-3 py-2"
+		>
 			<div className="flex flex-wrap items-center justify-between gap-2">
-				<div className="flex items-center gap-2 text-sm">
-					<ActivityIcon className="size-4" />
-					<span>Connection health</span>
+				<div className="flex items-center gap-2 text-xs">
+					<ActivityIcon aria-hidden="true" className="size-3.5 text-muted-foreground" />
+					<span className="text-muted-foreground">Connection health</span>
 					<ConnectionHealthStatus health={health} checking={pending} />
 				</div>
-				<Button
-					size="sm"
-					variant="outline"
-					disabled={pending}
-					onClick={() => void check(connection.id)}
-				>
-					{pending ? 'Checking…' : 'Check connection'}
-				</Button>
+				<div className="flex items-center gap-2">
+					{reconnect && integration?.custom && (
+						<Link
+							className={`${pillButtonVariants({variant: 'outline'})} h-7 px-2 text-xs`}
+							to={customReconnect}
+						>
+							Reconnect
+						</Link>
+					)}
+					{reconnect && signIn && (
+						<a
+							className={`${pillButtonVariants({variant: 'outline'})} h-7 px-2 text-xs`}
+							href={signIn}
+							onClick={onSignInClick}
+						>
+							Reconnect
+						</a>
+					)}
+					<PillButton
+						variant="outline"
+						className="h-7 px-2 text-xs"
+						disabled={pending}
+						onClick={() => void check(connection.id)}
+					>
+						{pending ? 'Checking…' : 'Check connection'}
+					</PillButton>
+				</div>
 			</div>
-			<p className="text-sm text-muted-foreground">
+			<p className="text-xs text-muted-foreground">
 				{health?.message ??
 					'Credentials are saved. Check whether the provider responds before relying on this connection.'}
+				{health && (
+					<>
+						{' '}
+						Checked{' '}
+						<time dateTime={health.checkedAt}>{new Date(health.checkedAt).toLocaleString()}</time>.
+					</>
+				)}{' '}
+				Checks run only when requested.
 			</p>
-			{health && (
-				<p className="text-xs text-muted-foreground">
-					Checked{' '}
-					<time dateTime={health.checkedAt}>{new Date(health.checkedAt).toLocaleString()}</time>.
-					Checks run only when requested.
-				</p>
-			)}
-			{health?.status === 'sign_in_required' && mayChange && integration?.custom && (
-				<Link
-					className={buttonVariants({size: 'sm', variant: 'outline', className: 'self-start'})}
-					to={customReconnect}
-				>
-					Reconnect
-				</Link>
-			)}
-			{health?.status === 'sign_in_required' && mayChange && signIn && (
-				<a
-					className={buttonVariants({size: 'sm', variant: 'outline', className: 'self-start'})}
-					href={signIn}
-					onClick={onSignInClick}
-				>
-					Sign in again
-				</a>
-			)}
 			{health?.status === 'sign_in_required' && !mayChange && (
-				<p className="text-sm">Ask the connection owner to sign in again.</p>
+				<p className="text-xs">Ask the connection owner to sign in again.</p>
 			)}
 		</section>
 	);
