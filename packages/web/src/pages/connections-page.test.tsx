@@ -3,7 +3,7 @@
 import type {Connection} from '@proxy/contracts/connections';
 import type {Member, Org} from '@proxy/contracts/orgs';
 import {afterEach, describe, expect, test} from 'bun:test';
-import {cleanup, render, screen, within} from '@testing-library/react';
+import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
@@ -106,52 +106,46 @@ const ROWS = /My vault|Finance|Google|Email/;
 function rows(): Array<[string, string | null]> {
 	return screen
 		.getAllByRole('link', {name: ROWS})
+		.filter((row) => !row.getAttribute('href')?.includes('?tab=sharing'))
 		.map((row) => [row.textContent?.match(ROWS)?.[0] ?? '', row.getAttribute('href')]);
 }
 
 describe('ConnectionsPage', () => {
-	test('alone in the organization, lists everything, the person’s own vault first, and a vault they made as any connection, each opening its connection’s page', async () => {
+	test('lists every connection by service name with person access filters and sharing details', async () => {
 		renderConnectionsPage('/acme/connections');
 		await screen.findAllByRole('link', {name: ROWS});
 
 		expect(rows()).toEqual([
-			['My vault', '/acme/connections/vault-own'],
+			['Email', '/acme/connections/email-1'],
 			['Finance', '/acme/connections/vault-made'],
 			['Google', '/acme/connections/google-1'],
-			['Email', '/acme/connections/email-1'],
+			['My vault', '/acme/connections/vault-own'],
 		]);
+		expect(screen.getByText('4 shown')).toBeTruthy();
+		expect(screen.queryByRole('combobox', {name: /access/i})).toBeNull();
+		expect(screen.getByRole('button', {name: 'All people'})).toBeTruthy();
+		expect(screen.getByRole('button', {name: 'Dana'})).toBeTruthy();
 	});
 
-	test('with others in the organization, what is shared, with everyone or by name, is on one side, and what is the person’s alone, their own vault first, on the other, which the page opens on', async () => {
+	test('filters by clicking a person and restores all connections from the all-people button', async () => {
 		const withOthers = {...testOrg, memberCount: 2};
 		renderConnectionsPage('/acme/connections', withOthers);
 		await screen.findAllByRole('link', {name: ROWS});
-		expect(rows()).toEqual([
-			['My vault', '/acme/connections/vault-own'],
-			['Email', '/acme/connections/email-1'],
-		]);
-		expect(screen.getByRole('button', {name: /Shared/}).textContent).toContain('2');
-		cleanup();
-
-		renderConnectionsPage('/acme/connections?for=everyone', withOthers);
-		await screen.findAllByRole('link', {name: ROWS});
-		expect(rows()).toEqual([
-			['Finance', '/acme/connections/vault-made'],
-			['Google', '/acme/connections/google-1'],
-		]);
+		fireEvent.click(screen.getByRole('button', {name: 'Dana'}));
+		await waitFor(() => {
+			expect(rows()).toEqual([
+				['Finance', '/acme/connections/vault-made'],
+				['Google', '/acme/connections/google-1'],
+			]);
+		});
+		fireEvent.click(screen.getByRole('button', {name: 'All people'}));
+		await waitFor(() => expect(rows()).toHaveLength(4));
 	});
 
-	test('on the shared side, each connection shows the face of who connected it, then those of who it is shared with, named on hover: every other member where it is everyone’s, else those named', async () => {
-		renderConnectionsPage('/acme/connections?for=everyone', {...testOrg, memberCount: 3});
+	test('sorts by clicking the Service heading', async () => {
+		renderConnectionsPage('/acme/connections');
 		await screen.findAllByRole('link', {name: ROWS});
-
-		const finance = screen.getByRole('link', {name: /Finance/});
-		const google = screen.getByRole('link', {name: /Google/});
-		const heads = (row: HTMLElement) =>
-			within(row)
-				.getAllByRole('img')
-				.map((head) => head.getAttribute('aria-label'));
-		expect(heads(finance)).toEqual(['Alex', 'Dana']);
-		expect(heads(google)).toEqual(['Alex', 'Dana', 'Sam']);
+		fireEvent.click(screen.getByRole('button', {name: 'Service ↑'}));
+		expect(rows()[0]?.[0]).toBe('My vault');
 	});
 });

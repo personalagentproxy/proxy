@@ -1,13 +1,12 @@
+import type {Member} from '@proxy/contracts/orgs';
+import {Tooltip, TooltipTrigger, TooltipContent} from '@proxy/ui/components/tooltip';
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
-import {
-	FILES_INTEGRATION_ID,
-	SANDBOX_INTEGRATION_ID,
-	VAULT_INTEGRATION_ID,
-} from '@proxy/integrations';
 import {ForwardIcon, PencilIcon, Trash2Icon} from 'lucide-react';
-import {useState} from 'react';
-import {Link} from 'react-router';
+import {useState, type ReactNode} from 'react';
+import {Link, useSearchParams} from 'react-router';
+import {PersonAvatar} from '@/components/person-avatar';
+import {PersonHeads} from '@/components/person-heads';
 import {deleteConnection, moveConnection, renameConnection} from '@/client/connections-client';
 import {AppShell, PageHeader, PageTitle} from '@/components/app-shell';
 import {AddButton} from '@/components/add-button';
@@ -17,13 +16,10 @@ import {MoveConnectionDialog} from '@/components/move-connection-dialog';
 import {OrgNotice} from '@/components/org-notice';
 import {RenameDialog} from '@/components/rename-dialog';
 import {Row, RowHeader, RowList} from '@/components/row-list';
-import {SideEmpty, SideToggle} from '@/components/share-toggle';
-import {PersonHead, PersonHeads} from '@/components/person-heads';
 import {ContextMenuItem} from '@proxy/ui/components/context-menu';
 import {useHuman} from '@/hooks/use-human';
 import {useLoaded} from '@/hooks/use-loaded';
 import {useReload} from '@/hooks/use-reload';
-import {useSide} from '@/hooks/use-side';
 import {
 	agentsWithAccess,
 	connectionTitle,
@@ -38,13 +34,13 @@ import {useOrgSlug} from '@/hooks/use-org';
 
 // Widths and visibility shared by the header and every row, so the columns line up.
 const CELLS = {
-	account: 'hidden w-48 shrink-0 truncate text-right text-muted-foreground md:block',
-	connectedBy: 'hidden w-24 shrink-0 justify-end md:flex',
-	sharedWith: 'hidden w-24 shrink-0 justify-end md:flex',
-	agents: 'w-20 shrink-0 text-right text-muted-foreground tabular-nums',
+	connectedBy: 'hidden w-48 shrink-0 truncate text-muted-foreground md:flex md:items-center',
+	sharedWith: 'hidden w-32 shrink-0 md:flex',
+	agents: 'w-20 shrink-0 text-muted-foreground tabular-nums',
 };
 
-const LINK = 'text-foreground underline underline-offset-4';
+type SortColumn = 'service' | 'connectedBy' | 'audience' | 'agents';
+type Sort = {column: SortColumn; direction: 'asc' | 'desc'};
 
 // What a row's context menu is about: the connection, and whether it is being renamed, moved into
 // another organization or deleted.
@@ -66,19 +62,65 @@ function needsName(connection: Connection): boolean {
 	return integration?.custom === true || integration?.made !== undefined;
 }
 
-// The services connected in the organization open that the person uses: their own and those
-// shared with them, never another member's that isn't. With anyone else in it or invited, a toggle
-// picks the list, in the address as `?for=me` or `?for=everyone`: what is theirs alone, or what is
-// shared, by them or with them, with every member or some by name, opening on what is theirs
-// alone, the shared one showing the face of who connected each, whose account agents act as, and
-// the faces of who it is shared with. The person's own vault and Sandboxes come first among what
-// is theirs alone, each opening its connection's page, as every connection does, where what it
-// holds is the first tab. A right click on a row renames or deletes a connection the person may
-// change: their own, or, as the organization's owner, one shared with every member; and, in
-// someone with another organization, moves their own into it.
+function sortValue(
+	column: SortColumn,
+	connection: Connection,
+	agents: AgentLogin[],
+): string | number {
+	if (column === 'service') {
+		return connectionTitle(connection);
+	}
+	if (column === 'connectedBy') {
+		return ownerOfConnection(connection, []).name ?? '';
+	}
+	if (column === 'audience') {
+		return [
+			connection.sharedWithEveryone ? 'Entire company' : '',
+			...sharedWithPeople(connection, []).map((person) => person.name ?? person.email),
+		]
+			.filter((value) => value.length > 0)
+			.join(', ');
+	}
+	return agentsWithAccess(agents, connection).length;
+}
+
+function SortHeader({
+	label,
+	column,
+	sort,
+	onClick,
+	className,
+}: {
+	label: string;
+	column: SortColumn;
+	sort: Sort;
+	onClick: (column: SortColumn) => void;
+	className?: string;
+}) {
+	const selected = sort.column === column;
+	return (
+		<span
+			role="columnheader"
+			aria-sort={selected ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+			className={className}
+		>
+			<button
+				type="button"
+				className="truncate text-left hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary"
+				onClick={() => onClick(column)}
+			>
+				{label}
+				{selected ? (sort.direction === 'asc' ? ' ↑' : ' ↓') : ''}
+			</button>
+		</span>
+	);
+}
+
+// Every connection is shown by default. The people at the top filter connections to which each
+// person has access; the row shows who connected it and who can use it.
 export function ConnectionsPage() {
 	return (
-		<AppShell title={<PageTitle>Connections and permissions</PageTitle>}>
+		<AppShell loadsTitle>
 			<Connections />
 		</AppShell>
 	);
@@ -91,25 +133,35 @@ function Connections() {
 	const human = useHuman();
 	const [pending, setPending] = useState<Pending | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const listed = all.filter((connection) => !connection.builtIn);
-	const side = useSide(listed, {opensOnShared: false});
+	const [params, setParams] = useSearchParams();
+	const memberId = params.get('member');
+	const [sort, setSort] = useState<Sort>({column: 'service', direction: 'asc'});
+	const matches = (connection: Connection) =>
+		!memberId ||
+		connection.sharedWithEveryone ||
+		connection.ownerUserId === memberId ||
+		connection.sharedWith.some((person) => person.userId === memberId);
 	if (!human) {
 		return null;
 	}
-
-	// The person's built-in ones are theirs alone, so on that side.
-	const builtIn = (integrationId: string) =>
-		all.filter(
-			(connection) =>
-				connection.builtIn && connection.integrationId === integrationId && !side.shared,
-		);
-	const vaults = builtIn(VAULT_INTEGRATION_ID);
-	const sandboxes = builtIn(SANDBOX_INTEGRATION_ID);
-	const drives = builtIn(FILES_INTEGRATION_ID);
-
 	const activeOrg = human.org;
-	const connections = side.shown;
-	const showingShared = side.shared;
+	const connections = all.filter(matches).sort((first, second) => {
+		const firstValue = sortValue(sort.column, first, agents);
+		const secondValue = sortValue(sort.column, second, agents);
+		const comparison =
+			typeof firstValue === 'number' && typeof secondValue === 'number'
+				? firstValue - secondValue
+				: String(firstValue).localeCompare(String(secondValue), undefined, {sensitivity: 'base'});
+		return (
+			(sort.direction === 'asc' ? comparison : -comparison) || first.id.localeCompare(second.id)
+		);
+	});
+	const sortBy = (column: SortColumn) => {
+		setSort((current) => ({
+			column,
+			direction: current.column === column && current.direction === 'asc' ? 'desc' : 'asc',
+		}));
+	};
 	const renaming = pending?.action === 'rename' ? pending.connection : null;
 	const moving = pending?.action === 'move' ? pending.connection : null;
 	const deleting = pending?.action === 'delete' ? pending.connection : null;
@@ -119,50 +171,82 @@ function Connections() {
 	return (
 		<>
 			<PageHeader
-				actions={
-					<AddButton
-						label="Add connection"
-						to={showingShared ? `/${org}/connections/new?for=everyone` : `/${org}/connections/new`}
-					/>
-				}
+				title={<PageTitle detail={`${connections.length} shown`}>Connections</PageTitle>}
+				actions={<AddButton label="Add connection" to={`/${org}/connections/new`} />}
 			/>
 			<OrgNotice />
-			<SideToggle side={side} orgName={activeOrg.name} sharedLabel="Shared" />
+			<div className="flex flex-wrap items-center gap-2">
+				<div
+					className="flex items-center gap-2"
+					role="group"
+					aria-label="Filter connections by person"
+				>
+					<PersonFilter
+						selected={!memberId}
+						label="All people"
+						onSelect={() => {
+							const next = new URLSearchParams(params);
+							next.delete('member');
+							setParams(next, {replace: true});
+						}}
+					>
+						<img src="/ontora-mark.png" alt="" className="size-7 rounded-full" />
+					</PersonFilter>
+					{members.map((person) => (
+						<PersonFilter
+							key={person.userId}
+							selected={memberId === person.userId}
+							label={`${person.name ?? person.email}${person.userId === human.user.id ? ' (you)' : ''}`}
+							onSelect={() => {
+								const next = new URLSearchParams(params);
+								next.set('member', person.userId);
+								setParams(next, {replace: true});
+							}}
+						>
+							<PersonAvatar person={person} className="size-7" />
+						</PersonFilter>
+					))}
+				</div>
+			</div>
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<RowList
 				header={
 					<RowHeader>
 						<span className="size-5 shrink-0" />
-						<span className="min-w-0 flex-1">Service</span>
-						<span className={CELLS.account}>Account</span>
-						{showingShared && <span className={CELLS.connectedBy}>Connected by</span>}
-						{showingShared && <span className={CELLS.sharedWith}>Shared with</span>}
-						<span className={CELLS.agents}>Agents</span>
+						<SortHeader
+							label="Service"
+							column="service"
+							sort={sort}
+							onClick={sortBy}
+							className="min-w-0 flex-1"
+						/>
+						<SortHeader
+							label="Connected by"
+							column="connectedBy"
+							sort={sort}
+							onClick={sortBy}
+							className={CELLS.connectedBy}
+						/>
+						<SortHeader
+							label="People with access"
+							column="audience"
+							sort={sort}
+							onClick={sortBy}
+							className={CELLS.sharedWith}
+						/>
+						<SortHeader
+							label="Agents"
+							column="agents"
+							sort={sort}
+							onClick={sortBy}
+							className={CELLS.agents}
+						/>
+						<span className="w-24 shrink-0" />
 					</RowHeader>
 				}
 			>
-				<BuiltInRow connections={vaults} agents={agents} />
-				<BuiltInRow connections={sandboxes} agents={agents} />
-				<BuiltInRow connections={drives} agents={agents} />
 				{connections.length === 0 && (
-					<SideEmpty
-						side={side}
-						alone={
-							<>
-								Nothing connected yet.{' '}
-								<Link to={`/${org}/connections/new`} className={LINK}>
-									Add a connection
-								</Link>{' '}
-								or{' '}
-								<Link to={`/${org}/members`} className={LINK}>
-									invite people
-								</Link>{' '}
-								to share them with.
-							</>
-						}
-						shared={`Nothing shared in ${activeOrg.name} yet.`}
-						own={`Nothing else of your own in ${activeOrg.name} yet.`}
-					/>
+					<li className="py-3 text-sm text-muted-foreground">No connections match this filter.</li>
 				)}
 				{connections.map((connection) => {
 					const integration = integrationOf(connection);
@@ -172,21 +256,23 @@ function Connections() {
 							to={`/${org}/connections/${connection.id}`}
 							icon={integration && <IntegrationLogo integration={integration} />}
 							title={connectionTitle(connection)}
+							after={
+								<Link
+									to={`/${org}/connections/${connection.id}?tab=sharing`}
+									aria-label={`${manages(human, connection) ? 'Share' : 'View sharing for'} ${connectionTitle(connection)}`}
+									className="w-24 text-center text-sm font-medium"
+								>
+									{manages(human, connection) ? 'Share' : 'View sharing'}
+								</Link>
+							}
 							cells={
 								<>
-									<span className={CELLS.account}>{connection.account}</span>
-									{showingShared && (
-										<span className={CELLS.connectedBy}>
-											<PersonHead person={ownerOfConnection(connection, members)} />
-										</span>
-									)}
-									{showingShared && (
-										<span className={CELLS.sharedWith}>
-											<PersonHeads people={sharedWithPeople(connection, members)} />
-										</span>
-									)}
+									<ConnectionOwner connection={connection} members={members} />
+									<span className={CELLS.sharedWith}>
+										<ConnectionAudience connection={connection} members={members} />
+									</span>
 									<span className={CELLS.agents}>
-										{agentsWithAccess(agents, connection).length}
+										<AgentAccess agents={agentsWithAccess(agents, connection)} />
 									</span>
 								</>
 							}
@@ -276,28 +362,83 @@ function Connections() {
 	);
 }
 
-// The person's built-in connection of an integration as a row, their vault or their Sandboxes,
-// kept in Personal Agent Proxy, so never renamed, shared or deleted, opening its connection's
-// page; none without one, as an organization not offered sandboxes has.
-function BuiltInRow({connections, agents}: {connections: Connection[]; agents: AgentLogin[]}) {
-	const org = useOrgSlug();
-	const [first] = connections;
-	const integration = first && integrationOf(first);
-	if (!first || !integration) {
-		return null;
-	}
-
+function PersonFilter({
+	selected,
+	label,
+	onSelect,
+	children,
+}: {
+	selected: boolean;
+	label: string;
+	onSelect: () => void;
+	children: ReactNode;
+}) {
 	return (
-		<Row
-			to={`/${org}/connections/${first.id}`}
-			icon={<IntegrationLogo integration={integration} />}
-			title={connectionTitle(first)}
-			cells={
-				<>
-					<span className={CELLS.account}>{first.account}</span>
-					<span className={CELLS.agents}>{agentsWithAccess(agents, first).length}</span>
-				</>
-			}
-		/>
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<button
+						type="button"
+						aria-label={label}
+						aria-pressed={selected}
+						className={`rounded-full ring-2 ${selected ? 'ring-primary' : 'ring-transparent hover:ring-muted-foreground/40'}`}
+						onClick={onSelect}
+					/>
+				}
+			>
+				{children}
+			</TooltipTrigger>
+			<TooltipContent>{label}</TooltipContent>
+		</Tooltip>
+	);
+}
+
+function ConnectionOwner({connection, members}: {connection: Connection; members: Member[]}) {
+	const owner = ownerOfConnection(connection, members);
+	return (
+		<span className={CELLS.connectedBy}>
+			<PersonAvatar person={owner} className="size-6" />
+			<span className="ml-2 truncate">{owner.name ?? owner.email}</span>
+		</span>
+	);
+}
+
+function ConnectionAudience({connection, members}: {connection: Connection; members: Member[]}) {
+	const owner = ownerOfConnection(connection, members);
+	const people = [owner, ...sharedWithPeople(connection, members)];
+	const names = people
+		.map((person) => person.name ?? person.email)
+		.filter(Boolean)
+		.join(', ');
+	const label = `${connection.sharedWithEveryone ? 'Entire company: ' : ''}${names}`;
+	return (
+		<span role="group" aria-label={`People with access: ${label}`}>
+			<PersonHeads people={people} />
+		</span>
+	);
+}
+
+function AgentAccess({agents}: {agents: AgentLogin[]}) {
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={<span tabIndex={0} role="img" aria-label={`${agents.length} agents with access`} />}
+			>
+				{agents.length}
+			</TooltipTrigger>
+			<TooltipContent>
+				{agents.length === 0 ? (
+					<span>No agents have access</span>
+				) : (
+					<span className="flex flex-col gap-2">
+						{agents.map((agent) => (
+							<span key={agent.id} className="flex items-center gap-2">
+								{agent.name}
+							</span>
+						))}
+					</span>
+				)}
+			</TooltipContent>
+		</Tooltip>
 	);
 }
