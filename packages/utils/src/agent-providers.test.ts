@@ -95,6 +95,7 @@ describe('agent providers', () => {
 		expect(suggestAgentProvider('ChatGPT Connector')?.id).toBe('chatgpt');
 		expect(suggestAgentProvider('Dot')?.id).toBe('dot');
 		expect(suggestAgentProvider('Poke MCP client')?.id).toBe('poke');
+		expect(suggestAgentProvider('Grok')?.id).toBe('grok-bot');
 		expect(suggestAgentProvider('MCP Inspector')).toBeUndefined();
 		expect(suggestAgentProvider('Custom MCP agent')).toBeUndefined();
 	});

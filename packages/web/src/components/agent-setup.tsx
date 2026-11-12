@@ -369,6 +369,12 @@ const MCP_STEPS: Partial<
 		where:
 			'In ChatGPT, open Settings, then Apps & Connectors, turn on Developer mode under Advanced, and create a connector.',
 	},
+	'grok-bot': {
+		where:
+			'In Grok Bot, open Connect Apps from the sidebar and add a custom connector, of the type Remote HTTPS.',
+		afterAdd:
+			'Name the connector, paste the server address, and add it. It signs in with OAuth, so leave the HTTP headers and Client ID empty.',
+	},
 	poke: {
 		where:
 			'On poke.com, under Integrations, add a new one: a name and the address, with the API key left empty.',
