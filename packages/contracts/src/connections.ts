@@ -61,6 +61,15 @@ export type Connection = z.infer<typeof connectionSchema>;
 /** `GET connections`: the connections the person uses in the organization, their own and those shared with them. */
 export const connectionListSchema = z.object({connections: z.array(connectionSchema)});
 
+/** A live provider check, not a claim that every tool or permission works. Never includes credentials or provider response bodies. */
+export const connectionHealthSchema = z.object({
+	status: z.enum(['healthy', 'sign_in_required', 'unreachable', 'unsupported', 'error']),
+	checkedAt: z.iso.datetime(),
+	message: z.string(),
+});
+
+export type ConnectionHealth = z.infer<typeof connectionHealthSchema>;
+
 const MAX_NAME_LENGTH = 80;
 
 /**
