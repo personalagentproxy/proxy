@@ -179,7 +179,7 @@ describe('handleMcpRoute', () => {
 		expect(both).toContain('- drive-1: Files (Acme): Read files, Add files, Edit files, Move to trash');
 		expect(both).toContain('- drive-2: Launch (Files, Acme), shared: Read files');
 		expect(both).toContain(
-			'Drives (Files) keep folders and files with every version of each. Put what you make for the person in their own drive (the one without a name), or the one they name, and give them the Link the tool answers with: a file has no other address.',
+			'Drives (Files) keep folders and files with every version of each. Put what you make for the person, such as screenshots, exports and reports, in their own drive (the one without a name), or the one they name, rather than Google Drive or another service, and give them the Link the tool answers with: a file has no other address.',
 		);
 		// Files are built in, so never something to suggest connecting.
 		expect(both).not.toMatch(/Connectable here: [^.]*Files/);
@@ -191,6 +191,17 @@ describe('handleMcpRoute', () => {
 		expect(reading).not.toContain('Put what you make');
 		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...team, actions: []}]}));
 		expect(await instructions()).not.toContain('Drives (Files)');
+	});
+
+	test('in a conversation, what the agent makes goes in the folder it is given', async () => {
+		const {agentInstructions} = await import('./tools');
+		const own = {id: 'drive-1', integrationId: 'files', account: 'Acme', shared: false, actions: ['readFiles', 'createFiles'], tools: null, name: null};
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [own]}));
+
+		const told = (await agentInstructions(signedIn, 'Work.', 'Chats/Coding Agent/Show all active tasks in sidebar')).unwrap();
+		expect(told).toContain(
+			'Put what you make for the person, such as screenshots, exports and reports, in their own drive (the one without a name), in Chats/Coding Agent/Show all active tasks in sidebar, or the one they name, rather than Google Drive or another service, and give them the Link the tool answers with: a file has no other address.',
+		);
 	});
 
 	test('with a sandbox to run commands in, a drive’s files go in and out of it with pap files', async () => {

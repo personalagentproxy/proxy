@@ -9,6 +9,7 @@ import type {AssistantTurn, EntryRow, JobRow, NewTurnEntry, RanOn, SubAgentRow, 
 
 import {chosenFor, type ClaudeCredentials, type HarnessChoice, type Harnesses, harnessFor, needsCredential, offeredTo, RECONNECT_CLAUDE} from '../backends/harness';
 import {agentInstructions, SCRIPT_TOOL} from '../mcp/tools';
+import {chatFolder} from '../native/files/names';
 import {log, serializeError} from '../observability/log';
 import {alertsParagraph} from './alerts';
 import {picturesOf, withAttached} from './attachments';
@@ -72,6 +73,7 @@ export type InferenceStore = Pick<
 	| 'getJobThread'
 	| 'getThreadAgent'
 	| 'getPersonaModel'
+	| 'getPersonaName'
 	| 'listEntries'
 	| 'listAttachments'
 	| 'listSubAgents'
@@ -232,10 +234,14 @@ function unreachable(failure: ApiError): string {
 
 // The system prompt: the instructions any agent with the login gets, for the agent as it acts in
 // the thread, as the member whose conversation it is, how to go about it on this thread, and, for
-// the agent talking with the person, its sub-agents and the alerts set in the conversation.
+// the agent talking with the person, its sub-agents and the alerts set in the conversation. What the
+// agent makes goes beside what the person attached: in the persona's folder, a sub-agent's in one
+// of its title's there, a title being kept as the sub-agent was started.
 function systemPrompt(store: InferenceStore, thread: ThreadRow, signedIn: SignedInAgent, subAgents: SubAgentRow[], now: Date): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
-		const instructions = $(await agentInstructions(signedIn, thread.parentThreadId === null ? MAIN_FLOW : SUB_FLOW));
+		const persona = $(await store.getPersonaName(thread));
+		const folder = persona === null ? undefined : chatFolder(persona, thread.parentThreadId === null ? null : thread.title);
+		const instructions = $(await agentInstructions(signedIn, thread.parentThreadId === null ? MAIN_FLOW : SUB_FLOW, folder));
 		const about = thread.parentThreadId === null ? [roster(subAgents), alertsParagraph($(await store.listThreadAlerts(thread.id)))] : [];
 		return [instructions, ...about, `The time now is ${now.toISOString()}.`].join('\n\n');
 	});
