@@ -214,6 +214,10 @@ model Connection {
   // someone made are named as they are made. Null for every other integration, which shows as its
   // integration, and for a member's built-in vault, which is told from the ones made by it.
   name              String?
+  // The most recent credential-free result of a provider health check.
+  healthStatus      ConnectionHealthStatus?
+  healthMessage     String?
+  healthCheckedAt   DateTime?
   // The member whose connection it is: who connected it, whom a sign-in acts as, and who changes,
   // shares and disconnects it. Always set by this version. Null only on a connection an instance
   // of the version before made shared with everyone, as it could while this one was being
@@ -246,6 +250,14 @@ model Connection {
   @@index([orgId])
   @@index([ownerUserId])
   @@index([integrationId, providerAccountId])
+}
+
+enum ConnectionHealthStatus {
+  healthy
+  sign_in_required
+  unreachable
+  unsupported
+  error
 }
 
 // A member a connection is shared with by name, by whoever's it is: they and their own agents use

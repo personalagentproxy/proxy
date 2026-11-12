@@ -6,6 +6,9 @@ import {BUILT_IN_AGENT_PROVIDER} from '@proxy/utils/agent-providers';
 import {db} from '.';
 import {leavingWith, type Viewer, usableBy} from './viewer';
 
+type HealthStatus = 'healthy' | 'sign_in_required' | 'unreachable' | 'unsupported' | 'error';
+type ConnectionHealth = {status: HealthStatus; checkedAt: string; message: string};
+
 export type ConnectionRow = {
 	id: string;
 	orgId: string;
@@ -22,6 +25,9 @@ export type ConnectionRow = {
 	tools: string | null;
 	// What the person called the connection, where they named it; null for every other integration.
 	name: string | null;
+	healthStatus?: HealthStatus | null;
+	healthMessage?: string | null;
+	healthCheckedAt?: Date | null;
 	// The actions agents get by default, one per row.
 	defaults: Array<{actionId: string}>;
 };
@@ -39,6 +45,9 @@ const connectionSelect = {
 	createdAt: true,
 	tools: true,
 	name: true,
+	healthStatus: true,
+	healthMessage: true,
+	healthCheckedAt: true,
 	defaults: {select: {actionId: true}},
 } as const;
 
@@ -328,9 +337,33 @@ export async function renewConnection(data: {
 }): Promise<Result<void, ApiError>> {
 	const {connectionId, ...renewed} = data;
 	const updated = await wrapDb(() =>
-		db.connection.update({where: {id: connectionId}, data: renewed, select: {id: true}}),
+		db.connection.update({
+			where: {id: connectionId},
+			data: {healthStatus: null, healthMessage: null, healthCheckedAt: null, ...renewed},
+			select: {id: true},
+		}),
 	);
 	return updated.map(() => undefined);
+}
+
+/** Stores only the credential-free result of a health check, for the owner and shared viewers. */
+export async function updateConnectionHealth(
+	connectionId: string,
+	health: ConnectionHealth,
+): Promise<Result<void, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.connection.update({
+				where: {id: connectionId},
+				data: {
+					healthStatus: health.status,
+					healthMessage: health.message,
+					healthCheckedAt: new Date(health.checkedAt),
+				},
+				select: {id: true},
+			}),
+		)
+	).map(() => undefined);
 }
 
 /**

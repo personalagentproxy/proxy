@@ -91,7 +91,12 @@ function Connections() {
 	const org = useOrgSlug();
 	const {connections: all, agents, members} = useLoaded<typeof connectionsLoader>();
 	const reload = useReload();
-	const health = useConnectionHealth(org);
+	const initialHealth = Object.fromEntries(
+		all.flatMap((connection) =>
+			connection.health ? [[connection.id, connection.health] as const] : [],
+		),
+	);
+	const health = useConnectionHealth(org, initialHealth);
 	const human = useHuman();
 	const [pending, setPending] = useState<Pending | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -138,7 +143,9 @@ function Connections() {
 						</PillButton>
 						<AddButton
 							label="Add connection"
-							to={showingShared ? `/${org}/connections/new?for=everyone` : `/${org}/connections/new`}
+							to={
+								showingShared ? `/${org}/connections/new?for=everyone` : `/${org}/connections/new`
+							}
 						/>
 					</div>
 				}
@@ -192,7 +199,7 @@ function Connections() {
 							subtitle={
 								!integration?.native && (
 									<ConnectionHealthStatus
-										health={health.results[connection.id]}
+										health={health.results[connection.id] ?? connection.health ?? undefined}
 										checking={health.checking.has(connection.id)}
 									/>
 								)
@@ -328,7 +335,7 @@ function BuiltInRow({
 			subtitle={
 				!integration.native && (
 					<ConnectionHealthStatus
-						health={health.results[first.id]}
+						health={health.results[first.id] ?? first.health ?? undefined}
 						checking={health.checking.has(first.id)}
 					/>
 				)

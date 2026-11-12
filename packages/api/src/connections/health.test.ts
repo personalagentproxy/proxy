@@ -10,7 +10,9 @@ const viewer = {orgId: 'org-1', userId: 'user-1', role: 'owner' as const};
 const requireViewer = mock(async () => Ok(viewer));
 const connection = {id: 'connection-1', integrationId: 'mcp', credential: 'encrypted-fixture'};
 const requireConnection = mock(async (): Promise<Result<StoredConnection, ApiError>> => Ok(connection));
+const updateConnectionHealth = mock(async () => Ok(undefined));
 
+mock.module('@proxy/db/connection', () => ({updateConnectionHealth}));
 mock.module('./integrations', () => ({apiIntegration}));
 mock.module('./managed', () => ({requireConnection}));
 mock.module('../utils/user-org', () => ({requireViewer}));
@@ -23,6 +25,8 @@ beforeEach(() => {
 	apiIntegration.mockReturnValue(integration);
 	requireConnection.mockClear();
 	requireConnection.mockResolvedValue(Ok(connection));
+	updateConnectionHealth.mockClear();
+	updateConnectionHealth.mockResolvedValue(Ok(undefined));
 });
 
 describe('connection health', () => {
@@ -72,5 +76,13 @@ describe('connection health', () => {
 		expect(result.isErr() && result.error.kind).toBe('not_found');
 		expect(requireConnection).toHaveBeenCalledWith(viewer, 'private-connection');
 		expect(check).not.toHaveBeenCalled();
+		expect(updateConnectionHealth).not.toHaveBeenCalled();
+	});
+
+	test('stores the check result for the next browser session', async () => {
+		const request = {params: {connectionId: 'connection-1'}} as never;
+		const result = await handleCheckConnectionRoute(request);
+		expect(result.isOk()).toBe(true);
+		expect(updateConnectionHealth).toHaveBeenCalledWith('connection-1', expect.objectContaining({status: 'healthy'}));
 	});
 });

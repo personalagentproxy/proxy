@@ -10,8 +10,9 @@ import {
 	LoaderCircleIcon,
 } from 'lucide-react';
 import {Link} from 'react-router';
+import {useEffect} from 'react';
 
-import {useConnectionHealth} from '@/hooks/use-connection-health';
+import {connectionHealthIsStale, useConnectionHealth} from '@/hooks/use-connection-health';
 import {useOrgSlug} from '@/hooks/use-org';
 import {integrationOf} from '@/lib/access';
 import {signInPath} from '@/lib/integrations';
@@ -77,10 +78,19 @@ export function ConnectionHealthPanel({
 	mayChange: boolean;
 }) {
 	const org = useOrgSlug();
-	const {results, checking, check} = useConnectionHealth(org);
-	const health = results[connection.id];
+	const initialHealth = connection.health;
+	const {results, checking, check} = useConnectionHealth(
+		org,
+		initialHealth ? {[connection.id]: initialHealth} : {},
+	);
+	const health = results[connection.id] ?? initialHealth ?? undefined;
 	const pending = checking.has(connection.id);
 	const integration = integrationOf(connection);
+	useEffect(() => {
+		if (!integration?.native && connectionHealthIsStale(health)) {
+			void check(connection.id);
+		}
+	}, [check, connection.id, health?.checkedAt, integration?.native]);
 	if (integration?.native) {
 		return null;
 	}
@@ -142,7 +152,7 @@ export function ConnectionHealthPanel({
 				Checks run only when requested.
 			</p>
 			{health?.status === 'sign_in_required' && !mayChange && (
-				<p className="text-xs">Ask the connection owner to sign in again.</p>
+				<p className="text-xs">Ask the connection owner to reconnect.</p>
 			)}
 		</section>
 	);

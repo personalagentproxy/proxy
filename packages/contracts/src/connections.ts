@@ -2,6 +2,15 @@ import {mcpToolSchema} from '@proxy/integrations';
 import {EMAIL_PROVIDERS} from '@proxy/utils/email-providers';
 import {z} from 'zod';
 
+/** A stored, credential-free result of a provider connection check. */
+export const connectionHealthSchema = z.object({
+	status: z.enum(['healthy', 'sign_in_required', 'unreachable', 'unsupported', 'error']),
+	checkedAt: z.iso.datetime(),
+	message: z.string(),
+});
+
+export type ConnectionHealth = z.infer<typeof connectionHealthSchema>;
+
 /**
  * An organization's connections (`/api/orgs/:org/connections/…`): the ones the person uses, their
  * own and those shared with them, and connecting, renaming, sharing and setting the defaults of
@@ -54,21 +63,14 @@ export const connectionSchema = z.object({
 	 * every action is unavailable until the person signs in.
 	 */
 	signInNeeded: z.boolean(),
+	/** The last health result, retained across browser sessions. */
+	health: connectionHealthSchema.nullable().optional(),
 });
 
 export type Connection = z.infer<typeof connectionSchema>;
 
 /** `GET connections`: the connections the person uses in the organization, their own and those shared with them. */
 export const connectionListSchema = z.object({connections: z.array(connectionSchema)});
-
-/** A live provider check, not a claim that every tool or permission works. Never includes credentials or provider response bodies. */
-export const connectionHealthSchema = z.object({
-	status: z.enum(['healthy', 'sign_in_required', 'unreachable', 'unsupported', 'error']),
-	checkedAt: z.iso.datetime(),
-	message: z.string(),
-});
-
-export type ConnectionHealth = z.infer<typeof connectionHealthSchema>;
 
 const MAX_NAME_LENGTH = 80;
 

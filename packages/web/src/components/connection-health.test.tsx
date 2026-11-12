@@ -27,12 +27,20 @@ afterEach(() => {
 	cleanup();
 });
 
-function show(mayChange = true) {
+const recentHealth = {
+	status: 'healthy' as const,
+	checkedAt: new Date().toISOString(),
+	message: 'The provider responded to a live connection check.',
+};
+
+function show(mayChange = true, health = recentHealth) {
 	const router = createMemoryRouter(
 		[
 			{
 				path: '/:org/connections/:connectionId',
-				element: <ConnectionHealthPanel connection={connection} mayChange={mayChange} />,
+				element: (
+					<ConnectionHealthPanel connection={{...connection, health}} mayChange={mayChange} />
+				),
 			},
 		],
 		{initialEntries: ['/acme/connections/connection-1']},
@@ -41,7 +49,7 @@ function show(mayChange = true) {
 }
 
 describe('connection health panel', () => {
-	test('saved connections start unchecked and rejected credentials offer reconnection', async () => {
+	test('reuses a recent saved result and offers reconnection when credentials are rejected', async () => {
 		const fetch = spyOn(globalThis, 'fetch').mockResolvedValue(
 			new Response(
 				JSON.stringify({
@@ -54,7 +62,7 @@ describe('connection health panel', () => {
 		);
 		try {
 			show();
-			expect(screen.getByText('Not checked')).toBeTruthy();
+			expect(screen.getByText('Healthy')).toBeTruthy();
 			expect(fetch).not.toHaveBeenCalled();
 			fireEvent.click(screen.getByRole('button', {name: 'Check connection'}));
 			await screen.findByText('Sign in required');
@@ -65,6 +73,27 @@ describe('connection health panel', () => {
 			expect(url.pathname).toBe('/acme/connections/new/mcp');
 			expect(url.searchParams.get('url')).toBe('https://mcp.example.com/mcp');
 			expect(url.searchParams.get('name')).toBe('Example service');
+		} finally {
+			fetch.mockRestore();
+		}
+	});
+
+	test('refreshes a saved health result after it becomes stale', async () => {
+		const fetch = spyOn(globalThis, 'fetch').mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					status: 'healthy',
+					checkedAt: new Date().toISOString(),
+					message: 'The provider responded to a live connection check.',
+				}),
+				{headers: {'content-type': 'application/json'}},
+			),
+		);
+		try {
+			show(true, {...recentHealth, checkedAt: '2026-01-01T12:00:00.000Z'});
+			await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+			expect(fetch.mock.calls[0]?.[0]).toBe('/api/orgs/acme/connections/connection-1/health');
+			expect(fetch.mock.calls[0]?.[1]?.method).toBe('POST');
 		} finally {
 			fetch.mockRestore();
 		}
@@ -84,7 +113,7 @@ describe('connection health panel', () => {
 		try {
 			show(false);
 			fireEvent.click(screen.getByRole('button', {name: 'Check connection'}));
-			await screen.findByText('Ask the connection owner to sign in again.');
+			await screen.findByText('Ask the connection owner to reconnect.');
 			expect(screen.queryByRole('link', {name: 'Reconnect'})).toBeNull();
 		} finally {
 			fetch.mockRestore();

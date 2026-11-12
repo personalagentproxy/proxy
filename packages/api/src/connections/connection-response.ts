@@ -35,6 +35,14 @@ function toConnection(row: StoredConnectionRow, names: Names): Connection {
 		defaults: actions.map((action) => action.id).filter((id) => row.defaults.some((stored) => stored.actionId === id)),
 		tools: integration?.mcpTools ?? null,
 		name: row.name,
+		health:
+			row.healthStatus && row.healthMessage && row.healthCheckedAt
+				? {
+						status: row.healthStatus,
+						message: row.healthMessage,
+						checkedAt: row.healthCheckedAt.toISOString(),
+					}
+				: null,
 		unavailable: unavailableActions(row),
 		signInNeeded: needsSignIn(row),
 	};

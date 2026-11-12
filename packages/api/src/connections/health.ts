@@ -2,6 +2,7 @@ import {Result as ResultClass, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import type {ConnectionHealth} from '@proxy/contracts/connections';
+import {updateConnectionHealth} from '@proxy/db/connection';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireViewer} from '../utils/user-org';
@@ -44,6 +45,8 @@ export function handleCheckConnectionRoute(request: AuthenticatedRequest): Promi
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const connection = $(await requireConnection(viewer, request.params.connectionId ?? ''));
-		return await checkConnection(connection);
+		const health = await checkConnection(connection);
+		$(await updateConnectionHealth(connection.id, health));
+		return health;
 	});
 }
