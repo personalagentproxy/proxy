@@ -65,8 +65,9 @@ export const AGENT_PROVIDERS: AgentProvider[] = [
 	{
 		id: 'grok-bot',
 		name: 'Grok Bot',
+		aliases: ['Grok'],
 		company: 'SpaceXAI',
-		connects: 'login',
+		connects: 'mcp',
 		local: false,
 		faviconUrl: '/agent-providers/grok-bot.png',
 	},
