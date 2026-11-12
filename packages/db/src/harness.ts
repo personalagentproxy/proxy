@@ -861,6 +861,16 @@ export async function getThreadPersonaModel(
 	);
 }
 
+/** The name of the thread's persona, its sub-agents' too; `Ok(null)` where the persona is gone. */
+export async function getThreadPersonaName(
+	thread: ThreadRow,
+): Promise<Result<string | null, ApiError>> {
+	const found = await wrapDb(() =>
+		db.persona.findUnique({where: {id: thread.personaId}, select: {name: true}}),
+	);
+	return found.map((persona) => persona?.name ?? null);
+}
+
 /** The thread a job is for, by the job; `Ok(null)` when it is gone. */
 export async function getJobThread(threadId: string): Promise<Result<ThreadRow | null, ApiError>> {
 	return (

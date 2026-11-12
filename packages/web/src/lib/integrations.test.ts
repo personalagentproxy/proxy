@@ -23,7 +23,8 @@ describe('integrationOf', () => {
 describe('logoOf', () => {
 	test('is the file named by the id, unless the integration has another', () => {
 		expect(logoOf('exa')).toEqual({src: '/integrations/exa.svg'});
-		expect(logoOf('granola')).toEqual({src: '/integrations/granola.png', fill: true});
+		expect(logoOf('google')).toEqual({src: '/integrations/google.svg'});
+		expect(logoOf('granola')).toEqual({src: '/integrations/granola.svg', ink: true});
 	});
 
 	test('every integration in the catalog has a logo file in public/, or an icon', () => {

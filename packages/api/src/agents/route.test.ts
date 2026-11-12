@@ -408,3 +408,64 @@ describe('who may change a shared agent', () => {
 		expect(setAgentGrants).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', actions: {read: true}});
 	});
 });
+
+describe('the built-in agent’s settings', () => {
+	const builtIn = {...agentRow, providerId: 'proxy', ownerUserId: null, createdById: null};
+	const params = {agentId: 'agent-1', connectionId: 'conn-1'};
+	const connectionOf = (ownerUserId: string, sharedWithEveryone: boolean) =>
+		Ok({
+			id: 'conn-1',
+			integrationId: 'email',
+			orgId: 'org-1',
+			ownerUserId,
+			sharedWithEveryone,
+			shares: [],
+			account: 'sam@example.com',
+			createdAt: new Date(),
+			tools: null,
+			name: null,
+			defaults: [],
+			credential: 'enc:{}',
+		});
+
+	test('are changed on a member’s own connection by that member, owner of the organization or not', async () => {
+		getAgent.mockResolvedValue(Ok(builtIn));
+		requireViewer.mockResolvedValue(Ok(member));
+		getConnectionWithCredential.mockResolvedValue(connectionOf('user-2', false));
+		const {handleSetAgentGrantsRoute} = await import('./route');
+		const result = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {send: false}}));
+
+		expect(result.isOk()).toBe(true);
+		expect(setAgentGrants).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', actions: {send: false}});
+	});
+
+	test('are not changed by a member a connection is shared with by name, nor by the organization’s owner on another member’s own', async () => {
+		getAgent.mockResolvedValue(Ok(builtIn));
+		const {handleSetAgentGrantsRoute} = await import('./route');
+		requireViewer.mockResolvedValue(Ok(member));
+		getConnectionWithCredential.mockResolvedValue(connectionOf('user-1', false));
+		const sharedByName = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {send: false}}));
+		requireViewer.mockResolvedValue(Ok(owner));
+		getConnectionWithCredential.mockResolvedValue(connectionOf('user-2', false));
+		const othersOwn = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {send: false}}));
+
+		expect(sharedByName.unwrapErr().kind).toBe('forbidden');
+		expect(othersOwn.unwrapErr().kind).toBe('forbidden');
+		expect(setAgentGrants).not.toHaveBeenCalled();
+	});
+
+	test('are changed on a connection shared with everyone by whoever’s it is and the organization’s owner alone', async () => {
+		getAgent.mockResolvedValue(Ok(builtIn));
+		getConnectionWithCredential.mockResolvedValue(connectionOf('user-2', true));
+		const {handleSetAgentGrantsRoute} = await import('./route');
+		const byOrgOwner = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {send: false}}));
+		requireViewer.mockResolvedValue(Ok(member));
+		const byConnectionOwner = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {send: false}}));
+		requireViewer.mockResolvedValue(Ok({...member, userId: 'user-3'}));
+		const byAnotherMember = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {send: false}}));
+
+		expect(byOrgOwner.isOk()).toBe(true);
+		expect(byConnectionOwner.isOk()).toBe(true);
+		expect(byAnotherMember.unwrapErr().kind).toBe('forbidden');
+	});
+});

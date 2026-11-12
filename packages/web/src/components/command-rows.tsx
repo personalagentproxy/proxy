@@ -6,8 +6,6 @@ import {EnterHint} from '@proxy/ui/components/enter-hint';
 import {type Destination, KIND_NAMES, rowId} from '@/lib/command-bar';
 import {integrationOf} from '@/lib/integrations';
 
-const TILE = 'size-5 rounded-md';
-
 // What is drawn beside a destination: a page's icon, an agent's head, a connection's or an
 // external agent's logo.
 function Mark({mark}: {mark: Destination['mark']}) {
@@ -18,13 +16,13 @@ function Mark({mark}: {mark: Destination['mark']}) {
 		return <Head look={mark.persona.look} color={mark.persona.color} size={22} />;
 	}
 	if (mark.kind === 'agent') {
-		return <AgentLogo providerId={mark.providerId} className={TILE} />;
+		return <AgentLogo providerId={mark.providerId} />;
 	}
 	const integration = integrationOf(mark.connection);
 	if (!integration) {
 		return <PlugIcon className="size-4 text-muted-foreground" />;
 	}
-	return <IntegrationLogo integration={integration} className={TILE} />;
+	return <IntegrationLogo integration={integration} />;
 }
 
 // Where what is typed leads, under the command bar's input: each a row with what it is, the one

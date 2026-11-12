@@ -18,7 +18,7 @@ import type {OrgViewer} from '../../utils/user-org';
 import {ensureFilesConnection} from './connections';
 import {requireFile} from './connector';
 import {maxFileBytes, readContent, storeContent, uploadBody} from './content';
-import {isShownImage, mediaType, requireFileName} from './names';
+import {asFolderName, CHATS_FOLDER, isShownImage, mediaType, requireFileName} from './names';
 import {PICTURE_SOURCE_BYTES, toPicture} from './picture';
 import {readVersion} from './text';
 
@@ -36,9 +36,6 @@ import {readVersion} from './text';
  * member it acts for: the person is shown that, whatever the file holds later, and a picture
  * anywhere else stays a link, which their browser loads nothing from.
  */
-
-/** The folder at the top of a drive that the conversations' folders are in. */
-const CHATS_FOLDER = 'Chats';
 
 /** How much of one file's text goes with the message, and of all of a message's files together. */
 const FILE_CHARACTERS = 8000;
@@ -61,7 +58,7 @@ function ownDrive(viewer: OrgViewer): Promise<Result<FileChangeBy, ApiError>> {
 
 // A persona's name as its folder's: as it is where it can be a folder's name.
 function folderName(persona: {name: string}): string {
-	return requireFileName(persona.name.replace(/[/\\]/g, ' ')).unwrapOr('Agent');
+	return asFolderName(persona.name) ?? 'Agent';
 }
 
 // One file named to attach, as the log keeps it, with as much of its text as `room` allows.

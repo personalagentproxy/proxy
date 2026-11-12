@@ -60,6 +60,7 @@ export type HarnessStore = {
 	getJobThread: (threadId: string) => Promise<Result<ThreadRow | null, ApiError>>;
 	getThreadAgent: (thread: ThreadRow) => Promise<Result<SignedInAgent | null, ApiError>>;
 	getPersonaModel: (thread: ThreadRow) => Promise<Result<PersonaModel | null, ApiError>>;
+	getPersonaName: (thread: ThreadRow) => Promise<Result<string | null, ApiError>>;
 	listEntries: (threadId: string) => Promise<Result<EntryRow[], ApiError>>;
 	getEntry: (entryId: string) => Promise<Result<EntryRow, ApiError>>;
 	appendSummary: (jobId: string, workerId: string, threadId: string, summary: {text: string; inputTokens: number; outputTokens: number}, coversSeq: number) => Promise<Result<boolean, ApiError>>;
@@ -140,6 +141,7 @@ export const harnessStore: HarnessStore = {
 	getJobThread: harness.getJobThread,
 	getThreadAgent: harness.getThreadAgent,
 	getPersonaModel: harness.getThreadPersonaModel,
+	getPersonaName: harness.getThreadPersonaName,
 	listEntries: harness.listEntries,
 	getEntry: harness.getEntry,
 	appendSummary: harness.appendSummary,

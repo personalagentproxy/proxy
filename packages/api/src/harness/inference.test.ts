@@ -112,6 +112,7 @@ beforeEach(() => {
 	store.listAttachments.mockResolvedValue(Ok([]));
 	getThreadAgent.mockResolvedValue(Ok({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: ['openrouter']}));
 	getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'claude'}));
+	store.getPersonaName.mockResolvedValue(Ok('Coding Agent'));
 	for (const write of [finishJob, completeInference, requeueJob, appendSummary, appendTurnEntries, store.failJob]) {
 		write.mockResolvedValue(Ok(true));
 	}
@@ -148,7 +149,12 @@ describe('runInference', () => {
 		// The agent acts as the member whose conversation it is.
 		expect(getThreadAgent).toHaveBeenCalledWith(thread);
 		expect(listSubAgents).toHaveBeenCalledWith('thread-1', now);
-		expect(agentInstructions).toHaveBeenCalledWith(expect.objectContaining({agentId: 'agent-1', ownerUserId: 'user-1'}), expect.stringContaining('You are chatting with the person'));
+		// What it makes goes in the persona's folder, where what the person attaches goes.
+		expect(agentInstructions).toHaveBeenCalledWith(
+			expect.objectContaining({agentId: 'agent-1', ownerUserId: 'user-1'}),
+			expect.stringContaining('You are chatting with the person'),
+			'Chats/Coding Agent',
+		);
 		const request = askForTurn.mock.calls[0]?.[0] as {model: string; messages: Array<Record<string, unknown>>; tools: unknown[]};
 		// With the harness and the model of the persona the thread is with.
 		expect(getPersonaModel).toHaveBeenCalledWith(thread);
@@ -243,7 +249,13 @@ describe('runInference', () => {
 		const result = await runInference(store, on(harness), {...job, threadId: 'thread-2'}, 'w1', false, clock);
 
 		expect(result.isOk()).toBe(true);
-		expect(agentInstructions).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('You are a sub-agent'));
+		// A sub-agent's, in a folder of its title's in the persona's.
+		expect(agentInstructions).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('You are a sub-agent'), 'Chats/Coding Agent/Find the invoices');
+
+		// Where the persona is gone, no folder is named.
+		store.getPersonaName.mockResolvedValue(Ok(null));
+		await runInference(store, on(harness), {...job, threadId: 'thread-2'}, 'w1', false, clock);
+		expect(agentInstructions).toHaveBeenLastCalledWith(expect.anything(), expect.stringContaining('You are a sub-agent'), undefined);
 		const request = askForTurn.mock.calls[0]?.[0] as {messages: Array<Record<string, unknown>>; tools: unknown[]};
 		expect(request.messages.slice(1)).toEqual([
 			{role: 'user', content: 'Search the mailbox.'},

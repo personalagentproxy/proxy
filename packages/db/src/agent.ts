@@ -38,12 +38,21 @@ const agentSelect = {
 	grants: {select: {connectionId: true, actionId: true, allowed: true}},
 } as const;
 
+/**
+ * An agent as a member sees it: its settings on the connections they use alone. The built-in
+ * agent, which acts as each member in their conversation, has settings on every member's own
+ * connections, which nobody else is shown.
+ */
+function agentSelectFor(viewer: MemberViewer) {
+	return {...agentSelect, grants: {...agentSelect.grants, where: {connection: usableBy(viewer)}}};
+}
+
 /** The agents the viewer sees, newest first. */
 export async function listAgents(viewer: MemberViewer): Promise<Result<AgentRow[], ApiError>> {
 	return wrapDb(() =>
 		db.agent.findMany({
 			where: visibleTo(viewer),
-			select: agentSelect,
+			select: agentSelectFor(viewer),
 			orderBy: {createdAt: 'desc'},
 		}),
 	);
@@ -92,7 +101,10 @@ export async function getAgent(
 	agentId: string,
 ): Promise<Result<AgentRow | null, ApiError>> {
 	return wrapDb(() =>
-		db.agent.findFirst({where: {id: agentId, ...visibleTo(viewer)}, select: agentSelect}),
+		db.agent.findFirst({
+			where: {id: agentId, ...visibleTo(viewer)},
+			select: agentSelectFor(viewer),
+		}),
 	);
 }
 

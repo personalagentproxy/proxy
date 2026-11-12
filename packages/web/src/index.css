@@ -142,6 +142,11 @@
 	position: relative;
 }
 
+/* The second sidebar's resize handle begins where its divider does, clear of the title bar. */
+.desktop-app [data-panel-resize-handle] {
+	top: var(--desktop-title-bar-height);
+}
+
 .desktop-app [data-slot='sidebar-inner']::after,
 .desktop-app [data-desktop-panel]::after {
 	position: absolute;
@@ -256,4 +261,11 @@
 	[data-enter='rise'] {
 		animation: chat-fade 160ms ease-out both;
 	}
+}
+
+/* While the second sidebar's edge is dragged (components/panel-resize-handle.tsx), the pointer
+   keeps its resize cursor wherever it goes, and the drag selects no text on the way. */
+body[data-panel-resizing] {
+	cursor: col-resize;
+	user-select: none;
 }

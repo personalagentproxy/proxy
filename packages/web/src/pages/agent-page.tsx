@@ -44,7 +44,7 @@ import {cn} from '@proxy/ui/lib/utils';
 import {formatDate} from '@/lib/format';
 import {chosenTab, type PageTab} from '@/lib/page-tabs';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
-import {hasOtherPeople, manages} from '@/lib/orgs';
+import {hasOtherPeople, manages, managesAgentOn} from '@/lib/orgs';
 import type {agentLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 
@@ -155,11 +155,13 @@ function AgentDetail({id}: {id: string}) {
 				<PageTabs tabs={tabs} chosen={tab} label="Agent" />
 				{tab === 'permissions' && (
 					<div className="flex flex-col gap-2">
-						<p className="text-sm text-muted-foreground">{permissionsIntro(agent, mayChange)}</p>
+						<p className="text-sm text-muted-foreground">
+							{permissionsIntro(agent, mayChange, builtIn)}
+						</p>
 						<ConnectionsAccess
 							agent={agent}
 							connections={reachable}
-							readOnly={!mayChange}
+							mayChange={(connection) => managesAgentOn(human, agent, connection)}
 							setsDefaults={(connection) => manages(human, connection)}
 							onChange={(connectionId, actions) =>
 								apply(setAgentGrants(org, agent.id, connectionId, actions))
@@ -287,21 +289,28 @@ function McpClients({
 }
 
 // What the Permissions tab says first: that the agent follows each connection's default unless it
-// has a setting of its own, how many it has, and who changes them where the person doesn't.
-function permissionsIntro(agent: AgentLogin, mayChange: boolean): string {
+// has a setting of its own, how many it has, and who changes them: for the built-in agent, whoever
+// changes each connection's defaults; for another, where the person doesn't, who does.
+function permissionsIntro(agent: AgentLogin, mayChange: boolean, builtIn: boolean): string {
 	const own = agent.grants.length;
 	return [
 		`${agent.name} gets what each connection’s Default says, unless a box of its own says otherwise.`,
 		...(own > 0 ? [`It has ${own} of its own.`] : []),
-		...(mayChange ? [] : ['Whoever made it and the organization’s owner change them.']),
+		...(builtIn
+			? ['Whoever changes a connection’s defaults changes them there.']
+			: mayChange
+				? []
+				: ['Whoever made it and the organization’s owner change them.']),
 	].join(' ');
 }
 
 type GridProps = {
 	agent: AgentLogin;
 	connections: Connection[];
-	// Shown but not changed: a shared agent by a member who only sees it.
-	readOnly: boolean;
+	// Whether the person may change the agent's settings on a connection; else they see them: a
+	// shared agent's by a member who only sees it, the built-in agent's where the connection isn't
+	// theirs to change.
+	mayChange: (connection: Connection) => boolean;
 	// Whether the person may change a connection's defaults, shown beside the agent's own: the
 	// connection is theirs to change too.
 	setsDefaults: (connection: Connection) => boolean;
@@ -317,7 +326,7 @@ type GridProps = {
 function ConnectionsAccess({
 	agent,
 	connections,
-	readOnly,
+	mayChange,
 	setsDefaults,
 	onChange,
 	onChangeDefaults,
@@ -417,7 +426,7 @@ function ConnectionsAccess({
 								<AccessGrid
 									actions={actions}
 									defaults={defaultActions(connection)}
-									agents={[{agent, own, mayChange: !readOnly}]}
+									agents={[{agent, own, mayChange: mayChange(connection)}]}
 									unavailable={connection.unavailable}
 									signInNeeded={connection.signInNeeded}
 									mayChangeDefaults={setsDefaults(connection)}
