@@ -334,13 +334,13 @@ export async function renewConnection(data: {
 }
 
 /**
- * Replaces a connection's encrypted credential, as when Granola hands out new tokens. With
- * `previous`, only while the credential is still that one, so two servers refreshing at once
- * don't overwrite each other: `Ok(false)` when it had already changed.
+ * Replaces or clears a connection's encrypted credential. With `previous`, only while the
+ * credential is still that one, so two servers refreshing at once don't overwrite each other:
+ * `Ok(false)` when it had already changed.
  */
 export async function updateConnectionCredential(data: {
 	connectionId: string;
-	credential: string;
+	credential: string | null;
 	previous?: string;
 }): Promise<Result<boolean, ApiError>> {
 	const {connectionId, credential, previous} = data;

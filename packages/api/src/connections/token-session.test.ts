@@ -147,6 +147,11 @@ describe('callWithToken', () => {
 		expect((await callWithToken(REFRESHER, connectionWith(false), call)).unwrapErr().kind).toBe('credentials_rejected');
 		expect(tokensCalledWith()).toEqual(['access-1', 'access-2']);
 		expect(refresh).toHaveBeenCalledTimes(1);
+		expect(updateConnectionCredential).toHaveBeenCalledWith({
+			connectionId: 'conn-1',
+			credential: null,
+			previous: `enc:${JSON.stringify(fresh)}`,
+		});
 	});
 
 	test('does not refresh again when a just-refreshed credential is turned down', async () => {
@@ -156,6 +161,11 @@ describe('callWithToken', () => {
 
 		expect(refresh).toHaveBeenCalledTimes(1);
 		expect(tokensCalledWith()).toEqual(['access-2']);
+		expect(updateConnectionCredential).toHaveBeenCalledWith({
+			connectionId: 'conn-1',
+			credential: null,
+			previous: `enc:${JSON.stringify(fresh)}`,
+		});
 	});
 
 	test('a refresh that fails is the answer, without a call', async () => {
@@ -165,7 +175,11 @@ describe('callWithToken', () => {
 
 		expect(result.unwrapErr().kind).toBe('credentials_rejected');
 		expect(call).not.toHaveBeenCalled();
-		expect(updateConnectionCredential).not.toHaveBeenCalled();
+		expect(updateConnectionCredential).toHaveBeenCalledWith({
+			connectionId: 'conn-1',
+			credential: null,
+			previous: connectionWith(true).credential,
+		});
 	});
 
 	test('a connection without a credential has to be signed in to', async () => {
