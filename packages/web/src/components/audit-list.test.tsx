@@ -117,7 +117,7 @@ describe('AuditList', () => {
 		expect(within(dialog).getByRole('link', {name: 'Triage inbox'}).getAttribute('href')).toBe(
 			'/org-1/activity/tasks/task-1',
 		);
-		expect(within(dialog).getByText('Archive the newsletters')).toBeDefined();
+		expect(within(dialog).queryByText('Archive the newsletters')).toBeNull();
 		expect(within(dialog).getByRole('link', {name: 'Claude'}).getAttribute('href')).toBe(
 			'/org-1/agents/agent-1',
 		);
