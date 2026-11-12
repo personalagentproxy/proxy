@@ -1,6 +1,13 @@
 import type {Connection, ConnectionHealth} from '@proxy/contracts/connections';
 import {Button, buttonVariants} from '@proxy/ui/components/button';
-import {ActivityIcon} from 'lucide-react';
+import {
+	ActivityIcon,
+	CircleAlertIcon,
+	CircleCheckIcon,
+	CircleHelpIcon,
+	CircleMinusIcon,
+	LoaderCircleIcon,
+} from 'lucide-react';
 import {Link} from 'react-router';
 
 import {useConnectionHealth} from '@/hooks/use-connection-health';
@@ -25,17 +32,36 @@ export function ConnectionHealthStatus({
 	checking?: boolean;
 }) {
 	if (checking) {
-		return <span className="text-xs text-muted-foreground">Checking…</span>;
+		return (
+			<span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+				<LoaderCircleIcon aria-hidden="true" className="size-3.5 shrink-0 animate-spin" />
+				Checking…
+			</span>
+		);
 	}
 	if (!health) {
-		return <span className="text-xs text-muted-foreground">Not checked</span>;
+		return (
+			<span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+				<CircleHelpIcon aria-hidden="true" className="size-3.5 shrink-0" />
+				Not checked
+			</span>
+		);
 	}
 	const failed = health.status !== 'healthy' && health.status !== 'unsupported';
+	const Icon =
+		health.status === 'healthy' ? CircleCheckIcon : failed ? CircleAlertIcon : CircleMinusIcon;
+	const color =
+		health.status === 'healthy'
+			? 'text-emerald-600 dark:text-emerald-400'
+			: failed
+				? 'text-destructive'
+				: 'text-muted-foreground';
 	return (
 		<span
 			title={`${health.message} Checked ${new Date(health.checkedAt).toLocaleString()}`}
-			className={`text-xs ${failed ? 'text-destructive' : 'text-muted-foreground'}`}
+			className={`inline-flex items-center gap-1 text-xs ${color}`}
 		>
+			<Icon aria-hidden="true" className="size-3.5 shrink-0" />
 			{LABELS[health.status]}
 		</span>
 	);
