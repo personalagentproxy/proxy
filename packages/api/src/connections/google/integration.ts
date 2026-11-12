@@ -11,6 +11,8 @@ import type {ApiIntegration} from '../integration';
 import {REVOKE_GOOGLE} from './revoke';
 import {handleGoogleCallbackRoute, handleStartGoogleRoute} from './route';
 import {unavailableGoogleConnectionActions} from './unavailable';
+import {z} from 'zod';
+import {callGoogle, googleRequest} from './google-client';
 
 /**
  * A Google account, signed in to with the app's own Google client, fetched live from Google's APIs
@@ -20,6 +22,8 @@ import {unavailableGoogleConnectionActions} from './unavailable';
  */
 export const GOOGLE_INTEGRATION: ApiIntegration = {
 	id: 'google',
+	check: (connection) =>
+		callGoogle(connection, async (token) => (await googleRequest(token, new URL('https://openidconnect.googleapis.com/v1/userinfo'), z.object({sub: z.string()}))).map(() => undefined)),
 	connectors: {
 		emails: gmailConnector,
 		attachments: gmailAttachmentsConnector,

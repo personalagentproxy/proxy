@@ -191,6 +191,7 @@ describe('handleListConnectionsRoute', () => {
 			defaults: [],
 			tools: null,
 			name: null,
+			health: null,
 			unavailable: ['readFiles', 'createFiles', 'editFiles', 'trashFiles'],
 			signInNeeded: false,
 		});

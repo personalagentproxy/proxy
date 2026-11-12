@@ -5,7 +5,7 @@ import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {getAgentById, type AgentRow, type SignedInAgent} from '@proxy/db/agent';
 import type {agentMeSchema, ToolResult} from '@proxy/contracts/agent-side';
 import {logAgentRequest} from '@proxy/db/audit';
-import {listConnectionsWithCredential, type ConnectionRow} from '@proxy/db/connection';
+import {listConnectionsWithCredential, updateConnectionCredential, type ConnectionRow} from '@proxy/db/connection';
 import type {Viewer} from '@proxy/db/viewer';
 import {
 	allowedTools,
@@ -199,6 +199,24 @@ export function failureOf(error: ApiError): string {
 	return cause?.success ? `${error.kind} ${cause.data.status}` : error.kind;
 }
 
+async function flagRejectedCredential<T>(connection: ConnectionRow & {credential: string | null}, answer: Result<T, ApiError>): Promise<Result<T, ApiError>> {
+	if (answer.isErr() && answer.error.kind === 'credentials_rejected' && connection.credential !== null) {
+		const marked = await updateConnectionCredential({
+			connectionId: connection.id,
+			credential: null,
+			previous: connection.credential,
+		});
+		if (marked.isErr()) {
+			serverLog.warn('Could not mark a rejected connection sign-in', {
+				connectionId: connection.id,
+				errorKind: marked.error.kind,
+			});
+		}
+	}
+
+	return answer;
+}
+
 // What a call to the provider answered; one that failed is logged as failed first, with `title`
 // and `query` as an allowed one would have been.
 // The server's log of a provider failing: the error's kind and, for a request that failed, where
@@ -250,7 +268,8 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 		const {connection, integration} = $(connectionRead);
 		const tool = $(requirePresent(findTool(integration, toolName), ApiErr.notFound('tool', toolName)));
 		if (tool.kind === 'call' || tool.kind === 'native') {
-			return $(await runParamsTool({caller, agent, connection, integration, startedAt}, tool, params));
+			const answer = await runParamsTool({caller, agent, connection, integration, startedAt}, tool, params);
+			return $(await flagRejectedCredential(connection, answer));
 		}
 
 		const collection = $(requirePresent(findCollection(integration, tool.collectionId), ApiErr.notFound('tool', toolName)));
@@ -272,7 +291,8 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 			$(await log(run, 'denied', null, searchOf(listParams)));
 			return $(Err(run.refuse(missing)));
 		}
-		return $(await execute(run, listParams ?? $(parseToolParams(tool, params))));
+		const answer = await execute(run, listParams ?? $(parseToolParams(tool, params)));
+		return $(await flagRejectedCredential(connection, answer));
 	});
 }
 

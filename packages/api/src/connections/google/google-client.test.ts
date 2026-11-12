@@ -125,7 +125,11 @@ describe('callGoogle', () => {
 		const result = await callGoogle(connection, async (accessToken) => Ok(accessToken));
 
 		expect(result.isErr() && result.error.kind).toBe('credentials_rejected');
-		expect(updateConnectionCredential).not.toHaveBeenCalled();
+		expect(updateConnectionCredential).toHaveBeenCalledWith({
+			connectionId: connection.id,
+			credential: null,
+			previous: connection.credential,
+		});
 	});
 
 	test('sends the token as a bearer and reads the answer', async () => {

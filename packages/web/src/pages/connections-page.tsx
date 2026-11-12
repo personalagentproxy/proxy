@@ -5,13 +5,14 @@ import {
 	SANDBOX_INTEGRATION_ID,
 	VAULT_INTEGRATION_ID,
 } from '@proxy/integrations';
-import {ForwardIcon, PencilIcon, Trash2Icon} from 'lucide-react';
+import {ForwardIcon, LoaderCircleIcon, PencilIcon, Trash2Icon} from 'lucide-react';
 import {useState} from 'react';
 import {Link} from 'react-router';
 import {deleteConnection, moveConnection, renameConnection} from '@/client/connections-client';
 import {AppShell, PageHeader, PageTitle} from '@/components/app-shell';
 import {AddButton} from '@/components/add-button';
 import {IntegrationLogo} from '@/components/brand-logo';
+import {ConnectionHealthStatus} from '@/components/connection-health';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {MoveConnectionDialog} from '@/components/move-connection-dialog';
 import {OrgNotice} from '@/components/org-notice';
@@ -24,6 +25,7 @@ import {useHuman} from '@/hooks/use-human';
 import {useLoaded} from '@/hooks/use-loaded';
 import {useReload} from '@/hooks/use-reload';
 import {useSide} from '@/hooks/use-side';
+import {useConnectionHealth} from '@/hooks/use-connection-health';
 import {
 	agentsWithAccess,
 	connectionTitle,
@@ -35,6 +37,7 @@ import {describeApiError, describeFetchError} from '@/lib/loader-utils';
 import {manages} from '@/lib/orgs';
 import type {connectionsLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
+import {PillButton} from '@proxy/ui/components/pill-button';
 
 // Widths and visibility shared by the header and every row, so the columns line up.
 const CELLS = {
@@ -88,6 +91,12 @@ function Connections() {
 	const org = useOrgSlug();
 	const {connections: all, agents, members} = useLoaded<typeof connectionsLoader>();
 	const reload = useReload();
+	const initialHealth = Object.fromEntries(
+		all.flatMap((connection) =>
+			connection.health ? [[connection.id, connection.health] as const] : [],
+		),
+	);
+	const health = useConnectionHealth(org, initialHealth);
 	const human = useHuman();
 	const [pending, setPending] = useState<Pending | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -110,6 +119,9 @@ function Connections() {
 	const activeOrg = human.org;
 	const connections = side.shown;
 	const showingShared = side.shared;
+	const healthConnections = [...vaults, ...sandboxes, ...drives, ...connections].filter(
+		(connection) => !integrationOf(connection)?.native,
+	);
 	const renaming = pending?.action === 'rename' ? pending.connection : null;
 	const moving = pending?.action === 'move' ? pending.connection : null;
 	const deleting = pending?.action === 'delete' ? pending.connection : null;
@@ -120,10 +132,22 @@ function Connections() {
 		<>
 			<PageHeader
 				actions={
-					<AddButton
-						label="Add connection"
-						to={showingShared ? `/${org}/connections/new?for=everyone` : `/${org}/connections/new`}
-					/>
+					<div className="flex items-center gap-2">
+						<PillButton
+							variant="outline"
+							disabled={health.checking.size > 0 || healthConnections.length === 0}
+							onClick={() => void health.checkMany(healthConnections.map(({id}) => id))}
+						>
+							{health.checking.size > 0 && <LoaderCircleIcon className="animate-spin" />}
+							{health.checking.size > 0 ? 'Checking…' : 'Check connections'}
+						</PillButton>
+						<AddButton
+							label="Add connection"
+							to={
+								showingShared ? `/${org}/connections/new?for=everyone` : `/${org}/connections/new`
+							}
+						/>
+					</div>
 				}
 			/>
 			<OrgNotice />
@@ -141,9 +165,9 @@ function Connections() {
 					</RowHeader>
 				}
 			>
-				<BuiltInRow connections={vaults} agents={agents} />
-				<BuiltInRow connections={sandboxes} agents={agents} />
-				<BuiltInRow connections={drives} agents={agents} />
+				<BuiltInRow connections={vaults} agents={agents} health={health} />
+				<BuiltInRow connections={sandboxes} agents={agents} health={health} />
+				<BuiltInRow connections={drives} agents={agents} health={health} />
 				{connections.length === 0 && (
 					<SideEmpty
 						side={side}
@@ -172,6 +196,14 @@ function Connections() {
 							to={`/${org}/connections/${connection.id}`}
 							icon={integration && <IntegrationLogo integration={integration} />}
 							title={connectionTitle(connection)}
+							subtitle={
+								!integration?.native && (
+									<ConnectionHealthStatus
+										health={health.results[connection.id] ?? connection.health ?? undefined}
+										checking={health.checking.has(connection.id)}
+									/>
+								)
+							}
 							cells={
 								<>
 									<span className={CELLS.account}>{connection.account}</span>
@@ -279,7 +311,15 @@ function Connections() {
 // The person's built-in connection of an integration as a row, their vault or their Sandboxes,
 // kept in Personal Agent Proxy, so never renamed, shared or deleted, opening its connection's
 // page; none without one, as an organization not offered sandboxes has.
-function BuiltInRow({connections, agents}: {connections: Connection[]; agents: AgentLogin[]}) {
+function BuiltInRow({
+	connections,
+	agents,
+	health,
+}: {
+	connections: Connection[];
+	agents: AgentLogin[];
+	health: ReturnType<typeof useConnectionHealth>;
+}) {
 	const org = useOrgSlug();
 	const [first] = connections;
 	const integration = first && integrationOf(first);
@@ -292,6 +332,14 @@ function BuiltInRow({connections, agents}: {connections: Connection[]; agents: A
 			to={`/${org}/connections/${first.id}`}
 			icon={<IntegrationLogo integration={integration} />}
 			title={connectionTitle(first)}
+			subtitle={
+				!integration.native && (
+					<ConnectionHealthStatus
+						health={health.results[first.id] ?? first.health ?? undefined}
+						checking={health.checking.has(first.id)}
+					/>
+				)
+			}
 			cells={
 				<>
 					<span className={CELLS.account}>{first.account}</span>

@@ -16,6 +16,8 @@ import {requireManaged, type ManagingViewer} from '../managed';
 import type {BuiltInMcp, ProviderAccount} from './built-in';
 import {exchangeMcpCode, mcpAuthorizeUrl, registerMcpClient, type McpCredential, type McpServer} from './mcp-oauth';
 import type {McpKeyCredential} from './mcp-session';
+import {withMcpToken} from './mcp-session';
+import {listMcpTools} from './mcp-client';
 
 /**
  * Connecting an integration built on its MCP server: by signing in to it, as Granola, Notion and
@@ -174,6 +176,17 @@ export function builtInMcpIntegration(builtIn: BuiltInMcp, connectors: Partial<R
 		id: builtIn.integrationId,
 		connectors,
 		builtInMcp: builtIn,
+		check: (connection) =>
+			withMcpToken(builtIn.server, connection, async (token) => {
+				// Some servers list tools before checking auth; prefer their account/key check.
+				if (builtIn.account) {
+					return (await builtIn.account(token)).map(() => undefined);
+				}
+				if (builtIn.apiKey) {
+					return builtIn.apiKey.check(token);
+				}
+				return (await listMcpTools(builtIn.server, token)).map(() => undefined);
+			}),
 		connect: {
 			kind: 'signIn',
 			name: builtIn.server.name,

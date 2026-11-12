@@ -2,6 +2,7 @@ import {
 	type connectDatabaseBodySchema,
 	type connectEmailBodySchema,
 	connectionListSchema,
+	connectionHealthSchema,
 	connectionSchema,
 	type connectMcpBodySchema,
 	connectMcpSchema,
@@ -56,6 +57,15 @@ export function createDrive(org: string, input: z.input<typeof createDriveBodySc
 
 export function getConnection(org: string, connectionId: string) {
 	return apiRequest('GET', `${orgApi(org)}/connections/${connectionId}`, connectionSchema);
+}
+
+/** Tests the saved credentials against the provider without running a business operation. */
+export function checkConnectionHealth(org: string, connectionId: string) {
+	return apiRequest(
+		'POST',
+		`${orgApi(org)}/connections/${connectionId}/health`,
+		connectionHealthSchema,
+	);
 }
 
 export function deleteConnection(org: string, connectionId: string) {

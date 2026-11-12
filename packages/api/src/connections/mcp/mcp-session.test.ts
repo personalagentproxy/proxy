@@ -129,13 +129,17 @@ describe('callMcpToolFor with an API key', () => {
 		expect(refreshMcpTokens).not.toHaveBeenCalled();
 	});
 
-	test('a key the server turns down is credentials_rejected, nothing refreshed or saved', async () => {
+	test('a key the server turns down is credentials_rejected and cleared', async () => {
 		callMcpTool.mockResolvedValue(Err(ApiErr.credentialsRejected()));
 		const {callMcpToolFor} = await import('./mcp-session');
 		const error = (await callMcpToolFor(SERVER, connection, 'web_search_exa', {})).unwrapErr();
 
 		expect(error.kind).toBe('credentials_rejected');
 		expect(refreshMcpTokens).not.toHaveBeenCalled();
-		expect(updateConnectionCredential).not.toHaveBeenCalled();
+		expect(updateConnectionCredential).toHaveBeenCalledWith({
+			connectionId: connection.id,
+			credential: null,
+			previous: connection.credential,
+		});
 	});
 });

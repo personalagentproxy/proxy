@@ -37,6 +37,7 @@ import {handleSignOutRoute} from '../auth/signout';
 import {handleGitHubApiRoute, handleGitHubGitRoute, handleGitHubIdentityRoute} from '../cli/github/route';
 import {handleCliCallRoute} from '../cli/route';
 import {handleRefreshCustomMcpToolsRoute} from '../connections/custom/route';
+import {handleCheckConnectionRoute} from '../connections/health';
 import {handleGitHubInstallationsRoute} from '../connections/github/route';
 import type {ApiIntegration} from '../connections/integration';
 import {apiIntegrations} from '../connections/integrations';
@@ -205,6 +206,7 @@ export function createApiRouter(): express.Router {
 	org.put('/connections/:connectionId/org', withAuthResult('Move connection route', handleMoveConnectionRoute));
 	org.put('/connections/:connectionId/sharing', withAuthResult('Set connection sharing route', handleSetConnectionSharingRoute));
 	org.post('/connections/:connectionId/tools', withAuthResult('Refresh custom MCP server tools route', handleRefreshCustomMcpToolsRoute));
+	org.post('/connections/:connectionId/health', withAuthResult('Check connection health route', handleCheckConnectionRoute));
 	// What a GitHub connection reaches, for its page (connections/github/route.ts).
 	org.get('/connections/:connectionId/github/installations', withAuthResult('GitHub installations route', handleGitHubInstallationsRoute));
 	const records = '/connections/:connectionId/collections/:collectionId/records';

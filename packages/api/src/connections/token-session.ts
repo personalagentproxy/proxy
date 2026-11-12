@@ -156,10 +156,32 @@ export function freshCredential<C>(refresher: TokenRefresher<C>, connection: Sto
 export function callWithToken<C, T>(refresher: TokenRefresher<C>, connection: StoredConnection, call: (credential: C) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
 	return Do(async ($) => {
 		const read = $(readSession(refresher, connection.credential));
+		let stored = read.stored;
 		const fresh: Freshening<Session<C>> = {
 			isExpiring: (session) => refresher.isExpiring(session.credential),
-			refresh: (session) => renew(refresher, connection.id, session),
+			refresh: async (session) => {
+				const renewed = await renew(refresher, connection.id, session);
+				if (renewed.isOk()) {
+					stored = renewed.value.stored;
+				}
+				return renewed;
+			},
 		};
-		return $(await callWithRefresh(fresh, read, (session) => call(session.credential)));
+		const answer = await callWithRefresh(fresh, read, (session) => call(session.credential));
+		if (answer.isErr() && answer.error.kind === 'credentials_rejected') {
+			const cleared = await updateConnectionCredential({
+				connectionId: connection.id,
+				credential: null,
+				previous: stored,
+			});
+			if (cleared.isErr()) {
+				log.warn(`${refresher.name} rejected sign-in could not be recorded`, {
+					connectionId: connection.id,
+					errorKind: cleared.error.kind,
+				});
+			}
+		}
+
+		return $(answer);
 	});
 }

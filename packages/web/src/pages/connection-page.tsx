@@ -16,6 +16,7 @@ import {SignInToBankAgain} from '@/components/connect-bank-form';
 import {ConnectWithKeyDialog} from '@/components/connect-with-key-dialog';
 import {SignInAgain} from '@/components/connection-access';
 import {ConnectionSharing} from '@/components/connection-sharing';
+import {ConnectionHealthPanel} from '@/components/connection-health';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {GitHubRepositories} from '@/components/github-repositories';
 import {IconButton} from '@/components/icon-button';
@@ -195,6 +196,7 @@ function ConnectionDetail() {
 			/>
 			<div className="flex flex-col gap-4">
 				{added && <SuccessLine>Connection added successfully</SuccessLine>}
+				<ConnectionHealthPanel key={connection.id} connection={connection} mayChange={mayChange} />
 				<PageTabs tabs={tabs} chosen={tab} label="Connection" />
 				{tab === 'entries' && vaultEntries !== null && (
 					<VaultEntries

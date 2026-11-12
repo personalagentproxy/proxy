@@ -67,6 +67,8 @@ export type ApiIntegration = {
 	connect?: ConnectRoutes;
 	// Built on its provider's MCP server (`built-in-mcp.ts`).
 	builtInMcp?: BuiltInMcp;
+	// A bounded, read-only provider check using the saved credential and its normal refresh path.
+	check?: (connection: StoredConnection) => Promise<Result<void, ApiError>>;
 	revoke?: Revoke;
 	// The actions the connection's sign-in didn't cover, as Google's consent screen lets a person
 	// untick some (`unavailable.ts`); every other integration's sign-in covers all its actions.
