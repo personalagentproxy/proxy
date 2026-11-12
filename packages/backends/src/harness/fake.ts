@@ -5,9 +5,9 @@ import type {HarnessBackend, HarnessEvent, HarnessTurn, ToolAnswer, ToolSurface}
 /**
  * A harness for the tests of what runs one: it yields the events it was told to, in order, and
  * keeps every turn it was asked for, so a test can say what the harness does and read what it was
- * given. A turn it was told nothing for ends at once with `done`, the system prompt as given and
- * no session. The tool surface here records every call and answers each with a canned result, for
- * the conformance tests and for a harness under test that runs tools itself.
+ * given. A turn it was told nothing for ends at once with `done` and no session. The tool surface
+ * here records every call and answers each with a canned result, for the conformance tests and for
+ * a harness under test that runs tools itself.
  */
 
 export type FakeHarness = HarnessBackend & {
@@ -33,7 +33,7 @@ export function fakeHarness(id = 'fake'): FakeHarness {
 		},
 		turn: async function* (input) {
 			turns.push(input);
-			const events = scripted.shift() ?? [{kind: 'done', session: null, system: input.system, inputTokens: 0, outputTokens: 0}];
+			const events = scripted.shift() ?? [{kind: 'done', session: null, inputTokens: 0, outputTokens: 0}];
 			for (const event of events) {
 				yield event;
 			}

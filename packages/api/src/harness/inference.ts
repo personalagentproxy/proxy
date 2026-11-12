@@ -50,13 +50,14 @@ import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
  * with the two it ran on. An answer of the agent talking with the person is written with the files it shows them,
  * pictures among its words that link to files the agent may read, each at the version it holds
  * then (native/files/chat.ts), as best they can be read: one that can't is left a link, and the
- * answer is written all the same. The answer is written with the system prompt the model was sent, which is built
- * from the login's grants as they are then and, for the agent talking with the person, its
- * sub-agents as they are then, so that what the model read can be told later; the rest of the
- * request is rebuilt from the log. The agent talking with the person is told the alerts set in the
- * conversation too, by id, so it can cancel one. A wake job, the wake-up after a sleep the harness
- * answered itself, is run the same way, the harness told it was woken. Without a harness for the
- * thread, as a server without an OpenRouter key has none, the person is told so.
+ * answer is written all the same. The answer is written with the system prompt the model was
+ * sent, built from the login's grants as they are then, and with the context of the turn, where
+ * things stood as it started: the time and, for the agent talking with the person, its sub-agents
+ * and the alerts set in the conversation, by id, so it can cancel one. That way what the model
+ * read can be told later; the rest of the request is rebuilt from the log. A wake job, the wake-up
+ * after a sleep the harness answered itself, is run the same way, the harness told it was woken.
+ * Without a harness for the thread, as a server without an OpenRouter key has none, the person is
+ * told so.
  *
  * A turn tried again, the worker that ran it before having died, may find the log's last answer
  * with calls still open: a harness that runs its tools itself wrote the step and died before the
@@ -156,6 +157,7 @@ type TurnOutcome =
 			inputTokens: number;
 			outputTokens: number;
 			system: string;
+			context: string;
 			session: HarnessSession;
 	  }
 	| {kind: 'failed'; error: ApiError; retry: boolean; limitReached?: {resetsAt: Date | null}};
@@ -180,7 +182,7 @@ function said(thread: ThreadRow, entries: EntryRow[], turn: {text: string; toolC
 // prompt was built. A job no longer the worker's is a conflict.
 function answerWith(store: InferenceStore, job: JobRow, workerId: string, thread: ThreadRow, text: string): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
-		const turn: AssistantTurn = {text, toolCalls: [], inputTokens: 0, outputTokens: 0, system: null};
+		const turn: AssistantTurn = {text, toolCalls: [], inputTokens: 0, outputTokens: 0, system: null, context: null};
 		if (!$(await store.completeInference(job.id, workerId, job.threadId, turn, afterAnswer(thread, turn, {})))) {
 			return $(Err(jobLost()));
 		}
@@ -286,16 +288,16 @@ function pinFor(harnesses: Harnesses, thread: ThreadRow, signedIn: SignedInAgent
 // summary as it comes; the answer's words, each piece after the last, and its calls kept as the
 // step under way, which a result the harness answered a call with ends, the step written as an
 // assistant entry, with the harness and the model it ran on and the files its words show (`pin`),
-// and the result after it, the first step with the system prompt; what is left
-// when `done` comes is the turn's last step, given back with what the turn cost, the session kept
-// and the calls still open. What the provider said of the plan goes to `onUsage`. A result for a
-// call the turn didn't make, or answered already, and a turn that ends without `done` or `failed`,
-// are failures of the harness.
+// and the result after it, the first step with the system prompt and the context it was sent; what
+// is left when `done` comes is the turn's last step, given back with what the turn cost, the
+// session kept and the calls still open. What the provider said of the plan goes to `onUsage`. A
+// result for a call the turn didn't make, or answered already, and a turn that ends without `done`
+// or `failed`, are failures of the harness.
 function consume(
 	store: InferenceStore,
 	job: JobRow,
 	workerId: string,
-	sent: {system: string; ranOn: RanOn},
+	sent: {system: string; context: string; ranOn: RanOn},
 	events: AsyncIterable<HarnessEvent>,
 	onUsage: UsageSink,
 	pin: Pin,
@@ -336,7 +338,7 @@ function consume(
 				const step: NewTurnEntry[] =
 					pieces.length === 0 && toolCalls.length === 0
 						? []
-						: [{kind: 'assistant', text, toolCalls, ranOn: sent.ranOn, ...(wroteInline ? {} : {system: sent.system}), ...(attachments.length === 0 ? {} : {attachments})}];
+						: [{kind: 'assistant', text, toolCalls, ranOn: sent.ranOn, ...(wroteInline ? {} : {system: sent.system, context: sent.context}), ...(attachments.length === 0 ? {} : {attachments})}];
 				const result: NewTurnEntry = {kind: 'tool_result', callId: event.callId, text: event.text, isError: event.isError};
 				if (!$(await store.appendTurnEntries(job.id, workerId, job.threadId, [...step, result]))) {
 					return $(Err(jobLost()));
@@ -359,7 +361,8 @@ function consume(
 				wroteInline,
 				inputTokens: event.inputTokens,
 				outputTokens: event.outputTokens,
-				system: event.system,
+				system: sent.system,
+				context: sent.context,
 				session: event.session,
 			};
 		}
@@ -444,7 +447,7 @@ function askOnLog(
 					store,
 					job,
 					workerId,
-					{system, ranOn: {harness: choice.harness.id, model: choice.model}},
+					{system, context, ranOn: {harness: choice.harness.id, model: choice.model}},
 					choice.harness.turn({
 						thread: {id: thread.id, parentThreadId: thread.parentThreadId},
 						job: job.id,
@@ -498,6 +501,7 @@ function writeBack(
 					inputTokens: outcome.inputTokens,
 					outputTokens: outcome.outputTokens,
 					system: outcome.system,
+					context: outcome.context,
 					ranOn: {harness: harness.id, model: choice.model},
 				};
 		const after = turn === null ? {plans} : afterAnswer(thread, turn, plans);

@@ -1,6 +1,6 @@
 import type {HarnessBackend, HarnessEvent, HarnessTurn} from '@proxy/backends/harness/backend';
 import {ApiErr, type ApiError, CHAT_MODELS, isChatModel} from '@proxy/utils';
-import {compactionCut, type ContextEntry, toMessages, toTranscript} from '@proxy/utils/harness-context';
+import {compactionCut, type ContextEntry, standing, toMessages, toTranscript} from '@proxy/utils/harness-context';
 
 import type {askForTurn as askForTurnOverRouter, ModelTool} from '../llm/open-router';
 
@@ -8,7 +8,9 @@ import type {askForTurn as askForTurnOverRouter, ModelTool} from '../llm/open-ro
  * The harness this server has always run: one call to the model over OpenRouter per turn, on the
  * log as the chat completions form has it, with the api's tools; the calls the model makes are
  * left open for the api to run as jobs, which runs the harness again once every one is answered.
- * It keeps no session: every turn is built from the log, after the system prompt the api gave.
+ * It keeps no session: every turn is built from the log, after the system prompt the api gave and
+ * before where things stand (`standing`), so what one step sends begins with all the step before
+ * it sent but where things stood, which keeps the prompt cache.
  * Its models are the few picked out of what OpenRouter has (CHAT_MODELS in @proxy/utils), each
  * with the hosts it may go to (llm/open-router.ts).
  * A log that has grown long is first summarized, by the same model, in a summary the api stores
@@ -101,12 +103,10 @@ export function proxyHarness(deps: ProxyHarnessDeps): HarnessBackend {
 				};
 				entries = [...entries, stored];
 			}
-			// Where things stand goes after the instructions: the whole log is sent every turn anyway.
-			const system = `${input.system}\n\n${input.context}`;
 			const turn = await deps.askForTurn({
 				key: deps.key,
 				model,
-				messages: [{role: 'system', content: system}, ...toMessages(entries, subAgents, {clearOld: true})],
+				messages: [{role: 'system', content: input.system}, ...toMessages(entries, subAgents, {clearOld: true}), {role: 'user', content: standing(input.context)}],
 				tools: toModelTools(input),
 				maxTokens: MAX_TOKENS,
 				timeoutMs: TIMEOUT_MS,
@@ -121,7 +121,7 @@ export function proxyHarness(deps: ProxyHarnessDeps): HarnessBackend {
 			for (const call of turn.value.toolCalls) {
 				yield {kind: 'tool_call', ...call};
 			}
-			yield {kind: 'done', session: input.session, system, inputTokens: turn.value.inputTokens, outputTokens: turn.value.outputTokens};
+			yield {kind: 'done', session: input.session, inputTokens: turn.value.inputTokens, outputTokens: turn.value.outputTokens};
 		},
 	};
 }

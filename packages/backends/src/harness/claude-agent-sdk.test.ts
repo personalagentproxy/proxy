@@ -74,7 +74,7 @@ const SESSION = 'session-1';
 
 // Where things stand as each turn starts, as the api gives it, and as the prompt ends with it.
 const CONTEXT = 'No sub-agents yet.\n\nThe time now is 2026-10-21T10:00:00.000Z.';
-const TIME = `Where things stand now, from Personal Agent Proxy; not from the person:\n\n${CONTEXT}`;
+const STANDING = `Where things stand now, from Personal Agent Proxy; not from the person:\n\n${CONTEXT}`;
 
 function usage(input: number, output: number, cache: {read: number; creation: number} = {read: 0, creation: 0}): NonNullableUsage {
 	return {
@@ -402,7 +402,7 @@ describe('claudeAgentSdkHarness', () => {
 					content: [
 						{type: 'text', text: 'chart.png:'},
 						{type: 'image', source: {type: 'base64', media_type: 'image/png', data: 'QUJD'}},
-						{type: 'text', text: `And this one?\n\n${TIME}`},
+						{type: 'text', text: `And this one?\n\n${STANDING}`},
 					],
 				},
 			},
@@ -411,7 +411,7 @@ describe('claudeAgentSdkHarness', () => {
 
 		// With no picture among what is new, the prompt is the words alone, as ever.
 		await collect(fake, {...turnInput(), session: {id: 'sdk-session-9', state: {lastSeq: again.seq, job: 'job-0'}}, entries: [seen, again, entry('person', 'Thanks')]});
-		expect(fake.calls[1]?.prompt).toBe(['Thanks', TIME].join('\n\n'));
+		expect(fake.calls[1]?.prompt).toBe(['Thanks', STANDING].join('\n\n'));
 	});
 
 	test('prompts with what came since the session last saw the log, less the steps of the turn that kept it, resumes the session, and keeps the last seq and the turn’s job', async () => {
@@ -438,7 +438,7 @@ describe('claudeAgentSdkHarness', () => {
 			subAgents: [{id: 'sa1', parentCallId: 'c2', title: 'Finder'}],
 		});
 
-		expect(fake.calls[0]?.prompt).toBe(['From the sub-agent “Finder” (sa1); not from the person.\n\nFound it.', 'And then?', TIME].join('\n\n'));
+		expect(fake.calls[0]?.prompt).toBe(['From the sub-agent “Finder” (sa1); not from the person.\n\nFound it.', 'And then?', STANDING].join('\n\n'));
 		expect(fake.calls[0]?.options?.resume).toBe('sdk-session-9');
 		expect(events.at(-1)).toMatchObject({kind: 'done', session: {id: SESSION, state: {lastSeq: again.seq, job: 'job-1'}}});
 	});
@@ -501,7 +501,7 @@ describe('claudeAgentSdkHarness', () => {
 				`run answered with an error:\n${OUTCOME_UNKNOWN}`,
 				`read answered with an error:\n${CALL_INTERRUPTED}`,
 				'Go on.',
-				TIME,
+				STANDING,
 			].join('\n\n'),
 		);
 		expect(fake.calls[0]?.options?.resume).toBe('s');
@@ -517,7 +517,7 @@ describe('claudeAgentSdkHarness', () => {
 
 		await collect(fake, {...turnInput(), session: null, entries: [brief, step, sent]});
 
-		expect(fake.calls[0]?.prompt).toBe([RECORD, 'Person:\nEmail the invoice to Dana', 'Agent called run with {"to":"dana"}', 'run answered:\nSent.', 'Go on.', TIME].join('\n\n'));
+		expect(fake.calls[0]?.prompt).toBe([RECORD, 'Person:\nEmail the invoice to Dana', 'Agent called run with {"to":"dana"}', 'run answered:\nSent.', 'Go on.', STANDING].join('\n\n'));
 		expect(fake.calls[0]?.options).not.toHaveProperty('resume');
 	});
 
@@ -551,7 +551,7 @@ describe('claudeAgentSdkHarness', () => {
 				SINCE,
 				'From the sub-agent “File” (sa1); not from the person.\n\nFiled all three.',
 				'Thanks. Any from before October?',
-				TIME,
+				STANDING,
 			].join('\n\n'),
 		);
 		expect(fake.calls[0]?.options).not.toHaveProperty('resume');
@@ -568,7 +568,7 @@ describe('claudeAgentSdkHarness', () => {
 
 		await collect(fake, {...turnInput(), session: {id: 's', state: {lastSeq: seen.seq, job: 'job-0'}}, entries: [seen, own, asked, gaveUp, again]});
 
-		expect(fake.calls[0]?.prompt).toBe([RECORD, 'Person:\nAnd the invoices?', 'Agent:\nThe model could not be reached. Say something to try again.', SINCE, 'Try again', TIME].join('\n\n'));
+		expect(fake.calls[0]?.prompt).toBe([RECORD, 'Person:\nAnd the invoices?', 'Agent:\nThe model could not be reached. Say something to try again.', SINCE, 'Try again', STANDING].join('\n\n'));
 	});
 
 	test('says so when woken, says to go on when nothing is new, and gives a new thread what the person said as it is', async () => {
@@ -584,9 +584,9 @@ describe('claudeAgentSdkHarness', () => {
 		await collect(fake, {...turnInput(), session, entries: [hi, answered]});
 		await collect(fake, {...turnInput(), session: null, entries: [hi]});
 
-		expect(fake.calls[0]?.prompt).toBe(['You were woken.', TIME].join('\n\n'));
-		expect(fake.calls[1]?.prompt).toBe(['Go on.', TIME].join('\n\n'));
-		expect(fake.calls[2]?.prompt).toBe(['Hi', TIME].join('\n\n'));
+		expect(fake.calls[0]?.prompt).toBe(['You were woken.', STANDING].join('\n\n'));
+		expect(fake.calls[1]?.prompt).toBe(['Go on.', STANDING].join('\n\n'));
+		expect(fake.calls[2]?.prompt).toBe(['Hi', STANDING].join('\n\n'));
 		expect(fake.calls[2]?.options).not.toHaveProperty('resume');
 	});
 
@@ -720,7 +720,7 @@ describe('claudeAgentSdkHarness', () => {
 			{kind: 'tool_call', id: 'c1', name: 'read', arguments: '{"a":1}'},
 			{kind: 'tool_result', callId: 'c1', text: 'rows', isError: false},
 			{kind: 'text', text: 'Done.'},
-			{kind: 'done', session: {id: SESSION, state: {lastSeq: input.entries[0]?.seq ?? 0, job: 'job-1'}}, system: 'You are a test.', inputTokens: 17, outputTokens: 3},
+			{kind: 'done', session: {id: SESSION, state: {lastSeq: input.entries[0]?.seq ?? 0, job: 'job-1'}}, inputTokens: 17, outputTokens: 3},
 		]);
 	});
 

@@ -118,8 +118,10 @@ export type EntryRow = LogEntry & {
 	outputTokens: number | null;
 	// A summary entry's reach: the seq of the last entry it stands for.
 	coversSeq: number | null;
-	// An assistant entry's system prompt, as the model was sent it; null where it wasn't run.
+	// An assistant entry's system prompt and where things stood, as the model was sent them; null
+	// where it wasn't run.
 	system: string | null;
+	context: string | null;
 	// An assistant entry's harness and model, by their ids, as the turn that wrote it ran; null
 	// where the model wasn't run for it.
 	harness: string | null;
@@ -188,8 +190,9 @@ export type RanOn = {harness: string; model: string};
 /**
  * An entry of a turn's own output, as a harness that runs its tools itself tells it: what the
  * model said at a step, with the calls it made there and what the step cost, or what one of those
- * calls answered. `system` is the prompt the model was sent, on the turn's first answer at least;
- * `attachments` the files the answer shows the person, each at the version it held then.
+ * calls answered. `system` is the prompt the model was sent and `context` where things stood, on
+ * the turn's first answer at least; `attachments` the files the answer shows the person, each at
+ * the version it held then.
  */
 export type NewTurnEntry =
 	| {
@@ -199,6 +202,7 @@ export type NewTurnEntry =
 			inputTokens?: number;
 			outputTokens?: number;
 			system?: string;
+			context?: string;
 			ranOn?: RanOn;
 			attachments?: EntryAttachment[];
 	  }
@@ -318,6 +322,7 @@ export const entrySelect = {
 	outputTokens: true,
 	coversSeq: true,
 	system: true,
+	context: true,
 	harness: true,
 	model: true,
 	jobId: true,
@@ -1675,13 +1680,14 @@ export async function requeueJob(
 	);
 }
 
-/** What the model answered: its text, its tool calls, what they cost, the system prompt it was sent, null where it wasn't run for the answer, the harness and the model it ran on, left out there, and the files it shows the person, each at the version it held then. */
+/** What the model answered: its text, its tool calls, what they cost, the system prompt and the context of the turn it was sent, null where it wasn't run for the answer, the harness and the model it ran on, left out there, and the files it shows the person, each at the version it held then. */
 export type AssistantTurn = {
 	text: string;
 	toolCalls: ToolCall[];
 	inputTokens: number;
 	outputTokens: number;
 	system: string | null;
+	context: string | null;
 	ranOn?: RanOn;
 	attachments?: EntryAttachment[];
 };
@@ -1755,6 +1761,7 @@ export async function appendTurnEntries(
 							inputTokens: entry.inputTokens,
 							outputTokens: entry.outputTokens,
 							system: entry.system,
+							context: entry.context,
 							harness: entry.ranOn?.harness,
 							model: entry.ranOn?.model,
 							jobId,
@@ -2079,6 +2086,7 @@ export async function completeInference(
 							inputTokens: turn.inputTokens,
 							outputTokens: turn.outputTokens,
 							system: turn.system,
+							context: turn.context,
 							harness: turn.ranOn?.harness,
 							model: turn.ranOn?.model,
 							jobId,

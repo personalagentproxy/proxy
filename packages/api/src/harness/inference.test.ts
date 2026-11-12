@@ -81,6 +81,7 @@ function entry(
 		outputTokens: null,
 		coversSeq: extra.coversSeq ?? null,
 		system: null,
+		context: null,
 		harness: null,
 		model: null,
 		jobId: null,
@@ -159,10 +160,13 @@ describe('runInference', () => {
 		// With the harness and the model of the persona the thread is with.
 		expect(getPersonaModel).toHaveBeenCalledWith(thread);
 		expect(request.model).toBe('claude');
+		// The instructions first, the log, and where things stand last, which the instructions leave out.
 		expect(request.messages[0]).toMatchObject({role: 'system'});
-		expect(String(request.messages[0]?.content)).toContain('- thread-2: “Find the invoices”, stopped');
-		expect(String(request.messages[0]?.content)).toContain('The time now is 2026-10-21T10:00:00.000Z');
-		expect(request.messages.slice(1)).toEqual([
+		expect(String(request.messages[0]?.content)).not.toContain('The time now is');
+		expect(request.messages.at(-1)).toMatchObject({role: 'user'});
+		expect(String(request.messages.at(-1)?.content)).toContain('- thread-2: “Find the invoices”, stopped');
+		expect(String(request.messages.at(-1)?.content)).toContain('The time now is 2026-10-21T10:00:00.000Z');
+		expect(request.messages.slice(1, -1)).toEqual([
 			{role: 'user', content: 'Find my invoices'},
 			{
 				role: 'assistant',
@@ -184,6 +188,7 @@ describe('runInference', () => {
 				inputTokens: 10,
 				outputTokens: 2,
 				system: expect.stringContaining('You are signed in.'),
+				context: expect.stringContaining('The time now is 2026-10-21T10:00:00.000Z'),
 				ranOn: {harness: 'proxy', model: 'claude'},
 			},
 			{
@@ -207,24 +212,24 @@ describe('runInference', () => {
 
 		await runInference(store, on(harness), job, 'w1', false, clock);
 
-		const system = String((askForTurn.mock.calls[0]?.[0] as {messages: Array<{content: string}>}).messages[0]?.content);
-		expect(system).toContain('- 3 older stopped ones, not listed');
-		expect(system).toContain('- working-0: “Find the invoices”, at work');
-		expect(system).not.toContain('stopped-2:');
-		expect(system).toContain('- stopped-3: ');
-		expect(system).toContain('- stopped-12: ');
+		const standing = String((askForTurn.mock.calls[0]?.[0] as {messages: Array<{content: string}>}).messages.at(-1)?.content);
+		expect(standing).toContain('- 3 older stopped ones, not listed');
+		expect(standing).toContain('- working-0: “Find the invoices”, at work');
+		expect(standing).not.toContain('stopped-2:');
+		expect(standing).toContain('- stopped-3: ');
+		expect(standing).toContain('- stopped-12: ');
 	});
 
 	test('tells the agent talking with the person when it has no sub-agents yet, and a sub-agent nothing of any', async () => {
 		const {runInference} = await import('./inference');
 		await runInference(store, on(harness), job, 'w1', false, clock);
-		expect(String((askForTurn.mock.calls[0]?.[0] as {messages: Array<{content: string}>}).messages[0]?.content)).toContain('No sub-agents yet.');
+		expect(String((askForTurn.mock.calls[0]?.[0] as {messages: Array<{content: string}>}).messages.at(-1)?.content)).toContain('No sub-agents yet.');
 
 		getJobThread.mockResolvedValue(Ok(sub));
 		listSubAgents.mockClear();
 		await runInference(store, on(harness), {...job, threadId: 'thread-2'}, 'w1', false, clock);
 		expect(listSubAgents).not.toHaveBeenCalled();
-		expect(String((askForTurn.mock.calls[1]?.[0] as {messages: Array<{content: string}>}).messages[0]?.content)).not.toContain('sub-agents yet');
+		expect(String((askForTurn.mock.calls[1]?.[0] as {messages: Array<{content: string}>}).messages.at(-1)?.content)).not.toContain('sub-agents yet');
 	});
 
 	test('runs a sub-agent on its log with its own tools, a sleep’s job due when it ends, a read’s now, and a message to its parent sent at once', async () => {
@@ -261,6 +266,8 @@ describe('runInference', () => {
 			{role: 'user', content: 'Search the mailbox.'},
 			{role: 'assistant', content: null, tool_calls: [{id: 'c1', type: 'function', function: {name: 'read', arguments: '{}'}}]},
 			{role: 'tool', tool_call_id: 'c1', content: '{"records":[]}'},
+			// A sub-agent is told the time alone: it has no sub-agents, and no alerts are set for it.
+			{role: 'user', content: expect.stringMatching(/:\n\nThe time now is 2026-10-21T10:00:00\.000Z\.$/)},
 		]);
 		expect(request.tools).toEqual([read]);
 		expect(completeInference).toHaveBeenCalledWith(
@@ -408,7 +415,7 @@ describe('runInference', () => {
 		expect(asked[0]?.messages.slice(1)).toEqual([{role: 'user', content: 'Person:\nOne\n\nAgent called read with {}\n\nread answered:\nrows one\n\nAgent:\nDone one\n\nWrite the summary now.'}]);
 		expect(appendSummary).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', {text: 'The person asked for one; it was done.', inputTokens: 90_000, outputTokens: 300}, long[3]?.seq);
 		expect(listEntries).toHaveBeenCalledTimes(1);
-		expect(asked[1]?.messages.slice(1).map((message) => message.content)).toEqual([expect.stringContaining('The person asked for one; it was done.'), 'Two', 'Done two', 'Three', null, 'rows three']);
+		expect(asked[1]?.messages.slice(1).map((message) => message.content)).toEqual([expect.stringContaining('The person asked for one; it was done.'), 'Two', 'Done two', 'Three', null, 'rows three', expect.stringContaining('The time now is')]);
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: 'Three is done too.'}), {plans: {}});
 	});
 
@@ -432,17 +439,17 @@ describe('runInference', () => {
 		});
 	});
 
-	test('the answer is written with the system prompt the model was sent; an answer given without the model, with none', async () => {
+	test('the answer is written with the system prompt and the context the model was sent; an answer given without the model, with neither', async () => {
 		const {runInference} = await import('./inference');
 		listEntries.mockResolvedValue(Ok([entry('person', 'Hi')]));
 
 		await runInference(store, on(harness), job, 'w1', false, clock);
-		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: 'Hello', system: expect.stringContaining('You are signed in.')}), {plans: {}});
+		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: 'Hello', system: expect.stringContaining('You are signed in.'), context: expect.stringContaining('The time now is')}), {plans: {}});
 
 		completeInference.mockClear();
 		listEntries.mockResolvedValue(Ok([entry('person', 'Go'), ...Array.from({length: 30}, (_, i) => entry('assistant', `step ${i}`)), entry('event', 'done', {callId: 'c1'})]));
 		await runInference(store, on(harness), job, 'w1', false, clock);
-		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({system: null}), {plans: {}});
+		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({system: null, context: null}), {plans: {}});
 	});
 
 	test('a sub-agent’s message that comes after it stopped is acted on, not answered with the stop again', async () => {
@@ -459,7 +466,7 @@ describe('runInference', () => {
 	});
 
 	describe('on any harness', () => {
-		const done: HarnessEvent = {kind: 'done', session: null, system: 'Sent.', inputTokens: 5, outputTokens: 1};
+		const done: HarnessEvent = {kind: 'done', session: null, inputTokens: 5, outputTokens: 1};
 
 		test('gives the harness what the person said with the files they attached to it written under it, and a sub-agent what the person wrote in its chat the same way', async () => {
 			const {runInference} = await import('./inference');
@@ -638,7 +645,7 @@ describe('runInference', () => {
 			});
 			expect(fake.turns[0]?.tools.tools.map((tool) => tool.name)).toEqual(['create_subagent']);
 			expect(fake.turns[0]?.signal.aborted).toBe(false);
-			// Each piece of the answer after the last, with the prompt as the harness says it sent it.
+			// Each piece of the answer after the last, with the prompt and the context the api sent.
 			expect(completeInference).toHaveBeenCalledWith(
 				'job-1',
 				'w1',
@@ -648,7 +655,8 @@ describe('runInference', () => {
 					toolCalls: [{id: 'c2', name: 'send_to_parent', arguments: '{"text":"Hi"}'}],
 					inputTokens: 5,
 					outputTokens: 1,
-					system: 'Sent.',
+					system: expect.stringContaining('You are signed in.'),
+					context: expect.stringContaining('The time now is'),
 					ranOn: {harness: 'fake', model: 'claude'},
 				},
 				{plans: {c2: {kind: 'job', runAt: now}}},
@@ -757,7 +765,7 @@ describe('runInference', () => {
 	describe('a harness that runs its tools itself', () => {
 		const fake: HarnessBackend & ReturnType<typeof fakeHarness> = {...fakeHarness('claude-agent-sdk'), stepsPerTurn: 'many'};
 		const session = {id: 'session-1', state: null};
-		const ended = (kept: typeof session | null): HarnessEvent => ({kind: 'done', session: kept, system: 'Sent.', inputTokens: 50, outputTokens: 9});
+		const ended = (kept: typeof session | null): HarnessEvent => ({kind: 'done', session: kept, inputTokens: 50, outputTokens: 9});
 
 		// The persona is set to the harness, with the second of its models, and the member connected
 		// a Claude token, which a turn on it runs under.
@@ -822,6 +830,7 @@ describe('runInference', () => {
 						],
 						ranOn: {harness: 'claude-agent-sdk', model: 'other'},
 						system: expect.stringContaining('You are signed in.'),
+						context: expect.stringContaining('The time now is'),
 					},
 					{kind: 'tool_result', callId: 'c1', text: 'one', isError: false},
 				],
@@ -836,7 +845,7 @@ describe('runInference', () => {
 				'job-1',
 				'w1',
 				'thread-2',
-				{text: 'Three invoices.', toolCalls: [], inputTokens: 50, outputTokens: 9, system: 'Sent.', ranOn: {harness: 'claude-agent-sdk', model: 'other'}},
+				{text: 'Three invoices.', toolCalls: [], inputTokens: 50, outputTokens: 9, system: expect.stringContaining('You are signed in.'), context: expect.stringContaining('The time now is'), ranOn: {harness: 'claude-agent-sdk', model: 'other'}},
 				{stop: expect.objectContaining({outcome: 'Three invoices.'})},
 				{harness: 'claude-agent-sdk', session},
 			);
@@ -939,7 +948,7 @@ describe('runInference', () => {
 			getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'claude'}));
 			proxy.script([
 				{kind: 'usage', fiveHour: {utilization: 0.5, resetsAt: null}},
-				{kind: 'done', session: null, system: 'Sent.', inputTokens: 1, outputTokens: 1},
+				{kind: 'done', session: null, inputTokens: 1, outputTokens: 1},
 			]);
 
 			expect((await runInference(store, on(proxy, fake), job, 'w1', false, clock)).isOk()).toBe(true);

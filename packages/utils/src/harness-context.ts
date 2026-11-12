@@ -71,6 +71,20 @@ const KEEP_STEPS = 3;
 
 const SUMMARY_LEAD = 'A summary of what came before; not from the person.';
 
+// What leads in where things stand as the turn starts: the api's, not the person's words.
+const STANDING_LEAD = 'Where things stand now, from Personal Agent Proxy; not from the person:';
+
+/**
+ * Where things stand as a turn starts, as the api gives it with the turn (the time, and for the
+ * agent talking with the person its sub-agents and alerts), as the model reads it: last, after the
+ * log and what the turn is to answer, never in the system prompt. The system prompt then stays the
+ * same from turn to turn, and so does everything the model read before, which keeps the prompt
+ * cache: only what is new is read anew.
+ */
+export function standing(context: string): string {
+	return `${STANDING_LEAD}\n\n${context}`;
+}
+
 const CLEARED = '(This was cleared from the conversation to save room. Ask again if you need it.)';
 
 /** A sub-agent of the thread, as much of it as the log needs: which call started it, its id and its title. */
