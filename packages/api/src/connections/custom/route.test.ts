@@ -204,6 +204,7 @@ describe('handleConnectCustomMcpRoute', () => {
 				defaults: ['search_docs'],
 				tools: [search, publish],
 				name: 'Docs',
+				health: null,
 				unavailable: [],
 				signInNeeded: false,
 			},
