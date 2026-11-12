@@ -27,6 +27,7 @@ import {
 	markReadBodySchema,
 	MAX_ATTACHMENTS,
 	personaBodySchema,
+	pinChatBodySchema,
 	pinTaskBodySchema,
 	type personaAnswerSchema,
 	type personaListSchema,
@@ -85,6 +86,7 @@ export type ChatStore = Pick<
 	| 'removeDraftAttachment'
 	| 'messageSubAgentDirectly'
 	| 'listPinnedTasks'
+	| 'setChatPinned'
 	| 'setTaskPinned'
 	| 'markThreadRead'
 	| 'getThreadDraft'
@@ -112,7 +114,15 @@ function draftPreview(persona: {draft?: string | null; draftAttachments?: DraftA
 	return names.length === 0 ? null : preview(names.join(', '));
 }
 
-function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null; draft?: string | null; draftAttachments?: DraftAttachment[]}): ChatPersona {
+function toPersona(
+	harnesses: Harnesses,
+	viewer: OrgViewer,
+	persona: PersonaRow & {
+		lastMessage?: LastMessage | null;
+		draft?: string | null;
+		draftAttachments?: DraftAttachment[];
+	},
+): ChatPersona {
 	const last = persona.lastMessage ?? null;
 	// What runs it as this server offers the organization, which is what a turn of its gets; as
 	// kept where there is no harness at all, where nothing runs.
@@ -292,12 +302,19 @@ function handleListPersonasRoute(store: ChatStore, harnesses: Harnesses, request
 		const personas = $(found);
 		const offered = toHarnesses(harnesses(), viewer);
 		const pinnedTasks = $(pinned).map(({id, personaId, title}) => ({id, personaId, title}));
-		const listed = personas.map((persona) => toPersona(harnesses, viewer, persona));
+		const listed = personas.map((persona) => ({
+			...toPersona(harnesses, viewer, persona),
+			pinned: persona.pinned,
+		}));
 		if (personas.some((persona) => persona.ownerUserId === null)) {
 			return {personas: listed, pinnedTasks, harnesses: offered};
 		}
 		const general = $(await store.ensureFirstPersona(viewer.orgId));
-		return {personas: [...listed, toPersona(harnesses, viewer, general)], pinnedTasks, harnesses: offered};
+		return {
+			personas: [...listed, {...toPersona(harnesses, viewer, general), pinned: false}],
+			pinnedTasks,
+			harnesses: offered,
+		};
 	});
 }
 
@@ -558,6 +575,29 @@ function handlePinTaskRoute(store: ChatStore, request: AuthenticatedRequest): Pr
 	});
 }
 
+/** `PUT /api/orgs/:org/chat/personas/:personaId/pin` with `{pinned}`: the viewer's conversation with the persona pinned to the Chat sidebar, or unpinned. Pinning begins the conversation where it did not exist yet; unpinning one that does not exist is already done. */
+function handlePinChatRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireViewer(request));
+		const {pinned} = $(parseSchema(pinChatBodySchema, request.body));
+		const persona = $(await requirePersona(store, viewer, request));
+		if (!pinned) {
+			const existing = $(await store.getMemberThread(persona.id, viewer.userId));
+			if (existing === null) {
+				return;
+			}
+			if (!$(await store.setChatPinned(existing.id, false))) {
+				return $(Err(ApiErr.notFound('thread', existing.id)));
+			}
+			return;
+		}
+		const thread = $(await requireThread(store, viewer, persona));
+		if (!$(await store.setChatPinned(thread.id, true))) {
+			return $(Err(ApiErr.notFound('thread', thread.id)));
+		}
+	});
+}
+
 /** The Chat page's routes, on the store, the harnesses the server has, and where a conversation's files are kept. */
 export function chatRoutes(store: ChatStore, harnesses: Harnesses, files: RouteFiles) {
 	return {
@@ -573,6 +613,7 @@ export function chatRoutes(store: ChatStore, harnesses: Harnesses, files: RouteF
 		handleGetTaskRoute: (request: AuthenticatedRequest) => handleGetTaskRoute(store, harnesses, files, request),
 		handlePostTaskMessageRoute: (request: AuthenticatedRequest) => handlePostTaskMessageRoute(store, files, request),
 		handleUploadTaskAttachmentRoute: (request: AuthenticatedRequest) => handleUploadTaskAttachmentRoute(store, files, request),
+		handlePinChatRoute: (request: AuthenticatedRequest) => handlePinChatRoute(store, request),
 		handlePinTaskRoute: (request: AuthenticatedRequest) => handlePinTaskRoute(store, request),
 		handleMarkReadRoute: (request: AuthenticatedRequest) => handleMarkReadRoute(store, request),
 		handleSaveDraftRoute: (request: AuthenticatedRequest) => handleSaveDraftRoute(store, request),

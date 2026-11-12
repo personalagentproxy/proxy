@@ -60,6 +60,14 @@ export const chatPersonaSchema = z.object({
 
 export type ChatPersona = z.infer<typeof chatPersonaSchema>;
 
+/** A persona in the member's Chat sidebar, with their private pin state. */
+export const listedChatPersonaSchema = chatPersonaSchema.extend({
+	/** Whether this member pinned their conversation with it to the Chat sidebar. */
+	pinned: z.boolean().default(false),
+});
+
+export type ListedChatPersona = z.infer<typeof listedChatPersonaSchema>;
+
 /**
  * A harness a persona can run on, as the model switcher offers it: its id, what it is called, and
  * the models it answers with, the first its default.
@@ -87,19 +95,23 @@ export const pinnedTaskSchema = chatTaskSchema.extend({personaId: z.string()});
 export type PinnedTask = z.infer<typeof pinnedTaskSchema>;
 
 /**
- * `GET chat/personas`: the organization's personas, the one last active in the person's
- * conversation first: the last thing said in it, or, before anything was, its making; the tasks
- * the person pinned in their conversations, the one with something said in it last first; and the
- * harnesses this server has for a persona to run on, the first what a new one gets.
+ * `GET chat/personas`: the organization's personas, pinned conversations first, each group with
+ * the one last active in the person's conversation first: the last thing said in it, or, before
+ * anything was, its making; the tasks the person pinned in their conversations, the one with
+ * something said in it last first; and the harnesses this server has for a persona to run on, the
+ * first what a new one gets.
  */
 export const personaListSchema = z.object({
-	personas: z.array(chatPersonaSchema),
+	personas: z.array(listedChatPersonaSchema),
 	pinnedTasks: z.array(pinnedTaskSchema),
 	harnesses: z.array(chatHarnessSchema),
 });
 
 /** `PUT chat/personas/:personaId/tasks/:taskId/pin`: the task pinned to the list, or unpinned. */
 export const pinTaskBodySchema = z.object({pinned: z.boolean()});
+
+/** `PUT chat/personas/:personaId/pin`: the member's conversation pinned to the Chat sidebar, or unpinned. */
+export const pinChatBodySchema = z.object({pinned: z.boolean()});
 
 /**
  * The persona's last answer in one of the person's conversations, cut to a line, which may come

@@ -3,6 +3,7 @@ import {readdirSync, readFileSync} from 'node:fs';
 import {join} from 'node:path';
 
 import * as intent from './intent';
+import * as harness from './harness';
 import * as widgets from './widgets';
 
 // What a contract may import: zod, the shared packages the web app takes too, and other contracts.
@@ -78,6 +79,24 @@ describe('contracts', () => {
 			account: 'a',
 			message: 'm',
 		});
+	});
+
+	test('a persona from a server before chat pins is listed as unpinned', () => {
+		const persona = harness.listedChatPersonaSchema.parse({
+			id: 'persona-1',
+			name: 'Finance',
+			look: {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2},
+			color: 'blue',
+			harness: 'proxy',
+			chatModel: 'claude',
+			shared: false,
+			mayChange: true,
+			lastMessage: null,
+			draft: null,
+			createdAt: '2026-10-20T10:00:00Z',
+		});
+
+		expect(persona.pinned).toBe(false);
 	});
 
 	test('intent lists every widget once, each field once within it, and answers only their ids', () => {

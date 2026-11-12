@@ -5,6 +5,7 @@ import {
 	personaAnswerSchema,
 	personaListSchema,
 	type Persona,
+	type pinChatBodySchema,
 	type pinTaskBodySchema,
 	type postMessageBodySchema,
 	type removeAttachmentBodySchema,
@@ -141,6 +142,13 @@ export function pinTask(org: string, personaId: string, taskId: string, pinned: 
 	return apiSend('PUT', `${orgApi(org)}/chat/personas/${personaId}/tasks/${taskId}/pin`, {
 		pinned,
 	} satisfies z.input<typeof pinTaskBodySchema>);
+}
+
+// Pins the person's conversation with the persona to the Chat sidebar, or unpins it.
+export function pinChat(org: string, personaId: string, pinned: boolean) {
+	return apiSend('PUT', `${orgApi(org)}/chat/personas/${personaId}/pin`, {
+		pinned,
+	} satisfies z.input<typeof pinChatBodySchema>);
 }
 
 export function markRead(org: string, personaId: string, entryId: string) {

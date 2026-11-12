@@ -361,8 +361,9 @@ export function toEntry(entry: EntryRecord): EntryRow {
 /**
  * The organization's personas the member sees, their own and those every member does, with the
  * last thing said in the member's conversation with each, what they typed in it and the files they
- * put in its input and haven't sent, the one last active first: the last thing said in it, or,
- * before anything was, its making.
+ * put in its input and haven't sent. Pinned conversations come first; pinned and regular groups
+ * are each ordered by the last thing said in the conversation, or, before anything was, the
+ * persona's making.
  */
 export async function listPersonas(
 	orgId: string,
@@ -374,6 +375,7 @@ export async function listPersonas(
 				lastMessage: LastMessage | null;
 				draft: string | null;
 				draftAttachments: DraftAttachment[];
+				pinned: boolean;
 			}
 		>,
 		ApiError
@@ -389,6 +391,7 @@ export async function listPersonas(
 						where: {userId, parentThreadId: null},
 						select: {
 							draft: true,
+							chatPinnedAt: true,
 							attachments: {
 								where: {entryId: null},
 								select: draftSelect,
@@ -419,9 +422,15 @@ export async function listPersonas(
 							: null,
 					draft: threads[0]?.draft ?? null,
 					draftAttachments: threads[0]?.attachments ?? [],
+					pinned: threads[0]?.chatPinnedAt !== null && threads[0]?.chatPinnedAt !== undefined,
 				};
 			})
-			.toSorted((a, b) => lastActive(b).getTime() - lastActive(a).getTime()),
+			.toSorted((a, b) => {
+				if (a.pinned !== b.pinned) {
+					return a.pinned ? -1 : 1;
+				}
+				return lastActive(b).getTime() - lastActive(a).getTime();
+			}),
 	);
 }
 
@@ -1237,6 +1246,21 @@ export async function setTaskPinned(
 			db.agentThread.updateMany({
 				where: {id: subAgentId, parentThreadId: conversationId},
 				data: {pinnedAt: pinned ? new Date() : null},
+			}),
+		)
+	).map(({count}) => count > 0);
+}
+
+/** Pins a member's top-level conversation to the Chat sidebar, or unpins it; `Ok(false)` means no such conversation, including a sub-agent thread. */
+export async function setChatPinned(
+	threadId: string,
+	pinned: boolean,
+): Promise<Result<boolean, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentThread.updateMany({
+				where: {id: threadId, parentThreadId: null},
+				data: {chatPinnedAt: pinned ? new Date() : null},
 			}),
 		)
 	).map(({count}) => count > 0);

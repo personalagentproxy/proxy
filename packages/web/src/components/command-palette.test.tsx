@@ -2,7 +2,7 @@
 
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
-import type {ChatPersona} from '@proxy/contracts/harness';
+import type {ListedChatPersona} from '@proxy/contracts/harness';
 import {afterEach, beforeEach, describe, expect, setSystemTime, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider, useLocation} from 'react-router';
@@ -14,7 +14,7 @@ import {clearWidgetLookups} from '@/test-widgets-api';
 
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
 
-function persona(id: string, name: string, shared: boolean): ChatPersona {
+function persona(id: string, name: string, shared: boolean): ListedChatPersona {
 	return {
 		id,
 		name,
@@ -26,6 +26,7 @@ function persona(id: string, name: string, shared: boolean): ChatPersona {
 		chatModel: 'claude',
 		lastMessage: null,
 		draft: null,
+		pinned: false,
 		createdAt: '2026-10-20T10:00:00Z',
 	};
 }
