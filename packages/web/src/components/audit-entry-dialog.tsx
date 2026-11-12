@@ -165,15 +165,12 @@ function AuditEntryContent({
 					{entry.taskId !== null && (
 						<Detail label="Task">
 							{task ? (
-								<span className="flex min-w-0 flex-col gap-0.5">
-									<Link
-										to={`/${org}/activity/tasks/${encodeURIComponent(task.id)}`}
-										className="min-w-0 break-words hover:underline"
-									>
-										{task.title}
-									</Link>
-									<span className="min-w-0 text-muted-foreground break-words">{task.goal}</span>
-								</span>
+								<Link
+									to={`/${org}/activity/tasks/${encodeURIComponent(task.id)}`}
+									className="min-w-0 break-words hover:underline"
+								>
+									{task.title}
+								</Link>
 							) : (
 								<span className="text-muted-foreground">Unknown task</span>
 							)}

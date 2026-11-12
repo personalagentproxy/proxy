@@ -1,10 +1,10 @@
 ---
 title: Connect an agent over MCP
-description: Add Personal Agent Proxy to Claude, Claude Duet, Claude Code, Claude Desktop, ChatGPT, Hermes Agent, Poke or any other MCP client as an MCP server, and what an agent can do through it.
+description: Add Personal Agent Proxy to Claude, Claude Duet, Claude Code, Claude Desktop, ChatGPT, Grok Bot, Hermes Agent, Poke or any other MCP client as an MCP server, and what an agent can do through it.
 ---
 
 Personal Agent Proxy is an MCP server. An agent that speaks MCP, such as Claude, Claude Duet,
-Claude Code, Claude Desktop, ChatGPT, Hermes Agent, Poke or any other MCP client, connects to it,
+Claude Code, Claude Desktop, ChatGPT, Grok Bot, Hermes Agent, Poke or any other MCP client, connects to it,
 signs in with OAuth, and works as one of your agent logins: it can do what that login is allowed
 and nothing more. Successful connection actions, actions denied by access settings and actions the
 service failed are in the activity log, with the task they were made for.
@@ -30,6 +30,9 @@ Add the address as a custom connector, or custom MCP server, where the agent kee
 - **Claude Desktop**: open **Connectors** and add a custom connector with the address.
 - **ChatGPT**: turn on developer mode in the settings for apps and connectors, then create a
   connector with the address.
+- **Grok Bot**: open **Connect Apps** from the sidebar and add a custom connector of the type
+  **Remote HTTPS**. Enter a name and the address, and leave the HTTP headers and **Client ID**
+  empty.
 - **Hermes Agent**: copy and run the `hermes mcp add` command shown on its setup page. The command
   enables OAuth and gives the browser sign-in five minutes to finish. When Hermes Agent runs on a
   remote host, open the printed link locally, approve it, then paste the full redirect URL back into
@@ -134,7 +137,7 @@ themselves. Revoking the login signs out every app working as it, as well as its
 
 <Callout>
 A self-hosted Personal Agent Proxy has to be reachable from the internet over HTTPS for Claude,
-Claude Duet, Claude Desktop, ChatGPT and Poke to connect to it: they call it from their own servers,
+Claude Duet, Claude Desktop, ChatGPT, Grok Bot and Poke to connect to it: they call it from their own servers,
 not from your computer. Claude Code and Hermes Agent can instead connect to one running on the
 same computer, including over localhost.
 </Callout>
