@@ -128,9 +128,9 @@ function TaskTurnBubble({entry}: {entry: TaskChatEntry}) {
 }
 
 /** The task the address names, once loaded: started over when the address names another. */
-export function OpenTask() {
+export function OpenTask({listError}: {listError: string | null}) {
 	const {task} = useLoaded<typeof chatTaskLoader>();
-	return <TaskConversation key={task.task.id} loaded={task} />;
+	return <TaskConversation key={task.task.id} loaded={task} listError={listError} />;
 }
 
 // What the person wrote in a message of the chat; null for one that isn't theirs.
@@ -143,7 +143,7 @@ function personText(entry: TaskChatEntry): string | null {
 // works, and an input, with which the person writes to the task themselves, files attached as
 // in the conversation. The task takes it up, and the persona is told, but only woken by what the
 // task answers. What the person writes shows at once, before the server has it.
-function TaskConversation({loaded}: {loaded: TaskChat}) {
+function TaskConversation({loaded, listError}: {loaded: TaskChat; listError: string | null}) {
 	const org = useOrgSlug();
 	const [chat, setChat] = useState<TaskChat>(loaded);
 	const personaId = loaded.persona.id;
@@ -265,6 +265,7 @@ function TaskConversation({loaded}: {loaded: TaskChat}) {
 				hint={`${persona.name} sees what you write here.`}
 				upload={upload}
 				onSend={send}
+				listError={listError}
 			/>
 		</>
 	);
@@ -280,6 +281,7 @@ function TaskComposer({
 	hint,
 	upload,
 	onSend,
+	listError,
 }: {
 	// What the task is called, which the input is a message to.
 	name: string;
@@ -287,6 +289,8 @@ function TaskComposer({
 	upload: AttachmentInput['upload'];
 	// Sends a message, with the files placed among it: what it failed with, or null.
 	onSend: (message: string, files: ChatAttachment[]) => Promise<string | null>;
+	// What changing the Chat sidebar failed with.
+	listError: string | null;
 }) {
 	const attaches = useExperiments().includes('files');
 	const input = useMemo((): AttachmentInput => ({upload, remove: () => undefined}), [upload]);
@@ -372,7 +376,7 @@ function TaskComposer({
 		type(back);
 	};
 
-	const shownError = error ?? attachments.refused ?? failedUpload;
+	const shownError = error ?? attachments.refused ?? failedUpload ?? listError;
 
 	return (
 		<form

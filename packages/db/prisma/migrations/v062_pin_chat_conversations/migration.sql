@@ -3,6 +3,3 @@
 
 -- AlterTable
 ALTER TABLE "AgentThread" ADD COLUMN "chatPinnedAt" TIMESTAMP(3);
-
--- CreateIndex
-CREATE INDEX "AgentThread_orgId_userId_parentThreadId_chatPinnedAt_idx" ON "AgentThread"("orgId", "userId", "parentThreadId", "chatPinnedAt");

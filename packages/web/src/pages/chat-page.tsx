@@ -5,6 +5,7 @@ import type {
 	ChatPersona,
 	ChatAttachment,
 	ChatTask,
+	ListedChatPersona,
 	Persona,
 	PinnedTask,
 	TaskChat,
@@ -22,6 +23,7 @@ import {
 	Fragment,
 	type FormEvent,
 	memo,
+	type MouseEvent as ReactMouseEvent,
 	type ReactNode,
 	useCallback,
 	useEffect,
@@ -261,7 +263,7 @@ function PersonaList({
 	onPinChat,
 	onPin,
 }: {
-	personas: ChatPersona[];
+	personas: ListedChatPersona[];
 	current: string;
 	// The task of the open agent's conversation that is open in its place, if one is.
 	task: ChatTask | null;
@@ -311,7 +313,13 @@ function PersonaList({
 			/>
 		));
 	};
-	const menu = (persona: ChatPersona, row: ReactNode) => (
+	const openPersona = (personaId: string) => (event: ReactMouseEvent<HTMLAnchorElement>) => {
+		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+			return;
+		}
+		onOpen(personaId);
+	};
+	const menu = (persona: ListedChatPersona, row: ReactNode) => (
 		<ContextMenu>
 			<ContextMenuTrigger render={<div />}>{row}</ContextMenuTrigger>
 			<ContextMenuContent>
@@ -348,18 +356,7 @@ function PersonaList({
 							<Link
 								to={`/${org}/chat/${persona.id}`}
 								aria-current={lit ? 'page' : undefined}
-								onClick={(event) => {
-									if (
-										event.button !== 0 ||
-										event.metaKey ||
-										event.ctrlKey ||
-										event.shiftKey ||
-										event.altKey
-									) {
-										return;
-									}
-									onOpen(persona.id);
-								}}
+								onClick={openPersona(persona.id)}
 								className={cn(
 									'flex min-w-0 flex-col items-center rounded-lg px-1 py-2 text-center hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
 									lit && 'bg-sidebar-accent text-sidebar-accent-foreground',
@@ -409,6 +406,7 @@ function PersonaList({
 						onPointerEnter={() => setHovered(persona.id)}
 						onPointerLeave={() => setHovered(null)}
 					>
+						<p className="px-2 pt-1 text-xs font-medium text-muted-foreground">{persona.name}</p>
 						<ul aria-label={`${persona.name}’s tasks`} className="flex flex-col pb-1">
 							{tasks}
 						</ul>
@@ -426,18 +424,7 @@ function PersonaList({
 						<Link
 							to={`/${org}/chat/${persona.id}`}
 							aria-current={lit ? 'page' : undefined}
-							onClick={(event) => {
-								if (
-									event.button !== 0 ||
-									event.metaKey ||
-									event.ctrlKey ||
-									event.shiftKey ||
-									event.altKey
-								) {
-									return;
-								}
-								onOpen(persona.id);
-							}}
+							onClick={openPersona(persona.id)}
 							className={cn(
 								'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
 								lit && 'bg-sidebar-accent text-sidebar-accent-foreground',
@@ -742,7 +729,7 @@ export function ChatPage() {
 						onFocused={focused}
 					/>
 				) : (
-					<OpenTask />
+					<OpenTask listError={error} />
 				)}
 			</AppShell>
 			{editing !== null && (

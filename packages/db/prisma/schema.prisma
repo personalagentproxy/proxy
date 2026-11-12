@@ -870,7 +870,6 @@ model AgentThread {
   @@index([agentId])
   @@index([parentThreadId])
   @@index([orgId, createdAt])
-  @@index([orgId, userId, parentThreadId, chatPinnedAt])
 }
 
 // What an entry of a thread's log is: what the person said (a sub-agent's brief, in its thread),

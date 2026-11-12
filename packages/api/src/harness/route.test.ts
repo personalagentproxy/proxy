@@ -34,7 +34,6 @@ const personaResponse = {
 	lastMessage: null,
 	draft: null,
 	createdAt: '2026-10-21T10:00:00.000Z',
-	pinned: false,
 };
 
 // The harnesses the server has, unless a test says otherwise: the loop over OpenRouter, with its
@@ -212,8 +211,8 @@ describe('the chat routes', () => {
 		expect(listed).toEqual({
 			personas: [
 				{...personaResponse, lastMessage: {kind: 'assistant', text: 'Your vault has one entry.', at: '2026-10-21T10:00:00.000Z'}, pinned: true},
-				{...personaResponse, id: 'persona-3', shared: true, mayChange: false, draft: 'Move the pricing review to Friday'},
-				{...personaResponse, id: 'persona-4', lastMessage: {kind: 'assistant', text: 'Found Three invoices, see the list Who Sum Dana 40', at: '2026-10-21T10:00:00.000Z'}},
+				{...personaResponse, id: 'persona-3', shared: true, mayChange: false, draft: 'Move the pricing review to Friday', pinned: false},
+				{...personaResponse, id: 'persona-4', lastMessage: {kind: 'assistant', text: 'Found Three invoices, see the list Who Sum Dana 40', at: '2026-10-21T10:00:00.000Z'}, pinned: false},
 			],
 			pinnedTasks: [],
 			harnesses: offered,
@@ -239,7 +238,7 @@ describe('the chat routes', () => {
 		const listed = (await handleListPersonasRoute(request())).unwrap();
 
 		expect(store.ensureFirstPersona).toHaveBeenCalledWith('org-1');
-		expect(listed).toEqual({personas: [{...personaResponse, id: 'persona-9', name: 'General', shared: true, mayChange: false}], pinnedTasks: [], harnesses: offered});
+		expect(listed).toEqual({personas: [{...personaResponse, id: 'persona-9', name: 'General', shared: true, mayChange: false, pinned: false}], pinnedTasks: [], harnesses: offered});
 	});
 
 	test('a viewer who sees personas of their own but none every member’s, as where General was deleted, gets General made again, after their own', async () => {
@@ -650,6 +649,12 @@ describe('the chat routes', () => {
 			personaId: 'persona-1',
 			userId: 'user-1',
 		});
+
+		store.ensureMemberThread.mockClear();
+		store.setChatPinned.mockClear();
+		expect((await handlePinChatRoute(request({personaId: 'persona-1'}, {pinned: false}))).isOk()).toBe(true);
+		expect(store.ensureMemberThread).not.toHaveBeenCalled();
+		expect(store.setChatPinned).not.toHaveBeenCalled();
 
 		expect((await handlePinChatRoute(request({personaId: 'persona-1'}, {}))).unwrapErr().kind).toBe('parse_error');
 		store.getPersona.mockResolvedValue(Ok(null));

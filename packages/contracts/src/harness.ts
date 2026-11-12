@@ -56,11 +56,17 @@ export const chatPersonaSchema = z.object({
 	draft: z.string().nullable(),
 	/** When it was made, which stands for its last activity before anything was said. */
 	createdAt: z.string(),
-	/** Whether this member pinned their conversation with it to the Chat sidebar. */
-	pinned: z.boolean(),
 });
 
 export type ChatPersona = z.infer<typeof chatPersonaSchema>;
+
+/** A persona in the member's Chat sidebar, with their private pin state. */
+export const listedChatPersonaSchema = chatPersonaSchema.extend({
+	/** Whether this member pinned their conversation with it to the Chat sidebar. */
+	pinned: z.boolean().default(false),
+});
+
+export type ListedChatPersona = z.infer<typeof listedChatPersonaSchema>;
 
 /**
  * A harness a persona can run on, as the model switcher offers it: its id, what it is called, and
@@ -96,7 +102,7 @@ export type PinnedTask = z.infer<typeof pinnedTaskSchema>;
  * first what a new one gets.
  */
 export const personaListSchema = z.object({
-	personas: z.array(chatPersonaSchema),
+	personas: z.array(listedChatPersonaSchema),
 	pinnedTasks: z.array(pinnedTaskSchema),
 	harnesses: z.array(chatHarnessSchema),
 });

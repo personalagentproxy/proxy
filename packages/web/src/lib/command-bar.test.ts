@@ -2,7 +2,7 @@
 
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
-import type {ChatPersona} from '@proxy/contracts/harness';
+import type {ListedChatPersona} from '@proxy/contracts/harness';
 import {describe, expect, test} from 'bun:test';
 import {addressedPersona, destinationsOf, findDestinations, personaFor} from '@/lib/command-bar';
 
@@ -13,7 +13,7 @@ function persona(
 	name: string,
 	shared = false,
 	createdAt = '2026-10-20T10:00:00Z',
-): ChatPersona {
+): ListedChatPersona {
 	return {
 		id,
 		name,

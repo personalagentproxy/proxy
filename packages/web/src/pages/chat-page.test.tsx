@@ -2,7 +2,7 @@
 
 import type {
 	ChatAnswer,
-	ChatPersona,
+	ListedChatPersona,
 	PinnedTask,
 	TaskChat,
 	ThreadLog,
@@ -26,7 +26,7 @@ const realFetch = globalThis.fetch;
 const fetchMock = mock<(input: string, init?: RequestInit) => Promise<Response>>();
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
 
-function persona(id: string, name: string, mayChange: boolean): ChatPersona {
+function persona(id: string, name: string, mayChange: boolean): ListedChatPersona {
 	return {
 		id,
 		name,
@@ -140,9 +140,9 @@ function renderChatPage({
 	initial,
 	task = flights,
 }: {
-	personas?: ChatPersona[];
+	personas?: ListedChatPersona[];
 	entries?: ThreadLog['entries'];
-	listPersonas?: () => ChatPersona[];
+	listPersonas?: () => ListedChatPersona[];
 	pinnedTasks?: PinnedTask[];
 	// The agent whose conversation is open, by its id.
 	open?: string;
@@ -651,6 +651,45 @@ describe('ChatPage', () => {
 				expect.objectContaining({method: 'PUT', body: JSON.stringify({pinned: false})}),
 			),
 		);
+	});
+
+	test('keeps a chat in place and shows a pin failure while a task is open', async () => {
+		fetchMock.mockImplementation((input, init) => {
+			if (input === '/api/orgs/acme/chat/personas/general/pin' && init?.method === 'PUT') {
+				return Promise.resolve(Response.json({error: 'Could not pin'}, {status: 500}));
+			}
+			return Promise.resolve(
+				input.endsWith('/chat/answers')
+					? Response.json({answers})
+					: new Response(null, {status: 204}),
+			);
+		});
+		renderChatPage({initial: '/acme/chat/general/tasks/sub-1'});
+
+		fireEvent.contextMenu(await screen.findByRole('link', {name: /^General/}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Pin'}));
+
+		expect(await screen.findByText('Something went wrong. Try again.')).toBeDefined();
+		expect(screen.queryByRole('list', {name: 'Pinned chats'})).toBeNull();
+		expect(screen.getByRole('link', {name: /^General/})).toBeDefined();
+	});
+
+	test('labels task groups belonging to pinned chats below the grid', async () => {
+		renderChatPage({
+			personas: [
+				{...general, pinned: true},
+				{...finance, pinned: true},
+			],
+			pinnedTasks: [
+				{id: 'sub-2', personaId: 'general', title: 'Check the calendar'},
+				{id: 'sub-4', personaId: 'finance', title: 'Pay the invoice'},
+			],
+		});
+
+		const generalTasks = await screen.findByRole('list', {name: 'General’s tasks'});
+		const financeTasks = screen.getByRole('list', {name: 'Finance’s tasks'});
+		expect(generalTasks.parentElement?.firstElementChild?.textContent).toBe('General');
+		expect(financeTasks.parentElement?.firstElementChild?.textContent).toBe('Finance');
 	});
 
 	test('marks unread pinned chats on their avatars and keeps pointer and keyboard navigation behavior', async () => {
