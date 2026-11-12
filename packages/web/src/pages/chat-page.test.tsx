@@ -1,12 +1,12 @@
 /// <reference types="bun" />
 
 import type {
-	ActiveTask,
 	ChatAnswer,
 	ChatPersona,
 	PinnedTask,
 	TaskChat,
 	ThreadLog,
+	WorkingTask,
 } from '@proxy/contracts/harness';
 import type {Experiment} from '@proxy/utils';
 import {ATTACHMENT_MARK} from '@proxy/utils/harness';
@@ -130,7 +130,7 @@ function renderChatPage({
 	entries = [],
 	listPersonas = () => personas,
 	pinnedTasks = [],
-	listActiveTasks = () => [],
+	listWorkingTasks = () => [],
 	open = 'general',
 	draft = null,
 	draftAttachments = [],
@@ -144,8 +144,8 @@ function renderChatPage({
 	entries?: ThreadLog['entries'];
 	listPersonas?: () => ChatPersona[];
 	pinnedTasks?: PinnedTask[];
-	// The tasks at work or asleep, as the list is read each time.
-	listActiveTasks?: () => ActiveTask[];
+	// The tasks at work, as the list is read each time.
+	listWorkingTasks?: () => WorkingTask[];
 	// The agent whose conversation is open, by its id.
 	open?: string;
 	draft?: string | null;
@@ -184,7 +184,7 @@ function renderChatPage({
 								},
 								personas: listPersonas(),
 								pinnedTasks,
-								activeTasks: listActiveTasks(),
+								workingTasks: listWorkingTasks(),
 								harnesses,
 							};
 						}),
@@ -198,7 +198,7 @@ function renderChatPage({
 								task,
 								personas: listPersonas(),
 								pinnedTasks,
-								activeTasks: listActiveTasks(),
+								workingTasks: listWorkingTasks(),
 								harnesses,
 							};
 						}),
@@ -916,20 +916,16 @@ describe('ChatPage', () => {
 		);
 	});
 
-	test('lists active tasks under their agent after the pinned ones, once each, working ones shimmering and asleep ones with a moon', async () => {
+	test('lists working tasks under their agent after the pinned ones, once each, the title of each at work shimmering, pinned or not', async () => {
 		renderChatPage({
 			initial: '/acme/chat/general/tasks/sub-1',
-			pinnedTasks: [{id: 'sub-2', personaId: 'general', title: 'Check the calendar'}],
-			listActiveTasks: () => [
-				{
-					id: 'sub-5',
-					personaId: 'general',
-					title: 'Tell Chat about file storage',
-					state: 'working',
-				},
-				{id: 'sub-2', personaId: 'general', title: 'Check the calendar', state: 'asleep'},
-				{id: 'sub-1', personaId: 'general', title: 'Find flights', state: 'working'},
-				{id: 'sub-4', personaId: 'finance', title: 'Pay the invoice', state: 'asleep'},
+			pinnedTasks: [
+				{id: 'sub-2', personaId: 'general', title: 'Check the calendar'},
+				{id: 'sub-3', personaId: 'general', title: 'Book the hotel'},
+			],
+			listWorkingTasks: () => [
+				{id: 'sub-5', personaId: 'general', title: 'Tell Chat about file storage'},
+				{id: 'sub-2', personaId: 'general', title: 'Check the calendar'},
 			],
 		});
 
@@ -941,36 +937,40 @@ describe('ChatPage', () => {
 					.map((row) => row.getAttribute('href')),
 			).toEqual([
 				'/acme/chat/general/tasks/sub-2',
+				'/acme/chat/general/tasks/sub-3',
 				'/acme/chat/general/tasks/sub-5',
 				'/acme/chat/general/tasks/sub-1',
 			]),
 		);
-		const calendar = within(general).getByRole('link', {name: /^Check the calendar/});
-		expect(within(calendar).getByLabelText('Asleep')).toBeDefined();
-		expect(within(calendar).getByLabelText('Pinned')).toBeDefined();
-		const storage = within(general).getByRole('link', {name: /^Tell Chat about file storage/});
-		expect(storage.textContent).toBe('Tell Chat about file storage (working)');
-		expect(storage.querySelector('.shimmer')).not.toBeNull();
+		const shimmering = (name: RegExp) =>
+			within(general).getByRole('link', {name}).querySelector('.shimmer') !== null;
+		expect(shimmering(/^Check the calendar/)).toBe(true);
+		expect(shimmering(/^Book the hotel/)).toBe(false);
+		expect(shimmering(/^Tell Chat about file storage/)).toBe(true);
+		expect(shimmering(/^Find flights/)).toBe(false);
+		expect(
+			within(general).getByRole('link', {name: /^Tell Chat about file storage/}).textContent,
+		).toBe('Tell Chat about file storage (working)');
 		expect(
 			within(general)
 				.getByRole('link', {name: /^Find flights/})
 				.getAttribute('aria-current'),
 		).toBe('page');
-		const finance = screen.getByRole('list', {name: 'Finance’s tasks'});
-		expect(within(within(finance).getByRole('link')).getByLabelText('Asleep')).toBeDefined();
+		expect(screen.queryByLabelText('Asleep')).toBeNull();
+		expect(screen.queryByRole('list', {name: 'Finance’s tasks'})).toBeNull();
 	});
 
-	test('reads the list again while a task is active, so one that stops leaves it', async () => {
-		let active: ActiveTask[] = [
-			{id: 'sub-5', personaId: 'general', title: 'Tell Chat about file storage', state: 'working'},
+	test('reads the list again while a task is at work, so one that stops leaves it', async () => {
+		let working: WorkingTask[] = [
+			{id: 'sub-5', personaId: 'general', title: 'Tell Chat about file storage'},
 		];
-		renderChatPage({listActiveTasks: () => active});
+		renderChatPage({listWorkingTasks: () => working});
 
 		const general = await screen.findByRole('list', {name: 'General’s tasks'});
 		expect(
 			within(general).getByRole('link', {name: /^Tell Chat about file storage/}),
 		).toBeDefined();
-		active = [];
+		working = [];
 		// The list is read again within the 4 seconds it waits between reads.
 		await act(() => new Promise((resolve) => setTimeout(resolve, 4500)));
 		expect(screen.queryByRole('list', {name: 'General’s tasks'})).toBeNull();
