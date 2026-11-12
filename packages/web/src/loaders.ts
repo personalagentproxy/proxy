@@ -181,8 +181,8 @@ export const chatLoader = later(async (args: OrgParams & {params: {id?: string}}
 		getThread(org, args.params.id ?? ''),
 		listPersonas(org),
 	]);
-	const {personas: listed, pinnedTasks, harnesses} = unwrapLoaderResult(personas);
-	return {log: unwrapLoaderResult(log), personas: listed, pinnedTasks, harnesses};
+	const {personas: listed, pinnedTasks, activeTasks, harnesses} = unwrapLoaderResult(personas);
+	return {log: unwrapLoaderResult(log), personas: listed, pinnedTasks, activeTasks, harnesses};
 });
 
 // A task an agent started in the person's conversation with it, as its chat shows it, beside the
@@ -194,8 +194,8 @@ export const chatTaskLoader = later(
 			getTask(org, args.params.id ?? '', args.params.taskId ?? ''),
 			listPersonas(org),
 		]);
-		const {personas: listed, pinnedTasks, harnesses} = unwrapLoaderResult(personas);
-		return {task: unwrapLoaderResult(task), personas: listed, pinnedTasks, harnesses};
+		const {personas: listed, pinnedTasks, activeTasks, harnesses} = unwrapLoaderResult(personas);
+		return {task: unwrapLoaderResult(task), personas: listed, pinnedTasks, activeTasks, harnesses};
 	},
 );
 

@@ -1216,6 +1216,67 @@ export async function listPinnedTasks(
 	);
 }
 
+/**
+ * A sub-agent at work or asleep, as a task, under its persona: what it is up to, and when it last
+ * had something in its log, or its start before anything did.
+ */
+export type ActiveTaskRow = {
+	id: string;
+	personaId: string;
+	title: string;
+	state: Exclude<ThreadState, {kind: 'stopped'}>;
+	lastActiveAt: Date;
+};
+
+/**
+ * The sub-agents of the member's conversations in the organization that are active, as tasks: at
+ * work or asleep, with a job still to run, as against stopped, done for now; the one with
+ * something in its log last first.
+ */
+export async function listActiveTasks(
+	orgId: string,
+	userId: string,
+	now = new Date(),
+): Promise<Result<ActiveTaskRow[], ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentThread.findMany({
+				where: {
+					orgId,
+					userId,
+					parentThreadId: {not: null},
+					jobs: {some: openJobsSelect.where},
+				},
+				select: {
+					id: true,
+					personaId: true,
+					title: true,
+					createdAt: true,
+					jobs: openJobsSelect,
+					entries: {orderBy: {seq: 'desc'}, take: 1, select: {createdAt: true}},
+				},
+			}),
+		)
+	).map((threads) =>
+		threads
+			.flatMap(({jobs, entries, createdAt, title, ...thread}) => {
+				const state = threadState(jobs, now);
+				if (state.kind === 'stopped') {
+					return [];
+				}
+				return [
+					{
+						...thread,
+						title: title ?? '',
+						state,
+						lastActiveAt: entries[0]?.createdAt ?? createdAt,
+					},
+				];
+			})
+			.toSorted((a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime()),
+	);
+}
+
 /** Pins one of the conversation's sub-agents, as a task, or unpins it; `Ok(false)` means no such sub-agent of the conversation. */
 export async function setTaskPinned(
 	conversationId: string,

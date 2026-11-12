@@ -1,6 +1,7 @@
 /// <reference types="bun" />
 
 import type {
+	ActiveTask,
 	ChatAnswer,
 	ChatPersona,
 	PinnedTask,
@@ -129,6 +130,7 @@ function renderChatPage({
 	entries = [],
 	listPersonas = () => personas,
 	pinnedTasks = [],
+	listActiveTasks = () => [],
 	open = 'general',
 	draft = null,
 	draftAttachments = [],
@@ -142,6 +144,8 @@ function renderChatPage({
 	entries?: ThreadLog['entries'];
 	listPersonas?: () => ChatPersona[];
 	pinnedTasks?: PinnedTask[];
+	// The tasks at work or asleep, as the list is read each time.
+	listActiveTasks?: () => ActiveTask[];
 	// The agent whose conversation is open, by its id.
 	open?: string;
 	draft?: string | null;
@@ -180,6 +184,7 @@ function renderChatPage({
 								},
 								personas: listPersonas(),
 								pinnedTasks,
+								activeTasks: listActiveTasks(),
 								harnesses,
 							};
 						}),
@@ -189,7 +194,13 @@ function renderChatPage({
 						path: '/:org/chat/:id/tasks/:taskId',
 						loader: later(async () => {
 							await taskAnswered();
-							return {task, personas: listPersonas(), pinnedTasks, harnesses};
+							return {
+								task,
+								personas: listPersonas(),
+								pinnedTasks,
+								activeTasks: listActiveTasks(),
+								harnesses,
+							};
 						}),
 						element: <ChatPage />,
 					},
@@ -904,6 +915,66 @@ describe('ChatPage', () => {
 			),
 		);
 	});
+
+	test('lists active tasks under their agent after the pinned ones, once each, working ones shimmering and asleep ones with a moon', async () => {
+		renderChatPage({
+			initial: '/acme/chat/general/tasks/sub-1',
+			pinnedTasks: [{id: 'sub-2', personaId: 'general', title: 'Check the calendar'}],
+			listActiveTasks: () => [
+				{
+					id: 'sub-5',
+					personaId: 'general',
+					title: 'Tell Chat about file storage',
+					state: 'working',
+				},
+				{id: 'sub-2', personaId: 'general', title: 'Check the calendar', state: 'asleep'},
+				{id: 'sub-1', personaId: 'general', title: 'Find flights', state: 'working'},
+				{id: 'sub-4', personaId: 'finance', title: 'Pay the invoice', state: 'asleep'},
+			],
+		});
+
+		const general = await screen.findByRole('list', {name: 'General’s tasks'});
+		await waitFor(() =>
+			expect(
+				within(general)
+					.getAllByRole('link')
+					.map((row) => row.getAttribute('href')),
+			).toEqual([
+				'/acme/chat/general/tasks/sub-2',
+				'/acme/chat/general/tasks/sub-5',
+				'/acme/chat/general/tasks/sub-1',
+			]),
+		);
+		const calendar = within(general).getByRole('link', {name: /^Check the calendar/});
+		expect(within(calendar).getByLabelText('Asleep')).toBeDefined();
+		expect(within(calendar).getByLabelText('Pinned')).toBeDefined();
+		const storage = within(general).getByRole('link', {name: /^Tell Chat about file storage/});
+		expect(storage.textContent).toBe('Tell Chat about file storage (working)');
+		expect(storage.querySelector('.shimmer')).not.toBeNull();
+		expect(
+			within(general)
+				.getByRole('link', {name: /^Find flights/})
+				.getAttribute('aria-current'),
+		).toBe('page');
+		const finance = screen.getByRole('list', {name: 'Finance’s tasks'});
+		expect(within(within(finance).getByRole('link')).getByLabelText('Asleep')).toBeDefined();
+	});
+
+	test('reads the list again while a task is active, so one that stops leaves it', async () => {
+		let active: ActiveTask[] = [
+			{id: 'sub-5', personaId: 'general', title: 'Tell Chat about file storage', state: 'working'},
+		];
+		renderChatPage({listActiveTasks: () => active});
+
+		const general = await screen.findByRole('list', {name: 'General’s tasks'});
+		expect(
+			within(general).getByRole('link', {name: /^Tell Chat about file storage/}),
+		).toBeDefined();
+		active = [];
+		// The list is read again within the 4 seconds it waits between reads.
+		await act(() => new Promise((resolve) => setTimeout(resolve, 4500)));
+		expect(screen.queryByRole('list', {name: 'General’s tasks'})).toBeNull();
+	}, 10000);
 
 	test('names a task opened from the conversation at once, in the header and under its agent, while its chat loads, and takes its row away as it closes', async () => {
 		let arrive = () => undefined;

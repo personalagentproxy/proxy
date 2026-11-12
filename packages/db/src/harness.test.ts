@@ -26,6 +26,7 @@ import {
 	listShownEntries,
 	listShownSubAgentEntries,
 	messageSubAgentDirectly,
+	listActiveTasks,
 	listPinnedTasks,
 	setTaskPinned,
 	listOpenJobs,
@@ -1265,6 +1266,43 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		expect(unwrap(await listPinnedTasks(orgId, 'someone-else'))).toEqual([]);
 		expect(unwrap(await setTaskPinned(conversation.id, sub.id, false))).toBe(true);
 		expect(unwrap(await listPinnedTasks(orgId, userId)).map(({id}) => id)).toEqual([other.id]);
+
+		// Active, at work or asleep, with a job still to run, it is listed with what it is up to, the
+		// one with something in its log last first; stopped, done for now, it is not; nor is a
+		// conversation, nor another member's. The member's other conversations' tasks are left out.
+		const mine = async (forUser: string) =>
+			unwrap(await listActiveTasks(orgId, forUser)).filter(
+				({id}) => id === sub.id || id === other.id,
+			);
+		await db.agentJob.deleteMany({where: {threadId: {in: [sub.id, other.id, conversation.id]}}});
+		expect(await mine(userId)).toEqual([]);
+		const later = new Date(Date.now() + 60 * 60 * 1000);
+		await db.agentJob.createMany({
+			data: [
+				{threadId: sub.id, kind: 'inference'},
+				{threadId: other.id, kind: 'wake', runAt: later},
+				{threadId: conversation.id, kind: 'inference'},
+			],
+		});
+		expect(
+			(await mine(userId)).map(({id, personaId, title, state}) => ({
+				id,
+				personaId,
+				title,
+				state,
+			})),
+		).toEqual([
+			{id: sub.id, personaId: persona.id, title: 'Find flights', state: {kind: 'working'}},
+			{
+				id: other.id,
+				personaId: persona.id,
+				title: 'Check the calendar',
+				state: {kind: 'asleep', until: later},
+			},
+		]);
+		expect(await mine('someone-else')).toEqual([]);
+		await db.agentJob.updateMany({where: {threadId: sub.id}, data: {status: 'done'}});
+		expect((await mine(userId)).map(({id}) => id)).toEqual([other.id]);
 
 		await db.persona.delete({where: {id: persona.id}});
 	});

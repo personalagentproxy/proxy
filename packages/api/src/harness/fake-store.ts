@@ -46,6 +46,7 @@ export function fakeStore(): FakeStore {
 		listAttachments: mock<HarnessStore['listAttachments']>(),
 		messageSubAgentDirectly: mock<HarnessStore['messageSubAgentDirectly']>(),
 		listPinnedTasks: mock<HarnessStore['listPinnedTasks']>(),
+		listActiveTasks: mock<HarnessStore['listActiveTasks']>(),
 		setTaskPinned: mock<HarnessStore['setTaskPinned']>(),
 		markThreadRead: mock<HarnessStore['markThreadRead']>(),
 		getThreadDraft: mock<HarnessStore['getThreadDraft']>(),

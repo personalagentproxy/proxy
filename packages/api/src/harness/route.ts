@@ -85,6 +85,7 @@ export type ChatStore = Pick<
 	| 'removeDraftAttachment'
 	| 'messageSubAgentDirectly'
 	| 'listPinnedTasks'
+	| 'listActiveTasks'
 	| 'setTaskPinned'
 	| 'markThreadRead'
 	| 'getThreadDraft'
@@ -284,20 +285,25 @@ function requireThread(store: ChatStore, viewer: OrgViewer, persona: PersonaRow)
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas`: the organization's personas the viewer sees, their own and those every member does, the one last active in the viewer's conversation first, with the viewer's conversations, the tasks they pinned in them, and the harnesses the server has for one to run on; a General one, every member's, is made where there is none, after the viewer's own, so a message that names no agent always has one to go to. */
+/** `GET /api/orgs/:org/chat/personas`: the organization's personas the viewer sees, their own and those every member does, the one last active in the viewer's conversation first, with the viewer's conversations, the tasks they pinned in them, those at work or asleep in them, and the harnesses the server has for one to run on; a General one, every member's, is made where there is none, after the viewer's own, so a message that names no agent always has one to go to. */
 function handleListPersonasRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
-		const [found, pinned] = await Promise.all([store.listPersonas(viewer.orgId, viewer.userId), store.listPinnedTasks(viewer.orgId, viewer.userId)]);
+		const [found, pinned, active] = await Promise.all([
+			store.listPersonas(viewer.orgId, viewer.userId),
+			store.listPinnedTasks(viewer.orgId, viewer.userId),
+			store.listActiveTasks(viewer.orgId, viewer.userId),
+		]);
 		const personas = $(found);
 		const offered = toHarnesses(harnesses(), viewer);
 		const pinnedTasks = $(pinned).map(({id, personaId, title}) => ({id, personaId, title}));
+		const activeTasks = $(active).map(({id, personaId, title, state}) => ({id, personaId, title, state: state.kind}));
 		const listed = personas.map((persona) => toPersona(harnesses, viewer, persona));
 		if (personas.some((persona) => persona.ownerUserId === null)) {
-			return {personas: listed, pinnedTasks, harnesses: offered};
+			return {personas: listed, pinnedTasks, activeTasks, harnesses: offered};
 		}
 		const general = $(await store.ensureFirstPersona(viewer.orgId));
-		return {personas: [...listed, toPersona(harnesses, viewer, general)], pinnedTasks, harnesses: offered};
+		return {personas: [...listed, toPersona(harnesses, viewer, general)], pinnedTasks, activeTasks, harnesses: offered};
 	});
 }
 
