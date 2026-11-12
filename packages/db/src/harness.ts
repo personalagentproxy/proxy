@@ -1226,6 +1226,50 @@ export async function listPinnedTasks(
 	);
 }
 
+/** A sub-agent at work now, as a task, under its persona: when it last had something in its log, or its start before anything did. */
+export type WorkingTaskRow = {id: string; personaId: string; title: string; lastActiveAt: Date};
+
+/**
+ * The sub-agents of the member's conversations in the organization at work now, as tasks: with a
+ * job to run now, as against asleep, every job of it a sleep due later, or stopped, done for now;
+ * the one with something in its log last first.
+ */
+export async function listWorkingTasks(
+	orgId: string,
+	userId: string,
+	now = new Date(),
+): Promise<Result<WorkingTaskRow[], ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentThread.findMany({
+				where: {
+					orgId,
+					userId,
+					parentThreadId: {not: null},
+					jobs: {some: openJobsSelect.where},
+				},
+				select: {
+					id: true,
+					personaId: true,
+					title: true,
+					createdAt: true,
+					jobs: openJobsSelect,
+					entries: {orderBy: {seq: 'desc'}, take: 1, select: {createdAt: true}},
+				},
+			}),
+		)
+	).map((threads) =>
+		threads
+			.flatMap(({jobs, entries, createdAt, title, ...thread}) => {
+				if (threadState(jobs, now).kind !== 'working') {
+					return [];
+				}
+				return [{...thread, title: title ?? '', lastActiveAt: entries[0]?.createdAt ?? createdAt}];
+			})
+			.toSorted((a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime()),
+	);
+}
+
 /** Pins one of the conversation's sub-agents, as a task, or unpins it; `Ok(false)` means no such sub-agent of the conversation. */
 export async function setTaskPinned(
 	conversationId: string,

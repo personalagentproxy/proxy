@@ -87,14 +87,24 @@ export const pinnedTaskSchema = chatTaskSchema.extend({personaId: z.string()});
 export type PinnedTask = z.infer<typeof pinnedTaskSchema>;
 
 /**
+ * A task of one of the person's conversations at work now, under the persona whose conversation it
+ * is of; one asleep or stopped is not.
+ */
+export const workingTaskSchema = pinnedTaskSchema;
+
+export type WorkingTask = z.infer<typeof workingTaskSchema>;
+
+/**
  * `GET chat/personas`: the organization's personas, the one last active in the person's
  * conversation first: the last thing said in it, or, before anything was, its making; the tasks
- * the person pinned in their conversations, the one with something said in it last first; and the
+ * the person pinned in their conversations, the one with something said in it last first; the
+ * tasks of their conversations at work now, pinned or not, in the same order; and the
  * harnesses this server has for a persona to run on, the first what a new one gets.
  */
 export const personaListSchema = z.object({
 	personas: z.array(chatPersonaSchema),
 	pinnedTasks: z.array(pinnedTaskSchema),
+	workingTasks: z.array(workingTaskSchema),
 	harnesses: z.array(chatHarnessSchema),
 });
 

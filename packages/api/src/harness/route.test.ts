@@ -164,6 +164,7 @@ beforeEach(async () => {
 	listOpenJobs.mockResolvedValue(Ok([]));
 	store.listSubAgents.mockResolvedValue(Ok([]));
 	store.listPinnedTasks.mockResolvedValue(Ok([]));
+	store.listWorkingTasks.mockResolvedValue(Ok([]));
 	getThreadDraft.mockResolvedValue(Ok(null));
 	appendPersonMessage.mockResolvedValue(Ok(logEntry({id: 'e3', seq: 3, kind: 'person', text: 'Hello'})));
 });
@@ -214,6 +215,7 @@ describe('the chat routes', () => {
 				{...personaResponse, id: 'persona-4', lastMessage: {kind: 'assistant', text: 'Found Three invoices, see the list Who Sum Dana 40', at: '2026-10-21T10:00:00.000Z'}},
 			],
 			pinnedTasks: [],
+			workingTasks: [],
 			harnesses: offered,
 		});
 	});
@@ -237,7 +239,7 @@ describe('the chat routes', () => {
 		const listed = (await handleListPersonasRoute(request())).unwrap();
 
 		expect(store.ensureFirstPersona).toHaveBeenCalledWith('org-1');
-		expect(listed).toEqual({personas: [{...personaResponse, id: 'persona-9', name: 'General', shared: true, mayChange: false}], pinnedTasks: [], harnesses: offered});
+		expect(listed).toEqual({personas: [{...personaResponse, id: 'persona-9', name: 'General', shared: true, mayChange: false}], pinnedTasks: [], workingTasks: [], harnesses: offered});
 	});
 
 	test('a viewer who sees personas of their own but none every member’s, as where General was deleted, gets General made again, after their own', async () => {
@@ -595,6 +597,22 @@ describe('the chat routes', () => {
 		store.getMemberThread.mockResolvedValue(Ok(null));
 		expect((await handleGetTaskRoute(request({personaId: 'persona-1', taskId: 'sub-1'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'task'});
 		expect(store.ensureMemberThread).not.toHaveBeenCalled();
+	});
+
+	test('list the tasks of the viewer’s conversations at work now, as the store orders them', async () => {
+		const {handleListPersonasRoute} = routes;
+		store.listWorkingTasks.mockResolvedValue(
+			Ok([
+				{id: 'sub-3', personaId: 'persona-1', title: 'Tell Chat about file storage', lastActiveAt: now},
+				{id: 'sub-2', personaId: 'persona-3', title: 'Check the calendar', lastActiveAt: now},
+			]),
+		);
+
+		expect((await handleListPersonasRoute(request())).unwrap().workingTasks).toEqual([
+			{id: 'sub-3', personaId: 'persona-1', title: 'Tell Chat about file storage'},
+			{id: 'sub-2', personaId: 'persona-3', title: 'Check the calendar'},
+		]);
+		expect(store.listWorkingTasks).toHaveBeenCalledWith('org-1', 'user-1');
 	});
 
 	test('list the tasks the viewer pinned, as the store orders them, and pin or unpin one of their conversation’s', async () => {

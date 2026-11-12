@@ -9,6 +9,7 @@ import type {
 	PinnedTask,
 	TaskChat,
 	ThreadLog,
+	WorkingTask,
 } from '@proxy/contracts/harness';
 import {
 	CornerDownRightIcon,
@@ -76,6 +77,7 @@ import {FROM_COMMAND_BAR} from '@/lib/command-bar';
 import {useLastLoaded, useLoaded} from '@/hooks/use-loaded';
 import {useListMotion} from '@/hooks/use-list-motion';
 import {useOrgSlug} from '@/hooks/use-org';
+import {usePoll} from '@/hooks/use-poll';
 import {useReload} from '@/hooks/use-reload';
 import {useSending} from '@/hooks/use-sending';
 import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
@@ -98,6 +100,12 @@ import {
 // wake-up, shows within a moment either way.
 const BUSY_POLL_MS = 1000;
 const IDLE_POLL_MS = 4000;
+
+// How often the list is read again while a task in it is at work, so one that stops leaves it,
+// and one started beside it comes, within a moment; and how long after the last read the page
+// coming back into view reads it again.
+const WORKING_POLL_MS = 4000;
+const WORKING_VISIBLE_GAP_MS = 2000;
 
 // The file kept with an answer that a link of it names; undefined for any other link.
 function keptFile(
@@ -243,14 +251,18 @@ function tasksOf(log: ThreadLog): ChatTask[] {
 // top, the open one by its log, so what the person just said moves it up at once. It stays as it
 // is from one conversation to the next: the one in the address is lit at once, while it loads.
 // Under each, the tasks the person pinned in its conversation, the one with something said in it
-// last first, then, under the open one, the task open in its place where it isn't pinned, lit in
-// the agent's stead. A row that comes, goes or changes places moves there (`useListMotion`): a
-// task opened or closed, pinned or unpinned, an agent made, deleted or moved up by what was said.
+// last first; then those of it at work now, in the same order; then, under the open one, the task
+// open in its place where it is neither, lit in the agent's stead. Each task is listed once, and
+// the title of one at work, pinned or not, shimmers, as the conversation's "Working" does; one
+// asleep or stopped is listed only where it is pinned or open. A row that comes, goes or
+// changes places moves there (`useListMotion`): a task opened or closed, pinned or unpinned,
+// started or stopped, an agent made, deleted or moved up by what was said.
 function PersonaList({
 	personas,
 	current,
 	task,
 	pinned,
+	working,
 	shown,
 	recallDraft,
 	onOpen,
@@ -263,6 +275,8 @@ function PersonaList({
 	// The task of the open agent's conversation that is open in its place, if one is.
 	task: ChatTask | null;
 	pinned: PinnedTask[];
+	// The tasks of the person's conversations at work now, the one last active first.
+	working: WorkingTask[];
 	shown: Shown | null;
 	recallDraft: (personaId: string) => string | null;
 	onOpen: (personaId: string) => void;
@@ -299,17 +313,24 @@ function PersonaList({
 					// The row is lit while its conversation is open, and the task's under it in its place.
 					const lit = open && task === null;
 					const pinnedHere = pinned.filter((candidate) => candidate.personaId === persona.id);
+					const workingHere = working.filter(
+						(candidate) =>
+							candidate.personaId === persona.id &&
+							!pinnedHere.some((pin) => pin.id === candidate.id),
+					);
+					const listedHere: ChatTask[] = [...pinnedHere, ...workingHere];
 					const openTask =
-						open && task !== null && !pinnedHere.some((candidate) => candidate.id === task.id)
+						open && task !== null && !listedHere.some((candidate) => candidate.id === task.id)
 							? [task]
 							: [];
-					const tasks = [...pinnedHere, ...openTask].map((candidate) => (
+					const tasks = [...listedHere, ...openTask].map((candidate) => (
 						<TaskRow
 							key={candidate.id}
 							task={candidate}
 							to={`/${org}/chat/${persona.id}/tasks/${candidate.id}`}
 							lit={open && candidate.id === task?.id}
 							pinned={pinnedHere.some((pin) => pin.id === candidate.id)}
+							working={working.some((busy) => busy.id === candidate.id)}
 							onPin={(pin) => onPin(persona.id, candidate.id, pin)}
 						/>
 					));
@@ -418,19 +439,23 @@ function PersonaList({
 }
 
 // A task in the list, under its agent: its title, opening its chat, lit while it is open, marked
-// where it is pinned, and pinned or unpinned from its right-click menu. The gap above it is the
+// where it is pinned, its title shimmering while it is at work, and pinned or unpinned from its
+// right-click menu. The gap above it is the
 // row's own, so the room it takes in the list, and gives back, is all its own.
 function TaskRow({
 	task,
 	to,
 	lit,
 	pinned,
+	working,
 	onPin,
 }: {
 	task: ChatTask;
 	to: string;
 	lit: boolean;
 	pinned: boolean;
+	// Whether it is at work now, as against asleep or stopped.
+	working: boolean;
 	onPin: (pinned: boolean) => void;
 }) {
 	return (
@@ -447,7 +472,12 @@ function TaskRow({
 					>
 						<CornerDownRightIcon className="size-4 shrink-0" aria-hidden />
 						<span className="min-w-0 flex-1 truncate font-medium text-sidebar-foreground">
-							{task.title}
+							{/* The shimmer sweeps the title alone, not the row's width beyond it, so it is
+							    on the words the whole time it runs. */}
+							<span className={cn(working && 'shimmer motion-reduce:shimmer-none')}>
+								{task.title}
+							</span>
+							{working && <span className="sr-only"> (working)</span>}
 						</span>
 						{pinned && <PinIcon className="size-3.5 shrink-0" aria-label="Pinned" />}
 					</Link>
@@ -557,12 +587,13 @@ export function ChatPage() {
 			? answer.task
 			: null;
 	const pinned = answer?.pinnedTasks ?? [];
+	const working = answer?.workingTasks ?? [];
 	// The task as the header and the list name it, in the agent's place: as loaded, or, while it
 	// loads, as the page has it already, pinned or named in the conversation it was opened from. So
 	// its title and its row under the agent are there as it is opened, not once it has loaded.
 	const named: ChatTask | null =
 		task?.task ??
-		[...pinned, ...(shown?.personaId === current ? tasksOf(shown.log) : [])].find(
+		[...pinned, ...working, ...(shown?.personaId === current ? tasksOf(shown.log) : [])].find(
 			(known) => known.id === taskId,
 		) ??
 		null;
@@ -580,6 +611,33 @@ export function ChatPage() {
 		setError(null);
 		await reload();
 	};
+
+	// The list read again every so often while a task in it is at work, so one that stops leaves it
+	// and one started meanwhile comes; and as soon as the open conversation starts a task, or it
+	// or its tasks set to work or stop, as its log, read every moment, says.
+	const reloadList = useCallback(() => void reload(), [reload]);
+	usePoll(reloadList, {
+		enabled: working.length > 0,
+		intervalMs: WORKING_POLL_MS,
+		visibleGapMs: WORKING_VISIBLE_GAP_MS,
+		immediate: false,
+	});
+	const openWork =
+		shown === null
+			? null
+			: `${shown.personaId}:${shown.log.busy}:${new Set(tasksOf(shown.log).map(({id}) => id)).size}`;
+	const listedWork = useRef(openWork);
+	useEffect(() => {
+		if (openWork === null || listedWork.current === openWork) {
+			return;
+		}
+		const before = listedWork.current;
+		listedWork.current = openWork;
+		if (before === null || before.split(':')[0] !== openWork.split(':')[0]) {
+			return;
+		}
+		reloadList();
+	}, [openWork, reloadList]);
 
 	const title = () => {
 		if (taskId !== undefined) {
@@ -602,6 +660,7 @@ export function ChatPage() {
 				current={current}
 				task={named}
 				pinned={pinned}
+				working={working}
 				onPin={(personaId, pinnedTaskId, pin) => void pinOne(personaId, pinnedTaskId, pin)}
 				shown={fresher}
 				recallDraft={recallDraft}

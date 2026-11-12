@@ -6,6 +6,7 @@ import type {
 	PinnedTask,
 	TaskChat,
 	ThreadLog,
+	WorkingTask,
 } from '@proxy/contracts/harness';
 import type {Experiment} from '@proxy/utils';
 import {ATTACHMENT_MARK} from '@proxy/utils/harness';
@@ -129,6 +130,7 @@ function renderChatPage({
 	entries = [],
 	listPersonas = () => personas,
 	pinnedTasks = [],
+	listWorkingTasks = () => [],
 	open = 'general',
 	draft = null,
 	draftAttachments = [],
@@ -142,6 +144,8 @@ function renderChatPage({
 	entries?: ThreadLog['entries'];
 	listPersonas?: () => ChatPersona[];
 	pinnedTasks?: PinnedTask[];
+	// The tasks at work, as the list is read each time.
+	listWorkingTasks?: () => WorkingTask[];
 	// The agent whose conversation is open, by its id.
 	open?: string;
 	draft?: string | null;
@@ -180,6 +184,7 @@ function renderChatPage({
 								},
 								personas: listPersonas(),
 								pinnedTasks,
+								workingTasks: listWorkingTasks(),
 								harnesses,
 							};
 						}),
@@ -189,7 +194,13 @@ function renderChatPage({
 						path: '/:org/chat/:id/tasks/:taskId',
 						loader: later(async () => {
 							await taskAnswered();
-							return {task, personas: listPersonas(), pinnedTasks, harnesses};
+							return {
+								task,
+								personas: listPersonas(),
+								pinnedTasks,
+								workingTasks: listWorkingTasks(),
+								harnesses,
+							};
 						}),
 						element: <ChatPage />,
 					},
@@ -904,6 +915,66 @@ describe('ChatPage', () => {
 			),
 		);
 	});
+
+	test('lists working tasks under their agent after the pinned ones, once each, the title of each at work shimmering, pinned or not', async () => {
+		renderChatPage({
+			initial: '/acme/chat/general/tasks/sub-1',
+			pinnedTasks: [
+				{id: 'sub-2', personaId: 'general', title: 'Check the calendar'},
+				{id: 'sub-3', personaId: 'general', title: 'Book the hotel'},
+			],
+			listWorkingTasks: () => [
+				{id: 'sub-5', personaId: 'general', title: 'Tell Chat about file storage'},
+				{id: 'sub-2', personaId: 'general', title: 'Check the calendar'},
+			],
+		});
+
+		const general = await screen.findByRole('list', {name: 'General’s tasks'});
+		await waitFor(() =>
+			expect(
+				within(general)
+					.getAllByRole('link')
+					.map((row) => row.getAttribute('href')),
+			).toEqual([
+				'/acme/chat/general/tasks/sub-2',
+				'/acme/chat/general/tasks/sub-3',
+				'/acme/chat/general/tasks/sub-5',
+				'/acme/chat/general/tasks/sub-1',
+			]),
+		);
+		const shimmering = (name: RegExp) =>
+			within(general).getByRole('link', {name}).querySelector('.shimmer') !== null;
+		expect(shimmering(/^Check the calendar/)).toBe(true);
+		expect(shimmering(/^Book the hotel/)).toBe(false);
+		expect(shimmering(/^Tell Chat about file storage/)).toBe(true);
+		expect(shimmering(/^Find flights/)).toBe(false);
+		expect(
+			within(general).getByRole('link', {name: /^Tell Chat about file storage/}).textContent,
+		).toBe('Tell Chat about file storage (working)');
+		expect(
+			within(general)
+				.getByRole('link', {name: /^Find flights/})
+				.getAttribute('aria-current'),
+		).toBe('page');
+		expect(screen.queryByLabelText('Asleep')).toBeNull();
+		expect(screen.queryByRole('list', {name: 'Finance’s tasks'})).toBeNull();
+	});
+
+	test('reads the list again while a task is at work, so one that stops leaves it', async () => {
+		let working: WorkingTask[] = [
+			{id: 'sub-5', personaId: 'general', title: 'Tell Chat about file storage'},
+		];
+		renderChatPage({listWorkingTasks: () => working});
+
+		const general = await screen.findByRole('list', {name: 'General’s tasks'});
+		expect(
+			within(general).getByRole('link', {name: /^Tell Chat about file storage/}),
+		).toBeDefined();
+		working = [];
+		// The list is read again within the 4 seconds it waits between reads.
+		await act(() => new Promise((resolve) => setTimeout(resolve, 4500)));
+		expect(screen.queryByRole('list', {name: 'General’s tasks'})).toBeNull();
+	}, 10000);
 
 	test('names a task opened from the conversation at once, in the header and under its agent, while its chat loads, and takes its row away as it closes', async () => {
 		let arrive = () => undefined;

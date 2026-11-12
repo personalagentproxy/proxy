@@ -30,6 +30,7 @@ import type {
 	SubAgentStart,
 	ThreadRow,
 	ThreadSession,
+	WorkingTaskRow,
 } from '@proxy/db/harness';
 import * as transcripts from '@proxy/db/harness-transcript';
 import type {TranscriptKey, TranscriptLine} from '@proxy/db/harness-transcript';
@@ -95,6 +96,7 @@ export type HarnessStore = {
 	/** What the person writes in a sub-agent's chat, with the files they attached to it. */
 	messageSubAgentDirectly: (conversationId: string, subAgentId: string, text: string, attachments?: EntryAttachment[]) => Promise<Result<boolean, ApiError>>;
 	listPinnedTasks: (orgId: string, userId: string) => Promise<Result<PinnedTaskRow[], ApiError>>;
+	listWorkingTasks: (orgId: string, userId: string) => Promise<Result<WorkingTaskRow[], ApiError>>;
 	setTaskPinned: (conversationId: string, subAgentId: string, pinned: boolean) => Promise<Result<boolean, ApiError>>;
 	markThreadRead: (threadId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
 	getThreadDraft: (threadId: string) => Promise<Result<string | null, ApiError>>;
@@ -169,6 +171,7 @@ export const harnessStore: HarnessStore = {
 	listAttachments: harness.listAttachments,
 	messageSubAgentDirectly: (conversationId, subAgentId, text, attachments) => harness.messageSubAgentDirectly(conversationId, subAgentId, text, readyForInference, attachments),
 	listPinnedTasks: harness.listPinnedTasks,
+	listWorkingTasks: harness.listWorkingTasks,
 	setTaskPinned: harness.setTaskPinned,
 	markThreadRead: harness.markThreadRead,
 	getThreadDraft: harness.getThreadDraft,
