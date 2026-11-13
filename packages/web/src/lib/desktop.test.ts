@@ -39,4 +39,18 @@ describe('title bar layout', () => {
 			/body:has\(\[data-page\]\)::before\s*{[^}]*background:\s*var\(--background\)/s,
 		);
 	});
+
+	test('keeps modal backdrops above shell chrome', async () => {
+		const styles = await Bun.file(new URL('../../../ui/src/styles.css', import.meta.url)).text();
+		const dialog = await Bun.file(
+			new URL('../../../ui/src/components/dialog.tsx', import.meta.url),
+		).text();
+
+		const shell = /--z-shell-chrome:\s*(\d+)/.exec(styles)?.[1];
+		const modal = /--z-modal:\s*(\d+)/.exec(styles)?.[1];
+		expect(shell).toBeDefined();
+		expect(modal).toBeDefined();
+		expect(Number(modal)).toBeGreaterThan(Number(shell));
+		expect(dialog).toContain('z-modal');
+	});
 });

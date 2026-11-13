@@ -22,6 +22,17 @@
 	--bleed: 0px;
 }
 
+/* Stacking layers. The web app’s title bar and the sidebar’s upside-down L (index.css) use
+   --z-title-bar through --z-shell-chrome; dialogs and sheet backdrops use --z-modal so their blur
+   covers that chrome. Popovers that must float over the title bar set --z-floating. */
+:root {
+	--z-title-bar: 60;
+	--z-shell-chrome: 61;
+	--z-title-bar-controls: 62;
+	--z-modal: 65;
+	--z-floating: 70;
+}
+
 /* A row: its box out into the container's padding by `--bleed`, its content where it was. */
 @utility bleed {
 	margin-inline: calc(var(--bleed) * -1);
@@ -96,6 +107,7 @@
 	--radius-2xl: calc(var(--radius) * 1.8);
 	--radius-3xl: calc(var(--radius) * 2.2);
 	--radius-4xl: calc(var(--radius) * 2.6);
+	--z-index-modal: var(--z-modal);
 }
 
 /* Newsprint: a warm off-white paper with near-black ink, and in dark a warm near-black with
