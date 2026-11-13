@@ -1,9 +1,10 @@
 import type {ChatAttachment, ThreadStanding} from '@proxy/contracts/harness';
 import {attachedParts} from '@proxy/utils/harness';
 import {ArchiveIcon, CheckIcon, ClockIcon} from 'lucide-react';
-import {Fragment, type ReactNode} from 'react';
+import {Fragment, type ReactNode, useMemo, useState} from 'react';
 import {SentChip} from '@/components/chat/attachments';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
+import {FileViewer, type ViewedFile} from '@/components/chat/file-viewer';
 import {PillButton} from '@proxy/ui/components/pill-button';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
@@ -89,7 +90,9 @@ function RowButton({
 
 /**
  * What the person said, on the left, in a grey bubble, as they typed it, with the files they
- * attached where they put them; outlined where it opened the thread open beside the chat.
+ * attached where they put them; outlined where it opened the thread open beside the chat. A file
+ * opens in the viewer, which steps through the message's files in the order they sit in it, those
+ * deleted since left out.
  */
 export function PersonBubble({
 	text,
@@ -100,21 +103,39 @@ export function PersonBubble({
 	attachments: ChatAttachment[];
 	outlined?: boolean;
 }) {
+	const [viewing, setViewing] = useState<number | null>(null);
+	const parts = useMemo(() => attachedParts(text, attachments), [text, attachments]);
+	const files = useMemo(
+		() =>
+			parts.flatMap((part): ViewedFile[] =>
+				'file' in part && !part.file.gone ? [{attachment: part.file, alt: ''}] : [],
+			),
+		[parts],
+	);
 	return (
-		<Bubble
-			variant="muted"
-			className={cn('max-w-[40rem]', outlined && '*:data-[slot=bubble-content]:border-border')}
-		>
-			<BubbleContent className="whitespace-pre-wrap">
-				{attachedParts(text, attachments).map((part, index) =>
-					'text' in part ? (
-						<Fragment key={index}>{part.text}</Fragment>
-					) : (
-						<SentChip key={index} attachment={part.file} />
-					),
-				)}
-			</BubbleContent>
-		</Bubble>
+		<>
+			<Bubble
+				variant="muted"
+				className={cn('max-w-[40rem]', outlined && '*:data-[slot=bubble-content]:border-border')}
+			>
+				<BubbleContent className="whitespace-pre-wrap">
+					{parts.map((part, index) => {
+						if ('text' in part) {
+							return <Fragment key={index}>{part.text}</Fragment>;
+						}
+						const at = files.findIndex((one) => one.attachment === part.file);
+						return (
+							<SentChip
+								key={index}
+								attachment={part.file}
+								onOpen={at === -1 ? undefined : () => setViewing(at)}
+							/>
+						);
+					})}
+				</BubbleContent>
+			</Bubble>
+			{files.length > 0 && <FileViewer files={files} index={viewing} onIndex={setViewing} />}
+		</>
 	);
 }
 

@@ -1354,7 +1354,7 @@ describe('ChatPage', () => {
 			fireEvent.keyDown(viewer, {key: 'ArrowRight'});
 			expect(whole().getAttribute('alt')).toBe('Revenue');
 			expect(within(viewer).getByText('chart.png · 2 KB · 1 of 2')).toBeTruthy();
-			fireEvent.click(within(viewer).getByRole('button', {name: 'Previous picture'}));
+			fireEvent.click(within(viewer).getByRole('button', {name: 'Previous file'}));
 			expect(whole().getAttribute('alt')).toBe('Stores');
 
 			fireEvent.click(within(viewer).getByRole('button', {name: 'Close'}));
@@ -1750,7 +1750,7 @@ describe('ChatPage', () => {
 			);
 		});
 
-		test('shows the files a thread was opened with where they sat among its words, each a link to the file in its drive; one from before files sat among words has them first', async () => {
+		test('shows the files a thread was opened with where they sat among its words, each opening the viewer and not the thread; one from before files sat among words has them first', async () => {
 			const opener = (text: string) => ({kind: 'person' as const, text, attachments: [kept]});
 			renderChatPage({
 				threads: [
@@ -1760,8 +1760,7 @@ describe('ChatPage', () => {
 				experiments: withFiles,
 			});
 
-			const [among, first] = await screen.findAllByRole('link', {name: 'pricing.md'});
-			expect(among?.getAttribute('href')).toBe('/acme/connections/drive-1?file=file-1');
+			const [among, first] = await screen.findAllByRole('button', {name: 'pricing.md'});
 			expect(among?.getAttribute('title')).toBe('pricing.md · 2 KB');
 			expect(among?.closest('[data-slot=bubble-content]')?.textContent).toBe(
 				'Compare pricing.md with last year',
@@ -1769,6 +1768,64 @@ describe('ChatPage', () => {
 			expect(first?.closest('[data-slot=bubble-content]')?.textContent).toBe(
 				'pricing.mdWhat does this say?',
 			);
+
+			fireEvent.click(among as HTMLElement);
+			const viewer = await screen.findByRole('dialog');
+			expect(within(viewer).getByText('pricing.md · 2 KB')).toBeTruthy();
+			expect(within(viewer).getByRole('link', {name: 'Open in Files'}).getAttribute('href')).toBe(
+				'/acme/connections/drive-1?file=file-1',
+			);
+			// The thread stays closed.
+			expect(screen.queryByLabelText('Thread')).toBeNull();
+		});
+
+		test('opens a file the person attached in the viewer, and steps through the files of that message there, those deleted since left out', async () => {
+			const chart = {...kept, fileId: 'file-2', name: 'chart.png', type: 'image/png', shown: true};
+			const old = {...kept, fileId: 'file-3', name: 'old.md', gone: true};
+			const sheet = {...kept, fileId: 'file-4', name: 'q3.csv', type: 'text/csv'};
+			renderChatPage({
+				threads: [pricing],
+				views: {
+					t1: view(pricing, [
+						said(
+							'm1',
+							'person',
+							`See ${ATTACHMENT_MARK} ${ATTACHMENT_MARK} ${ATTACHMENT_MARK} and ${ATTACHMENT_MARK}`,
+							[kept, chart, old, sheet],
+						),
+						said('m2', 'assistant', 'Read them.'),
+					]),
+				},
+				initial: '/acme/chat/general/threads/t1',
+				experiments: withFiles,
+			});
+
+			await screen.findByLabelText('Thread');
+			const thread = screen.getByLabelText('Thread');
+			// A deleted file opens nothing.
+			expect(within(thread).getByTitle('old.md was deleted').closest('button')).toBeNull();
+			fireEvent.click(within(thread).getByRole('button', {name: 'chart.png'}));
+
+			const viewer = await screen.findByRole('dialog');
+			expect(within(viewer).getByText('chart.png · 2 KB · 2 of 3')).toBeTruthy();
+			const whole = within(viewer).getByRole('img');
+			expect(whole.getAttribute('src')).toBe(
+				'/api/orgs/acme/connections/drive-1/files/file-2/content?version=v1',
+			);
+			expect(whole.getAttribute('alt')).toBe('chart.png');
+
+			// A file that is no picture, as its name, Files a click away.
+			fireEvent.keyDown(viewer, {key: 'ArrowRight'});
+			expect(within(viewer).getByText('q3.csv · 2 KB · 3 of 3')).toBeTruthy();
+			expect(within(viewer).queryByRole('img')).toBeNull();
+			expect(within(viewer).getByRole('link', {name: 'Open in Files'}).getAttribute('href')).toBe(
+				'/acme/connections/drive-1?file=file-4',
+			);
+			fireEvent.click(within(viewer).getByRole('button', {name: 'Next file'}));
+			expect(within(viewer).getByText('pricing.md · 2 KB · 1 of 3')).toBeTruthy();
+
+			fireEvent.click(within(viewer).getByRole('button', {name: 'Close'}));
+			await waitFor(() => expect(viewer.isConnected).toBe(false));
 		});
 
 		test('takes no files where the organization has none: no paperclip, and a drop is left alone', async () => {
