@@ -676,6 +676,7 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 			waitingForMember: false,
 			summary: 'Checking the calendar.',
 			summarySeq: asked,
+			archived: false,
 		});
 
 		// The turn ends, and its end is written; the sentence of the step before, read by a model
@@ -700,6 +701,7 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 			waitingForMember: true,
 			summary: 'Moved to Friday; asks whether to tell Dana.',
 			summarySeq: answered,
+			archived: false,
 		});
 
 		// The member replies: what was read before the reply is not written, at work or not.

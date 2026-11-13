@@ -128,7 +128,7 @@ describe('where a thread stands, as its turn ends', () => {
 		store.getChatThread.mockResolvedValueOnce(Ok(chatThread({standing: {waitingForMember: true, summary: 'Has a plan.', summarySeq: 4, archived: false}})));
 		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('skipped');
 		// What it told them is summed up already.
-		store.getChatThread.mockResolvedValueOnce(Ok(chatThread({state: {kind: 'working'}, standing: {waitingForMember: false, summary: 'Reading the filter bar.', summarySeq: 4}})));
+		store.getChatThread.mockResolvedValueOnce(Ok(chatThread({state: {kind: 'working'}, standing: {waitingForMember: false, summary: 'Reading the filter bar.', summarySeq: 4, archived: false}})));
 		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('skipped');
 		store.getJobThread.mockResolvedValueOnce(Ok({...row, parentThreadId: null}));
 		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('skipped');

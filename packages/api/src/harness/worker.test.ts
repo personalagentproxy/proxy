@@ -289,7 +289,7 @@ describe('the worker', () => {
 				harnessSession: null,
 				createdAt: now,
 				state: {kind: 'working'},
-				standing: {waitingForMember: false, summary: null, summarySeq: null},
+				standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
 				entries: [
 					{id: 'e1', seq: 1, kind: 'person', text: 'Move the pricing review', pending: false, toolCalls: null, isError: false, createdAt: now},
 					{
